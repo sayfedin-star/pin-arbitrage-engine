@@ -103,34 +103,25 @@ async function fetchWithRetry(url, headers, maxRetries = 3) {
  * Parse candidate counts from aux_fields
  */
 function extractCandidateCounts(rawCounts) {
-  const counts = {
-    recgpt_count: 0,
-    navboost_count: 0,
-    randomwalk_count: 0,
-    two_tower_count: 0,
-    fresh_candidate_count: 0,
-    shopping_corpus_count: 0
-  };
-
-  if (!rawCounts) return counts;
-
-  let parsed = rawCounts;
+  let counts = {};
   if (typeof rawCounts === 'string') {
     try {
-      parsed = JSON.parse(rawCounts);
+      counts = JSON.parse(rawCounts);
     } catch (e) {
-      return counts;
+      counts = {};
     }
+  } else if (rawCounts && typeof rawCounts === 'object') {
+    counts = rawCounts;
   }
 
-  counts.recgpt_count = Number(parsed.P2P_RECGPT || 0);
-  counts.navboost_count = Number(parsed.P2P_NAVBOOST_CAND || 0);
-  counts.randomwalk_count = Number(parsed.P2P_RANDOMWALK_CAND || 0);
-  counts.two_tower_count = Number(parsed.P2P_TWO_TOWER_EMBEDDING_CAND || 0);
-  counts.fresh_candidate_count = Number(parsed.P2P_TWO_TOWER_MID_FUNNEL_FRESH_EMBEDDING_CAND || 0);
-  counts.shopping_corpus_count = Number(parsed.P2P_TWO_TOWER_SHOPPING_CORPUS_CAND || parsed.PLP_CORPUS || 0);
-
-  return counts;
+  return {
+    navboost_count: Number(counts["P2P_NAVBOOST_CAND"] || counts.navboost_count || 0),
+    recgpt_count: Number(counts["P2P_RECGPT"] || counts.recgpt_count || 0),
+    randomwalk_count: Number(counts["P2P_RANDOMWALK_CAND"] || counts.randomwalk_count || 0),
+    two_tower_count: Number(counts["P2P_TWO_TOWER_EMBEDDING_CAND"] || counts.two_tower_count || 0),
+    fresh_candidate_count: Number(counts["P2P_TWO_TOWER_MID_FUNNEL_FRESH_EMBEDDING_CAND"] || counts.fresh_candidate_count || 0),
+    shopping_corpus_count: Number(counts["P2P_TWO_TOWER_SHOPPING_CORPUS_CAND"] || counts.PLP_CORPUS || counts.shopping_corpus_count || 0)
+  };
 }
 
 /**
@@ -266,21 +257,27 @@ function parsePinCandidate(pin, seedPinId, parentEntity = null) {
   let recgptTransitionScore = 0;
   let isRecgptCandidate = false;
 
-  const DESSERT_REGEX = /\b(cookie|cookies|cake|cakes|brownie|brownies|dessert|desserts|pie|pies|sweet|sweets|muffin|muffins|fudge|cheesecake|pudding|frosting|pastry|cupcake|cupcakes|tart|tarts)\b/i;
-  const COMPLEMENTARY_REGEX = /\b(bread|breads|biscuit|biscuits|salad|salads|fries|sauce|sauces|dip|dips|appetizer|appetizers|soup|soups|roll|rolls|coleslaw|potato\s*salad|green\s*beans|cornbread|mashed\s*potatoes)\b/i;
-  const PROTEIN_REGEX = /\b(chicken|beef|pork|casserole|pasta|crockpot|slow\s*cooker|dinner|skillet|steak|turkey|roast|meatball|meatballs|curry|salmon|shrimp|stew|enchilada|tacos?|lasagna)\b/i;
+  const ANCHOR_REGEX = /\b(chicken|turkey|pork|beef|steak|salmon|cod|meatloaf|stuffed\s*chicken|dinner)\b/i;
+  const CO_VISITOR_REGEX = /\b(carrots|potatoes|soup|salad|bread|dip|appetizer|bites|butter\s*spreads|biscuits|rolls)\b/i;
+  const SWEET_FINISHER_REGEX = /\b(pie|cake|cheesecake|cookie|brownie|ice\s*cream|custard|sweet\s*tart|dessert)\b/i;
+  const SAVORY_EXCLUSION_REGEX = /\b(chicken|turkey|pork|beef|steak|salmon|cod|meatloaf|stuffed\s*chicken|meat|bacon|savory)\b/i;
 
-  if (DESSERT_REGEX.test(combinedText)) {
-    sequenceRole = 'SESSION_FINISHER';
-    recgptTransitionScore = Number((saveRate * 0.98).toFixed(2));
+  // 1. DINNER_ANCHOR (Highest Priority - Strict Match)
+  if (ANCHOR_REGEX.test(combinedText)) {
+    sequenceRole = 'DINNER_ANCHOR';
+    recgptTransitionScore = Number((saveRate * 0.90).toFixed(2));
     isRecgptCandidate = true;
-  } else if (COMPLEMENTARY_REGEX.test(combinedText)) {
+  } 
+  // 2. NAVBOOST_CO_VISITOR (Medium Priority - Side Dishes)
+  else if (CO_VISITOR_REGEX.test(combinedText)) {
     sequenceRole = 'NAVBOOST_CO_VISITOR';
     recgptTransitionScore = Number((saveRate * 0.95).toFixed(2));
     isRecgptCandidate = true;
-  } else if (PROTEIN_REGEX.test(combinedText)) {
-    sequenceRole = 'DINNER_ANCHOR';
-    recgptTransitionScore = Number((saveRate * 0.90).toFixed(2));
+  } 
+  // 3. SESSION_FINISHER (Lowest Priority - Sweet Items Only, Zero Savory/Meat)
+  else if (SWEET_FINISHER_REGEX.test(combinedText) && !SAVORY_EXCLUSION_REGEX.test(combinedText)) {
+    sequenceRole = 'SESSION_FINISHER';
+    recgptTransitionScore = Number((saveRate * 0.98).toFixed(2));
     isRecgptCandidate = true;
   }
 
@@ -468,6 +465,7 @@ async function crawlSeed(seed) {
     fresh_candidate_count: 0,
     shopping_corpus_count: 0
   };
+  let hasCapturedCandidateCounts = false;
   let utilitySnapshot = null;
 
   let bookmark = null;
@@ -535,9 +533,10 @@ async function crawlSeed(seed) {
 
     // Inspect aux_fields for candidate counts and utility config
     for (const item of items) {
-      if (item?.aux_fields?.candidate_counts && !candidateCounts.recgpt_count) {
+      if (item?.aux_fields?.candidate_counts && !hasCapturedCandidateCounts) {
         candidateCounts = extractCandidateCounts(item.aux_fields.candidate_counts);
-        console.log(`[+] Parsed aux candidate counts:`, candidateCounts);
+        hasCapturedCandidateCounts = true;
+        console.log(`[+] Authoritative Page ${page} candidate counts captured:`, candidateCounts);
       }
       if (item?.aux_fields?.utility_config?.weights && !utilitySnapshot) {
         utilitySnapshot = item.aux_fields.utility_config.weights;

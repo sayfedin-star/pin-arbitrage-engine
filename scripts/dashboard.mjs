@@ -30,51 +30,68 @@ const PORT = Number(process.env.PORT || 3456);
 
 // Culinary Color Name Mapper
 function getCulinaryColorName(hex) {
-  if (!hex || typeof hex !== 'string') return 'Neutral Mineral / Steel';
-  const h = hex.toLowerCase().trim();
+  if (!hex || typeof hex !== 'string') return 'Culinary Accent';
+  const cleanHex = hex.replace('#', '').toLowerCase().trim();
+  if (cleanHex.length < 6) return 'Culinary Accent';
+
   const colorMap = {
-    '#824d30': 'Rustic Umber / Roasted Crust',
-    '#663e0d': 'Deep Molasses / Dark Cocoa',
-    '#6b4216': 'Toasted Walnut / Brown Butter',
-    '#b9975f': 'Golden Cornmeal / Biscuit Crust',
-    '#9f642e': 'Caramel Glaze / Roasted Pecan',
-    '#ad7137': 'Honey Amber / Crispy Garlic',
-    '#d08c47': 'Cheddar Melt / Golden Brioche',
-    '#ecc584': 'Warm Cream / Flaky Pastry',
-    '#beae88': 'Savory Herb Crust / Almond Beige',
-    '#976a29': 'Crisp Brioche / Roasted Sesame',
-    '#87551c': 'Smoked Hickory / Savory BBQ',
-    '#cfc29e': 'Buttermilk Dough / Oat Crust',
-    '#9b7373': 'Spiced Berry / Mulled Wine',
-    '#796f5b': 'Earthy Rosemary / Herb Infusion',
-    '#d87f5a': 'Spiced Paprika / Roasted Pepper',
-    '#765728': 'Rich Maple / Golden Gravy',
-    '#754819': 'Dark Truffle / Cast Iron Glaze',
-    '#888888': 'Slate Mineral / Neutral Steel',
-    '#ffffff': 'Pure Cream / Sugar Glaze',
-    '#f5f2ec': 'Whipped Ricotta / Sweet Cream',
-    '#f8f3f0': 'Ivory Flour / Powdered Sugar',
-    '#d2ad89': 'Golden Toast / Warm Caramel',
-    '#804e3a': 'Smoked Paprika / Braised Crust',
-    '#6d3c1f': 'Dark Chocolate / Espresso Glaze',
-    '#925b30': 'Toasted Almond / Maple Crust',
-    '#ecf5f6': 'Frosted Icing / Sea Salt White',
-    '#000000': 'Cast Iron Black / Charred Sear'
+    '824d30': 'Rustic Umber / Roasted Crust',
+    '663e0d': 'Deep Molasses / Dark Cocoa',
+    '6b4216': 'Toasted Walnut / Brown Butter',
+    'b9975f': 'Golden Cornmeal / Biscuit Crust',
+    '9f642e': 'Caramel Glaze / Roasted Pecan',
+    'ad7137': 'Honey Amber / Crispy Garlic',
+    'd08c47': 'Cheddar Melt / Golden Brioche',
+    'ecc584': 'Warm Cream / Flaky Pastry',
+    'beae88': 'Savory Herb Crust / Almond Beige',
+    '976a29': 'Crisp Brioche / Roasted Sesame',
+    '87551c': 'Smoked Hickory / Savory BBQ',
+    'cfc29e': 'Buttermilk Dough / Oat Crust',
+    '9b7373': 'Spiced Berry / Mulled Wine',
+    '796f5b': 'Earthy Rosemary / Herb Infusion',
+    'd87f5a': 'Spiced Paprika / Roasted Pepper',
+    '765728': 'Rich Maple / Golden Gravy',
+    '754819': 'Dark Truffle / Cast Iron Glaze',
+    '888888': 'Slate Mineral / Neutral Steel',
+    'ffffff': 'Pure Cream / Sugar Glaze',
+    'f5f2ec': 'Whipped Ricotta / Sweet Cream',
+    'f8f3f0': 'Ivory Flour / Powdered Sugar',
+    'd2ad89': 'Golden Toast / Warm Caramel',
+    '804e3a': 'Smoked Paprika / Braised Crust',
+    '6d3c1f': 'Dark Chocolate / Espresso Glaze',
+    '925b30': 'Toasted Almond / Maple Crust',
+    'ecf5f6': 'Frosted Icing / Sea Salt White',
+    '000000': 'Cast Iron Black / Charred Sear'
   };
-  if (colorMap[h]) return colorMap[h];
+  if (colorMap[cleanHex]) return colorMap[cleanHex];
 
-  try {
-    const r = parseInt(h.slice(1, 3), 16) || 0;
-    const g = parseInt(h.slice(3, 5), 16) || 0;
-    const b = parseInt(h.slice(5, 7), 16) || 0;
-    if (r > 180 && g > 150 && b < 110) return 'Golden Honey / Butter Glaze';
-    if (r > 150 && g < 110 && b < 90) return 'Rich Paprika / Roasted Tomato';
-    if (r > 120 && g > 80 && b < 60) return 'Toasted Toffee / Crust Brown';
-    if (r < 110 && g > 120 && b < 100) return 'Garden Basil / Fresh Herb';
-    if (r > 200 && g > 190 && b > 170) return 'Almond Milk / Vanilla Bean';
-  } catch (e) {}
+  const r = parseInt(cleanHex.substring(0, 2), 16);
+  const g = parseInt(cleanHex.substring(2, 4), 16);
+  const b = parseInt(cleanHex.substring(4, 6), 16);
 
-  return 'Artisan Blend / Culinary Accent';
+  const max = Math.max(r, g, b) / 255;
+  const min = Math.min(r, g, b) / 255;
+  const delta = max - min;
+  const l = (max + min) / 2;
+  let h = 0;
+
+  if (delta !== 0) {
+    if (max === r / 255) h = ((g / 255 - b / 255) / delta) % 6;
+    else if (max === g / 255) h = (b / 255 - r / 255) / delta + 2;
+    else h = (r / 255 - g / 255) / delta + 4;
+    h = Math.round(h * 60);
+    if (h < 0) h += 360;
+  }
+
+  // Culinary Tone Mapping Rules
+  if (l > 0.82) return 'Whipped Ricotta / Creamy Brie';
+  if (l < 0.25 || (h >= 15 && h <= 35 && l < 0.35)) return 'Roasted Umber / Pan Sear';
+  if (h >= 340 || h <= 15) return 'Cranberry Glaze / Wine Reduction';
+  if (h > 15 && h <= 45) return 'Roasted Pumpkin / Warm Amber';
+  if (h > 45 && h <= 70) return 'Golden Honey / Crust Glaze';
+  if (h > 70 && h <= 165) return 'Fresh Herb / Sage Infusion';
+
+  return 'Golden Honey / Crust Glaze';
 }
 
 // In-memory crawl status tracker
@@ -430,20 +447,39 @@ function getDashboardHtml() {
             </div>
 
             <!-- Seed-Specific Retrieval Quota Stacked Bar -->
-            <div class="space-y-2">
-              <span class="text-xs font-bold uppercase font-mono tracking-wider text-slate-500">P2P Retrieval Quotas for This Seed</span>
-              <div class="w-full bg-slate-100 dark:bg-slate-900 rounded-xl h-4 overflow-hidden flex border border-slate-200 dark:border-slate-800 shadow-inner">
-                <div class="bg-purple-500" :style="'width: ' + (dossierTelemetry.recgpt_pct || 0) + '%'" :title="'RecGPT: ' + dossierTelemetry.recgpt_count"></div>
-                <div class="bg-sky-500" :style="'width: ' + (dossierTelemetry.navboost_pct || 0) + '%'" :title="'NavBoost: ' + dossierTelemetry.navboost_count"></div>
-                <div class="bg-emerald-500" :style="'width: ' + (dossierTelemetry.randomwalk_pct || 0) + '%'" :title="'RandomWalk (Pixie): ' + dossierTelemetry.randomwalk_count"></div>
-                <div class="bg-amber-500" :style="'width: ' + (dossierTelemetry.two_tower_pct || 0) + '%'" :title="'Two-Tower: ' + dossierTelemetry.two_tower_count"></div>
-                <div class="bg-rose-500" :style="'width: ' + (dossierTelemetry.fresh_pct || 0) + '%'" :title="'Fresh: ' + dossierTelemetry.fresh_candidate_count"></div>
+            <div class="space-y-2.5">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-bold uppercase font-mono tracking-wider text-slate-500">P2P Retrieval Quotas for This Seed</span>
+                <span class="text-[11px] font-mono text-slate-400" x-text="'Total Quota: ' + (dossierTelemetry.total_engine_quota || 0) + ' items evaluated'"></span>
               </div>
-              <div class="flex items-center space-x-3 text-[11px] font-mono text-slate-500 flex-wrap gap-y-1">
-                <span>NavBoost: <strong class="text-slate-800 dark:text-slate-200" x-text="dossierTelemetry.navboost_count || 0"></strong></span>
-                <span>RandomWalk: <strong class="text-slate-800 dark:text-slate-200" x-text="dossierTelemetry.randomwalk_count || 0"></strong></span>
-                <span>Two-Tower: <strong class="text-slate-800 dark:text-slate-200" x-text="dossierTelemetry.two_tower_count || 0"></strong></span>
-                <span>Fresh: <strong class="text-slate-800 dark:text-slate-200" x-text="dossierTelemetry.fresh_candidate_count || 0"></strong></span>
+              <div class="w-full bg-slate-100 dark:bg-slate-900 rounded-xl h-4 overflow-hidden flex border border-slate-200 dark:border-slate-800 shadow-inner">
+                <div class="bg-[#0ea5e9] transition-all duration-300" :style="'width: ' + (dossierTelemetry.navboost_pct || 0) + '%'" :title="'NavBoost: ' + (dossierTelemetry.navboost_count || 0) + ' (' + (dossierTelemetry.navboost_pct || 0) + '%)'"></div>
+                <div class="bg-[#f43f5e] transition-all duration-300" :style="'width: ' + (dossierTelemetry.recgpt_pct || 0) + '%'" :title="'RecGPT: ' + (dossierTelemetry.recgpt_count || 0) + ' (' + (dossierTelemetry.recgpt_pct || 0) + '%)'"></div>
+                <div class="bg-[#10b981] transition-all duration-300" :style="'width: ' + (dossierTelemetry.two_tower_pct || 0) + '%'" :title="'Two-Tower: ' + (dossierTelemetry.two_tower_count || 0) + ' (' + (dossierTelemetry.two_tower_pct || 0) + '%)'"></div>
+                <div class="bg-[#f59e0b] transition-all duration-300" :style="'width: ' + (dossierTelemetry.randomwalk_pct || 0) + '%'" :title="'RandomWalk (Pixie): ' + (dossierTelemetry.randomwalk_count || 0) + ' (' + (dossierTelemetry.randomwalk_pct || 0) + '%)'"></div>
+                <div class="bg-[#8b5cf6] transition-all duration-300" :style="'width: ' + (dossierTelemetry.fresh_pct || 0) + '%'" :title="'Fresh: ' + (dossierTelemetry.fresh_candidate_count || 0) + ' (' + (dossierTelemetry.fresh_pct || 0) + '%)'"></div>
+              </div>
+              <div class="flex items-center space-x-2 text-[11px] font-mono text-slate-500 flex-wrap gap-y-1.5">
+                <span class="inline-flex items-center space-x-1.5 px-2 py-0.5 rounded-lg bg-sky-500/10 text-sky-700 dark:text-sky-300 border border-sky-500/20">
+                  <span class="w-2 h-2 rounded-full bg-[#0ea5e9]"></span>
+                  <span>NavBoost: <strong class="font-bold" x-text="dossierTelemetry.navboost_count || 0"></strong></span>
+                </span>
+                <span class="inline-flex items-center space-x-1.5 px-2 py-0.5 rounded-lg bg-rose-500/10 text-rose-700 dark:text-rose-300 border border-rose-500/20">
+                  <span class="w-2 h-2 rounded-full bg-[#f43f5e]"></span>
+                  <span>RecGPT: <strong class="font-bold" x-text="dossierTelemetry.recgpt_count || 0"></strong></span>
+                </span>
+                <span class="inline-flex items-center space-x-1.5 px-2 py-0.5 rounded-lg bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20">
+                  <span class="w-2 h-2 rounded-full bg-[#10b981]"></span>
+                  <span>Two-Tower: <strong class="font-bold" x-text="dossierTelemetry.two_tower_count || 0"></strong></span>
+                </span>
+                <span class="inline-flex items-center space-x-1.5 px-2 py-0.5 rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20">
+                  <span class="w-2 h-2 rounded-full bg-[#f59e0b]"></span>
+                  <span>RandomWalk: <strong class="font-bold" x-text="dossierTelemetry.randomwalk_count || 0"></strong></span>
+                </span>
+                <span class="inline-flex items-center space-x-1.5 px-2 py-0.5 rounded-lg bg-purple-500/10 text-purple-700 dark:text-purple-300 border border-purple-500/20">
+                  <span class="w-2 h-2 rounded-full bg-[#8b5cf6]"></span>
+                  <span>Fresh: <strong class="font-bold" x-text="dossierTelemetry.fresh_candidate_count || 0"></strong></span>
+                </span>
               </div>
             </div>
 
@@ -1335,23 +1371,37 @@ function getDashboardHtml() {
           Pinterest's sequential transformer predicts transition probabilities. Expand audience retention across these 3 cluster-derived moments:
         </p>
 
-        <!-- 3 Trajectory Dish Cards -->
+        <!-- 3 Trajectory Dish Cards (Dynamic per Candidate X) -->
         <div class="space-y-2.5">
           <!-- 1. Dinner Anchor -->
-          <div class="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 space-y-2">
+          <div class="p-3.5 rounded-xl border space-y-2 transition" :class="candidateTrajectory.anchor?.is_active_candidate ? 'border-rose-500 bg-rose-500/[0.06] shadow-sm' : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60'">
             <div class="flex items-center justify-between">
-              <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
-                1. Dinner Anchor (Primary Protein)
-              </span>
-              <span class="text-[11px] font-mono text-slate-400" x-text="'Prep: ' + (recgptPlaybook?.dinner_anchor?.prep_time || '15m')"></span>
+              <div class="flex items-center space-x-2">
+                <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30">
+                  1. Dinner Anchor (Primary Entree)
+                </span>
+                <template x-if="candidateTrajectory.anchor?.is_active_candidate">
+                  <span class="px-2 py-0.5 rounded text-[9px] font-mono font-bold uppercase bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 flex items-center space-x-1">
+                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
+                    <span>Active Inspected Pin</span>
+                  </span>
+                </template>
+                <template x-if="!candidateTrajectory.anchor?.is_active_candidate">
+                  <span class="px-1.5 py-0.2 rounded text-[9px] font-mono text-slate-400 border border-slate-200 dark:border-slate-800">Cluster Pair</span>
+                </template>
+              </div>
+              <span class="text-[11px] font-mono text-slate-400" x-text="'Prep: ' + (candidateTrajectory.anchor?.prep_time || '15m')"></span>
             </div>
-            <div class="font-bold text-slate-900 dark:text-white text-xs" x-text="recgptPlaybook?.dinner_anchor?.title || 'Slow Cooker Garlic Herb Butter Chicken & Red Potatoes'"></div>
+            <div class="font-bold text-slate-900 dark:text-white text-xs" x-text="candidateTrajectory.anchor?.title || 'Dinner Anchor'"></div>
             <div class="flex items-center justify-between pt-1">
               <div class="flex items-center space-x-3 text-[11px] font-mono text-slate-500">
-                <span>Save Rate: <strong class="text-emerald-600" x-text="(recgptPlaybook?.dinner_anchor?.save_rate || 94.2) + '%'"></strong></span>
-                <span>Affinity: <strong class="text-slate-700 dark:text-slate-300" x-text="(recgptPlaybook?.dinner_anchor?.recgpt_transition_score || 98.5)"></strong></span>
+                <span>Save Rate: <strong class="text-emerald-600" x-text="(candidateTrajectory.anchor?.save_rate || candidateTrajectory.anchor?.avg_save_rate || 94.2) + '%'"></strong></span>
+                <span>Affinity: <strong class="text-slate-700 dark:text-slate-300" x-text="(candidateTrajectory.anchor?.recgpt_transition_score || 98.5)"></strong></span>
+                <template x-if="candidateTrajectory.anchor?.daily_velocity">
+                  <span>Velocity: <strong class="text-rose-600 dark:text-rose-400" x-text="'⚡ ' + candidateTrajectory.anchor?.daily_velocity + '/d'"></strong></span>
+                </template>
               </div>
-              <button @click="copyPromptForPairing(recgptPlaybook?.dinner_anchor?.title || 'Dinner Anchor')" class="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-semibold text-[10px] transition active:scale-95 flex items-center space-x-1">
+              <button @click="copyPromptForPairing(candidateTrajectory.anchor?.title || 'Dinner Anchor')" class="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-semibold text-[10px] transition active:scale-95 flex items-center space-x-1">
                 <i data-lucide="zap" class="w-3 h-3"></i>
                 <span>Generate Pin Asset</span>
               </button>
@@ -1359,20 +1409,34 @@ function getDashboardHtml() {
           </div>
 
           <!-- 2. Navboost Co-visitor -->
-          <div class="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 space-y-2">
+          <div class="p-3.5 rounded-xl border space-y-2 transition" :class="candidateTrajectory.co_visitor?.is_active_candidate ? 'border-sky-500 bg-sky-500/[0.06] shadow-sm' : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60'">
             <div class="flex items-center justify-between">
-              <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">
-                2. Navboost Co-visitor (Complementary Skillet)
-              </span>
-              <span class="text-[11px] font-mono text-slate-400" x-text="'Prep: ' + (recgptPlaybook?.navboost_co_visitor?.prep_time || '20m')"></span>
+              <div class="flex items-center space-x-2">
+                <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase bg-sky-500/15 text-sky-700 dark:text-sky-300 border border-sky-500/30">
+                  2. Navboost Co-visitor (Complementary Side)
+                </span>
+                <template x-if="candidateTrajectory.co_visitor?.is_active_candidate">
+                  <span class="px-2 py-0.5 rounded text-[9px] font-mono font-bold uppercase bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 flex items-center space-x-1">
+                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
+                    <span>Active Inspected Pin</span>
+                  </span>
+                </template>
+                <template x-if="!candidateTrajectory.co_visitor?.is_active_candidate">
+                  <span class="px-1.5 py-0.2 rounded text-[9px] font-mono text-slate-400 border border-slate-200 dark:border-slate-800">Cluster Pair</span>
+                </template>
+              </div>
+              <span class="text-[11px] font-mono text-slate-400" x-text="'Prep: ' + (candidateTrajectory.co_visitor?.prep_time || '20m')"></span>
             </div>
-            <div class="font-bold text-slate-900 dark:text-white text-xs" x-text="recgptPlaybook?.navboost_co_visitor?.title || 'Cast Iron Skillet Garlic Cheddar Honey Biscuits'"></div>
+            <div class="font-bold text-slate-900 dark:text-white text-xs" x-text="candidateTrajectory.co_visitor?.title || 'Navboost Side'"></div>
             <div class="flex items-center justify-between pt-1">
               <div class="flex items-center space-x-3 text-[11px] font-mono text-slate-500">
-                <span>Save Rate: <strong class="text-emerald-600" x-text="(recgptPlaybook?.navboost_co_visitor?.save_rate || 88.7) + '%'"></strong></span>
-                <span>Affinity: <strong class="text-slate-700 dark:text-slate-300" x-text="(recgptPlaybook?.navboost_co_visitor?.recgpt_transition_score || 92.1)"></strong></span>
+                <span>Save Rate: <strong class="text-emerald-600" x-text="(candidateTrajectory.co_visitor?.save_rate || candidateTrajectory.co_visitor?.avg_save_rate || 88.7) + '%'"></strong></span>
+                <span>Affinity: <strong class="text-slate-700 dark:text-slate-300" x-text="(candidateTrajectory.co_visitor?.recgpt_transition_score || 92.1)"></strong></span>
+                <template x-if="candidateTrajectory.co_visitor?.daily_velocity">
+                  <span>Velocity: <strong class="text-sky-600 dark:text-sky-400" x-text="'⚡ ' + candidateTrajectory.co_visitor?.daily_velocity + '/d'"></strong></span>
+                </template>
               </div>
-              <button @click="copyPromptForPairing(recgptPlaybook?.navboost_co_visitor?.title || 'Navboost Side')" class="px-2.5 py-1 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-semibold text-[10px] transition active:scale-95 flex items-center space-x-1">
+              <button @click="copyPromptForPairing(candidateTrajectory.co_visitor?.title || 'Navboost Side')" class="px-2.5 py-1 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-semibold text-[10px] transition active:scale-95 flex items-center space-x-1">
                 <i data-lucide="zap" class="w-3 h-3"></i>
                 <span>Generate Pin Asset</span>
               </button>
@@ -1380,20 +1444,34 @@ function getDashboardHtml() {
           </div>
 
           <!-- 3. Session Finisher -->
-          <div class="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 space-y-2">
+          <div class="p-3.5 rounded-xl border space-y-2 transition" :class="candidateTrajectory.finisher?.is_active_candidate ? 'border-amber-500 bg-amber-500/[0.06] shadow-sm' : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60'">
             <div class="flex items-center justify-between">
-              <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
-                3. Session Finisher (Board Saver Dessert)
-              </span>
-              <span class="text-[11px] font-mono text-slate-400" x-text="'Prep: ' + (recgptPlaybook?.session_finisher?.prep_time || '10m')"></span>
+              <div class="flex items-center space-x-2">
+                <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">
+                  3. Session Finisher (Board Saver Dessert)
+                </span>
+                <template x-if="candidateTrajectory.finisher?.is_active_candidate">
+                  <span class="px-2 py-0.5 rounded text-[9px] font-mono font-bold uppercase bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 flex items-center space-x-1">
+                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
+                    <span>Active Inspected Pin</span>
+                  </span>
+                </template>
+                <template x-if="!candidateTrajectory.finisher?.is_active_candidate">
+                  <span class="px-1.5 py-0.2 rounded text-[9px] font-mono text-slate-400 border border-slate-200 dark:border-slate-800">Cluster Pair</span>
+                </template>
+              </div>
+              <span class="text-[11px] font-mono text-slate-400" x-text="'Prep: ' + (candidateTrajectory.finisher?.prep_time || '10m')"></span>
             </div>
-            <div class="font-bold text-slate-900 dark:text-white text-xs" x-text="recgptPlaybook?.session_finisher?.title || 'Warm Skillet Salted Caramel Chocolate Chip Cookie with Vanilla Ice Cream'"></div>
+            <div class="font-bold text-slate-900 dark:text-white text-xs" x-text="candidateTrajectory.finisher?.title || 'Session Finisher'"></div>
             <div class="flex items-center justify-between pt-1">
               <div class="flex items-center space-x-3 text-[11px] font-mono text-slate-500">
-                <span>Save Rate: <strong class="text-emerald-600" x-text="(recgptPlaybook?.session_finisher?.save_rate || 96.8) + '%'"></strong></span>
-                <span>Affinity: <strong class="text-slate-700 dark:text-slate-300" x-text="(recgptPlaybook?.session_finisher?.recgpt_transition_score || 97.4)"></strong></span>
+                <span>Save Rate: <strong class="text-emerald-600" x-text="(candidateTrajectory.finisher?.save_rate || candidateTrajectory.finisher?.avg_save_rate || 96.8) + '%'"></strong></span>
+                <span>Affinity: <strong class="text-slate-700 dark:text-slate-300" x-text="(candidateTrajectory.finisher?.recgpt_transition_score || 97.4)"></strong></span>
+                <template x-if="candidateTrajectory.finisher?.daily_velocity">
+                  <span>Velocity: <strong class="text-amber-600 dark:text-amber-400" x-text="'⚡ ' + candidateTrajectory.finisher?.daily_velocity + '/d'"></strong></span>
+                </template>
               </div>
-              <button @click="copyPromptForPairing(recgptPlaybook?.session_finisher?.title || 'Session Finisher')" class="px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-semibold text-[10px] transition active:scale-95 flex items-center space-x-1">
+              <button @click="copyPromptForPairing(candidateTrajectory.finisher?.title || 'Session Finisher')" class="px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-semibold text-[10px] transition active:scale-95 flex items-center space-x-1">
                 <i data-lucide="zap" class="w-3 h-3"></i>
                 <span>Generate Pin Asset</span>
               </button>
@@ -1699,6 +1777,70 @@ function getDashboardHtml() {
             ]
           };
           return JSON.stringify(schema, null, 2);
+        },
+
+        get candidateTrajectory() {
+          const defaultAnchor = this.recgptPlaybook?.dinner_anchor || {
+            title: 'Slow Cooker Garlic Herb Butter Chicken & Red Potatoes',
+            save_rate: 94.2,
+            recgpt_transition_score: 98.5,
+            prep_time: '15m'
+          };
+          const defaultCoVisitor = this.recgptPlaybook?.navboost_co_visitor || {
+            title: 'Cast Iron Skillet Garlic Cheddar Honey Biscuits',
+            save_rate: 88.7,
+            recgpt_transition_score: 92.1,
+            prep_time: '20m'
+          };
+          const defaultFinisher = this.recgptPlaybook?.session_finisher || {
+            title: 'Warm Skillet Salted Caramel Chocolate Chip Cookie with Vanilla Ice Cream',
+            save_rate: 96.8,
+            recgpt_transition_score: 97.4,
+            prep_time: '10m'
+          };
+
+          if (!this.selectedCandidate) {
+            return { anchor: defaultAnchor, co_visitor: defaultCoVisitor, finisher: defaultFinisher };
+          }
+
+          const x = this.selectedCandidate;
+          const role = x.sequence_role || 'DINNER_ANCHOR';
+          const pool = (this.dossierCandidates && this.dossierCandidates.length > 0)
+            ? this.dossierCandidates
+            : (this.explorerCandidates || []);
+
+          const findBest = (targetRole, fallback) => {
+            const match = pool
+              .filter(c => c.candidate_pin_id !== x.candidate_pin_id && c.sequence_role === targetRole)
+              .sort((a, b) => Number(b.saves || b.total_saves || 0) - Number(a.saves || a.total_saves || 0))[0];
+            return match || fallback;
+          };
+
+          if (role === 'DINNER_ANCHOR') {
+            return {
+              anchor: { ...x, is_active_candidate: true },
+              co_visitor: findBest('NAVBOOST_CO_VISITOR', defaultCoVisitor),
+              finisher: findBest('SESSION_FINISHER', defaultFinisher)
+            };
+          } else if (role === 'NAVBOOST_CO_VISITOR') {
+            return {
+              anchor: findBest('DINNER_ANCHOR', defaultAnchor),
+              co_visitor: { ...x, is_active_candidate: true },
+              finisher: findBest('SESSION_FINISHER', defaultFinisher)
+            };
+          } else if (role === 'SESSION_FINISHER') {
+            return {
+              anchor: findBest('DINNER_ANCHOR', defaultAnchor),
+              co_visitor: findBest('NAVBOOST_CO_VISITOR', defaultCoVisitor),
+              finisher: { ...x, is_active_candidate: true }
+            };
+          } else {
+            return {
+              anchor: { ...x, is_active_candidate: true },
+              co_visitor: findBest('NAVBOOST_CO_VISITOR', defaultCoVisitor),
+              finisher: findBest('SESSION_FINISHER', defaultFinisher)
+            };
+          }
         },
 
         async openSeedDossier(seed) {
