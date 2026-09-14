@@ -29,41 +29,10 @@ const sql = neon(DATABASE_URL);
 const PORT = Number(process.env.PORT || 3456);
 
 // Culinary Color Name Mapper
-function getCulinaryColorName(hex) {
+export function getCulinaryColorName(hex) {
   if (!hex || typeof hex !== 'string') return 'Culinary Accent';
-  const cleanHex = hex.replace('#', '').toLowerCase().trim();
+  const cleanHex = hex.replace('#', '').toLowerCase();
   if (cleanHex.length < 6) return 'Culinary Accent';
-
-  const colorMap = {
-    '824d30': 'Rustic Umber / Roasted Crust',
-    '663e0d': 'Deep Molasses / Dark Cocoa',
-    '6b4216': 'Toasted Walnut / Brown Butter',
-    'b9975f': 'Golden Cornmeal / Biscuit Crust',
-    '9f642e': 'Caramel Glaze / Roasted Pecan',
-    'ad7137': 'Honey Amber / Crispy Garlic',
-    'd08c47': 'Cheddar Melt / Golden Brioche',
-    'ecc584': 'Warm Cream / Flaky Pastry',
-    'beae88': 'Savory Herb Crust / Almond Beige',
-    '976a29': 'Crisp Brioche / Roasted Sesame',
-    '87551c': 'Smoked Hickory / Savory BBQ',
-    'cfc29e': 'Buttermilk Dough / Oat Crust',
-    '9b7373': 'Spiced Berry / Mulled Wine',
-    '796f5b': 'Earthy Rosemary / Herb Infusion',
-    'd87f5a': 'Spiced Paprika / Roasted Pepper',
-    '765728': 'Rich Maple / Golden Gravy',
-    '754819': 'Dark Truffle / Cast Iron Glaze',
-    '888888': 'Slate Mineral / Neutral Steel',
-    'ffffff': 'Pure Cream / Sugar Glaze',
-    'f5f2ec': 'Whipped Ricotta / Sweet Cream',
-    'f8f3f0': 'Ivory Flour / Powdered Sugar',
-    'd2ad89': 'Golden Toast / Warm Caramel',
-    '804e3a': 'Smoked Paprika / Braised Crust',
-    '6d3c1f': 'Dark Chocolate / Espresso Glaze',
-    '925b30': 'Toasted Almond / Maple Crust',
-    'ecf5f6': 'Frosted Icing / Sea Salt White',
-    '000000': 'Cast Iron Black / Charred Sear'
-  };
-  if (colorMap[cleanHex]) return colorMap[cleanHex];
 
   const r = parseInt(cleanHex.substring(0, 2), 16);
   const g = parseInt(cleanHex.substring(2, 4), 16);
@@ -83,15 +52,17 @@ function getCulinaryColorName(hex) {
     if (h < 0) h += 360;
   }
 
-  // Culinary Tone Mapping Rules
-  if (l > 0.82) return 'Whipped Ricotta / Creamy Brie';
-  if (l < 0.25 || (h >= 15 && h <= 35 && l < 0.35)) return 'Roasted Umber / Pan Sear';
-  if (h >= 340 || h <= 15) return 'Cranberry Glaze / Wine Reduction';
-  if (h > 15 && h <= 45) return 'Roasted Pumpkin / Warm Amber';
-  if (h > 45 && h <= 70) return 'Golden Honey / Crust Glaze';
-  if (h > 70 && h <= 165) return 'Fresh Herb / Sage Infusion';
-
-  return 'Golden Honey / Crust Glaze';
+  // Refined Culinary Boundaries
+  if (l >= 0.80) return 'Whipped Ricotta / Creamy Brie';
+  if (l <= 0.20) return 'Charred Espresso / Cast Iron';
+  if (h >= 340 || h <= 12) return 'Cranberry Glaze / Wine Reduction';
+  if (h > 12 && h <= 32 && l < 0.40) return 'Roasted Umber / Pan Sear';
+  if (h > 12 && h <= 38 && l >= 0.40) return 'Roasted Pumpkin / Warm Amber';
+  if (h > 38 && h <= 65) return 'Golden Honey / Crust Glaze';
+  if (h > 65 && h <= 165) return 'Fresh Herb / Sage Infusion';
+  if (h > 165 && h <= 260) return 'Nordic Sea Salt / Steel Cookware';
+  
+  return 'Artisan Blend / Culinary Accent';
 }
 
 // In-memory crawl status tracker
