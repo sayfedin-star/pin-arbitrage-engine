@@ -673,8 +673,87 @@ function getDashboardHtml() {
                 <p class="text-xs text-slate-500 font-mono" x-text="'Showing all ' + dossierCandidates.length + ' candidate nodes (100% Uncapped)'"></p>
               </div>
 
-              <!-- Filter Search for Dossier Candidates -->
-              <input type="text" x-model="dossierSearchQuery" placeholder="Filter candidates..." class="px-3 py-1.5 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 font-mono w-full sm:w-64 focus:outline-none focus:border-rose-500">
+            </div>
+
+            <!-- Filter & Segment Toolbar for Seed Dossier Candidates -->
+            <div class="p-3.5 rounded-2xl bg-slate-50/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800/80 space-y-3">
+              <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                
+                <!-- 1. Text Search -->
+                <div class="relative flex-1 min-w-[200px]">
+                  <i data-lucide="search" class="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400"></i>
+                  <input type="text" x-model="dossierFilters.search" placeholder="Search title, domain, OCR text, or pin ID..." class="w-full pl-9 pr-3 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 font-mono text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-rose-500">
+                </div>
+
+                <!-- 2. The 4 Dropdown Filter Selectors -->
+                <div class="flex items-center space-x-2 flex-wrap gap-y-2">
+                  
+                  <!-- Engine Provenance Filter -->
+                  <div class="flex items-center space-x-1 bg-white dark:bg-slate-900 rounded-xl px-2 py-1 border border-slate-200 dark:border-slate-800 shadow-sm">
+                    <span class="text-[10px] font-mono text-slate-400 uppercase font-semibold">Engine:</span>
+                    <select x-model="dossierFilters.engine" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono focus:outline-none cursor-pointer">
+                      <option value="all">All Engines</option>
+                      <option value="P2P_NAVBOOST">P2P_NAVBOOST (Sky)</option>
+                      <option value="P2P_RANDOMWALK">P2P_RANDOMWALK (Emerald)</option>
+                      <option value="P2P_TWO_TOWER">P2P_TWO_TOWER (Violet)</option>
+                      <option value="P2P_RECGPT">P2P_RECGPT (Rose)</option>
+                      <option value="FRESH_COLD_START">FRESH_COLD_START (Cyan)</option>
+                      <option value="P2P_SHOPPING_CORPUS">P2P_SHOPPING_CORPUS (Amber)</option>
+                    </select>
+                  </div>
+
+                  <!-- Velocity Tier Filter -->
+                  <div class="flex items-center space-x-1 bg-white dark:bg-slate-900 rounded-xl px-2 py-1 border border-slate-200 dark:border-slate-800 shadow-sm">
+                    <span class="text-[10px] font-mono text-slate-400 uppercase font-semibold">Speed:</span>
+                    <select x-model="dossierFilters.velocity" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono focus:outline-none cursor-pointer">
+                      <option value="all">All Speeds</option>
+                      <option value="explosive">🔥 Explosive (≥ 50/d)</option>
+                      <option value="trending">⚡ Trending (10-49/d)</option>
+                      <option value="stagnant">💤 Stagnant (&lt; 10/d)</option>
+                    </select>
+                  </div>
+
+                  <!-- Market Arbitrage Status Filter -->
+                  <div class="flex items-center space-x-1 bg-white dark:bg-slate-900 rounded-xl px-2 py-1 border border-slate-200 dark:border-slate-800 shadow-sm">
+                    <span class="text-[10px] font-mono text-slate-400 uppercase font-semibold">Market:</span>
+                    <select x-model="dossierFilters.market" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono focus:outline-none cursor-pointer">
+                      <option value="all">All Statuses</option>
+                      <option value="vacuum">🎯 Vacuum Targets Only (Organic ≥ 5K)</option>
+                      <option value="product">🛒 Competitor Products (Etsy/Shopify)</option>
+                    </select>
+                  </div>
+
+                  <!-- RecGPT Meal Sequence Filter -->
+                  <div class="flex items-center space-x-1 bg-white dark:bg-slate-900 rounded-xl px-2 py-1 border border-slate-200 dark:border-slate-800 shadow-sm">
+                    <span class="text-[10px] font-mono text-slate-400 uppercase font-semibold">Sequence:</span>
+                    <select x-model="dossierFilters.sequence" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono focus:outline-none cursor-pointer">
+                      <option value="all">All Sequence Roles</option>
+                      <option value="DINNER_ANCHOR">🍽️ Dinner Anchor</option>
+                      <option value="NAVBOOST_CO_VISITOR">🥖 Co-Visitor Side</option>
+                      <option value="SESSION_FINISHER">🍪 Session Finisher</option>
+                    </select>
+                  </div>
+
+                </div>
+              </div>
+
+              <!-- Dynamic Result Count Badge & Reset Button -->
+              <div class="flex items-center justify-between pt-1 text-xs border-t border-slate-200/60 dark:border-slate-800/60 font-mono">
+                <div class="flex items-center space-x-2 text-slate-600 dark:text-slate-300">
+                  <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200">
+                    Showing <span class="mx-1 text-rose-600 dark:text-rose-400" x-text="filteredDossierCandidates.length"></span> of <span class="mx-1" x-text="dossierCandidates.length"></span> candidates matching filters
+                  </span>
+                </div>
+
+                <button 
+                  x-show="dossierFilters.search || dossierFilters.engine !== 'all' || dossierFilters.velocity !== 'all' || dossierFilters.market !== 'all' || dossierFilters.sequence !== 'all'"
+                  @click="resetDossierFilters()"
+                  class="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/30 text-[11px] font-bold transition active:scale-95"
+                >
+                  <i data-lucide="rotate-ccw" class="w-3 h-3"></i>
+                  <span>Reset All Filters</span>
+                </button>
+              </div>
             </div>
 
             <div class="overflow-x-auto">
@@ -722,10 +801,17 @@ function getDashboardHtml() {
                       <td class="py-3 px-3">
                         <div class="space-y-1">
                           <a :href="'https://www.pinterest.com/pin/' + item.candidate_pin_id + '/'" target="_blank" class="font-bold text-slate-900 dark:text-slate-100 hover:text-rose-600 dark:hover:text-rose-400 line-clamp-1 hover:underline" x-text="item.title"></a>
-                          <div class="flex items-center space-x-2 text-[10px] text-slate-500 font-mono">
+                          <div class="flex items-center space-x-2 text-[10px] text-slate-500 font-mono flex-wrap gap-y-1">
                             <span class="px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300" x-text="item.domain"></span>
                             <span>•</span>
                             <span x-text="'ID: ' + item.candidate_pin_id"></span>
+                            <template x-if="item.sequence_role && item.sequence_role !== 'DIRECT_MATCH'">
+                              <span class="px-1.5 py-0.2 rounded text-[9px] font-bold" :class="{
+                                'bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30': item.sequence_role === 'DINNER_ANCHOR',
+                                'bg-sky-500/15 text-sky-700 dark:text-sky-300 border border-sky-500/30': item.sequence_role === 'NAVBOOST_CO_VISITOR',
+                                'bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30': item.sequence_role === 'SESSION_FINISHER'
+                              }" x-text="item.sequence_role === 'DINNER_ANCHOR' ? '🍽️ Anchor' : (item.sequence_role === 'NAVBOOST_CO_VISITOR' ? '🥖 Co-Visitor' : '🍪 Finisher')"></span>
+                            </template>
                           </div>
                           <template x-if="item.ocr_text">
                             <div class="p-1 px-1.5 rounded bg-slate-100 dark:bg-slate-900/90 text-[9px] text-slate-600 dark:text-slate-400 font-mono truncate max-w-sm" :title="item.ocr_text">
@@ -939,33 +1025,105 @@ function getDashboardHtml() {
     <div x-show="currentTab === 'explorer'" class="space-y-4">
       <div class="bg-white dark:bg-[#0d1526] border border-slate-200/90 dark:border-slate-800 rounded-2xl p-5 shadow-sm dark:shadow-xl space-y-4">
         
-        <!-- Explorer Filter Controls -->
-        <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
-          <!-- Dropdown Filter by Seed Pin & Sorting -->
-          <div class="flex items-center space-x-3 flex-wrap gap-y-2">
-            <div class="flex items-center space-x-2">
-              <span class="text-xs font-semibold text-slate-600 dark:text-slate-400 font-mono whitespace-nowrap">Filter Seed:</span>
-              <select x-model="explorerSeedId" @change="loadExplorerData()" class="px-3 py-1.5 rounded-xl text-xs bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-slate-100 font-mono focus:outline-none focus:border-rose-500">
-                <option value="all">All Tracked Seeds</option>
-                <template x-for="s in seeds" :key="s.pin_id">
-                  <option :value="s.pin_id" x-text="s.label + ' (' + (s.total_candidates || 0) + ' nodes)'"></option>
-                </template>
-              </select>
+        <!-- Master Explorer Filter & Segment Toolbar -->
+        <div class="p-3.5 rounded-2xl bg-slate-50/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800/80 space-y-3">
+          <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+            
+            <!-- Left: Seed Selection & Sorting & Search -->
+            <div class="flex items-center space-x-2 flex-wrap gap-y-2">
+              <div class="flex items-center space-x-1 bg-white dark:bg-slate-900 rounded-xl px-2 py-1 border border-slate-200 dark:border-slate-800 shadow-sm">
+                <span class="text-[10px] font-mono text-slate-400 uppercase font-semibold">Seed:</span>
+                <select x-model="explorerSeedId" @change="loadExplorerData()" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono focus:outline-none cursor-pointer">
+                  <option value="all">All Tracked Seeds</option>
+                  <template x-for="s in seeds" :key="s.pin_id">
+                    <option :value="s.pin_id" x-text="s.label + ' (' + (s.total_candidates || 0) + ' nodes)'"></option>
+                  </template>
+                </select>
+              </div>
+
+              <div class="flex items-center space-x-1 bg-white dark:bg-slate-900 rounded-xl px-2 py-1 border border-slate-200 dark:border-slate-800 shadow-sm">
+                <span class="text-[10px] font-mono text-slate-400 uppercase font-semibold">Sort:</span>
+                <select x-model="explorerSort" @change="loadExplorerData()" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono focus:outline-none cursor-pointer">
+                  <option value="saves">Sort by Total Saves</option>
+                  <option value="velocity">Sort by Velocity (Fastest Growing)</option>
+                </select>
+              </div>
+
+              <!-- Search Input -->
+              <div class="relative min-w-[200px]">
+                <i data-lucide="search" class="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400"></i>
+                <input type="text" x-model="explorerFilters.search" placeholder="Search title, domain, OCR text..." class="w-full pl-8 pr-3 py-1 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 font-mono text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-rose-500">
+              </div>
             </div>
 
-            <div class="flex items-center space-x-2">
-              <span class="text-xs font-semibold text-slate-600 dark:text-slate-400 font-mono whitespace-nowrap">Sort:</span>
-              <select x-model="explorerSort" @change="loadExplorerData()" class="px-3 py-1.5 rounded-xl text-xs bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-slate-100 font-mono focus:outline-none focus:border-rose-500">
-                <option value="saves">Sort by Total Saves</option>
-                <option value="velocity">Sort by Velocity (Fastest Growing)</option>
-              </select>
+            <!-- Right: 4 Dropdown Filter Selectors -->
+            <div class="flex items-center space-x-2 flex-wrap gap-y-2">
+              
+              <!-- Engine Provenance Filter -->
+              <div class="flex items-center space-x-1 bg-white dark:bg-slate-900 rounded-xl px-2 py-1 border border-slate-200 dark:border-slate-800 shadow-sm">
+                <span class="text-[10px] font-mono text-slate-400 uppercase font-semibold">Engine:</span>
+                <select x-model="explorerFilters.engine" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono focus:outline-none cursor-pointer">
+                  <option value="all">All Engines</option>
+                  <option value="P2P_NAVBOOST">P2P_NAVBOOST (Sky)</option>
+                  <option value="P2P_RANDOMWALK">P2P_RANDOMWALK (Emerald)</option>
+                  <option value="P2P_TWO_TOWER">P2P_TWO_TOWER (Violet)</option>
+                  <option value="P2P_RECGPT">P2P_RECGPT (Rose)</option>
+                  <option value="FRESH_COLD_START">FRESH_COLD_START (Cyan)</option>
+                  <option value="P2P_SHOPPING_CORPUS">P2P_SHOPPING_CORPUS (Amber)</option>
+                </select>
+              </div>
+
+              <!-- Velocity Tier Filter -->
+              <div class="flex items-center space-x-1 bg-white dark:bg-slate-900 rounded-xl px-2 py-1 border border-slate-200 dark:border-slate-800 shadow-sm">
+                <span class="text-[10px] font-mono text-slate-400 uppercase font-semibold">Speed:</span>
+                <select x-model="explorerFilters.velocity" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono focus:outline-none cursor-pointer">
+                  <option value="all">All Speeds</option>
+                  <option value="explosive">🔥 Explosive (≥ 50/d)</option>
+                  <option value="trending">⚡ Trending (10-49/d)</option>
+                  <option value="stagnant">💤 Stagnant (&lt; 10/d)</option>
+                </select>
+              </div>
+
+              <!-- Market Arbitrage Status Filter -->
+              <div class="flex items-center space-x-1 bg-white dark:bg-slate-900 rounded-xl px-2 py-1 border border-slate-200 dark:border-slate-800 shadow-sm">
+                <span class="text-[10px] font-mono text-slate-400 uppercase font-semibold">Market:</span>
+                <select x-model="explorerFilters.market" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono focus:outline-none cursor-pointer">
+                  <option value="all">All Statuses</option>
+                  <option value="vacuum">🎯 Vacuum Targets Only (Organic ≥ 5K)</option>
+                  <option value="product">🛒 Competitor Products (Etsy/Shopify)</option>
+                </select>
+              </div>
+
+              <!-- RecGPT Meal Sequence Filter -->
+              <div class="flex items-center space-x-1 bg-white dark:bg-slate-900 rounded-xl px-2 py-1 border border-slate-200 dark:border-slate-800 shadow-sm">
+                <span class="text-[10px] font-mono text-slate-400 uppercase font-semibold">Sequence:</span>
+                <select x-model="explorerFilters.sequence" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono focus:outline-none cursor-pointer">
+                  <option value="all">All Sequence Roles</option>
+                  <option value="DINNER_ANCHOR">🍽️ Dinner Anchor</option>
+                  <option value="NAVBOOST_CO_VISITOR">🥖 Co-Visitor Side</option>
+                  <option value="SESSION_FINISHER">🍪 Session Finisher</option>
+                </select>
+              </div>
+
             </div>
           </div>
 
-          <!-- Search Input -->
-          <div class="relative min-w-[260px]">
-            <i data-lucide="search" class="w-4 h-4 absolute left-3 top-2.5 text-slate-400"></i>
-            <input type="text" x-model="explorerSearchQuery" @input.debounce.300ms="loadExplorerData()" placeholder="Search title, domain, OCR text..." class="w-full pl-9 pr-4 py-1.5 rounded-xl text-xs bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 font-mono focus:outline-none focus:border-rose-500">
+          <!-- Dynamic Result Count Badge & Reset Button -->
+          <div class="flex items-center justify-between pt-1 text-xs border-t border-slate-200/60 dark:border-slate-800/60 font-mono">
+            <div class="flex items-center space-x-2 text-slate-600 dark:text-slate-300">
+              <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200">
+                Showing <span class="mx-1 text-rose-600 dark:text-rose-400" x-text="filteredExplorerCandidates.length"></span> of <span class="mx-1" x-text="explorerCandidates.length"></span> candidates matching filters
+              </span>
+            </div>
+
+            <button 
+              x-show="explorerFilters.search || explorerFilters.engine !== 'all' || explorerFilters.velocity !== 'all' || explorerFilters.market !== 'all' || explorerFilters.sequence !== 'all'"
+              @click="resetExplorerFilters()"
+              class="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/30 text-[11px] font-bold transition active:scale-95"
+            >
+              <i data-lucide="rotate-ccw" class="w-3 h-3"></i>
+              <span>Reset All Filters</span>
+            </button>
           </div>
         </div>
 
@@ -986,7 +1144,7 @@ function getDashboardHtml() {
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-sans">
-              <template x-for="item in explorerCandidates" :key="item.candidate_pin_id + '-' + item.seed_pin_id">
+              <template x-for="item in filteredExplorerCandidates" :key="item.candidate_pin_id + '-' + item.seed_pin_id">
                 <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition">
                   
                   <!-- 1. Preview & Format -->
@@ -1016,10 +1174,17 @@ function getDashboardHtml() {
                   <td class="py-3.5 px-4">
                     <div class="space-y-1">
                       <a :href="'https://www.pinterest.com/pin/' + item.candidate_pin_id + '/'" target="_blank" class="font-bold text-slate-900 dark:text-slate-100 hover:text-rose-600 dark:hover:text-rose-400 line-clamp-1 hover:underline" x-text="item.title"></a>
-                      <div class="flex items-center space-x-2 text-[10px] text-slate-500 font-mono">
+                      <div class="flex items-center space-x-2 text-[10px] text-slate-500 font-mono flex-wrap gap-y-1">
                         <span class="px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300" x-text="item.domain"></span>
                         <span>•</span>
                         <span x-text="'ID: ' + item.candidate_pin_id"></span>
+                        <template x-if="item.sequence_role && item.sequence_role !== 'DIRECT_MATCH'">
+                          <span class="px-1.5 py-0.2 rounded text-[9px] font-bold" :class="{
+                            'bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30': item.sequence_role === 'DINNER_ANCHOR',
+                            'bg-sky-500/15 text-sky-700 dark:text-sky-300 border border-sky-500/30': item.sequence_role === 'NAVBOOST_CO_VISITOR',
+                            'bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30': item.sequence_role === 'SESSION_FINISHER'
+                          }" x-text="item.sequence_role === 'DINNER_ANCHOR' ? '🍽️ Anchor' : (item.sequence_role === 'NAVBOOST_CO_VISITOR' ? '🥖 Co-Visitor' : '🍪 Finisher')"></span>
+                        </template>
                       </div>
                       <template x-if="item.ocr_text">
                         <div class="p-1 px-1.5 rounded bg-slate-100 dark:bg-slate-900/90 text-[10px] text-slate-600 dark:text-slate-400 font-mono truncate max-w-sm" :title="item.ocr_text">
@@ -1354,16 +1519,28 @@ function getDashboardHtml() {
         activeDossierSeed: null,
         dossierCandidates: [],
         dossierTelemetry: {},
-        dossierSearchQuery: '',
         dossierTab: 'table',
         dossierSort: 'saves',
         recgptPlaybook: null,
+        dossierFilters: {
+          search: '',
+          engine: 'all',
+          velocity: 'all',
+          market: 'all',
+          sequence: 'all'
+        },
 
         // Tab 3: Master Explorer State
         explorerSeedId: 'all',
         explorerCandidates: [],
-        explorerSearchQuery: '',
         explorerSort: 'saves',
+        explorerFilters: {
+          search: '',
+          engine: 'all',
+          velocity: 'all',
+          market: 'all',
+          sequence: 'all'
+        },
 
         selectedCandidate: null,
 
@@ -1398,18 +1575,68 @@ function getDashboardHtml() {
           });
         },
 
-        get filteredDossierCandidates() {
-          let list = this.dossierCandidates || [];
-          if (this.dossierSearchQuery.trim()) {
-            const q = this.dossierSearchQuery.toLowerCase().trim();
-            list = list.filter(i => 
+        applyCandidateFilters(list, filters) {
+          if (!Array.isArray(list)) return [];
+          let res = list;
+
+          // 1. Text Search
+          if (filters.search && filters.search.trim()) {
+            const q = filters.search.toLowerCase().trim();
+            res = res.filter(i => 
               (i.title && i.title.toLowerCase().includes(q)) ||
               (i.domain && i.domain.toLowerCase().includes(q)) ||
               (i.ocr_text && i.ocr_text.toLowerCase().includes(q)) ||
-              (i.candidate_pin_id && i.candidate_pin_id.includes(q))
+              (i.candidate_pin_id && String(i.candidate_pin_id).includes(q))
             );
           }
-          return list;
+
+          // 2. Engine Provenance
+          if (filters.engine && filters.engine !== 'all') {
+            res = res.filter(i => (i.provenance_engine === filters.engine || i.engine_source === filters.engine));
+          }
+
+          // 3. Velocity Tier
+          if (filters.velocity && filters.velocity !== 'all') {
+            res = res.filter(i => {
+              const v = Number(i.daily_velocity || 0);
+              const tier = i.velocity_tier || (v >= 50 ? 'explosive' : (v >= 10 ? 'trending' : 'stagnant'));
+              return tier === filters.velocity;
+            });
+          }
+
+          // 4. Market Arbitrage Status
+          if (filters.market && filters.market !== 'all') {
+            if (filters.market === 'vacuum') {
+              res = res.filter(i => i.is_vacuum_target || (!i.is_product && Number(i.saves || i.total_saves || 0) >= 5000));
+            } else if (filters.market === 'product') {
+              res = res.filter(i => i.is_product);
+            }
+          }
+
+          // 5. RecGPT Meal Sequence
+          if (filters.sequence && filters.sequence !== 'all') {
+            res = res.filter(i => i.sequence_role === filters.sequence);
+          }
+
+          return res;
+        },
+
+        get filteredDossierCandidates() {
+          return this.applyCandidateFilters(this.dossierCandidates, this.dossierFilters);
+        },
+
+        get filteredExplorerCandidates() {
+          return this.applyCandidateFilters(this.explorerCandidates, this.explorerFilters);
+        },
+
+        resetDossierFilters() {
+          this.dossierFilters = { search: '', engine: 'all', velocity: 'all', market: 'all', sequence: 'all' };
+          this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+        },
+
+        resetExplorerFilters() {
+          this.explorerFilters = { search: '', engine: 'all', velocity: 'all', market: 'all', sequence: 'all' };
+          this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
         },
 
         get cleanRecipeTitle() {
@@ -1611,9 +1838,6 @@ function getDashboardHtml() {
           let url = '/api/candidates?limit=1000&sort=' + this.explorerSort;
           if (this.explorerSeedId && this.explorerSeedId !== 'all') {
             url += '&seed_pin_id=' + this.explorerSeedId;
-          }
-          if (this.explorerSearchQuery.trim()) {
-            url += '&q=' + encodeURIComponent(this.explorerSearchQuery.trim());
           }
           try {
             const res = await fetch(url);

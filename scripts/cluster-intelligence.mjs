@@ -257,7 +257,7 @@ function parsePinCandidate(pin, seedPinId, parentEntity = null) {
   const dailyVelocity = Number((saves / ageDays).toFixed(2));
 
   // True Engine Provenance (orthogonal to product status)
-  const provenanceEngine = detectEngineProvenance(pin, parentEntity, saves);
+  let provenanceEngine = detectEngineProvenance(pin, parentEntity, saves);
 
   // Algorithmic RecGPT Trajectory Modeling
   const combinedText = `${title} ${ocrText} ${pin.description || ''} ${pin.board?.name || ''}`.toLowerCase();
@@ -282,6 +282,12 @@ function parsePinCandidate(pin, seedPinId, parentEntity = null) {
     sequenceRole = 'DINNER_ANCHOR';
     recgptTransitionScore = Number((saveRate * 0.90).toFixed(2));
     isRecgptCandidate = true;
+  }
+
+  // Map internal RecGPT engine provenance when sequential transition is strong
+  // and upstream module tags are ambiguous (P2P_TWO_TOWER or FRESH_COLD_START)
+  if ((provenanceEngine === 'P2P_TWO_TOWER' || provenanceEngine === 'FRESH_COLD_START') && isRecgptCandidate && recgptTransitionScore > 70) {
+    provenanceEngine = 'P2P_RECGPT';
   }
 
   // Row-Level prod:v18 Net Utility Score
@@ -337,8 +343,8 @@ function isCulinaryCandidate(pin, candidate) {
     return false;
   }
 
-  // Reject candidates that have 0 saves and 0 repins unless they have an explicit culinary title
-  if ((candidate.saves === 0 && candidate.repins === 0) && !CULINARY_REGEX.test(candidate.title.toLowerCase())) {
+  // Reject candidates that have 0 saves and 0 repins only if neither text nor title contains culinary signals
+  if ((candidate.saves === 0 && candidate.repins === 0) && !CULINARY_REGEX.test(text)) {
     return false;
   }
 
@@ -465,7 +471,7 @@ async function crawlSeed(seed) {
   let utilitySnapshot = null;
 
   let bookmark = null;
-  const maxPages = 12;
+  const maxPages = 40;
 
   const baseHeaders = {
     'accept': 'application/json, text/javascript, */*, q=0.01',
@@ -497,7 +503,11 @@ async function crawlSeed(seed) {
         client_context: {
           client_session_id: crypto.randomUUID(),
           source_type: 'visual_search_feed',
-          navigation_source: 'related_pins_carousel'
+          navigation_source: 'related_pins_carousel',
+          user_recent_actions: [
+            { event: 'click', entity_id: pinId, time: Date.now() - 60000 },
+            { event: 'save', entity_id: pinId, time: Date.now() - 30000 }
+          ]
         }
       }
     });
