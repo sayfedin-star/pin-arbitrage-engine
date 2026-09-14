@@ -7,6 +7,7 @@
   "scripts": {
     "start": "node scripts/cluster-intelligence.mjs",
     "crawl": "node scripts/cluster-intelligence.mjs",
+    "dashboard": "node --use-system-ca scripts/dashboard.mjs",
     "check": "node -c scripts/cluster-intelligence.mjs"
   },
   "keywords": [
