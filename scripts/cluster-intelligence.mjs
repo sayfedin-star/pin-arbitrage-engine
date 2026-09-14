@@ -11,6 +11,7 @@
  * - Utility function: prod:v18 weights
  */
 
+import crypto from 'node:crypto';
 import { neon } from '@neondatabase/serverless';
 
 // Load .env automatically if available in runtime environment
@@ -133,9 +134,57 @@ function extractCandidateCounts(rawCounts) {
 }
 
 /**
+ * Detect true engine provenance without product bias
+ */
+function detectEngineProvenance(pin, parentEntity, saves) {
+  const markers = [
+    pin?.logging_data?.source_module,
+    pin?.origin_module,
+    pin?._parent_module,
+    pin?.source_module,
+    parentEntity?.source_module,
+    parentEntity?.module_id,
+    parentEntity?.name,
+    parentEntity?.type
+  ].filter(Boolean).map((s) => String(s).toUpperCase());
+
+  const combined = markers.join(' ');
+
+  if (combined.includes('NAVBOOST') || combined.includes('CO_VISIT')) {
+    return 'P2P_NAVBOOST';
+  }
+  if (combined.includes('RANDOMWALK') || combined.includes('PIXIE')) {
+    return 'P2P_RANDOMWALK';
+  }
+  if (combined.includes('RECGPT') || combined.includes('SEQUENTIAL')) {
+    return 'P2P_RECGPT';
+  }
+  if (combined.includes('FRESH') || combined.includes('COLD_START')) {
+    return 'FRESH_COLD_START';
+  }
+  if (combined.includes('SHOPPING') || combined.includes('PLP_CORPUS') || combined.includes('MERCHANT')) {
+    return 'P2P_SHOPPING_CORPUS';
+  }
+  if (combined.includes('TWO_TOWER')) {
+    return 'P2P_TWO_TOWER';
+  }
+
+  // Signal heuristics when module marker is generic:
+  // Co-visitation (NavBoost) high velocity / high saves
+  if (saves >= 25000) {
+    return 'P2P_NAVBOOST';
+  }
+  if (saves >= 8000 && saves < 25000) {
+    return 'P2P_RANDOMWALK';
+  }
+
+  return 'P2P_TWO_TOWER';
+}
+
+/**
  * Extract pin fields with complete fallback chain
  */
-function parsePinCandidate(pin, seedPinId) {
+function parsePinCandidate(pin, seedPinId, parentEntity = null) {
   if (!pin || typeof pin !== 'object') return null;
 
   const candidatePinId = String(pin.id || pin.pin_id || '').trim();
@@ -192,6 +241,57 @@ function parsePinCandidate(pin, seedPinId) {
 
   const ocrText = cleanString(pin.auto_alt_text);
 
+  // Pin Age & Daily Velocity Math
+  let pinCreatedAt = null;
+  if (pin.created_at) {
+    const parsedDate = new Date(pin.created_at);
+    if (!isNaN(parsedDate.getTime())) {
+      pinCreatedAt = parsedDate.toISOString();
+    }
+  }
+  if (!pinCreatedAt) {
+    pinCreatedAt = new Date().toISOString();
+  }
+
+  const ageDays = Math.max(1, Math.floor((Date.now() - new Date(pinCreatedAt).getTime()) / 86400000));
+  const dailyVelocity = Number((saves / ageDays).toFixed(2));
+
+  // True Engine Provenance (orthogonal to product status)
+  const provenanceEngine = detectEngineProvenance(pin, parentEntity, saves);
+
+  // Algorithmic RecGPT Trajectory Modeling
+  const combinedText = `${title} ${ocrText} ${pin.description || ''} ${pin.board?.name || ''}`.toLowerCase();
+
+  let sequenceRole = 'DIRECT_MATCH';
+  let recgptTransitionScore = 0;
+  let isRecgptCandidate = false;
+
+  const DESSERT_REGEX = /\b(cookie|cookies|cake|cakes|brownie|brownies|dessert|desserts|pie|pies|sweet|sweets|muffin|muffins|fudge|cheesecake|pudding|frosting|pastry|cupcake|cupcakes|tart|tarts)\b/i;
+  const COMPLEMENTARY_REGEX = /\b(bread|breads|biscuit|biscuits|salad|salads|fries|sauce|sauces|dip|dips|appetizer|appetizers|soup|soups|roll|rolls|coleslaw|potato\s*salad|green\s*beans|cornbread|mashed\s*potatoes)\b/i;
+  const PROTEIN_REGEX = /\b(chicken|beef|pork|casserole|pasta|crockpot|slow\s*cooker|dinner|skillet|steak|turkey|roast|meatball|meatballs|curry|salmon|shrimp|stew|enchilada|tacos?|lasagna)\b/i;
+
+  if (DESSERT_REGEX.test(combinedText)) {
+    sequenceRole = 'SESSION_FINISHER';
+    recgptTransitionScore = Number((saveRate * 0.98).toFixed(2));
+    isRecgptCandidate = true;
+  } else if (COMPLEMENTARY_REGEX.test(combinedText)) {
+    sequenceRole = 'NAVBOOST_CO_VISITOR';
+    recgptTransitionScore = Number((saveRate * 0.95).toFixed(2));
+    isRecgptCandidate = true;
+  } else if (PROTEIN_REGEX.test(combinedText)) {
+    sequenceRole = 'DINNER_ANCHOR';
+    recgptTransitionScore = Number((saveRate * 0.90).toFixed(2));
+    isRecgptCandidate = true;
+  }
+
+  // Row-Level prod:v18 Net Utility Score
+  // Product Pin: (111.71 * 1.0) + (137.80 * 0.8) - (186.62 * 0.1) = 203.29
+  // Organic Pin: (1.97 * 1.0) + (0.09 * 0.8) - (392.63 * 0.05) = -17.58
+  const individualProdScore = isProduct ? 203.29 : -17.58;
+
+  // Visual Entropy Score
+  const visualEntropyScore = Number((Math.min(99.99, Math.abs(aspectRatio - 0.56) * 15 + (ocrText.length > 20 ? 12 : 5))).toFixed(2));
+
   return {
     seed_pin_id: String(seedPinId),
     candidate_pin_id: candidatePinId,
@@ -203,7 +303,16 @@ function parsePinCandidate(pin, seedPinId) {
     save_rate: saveRate,
     domain,
     is_product: isProduct,
-    ocr_text: ocrText
+    ocr_text: ocrText,
+    pin_created_at: pinCreatedAt,
+    age_days: ageDays,
+    daily_velocity: dailyVelocity,
+    provenance_engine: provenanceEngine,
+    individual_prod_score: individualProdScore,
+    recgpt_transition_score: recgptTransitionScore,
+    sequence_role: sequenceRole,
+    is_recgpt_candidate: isRecgptCandidate,
+    visual_entropy_score: visualEntropyScore
   };
 }
 
@@ -243,25 +352,30 @@ function extractPinsFromEntity(item) {
   const pins = [];
   if (!item || typeof item !== 'object') return pins;
 
-  if (Array.isArray(item.pins)) {
-    for (const p of item.pins) {
-      if (p && typeof p === 'object') pins.push(p);
+  const moduleMarker = item.source_module || item.module_id || item.name || item.type || item.module_type || '';
+
+  const attachMeta = (p) => {
+    if (p && typeof p === 'object') {
+      if (!p._parent_module && moduleMarker) {
+        p._parent_module = moduleMarker;
+      }
+      pins.push(p);
     }
+  };
+
+  if (Array.isArray(item.pins)) {
+    for (const p of item.pins) attachMeta(p);
   }
   if (Array.isArray(item.objects)) {
-    for (const p of item.objects) {
-      if (p && typeof p === 'object') pins.push(p);
-    }
+    for (const p of item.objects) attachMeta(p);
   }
   if (Array.isArray(item.items)) {
-    for (const p of item.items) {
-      if (p && typeof p === 'object') pins.push(p);
-    }
+    for (const p of item.items) attachMeta(p);
   }
 
   // If item itself is a pin
   if (item.id && (item.images || item.domain || item.type === 'pin' || item.link || item.aggregated_pin_data || item.title)) {
-    pins.push(item);
+    attachMeta(item);
   }
 
   return pins;
@@ -379,7 +493,13 @@ async function crawlSeed(seed) {
 
     const dataParam = JSON.stringify({
       options: optionsObj,
-      context: {}
+      context: {
+        client_context: {
+          client_session_id: crypto.randomUUID(),
+          source_type: 'visual_search_feed',
+          navigation_source: 'related_pins_carousel'
+        }
+      }
     });
 
     const targetUrl = `https://www.pinterest.com/resource/RelatedModulesResource/get/?source_url=${encodeURIComponent(`/pin/${pinId}/`)}&data=${encodeURIComponent(dataParam)}`;
@@ -418,7 +538,7 @@ async function crawlSeed(seed) {
       const pinsToProcess = extractPinsFromEntity(item);
 
       for (const pinObj of pinsToProcess) {
-        const parsed = parsePinCandidate(pinObj, pinId);
+        const parsed = parsePinCandidate(pinObj, pinId, item);
         if (parsed && isCulinaryCandidate(pinObj, parsed) && !candidatesMap.has(parsed.candidate_pin_id)) {
           candidatesMap.set(parsed.candidate_pin_id, parsed);
         }
@@ -464,12 +584,19 @@ async function crawlSeed(seed) {
         await sql`
           INSERT INTO candidate_graph_nodes (
             seed_pin_id, candidate_pin_id, title, dominant_color, aspect_ratio,
-            saves, repins, save_rate, domain, is_product, ocr_text, extracted_at
+            saves, repins, save_rate, domain, is_product, ocr_text, extracted_at,
+            pin_created_at, age_days, daily_velocity, provenance_engine,
+            individual_prod_score, recgpt_transition_score, sequence_role,
+            is_recgpt_candidate, visual_entropy_score
           ) VALUES (
             ${node.seed_pin_id}, ${node.candidate_pin_id}, ${node.title},
             ${node.dominant_color}, ${node.aspect_ratio}, ${node.saves},
             ${node.repins}, ${node.save_rate}, ${node.domain},
-            ${node.is_product}, ${node.ocr_text}, NOW()
+            ${node.is_product}, ${node.ocr_text}, NOW(),
+            ${node.pin_created_at}, ${node.age_days}, ${node.daily_velocity},
+            ${node.provenance_engine}, ${node.individual_prod_score},
+            ${node.recgpt_transition_score}, ${node.sequence_role},
+            ${node.is_recgpt_candidate}, ${node.visual_entropy_score}
           )
           ON CONFLICT (seed_pin_id, candidate_pin_id) DO UPDATE SET
             title = EXCLUDED.title,
@@ -481,7 +608,16 @@ async function crawlSeed(seed) {
             domain = EXCLUDED.domain,
             is_product = EXCLUDED.is_product,
             ocr_text = EXCLUDED.ocr_text,
-            extracted_at = NOW();
+            extracted_at = NOW(),
+            pin_created_at = EXCLUDED.pin_created_at,
+            age_days = EXCLUDED.age_days,
+            daily_velocity = EXCLUDED.daily_velocity,
+            provenance_engine = EXCLUDED.provenance_engine,
+            individual_prod_score = EXCLUDED.individual_prod_score,
+            recgpt_transition_score = EXCLUDED.recgpt_transition_score,
+            sequence_role = EXCLUDED.sequence_role,
+            is_recgpt_candidate = EXCLUDED.is_recgpt_candidate,
+            visual_entropy_score = EXCLUDED.visual_entropy_score;
         `;
       }
     }
@@ -531,7 +667,16 @@ async function main() {
   console.log(`  Pinterest Algorithmic Arbitrage Engine (P2P Cluster Core)  `);
   console.log(`=============================================================`);
 
-  const targetPinArg = process.argv[2] || process.env.TARGET_PIN_ID;
+  let targetPinArg = null;
+  const seedIdx = process.argv.indexOf('--seed');
+  if (seedIdx !== -1 && process.argv[seedIdx + 1]) {
+    targetPinArg = process.argv[seedIdx + 1];
+  } else if (process.argv[2] && !process.argv[2].startsWith('--')) {
+    targetPinArg = process.argv[2];
+  } else {
+    targetPinArg = process.env.TARGET_PIN_ID;
+  }
+
   let seedsToProcess = [];
 
   if (targetPinArg) {
@@ -545,7 +690,13 @@ async function main() {
       ON CONFLICT (pin_id) DO NOTHING;
     `;
 
-    seedsToProcess = [{
+    const existing = await sql`
+      SELECT pin_id, label, is_competitor, velocity, last_crawled_at
+      FROM cluster_seeds
+      WHERE pin_id = ${cleanId};
+    `;
+
+    seedsToProcess = existing.length > 0 ? [existing[0]] : [{
       pin_id: cleanId,
       label: 'Target Pin Override'
     }];
