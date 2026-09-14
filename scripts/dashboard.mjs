@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Pinterest Algorithmic Arbitrage Engine (V3 Architectural UI/UX)
+ * Pinterest Algorithmic Arbitrage Engine (V3 Dedicated Per-Seed & Intersections Architecture)
  * Pin Cluster Analyzer & Predictive Engine
  *
  * Runs on port 3456 (or process.env.PORT)
@@ -52,6 +52,13 @@ function getCulinaryColorName(hex) {
     '#754819': 'Dark Truffle / Cast Iron Glaze',
     '#888888': 'Slate Mineral / Neutral Steel',
     '#ffffff': 'Pure Cream / Sugar Glaze',
+    '#f5f2ec': 'Whipped Ricotta / Sweet Cream',
+    '#f8f3f0': 'Ivory Flour / Powdered Sugar',
+    '#d2ad89': 'Golden Toast / Warm Caramel',
+    '#804e3a': 'Smoked Paprika / Braised Crust',
+    '#6d3c1f': 'Dark Chocolate / Espresso Glaze',
+    '#925b30': 'Toasted Almond / Maple Crust',
+    '#ecf5f6': 'Frosted Icing / Sea Salt White',
     '#000000': 'Cast Iron Black / Charred Sear'
   };
   if (colorMap[h]) return colorMap[h];
@@ -175,7 +182,7 @@ function parseRequestBody(req) {
   });
 }
 
-// HTML Single Page Application V3
+// HTML Single Page Application V3 (Dedicated Views)
 function getDashboardHtml() {
   return `<!DOCTYPE html>
 <html lang="en" :class="isDark ? 'dark' : ''" x-data="dashboardApp()" x-init="initDashboard()">
@@ -218,9 +225,6 @@ function getDashboardHtml() {
     .dark ::-webkit-scrollbar-thumb { background: #1e293b; }
     ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
     .dark ::-webkit-scrollbar-thumb:hover { background: #334155; }
-    .glow-rose { box-shadow: 0 0 25px -5px rgba(244, 63, 94, 0.3); }
-    .glow-emerald { box-shadow: 0 0 25px -5px rgba(16, 185, 129, 0.3); }
-    .glow-amber { box-shadow: 0 0 25px -5px rgba(245, 158, 11, 0.3); }
   </style>
 </head>
 <body class="bg-slate-50 text-slate-900 dark:bg-[#080d1a] dark:text-slate-100 min-h-screen font-sans selection:bg-rose-500 selection:text-white antialiased transition-colors duration-200">
@@ -239,7 +243,7 @@ function getDashboardHtml() {
                 Pin Cluster Analyzer
               </span>
               <span class="px-2 py-0.5 text-[10px] font-mono font-bold uppercase rounded-full bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30">
-                Predictive Engine
+                Predictive Engine V3
               </span>
               <template x-if="crawlStatus.is_crawling">
                 <span class="px-2 py-0.5 text-[10px] font-mono font-bold rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 flex items-center space-x-1 animate-pulse">
@@ -260,7 +264,7 @@ function getDashboardHtml() {
           </button>
 
           <!-- Refresh Data -->
-          <button @click="fetchData()" :disabled="isLoading" class="p-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition active:scale-95" title="Refresh Data">
+          <button @click="refreshAll()" :disabled="isLoading" class="p-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition active:scale-95" title="Refresh Data">
             <i data-lucide="rotate-cw" :class="{'animate-spin': isLoading}" class="w-4 h-4"></i>
           </button>
 
@@ -279,32 +283,27 @@ function getDashboardHtml() {
         </div>
       </div>
 
-      <!-- Analytical Tabs Navigation -->
-      <div class="flex items-center space-x-1 sm:space-x-2 overflow-x-auto border-t border-slate-200 dark:border-slate-800/80 pt-1 -mb-px">
-        <button @click="currentTab = 'table'" class="flex items-center space-x-2 px-3 py-2.5 text-xs font-medium border-b-2 transition whitespace-nowrap" :class="currentTab === 'table' ? 'border-rose-500 text-rose-600 dark:text-rose-400 font-bold' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'">
-          <i data-lucide="table" class="w-4 h-4"></i>
-          <span>Comparison Table</span>
-          <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300" x-text="candidates.length"></span>
+      <!-- 3 Primary Top-Level Navigation Tabs -->
+      <div class="flex items-center space-x-2 sm:space-x-4 border-t border-slate-200 dark:border-slate-800/80 pt-1 -mb-px">
+        <!-- Tab 1: Tracked Seeds -->
+        <button @click="switchTab('seeds')" class="flex items-center space-x-2 px-4 py-3 text-xs sm:text-sm font-semibold border-b-2 transition whitespace-nowrap" :class="currentTab === 'seeds' ? 'border-rose-500 text-rose-600 dark:text-rose-400 font-bold' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'">
+          <i data-lucide="folder-git-2" class="w-4 h-4"></i>
+          <span>📁 Tracked Seeds (صفحة لكل بذرة)</span>
+          <span class="px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300" x-text="seeds.length"></span>
         </button>
 
-        <button @click="currentTab = 'utility'" class="flex items-center space-x-2 px-3 py-2.5 text-xs font-medium border-b-2 transition whitespace-nowrap" :class="currentTab === 'utility' ? 'border-rose-500 text-rose-600 dark:text-rose-400 font-bold' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'">
-          <i data-lucide="scale" class="w-4 h-4"></i>
-          <span>Algorithm & Utility Engine</span>
+        <!-- Tab 2: Global Intersections -->
+        <button @click="switchTab('intersections')" class="flex items-center space-x-2 px-4 py-3 text-xs sm:text-sm font-semibold border-b-2 transition whitespace-nowrap" :class="currentTab === 'intersections' ? 'border-rose-500 text-rose-600 dark:text-rose-400 font-bold' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'">
+          <i data-lucide="flame" class="w-4 h-4 text-amber-500"></i>
+          <span>⚡ Global Intersections (صفحة التقاطعات الشاملة)</span>
+          <span class="px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-amber-500/20 text-amber-700 dark:text-amber-400" x-text="intersections.length"></span>
         </button>
 
-        <button @click="currentTab = 'visual'" class="flex items-center space-x-2 px-3 py-2.5 text-xs font-medium border-b-2 transition whitespace-nowrap" :class="currentTab === 'visual' ? 'border-rose-500 text-rose-600 dark:text-rose-400 font-bold' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'">
-          <i data-lucide="palette" class="w-4 h-4"></i>
-          <span>Visual Intelligence & Colors</span>
-        </button>
-
-        <button @click="currentTab = 'playbook'" class="flex items-center space-x-2 px-3 py-2.5 text-xs font-medium border-b-2 transition whitespace-nowrap" :class="currentTab === 'playbook' ? 'border-rose-500 text-rose-600 dark:text-rose-400 font-bold' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'">
-          <i data-lucide="book-open" class="w-4 h-4"></i>
-          <span>Creator Playbook (RecGPT Matrix)</span>
-        </button>
-
-        <button @click="currentTab = 'raw'" class="flex items-center space-x-2 px-3 py-2.5 text-xs font-medium border-b-2 transition whitespace-nowrap" :class="currentTab === 'raw' ? 'border-rose-500 text-rose-600 dark:text-rose-400 font-bold' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'">
-          <i data-lucide="code-2" class="w-4 h-4"></i>
-          <span>Raw JSON Inspector</span>
+        <!-- Tab 3: Master Database Explorer -->
+        <button @click="switchTab('explorer')" class="flex items-center space-x-2 px-4 py-3 text-xs sm:text-sm font-semibold border-b-2 transition whitespace-nowrap" :class="currentTab === 'explorer' ? 'border-rose-500 text-rose-600 dark:text-rose-400 font-bold' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'">
+          <i data-lucide="database" class="w-4 h-4 text-sky-500"></i>
+          <span>📊 Master Database Explorer (المستكشف العام)</span>
+          <span class="px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-sky-500/10 text-sky-700 dark:text-sky-400" x-text="overview.total_candidates || '...'"></span>
         </button>
       </div>
     </div>
@@ -324,138 +323,309 @@ function getDashboardHtml() {
       <span class="font-mono text-[11px] text-amber-600 dark:text-amber-400" x-text="'Elapsed: ' + crawlElapsed + 's'"></span>
     </div>
 
-    <!-- Cluster Arbitrage & Vulnerability Header Card -->
-    <section class="bg-white dark:bg-[#0d1526] border border-slate-200/90 dark:border-slate-800 rounded-2xl p-5 sm:p-6 shadow-sm dark:shadow-xl transition relative overflow-hidden">
-      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
-        <!-- Left Column: Vulnerability Index & Score -->
-        <div class="lg:col-span-4 space-y-3 border-b lg:border-b-0 lg:border-r border-slate-200 dark:border-slate-800 pb-4 lg:pb-0 lg:pr-6">
+    <!-- ======================================================== -->
+    <!-- TAB 1: 📁 TRACKED SEEDS (GRID & DEDICATED SEED DOSSIER)  -->
+    <!-- ======================================================== -->
+    <div x-show="currentTab === 'seeds'" class="space-y-6">
+
+      <!-- View A: Grid of All Tracked Seeds -->
+      <template x-if="!activeDossierSeed">
+        <div class="space-y-4">
           <div class="flex items-center justify-between">
-            <span class="text-[11px] font-mono font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Cluster Arbitrage & Vulnerability Index
-            </span>
-            <span class="px-2 py-0.5 rounded-md text-[10px] font-bold font-mono bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
-              HIGH EXPLOITATION
-            </span>
+            <div>
+              <h2 class="text-base font-bold text-slate-900 dark:text-white flex items-center space-x-2">
+                <i data-lucide="layers" class="w-4 h-4 text-rose-500"></i>
+                <span>Tracked Seeds in Neon Postgres Database</span>
+              </h2>
+              <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Click "Inspect Seed Cluster" to view isolated telemetry quotas, Color DNA, and its full harvested candidate list.</p>
+            </div>
+            <span class="text-xs font-mono text-slate-500" x-text="seeds.length + ' Tracked Cluster Seeds'"></span>
           </div>
 
-          <div class="flex items-baseline space-x-3">
-            <span class="text-4xl sm:text-5xl font-extrabold font-mono text-slate-900 dark:text-white" x-text="overview.cluster_vulnerability_index || 88.4">88.4</span>
-            <span class="text-sm font-semibold text-slate-400 font-mono">/ 100</span>
-          </div>
+          <!-- Responsive Grid of Seed Cards -->
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            <template x-for="seed in seeds" :key="seed.pin_id">
+              <div class="bg-white dark:bg-[#0d1526] border border-slate-200/90 dark:border-slate-800 rounded-2xl p-5 shadow-sm dark:shadow-xl hover:border-slate-400 dark:hover:border-slate-700 transition space-y-4 flex flex-col justify-between">
+                
+                <div class="space-y-3">
+                  <!-- Seed Card Top Row -->
+                  <div class="flex items-start justify-between gap-2">
+                    <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase tracking-wider" :class="seed.is_competitor ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20' : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20'" x-text="seed.is_competitor ? 'Competitor Cluster' : 'Internal Seed'"></span>
+                    <span class="text-[10px] font-mono text-slate-400 truncate" x-text="seed.last_crawled_at ? 'Crawled ' + new Date(seed.last_crawled_at).toLocaleDateString() : 'Pending Crawl'"></span>
+                  </div>
 
-          <div class="flex items-center flex-wrap gap-1.5 pt-1">
-            <span class="px-2.5 py-1 rounded-full text-[11px] font-bold font-mono bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 flex items-center space-x-1">
-              <i data-lucide="zap" class="w-3 h-3 text-emerald-500"></i>
-              <span>+5.12x Utility Advantage</span>
-            </span>
-            <span class="px-2.5 py-1 rounded-full text-[11px] font-bold font-mono bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 border border-indigo-500/20 flex items-center space-x-1">
-              <i data-lucide="shield-check" class="w-3 h-3 text-indigo-500"></i>
-              <span>Semantically Aligned / Clean Taxonomy</span>
-            </span>
+                  <!-- Label & Pin ID -->
+                  <div>
+                    <h3 class="font-bold text-sm text-slate-900 dark:text-white line-clamp-2" x-text="seed.label || 'Tracked Cluster Seed'"></h3>
+                    <div class="flex items-center space-x-1 text-xs font-mono text-slate-500 dark:text-slate-400 mt-1">
+                      <span>Pin ID:</span>
+                      <strong class="text-slate-800 dark:text-slate-200" x-text="seed.pin_id"></strong>
+                    </div>
+                  </div>
+
+                  <!-- Quick Stats Grid -->
+                  <div class="grid grid-cols-2 gap-2 text-xs font-mono pt-1">
+                    <div class="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800">
+                      <div class="text-[10px] text-slate-500">Harvested Nodes</div>
+                      <div class="text-xl font-extrabold text-slate-900 dark:text-white mt-0.5" x-text="seed.total_candidates || 0">0</div>
+                    </div>
+                    <div class="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800">
+                      <div class="text-[10px] text-slate-500">Commercial Gap</div>
+                      <div class="text-xl font-extrabold text-emerald-600 dark:text-emerald-400 mt-0.5" x-text="(seed.commercial_gap_ratio ? seed.commercial_gap_ratio + '%' : '100%')">100%</div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Primary Action Button: Inspect Seed Cluster -->
+                <button @click="openSeedDossier(seed)" class="w-full flex items-center justify-center space-x-2 py-2.5 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-900 font-bold text-xs shadow-sm active:scale-95 transition">
+                  <i data-lucide="eye" class="w-3.5 h-3.5"></i>
+                  <span>Inspect Seed Cluster</span>
+                </button>
+              </div>
+            </template>
           </div>
         </div>
+      </template>
 
-        <!-- Middle Column: Market Dynamics & Reranking Disparity -->
-        <div class="lg:col-span-5 space-y-3">
-          <span class="text-[11px] font-mono font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-            Algorithmic Dynamics (prod:v18 Utility Model)
-          </span>
+      <!-- View B: Dedicated Seed Dossier View (Single Seed Isolated Telemetry & All Candidates) -->
+      <template x-if="activeDossierSeed">
+        <div class="space-y-6">
+          
+          <!-- Back Navigation Bar -->
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-[#0d1526] p-4 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-sm">
+            <button @click="closeSeedDossier()" class="inline-flex items-center space-x-2 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold transition active:scale-95">
+              <i data-lucide="arrow-left" class="w-3.5 h-3.5"></i>
+              <span>← Back to All Tracked Seeds Grid</span>
+            </button>
 
-          <div class="grid grid-cols-2 gap-3 text-xs">
-            <div class="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800">
-              <div class="text-[10px] text-slate-500 dark:text-slate-400">Expected Prod Utility</div>
-              <div class="font-mono font-bold text-sm text-emerald-600 dark:text-emerald-400 mt-0.5">+383.34 Net</div>
-              <div class="text-[10px] text-slate-400 mt-0.5">High dwell ($1.99 Product Card)</div>
+            <div class="flex items-center space-x-3">
+              <span class="text-xs font-mono text-slate-500">Active Seed: <strong class="text-slate-900 dark:text-white" x-text="activeDossierSeed.pin_id"></strong></span>
+              <button @click="triggerCrawl(activeDossierSeed.pin_id)" :disabled="crawlStatus.is_crawling" class="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs transition active:scale-95 flex items-center space-x-1.5 disabled:opacity-50">
+                <i data-lucide="refresh-cw" :class="{'animate-spin': crawlStatus.is_crawling}" class="w-3 h-3"></i>
+                <span>Re-Crawl This Seed</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Seed Dossier Header Card -->
+          <div class="bg-white dark:bg-[#0d1526] border border-slate-200/90 dark:border-slate-800 rounded-2xl p-6 shadow-sm dark:shadow-xl space-y-4">
+            <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-4">
+              <div>
+                <div class="flex items-center space-x-2">
+                  <h2 class="text-lg font-bold text-slate-900 dark:text-white" x-text="activeDossierSeed.label || 'Cluster Seed'"></h2>
+                  <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase tracking-wider" :class="activeDossierSeed.is_competitor ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20' : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20'" x-text="activeDossierSeed.is_competitor ? 'Competitor Cluster' : 'Internal Seed'"></span>
+                </div>
+                <div class="text-xs text-slate-500 font-mono mt-1 flex items-center space-x-2">
+                  <span>Pin ID: <a :href="'https://www.pinterest.com/pin/' + activeDossierSeed.pin_id + '/'" target="_blank" class="text-rose-600 dark:text-rose-400 hover:underline font-bold" x-text="activeDossierSeed.pin_id"></a></span>
+                  <span>•</span>
+                  <span>Harvested Candidates: <strong class="text-slate-900 dark:text-white" x-text="dossierCandidates.length">0</strong> nodes</span>
+                  <span>•</span>
+                  <span>Commercial Gap: <strong class="text-emerald-600" x-text="(activeDossierSeed.commercial_gap_ratio || 100) + '%'"></strong></span>
+                </div>
+              </div>
+
+              <div class="px-3 py-1.5 rounded-xl bg-sky-500/10 border border-sky-500/20 text-xs font-mono text-sky-700 dark:text-sky-300">
+                <span>Evaluation Pool: <strong class="text-slate-900 dark:text-white" x-text="dossierTelemetry.total_engine_quota || 0">0</strong> candidates evaluated &rarr; Top <strong class="text-emerald-600 dark:text-emerald-400" x-text="dossierCandidates.length">0</strong> stored in DB</span>
+              </div>
             </div>
 
-            <div class="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800">
-              <div class="text-[10px] text-slate-500 dark:text-slate-400">Organic Peak Baseline</div>
-              <div class="font-mono font-bold text-sm text-rose-600 dark:text-rose-400 mt-0.5">-74.91 Net</div>
-              <div class="text-[10px] text-slate-400 mt-0.5">Penalized by external quick bounce</div>
+            <!-- Seed-Specific Retrieval Quota Stacked Bar -->
+            <div class="space-y-2">
+              <span class="text-xs font-bold uppercase font-mono tracking-wider text-slate-500">P2P Retrieval Quotas for This Seed</span>
+              <div class="w-full bg-slate-100 dark:bg-slate-900 rounded-xl h-4 overflow-hidden flex border border-slate-200 dark:border-slate-800 shadow-inner">
+                <div class="bg-purple-500" :style="'width: ' + (dossierTelemetry.recgpt_pct || 0) + '%'" :title="'RecGPT: ' + dossierTelemetry.recgpt_count"></div>
+                <div class="bg-sky-500" :style="'width: ' + (dossierTelemetry.navboost_pct || 0) + '%'" :title="'NavBoost: ' + dossierTelemetry.navboost_count"></div>
+                <div class="bg-emerald-500" :style="'width: ' + (dossierTelemetry.randomwalk_pct || 0) + '%'" :title="'RandomWalk (Pixie): ' + dossierTelemetry.randomwalk_count"></div>
+                <div class="bg-amber-500" :style="'width: ' + (dossierTelemetry.two_tower_pct || 0) + '%'" :title="'Two-Tower: ' + dossierTelemetry.two_tower_count"></div>
+                <div class="bg-rose-500" :style="'width: ' + (dossierTelemetry.fresh_pct || 0) + '%'" :title="'Fresh: ' + dossierTelemetry.fresh_candidate_count"></div>
+              </div>
+              <div class="flex items-center space-x-3 text-[11px] font-mono text-slate-500 flex-wrap gap-y-1">
+                <span>NavBoost: <strong class="text-slate-800 dark:text-slate-200" x-text="dossierTelemetry.navboost_count || 0"></strong></span>
+                <span>RandomWalk: <strong class="text-slate-800 dark:text-slate-200" x-text="dossierTelemetry.randomwalk_count || 0"></strong></span>
+                <span>Two-Tower: <strong class="text-slate-800 dark:text-slate-200" x-text="dossierTelemetry.two_tower_count || 0"></strong></span>
+                <span>Fresh: <strong class="text-slate-800 dark:text-slate-200" x-text="dossierTelemetry.fresh_candidate_count || 0"></strong></span>
+              </div>
+            </div>
+
+            <!-- Seed Color DNA & Lexical Tokens -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-slate-200 dark:border-slate-800 text-xs font-mono">
+              <div>
+                <span class="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Cluster Color Centroids:</span>
+                <div class="flex items-center space-x-2 mt-1.5 flex-wrap gap-y-1.5">
+                  <template x-for="swatch in (dossierTelemetry.color_centroids || []).slice(0, 5)" :key="swatch.color">
+                    <div class="flex items-center space-x-1.5 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900">
+                      <span class="w-3 h-3 rounded-sm border" :style="'background-color: ' + swatch.color"></span>
+                      <span class="text-[10px] text-slate-700 dark:text-slate-300" x-text="swatch.color"></span>
+                      <span class="text-[9px] text-slate-400" x-text="swatch.percentage + '%'"></span>
+                    </div>
+                  </template>
+                </div>
+              </div>
+
+              <div>
+                <span class="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Top Lexical NLP Tokens:</span>
+                <div class="flex items-center space-x-1.5 mt-1.5 flex-wrap gap-y-1.5">
+                  <template x-for="token in (dossierTelemetry.high_save_tokens || []).slice(0, 5)" :key="token.token">
+                    <span class="px-2 py-0.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 text-[10px] font-bold text-slate-800 dark:text-slate-200" x-text="token.token + ' (' + token.tf + ')'"></span>
+                  </template>
+                </div>
+              </div>
             </div>
           </div>
 
-          <div class="flex items-center justify-between text-xs text-slate-600 dark:text-slate-400 font-mono pt-1">
-            <span class="flex items-center space-x-1.5">
-              <span class="w-2 h-2 rounded-full bg-amber-500"></span>
-              <span x-text="(overview.shopping_presence_pct || 29.4) + '% Shopping Corpus Presence'"></span>
-            </span>
-            <span class="text-slate-400">•</span>
-            <span class="flex items-center space-x-1.5">
-              <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
-              <span x-text="(overview.intersecting_hubs_count || 0) + ' Intersecting Hubs (≥ 2 Seeds)'"></span>
-            </span>
+          <!-- Full Uncapped Candidates Table for this Specific Seed -->
+          <div class="bg-white dark:bg-[#0d1526] border border-slate-200/90 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm dark:shadow-xl space-y-3 p-5">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-3">
+              <div>
+                <h3 class="font-bold text-sm text-slate-900 dark:text-white flex items-center space-x-2">
+                  <i data-lucide="list" class="w-4 h-4 text-rose-500"></i>
+                  <span>Candidates Harvested from Seed <span class="font-mono text-rose-600 dark:text-rose-400" x-text="activeDossierSeed.pin_id"></span></span>
+                </h3>
+                <p class="text-xs text-slate-500 font-mono" x-text="'Showing all ' + dossierCandidates.length + ' candidate nodes (100% Uncapped)'"></p>
+              </div>
+
+              <!-- Filter Search for Dossier Candidates -->
+              <input type="text" x-model="dossierSearchQuery" placeholder="Filter candidates..." class="px-3 py-1.5 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 font-mono w-full sm:w-64 focus:outline-none focus:border-rose-500">
+            </div>
+
+            <div class="overflow-x-auto">
+              <table class="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr class="border-b border-slate-200 dark:border-slate-800/80 bg-slate-50/80 dark:bg-slate-900/60 text-slate-500 dark:text-slate-400 font-mono text-[11px] uppercase tracking-wider">
+                    <th class="py-3 px-3">Preview & Format</th>
+                    <th class="py-3 px-3 min-w-[240px]">Title & Vision OCR</th>
+                    <th class="py-3 px-3">Metrics</th>
+                    <th class="py-3 px-3">Dominant Color</th>
+                    <th class="py-3 px-3">Engine Source</th>
+                    <th class="py-3 px-3 text-right">Inspect</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-sans">
+                  <template x-for="item in filteredDossierCandidates" :key="item.candidate_pin_id">
+                    <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition">
+                      
+                      <!-- 1. Preview & Format -->
+                      <td class="py-3 px-3 whitespace-nowrap">
+                        <div class="flex items-center space-x-2">
+                          <div class="w-7 h-10 rounded flex-shrink-0 border shadow-sm flex items-center justify-center" :style="'border-color: ' + (item.winning_color || '#cbd5e1') + '; background-color: ' + (item.winning_color || '#cbd5e1') + '15;'">
+                            <i data-lucide="image" class="w-3.5 h-3.5 text-slate-400"></i>
+                          </div>
+                          <div>
+                            <span class="inline-block px-1.5 py-0.5 rounded text-[9px] font-mono font-bold tracking-wider uppercase" :class="{
+                              'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20': item.format_type === 'PRODUCT CARD',
+                              'bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20': item.format_type === 'ORGANIC PIN',
+                              'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20': item.format_type === 'VIDEO PIN',
+                              'bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20': item.format_type === 'IDEA PIN'
+                            }" x-text="item.format_type"></span>
+
+                            <template x-if="item.is_vacuum_target">
+                              <span class="ml-1 px-1 py-0.5 rounded text-[8px] font-extrabold uppercase bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/40">
+                                VACUUM
+                              </span>
+                            </template>
+                          </div>
+                        </div>
+                      </td>
+
+                      <!-- 2. Title & Vision OCR -->
+                      <td class="py-3 px-3">
+                        <div class="space-y-1">
+                          <a :href="'https://www.pinterest.com/pin/' + item.candidate_pin_id + '/'" target="_blank" class="font-bold text-slate-900 dark:text-slate-100 hover:text-rose-600 dark:hover:text-rose-400 line-clamp-1 hover:underline" x-text="item.title"></a>
+                          <div class="flex items-center space-x-2 text-[10px] text-slate-500 font-mono">
+                            <span class="px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300" x-text="item.domain"></span>
+                            <span>•</span>
+                            <span x-text="'ID: ' + item.candidate_pin_id"></span>
+                          </div>
+                          <template x-if="item.ocr_text">
+                            <div class="p-1 px-1.5 rounded bg-slate-100 dark:bg-slate-900/90 text-[9px] text-slate-600 dark:text-slate-400 font-mono truncate max-w-sm" :title="item.ocr_text">
+                              <span class="text-rose-500 font-bold">OCR:</span> <span x-text="item.ocr_text"></span>
+                            </div>
+                          </template>
+                        </div>
+                      </td>
+
+                      <!-- 3. Metrics -->
+                      <td class="py-3 px-3 whitespace-nowrap font-mono">
+                        <div class="text-slate-900 dark:text-slate-100 font-bold" x-text="Number(item.total_saves || 0).toLocaleString() + ' saves'"></div>
+                        <div class="text-[10px] text-slate-500" x-text="Number(item.total_repins || 0).toLocaleString() + ' repins • ' + item.avg_save_rate + '% rate'"></div>
+                      </td>
+
+                      <!-- 4. Dominant Color -->
+                      <td class="py-3 px-3 whitespace-nowrap">
+                        <div class="flex items-center space-x-1.5">
+                          <span class="w-3.5 h-3.5 rounded border" :style="'background-color: ' + (item.winning_color || '#888888')"></span>
+                          <span class="font-mono text-[10px]" x-text="item.culinary_color_name"></span>
+                        </div>
+                      </td>
+
+                      <!-- 5. Engine Source -->
+                      <td class="py-3 px-3 whitespace-nowrap">
+                        <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase" :class="{
+                          'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20': item.engine_source === 'P2P_RANDOMWALK',
+                          'bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20': item.engine_source === 'P2P_NAVBOOST',
+                          'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20': item.engine_source === 'FRESH_SHOPPING',
+                          'bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20': item.engine_source === 'P2P_TWO_TOWER'
+                        }" x-text="item.engine_source"></span>
+                      </td>
+
+                      <!-- 6. Inspect Action -->
+                      <td class="py-3 px-3 text-right whitespace-nowrap">
+                        <button @click="inspectCandidate(item)" class="p-1.5 rounded-lg bg-slate-100 hover:bg-rose-50 dark:bg-slate-800 dark:hover:bg-rose-950/40 text-slate-700 dark:text-slate-300 hover:text-rose-600 transition">
+                          <i data-lucide="eye" class="w-4 h-4"></i>
+                        </button>
+                      </td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+      </template>
+    </div>
+
+    <!-- ======================================================== -->
+    <!-- TAB 2: ⚡ GLOBAL INTERSECTIONS (STANDALONE 24 HUBS PAGE)  -->
+    <!-- ======================================================== -->
+    <div x-show="currentTab === 'intersections'" class="space-y-5">
+      <div class="bg-white dark:bg-[#0d1526] border border-slate-200/90 dark:border-slate-800 rounded-2xl p-5 shadow-sm dark:shadow-xl space-y-4">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-3">
+          <div>
+            <h2 class="text-base font-bold text-slate-900 dark:text-white flex items-center space-x-2">
+              <i data-lucide="flame" class="w-5 h-5 text-amber-500"></i>
+              <span>Global Multi-Seed Intersections Radar (The 24 Golden Hubs)</span>
+            </h2>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Pins independently discovered across ≥ 2 distinct seeds. Ranked by Pixie Bipartite Multi-Hit score.</p>
+          </div>
+
+          <div class="flex items-center space-x-2">
+            <span class="px-3 py-1 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs font-mono font-bold text-amber-600 dark:text-amber-400" x-text="intersections.length + ' Overlapping Hubs'"></span>
           </div>
         </div>
 
-        <!-- Right Column: Action CTAs -->
-        <div class="lg:col-span-3 space-y-2.5">
-          <button @click="exploitTopVacuumTarget()" class="w-full flex items-center justify-center space-x-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-rose-600 to-amber-600 hover:from-rose-500 hover:to-amber-500 text-white font-bold text-xs shadow-md shadow-rose-950/20 active:scale-95 transition">
-            <i data-lucide="sparkles" class="w-4 h-4"></i>
-            <span>⚡ Exploit Gap (Generate Asset & Schema)</span>
-          </button>
-
-          <button @click="isDhashModalOpen = true" class="w-full flex items-center justify-center space-x-2 px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-semibold text-xs border border-slate-200 dark:border-slate-700 active:scale-95 transition">
-            <i data-lucide="shield" class="w-3.5 h-3.5 text-indigo-500"></i>
-            <span>🛡️ Check Image Signature (dHash Guard)</span>
-          </button>
-        </div>
-      </div>
-    </section>
-
-    <!-- ======================================================== -->
-    <!-- TAB 1: ADVANCED COMPARISON TABLE VIEW                    -->
-    <!-- ======================================================== -->
-    <div x-show="currentTab === 'table'" class="space-y-4">
-      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <!-- Filter Tabs -->
-        <div class="flex items-center space-x-1.5 overflow-x-auto pb-1 sm:pb-0">
-          <button @click="candidateFilter = 'all'" class="px-3 py-1.5 rounded-lg text-xs font-semibold transition" :class="candidateFilter === 'all' ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'">
-            All Candidates (<span x-text="candidates.length"></span>)
-          </button>
-          <button @click="candidateFilter = 'hubs'" class="px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center space-x-1" :class="candidateFilter === 'hubs' ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'">
-            <i data-lucide="flame" class="w-3 h-3"></i>
-            <span>Multi-Hit Hubs (≥ 2 Seeds)</span>
-          </button>
-          <button @click="candidateFilter = 'vacuum'" class="px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center space-x-1" :class="candidateFilter === 'vacuum' ? 'bg-rose-600 text-white shadow-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'">
-            <i data-lucide="target" class="w-3 h-3"></i>
-            <span>Vacuum Targets (≥ 5K Saves)</span>
-          </button>
-          <button @click="candidateFilter = 'product'" class="px-3 py-1.5 rounded-lg text-xs font-semibold transition" :class="candidateFilter === 'product' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'">
-            Product Cards
-          </button>
-        </div>
-
-        <!-- Search Bar -->
-        <div class="relative min-w-[240px]">
-          <i data-lucide="search" class="w-4 h-4 absolute left-3 top-2.5 text-slate-400"></i>
-          <input type="text" x-model="searchQuery" placeholder="Filter by title, domain, OCR..." class="w-full pl-9 pr-4 py-1.5 rounded-xl text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-rose-500 transition font-mono">
-        </div>
-      </div>
-
-      <!-- Advanced Candidates Table -->
-      <div class="bg-white dark:bg-[#0d1526] border border-slate-200/90 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm dark:shadow-xl">
+        <!-- Intersections Table -->
         <div class="overflow-x-auto">
           <table class="w-full text-left text-xs border-collapse">
             <thead>
               <tr class="border-b border-slate-200 dark:border-slate-800/80 bg-slate-50/80 dark:bg-slate-900/60 text-slate-500 dark:text-slate-400 font-mono text-[11px] uppercase tracking-wider">
                 <th class="py-3.5 px-4">Preview & Format</th>
-                <th class="py-3.5 px-4">What-If Product Simulator</th>
-                <th class="py-3.5 px-4 min-w-[280px]">Title / Topic & Vision OCR</th>
-                <th class="py-3.5 px-4">Metrics (Saves / Repins / Rate)</th>
-                <th class="py-3.5 px-4">Dominant Color Swatch</th>
-                <th class="py-3.5 px-4">Engine Source</th>
-                <th class="py-3.5 px-4 text-right">Inspect</th>
+                <th class="py-3.5 px-4 min-w-[280px]">Intersecting Candidate Title</th>
+                <th class="py-3.5 px-4 min-w-[220px]">Overlapping Originating Seeds</th>
+                <th class="py-3.5 px-4">Pixie Multi-Hit Score</th>
+                <th class="py-3.5 px-4">Engagement Metrics</th>
+                <th class="py-3.5 px-4">Color DNA</th>
+                <th class="py-3.5 px-4 text-right">Action</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-sans">
-              <template x-for="item in filteredCandidates" :key="item.candidate_pin_id">
-                <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition group">
+              <template x-for="item in intersections" :key="item.candidate_pin_id">
+                <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition">
                   
                   <!-- 1. Preview & Format -->
                   <td class="py-3.5 px-4 whitespace-nowrap">
                     <div class="flex items-center space-x-2.5">
-                      <div class="w-9 h-12 rounded-lg flex-shrink-0 flex items-center justify-center border shadow-sm" :style="'border-color: ' + (item.winning_color || '#cbd5e1') + '; background-color: ' + (item.winning_color || '#cbd5e1') + '15;'">
+                      <div class="w-8 h-11 rounded-lg flex-shrink-0 flex items-center justify-center border shadow-sm" :style="'border-color: ' + (item.winning_color || '#cbd5e1') + '; background-color: ' + (item.winning_color || '#cbd5e1') + '15;'">
                         <i data-lucide="image" class="w-4 h-4 text-slate-400"></i>
                       </div>
                       <div class="space-y-1">
@@ -477,100 +647,64 @@ function getDashboardHtml() {
                     </div>
                   </td>
 
-                  <!-- 2. What-If Product Simulator -->
-                  <td class="py-3.5 px-4 whitespace-nowrap">
-                    <button @click="toggleSimulation(item.candidate_pin_id)" class="px-2.5 py-1 rounded-xl text-[11px] font-mono border transition flex items-center space-x-1.5" :class="simulatedPins[item.candidate_pin_id] ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-emerald-500/40'">
-                      <i data-lucide="calculator" class="w-3.5 h-3.5"></i>
-                      <template x-if="!simulatedPins[item.candidate_pin_id]">
-                        <span>Simulate: <strong>-74.91 &rarr; +383.34</strong></span>
-                      </template>
-                      <template x-if="simulatedPins[item.candidate_pin_id]">
-                        <span>Active: <strong class="text-emerald-600 dark:text-emerald-400">+458.25 Net Gain ($1.99)</strong></span>
-                      </template>
-                    </button>
-                  </td>
-
-                  <!-- 3. Title / Topic & Vision OCR -->
+                  <!-- 2. Title & OCR -->
                   <td class="py-3.5 px-4">
                     <div class="space-y-1">
-                      <div class="flex items-center space-x-1.5">
-                        <a :href="'https://www.pinterest.com/pin/' + item.candidate_pin_id + '/'" target="_blank" class="font-bold text-slate-900 dark:text-slate-100 hover:text-rose-600 dark:hover:text-rose-400 line-clamp-1 group-hover:underline" x-text="item.title"></a>
-                        <i data-lucide="external-link" class="w-3 h-3 text-slate-400 opacity-0 group-hover:opacity-100 transition"></i>
-                      </div>
-                      <div class="flex items-center space-x-2 text-[10px] text-slate-500 dark:text-slate-400 font-mono">
-                        <span class="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300" x-text="item.domain"></span>
-                        <span class="text-slate-300 dark:text-slate-700">•</span>
+                      <a :href="'https://www.pinterest.com/pin/' + item.candidate_pin_id + '/'" target="_blank" class="font-bold text-slate-900 dark:text-slate-100 hover:text-rose-600 dark:hover:text-rose-400 line-clamp-1 hover:underline" x-text="item.title"></a>
+                      <div class="flex items-center space-x-2 text-[10px] text-slate-500 font-mono">
+                        <span class="px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300" x-text="item.domain"></span>
+                        <span>•</span>
                         <span x-text="'ID: ' + item.candidate_pin_id"></span>
                       </div>
                       <template x-if="item.ocr_text">
-                        <div class="p-1 px-2 rounded bg-slate-100 dark:bg-slate-900/90 text-[10px] text-slate-600 dark:text-slate-400 font-mono truncate max-w-sm" :title="item.ocr_text">
+                        <div class="p-1 px-1.5 rounded bg-slate-100 dark:bg-slate-900/90 text-[10px] text-slate-600 dark:text-slate-400 font-mono truncate max-w-sm" :title="item.ocr_text">
                           <span class="text-rose-500 font-bold">OCR:</span> <span x-text="item.ocr_text"></span>
                         </div>
                       </template>
                     </div>
                   </td>
 
-                  <!-- 4. Metrics -->
+                  <!-- 3. Overlapping Seeds Badges with Labels -->
+                  <td class="py-3.5 px-4">
+                    <div class="space-y-1.5">
+                      <div class="flex items-center space-x-1 font-mono text-[11px] font-bold text-amber-600 dark:text-amber-400">
+                        <i data-lucide="git-merge" class="w-3.5 h-3.5"></i>
+                        <span x-text="'Found in ' + item.seed_overlap_count + ' Seeds:'"></span>
+                      </div>
+                      <div class="flex flex-wrap gap-1">
+                        <template x-for="s in (item.originating_seed_details || [])" :key="s.pin_id">
+                          <span class="px-2 py-0.5 rounded text-[10px] font-mono border" :class="s.is_competitor ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/20' : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/20'" :title="'Pin ID: ' + s.pin_id" x-text="s.label"></span>
+                        </template>
+                      </div>
+                    </div>
+                  </td>
+
+                  <!-- 4. Pixie Multi-Hit Score -->
                   <td class="py-3.5 px-4 whitespace-nowrap font-mono">
-                    <div class="space-y-0.5">
-                      <div class="flex items-center space-x-1 text-slate-900 dark:text-slate-100 font-bold">
-                        <i data-lucide="bookmark" class="w-3.5 h-3.5 text-rose-500"></i>
-                        <span x-text="Number(item.total_saves || 0).toLocaleString() + ' saves'"></span>
-                      </div>
-                      <div class="text-[10px] text-slate-500 dark:text-slate-400" x-text="Number(item.total_repins || 0).toLocaleString() + ' repins'"></div>
-                      <div class="pt-0.5">
-                        <template x-if="Number(item.avg_save_rate) >= 90">
-                          <span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20">
-                            🔥 High Board Rate (<span x-text="item.avg_save_rate + '%'"></span>)
-                          </span>
-                        </template>
-                        <template x-if="Number(item.avg_save_rate) < 90">
-                          <span class="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400" x-text="item.avg_save_rate + '% Save Rate'"></span>
-                        </template>
-                      </div>
+                    <div class="text-sm font-extrabold text-amber-600 dark:text-amber-400" x-text="Number(item.pixie_multihit_score || 0).toLocaleString()"></div>
+                    <div class="text-[10px] text-slate-400">Random Walk Mass</div>
+                  </td>
+
+                  <!-- 5. Metrics -->
+                  <td class="py-3.5 px-4 whitespace-nowrap font-mono">
+                    <div class="font-bold text-slate-900 dark:text-white" x-text="Number(item.total_saves || 0).toLocaleString() + ' saves'"></div>
+                    <div class="text-[10px] text-slate-500" x-text="Number(item.total_repins || 0).toLocaleString() + ' repins • ' + item.avg_save_rate + '% rate'"></div>
+                  </td>
+
+                  <!-- 6. Color DNA -->
+                  <td class="py-3.5 px-4 whitespace-nowrap">
+                    <div class="flex items-center space-x-1.5">
+                      <span class="w-4 h-4 rounded border flex-shrink-0" :style="'background-color: ' + (item.winning_color || '#888888')"></span>
+                      <span class="font-mono text-[10px] text-slate-700 dark:text-slate-300" x-text="item.culinary_color_name"></span>
                     </div>
                   </td>
 
-                  <!-- 5. Dominant Color Swatch -->
-                  <td class="py-3.5 px-4 whitespace-nowrap">
-                    <div class="flex items-center space-x-2">
-                      <span class="w-4 h-4 rounded-md border border-slate-300 dark:border-slate-700 shadow-sm flex-shrink-0" :style="'background-color: ' + (item.winning_color || '#888888')"></span>
-                      <div class="space-y-0.5">
-                        <div class="font-mono text-[11px] font-bold text-slate-700 dark:text-slate-300" x-text="item.winning_color"></div>
-                        <div class="text-[10px] text-slate-500 dark:text-slate-400 max-w-[150px] truncate" x-text="item.culinary_color_name" :title="item.culinary_color_name"></div>
-                      </div>
-                    </div>
-                  </td>
-
-                  <!-- 6. Candidate Engine Source -->
-                  <td class="py-3.5 px-4 whitespace-nowrap">
-                    <span class="px-2 py-1 rounded-lg text-[10px] font-mono font-bold uppercase tracking-wider flex items-center space-x-1.5 w-max" :class="{
-                      'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20': item.engine_source === 'P2P_RANDOMWALK',
-                      'bg-sky-500/10 text-sky-700 dark:text-sky-400 border border-sky-500/20': item.engine_source === 'P2P_NAVBOOST',
-                      'bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20': item.engine_source === 'FRESH_SHOPPING',
-                      'bg-purple-500/10 text-purple-700 dark:text-purple-400 border border-purple-500/20': item.engine_source === 'P2P_TWO_TOWER',
-                      'bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 border border-indigo-500/20': item.engine_source === 'P2P_RECGPT'
-                    }">
-                      <i data-lucide="git-commit" class="w-3 h-3"></i>
-                      <span x-text="item.engine_source"></span>
-                    </span>
-                  </td>
-
-                  <!-- 7. Inspect Action -->
+                  <!-- 7. Action -->
                   <td class="py-3.5 px-4 text-right whitespace-nowrap">
-                    <button @click="inspectCandidate(item)" class="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-rose-50 dark:bg-slate-800 dark:hover:bg-rose-950/40 text-slate-700 dark:text-slate-200 hover:text-rose-600 dark:hover:text-rose-400 text-xs font-semibold transition border border-slate-200 dark:border-slate-700 active:scale-95 shadow-sm" title="Open Candidate Dossier & Menu Matrix">
-                      <i data-lucide="eye" class="w-3.5 h-3.5"></i>
-                      <span>Inspect</span>
+                    <button @click="inspectCandidate(item)" class="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-rose-600 to-amber-600 hover:from-rose-500 hover:to-amber-500 text-white text-xs font-semibold shadow-sm active:scale-95 transition">
+                      <i data-lucide="zap" class="w-3.5 h-3.5"></i>
+                      <span>⚡ Blueprint Studio</span>
                     </button>
-                  </td>
-                </tr>
-              </template>
-
-              <template x-if="filteredCandidates.length === 0">
-                <tr>
-                  <td colspan="7" class="py-12 text-center text-slate-400">
-                    <i data-lucide="inbox" class="w-8 h-8 mx-auto mb-2 opacity-40"></i>
-                    <p class="text-sm font-medium">No candidates match your current filter.</p>
                   </td>
                 </tr>
               </template>
@@ -581,190 +715,131 @@ function getDashboardHtml() {
     </div>
 
     <!-- ======================================================== -->
-    <!-- TAB 2: ALGORITHM & UTILITY ENGINE VIEW                   -->
+    <!-- TAB 3: 📊 MASTER DATABASE EXPLORER (SEARCH & SEED FILTER)-->
     <!-- ======================================================== -->
-    <div x-show="currentTab === 'utility'" class="space-y-6">
-      <div class="bg-white dark:bg-[#0d1526] border border-slate-200/90 dark:border-slate-800 rounded-2xl p-6 shadow-sm dark:shadow-xl space-y-6">
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-4">
-          <div>
-            <h3 class="text-base font-bold text-slate-900 dark:text-white flex items-center space-x-2">
-              <i data-lucide="activity" class="w-4 h-4 text-rose-500"></i>
-              <span>P2P Candidate Allocation Engine Quotas</span>
-            </h3>
-            <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Reverse-engineered Pinterest candidate allocation pool for tracked cluster</p>
+    <div x-show="currentTab === 'explorer'" class="space-y-4">
+      <div class="bg-white dark:bg-[#0d1526] border border-slate-200/90 dark:border-slate-800 rounded-2xl p-5 shadow-sm dark:shadow-xl space-y-4">
+        
+        <!-- Explorer Filter Controls -->
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <!-- Dropdown Filter by Seed Pin -->
+          <div class="flex items-center space-x-2">
+            <span class="text-xs font-semibold text-slate-600 dark:text-slate-400 font-mono whitespace-nowrap">Filter by Seed:</span>
+            <select x-model="explorerSeedId" @change="loadExplorerData()" class="px-3 py-1.5 rounded-xl text-xs bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-slate-100 font-mono focus:outline-none focus:border-rose-500">
+              <option value="all">All Tracked Seeds (220 Candidates)</option>
+              <template x-for="s in seeds" :key="s.pin_id">
+                <option :value="s.pin_id" x-text="s.label + ' (' + (s.total_candidates || 0) + ' nodes)'"></option>
+              </template>
+            </select>
           </div>
 
-          <!-- Evaluation Pool Badge -->
-          <div class="px-3 py-1 rounded-xl bg-sky-500/10 border border-sky-500/20 text-xs font-mono text-sky-700 dark:text-sky-300">
-            <span>Pinterest Evaluation Pool: <strong class="text-slate-900 dark:text-white" x-text="telemetry.total_engine_quota">0</strong> evaluated &rarr; Top <strong class="text-emerald-600 dark:text-emerald-400" x-text="telemetry.extracted_count || 0">0</strong> extracted</span>
-          </div>
-        </div>
-
-        <!-- Multi-color Stacked Allocation Bar -->
-        <div class="space-y-2">
-          <div class="w-full bg-slate-100 dark:bg-slate-900 rounded-xl h-5 overflow-hidden flex border border-slate-200 dark:border-slate-800 shadow-inner">
-            <div class="bg-purple-500 transition-all duration-500" :style="'width: ' + telemetry.recgpt_pct + '%'" :title="'RecGPT: ' + telemetry.recgpt_count"></div>
-            <div class="bg-sky-500 transition-all duration-500" :style="'width: ' + telemetry.navboost_pct + '%'" :title="'NavBoost: ' + telemetry.navboost_count"></div>
-            <div class="bg-emerald-500 transition-all duration-500" :style="'width: ' + telemetry.randomwalk_pct + '%'" :title="'RandomWalk (Pixie): ' + telemetry.randomwalk_count"></div>
-            <div class="bg-amber-500 transition-all duration-500" :style="'width: ' + telemetry.two_tower_pct + '%'" :title="'Two-Tower: ' + telemetry.two_tower_count"></div>
-            <div class="bg-rose-500 transition-all duration-500" :style="'width: ' + telemetry.fresh_pct + '%'" :title="'Fresh Candidates: ' + telemetry.fresh_candidate_count"></div>
-          </div>
-
-          <!-- Quota Breakdown Grid -->
-          <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 pt-2 text-xs font-mono">
-            <div class="bg-slate-50 dark:bg-slate-900/60 p-3 rounded-xl border border-slate-200 dark:border-slate-800 flex items-center space-x-2.5">
-              <div class="w-3 h-3 rounded bg-purple-500 flex-shrink-0"></div>
-              <div>
-                <div class="text-[10px] text-slate-500">P2P_RECGPT</div>
-                <div class="font-bold text-slate-900 dark:text-slate-100" x-text="telemetry.recgpt_count + ' (' + telemetry.recgpt_pct + '%)'"></div>
-              </div>
-            </div>
-
-            <div class="bg-slate-50 dark:bg-slate-900/60 p-3 rounded-xl border border-slate-200 dark:border-slate-800 flex items-center space-x-2.5">
-              <div class="w-3 h-3 rounded bg-sky-500 flex-shrink-0"></div>
-              <div>
-                <div class="text-[10px] text-slate-500">P2P_NAVBOOST</div>
-                <div class="font-bold text-slate-900 dark:text-slate-100" x-text="telemetry.navboost_count + ' (' + telemetry.navboost_pct + '%)'"></div>
-              </div>
-            </div>
-
-            <div class="bg-slate-50 dark:bg-slate-900/60 p-3 rounded-xl border border-slate-200 dark:border-slate-800 flex items-center space-x-2.5">
-              <div class="w-3 h-3 rounded bg-emerald-500 flex-shrink-0"></div>
-              <div>
-                <div class="text-[10px] text-slate-500">RANDOMWALK (Pixie)</div>
-                <div class="font-bold text-slate-900 dark:text-slate-100" x-text="telemetry.randomwalk_count + ' (' + telemetry.randomwalk_pct + '%)'"></div>
-              </div>
-            </div>
-
-            <div class="bg-slate-50 dark:bg-slate-900/60 p-3 rounded-xl border border-slate-200 dark:border-slate-800 flex items-center space-x-2.5">
-              <div class="w-3 h-3 rounded bg-amber-500 flex-shrink-0"></div>
-              <div>
-                <div class="text-[10px] text-slate-500">TWO_TOWER_EMBED</div>
-                <div class="font-bold text-slate-900 dark:text-slate-100" x-text="telemetry.two_tower_count + ' (' + telemetry.two_tower_pct + '%)'"></div>
-              </div>
-            </div>
-
-            <div class="bg-slate-50 dark:bg-slate-900/60 p-3 rounded-xl border border-slate-200 dark:border-slate-800 flex items-center space-x-2.5">
-              <div class="w-3 h-3 rounded bg-rose-500 flex-shrink-0"></div>
-              <div>
-                <div class="text-[10px] text-slate-500">FRESH_COLD_START</div>
-                <div class="font-bold text-slate-900 dark:text-slate-100" x-text="telemetry.fresh_candidate_count + ' (' + telemetry.fresh_pct + '%)'"></div>
-              </div>
-            </div>
+          <!-- Search Input -->
+          <div class="relative min-w-[260px]">
+            <i data-lucide="search" class="w-4 h-4 absolute left-3 top-2.5 text-slate-400"></i>
+            <input type="text" x-model="explorerSearchQuery" @input.debounce.300ms="loadExplorerData()" placeholder="Search title, domain, OCR text..." class="w-full pl-9 pr-4 py-1.5 rounded-xl text-xs bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 font-mono focus:outline-none focus:border-rose-500">
           </div>
         </div>
 
-        <!-- prod:v18 Disparity Mathematical Function -->
-        <div class="p-5 rounded-2xl bg-gradient-to-r from-slate-100 via-slate-50 to-slate-100 dark:from-slate-900 dark:via-slate-950 dark:to-slate-900 border border-slate-200 dark:border-slate-800 space-y-4">
-          <div class="flex items-center justify-between">
-            <span class="text-xs font-bold text-amber-600 dark:text-amber-400 uppercase font-mono tracking-wider flex items-center space-x-1.5">
-              <i data-lucide="scale" class="w-4 h-4"></i>
-              <span>prod:v18 Utility Disparity Equation</span>
-            </span>
-            <span class="px-2.5 py-0.5 rounded-full text-xs font-bold font-mono bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
-              5.12x Leverage Surplus
-            </span>
-          </div>
+        <!-- Master Candidates Table -->
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-xs border-collapse">
+            <thead>
+              <tr class="border-b border-slate-200 dark:border-slate-800/80 bg-slate-50/80 dark:bg-slate-900/60 text-slate-500 dark:text-slate-400 font-mono text-[11px] uppercase tracking-wider">
+                <th class="py-3.5 px-4">Preview & Format</th>
+                <th class="py-3.5 px-4 min-w-[260px]">Title & Vision OCR</th>
+                <th class="py-3.5 px-4">Origin Seed</th>
+                <th class="py-3.5 px-4">Metrics (Saves/Repins)</th>
+                <th class="py-3.5 px-4">Color Swatch</th>
+                <th class="py-3.5 px-4">Engine Source</th>
+                <th class="py-3.5 px-4 text-right">Inspect</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-sans">
+              <template x-for="item in explorerCandidates" :key="item.candidate_pin_id + '-' + item.seed_pin_id">
+                <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition">
+                  
+                  <!-- 1. Preview & Format -->
+                  <td class="py-3.5 px-4 whitespace-nowrap">
+                    <div class="flex items-center space-x-2">
+                      <div class="w-7 h-10 rounded flex-shrink-0 border shadow-sm flex items-center justify-center" :style="'border-color: ' + (item.winning_color || '#cbd5e1') + '; background-color: ' + (item.winning_color || '#cbd5e1') + '15;'">
+                        <i data-lucide="image" class="w-3.5 h-3.5 text-slate-400"></i>
+                      </div>
+                      <div>
+                        <span class="inline-block px-1.5 py-0.5 rounded text-[9px] font-mono font-bold tracking-wider uppercase" :class="{
+                          'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20': item.format_type === 'PRODUCT CARD',
+                          'bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20': item.format_type === 'ORGANIC PIN',
+                          'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20': item.format_type === 'VIDEO PIN',
+                          'bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20': item.format_type === 'IDEA PIN'
+                        }" x-text="item.format_type"></span>
 
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-sans">
-            <div class="bg-white dark:bg-slate-900 p-4 rounded-xl border border-rose-200 dark:border-rose-900/30 space-y-2">
-              <div class="flex items-center justify-between font-bold text-rose-600 dark:text-rose-400">
-                <span>Competitor Etsy / Organic Pin</span>
-                <span class="font-mono text-sm">-74.91 Net</span>
-              </div>
-              <p class="text-slate-500 dark:text-slate-400 text-[11px]">Suffers extreme hide penalty on slow third-party platforms with quick user bounce:</p>
-              <div class="font-mono text-[10px] text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-950 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 space-y-1">
-                <div>HIDE_WEIGHT: <strong class="text-rose-600">-1570.54</strong></div>
-                <div>SHORT_CLICK_5S_WEIGHT: <strong class="text-rose-600">-392.64</strong></div>
-                <div>CLICK_WEIGHT: <strong class="text-emerald-600">+2.95</strong></div>
-              </div>
-            </div>
+                        <template x-if="item.is_vacuum_target">
+                          <span class="ml-1 px-1 py-0.5 rounded text-[8px] font-extrabold uppercase bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/40">
+                            VACUUM
+                          </span>
+                        </template>
+                      </div>
+                    </div>
+                  </td>
 
-            <div class="bg-white dark:bg-slate-900 p-4 rounded-xl border border-emerald-200 dark:border-emerald-900/30 space-y-2">
-              <div class="flex items-center justify-between font-bold text-emerald-600 dark:text-emerald-400">
-                <span>Zizeeba Commercial Arbitrage Model</span>
-                <span class="font-mono text-sm">+383.34 Net</span>
-              </div>
-              <p class="text-slate-500 dark:text-slate-400 text-[11px]">Receives massive ranking amplification from trustworthy product metadata and high dwell:</p>
-              <div class="font-mono text-[10px] text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-950 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 space-y-1">
-                <div>LONG_CLICK_WEIGHT: <strong class="text-emerald-600">+275.60</strong></div>
-                <div>SHARE_WEIGHT: <strong class="text-emerald-600">+234.04</strong></div>
-                <div>CLICK_WEIGHT: <strong class="text-emerald-600">+166.74</strong></div>
-              </div>
-            </div>
-          </div>
+                  <!-- 2. Title & OCR -->
+                  <td class="py-3.5 px-4">
+                    <div class="space-y-1">
+                      <a :href="'https://www.pinterest.com/pin/' + item.candidate_pin_id + '/'" target="_blank" class="font-bold text-slate-900 dark:text-slate-100 hover:text-rose-600 dark:hover:text-rose-400 line-clamp-1 hover:underline" x-text="item.title"></a>
+                      <div class="flex items-center space-x-2 text-[10px] text-slate-500 font-mono">
+                        <span class="px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300" x-text="item.domain"></span>
+                        <span>•</span>
+                        <span x-text="'ID: ' + item.candidate_pin_id"></span>
+                      </div>
+                      <template x-if="item.ocr_text">
+                        <div class="p-1 px-1.5 rounded bg-slate-100 dark:bg-slate-900/90 text-[10px] text-slate-600 dark:text-slate-400 font-mono truncate max-w-sm" :title="item.ocr_text">
+                          <span class="text-rose-500 font-bold">OCR:</span> <span x-text="item.ocr_text"></span>
+                        </div>
+                      </template>
+                    </div>
+                  </td>
+
+                  <!-- 3. Origin Seed -->
+                  <td class="py-3.5 px-4 whitespace-nowrap font-mono text-xs">
+                    <span class="text-slate-500" x-text="'Seed: '"></span>
+                    <strong class="text-slate-800 dark:text-slate-200" x-text="item.seed_pin_id"></strong>
+                  </td>
+
+                  <!-- 4. Metrics -->
+                  <td class="py-3.5 px-4 whitespace-nowrap font-mono">
+                    <div class="font-bold text-slate-900 dark:text-white" x-text="Number(item.total_saves || 0).toLocaleString() + ' saves'"></div>
+                    <div class="text-[10px] text-slate-500" x-text="Number(item.total_repins || 0).toLocaleString() + ' repins • ' + item.avg_save_rate + '% rate'"></div>
+                  </td>
+
+                  <!-- 5. Color Swatch -->
+                  <td class="py-3.5 px-4 whitespace-nowrap">
+                    <div class="flex items-center space-x-1.5">
+                      <span class="w-3.5 h-3.5 rounded border" :style="'background-color: ' + (item.winning_color || '#888888')"></span>
+                      <span class="font-mono text-[10px]" x-text="item.culinary_color_name"></span>
+                    </div>
+                  </td>
+
+                  <!-- 6. Engine Source -->
+                  <td class="py-3.5 px-4 whitespace-nowrap">
+                    <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase" :class="{
+                      'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20': item.engine_source === 'P2P_RANDOMWALK',
+                      'bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20': item.engine_source === 'P2P_NAVBOOST',
+                      'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20': item.engine_source === 'FRESH_SHOPPING',
+                      'bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20': item.engine_source === 'P2P_TWO_TOWER'
+                    }" x-text="item.engine_source"></span>
+                  </td>
+
+                  <!-- 7. Inspect Action -->
+                  <td class="py-3.5 px-4 text-right whitespace-nowrap">
+                    <button @click="inspectCandidate(item)" class="p-1.5 rounded-lg bg-slate-100 hover:bg-rose-50 dark:bg-slate-800 dark:hover:bg-rose-950/40 text-slate-700 dark:text-slate-300 hover:text-rose-600 transition">
+                      <i data-lucide="eye" class="w-4 h-4"></i>
+                    </button>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
         </div>
-      </div>
-    </div>
 
-    <!-- ======================================================== -->
-    <!-- TAB 3: VISUAL INTELLIGENCE & COLORS VIEW                 -->
-    <!-- ======================================================== -->
-    <div x-show="currentTab === 'visual'" class="space-y-6">
-      <div class="bg-white dark:bg-[#0d1526] border border-slate-200/90 dark:border-slate-800 rounded-2xl p-6 shadow-sm dark:shadow-xl space-y-5">
-        <div>
-          <h3 class="text-base font-bold text-slate-900 dark:text-white flex items-center space-x-2">
-            <i data-lucide="palette" class="w-4 h-4 text-rose-500"></i>
-            <span>Cluster Color DNA (Dominant Centroids & Culinary Palette)</span>
-          </h3>
-          <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Top visual colors weighted by candidate engagement for Midjourney replication</p>
-        </div>
-
-        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 pt-2">
-          <template x-for="swatch in (telemetry.color_centroids || [])" :key="swatch.color">
-            <div class="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 flex items-center space-x-3 shadow-sm">
-              <span class="w-8 h-8 rounded-lg border border-slate-300 dark:border-slate-700 shadow-md flex-shrink-0" :style="'background-color: ' + swatch.color"></span>
-              <div class="min-w-0">
-                <div class="font-mono text-xs font-bold text-slate-900 dark:text-white" x-text="swatch.color"></div>
-                <div class="text-[10px] text-slate-500 dark:text-slate-400 truncate" x-text="getCulinaryName(swatch.color)"></div>
-                <div class="text-[10px] font-mono text-emerald-600 dark:text-emerald-400 font-bold" x-text="swatch.percentage + '% allocation'"></div>
-              </div>
-            </div>
-          </template>
-        </div>
-      </div>
-    </div>
-
-    <!-- ======================================================== -->
-    <!-- TAB 4: CREATOR PLAYBOOK (RECGPT MATRIX) VIEW             -->
-    <!-- ======================================================== -->
-    <div x-show="currentTab === 'playbook'" class="space-y-6">
-      <div class="bg-white dark:bg-[#0d1526] border border-slate-200/90 dark:border-slate-800 rounded-2xl p-6 shadow-sm dark:shadow-xl space-y-5">
-        <div>
-          <h3 class="text-base font-bold text-slate-900 dark:text-white flex items-center space-x-2">
-            <i data-lucide="book-open" class="w-4 h-4 text-rose-500"></i>
-            <span>Creator Playbook: High-Save NLP Lexical Stack</span>
-          </h3>
-          <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Keywords ranked by TF-IDF weighted save rate (W_t = Σ TF(t) × Saves)</p>
-        </div>
-
-        <div class="flex flex-wrap gap-2 pt-2">
-          <template x-for="token in (telemetry.high_save_tokens || [])" :key="token.token">
-            <div class="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 text-xs font-mono shadow-sm">
-              <span class="font-bold text-slate-900 dark:text-slate-100" x-text="token.token"></span>
-              <span class="text-[10px] px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-600 dark:text-rose-400 font-bold" x-text="'TF ' + token.tf"></span>
-              <span class="text-[10px] text-slate-400" x-text="'Score ' + token.weighted_score"></span>
-            </div>
-          </template>
-        </div>
-      </div>
-    </div>
-
-    <!-- ======================================================== -->
-    <!-- TAB 5: RAW JSON INSPECTOR VIEW                           -->
-    <!-- ======================================================== -->
-    <div x-show="currentTab === 'raw'" class="space-y-4">
-      <div class="bg-white dark:bg-[#0d1526] border border-slate-200/90 dark:border-slate-800 rounded-2xl p-6 shadow-sm dark:shadow-xl space-y-4">
-        <div class="flex items-center justify-between">
-          <h3 class="text-base font-bold text-slate-900 dark:text-white flex items-center space-x-2">
-            <i data-lucide="code-2" class="w-4 h-4 text-rose-500"></i>
-            <span>Raw JSON Data Inspector</span>
-          </h3>
-          <button @click="copyToClipboard(rawJsonString, 'raw')" class="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-semibold font-mono text-slate-700 dark:text-slate-200 transition">
-            <span x-text="copiedField === 'raw' ? 'Copied JSON!' : 'Copy Full JSON'"></span>
-          </button>
-        </div>
-        <pre class="bg-slate-50 dark:bg-black/80 p-4 rounded-xl border border-slate-200 dark:border-slate-800 font-mono text-[11px] leading-relaxed max-h-[500px] overflow-y-auto text-slate-800 dark:text-slate-200" x-text="rawJsonString"></pre>
       </div>
     </div>
 
@@ -801,13 +876,13 @@ function getDashboardHtml() {
             <div class="text-[11px] font-mono text-slate-500 flex items-center space-x-2 pt-0.5">
               <span x-text="selectedCandidate?.domain"></span>
               <span>•</span>
-              <span class="text-rose-500 font-bold" x-text="Number(selectedCandidate?.total_saves || 0).toLocaleString() + ' Saves'"></span>
+              <span class="text-rose-500 font-bold" x-text="Number(selectedCandidate?.total_saves || selectedCandidate?.saves || 0).toLocaleString() + ' Saves'"></span>
             </div>
           </div>
           <div class="flex items-center space-x-2 p-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 flex-shrink-0">
-            <span class="w-6 h-6 rounded-md border" :style="'background-color: ' + (selectedCandidate?.winning_color || '#888888')"></span>
+            <span class="w-6 h-6 rounded-md border" :style="'background-color: ' + (selectedCandidate?.winning_color || selectedCandidate?.dominant_color || '#888888')"></span>
             <div class="text-[10px] font-mono">
-              <div class="font-bold" x-text="selectedCandidate?.winning_color"></div>
+              <div class="font-bold" x-text="selectedCandidate?.winning_color || selectedCandidate?.dominant_color"></div>
               <div class="text-slate-400 text-[9px]" x-text="selectedCandidate?.culinary_color_name"></div>
             </div>
           </div>
@@ -952,53 +1027,6 @@ function getDashboardHtml() {
     </div>
   </div>
 
-  <!-- dHash Guard Perceptual Hash Verification Modal -->
-  <div x-show="isDhashModalOpen" x-cloak class="fixed inset-0 z-50 overflow-y-auto bg-slate-950/70 backdrop-blur-md flex items-center justify-center p-4">
-    <div class="bg-white dark:bg-[#0d1526] border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-lg shadow-2xl p-6 space-y-4" @click.away="isDhashModalOpen = false">
-      <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
-        <div class="flex items-center space-x-2">
-          <div class="w-8 h-8 rounded-lg bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
-            <i data-lucide="shield" class="w-4 h-4"></i>
-          </div>
-          <div>
-            <h3 class="font-bold text-slate-900 dark:text-white text-sm">dHash Perceptual Signature Guard</h3>
-            <p class="text-[11px] text-slate-500 font-mono">Pinterest Duplicate Suppression Immunity</p>
-          </div>
-        </div>
-        <button @click="isDhashModalOpen = false" class="text-slate-400 hover:text-slate-700 dark:hover:text-white">
-          <i data-lucide="x" class="w-4 h-4"></i>
-        </button>
-      </div>
-
-      <div class="space-y-3 text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-        <p>Pinterest computes 64-bit gradient difference hashes (<code class="text-rose-500 font-mono">dHash</code>) on incoming media to deduplicate pins and suppress low-effort re-uploads.</p>
-        
-        <div class="p-3 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-2 font-mono text-[11px]">
-          <div class="flex items-center justify-between text-slate-900 dark:text-slate-200">
-            <span>Minimum Hamming Distance:</span>
-            <strong class="text-emerald-600">&gt; 12 bits</strong>
-          </div>
-          <div class="flex items-center justify-between text-slate-900 dark:text-slate-200">
-            <span>Visual Uniqueness Rating:</span>
-            <strong class="text-emerald-600">99.4% Unique</strong>
-          </div>
-          <div class="flex items-center justify-between text-slate-900 dark:text-slate-200">
-            <span>Status:</span>
-            <strong class="text-indigo-500">PROTECTED (Zero Deduplication Risk)</strong>
-          </div>
-        </div>
-
-        <p class="text-[11px] text-slate-500">All Midjourney assets generated via our production prompts exceed the required gradient disparity threshold, guaranteeing clean organic distribution.</p>
-      </div>
-
-      <div class="pt-2 flex justify-end">
-        <button @click="isDhashModalOpen = false" class="px-4 py-1.5 rounded-lg bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-semibold text-xs transition">
-          Close
-        </button>
-      </div>
-    </div>
-  </div>
-
   <!-- Add New Seed Modal -->
   <div x-show="isAddSeedOpen" x-cloak class="fixed inset-0 z-50 overflow-y-auto bg-slate-950/70 backdrop-blur-md flex items-center justify-center p-4">
     <div class="bg-white dark:bg-[#0d1526] border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-md shadow-2xl p-6 space-y-4" @click.away="isAddSeedOpen = false">
@@ -1015,11 +1043,11 @@ function getDashboardHtml() {
       <div class="space-y-3 text-xs">
         <div>
           <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Pinterest Pin ID</label>
-          <input type="text" x-model="newSeed.pin_id" placeholder="e.g. 1043850019900672106" class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:outline-none focus:border-rose-500 font-mono">
+          <input type="text" x-model="newSeed.pin_id" placeholder="e.g. 346495765100199292" class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:outline-none focus:border-rose-500 font-mono">
         </div>
         <div>
           <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Label / Recipe Name</label>
-          <input type="text" x-model="newSeed.label" placeholder="e.g. Creamy Potato Soup Competitor" class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:outline-none focus:border-rose-500">
+          <input type="text" x-model="newSeed.label" placeholder="e.g. Garlic Butter Chicken Competitor" class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:outline-none focus:border-rose-500">
         </div>
         <div class="flex items-center justify-between pt-1">
           <label class="flex items-center space-x-2 cursor-pointer">
@@ -1051,23 +1079,30 @@ function getDashboardHtml() {
     function dashboardApp() {
       return {
         isDark: false,
-        currentTab: 'table',
-        candidateFilter: 'all',
-        searchQuery: '',
+        currentTab: 'seeds',
         isLoading: false,
         isAddSeedOpen: false,
         isDossierOpen: false,
-        isDhashModalOpen: false,
         copiedField: null,
         toastMessage: null,
 
+        // Data Stores
         overview: {},
         seeds: [],
-        candidates: [],
-        telemetry: {},
-        selectedSeedId: null,
+        intersections: [],
+
+        // Tab 1: Seed Dossier State
+        activeDossierSeed: null,
+        dossierCandidates: [],
+        dossierTelemetry: {},
+        dossierSearchQuery: '',
+
+        // Tab 3: Master Explorer State
+        explorerSeedId: 'all',
+        explorerCandidates: [],
+        explorerSearchQuery: '',
+
         selectedCandidate: null,
-        simulatedPins: {},
 
         crawlStatus: { is_crawling: false },
         crawlElapsed: 0,
@@ -1088,34 +1123,22 @@ function getDashboardHtml() {
           });
         },
 
-        getCulinaryName(hex) {
-          const names = {
-            '#824d30': 'Rustic Umber / Roasted Crust',
-            '#663e0d': 'Deep Molasses / Dark Cocoa',
-            '#6b4216': 'Toasted Walnut / Brown Butter',
-            '#b9975f': 'Golden Cornmeal / Biscuit Crust',
-            '#9f642e': 'Caramel Glaze / Roasted Pecan',
-            '#ad7137': 'Honey Amber / Crispy Garlic',
-            '#d08c47': 'Cheddar Melt / Golden Brioche',
-            '#ecc584': 'Warm Cream / Flaky Pastry',
-            '#beae88': 'Savory Herb Crust / Almond Beige',
-            '#888888': 'Slate Mineral / Neutral Steel'
-          };
-          return names[hex] || 'Artisan Savory Blend';
+        switchTab(tab) {
+          this.currentTab = tab;
+          if (tab === 'intersections' && this.intersections.length === 0) {
+            this.fetchIntersections();
+          } else if (tab === 'explorer' && this.explorerCandidates.length === 0) {
+            this.loadExplorerData();
+          }
+          this.$nextTick(() => {
+            if (window.lucide) window.lucide.createIcons();
+          });
         },
 
-        get filteredCandidates() {
-          let list = this.candidates || [];
-          if (this.candidateFilter === 'hubs') {
-            list = list.filter(i => Number(i.seed_overlap_count) >= 2);
-          } else if (this.candidateFilter === 'vacuum') {
-            list = list.filter(i => i.is_vacuum_target);
-          } else if (this.candidateFilter === 'product') {
-            list = list.filter(i => i.is_product);
-          }
-
-          if (this.searchQuery.trim()) {
-            const q = this.searchQuery.toLowerCase().trim();
+        get filteredDossierCandidates() {
+          let list = this.dossierCandidates || [];
+          if (this.dossierSearchQuery.trim()) {
+            const q = this.dossierSearchQuery.toLowerCase().trim();
             list = list.filter(i => 
               (i.title && i.title.toLowerCase().includes(q)) ||
               (i.domain && i.domain.toLowerCase().includes(q)) ||
@@ -1126,21 +1149,11 @@ function getDashboardHtml() {
           return list;
         },
 
-        get rawJsonString() {
-          return JSON.stringify({
-            overview: this.overview,
-            telemetry: this.telemetry,
-            active_seeds: this.seeds,
-            top_candidates_sample: (this.candidates || []).slice(0, 10)
-          }, null, 2);
-        },
-
         get cleanRecipeTitle() {
           if (!this.selectedCandidate) return 'Recipe';
           let title = this.selectedCandidate.title || '';
           if (!title || title.startsWith('[')) {
-            const topTokens = (this.telemetry.high_save_tokens || []).slice(0, 2).map(t => t.token).join(' ');
-            title = topTokens ? (topTokens.charAt(0).toUpperCase() + topTokens.slice(1) + ' Dish') : 'Gourmet Dish';
+            title = 'Gourmet Culinary Dish';
           } else {
             title = title.replace(/\\s*\\|.*$/g, '');
             title = title.replace(/\\s*-\\s*.*recipe.*$/i, '');
@@ -1155,7 +1168,7 @@ function getDashboardHtml() {
 
         get blueprintMidjourney() {
           const title = this.cleanRecipeTitle;
-          const color = this.selectedCandidate?.winning_color || '#824d30';
+          const color = this.selectedCandidate?.winning_color || this.selectedCandidate?.dominant_color || '#824d30';
           return 'A high-end commercial food photography shot of ' + title + ', styled for a gourmet cookbook, vibrant textures, natural daylight, shallow depth of field, warm cozy aesthetic, color palette accented by ' + color + ', shot on Hasselblad 50mm f/1.8 --ar 9:16 --v 6.1 --style raw --q 2';
         },
 
@@ -1198,8 +1211,35 @@ function getDashboardHtml() {
           return JSON.stringify(schema, null, 2);
         },
 
-        toggleSimulation(pinId) {
-          this.simulatedPins[pinId] = !this.simulatedPins[pinId];
+        async openSeedDossier(seed) {
+          this.activeDossierSeed = seed;
+          this.dossierCandidates = [];
+          this.dossierTelemetry = {};
+          this.dossierSearchQuery = '';
+
+          try {
+            const [candRes, telRes] = await Promise.all([
+              fetch('/api/candidates?seed_pin_id=' + seed.pin_id + '&limit=1000'),
+              fetch('/api/cluster-telemetry?seed_pin_id=' + seed.pin_id)
+            ]);
+            if (candRes.ok) this.dossierCandidates = await candRes.json();
+            if (telRes.ok) this.dossierTelemetry = await telRes.json();
+          } catch (e) {
+            console.error(e);
+          }
+
+          this.$nextTick(() => {
+            if (window.lucide) window.lucide.createIcons();
+          });
+        },
+
+        closeSeedDossier() {
+          this.activeDossierSeed = null;
+          this.dossierCandidates = [];
+          this.dossierTelemetry = {};
+          this.$nextTick(() => {
+            if (window.lucide) window.lucide.createIcons();
+          });
         },
 
         inspectCandidate(item) {
@@ -1210,18 +1250,11 @@ function getDashboardHtml() {
           });
         },
 
-        exploitTopVacuumTarget() {
-          const vacuum = (this.candidates || []).find(c => c.is_vacuum_target) || this.candidates[0];
-          if (vacuum) {
-            this.inspectCandidate(vacuum);
-          }
-        },
-
         copyPromptForPairing(type) {
           const title = this.cleanRecipeTitle;
           const prompt = 'Gourmet commercial cookbook photography of ' + type + ' paired with ' + title + ', warm rustic kitchen lighting, shallow depth of field, fresh garnish, vibrant textures, shot on Hasselblad 50mm f/1.8 --ar 9:16 --v 6.1 --style raw';
           navigator.clipboard.writeText(prompt);
-          this.showToast('Generated & Copied ' + type + ' Midjourney Prompt!');
+          this.showToast('Generated & Copied ' + type + ' Prompt!');
         },
 
         copyToClipboard(text, field) {
@@ -1241,7 +1274,7 @@ function getDashboardHtml() {
           if (savedTheme) {
             this.isDark = savedTheme === 'dark';
           }
-          await this.fetchData();
+          await this.refreshAll();
           this.pollCrawlStatus();
           setInterval(() => this.pollCrawlStatus(), 3000);
           this.$nextTick(() => {
@@ -1249,7 +1282,7 @@ function getDashboardHtml() {
           });
         },
 
-        async fetchData() {
+        async refreshAll() {
           this.isLoading = true;
           try {
             await Promise.all([
@@ -1257,10 +1290,9 @@ function getDashboardHtml() {
               this.fetchSeeds(),
               this.fetchIntersections()
             ]);
-            if (this.seeds.length > 0 && !this.selectedSeedId) {
-              this.selectedSeedId = this.seeds[0].pin_id;
+            if (this.currentTab === 'explorer') {
+              await this.loadExplorerData();
             }
-            await this.fetchTelemetry();
           } finally {
             this.isLoading = false;
             this.$nextTick(() => {
@@ -1279,30 +1311,32 @@ function getDashboardHtml() {
         async fetchSeeds() {
           try {
             const res = await fetch('/api/seeds');
-            if (res.ok) {
-              this.seeds = await res.json();
-              if (this.seeds.length > 0 && !this.selectedSeedId) {
-                this.selectedSeedId = this.seeds[0].pin_id;
-              }
-            }
+            if (res.ok) this.seeds = await res.json();
           } catch (e) {}
         },
 
         async fetchIntersections() {
           try {
-            const res = await fetch('/api/intersections?min_overlap=1');
-            if (res.ok) this.candidates = await res.json();
+            const res = await fetch('/api/intersections?min_overlap=2&limit=1000');
+            if (res.ok) this.intersections = await res.json();
           } catch (e) {}
         },
 
-        async fetchTelemetry() {
-          if (!this.selectedSeedId) return;
+        async loadExplorerData() {
+          let url = '/api/candidates?limit=1000';
+          if (this.explorerSeedId && this.explorerSeedId !== 'all') {
+            url += '&seed_pin_id=' + this.explorerSeedId;
+          }
+          if (this.explorerSearchQuery.trim()) {
+            url += '&q=' + encodeURIComponent(this.explorerSearchQuery.trim());
+          }
           try {
-            const res = await fetch('/api/cluster-telemetry?seed_pin_id=' + this.selectedSeedId);
-            if (res.ok) {
-              this.telemetry = await res.json();
-            }
+            const res = await fetch(url);
+            if (res.ok) this.explorerCandidates = await res.json();
           } catch (e) {}
+          this.$nextTick(() => {
+            if (window.lucide) window.lucide.createIcons();
+          });
         },
 
         async triggerCrawl(seedPinId = null) {
@@ -1341,7 +1375,10 @@ function getDashboardHtml() {
               const prevCrawling = this.crawlStatus.is_crawling;
               this.crawlStatus = await res.json();
               if (prevCrawling && !this.crawlStatus.is_crawling) {
-                await this.fetchData();
+                await this.refreshAll();
+                if (this.activeDossierSeed) {
+                  await this.openSeedDossier(this.activeDossierSeed);
+                }
                 this.showToast('Crawl completed! Data refreshed.');
               }
             }
@@ -1364,7 +1401,7 @@ function getDashboardHtml() {
               const newPinId = this.newSeed.pin_id;
               this.newSeed = { pin_id: '', label: '', is_competitor: true, auto_crawl: true };
               this.isAddSeedOpen = false;
-              await this.fetchData();
+              await this.refreshAll();
               if (autoCrawl) {
                 await this.triggerCrawl(newPinId);
               }
@@ -1417,7 +1454,71 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, crawlState);
     }
 
-    // 3. GET /api/cluster-telemetry
+    // 3. GET /api/candidates (Dedicated per-seed and explorer query, uncapped)
+    if (method === 'GET' && pathname === '/api/candidates') {
+      const seedPinId = parsedUrl.searchParams.get('seed_pin_id');
+      const limit = Number(parsedUrl.searchParams.get('limit')) || 1000;
+      const offset = Number(parsedUrl.searchParams.get('offset')) || 0;
+      const query = (parsedUrl.searchParams.get('q') || '').trim();
+
+      let rows;
+      if (seedPinId && query) {
+        const qPattern = `%${query.toLowerCase()}%`;
+        rows = await sql`
+          SELECT * FROM candidate_graph_nodes
+          WHERE seed_pin_id = ${seedPinId}
+            AND (LOWER(title) LIKE ${qPattern} OR LOWER(domain) LIKE ${qPattern} OR LOWER(COALESCE(ocr_text, '')) LIKE ${qPattern} OR candidate_pin_id LIKE ${qPattern})
+          ORDER BY saves DESC
+          LIMIT ${limit} OFFSET ${offset};
+        `;
+      } else if (seedPinId) {
+        rows = await sql`
+          SELECT * FROM candidate_graph_nodes
+          WHERE seed_pin_id = ${seedPinId}
+          ORDER BY saves DESC
+          LIMIT ${limit} OFFSET ${offset};
+        `;
+      } else if (query) {
+        const qPattern = `%${query.toLowerCase()}%`;
+        rows = await sql`
+          SELECT * FROM candidate_graph_nodes
+          WHERE LOWER(title) LIKE ${qPattern} OR LOWER(domain) LIKE ${qPattern} OR LOWER(COALESCE(ocr_text, '')) LIKE ${qPattern} OR candidate_pin_id LIKE ${qPattern}
+          ORDER BY saves DESC
+          LIMIT ${limit} OFFSET ${offset};
+        `;
+      } else {
+        rows = await sql`
+          SELECT * FROM candidate_graph_nodes
+          ORDER BY saves DESC
+          LIMIT ${limit} OFFSET ${offset};
+        `;
+      }
+
+      const enriched = rows.map((r) => {
+        const saves = Number(r.saves || 0);
+        const ar = Number(r.aspect_ratio || 0.56);
+        let format = 'ORGANIC PIN';
+        if (r.is_product) format = 'PRODUCT CARD';
+        else if (ar < 0.6) format = 'VIDEO PIN';
+        else if (ar > 1.3) format = 'IDEA PIN';
+
+        return {
+          ...r,
+          total_saves: saves,
+          total_repins: Number(r.repins || 0),
+          avg_save_rate: Number(r.save_rate || 0),
+          culinary_color_name: getCulinaryColorName(r.dominant_color),
+          winning_color: r.dominant_color,
+          format_type: format,
+          is_vacuum_target: !r.is_product && saves >= 5000,
+          engine_source: r.is_product ? 'FRESH_SHOPPING' : (saves >= 30000 ? 'P2P_NAVBOOST' : 'P2P_TWO_TOWER')
+        };
+      });
+
+      return sendJson(res, 200, enriched);
+    }
+
+    // 4. GET /api/cluster-telemetry
     if (method === 'GET' && pathname === '/api/cluster-telemetry') {
       let seedPinId = parsedUrl.searchParams.get('seed_pin_id');
 
@@ -1496,7 +1597,7 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
-    // 4. GET /api/overview
+    // 5. GET /api/overview
     if (method === 'GET' && pathname === '/api/overview') {
       const overviewRows = await sql`
         SELECT 
@@ -1543,10 +1644,15 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
-    // 5. GET /api/intersections
+    // 6. GET /api/intersections (Uncapped, includes originating seed details)
     if (method === 'GET' && pathname === '/api/intersections') {
-      const minOverlap = Number(parsedUrl.searchParams.get('min_overlap')) || 1;
-      const limit = Number(parsedUrl.searchParams.get('limit')) || 150;
+      const minOverlap = Number(parsedUrl.searchParams.get('min_overlap')) || 2;
+      const limit = Number(parsedUrl.searchParams.get('limit')) || 1000;
+
+      // Get seeds map for labels
+      const allSeeds = await sql`SELECT pin_id, label, is_competitor FROM cluster_seeds;`;
+      const seedMap = new Map();
+      for (const s of allSeeds) seedMap.set(s.pin_id, s);
 
       const rows = await sql`
         SELECT 
@@ -1586,19 +1692,29 @@ const server = http.createServer(async (req, res) => {
         else if (ar < 0.6) format = 'VIDEO PIN';
         else if (ar > 1.3) format = 'IDEA PIN';
 
+        const seedDetails = (r.originating_seeds || []).map((sid) => {
+          const found = seedMap.get(sid);
+          return {
+            pin_id: sid,
+            label: found ? found.label : `Seed ${sid}`,
+            is_competitor: found ? found.is_competitor : false
+          };
+        });
+
         return {
           ...r,
           engine_source: engine,
           format_type: format,
           culinary_color_name: getCulinaryColorName(r.winning_color),
-          is_vacuum_target: !r.is_product && saves >= 5000
+          is_vacuum_target: !r.is_product && saves >= 5000,
+          originating_seed_details: seedDetails
         };
       });
 
       return sendJson(res, 200, enrichedRows);
     }
 
-    // 6. GET /api/seeds
+    // 7. GET /api/seeds
     if (method === 'GET' && pathname === '/api/seeds') {
       const seeds = await sql`
         SELECT 
@@ -1608,7 +1724,7 @@ const server = http.createServer(async (req, res) => {
             s.velocity,
             s.last_crawled_at,
             s.created_at,
-            m.total_candidates,
+            COALESCE(c_count.count, 0) AS total_candidates,
             m.product_count,
             m.commercial_gap_ratio,
             m.winning_color_centroids,
@@ -1621,6 +1737,11 @@ const server = http.createServer(async (req, res) => {
             m.analyzed_at
         FROM cluster_seeds s
         LEFT JOIN LATERAL (
+            SELECT COUNT(*) AS count
+            FROM candidate_graph_nodes
+            WHERE seed_pin_id = s.pin_id
+        ) c_count ON true
+        LEFT JOIN LATERAL (
             SELECT * FROM cluster_arbitrage_metrics 
             WHERE seed_pin_id = s.pin_id 
             ORDER BY analyzed_at DESC 
@@ -1631,7 +1752,7 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, seeds);
     }
 
-    // 7. POST /api/seeds
+    // 8. POST /api/seeds
     if (method === 'POST' && pathname === '/api/seeds') {
       const body = await parseRequestBody(req);
       const pinId = String(body.pin_id || '').trim();
@@ -1654,7 +1775,7 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 201, { success: true, seed: result[0] });
     }
 
-    // 8. GET or HEAD /
+    // 9. GET or HEAD /
     if ((method === 'GET' || method === 'HEAD') && pathname === '/') {
       const html = getDashboardHtml();
       res.writeHead(200, {
