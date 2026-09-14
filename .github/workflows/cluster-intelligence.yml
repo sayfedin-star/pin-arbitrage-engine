@@ -1,0 +1,40 @@
+name: Cluster Intelligence & Arbitrage Pipeline
+
+on:
+  schedule:
+    # Run daily at 03:00 UTC
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+    inputs:
+      seed_pin_id:
+        description: 'Optional Target Pin ID to crawl immediately'
+        required: false
+        type: string
+
+concurrency:
+  group: cluster-intelligence
+  cancel-in-progress: false
+
+jobs:
+  crawl-and-synthesize:
+    name: Crawl & Synthesize P2P Graph
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Execute Cluster Intelligence Engine
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PINTEREST_COOKIE: ${{ secrets.PINTEREST_COOKIE }}
+          TARGET_PIN_ID: ${{ inputs.seed_pin_id }}
+        run: node scripts/cluster-intelligence.mjs

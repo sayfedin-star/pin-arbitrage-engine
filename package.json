@@ -1,0 +1,24 @@
+{
+  "name": "pin-arbitrage-engine",
+  "version": "1.0.0",
+  "description": "Pinterest Algorithmic Arbitrage Engine (P2P Cluster Intelligence, Neon Serverless & GH Workflows)",
+  "type": "module",
+  "main": "scripts/cluster-intelligence.mjs",
+  "scripts": {
+    "start": "node scripts/cluster-intelligence.mjs",
+    "crawl": "node scripts/cluster-intelligence.mjs",
+    "check": "node -c scripts/cluster-intelligence.mjs"
+  },
+  "keywords": [
+    "pinterest",
+    "arbitrage",
+    "p2p-cluster",
+    "neon-serverless",
+    "algorithmic-intelligence"
+  ],
+  "author": "sayfedin-star",
+  "license": "MIT",
+  "dependencies": {
+    "@neondatabase/serverless": "^0.10.4"
+  }
+}
