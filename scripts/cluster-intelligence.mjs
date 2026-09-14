@@ -144,15 +144,28 @@ function parsePinCandidate(pin, seedPinId) {
   }
 
   // Title fallback chain
-  const title = (
+  let title = (
     cleanString(pin.title) ||
     cleanString(pin.grid_title) ||
     cleanString(pin.rich_summary?.display_name) ||
     cleanString(pin.story_pin_data?.metadata?.pin_title) ||
     cleanString(pin.auto_alt_text) ||
-    (typeof pin.description === 'string' ? pin.description.slice(0, 60).trim() : '') ||
-    'Untitled Recipe'
+    (typeof pin.description === 'string' ? pin.description.slice(0, 60).trim() : '')
   );
+
+  if (!title) {
+    const boardName = cleanString(pin.board?.name);
+    const domainName = cleanString(pin.domain) || cleanString(pin.link_domain?.id);
+    if (boardName) {
+      title = `${boardName} Idea`;
+    } else if (domainName && domainName !== 'Uploaded by user') {
+      title = `Content via ${domainName}`;
+    } else if (pin.is_video || pin.story_pin_data) {
+      title = `[Video Pin without Title]`;
+    } else {
+      title = `[Pin without Title]`;
+    }
+  }
 
   const dominantColor = cleanString(pin.dominant_color) || '#888888';
 
@@ -192,6 +205,35 @@ function parsePinCandidate(pin, seedPinId) {
     is_product: isProduct,
     ocr_text: ocrText
   };
+}
+
+/**
+ * Sanity filter: check if candidate pin belongs to the culinary / food domain
+ * and has minimum viable engagement.
+ */
+function isCulinaryCandidate(pin, candidate) {
+  if (!candidate) return false;
+
+  // Combine all textual signals
+  const text = `${candidate.title} ${candidate.ocr_text || ''} ${pin.description || ''} ${pin.board?.name || ''}`.toLowerCase();
+
+  // Negative blacklist: signals that explicitly indicate non-culinary domains
+  const NON_CULINARY_REGEX = /\b(hair|hairstyles?|wig|wigs|braid|braids|braiding|cornrows|dreadlocks|haircut|curls|balayage|updo|ponytail|barber|makeup|lipstick|mascara|eyeliner|eyeshadow|skincare|serum|facial|fashion|outfit|outfits|wardrobe|dress|dresses|jeans|hoodie|shoes|sneakers|jewelry|earrings|necklace|bracelet|tattoo|tattoos|nails|nail\s*art|acrylic\s*nails|manicure|pedicure|piercing|workout|gym\s*routine|fitness\s*exercises?|bodybuilding|interior\s*decor|living\s*room|bedroom\s*decor|furniture)\b/i;
+
+  // Positive culinary keywords
+  const CULINARY_REGEX = /\b(recipe|recipes|soup|soups|crockpot|slow\s*cooker|instant\s*pot|dinner|dinners|lunch|breakfast|brunch|meal|meals|cook|cooking|bake|baking|food|foods|kitchen|casserole|potato|potatoes|chicken|beef|pork|cheese|cheesy|pasta|sauce|garlic|delicious|dessert|desserts|snack|snacks|appetizer|appetizers|salad|salads|pie|pies|bread|breads|cake|cakes|cookie|cookies|dish|dishes|skillet|pan|stew|stews|roast|dip|dips|taco|tacos|bowl|bowls|smoothie|drink|drinks|cocktail|treat|treats|yum|yummy|flavor|savory|seasoning|dough|crust|bacon|cheddar|herb|herbs|butter|cream|creamy)\b/i;
+
+  // If candidate contains clear non-culinary terms and lacks any culinary terms, reject!
+  if (NON_CULINARY_REGEX.test(text) && !CULINARY_REGEX.test(text)) {
+    return false;
+  }
+
+  // Reject candidates that have 0 saves and 0 repins unless they have an explicit culinary title
+  if ((candidate.saves === 0 && candidate.repins === 0) && !CULINARY_REGEX.test(candidate.title.toLowerCase())) {
+    return false;
+  }
+
+  return true;
 }
 
 /**
@@ -377,7 +419,7 @@ async function crawlSeed(seed) {
 
       for (const pinObj of pinsToProcess) {
         const parsed = parsePinCandidate(pinObj, pinId);
-        if (parsed && !candidatesMap.has(parsed.candidate_pin_id)) {
+        if (parsed && isCulinaryCandidate(pinObj, parsed) && !candidatesMap.has(parsed.candidate_pin_id)) {
           candidatesMap.set(parsed.candidate_pin_id, parsed);
         }
       }

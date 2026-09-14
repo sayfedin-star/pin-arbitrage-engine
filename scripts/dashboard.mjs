@@ -264,7 +264,7 @@ function getDashboardHtml() {
       <!-- Total Candidates Card -->
       <div class="bg-[#0b1120]/80 border border-slate-800/90 rounded-2xl p-4 relative overflow-hidden group hover:border-slate-700 transition shadow-xl">
         <div class="flex items-center justify-between">
-          <span class="text-[11px] font-mono font-medium uppercase tracking-wider text-slate-400">Graph Candidate Nodes</span>
+          <span class="text-[11px] font-mono font-medium uppercase tracking-wider text-slate-400">STORED CANDIDATES (DATABASE)</span>
           <div class="p-1.5 rounded-lg bg-sky-500/10 text-sky-400 border border-sky-500/20">
             <i data-lucide="network" class="w-4 h-4"></i>
           </div>
@@ -275,7 +275,7 @@ function getDashboardHtml() {
         </div>
         <div class="mt-2 text-[11px] text-slate-400 flex items-center space-x-1">
           <span class="w-1.5 h-1.5 rounded-full bg-sky-400"></span>
-          <span>Harvested via RelatedModulesResource</span>
+          <span>Extracted & stored in Neon Postgres</span>
         </div>
       </div>
 
@@ -349,12 +349,14 @@ function getDashboardHtml() {
 
         <!-- Left Column: P2P Retrieval Allocation (7 cols) -->
         <div class="lg:col-span-7 space-y-4">
-          <div class="flex items-center justify-between">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <span class="text-xs font-bold text-slate-200 uppercase font-mono tracking-wider flex items-center space-x-1.5">
               <i data-lucide="layers" class="w-3.5 h-3.5 text-sky-400"></i>
               <span>P2P Candidate Allocation Engine Quotas</span>
             </span>
-            <span class="text-xs font-mono text-slate-400" x-text="'Total Pool: ' + telemetry.total_engine_quota"></span>
+            <div class="px-2.5 py-1 rounded-lg bg-sky-500/10 border border-sky-500/20 text-[11px] font-mono text-sky-300">
+              <span>Pinterest Algorithmic Evaluation Pool: <strong class="text-white font-bold" x-text="telemetry.total_engine_quota">0</strong> evaluated by Pinterest &rarr; Top <strong class="text-emerald-400 font-bold" x-text="telemetry.extracted_count || 0">0</strong> extracted & stored</span>
+            </div>
           </div>
 
           <!-- Multi-color Stacked Allocation Bar -->
@@ -886,10 +888,15 @@ function getDashboardHtml() {
 
         get cleanRecipeTitle() {
           if (!this.selectedCandidate) return 'Recipe';
-          let title = this.selectedCandidate.title || 'Recipe';
-          title = title.replace(/\\s*\\|.*$/g, '');
-          title = title.replace(/\\s*-\\s*.*recipe.*$/i, '');
-          title = title.replace(/^Easy\\s+/i, '');
+          let title = this.selectedCandidate.title || '';
+          if (!title || title.startsWith('[')) {
+            const topTokens = (this.telemetry.high_save_tokens || []).slice(0, 2).map(t => t.token).join(' ');
+            title = topTokens ? (topTokens.charAt(0).toUpperCase() + topTokens.slice(1) + ' Dish') : 'Culinary Recipe';
+          } else {
+            title = title.replace(/\s*\|.*$/g, '');
+            title = title.replace(/\s*-\s*.*recipe.*$/i, '');
+            title = title.replace(/^Easy\s+/i, '');
+          }
           return title.trim();
         },
 
@@ -1214,6 +1221,13 @@ const server = http.createServer(async (req, res) => {
 
       const calcPct = (val) => Number(((val / totalEngineQuota) * 100).toFixed(1));
 
+      const countRows = await sql`
+        SELECT COUNT(*) AS count
+        FROM candidate_graph_nodes
+        WHERE seed_pin_id = ${seedPinId};
+      `;
+      const extractedCount = Number(countRows[0]?.count || 0);
+
       return sendJson(res, 200, {
         seed_pin_id: seedPinId,
         recgpt_count: recgpt,
@@ -1229,6 +1243,7 @@ const server = http.createServer(async (req, res) => {
         product_count: productCount,
         product_pct: calcPct(productCount),
         total_engine_quota: totalEngineQuota,
+        extracted_count: extractedCount,
         commercial_gap_ratio: Number(m.commercial_gap_ratio || 0),
         color_centroids: m.winning_color_centroids || [],
         high_save_tokens: m.high_save_tokens || [],
