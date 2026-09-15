@@ -346,6 +346,28 @@ function parsePinCandidate(pin, seedPinId, parentEntity = null) {
   // Visual Entropy Score
   const visualEntropyScore = Number((Math.min(99.99, Math.abs(aspectRatio - 0.56) * 15 + (ocrText.length > 20 ? 12 : 5))).toFixed(2));
 
+  // Authentic media and origin properties from raw Pinterest entity
+  const imageUrl = cleanString(
+    pin.images?.['236x']?.url ||
+    pin.images?.['474x']?.url ||
+    pin.images?.orig?.url ||
+    pin.image_large_url ||
+    pin.image_medium_url ||
+    pin.story_pin_data?.pages?.[0]?.blocks?.[0]?.image?.images?.['236x']?.url ||
+    pin.story_pin_data?.pages?.[0]?.blocks?.[0]?.image?.images?.orig?.url ||
+    ''
+  );
+
+  const isVideo = Boolean(
+    pin.is_video === true ||
+    pin.videos != null ||
+    (Array.isArray(pin.story_pin_data?.pages) && pin.story_pin_data.pages.some((page) =>
+      Array.isArray(page?.blocks) && page.blocks.some((b) => b.video != null || b.block_type === 3)
+    ))
+  );
+
+  const ingestionMethod = cleanString(pin.method) || 'uploaded';
+
   return {
     seed_pin_id: String(seedPinId),
     candidate_pin_id: candidatePinId,
@@ -366,7 +388,10 @@ function parsePinCandidate(pin, seedPinId, parentEntity = null) {
     recgpt_transition_score: recgptTransitionScore,
     sequence_role: sequenceRole,
     is_recgpt_candidate: isRecgptCandidate,
-    visual_entropy_score: visualEntropyScore
+    visual_entropy_score: visualEntropyScore,
+    image_url: imageUrl,
+    is_video: isVideo,
+    ingestion_method: ingestionMethod
   };
 }
 
@@ -553,14 +578,18 @@ async function crawlSeed(seed) {
             ? JSON.parse(item.aux_fields.candidate_counts)
             : item.aux_fields.candidate_counts;
 
+          const twoTowerBase = Number(rawCounts["P2P_TWO_TOWER_EMBEDDING_CAND"] || 0);
+          const midFunnelFresh = Number(rawCounts["P2P_TWO_TOWER_MID_FUNNEL_FRESH_EMBEDDING_CAND"] || 0);
+          const p2bFresh = Number(rawCounts["P2P_P2B2P_FRESH"] || 0);
+
           authoritativeCandidateCounts = {
             navboost_count: Number(rawCounts["P2P_NAVBOOST_CAND"] || 0),
             recgpt_count: Number(rawCounts["P2P_RECGPT"] || 0),
             randomwalk_count: Number(rawCounts["P2P_RANDOMWALK_CAND"] || 0),
-            two_tower_count: Number(rawCounts["P2P_TWO_TOWER_EMBEDDING_CAND"] || 0),
-            fresh_candidate_count: Number(rawCounts["P2P_TWO_TOWER_MID_FUNNEL_FRESH_EMBEDDING_CAND"] || 0)
+            two_tower_count: twoTowerBase + (p2bFresh > 0 ? midFunnelFresh : 0),
+            fresh_candidate_count: p2bFresh > 0 ? p2bFresh : midFunnelFresh
           };
-          console.log(`[+] Authoritative Page ${page} candidate counts locked:`, authoritativeCandidateCounts);
+          console.log(`[+] Authoritative Page ${page} candidate counts locked directly from Pinterest:`, authoritativeCandidateCounts);
         } catch (err) {
           console.warn('[Telemetry] Error parsing candidate counts:', err.message);
         }
@@ -599,27 +628,27 @@ async function crawlSeed(seed) {
   const allCandidates = Array.from(candidatesMap.values());
   const totalCandidates = allCandidates.length;
 
-  if (!authoritativeCandidateCounts) {
-    authoritativeCandidateCounts = {
-      recgpt_count: 0,
-      navboost_count: 0,
-      randomwalk_count: 0,
-      two_tower_count: 0,
-      fresh_candidate_count: 0
-    };
-  }
+  // Strict Upstream Quota Preservation: If Pinterest delivered candidate_counts, preserve them 100% as ground truth!
+  const hasAuthoritativeCounts = Boolean(
+    authoritativeCandidateCounts &&
+    (authoritativeCandidateCounts.navboost_count > 0 ||
+     authoritativeCandidateCounts.recgpt_count > 0 ||
+     authoritativeCandidateCounts.two_tower_count > 0)
+  );
 
-  // Dynamic seed-agnostic quota preservation
-  if (!authoritativeCandidateCounts.recgpt_count || authoritativeCandidateCounts.recgpt_count === 0) {
+  if (hasAuthoritativeCounts) {
+    console.log(`[+] Preserving exact upstream Pinterest retrieval quotas for seed ${pinId}:`, authoritativeCandidateCounts);
+  } else {
+    // Only engage fallback if upstream did not supply candidate_counts for this crawl run
     try {
       const prevMetrics = await sql`
         SELECT recgpt_count, navboost_count, randomwalk_count, two_tower_count, fresh_candidate_count
         FROM cluster_arbitrage_metrics
-        WHERE seed_pin_id = ${pinId} AND recgpt_count > 0
+        WHERE seed_pin_id = ${pinId} AND (recgpt_count > 0 OR navboost_count > 0)
         ORDER BY analyzed_at DESC
         LIMIT 1;
       `;
-      if (prevMetrics.length > 0 && Number(prevMetrics[0].recgpt_count) > 0) {
+      if (prevMetrics.length > 0) {
         authoritativeCandidateCounts = {
           navboost_count: Number(prevMetrics[0].navboost_count || 0),
           recgpt_count: Number(prevMetrics[0].recgpt_count || 0),
@@ -628,34 +657,26 @@ async function crawlSeed(seed) {
           fresh_candidate_count: Number(prevMetrics[0].fresh_candidate_count || 0)
         };
         console.log(`[+] Restored previous authoritative quota baseline for seed ${pinId}:`, authoritativeCandidateCounts);
-      } else if (String(pinId) === '1125829606879535145') {
-        authoritativeCandidateCounts = {
-          navboost_count: 153,
-          recgpt_count: 124,
-          randomwalk_count: 22,
-          two_tower_count: 64,
-          fresh_candidate_count: 7
-        };
-        console.log(`[+] Preserved authoritative baseline for seed ${pinId}:`, authoritativeCandidateCounts);
       } else {
-        // Derive dynamic quotas from actual harvested candidate provenance
-        const recgptHarvested = allCandidates.filter(c => c.provenance_engine === 'P2P_RECGPT' || c.is_recgpt_candidate).length;
-        const navboostHarvested = allCandidates.filter(c => c.provenance_engine === 'P2P_NAVBOOST').length;
-        const randomwalkHarvested = allCandidates.filter(c => c.provenance_engine === 'P2P_RANDOMWALK').length;
-        const twoTowerHarvested = allCandidates.filter(c => c.provenance_engine === 'P2P_TWO_TOWER').length;
-        const freshHarvested = allCandidates.filter(c => c.provenance_engine === 'FRESH_COLD_START').length;
-
+        // Derive dynamic baseline from harvested graph nodes when no prior history exists
         authoritativeCandidateCounts = {
-          navboost_count: Math.max(authoritativeCandidateCounts?.navboost_count || 0, navboostHarvested),
-          recgpt_count: Math.max(authoritativeCandidateCounts?.recgpt_count || 0, recgptHarvested),
-          randomwalk_count: Math.max(authoritativeCandidateCounts?.randomwalk_count || 0, randomwalkHarvested),
-          two_tower_count: Math.max(authoritativeCandidateCounts?.two_tower_count || 0, twoTowerHarvested),
-          fresh_candidate_count: Math.max(authoritativeCandidateCounts?.fresh_candidate_count || 0, freshHarvested)
+          navboost_count: allCandidates.filter(c => c.provenance_engine === 'P2P_NAVBOOST').length,
+          recgpt_count: allCandidates.filter(c => c.provenance_engine === 'P2P_RECGPT' || c.is_recgpt_candidate).length,
+          randomwalk_count: allCandidates.filter(c => c.provenance_engine === 'P2P_RANDOMWALK').length,
+          two_tower_count: allCandidates.filter(c => c.provenance_engine === 'P2P_TWO_TOWER').length,
+          fresh_candidate_count: allCandidates.filter(c => c.provenance_engine === 'FRESH_COLD_START').length
         };
-        console.log(`[+] Derived dynamic quotas from harvested graph nodes for seed ${pinId}:`, authoritativeCandidateCounts);
+        console.log(`[+] Seed ${pinId} has no upstream aux_fields; derived from harvested candidates:`, authoritativeCandidateCounts);
       }
     } catch (e) {
       console.warn(`[!] Quota fallback check encountered non-fatal error: ${e.message}`);
+      authoritativeCandidateCounts = {
+        recgpt_count: 0,
+        navboost_count: 0,
+        randomwalk_count: 0,
+        two_tower_count: 0,
+        fresh_candidate_count: 0
+      };
     }
   }
 
@@ -690,7 +711,8 @@ async function crawlSeed(seed) {
           saves, repins, save_rate, domain, is_product, ocr_text, extracted_at,
           pin_created_at, age_days, daily_velocity, provenance_engine,
           individual_prod_score, recgpt_transition_score, sequence_role,
-          is_recgpt_candidate, visual_entropy_score
+          is_recgpt_candidate, visual_entropy_score,
+          image_url, is_video, ingestion_method
         ) VALUES (
           ${node.seed_pin_id}, ${node.candidate_pin_id}, ${node.title},
           ${node.dominant_color}, ${node.aspect_ratio}, ${node.saves},
@@ -699,7 +721,8 @@ async function crawlSeed(seed) {
           ${node.pin_created_at}, ${node.age_days}, ${node.daily_velocity},
           ${node.provenance_engine}, ${node.individual_prod_score},
           ${node.recgpt_transition_score}, ${node.sequence_role},
-          ${node.is_recgpt_candidate}, ${node.visual_entropy_score}
+          ${node.is_recgpt_candidate}, ${node.visual_entropy_score},
+          ${node.image_url}, ${node.is_video}, ${node.ingestion_method}
         )
         ON CONFLICT (seed_pin_id, candidate_pin_id) DO UPDATE SET
           title = EXCLUDED.title,
@@ -720,7 +743,10 @@ async function crawlSeed(seed) {
           recgpt_transition_score = EXCLUDED.recgpt_transition_score,
           sequence_role = EXCLUDED.sequence_role,
           is_recgpt_candidate = EXCLUDED.is_recgpt_candidate,
-          visual_entropy_score = EXCLUDED.visual_entropy_score;
+          visual_entropy_score = EXCLUDED.visual_entropy_score,
+          image_url = EXCLUDED.image_url,
+          is_video = EXCLUDED.is_video,
+          ingestion_method = EXCLUDED.ingestion_method;
       `));
     }
     console.log(`[+] Successfully stored candidate nodes in Neon.`);

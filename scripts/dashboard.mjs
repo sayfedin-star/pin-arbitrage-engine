@@ -52,14 +52,15 @@ export function getCulinaryColorName(hex) {
     if (h < 0) h += 360;
   }
 
-  // Refined Culinary Boundaries
-  if (l >= 0.80) return 'Whipped Ricotta / Creamy Brie';
-  if (l <= 0.20) return 'Charred Espresso / Cast Iron';
-  if (h >= 340 || h <= 12) return 'Cranberry Glaze / Wine Reduction';
-  if (h > 12 && h <= 32 && l < 0.40) return 'Roasted Umber / Pan Sear';
-  if (h > 12 && h <= 38 && l >= 0.40) return 'Roasted Pumpkin / Warm Amber';
-  if (h > 38 && h <= 65) return 'Golden Honey / Crust Glaze';
-  if (h > 65 && h <= 165) return 'Fresh Herb / Sage Infusion';
+  // Refined Culinary & Dessert/Bakery Boundaries
+  if (l >= 0.82) return 'Whipped Vanilla / Glaze Cream';
+  if (l <= 0.18) return 'Charred Espresso / Dark Truffle';
+  if (h >= 345 || h <= 10) return 'Cranberry Glaze / Red Reduction';
+  if (h > 10 && h <= 30 && l < 0.38) return 'Toasted Cinnamon / Dutch Cocoa';
+  if (h > 10 && h <= 32 && l >= 0.38 && l < 0.55) return 'Roasted Pumpkin / Warm Amber';
+  if (h > 32 && h <= 55 && l >= 0.40) return 'Golden Brioche / Honey Glaze';
+  if (h > 10 && h <= 45 && l < 0.45) return 'Caramelized Pecan / Spice Crumble';
+  if (h > 55 && h <= 165) return 'Fresh Herb / Sage Infusion';
   if (h > 165 && h <= 260) return 'Nordic Sea Salt / Steel Cookware';
   
   return 'Artisan Blend / Culinary Accent';
@@ -794,22 +795,38 @@ function getDashboardHtml() {
                       
                       <!-- 1. Preview & Format -->
                       <td class="py-3 px-3 whitespace-nowrap">
-                        <div class="flex items-center space-x-2">
-                          <div class="w-7 h-10 rounded flex-shrink-0 border shadow-sm flex items-center justify-center" :style="'border-color: ' + (item.winning_color || '#cbd5e1') + '; background-color: ' + (item.winning_color || '#cbd5e1') + '15;'">
-                            <i data-lucide="image" class="w-3.5 h-3.5 text-slate-400"></i>
-                          </div>
-                          <div>
-                            <span class="inline-block px-1.5 py-0.5 rounded text-[9px] font-mono font-bold tracking-wider uppercase" :class="{
-                              'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20': item.format_type === 'PRODUCT CARD',
-                              'bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20': item.format_type === 'ORGANIC PIN',
-                              'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20': item.format_type === 'VIDEO PIN',
-                              'bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20': item.format_type === 'IDEA PIN'
-                            }" x-text="item.format_type"></span>
+                        <div class="flex items-center space-x-2.5">
+                          <template x-if="item.image_url">
+                            <a :href="'https://www.pinterest.com/pin/' + item.candidate_pin_id + '/'" target="_blank" class="group/thumb block relative flex-shrink-0">
+                              <img :src="item.image_url" alt="pin preview" loading="lazy" class="w-8 h-12 rounded-lg object-cover border shadow-sm group-hover/thumb:scale-125 transition-transform duration-200" :style="'border-color: ' + (item.winning_color || '#cbd5e1')">
+                            </a>
+                          </template>
+                          <template x-if="!item.image_url">
+                            <div class="w-8 h-12 rounded-lg flex-shrink-0 border shadow-sm flex items-center justify-center" :style="'border-color: ' + (item.winning_color || '#cbd5e1') + '; background-color: ' + (item.winning_color || '#cbd5e1') + '15;'">
+                              <i data-lucide="image" class="w-4 h-4 text-slate-400"></i>
+                            </div>
+                          </template>
+                          <div class="space-y-1">
+                            <div class="flex items-center space-x-1">
+                              <span class="inline-block px-1.5 py-0.5 rounded text-[9px] font-mono font-bold tracking-wider uppercase" :class="{
+                                'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20': item.format_type === 'PRODUCT CARD',
+                                'bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20': item.format_type === 'ORGANIC PIN',
+                                'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20': item.format_type === 'VIDEO PIN',
+                                'bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20': item.format_type === 'IDEA PIN'
+                              }" x-text="item.format_type"></span>
 
-                            <template x-if="item.is_vacuum_target">
-                              <span class="ml-1 px-1 py-0.5 rounded text-[8px] font-extrabold uppercase bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/40">
-                                VACUUM
-                              </span>
+                              <template x-if="item.is_vacuum_target">
+                                <span class="px-1 py-0.5 rounded text-[8px] font-extrabold uppercase bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/40">
+                                  VACUUM
+                                </span>
+                              </template>
+                            </div>
+
+                            <!-- Ingestion Method Badge -->
+                            <template x-if="item.ingestion_method && item.ingestion_method !== 'uploaded'">
+                              <div class="text-[8px] font-mono font-bold uppercase tracking-wider text-slate-400 flex items-center space-x-1">
+                                <span class="px-1 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-500" x-text="item.ingestion_method === 'csv_importer' ? '⚙️ CSV Farm' : (item.ingestion_method === 'pin_scheduling' ? '⏱️ Scheduled' : item.ingestion_method)"></span>
+                              </div>
                             </template>
                           </div>
                         </div>
@@ -952,22 +969,36 @@ function getDashboardHtml() {
                   <!-- 1. Preview & Format -->
                   <td class="py-3.5 px-4 whitespace-nowrap">
                     <div class="flex items-center space-x-2.5">
-                      <div class="w-8 h-11 rounded-lg flex-shrink-0 flex items-center justify-center border shadow-sm" :style="'border-color: ' + (item.winning_color || '#cbd5e1') + '; background-color: ' + (item.winning_color || '#cbd5e1') + '15;'">
-                        <i data-lucide="image" class="w-4 h-4 text-slate-400"></i>
-                      </div>
+                      <template x-if="item.image_url">
+                        <a :href="'https://www.pinterest.com/pin/' + item.candidate_pin_id + '/'" target="_blank" class="group/thumb block relative flex-shrink-0">
+                          <img :src="item.image_url" alt="pin preview" loading="lazy" class="w-8 h-12 rounded-lg object-cover border shadow-sm group-hover/thumb:scale-125 transition-transform duration-200" :style="'border-color: ' + (item.winning_color || '#cbd5e1')">
+                        </a>
+                      </template>
+                      <template x-if="!item.image_url">
+                        <div class="w-8 h-12 rounded-lg flex-shrink-0 flex items-center justify-center border shadow-sm" :style="'border-color: ' + (item.winning_color || '#cbd5e1') + '; background-color: ' + (item.winning_color || '#cbd5e1') + '15;'">
+                          <i data-lucide="image" class="w-4 h-4 text-slate-400"></i>
+                        </div>
+                      </template>
                       <div class="space-y-1">
-                        <span class="inline-block px-1.5 py-0.5 rounded text-[9px] font-mono font-bold tracking-wider uppercase" :class="{
-                          'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20': item.format_type === 'PRODUCT CARD',
-                          'bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20': item.format_type === 'ORGANIC PIN',
-                          'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20': item.format_type === 'VIDEO PIN',
-                          'bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20': item.format_type === 'IDEA PIN'
-                        }" x-text="item.format_type"></span>
+                        <div class="flex items-center space-x-1">
+                          <span class="inline-block px-1.5 py-0.5 rounded text-[9px] font-mono font-bold tracking-wider uppercase" :class="{
+                            'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20': item.format_type === 'PRODUCT CARD',
+                            'bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20': item.format_type === 'ORGANIC PIN',
+                            'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20': item.format_type === 'VIDEO PIN',
+                            'bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20': item.format_type === 'IDEA PIN'
+                          }" x-text="item.format_type"></span>
 
-                        <template x-if="item.is_vacuum_target">
-                          <div>
-                            <span class="px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase tracking-wider bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/40">
-                              VACUUM TARGET
+                          <template x-if="item.is_vacuum_target">
+                            <span class="px-1.5 py-0.5 rounded text-[8px] font-extrabold uppercase bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/40">
+                              VACUUM
                             </span>
+                          </template>
+                        </div>
+
+                        <!-- Ingestion Method Badge -->
+                        <template x-if="item.ingestion_method && item.ingestion_method !== 'uploaded'">
+                          <div class="text-[8px] font-mono font-bold uppercase tracking-wider text-slate-400 flex items-center space-x-1">
+                            <span class="px-1 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-500" x-text="item.ingestion_method === 'csv_importer' ? '⚙️ CSV Farm' : (item.ingestion_method === 'pin_scheduling' ? '⏱️ Scheduled' : item.ingestion_method)"></span>
                           </div>
                         </template>
                       </div>
@@ -1177,22 +1208,38 @@ function getDashboardHtml() {
                   
                   <!-- 1. Preview & Format -->
                   <td class="py-3.5 px-4 whitespace-nowrap">
-                    <div class="flex items-center space-x-2">
-                      <div class="w-7 h-10 rounded flex-shrink-0 border shadow-sm flex items-center justify-center" :style="'border-color: ' + (item.winning_color || '#cbd5e1') + '; background-color: ' + (item.winning_color || '#cbd5e1') + '15;'">
-                        <i data-lucide="image" class="w-3.5 h-3.5 text-slate-400"></i>
-                      </div>
-                      <div>
-                        <span class="inline-block px-1.5 py-0.5 rounded text-[9px] font-mono font-bold tracking-wider uppercase" :class="{
-                          'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20': item.format_type === 'PRODUCT CARD',
-                          'bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20': item.format_type === 'ORGANIC PIN',
-                          'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20': item.format_type === 'VIDEO PIN',
-                          'bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20': item.format_type === 'IDEA PIN'
-                        }" x-text="item.format_type"></span>
+                    <div class="flex items-center space-x-2.5">
+                      <template x-if="item.image_url">
+                        <a :href="'https://www.pinterest.com/pin/' + item.candidate_pin_id + '/'" target="_blank" class="group/thumb block relative flex-shrink-0">
+                          <img :src="item.image_url" alt="pin preview" loading="lazy" class="w-8 h-12 rounded-lg object-cover border shadow-sm group-hover/thumb:scale-125 transition-transform duration-200" :style="'border-color: ' + (item.winning_color || '#cbd5e1')">
+                        </a>
+                      </template>
+                      <template x-if="!item.image_url">
+                        <div class="w-8 h-12 rounded-lg flex-shrink-0 flex items-center justify-center border shadow-sm" :style="'border-color: ' + (item.winning_color || '#cbd5e1') + '; background-color: ' + (item.winning_color || '#cbd5e1') + '15;'">
+                          <i data-lucide="image" class="w-4 h-4 text-slate-400"></i>
+                        </div>
+                      </template>
+                      <div class="space-y-1">
+                        <div class="flex items-center space-x-1">
+                          <span class="inline-block px-1.5 py-0.5 rounded text-[9px] font-mono font-bold tracking-wider uppercase" :class="{
+                            'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20': item.format_type === 'PRODUCT CARD',
+                            'bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20': item.format_type === 'ORGANIC PIN',
+                            'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20': item.format_type === 'VIDEO PIN',
+                            'bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20': item.format_type === 'IDEA PIN'
+                          }" x-text="item.format_type"></span>
 
-                        <template x-if="item.is_vacuum_target">
-                          <span class="ml-1 px-1 py-0.5 rounded text-[8px] font-extrabold uppercase bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/40">
-                            VACUUM
-                          </span>
+                          <template x-if="item.is_vacuum_target">
+                            <span class="px-1 py-0.5 rounded text-[8px] font-extrabold uppercase bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/40">
+                              VACUUM
+                            </span>
+                          </template>
+                        </div>
+
+                        <!-- Ingestion Method Badge -->
+                        <template x-if="item.ingestion_method && item.ingestion_method !== 'uploaded'">
+                          <div class="text-[8px] font-mono font-bold uppercase tracking-wider text-slate-400 flex items-center space-x-1">
+                            <span class="px-1 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-500" x-text="item.ingestion_method === 'csv_importer' ? '⚙️ CSV Farm' : (item.ingestion_method === 'pin_scheduling' ? '⏱️ Scheduled' : item.ingestion_method)"></span>
+                          </div>
                         </template>
                       </div>
                     </div>
@@ -1322,13 +1369,24 @@ function getDashboardHtml() {
       <!-- Pin Visual Dossier -->
       <div class="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 space-y-3">
         <div class="flex items-start justify-between gap-3">
-          <div class="space-y-1">
-            <span class="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400">Inspected Title</span>
-            <div class="text-sm font-bold text-slate-900 dark:text-white" x-text="selectedCandidate?.title"></div>
-            <div class="text-[11px] font-mono text-slate-500 flex items-center space-x-2 pt-0.5">
-              <span x-text="selectedCandidate?.domain"></span>
-              <span>•</span>
-              <span class="text-rose-500 font-bold" x-text="Number(selectedCandidate?.total_saves || selectedCandidate?.saves || 0).toLocaleString() + ' Saves'"></span>
+          <div class="flex items-start space-x-3.5">
+            <template x-if="selectedCandidate?.image_url">
+              <a :href="'https://www.pinterest.com/pin/' + selectedCandidate?.candidate_pin_id + '/'" target="_blank" class="block relative flex-shrink-0 group/modal">
+                <img :src="selectedCandidate.image_url" alt="Pin thumbnail" class="w-14 h-20 rounded-xl object-cover border shadow-md group-hover/modal:scale-110 transition-transform duration-200" :style="'border-color: ' + (selectedCandidate?.winning_color || selectedCandidate?.dominant_color || '#cbd5e1')">
+              </a>
+            </template>
+            <div class="space-y-1">
+              <span class="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400">Inspected Title</span>
+              <div class="text-sm font-bold text-slate-900 dark:text-white" x-text="selectedCandidate?.title"></div>
+              <div class="text-[11px] font-mono text-slate-500 flex items-center space-x-2 pt-0.5 flex-wrap gap-y-1">
+                <span x-text="selectedCandidate?.domain"></span>
+                <span>•</span>
+                <span class="text-rose-500 font-bold" x-text="Number(selectedCandidate?.total_saves || selectedCandidate?.saves || 0).toLocaleString() + ' Saves'"></span>
+                <template x-if="selectedCandidate?.ingestion_method && selectedCandidate?.ingestion_method !== 'uploaded'">
+                  <span>•</span>
+                  <span class="px-1.5 py-0.2 rounded text-[9px] font-bold uppercase bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300" x-text="selectedCandidate.ingestion_method === 'csv_importer' ? '⚙️ CSV Farm' : (selectedCandidate.ingestion_method === 'pin_scheduling' ? '⏱️ Scheduled' : selectedCandidate.ingestion_method)"></span>
+                </template>
+              </div>
             </div>
           </div>
           <div class="flex items-center space-x-2 p-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 flex-shrink-0">
@@ -2243,7 +2301,7 @@ const server = http.createServer(async (req, res) => {
         const ar = Number(r.aspect_ratio || 0.56);
         let format = 'ORGANIC PIN';
         if (r.is_product) format = 'PRODUCT CARD';
-        else if (ar < 0.6) format = 'VIDEO PIN';
+        else if (r.is_video) format = 'VIDEO PIN';
         else if (ar > 1.3) format = 'IDEA PIN';
 
         // True engine provenance without overriding solely because of product flag
@@ -2275,7 +2333,10 @@ const server = http.createServer(async (req, res) => {
           winning_color: r.dominant_color,
           format_type: format,
           is_vacuum_target: !r.is_product && saves >= 5000,
-          engine_source: engine
+          engine_source: engine,
+          image_url: r.image_url || '',
+          is_video: Boolean(r.is_video),
+          ingestion_method: r.ingestion_method || 'uploaded'
         };
       });
 
@@ -2382,7 +2443,10 @@ const server = http.createServer(async (req, res) => {
           winning_color: node.dominant_color || '#888888',
           culinary_color_name: getCulinaryColorName(node.dominant_color),
           provenance_engine: node.provenance_engine || 'P2P_RECGPT',
-          ocr_text: node.ocr_text || ''
+          ocr_text: node.ocr_text || '',
+          image_url: node.image_url || '',
+          is_video: Boolean(node.is_video),
+          ingestion_method: node.ingestion_method || 'uploaded'
         };
       };
 
@@ -2543,6 +2607,9 @@ const server = http.createServer(async (req, res) => {
             MAX(c.pin_created_at) AS pin_created_at,
             MAX(c.sequence_role) AS sequence_role,
             MAX(c.repins) AS total_repins,
+            MAX(c.image_url) AS image_url,
+            BOOL_OR(c.is_video) AS is_video,
+            MAX(c.ingestion_method) AS ingestion_method,
             ROUND(AVG(c.save_rate)::numeric, 2) AS avg_save_rate,
             COUNT(DISTINCT c.seed_pin_id) AS seed_overlap_count,
             ROUND(POWER(SUM(SQRT(GREATEST(c.saves, 1))), 2)::numeric, 2) AS pixie_multihit_score,
@@ -2568,7 +2635,7 @@ const server = http.createServer(async (req, res) => {
         const ar = Number(r.aspect_ratio || 0.56);
         let format = 'ORGANIC PIN';
         if (r.is_product) format = 'PRODUCT CARD';
-        else if (ar < 0.6) format = 'VIDEO PIN';
+        else if (r.is_video) format = 'VIDEO PIN';
         else if (ar > 1.3) format = 'IDEA PIN';
 
         const seedDetails = (r.originating_seeds || []).map((sid) => {
@@ -2586,7 +2653,10 @@ const server = http.createServer(async (req, res) => {
           format_type: format,
           culinary_color_name: getCulinaryColorName(r.winning_color),
           is_vacuum_target: !r.is_product && saves >= 5000,
-          originating_seed_details: seedDetails
+          originating_seed_details: seedDetails,
+          image_url: r.image_url || '',
+          is_video: Boolean(r.is_video),
+          ingestion_method: r.ingestion_method || 'uploaded'
         };
       });
 
