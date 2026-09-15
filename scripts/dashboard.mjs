@@ -2372,46 +2372,61 @@ const server = http.createServer(async (req, res) => {
           ORDER BY saves DESC LIMIT 1;
         `;
         if (sRows.length > 0) sessionFinisher = sRows[0];
-      }
 
-      // Cluster-wide fallbacks
-      if (!dinnerAnchor) {
-        const f = await sql`
-          SELECT * FROM candidate_graph_nodes
-          WHERE sequence_role = 'DINNER_ANCHOR'
-          ORDER BY saves DESC LIMIT 1;
-        `;
-        dinnerAnchor = f[0] || null;
-      }
-      if (!navboostSide) {
-        const f = await sql`
-          SELECT * FROM candidate_graph_nodes
-          WHERE sequence_role = 'NAVBOOST_CO_VISITOR'
-          ORDER BY saves DESC LIMIT 1;
-        `;
-        navboostSide = f[0] || null;
-      }
-      if (!sessionFinisher) {
-        const f = await sql`
-          SELECT * FROM candidate_graph_nodes
-          WHERE sequence_role = 'SESSION_FINISHER'
-          ORDER BY saves DESC LIMIT 1;
-        `;
-        sessionFinisher = f[0] || null;
-      }
+        // Seed-scoped fallbacks: never cross into another seed!
+        if (!dinnerAnchor) {
+          const f = await sql`
+            SELECT * FROM candidate_graph_nodes
+            WHERE seed_pin_id = ${seedPinId}
+            ORDER BY saves DESC LIMIT 1;
+          `;
+          dinnerAnchor = f[0] || null;
+        }
+        if (!navboostSide) {
+          const f = await sql`
+            SELECT * FROM candidate_graph_nodes
+            WHERE seed_pin_id = ${seedPinId} AND candidate_pin_id != ${dinnerAnchor?.candidate_pin_id || ''}
+            ORDER BY saves DESC LIMIT 1;
+          `;
+          navboostSide = f[0] || null;
+        }
+        if (!sessionFinisher) {
+          const f = await sql`
+            SELECT * FROM candidate_graph_nodes
+            WHERE seed_pin_id = ${seedPinId}
+              AND candidate_pin_id != ${dinnerAnchor?.candidate_pin_id || ''}
+              AND candidate_pin_id != ${navboostSide?.candidate_pin_id || ''}
+            ORDER BY saves DESC LIMIT 1;
+          `;
+          sessionFinisher = f[0] || null;
+        }
+      } else {
+        // Global explorer fallbacks only when no specific seed is requested
+        if (!dinnerAnchor) {
+          const f = await sql`SELECT * FROM candidate_graph_nodes WHERE sequence_role = 'DINNER_ANCHOR' ORDER BY saves DESC LIMIT 1;`;
+          dinnerAnchor = f[0] || null;
+        }
+        if (!navboostSide) {
+          const f = await sql`SELECT * FROM candidate_graph_nodes WHERE sequence_role = 'NAVBOOST_CO_VISITOR' ORDER BY saves DESC LIMIT 1;`;
+          navboostSide = f[0] || null;
+        }
+        if (!sessionFinisher) {
+          const f = await sql`SELECT * FROM candidate_graph_nodes WHERE sequence_role = 'SESSION_FINISHER' ORDER BY saves DESC LIMIT 1;`;
+          sessionFinisher = f[0] || null;
+        }
 
-      // If still missing (e.g. before initial crawl), fallback to top saved candidates
-      if (!dinnerAnchor) {
-        const f = await sql`SELECT * FROM candidate_graph_nodes ORDER BY saves DESC LIMIT 1;`;
-        dinnerAnchor = f[0] || null;
-      }
-      if (!navboostSide) {
-        const f = await sql`SELECT * FROM candidate_graph_nodes ORDER BY saves DESC OFFSET 1 LIMIT 1;`;
-        navboostSide = f[0] || null;
-      }
-      if (!sessionFinisher) {
-        const f = await sql`SELECT * FROM candidate_graph_nodes ORDER BY saves DESC OFFSET 2 LIMIT 1;`;
-        sessionFinisher = f[0] || null;
+        if (!dinnerAnchor) {
+          const f = await sql`SELECT * FROM candidate_graph_nodes ORDER BY saves DESC LIMIT 1;`;
+          dinnerAnchor = f[0] || null;
+        }
+        if (!navboostSide) {
+          const f = await sql`SELECT * FROM candidate_graph_nodes ORDER BY saves DESC OFFSET 1 LIMIT 1;`;
+          navboostSide = f[0] || null;
+        }
+        if (!sessionFinisher) {
+          const f = await sql`SELECT * FROM candidate_graph_nodes ORDER BY saves DESC OFFSET 2 LIMIT 1;`;
+          sessionFinisher = f[0] || null;
+        }
       }
 
       const formatCard = (node, defaultTitle, defaultRole, defaultPrep) => {

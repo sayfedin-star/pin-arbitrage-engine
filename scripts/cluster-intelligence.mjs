@@ -228,7 +228,7 @@ function parsePinCandidate(pin, seedPinId, parentEntity = null) {
   if (!pin || typeof pin !== 'object') return null;
 
   const candidatePinId = String(pin.id || pin.pin_id || '').trim();
-  if (!candidatePinId || candidatePinId === String(seedPinId)) {
+  if (!candidatePinId || candidatePinId === String(seedPinId) || candidatePinId.startsWith('-') || !/^\d+$/.test(candidatePinId)) {
     return null;
   }
 
@@ -274,6 +274,17 @@ function parsePinCandidate(pin, seedPinId, parentEntity = null) {
   }
 
   const saves = Number(pin.aggregated_pin_data?.aggregated_stats?.saves ?? (pin.repin_count || 0));
+  const hasMedia = Boolean(
+    pin.images?.orig?.url ||
+    pin.images?.['236x']?.url ||
+    pin.videos != null ||
+    pin.story_pin_data?.pages?.length > 0 ||
+    pin.image_large_url ||
+    pin.image_medium_url
+  );
+  if (!hasMedia && saves === 0) {
+    return null;
+  }
   const repins = Number(pin.repin_count || 0);
   const rawRate = saves > 0 ? ((repins / saves) * 100) : 0;
   const saveRate = Number(Math.min(9999999.99, Math.max(0, rawRate)).toFixed(2));
@@ -402,14 +413,33 @@ function extractPinsFromEntity(item) {
   const pins = [];
   if (!item || typeof item !== 'object') return pins;
 
+  // STRICT REJECTION: Module containers, UI dividers, section headers, story headers
+  if (
+    item.container_type != null ||
+    item.story_type === 'related_modules_header' ||
+    item.node_id === '__EMPTY__' ||
+    item.type === 'story'
+  ) {
+    return pins;
+  }
+
+  const rawId = String(item.id || item.pin_id || '').trim();
+  if (rawId.startsWith('-') || (rawId && !/^\d+$/.test(rawId))) {
+    return pins;
+  }
+
   const moduleMarker = item.source_module || item.module_id || item.name || item.type || item.module_type || '';
 
   const attachMeta = (p) => {
     if (p && typeof p === 'object') {
-      if (!p._parent_module && moduleMarker) {
-        p._parent_module = moduleMarker;
+      const pId = String(p.id || p.pin_id || '').trim();
+      // Only attach valid positive numeric IDs
+      if (pId && !pId.startsWith('-') && /^\d+$/.test(pId)) {
+        if (!p._parent_module && moduleMarker) {
+          p._parent_module = moduleMarker;
+        }
+        pins.push(p);
       }
-      pins.push(p);
     }
   };
 
@@ -423,9 +453,12 @@ function extractPinsFromEntity(item) {
     for (const p of item.items) attachMeta(p);
   }
 
-  // If item itself is a pin
-  if (item.id && (item.images || item.domain || item.type === 'pin' || item.link || item.aggregated_pin_data || item.title)) {
-    attachMeta(item);
+  // If item itself is a real pin (must have media or positive pin ID and type === 'pin')
+  if (rawId && !rawId.startsWith('-') && /^\d+$/.test(rawId)) {
+    const hasMedia = Boolean(item.images || item.videos || item.story_pin_data || item.image_large_url || item.image_medium_url);
+    if (item.type === 'pin' || hasMedia) {
+      attachMeta(item);
+    }
   }
 
   return pins;
@@ -529,7 +562,20 @@ async function crawlSeed(seed) {
     console.log(`[*] [Page ${page}/${maxPages}] Requesting RelatedModulesResource (jitter delay ${delay}ms)...`);
     await sleep(delay);
 
-    const optionsObj = { pin_id: pinId };
+    const optionsObj = {
+      pin_id: pinId,
+      additional_fields: ["pin.gen_ai_topics"],
+      context_pin_ids: [],
+      context_near_dup_image_sigs: [],
+      homefeed_source_sig: null,
+      page_size: 12,
+      search_query: "",
+      source: "deep_linking",
+      top_level_source: "deep_linking",
+      top_level_source_depth: 1,
+      is_pdp: false,
+      client_tracking_params: "CwABAAAAEDE0ODExNTU0MzQxNjE4ODgLAAcAAAAPdW5rbm93bi91bmtub3duAA"
+    };
     if (bookmark) {
       optionsObj.bookmark = bookmark;
     }
@@ -637,6 +683,22 @@ async function crawlSeed(seed) {
   );
 
   if (hasAuthoritativeCounts) {
+    // If live response omitted P2P_RECGPT (e.g. unauthenticated request), preserve previous authenticated RecGPT
+    if (authoritativeCandidateCounts.recgpt_count === 0) {
+      try {
+        const prevRecgpt = await sql`
+          SELECT recgpt_count
+          FROM cluster_arbitrage_metrics
+          WHERE seed_pin_id = ${pinId} AND recgpt_count > 0
+          ORDER BY analyzed_at DESC
+          LIMIT 1;
+        `;
+        if (prevRecgpt.length > 0 && prevRecgpt[0].recgpt_count > 0) {
+          authoritativeCandidateCounts.recgpt_count = Number(prevRecgpt[0].recgpt_count);
+          console.log(`[+] Preserved authenticated RecGPT quota (${authoritativeCandidateCounts.recgpt_count}) to prevent anonymous zeroing.`);
+        }
+      } catch (e) {}
+    }
     console.log(`[+] Preserving exact upstream Pinterest retrieval quotas for seed ${pinId}:`, authoritativeCandidateCounts);
   } else {
     // Only engage fallback if upstream did not supply candidate_counts for this crawl run
