@@ -129,9 +129,9 @@ function extractCandidateCounts(rawCounts) {
 }
 
 /**
- * Detect true engine provenance without product bias
+ * Detect true engine provenance using upstream signals and MultiBiSage multi-graph interactions
  */
-function detectEngineProvenance(pin, parentEntity, saves) {
+function detectEngineProvenance(pin, parentEntity, saves = 0, saveRate = 0, dailyVelocity = 0, ageDays = 180, isRecgptCandidate = false, recgptTransitionScore = 0) {
   const markers = [
     pin?.logging_data?.source_module,
     pin?.origin_module,
@@ -164,15 +164,25 @@ function detectEngineProvenance(pin, parentEntity, saves) {
     return 'P2P_TWO_TOWER';
   }
 
-  // Signal heuristics when module marker is generic:
-  // Co-visitation (NavBoost) high velocity / high saves
-  if (saves >= 25000) {
+  // MultiBiSage & TransAct V2 interaction-derived provenance:
+  // 1. Explicit merchant/shopping corpus tags
+  if (pin.is_eligible_for_pdp || (pin.price_value && Number(pin.price_value) > 0) || (Array.isArray(pin.shopping_flags) && pin.shopping_flags.length > 0)) {
+    return 'P2P_SHOPPING_CORPUS';
+  }
+  // 2. Cold-start Fresh exploration (P2B2P / Fresh Two-Tower)
+  if (ageDays <= 30 && saves < 50) {
+    return 'FRESH_COLD_START';
+  }
+  // 3. High engagement co-visitation (SearchQuery-Pin-LC / User-Product-LC in MultiBiSage)
+  if (saveRate >= 35.0 && dailyVelocity >= 15.0) {
     return 'P2P_NAVBOOST';
   }
-  if (saves >= 8000 && saves < 25000) {
-    return 'P2P_RANDOMWALK';
+  // 4. Sequential session trajectory candidate (RecGPT)
+  if (isRecgptCandidate && recgptTransitionScore >= 60.0) {
+    return 'P2P_RECGPT';
   }
 
+  // 5. Default dense semantic vector candidate (Two-Tower PinSage/ItemSage)
   return 'P2P_TWO_TOWER';
 }
 
@@ -192,29 +202,40 @@ export function isCulinaryCandidate(title = '', domain = '', description = '') {
 }
 
 /**
- * Title-First Sequence Role Classification
- * Ensures title takes strict precedence over noisy OCR text
+ * Context-Aware Sequence Role Classification (RecGPT & MultiBiSage)
+ * Dynamically assigns sequence roles based on seed cluster domain (Bakery/Dessert vs Savory Dinner)
  */
-export function classifySequenceRole(title = '', description = '', ocrText = '') {
-  // If title is explicit furniture or non-food, never assign an anchor role
+export function classifySequenceRole(title = '', description = '', ocrText = '', clusterType = 'GENERAL') {
   const titleLower = (title || '').toLowerCase();
   const fullText = `${title || ''} ${description || ''} ${ocrText || ''}`.toLowerCase();
 
-  // 1. DINNER_ANCHOR (Must match authentic savory meat/main tokens in title/description first)
-  const anchorRegex = /\b(chicken|turkey|pork|beef|steak|salmon|cod|meatloaf|stuffed chicken|dinner|casserole|roast)\b/i;
-  if (anchorRegex.test(titleLower) || (anchorRegex.test(fullText) && !/\b(pastry|bites|appetizer|dessert|pie)\b/i.test(titleLower))) {
+  const isDessertOrBake = /\b(muffin|muffins|cake|cakes|cookie|cookies|brownie|brownies|roll|rolls|cinnamon|pie|pies|tart|bread|cupcake|cupcakes|donut|donuts|pastry|pastries|bake|baking|dessert|sweet|chocolate|caramel|snickerdoodle|pumpkin spice|cheesecake)\b/i.test(fullText);
+  const isBeverageOrPairing = /\b(latte|coffee|cider|tea|drink|frosting|glaze|syrup|drizzle|dip|cream cheese|icing)\b/i.test(fullText);
+  const isSnackBites = /\b(bites|truffle|truffles|energy bite|snack|crescent|mini|treat|treats|crispie|krispie)\b/i.test(fullText);
+  const isSavoryDinner = /\b(chicken|turkey|pork|beef|steak|salmon|cod|meatloaf|dinner|casserole|roast|pasta|meat|soup|stew)\b/i.test(fullText);
+
+  // If cluster is Bakery/Dessert (or candidate has strong dessert tokens)
+  if (clusterType === 'BAKERY_DESSERT' || isDessertOrBake) {
+    if (isSavoryDinner && !isDessertOrBake) {
+      return 'PIXIE_DRIFT_OUTLIER'; // Cross-cluster leakage from user-board bipartite random walk
+    }
+    if (isBeverageOrPairing) {
+      return 'BEVERAGE_PAIRING';
+    }
+    if (isSnackBites) {
+      return 'PASTRY_BITES';
+    }
+    return 'DESSERT_HERO';
+  }
+
+  // Savory Dinner Cluster
+  if (isSavoryDinner) {
     return 'DINNER_ANCHOR';
   }
-
-  // 2. NAVBOOST_CO_VISITOR (Sides & Savory Starters)
-  const coVisitorRegex = /\b(carrots|potatoes|soup|salad|bread|dip|appetizer|bites|spreads|crescent|brie)\b/i;
-  if (coVisitorRegex.test(fullText)) {
+  if (isBeverageOrPairing || /\b(carrots|potatoes|salad|bread|side|green beans|rice)\b/i.test(fullText)) {
     return 'NAVBOOST_CO_VISITOR';
   }
-
-  // 3. SESSION_FINISHER (Sweet Desserts Only)
-  const finisherRegex = /\b(pie|cake|cheesecake|cookie|brownie|ice cream|custard|tart|dessert|sweet)\b/i;
-  if (finisherRegex.test(fullText) && !anchorRegex.test(fullText)) {
+  if (isDessertOrBake) {
     return 'SESSION_FINISHER';
   }
 
@@ -224,7 +245,7 @@ export function classifySequenceRole(title = '', description = '', ocrText = '')
 /**
  * Extract pin fields with complete fallback chain
  */
-function parsePinCandidate(pin, seedPinId, parentEntity = null) {
+function parsePinCandidate(pin, seedPinId, parentEntity = null, utilityWeights = null, seedClusterType = 'GENERAL') {
   if (!pin || typeof pin !== 'object') return null;
 
   const candidatePinId = String(pin.id || pin.pin_id || '').trim();
@@ -324,39 +345,6 @@ function parsePinCandidate(pin, seedPinId, parentEntity = null) {
   }
   const dailyVelocity = Number((saves / ageDays).toFixed(2));
 
-  // True Engine Provenance (orthogonal to product status)
-  let provenanceEngine = detectEngineProvenance(pin, parentEntity, saves);
-
-  // Algorithmic RecGPT Trajectory Modeling with Title-First Sequence Role
-  const sequenceRole = classifySequenceRole(title, pin.description || '', ocrText);
-  let recgptTransitionScore = 0;
-  let isRecgptCandidate = false;
-
-  if (sequenceRole === 'DINNER_ANCHOR') {
-    recgptTransitionScore = Number((saveRate * 0.90).toFixed(2));
-    isRecgptCandidate = true;
-  } else if (sequenceRole === 'NAVBOOST_CO_VISITOR') {
-    recgptTransitionScore = Number((saveRate * 0.95).toFixed(2));
-    isRecgptCandidate = true;
-  } else if (sequenceRole === 'SESSION_FINISHER') {
-    recgptTransitionScore = Number((saveRate * 0.98).toFixed(2));
-    isRecgptCandidate = true;
-  }
-
-  // Map internal RecGPT engine provenance when sequential transition is strong
-  // and upstream module tags are ambiguous (P2P_TWO_TOWER or FRESH_COLD_START)
-  if ((provenanceEngine === 'P2P_TWO_TOWER' || provenanceEngine === 'FRESH_COLD_START') && isRecgptCandidate && recgptTransitionScore > 70) {
-    provenanceEngine = 'P2P_RECGPT';
-  }
-
-  // Row-Level prod:v18 Net Utility Score
-  // Product Pin: (111.71 * 1.0) + (137.80 * 0.8) - (186.62 * 0.1) = 203.29
-  // Organic Pin: (1.97 * 1.0) + (0.09 * 0.8) - (392.63 * 0.05) = -17.58
-  const individualProdScore = isProduct ? 203.29 : -17.58;
-
-  // Visual Entropy Score
-  const visualEntropyScore = Number((Math.min(99.99, Math.abs(aspectRatio - 0.56) * 15 + (ocrText.length > 20 ? 12 : 5))).toFixed(2));
-
   // Authentic media and origin properties from raw Pinterest entity
   const imageUrl = cleanString(
     pin.images?.['236x']?.url ||
@@ -378,6 +366,98 @@ function parsePinCandidate(pin, seedPinId, parentEntity = null) {
   );
 
   const ingestionMethod = cleanString(pin.method) || 'uploaded';
+
+  // Algorithmic RecGPT Trajectory Modeling with Context-Aware Sequence Role
+  const sequenceRole = classifySequenceRole(title, pin.description || '', ocrText, seedClusterType);
+  let recgptTransitionScore = 0;
+  let isRecgptCandidate = false;
+
+  if (sequenceRole === 'DESSERT_HERO') {
+    recgptTransitionScore = Number((saveRate * 0.95).toFixed(2));
+    isRecgptCandidate = true;
+  } else if (sequenceRole === 'BEVERAGE_PAIRING') {
+    recgptTransitionScore = Number((saveRate * 0.90).toFixed(2));
+    isRecgptCandidate = true;
+  } else if (sequenceRole === 'PASTRY_BITES') {
+    recgptTransitionScore = Number((saveRate * 0.88).toFixed(2));
+    isRecgptCandidate = true;
+  } else if (sequenceRole === 'DINNER_ANCHOR') {
+    recgptTransitionScore = Number((saveRate * 0.90).toFixed(2));
+    isRecgptCandidate = true;
+  } else if (sequenceRole === 'NAVBOOST_CO_VISITOR') {
+    recgptTransitionScore = Number((saveRate * 0.85).toFixed(2));
+    isRecgptCandidate = true;
+  } else if (sequenceRole === 'SESSION_FINISHER') {
+    recgptTransitionScore = Number((saveRate * 0.92).toFixed(2));
+    isRecgptCandidate = true;
+  } else if (sequenceRole === 'PIXIE_DRIFT_OUTLIER') {
+    recgptTransitionScore = 0;
+    isRecgptCandidate = false;
+  }
+
+  // True Engine Provenance (orthogonal to product status) with full interaction signals
+  let provenanceEngine = detectEngineProvenance(
+    pin,
+    parentEntity,
+    saves,
+    saveRate,
+    dailyVelocity,
+    ageDays,
+    isRecgptCandidate,
+    recgptTransitionScore
+  );
+
+  if (sequenceRole === 'PIXIE_DRIFT_OUTLIER') {
+    provenanceEngine = 'P2P_RANDOMWALK';
+  } else if ((provenanceEngine === 'P2P_TWO_TOWER' || provenanceEngine === 'FRESH_COLD_START') && isRecgptCandidate && recgptTransitionScore > 70) {
+    provenanceEngine = 'P2P_RECGPT';
+  }
+
+  // Dynamic Multi-Head prod:v18 Net Utility Score using upstream utility_config.weights
+  let individualProdScore = 0;
+  const pClick = 1.0;
+  const pLongClick = Math.min(1.0, (saveRate / 100) * 1.2);
+  const pRepin = saves > 0 ? Math.min(1.0, repins / saves) : 0;
+  const pShortClick = isProduct ? 0.10 : (isVideo ? 0.08 : 0.05);
+
+  if (utilityWeights && typeof utilityWeights === 'object') {
+    let headWeights = null;
+    if (isProduct && utilityWeights.PRODUCT_TRUSTWORTHY) {
+      headWeights = utilityWeights.PRODUCT_TRUSTWORTHY;
+    } else if (isVideo && utilityWeights.VIDEO) {
+      headWeights = utilityWeights.VIDEO;
+    } else if (utilityWeights.ORGANIC) {
+      headWeights = utilityWeights.ORGANIC;
+    }
+
+    if (headWeights) {
+      const clickW = Number(headWeights.CLICK_WEIGHT ?? 1.97);
+      const longClickW = Number(headWeights.LONG_CLICK_WEIGHT ?? 0.09);
+      const shortClickW = Number(headWeights.SHORT_CLICK_5S_WEIGHT ?? -392.64);
+      const repinW = Number(headWeights.REPIN_WEIGHT ?? 118.07);
+
+      individualProdScore = Number((
+        (clickW * pClick) +
+        (longClickW * pLongClick) +
+        (shortClickW * pShortClick) +
+        (repinW * pRepin)
+      ).toFixed(2));
+    }
+  }
+
+  // Calibrated fallback when upstream snapshot is unavailable
+  if (individualProdScore === 0) {
+    if (isProduct) {
+      individualProdScore = Number(((111.72 * pClick) + (137.80 * pLongClick) - (186.62 * pShortClick) + (133.83 * pRepin)).toFixed(2));
+    } else if (isVideo) {
+      individualProdScore = Number(((0.05 * pClick) + (0.04 * pLongClick) - (99.65 * pShortClick) + (109.54 * pRepin)).toFixed(2));
+    } else {
+      individualProdScore = Number(((1.97 * pClick) + (0.09 * pLongClick) - (392.64 * pShortClick) + (118.07 * pRepin)).toFixed(2));
+    }
+  }
+
+  // Visual Entropy Score
+  const visualEntropyScore = Number((Math.min(99.99, Math.abs(aspectRatio - 0.56) * 15 + (ocrText.length > 20 ? 12 : 5))).toFixed(2));
 
   return {
     seed_pin_id: String(seedPinId),
@@ -540,6 +620,10 @@ async function crawlSeed(seed) {
   let authoritativeCandidateCounts = null;
   let utilitySnapshot = null;
 
+  const labelLower = `${seed.label || ''} ${seed.title || ''}`.toLowerCase();
+  const isBakery = /\b(muffin|muffins|cake|cakes|cookie|cookies|brownie|brownies|roll|rolls|cinnamon|pie|pies|tart|bread|cupcake|cupcakes|donut|donuts|pastry|pastries|bake|baking|dessert|sweet|chocolate|caramel|pumpkin spice)\b/i.test(labelLower);
+  const seedClusterType = isBakery ? 'BAKERY_DESSERT' : 'GENERAL';
+
   let bookmark = null;
   const maxPages = 40;
 
@@ -656,7 +740,7 @@ async function crawlSeed(seed) {
           continue;
         }
 
-        const parsed = parsePinCandidate(pinObj, pinId, item);
+        const parsed = parsePinCandidate(pinObj, pinId, item, utilitySnapshot, seedClusterType);
         if (parsed && !candidatesMap.has(parsed.candidate_pin_id)) {
           candidatesMap.set(parsed.candidate_pin_id, parsed);
         }
@@ -919,7 +1003,15 @@ async function main() {
   console.log(`\n[+] Cluster intelligence run finished.`);
 }
 
-main().catch((err) => {
-  console.error(`[-] Fatal orchestrator error:`, err);
-  process.exit(1);
-});
+import { fileURLToPath } from 'url';
+const isDirectRun = process.argv[1] && (
+  fileURLToPath(import.meta.url) === process.argv[1] ||
+  process.argv[1].endsWith('cluster-intelligence.mjs')
+);
+
+if (isDirectRun) {
+  main().catch((err) => {
+    console.error(`[-] Fatal orchestrator error:`, err);
+    process.exit(1);
+  });
+}

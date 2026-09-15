@@ -747,9 +747,13 @@ function getDashboardHtml() {
                     <span class="text-[10px] font-mono text-slate-400 uppercase font-semibold">Sequence:</span>
                     <select x-model="dossierFilters.sequence" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono focus:outline-none cursor-pointer">
                       <option value="all">All Sequence Roles</option>
+                      <option value="DESSERT_HERO">🧁 Hero Dessert/Bake</option>
+                      <option value="BEVERAGE_PAIRING">☕ Beverage/Pairing</option>
+                      <option value="PASTRY_BITES">🥐 Pastry Bites</option>
                       <option value="DINNER_ANCHOR">🍽️ Dinner Anchor</option>
                       <option value="NAVBOOST_CO_VISITOR">🥖 Co-Visitor Side</option>
                       <option value="SESSION_FINISHER">🍪 Session Finisher</option>
+                      <option value="PIXIE_DRIFT_OUTLIER">⚠️ Pixie Drift Outlier</option>
                     </select>
                   </div>
 
@@ -842,10 +846,22 @@ function getDashboardHtml() {
                             <span x-text="'ID: ' + item.candidate_pin_id"></span>
                             <template x-if="item.sequence_role && item.sequence_role !== 'DIRECT_MATCH'">
                               <span class="px-1.5 py-0.2 rounded text-[9px] font-bold" :class="{
+                                'bg-purple-500/15 text-purple-700 dark:text-purple-300 border border-purple-500/30': item.sequence_role === 'DESSERT_HERO',
+                                'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30': item.sequence_role === 'BEVERAGE_PAIRING',
+                                'bg-teal-500/15 text-teal-700 dark:text-teal-300 border border-teal-500/30': item.sequence_role === 'PASTRY_BITES',
                                 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30': item.sequence_role === 'DINNER_ANCHOR',
                                 'bg-sky-500/15 text-sky-700 dark:text-sky-300 border border-sky-500/30': item.sequence_role === 'NAVBOOST_CO_VISITOR',
-                                'bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30': item.sequence_role === 'SESSION_FINISHER'
-                              }" x-text="item.sequence_role === 'DINNER_ANCHOR' ? '🍽️ Anchor' : (item.sequence_role === 'NAVBOOST_CO_VISITOR' ? '🥖 Co-Visitor' : '🍪 Finisher')"></span>
+                                'bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30': item.sequence_role === 'SESSION_FINISHER',
+                                'bg-red-500/20 text-red-700 dark:text-red-300 border border-red-500/40 font-extrabold': item.sequence_role === 'PIXIE_DRIFT_OUTLIER'
+                              }" x-text="{
+                                'DESSERT_HERO': '🧁 Hero Bake',
+                                'BEVERAGE_PAIRING': '☕ Pairing',
+                                'PASTRY_BITES': '🥐 Bites',
+                                'DINNER_ANCHOR': '🍽️ Anchor',
+                                'NAVBOOST_CO_VISITOR': '🥖 Co-Visitor',
+                                'SESSION_FINISHER': '🍪 Finisher',
+                                'PIXIE_DRIFT_OUTLIER': '⚠️ Pixie Drift'
+                              }[item.sequence_role] || item.sequence_role"></span>
                             </template>
                           </div>
                           <template x-if="item.ocr_text">
@@ -1158,9 +1174,13 @@ function getDashboardHtml() {
                 <span class="text-[10px] font-mono text-slate-400 uppercase font-semibold">Sequence:</span>
                 <select x-model="explorerFilters.sequence" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono focus:outline-none cursor-pointer">
                   <option value="all">All Sequence Roles</option>
+                  <option value="DESSERT_HERO">🧁 Hero Dessert/Bake</option>
+                  <option value="BEVERAGE_PAIRING">☕ Beverage/Pairing</option>
+                  <option value="PASTRY_BITES">🥐 Pastry Bites</option>
                   <option value="DINNER_ANCHOR">🍽️ Dinner Anchor</option>
                   <option value="NAVBOOST_CO_VISITOR">🥖 Co-Visitor Side</option>
                   <option value="SESSION_FINISHER">🍪 Session Finisher</option>
+                  <option value="PIXIE_DRIFT_OUTLIER">⚠️ Pixie Drift Outlier</option>
                 </select>
               </div>
 
@@ -1255,10 +1275,22 @@ function getDashboardHtml() {
                         <span x-text="'ID: ' + item.candidate_pin_id"></span>
                         <template x-if="item.sequence_role && item.sequence_role !== 'DIRECT_MATCH'">
                           <span class="px-1.5 py-0.2 rounded text-[9px] font-bold" :class="{
+                            'bg-purple-500/15 text-purple-700 dark:text-purple-300 border border-purple-500/30': item.sequence_role === 'DESSERT_HERO',
+                            'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30': item.sequence_role === 'BEVERAGE_PAIRING',
+                            'bg-teal-500/15 text-teal-700 dark:text-teal-300 border border-teal-500/30': item.sequence_role === 'PASTRY_BITES',
                             'bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30': item.sequence_role === 'DINNER_ANCHOR',
                             'bg-sky-500/15 text-sky-700 dark:text-sky-300 border border-sky-500/30': item.sequence_role === 'NAVBOOST_CO_VISITOR',
-                            'bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30': item.sequence_role === 'SESSION_FINISHER'
-                          }" x-text="item.sequence_role === 'DINNER_ANCHOR' ? '🍽️ Anchor' : (item.sequence_role === 'NAVBOOST_CO_VISITOR' ? '🥖 Co-Visitor' : '🍪 Finisher')"></span>
+                            'bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30': item.sequence_role === 'SESSION_FINISHER',
+                            'bg-red-500/20 text-red-700 dark:text-red-300 border border-red-500/40 font-extrabold': item.sequence_role === 'PIXIE_DRIFT_OUTLIER'
+                          }" x-text="{
+                            'DESSERT_HERO': '🧁 Hero Bake',
+                            'BEVERAGE_PAIRING': '☕ Pairing',
+                            'PASTRY_BITES': '🥐 Bites',
+                            'DINNER_ANCHOR': '🍽️ Anchor',
+                            'NAVBOOST_CO_VISITOR': '🥖 Co-Visitor',
+                            'SESSION_FINISHER': '🍪 Finisher',
+                            'PIXIE_DRIFT_OUTLIER': '⚠️ Pixie Drift'
+                          }[item.sequence_role] || item.sequence_role"></span>
                         </template>
                       </div>
                       <template x-if="item.ocr_text">
@@ -2351,27 +2383,59 @@ const server = http.createServer(async (req, res) => {
       let navboostSide = null;
       let sessionFinisher = null;
 
+      let isBakerySeed = false;
       if (seedPinId) {
-        const dRows = await sql`
-          SELECT * FROM candidate_graph_nodes
-          WHERE seed_pin_id = ${seedPinId} AND sequence_role = 'DINNER_ANCHOR'
-          ORDER BY saves DESC LIMIT 1;
-        `;
-        if (dRows.length > 0) dinnerAnchor = dRows[0];
+        const sInfo = await sql`SELECT label FROM cluster_seeds WHERE pin_id = ${seedPinId} LIMIT 1;`;
+        if (sInfo.length > 0) {
+          isBakerySeed = /\b(muffin|muffins|cake|cakes|cookie|cookies|brownie|brownies|roll|rolls|cinnamon|pie|pies|tart|bread|cupcake|cupcakes|donut|donuts|pastry|pastries|bake|baking|dessert|sweet|chocolate|caramel|pumpkin spice)\b/i.test(sInfo[0].label || '');
+        }
 
-        const nRows = await sql`
-          SELECT * FROM candidate_graph_nodes
-          WHERE seed_pin_id = ${seedPinId} AND sequence_role = 'NAVBOOST_CO_VISITOR'
-          ORDER BY saves DESC LIMIT 1;
-        `;
-        if (nRows.length > 0) navboostSide = nRows[0];
+        if (isBakerySeed) {
+          const dRows = await sql`
+            SELECT * FROM candidate_graph_nodes
+            WHERE seed_pin_id = ${seedPinId} AND sequence_role IN ('DESSERT_HERO', 'DINNER_ANCHOR')
+            ORDER BY (sequence_role = 'DESSERT_HERO') DESC, saves DESC LIMIT 1;
+          `;
+          if (dRows.length > 0) dinnerAnchor = dRows[0];
 
-        const sRows = await sql`
-          SELECT * FROM candidate_graph_nodes
-          WHERE seed_pin_id = ${seedPinId} AND sequence_role = 'SESSION_FINISHER'
-          ORDER BY saves DESC LIMIT 1;
-        `;
-        if (sRows.length > 0) sessionFinisher = sRows[0];
+          const nRows = await sql`
+            SELECT * FROM candidate_graph_nodes
+            WHERE seed_pin_id = ${seedPinId} AND sequence_role IN ('BEVERAGE_PAIRING', 'NAVBOOST_CO_VISITOR')
+              AND candidate_pin_id != ${dinnerAnchor?.candidate_pin_id || ''}
+            ORDER BY (sequence_role = 'BEVERAGE_PAIRING') DESC, saves DESC LIMIT 1;
+          `;
+          if (nRows.length > 0) navboostSide = nRows[0];
+
+          const sRows = await sql`
+            SELECT * FROM candidate_graph_nodes
+            WHERE seed_pin_id = ${seedPinId} AND sequence_role IN ('PASTRY_BITES', 'SESSION_FINISHER')
+              AND candidate_pin_id != ${dinnerAnchor?.candidate_pin_id || ''}
+              AND candidate_pin_id != ${navboostSide?.candidate_pin_id || ''}
+            ORDER BY (sequence_role = 'PASTRY_BITES') DESC, saves DESC LIMIT 1;
+          `;
+          if (sRows.length > 0) sessionFinisher = sRows[0];
+        } else {
+          const dRows = await sql`
+            SELECT * FROM candidate_graph_nodes
+            WHERE seed_pin_id = ${seedPinId} AND sequence_role = 'DINNER_ANCHOR'
+            ORDER BY saves DESC LIMIT 1;
+          `;
+          if (dRows.length > 0) dinnerAnchor = dRows[0];
+
+          const nRows = await sql`
+            SELECT * FROM candidate_graph_nodes
+            WHERE seed_pin_id = ${seedPinId} AND sequence_role = 'NAVBOOST_CO_VISITOR'
+            ORDER BY saves DESC LIMIT 1;
+          `;
+          if (nRows.length > 0) navboostSide = nRows[0];
+
+          const sRows = await sql`
+            SELECT * FROM candidate_graph_nodes
+            WHERE seed_pin_id = ${seedPinId} AND sequence_role = 'SESSION_FINISHER'
+            ORDER BY saves DESC LIMIT 1;
+          `;
+          if (sRows.length > 0) sessionFinisher = sRows[0];
+        }
 
         // Seed-scoped fallbacks: never cross into another seed!
         if (!dinnerAnchor) {
@@ -2621,6 +2685,7 @@ const server = http.createServer(async (req, res) => {
             MAX(c.daily_velocity) AS daily_velocity,
             MAX(c.pin_created_at) AS pin_created_at,
             MAX(c.sequence_role) AS sequence_role,
+            MAX(c.provenance_engine) AS provenance_engine,
             MAX(c.repins) AS total_repins,
             MAX(c.image_url) AS image_url,
             BOOL_OR(c.is_video) AS is_video,
@@ -2637,15 +2702,27 @@ const server = http.createServer(async (req, res) => {
         LIMIT ${limit};
       `;
 
-      const enrichedRows = rows.map((r) => {
+      // Imbrišak & Tisanić (2026): Compute cluster-wide mean coupling for relative threshold
+      const totalSeedsCount = Math.max(allSeeds.length, 1);
+      const computedCouplings = rows.map((r) => {
+        const overlap = Number(r.seed_overlap_count || 1);
+        const saves = Number(r.total_saves || 0);
+        const multihitWeight = Math.sqrt(Math.max(saves, 1)) * overlap;
+        const nodeStrength = Math.max(saves, 1);
+        return multihitWeight / Math.sqrt(totalSeedsCount * nodeStrength);
+      });
+      const meanRho = computedCouplings.reduce((acc, v) => acc + v, 0) / Math.max(computedCouplings.length, 1);
+
+      const enrichedRows = rows.map((r, idx) => {
         const overlap = Number(r.seed_overlap_count || 1);
         const saves = Number(r.total_saves || 0);
 
-        let engine = 'P2P_TWO_TOWER';
-        if (overlap >= 2) engine = 'P2P_RANDOMWALK';
-        else if (saves >= 30000) engine = 'P2P_NAVBOOST';
-        else if (r.is_product) engine = 'FRESH_SHOPPING';
-        else if (saves >= 10000) engine = 'P2P_RECGPT';
+        // Zero Speculation: Use authentic engine provenance from DB instead of arbitrary heuristics
+        const engine = r.provenance_engine || 'P2P_TWO_TOWER';
+
+        // Self-calibrated coupling coefficient rho_ij = W_ij / sqrt(s_i * s_j)
+        const couplingRho = Number((computedCouplings[idx] || 0).toFixed(4));
+        const passesRelativeThreshold = couplingRho >= (0.5 * meanRho);
 
         const ar = Number(r.aspect_ratio || 0.56);
         let format = 'ORGANIC PIN';
@@ -2665,6 +2742,8 @@ const server = http.createServer(async (req, res) => {
         return {
           ...r,
           engine_source: engine,
+          coupling_rho: couplingRho,
+          coupling_drift: !passesRelativeThreshold,
           format_type: format,
           culinary_color_name: getCulinaryColorName(r.winning_color),
           is_vacuum_target: !r.is_product && saves >= 5000,
