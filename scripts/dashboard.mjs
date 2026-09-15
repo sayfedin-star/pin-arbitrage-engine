@@ -141,7 +141,7 @@ function sendJson(res, statusCode, data) {
   res.writeHead(statusCode, {
     'Content-Type': 'application/json',
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type'
   });
   res.end(JSON.stringify(data));
@@ -364,11 +364,16 @@ function getDashboardHtml() {
                   </div>
                 </div>
 
-                <!-- Primary Action Button: Inspect Seed Cluster -->
-                <button @click="openSeedDossier(seed)" class="w-full flex items-center justify-center space-x-2 py-2.5 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-900 font-bold text-xs shadow-sm active:scale-95 transition">
-                  <i data-lucide="eye" class="w-3.5 h-3.5"></i>
-                  <span>Inspect Seed Cluster</span>
-                </button>
+                <!-- Primary Action Button: Inspect Seed Cluster & Delete -->
+                <div class="flex items-center space-x-2">
+                  <button @click="openSeedDossier(seed)" class="flex-1 flex items-center justify-center space-x-2 py-2.5 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-900 font-bold text-xs shadow-sm active:scale-95 transition">
+                    <i data-lucide="eye" class="w-3.5 h-3.5"></i>
+                    <span>Inspect Seed Cluster</span>
+                  </button>
+                  <button @click.stop="deleteSeed(seed.pin_id, seed.label)" class="p-2.5 rounded-xl border border-rose-200 dark:border-rose-900/50 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 transition active:scale-95" title="Delete this seed">
+                    <i data-lucide="trash-2" class="w-4 h-4"></i>
+                  </button>
+                </div>
               </div>
             </template>
           </div>
@@ -680,6 +685,12 @@ function getDashboardHtml() {
                 <p class="text-xs text-slate-500 font-mono" x-text="'Showing all ' + dossierCandidates.length + ' candidate nodes (100% Uncapped)'"></p>
               </div>
 
+              <div class="flex items-center space-x-2">
+                <button @click="exportCsv(filteredDossierCandidates, 'seed-' + activeDossierSeed.pin_id + '-candidates.csv')" class="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-semibold shadow-sm transition active:scale-95">
+                  <i data-lucide="download" class="w-3.5 h-3.5 text-rose-500"></i>
+                  <span>Export CSV</span>
+                </button>
+              </div>
             </div>
 
             <!-- Filter & Segment Toolbar for Seed Dossier Candidates -->
@@ -912,6 +923,10 @@ function getDashboardHtml() {
           </div>
 
           <div class="flex items-center space-x-2">
+            <button @click="exportCsv(intersections, 'global-intersections-hubs.csv')" class="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-semibold shadow-sm transition active:scale-95">
+              <i data-lucide="download" class="w-3.5 h-3.5 text-amber-500"></i>
+              <span>Export CSV</span>
+            </button>
             <span class="px-3 py-1 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs font-mono font-bold text-amber-600 dark:text-amber-400" x-text="intersections.length + ' Overlapping Hubs'"></span>
           </div>
         </div>
@@ -1061,6 +1076,12 @@ function getDashboardHtml() {
                 <i data-lucide="search" class="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400"></i>
                 <input type="text" x-model="explorerFilters.search" placeholder="Search title, domain, OCR text..." class="w-full pl-8 pr-3 py-1 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 font-mono text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-rose-500">
               </div>
+
+              <!-- Export CSV Button -->
+              <button @click="exportCsv(filteredExplorerCandidates, 'master-explorer-candidates.csv')" class="flex items-center space-x-1.5 px-3 py-1 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold shadow-sm transition active:scale-95">
+                <i data-lucide="download" class="w-3.5 h-3.5 text-sky-500"></i>
+                <span>Export CSV</span>
+              </button>
             </div>
 
             <!-- Right: 4 Dropdown Filter Selectors -->
@@ -2034,6 +2055,79 @@ function getDashboardHtml() {
           } catch (e) {
             alert('Failed to add seed: ' + e.message);
           }
+        },
+
+        async deleteSeed(pinId, label) {
+          const name = label || pinId;
+          if (!confirm('Are you sure you want to delete seed "' + name + '" (' + pinId + ') and all associated candidates and metrics? This action cannot be undone.')) {
+            return;
+          }
+          try {
+            const res = await fetch('/api/seeds?pin_id=' + encodeURIComponent(pinId), {
+              method: 'DELETE'
+            });
+            if (res.ok) {
+              this.showToast('Seed ' + pinId + ' deleted successfully');
+              if (this.activeDossierSeed && this.activeDossierSeed.pin_id === pinId) {
+                this.closeSeedDossier();
+              }
+              await this.refreshAll();
+            } else {
+              const err = await res.json();
+              alert('Error deleting seed: ' + (err.error || 'Unknown error'));
+            }
+          } catch (e) {
+            alert('Failed to delete seed: ' + e.message);
+          }
+        },
+
+        exportCsv(list, filename) {
+          const fname = filename || 'arbitrage-candidates.csv';
+          if (!list || list.length === 0) {
+            alert('No data to export.');
+            return;
+          }
+          const headers = [
+            'candidate_pin_id',
+            'title',
+            'saves',
+            'save_rate',
+            'daily_velocity',
+            'provenance_engine',
+            'sequence_role',
+            'dominant_color',
+            'aspect_ratio',
+            'domain',
+            'is_product',
+            'pin_created_at',
+            'seed_overlap_count'
+          ];
+          const csvRows = [headers.join(',')];
+
+          for (const row of list) {
+            const values = headers.map(header => {
+              let val = row[header];
+              if (header === 'saves' && val === undefined) val = row.total_saves;
+              if (header === 'save_rate' && val === undefined) val = row.avg_save_rate;
+              if (header === 'dominant_color' && !val) val = row.winning_color;
+              if (header === 'provenance_engine' && !val) val = row.engine_source;
+              if (val === null || val === undefined) val = '';
+              const escaped = ('' + val).replace(/"/g, '""');
+              return '"' + escaped + '"';
+            });
+            csvRows.push(values.join(','));
+          }
+
+          const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.setAttribute('href', url);
+          link.setAttribute('download', fname.endsWith('.csv') ? fname : (fname + '.csv'));
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+          this.showToast('Exported ' + list.length + ' rows to ' + fname);
         }
       };
     }
@@ -2051,7 +2145,7 @@ const server = http.createServer(async (req, res) => {
   if (method === 'OPTIONS') {
     res.writeHead(204, {
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type'
     });
     return res.end();
@@ -2264,15 +2358,16 @@ const server = http.createServer(async (req, res) => {
           return {
             title: defaultTitle,
             candidate_pin_id: '',
-            saves: 45000,
-            save_rate: 92.5,
-            daily_velocity: 32.5,
-            recgpt_transition_score: 87.8,
+            saves: 0,
+            save_rate: 0,
+            daily_velocity: 0,
+            recgpt_transition_score: 0,
             prep_time: defaultPrep,
             sequence_role: defaultRole,
-            winning_color: '#824d30',
-            culinary_color_name: 'Rustic Umber / Roasted Crust',
-            provenance_engine: 'P2P_RECGPT'
+            winning_color: '#888888',
+            culinary_color_name: 'Pending Crawl Data',
+            provenance_engine: 'P2P_RECGPT',
+            is_pending_data: true
           };
         }
         return {
@@ -2444,11 +2539,14 @@ const server = http.createServer(async (req, res) => {
             MAX(c.dominant_color) AS winning_color,
             MAX(c.ocr_text) AS ocr_text,
             MAX(c.aspect_ratio) AS aspect_ratio,
-            SUM(c.repins) AS total_repins,
+            MAX(c.daily_velocity) AS daily_velocity,
+            MAX(c.pin_created_at) AS pin_created_at,
+            MAX(c.sequence_role) AS sequence_role,
+            MAX(c.repins) AS total_repins,
             ROUND(AVG(c.save_rate)::numeric, 2) AS avg_save_rate,
             COUNT(DISTINCT c.seed_pin_id) AS seed_overlap_count,
             ROUND(POWER(SUM(SQRT(GREATEST(c.saves, 1))), 2)::numeric, 2) AS pixie_multihit_score,
-            SUM(c.saves) AS total_saves,
+            MAX(c.saves) AS total_saves,
             ARRAY_AGG(DISTINCT c.seed_pin_id) AS originating_seeds
         FROM candidate_graph_nodes c
         GROUP BY c.candidate_pin_id
@@ -2554,6 +2652,16 @@ const server = http.createServer(async (req, res) => {
       `;
 
       return sendJson(res, 201, { success: true, seed: result[0] });
+    }
+
+    // 8B. DELETE /api/seeds
+    if (method === 'DELETE' && pathname === '/api/seeds') {
+      const pinId = parsedUrl.searchParams.get('pin_id');
+      if (!pinId) {
+        return sendJson(res, 400, { error: 'pin_id query parameter is required' });
+      }
+      await sql`DELETE FROM cluster_seeds WHERE pin_id = ${pinId};`;
+      return sendJson(res, 200, { success: true, deleted_pin_id: pinId });
     }
 
     // 9. GET or HEAD /
