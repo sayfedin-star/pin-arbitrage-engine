@@ -8,9 +8,12 @@
  */
 
 import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
 import { URL } from 'node:url';
 import { spawn } from 'node:child_process';
 import { neon } from '@neondatabase/serverless';
+import { parsePinCandidate } from './cluster-intelligence.mjs';
 
 // Load .env automatically if present
 if (typeof process.loadEnvFile === 'function') {
@@ -80,6 +83,13 @@ let crawlState = {
 function triggerCrawlProcess(seedPinId = null) {
   if (crawlState.is_crawling) {
     return { already_running: true };
+  }
+
+  // Dynamically reload .env to ensure fresh PINTEREST_COOKIE or credentials are used
+  if (typeof process.loadEnvFile === 'function') {
+    try {
+      process.loadEnvFile();
+    } catch (err) {}
   }
 
   crawlState.is_crawling = true;
@@ -264,6 +274,13 @@ function getDashboardHtml() {
             <span class="sm:hidden">Crawl</span>
           </button>
 
+          <!-- Pinterest Session Cookie Status Button -->
+          <button @click="isCookieModalOpen = true" class="flex items-center space-x-1.5 px-3 py-2 text-xs font-semibold rounded-xl border transition active:scale-95" :class="cookieStatus.has_cookie ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/20' : 'bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20'" title="Pinterest Session Authentication Status">
+            <span class="w-2 h-2 rounded-full" :class="cookieStatus.has_cookie ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'"></span>
+            <span class="hidden sm:inline" x-text="cookieStatus.has_cookie ? 'Session: Authenticated' : 'Guest Mode (No Cookie)'"></span>
+            <span class="sm:hidden" x-text="cookieStatus.has_cookie ? 'Auth' : 'Guest'"></span>
+          </button>
+
           <!-- Add Competitor Button -->
           <button @click="isAddSeedOpen = true" class="flex items-center space-x-1.5 px-3 py-2 text-xs font-semibold rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/90 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition active:scale-95">
             <i data-lucide="plus-circle" class="w-3.5 h-3.5 text-rose-500"></i>
@@ -397,6 +414,10 @@ function getDashboardHtml() {
 
             <div class="flex items-center space-x-3">
               <span class="text-xs font-mono text-slate-500">Active Seed: <strong class="text-slate-900 dark:text-white" x-text="activeDossierSeed.pin_id"></strong></span>
+              <button @click="openRawJsonModal(activeDossierSeed.pin_id)" class="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs transition active:scale-95 flex items-center space-x-1.5 shadow-sm" title="Import authentic raw Pinterest JSON response (RelatedModulesResource)">
+                <i data-lucide="file-input" class="w-3.5 h-3.5"></i>
+                <span>📥 Import Raw JSON</span>
+              </button>
               <button @click="triggerCrawl(activeDossierSeed.pin_id)" :disabled="crawlStatus.is_crawling" class="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs transition active:scale-95 flex items-center space-x-1.5 disabled:opacity-50">
                 <i data-lucide="refresh-cw" :class="{'animate-spin': crawlStatus.is_crawling}" class="w-3 h-3"></i>
                 <span>Re-Crawl This Seed</span>
@@ -1024,13 +1045,23 @@ function getDashboardHtml() {
               <!-- Empty State for this Seed -->
               <template x-if="dossierGuidedCapsules.length === 0">
                 <div class="p-12 text-center space-y-3 font-mono border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl">
-                  <i data-lucide="compass" class="w-12 h-12 mx-auto text-slate-400"></i>
-                  <p class="text-sm text-slate-600 dark:text-slate-400">لم يتم استخراج كبسولات BUBBLE_ONE_COL لهذا الدبوس حتى الآن في الـ Raw JSON.</p>
-                  <p class="text-xs text-slate-500">يتم استخراجها آلياً عندما يرسل بينترست وحدات الاستكشاف (Explore Article) أثناء زحف الدبوس.</p>
-                  <div class="pt-2">
-                    <button @click="triggerCrawl(activeDossierSeed.pin_id)" :disabled="crawlStatus.is_crawling" class="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold font-mono transition active:scale-95 disabled:opacity-50 inline-flex items-center space-x-2">
+                  <i data-lucide="compass" class="w-12 h-12 mx-auto text-purple-400"></i>
+                  <p class="text-sm font-bold text-slate-800 dark:text-slate-200">لم يتم استخراج كبسولات BUBBLE_ONE_COL لهذا الدبوس حتى الآن.</p>
+                  <p class="text-xs text-slate-500 max-w-xl mx-auto">
+                    تنبيه خوارزمي: منصة بينترست ترسل كبسولات الاستكشاف الموجه (BUBBLE_ONE_COL) فقط للجلسات الموثقة (Session Cookies)، أو يمكنك استيراد ملف JSON الأصلي مباشرة.
+                  </p>
+                  <div class="pt-3 flex flex-wrap items-center justify-center gap-3">
+                    <button @click="openRawJsonModal(activeDossierSeed.pin_id)" class="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold font-mono transition active:scale-95 inline-flex items-center space-x-2 shadow-sm">
+                      <i data-lucide="file-input" class="w-3.5 h-3.5"></i>
+                      <span>📥 استيراد ملف JSON الخام (Import Raw JSON)</span>
+                    </button>
+                    <button @click="isCookieModalOpen = true" class="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-xs font-bold font-mono transition active:scale-95 inline-flex items-center space-x-2">
+                      <i data-lucide="key" class="w-3.5 h-3.5 text-amber-500"></i>
+                      <span>🔑 إعداد كوكيز بينترست (Set Session Cookie)</span>
+                    </button>
+                    <button @click="triggerCrawl(activeDossierSeed.pin_id)" :disabled="crawlStatus.is_crawling" class="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold font-mono transition active:scale-95 disabled:opacity-50 inline-flex items-center space-x-2">
                       <i data-lucide="refresh-cw" :class="{'animate-spin': crawlStatus.is_crawling}" class="w-3.5 h-3.5"></i>
-                      <span>إعادة زحف هذا الدبوس الآن (Re-Crawl Seed)</span>
+                      <span>إعادة الزحف (Re-Crawl)</span>
                     </button>
                   </div>
                 </div>
@@ -1831,6 +1862,99 @@ function getDashboardHtml() {
     </div>
   </div>
 
+  <!-- Cookie Settings Modal -->
+  <div x-show="isCookieModalOpen" x-cloak class="fixed inset-0 z-50 overflow-y-auto bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="bg-white dark:bg-[#0d1526] border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-lg shadow-2xl p-6 space-y-4 text-slate-900 dark:text-white" @click.away="isCookieModalOpen = false">
+      <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+        <div class="flex items-center space-x-2">
+          <i data-lucide="key" class="w-5 h-5 text-amber-500"></i>
+          <h3 class="font-bold text-sm">إعداد كوكيز جلسة بينترست (Pinterest Session Cookie)</h3>
+        </div>
+        <button @click="isCookieModalOpen = false" class="text-slate-400 hover:text-slate-700 dark:hover:text-white">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <div class="space-y-3 text-xs">
+        <div class="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl space-y-1.5 text-amber-800 dark:text-amber-300 font-mono">
+          <p class="font-bold">⚡ لماذا الكوكيز ضرورية لاستخراج BUBBLE_ONE_COL و RecGPT؟</p>
+          <p class="text-[11px] leading-relaxed">
+            منصة بنترست تعامل أي طلب بدون كوكيز كـ "زائر مجهول" فترسل 0 كبسولات بحثية و 0 كانديديت لـ RecGPT. عند إضافة الكوكيز، يتعرف بنترست على حسابك ويرسل كبسولات الاستكشاف الموجه (BUBBLE_ONE_COL) وكوتا RecGPT الكاملة (147 كانديديت).
+          </p>
+        </div>
+
+        <div class="space-y-1 text-slate-600 dark:text-slate-400 text-[11px]">
+          <p class="font-semibold text-slate-800 dark:text-slate-200">📌 طريقة النسخ في 3 خطوات بسيطة:</p>
+          <ol class="list-decimal list-inside space-y-0.5">
+            <li>افتح <code class="text-rose-500">pinterest.com</code> في متصفحك وسجل الدخول.</li>
+            <li>اضغط <code class="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded">F12</code> ثم اذهب لتبويب <strong>Network</strong>.</li>
+            <li>اختر أي طلب، وانسخ قيمة سطر <strong>Cookie:</strong> من قسم <em>Request Headers</em> والصقها هنا:</li>
+          </ol>
+        </div>
+
+        <div>
+          <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">PINTEREST_COOKIE (قيمة الكوكيز الكاملة)</label>
+          <textarea x-model="cookieInput" rows="4" placeholder="_auth=1; _pinterest_sess=TWc9PSZ..." class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:outline-none focus:border-amber-500 font-mono text-[11px]"></textarea>
+        </div>
+
+        <div class="flex items-center space-x-2 text-[11px] font-mono text-slate-500">
+          <span>الحالة الحالية:</span>
+          <span class="font-bold" :class="cookieStatus.has_cookie ? 'text-emerald-500' : 'text-amber-500'" x-text="cookieStatus.has_cookie ? '✅ موثق (Active Cookie)' : '❌ غير متصل (Guest Mode)'"></span>
+          <span x-show="cookieStatus.preview" class="text-[10px] text-slate-400" x-text="'(' + cookieStatus.preview + ')'"></span>
+        </div>
+      </div>
+
+      <div class="pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-end space-x-2">
+        <button @click="isCookieModalOpen = false" class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-500 hover:text-slate-700">إلغاء</button>
+        <button @click="saveCookie()" :disabled="isSavingCookie" class="px-4 py-2 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-500 text-white transition active:scale-95 disabled:opacity-50 flex items-center space-x-1.5">
+          <i data-lucide="check" class="w-3.5 h-3.5"></i>
+          <span x-text="isSavingCookie ? 'جاري الحفظ...' : 'حفظ وتفعيل الجلسة فوراً'"></span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Direct Raw JSON Ingestion Modal -->
+  <div x-show="isRawJsonModalOpen" x-cloak class="fixed inset-0 z-50 overflow-y-auto bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="bg-white dark:bg-[#0d1526] border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-2xl shadow-2xl p-6 space-y-4 text-slate-900 dark:text-white" @click.away="isRawJsonModalOpen = false">
+      <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+        <div class="flex items-center space-x-2">
+          <i data-lucide="file-input" class="w-5 h-5 text-purple-500"></i>
+          <h3 class="font-bold text-sm">استيراد ملف JSON الأصلي مباشرة (Direct Raw JSON Ingestion)</h3>
+        </div>
+        <button @click="isRawJsonModalOpen = false" class="text-slate-400 hover:text-slate-700 dark:hover:text-white">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <div class="space-y-3 text-xs">
+        <p class="text-slate-500 dark:text-slate-400">
+          الصق هنا الاستجابة الخام الكاملة المنسوخة من تبويب Network لـ (RelatedModulesResource). سيقوم المحرك فوراً باستخراج كبسولات BUBBLE_ONE_COL، وحصص RecGPT و NavBoost الحقيقية، وحفظ جميع الدبابيس في Neon DB.
+        </p>
+
+        <div>
+          <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Target Seed Pin ID</label>
+          <input type="text" x-model="rawJsonTargetPin" class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-mono" placeholder="e.g. 1127448087977177124">
+        </div>
+
+        <div>
+          <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Raw Pinterest JSON Payload</label>
+          <textarea x-model="rawJsonInput" rows="8" placeholder='{"resource_response": {"status": "success", "data": [...]}}' class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:outline-none focus:border-purple-500 font-mono text-[11px]"></textarea>
+        </div>
+
+        <div x-show="rawJsonStatusMsg" class="p-3 rounded-xl text-xs font-mono" :class="rawJsonIsError ? 'bg-rose-500/10 text-rose-600 border border-rose-500/20' : 'bg-emerald-500/10 text-emerald-600 border border-emerald-500/20'" x-text="rawJsonStatusMsg"></div>
+      </div>
+
+      <div class="pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-end space-x-2">
+        <button @click="isRawJsonModalOpen = false" class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-500 hover:text-slate-700">إلغاء</button>
+        <button @click="submitRawJson()" :disabled="isSubmittingRawJson || !rawJsonInput.trim()" class="px-4 py-2 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white transition active:scale-95 disabled:opacity-50 flex items-center space-x-1.5">
+          <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+          <span x-text="isSubmittingRawJson ? 'جاري الهضم والتخزين...' : 'هضم وتخزين في Neon'"></span>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast Notification -->
   <div x-show="toastMessage" x-cloak class="fixed bottom-6 right-6 z-50 bg-slate-900 text-white dark:bg-white dark:text-slate-900 px-4 py-2.5 rounded-xl shadow-2xl font-mono text-xs flex items-center space-x-2 animate-in fade-in slide-in-from-bottom-5">
     <i data-lucide="check-circle" class="w-4 h-4 text-emerald-500"></i>
@@ -1848,6 +1972,20 @@ function getDashboardHtml() {
         isDossierOpen: false,
         copiedField: null,
         toastMessage: null,
+
+        // Cookie & Session State
+        isCookieModalOpen: false,
+        cookieInput: '',
+        isSavingCookie: false,
+        cookieStatus: { has_cookie: false, preview: null },
+
+        // Raw JSON Ingestion Modal State
+        isRawJsonModalOpen: false,
+        rawJsonTargetPin: '',
+        rawJsonInput: '',
+        isSubmittingRawJson: false,
+        rawJsonStatusMsg: '',
+        rawJsonIsError: false,
 
         // Data Stores
         overview: {},
@@ -2251,7 +2389,8 @@ function getDashboardHtml() {
             await Promise.all([
               this.fetchOverview(),
               this.fetchSeeds(),
-              this.fetchIntersections()
+              this.fetchIntersections(),
+              this.fetchCookieStatus()
             ]);
             if (this.currentTab === 'explorer') {
               await this.loadExplorerData();
@@ -2343,6 +2482,99 @@ function getDashboardHtml() {
               }
             }
           } catch (e) {}
+        },
+
+        async fetchCookieStatus() {
+          try {
+            const res = await fetch('/api/settings/cookie');
+            if (res.ok) {
+              this.cookieStatus = await res.json();
+            }
+          } catch (e) {}
+        },
+
+        async saveCookie() {
+          if (!this.cookieInput.trim()) {
+            alert('يرجى لصق الكوكيز أولاً.');
+            return;
+          }
+          this.isSavingCookie = true;
+          try {
+            const res = await fetch('/api/settings/cookie', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ cookie: this.cookieInput.trim() })
+            });
+            if (res.ok) {
+              const data = await res.json();
+              this.cookieStatus = { has_cookie: data.has_cookie, preview: this.cookieInput.slice(0, 30) + '...' };
+              this.isCookieModalOpen = false;
+              this.showToast('✅ تم حفظ وتفعيل كوكيز بينترست بنجاح!');
+            } else {
+              alert('فشل حفظ الكوكيز');
+            }
+          } catch (err) {
+            alert('حدث خطأ أثناء حفظ الكوكيز: ' + err.message);
+          } finally {
+            this.isSavingCookie = false;
+          }
+        },
+
+        openRawJsonModal(pinId = null) {
+          this.rawJsonTargetPin = pinId || (this.activeDossierSeed ? this.activeDossierSeed.pin_id : '');
+          this.rawJsonInput = '';
+          this.rawJsonStatusMsg = '';
+          this.rawJsonIsError = false;
+          this.isRawJsonModalOpen = true;
+        },
+
+        async submitRawJson() {
+          if (!this.rawJsonTargetPin.trim()) {
+            this.rawJsonStatusMsg = 'يرجى تحديد Target Seed Pin ID أولاً.';
+            this.rawJsonIsError = true;
+            return;
+          }
+          if (!this.rawJsonInput.trim()) {
+            this.rawJsonStatusMsg = 'يرجى لصق الـ JSON الخام أولاً.';
+            this.rawJsonIsError = true;
+            return;
+          }
+
+          this.isSubmittingRawJson = true;
+          this.rawJsonStatusMsg = 'جاري تحليل وهضم البيانات وتخزينها في قاعدة البيانات...';
+          this.rawJsonIsError = false;
+
+          try {
+            const res = await fetch('/api/seeds/import-raw-json', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                seed_pin_id: this.rawJsonTargetPin.trim(),
+                raw_json: this.rawJsonInput.trim()
+              })
+            });
+
+            const data = await res.json();
+            if (res.ok) {
+              this.rawJsonStatusMsg = '✅ تم بنجاح! تم استيراد ' + data.candidates_imported + ' كانديديت و ' + data.capsules_imported + ' كبسولة بحثية BUBBLE_ONE_COL وتثبيت كوتا الحصص في Neon.';
+              this.rawJsonIsError = false;
+              await this.refreshAll();
+              if (this.activeDossierSeed && this.activeDossierSeed.pin_id === this.rawJsonTargetPin.trim()) {
+                await this.openSeedDossier(this.activeDossierSeed);
+              }
+              setTimeout(() => {
+                this.isRawJsonModalOpen = false;
+              }, 2000);
+            } else {
+              this.rawJsonStatusMsg = '❌ خطأ: ' + (data.error || 'فشل استيراد البيانات');
+              this.rawJsonIsError = true;
+            }
+          } catch (err) {
+            this.rawJsonStatusMsg = '❌ خطأ في الاتصال: ' + err.message;
+            this.rawJsonIsError = true;
+          } finally {
+            this.isSubmittingRawJson = false;
+          }
         },
 
         async addSeed() {
@@ -3082,6 +3314,229 @@ const server = http.createServer(async (req, res) => {
         `;
       }
       return sendJson(res, 200, rows);
+    }
+
+    // 8D. GET /api/settings/cookie
+    if (method === 'GET' && pathname === '/api/settings/cookie') {
+      const cookie = process.env.PINTEREST_COOKIE || '';
+      return sendJson(res, 200, {
+        has_cookie: Boolean(cookie && cookie.trim().length > 10),
+        preview: cookie ? (cookie.slice(0, 30) + '...') : null
+      });
+    }
+
+    // 8E. POST /api/settings/cookie
+    if (method === 'POST' && pathname === '/api/settings/cookie') {
+      const body = await parseRequestBody(req);
+      const cookieVal = String(body.cookie || '').trim();
+      process.env.PINTEREST_COOKIE = cookieVal;
+
+      // Persist to .env file
+      const envPath = path.join(process.cwd(), '.env');
+      let envContent = '';
+      if (fs.existsSync(envPath)) {
+        envContent = fs.readFileSync(envPath, 'utf-8');
+      }
+      if (envContent.includes('PINTEREST_COOKIE=')) {
+        envContent = envContent.replace(/PINTEREST_COOKIE=.*(\r?\n|$)/, `PINTEREST_COOKIE=${cookieVal}$1`);
+      } else {
+        envContent += `\nPINTEREST_COOKIE=${cookieVal}\n`;
+      }
+      fs.writeFileSync(envPath, envContent, 'utf-8');
+
+      return sendJson(res, 200, {
+        success: true,
+        has_cookie: Boolean(cookieVal && cookieVal.length > 10)
+      });
+    }
+
+    // 8F. POST /api/seeds/import-raw-json
+    if (method === 'POST' && pathname === '/api/seeds/import-raw-json') {
+      const body = await parseRequestBody(req);
+      const seedPinId = String(body.seed_pin_id || '').trim();
+      let rawJson = body.raw_json;
+      if (typeof rawJson === 'string') {
+        try {
+          rawJson = JSON.parse(rawJson);
+        } catch (err) {
+          return sendJson(res, 400, { error: 'Invalid JSON payload: ' + err.message });
+        }
+      }
+
+      if (!seedPinId) {
+        return sendJson(res, 400, { error: 'seed_pin_id is required' });
+      }
+
+      const resourceResponse = rawJson?.resource_response || rawJson;
+      const items = Array.isArray(resourceResponse?.data) ? resourceResponse.data : [];
+
+      if (items.length === 0) {
+        return sendJson(res, 400, { error: 'No data items found in JSON (expected resource_response.data array)' });
+      }
+
+      // 1. Check for candidate_counts & utility_config
+      let authoritativeCounts = null;
+      let utilityWeights = null;
+      for (const item of items) {
+        if (!authoritativeCounts && item?.aux_fields?.candidate_counts) {
+          try {
+            const rawCounts = typeof item.aux_fields.candidate_counts === 'string'
+              ? JSON.parse(item.aux_fields.candidate_counts)
+              : item.aux_fields.candidate_counts;
+            authoritativeCounts = {
+              navboost: Number(rawCounts["P2P_NAVBOOST_CAND"] || 0),
+              recgpt: Number(rawCounts["P2P_RECGPT"] || 0),
+              randomwalk: Number(rawCounts["P2P_RANDOMWALK_CAND"] || 0),
+              two_tower: Number(rawCounts["P2P_TWO_TOWER_EMBEDDING_CAND"] || 0),
+              fresh: Number(rawCounts["P2P_TWO_TOWER_MID_FUNNEL_FRESH_EMBEDDING_CAND"] || 0)
+            };
+          } catch (e) {}
+        }
+        if (!utilityWeights && item?.aux_fields?.utility_config?.weights) {
+          utilityWeights = item.aux_fields.utility_config.weights;
+        }
+      }
+
+      // 2. Extract Guided Search Capsules (BUBBLE_ONE_COL / explorearticle)
+      const capturedCapsules = [];
+      const inspectAndCapture = (obj) => {
+        if (!obj || typeof obj !== 'object') return;
+        const hasExplore = (
+          obj.type === 'explorearticle' ||
+          obj.story_type === 'BUBBLE_ONE_COL' ||
+          obj.story_type === 'explore_article' ||
+          obj.story_type === 'guide' ||
+          Boolean(obj.cover_images && (obj.title?.format || obj.title)) ||
+          Boolean(obj.cover_image && (obj.title?.format || obj.title)) ||
+          Boolean(obj.node_id && String(obj.node_id).startsWith('RXhwbG9yZ'))
+        );
+        if (hasExplore) {
+          const titleVal = obj.title?.format || obj.title?.text || obj.title?.title || obj.title || obj.copy?.title || obj.query || obj.label;
+          const qTerm = typeof titleVal === 'string' ? titleVal.trim() : (titleVal?.format || '');
+          if (qTerm && !['more to explore', 'related pins', 'ideas', 'explore'].includes(qTerm.toLowerCase())) {
+            const imgUrl = (
+              obj.cover_images?.[0]?.['750x']?.url ||
+              obj.cover_images?.[0]?.url ||
+              obj.cover_image?.['750x']?.url ||
+              obj.cover_image?.url ||
+              obj.images?.['750x']?.url ||
+              obj.images?.['474x']?.url ||
+              obj.images?.orig?.url ||
+              obj.image_large_url ||
+              ''
+            );
+            const searchUrl = obj.link || obj.action_link || obj.url || `https://www.pinterest.com/search/pins/?q=${encodeURIComponent(qTerm)}`;
+            capturedCapsules.push({
+              seed_pin_id: seedPinId,
+              query_term: qTerm,
+              normalized_query: qTerm.toLowerCase().trim(),
+              image_url: imgUrl,
+              search_url: searchUrl,
+              node_id: String(obj.node_id || obj.id || '')
+            });
+          }
+        }
+        if (Array.isArray(obj.objects)) for (const s of obj.objects) inspectAndCapture(s);
+        if (Array.isArray(obj.items)) for (const s of obj.items) inspectAndCapture(s);
+        if (Array.isArray(obj.bubbles)) for (const s of obj.bubbles) inspectAndCapture(s);
+        if (Array.isArray(obj.expanded_viewport_objects)) for (const s of obj.expanded_viewport_objects) inspectAndCapture(s);
+      };
+
+      for (const item of items) inspectAndCapture(item);
+
+      // Save capsules
+      for (const cap of capturedCapsules) {
+        await sql`
+          INSERT INTO seed_guided_search_capsules (
+            seed_pin_id, query_term, normalized_query, image_url, search_url, node_id, discovered_at
+          ) VALUES (
+            ${cap.seed_pin_id}, ${cap.query_term}, ${cap.normalized_query}, ${cap.image_url}, ${cap.search_url}, ${cap.node_id}, NOW()
+          )
+          ON CONFLICT (seed_pin_id, normalized_query) DO UPDATE
+          SET image_url = EXCLUDED.image_url, search_url = EXCLUDED.search_url, node_id = EXCLUDED.node_id;
+        `;
+      }
+
+      // 3. Extract Candidates
+      const parsedCandidates = [];
+      for (const item of items) {
+        const list = [];
+        if (item.type === 'pin' || item.images || item.story_pin_data) list.push(item);
+        if (Array.isArray(item.pins)) list.push(...item.pins);
+        if (Array.isArray(item.objects)) list.push(...item.objects.filter(o => o.type === 'pin' || o.images));
+        
+        for (const p of list) {
+          const parsed = parsePinCandidate(p, seedPinId, item, utilityWeights, 'GENERAL');
+          if (parsed) parsedCandidates.push(parsed);
+        }
+      }
+
+      // Save candidates
+      for (const node of parsedCandidates) {
+        await sql`
+          INSERT INTO candidate_graph_nodes (
+            seed_pin_id, candidate_pin_id, title,
+            dominant_color, aspect_ratio, saves,
+            repins, save_rate, domain,
+            is_product, ocr_text, extracted_at,
+            pin_created_at, age_days, daily_velocity,
+            provenance_engine, individual_prod_score,
+            recgpt_transition_score, sequence_role,
+            is_recgpt_candidate, visual_entropy_score,
+            image_url, is_video, ingestion_method
+          ) VALUES (
+            ${node.seed_pin_id}, ${node.candidate_pin_id}, ${node.title},
+            ${node.dominant_color}, ${node.aspect_ratio}, ${node.saves},
+            ${node.repins}, ${node.save_rate}, ${node.domain},
+            ${node.is_product}, ${node.ocr_text}, NOW(),
+            ${node.pin_created_at}, ${node.age_days}, ${node.daily_velocity},
+            ${node.provenance_engine}, ${node.individual_prod_score},
+            ${node.recgpt_transition_score}, ${node.sequence_role},
+            ${node.is_recgpt_candidate}, ${node.visual_entropy_score},
+            ${node.image_url}, ${node.is_video}, 'RAW_PAYLOAD_DIRECT_IMPORT'
+          )
+          ON CONFLICT (seed_pin_id, candidate_pin_id) DO UPDATE SET
+            title = EXCLUDED.title,
+            dominant_color = EXCLUDED.dominant_color,
+            aspect_ratio = EXCLUDED.aspect_ratio,
+            saves = EXCLUDED.saves,
+            repins = EXCLUDED.repins,
+            save_rate = EXCLUDED.save_rate,
+            domain = EXCLUDED.domain,
+            is_product = EXCLUDED.is_product,
+            ocr_text = EXCLUDED.ocr_text,
+            extracted_at = NOW(),
+            provenance_engine = EXCLUDED.provenance_engine,
+            individual_prod_score = EXCLUDED.individual_prod_score,
+            recgpt_transition_score = EXCLUDED.recgpt_transition_score,
+            sequence_role = EXCLUDED.sequence_role,
+            image_url = EXCLUDED.image_url,
+            is_video = EXCLUDED.is_video,
+            ingestion_method = EXCLUDED.ingestion_method;
+        `;
+      }
+
+      // Update metrics if authoritative counts present
+      if (authoritativeCounts) {
+        await sql`
+          UPDATE cluster_arbitrage_metrics
+          SET
+            recgpt_count = ${authoritativeCounts.recgpt},
+            navboost_count = ${authoritativeCounts.navboost},
+            randomwalk_count = ${authoritativeCounts.randomwalk},
+            two_tower_count = ${authoritativeCounts.two_tower},
+            fresh_candidate_count = ${authoritativeCounts.fresh},
+            analyzed_at = NOW()
+          WHERE seed_pin_id = ${seedPinId};
+        `;
+      }
+
+      return sendJson(res, 200, {
+        success: true,
+        candidates_imported: parsedCandidates.length,
+        capsules_imported: capturedCapsules.length,
+        authoritative_counts: authoritativeCounts
+      });
     }
 
     // 9. GET or HEAD /

@@ -59,6 +59,8 @@ function cleanString(val) {
     if (typeof val.text === 'string' && val.text.trim()) return val.text.trim();
     if (typeof val.title === 'string' && val.title.trim()) return val.title.trim();
     if (typeof val.display_name === 'string' && val.display_name.trim()) return val.display_name.trim();
+    if (typeof val.label === 'string' && val.label.trim()) return val.label.trim();
+    if (typeof val.query === 'string' && val.query.trim()) return val.query.trim();
   }
   return '';
 }
@@ -250,7 +252,7 @@ export function classifySequenceRole(title = '', description = '', ocrText = '',
 /**
  * Extract pin fields with complete fallback chain
  */
-function parsePinCandidate(pin, seedPinId, parentEntity = null, utilityWeights = null, seedClusterType = 'GENERAL') {
+export function parsePinCandidate(pin, seedPinId, parentEntity = null, utilityWeights = null, seedClusterType = 'GENERAL') {
   if (!pin || typeof pin !== 'object') return null;
 
   const candidatePinId = String(pin.id || pin.pin_id || '').trim();
@@ -744,22 +746,30 @@ async function crawlSeed(seed) {
         const hasExploreSignal = (
           obj.type === 'explorearticle' ||
           obj.story_type === 'BUBBLE_ONE_COL' ||
+          obj.story_type === 'explore_article' ||
+          obj.story_type === 'guide' ||
           Boolean(obj.cover_images && (obj.title?.format || obj.title)) ||
+          Boolean(obj.cover_image && (obj.title?.format || obj.title)) ||
           Boolean(obj.node_id && String(obj.node_id).startsWith('RXhwbG9yZUFydGljbGU'))
         );
 
         if (hasExploreSignal) {
-          const qTerm = cleanString(obj.title) || cleanString(obj.copy?.title) || cleanString(obj.query);
+          const qTerm = cleanString(obj.title) || cleanString(obj.copy?.title) || cleanString(obj.query) || cleanString(obj.label);
 
-          if (qTerm && !['more to explore', 'related pins', 'ideas', 'explore'].includes(qTerm.toLowerCase())) {
+          if (qTerm && !['more to explore', 'related pins', 'ideas', 'explore', 'explore ideas'].includes(qTerm.toLowerCase())) {
             guidedSearchBubbles.add(qTerm);
 
             const imgUrl = cleanString(
               obj.cover_images?.[0]?.['750x']?.url ||
               obj.cover_images?.[0]?.url ||
+              obj.cover_image?.['750x']?.url ||
+              obj.cover_image?.url ||
               obj.images?.['750x']?.url ||
+              obj.images?.['474x']?.url ||
               obj.images?.orig?.url ||
               obj.image_large_url ||
+              obj.image_medium_url ||
+              obj.image_url ||
               ''
             );
 
@@ -768,6 +778,7 @@ async function crawlSeed(seed) {
             const normalized = qTerm.toLowerCase().trim();
 
             if (!guidedSearchCapsulesMap.has(normalized)) {
+              console.log(`[+] Captured Guided Search Capsule: "${qTerm}"`);
               guidedSearchCapsulesMap.set(normalized, {
                 seed_pin_id: pinId,
                 query_term: qTerm,
