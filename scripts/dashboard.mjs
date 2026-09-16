@@ -294,13 +294,6 @@ function getDashboardHtml() {
           <span>📊 Master Database Explorer (المستكشف العام)</span>
           <span class="px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-sky-500/10 text-sky-700 dark:text-sky-400" x-text="overview.total_candidates || '...'"></span>
         </button>
-
-        <!-- Tab 4: Guided Search Radar (BUBBLE_ONE_COL Capsules) -->
-        <button @click="switchTab('guided_search')" class="flex items-center space-x-2 px-4 py-3 text-xs sm:text-sm font-semibold border-b-2 transition whitespace-nowrap" :class="currentTab === 'guided_search' ? 'border-rose-500 text-rose-600 dark:text-rose-400 font-bold' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'">
-          <i data-lucide="compass" class="w-4 h-4 text-purple-500"></i>
-          <span>🧭 Guided Search Radar (كبسولات BUBBLE_ONE_COL)</span>
-          <span class="px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-purple-500/20 text-purple-700 dark:text-purple-400" x-text="guidedSearchCapsules.length"></span>
-        </button>
       </div>
     </div>
   </header>
@@ -346,7 +339,10 @@ function getDashboardHtml() {
                 <div class="space-y-3">
                   <!-- Seed Card Top Row -->
                   <div class="flex items-start justify-between gap-2">
-                    <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase tracking-wider" :class="seed.is_competitor ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20' : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20'" x-text="seed.is_competitor ? 'Competitor Cluster' : 'Internal Seed'"></span>
+                    <div class="flex items-center space-x-1.5 flex-wrap gap-y-1">
+                      <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase tracking-wider" :class="seed.is_competitor ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20' : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20'" x-text="seed.is_competitor ? 'Competitor Cluster' : 'Internal Seed'"></span>
+                      <span x-show="Number(seed.total_capsules || 0) > 0" class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-purple-500/10 text-purple-700 dark:text-purple-400 border border-purple-500/20" x-text="seed.total_capsules + ' Guided Capsules'"></span>
+                    </div>
                     <span class="text-[10px] font-mono text-slate-400 truncate" x-text="seed.last_crawled_at ? 'Crawled ' + new Date(seed.last_crawled_at).toLocaleDateString() : 'Pending Crawl'"></span>
                   </div>
 
@@ -504,6 +500,11 @@ function getDashboardHtml() {
                 <i data-lucide="sparkles" class="w-3.5 h-3.5 text-amber-400"></i>
                 <span>Creator Playbook (RecGPT Matrix)</span>
                 <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold uppercase bg-amber-500/20 text-amber-700 dark:text-amber-300">Live DB</span>
+              </button>
+              <button @click="dossierTab = 'guided_search'" class="px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1.5" :class="dossierTab === 'guided_search' ? 'bg-purple-600 text-white shadow-sm' : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300'">
+                <i data-lucide="compass" class="w-3.5 h-3.5 text-purple-400"></i>
+                <span>Guided Search Radar (كبسولات BUBBLE_ONE_COL)</span>
+                <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-purple-500/20 text-purple-700 dark:text-purple-300" x-text="dossierGuidedCapsules.length"></span>
               </button>
             </div>
 
@@ -944,6 +945,100 @@ function getDashboardHtml() {
             </div>
           </div>
 
+          <!-- SUB-VIEW 3: 🧭 GUIDED SEARCH RADAR (BUBBLE_ONE_COL CAPSULES) FOR ACTIVE SEED -->
+          <div x-show="dossierTab === 'guided_search'" class="space-y-5">
+            <div class="bg-white dark:bg-[#0d1526] border border-slate-200/90 dark:border-slate-800 rounded-2xl p-6 shadow-sm dark:shadow-xl space-y-5">
+              
+              <!-- Header & Explanation -->
+              <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200/80 dark:border-slate-800/80 pb-4">
+                <div>
+                  <h3 class="text-base font-bold text-slate-900 dark:text-white flex items-center space-x-2">
+                    <i data-lucide="compass" class="w-5 h-5 text-purple-500"></i>
+                    <span>Pinterest Guided Search Radar (استعلامات البحث الموجهة للدبوس <span class="font-mono text-purple-600 dark:text-purple-400" x-text="activeDossierSeed.pin_id"></span>)</span>
+                  </h3>
+                  <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                    كبسولات بحثية مُهندسة خوارزمياً (BUBBLE_ONE_COL / Explore Article) مستخرجة من الـ Raw JSON لهذا الدبوس تحديداً. انقر على أي صورة لتكبيرها والتنقل بين الصور.
+                  </p>
+                </div>
+                <div class="flex items-center space-x-2">
+                  <span class="px-3 py-1.5 rounded-xl text-xs font-mono font-bold bg-purple-500/10 text-purple-700 dark:text-purple-400 border border-purple-500/20" x-text="dossierGuidedCapsules.length + ' Capsules Harvested'"></span>
+                </div>
+              </div>
+
+              <!-- Visual Grid of Guided Search Capsules for this Seed -->
+              <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                <template x-for="(cap, capIdx) in dossierGuidedCapsules" :key="cap.id || cap.node_id || cap.query_term">
+                  <div class="group bg-slate-50/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800/80 hover:border-purple-500/50 rounded-2xl p-4 shadow-sm hover:shadow-lg transition space-y-3 flex flex-col justify-between">
+                    <div class="space-y-3">
+                      <!-- Cover Image Thumbnail with Click-to-Zoom Lightbox -->
+                      <div @click="openLightbox(capIdx)" class="relative w-full h-48 rounded-xl overflow-hidden bg-slate-200 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-inner cursor-pointer group/img">
+                        <template x-if="cap.image_url">
+                          <img :src="cap.image_url" alt="Guided capsule cover" loading="lazy" class="w-full h-full object-cover group-hover/img:scale-105 transition-transform duration-300">
+                        </template>
+                        <template x-if="!cap.image_url">
+                          <div class="w-full h-full flex items-center justify-center text-slate-400">
+                            <i data-lucide="image" class="w-8 h-8"></i>
+                          </div>
+                        </template>
+                        
+                        <!-- Explore Article Badge -->
+                        <div class="absolute top-2 left-2">
+                          <span class="px-2 py-0.5 rounded-md text-[9px] font-mono font-bold uppercase bg-slate-950/80 text-purple-300 backdrop-blur-md border border-purple-500/30">
+                            EXPLORE ARTICLE
+                          </span>
+                        </div>
+
+                        <!-- Zoom Hint Overlay on Hover -->
+                        <div class="absolute inset-0 bg-slate-950/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center space-x-1.5 text-white text-xs font-mono font-semibold backdrop-blur-[2px]">
+                          <i data-lucide="maximize-2" class="w-4 h-4"></i>
+                          <span>عرض كامل / تكبير</span>
+                        </div>
+                      </div>
+
+                      <!-- Query Title -->
+                      <div>
+                        <h4 class="font-bold text-sm text-slate-900 dark:text-white line-clamp-2 group-hover:text-purple-600 dark:group-hover:text-purple-400 transition" x-text="cap.query_term"></h4>
+                        <div class="flex items-center space-x-1.5 text-[10px] font-mono text-slate-500 dark:text-slate-400 mt-1">
+                          <span>Origin:</span>
+                          <span class="truncate font-semibold text-slate-700 dark:text-slate-300">BUBBLE_ONE_COL</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Action Links & Prompts -->
+                    <div class="pt-2 border-t border-slate-200/60 dark:border-slate-800/60 space-y-2">
+                      <div class="flex items-center space-x-2">
+                        <button @click="copyGuidedPrompt(cap.query_term)" class="flex-1 px-2.5 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-semibold text-[10px] font-mono transition active:scale-95 flex items-center justify-center space-x-1 shadow-sm">
+                          <i data-lucide="copy" class="w-3 h-3"></i>
+                          <span>Copy Prompt</span>
+                        </button>
+                        <a :href="cap.search_url || ('https://www.pinterest.com/search/pins/?q=' + encodeURIComponent(cap.query_term))" target="_blank" class="px-2.5 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-[10px] font-mono transition flex items-center justify-center space-x-1" title="Open Pinterest Search">
+                          <i data-lucide="external-link" class="w-3 h-3"></i>
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+                </template>
+              </div>
+
+              <!-- Empty State for this Seed -->
+              <template x-if="dossierGuidedCapsules.length === 0">
+                <div class="p-12 text-center space-y-3 font-mono border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl">
+                  <i data-lucide="compass" class="w-12 h-12 mx-auto text-slate-400"></i>
+                  <p class="text-sm text-slate-600 dark:text-slate-400">لم يتم استخراج كبسولات BUBBLE_ONE_COL لهذا الدبوس حتى الآن في الـ Raw JSON.</p>
+                  <p class="text-xs text-slate-500">يتم استخراجها آلياً عندما يرسل بينترست وحدات الاستكشاف (Explore Article) أثناء زحف الدبوس.</p>
+                  <div class="pt-2">
+                    <button @click="triggerCrawl(activeDossierSeed.pin_id)" :disabled="crawlStatus.is_crawling" class="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold font-mono transition active:scale-95 disabled:opacity-50 inline-flex items-center space-x-2">
+                      <i data-lucide="refresh-cw" :class="{'animate-spin': crawlStatus.is_crawling}" class="w-3.5 h-3.5"></i>
+                      <span>إعادة زحف هذا الدبوس الآن (Re-Crawl Seed)</span>
+                    </button>
+                  </div>
+                </div>
+              </template>
+
+            </div>
+          </div>
+
         </div>
       </template>
     </div>
@@ -1381,95 +1476,84 @@ function getDashboardHtml() {
       </div>
     </div>
 
-    <!-- ======================================================== -->
-    <!-- TAB 4: 🧭 GUIDED SEARCH RADAR (BUBBLE_ONE_COL CAPSULES)  -->
-    <!-- ======================================================== -->
-    <div x-show="currentTab === 'guided_search'" class="space-y-6">
-      <div class="bg-white dark:bg-[#0d1526] border border-slate-200/90 dark:border-slate-800 rounded-2xl p-5 shadow-sm dark:shadow-xl space-y-5">
-        
-        <!-- Header & Explanation -->
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200/80 dark:border-slate-800/80 pb-4">
-          <div>
-            <h2 class="text-base font-bold text-slate-900 dark:text-white flex items-center space-x-2">
-              <i data-lucide="compass" class="w-5 h-5 text-purple-500"></i>
-              <span>Pinterest Guided Search Radar (كبسولات BUBBLE_ONE_COL)</span>
-            </h2>
-            <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">
-              استعلامات بحثية مُهندسة خوارزمياً (Engineered Search Queries) تستخرجها بينترست مسبقاً عبر OmniSearchSage & Query2Interest لربط البذور بالاهتمامات الأكثر طلباً.
-            </p>
-          </div>
-          <div class="flex items-center space-x-2">
-            <!-- Filter by Seed Dropdown -->
-            <select x-model="guidedSearchFilterSeed" class="text-xs bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-mono border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 focus:outline-none cursor-pointer">
-              <option value="all">All Seeds (جميع البذور)</option>
-              <template x-for="s in seeds" :key="s.pin_id">
-                <option :value="s.pin_id" x-text="s.label ? (s.label.slice(0, 30) + '...') : s.pin_id"></option>
-              </template>
-            </select>
-            <span class="px-2.5 py-1.5 rounded-xl text-xs font-mono font-bold bg-purple-500/10 text-purple-700 dark:text-purple-400 border border-purple-500/20" x-text="filteredGuidedSearchCapsules.length + ' Capsules'"></span>
-          </div>
-        </div>
+  </main>
 
-        <!-- Visual Grid of Guided Search Capsules -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-          <template x-for="cap in filteredGuidedSearchCapsules" :key="cap.id || cap.node_id || cap.query_term">
-            <div class="group bg-slate-50/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800/80 hover:border-purple-500/50 rounded-2xl p-4 shadow-sm hover:shadow-lg transition space-y-3 flex flex-col justify-between">
-              <div class="space-y-3">
-                <!-- Cover Image Thumbnail -->
-                <div class="relative w-full h-48 rounded-xl overflow-hidden bg-slate-200 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-inner">
-                  <template x-if="cap.image_url">
-                    <img :src="cap.image_url" alt="Guided capsule cover" loading="lazy" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300">
-                  </template>
-                  <template x-if="!cap.image_url">
-                    <div class="w-full h-full flex items-center justify-center text-slate-400">
-                      <i data-lucide="image" class="w-8 h-8"></i>
-                    </div>
-                  </template>
-                  <div class="absolute top-2 left-2">
-                    <span class="px-2 py-0.5 rounded-md text-[9px] font-mono font-bold uppercase bg-slate-950/80 text-purple-300 backdrop-blur-md border border-purple-500/30">
-                      EXPLORE ARTICLE
-                    </span>
-                  </div>
-                </div>
+  <!-- ======================================================== -->
+  <!-- FULL IMAGE LIGHTBOX MODAL (تكبير وتصفح الصور بالأسهم)    -->
+  <!-- ======================================================== -->
+  <div x-show="isLightboxOpen" x-cloak 
+       class="fixed inset-0 z-[70] bg-slate-950/90 backdrop-blur-md flex flex-col justify-between p-4 sm:p-6"
+       @keydown.escape.window="closeLightbox()"
+       @keydown.arrow-left.window="if (isLightboxOpen) prevLightboxImage()"
+       @keydown.arrow-right.window="if (isLightboxOpen) nextLightboxImage()">
+    
+    <!-- Lightbox Top Navigation Bar -->
+    <div class="flex items-center justify-between text-white border-b border-slate-800/80 pb-3 max-w-5xl w-full mx-auto">
+      <div class="flex items-center space-x-3">
+        <span class="px-2.5 py-1 rounded-md text-[10px] font-mono font-bold uppercase bg-purple-600/30 text-purple-300 border border-purple-500/40">
+          EXPLORE ARTICLE CAPSULE
+        </span>
+        <span class="text-xs font-mono text-slate-400" x-text="'صورة ' + (lightboxIndex + 1) + ' من ' + (dossierGuidedCapsules ? dossierGuidedCapsules.length : 0)"></span>
+      </div>
 
-                <!-- Query Title -->
-                <div>
-                  <h3 class="font-bold text-sm text-slate-900 dark:text-white line-clamp-2 group-hover:text-purple-600 dark:group-hover:text-purple-400 transition" x-text="cap.query_term"></h3>
-                  <div class="flex items-center space-x-1.5 text-[10px] font-mono text-slate-500 dark:text-slate-400 mt-1">
-                    <span>Seed:</span>
-                    <span class="truncate font-semibold text-slate-700 dark:text-slate-300" x-text="cap.seed_label || cap.seed_pin_id"></span>
-                  </div>
-                </div>
-              </div>
+      <button @click="closeLightbox()" class="text-slate-400 hover:text-white p-1.5 rounded-xl hover:bg-slate-800 transition flex items-center space-x-1.5 font-mono text-xs">
+        <span class="hidden sm:inline text-slate-500 text-[11px]">(ESC)</span>
+        <i data-lucide="x" class="w-5 h-5"></i>
+      </button>
+    </div>
 
-              <!-- Action Links & Prompts -->
-              <div class="pt-2 border-t border-slate-200/60 dark:border-slate-800/60 space-y-2">
-                <div class="flex items-center space-x-2">
-                  <button @click="copyGuidedPrompt(cap.query_term)" class="flex-1 px-2.5 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-semibold text-[10px] font-mono transition active:scale-95 flex items-center justify-center space-x-1 shadow-sm">
-                    <i data-lucide="copy" class="w-3 h-3"></i>
-                    <span>Copy Prompt</span>
-                  </button>
-                  <a :href="cap.search_url || ('https://www.pinterest.com/search/pins/?q=' + encodeURIComponent(cap.query_term))" target="_blank" class="px-2.5 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-[10px] font-mono transition flex items-center justify-center space-x-1" title="Open Pinterest Search">
-                    <i data-lucide="external-link" class="w-3 h-3"></i>
-                  </a>
-                </div>
-              </div>
-            </div>
-          </template>
-        </div>
+    <!-- Lightbox Center: Image with Prev/Next Navigation Buttons -->
+    <div class="relative flex items-center justify-center flex-1 my-4 max-w-5xl w-full mx-auto overflow-hidden">
+      <!-- Previous Button -->
+      <button @click="prevLightboxImage()" 
+              x-show="dossierGuidedCapsules && dossierGuidedCapsules.length > 1"
+              class="absolute left-2 sm:left-4 z-10 p-3 rounded-full bg-slate-900/80 hover:bg-slate-800 text-white border border-slate-700/60 shadow-2xl transition active:scale-95 group"
+              title="الصورة السابقة (Arrow Left)">
+        <i data-lucide="chevron-left" class="w-6 h-6 group-hover:-translate-x-0.5 transition-transform"></i>
+      </button>
 
-        <!-- Empty State -->
-        <template x-if="filteredGuidedSearchCapsules.length === 0">
-          <div class="p-12 text-center space-y-3 font-mono">
-            <i data-lucide="compass" class="w-12 h-12 mx-auto text-slate-400"></i>
-            <p class="text-sm text-slate-600 dark:text-slate-400">No guided search capsules found for the selected filter.</p>
-            <p class="text-xs text-slate-500">Run a crawl on tracked seeds to automatically harvest their BUBBLE_ONE_COL search capsules.</p>
-          </div>
-        </template>
+      <!-- The Active Full-Size Image -->
+      <template x-if="currentLightboxCapsule && currentLightboxCapsule.image_url">
+        <img :src="currentLightboxCapsule.image_url" 
+             :alt="currentLightboxCapsule.query_term" 
+             class="max-h-[70vh] sm:max-h-[75vh] max-w-full object-contain rounded-2xl shadow-2xl border border-slate-800 transition-all duration-300">
+      </template>
+
+      <!-- Next Button -->
+      <button @click="nextLightboxImage()" 
+              x-show="dossierGuidedCapsules && dossierGuidedCapsules.length > 1"
+              class="absolute right-2 sm:right-4 z-10 p-3 rounded-full bg-slate-900/80 hover:bg-slate-800 text-white border border-slate-700/60 shadow-2xl transition active:scale-95 group"
+              title="الصورة التالية (Arrow Right)">
+        <i data-lucide="chevron-right" class="w-6 h-6 group-hover:translate-x-0.5 transition-transform"></i>
+      </button>
+    </div>
+
+    <!-- Lightbox Footer Info & Actions -->
+    <div class="max-w-5xl w-full mx-auto bg-slate-900/90 border border-slate-800 rounded-2xl p-4 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xl">
+      <div class="space-y-1">
+        <h4 class="text-base font-bold text-white tracking-wide flex items-center space-x-2">
+          <i data-lucide="compass" class="w-4 h-4 text-purple-400"></i>
+          <span x-text="currentLightboxCapsule?.query_term"></span>
+        </h4>
+        <p class="text-xs text-slate-400 font-mono">
+          <span>Seed Pin ID:</span>
+          <span class="text-purple-300 font-bold" x-text="activeDossierSeed?.pin_id"></span>
+        </p>
+      </div>
+
+      <div class="flex items-center space-x-2">
+        <button @click="copyGuidedPrompt(currentLightboxCapsule?.query_term)" class="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-semibold text-xs font-mono transition active:scale-95 flex items-center space-x-1.5 shadow-md">
+          <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+          <span>Copy Midjourney Prompt</span>
+        </button>
+        <a :href="currentLightboxCapsule?.search_url || ('https://www.pinterest.com/search/pins/?q=' + encodeURIComponent(currentLightboxCapsule?.query_term || ''))" target="_blank" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-mono transition flex items-center space-x-1.5 border border-slate-700" title="Open Pinterest Search">
+          <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+          <span>Pinterest Search</span>
+        </a>
       </div>
     </div>
 
-  </main>
+  </div>
 
   <!-- ======================================================== -->
   <!-- CANDIDATE DEEP-INSPECTION SLIDE-OVER & MENU MATRIX       -->
@@ -1769,13 +1853,16 @@ function getDashboardHtml() {
         overview: {},
         seeds: [],
         intersections: [],
-        guidedSearchCapsules: [],
-        guidedSearchFilterSeed: 'all',
+
+        // Lightbox Modal State
+        isLightboxOpen: false,
+        lightboxIndex: 0,
 
         // Tab 1: Seed Dossier State
         activeDossierSeed: null,
         dossierCandidates: [],
         dossierTelemetry: {},
+        dossierGuidedCapsules: [],
         dossierTab: 'table',
         dossierSort: 'saves',
         recgptPlaybook: null,
@@ -1826,8 +1913,6 @@ function getDashboardHtml() {
             this.fetchIntersections();
           } else if (tab === 'explorer' && this.explorerCandidates.length === 0) {
             this.loadExplorerData();
-          } else if (tab === 'guided_search' && this.guidedSearchCapsules.length === 0) {
-            this.fetchGuidedSearch();
           }
           this.$nextTick(() => {
             if (window.lucide) window.lucide.createIcons();
@@ -1888,10 +1973,31 @@ function getDashboardHtml() {
           return this.applyCandidateFilters(this.explorerCandidates, this.explorerFilters);
         },
 
-        get filteredGuidedSearchCapsules() {
-          if (!Array.isArray(this.guidedSearchCapsules)) return [];
-          if (this.guidedSearchFilterSeed === 'all') return this.guidedSearchCapsules;
-          return this.guidedSearchCapsules.filter(c => c.seed_pin_id === this.guidedSearchFilterSeed);
+        openLightbox(index) {
+          this.lightboxIndex = index;
+          this.isLightboxOpen = true;
+          this.$nextTick(() => {
+            if (window.lucide) window.lucide.createIcons();
+          });
+        },
+
+        closeLightbox() {
+          this.isLightboxOpen = false;
+        },
+
+        prevLightboxImage() {
+          if (!this.dossierGuidedCapsules || this.dossierGuidedCapsules.length <= 1) return;
+          this.lightboxIndex = (this.lightboxIndex - 1 + this.dossierGuidedCapsules.length) % this.dossierGuidedCapsules.length;
+        },
+
+        nextLightboxImage() {
+          if (!this.dossierGuidedCapsules || this.dossierGuidedCapsules.length <= 1) return;
+          this.lightboxIndex = (this.lightboxIndex + 1) % this.dossierGuidedCapsules.length;
+        },
+
+        get currentLightboxCapsule() {
+          if (!this.dossierGuidedCapsules || this.dossierGuidedCapsules.length === 0) return null;
+          return this.dossierGuidedCapsules[this.lightboxIndex] || null;
         },
 
         resetDossierFilters() {
@@ -2034,19 +2140,23 @@ function getDashboardHtml() {
           this.activeDossierSeed = seed;
           this.dossierCandidates = [];
           this.dossierTelemetry = {};
+          this.dossierGuidedCapsules = [];
           this.dossierSearchQuery = '';
           this.dossierTab = 'table';
           this.recgptPlaybook = null;
+          this.isLightboxOpen = false;
 
           try {
-            const [candRes, telRes, pbRes] = await Promise.all([
+            const [candRes, telRes, pbRes, capRes] = await Promise.all([
               fetch('/api/candidates?seed_pin_id=' + seed.pin_id + '&sort=' + this.dossierSort + '&limit=1000'),
               fetch('/api/cluster-telemetry?seed_pin_id=' + seed.pin_id),
-              fetch('/api/recgpt-playbook?seed_pin_id=' + seed.pin_id)
+              fetch('/api/recgpt-playbook?seed_pin_id=' + seed.pin_id),
+              fetch('/api/guided-search?seed_pin_id=' + seed.pin_id)
             ]);
             if (candRes.ok) this.dossierCandidates = await candRes.json();
             if (telRes.ok) this.dossierTelemetry = await telRes.json();
             if (pbRes.ok) this.recgptPlaybook = await pbRes.json();
+            if (capRes.ok) this.dossierGuidedCapsules = await capRes.json();
           } catch (e) {
             console.error(e);
           }
@@ -2059,8 +2169,12 @@ function getDashboardHtml() {
         async reloadDossierCandidates() {
           if (!this.activeDossierSeed) return;
           try {
-            const res = await fetch('/api/candidates?seed_pin_id=' + this.activeDossierSeed.pin_id + '&sort=' + this.dossierSort + '&limit=1000');
-            if (res.ok) this.dossierCandidates = await res.json();
+            const [candRes, capRes] = await Promise.all([
+              fetch('/api/candidates?seed_pin_id=' + this.activeDossierSeed.pin_id + '&sort=' + this.dossierSort + '&limit=1000'),
+              fetch('/api/guided-search?seed_pin_id=' + this.activeDossierSeed.pin_id)
+            ]);
+            if (candRes.ok) this.dossierCandidates = await candRes.json();
+            if (capRes.ok) this.dossierGuidedCapsules = await capRes.json();
           } catch (e) {}
           this.$nextTick(() => {
             if (window.lucide) window.lucide.createIcons();
@@ -2071,7 +2185,9 @@ function getDashboardHtml() {
           this.activeDossierSeed = null;
           this.dossierCandidates = [];
           this.dossierTelemetry = {};
+          this.dossierGuidedCapsules = [];
           this.recgptPlaybook = null;
+          this.isLightboxOpen = false;
           this.$nextTick(() => {
             if (window.lucide) window.lucide.createIcons();
           });
@@ -2135,8 +2251,7 @@ function getDashboardHtml() {
             await Promise.all([
               this.fetchOverview(),
               this.fetchSeeds(),
-              this.fetchIntersections(),
-              this.fetchGuidedSearch()
+              this.fetchIntersections()
             ]);
             if (this.currentTab === 'explorer') {
               await this.loadExplorerData();
@@ -2168,18 +2283,6 @@ function getDashboardHtml() {
             const res = await fetch('/api/intersections?min_overlap=2&limit=1000');
             if (res.ok) this.intersections = await res.json();
           } catch (e) {}
-        },
-
-        async fetchGuidedSearch() {
-          try {
-            const res = await fetch('/api/guided-search');
-            if (res.ok) this.guidedSearchCapsules = await res.json();
-          } catch (e) {
-            console.error('Failed to fetch guided search capsules:', e);
-          }
-          this.$nextTick(() => {
-            if (window.lucide) window.lucide.createIcons();
-          });
         },
 
         async loadExplorerData() {
@@ -2892,6 +2995,7 @@ const server = http.createServer(async (req, res) => {
             s.last_crawled_at,
             s.created_at,
             COALESCE(c_count.count, 0) AS total_candidates,
+            COALESCE(cap_count.count, 0) AS total_capsules,
             m.product_count,
             m.commercial_gap_ratio,
             m.winning_color_centroids,
@@ -2908,6 +3012,11 @@ const server = http.createServer(async (req, res) => {
             FROM candidate_graph_nodes
             WHERE seed_pin_id = s.pin_id
         ) c_count ON true
+        LEFT JOIN LATERAL (
+            SELECT COUNT(*) AS count
+            FROM seed_guided_search_capsules
+            WHERE seed_pin_id = s.pin_id
+        ) cap_count ON true
         LEFT JOIN LATERAL (
             SELECT * FROM cluster_arbitrage_metrics 
             WHERE seed_pin_id = s.pin_id 

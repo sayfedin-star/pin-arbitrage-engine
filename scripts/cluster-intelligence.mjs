@@ -739,50 +739,62 @@ async function crawlSeed(seed) {
       // Capture Pinterest Guided Search Capsules (explorearticle / BUBBLE_ONE_COL) with cover images & search queries
       const inspectAndCaptureCapsule = (obj) => {
         if (!obj || typeof obj !== 'object') return;
-        const isExplore = obj.type === 'explorearticle' || Boolean(obj.cover_images && (obj.title?.format || obj.title));
-        const qTerm = cleanString(obj.title) || cleanString(obj.copy?.title) || cleanString(obj.query);
 
-        if (qTerm && !['more to explore', 'related pins', 'ideas', 'explore'].includes(qTerm.toLowerCase())) {
-          guidedSearchBubbles.add(qTerm);
+        const hasExploreSignal = (
+          obj.type === 'explorearticle' ||
+          obj.story_type === 'BUBBLE_ONE_COL' ||
+          Boolean(obj.cover_images && (obj.title?.format || obj.title)) ||
+          Boolean(obj.node_id && String(obj.node_id).startsWith('RXhwbG9yZUFydGljbGU'))
+        );
 
-          const imgUrl = cleanString(
-            obj.cover_images?.[0]?.['750x']?.url ||
-            obj.cover_images?.[0]?.url ||
-            obj.images?.['750x']?.url ||
-            obj.images?.orig?.url ||
-            obj.image_large_url ||
-            ''
-          );
+        if (hasExploreSignal) {
+          const qTerm = cleanString(obj.title) || cleanString(obj.copy?.title) || cleanString(obj.query);
 
-          const searchUrl = cleanString(obj.link || obj.action_link || obj.url) || `https://www.pinterest.com/search/pins/?q=${encodeURIComponent(qTerm)}`;
-          const nodeId = cleanString(obj.node_id || obj.id || '');
-          const normalized = qTerm.toLowerCase().trim();
+          if (qTerm && !['more to explore', 'related pins', 'ideas', 'explore'].includes(qTerm.toLowerCase())) {
+            guidedSearchBubbles.add(qTerm);
 
-          if (!guidedSearchCapsulesMap.has(normalized)) {
-            guidedSearchCapsulesMap.set(normalized, {
-              seed_pin_id: pinId,
-              query_term: qTerm,
-              normalized_query: normalized,
-              image_url: imgUrl,
-              search_url: searchUrl,
-              node_id: nodeId
-            });
+            const imgUrl = cleanString(
+              obj.cover_images?.[0]?.['750x']?.url ||
+              obj.cover_images?.[0]?.url ||
+              obj.images?.['750x']?.url ||
+              obj.images?.orig?.url ||
+              obj.image_large_url ||
+              ''
+            );
+
+            const searchUrl = cleanString(obj.link || obj.action_link || obj.url) || `https://www.pinterest.com/search/pins/?q=${encodeURIComponent(qTerm)}`;
+            const nodeId = cleanString(obj.node_id || obj.id || '');
+            const normalized = qTerm.toLowerCase().trim();
+
+            if (!guidedSearchCapsulesMap.has(normalized)) {
+              guidedSearchCapsulesMap.set(normalized, {
+                seed_pin_id: pinId,
+                query_term: qTerm,
+                normalized_query: normalized,
+                image_url: imgUrl,
+                search_url: searchUrl,
+                node_id: nodeId
+              });
+            }
           }
+        }
+
+        // Recursively inspect any nested containers
+        if (Array.isArray(obj.objects)) {
+          for (const sub of obj.objects) inspectAndCaptureCapsule(sub);
+        }
+        if (Array.isArray(obj.items)) {
+          for (const sub of obj.items) inspectAndCaptureCapsule(sub);
+        }
+        if (Array.isArray(obj.bubbles)) {
+          for (const sub of obj.bubbles) inspectAndCaptureCapsule(sub);
+        }
+        if (Array.isArray(obj.expanded_viewport_objects)) {
+          for (const sub of obj.expanded_viewport_objects) inspectAndCaptureCapsule(sub);
         }
       };
 
-      if (item?.story_type === 'BUBBLE_ONE_COL' || item?.type === 'story' || item?.type === 'explorearticle' || item?.story_type === 'related_modules_header') {
-        inspectAndCaptureCapsule(item);
-        if (Array.isArray(item.objects)) {
-          for (const obj of item.objects) inspectAndCaptureCapsule(obj);
-        }
-        if (Array.isArray(item.bubbles)) {
-          for (const b of item.bubbles) inspectAndCaptureCapsule(b);
-        }
-        if (Array.isArray(item.items)) {
-          for (const it of item.items) inspectAndCaptureCapsule(it);
-        }
-      }
+      inspectAndCaptureCapsule(item);
 
       // Extract all nested or direct pins
       const pinsToProcess = extractPinsFromEntity(item);
