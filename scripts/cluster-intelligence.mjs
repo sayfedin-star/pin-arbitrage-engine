@@ -49,12 +49,17 @@ const STOP_WORDS = new Set([
 ]);
 
 /**
- * Safely extract string content
+ * Safely extract string content (supports raw strings, numbers, and Pinterest format/text objects)
  */
 function cleanString(val) {
   if (typeof val === 'string') return val.trim();
   if (typeof val === 'number') return String(val);
-  if (val && typeof val === 'object' && typeof val.text === 'string') return val.text.trim();
+  if (val && typeof val === 'object') {
+    if (typeof val.format === 'string' && val.format.trim()) return val.format.trim();
+    if (typeof val.text === 'string' && val.text.trim()) return val.text.trim();
+    if (typeof val.title === 'string' && val.title.trim()) return val.title.trim();
+    if (typeof val.display_name === 'string' && val.display_name.trim()) return val.display_name.trim();
+  }
   return '';
 }
 
@@ -619,6 +624,7 @@ async function crawlSeed(seed) {
   const candidatesMap = new Map();
   let authoritativeCandidateCounts = null;
   let utilitySnapshot = null;
+  const guidedSearchBubbles = new Set();
 
   const labelLower = `${seed.label || ''} ${seed.title || ''}`.toLowerCase();
   const isBakery = /\b(muffin|muffins|cake|cakes|cookie|cookies|brownie|brownies|roll|rolls|cinnamon|pie|pies|tart|bread|cupcake|cupcakes|donut|donuts|pastry|pastries|bake|baking|dessert|sweet|chocolate|caramel|pumpkin spice)\b/i.test(labelLower);
@@ -727,6 +733,30 @@ async function crawlSeed(seed) {
       if (item?.aux_fields?.utility_config?.weights && !utilitySnapshot) {
         utilitySnapshot = item.aux_fields.utility_config.weights;
         console.log(`[+] Captured prod:v18 utility weights snapshot.`);
+      }
+
+      // Capture Pinterest Guided Search Bubbles & Query Expansion Tags (BUBBLE_ONE_COL)
+      if (item?.story_type === 'BUBBLE_ONE_COL' || item?.type === 'story' || item?.story_type === 'related_modules_header') {
+        const bubbleTitle = cleanString(item.title) || cleanString(item.copy?.title) || cleanString(item.display_name);
+        if (bubbleTitle && !['more to explore', 'related pins', 'ideas', 'explore'].includes(bubbleTitle.toLowerCase())) {
+          guidedSearchBubbles.add(bubbleTitle);
+        }
+        if (Array.isArray(item.objects)) {
+          for (const obj of item.objects) {
+            const objTitle = cleanString(obj.title) || cleanString(obj.query) || cleanString(obj.text);
+            if (objTitle && !['more to explore', 'related pins'].includes(objTitle.toLowerCase())) {
+              guidedSearchBubbles.add(objTitle);
+            }
+          }
+        }
+        if (Array.isArray(item.bubbles)) {
+          for (const b of item.bubbles) {
+            const bTitle = cleanString(b.title) || cleanString(b.query) || cleanString(b.text);
+            if (bTitle && !['more to explore', 'related pins'].includes(bTitle.toLowerCase())) {
+              guidedSearchBubbles.add(bTitle);
+            }
+          }
+        }
       }
 
       // Extract all nested or direct pins
@@ -840,6 +870,9 @@ async function crawlSeed(seed) {
   console.log(`Commercial Gap Ratio:   ${commercialGapRatio}% ${commercialGapRatio === 100 ? '🔥 (GOLDEN OPPORTUNITY - 0% PRODUCTS)' : ''}`);
   console.log(`Top Winning Colors:     ${centroids.slice(0, 3).map((c) => `${c.color} (${c.percentage}%)`).join(', ')}`);
   console.log(`Top Save Tokens:        ${highSaveTokens.slice(0, 5).map((t) => `${t.token} (score: ${t.weighted_score})`).join(', ')}`);
+  if (guidedSearchBubbles.size > 0) {
+    console.log(`Guided Search Bubbles:  ${Array.from(guidedSearchBubbles).slice(0, 8).join(' • ')}`);
+  }
   console.log(`---------------------------------------------------\n`);
 
   // Persistence to Neon Serverless Postgres via Parallel Batch Upserts (Promise.all)
