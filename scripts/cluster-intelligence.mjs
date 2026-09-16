@@ -376,24 +376,25 @@ function parsePinCandidate(pin, seedPinId, parentEntity = null, utilityWeights =
   const sequenceRole = classifySequenceRole(title, pin.description || '', ocrText, seedClusterType);
   let recgptTransitionScore = 0;
   let isRecgptCandidate = false;
+  const boundedRate = Math.min(100, Math.max(0, saveRate));
 
   if (sequenceRole === 'DESSERT_HERO') {
-    recgptTransitionScore = Number((saveRate * 0.95).toFixed(2));
+    recgptTransitionScore = Number((boundedRate * 0.95).toFixed(2));
     isRecgptCandidate = true;
   } else if (sequenceRole === 'BEVERAGE_PAIRING') {
-    recgptTransitionScore = Number((saveRate * 0.90).toFixed(2));
+    recgptTransitionScore = Number((boundedRate * 0.90).toFixed(2));
     isRecgptCandidate = true;
   } else if (sequenceRole === 'PASTRY_BITES') {
-    recgptTransitionScore = Number((saveRate * 0.88).toFixed(2));
+    recgptTransitionScore = Number((boundedRate * 0.88).toFixed(2));
     isRecgptCandidate = true;
   } else if (sequenceRole === 'DINNER_ANCHOR') {
-    recgptTransitionScore = Number((saveRate * 0.90).toFixed(2));
+    recgptTransitionScore = Number((boundedRate * 0.90).toFixed(2));
     isRecgptCandidate = true;
   } else if (sequenceRole === 'NAVBOOST_CO_VISITOR') {
-    recgptTransitionScore = Number((saveRate * 0.85).toFixed(2));
+    recgptTransitionScore = Number((boundedRate * 0.85).toFixed(2));
     isRecgptCandidate = true;
   } else if (sequenceRole === 'SESSION_FINISHER') {
-    recgptTransitionScore = Number((saveRate * 0.92).toFixed(2));
+    recgptTransitionScore = Number((boundedRate * 0.92).toFixed(2));
     isRecgptCandidate = true;
   } else if (sequenceRole === 'PIXIE_DRIFT_OUTLIER') {
     recgptTransitionScore = 0;
