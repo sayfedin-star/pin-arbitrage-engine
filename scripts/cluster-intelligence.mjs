@@ -66,6 +66,27 @@ function cleanString(val) {
 }
 
 /**
+ * Clean and format Pinterest cookie to comply with RFC 6265
+ * Handles full cookie strings, key-value pairs, or raw _pinterest_sess tokens
+ */
+export function formatPinterestCookie(rawCookie) {
+  if (!rawCookie || typeof rawCookie !== 'string') return '';
+  let cookie = rawCookie.trim();
+  if (cookie.startsWith('"') && cookie.endsWith('"')) {
+    cookie = cookie.slice(1, -1).trim();
+  }
+  // If user pasted just the raw session token (starts with TWc9, contains Mg==, or lacks '=')
+  if (!cookie.includes('=') || cookie.startsWith('TWc9') || cookie.startsWith('Mg==')) {
+    return `_pinterest_sess="${cookie}"; _auth=1;`;
+  }
+  // If user provided a cookie string with '=', ensure _auth=1 is present
+  if (!cookie.includes('_auth=')) {
+    cookie = `${cookie.replace(/;$/, '')}; _auth=1;`;
+  }
+  return cookie;
+}
+
+/**
  * Fetch with resilience: timeout abort, HTTP 429 backoff, jitter
  */
 async function fetchWithRetry(url, headers, maxRetries = 3) {
@@ -644,11 +665,16 @@ async function crawlSeed(seed) {
     'x-app-version': '664ee65',
     'x-pinterest-pws-handler': `www/pin/[id].js`,
     'x-requested-with': 'XMLHttpRequest',
-    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'
+    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+    'referer': `https://www.pinterest.com/pin/${pinId}/`,
+    'origin': 'https://www.pinterest.com',
+    'sec-fetch-dest': 'empty',
+    'sec-fetch-mode': 'cors',
+    'sec-fetch-site': 'same-origin'
   };
 
   if (process.env.PINTEREST_COOKIE) {
-    baseHeaders['cookie'] = process.env.PINTEREST_COOKIE;
+    baseHeaders['cookie'] = formatPinterestCookie(process.env.PINTEREST_COOKIE);
   }
 
   for (let page = 1; page <= maxPages; page++) {

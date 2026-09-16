@@ -13,7 +13,7 @@ import path from 'node:path';
 import { URL } from 'node:url';
 import { spawn } from 'node:child_process';
 import { neon } from '@neondatabase/serverless';
-import { parsePinCandidate } from './cluster-intelligence.mjs';
+import { parsePinCandidate, formatPinterestCookie } from './cluster-intelligence.mjs';
 
 // Load .env automatically if present
 if (typeof process.loadEnvFile === 'function') {
@@ -3325,10 +3325,63 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
+    // Helper to extract multiple or concatenated JSON objects from raw string
+    function parseMultiJson(rawText) {
+      if (!rawText || typeof rawText !== 'string') return [];
+      const results = [];
+      let idx = 0;
+      while (idx < rawText.length) {
+        const start = rawText.indexOf('{', idx);
+        if (start === -1) break;
+        let depth = 0;
+        let inString = false;
+        let escape = false;
+        let end = -1;
+        for (let i = start; i < rawText.length; i++) {
+          const ch = rawText[i];
+          if (escape) {
+            escape = false;
+            continue;
+          }
+          if (ch === '\\') {
+            escape = true;
+            continue;
+          }
+          if (ch === '"') {
+            inString = !inString;
+            continue;
+          }
+          if (inString) continue;
+
+          if (ch === '{') {
+            depth++;
+          } else if (ch === '}') {
+            depth--;
+            if (depth === 0) {
+              end = i;
+              break;
+            }
+          }
+        }
+        if (end !== -1) {
+          const candidate = rawText.slice(start, end + 1);
+          try {
+            const parsed = JSON.parse(candidate);
+            results.push(parsed);
+          } catch (e) {}
+          idx = end + 1;
+        } else {
+          break;
+        }
+      }
+      return results;
+    }
+
     // 8E. POST /api/settings/cookie
     if (method === 'POST' && pathname === '/api/settings/cookie') {
       const body = await parseRequestBody(req);
-      const cookieVal = String(body.cookie || '').trim();
+      const rawCookieVal = String(body.cookie || '').trim();
+      const cookieVal = formatPinterestCookie(rawCookieVal);
       process.env.PINTEREST_COOKIE = cookieVal;
 
       // Persist to .env file
@@ -3346,7 +3399,8 @@ const server = http.createServer(async (req, res) => {
 
       return sendJson(res, 200, {
         success: true,
-        has_cookie: Boolean(cookieVal && cookieVal.length > 10)
+        has_cookie: Boolean(cookieVal && cookieVal.length > 10),
+        preview: cookieVal ? (cookieVal.slice(0, 35) + '...') : null
       });
     }
 
@@ -3355,20 +3409,37 @@ const server = http.createServer(async (req, res) => {
       const body = await parseRequestBody(req);
       const seedPinId = String(body.seed_pin_id || '').trim();
       let rawJson = body.raw_json;
-      if (typeof rawJson === 'string') {
-        try {
-          rawJson = JSON.parse(rawJson);
-        } catch (err) {
-          return sendJson(res, 400, { error: 'Invalid JSON payload: ' + err.message });
-        }
-      }
 
       if (!seedPinId) {
         return sendJson(res, 400, { error: 'seed_pin_id is required' });
       }
 
-      const resourceResponse = rawJson?.resource_response || rawJson;
-      const items = Array.isArray(resourceResponse?.data) ? resourceResponse.data : [];
+      let parsedBlocks = [];
+      if (typeof rawJson === 'string') {
+        try {
+          parsedBlocks = [JSON.parse(rawJson)];
+        } catch (err) {
+          // If direct single JSON parse fails, attempt multi-block extraction
+          parsedBlocks = parseMultiJson(rawJson);
+          if (parsedBlocks.length === 0) {
+            return sendJson(res, 400, { error: 'Invalid JSON payload: ' + err.message });
+          }
+        }
+      } else if (Array.isArray(rawJson)) {
+        parsedBlocks = rawJson;
+      } else if (rawJson && typeof rawJson === 'object') {
+        parsedBlocks = [rawJson];
+      }
+
+      const items = [];
+      for (const block of parsedBlocks) {
+        const resp = block?.resource_response || block;
+        if (Array.isArray(resp?.data)) {
+          items.push(...resp.data);
+        } else if (Array.isArray(resp)) {
+          items.push(...resp);
+        }
+      }
 
       if (items.length === 0) {
         return sendJson(res, 400, { error: 'No data items found in JSON (expected resource_response.data array)' });
@@ -3518,16 +3589,44 @@ const server = http.createServer(async (req, res) => {
 
       // Update metrics if authoritative counts present
       if (authoritativeCounts) {
+        const existingMetrics = await sql`
+          SELECT id FROM cluster_arbitrage_metrics
+          WHERE seed_pin_id = ${seedPinId}
+          ORDER BY analyzed_at DESC
+          LIMIT 1;
+        `;
+
+        if (existingMetrics.length > 0) {
+          await sql`
+            UPDATE cluster_arbitrage_metrics
+            SET
+              recgpt_count = ${authoritativeCounts.recgpt},
+              navboost_count = ${authoritativeCounts.navboost},
+              randomwalk_count = ${authoritativeCounts.randomwalk},
+              two_tower_count = ${authoritativeCounts.two_tower},
+              fresh_candidate_count = ${authoritativeCounts.fresh},
+              analyzed_at = NOW()
+            WHERE id = ${existingMetrics[0].id};
+          `;
+        } else {
+          await sql`
+            INSERT INTO cluster_arbitrage_metrics (
+              seed_pin_id, total_candidates, recgpt_count, navboost_count,
+              randomwalk_count, two_tower_count, fresh_candidate_count, product_count,
+              commercial_gap_ratio, analyzed_at
+            ) VALUES (
+              ${seedPinId}, ${parsedCandidates.length},
+              ${authoritativeCounts.recgpt}, ${authoritativeCounts.navboost},
+              ${authoritativeCounts.randomwalk}, ${authoritativeCounts.two_tower},
+              ${authoritativeCounts.fresh}, 0, 0, NOW()
+            );
+          `;
+        }
+
         await sql`
-          UPDATE cluster_arbitrage_metrics
-          SET
-            recgpt_count = ${authoritativeCounts.recgpt},
-            navboost_count = ${authoritativeCounts.navboost},
-            randomwalk_count = ${authoritativeCounts.randomwalk},
-            two_tower_count = ${authoritativeCounts.two_tower},
-            fresh_candidate_count = ${authoritativeCounts.fresh},
-            analyzed_at = NOW()
-          WHERE seed_pin_id = ${seedPinId};
+          UPDATE cluster_seeds
+          SET last_crawled_at = NOW()
+          WHERE pin_id = ${seedPinId};
         `;
       }
 
