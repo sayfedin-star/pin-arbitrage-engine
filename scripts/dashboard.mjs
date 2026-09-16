@@ -294,6 +294,13 @@ function getDashboardHtml() {
           <span>📊 Master Database Explorer (المستكشف العام)</span>
           <span class="px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-sky-500/10 text-sky-700 dark:text-sky-400" x-text="overview.total_candidates || '...'"></span>
         </button>
+
+        <!-- Tab 4: Guided Search Radar (BUBBLE_ONE_COL Capsules) -->
+        <button @click="switchTab('guided_search')" class="flex items-center space-x-2 px-4 py-3 text-xs sm:text-sm font-semibold border-b-2 transition whitespace-nowrap" :class="currentTab === 'guided_search' ? 'border-rose-500 text-rose-600 dark:text-rose-400 font-bold' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'">
+          <i data-lucide="compass" class="w-4 h-4 text-purple-500"></i>
+          <span>🧭 Guided Search Radar (كبسولات BUBBLE_ONE_COL)</span>
+          <span class="px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-purple-500/20 text-purple-700 dark:text-purple-400" x-text="guidedSearchCapsules.length"></span>
+        </button>
       </div>
     </div>
   </header>
@@ -1374,6 +1381,94 @@ function getDashboardHtml() {
       </div>
     </div>
 
+    <!-- ======================================================== -->
+    <!-- TAB 4: 🧭 GUIDED SEARCH RADAR (BUBBLE_ONE_COL CAPSULES)  -->
+    <!-- ======================================================== -->
+    <div x-show="currentTab === 'guided_search'" class="space-y-6">
+      <div class="bg-white dark:bg-[#0d1526] border border-slate-200/90 dark:border-slate-800 rounded-2xl p-5 shadow-sm dark:shadow-xl space-y-5">
+        
+        <!-- Header & Explanation -->
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200/80 dark:border-slate-800/80 pb-4">
+          <div>
+            <h2 class="text-base font-bold text-slate-900 dark:text-white flex items-center space-x-2">
+              <i data-lucide="compass" class="w-5 h-5 text-purple-500"></i>
+              <span>Pinterest Guided Search Radar (كبسولات BUBBLE_ONE_COL)</span>
+            </h2>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">
+              استعلامات بحثية مُهندسة خوارزمياً (Engineered Search Queries) تستخرجها بينترست مسبقاً عبر OmniSearchSage & Query2Interest لربط البذور بالاهتمامات الأكثر طلباً.
+            </p>
+          </div>
+          <div class="flex items-center space-x-2">
+            <!-- Filter by Seed Dropdown -->
+            <select x-model="guidedSearchFilterSeed" class="text-xs bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-mono border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 focus:outline-none cursor-pointer">
+              <option value="all">All Seeds (جميع البذور)</option>
+              <template x-for="s in seeds" :key="s.pin_id">
+                <option :value="s.pin_id" x-text="s.label ? (s.label.slice(0, 30) + '...') : s.pin_id"></option>
+              </template>
+            </select>
+            <span class="px-2.5 py-1.5 rounded-xl text-xs font-mono font-bold bg-purple-500/10 text-purple-700 dark:text-purple-400 border border-purple-500/20" x-text="filteredGuidedSearchCapsules.length + ' Capsules'"></span>
+          </div>
+        </div>
+
+        <!-- Visual Grid of Guided Search Capsules -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+          <template x-for="cap in filteredGuidedSearchCapsules" :key="cap.id || cap.node_id || cap.query_term">
+            <div class="group bg-slate-50/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800/80 hover:border-purple-500/50 rounded-2xl p-4 shadow-sm hover:shadow-lg transition space-y-3 flex flex-col justify-between">
+              <div class="space-y-3">
+                <!-- Cover Image Thumbnail -->
+                <div class="relative w-full h-48 rounded-xl overflow-hidden bg-slate-200 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-inner">
+                  <template x-if="cap.image_url">
+                    <img :src="cap.image_url" alt="Guided capsule cover" loading="lazy" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300">
+                  </template>
+                  <template x-if="!cap.image_url">
+                    <div class="w-full h-full flex items-center justify-center text-slate-400">
+                      <i data-lucide="image" class="w-8 h-8"></i>
+                    </div>
+                  </template>
+                  <div class="absolute top-2 left-2">
+                    <span class="px-2 py-0.5 rounded-md text-[9px] font-mono font-bold uppercase bg-slate-950/80 text-purple-300 backdrop-blur-md border border-purple-500/30">
+                      EXPLORE ARTICLE
+                    </span>
+                  </div>
+                </div>
+
+                <!-- Query Title -->
+                <div>
+                  <h3 class="font-bold text-sm text-slate-900 dark:text-white line-clamp-2 group-hover:text-purple-600 dark:group-hover:text-purple-400 transition" x-text="cap.query_term"></h3>
+                  <div class="flex items-center space-x-1.5 text-[10px] font-mono text-slate-500 dark:text-slate-400 mt-1">
+                    <span>Seed:</span>
+                    <span class="truncate font-semibold text-slate-700 dark:text-slate-300" x-text="cap.seed_label || cap.seed_pin_id"></span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Action Links & Prompts -->
+              <div class="pt-2 border-t border-slate-200/60 dark:border-slate-800/60 space-y-2">
+                <div class="flex items-center space-x-2">
+                  <button @click="copyGuidedPrompt(cap.query_term)" class="flex-1 px-2.5 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-semibold text-[10px] font-mono transition active:scale-95 flex items-center justify-center space-x-1 shadow-sm">
+                    <i data-lucide="copy" class="w-3 h-3"></i>
+                    <span>Copy Prompt</span>
+                  </button>
+                  <a :href="cap.search_url || ('https://www.pinterest.com/search/pins/?q=' + encodeURIComponent(cap.query_term))" target="_blank" class="px-2.5 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-[10px] font-mono transition flex items-center justify-center space-x-1" title="Open Pinterest Search">
+                    <i data-lucide="external-link" class="w-3 h-3"></i>
+                  </a>
+                </div>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <!-- Empty State -->
+        <template x-if="filteredGuidedSearchCapsules.length === 0">
+          <div class="p-12 text-center space-y-3 font-mono">
+            <i data-lucide="compass" class="w-12 h-12 mx-auto text-slate-400"></i>
+            <p class="text-sm text-slate-600 dark:text-slate-400">No guided search capsules found for the selected filter.</p>
+            <p class="text-xs text-slate-500">Run a crawl on tracked seeds to automatically harvest their BUBBLE_ONE_COL search capsules.</p>
+          </div>
+        </template>
+      </div>
+    </div>
+
   </main>
 
   <!-- ======================================================== -->
@@ -1674,6 +1769,8 @@ function getDashboardHtml() {
         overview: {},
         seeds: [],
         intersections: [],
+        guidedSearchCapsules: [],
+        guidedSearchFilterSeed: 'all',
 
         // Tab 1: Seed Dossier State
         activeDossierSeed: null,
@@ -1729,6 +1826,8 @@ function getDashboardHtml() {
             this.fetchIntersections();
           } else if (tab === 'explorer' && this.explorerCandidates.length === 0) {
             this.loadExplorerData();
+          } else if (tab === 'guided_search' && this.guidedSearchCapsules.length === 0) {
+            this.fetchGuidedSearch();
           }
           this.$nextTick(() => {
             if (window.lucide) window.lucide.createIcons();
@@ -1787,6 +1886,12 @@ function getDashboardHtml() {
 
         get filteredExplorerCandidates() {
           return this.applyCandidateFilters(this.explorerCandidates, this.explorerFilters);
+        },
+
+        get filteredGuidedSearchCapsules() {
+          if (!Array.isArray(this.guidedSearchCapsules)) return [];
+          if (this.guidedSearchFilterSeed === 'all') return this.guidedSearchCapsules;
+          return this.guidedSearchCapsules.filter(c => c.seed_pin_id === this.guidedSearchFilterSeed);
         },
 
         resetDossierFilters() {
@@ -1993,6 +2098,12 @@ function getDashboardHtml() {
           this.showToast('Generated & Copied ' + type + ' Prompt!');
         },
 
+        copyGuidedPrompt(query) {
+          const prompt = 'Gourmet editorial food photography of ' + query + ', styled for a high-end culinary magazine, warm appetizing lighting, shallow depth of field, vibrant fresh textures, shot on Hasselblad 50mm f/1.8 --ar 9:16 --v 6.1 --style raw';
+          navigator.clipboard.writeText(prompt);
+          this.showToast('Copied Prompt for "' + query + '"!');
+        },
+
         copyToClipboard(text, field) {
           navigator.clipboard.writeText(text);
           this.copiedField = field;
@@ -2024,7 +2135,8 @@ function getDashboardHtml() {
             await Promise.all([
               this.fetchOverview(),
               this.fetchSeeds(),
-              this.fetchIntersections()
+              this.fetchIntersections(),
+              this.fetchGuidedSearch()
             ]);
             if (this.currentTab === 'explorer') {
               await this.loadExplorerData();
@@ -2056,6 +2168,18 @@ function getDashboardHtml() {
             const res = await fetch('/api/intersections?min_overlap=2&limit=1000');
             if (res.ok) this.intersections = await res.json();
           } catch (e) {}
+        },
+
+        async fetchGuidedSearch() {
+          try {
+            const res = await fetch('/api/guided-search');
+            if (res.ok) this.guidedSearchCapsules = await res.json();
+          } catch (e) {
+            console.error('Failed to fetch guided search capsules:', e);
+          }
+          this.$nextTick(() => {
+            if (window.lucide) window.lucide.createIcons();
+          });
         },
 
         async loadExplorerData() {
@@ -2826,6 +2950,29 @@ const server = http.createServer(async (req, res) => {
       }
       await sql`DELETE FROM cluster_seeds WHERE pin_id = ${pinId};`;
       return sendJson(res, 200, { success: true, deleted_pin_id: pinId });
+    }
+
+    // 8C. GET /api/guided-search
+    if (method === 'GET' && pathname === '/api/guided-search') {
+      const seedPinId = parsedUrl.searchParams.get('seed_pin_id');
+      let rows;
+      if (seedPinId && seedPinId !== 'all') {
+        rows = await sql`
+          SELECT g.*, s.label AS seed_label
+          FROM seed_guided_search_capsules g
+          LEFT JOIN cluster_seeds s ON s.pin_id = g.seed_pin_id
+          WHERE g.seed_pin_id = ${seedPinId}
+          ORDER BY g.discovered_at DESC;
+        `;
+      } else {
+        rows = await sql`
+          SELECT g.*, s.label AS seed_label
+          FROM seed_guided_search_capsules g
+          LEFT JOIN cluster_seeds s ON s.pin_id = g.seed_pin_id
+          ORDER BY g.discovered_at DESC;
+        `;
+      }
+      return sendJson(res, 200, rows);
     }
 
     // 9. GET or HEAD /

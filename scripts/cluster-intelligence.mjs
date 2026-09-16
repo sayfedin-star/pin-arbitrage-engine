@@ -625,6 +625,7 @@ async function crawlSeed(seed) {
   let authoritativeCandidateCounts = null;
   let utilitySnapshot = null;
   const guidedSearchBubbles = new Set();
+  const guidedSearchCapsulesMap = new Map();
 
   const labelLower = `${seed.label || ''} ${seed.title || ''}`.toLowerCase();
   const isBakery = /\b(muffin|muffins|cake|cakes|cookie|cookies|brownie|brownies|roll|rolls|cinnamon|pie|pies|tart|bread|cupcake|cupcakes|donut|donuts|pastry|pastries|bake|baking|dessert|sweet|chocolate|caramel|pumpkin spice)\b/i.test(labelLower);
@@ -735,27 +736,51 @@ async function crawlSeed(seed) {
         console.log(`[+] Captured prod:v18 utility weights snapshot.`);
       }
 
-      // Capture Pinterest Guided Search Bubbles & Query Expansion Tags (BUBBLE_ONE_COL)
-      if (item?.story_type === 'BUBBLE_ONE_COL' || item?.type === 'story' || item?.story_type === 'related_modules_header') {
-        const bubbleTitle = cleanString(item.title) || cleanString(item.copy?.title) || cleanString(item.display_name);
-        if (bubbleTitle && !['more to explore', 'related pins', 'ideas', 'explore'].includes(bubbleTitle.toLowerCase())) {
-          guidedSearchBubbles.add(bubbleTitle);
-        }
-        if (Array.isArray(item.objects)) {
-          for (const obj of item.objects) {
-            const objTitle = cleanString(obj.title) || cleanString(obj.query) || cleanString(obj.text);
-            if (objTitle && !['more to explore', 'related pins'].includes(objTitle.toLowerCase())) {
-              guidedSearchBubbles.add(objTitle);
-            }
+      // Capture Pinterest Guided Search Capsules (explorearticle / BUBBLE_ONE_COL) with cover images & search queries
+      const inspectAndCaptureCapsule = (obj) => {
+        if (!obj || typeof obj !== 'object') return;
+        const isExplore = obj.type === 'explorearticle' || Boolean(obj.cover_images && (obj.title?.format || obj.title));
+        const qTerm = cleanString(obj.title) || cleanString(obj.copy?.title) || cleanString(obj.query);
+
+        if (qTerm && !['more to explore', 'related pins', 'ideas', 'explore'].includes(qTerm.toLowerCase())) {
+          guidedSearchBubbles.add(qTerm);
+
+          const imgUrl = cleanString(
+            obj.cover_images?.[0]?.['750x']?.url ||
+            obj.cover_images?.[0]?.url ||
+            obj.images?.['750x']?.url ||
+            obj.images?.orig?.url ||
+            obj.image_large_url ||
+            ''
+          );
+
+          const searchUrl = cleanString(obj.link || obj.action_link || obj.url) || `https://www.pinterest.com/search/pins/?q=${encodeURIComponent(qTerm)}`;
+          const nodeId = cleanString(obj.node_id || obj.id || '');
+          const normalized = qTerm.toLowerCase().trim();
+
+          if (!guidedSearchCapsulesMap.has(normalized)) {
+            guidedSearchCapsulesMap.set(normalized, {
+              seed_pin_id: pinId,
+              query_term: qTerm,
+              normalized_query: normalized,
+              image_url: imgUrl,
+              search_url: searchUrl,
+              node_id: nodeId
+            });
           }
+        }
+      };
+
+      if (item?.story_type === 'BUBBLE_ONE_COL' || item?.type === 'story' || item?.type === 'explorearticle' || item?.story_type === 'related_modules_header') {
+        inspectAndCaptureCapsule(item);
+        if (Array.isArray(item.objects)) {
+          for (const obj of item.objects) inspectAndCaptureCapsule(obj);
         }
         if (Array.isArray(item.bubbles)) {
-          for (const b of item.bubbles) {
-            const bTitle = cleanString(b.title) || cleanString(b.query) || cleanString(b.text);
-            if (bTitle && !['more to explore', 'related pins'].includes(bTitle.toLowerCase())) {
-              guidedSearchBubbles.add(bTitle);
-            }
-          }
+          for (const b of item.bubbles) inspectAndCaptureCapsule(b);
+        }
+        if (Array.isArray(item.items)) {
+          for (const it of item.items) inspectAndCaptureCapsule(it);
         }
       }
 
@@ -955,6 +980,24 @@ async function crawlSeed(seed) {
       NOW()
     );
   `;
+
+  // Persist all captured Pinterest Guided Search Capsules into Neon
+  const allCapsules = Array.from(guidedSearchCapsulesMap.values());
+  if (allCapsules.length > 0) {
+    console.log(`[*] Persisting ${allCapsules.length} guided search capsules into Neon...`);
+    for (const cap of allCapsules) {
+      await sql`
+        INSERT INTO seed_guided_search_capsules (
+          seed_pin_id, query_term, normalized_query, image_url, search_url, node_id, discovered_at
+        ) VALUES (
+          ${cap.seed_pin_id}, ${cap.query_term}, ${cap.normalized_query}, ${cap.image_url}, ${cap.search_url}, ${cap.node_id}, NOW()
+        )
+        ON CONFLICT (seed_pin_id, normalized_query) DO UPDATE
+        SET image_url = EXCLUDED.image_url, search_url = EXCLUDED.search_url, node_id = EXCLUDED.node_id;
+      `;
+    }
+    console.log(`[+] Successfully stored ${allCapsules.length} guided search capsules in Neon.`);
+  }
 
   // Update last_crawled_at on cluster_seeds
   await sql`
