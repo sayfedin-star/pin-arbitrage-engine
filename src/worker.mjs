@@ -334,7 +334,18 @@ export default {
           else if (r.is_video) format = 'VIDEO PIN';
           else if (ar > 1.3) format = 'IDEA PIN';
 
-          const engine = r.provenance_engine || (saves >= 30000 ? 'P2P_NAVBOOST' : (saves >= 8000 ? 'P2P_RANDOMWALK' : 'P2P_TWO_TOWER'));
+          let engine = r.provenance_engine;
+          if (!engine) {
+            const age = Number(r.age_days || 180);
+            const role = r.sequence_role || '';
+            const vel = Number(r.daily_velocity || 0);
+            if (r.is_product) engine = 'P2P_SHOPPING_CORPUS';
+            else if (age <= 22 && saves < 800) engine = 'FRESH_COLD_START';
+            else if (saves >= 6500 || vel >= 20.0) engine = 'P2P_NAVBOOST';
+            else if (['DESSERT_HERO', 'BEVERAGE_PAIRING', 'PASTRY_BITES', 'SESSION_FINISHER'].includes(role) && saves >= 350) engine = 'P2P_RECGPT';
+            else if (saves >= 1200) engine = 'P2P_RANDOMWALK';
+            else engine = 'P2P_TWO_TOWER';
+          }
 
           const velocity = Number(r.daily_velocity || 0);
           let velocityTier = 'stagnant';

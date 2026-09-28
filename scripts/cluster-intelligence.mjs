@@ -166,7 +166,17 @@ function extractCandidateCounts(rawCounts) {
 /**
  * Detect true engine provenance using upstream signals and MultiBiSage multi-graph interactions
  */
-function detectEngineProvenance(pin, parentEntity, saves = 0, saveRate = 0, dailyVelocity = 0, ageDays = 180, isRecgptCandidate = false, recgptTransitionScore = 0) {
+function detectEngineProvenance(
+  pin,
+  parentEntity,
+  saves = 0,
+  saveRate = 0,
+  dailyVelocity = 0,
+  ageDays = 180,
+  isRecgptCandidate = false,
+  recgptTransitionScore = 0,
+  sequenceRole = ''
+) {
   const markers = [
     pin?.logging_data?.source_module,
     pin?.origin_module,
@@ -199,27 +209,33 @@ function detectEngineProvenance(pin, parentEntity, saves = 0, saveRate = 0, dail
     return 'P2P_TWO_TOWER';
   }
 
-  // MultiBiSage & TransAct V2 interaction-derived provenance:
-  // 1. Explicit merchant/shopping corpus tags
-  if (pin.is_eligible_for_pdp || (pin.price_value && Number(pin.price_value) > 0) || (Array.isArray(pin.shopping_flags) && pin.shopping_flags.length > 0)) {
+  // MultiBiSage, Pixie & TransAct V2 interaction-derived provenance:
+  // 1. Explicit merchant/shopping corpus tags (Etsy, Shopify, PDP)
+  if (pin.is_eligible_for_pdp || (pin.price_value && Number(pin.price_value) > 0) || pin.product_metadata || (Array.isArray(pin.shopping_flags) && pin.shopping_flags.length > 0)) {
     return 'P2P_SHOPPING_CORPUS';
   }
   // 2. Cold-start Fresh exploration (P2B2P / Fresh Two-Tower)
-  if (ageDays <= 30 && saves < 50) {
+  if (ageDays <= 22 && saves < 800) {
     return 'FRESH_COLD_START';
   }
-  // 3. High engagement co-visitation (SearchQuery-Pin-LC / User-Product-LC in MultiBiSage)
-  if (saveRate >= 35.0 && dailyVelocity >= 15.0) {
+  // 3. High engagement co-visitation (NavBoost: Click/Save log momentum)
+  if (saves >= 6500 || dailyVelocity >= 20.0 || (saveRate >= 35.0 && dailyVelocity >= 10.0)) {
     return 'P2P_NAVBOOST';
   }
-  // 4. Sequential session trajectory candidate (RecGPT)
-  if (isRecgptCandidate && recgptTransitionScore >= 60.0) {
+  // 4. Sequential session trajectory candidate (RecGPT: Course transitions)
+  const isSequentialPairRole = ['DESSERT_HERO', 'BEVERAGE_PAIRING', 'PASTRY_BITES', 'SESSION_FINISHER'].includes(sequenceRole);
+  if (isSequentialPairRole && saves >= 350) {
     return 'P2P_RECGPT';
   }
+  // 5. Bipartite Pixie Random Walk: Mid-tier graph walk discovery pins across user boards
+  if (saves >= 1200) {
+    return 'P2P_RANDOMWALK';
+  }
 
-  // 5. Default dense semantic vector candidate (Two-Tower PinSage/ItemSage)
+  // 6. Default dense semantic vector candidate (Two-Tower PinSage/ItemSage)
   return 'P2P_TWO_TOWER';
 }
+
 
 /**
  * Pre-Classification Sanitation (Title, Domain, and Description Filter)
@@ -406,29 +422,33 @@ export function parsePinCandidate(pin, seedPinId, parentEntity = null, utilityWe
   const sequenceRole = classifySequenceRole(title, pin.description || '', ocrText, seedClusterType);
   let recgptTransitionScore = 0;
   let isRecgptCandidate = false;
-  const boundedRate = Math.min(100, Math.max(0, saveRate));
 
+  let baseAffinity = 0;
   if (sequenceRole === 'DESSERT_HERO') {
-    recgptTransitionScore = Number((boundedRate * 0.95).toFixed(2));
-    isRecgptCandidate = true;
-  } else if (sequenceRole === 'BEVERAGE_PAIRING') {
-    recgptTransitionScore = Number((boundedRate * 0.90).toFixed(2));
-    isRecgptCandidate = true;
-  } else if (sequenceRole === 'PASTRY_BITES') {
-    recgptTransitionScore = Number((boundedRate * 0.88).toFixed(2));
-    isRecgptCandidate = true;
-  } else if (sequenceRole === 'DINNER_ANCHOR') {
-    recgptTransitionScore = Number((boundedRate * 0.90).toFixed(2));
-    isRecgptCandidate = true;
-  } else if (sequenceRole === 'NAVBOOST_CO_VISITOR') {
-    recgptTransitionScore = Number((boundedRate * 0.85).toFixed(2));
+    baseAffinity = 95.0;
     isRecgptCandidate = true;
   } else if (sequenceRole === 'SESSION_FINISHER') {
-    recgptTransitionScore = Number((boundedRate * 0.92).toFixed(2));
+    baseAffinity = 94.0;
     isRecgptCandidate = true;
-  } else if (sequenceRole === 'PIXIE_DRIFT_OUTLIER') {
-    recgptTransitionScore = 0;
+  } else if (sequenceRole === 'BEVERAGE_PAIRING') {
+    baseAffinity = 91.0;
+    isRecgptCandidate = true;
+  } else if (sequenceRole === 'PASTRY_BITES') {
+    baseAffinity = 88.0;
+    isRecgptCandidate = true;
+  } else if (sequenceRole === 'DINNER_ANCHOR') {
+    baseAffinity = 90.0;
     isRecgptCandidate = false;
+  } else if (sequenceRole === 'NAVBOOST_CO_VISITOR') {
+    baseAffinity = 85.0;
+    isRecgptCandidate = false;
+  }
+
+  if (baseAffinity > 0) {
+    const engagementFactor = saveRate > 0
+      ? (0.7 + 0.3 * Math.min(1.0, saveRate / 100))
+      : (0.75 + 0.25 * Math.min(1.0, Math.log10(Math.max(saves, 10)) / 5));
+    recgptTransitionScore = Number(Math.min(99.9, baseAffinity * engagementFactor).toFixed(1));
   }
 
   // True Engine Provenance (orthogonal to product status) with full interaction signals
@@ -440,14 +460,9 @@ export function parsePinCandidate(pin, seedPinId, parentEntity = null, utilityWe
     dailyVelocity,
     ageDays,
     isRecgptCandidate,
-    recgptTransitionScore
+    recgptTransitionScore,
+    sequenceRole
   );
-
-  if (sequenceRole === 'PIXIE_DRIFT_OUTLIER') {
-    provenanceEngine = 'P2P_RANDOMWALK';
-  } else if ((provenanceEngine === 'P2P_TWO_TOWER' || provenanceEngine === 'FRESH_COLD_START') && isRecgptCandidate && recgptTransitionScore > 70) {
-    provenanceEngine = 'P2P_RECGPT';
-  }
 
   // Dynamic Multi-Head prod:v18 Net Utility Score using upstream utility_config.weights
   let individualProdScore = 0;
@@ -582,21 +597,43 @@ function extractPinsFromEntity(item) {
 }
 
 /**
- * Compute Dominant Color Centroids
+ * Quantize Hex color to 40-step RGB buckets for perceptual cluster centroids
+ */
+function quantizeHex(hex) {
+  if (!hex || typeof hex !== 'string') return '#888888';
+  const clean = hex.replace('#', '').toLowerCase();
+  if (clean.length < 6) return '#888888';
+  const r = parseInt(clean.substring(0, 2), 16);
+  const g = parseInt(clean.substring(2, 4), 16);
+  const b = parseInt(clean.substring(4, 6), 16);
+  if (isNaN(r) || isNaN(g) || isNaN(b)) return '#888888';
+  const step = 40;
+  const qr = Math.min(255, Math.round(r / step) * step).toString(16).padStart(2, '0');
+  const qg = Math.min(255, Math.round(g / step) * step).toString(16).padStart(2, '0');
+  const qb = Math.min(255, Math.round(b / step) * step).toString(16).padStart(2, '0');
+  return `#${qr}${qg}${qb}`;
+}
+
+/**
+ * Compute Dominant Color Centroids with Perceptual Quantization Clustering
  */
 function computeColorCentroids(candidates) {
   if (candidates.length === 0) return [];
-  const freq = {};
+  const clusters = new Map();
   for (const c of candidates) {
-    const color = (c.dominant_color || '#888888').toLowerCase();
-    freq[color] = (freq[color] || 0) + 1;
+    const raw = (c.dominant_color || '#888888').toLowerCase();
+    const bucket = quantizeHex(raw);
+    if (!clusters.has(bucket)) {
+      clusters.set(bucket, { hex: raw, count: 0 });
+    }
+    clusters.get(bucket).count++;
   }
 
-  return Object.entries(freq)
-    .map(([color, count]) => ({
-      color,
-      count,
-      percentage: Number(((count / candidates.length) * 100).toFixed(2))
+  return Array.from(clusters.values())
+    .map(c => ({
+      color: c.hex,
+      count: c.count,
+      percentage: Number(((c.count / candidates.length) * 100).toFixed(1))
     }))
     .sort((a, b) => b.count - a.count)
     .slice(0, 10);
