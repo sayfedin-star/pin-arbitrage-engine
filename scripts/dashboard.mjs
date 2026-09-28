@@ -920,7 +920,12 @@ function getDashboardHtml() {
                       <!-- 4. Metrics -->
                       <td class="py-3 px-3 whitespace-nowrap font-mono">
                         <div class="text-slate-900 dark:text-slate-100 font-bold" x-text="Number(item.total_saves != null ? item.total_saves : (item.saves || 0)).toLocaleString() + ' saves'"></div>
-                        <div class="text-[10px] text-slate-500" x-text="Number(item.total_repins != null ? item.total_repins : (item.repins || 0)).toLocaleString() + ' repins • ' + (item.avg_save_rate != null ? item.avg_save_rate : (item.save_rate != null ? item.save_rate : 0)) + '% rate'"></div>
+                        <template x-if="Number(item.total_repins != null ? item.total_repins : (item.repins || 0)) > 0">
+                          <div class="text-[10px] text-slate-500" x-text="Number(item.total_repins != null ? item.total_repins : (item.repins || 0)).toLocaleString() + ' repins • ' + (item.avg_save_rate != null ? item.avg_save_rate : (item.save_rate != null ? item.save_rate : 0)) + '% rate'"></div>
+                        </template>
+                        <template x-if="Number(item.total_repins != null ? item.total_repins : (item.repins || 0)) === 0">
+                          <div class="text-[10px] text-slate-500" x-text="'⚡ ' + item.daily_velocity + '/day (Trending)'"></div>
+                        </template>
                       </td>
 
                       <!-- 5. Dominant Color -->

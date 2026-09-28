@@ -974,9 +974,9 @@ export default {
             ON CONFLICT (seed_pin_id, candidate_pin_id) DO UPDATE SET
               title = EXCLUDED.title,
               dominant_color = EXCLUDED.dominant_color,
-              saves = EXCLUDED.saves,
-              repins = EXCLUDED.repins,
-              save_rate = EXCLUDED.save_rate,
+              saves = GREATEST(candidate_graph_nodes.saves, EXCLUDED.saves),
+              repins = CASE WHEN EXCLUDED.repins > 0 THEN EXCLUDED.repins ELSE candidate_graph_nodes.repins END,
+              save_rate = CASE WHEN EXCLUDED.repins > 0 THEN EXCLUDED.save_rate ELSE candidate_graph_nodes.save_rate END,
               domain = EXCLUDED.domain,
               is_product = EXCLUDED.is_product,
               ocr_text = EXCLUDED.ocr_text,

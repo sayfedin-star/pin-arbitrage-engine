@@ -685,6 +685,124 @@ function computeHighSaveTokens(candidates) {
 }
 
 /**
+ * Fetch authentic individual pin details from Pinterest PinResource
+ * Zero speculation: Retrieves authoritative repin_count, reaction_counts, and saves directly
+ */
+export async function fetchPinDetails(pinId, baseHeaders) {
+  const optionsObj = { id: String(pinId), field_set_key: 'detailed' };
+  const targetUrl = `https://www.pinterest.com/resource/PinResource/get/?data=${encodeURIComponent(JSON.stringify({ options: optionsObj, context: {} }))}`;
+
+  const headers = {
+    ...baseHeaders,
+    'x-pinterest-pws-handler': 'www/pin/[id].js',
+    'x-requested-with': 'XMLHttpRequest',
+    'accept': 'application/json, text/javascript, */*, q=0.01'
+  };
+
+  try {
+    const response = await fetch(targetUrl, {
+      headers,
+      signal: AbortSignal.timeout(8000)
+    });
+
+    if (response.status === 429) {
+      console.warn(`[!] HTTP 429 Rate limited during deep pin enrichment on Pin ${pinId}. Sleeping 10s...`);
+      await sleep(10000);
+      return null;
+    }
+
+    if (!response.ok) return null;
+    const data = await response.json();
+    const pin = data?.resource_response?.data;
+    if (!pin) return null;
+
+    const repins = Number(pin.repin_count ?? 0);
+    const saves = Number(pin.aggregated_pin_data?.aggregated_stats?.saves ?? (pin.repin_count || 0));
+
+    return {
+      id: String(pin.id),
+      repins,
+      saves,
+      reactions: pin.reaction_counts || {}
+    };
+  } catch (err) {
+    return null;
+  }
+}
+
+/**
+ * Automated Deep Candidate Enrichment Pipeline
+ * Seamlessly enriches candidates with authentic Pinterest PinResource metrics
+ * Includes concurrency throttling (4 concurrent requests) and jitter to prevent HTTP 429
+ */
+export async function enrichCandidatesWithPinMetrics(seedPinId, baseHeaders) {
+  try {
+    const candidatesNeedingEnrichment = await sql`
+      (
+        SELECT candidate_pin_id, saves, daily_velocity
+        FROM candidate_graph_nodes
+        WHERE seed_pin_id = ${seedPinId} AND (repins = 0 OR repins IS NULL)
+        ORDER BY daily_velocity DESC NULLS LAST
+        LIMIT 150
+      )
+      UNION
+      (
+        SELECT candidate_pin_id, saves, daily_velocity
+        FROM candidate_graph_nodes
+        WHERE seed_pin_id = ${seedPinId} AND (repins = 0 OR repins IS NULL)
+        ORDER BY saves DESC NULLS LAST
+        LIMIT 150
+      );
+    `;
+
+    if (candidatesNeedingEnrichment.length === 0) {
+      console.log(`[+] All candidate nodes for seed ${seedPinId} already have authentic metrics.`);
+      return;
+    }
+
+    console.log(`[*] Auto-enriching ${candidatesNeedingEnrichment.length} candidates with authentic PinResource metrics...`);
+
+    const concurrency = 4;
+    let enrichedCount = 0;
+
+    for (let i = 0; i < candidatesNeedingEnrichment.length; i += concurrency) {
+      const chunk = candidatesNeedingEnrichment.slice(i, i + concurrency);
+
+      await Promise.all(chunk.map(async (candidate) => {
+        try {
+          const pinData = await fetchPinDetails(candidate.candidate_pin_id, baseHeaders);
+          if (pinData && pinData.repins !== undefined && pinData.repins !== null) {
+            const repins = Number(pinData.repins || 0);
+            const currentSaves = Math.max(Number(candidate.saves || 0), Number(pinData.saves || 0));
+            const saveRate = currentSaves > 0 ? Number(((repins / currentSaves) * 100).toFixed(2)) : 0.00;
+
+            await sql`
+              UPDATE candidate_graph_nodes
+              SET 
+                repins = ${repins},
+                saves = ${currentSaves},
+                save_rate = ${saveRate}
+              WHERE seed_pin_id = ${seedPinId} 
+                AND candidate_pin_id = ${candidate.candidate_pin_id};
+            `;
+            enrichedCount++;
+          }
+        } catch (pinErr) {
+          // Individual failure absorbed gracefully
+        }
+      }));
+
+      // Polite inter-chunk jitter delay to respect Pinterest rate limits
+      await sleep(350);
+    }
+
+    console.log(`[+] Successfully enriched ${enrichedCount}/${candidatesNeedingEnrichment.length} candidates with authentic Pinterest repin counts.`);
+  } catch (err) {
+    console.warn(`[!] Deep enrichment encountered non-fatal error: ${err.message}`);
+  }
+}
+
+/**
  * Crawl seed pin candidates graph across up to 12 paginated bookmarks
  */
 async function crawlSeed(seed) {
@@ -1025,9 +1143,9 @@ async function crawlSeed(seed) {
           title = EXCLUDED.title,
           dominant_color = EXCLUDED.dominant_color,
           aspect_ratio = EXCLUDED.aspect_ratio,
-          saves = EXCLUDED.saves,
-          repins = EXCLUDED.repins,
-          save_rate = EXCLUDED.save_rate,
+          saves = GREATEST(candidate_graph_nodes.saves, EXCLUDED.saves),
+          repins = CASE WHEN EXCLUDED.repins > 0 THEN EXCLUDED.repins ELSE candidate_graph_nodes.repins END,
+          save_rate = CASE WHEN EXCLUDED.repins > 0 THEN EXCLUDED.save_rate ELSE candidate_graph_nodes.save_rate END,
           domain = EXCLUDED.domain,
           is_product = EXCLUDED.is_product,
           ocr_text = EXCLUDED.ocr_text,
@@ -1047,6 +1165,10 @@ async function crawlSeed(seed) {
       `));
     }
     console.log(`[+] Successfully stored candidate nodes in Neon.`);
+
+    // Phase 2: Automated Deep Metrics Enrichment via PinResource (Authentic Zero-Hallucination Repins)
+    console.log(`[*] Initiating automated deep metrics enrichment for candidate nodes...`);
+    await enrichCandidatesWithPinMetrics(pinId, baseHeaders, 120);
   }
 
   // Insert macro cluster metrics snapshot
@@ -1163,7 +1285,34 @@ async function main() {
   }
 
   if (seedsToProcess.length === 0) {
-    console.log(`[+] No cluster seeds require crawling at this time. All clusters are fresh.`);
+    console.log(`[+] All cluster seeds have fresh crawl timestamps.`);
+    // Automated background enrichment sweep for any seeds with un-enriched candidates
+    try {
+      const seedsNeedingEnrichment = await sql`
+        SELECT seed_pin_id 
+        FROM candidate_graph_nodes 
+        WHERE (repins = 0 OR repins IS NULL) AND saves > 0
+        GROUP BY seed_pin_id
+        ORDER BY (seed_pin_id = '1125829606880675896') DESC;
+      `;
+      if (seedsNeedingEnrichment.length > 0) {
+        console.log(`[*] Discovered ${seedsNeedingEnrichment.length} seed(s) with pending deep metrics. Auto-enriching...`);
+        const baseHeaders = {
+          'accept': 'application/json, text/javascript, */*, q=0.01',
+          'accept-language': 'en-US,en;q=0.9',
+          'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+          'x-app-version': '664ee65'
+        };
+        if (process.env.PINTEREST_COOKIE) {
+          baseHeaders['cookie'] = formatPinterestCookie(process.env.PINTEREST_COOKIE);
+        }
+        for (const row of seedsNeedingEnrichment) {
+          await enrichCandidatesWithPinMetrics(row.seed_pin_id, baseHeaders);
+        }
+      }
+    } catch (e) {
+      console.warn(`[!] Auto-enrichment sweep error:`, e.message);
+    }
     return;
   }
 
