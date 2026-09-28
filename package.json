@@ -9,7 +9,7 @@
     "crawl": "node scripts/cluster-intelligence.mjs",
     "dashboard": "node --use-system-ca scripts/dashboard.mjs",
     "check": "node -c scripts/cluster-intelligence.mjs",
-    "deploy": "wrangler deploy"
+    "deploy": "npx wrangler deploy"
   },
   "keywords": [
     "pinterest",
@@ -23,8 +23,5 @@
   "license": "MIT",
   "dependencies": {
     "@neondatabase/serverless": "^0.10.4"
-  },
-  "devDependencies": {
-    "wrangler": "^3.114.0"
   }
 }
