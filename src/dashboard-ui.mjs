@@ -741,9 +741,12 @@ export function getDashboardHtml() {
 
                       <!-- 5. Dominant Color -->
                       <td class="py-3 px-3 whitespace-nowrap">
-                        <div class="flex items-center space-x-1.5">
-                          <span class="w-3.5 h-3.5 rounded border" :style="'background-color: ' + (item.winning_color || item.dominant_color || '#888888')"></span>
-                          <span class="font-mono text-[10px]" x-text="item.culinary_color_name || 'Culinary Accent'"></span>
+                        <div class="flex items-center space-x-2">
+                          <span class="w-4 h-4 rounded border flex-shrink-0 shadow-sm" :style="'background-color: ' + (item.winning_color || item.dominant_color || '#888888')"></span>
+                          <div class="space-y-0.5 min-w-0">
+                            <div class="font-mono text-[10px] font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wide" x-text="item.winning_color || item.dominant_color || '#888888'"></div>
+                            <div class="text-[9px] text-slate-500 dark:text-slate-400 font-medium truncate max-w-[140px]" x-text="item.culinary_color_name || 'Culinary Accent'" :title="item.culinary_color_name"></div>
+                          </div>
                         </div>
                       </td>
 
@@ -1016,9 +1019,12 @@ export function getDashboardHtml() {
 
                   <!-- 6. Color DNA -->
                   <td class="py-3.5 px-4 whitespace-nowrap">
-                    <div class="flex items-center space-x-1.5">
-                      <span class="w-4 h-4 rounded border flex-shrink-0" :style="'background-color: ' + (item.winning_color || item.dominant_color || '#888888')"></span>
-                      <span class="font-mono text-[10px] text-slate-700 dark:text-slate-300" x-text="item.culinary_color_name || 'Culinary Accent'"></span>
+                    <div class="flex items-center space-x-2">
+                      <span class="w-4 h-4 rounded border flex-shrink-0 shadow-sm" :style="'background-color: ' + (item.winning_color || item.dominant_color || '#888888')"></span>
+                      <div class="space-y-0.5 min-w-0">
+                        <div class="font-mono text-[10px] font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wide" x-text="item.winning_color || item.dominant_color || '#888888'"></div>
+                        <div class="text-[9px] text-slate-500 dark:text-slate-400 font-medium truncate max-w-[140px]" x-text="item.culinary_color_name || 'Culinary Accent'" :title="item.culinary_color_name"></div>
+                      </div>
                     </div>
                   </td>
 
@@ -1280,9 +1286,12 @@ export function getDashboardHtml() {
 
                   <!-- 6. Dominant Color Swatch -->
                   <td class="py-3.5 px-4 whitespace-nowrap">
-                    <div class="flex items-center space-x-1.5">
-                      <span class="w-3.5 h-3.5 rounded border" :style="'background-color: ' + (item.winning_color || item.dominant_color || '#888888')"></span>
-                      <span class="font-mono text-[10px]" x-text="item.culinary_color_name || 'Culinary Accent'"></span>
+                    <div class="flex items-center space-x-2">
+                      <span class="w-4 h-4 rounded border flex-shrink-0 shadow-sm" :style="'background-color: ' + (item.winning_color || item.dominant_color || '#888888')"></span>
+                      <div class="space-y-0.5 min-w-0">
+                        <div class="font-mono text-[10px] font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wide" x-text="item.winning_color || item.dominant_color || '#888888'"></div>
+                        <div class="text-[9px] text-slate-500 dark:text-slate-400 font-medium truncate max-w-[140px]" x-text="item.culinary_color_name || 'Culinary Accent'" :title="item.culinary_color_name"></div>
+                      </div>
                     </div>
                   </td>
 
