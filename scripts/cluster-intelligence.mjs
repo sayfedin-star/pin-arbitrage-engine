@@ -42,7 +42,7 @@ const sql = (strings, ...values) => getSql()(strings, ...values);
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const jitterDelay = () => 2500 + Math.floor(Math.random() * 1500);
 
-// Comprehensive list of stop words for weighted token scoring
+// Comprehensive list of stop words for weighted token scoring (excludes platform & alt-text noise)
 const STOP_WORDS = new Set([
   'the', 'and', 'for', 'with', 'that', 'this', 'from', 'have', 'are', 'was',
   'were', 'will', 'would', 'can', 'could', 'should', 'about', 'into', 'over',
@@ -52,7 +52,16 @@ const STOP_WORDS = new Set([
   'very', 'too', 'also', 'than', 'then', 'now', 'here', 'there', 'they',
   'them', 'their', 'she', 'her', 'him', 'his', 'its', 'not', 'nor', 'but',
   'out', 'down', 'off', 'through', 'under', 'between', 'during', 'without',
-  'food', 'cook', 'cooking', 'crockpot', 'instant', 'pot', 'slow', 'cooker'
+  'food', 'cook', 'cooking', 'instant', 'slow', 'cooker',
+  // Machine alt-text and platform boilerplate tokens
+  'shown', 'show', 'shows', 'showing', 'instructions', 'instruction',
+  'advertisement', 'ad', 'displayed', 'display', 'menu', 'menus', 'dish', 'dishes',
+  'photo', 'photos', 'picture', 'pictures', 'image', 'images', 'video', 'videos',
+  'pin', 'pins', 'ideas', 'idea', 'guide', 'tutorial', 'read', 'click', 'link',
+  'page', 'post', 'view', 'check',
+  // Staging and visual container noise
+  'table', 'plate', 'bowl', 'counter', 'board', 'background', 'white', 'wooden',
+  'close', 'overhead', 'piece', 'pieces', 'slice', 'slices', 'cup', 'glass'
 ]);
 
 /**
@@ -294,6 +303,56 @@ export function classifySequenceRole(title = '', description = '', ocrText = '',
 }
 
 /**
+ * Extract an authentic human-readable title by stripping machine alt-text boilerplate,
+ * or extracting the primary phrase from description or board context.
+ */
+export function cleanHumanTitle(rawAltText = '', rawDesc = '', boardName = '') {
+  let cleaned = '';
+
+  // 1. Try extracting and cleaning auto_alt_text
+  if (rawAltText && typeof rawAltText === 'string') {
+    let text = rawAltText.trim();
+
+    // Strip machine intro boilerplate
+    text = text.replace(/^(the\s+|a\s+|an\s+)?(recipe|instructions|directions|guide|tutorial|advertisement|ad|photo|picture|image|dish|menu)\s+(for|to\s+make|to|of)\s+/i, '');
+    text = text.replace(/^(a\s+|an\s+)?(close\s*up\s+of|top\s+view\s+of|overhead\s+view\s+of)\s+/i, '');
+
+    // Strip machine trailing boilerplate
+    text = text.replace(/\s+(is|are)\s+(shown|displayed).*$/i, '');
+    text = text.replace(/\s+(on\s+a\s+(white\s+)?(table|plate|bowl|counter|board|background)).*$/i, '');
+
+    // Clean edge punctuation
+    text = text.replace(/[\s.,;:–—-]+$/, '').trim();
+
+    if (text.length >= 3 && !/^(shown|image|photo|recipe|instructions|ad|advertisement)$/i.test(text)) {
+      cleaned = text.charAt(0).toUpperCase() + text.slice(1);
+    }
+  }
+
+  // 2. If cleaned is empty, attempt first meaningful phrase from description
+  if (!cleaned && rawDesc && typeof rawDesc === 'string') {
+    const desc = rawDesc.trim();
+    // Segment by pipe, bullets, em-dashes, or sentence period
+    const firstSegment = desc.split(/[\r\n|•–—]|\.\s+/)[0]?.trim();
+    if (firstSegment && firstSegment.length >= 4 && firstSegment.length <= 90) {
+      cleaned = firstSegment.charAt(0).toUpperCase() + firstSegment.slice(1);
+    } else if (desc.length > 0) {
+      cleaned = desc.slice(0, 60).trim();
+    }
+  }
+
+  // 3. Fallback to board name context if sufficiently descriptive
+  if (!cleaned && boardName && typeof boardName === 'string') {
+    const bName = boardName.trim();
+    if (bName.length >= 3 && !/^(pins?|my\s+pins?|food|recipes?)$/i.test(bName)) {
+      cleaned = `${bName} Inspiration`;
+    }
+  }
+
+  return cleaned.replace(/[\s.,;:–—-]+$/, '').trim();
+}
+
+/**
  * Extract pin fields with complete fallback chain
  */
 export function parsePinCandidate(pin, seedPinId, parentEntity = null, utilityWeights = null, seedClusterType = 'GENERAL') {
@@ -309,10 +368,16 @@ export function parsePinCandidate(pin, seedPinId, parentEntity = null, utilityWe
     cleanString(pin.title) ||
     cleanString(pin.grid_title) ||
     cleanString(pin.rich_summary?.display_name) ||
-    cleanString(pin.story_pin_data?.metadata?.pin_title) ||
-    cleanString(pin.auto_alt_text) ||
-    (typeof pin.description === 'string' ? pin.description.slice(0, 60).trim() : '')
+    cleanString(pin.story_pin_data?.metadata?.pin_title)
   );
+
+  // If title is missing or contains machine boilerplate (e.g., "recipe for ... is shown")
+  if (!title || /^(the\s+|a\s+)?(recipe|instructions|advertisement)\s+for\b.*(shown|displayed)/i.test(title)) {
+    const humanTitle = cleanHumanTitle(cleanString(pin.auto_alt_text), pin.description, cleanString(pin.board?.name));
+    if (humanTitle) {
+      title = humanTitle;
+    }
+  }
 
   if (!title) {
     const boardName = cleanString(pin.board?.name);
@@ -416,6 +481,15 @@ export function parsePinCandidate(pin, seedPinId, parentEntity = null, utilityWe
     ))
   );
 
+  const isStory = Boolean(
+    pin.story_pin_data != null ||
+    pin.is_story === true ||
+    pin.is_story_pin === true ||
+    (pin.story_type && pin.story_type !== 'related_modules_header' && pin.story_type !== 'BUBBLE_ONE_COL') ||
+    aspectRatio === 0.562 ||
+    aspectRatio === 0.563
+  );
+
   const ingestionMethod = cleanString(pin.method) || 'uploaded';
 
   // Algorithmic RecGPT Trajectory Modeling with Context-Aware Sequence Role
@@ -469,7 +543,7 @@ export function parsePinCandidate(pin, seedPinId, parentEntity = null, utilityWe
   const pClick = 1.0;
   const pLongClick = Math.min(1.0, (saveRate / 100) * 1.2);
   const pRepin = saves > 0 ? Math.min(1.0, repins / saves) : 0;
-  const pShortClick = isProduct ? 0.10 : (isVideo ? 0.08 : 0.05);
+  const pShortClick = isProduct ? 0.10 : (isVideo ? 0.08 : (isStory ? 0.06 : 0.05));
 
   if (utilityWeights && typeof utilityWeights === 'object') {
     let headWeights = null;
@@ -477,15 +551,17 @@ export function parsePinCandidate(pin, seedPinId, parentEntity = null, utilityWe
       headWeights = utilityWeights.PRODUCT_TRUSTWORTHY;
     } else if (isVideo && utilityWeights.VIDEO) {
       headWeights = utilityWeights.VIDEO;
+    } else if (isStory && utilityWeights.STORY) {
+      headWeights = utilityWeights.STORY;
     } else if (utilityWeights.ORGANIC) {
       headWeights = utilityWeights.ORGANIC;
     }
 
     if (headWeights) {
-      const clickW = Number(headWeights.CLICK_WEIGHT ?? 1.97);
-      const longClickW = Number(headWeights.LONG_CLICK_WEIGHT ?? 0.09);
-      const shortClickW = Number(headWeights.SHORT_CLICK_5S_WEIGHT ?? -392.64);
-      const repinW = Number(headWeights.REPIN_WEIGHT ?? 118.07);
+      const clickW = Number(headWeights.CLICK_WEIGHT ?? (isStory ? 1.0 : (isProduct ? 111.72 : (isVideo ? 0.05 : 1.97))));
+      const longClickW = Number(headWeights.LONG_CLICK_10S_WEIGHT ?? headWeights.LONG_CLICK_WEIGHT ?? (isStory ? 0.5 : (isProduct ? 137.80 : (isVideo ? 0.04 : 0.09))));
+      const shortClickW = Number(headWeights.SHORT_CLICK_5S_WEIGHT ?? (isStory ? -100.34 : (isProduct ? -186.62 : (isVideo ? -99.65 : -392.64))));
+      const repinW = Number(headWeights.REPIN_WEIGHT ?? (isStory ? 133.22 : (isProduct ? 133.83 : (isVideo ? 109.54 : 118.07))));
 
       individualProdScore = Number((
         (clickW * pClick) +
@@ -502,6 +578,8 @@ export function parsePinCandidate(pin, seedPinId, parentEntity = null, utilityWe
       individualProdScore = Number(((111.72 * pClick) + (137.80 * pLongClick) - (186.62 * pShortClick) + (133.83 * pRepin)).toFixed(2));
     } else if (isVideo) {
       individualProdScore = Number(((0.05 * pClick) + (0.04 * pLongClick) - (99.65 * pShortClick) + (109.54 * pRepin)).toFixed(2));
+    } else if (isStory) {
+      individualProdScore = Number(((1.0 * pClick) + (0.5 * pLongClick) - (100.34 * pShortClick) + (133.22 * pRepin)).toFixed(2));
     } else {
       individualProdScore = Number(((1.97 * pClick) + (0.09 * pLongClick) - (392.64 * pShortClick) + (118.07 * pRepin)).toFixed(2));
     }
@@ -657,7 +735,7 @@ function computeHighSaveTokens(candidates) {
     const docWeight = saveRate > 0 ? saveRate : Number((Math.log10(Math.max(saves, 10)) * 20).toFixed(2));
 
     for (const raw of rawTokens) {
-      if (raw.length < 3 || STOP_WORDS.has(raw)) continue;
+      if (raw.length < 3 || /^\d+$/.test(raw) || STOP_WORDS.has(raw)) continue;
 
       if (!tokenMap.has(raw)) {
         tokenMap.set(raw, { tf: 0, weighted_score: 0 });
@@ -1168,7 +1246,7 @@ async function crawlSeed(seed) {
 
     // Phase 2: Automated Deep Metrics Enrichment via PinResource (Authentic Zero-Hallucination Repins)
     console.log(`[*] Initiating automated deep metrics enrichment for candidate nodes...`);
-    await enrichCandidatesWithPinMetrics(pinId, baseHeaders, 120);
+    await enrichCandidatesWithPinMetrics(pinId, baseHeaders);
   }
 
   // Insert macro cluster metrics snapshot
