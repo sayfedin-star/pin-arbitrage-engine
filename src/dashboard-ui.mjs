@@ -719,7 +719,7 @@ export function getDashboardHtml() {
 
                       <!-- 3. Pin Age & Velocity -->
                       <td class="py-3 px-3 whitespace-nowrap font-mono">
-                        <div class="text-[11px] text-slate-500 dark:text-slate-400" x-text="item.age_display || '1d ago'"></div>
+                        <div class="text-[11px] text-slate-500 dark:text-slate-400" x-text="item.age_display || (item.age_days ? (item.age_days < 30 ? item.age_days + 'd ago' : (item.age_days < 365 ? Math.floor(item.age_days / 30) + 'mo ago' : (item.age_days / 365).toFixed(1) + 'y ago')) : '1d ago')"></div>
                         <div class="mt-0.5">
                           <template x-if="Number(item.daily_velocity || 0) >= 50">
                             <span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/40" x-text="'🔥 ' + item.daily_velocity + '/day (Explosive)'"></span>
@@ -735,15 +735,15 @@ export function getDashboardHtml() {
 
                       <!-- 4. Metrics -->
                       <td class="py-3 px-3 whitespace-nowrap font-mono">
-                        <div class="text-slate-900 dark:text-slate-100 font-bold" x-text="Number(item.total_saves || 0).toLocaleString() + ' saves'"></div>
-                        <div class="text-[10px] text-slate-500" x-text="Number(item.total_repins || 0).toLocaleString() + ' repins • ' + item.avg_save_rate + '% rate'"></div>
+                        <div class="text-slate-900 dark:text-slate-100 font-bold" x-text="Number(item.total_saves != null ? item.total_saves : (item.saves || 0)).toLocaleString() + ' saves'"></div>
+                        <div class="text-[10px] text-slate-500" x-text="Number(item.total_repins != null ? item.total_repins : (item.repins || 0)).toLocaleString() + ' repins • ' + (item.avg_save_rate != null ? item.avg_save_rate : (item.save_rate != null ? item.save_rate : 0)) + '% rate'"></div>
                       </td>
 
                       <!-- 5. Dominant Color -->
                       <td class="py-3 px-3 whitespace-nowrap">
                         <div class="flex items-center space-x-1.5">
-                          <span class="w-3.5 h-3.5 rounded border" :style="'background-color: ' + (item.winning_color || '#888888')"></span>
-                          <span class="font-mono text-[10px]" x-text="item.culinary_color_name"></span>
+                          <span class="w-3.5 h-3.5 rounded border" :style="'background-color: ' + (item.winning_color || item.dominant_color || '#888888')"></span>
+                          <span class="font-mono text-[10px]" x-text="item.culinary_color_name || 'Culinary Accent'"></span>
                         </div>
                       </td>
 
@@ -1010,15 +1010,15 @@ export function getDashboardHtml() {
 
                   <!-- 5. Metrics -->
                   <td class="py-3.5 px-4 whitespace-nowrap font-mono">
-                    <div class="font-bold text-slate-900 dark:text-white" x-text="Number(item.total_saves || 0).toLocaleString() + ' saves'"></div>
-                    <div class="text-[10px] text-slate-500" x-text="Number(item.total_repins || 0).toLocaleString() + ' repins • ' + item.avg_save_rate + '% rate'"></div>
+                    <div class="font-bold text-slate-900 dark:text-white" x-text="Number(item.total_saves != null ? item.total_saves : (item.saves || 0)).toLocaleString() + ' saves'"></div>
+                    <div class="text-[10px] text-slate-500" x-text="Number(item.total_repins != null ? item.total_repins : (item.repins || 0)).toLocaleString() + ' repins • ' + (item.avg_save_rate != null ? item.avg_save_rate : (item.save_rate != null ? item.save_rate : 0)) + '% rate'"></div>
                   </td>
 
                   <!-- 6. Color DNA -->
                   <td class="py-3.5 px-4 whitespace-nowrap">
                     <div class="flex items-center space-x-1.5">
-                      <span class="w-4 h-4 rounded border flex-shrink-0" :style="'background-color: ' + (item.winning_color || '#888888')"></span>
-                      <span class="font-mono text-[10px] text-slate-700 dark:text-slate-300" x-text="item.culinary_color_name"></span>
+                      <span class="w-4 h-4 rounded border flex-shrink-0" :style="'background-color: ' + (item.winning_color || item.dominant_color || '#888888')"></span>
+                      <span class="font-mono text-[10px] text-slate-700 dark:text-slate-300" x-text="item.culinary_color_name || 'Culinary Accent'"></span>
                     </div>
                   </td>
 
@@ -1258,7 +1258,7 @@ export function getDashboardHtml() {
 
                   <!-- 4. Pin Age & Velocity -->
                   <td class="py-3.5 px-4 whitespace-nowrap font-mono">
-                    <div class="text-[11px] text-slate-500 dark:text-slate-400" x-text="item.age_display || '1d ago'"></div>
+                    <div class="text-[11px] text-slate-500 dark:text-slate-400" x-text="item.age_display || (item.age_days ? (item.age_days < 30 ? item.age_days + 'd ago' : (item.age_days < 365 ? Math.floor(item.age_days / 30) + 'mo ago' : (item.age_days / 365).toFixed(1) + 'y ago')) : '1d ago')"></div>
                     <div class="mt-0.5">
                       <template x-if="Number(item.daily_velocity || 0) >= 50">
                         <span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/40" x-text="'🔥 ' + item.daily_velocity + '/day (Explosive)'"></span>
@@ -1274,15 +1274,15 @@ export function getDashboardHtml() {
 
                   <!-- 5. Metrics -->
                   <td class="py-3.5 px-4 whitespace-nowrap font-mono">
-                    <div class="font-bold text-slate-900 dark:text-white" x-text="Number(item.total_saves || 0).toLocaleString() + ' saves'"></div>
-                    <div class="text-[10px] text-slate-500" x-text="Number(item.total_repins || 0).toLocaleString() + ' repins • ' + item.avg_save_rate + '% rate'"></div>
+                    <div class="font-bold text-slate-900 dark:text-white" x-text="Number(item.total_saves != null ? item.total_saves : (item.saves || 0)).toLocaleString() + ' saves'"></div>
+                    <div class="text-[10px] text-slate-500" x-text="Number(item.total_repins != null ? item.total_repins : (item.repins || 0)).toLocaleString() + ' repins • ' + (item.avg_save_rate != null ? item.avg_save_rate : (item.save_rate != null ? item.save_rate : 0)) + '% rate'"></div>
                   </td>
 
                   <!-- 6. Dominant Color Swatch -->
                   <td class="py-3.5 px-4 whitespace-nowrap">
                     <div class="flex items-center space-x-1.5">
-                      <span class="w-3.5 h-3.5 rounded border" :style="'background-color: ' + (item.winning_color || '#888888')"></span>
-                      <span class="font-mono text-[10px]" x-text="item.culinary_color_name"></span>
+                      <span class="w-3.5 h-3.5 rounded border" :style="'background-color: ' + (item.winning_color || item.dominant_color || '#888888')"></span>
+                      <span class="font-mono text-[10px]" x-text="item.culinary_color_name || 'Culinary Accent'"></span>
                     </div>
                   </td>
 

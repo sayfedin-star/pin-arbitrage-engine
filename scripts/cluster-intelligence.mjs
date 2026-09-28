@@ -605,9 +605,12 @@ function computeHighSaveTokens(candidates) {
   const tokenMap = new Map(); // token => { tf: number, weighted_score: number }
 
   for (const candidate of candidates) {
-    const text = `${candidate.title} ${candidate.ocr_text}`.toLowerCase();
+    const text = `${candidate.title || ''} ${candidate.ocr_text || ''}`.toLowerCase();
     const rawTokens = text.split(/[^a-z0-9]+/);
     const seenInDoc = new Set();
+    const saves = Number(candidate.saves || 0);
+    const saveRate = Number(candidate.save_rate || 0);
+    const docWeight = saveRate > 0 ? saveRate : Number((Math.log10(Math.max(saves, 10)) * 20).toFixed(2));
 
     for (const raw of rawTokens) {
       if (raw.length < 3 || STOP_WORDS.has(raw)) continue;
@@ -621,7 +624,7 @@ function computeHighSaveTokens(candidates) {
 
       // Add to weighted score once per candidate document
       if (!seenInDoc.has(raw)) {
-        stat.weighted_score += candidate.save_rate;
+        stat.weighted_score += docWeight;
         seenInDoc.add(raw);
       }
     }
