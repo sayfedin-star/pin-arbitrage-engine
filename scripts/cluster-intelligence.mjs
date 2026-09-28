@@ -23,13 +23,20 @@ if (typeof process.loadEnvFile === 'function') {
   }
 }
 
-const DATABASE_URL = process.env.DATABASE_URL;
-if (!DATABASE_URL) {
-  console.error('[-] CRITICAL: DATABASE_URL environment variable is missing.');
-  process.exit(1);
+let _sql = null;
+function getSql() {
+  if (!_sql) {
+    const url = process.env.DATABASE_URL;
+    if (!url) {
+      console.error('[-] CRITICAL: DATABASE_URL environment variable is missing.');
+      process.exit(1);
+    }
+    _sql = neon(url);
+  }
+  return _sql;
 }
 
-const sql = neon(DATABASE_URL);
+const sql = (strings, ...values) => getSql()(strings, ...values);
 
 // Jitter delay between requests: 2500ms - 4000ms per fail-safe standards
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -723,8 +730,11 @@ async function crawlSeed(seed) {
     const resourceResponse = responseData?.resource_response || responseData;
     const items = resourceResponse?.data || [];
     const nextBookmark = resourceResponse?.bookmark;
+    const bookmarkDisplay = nextBookmark
+      ? `${nextBookmark.slice(0, 10)}...${nextBookmark.slice(-10)} (len: ${nextBookmark.length})`
+      : 'none';
 
-    console.log(`[+] [Page ${page}] Received ${items.length} raw entities. Next bookmark: ${nextBookmark ? (nextBookmark.slice(0, 20) + '...') : 'none'}`);
+    console.log(`[+] [Page ${page}] Received ${items.length} raw entities. Next bookmark: ${bookmarkDisplay}`);
 
     if (items.length === 0) {
       console.log(`[*] No more items returned on page ${page}. Terminating crawl.`);

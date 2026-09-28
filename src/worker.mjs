@@ -764,6 +764,248 @@ export default {
         });
       }
 
+      // 14. POST /api/seeds/import-raw-json
+      if (method === 'POST' && pathname === '/api/seeds/import-raw-json') {
+        const body = await request.json().catch(() => ({}));
+        const seedPinId = String(body.seed_pin_id || '').trim();
+        let rawJson = body.raw_json;
+
+        if (!seedPinId) {
+          return jsonResponse({ error: 'seed_pin_id is required' }, 400);
+        }
+
+        let parsedBlocks = [];
+        if (typeof rawJson === 'string') {
+          try {
+            parsedBlocks = [JSON.parse(rawJson)];
+          } catch (err) {
+            return jsonResponse({ error: 'Invalid JSON payload: ' + err.message }, 400);
+          }
+        } else if (Array.isArray(rawJson)) {
+          parsedBlocks = rawJson;
+        } else if (rawJson && typeof rawJson === 'object') {
+          parsedBlocks = [rawJson];
+        }
+
+        const items = [];
+        for (const block of parsedBlocks) {
+          const resp = block?.resource_response || block;
+          if (Array.isArray(resp?.data)) {
+            items.push(...resp.data);
+          } else if (Array.isArray(resp)) {
+            items.push(...resp);
+          }
+        }
+
+        if (items.length === 0) {
+          return jsonResponse({ error: 'No data items found in JSON (expected resource_response.data array)' }, 400);
+        }
+
+        let authoritativeCounts = null;
+        let utilityWeights = null;
+        for (const item of items) {
+          if (!authoritativeCounts && item?.aux_fields?.candidate_counts) {
+            try {
+              const rawCounts = typeof item.aux_fields.candidate_counts === 'string'
+                ? JSON.parse(item.aux_fields.candidate_counts)
+                : item.aux_fields.candidate_counts;
+              authoritativeCounts = {
+                navboost: Number(rawCounts["P2P_NAVBOOST_CAND"] || 0),
+                recgpt: Number(rawCounts["P2P_RECGPT"] || 0),
+                randomwalk: Number(rawCounts["P2P_RANDOMWALK_CAND"] || 0),
+                two_tower: Number(rawCounts["P2P_TWO_TOWER_EMBEDDING_CAND"] || 0),
+                fresh: Number(rawCounts["P2P_TWO_TOWER_MID_FUNNEL_FRESH_EMBEDDING_CAND"] || 0)
+              };
+            } catch (e) {}
+          }
+          if (!utilityWeights && item?.aux_fields?.utility_config?.weights) {
+            utilityWeights = item.aux_fields.utility_config.weights;
+          }
+        }
+
+        const capturedCapsules = [];
+        const inspectAndCapture = (obj) => {
+          if (!obj || typeof obj !== 'object') return;
+          const hasExplore = (
+            obj.type === 'explorearticle' ||
+            obj.story_type === 'BUBBLE_ONE_COL' ||
+            obj.story_type === 'explore_article' ||
+            obj.story_type === 'guide' ||
+            Boolean(obj.cover_images && (obj.title?.format || obj.title)) ||
+            Boolean(obj.cover_image && (obj.title?.format || obj.title)) ||
+            Boolean(obj.node_id && String(obj.node_id).startsWith('RXhwbG9yZ'))
+          );
+          if (hasExplore) {
+            const titleVal = obj.title?.format || obj.title?.text || obj.title?.title || obj.title || obj.copy?.title || obj.query || obj.label;
+            const qTerm = typeof titleVal === 'string' ? titleVal.trim() : (titleVal?.format || '');
+            if (qTerm && !['more to explore', 'related pins', 'ideas', 'explore'].includes(qTerm.toLowerCase())) {
+              const imgUrl = (
+                obj.cover_images?.[0]?.['750x']?.url ||
+                obj.cover_images?.[0]?.url ||
+                obj.cover_image?.['750x']?.url ||
+                obj.cover_image?.url ||
+                obj.images?.['750x']?.url ||
+                obj.images?.['474x']?.url ||
+                obj.images?.orig?.url ||
+                obj.image_large_url ||
+                ''
+              );
+              const searchUrl = obj.link || obj.action_link || obj.url || `https://www.pinterest.com/search/pins/?q=${encodeURIComponent(qTerm)}`;
+              capturedCapsules.push({
+                seed_pin_id: seedPinId,
+                query_term: qTerm,
+                normalized_query: qTerm.toLowerCase().trim(),
+                image_url: imgUrl,
+                search_url: searchUrl,
+                node_id: String(obj.node_id || obj.id || '')
+              });
+            }
+          }
+          if (Array.isArray(obj.objects)) for (const s of obj.objects) inspectAndCapture(s);
+          if (Array.isArray(obj.items)) for (const s of obj.items) inspectAndCapture(s);
+          if (Array.isArray(obj.bubbles)) for (const s of obj.bubbles) inspectAndCapture(s);
+          if (Array.isArray(obj.expanded_viewport_objects)) for (const s of obj.expanded_viewport_objects) inspectAndCapture(s);
+        };
+
+        for (const item of items) inspectAndCapture(item);
+
+        for (const cap of capturedCapsules) {
+          await sql`
+            INSERT INTO seed_guided_search_capsules (
+              seed_pin_id, query_term, normalized_query, image_url, search_url, node_id, discovered_at
+            ) VALUES (
+              ${cap.seed_pin_id}, ${cap.query_term}, ${cap.normalized_query}, ${cap.image_url}, ${cap.search_url}, ${cap.node_id}, NOW()
+            )
+            ON CONFLICT (seed_pin_id, normalized_query) DO UPDATE
+            SET image_url = EXCLUDED.image_url, search_url = EXCLUDED.search_url, node_id = EXCLUDED.node_id;
+          `;
+        }
+
+        const rawCandidates = [];
+        for (const item of items) {
+          const list = [];
+          if (item.type === 'pin' || item.images || item.story_pin_data) list.push(item);
+          if (Array.isArray(item.pins)) list.push(...item.pins);
+          if (Array.isArray(item.objects)) list.push(...item.objects.filter(o => o.type === 'pin' || o.images));
+
+          for (const p of list) {
+            const candidatePinId = String(p.id || p.pin_id || '').trim();
+            if (!candidatePinId || candidatePinId === seedPinId || candidatePinId.startsWith('-') || !/^\d+$/.test(candidatePinId)) continue;
+
+            const title = (p.title || p.grid_title || p.auto_alt_text || p.description || '').slice(0, 255).trim() || `Pin ${candidatePinId}`;
+            const domain = p.domain || p.link_domain?.id || 'Uploaded by user';
+            const dominantColor = (p.dominant_color && typeof p.dominant_color === 'string') ? p.dominant_color : '#888888';
+            const saves = Number(p.aggregated_pin_data?.aggregated_stats?.saves ?? (p.repin_count || 0));
+            const repins = Number(p.repin_count || 0);
+            const saveRate = saves > 0 ? Number(((repins / saves) * 100).toFixed(2)) : 0;
+            const isProduct = Boolean(p.is_eligible_for_pdp || (p.price_value && Number(p.price_value) > 0) || p.product_metadata || (Array.isArray(p.shopping_flags) && p.shopping_flags.length > 0));
+            const ocrText = p.auto_alt_text || '';
+            const imageUrl = p.images?.['236x']?.url || p.images?.['474x']?.url || p.images?.orig?.url || p.image_large_url || '';
+            const isVideo = Boolean(p.is_video || p.videos != null);
+            const ingestionMethod = p.method || 'RAW_PAYLOAD_DIRECT_IMPORT';
+
+            let pinCreatedAt = p.created_at ? new Date(p.created_at).toISOString() : new Date(Date.now() - 180 * 86400000).toISOString();
+            const ageDays = Math.max(1, Math.floor((Date.now() - new Date(pinCreatedAt).getTime()) / 86400000));
+            const dailyVelocity = Number((saves / ageDays).toFixed(2));
+            const provenanceEngine = saves >= 30000 ? 'P2P_NAVBOOST' : (saves >= 8000 ? 'P2P_RANDOMWALK' : 'P2P_TWO_TOWER');
+
+            rawCandidates.push({
+              seed_pin_id: seedPinId,
+              candidate_pin_id: candidatePinId,
+              title,
+              dominant_color: dominantColor,
+              aspect_ratio: 0.56,
+              saves,
+              repins,
+              save_rate: saveRate,
+              domain,
+              is_product: isProduct,
+              ocr_text: ocrText,
+              pin_created_at: pinCreatedAt,
+              age_days: ageDays,
+              daily_velocity: dailyVelocity,
+              provenance_engine: provenanceEngine,
+              individual_prod_score: isProduct ? 203.29 : -17.58,
+              recgpt_transition_score: Number((saveRate * 0.9).toFixed(1)),
+              sequence_role: 'DIRECT_MATCH',
+              is_recgpt_candidate: false,
+              visual_entropy_score: 0.5,
+              image_url: imageUrl,
+              is_video: isVideo,
+              ingestion_method: ingestionMethod
+            });
+          }
+        }
+
+        for (const node of rawCandidates) {
+          await sql`
+            INSERT INTO candidate_graph_nodes (
+              seed_pin_id, candidate_pin_id, title,
+              dominant_color, aspect_ratio, saves,
+              repins, save_rate, domain,
+              is_product, ocr_text, extracted_at,
+              pin_created_at, age_days, daily_velocity,
+              provenance_engine, individual_prod_score,
+              recgpt_transition_score, sequence_role,
+              is_recgpt_candidate, visual_entropy_score,
+              image_url, is_video, ingestion_method
+            ) VALUES (
+              ${node.seed_pin_id}, ${node.candidate_pin_id}, ${node.title},
+              ${node.dominant_color}, ${node.aspect_ratio}, ${node.saves},
+              ${node.repins}, ${node.save_rate}, ${node.domain},
+              ${node.is_product}, ${node.ocr_text}, NOW(),
+              ${node.pin_created_at}, ${node.age_days}, ${node.daily_velocity},
+              ${node.provenance_engine}, ${node.individual_prod_score},
+              ${node.recgpt_transition_score}, ${node.sequence_role},
+              ${node.is_recgpt_candidate}, ${node.visual_entropy_score},
+              ${node.image_url}, ${node.is_video}, ${node.ingestion_method}
+            )
+            ON CONFLICT (seed_pin_id, candidate_pin_id) DO UPDATE SET
+              title = EXCLUDED.title,
+              dominant_color = EXCLUDED.dominant_color,
+              saves = EXCLUDED.saves,
+              repins = EXCLUDED.repins,
+              save_rate = EXCLUDED.save_rate,
+              domain = EXCLUDED.domain,
+              is_product = EXCLUDED.is_product,
+              ocr_text = EXCLUDED.ocr_text,
+              extracted_at = NOW(),
+              image_url = EXCLUDED.image_url,
+              is_video = EXCLUDED.is_video;
+          `;
+        }
+
+        if (authoritativeCounts) {
+          const existingMetrics = await sql`
+            SELECT id FROM cluster_arbitrage_metrics
+            WHERE seed_pin_id = ${seedPinId}
+            ORDER BY analyzed_at DESC
+            LIMIT 1;
+          `;
+
+          if (existingMetrics.length > 0) {
+            await sql`
+              UPDATE cluster_arbitrage_metrics
+              SET
+                recgpt_count = ${authoritativeCounts.recgpt},
+                navboost_count = ${authoritativeCounts.navboost},
+                randomwalk_count = ${authoritativeCounts.randomwalk},
+                two_tower_count = ${authoritativeCounts.two_tower},
+                fresh_candidate_count = ${authoritativeCounts.fresh},
+                analyzed_at = NOW()
+              WHERE id = ${existingMetrics[0].id};
+            `;
+          }
+        }
+
+        return jsonResponse({
+          success: true,
+          candidates_imported: rawCandidates.length,
+          capsules_imported: capturedCapsules.length,
+          authoritative_counts: authoritativeCounts
+        });
+      }
+
       // Default 404
       return jsonResponse({ error: 'Endpoint not found', path: pathname }, 404);
     } catch (err) {
