@@ -522,10 +522,25 @@ function extractPinsFromEntity(item) {
   const pins = [];
   if (!item || typeof item !== 'object') return pins;
 
+  const isContainerOrHeader = (entity) => {
+    if (!entity || typeof entity !== 'object') return true;
+    return Boolean(
+      entity.container_type != null ||
+      entity.story_type === 'related_modules_header' ||
+      entity.story_type === 'BUBBLE_ONE_COL' ||
+      entity.story_type === 'explore_article' ||
+      entity.story_type === 'guide' ||
+      entity.node_id === '__EMPTY__' ||
+      entity.type === 'story' ||
+      entity.type === 'explorearticle' ||
+      entity.type === 'guide'
+    );
+  };
+
   const moduleMarker = item.source_module || item.module_id || item.name || item.type || item.module_type || '';
 
   const attachMeta = (p) => {
-    if (p && typeof p === 'object') {
+    if (p && typeof p === 'object' && !isContainerOrHeader(p)) {
       const pId = String(p.id || p.pin_id || '').trim();
       // Only attach valid positive numeric IDs
       if (pId && !pId.startsWith('-') && /^\d+$/.test(pId)) {
@@ -547,20 +562,9 @@ function extractPinsFromEntity(item) {
     for (const p of item.items) attachMeta(p);
   }
 
-  // Reject container structures from being treated as pins directly
-  const isContainerOrHeader = (
-    item.container_type != null ||
-    item.story_type === 'related_modules_header' ||
-    item.story_type === 'BUBBLE_ONE_COL' ||
-    item.story_type === 'explore_article' ||
-    item.node_id === '__EMPTY__' ||
-    item.type === 'story' ||
-    item.type === 'explorearticle'
-  );
-
   const rawId = String(item.id || item.pin_id || '').trim();
   // If item itself is a real pin (must have media or positive pin ID and type === 'pin')
-  if (!isContainerOrHeader && rawId && !rawId.startsWith('-') && /^\d+$/.test(rawId)) {
+  if (!isContainerOrHeader(item) && rawId && !rawId.startsWith('-') && /^\d+$/.test(rawId)) {
     const hasMedia = Boolean(item.images || item.videos || item.story_pin_data || item.image_large_url || item.image_medium_url);
     if (item.type === 'pin' || hasMedia) {
       attachMeta(item);
@@ -653,7 +657,8 @@ async function crawlSeed(seed) {
   const seedClusterType = isBakery ? 'BAKERY_DESSERT' : 'GENERAL';
 
   let bookmark = null;
-  const maxPages = Number(process.env.MAX_PAGES || 40);
+  const rawMaxPages = parseInt(process.env.MAX_PAGES, 10);
+  const maxPages = (!isNaN(rawMaxPages) && rawMaxPages > 0) ? Math.min(rawMaxPages, 100) : 40;
 
   const baseHeaders = {
     'accept': 'application/json, text/javascript, */*, q=0.01',
