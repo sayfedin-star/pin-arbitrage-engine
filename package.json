@@ -3,23 +3,28 @@
   "version": "1.0.0",
   "description": "Pinterest Algorithmic Arbitrage Engine (P2P Cluster Intelligence, Neon Serverless & GH Workflows)",
   "type": "module",
-  "main": "scripts/cluster-intelligence.mjs",
+  "main": "src/worker.mjs",
   "scripts": {
     "start": "node scripts/cluster-intelligence.mjs",
     "crawl": "node scripts/cluster-intelligence.mjs",
     "dashboard": "node --use-system-ca scripts/dashboard.mjs",
-    "check": "node -c scripts/cluster-intelligence.mjs"
+    "check": "node -c scripts/cluster-intelligence.mjs",
+    "deploy": "wrangler deploy"
   },
   "keywords": [
     "pinterest",
     "arbitrage",
     "p2p-cluster",
     "neon-serverless",
-    "algorithmic-intelligence"
+    "algorithmic-intelligence",
+    "cloudflare-worker"
   ],
   "author": "sayfedin-star",
   "license": "MIT",
   "dependencies": {
     "@neondatabase/serverless": "^0.10.4"
+  },
+  "devDependencies": {
+    "wrangler": "^3.114.0"
   }
 }
