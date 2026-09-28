@@ -522,21 +522,6 @@ function extractPinsFromEntity(item) {
   const pins = [];
   if (!item || typeof item !== 'object') return pins;
 
-  // STRICT REJECTION: Module containers, UI dividers, section headers, story headers
-  if (
-    item.container_type != null ||
-    item.story_type === 'related_modules_header' ||
-    item.node_id === '__EMPTY__' ||
-    item.type === 'story'
-  ) {
-    return pins;
-  }
-
-  const rawId = String(item.id || item.pin_id || '').trim();
-  if (rawId.startsWith('-') || (rawId && !/^\d+$/.test(rawId))) {
-    return pins;
-  }
-
   const moduleMarker = item.source_module || item.module_id || item.name || item.type || item.module_type || '';
 
   const attachMeta = (p) => {
@@ -562,8 +547,20 @@ function extractPinsFromEntity(item) {
     for (const p of item.items) attachMeta(p);
   }
 
+  // Reject container structures from being treated as pins directly
+  const isContainerOrHeader = (
+    item.container_type != null ||
+    item.story_type === 'related_modules_header' ||
+    item.story_type === 'BUBBLE_ONE_COL' ||
+    item.story_type === 'explore_article' ||
+    item.node_id === '__EMPTY__' ||
+    item.type === 'story' ||
+    item.type === 'explorearticle'
+  );
+
+  const rawId = String(item.id || item.pin_id || '').trim();
   // If item itself is a real pin (must have media or positive pin ID and type === 'pin')
-  if (rawId && !rawId.startsWith('-') && /^\d+$/.test(rawId)) {
+  if (!isContainerOrHeader && rawId && !rawId.startsWith('-') && /^\d+$/.test(rawId)) {
     const hasMedia = Boolean(item.images || item.videos || item.story_pin_data || item.image_large_url || item.image_medium_url);
     if (item.type === 'pin' || hasMedia) {
       attachMeta(item);
@@ -656,7 +653,7 @@ async function crawlSeed(seed) {
   const seedClusterType = isBakery ? 'BAKERY_DESSERT' : 'GENERAL';
 
   let bookmark = null;
-  const maxPages = 40;
+  const maxPages = Number(process.env.MAX_PAGES || 40);
 
   const baseHeaders = {
     'accept': 'application/json, text/javascript, */*, q=0.01',
@@ -697,22 +694,12 @@ async function crawlSeed(seed) {
       client_tracking_params: "CwABAAAAEDE0ODExNTU0MzQxNjE4ODgLAAcAAAAPdW5rbm93bi91bmtub3duAA"
     };
     if (bookmark) {
-      optionsObj.bookmark = bookmark;
+      optionsObj.bookmarks = [bookmark];
     }
 
     const dataParam = JSON.stringify({
       options: optionsObj,
-      context: {
-        client_context: {
-          client_session_id: crypto.randomUUID(),
-          source_type: 'visual_search_feed',
-          navigation_source: 'related_pins_carousel',
-          user_recent_actions: [
-            { event: 'click', entity_id: pinId, time: Date.now() - 60000 },
-            { event: 'save', entity_id: pinId, time: Date.now() - 30000 }
-          ]
-        }
-      }
+      context: {}
     });
 
     const targetUrl = `https://www.pinterest.com/resource/RelatedModulesResource/get/?source_url=${encodeURIComponent(`/pin/${pinId}/`)}&data=${encodeURIComponent(dataParam)}`;
@@ -745,6 +732,7 @@ async function crawlSeed(seed) {
             : item.aux_fields.candidate_counts;
 
           const twoTowerBase = Number(rawCounts["P2P_TWO_TOWER_EMBEDDING_CAND"] || 0);
+          const plpCand = Number(rawCounts["P2P_TWO_TOWER_PLP_CORPUS_CAND"] || 0);
           const midFunnelFresh = Number(rawCounts["P2P_TWO_TOWER_MID_FUNNEL_FRESH_EMBEDDING_CAND"] || 0);
           const p2bFresh = Number(rawCounts["P2P_P2B2P_FRESH"] || 0);
 
@@ -752,7 +740,7 @@ async function crawlSeed(seed) {
             navboost_count: Number(rawCounts["P2P_NAVBOOST_CAND"] || 0),
             recgpt_count: Number(rawCounts["P2P_RECGPT"] || 0),
             randomwalk_count: Number(rawCounts["P2P_RANDOMWALK_CAND"] || 0),
-            two_tower_count: twoTowerBase + (p2bFresh > 0 ? midFunnelFresh : 0),
+            two_tower_count: twoTowerBase + plpCand,
             fresh_candidate_count: p2bFresh > 0 ? p2bFresh : midFunnelFresh
           };
           console.log(`[+] Authoritative Page ${page} candidate counts locked directly from Pinterest:`, authoritativeCandidateCounts);
@@ -1008,6 +996,14 @@ async function crawlSeed(seed) {
 
   // Insert macro cluster metrics snapshot
   console.log(`[*] Recording cluster arbitrage metrics snapshot...`);
+  const candidatePoolTotal = (authoritativeCandidateCounts && (
+    authoritativeCandidateCounts.recgpt_count +
+    authoritativeCandidateCounts.navboost_count +
+    authoritativeCandidateCounts.randomwalk_count +
+    authoritativeCandidateCounts.two_tower_count +
+    authoritativeCandidateCounts.fresh_candidate_count
+  )) || totalCandidates;
+
   await sql`
     INSERT INTO cluster_arbitrage_metrics (
       seed_pin_id, total_candidates, recgpt_count, navboost_count,
@@ -1016,7 +1012,7 @@ async function crawlSeed(seed) {
       utility_snapshot, analyzed_at
     ) VALUES (
       ${pinId},
-      ${totalCandidates},
+      ${candidatePoolTotal},
       ${authoritativeCandidateCounts.recgpt_count},
       ${authoritativeCandidateCounts.navboost_count},
       ${authoritativeCandidateCounts.randomwalk_count},
