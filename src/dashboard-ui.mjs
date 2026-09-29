@@ -2773,10 +2773,10 @@ export function getDashboardHtml() {
               <div>
                 <div class="flex items-center space-x-1.5">
                   <span class="font-bold text-slate-800 dark:text-slate-200">🚀 GitHub Actions Workflow</span>
-                  <span class="px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-700 dark:text-purple-300 text-[9px] font-bold">Recommended</span>
+                  <span class="px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-700 dark:text-purple-300 text-[9px] font-bold">Matrix 4-Shards</span>
                 </div>
                 <p class="text-[10px] text-slate-500 mt-0.5 leading-relaxed">
-                  Dispatches <code class="text-purple-600">cluster-intelligence.yml</code> on GitHub Runner. Uses GitHub egress IP to prevent local rate-limits, runs 40 pages deep.
+                  Dispatches <code class="text-purple-600">cluster-intelligence.yml</code> via <strong>Parallel Matrix Sharding (4 Concurrent Runners)</strong>. 60 pages deep per seed (~900 candidates) with isolated egress IPs.
                 </p>
               </div>
             </label>
@@ -2799,7 +2799,7 @@ export function getDashboardHtml() {
         <div class="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800">
           <div>
             <span class="font-semibold text-slate-800 dark:text-slate-200">Max Pagination Depth Per Seed</span>
-            <span class="text-[10px] text-slate-500 block">Default 40 pages (~600 candidates per seed)</span>
+            <span class="text-[10px] text-slate-500 block">Default 60 pages (~900 candidates per seed)</span>
           </div>
           <input type="number" x-model="crawlMaxPages" min="5" max="100" class="w-20 px-2 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-right font-mono font-bold text-xs">
         </div>
@@ -3138,7 +3138,7 @@ export function getDashboardHtml() {
         crawlTargetScope: 'queued',
         crawlCustomPinId: '',
         crawlEngine: 'workflow',
-        crawlMaxPages: '40',
+        crawlMaxPages: '60',
         workflowRuns: [],
         isLoadingWorkflowRuns: false,
         isTriggeringWorkflow: false,
@@ -4147,7 +4147,7 @@ export function getDashboardHtml() {
           }
         },
 
-        async triggerWorkflowRun(seedPinIdsStr = '', maxPages = '40') {
+        async triggerWorkflowRun(seedPinIdsStr = '', maxPages = '60') {
           this.isTriggeringWorkflow = true;
           try {
             const res = await fetch('/api/workflow/trigger', {
@@ -4155,7 +4155,7 @@ export function getDashboardHtml() {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 seed_pin_id: seedPinIdsStr,
-                max_pages: maxPages || '40'
+                max_pages: maxPages || '60'
               })
             });
 

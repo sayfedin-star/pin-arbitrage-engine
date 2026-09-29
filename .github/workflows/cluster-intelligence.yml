@@ -12,20 +12,24 @@ on:
         type: string
         default: ''
       max_pages:
-        description: 'Maximum pagination depth per seed (default: 40)'
+        description: 'Maximum pagination depth per seed (default: 60)'
         required: false
         type: string
-        default: '40'
+        default: '60'
 
 concurrency:
-  group: cluster-intelligence
+  group: cluster-intelligence-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   crawl-and-synthesize:
-    name: Crawl & Synthesize P2P Graph
+    name: Crawl Shard ${{ matrix.shardIndex + 1 }}/4
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shardIndex: [0, 1, 2, 3]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -38,9 +42,9 @@ jobs:
 
       - name: Check Runner Egress IP
         run: |
-          echo "=== GitHub Actions Runner Egress IP ==="
+          echo "=== GitHub Actions Runner Egress IP (Shard ${{ matrix.shardIndex + 1 }}/4) ==="
           curl -s https://api.ipify.org && echo ""
-          echo "======================================="
+          echo "=========================================================================="
 
       - name: Install dependencies
         run: npm ci
@@ -50,5 +54,7 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           PINTEREST_COOKIE: ${{ secrets.PINTEREST_COOKIE }}
           TARGET_PIN_ID: ${{ inputs.seed_pin_id }}
-          MAX_PAGES: ${{ inputs.max_pages }}
+          MAX_PAGES: ${{ inputs.max_pages || '60' }}
+          SHARD_INDEX: ${{ matrix.shardIndex }}
+          SHARD_TOTAL: 4
         run: node scripts/cluster-intelligence.mjs

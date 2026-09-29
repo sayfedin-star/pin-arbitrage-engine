@@ -174,7 +174,7 @@ async function getWorkflowRuns(limit = 10) {
   }
 }
 
-async function triggerWorkflowDispatch(seedPinId = '', maxPages = '40') {
+async function triggerWorkflowDispatch(seedPinId = '', maxPages = '60') {
   const args = ['workflow', 'run', 'cluster-intelligence.yml'];
   if (seedPinId && String(seedPinId).trim()) {
     args.push('-f', `seed_pin_id=${String(seedPinId).trim()}`);
@@ -273,7 +273,7 @@ const server = http.createServer(async (req, res) => {
       } else if (body.seed_pin_id) {
         target = String(body.seed_pin_id).trim();
       }
-      const maxPages = body.max_pages ? String(body.max_pages).trim() : '40';
+      const maxPages = body.max_pages ? String(body.max_pages).trim() : '60';
       try {
         const dispatchRes = await triggerWorkflowDispatch(target, maxPages);
         return sendJson(res, 200, {

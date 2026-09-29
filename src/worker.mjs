@@ -417,7 +417,7 @@ export default {
         } else if (body.seed_pin_id) {
           target = String(body.seed_pin_id).trim();
         }
-        const maxPages = body.max_pages ? String(body.max_pages).trim() : '40';
+        const maxPages = body.max_pages ? String(body.max_pages).trim() : '60';
 
         const repo = 'sayfedin-star/pin-arbitrage-engine';
         const res = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/cluster-intelligence.yml/dispatches`, {

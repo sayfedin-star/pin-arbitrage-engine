@@ -901,7 +901,7 @@ async function crawlSeed(seed) {
 
   let bookmark = null;
   const rawMaxPages = parseInt(process.env.MAX_PAGES, 10);
-  const maxPages = (!isNaN(rawMaxPages) && rawMaxPages > 0) ? Math.min(rawMaxPages, 100) : 40;
+  const maxPages = (!isNaN(rawMaxPages) && rawMaxPages > 0) ? Math.min(rawMaxPages, 100) : 60;
 
   const baseHeaders = {
     'accept': 'application/json, text/javascript, */*, q=0.01',
@@ -1359,9 +1359,33 @@ async function main() {
       SELECT pin_id, label, is_competitor, velocity, last_crawled_at
       FROM cluster_seeds
       WHERE last_crawled_at IS NULL OR last_crawled_at < NOW() - INTERVAL '24 HOURS'
-      ORDER BY last_crawled_at ASC NULLS FIRST
-      LIMIT 10;
+      ORDER BY last_crawled_at ASC NULLS FIRST, pin_id ASC
+      LIMIT 40;
     `;
+  }
+
+  // 🚀 Matrix Sharding (WWW 2018 Distributed Crawler Architecture — 4 Shards)
+  const shardIndexRaw = process.env.SHARD_INDEX;
+  const shardTotalRaw = process.env.SHARD_TOTAL;
+  if (shardIndexRaw !== undefined && shardIndexRaw !== '' && shardTotalRaw !== undefined && shardTotalRaw !== '') {
+    const shardIdx = parseInt(shardIndexRaw, 10);
+    const shardTot = parseInt(shardTotalRaw, 10);
+    if (!isNaN(shardIdx) && !isNaN(shardTot) && shardTot > 1) {
+      const totalAvailable = seedsToProcess.length;
+      seedsToProcess = seedsToProcess.filter((_, idx) => (idx % shardTot) === shardIdx);
+      console.log(`\n===============================================================`);
+      console.log(`🚀 [MATRIX SHARDING ACTIVE] Shard ${shardIdx + 1}/${shardTot}`);
+      console.log(`📊 Assigned Seeds: ${seedsToProcess.length} (out of ${totalAvailable} total cluster seeds)`);
+      if (seedsToProcess.length > 0) {
+        console.log(`🎯 Assigned Target Pin IDs: ${seedsToProcess.map(s => s.pin_id).join(', ')}`);
+      }
+      console.log(`===============================================================\n`);
+
+      if (seedsToProcess.length === 0) {
+        console.log(`[+] Shard ${shardIdx + 1}/${shardTot}: No seeds assigned to this shard index. Exiting cleanly.`);
+        return;
+      }
+    }
   }
 
   if (seedsToProcess.length === 0) {
