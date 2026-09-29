@@ -375,8 +375,8 @@ export default {
             'Accept': 'application/vnd.github.v3+json'
           };
           if (ghToken) {
-            const cleanToken = String(ghToken).replace(/^(token|Bearer)\s+/i, '').trim();
-            headers['Authorization'] = `Bearer ${cleanToken}`;
+            const cleanToken = String(ghToken).replace(/^(token|Bearer)\s+/i, '').replace(/^["']|["']$/g, '').trim();
+            headers['Authorization'] = cleanToken.startsWith('ghp_') ? `token ${cleanToken}` : `Bearer ${cleanToken}`;
           }
           const res = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/cluster-intelligence.yml/runs?per_page=15`, { headers });
           if (res.ok) {
@@ -405,10 +405,11 @@ export default {
         if (!ghToken) {
           return jsonResponse({
             success: false,
-            error: 'GITHUB_TOKEN secret not configured in Cloudflare Workers settings. Please trigger locally or add GITHUB_TOKEN / GH_REFRESH_TOKEN variable.'
+            error: 'GitHub Token secret not configured in Cloudflare Workers settings. Please add GITHUB_TOKEN or GH_REFRESH_TOKEN secret.'
           }, 400);
         }
-        const cleanToken = String(ghToken).replace(/^(token|Bearer)\s+/i, '').trim();
+        const cleanToken = String(ghToken).replace(/^(token|Bearer)\s+/i, '').replace(/^["']|["']$/g, '').trim();
+        const authHeader = cleanToken.startsWith('ghp_') ? `token ${cleanToken}` : `Bearer ${cleanToken}`;
         const body = await request.json().catch(() => ({}));
         let target = '';
         if (Array.isArray(body.seed_pin_ids) && body.seed_pin_ids.length > 0) {
@@ -424,7 +425,7 @@ export default {
           headers: {
             'User-Agent': 'Cloudflare-Worker-Pin-Arbitrage-Engine',
             'Accept': 'application/vnd.github.v3+json',
-            'Authorization': `Bearer ${cleanToken}`,
+            'Authorization': authHeader,
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
@@ -445,7 +446,11 @@ export default {
           });
         } else {
           const errText = await res.text();
-          return jsonResponse({ success: false, error: `GitHub API error (${res.status}): ${errText}` }, res.status);
+          let errDetail = errText;
+          if (res.status === 401) {
+            errDetail = 'GitHub Token rejected (401 Bad credentials). Ensure your token in Cloudflare has both "repo" and "workflow" scopes enabled at https://github.com/settings/tokens';
+          }
+          return jsonResponse({ success: false, error: `GitHub API error (${res.status}): ${errDetail}` }, res.status);
         }
       }
 
