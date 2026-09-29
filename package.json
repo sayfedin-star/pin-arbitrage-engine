@@ -5,10 +5,11 @@
   "type": "module",
   "main": "src/worker.mjs",
   "scripts": {
-    "start": "node scripts/cluster-intelligence.mjs",
-    "crawl": "node scripts/cluster-intelligence.mjs",
+    "start": "node --use-system-ca scripts/cluster-intelligence.mjs",
+    "crawl": "node --use-system-ca scripts/cluster-intelligence.mjs",
     "dashboard": "node --use-system-ca scripts/dashboard.mjs",
-    "check": "node -c scripts/cluster-intelligence.mjs",
+    "optimize-db": "node --use-system-ca scripts/ensure_indexes.mjs",
+    "check": "node -c scripts/cluster-intelligence.mjs && node -c src/worker.mjs && node -c scripts/dashboard.mjs && node -c src/dashboard-ui.mjs",
     "deploy": "npx wrangler deploy"
   },
   "keywords": [

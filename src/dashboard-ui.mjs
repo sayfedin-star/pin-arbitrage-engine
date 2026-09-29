@@ -4243,7 +4243,7 @@ export function getDashboardHtml() {
               s.last_crawled_at || ''
             ].join(','));
           }
-          const blob = new Blob([rows.join('\\n')], { type: 'text/csv;charset=utf-8;' });
+          const blob = new Blob([rows.join(String.fromCharCode(10))], { type: 'text/csv;charset=utf-8;' });
           const url = URL.createObjectURL(blob);
           const link = document.createElement('a');
           link.setAttribute('href', url);
@@ -4273,7 +4273,11 @@ export function getDashboardHtml() {
               this.isAddSeedOpen = false;
               await this.refreshAll();
               if (autoCrawl) {
-                await this.triggerCrawl(newPinId);
+                if (this.crawlEngine === 'workflow') {
+                  await this.triggerWorkflowRun(newPinId);
+                } else {
+                  await this.triggerCrawl(newPinId);
+                }
               }
             } else {
               const err = await res.json();

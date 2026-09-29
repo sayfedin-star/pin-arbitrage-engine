@@ -158,7 +158,7 @@ function triggerCrawlProcess(seedPinId = null) {
   return { success: true, seed_pin_id: crawlState.seed_pin_id };
 }
 
-// GitHub Actions Workflow helpers
+// GitHub Actions Workflow helpers (Dual-Engine: gh CLI with direct GitHub REST API fallback)
 async function getWorkflowRuns(limit = 10) {
   try {
     const { stdout } = await execFileAsync('gh', [
@@ -169,22 +169,84 @@ async function getWorkflowRuns(limit = 10) {
     ]);
     return JSON.parse(stdout);
   } catch (err) {
-    console.warn('[!] Failed to fetch workflow runs via gh CLI:', err.message);
+    // Graceful fallback to direct GitHub REST API using environment token
+    const ghToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || process.env.GH_REFRESH_TOKEN;
+    const repo = 'sayfedin-star/pin-arbitrage-engine';
+    try {
+      const headers = {
+        'User-Agent': 'Local-Dashboard-Pin-Arbitrage-Engine',
+        'Accept': 'application/vnd.github.v3+json'
+      };
+      if (ghToken) {
+        const cleanToken = String(ghToken).replace(/^(token|Bearer)\s+/i, '').replace(/^["']|["']$/g, '').trim();
+        headers['Authorization'] = cleanToken.startsWith('ghp_') ? `token ${cleanToken}` : `Bearer ${cleanToken}`;
+      }
+      const res = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/cluster-intelligence.yml/runs?per_page=${limit}`, { headers });
+      if (res.ok) {
+        const data = await res.json();
+        return (data.workflow_runs || []).map(r => ({
+          databaseId: r.id,
+          status: r.status,
+          conclusion: r.conclusion,
+          createdAt: r.created_at,
+          url: r.html_url,
+          event: r.event,
+          displayTitle: r.display_title || r.name,
+          headBranch: r.head_branch
+        }));
+      }
+    } catch (apiErr) {}
+    console.warn('[!] Failed to fetch workflow runs via gh CLI & API:', err.message);
     return [];
   }
 }
 
 async function triggerWorkflowDispatch(seedPinId = '', maxPages = '60') {
-  const args = ['workflow', 'run', 'cluster-intelligence.yml'];
-  if (seedPinId && String(seedPinId).trim()) {
-    args.push('-f', `seed_pin_id=${String(seedPinId).trim()}`);
+  try {
+    const args = ['workflow', 'run', 'cluster-intelligence.yml'];
+    if (seedPinId && String(seedPinId).trim()) {
+      args.push('-f', `seed_pin_id=${String(seedPinId).trim()}`);
+    }
+    if (maxPages) {
+      args.push('-f', `max_pages=${String(maxPages).trim()}`);
+    }
+    console.log(`[*] Triggering GitHub Actions workflow via gh CLI: gh ${args.join(' ')}`);
+    const { stdout, stderr } = await execFileAsync('gh', args);
+    return { success: true, output: (stdout || stderr || '').trim() || 'Workflow dispatched via gh CLI' };
+  } catch (ghErr) {
+    console.warn(`[*] gh CLI unavailable (${ghErr.message}). Falling back to GitHub REST API...`);
+    const ghToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || process.env.GH_REFRESH_TOKEN;
+    if (!ghToken) {
+      throw new Error('Neither gh CLI nor GitHub Token (GITHUB_TOKEN / GH_REFRESH_TOKEN in .env) are available for workflow dispatch.');
+    }
+    const cleanToken = String(ghToken).replace(/^(token|Bearer)\s+/i, '').replace(/^["']|["']$/g, '').trim();
+    const authHeader = cleanToken.startsWith('ghp_') ? `token ${cleanToken}` : `Bearer ${cleanToken}`;
+    const repo = 'sayfedin-star/pin-arbitrage-engine';
+
+    const res = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/cluster-intelligence.yml/dispatches`, {
+      method: 'POST',
+      headers: {
+        'User-Agent': 'Local-Dashboard-Pin-Arbitrage-Engine',
+        'Accept': 'application/vnd.github.v3+json',
+        'Authorization': authHeader,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        ref: 'main',
+        inputs: {
+          seed_pin_id: String(seedPinId || '').trim(),
+          max_pages: String(maxPages || '60').trim()
+        }
+      })
+    });
+
+    if (res.ok || res.status === 204) {
+      return { success: true, output: 'Workflow dispatched successfully via direct GitHub REST API' };
+    } else {
+      const errText = await res.text();
+      throw new Error(`GitHub API error (${res.status}): ${errText}`);
+    }
   }
-  if (maxPages) {
-    args.push('-f', `max_pages=${String(maxPages).trim()}`);
-  }
-  console.log(`[*] Triggering GitHub Actions workflow: gh ${args.join(' ')}`);
-  const { stdout, stderr } = await execFileAsync('gh', args);
-  return { success: true, output: (stdout || stderr || '').trim() || 'Workflow dispatched' };
 }
 
 // Helper to send JSON response
@@ -819,7 +881,9 @@ const server = http.createServer(async (req, res) => {
             s.last_crawled_at,
             s.created_at,
             COALESCE(c_count.count, 0) AS total_candidates,
+            COALESCE(c_count.count, 0) AS candidate_count,
             COALESCE(cap_count.count, 0) AS total_capsules,
+            COALESCE(cap_count.count, 0) AS capsule_count,
             m.product_count,
             m.commercial_gap_ratio,
             m.winning_color_centroids,

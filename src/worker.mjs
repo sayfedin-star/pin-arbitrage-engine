@@ -289,14 +289,20 @@ export default {
           return jsonResponse({ error: 'No valid numeric pin IDs provided in payload' }, 400);
         }
 
-        const inserted = (await Promise.all(rawSeeds.map(s => sql`
-          INSERT INTO cluster_seeds (pin_id, label, is_competitor, created_at)
-          VALUES (${s.pin_id}, ${s.label}, ${s.is_competitor}, NOW())
-          ON CONFLICT (pin_id) DO UPDATE SET
-            label = EXCLUDED.label,
-            is_competitor = EXCLUDED.is_competitor
-          RETURNING pin_id, label, is_competitor, last_crawled_at;
-        `))).flat();
+        const inserted = [];
+        const chunkSize = 20;
+        for (let i = 0; i < rawSeeds.length; i += chunkSize) {
+          const chunk = rawSeeds.slice(i, i + chunkSize);
+          const chunkResults = await Promise.all(chunk.map(s => sql`
+            INSERT INTO cluster_seeds (pin_id, label, is_competitor, created_at)
+            VALUES (${s.pin_id}, ${s.label}, ${s.is_competitor}, NOW())
+            ON CONFLICT (pin_id) DO UPDATE SET
+              label = EXCLUDED.label,
+              is_competitor = EXCLUDED.is_competitor
+            RETURNING pin_id, label, is_competitor, last_crawled_at;
+          `));
+          inserted.push(...chunkResults.flat());
+        }
 
         return jsonResponse({ success: true, count: inserted.length, seeds: inserted }, 201);
       }
@@ -1075,8 +1081,10 @@ export default {
 
         for (const item of items) inspectAndCapture(item);
 
-        for (const cap of capturedCapsules) {
-          await sql`
+        const capChunkSize = 20;
+        for (let i = 0; i < capturedCapsules.length; i += capChunkSize) {
+          const chunk = capturedCapsules.slice(i, i + capChunkSize);
+          await Promise.all(chunk.map(cap => sql`
             INSERT INTO seed_guided_search_capsules (
               seed_pin_id, query_term, normalized_query, image_url, search_url, node_id, discovered_at
             ) VALUES (
@@ -1084,7 +1092,7 @@ export default {
             )
             ON CONFLICT (seed_pin_id, normalized_query) DO UPDATE
             SET image_url = EXCLUDED.image_url, search_url = EXCLUDED.search_url, node_id = EXCLUDED.node_id;
-          `;
+          `));
         }
 
         const rawCandidates = [];
@@ -1143,8 +1151,10 @@ export default {
           }
         }
 
-        for (const node of rawCandidates) {
-          await sql`
+        const candChunkSize = 20;
+        for (let i = 0; i < rawCandidates.length; i += candChunkSize) {
+          const chunk = rawCandidates.slice(i, i + candChunkSize);
+          await Promise.all(chunk.map(node => sql`
             INSERT INTO candidate_graph_nodes (
               seed_pin_id, candidate_pin_id, title,
               dominant_color, aspect_ratio, saves,
@@ -1171,14 +1181,20 @@ export default {
               dominant_color = EXCLUDED.dominant_color,
               saves = GREATEST(candidate_graph_nodes.saves, EXCLUDED.saves),
               repins = CASE WHEN EXCLUDED.repins > 0 THEN EXCLUDED.repins ELSE candidate_graph_nodes.repins END,
-              save_rate = CASE WHEN EXCLUDED.repins > 0 THEN EXCLUDED.save_rate ELSE candidate_graph_nodes.save_rate END,
+              save_rate = CASE
+                WHEN EXCLUDED.repins > 0 AND GREATEST(candidate_graph_nodes.saves, EXCLUDED.saves) > 0
+                  THEN ROUND((EXCLUDED.repins::numeric / GREATEST(candidate_graph_nodes.saves, EXCLUDED.saves)::numeric) * 100, 2)
+                WHEN candidate_graph_nodes.repins > 0 AND GREATEST(candidate_graph_nodes.saves, EXCLUDED.saves) > 0
+                  THEN ROUND((candidate_graph_nodes.repins::numeric / GREATEST(candidate_graph_nodes.saves, EXCLUDED.saves)::numeric) * 100, 2)
+                ELSE candidate_graph_nodes.save_rate
+              END,
               domain = EXCLUDED.domain,
               is_product = EXCLUDED.is_product,
               ocr_text = EXCLUDED.ocr_text,
               extracted_at = NOW(),
               image_url = EXCLUDED.image_url,
               is_video = EXCLUDED.is_video;
-          `;
+          `));
         }
 
         if (authoritativeCounts) {

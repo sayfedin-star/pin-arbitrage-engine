@@ -95,11 +95,41 @@ export function formatPinterestCookie(rawCookie) {
   if (!cookie.includes('=') || cookie.startsWith('TWc9') || cookie.startsWith('Mg==')) {
     return `_pinterest_sess="${cookie}"; _auth=1;`;
   }
+  // Ensure _pinterest_sess value is quoted per RFC 6265 if user provided without quotes
+  cookie = cookie.replace(/_pinterest_sess=([^;\s"]+)/, '_pinterest_sess="$1"');
   // If user provided a cookie string with '=', ensure _auth=1 is present
   if (!cookie.includes('_auth=')) {
     cookie = `${cookie.replace(/;$/, '')}; _auth=1;`;
   }
   return cookie;
+}
+
+/**
+ * Resilient database query wrapper: retries on transient connection or rate-limit errors
+ */
+export async function sqlWithRetry(queryFn, maxRetries = 3) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await queryFn();
+    } catch (err) {
+      const msg = err?.message || '';
+      const isTransient = (
+        msg.includes('fetch failed') ||
+        msg.includes('timeout') ||
+        msg.includes('socket hang up') ||
+        msg.includes('Connection reset') ||
+        msg.includes('503') ||
+        msg.includes('502') ||
+        msg.includes('rate limit')
+      );
+      if (isTransient && attempt < maxRetries) {
+        console.warn(`[!] Transient DB error on attempt ${attempt}/${maxRetries}: ${msg}. Retrying in ${attempt * 500}ms...`);
+        await sleep(attempt * 500);
+        continue;
+      }
+      throw err;
+    }
+  }
 }
 
 /**
@@ -1102,6 +1132,12 @@ async function crawlSeed(seed) {
   const allCandidates = Array.from(candidatesMap.values());
   const totalCandidates = allCandidates.length;
 
+  // Zero-Candidates Safeguard: Prevent wiping existing metrics or prematurely marking crawl as done if upstream fails
+  if (totalCandidates === 0) {
+    console.warn(`[!] Warning: Zero candidates harvested for seed ${pinId} (check network connectivity or seed validity). Preserving existing database metrics and crawl state.`);
+    return;
+  }
+
   // Strict Upstream Quota Preservation: If Pinterest delivered candidate_counts, preserve them 100% as ground truth!
   const hasAuthoritativeCounts = Boolean(
     authoritativeCandidateCounts &&
@@ -1189,16 +1225,16 @@ async function crawlSeed(seed) {
   }
   console.log(`---------------------------------------------------\n`);
 
-  // Persistence to Neon Serverless Postgres via Parallel Batch Upserts (Promise.all)
+  // Persistence to Neon Serverless Postgres via Parallel Batch Upserts with sqlWithRetry
   if (allCandidates.length > 0) {
-    console.log(`[*] Upserting ${allCandidates.length} candidate graph nodes into Neon (parallel batch mode)...`);
+    console.log(`[*] Upserting ${allCandidates.length} candidate graph nodes into Neon (parallel resilient batch mode)...`);
 
-    // Batch upsert in concurrent chunks of 50
-    const chunkSize = 50;
+    // Batch upsert in concurrent chunks of 25 to respect pool limits
+    const chunkSize = 25;
     for (let i = 0; i < allCandidates.length; i += chunkSize) {
       const chunk = allCandidates.slice(i, i + chunkSize);
 
-      await Promise.all(chunk.map((node) => sql`
+      await Promise.all(chunk.map((node) => sqlWithRetry(() => sql`
         INSERT INTO candidate_graph_nodes (
           seed_pin_id, candidate_pin_id, title, dominant_color, aspect_ratio,
           saves, repins, save_rate, domain, is_product, ocr_text, extracted_at,
@@ -1223,7 +1259,13 @@ async function crawlSeed(seed) {
           aspect_ratio = EXCLUDED.aspect_ratio,
           saves = GREATEST(candidate_graph_nodes.saves, EXCLUDED.saves),
           repins = CASE WHEN EXCLUDED.repins > 0 THEN EXCLUDED.repins ELSE candidate_graph_nodes.repins END,
-          save_rate = CASE WHEN EXCLUDED.repins > 0 THEN EXCLUDED.save_rate ELSE candidate_graph_nodes.save_rate END,
+          save_rate = CASE
+            WHEN EXCLUDED.repins > 0 AND GREATEST(candidate_graph_nodes.saves, EXCLUDED.saves) > 0
+              THEN ROUND((EXCLUDED.repins::numeric / GREATEST(candidate_graph_nodes.saves, EXCLUDED.saves)::numeric) * 100, 2)
+            WHEN candidate_graph_nodes.repins > 0 AND GREATEST(candidate_graph_nodes.saves, EXCLUDED.saves) > 0
+              THEN ROUND((candidate_graph_nodes.repins::numeric / GREATEST(candidate_graph_nodes.saves, EXCLUDED.saves)::numeric) * 100, 2)
+            ELSE candidate_graph_nodes.save_rate
+          END,
           domain = EXCLUDED.domain,
           is_product = EXCLUDED.is_product,
           ocr_text = EXCLUDED.ocr_text,
@@ -1240,7 +1282,7 @@ async function crawlSeed(seed) {
           image_url = EXCLUDED.image_url,
           is_video = EXCLUDED.is_video,
           ingestion_method = EXCLUDED.ingestion_method;
-      `));
+      `)));
     }
     console.log(`[+] Successfully stored candidate nodes in Neon.`);
 
@@ -1259,7 +1301,7 @@ async function crawlSeed(seed) {
     authoritativeCandidateCounts.fresh_candidate_count
   )) || totalCandidates;
 
-  await sql`
+  await sqlWithRetry(() => sql`
     INSERT INTO cluster_arbitrage_metrics (
       seed_pin_id, total_candidates, recgpt_count, navboost_count,
       randomwalk_count, two_tower_count, fresh_candidate_count, product_count,
@@ -1280,30 +1322,34 @@ async function crawlSeed(seed) {
       ${utilitySnapshot ? JSON.stringify(utilitySnapshot) : null},
       NOW()
     );
-  `;
+  `);
 
-  // Persist all captured Pinterest Guided Search Capsules into Neon
+  // Persist all captured Pinterest Guided Search Capsules into Neon in chunks
   const allCapsules = Array.from(guidedSearchCapsulesMap.values());
   if (allCapsules.length > 0) {
     console.log(`[*] Persisting ${allCapsules.length} guided search capsules into Neon...`);
-    await Promise.all(allCapsules.map(cap => sql`
-      INSERT INTO seed_guided_search_capsules (
-        seed_pin_id, query_term, normalized_query, image_url, search_url, node_id, discovered_at
-      ) VALUES (
-        ${cap.seed_pin_id}, ${cap.query_term}, ${cap.normalized_query}, ${cap.image_url}, ${cap.search_url}, ${cap.node_id}, NOW()
-      )
-      ON CONFLICT (seed_pin_id, normalized_query) DO UPDATE
-      SET image_url = EXCLUDED.image_url, search_url = EXCLUDED.search_url, node_id = EXCLUDED.node_id;
-    `));
+    const capChunkSize = 25;
+    for (let i = 0; i < allCapsules.length; i += capChunkSize) {
+      const chunk = allCapsules.slice(i, i + capChunkSize);
+      await Promise.all(chunk.map(cap => sqlWithRetry(() => sql`
+        INSERT INTO seed_guided_search_capsules (
+          seed_pin_id, query_term, normalized_query, image_url, search_url, node_id, discovered_at
+        ) VALUES (
+          ${cap.seed_pin_id}, ${cap.query_term}, ${cap.normalized_query}, ${cap.image_url}, ${cap.search_url}, ${cap.node_id}, NOW()
+        )
+        ON CONFLICT (seed_pin_id, normalized_query) DO UPDATE
+        SET image_url = EXCLUDED.image_url, search_url = EXCLUDED.search_url, node_id = EXCLUDED.node_id;
+      `)));
+    }
     console.log(`[+] Successfully stored ${allCapsules.length} guided search capsules in Neon.`);
   }
 
   // Update last_crawled_at on cluster_seeds
-  await sql`
+  await sqlWithRetry(() => sql`
     UPDATE cluster_seeds
     SET last_crawled_at = NOW()
     WHERE pin_id = ${pinId};
-  `;
+  `);
 
   console.log(`[+] Seed ${pinId} cluster intelligence pipeline completed successfully.`);
 }
@@ -1328,28 +1374,37 @@ async function main() {
 
   let seedsToProcess = [];
 
-  if (targetPinArg) {
-    const rawIds = String(targetPinArg)
-      .split(',')
-      .map(s => {
-        const m = String(s).match(/\d{10,25}/);
-        return m ? m[0] : s.trim();
-      })
-      .filter(Boolean);
-    console.log(`[*] Target pin(s) override specified: ${rawIds.join(', ')}`);
+  const rawIds = (targetPinArg && targetPinArg !== 'undefined')
+    ? [...new Set(
+        String(targetPinArg)
+          .split(',')
+          .map(s => {
+            const m = String(s).match(/\d{10,25}/);
+            return m ? m[0] : s.trim();
+          })
+          .filter(id => /^\d{10,25}$/.test(id))
+      )]
+    : [];
 
-    // Concurrent idempotent seed registration
-    await Promise.all(rawIds.map(cleanId => sql`
-      INSERT INTO cluster_seeds (pin_id, label, is_competitor, velocity)
-      VALUES (${cleanId}, 'Target Pin Override', false, 0)
-      ON CONFLICT (pin_id) DO NOTHING;
-    `));
+  if (rawIds.length > 0) {
+    console.log(`[*] Target pin(s) override specified (${rawIds.length}): ${rawIds.join(', ')}`);
 
-    const existing = await sql`
+    // Concurrent idempotent seed registration in resilient chunks of 25
+    const chunkSize = 25;
+    for (let i = 0; i < rawIds.length; i += chunkSize) {
+      const chunk = rawIds.slice(i, i + chunkSize);
+      await Promise.all(chunk.map(cleanId => sqlWithRetry(() => sql`
+        INSERT INTO cluster_seeds (pin_id, label, is_competitor, velocity)
+        VALUES (${cleanId}, 'Target Pin Override', false, 0)
+        ON CONFLICT (pin_id) DO NOTHING;
+      `)));
+    }
+
+    const existing = await sqlWithRetry(() => sql`
       SELECT pin_id, label, is_competitor, velocity, last_crawled_at
       FROM cluster_seeds
       WHERE pin_id = ANY(${rawIds});
-    `;
+    `);
 
     // Strictly deterministic order matching rawIds across all shards
     const existingMap = new Map((existing || []).map(s => [String(s.pin_id), s]));
@@ -1362,13 +1417,13 @@ async function main() {
     });
   } else {
     console.log(`[*] Querying seeds needing crawl (last_crawled_at IS NULL or > 24h old)...`);
-    seedsToProcess = await sql`
+    seedsToProcess = await sqlWithRetry(() => sql`
       SELECT pin_id, label, is_competitor, velocity, last_crawled_at
       FROM cluster_seeds
       WHERE last_crawled_at IS NULL OR last_crawled_at < NOW() - INTERVAL '24 HOURS'
       ORDER BY last_crawled_at ASC NULLS FIRST, pin_id ASC
       LIMIT 100;
-    `;
+    `);
   }
 
   // 🚀 Matrix Sharding (WWW 2018 Distributed Crawler Architecture — 20 Shards)
@@ -1401,13 +1456,13 @@ async function main() {
     console.log(`[+] All cluster seeds have fresh crawl timestamps.`);
     // Automated background enrichment sweep for any seeds with un-enriched candidates
     try {
-      const seedsNeedingEnrichment = await sql`
+      const seedsNeedingEnrichment = await sqlWithRetry(() => sql`
         SELECT seed_pin_id 
         FROM candidate_graph_nodes 
         WHERE (repins = 0 OR repins IS NULL) AND saves > 0
         GROUP BY seed_pin_id
-        ORDER BY (seed_pin_id = '1125829606880675896') DESC, seed_pin_id ASC;
-      `;
+        ORDER BY COUNT(*) DESC, seed_pin_id ASC;
+      `);
       if (seedsNeedingEnrichment.length > 0) {
         let enrichmentSlice = seedsNeedingEnrichment;
         if (shardIdx !== null && shardTot > 1) {
