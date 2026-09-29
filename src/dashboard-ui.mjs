@@ -2773,10 +2773,10 @@ export function getDashboardHtml() {
               <div>
                 <div class="flex items-center space-x-1.5">
                   <span class="font-bold text-slate-800 dark:text-slate-200">🚀 GitHub Actions Workflow</span>
-                  <span class="px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-700 dark:text-purple-300 text-[9px] font-bold">Matrix 4-Shards</span>
+                  <span class="px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-700 dark:text-purple-300 text-[9px] font-bold">Matrix 20-Shards</span>
                 </div>
                 <p class="text-[10px] text-slate-500 mt-0.5 leading-relaxed">
-                  Dispatches <code class="text-purple-600">cluster-intelligence.yml</code> via <strong>Parallel Matrix Sharding (4 Concurrent Runners)</strong>. 60 pages deep per seed (~900 candidates) with isolated egress IPs.
+                  Dispatches <code class="text-purple-600">cluster-intelligence.yml</code> via <strong>Parallel Matrix Sharding (20 Concurrent Runners)</strong>. 60 pages deep per seed (~900 candidates) with isolated egress IPs.
                 </p>
               </div>
             </label>

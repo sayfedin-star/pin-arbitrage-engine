@@ -23,13 +23,14 @@ concurrency:
 
 jobs:
   crawl-and-synthesize:
-    name: Crawl Shard ${{ matrix.shardIndex + 1 }}/4
+    name: Crawl Shard ${{ matrix.shardIndex + 1 }}/20
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
       fail-fast: false
+      max-parallel: 20
       matrix:
-        shardIndex: [0, 1, 2, 3]
+        shardIndex: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -42,9 +43,9 @@ jobs:
 
       - name: Check Runner Egress IP
         run: |
-          echo "=== GitHub Actions Runner Egress IP (Shard ${{ matrix.shardIndex + 1 }}/4) ==="
+          echo "=== GitHub Actions Runner Egress IP (Shard ${{ matrix.shardIndex + 1 }}/20) ==="
           curl -s https://api.ipify.org && echo ""
-          echo "=========================================================================="
+          echo "==========================================================================="
 
       - name: Install dependencies
         run: npm ci
@@ -56,5 +57,5 @@ jobs:
           TARGET_PIN_ID: ${{ inputs.seed_pin_id }}
           MAX_PAGES: ${{ inputs.max_pages || '60' }}
           SHARD_INDEX: ${{ matrix.shardIndex }}
-          SHARD_TOTAL: 4
+          SHARD_TOTAL: 20
         run: node scripts/cluster-intelligence.mjs

@@ -1360,11 +1360,11 @@ async function main() {
       FROM cluster_seeds
       WHERE last_crawled_at IS NULL OR last_crawled_at < NOW() - INTERVAL '24 HOURS'
       ORDER BY last_crawled_at ASC NULLS FIRST, pin_id ASC
-      LIMIT 40;
+      LIMIT 100;
     `;
   }
 
-  // 🚀 Matrix Sharding (WWW 2018 Distributed Crawler Architecture — 4 Shards)
+  // 🚀 Matrix Sharding (WWW 2018 Distributed Crawler Architecture — 20 Shards)
   const shardIndexRaw = process.env.SHARD_INDEX;
   const shardTotalRaw = process.env.SHARD_TOTAL;
   if (shardIndexRaw !== undefined && shardIndexRaw !== '' && shardTotalRaw !== undefined && shardTotalRaw !== '') {
