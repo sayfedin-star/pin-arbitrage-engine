@@ -152,7 +152,7 @@ export async function trackCompetitor(sql, { username, display_name, account_typ
 /**
  * Resilient live crawl of a Pinterest user profile
  */
-export async function syncCompetitorProfile(sql, username, cookie = process.env.PINTEREST_COOKIE) {
+export async function syncCompetitorProfile(sql, username, cookie = (typeof process !== 'undefined' && process?.env ? process.env.PINTEREST_COOKIE : null)) {
   const cleanUsername = username.trim().toLowerCase().replace('@', '');
   const url = `https://www.pinterest.com/resource/UserResource/get/?source_url=%2F${cleanUsername}%2F&data=%7B%22options%22%3A%7B%22username%22%3A%22${cleanUsername}%22%2C%22field_set_key%22%3A%22profile%22%7D%2C%22context%22%3A%7B%7D%7D`;
 
@@ -194,20 +194,55 @@ export async function syncCompetitorProfile(sql, username, cookie = process.env.
 
   const reachDelta = prevSnapshot ? (monthlyReach - Number(prevSnapshot.monthly_reach || 0)) : 0;
 
-  // Upsert profile
+  // Atomic Upsert: ensures profile is created even if sync is called before tracking
   const [updated] = await sql`
-    UPDATE competitor_profiles SET
-      display_name = ${displayName},
-      avatar_url = COALESCE(${avatarUrl}, avatar_url),
-      monthly_reach = ${monthlyReach},
-      reach_delta_7d = ${reachDelta},
-      profile_views = ${monthlyReach},
-      total_pins = ${totalPins},
-      total_boards = ${totalBoards},
-      follower_count = ${followers},
+    INSERT INTO competitor_profiles (
+      username,
+      display_name,
+      avatar_url,
+      monthly_reach,
+      reach_delta_7d,
+      profile_views,
+      views_delta_7d,
+      total_pins,
+      total_boards,
+      follower_count,
+      activity_status,
+      account_type,
+      last_synced_at,
+      is_active,
+      created_at,
+      updated_at
+    ) VALUES (
+      ${cleanUsername},
+      ${displayName},
+      ${avatarUrl},
+      ${monthlyReach},
+      ${reachDelta},
+      ${monthlyReach},
+      0,
+      ${totalPins},
+      ${totalBoards},
+      ${followers},
+      '1d ago',
+      'competitor',
+      NOW(),
+      TRUE,
+      NOW(),
+      NOW()
+    )
+    ON CONFLICT (username) DO UPDATE SET
+      display_name = EXCLUDED.display_name,
+      avatar_url = COALESCE(EXCLUDED.avatar_url, competitor_profiles.avatar_url),
+      monthly_reach = EXCLUDED.monthly_reach,
+      reach_delta_7d = EXCLUDED.reach_delta_7d,
+      profile_views = EXCLUDED.profile_views,
+      total_pins = EXCLUDED.total_pins,
+      total_boards = EXCLUDED.total_boards,
+      follower_count = EXCLUDED.follower_count,
+      activity_status = '1d ago',
       last_synced_at = NOW(),
       updated_at = NOW()
-    WHERE username = ${cleanUsername}
     RETURNING *;
   `;
 

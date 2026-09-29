@@ -73,6 +73,19 @@ export function getDashboardHtml() {
 
         <!-- Action Controls & Dark Mode Toggle -->
         <div class="flex items-center space-x-2 sm:space-x-3">
+          <!-- Project Switcher (Multi-Project Neon Fleet) -->
+          <div class="hidden md:flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs shadow-sm">
+            <i data-lucide="database" class="w-3.5 h-3.5 text-cyan-500"></i>
+            <span class="text-[11px] font-semibold text-slate-500 dark:text-slate-400">DB:</span>
+            <select x-model="selectedProject" @change="switchProject(selectedProject)" class="bg-transparent text-xs font-bold text-slate-800 dark:text-slate-200 outline-none cursor-pointer">
+              <option value="all">🌐 All Projects (Fleet View)</option>
+              <option value="weathered-band-34334459">⚡ weathered-band-34334459 (Hub)</option>
+              <template x-for="p in fleetProjects.filter(p => !p.is_hub)" :key="p.project_id">
+                <option :value="p.project_id" x-text="'📦 ' + p.project_name"></option>
+              </template>
+            </select>
+          </div>
+
           <!-- Dark Mode Toggle Button -->
           <button @click="toggleTheme()" class="p-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition active:scale-95" :title="isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'">
             <i :data-lucide="isDark ? 'sun' : 'moon'" class="w-4 h-4"></i>
@@ -2279,11 +2292,14 @@ export function getDashboardHtml() {
                 </a>
                 <span class="px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400" x-text="kw.category || 'General'"></span>
               </div>
-              <div class="flex items-center space-x-3">
+              <div class="flex items-center space-x-2.5">
                 <span class="text-xs font-mono text-slate-500 dark:text-slate-400" x-text="'Target: ' + kw.target_pin_count + ' pins'"></span>
                 <button @click="syncKeyword(kw.id)" class="px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition flex items-center space-x-1">
                   <i data-lucide="refresh-cw" class="w-3 h-3"></i>
                   <span>Sync SERP</span>
+                </button>
+                <button @click="deleteKeyword(kw.id)" class="p-1 rounded-lg hover:bg-rose-100 dark:hover:bg-rose-950/40 text-slate-400 hover:text-rose-500 transition" title="Delete keyword">
+                  <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
                 </button>
               </div>
             </div>
@@ -3727,12 +3743,30 @@ export function getDashboardHtml() {
           });
         },
 
+        formatNumber(num, abbrev = false) {
+          if (num === null || num === undefined) return '0';
+          const val = Number(num);
+          if (isNaN(val)) return '0';
+          if (abbrev) {
+            if (val >= 1000000) return (val / 1000000).toFixed(1) + 'M';
+            if (val >= 1000) return (val / 1000).toFixed(1) + 'K';
+            return String(val);
+          }
+          return val.toLocaleString();
+        },
+
         switchTab(tab) {
           this.currentTab = tab;
           if (tab === 'intersections' && this.intersections.length === 0) {
             this.fetchIntersections();
           } else if (tab === 'explorer' && this.explorerCandidates.length === 0) {
             this.loadExplorerData();
+          } else if (tab === 'competitors') {
+            if (this.competitors.length === 0) this.fetchCompetitors();
+          } else if (tab === 'keywords') {
+            if (this.keywords.length === 0) this.fetchKeywords();
+          } else if (tab === 'fleet') {
+            if (this.fleetProjects.length === 0) this.fetchFleetProjects();
           }
           this.$nextTick(() => {
             if (window.lucide) window.lucide.createIcons();
@@ -4727,7 +4761,8 @@ export function getDashboardHtml() {
               this.newCompetitorHandle = '';
               this.isAddCompetitorModalOpen = false;
               await this.fetchCompetitors();
-              this.showToast('Competitor @' + handle + ' added successfully!');
+              this.showToast('Competitor @' + handle + ' added! Syncing live profile...');
+              this.syncCompetitor(handle);
             }
           } catch (e) {
             this.showToast('Failed to add competitor: ' + e.message);
@@ -4744,14 +4779,29 @@ export function getDashboardHtml() {
               body: JSON.stringify({ keyword: kw, category: this.newKeywordCategory })
             });
             if (res.ok) {
+              const created = await res.json();
               this.newKeywordText = '';
               this.isAddKeywordModalOpen = false;
               await this.fetchKeywords();
               this.showToast('Keyword "' + kw + '" tracked successfully!');
+              if (created?.keyword?.id) {
+                this.syncKeyword(created.keyword.id);
+              }
             }
           } catch (e) {
             this.showToast('Failed to track keyword: ' + e.message);
           }
+        },
+
+        async deleteKeyword(id) {
+          if (!confirm('Are you sure you want to stop tracking this keyword?')) return;
+          try {
+            const res = await fetch('/api/keywords?id=' + id, { method: 'DELETE' });
+            if (res.ok) {
+              await this.fetchKeywords();
+              this.showToast('Keyword removed.');
+            }
+          } catch (e) {}
         },
 
         async submitAddFleetProject() {

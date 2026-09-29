@@ -73,7 +73,7 @@ export async function addKeyword(sql, { keyword, category = 'General', target_pi
 /**
  * Crawl Pinterest search for a keyword and compute daily save velocity
  */
-export async function crawlKeywordSERP(sql, keywordId, cookie = process.env.PINTEREST_COOKIE) {
+export async function crawlKeywordSERP(sql, keywordId, cookie = (typeof process !== 'undefined' && process?.env ? process.env.PINTEREST_COOKIE : null)) {
   const [keywordRow] = await sql`
     SELECT * FROM tracked_keywords WHERE id = ${keywordId};
   `;

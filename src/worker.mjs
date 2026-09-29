@@ -140,6 +140,16 @@ export default {
     }
 
     const sql = neon(dbUrl);
+    let targetSql = sql;
+    const reqProjectId = searchParams.get('project_id');
+    if (reqProjectId && reqProjectId !== 'all' && reqProjectId !== 'hub') {
+      try {
+        const [proj] = await sql`SELECT database_url FROM neon_projects_registry WHERE project_id = ${reqProjectId} AND status = 'active' LIMIT 1;`;
+        if (proj && proj.database_url) {
+          targetSql = neon(proj.database_url);
+        }
+      } catch (_) {}
+    }
 
     try {
       // 1. GET /api/overview
@@ -1233,8 +1243,8 @@ export default {
 
       // 15. Competitor Intelligence API
       if (method === 'GET' && pathname === '/api/competitors') {
-        const overview = await getCompetitorsOverview(sql);
-        const competitors = await listCompetitors(sql, {
+        const overview = await getCompetitorsOverview(targetSql);
+        const competitors = await listCompetitors(targetSql, {
           account_type: searchParams.get('account_type') || 'all',
           search: searchParams.get('search') || '',
           limit: Number(searchParams.get('limit') || 50),
@@ -1245,7 +1255,7 @@ export default {
 
       if (method === 'POST' && pathname === '/api/competitors') {
         const body = await request.json().catch(() => ({}));
-        const row = await trackCompetitor(sql, body);
+        const row = await trackCompetitor(targetSql, body);
         return jsonResponse({ success: true, competitor: row });
       }
 
@@ -1254,24 +1264,24 @@ export default {
         const username = body.username;
         if (!username) return jsonResponse({ error: 'username is required' }, 400);
         const cookie = env.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env.PINTEREST_COOKIE : null);
-        const updated = await syncCompetitorProfile(sql, username, cookie);
+        const updated = await syncCompetitorProfile(targetSql, username, cookie);
         return jsonResponse({ success: true, profile: updated });
       }
 
       if (method === 'DELETE' && pathname === '/api/competitors') {
         const id = searchParams.get('id');
         const username = searchParams.get('username');
-        if (id) {
-          await sql`DELETE FROM competitor_profiles WHERE id = ${Number(id)};`;
+        if (id && !isNaN(Number(id))) {
+          await targetSql`DELETE FROM competitor_profiles WHERE id = ${Number(id)};`;
         } else if (username) {
-          await sql`DELETE FROM competitor_profiles WHERE username = ${username.toLowerCase()};`;
+          await targetSql`DELETE FROM competitor_profiles WHERE username = ${username.toLowerCase()};`;
         }
         return jsonResponse({ success: true });
       }
 
       // 16. Keyword Velocity Tracker API
       if (method === 'GET' && pathname === '/api/keywords') {
-        const keywords = await listKeywords(sql, {
+        const keywords = await listKeywords(targetSql, {
           search: searchParams.get('search') || '',
           limit: Number(searchParams.get('limit') || 50),
           offset: Number(searchParams.get('offset') || 0)
@@ -1281,7 +1291,7 @@ export default {
 
       if (method === 'POST' && pathname === '/api/keywords') {
         const body = await request.json().catch(() => ({}));
-        const row = await addKeyword(sql, body);
+        const row = await addKeyword(targetSql, body);
         return jsonResponse({ success: true, keyword: row });
       }
 
@@ -1290,14 +1300,22 @@ export default {
         const keywordId = Number(body.keyword_id);
         if (!keywordId) return jsonResponse({ error: 'keyword_id is required' }, 400);
         const cookie = env.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env.PINTEREST_COOKIE : null);
-        const res = await crawlKeywordSERP(sql, keywordId, cookie);
+        const res = await crawlKeywordSERP(targetSql, keywordId, cookie);
         return jsonResponse({ success: true, result: res });
+      }
+
+      if (method === 'DELETE' && pathname === '/api/keywords') {
+        const id = searchParams.get('id');
+        if (id && !isNaN(Number(id))) {
+          await targetSql`DELETE FROM tracked_keywords WHERE id = ${Number(id)};`;
+        }
+        return jsonResponse({ success: true });
       }
 
       if (method === 'GET' && pathname === '/api/keywords/pins') {
         const keywordId = Number(searchParams.get('keyword_id'));
         if (!keywordId) return jsonResponse({ error: 'keyword_id is required' }, 400);
-        const pins = await getKeywordPins(sql, keywordId);
+        const pins = await getKeywordPins(targetSql, keywordId);
         return jsonResponse({ success: true, pins });
       }
 
