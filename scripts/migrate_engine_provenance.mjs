@@ -10,7 +10,11 @@ if (typeof process.loadEnvFile === 'function') {
   try { process.loadEnvFile(); } catch (_) {}
 }
 
-const DATABASE_URL = process.env.DATABASE_URL || 'postgresql://neondb_owner:npg_sDH9jJr7RMBU@ep-polished-unit-axp6khxi-pooler.c-4.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require';
+const DATABASE_URL = process.env.DATABASE_URL;
+if (!DATABASE_URL) {
+  console.error('[-] CRITICAL: DATABASE_URL environment variable is missing.');
+  process.exit(1);
+}
 const sql = neon(DATABASE_URL);
 
 function quantizeHex(hex) {
