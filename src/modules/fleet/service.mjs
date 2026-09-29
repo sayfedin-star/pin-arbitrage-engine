@@ -21,10 +21,23 @@ export async function getFleetProjects(sql) {
     ORDER BY is_hub DESC, id ASC;
   `;
 
-  return rows.map(r => ({
-    ...r,
-    masked_url: r.database_url ? r.database_url.replace(/:([^:@]+)@/, ':••••••••@') : ''
-  }));
+  return rows.map(r => {
+    const masked = r.database_url ? r.database_url.replace(/:([^:@]+)@/, ':••••••••@') : '';
+    return {
+      id: r.id,
+      project_id: r.project_id,
+      project_name: r.project_name,
+      region_id: r.region_id,
+      database_url: masked,
+      masked_url: masked,
+      status: r.status,
+      is_hub: r.is_hub,
+      assigned_shards: r.assigned_shards,
+      stats: r.stats,
+      created_at: r.created_at,
+      updated_at: r.updated_at
+    };
+  });
 }
 
 export async function registerNewProject(sql, { project_id, project_name, database_url, region_id = 'aws-us-east-2', assigned_shards = [] }) {

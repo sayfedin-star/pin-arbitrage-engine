@@ -168,6 +168,13 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
 
   const res = await fetch(url, { headers, signal: AbortSignal.timeout(9000) });
   if (!res.ok) {
+    if (res.status === 404) {
+      throw new Error(`Competitor @${cleanUsername} does not exist or was renamed on Pinterest.`);
+    } else if (res.status === 429) {
+      throw new Error(`Pinterest rate limit reached (HTTP 429). Please wait a moment before syncing again.`);
+    } else if (res.status === 403) {
+      throw new Error(`Pinterest access denied (HTTP 403). Consider updating your PINTEREST_COOKIE in Settings.`);
+    }
     throw new Error(`Pinterest API returned HTTP ${res.status} for @${cleanUsername}`);
   }
 
@@ -193,6 +200,7 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
   `;
 
   const reachDelta = prevSnapshot ? (monthlyReach - Number(prevSnapshot.monthly_reach || 0)) : 0;
+  const viewsDelta = prevSnapshot ? (monthlyReach - Number(prevSnapshot.profile_views || 0)) : 0;
 
   // Atomic Upsert: ensures profile is created even if sync is called before tracking
   const [updated] = await sql`
@@ -220,7 +228,7 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
       ${monthlyReach},
       ${reachDelta},
       ${monthlyReach},
-      0,
+      ${viewsDelta},
       ${totalPins},
       ${totalBoards},
       ${followers},
@@ -237,6 +245,7 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
       monthly_reach = EXCLUDED.monthly_reach,
       reach_delta_7d = EXCLUDED.reach_delta_7d,
       profile_views = EXCLUDED.profile_views,
+      views_delta_7d = EXCLUDED.views_delta_7d,
       total_pins = EXCLUDED.total_pins,
       total_boards = EXCLUDED.total_boards,
       follower_count = EXCLUDED.follower_count,

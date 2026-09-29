@@ -16,11 +16,19 @@ export async function listKeywords(sql, { search = '', limit = 50, offset = 0 } 
     query = await sql`
       SELECT 
         k.*,
-        COUNT(s.id)::int AS snapshots_count
+        COALESCE(s_count.cnt, 0)::int AS snapshots_count
       FROM tracked_keywords k
-      LEFT JOIN keyword_pins_snapshots s ON s.keyword_id = k.id AND s.snapshot_date = CURRENT_DATE
+      LEFT JOIN LATERAL (
+        SELECT COUNT(*)::int AS cnt
+        FROM keyword_pins_snapshots
+        WHERE keyword_id = k.id
+          AND snapshot_date = (
+            SELECT MAX(snapshot_date) 
+            FROM keyword_pins_snapshots 
+            WHERE keyword_id = k.id
+          )
+      ) s_count ON true
       WHERE LOWER(k.keyword) LIKE ${pattern}
-      GROUP BY k.id
       ORDER BY k.created_at DESC
       LIMIT ${limit} OFFSET ${offset};
     `;
@@ -28,10 +36,18 @@ export async function listKeywords(sql, { search = '', limit = 50, offset = 0 } 
     query = await sql`
       SELECT 
         k.*,
-        COUNT(s.id)::int AS snapshots_count
+        COALESCE(s_count.cnt, 0)::int AS snapshots_count
       FROM tracked_keywords k
-      LEFT JOIN keyword_pins_snapshots s ON s.keyword_id = k.id AND s.snapshot_date = CURRENT_DATE
-      GROUP BY k.id
+      LEFT JOIN LATERAL (
+        SELECT COUNT(*)::int AS cnt
+        FROM keyword_pins_snapshots
+        WHERE keyword_id = k.id
+          AND snapshot_date = (
+            SELECT MAX(snapshot_date) 
+            FROM keyword_pins_snapshots 
+            WHERE keyword_id = k.id
+          )
+      ) s_count ON true
       ORDER BY k.created_at DESC
       LIMIT ${limit} OFFSET ${offset};
     `;
@@ -102,30 +118,43 @@ export async function crawlKeywordSERP(sql, keywordId, cookie = (typeof process 
 
   let rank = 1;
   let topPin = null;
+  let totalVelocity = 0;
 
   for (const item of rawResults) {
     if (!item || !item.id) continue;
     const pinId = String(item.id);
     const title = item.title || item.grid_title || item.closeup_unified_description || '';
-    const domain = item.domain || (item.link ? new URL(item.link).hostname : '') || '';
+    
+    let domain = item.domain || '';
+    if (!domain && item.link) {
+      try {
+        domain = new URL(item.link).hostname || '';
+      } catch (_) {
+        domain = '';
+      }
+    }
+
     const destinationUrl = item.link || '';
-    const imageUrl = item.images?.['736x']?.url || item.images?.orig?.url || null;
+    const imageUrl = item.images?.['736x']?.url || item.images?.orig?.url || item.images?.['474x']?.url || item.images?.['236x']?.url || null;
     const saves = Number(item.repin_count || item.save_count || 0);
 
-    if (!topPin) {
+    if (!topPin && imageUrl) {
       topPin = { pinId, title, imageUrl };
     }
 
-    // Check yesterday's snapshot to compute daily velocity
-    const [yesterday] = await sql`
+    // Check most recent historical snapshot before today to compute daily save velocity
+    const [prevSnapshot] = await sql`
       SELECT save_count
       FROM keyword_pins_snapshots
       WHERE keyword_id = ${keywordId}
         AND pin_id = ${pinId}
-        AND snapshot_date = CURRENT_DATE - INTERVAL '1 day';
+        AND snapshot_date < CURRENT_DATE
+      ORDER BY snapshot_date DESC
+      LIMIT 1;
     `;
 
-    const velocity = yesterday ? Math.max(0, saves - Number(yesterday.save_count || 0)) : 0;
+    const velocity = prevSnapshot ? Math.max(0, saves - Number(prevSnapshot.save_count || 0)) : 0;
+    totalVelocity += velocity;
 
     await sql`
       INSERT INTO keyword_pins_snapshots (
@@ -155,6 +184,10 @@ export async function crawlKeywordSERP(sql, keywordId, cookie = (typeof process 
       )
       ON CONFLICT (keyword_id, pin_id, snapshot_date) DO UPDATE SET
         rank_position = EXCLUDED.rank_position,
+        title = EXCLUDED.title,
+        domain = EXCLUDED.domain,
+        destination_url = EXCLUDED.destination_url,
+        image_url = COALESCE(EXCLUDED.image_url, keyword_pins_snapshots.image_url),
         save_count = EXCLUDED.save_count,
         daily_save_velocity = EXCLUDED.daily_save_velocity;
     `;
@@ -162,31 +195,48 @@ export async function crawlKeywordSERP(sql, keywordId, cookie = (typeof process 
     rank++;
   }
 
-  // Update keyword metadata with top pin & last crawled timestamp
+  const crawledCount = rank - 1;
+  const avgVelocity = crawledCount > 0 ? Number((totalVelocity / crawledCount).toFixed(2)) : 0;
+
+  // Update keyword metadata with top pin & last crawled timestamp and average velocity
   if (topPin) {
     await sql`
       UPDATE tracked_keywords SET
         top_pin_id = ${topPin.pinId},
         top_pin_title = ${topPin.title},
         top_pin_image = ${topPin.imageUrl},
+        avg_daily_velocity = ${avgVelocity},
+        last_crawled_at = NOW(),
+        updated_at = NOW()
+      WHERE id = ${keywordId};
+    `;
+  } else {
+    await sql`
+      UPDATE tracked_keywords SET
+        avg_daily_velocity = ${avgVelocity},
         last_crawled_at = NOW(),
         updated_at = NOW()
       WHERE id = ${keywordId};
     `;
   }
 
-  return { crawled_pins: rank - 1, top_pin: topPin };
+  return { crawled_pins: crawledCount, top_pin: topPin, avg_velocity: avgVelocity };
 }
 
 /**
- * Retrieve pins for a specific keyword ordered by daily velocity or rank
+ * Retrieve pins for a specific keyword ordered by rank
+ * Uses the latest available snapshot date so pins are never lost between crawls
  */
 export async function getKeywordPins(sql, keywordId) {
   return await sql`
     SELECT *
     FROM keyword_pins_snapshots
     WHERE keyword_id = ${keywordId}
-      AND snapshot_date = CURRENT_DATE
+      AND snapshot_date = (
+        SELECT MAX(snapshot_date)
+        FROM keyword_pins_snapshots
+        WHERE keyword_id = ${keywordId}
+      )
     ORDER BY rank_position ASC;
   `;
 }

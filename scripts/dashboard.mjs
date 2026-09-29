@@ -286,6 +286,9 @@ function parseRequestBody(req) {
   });
 }
 
+// Alias for backwards compatibility across endpoints
+const parseJsonBody = parseRequestBody;
+
 // getDashboardHtml is imported from ../src/dashboard-ui.mjs
 
 // HTTP Server
@@ -1477,8 +1480,11 @@ const server = http.createServer(async (req, res) => {
 
     if (method === 'DELETE' && pathname === '/api/keywords') {
       const id = searchParams.get('id');
+      const keyword = searchParams.get('keyword');
       if (id && !isNaN(Number(id))) {
         await targetSql`DELETE FROM tracked_keywords WHERE id = ${Number(id)};`;
+      } else if (keyword) {
+        await targetSql`DELETE FROM tracked_keywords WHERE LOWER(keyword) = ${keyword.toLowerCase().trim()};`;
       }
       return sendJson(res, 200, { success: true });
     }

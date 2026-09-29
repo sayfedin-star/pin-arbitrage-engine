@@ -94,27 +94,89 @@ async function seedData() {
     'chicken salad recipe'
   ];
 
-  for (const kw of keywords) {
-    await sql`
+  for (let idx = 0; idx < keywords.length; idx++) {
+    const kw = keywords[idx];
+    const topPinId = '108888628492000' + idx;
+    const topPinTitle = `Best ${kw.charAt(0).toUpperCase() + kw.slice(1)} - Easy Weeknight Dinner`;
+    const topPinImg = `https://images.unsplash.com/photo-1598515214211-89d3c73ae83b?w=600&auto=format&fit=crop`;
+    const sampleVelocity = [142, 89, 210, 64, 175, 55, 98][idx % 7];
+
+    const [row] = await sql`
       INSERT INTO tracked_keywords (
         keyword,
         category,
         target_pin_count,
+        top_pin_id,
+        top_pin_title,
+        top_pin_image,
+        avg_daily_velocity,
         is_active,
+        last_crawled_at,
         created_at,
         updated_at
       ) VALUES (
         ${kw},
         'Recipes & Food',
         50,
+        ${topPinId},
+        ${topPinTitle},
+        ${topPinImg},
+        ${sampleVelocity},
         TRUE,
+        NOW(),
         NOW(),
         NOW()
       )
-      ON CONFLICT (keyword) DO NOTHING;
+      ON CONFLICT (keyword) DO UPDATE SET
+        top_pin_id = EXCLUDED.top_pin_id,
+        top_pin_title = EXCLUDED.top_pin_title,
+        top_pin_image = EXCLUDED.top_pin_image,
+        avg_daily_velocity = EXCLUDED.avg_daily_velocity,
+        last_crawled_at = NOW(),
+        updated_at = NOW()
+      RETURNING id;
     `;
+
+    if (row) {
+      // Seed 3 initial ranked pin snapshots for each keyword
+      for (let r = 1; r <= 3; r++) {
+        const pinId = '1088886284920' + idx + '' + r;
+        await sql`
+          INSERT INTO keyword_pins_snapshots (
+            keyword_id,
+            pin_id,
+            rank_position,
+            title,
+            domain,
+            destination_url,
+            image_url,
+            save_count,
+            daily_save_velocity,
+            snapshot_date,
+            created_at
+          ) VALUES (
+            ${row.id},
+            ${pinId},
+            ${r},
+            ${topPinTitle + ' (Rank #' + r + ')'},
+            'tasteofhome.com',
+            ${'https://www.tasteofhome.com/recipes/' + kw.replace(/\s+/g, '-')},
+            ${topPinImg},
+            ${2400 - (r * 350)},
+            ${sampleVelocity - (r * 15)},
+            CURRENT_DATE,
+            NOW()
+          )
+          ON CONFLICT (keyword_id, pin_id, snapshot_date) DO UPDATE SET
+            rank_position = EXCLUDED.rank_position,
+            title = EXCLUDED.title,
+            save_count = EXCLUDED.save_count,
+            daily_save_velocity = EXCLUDED.daily_save_velocity;
+        `;
+      }
+    }
   }
-  console.log(`[+] Seeded ${keywords.length} keywords.`);
+  console.log(`[+] Seeded ${keywords.length} keywords with top pins and ranked snapshots.`);
 }
 
 seedData()

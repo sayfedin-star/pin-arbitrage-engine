@@ -2274,36 +2274,71 @@ export function getDashboardHtml() {
 
       <!-- Keywords Table matching Image 1 -->
       <div class="p-4 rounded-2xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 space-y-4 shadow-sm">
-        <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800/80 pb-3">
-          <span class="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center space-x-1.5">
-            <span>Keyword</span>
-            <i data-lucide="chevron-down" class="w-3.5 h-3.5"></i>
-          </span>
-          <span class="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 font-mono" x-text="keywords.length + ' Keywords'"></span>
+        <div class="flex flex-col sm:flex-row items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800/80 pb-3">
+          <div class="relative w-full sm:w-72">
+            <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
+            <input type="text" x-model="keywordSearch" placeholder="Filter tracked keywords..." class="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/50">
+          </div>
+          <span class="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 font-mono" x-text="filteredKeywords.length + ' Keywords'"></span>
         </div>
 
-        <div class="divide-y divide-slate-100 dark:divide-slate-800/60 font-sans">
-          <template x-for="kw in keywords" :key="kw.id">
-            <div class="py-3.5 px-2 flex items-center justify-between hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition rounded-xl">
-              <div class="flex items-center space-x-3">
-                <a :href="'https://www.pinterest.com/search/pins/?q=' + encodeURIComponent(kw.keyword)" target="_blank" class="text-sm font-semibold text-slate-900 dark:text-white hover:text-emerald-600 dark:hover:text-emerald-400 underline decoration-slate-400 dark:decoration-slate-600 hover:decoration-emerald-500 flex items-center space-x-1.5">
-                  <span x-text="kw.keyword"></span>
-                  <i data-lucide="external-link" class="w-3.5 h-3.5 text-slate-400"></i>
-                </a>
-                <span class="px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400" x-text="kw.category || 'General'"></span>
-              </div>
-              <div class="flex items-center space-x-2.5">
-                <span class="text-xs font-mono text-slate-500 dark:text-slate-400" x-text="'Target: ' + kw.target_pin_count + ' pins'"></span>
-                <button @click="syncKeyword(kw.id)" class="px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition flex items-center space-x-1">
-                  <i data-lucide="refresh-cw" class="w-3 h-3"></i>
-                  <span>Sync SERP</span>
-                </button>
-                <button @click="deleteKeyword(kw.id)" class="p-1 rounded-lg hover:bg-rose-100 dark:hover:bg-rose-950/40 text-slate-400 hover:text-rose-500 transition" title="Delete keyword">
-                  <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
-                </button>
-              </div>
-            </div>
-          </template>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-xs">
+            <thead>
+              <tr class="border-b border-slate-200 dark:border-slate-800/80 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                <th class="py-3 px-3">Keyword</th>
+                <th class="py-3 px-3">Category</th>
+                <th class="py-3 px-3">Top Ranked Pin</th>
+                <th class="py-3 px-3 text-center">Save Velocity</th>
+                <th class="py-3 px-3 text-center">Tracked Pins</th>
+                <th class="py-3 px-3 text-center">Actions</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-sans">
+              <template x-for="kw in filteredKeywords" :key="kw.id">
+                <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition">
+                  <td class="py-3 px-3">
+                    <a :href="'https://www.pinterest.com/search/pins/?q=' + encodeURIComponent(kw.keyword)" target="_blank" class="text-sm font-semibold text-slate-900 dark:text-white hover:text-emerald-600 dark:hover:text-emerald-400 underline decoration-slate-400 dark:decoration-slate-600 hover:decoration-emerald-500 inline-flex items-center space-x-1.5">
+                      <span x-text="kw.keyword"></span>
+                      <i data-lucide="external-link" class="w-3 h-3 text-slate-400"></i>
+                    </a>
+                  </td>
+                  <td class="py-3 px-3">
+                    <span class="px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400" x-text="kw.category || 'General'"></span>
+                  </td>
+                  <td class="py-3 px-3">
+                    <div class="flex items-center space-x-2">
+                      <template x-if="kw.top_pin_image">
+                        <img :src="kw.top_pin_image" class="w-7 h-9 rounded object-cover border border-slate-200 dark:border-slate-700 shadow-xs">
+                      </template>
+                      <span class="text-xs text-slate-700 dark:text-slate-300 truncate max-w-[180px]" x-text="kw.top_pin_title || 'Pending crawl'"></span>
+                    </div>
+                  </td>
+                  <td class="py-3 px-3 text-center font-mono">
+                    <span class="px-2 py-0.5 rounded-full text-[11px] font-bold" :class="Number(kw.avg_daily_velocity || 0) > 0 ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'" x-text="(Number(kw.avg_daily_velocity || 0) > 0 ? '+' : '') + formatNumber(kw.avg_daily_velocity || 0) + ' saves/day'"></span>
+                  </td>
+                  <td class="py-3 px-3 text-center font-mono">
+                    <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300" x-text="(kw.snapshots_count || 0) + ' / ' + (kw.target_pin_count || 50)"></span>
+                  </td>
+                  <td class="py-3 px-3 text-center">
+                    <div class="flex items-center justify-center space-x-1.5">
+                      <button @click="openKeywordPins(kw)" class="px-2.5 py-1 text-xs font-semibold rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition flex items-center space-x-1" title="View tracked SERP pins">
+                        <i data-lucide="eye" class="w-3 h-3"></i>
+                        <span>Pins</span>
+                      </button>
+                      <button @click="syncKeyword(kw.id)" class="px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition flex items-center space-x-1" title="Sync SERP now">
+                        <i data-lucide="refresh-cw" class="w-3 h-3"></i>
+                        <span>Sync</span>
+                      </button>
+                      <button @click="deleteKeyword(kw.id)" class="p-1 rounded-lg hover:bg-rose-100 dark:hover:bg-rose-950/40 text-slate-400 hover:text-rose-500 transition" title="Delete keyword">
+                        <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
@@ -2417,7 +2452,7 @@ export function getDashboardHtml() {
                   <td class="py-3 px-3">
                     <div class="flex items-center space-x-2">
                       <span class="text-slate-500 dark:text-slate-400 text-[11px]" x-text="p.masked_url || '••••••••••••••••••••••••••••••••'"></span>
-                      <button @click="copyToClipboard(p.database_url, 'url-' + p.id)" class="px-2 py-0.5 rounded text-[10px] bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-sans transition">
+                      <button @click="copyToClipboard(p.masked_url, 'url-' + p.id)" class="px-2 py-0.5 rounded text-[10px] bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-sans transition">
                         <span x-text="copiedField === 'url-' + p.id ? 'Copied!' : 'Copy'"></span>
                       </button>
                     </div>
@@ -3526,6 +3561,70 @@ export function getDashboardHtml() {
     </div>
   </div>
 
+  <!-- Slide-Over: View Tracked SERP Pins for a Keyword -->
+  <div x-show="isKeywordPinsOpen" x-cloak class="fixed inset-0 z-50 overflow-y-auto bg-slate-950/70 backdrop-blur-md flex justify-end" @keydown.escape.window="isKeywordPinsOpen = false">
+    <div class="bg-white dark:bg-[#0b1120] border-l border-slate-200 dark:border-slate-800 w-full max-w-2xl h-full min-h-screen shadow-2xl overflow-y-auto p-6 space-y-6 animate-in slide-in-from-right duration-200" @click.away="isKeywordPinsOpen = false">
+      <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-4">
+        <div class="flex items-center space-x-3">
+          <div class="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+            <i data-lucide="search" class="w-4 h-4"></i>
+          </div>
+          <div>
+            <h3 class="font-bold text-slate-900 dark:text-white text-base flex items-center space-x-2">
+              <span x-text="'Keyword: ' + (activeKeyword?.keyword || '')"></span>
+              <span class="px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-emerald-500/10 text-emerald-600 border border-emerald-500/20" x-text="activeKeyword?.category || 'General'"></span>
+            </h3>
+            <p class="text-xs text-slate-500 dark:text-slate-400 font-mono" x-text="activeKeywordPins.length + ' Tracked Organic SERP Pins'"></p>
+          </div>
+        </div>
+        <button @click="isKeywordPinsOpen = false" class="text-slate-400 hover:text-slate-700 dark:hover:text-white p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- Loading State -->
+      <div x-show="isLoadingKeywordPins" class="text-center py-12 text-slate-500 font-mono text-xs">
+        <i data-lucide="loader" class="w-6 h-6 animate-spin mx-auto mb-2 text-emerald-500"></i>
+        <span>Loading keyword SERP pins from Neon...</span>
+      </div>
+
+      <!-- Pins List -->
+      <div x-show="!isLoadingKeywordPins && activeKeywordPins.length > 0" class="space-y-3 font-sans">
+        <template x-for="pin in activeKeywordPins" :key="pin.id">
+          <div class="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/40 flex items-center justify-between gap-3 hover:border-emerald-500/50 transition">
+            <div class="flex items-center space-x-3 min-w-0">
+              <span class="w-7 h-7 rounded-lg bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 font-mono text-xs font-bold flex items-center justify-center flex-shrink-0" x-text="'#' + pin.rank_position"></span>
+              <template x-if="pin.image_url">
+                <img :src="pin.image_url" class="w-10 h-14 rounded-lg object-cover border border-slate-200 dark:border-slate-700 flex-shrink-0">
+              </template>
+              <div class="min-w-0 space-y-0.5">
+                <div class="text-xs font-bold text-slate-900 dark:text-white truncate" x-text="pin.title || 'Untitled Pin'"></div>
+                <div class="text-[11px] font-mono text-slate-500 flex items-center space-x-2">
+                  <span x-text="pin.domain || 'pinterest.com'"></span>
+                  <span>•</span>
+                  <span class="text-rose-500 font-bold" x-text="formatNumber(pin.save_count) + ' saves'"></span>
+                  <template x-if="Number(pin.daily_save_velocity) > 0">
+                    <span class="text-emerald-500 font-bold" x-text="'+' + formatNumber(pin.daily_save_velocity) + '/day'"></span>
+                  </template>
+                </div>
+              </div>
+            </div>
+            <a :href="'https://www.pinterest.com/pin/' + pin.pin_id + '/'" target="_blank" class="px-2.5 py-1 text-xs font-semibold rounded-lg bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:text-emerald-500 transition flex items-center space-x-1 flex-shrink-0">
+              <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+              <span>Pin</span>
+            </a>
+          </div>
+        </template>
+      </div>
+
+      <!-- Empty State -->
+      <div x-show="!isLoadingKeywordPins && activeKeywordPins.length === 0" class="text-center py-12 text-slate-500 font-mono text-xs">
+        <p>No snapshots recorded yet for this keyword.</p>
+        <p class="text-[11px] mt-1 text-slate-400">Click "Sync SERP" on the keyword table to fetch live search results.</p>
+      </div>
+    </div>
+  </div>
+
   <!-- Modal: + Add Project to Fleet (Neon Fleet Manager) -->
   <div x-show="isAddFleetModalOpen" x-cloak class="fixed inset-0 z-50 overflow-y-auto bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-4">
     <div class="bg-white dark:bg-[#0d1526] border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-lg shadow-2xl p-6 space-y-4" @click.away="isAddFleetModalOpen = false">
@@ -3618,6 +3717,19 @@ export function getDashboardHtml() {
         isAddKeywordModalOpen: false,
         newKeywordText: '',
         newKeywordCategory: 'General',
+        isKeywordPinsOpen: false,
+        activeKeyword: null,
+        activeKeywordPins: [],
+        isLoadingKeywordPins: false,
+
+        get filteredKeywords() {
+          let list = this.keywords || [];
+          if (this.keywordSearch) {
+            const q = this.keywordSearch.toLowerCase().trim();
+            list = list.filter(k => (k.keyword && k.keyword.toLowerCase().includes(q)) || (k.category && k.category.toLowerCase().includes(q)));
+          }
+          return list;
+        },
 
         // Tab 6: Fleet State
         fleetProjects: [],
@@ -4451,9 +4563,17 @@ export function getDashboardHtml() {
           }
         },
 
+        getApiUrl(base) {
+          if (this.selectedProject && this.selectedProject !== 'all' && this.selectedProject !== 'hub' && this.selectedProject !== 'weathered-band-34334459') {
+            const sep = base.includes('?') ? '&' : '?';
+            return base + sep + 'project_id=' + encodeURIComponent(this.selectedProject);
+          }
+          return base;
+        },
+
         async fetchCompetitors() {
           try {
-            const res = await fetch('/api/competitors');
+            const res = await fetch(this.getApiUrl('/api/competitors'));
             if (res.ok) {
               const data = await res.json();
               if (data.overview) this.competitorsOverview = data.overview;
@@ -4465,7 +4585,7 @@ export function getDashboardHtml() {
         async syncCompetitor(username) {
           try {
             this.showToast('Syncing profile for @' + username + '...');
-            const res = await fetch('/api/competitors/sync', {
+            const res = await fetch(this.getApiUrl('/api/competitors/sync'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ username })
@@ -4480,18 +4600,24 @@ export function getDashboardHtml() {
         },
 
         async syncAllCompetitors() {
+          if (!this.competitors || this.competitors.length === 0) return;
           this.isLoading = true;
-          this.showToast('Running full competitor update pipeline...');
+          this.showToast('Starting full sync for ' + this.competitors.length + ' profiles...');
           try {
-            for (const c of this.competitors.slice(0, 5)) {
-              await fetch('/api/competitors/sync', {
+            for (let i = 0; i < this.competitors.length; i++) {
+              const c = this.competitors[i];
+              this.showToast('Syncing (' + (i + 1) + '/' + this.competitors.length + '): @' + c.username + '...');
+              await fetch(this.getApiUrl('/api/competitors/sync'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ username: c.username })
               }).catch(() => {});
+              if (i < this.competitors.length - 1) {
+                await new Promise(r => setTimeout(r, 2000));
+              }
             }
             await this.fetchCompetitors();
-            this.showToast('Full update completed!');
+            this.showToast('All competitor profiles updated successfully!');
           } finally {
             this.isLoading = false;
           }
@@ -4500,7 +4626,7 @@ export function getDashboardHtml() {
         async deleteCompetitor(id) {
           if (!confirm('Are you sure you want to stop tracking this competitor?')) return;
           try {
-            const res = await fetch('/api/competitors?id=' + id, { method: 'DELETE' });
+            const res = await fetch(this.getApiUrl('/api/competitors?id=' + id), { method: 'DELETE' });
             if (res.ok) {
               await this.fetchCompetitors();
               this.showToast('Competitor removed.');
@@ -4534,7 +4660,7 @@ export function getDashboardHtml() {
 
         async fetchKeywords() {
           try {
-            const res = await fetch('/api/keywords');
+            const res = await fetch(this.getApiUrl('/api/keywords'));
             if (res.ok) {
               const data = await res.json();
               if (data.keywords) this.keywords = data.keywords;
@@ -4545,7 +4671,7 @@ export function getDashboardHtml() {
         async syncKeyword(keywordId) {
           try {
             this.showToast('Crawling Pinterest search SERP...');
-            const res = await fetch('/api/keywords/sync', {
+            const res = await fetch(this.getApiUrl('/api/keywords/sync'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ keyword_id: keywordId })
@@ -4559,6 +4685,35 @@ export function getDashboardHtml() {
           }
         },
 
+        async openKeywordPins(kw) {
+          this.activeKeyword = kw;
+          this.isKeywordPinsOpen = true;
+          this.isLoadingKeywordPins = true;
+          try {
+            const res = await fetch(this.getApiUrl('/api/keywords/pins?keyword_id=' + kw.id));
+            if (res.ok) {
+              const data = await res.json();
+              this.activeKeywordPins = data.pins || [];
+            }
+          } catch (e) {
+            this.activeKeywordPins = [];
+          } finally {
+            this.isLoadingKeywordPins = false;
+            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+          }
+        },
+
+        async deleteKeyword(id) {
+          if (!confirm('Are you sure you want to stop tracking this keyword?')) return;
+          try {
+            const res = await fetch(this.getApiUrl('/api/keywords?id=' + id), { method: 'DELETE' });
+            if (res.ok) {
+              await this.fetchKeywords();
+              this.showToast('Keyword removed.');
+            }
+          } catch (e) {}
+        },
+
         async fetchFleetProjects() {
           try {
             const res = await fetch('/api/fleet/projects');
@@ -4570,27 +4725,28 @@ export function getDashboardHtml() {
         },
 
         async switchProject(projId) {
+          this.selectedProject = projId;
           this.showToast('Switched view to project: ' + projId);
           await this.refreshAll();
         },
 
         async fetchOverview() {
           try {
-            const res = await fetch('/api/overview');
+            const res = await fetch(this.getApiUrl('/api/overview'));
             if (res.ok) this.overview = await res.json();
           } catch (e) {}
         },
 
         async fetchSeeds() {
           try {
-            const res = await fetch('/api/seeds');
+            const res = await fetch(this.getApiUrl('/api/seeds'));
             if (res.ok) this.seeds = await res.json();
           } catch (e) {}
         },
 
         async fetchIntersections() {
           try {
-            const res = await fetch('/api/intersections?min_overlap=2&limit=1000');
+            const res = await fetch(this.getApiUrl('/api/intersections?min_overlap=2&limit=1000'));
             if (res.ok) this.intersections = await res.json();
           } catch (e) {}
         },
@@ -4601,7 +4757,7 @@ export function getDashboardHtml() {
             url += '&seed_pin_id=' + this.explorerSeedId;
           }
           try {
-            const res = await fetch(url);
+            const res = await fetch(this.getApiUrl(url));
             if (res.ok) this.explorerCandidates = await res.json();
           } catch (e) {}
           this.$nextTick(() => {
@@ -4752,7 +4908,7 @@ export function getDashboardHtml() {
           const handle = this.newCompetitorHandle.trim().replace('@', '');
           if (!handle) return;
           try {
-            const res = await fetch('/api/competitors', {
+            const res = await fetch(this.getApiUrl('/api/competitors'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ username: handle })
@@ -4773,7 +4929,7 @@ export function getDashboardHtml() {
           const kw = this.newKeywordText.trim();
           if (!kw) return;
           try {
-            const res = await fetch('/api/keywords', {
+            const res = await fetch(this.getApiUrl('/api/keywords'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ keyword: kw, category: this.newKeywordCategory })
@@ -4791,17 +4947,6 @@ export function getDashboardHtml() {
           } catch (e) {
             this.showToast('Failed to track keyword: ' + e.message);
           }
-        },
-
-        async deleteKeyword(id) {
-          if (!confirm('Are you sure you want to stop tracking this keyword?')) return;
-          try {
-            const res = await fetch('/api/keywords?id=' + id, { method: 'DELETE' });
-            if (res.ok) {
-              await this.fetchKeywords();
-              this.showToast('Keyword removed.');
-            }
-          } catch (e) {}
         },
 
         async submitAddFleetProject() {
