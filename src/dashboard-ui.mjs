@@ -902,46 +902,197 @@ export function getDashboardHtml() {
     <!-- TAB 2: ⚡ GLOBAL INTERSECTIONS (STANDALONE 24 HUBS PAGE)  -->
     <!-- ======================================================== -->
     <div x-show="currentTab === 'intersections'" class="space-y-5">
+      
+      <!-- 1. Executive Summary Ribbon (KPI Cards) -->
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <!-- Card 1: Total Hubs -->
+        <div class="p-3.5 rounded-2xl bg-white dark:bg-[#0d1526] border border-slate-200/90 dark:border-slate-800 shadow-sm flex items-center space-x-3">
+          <div class="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-600 dark:text-amber-400 flex-shrink-0">
+            <i data-lucide="flame" class="w-5 h-5"></i>
+          </div>
+          <div class="min-w-0">
+            <div class="text-[10px] font-mono uppercase text-slate-500 dark:text-slate-400 font-bold truncate">Total Intersections</div>
+            <div class="text-lg font-mono font-extrabold text-slate-900 dark:text-white" x-text="intersectionStats.totalHubs"></div>
+            <div class="text-[10px] text-slate-400 font-medium truncate">Discovered across ≥ 2 seeds</div>
+          </div>
+        </div>
+
+        <!-- Card 2: Golden Core (>= 5 Seeds) -->
+        <div class="p-3.5 rounded-2xl bg-white dark:bg-[#0d1526] border border-slate-200/90 dark:border-slate-800 shadow-sm flex items-center space-x-3">
+          <div class="w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-600 dark:text-rose-400 flex-shrink-0">
+            <i data-lucide="crown" class="w-5 h-5"></i>
+          </div>
+          <div class="min-w-0">
+            <div class="text-[10px] font-mono uppercase text-slate-500 dark:text-slate-400 font-bold truncate">Golden Core (≥ 5 Seeds)</div>
+            <div class="text-lg font-mono font-extrabold text-rose-600 dark:text-rose-400" x-text="intersectionStats.goldenCore"></div>
+            <div class="text-[10px] text-slate-400 font-medium truncate">Ultra-high cross-cluster pull</div>
+          </div>
+        </div>
+
+        <!-- Card 3: Vacuum Opportunities -->
+        <div class="p-3.5 rounded-2xl bg-white dark:bg-[#0d1526] border border-slate-200/90 dark:border-slate-800 shadow-sm flex items-center space-x-3">
+          <div class="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-600 dark:text-emerald-400 flex-shrink-0">
+            <i data-lucide="target" class="w-5 h-5"></i>
+          </div>
+          <div class="min-w-0">
+            <div class="text-[10px] font-mono uppercase text-slate-500 dark:text-slate-400 font-bold truncate">Vacuum Targets</div>
+            <div class="text-lg font-mono font-extrabold text-emerald-600 dark:text-emerald-400" x-text="intersectionStats.vacuumTargets"></div>
+            <div class="text-[10px] text-slate-400 font-medium truncate">Organic pins with ≥ 5K saves</div>
+          </div>
+        </div>
+
+        <!-- Card 4: Top Pixie Hit Mass -->
+        <div class="p-3.5 rounded-2xl bg-white dark:bg-[#0d1526] border border-slate-200/90 dark:border-slate-800 shadow-sm flex items-center space-x-3">
+          <div class="w-10 h-10 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-600 dark:text-purple-400 flex-shrink-0">
+            <i data-lucide="activity" class="w-5 h-5"></i>
+          </div>
+          <div class="min-w-0">
+            <div class="text-[10px] font-mono uppercase text-slate-500 dark:text-slate-400 font-bold truncate">Max Pixie Hit Mass</div>
+            <div class="text-lg font-mono font-extrabold text-purple-600 dark:text-purple-400" x-text="intersectionStats.maxPixie"></div>
+            <div class="text-[10px] text-slate-400 font-medium truncate">Peak random-walk centroid</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Main Intersections Card -->
       <div class="bg-white dark:bg-[#0d1526] border border-slate-200/90 dark:border-slate-800 rounded-2xl p-5 shadow-sm dark:shadow-xl space-y-4">
+        
+        <!-- Header Bar with Title and Actions -->
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-3">
           <div>
             <h2 class="text-base font-bold text-slate-900 dark:text-white flex items-center space-x-2">
               <i data-lucide="flame" class="w-5 h-5 text-amber-500"></i>
-              <span>Global Multi-Seed Intersections Radar (The 24 Golden Hubs)</span>
+              <span>Global Multi-Seed Intersections Radar (رادار التقاطعات الشاملة)</span>
             </h2>
-            <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Pins independently discovered across ≥ 2 distinct seeds. Ranked by Pixie Bipartite Multi-Hit score.</p>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Cross-cluster gravitational centroids discovered across ≥ 2 distinct seeds. Ranked by Pixie Bipartite Multi-Hit score.</p>
           </div>
 
-          <div class="flex items-center space-x-2">
-            <button @click="exportCsv(intersections, 'global-intersections-hubs.csv')" class="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-semibold shadow-sm transition active:scale-95">
+          <div class="flex items-center space-x-2 flex-wrap gap-y-1">
+            <button @click="exportCsv(filteredIntersections, 'global-intersections-filtered.csv')" class="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-semibold shadow-sm transition active:scale-95">
               <i data-lucide="download" class="w-3.5 h-3.5 text-amber-500"></i>
               <span>Export CSV</span>
             </button>
-            <span class="px-3 py-1 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs font-mono font-bold text-amber-600 dark:text-amber-400" x-text="intersections.length + ' Overlapping Hubs'"></span>
+            <span class="px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs font-mono font-bold text-amber-600 dark:text-amber-400" x-text="intersections.length + ' Total Hubs'"></span>
           </div>
         </div>
 
-        <!-- Intersections Table -->
+        <!-- 2. Advanced Multi-Filter & Search Toolbar -->
+        <div class="p-3.5 rounded-2xl bg-slate-50/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800/80 space-y-3">
+          <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+            
+            <!-- Left: Search & Sorting -->
+            <div class="flex items-center space-x-2 flex-wrap gap-y-2">
+              <!-- Live Text Search -->
+              <div class="relative min-w-[220px]">
+                <i data-lucide="search" class="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400"></i>
+                <input type="text" x-model="intersectionFilters.search" @input="intersectionPage = 1" placeholder="Search title, ID, OCR, or seeds..." class="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 font-mono text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-amber-500">
+              </div>
+
+              <!-- Sort Dropdown -->
+              <div class="flex items-center space-x-1 bg-white dark:bg-slate-900 rounded-xl px-2 py-1 border border-slate-200 dark:border-slate-800 shadow-sm">
+                <span class="text-[10px] font-mono text-slate-400 uppercase font-semibold">Sort:</span>
+                <select x-model="intersectionSort" @change="intersectionPage = 1" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono focus:outline-none cursor-pointer">
+                  <option value="pixie">🏆 Pixie Multi-Hit Score</option>
+                  <option value="overlap">🔗 Overlap Depth (Max Seeds)</option>
+                  <option value="saves">💾 Total Saves (High to Low)</option>
+                  <option value="rate">🔄 Repin Rate % (High to Low)</option>
+                  <option value="velocity">⚡ Daily Velocity (Fastest)</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Right: 4 Filter Selectors -->
+            <div class="flex items-center space-x-2 flex-wrap gap-y-2">
+              
+              <!-- Overlap Depth Filter -->
+              <div class="flex items-center space-x-1 bg-white dark:bg-slate-900 rounded-xl px-2 py-1 border border-slate-200 dark:border-slate-800 shadow-sm">
+                <span class="text-[10px] font-mono text-slate-400 uppercase font-semibold">Overlap:</span>
+                <select x-model="intersectionFilters.minOverlap" @change="intersectionPage = 1" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono focus:outline-none cursor-pointer">
+                  <option value="all">All Hubs (≥ 2 Seeds)</option>
+                  <option value="3">≥ 3 Seeds (Hubs)</option>
+                  <option value="5">🔥 ≥ 5 Seeds (Golden Core)</option>
+                  <option value="7">👑 ≥ 7 Seeds (Mega-Hubs)</option>
+                </select>
+              </div>
+
+              <!-- Originating Seed Filter -->
+              <div class="flex items-center space-x-1 bg-white dark:bg-slate-900 rounded-xl px-2 py-1 border border-slate-200 dark:border-slate-800 shadow-sm max-w-[190px]">
+                <span class="text-[10px] font-mono text-slate-400 uppercase font-semibold">Seed:</span>
+                <select x-model="intersectionFilters.seedId" @change="intersectionPage = 1" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono focus:outline-none cursor-pointer truncate">
+                  <option value="all">All Seeds</option>
+                  <template x-for="s in seeds" :key="s.pin_id">
+                    <option :value="s.pin_id" x-text="s.label"></option>
+                  </template>
+                </select>
+              </div>
+
+              <!-- Format Filter -->
+              <div class="flex items-center space-x-1 bg-white dark:bg-slate-900 rounded-xl px-2 py-1 border border-slate-200 dark:border-slate-800 shadow-sm">
+                <span class="text-[10px] font-mono text-slate-400 uppercase font-semibold">Format:</span>
+                <select x-model="intersectionFilters.format" @change="intersectionPage = 1" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono focus:outline-none cursor-pointer">
+                  <option value="all">All Formats</option>
+                  <option value="ORGANIC PIN">Organic Pin</option>
+                  <option value="VIDEO PIN">Video Pin</option>
+                  <option value="IDEA PIN">Idea Pin</option>
+                  <option value="PRODUCT CARD">Product Card</option>
+                </select>
+              </div>
+
+              <!-- Market / Strategy Status -->
+              <div class="flex items-center space-x-1 bg-white dark:bg-slate-900 rounded-xl px-2 py-1 border border-slate-200 dark:border-slate-800 shadow-sm">
+                <span class="text-[10px] font-mono text-slate-400 uppercase font-semibold">Market:</span>
+                <select x-model="intersectionFilters.market" @change="intersectionPage = 1" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono focus:outline-none cursor-pointer">
+                  <option value="all">All Opportunities</option>
+                  <option value="vacuum">🎯 Vacuum Targets Only (≥ 5K)</option>
+                  <option value="product">🛒 Competitor Products</option>
+                  <option value="high_rate">⚡ High Repin Rate (≥ 50%)</option>
+                  <option value="explosive">🔥 Explosive Velocity (≥ 50/d)</option>
+                </select>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- Dynamic Counter & Reset Bar -->
+          <div class="flex items-center justify-between pt-1 text-xs border-t border-slate-200/60 dark:border-slate-800/60 font-mono">
+            <div class="flex items-center space-x-2 text-slate-600 dark:text-slate-300">
+              <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200">
+                Showing <span class="mx-1 text-amber-600 dark:text-amber-400" x-text="filteredIntersections.length"></span> of <span class="mx-1" x-text="intersections.length"></span> overlapping hubs
+              </span>
+            </div>
+
+            <button 
+              x-show="intersectionFilters.search || intersectionFilters.minOverlap !== 'all' || intersectionFilters.seedId !== 'all' || intersectionFilters.format !== 'all' || intersectionFilters.market !== 'all' || intersectionFilters.engine !== 'all'"
+              @click="resetIntersectionFilters()"
+              class="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30 text-[11px] font-bold transition active:scale-95"
+            >
+              <i data-lucide="rotate-ccw" class="w-3 h-3"></i>
+              <span>Reset All Filters</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 3. Intersections Table (Paginated & Compact) -->
         <div class="overflow-x-auto">
           <table class="w-full text-left text-xs border-collapse">
             <thead>
               <tr class="border-b border-slate-200 dark:border-slate-800/80 bg-slate-50/80 dark:bg-slate-900/60 text-slate-500 dark:text-slate-400 font-mono text-[11px] uppercase tracking-wider">
-                <th class="py-3.5 px-4">Preview & Format</th>
-                <th class="py-3.5 px-4 min-w-[280px]">Intersecting Candidate Title</th>
-                <th class="py-3.5 px-4 min-w-[220px]">Overlapping Originating Seeds</th>
-                <th class="py-3.5 px-4">Pixie Multi-Hit Score</th>
-                <th class="py-3.5 px-4">Engagement Metrics</th>
-                <th class="py-3.5 px-4">Color DNA</th>
-                <th class="py-3.5 px-4 text-right">Action</th>
+                <th class="py-3 px-3">Preview & Format</th>
+                <th class="py-3 px-3 min-w-[260px]">Intersecting Candidate Title</th>
+                <th class="py-3 px-3 min-w-[240px] max-w-[320px]">Originating Seeds Convergence</th>
+                <th class="py-3 px-3">Pixie Multi-Hit Mass</th>
+                <th class="py-3 px-3">Engagement Metrics</th>
+                <th class="py-3 px-3">Color DNA</th>
+                <th class="py-3 px-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-sans">
-              <template x-for="item in intersections" :key="item.candidate_pin_id">
+              <template x-for="item in paginatedIntersections" :key="item.candidate_pin_id">
                 <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition">
                   
                   <!-- 1. Preview & Format -->
-                  <td class="py-3.5 px-4 whitespace-nowrap">
-                    <div class="flex items-center space-x-2.5">
+                  <td class="py-3 px-3 whitespace-nowrap">
+                    <div class="flex items-center space-x-2">
                       <template x-if="item.image_url">
                         <a :href="'https://www.pinterest.com/pin/' + item.candidate_pin_id + '/'" target="_blank" class="group/thumb block relative flex-shrink-0">
                           <img :src="item.image_url" alt="pin preview" loading="lazy" class="w-8 h-12 rounded-lg object-cover border shadow-sm group-hover/thumb:scale-125 transition-transform duration-200" :style="'border-color: ' + (item.winning_color || '#cbd5e1')">
@@ -970,7 +1121,7 @@ export function getDashboardHtml() {
 
                         <!-- Ingestion Method Badge -->
                         <template x-if="item.ingestion_method && item.ingestion_method !== 'uploaded'">
-                          <div class="text-[8px] font-mono font-bold uppercase tracking-wider text-slate-400 flex items-center space-x-1">
+                          <div class="text-[8px] font-mono font-bold uppercase tracking-wider text-slate-400">
                             <span class="px-1 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-500" x-text="item.ingestion_method === 'csv_importer' ? '⚙️ CSV Farm' : (item.ingestion_method === 'pin_scheduling' ? '⏱️ Scheduled' : item.ingestion_method)"></span>
                           </div>
                         </template>
@@ -979,14 +1130,30 @@ export function getDashboardHtml() {
                   </td>
 
                   <!-- 2. Title & OCR -->
-                  <td class="py-3.5 px-4">
+                  <td class="py-3 px-3 min-w-[260px]">
                     <div class="space-y-1">
-                      <a :href="'https://www.pinterest.com/pin/' + item.candidate_pin_id + '/'" target="_blank" class="font-bold text-slate-900 dark:text-slate-100 hover:text-rose-600 dark:hover:text-rose-400 line-clamp-1 hover:underline" x-text="item.title"></a>
-                      <div class="flex items-center space-x-2 text-[10px] text-slate-500 font-mono">
-                        <span class="px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300" x-text="item.domain"></span>
-                        <span>•</span>
-                        <span x-text="'ID: ' + item.candidate_pin_id"></span>
+                      <div class="flex items-center space-x-1.5">
+                        <a :href="'https://www.pinterest.com/pin/' + item.candidate_pin_id + '/'" 
+                           target="_blank" 
+                           class="font-bold text-slate-900 dark:text-slate-100 hover:text-rose-600 dark:hover:text-rose-400 line-clamp-1 hover:underline text-xs" 
+                           x-text="item.title || ('Pin ' + item.candidate_pin_id)"></a>
+                        <a :href="'https://www.pinterest.com/pin/' + item.candidate_pin_id + '/'" 
+                           target="_blank" 
+                           class="text-slate-400 hover:text-rose-500 transition flex-shrink-0" title="Open on Pinterest">
+                          <i data-lucide="external-link" class="w-3 h-3"></i>
+                        </a>
                       </div>
+
+                      <div class="flex items-center space-x-2 text-[10px] text-slate-500 font-mono flex-wrap gap-y-0.5">
+                        <span class="px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 truncate max-w-[130px]" x-text="item.domain"></span>
+                        <span>•</span>
+                        <button @click="copyToClipboard(item.candidate_pin_id, 'pin-' + item.candidate_pin_id)" 
+                                class="hover:text-rose-500 flex items-center space-x-0.5 cursor-pointer text-slate-500" title="Copy Pin ID">
+                          <span x-text="'ID: ' + item.candidate_pin_id"></span>
+                          <i data-lucide="copy" class="w-2.5 h-2.5"></i>
+                        </button>
+                      </div>
+
                       <template x-if="item.ocr_text">
                         <div class="p-1 px-1.5 rounded bg-slate-100 dark:bg-slate-900/90 text-[10px] text-slate-600 dark:text-slate-400 font-mono truncate max-w-sm" :title="item.ocr_text">
                           <span class="text-rose-500 font-bold">OCR:</span> <span x-text="item.ocr_text"></span>
@@ -995,56 +1162,167 @@ export function getDashboardHtml() {
                     </div>
                   </td>
 
-                  <!-- 3. Overlapping Seeds Badges with Labels -->
-                  <td class="py-3.5 px-4">
-                    <div class="space-y-1.5">
-                      <div class="flex items-center space-x-1 font-mono text-[11px] font-bold text-amber-600 dark:text-amber-400">
-                        <i data-lucide="git-merge" class="w-3.5 h-3.5"></i>
-                        <span x-text="'Found in ' + item.seed_overlap_count + ' Seeds:'"></span>
+                  <!-- 3. Overlapping Originating Seeds (Compact with Expand/Collapse) -->
+                  <td class="py-3 px-3 min-w-[240px] max-w-[320px]">
+                    <div class="space-y-1">
+                      <div class="flex items-center justify-between">
+                        <div class="flex items-center space-x-1 font-mono text-[11px] font-bold" :class="{
+                          'text-rose-600 dark:text-rose-400': item.seed_overlap_count >= 7,
+                          'text-amber-600 dark:text-amber-400': item.seed_overlap_count >= 5 && item.seed_overlap_count < 7,
+                          'text-sky-600 dark:text-sky-400': item.seed_overlap_count >= 3 && item.seed_overlap_count < 5,
+                          'text-slate-600 dark:text-slate-400': item.seed_overlap_count < 3
+                        }">
+                          <i data-lucide="git-merge" class="w-3.5 h-3.5"></i>
+                          <span x-text="'Found in ' + item.seed_overlap_count + ' Seeds'"></span>
+                        </div>
+
+                        <template x-if="(item.originating_seed_details || []).length > 2">
+                          <button @click="toggleExpandSeeds(item.candidate_pin_id)" 
+                                  class="px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold transition flex items-center space-x-0.5"
+                                  :class="isSeedsExpanded(item.candidate_pin_id) ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300' : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300'">
+                            <span x-text="isSeedsExpanded(item.candidate_pin_id) ? '▲ Collapse' : '+' + ((item.originating_seed_details || []).length - 2) + ' more'"></span>
+                          </button>
+                        </template>
                       </div>
-                      <div class="flex flex-wrap gap-1">
+
+                      <!-- Collapsed View: First 2 Seeds -->
+                      <div x-show="!isSeedsExpanded(item.candidate_pin_id)" class="flex flex-wrap gap-1">
+                        <template x-for="s in (item.originating_seed_details || []).slice(0, 2)" :key="s.pin_id">
+                          <span class="inline-block max-w-[130px] truncate px-1.5 py-0.5 rounded text-[10px] font-mono border"
+                                :class="s.is_competitor ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/20' : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/20'"
+                                :title="s.label + ' (Pin ID: ' + s.pin_id + ')'"
+                                x-text="s.label"></span>
+                        </template>
+                      </div>
+
+                      <!-- Expanded View: All Seeds Grid -->
+                      <div x-show="isSeedsExpanded(item.candidate_pin_id)" class="flex flex-wrap gap-1 pt-1 max-h-48 overflow-y-auto pr-1">
                         <template x-for="s in (item.originating_seed_details || [])" :key="s.pin_id">
-                          <span class="px-2 py-0.5 rounded text-[10px] font-mono border" :class="s.is_competitor ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/20' : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/20'" :title="'Pin ID: ' + s.pin_id" x-text="s.label"></span>
+                          <span class="inline-block max-w-[200px] truncate px-1.5 py-0.5 rounded text-[10px] font-mono border"
+                                :class="s.is_competitor ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/20' : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/20'"
+                                :title="s.label + ' (Pin ID: ' + s.pin_id + ')'"
+                                x-text="s.label"></span>
                         </template>
                       </div>
                     </div>
                   </td>
 
                   <!-- 4. Pixie Multi-Hit Score -->
-                  <td class="py-3.5 px-4 whitespace-nowrap font-mono">
+                  <td class="py-3 px-3 whitespace-nowrap font-mono">
                     <div class="text-sm font-extrabold text-amber-600 dark:text-amber-400" x-text="Number(item.pixie_multihit_score || 0).toLocaleString()"></div>
-                    <div class="text-[10px] text-slate-400">Random Walk Mass</div>
+                    <div class="text-[10px] text-slate-400 flex items-center space-x-1">
+                      <span>Random Walk Mass</span>
+                    </div>
                   </td>
 
                   <!-- 5. Metrics -->
-                  <td class="py-3.5 px-4 whitespace-nowrap font-mono">
+                  <td class="py-3 px-3 whitespace-nowrap font-mono">
                     <div class="font-bold text-slate-900 dark:text-white" x-text="Number(item.total_saves != null ? item.total_saves : (item.saves || 0)).toLocaleString() + ' saves'"></div>
                     <div class="text-[10px] text-slate-500" x-text="Number(item.total_repins != null ? item.total_repins : (item.repins || 0)).toLocaleString() + ' repins • ' + (item.avg_save_rate != null ? item.avg_save_rate : (item.save_rate != null ? item.save_rate : 0)) + '% rate'"></div>
+                    <template x-if="Number(item.daily_velocity || 0) > 0">
+                      <div class="text-[9px] font-semibold text-emerald-600 dark:text-emerald-400 mt-0.5" x-text="'🔥 ' + item.daily_velocity + '/day'"></div>
+                    </template>
                   </td>
 
                   <!-- 6. Color DNA -->
-                  <td class="py-3.5 px-4 whitespace-nowrap">
+                  <td class="py-3 px-3 whitespace-nowrap">
                     <div class="flex items-center space-x-2">
                       <span class="w-4 h-4 rounded border flex-shrink-0 shadow-sm" :style="'background-color: ' + (item.winning_color || item.dominant_color || '#888888')"></span>
                       <div class="space-y-0.5 min-w-0">
                         <div class="font-mono text-[10px] font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wide" x-text="item.winning_color || item.dominant_color || '#888888'"></div>
-                        <div class="text-[9px] text-slate-500 dark:text-slate-400 font-medium truncate max-w-[140px]" x-text="item.culinary_color_name || 'Culinary Accent'" :title="item.culinary_color_name"></div>
+                        <div class="text-[9px] text-slate-500 dark:text-slate-400 font-medium truncate max-w-[130px]" x-text="item.culinary_color_name || 'Culinary Accent'" :title="item.culinary_color_name"></div>
                       </div>
                     </div>
                   </td>
 
                   <!-- 7. Action -->
-                  <td class="py-3.5 px-4 text-right whitespace-nowrap">
+                  <td class="py-3 px-3 text-right whitespace-nowrap">
                     <button @click="inspectCandidate(item)" class="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-rose-600 to-amber-600 hover:from-rose-500 hover:to-amber-500 text-white text-xs font-semibold shadow-sm active:scale-95 transition">
                       <i data-lucide="zap" class="w-3.5 h-3.5"></i>
-                      <span>⚡ Blueprint Studio</span>
+                      <span>⚡ Blueprint</span>
                     </button>
+                  </td>
+                </tr>
+              </template>
+
+              <!-- Empty Results Placeholder -->
+              <template x-if="paginatedIntersections.length === 0">
+                <tr>
+                  <td colspan="7" class="py-12 text-center text-slate-500 dark:text-slate-400 font-mono text-xs">
+                    <div class="flex flex-col items-center justify-center space-y-2">
+                      <i data-lucide="search-x" class="w-8 h-8 text-slate-400"></i>
+                      <div class="font-bold text-slate-700 dark:text-slate-300">No intersecting hubs matching your filters</div>
+                      <button @click="resetIntersectionFilters()" class="text-amber-600 dark:text-amber-400 underline font-semibold cursor-pointer">Reset all filters</button>
+                    </div>
                   </td>
                 </tr>
               </template>
             </tbody>
           </table>
         </div>
+
+        <!-- 4. Dynamic Pagination Bar -->
+        <div class="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-200 dark:border-slate-800 text-xs font-mono">
+          <!-- Left: Page Info & Page Size Selector -->
+          <div class="flex items-center space-x-3 text-slate-600 dark:text-slate-400">
+            <div>
+              Showing <span class="font-bold text-slate-900 dark:text-white" x-text="filteredIntersections.length ? ((intersectionPage - 1) * intersectionPageSize + 1) : 0"></span>
+              to <span class="font-bold text-slate-900 dark:text-white" x-text="Math.min(intersectionPage * intersectionPageSize, filteredIntersections.length)"></span>
+              of <span class="font-bold text-slate-900 dark:text-white" x-text="filteredIntersections.length"></span> hubs
+            </div>
+
+            <div class="flex items-center space-x-1 pl-2 border-l border-slate-200 dark:border-slate-800">
+              <span class="text-[10px] uppercase text-slate-400">Per page:</span>
+              <select x-model.number="intersectionPageSize" @change="intersectionPage = 1" class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-2 py-0.5 text-xs text-slate-800 dark:text-slate-200 font-mono focus:outline-none cursor-pointer">
+                <option :value="15">15</option>
+                <option :value="25">25</option>
+                <option :value="50">50</option>
+                <option :value="100">100</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Right: Page Navigation Controls -->
+          <div class="flex items-center space-x-1">
+            <!-- First Page -->
+            <button @click="setIntersectionPage(1)" :disabled="intersectionPage === 1" 
+                    class="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-slate-800 transition">
+              <i data-lucide="chevrons-left" class="w-3.5 h-3.5"></i>
+            </button>
+            <!-- Previous Page -->
+            <button @click="setIntersectionPage(intersectionPage - 1)" :disabled="intersectionPage === 1" 
+                    class="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-slate-800 transition">
+              <i data-lucide="chevron-left" class="w-3.5 h-3.5"></i>
+            </button>
+
+            <!-- Page Number Pills -->
+            <template x-for="p in intersectionVisiblePages" :key="p">
+              <div>
+                <template x-if="p === '...'">
+                  <span class="px-2 py-1 text-slate-400 font-mono">...</span>
+                </template>
+                <template x-if="p !== '...'">
+                  <button @click="setIntersectionPage(p)" 
+                          class="px-2.5 py-1 rounded-lg border text-xs font-mono font-bold transition"
+                          :class="intersectionPage === p ? 'bg-amber-500 border-amber-600 text-white shadow-sm' : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'"
+                          x-text="p"></button>
+                </template>
+              </div>
+            </template>
+
+            <!-- Next Page -->
+            <button @click="setIntersectionPage(intersectionPage + 1)" :disabled="intersectionPage === intersectionTotalPages" 
+                    class="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-slate-800 transition">
+              <i data-lucide="chevron-right" class="w-3.5 h-3.5"></i>
+            </button>
+            <!-- Last Page -->
+            <button @click="setIntersectionPage(intersectionTotalPages)" :disabled="intersectionPage === intersectionTotalPages" 
+                    class="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-slate-800 transition">
+              <i data-lucide="chevrons-right" class="w-3.5 h-3.5"></i>
+            </button>
+          </div>
+        </div>
+
       </div>
     </div>
 
@@ -1822,6 +2100,20 @@ export function getDashboardHtml() {
         seeds: [],
         intersections: [],
 
+        // Tab 2: Global Intersections State
+        intersectionPage: 1,
+        intersectionPageSize: 25,
+        intersectionSort: 'pixie',
+        intersectionExpandedHubs: {},
+        intersectionFilters: {
+          search: '',
+          minOverlap: 'all',
+          seedId: 'all',
+          format: 'all',
+          market: 'all',
+          engine: 'all'
+        },
+
         // Lightbox Modal State
         isLightboxOpen: false,
         lightboxIndex: 0,
@@ -1939,6 +2231,160 @@ export function getDashboardHtml() {
 
         get filteredExplorerCandidates() {
           return this.applyCandidateFilters(this.explorerCandidates, this.explorerFilters);
+        },
+
+        get filteredIntersections() {
+          if (!Array.isArray(this.intersections)) return [];
+          let res = this.intersections;
+          const f = this.intersectionFilters;
+
+          // 1. Text Search across Title, Domain, OCR, Pin ID, or Seed Labels
+          if (f.search && f.search.trim()) {
+            const q = f.search.toLowerCase().trim();
+            res = res.filter(i => {
+              const matchTitle = i.title && i.title.toLowerCase().includes(q);
+              const matchDomain = i.domain && i.domain.toLowerCase().includes(q);
+              const matchOcr = i.ocr_text && i.ocr_text.toLowerCase().includes(q);
+              const matchId = i.candidate_pin_id && String(i.candidate_pin_id).includes(q);
+              const matchSeeds = Array.isArray(i.originating_seed_details) && i.originating_seed_details.some(s => s.label && s.label.toLowerCase().includes(q));
+              return matchTitle || matchDomain || matchOcr || matchId || matchSeeds;
+            });
+          }
+
+          // 2. Minimum Overlap Filter
+          if (f.minOverlap && f.minOverlap !== 'all') {
+            const minNum = Number(f.minOverlap);
+            res = res.filter(i => Number(i.seed_overlap_count || 0) >= minNum);
+          }
+
+          // 3. Filter by Specific Originating Seed
+          if (f.seedId && f.seedId !== 'all') {
+            res = res.filter(i => Array.isArray(i.originating_seeds) && i.originating_seeds.includes(f.seedId));
+          }
+
+          // 4. Format Filter
+          if (f.format && f.format !== 'all') {
+            res = res.filter(i => i.format_type === f.format);
+          }
+
+          // 5. Market / Opportunity Filter
+          if (f.market && f.market !== 'all') {
+            if (f.market === 'vacuum') {
+              res = res.filter(i => i.is_vacuum_target || (!i.is_product && Number(i.total_saves || i.saves || 0) >= 5000));
+            } else if (f.market === 'product') {
+              res = res.filter(i => i.is_product);
+            } else if (f.market === 'high_rate') {
+              res = res.filter(i => Number(i.avg_save_rate || i.save_rate || 0) >= 50);
+            } else if (f.market === 'explosive') {
+              res = res.filter(i => Number(i.daily_velocity || 0) >= 50);
+            }
+          }
+
+          // 6. Engine Provenance Filter
+          if (f.engine && f.engine !== 'all') {
+            res = res.filter(i => (i.provenance_engine === f.engine || i.engine_source === f.engine));
+          }
+
+          // 7. Sort
+          res = [...res].sort((a, b) => {
+            if (this.intersectionSort === 'overlap') {
+              const diff = Number(b.seed_overlap_count || 0) - Number(a.seed_overlap_count || 0);
+              if (diff !== 0) return diff;
+              return Number(b.pixie_multihit_score || 0) - Number(a.pixie_multihit_score || 0);
+            }
+            if (this.intersectionSort === 'saves') {
+              return Number(b.total_saves || b.saves || 0) - Number(a.total_saves || a.saves || 0);
+            }
+            if (this.intersectionSort === 'rate') {
+              return Number(b.avg_save_rate || b.save_rate || 0) - Number(a.avg_save_rate || a.save_rate || 0);
+            }
+            if (this.intersectionSort === 'velocity') {
+              return Number(b.daily_velocity || 0) - Number(a.daily_velocity || 0);
+            }
+            // default: pixie multihit score
+            return Number(b.pixie_multihit_score || 0) - Number(a.pixie_multihit_score || 0);
+          });
+
+          return res;
+        },
+
+        get paginatedIntersections() {
+          const list = this.filteredIntersections;
+          const start = (this.intersectionPage - 1) * this.intersectionPageSize;
+          return list.slice(start, start + this.intersectionPageSize);
+        },
+
+        get intersectionTotalPages() {
+          return Math.max(1, Math.ceil(this.filteredIntersections.length / this.intersectionPageSize));
+        },
+
+        get intersectionVisiblePages() {
+          const total = this.intersectionTotalPages;
+          const current = this.intersectionPage;
+          const delta = 2;
+          const range = [];
+          for (let i = Math.max(2, current - delta); i <= Math.min(total - 1, current + delta); i++) {
+            range.push(i);
+          }
+          if (current - delta > 2) range.unshift('...');
+          if (current + delta < total - 1) range.push('...');
+          range.unshift(1);
+          if (total > 1) range.push(total);
+          return range;
+        },
+
+        get intersectionStats() {
+          const list = Array.isArray(this.intersections) ? this.intersections : [];
+          const totalHubs = list.length;
+          const goldenCore = list.filter(i => Number(i.seed_overlap_count || 0) >= 5).length;
+          const superHubs = list.filter(i => Number(i.seed_overlap_count || 0) >= 3).length;
+          const vacuumTargets = list.filter(i => i.is_vacuum_target || (!i.is_product && Number(i.total_saves || i.saves || 0) >= 5000)).length;
+          let maxPixie = 0;
+          for (const item of list) {
+            const p = Number(item.pixie_multihit_score || 0);
+            if (p > maxPixie) maxPixie = p;
+          }
+          return {
+            totalHubs,
+            goldenCore,
+            superHubs,
+            vacuumTargets,
+            maxPixie: maxPixie.toLocaleString()
+          };
+        },
+
+        setIntersectionPage(p) {
+          if (typeof p !== 'number') return;
+          if (p >= 1 && p <= this.intersectionTotalPages) {
+            this.intersectionPage = p;
+            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+          }
+        },
+
+        resetIntersectionFilters() {
+          this.intersectionFilters = {
+            search: '',
+            minOverlap: 'all',
+            seedId: 'all',
+            format: 'all',
+            market: 'all',
+            engine: 'all'
+          };
+          this.intersectionSort = 'pixie';
+          this.intersectionPage = 1;
+          this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+        },
+
+        toggleExpandSeeds(pinId) {
+          this.intersectionExpandedHubs = {
+            ...this.intersectionExpandedHubs,
+            [pinId]: !this.intersectionExpandedHubs[pinId]
+          };
+          this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+        },
+
+        isSeedsExpanded(pinId) {
+          return Boolean(this.intersectionExpandedHubs[pinId]);
         },
 
         openLightbox(index) {
