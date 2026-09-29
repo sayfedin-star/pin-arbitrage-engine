@@ -1286,17 +1286,15 @@ async function crawlSeed(seed) {
   const allCapsules = Array.from(guidedSearchCapsulesMap.values());
   if (allCapsules.length > 0) {
     console.log(`[*] Persisting ${allCapsules.length} guided search capsules into Neon...`);
-    for (const cap of allCapsules) {
-      await sql`
-        INSERT INTO seed_guided_search_capsules (
-          seed_pin_id, query_term, normalized_query, image_url, search_url, node_id, discovered_at
-        ) VALUES (
-          ${cap.seed_pin_id}, ${cap.query_term}, ${cap.normalized_query}, ${cap.image_url}, ${cap.search_url}, ${cap.node_id}, NOW()
-        )
-        ON CONFLICT (seed_pin_id, normalized_query) DO UPDATE
-        SET image_url = EXCLUDED.image_url, search_url = EXCLUDED.search_url, node_id = EXCLUDED.node_id;
-      `;
-    }
+    await Promise.all(allCapsules.map(cap => sql`
+      INSERT INTO seed_guided_search_capsules (
+        seed_pin_id, query_term, normalized_query, image_url, search_url, node_id, discovered_at
+      ) VALUES (
+        ${cap.seed_pin_id}, ${cap.query_term}, ${cap.normalized_query}, ${cap.image_url}, ${cap.search_url}, ${cap.node_id}, NOW()
+      )
+      ON CONFLICT (seed_pin_id, normalized_query) DO UPDATE
+      SET image_url = EXCLUDED.image_url, search_url = EXCLUDED.search_url, node_id = EXCLUDED.node_id;
+    `));
     console.log(`[+] Successfully stored ${allCapsules.length} guided search capsules in Neon.`);
   }
 
@@ -1331,17 +1329,21 @@ async function main() {
   let seedsToProcess = [];
 
   if (targetPinArg) {
-    const rawIds = String(targetPinArg).split(',').map(s => s.trim()).filter(Boolean);
+    const rawIds = String(targetPinArg)
+      .split(',')
+      .map(s => {
+        const m = String(s).match(/\d{10,25}/);
+        return m ? m[0] : s.trim();
+      })
+      .filter(Boolean);
     console.log(`[*] Target pin(s) override specified: ${rawIds.join(', ')}`);
 
-    for (const cleanId of rawIds) {
-      // Ensure seed exists in database
-      await sql`
-        INSERT INTO cluster_seeds (pin_id, label, is_competitor, velocity)
-        VALUES (${cleanId}, 'Target Pin Override', false, 0)
-        ON CONFLICT (pin_id) DO NOTHING;
-      `;
-    }
+    // Concurrent idempotent seed registration
+    await Promise.all(rawIds.map(cleanId => sql`
+      INSERT INTO cluster_seeds (pin_id, label, is_competitor, velocity)
+      VALUES (${cleanId}, 'Target Pin Override', false, 0)
+      ON CONFLICT (pin_id) DO NOTHING;
+    `));
 
     const existing = await sql`
       SELECT pin_id, label, is_competitor, velocity, last_crawled_at
@@ -1349,10 +1351,15 @@ async function main() {
       WHERE pin_id = ANY(${rawIds});
     `;
 
-    seedsToProcess = existing.length > 0 ? existing : rawIds.map(id => ({
+    // Strictly deterministic order matching rawIds across all shards
+    const existingMap = new Map((existing || []).map(s => [String(s.pin_id), s]));
+    seedsToProcess = rawIds.map(id => existingMap.get(id) || {
       pin_id: id,
-      label: 'Target Pin Override'
-    }));
+      label: 'Target Pin Override',
+      is_competitor: false,
+      velocity: 0,
+      last_crawled_at: null
+    });
   } else {
     console.log(`[*] Querying seeds needing crawl (last_crawled_at IS NULL or > 24h old)...`);
     seedsToProcess = await sql`
@@ -1367,9 +1374,11 @@ async function main() {
   // 🚀 Matrix Sharding (WWW 2018 Distributed Crawler Architecture — 20 Shards)
   const shardIndexRaw = process.env.SHARD_INDEX;
   const shardTotalRaw = process.env.SHARD_TOTAL;
+  let shardIdx = null;
+  let shardTot = null;
   if (shardIndexRaw !== undefined && shardIndexRaw !== '' && shardTotalRaw !== undefined && shardTotalRaw !== '') {
-    const shardIdx = parseInt(shardIndexRaw, 10);
-    const shardTot = parseInt(shardTotalRaw, 10);
+    shardIdx = parseInt(shardIndexRaw, 10);
+    shardTot = parseInt(shardTotalRaw, 10);
     if (!isNaN(shardIdx) && !isNaN(shardTot) && shardTot > 1) {
       const totalAvailable = seedsToProcess.length;
       seedsToProcess = seedsToProcess.filter((_, idx) => (idx % shardTot) === shardIdx);
@@ -1397,10 +1406,18 @@ async function main() {
         FROM candidate_graph_nodes 
         WHERE (repins = 0 OR repins IS NULL) AND saves > 0
         GROUP BY seed_pin_id
-        ORDER BY (seed_pin_id = '1125829606880675896') DESC;
+        ORDER BY (seed_pin_id = '1125829606880675896') DESC, seed_pin_id ASC;
       `;
       if (seedsNeedingEnrichment.length > 0) {
-        console.log(`[*] Discovered ${seedsNeedingEnrichment.length} seed(s) with pending deep metrics. Auto-enriching...`);
+        let enrichmentSlice = seedsNeedingEnrichment;
+        if (shardIdx !== null && shardTot > 1) {
+          enrichmentSlice = seedsNeedingEnrichment.filter((_, idx) => (idx % shardTot) === shardIdx);
+        }
+        if (enrichmentSlice.length === 0) {
+          console.log(`[+] Shard ${shardIdx + 1}/${shardTot}: No enrichment seeds assigned. Exiting cleanly.`);
+          return;
+        }
+        console.log(`[*] Shard ${shardIdx !== null ? (shardIdx + 1) + '/' + shardTot : '1/1'}: Discovered ${enrichmentSlice.length} seed(s) with pending deep metrics. Auto-enriching...`);
         const baseHeaders = {
           'accept': 'application/json, text/javascript, */*, q=0.01',
           'accept-language': 'en-US,en;q=0.9',
@@ -1410,7 +1427,7 @@ async function main() {
         if (process.env.PINTEREST_COOKIE) {
           baseHeaders['cookie'] = formatPinterestCookie(process.env.PINTEREST_COOKIE);
         }
-        for (const row of seedsNeedingEnrichment) {
+        for (const row of enrichmentSlice) {
           await enrichCandidatesWithPinMetrics(row.seed_pin_id, baseHeaders);
         }
       }

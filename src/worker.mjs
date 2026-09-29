@@ -413,9 +413,15 @@ export default {
         const body = await request.json().catch(() => ({}));
         let target = '';
         if (Array.isArray(body.seed_pin_ids) && body.seed_pin_ids.length > 0) {
-          target = body.seed_pin_ids.map(s => String(s).trim()).filter(Boolean).join(',');
+          target = body.seed_pin_ids.map(s => {
+            const m = String(s).match(/\d{10,25}/);
+            return m ? m[0] : String(s).trim();
+          }).filter(Boolean).join(',');
         } else if (body.seed_pin_id) {
-          target = String(body.seed_pin_id).trim();
+          target = String(body.seed_pin_id).split(',').map(s => {
+            const m = String(s).match(/\d{10,25}/);
+            return m ? m[0] : String(s).trim();
+          }).filter(Boolean).join(',');
         }
         const maxPages = body.max_pages ? String(body.max_pages).trim() : '60';
 
