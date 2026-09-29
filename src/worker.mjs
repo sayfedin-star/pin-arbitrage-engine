@@ -7,6 +7,9 @@
 
 import { neon } from '@neondatabase/serverless';
 import { getDashboardHtml } from './dashboard-ui.mjs';
+import { getCompetitorsOverview, listCompetitors, trackCompetitor, syncCompetitorProfile } from './modules/competitors/service.mjs';
+import { listKeywords, addKeyword, crawlKeywordSERP, getKeywordPins } from './modules/keywords/service.mjs';
+import { getFleetProjects, registerNewProject } from './modules/fleet/service.mjs';
 
 function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -1226,6 +1229,88 @@ export default {
           capsules_imported: capturedCapsules.length,
           authoritative_counts: authoritativeCounts
         });
+      }
+
+      // 15. Competitor Intelligence API
+      if (method === 'GET' && pathname === '/api/competitors') {
+        const overview = await getCompetitorsOverview(sql);
+        const competitors = await listCompetitors(sql, {
+          account_type: searchParams.get('account_type') || 'all',
+          search: searchParams.get('search') || '',
+          limit: Number(searchParams.get('limit') || 50),
+          offset: Number(searchParams.get('offset') || 0)
+        });
+        return jsonResponse({ success: true, overview, competitors });
+      }
+
+      if (method === 'POST' && pathname === '/api/competitors') {
+        const body = await request.json().catch(() => ({}));
+        const row = await trackCompetitor(sql, body);
+        return jsonResponse({ success: true, competitor: row });
+      }
+
+      if (method === 'POST' && pathname === '/api/competitors/sync') {
+        const body = await request.json().catch(() => ({}));
+        const username = body.username;
+        if (!username) return jsonResponse({ error: 'username is required' }, 400);
+        const cookie = env.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env.PINTEREST_COOKIE : null);
+        const updated = await syncCompetitorProfile(sql, username, cookie);
+        return jsonResponse({ success: true, profile: updated });
+      }
+
+      if (method === 'DELETE' && pathname === '/api/competitors') {
+        const id = searchParams.get('id');
+        const username = searchParams.get('username');
+        if (id) {
+          await sql`DELETE FROM competitor_profiles WHERE id = ${Number(id)};`;
+        } else if (username) {
+          await sql`DELETE FROM competitor_profiles WHERE username = ${username.toLowerCase()};`;
+        }
+        return jsonResponse({ success: true });
+      }
+
+      // 16. Keyword Velocity Tracker API
+      if (method === 'GET' && pathname === '/api/keywords') {
+        const keywords = await listKeywords(sql, {
+          search: searchParams.get('search') || '',
+          limit: Number(searchParams.get('limit') || 50),
+          offset: Number(searchParams.get('offset') || 0)
+        });
+        return jsonResponse({ success: true, keywords });
+      }
+
+      if (method === 'POST' && pathname === '/api/keywords') {
+        const body = await request.json().catch(() => ({}));
+        const row = await addKeyword(sql, body);
+        return jsonResponse({ success: true, keyword: row });
+      }
+
+      if (method === 'POST' && pathname === '/api/keywords/sync') {
+        const body = await request.json().catch(() => ({}));
+        const keywordId = Number(body.keyword_id);
+        if (!keywordId) return jsonResponse({ error: 'keyword_id is required' }, 400);
+        const cookie = env.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env.PINTEREST_COOKIE : null);
+        const res = await crawlKeywordSERP(sql, keywordId, cookie);
+        return jsonResponse({ success: true, result: res });
+      }
+
+      if (method === 'GET' && pathname === '/api/keywords/pins') {
+        const keywordId = Number(searchParams.get('keyword_id'));
+        if (!keywordId) return jsonResponse({ error: 'keyword_id is required' }, 400);
+        const pins = await getKeywordPins(sql, keywordId);
+        return jsonResponse({ success: true, pins });
+      }
+
+      // 17. Neon Multi-Project Fleet API
+      if (method === 'GET' && pathname === '/api/fleet/projects') {
+        const projects = await getFleetProjects(sql);
+        return jsonResponse({ success: true, projects });
+      }
+
+      if (method === 'POST' && pathname === '/api/fleet/projects') {
+        const body = await request.json().catch(() => ({}));
+        const row = await registerNewProject(sql, body);
+        return jsonResponse({ success: true, project: row });
       }
 
       // Default 404

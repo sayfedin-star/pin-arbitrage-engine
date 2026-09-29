@@ -16,6 +16,9 @@ import { promisify } from 'node:util';
 import { neon } from '@neondatabase/serverless';
 import { parsePinCandidate, formatPinterestCookie } from './cluster-intelligence.mjs';
 import { getDashboardHtml } from '../src/dashboard-ui.mjs';
+import { getCompetitorsOverview, listCompetitors, trackCompetitor, syncCompetitorProfile } from '../src/modules/competitors/service.mjs';
+import { listKeywords, addKeyword, crawlKeywordSERP, getKeywordPins } from '../src/modules/keywords/service.mjs';
+import { getFleetProjects, registerNewProject } from '../src/modules/fleet/service.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -1398,6 +1401,86 @@ const server = http.createServer(async (req, res) => {
         capsules_imported: capturedCapsules.length,
         authoritative_counts: authoritativeCounts
       });
+    }
+
+    // Competitor Intelligence API
+    if (method === 'GET' && pathname === '/api/competitors') {
+      const overview = await getCompetitorsOverview(sql);
+      const competitors = await listCompetitors(sql, {
+        account_type: searchParams.get('account_type') || 'all',
+        search: searchParams.get('search') || '',
+        limit: Number(searchParams.get('limit') || 50),
+        offset: Number(searchParams.get('offset') || 0)
+      });
+      return sendJson(res, 200, { success: true, overview, competitors });
+    }
+
+    if (method === 'POST' && pathname === '/api/competitors') {
+      const body = await parseJsonBody(req);
+      const row = await trackCompetitor(sql, body);
+      return sendJson(res, 200, { success: true, competitor: row });
+    }
+
+    if (method === 'POST' && pathname === '/api/competitors/sync') {
+      const body = await parseJsonBody(req);
+      const username = body.username;
+      if (!username) return sendJson(res, 400, { error: 'username is required' });
+      const updated = await syncCompetitorProfile(sql, username, process.env.PINTEREST_COOKIE);
+      return sendJson(res, 200, { success: true, profile: updated });
+    }
+
+    if (method === 'DELETE' && pathname === '/api/competitors') {
+      const id = searchParams.get('id');
+      const username = searchParams.get('username');
+      if (id) {
+        await sql`DELETE FROM competitor_profiles WHERE id = ${Number(id)};`;
+      } else if (username) {
+        await sql`DELETE FROM competitor_profiles WHERE username = ${username.toLowerCase()};`;
+      }
+      return sendJson(res, 200, { success: true });
+    }
+
+    // Keyword Velocity Tracker API
+    if (method === 'GET' && pathname === '/api/keywords') {
+      const keywords = await listKeywords(sql, {
+        search: searchParams.get('search') || '',
+        limit: Number(searchParams.get('limit') || 50),
+        offset: Number(searchParams.get('offset') || 0)
+      });
+      return sendJson(res, 200, { success: true, keywords });
+    }
+
+    if (method === 'POST' && pathname === '/api/keywords') {
+      const body = await parseJsonBody(req);
+      const row = await addKeyword(sql, body);
+      return sendJson(res, 200, { success: true, keyword: row });
+    }
+
+    if (method === 'POST' && pathname === '/api/keywords/sync') {
+      const body = await parseJsonBody(req);
+      const keywordId = Number(body.keyword_id);
+      if (!keywordId) return sendJson(res, 400, { error: 'keyword_id is required' });
+      const result = await crawlKeywordSERP(sql, keywordId, process.env.PINTEREST_COOKIE);
+      return sendJson(res, 200, { success: true, result });
+    }
+
+    if (method === 'GET' && pathname === '/api/keywords/pins') {
+      const keywordId = Number(searchParams.get('keyword_id'));
+      if (!keywordId) return sendJson(res, 400, { error: 'keyword_id is required' });
+      const pins = await getKeywordPins(sql, keywordId);
+      return sendJson(res, 200, { success: true, pins });
+    }
+
+    // Neon Multi-Project Fleet API
+    if (method === 'GET' && pathname === '/api/fleet/projects') {
+      const projects = await getFleetProjects(sql);
+      return sendJson(res, 200, { success: true, projects });
+    }
+
+    if (method === 'POST' && pathname === '/api/fleet/projects') {
+      const body = await parseJsonBody(req);
+      const row = await registerNewProject(sql, body);
+      return sendJson(res, 200, { success: true, project: row });
     }
 
     // 9. GET or HEAD /

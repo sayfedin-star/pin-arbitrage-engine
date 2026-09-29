@@ -107,26 +107,47 @@ export function getDashboardHtml() {
       </div>
 
       <!-- 3 Primary Top-Level Navigation Tabs -->
-      <div class="flex items-center space-x-2 sm:space-x-4 border-t border-slate-200 dark:border-slate-800/80 pt-1 -mb-px">
+      <div class="flex items-center space-x-2 sm:space-x-4 border-t border-slate-200 dark:border-slate-800/80 pt-1 -mb-px overflow-x-auto">
         <!-- Tab 1: Tracked Seeds -->
-        <button @click="switchTab('seeds')" class="flex items-center space-x-2 px-4 py-3 text-xs sm:text-sm font-semibold border-b-2 transition whitespace-nowrap" :class="currentTab === 'seeds' ? 'border-rose-500 text-rose-600 dark:text-rose-400 font-bold' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'">
+        <button @click="switchTab('seeds')" class="flex items-center space-x-2 px-3 py-3 text-xs sm:text-sm font-semibold border-b-2 transition whitespace-nowrap" :class="currentTab === 'seeds' ? 'border-rose-500 text-rose-600 dark:text-rose-400 font-bold' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'">
           <i data-lucide="folder-git-2" class="w-4 h-4"></i>
-          <span>📁 Tracked Seeds (صفحة لكل بذرة)</span>
+          <span>📁 Tracked Seeds</span>
           <span class="px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300" x-text="seeds.length"></span>
         </button>
 
         <!-- Tab 2: Global Intersections -->
-        <button @click="switchTab('intersections')" class="flex items-center space-x-2 px-4 py-3 text-xs sm:text-sm font-semibold border-b-2 transition whitespace-nowrap" :class="currentTab === 'intersections' ? 'border-rose-500 text-rose-600 dark:text-rose-400 font-bold' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'">
+        <button @click="switchTab('intersections')" class="flex items-center space-x-2 px-3 py-3 text-xs sm:text-sm font-semibold border-b-2 transition whitespace-nowrap" :class="currentTab === 'intersections' ? 'border-rose-500 text-rose-600 dark:text-rose-400 font-bold' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'">
           <i data-lucide="flame" class="w-4 h-4 text-amber-500"></i>
-          <span>⚡ Global Intersections (صفحة التقاطعات الشاملة)</span>
+          <span>⚡ Global Intersections</span>
           <span class="px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-amber-500/20 text-amber-700 dark:text-amber-400" x-text="intersections.length"></span>
         </button>
 
         <!-- Tab 3: Master Database Explorer -->
-        <button @click="switchTab('explorer')" class="flex items-center space-x-2 px-4 py-3 text-xs sm:text-sm font-semibold border-b-2 transition whitespace-nowrap" :class="currentTab === 'explorer' ? 'border-rose-500 text-rose-600 dark:text-rose-400 font-bold' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'">
+        <button @click="switchTab('explorer')" class="flex items-center space-x-2 px-3 py-3 text-xs sm:text-sm font-semibold border-b-2 transition whitespace-nowrap" :class="currentTab === 'explorer' ? 'border-rose-500 text-rose-600 dark:text-rose-400 font-bold' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'">
           <i data-lucide="database" class="w-4 h-4 text-sky-500"></i>
-          <span>📊 Master Database Explorer (المستكشف العام)</span>
+          <span>📊 Master Explorer</span>
           <span class="px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-sky-500/10 text-sky-700 dark:text-sky-400" x-text="overview.total_candidates || '...'"></span>
+        </button>
+
+        <!-- Tab 4: Competitor Intelligence -->
+        <button @click="switchTab('competitors')" class="flex items-center space-x-2 px-3 py-3 text-xs sm:text-sm font-semibold border-b-2 transition whitespace-nowrap" :class="currentTab === 'competitors' ? 'border-purple-500 text-purple-600 dark:text-purple-400 font-bold' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'">
+          <i data-lucide="users" class="w-4 h-4 text-purple-500"></i>
+          <span>🕵️ Competitors</span>
+          <span class="px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-purple-500/10 text-purple-700 dark:text-purple-400" x-text="competitors.length"></span>
+        </button>
+
+        <!-- Tab 5: Keyword Velocity Tracker -->
+        <button @click="switchTab('keywords')" class="flex items-center space-x-2 px-3 py-3 text-xs sm:text-sm font-semibold border-b-2 transition whitespace-nowrap" :class="currentTab === 'keywords' ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400 font-bold' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'">
+          <i data-lucide="search" class="w-4 h-4 text-emerald-500"></i>
+          <span>🔍 Keywords & Velocity</span>
+          <span class="px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" x-text="keywords.length"></span>
+        </button>
+
+        <!-- Tab 6: Neon Projects Fleet -->
+        <button @click="switchTab('fleet')" class="flex items-center space-x-2 px-3 py-3 text-xs sm:text-sm font-semibold border-b-2 transition whitespace-nowrap" :class="currentTab === 'fleet' ? 'border-cyan-500 text-cyan-600 dark:text-cyan-400 font-bold' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'">
+          <i data-lucide="server" class="w-4 h-4 text-cyan-500"></i>
+          <span>⚡ Neon Fleet (100 Projects)</span>
+          <span class="px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-cyan-500/10 text-cyan-700 dark:text-cyan-400" x-text="fleetProjects.length"></span>
         </button>
       </div>
     </div>
@@ -1994,6 +2015,409 @@ export function getDashboardHtml() {
       </div>
     </div>
 
+    <!-- ======================================================== -->
+    <!-- TAB 4: 🕵️ COMPETITOR INTELLIGENCE (LIVE MONITOR)          -->
+    <!-- Matches User Image 2 Reference UI                        -->
+    <!-- ======================================================== -->
+    <div x-show="currentTab === 'competitors'" class="space-y-6">
+      <!-- Header Section matching Image 2 -->
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div class="flex items-center space-x-3">
+          <div class="h-11 w-11 rounded-2xl bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center border border-purple-500/20">
+            <i data-lucide="users" class="w-6 h-6"></i>
+          </div>
+          <div>
+            <div class="flex items-center space-x-2">
+              <h2 class="text-xl font-extrabold tracking-tight text-slate-900 dark:text-white">Competitor Intelligence</h2>
+              <span class="px-2 py-0.5 text-[10px] font-bold uppercase rounded-full bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30">Live Monitor</span>
+            </div>
+            <p class="text-xs text-slate-500 dark:text-slate-400">Monitor profile reach, follower velocity, and board strategy timeline.</p>
+          </div>
+        </div>
+        <div class="flex items-center space-x-2">
+          <button @click="exportCompetitorsCsv()" class="px-3 py-2 text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition flex items-center space-x-1.5 shadow-sm">
+            <i data-lucide="download" class="w-3.5 h-3.5"></i>
+            <span>Export CSV</span>
+          </button>
+          <button @click="syncAllCompetitors()" :disabled="isLoading" class="px-3.5 py-2 text-xs font-bold rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white transition flex items-center space-x-1.5 shadow-sm shadow-emerald-950/20 active:scale-95">
+            <i data-lucide="refresh-cw" :class="{'animate-spin': isLoading}" class="w-3.5 h-3.5"></i>
+            <span>Run Full Update</span>
+          </button>
+          <button @click="isAddCompetitorModalOpen = true" class="px-3.5 py-2 text-xs font-bold rounded-xl bg-gradient-to-r from-rose-600 to-amber-600 hover:from-rose-500 hover:to-amber-500 text-white transition flex items-center space-x-1.5 shadow-sm shadow-rose-950/20 active:scale-95">
+            <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+            <span>+ Track Profiles</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Automated Pipeline Status Bar matching Image 2 -->
+      <div class="p-3 px-4 rounded-2xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs shadow-sm">
+        <div class="flex items-center space-x-2">
+          <span class="p-1 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+            <i data-lucide="clock" class="w-4 h-4"></i>
+          </span>
+          <span class="font-bold text-slate-900 dark:text-white">Automated Pipeline</span>
+          <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">Active</span>
+          <span class="text-slate-400 font-mono text-[11px]">Matrix Sharding Runner</span>
+        </div>
+        <div class="flex items-center space-x-4 text-slate-500 dark:text-slate-400">
+          <span class="flex items-center space-x-1.5">
+            <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+            <span>Provider: <strong>FastCron / GH Actions</strong></span>
+          </span>
+          <button @click="fetchCompetitors()" class="hover:text-slate-900 dark:hover:text-white flex items-center space-x-1">
+            <i data-lucide="database" class="w-3.5 h-3.5 text-purple-500"></i>
+            <span>Vault</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 4 KPI Cards matching Image 2 -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <!-- Card 1: Tracked Profiles -->
+        <div class="p-5 rounded-2xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 shadow-sm relative overflow-hidden">
+          <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider">
+            <span>TRACKED PROFILES</span>
+            <i data-lucide="users" class="w-4 h-4 text-rose-500"></i>
+          </div>
+          <div class="mt-3 flex items-baseline space-x-2">
+            <span class="text-3xl font-extrabold text-slate-900 dark:text-white font-mono" x-text="competitorsOverview.tracked_profiles || competitors.length"></span>
+          </div>
+          <div class="mt-3 w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
+            <div class="bg-purple-500 h-full rounded-full" style="width: 100%"></div>
+          </div>
+          <div class="mt-2 text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-between">
+            <span x-text="(competitorsOverview.own_count || 0) + ' own'"></span>
+            <span x-text="(competitorsOverview.competitor_count || competitors.length) + ' competitors'"></span>
+          </div>
+        </div>
+
+        <!-- Card 2: Combined Reach -->
+        <div class="p-5 rounded-2xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 shadow-sm">
+          <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider">
+            <span>COMBINED REACH</span>
+            <i data-lucide="trending-up" class="w-4 h-4 text-emerald-500"></i>
+          </div>
+          <div class="mt-3 flex items-baseline space-x-2">
+            <span class="text-3xl font-extrabold text-emerald-600 dark:text-emerald-400 font-mono" x-text="formatNumber(competitorsOverview.combined_reach, true)"></span>
+          </div>
+          <div class="mt-4 text-[11px] text-slate-500 dark:text-slate-400 flex items-center space-x-1.5">
+            <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+            <span>top: <strong class="text-slate-800 dark:text-slate-200" x-text="competitorsOverview.top_competitor?.handle || '@streetstylis'"></strong> (<span x-text="competitorsOverview.top_competitor?.reach || '10M'"></span>)</span>
+          </div>
+        </div>
+
+        <!-- Card 3: Total Audience -->
+        <div class="p-5 rounded-2xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 shadow-sm">
+          <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider">
+            <span>TOTAL AUDIENCE</span>
+            <i data-lucide="heart" class="w-4 h-4 text-sky-500"></i>
+          </div>
+          <div class="mt-3 flex items-baseline space-x-2">
+            <span class="text-3xl font-extrabold text-sky-600 dark:text-sky-400 font-mono" x-text="formatNumber(competitorsOverview.total_audience, true)"></span>
+          </div>
+          <div class="mt-4 text-[11px] text-slate-500 dark:text-slate-400 flex items-center space-x-1.5">
+            <span class="w-2 h-2 rounded-full bg-sky-500"></span>
+            <span>avg: <strong class="text-slate-800 dark:text-slate-200" x-text="formatNumber(Math.round((competitorsOverview.total_audience || 60000000) / (competitors.length || 1)), true)"></strong> / profile</span>
+          </div>
+        </div>
+
+        <!-- Card 4: Pins Tracked -->
+        <div class="p-5 rounded-2xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 shadow-sm">
+          <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider">
+            <span>PINS TRACKED</span>
+            <i data-lucide="zap" class="w-4 h-4 text-amber-500"></i>
+          </div>
+          <div class="mt-3 flex items-baseline space-x-2">
+            <span class="text-3xl font-extrabold text-amber-600 dark:text-amber-400 font-mono" x-text="formatNumber(competitorsOverview.pins_tracked, true)"></span>
+          </div>
+          <div class="mt-4 text-[11px] text-slate-500 dark:text-slate-400 flex items-center space-x-1.5">
+            <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+            <span><strong class="text-slate-800 dark:text-slate-200" x-text="formatNumber(competitorsOverview.pins_tracked)"></strong> in Neon database</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Filter Tabs & Table Controls matching Image 2 -->
+      <div class="p-4 rounded-2xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 space-y-4 shadow-sm">
+        <div class="flex flex-col sm:flex-row items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800/80 pb-3">
+          <!-- Sub Tabs -->
+          <div class="flex items-center space-x-1 bg-slate-100 dark:bg-slate-900 p-1 rounded-xl text-xs font-semibold">
+            <button @click="competitorFilter = 'all'" class="px-3 py-1.5 rounded-lg transition" :class="competitorFilter === 'all' ? 'bg-white dark:bg-[#0b1120] text-slate-900 dark:text-white shadow-sm font-bold' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'">All Profiles</button>
+            <button @click="competitorFilter = 'own'" class="px-3 py-1.5 rounded-lg transition" :class="competitorFilter === 'own' ? 'bg-white dark:bg-[#0b1120] text-slate-900 dark:text-white shadow-sm font-bold' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'">👤 My Accounts</button>
+            <button @click="competitorFilter = 'competitor'" class="px-3 py-1.5 rounded-lg transition" :class="competitorFilter === 'competitor' ? 'bg-white dark:bg-[#0b1120] text-slate-900 dark:text-white shadow-sm font-bold' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'">🎯 Competitors</button>
+          </div>
+
+          <!-- Search Bar -->
+          <div class="flex items-center space-x-2 w-full sm:w-auto">
+            <div class="relative w-full sm:w-64">
+              <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
+              <input type="text" x-model="competitorSearch" placeholder="Search handle, name, tag..." class="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-purple-500/50">
+            </div>
+            <span class="px-2.5 py-1 rounded-full text-xs font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 whitespace-nowrap" x-text="filteredCompetitors.length + ' Profiles'"></span>
+          </div>
+        </div>
+
+        <!-- Competitor Table matching Image 2 -->
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-xs">
+            <thead>
+              <tr class="border-b border-slate-200 dark:border-slate-800/80 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                <th class="py-3 px-3 w-8"><input type="checkbox" class="rounded border-slate-300 dark:border-slate-700 text-purple-600"></th>
+                <th class="py-3 px-3">Profile</th>
+                <th class="py-3 px-3 text-right">Monthly Reach</th>
+                <th class="py-3 px-3 text-right">Profile Views</th>
+                <th class="py-3 px-3 text-right">Total Pins</th>
+                <th class="py-3 px-3 text-center">Boards</th>
+                <th class="py-3 px-3 text-center">Activity</th>
+                <th class="py-3 px-3 text-center">Actions</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono">
+              <template x-for="c in filteredCompetitors" :key="c.id">
+                <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition">
+                  <td class="py-3 px-3"><input type="checkbox" class="rounded border-slate-300 dark:border-slate-700 text-purple-600"></td>
+                  <td class="py-3 px-3 font-sans">
+                    <div class="flex items-center space-x-2.5">
+                      <img :src="c.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=64&h=64&fit=crop&crop=face'" class="w-7 h-7 rounded-full object-cover border border-slate-200 dark:border-slate-700">
+                      <a :href="'https://www.pinterest.com/' + c.username + '/'" target="_blank" class="font-bold text-slate-900 dark:text-white hover:text-purple-600 dark:hover:text-purple-400 flex items-center space-x-1">
+                        <span x-text="'@' + c.username"></span>
+                        <i data-lucide="external-link" class="w-3 h-3 text-slate-400"></i>
+                      </a>
+                    </div>
+                  </td>
+                  <td class="py-3 px-3 text-right">
+                    <span class="font-bold text-slate-900 dark:text-white" x-text="formatNumber(c.monthly_reach)"></span>
+                    <template x-if="c.reach_delta_7d !== 0">
+                      <span class="text-[10px] font-bold ml-1.5" :class="c.reach_delta_7d > 0 ? 'text-emerald-500' : 'text-rose-500'" x-text="(c.reach_delta_7d > 0 ? '(+' : '(') + formatNumber(c.reach_delta_7d) + ')'"></span>
+                    </template>
+                  </td>
+                  <td class="py-3 px-3 text-right">
+                    <span class="text-slate-700 dark:text-slate-300" x-text="formatNumber(c.profile_views)"></span>
+                    <template x-if="c.views_delta_7d !== 0">
+                      <span class="text-[10px] font-bold ml-1.5" :class="c.views_delta_7d > 0 ? 'text-emerald-500' : 'text-rose-500'" x-text="(c.views_delta_7d > 0 ? '(+' : '(') + formatNumber(c.views_delta_7d) + ')'"></span>
+                    </template>
+                  </td>
+                  <td class="py-3 px-3 text-right font-bold text-slate-800 dark:text-slate-200" x-text="formatNumber(c.total_pins)"></td>
+                  <td class="py-3 px-3 text-center">
+                    <span class="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold text-[11px]" x-text="formatNumber(c.total_boards)"></span>
+                  </td>
+                  <td class="py-3 px-3 text-center">
+                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30" x-text="'• ' + (c.activity_status || '1d ago')"></span>
+                  </td>
+                  <td class="py-3 px-3 text-center">
+                    <div class="flex items-center justify-center space-x-1.5">
+                      <button @click="syncCompetitor(c.username)" class="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400 hover:text-emerald-500 transition" title="Sync live profile">
+                        <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+                      </button>
+                      <button @click="deleteCompetitor(c.id)" class="p-1.5 rounded-lg hover:bg-rose-100 dark:hover:bg-rose-950/40 text-slate-400 hover:text-rose-500 transition" title="Delete competitor">
+                        <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+            <tfoot class="border-t-2 border-slate-200 dark:border-slate-800 font-bold text-slate-900 dark:text-white font-mono">
+              <tr>
+                <td></td>
+                <td class="py-3 px-3 font-sans" x-text="'Totals (' + filteredCompetitors.length + ')'"></td>
+                <td class="py-3 px-3 text-right text-emerald-600 dark:text-emerald-400" x-text="formatNumber(competitorsOverview.combined_reach)"></td>
+                <td class="py-3 px-3 text-right text-sky-600 dark:text-sky-400" x-text="formatNumber(competitorsOverview.total_audience)"></td>
+                <td class="py-3 px-3 text-right text-amber-600 dark:text-amber-400" x-text="formatNumber(competitorsOverview.pins_tracked)"></td>
+                <td colspan="3"></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ======================================================== -->
+    <!-- TAB 5: 🔍 KEYWORD VELOCITY TRACKER                        -->
+    <!-- Matches User Image 1 Reference UI                        -->
+    <!-- ======================================================== -->
+    <div x-show="currentTab === 'keywords'" class="space-y-6">
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div class="flex items-center space-x-3">
+          <div class="h-11 w-11 rounded-2xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center border border-emerald-500/20">
+            <i data-lucide="search" class="w-6 h-6"></i>
+          </div>
+          <div>
+            <div class="flex items-center space-x-2">
+              <h2 class="text-xl font-extrabold tracking-tight text-slate-900 dark:text-white">Keyword Intelligence & Velocity</h2>
+              <span class="px-2 py-0.5 text-[10px] font-bold uppercase rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">SERP Tracker</span>
+            </div>
+            <p class="text-xs text-slate-500 dark:text-slate-400">Track Pinterest search queries, organic rank positions, and daily save velocity.</p>
+          </div>
+        </div>
+        <div class="flex items-center space-x-2">
+          <button @click="isAddKeywordModalOpen = true" class="px-3.5 py-2 text-xs font-bold rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white transition flex items-center space-x-1.5 shadow-sm shadow-emerald-950/20 active:scale-95">
+            <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+            <span>+ Add Keywords</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Keywords Table matching Image 1 -->
+      <div class="p-4 rounded-2xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 space-y-4 shadow-sm">
+        <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800/80 pb-3">
+          <span class="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center space-x-1.5">
+            <span>Keyword</span>
+            <i data-lucide="chevron-down" class="w-3.5 h-3.5"></i>
+          </span>
+          <span class="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 font-mono" x-text="keywords.length + ' Keywords'"></span>
+        </div>
+
+        <div class="divide-y divide-slate-100 dark:divide-slate-800/60 font-sans">
+          <template x-for="kw in keywords" :key="kw.id">
+            <div class="py-3.5 px-2 flex items-center justify-between hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition rounded-xl">
+              <div class="flex items-center space-x-3">
+                <a :href="'https://www.pinterest.com/search/pins/?q=' + encodeURIComponent(kw.keyword)" target="_blank" class="text-sm font-semibold text-slate-900 dark:text-white hover:text-emerald-600 dark:hover:text-emerald-400 underline decoration-slate-400 dark:decoration-slate-600 hover:decoration-emerald-500 flex items-center space-x-1.5">
+                  <span x-text="kw.keyword"></span>
+                  <i data-lucide="external-link" class="w-3.5 h-3.5 text-slate-400"></i>
+                </a>
+                <span class="px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400" x-text="kw.category || 'General'"></span>
+              </div>
+              <div class="flex items-center space-x-3">
+                <span class="text-xs font-mono text-slate-500 dark:text-slate-400" x-text="'Target: ' + kw.target_pin_count + ' pins'"></span>
+                <button @click="syncKeyword(kw.id)" class="px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition flex items-center space-x-1">
+                  <i data-lucide="refresh-cw" class="w-3 h-3"></i>
+                  <span>Sync SERP</span>
+                </button>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+    </div>
+
+    <!-- ======================================================== -->
+    <!-- TAB 6: ⚡ NEON MULTI-PROJECT FLEET MANAGER                -->
+    <!-- Up to 100 Neon Serverless Projects & 50 GB Pooled Storage -->
+    <!-- ======================================================== -->
+    <div x-show="currentTab === 'fleet'" class="space-y-6">
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div class="flex items-center space-x-3">
+          <div class="h-11 w-11 rounded-2xl bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 flex items-center justify-center border border-cyan-500/20">
+            <i data-lucide="server" class="w-6 h-6"></i>
+          </div>
+          <div>
+            <div class="flex items-center space-x-2">
+              <h2 class="text-xl font-extrabold tracking-tight text-slate-900 dark:text-white">Neon Multi-Project Fleet Manager</h2>
+              <span class="px-2 py-0.5 text-[10px] font-bold uppercase rounded-full bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/30">Up to 100 Projects</span>
+            </div>
+            <p class="text-xs text-slate-500 dark:text-slate-400">100 CU-Hours per project | 0.5 GB Independent storage | Scale-to-Zero architecture.</p>
+          </div>
+        </div>
+        <div class="flex items-center space-x-2">
+          <button @click="isAddFleetModalOpen = true" class="px-3.5 py-2 text-xs font-bold rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white transition flex items-center space-x-1.5 shadow-sm shadow-cyan-950/20 active:scale-95">
+            <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+            <span>+ Add Project to Fleet</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Fleet KPI Cards -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="p-5 rounded-2xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 shadow-sm">
+          <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider">
+            <span>REGISTERED PROJECTS</span>
+            <i data-lucide="layers" class="w-4 h-4 text-cyan-500"></i>
+          </div>
+          <div class="mt-3 flex items-baseline space-x-2">
+            <span class="text-3xl font-extrabold text-cyan-600 dark:text-cyan-400 font-mono" x-text="fleetProjects.length"></span>
+            <span class="text-xs text-slate-400 font-mono">/ 100 Available</span>
+          </div>
+          <div class="mt-3 text-[11px] text-slate-500">100% Free Plan Quota ($0/mo)</div>
+        </div>
+
+        <div class="p-5 rounded-2xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 shadow-sm">
+          <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider">
+            <span>TOTAL POOLED STORAGE</span>
+            <i data-lucide="hard-drive" class="w-4 h-4 text-emerald-500"></i>
+          </div>
+          <div class="mt-3 flex items-baseline space-x-2">
+            <span class="text-3xl font-extrabold text-emerald-600 dark:text-emerald-400 font-mono" x-text="(fleetProjects.length * 0.5) + ' GB'"></span>
+          </div>
+          <div class="mt-3 text-[11px] text-slate-500">512 MB per isolated project</div>
+        </div>
+
+        <div class="p-5 rounded-2xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 shadow-sm">
+          <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider">
+            <span>COMPUTE BUDGET</span>
+            <i data-lucide="cpu" class="w-4 h-4 text-purple-500"></i>
+          </div>
+          <div class="mt-3 flex items-baseline space-x-2">
+            <span class="text-3xl font-extrabold text-purple-600 dark:text-purple-400 font-mono" x-text="formatNumber(fleetProjects.length * 100) + ' hrs'"></span>
+          </div>
+          <div class="mt-3 text-[11px] text-slate-500">Scale-to-zero when idle (0 CU consumed)</div>
+        </div>
+
+        <div class="p-5 rounded-2xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 shadow-sm">
+          <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider">
+            <span>ARCHITECTURE</span>
+            <i data-lucide="shield-check" class="w-4 h-4 text-rose-500"></i>
+          </div>
+          <div class="mt-3 flex items-baseline space-x-2">
+            <span class="text-2xl font-extrabold text-rose-600 dark:text-rose-400 font-mono">Hub & Spoke</span>
+          </div>
+          <div class="mt-3 text-[11px] text-slate-500">Non-destructive isolation</div>
+        </div>
+      </div>
+
+      <!-- Fleet Projects Table -->
+      <div class="p-4 rounded-2xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 space-y-4 shadow-sm">
+        <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800/80 pb-3">
+          <span class="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Neon Projects Directory</span>
+          <span class="px-2.5 py-1 rounded-full text-xs font-bold bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20 font-mono" x-text="fleetProjects.length + ' Registered'"></span>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-xs">
+            <thead>
+              <tr class="border-b border-slate-200 dark:border-slate-800/80 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                <th class="py-3 px-3">Role</th>
+                <th class="py-3 px-3">Project Name</th>
+                <th class="py-3 px-3">Project ID</th>
+                <th class="py-3 px-3">Region</th>
+                <th class="py-3 px-3">Status</th>
+                <th class="py-3 px-3">DATABASE_URL (Pooled)</th>
+                <th class="py-3 px-3 text-center">Actions</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono">
+              <template x-for="p in fleetProjects" :key="p.id">
+                <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition">
+                  <td class="py-3 px-3">
+                    <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase" :class="p.is_hub ? 'bg-amber-500/20 text-amber-700 dark:text-amber-400 border border-amber-500/30' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'" x-text="p.is_hub ? '👑 HUB' : '📦 SHARD'"></span>
+                  </td>
+                  <td class="py-3 px-3 font-sans font-bold text-slate-900 dark:text-white" x-text="p.project_name"></td>
+                  <td class="py-3 px-3 text-slate-600 dark:text-slate-400" x-text="p.project_id"></td>
+                  <td class="py-3 px-3 text-slate-600 dark:text-slate-400" x-text="p.region_id"></td>
+                  <td class="py-3 px-3">
+                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30" x-text="'• ' + p.status"></span>
+                  </td>
+                  <td class="py-3 px-3">
+                    <div class="flex items-center space-x-2">
+                      <span class="text-slate-500 dark:text-slate-400 text-[11px]" x-text="p.masked_url || '••••••••••••••••••••••••••••••••'"></span>
+                      <button @click="copyToClipboard(p.database_url, 'url-' + p.id)" class="px-2 py-0.5 rounded text-[10px] bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-sans transition">
+                        <span x-text="copiedField === 'url-' + p.id ? 'Copied!' : 'Copy'"></span>
+                      </button>
+                    </div>
+                  </td>
+                  <td class="py-3 px-3 text-center">
+                    <button class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-[10px] font-sans font-semibold transition">
+                      Test Ping
+                    </button>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
   </main>
 
   <!-- ======================================================== -->
@@ -3016,6 +3440,117 @@ export function getDashboardHtml() {
     </div>
   </div>
 
+  <!-- Modal: + Track Profiles (Competitor Intelligence) -->
+  <div x-show="isAddCompetitorModalOpen" x-cloak class="fixed inset-0 z-50 overflow-y-auto bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="bg-white dark:bg-[#0d1526] border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-lg shadow-2xl p-6 space-y-4" @click.away="isAddCompetitorModalOpen = false">
+      <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+        <div class="flex items-center space-x-2">
+          <div class="w-8 h-8 rounded-xl bg-purple-500/10 text-purple-600 flex items-center justify-center">
+            <i data-lucide="user-plus" class="w-4 h-4"></i>
+          </div>
+          <div>
+            <h3 class="font-bold text-slate-900 dark:text-white text-sm">Track New Competitor Profile</h3>
+            <p class="text-[11px] text-slate-500">Monitor reach, profile views, boards, and pins.</p>
+          </div>
+        </div>
+        <button @click="isAddCompetitorModalOpen = false" class="text-slate-400 hover:text-slate-700 dark:hover:text-white">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Pinterest Username / Handle</label>
+          <input type="text" x-model="newCompetitorHandle" placeholder="e.g. streetstylis or @daviereofficial" class="w-full px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500/50">
+        </div>
+      </div>
+      <div class="pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-end space-x-2">
+        <button @click="isAddCompetitorModalOpen = false" class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-500 hover:text-slate-700">Cancel</button>
+        <button @click="submitAddCompetitor()" :disabled="!newCompetitorHandle.trim()" class="px-4 py-2 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white transition active:scale-95 disabled:opacity-50 flex items-center space-x-1.5">
+          <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+          <span>Add & Track Profile</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: + Add Keywords (Keyword Velocity Tracker) -->
+  <div x-show="isAddKeywordModalOpen" x-cloak class="fixed inset-0 z-50 overflow-y-auto bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="bg-white dark:bg-[#0d1526] border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-lg shadow-2xl p-6 space-y-4" @click.away="isAddKeywordModalOpen = false">
+      <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+        <div class="flex items-center space-x-2">
+          <div class="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-600 flex items-center justify-center">
+            <i data-lucide="search" class="w-4 h-4"></i>
+          </div>
+          <div>
+            <h3 class="font-bold text-slate-900 dark:text-white text-sm">Add Pinterest Search Keyword</h3>
+            <p class="text-[11px] text-slate-500">Track organic rank positions and daily save velocity.</p>
+          </div>
+        </div>
+        <button @click="isAddKeywordModalOpen = false" class="text-slate-400 hover:text-slate-700 dark:hover:text-white">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Target Keyword / Search Query</label>
+          <input type="text" x-model="newKeywordText" placeholder="e.g. chicken recipes or rustic home decor" class="w-full px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50">
+        </div>
+        <div>
+          <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Category</label>
+          <input type="text" x-model="newKeywordCategory" placeholder="e.g. Recipes & Food or Home & Living" class="w-full px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50">
+        </div>
+      </div>
+      <div class="pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-end space-x-2">
+        <button @click="isAddKeywordModalOpen = false" class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-500 hover:text-slate-700">Cancel</button>
+        <button @click="submitAddKeyword()" :disabled="!newKeywordText.trim()" class="px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition active:scale-95 disabled:opacity-50 flex items-center space-x-1.5">
+          <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+          <span>Track Keyword</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: + Add Project to Fleet (Neon Fleet Manager) -->
+  <div x-show="isAddFleetModalOpen" x-cloak class="fixed inset-0 z-50 overflow-y-auto bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="bg-white dark:bg-[#0d1526] border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-lg shadow-2xl p-6 space-y-4" @click.away="isAddFleetModalOpen = false">
+      <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+        <div class="flex items-center space-x-2">
+          <div class="w-8 h-8 rounded-xl bg-cyan-500/10 text-cyan-600 flex items-center justify-center">
+            <i data-lucide="server" class="w-4 h-4"></i>
+          </div>
+          <div>
+            <h3 class="font-bold text-slate-900 dark:text-white text-sm">Register Neon Project in Fleet</h3>
+            <p class="text-[11px] text-slate-500">Add an isolated Neon Postgres project to the 100-project registry.</p>
+          </div>
+        </div>
+        <button @click="isAddFleetModalOpen = false" class="text-slate-400 hover:text-slate-700 dark:hover:text-white">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Project Name</label>
+          <input type="text" x-model="newFleetProjectName" placeholder="e.g. pin-shard-02 or competitors-db" class="w-full px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/50">
+        </div>
+        <div>
+          <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Project ID</label>
+          <input type="text" x-model="newFleetProjectId" placeholder="e.g. weathered-band-12345678" class="w-full px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/50">
+        </div>
+        <div>
+          <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Pooled DATABASE_URL</label>
+          <input type="text" x-model="newFleetDatabaseUrl" placeholder="postgresql://user:pass@ep-*-pooler.neon.tech/neondb?sslmode=require" class="w-full px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-mono text-[11px] focus:outline-none focus:ring-2 focus:ring-cyan-500/50">
+        </div>
+      </div>
+      <div class="pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-end space-x-2">
+        <button @click="isAddFleetModalOpen = false" class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-500 hover:text-slate-700">Cancel</button>
+        <button @click="submitAddFleetProject()" :disabled="!newFleetProjectId.trim() || !newFleetDatabaseUrl.trim()" class="px-4 py-2 rounded-xl text-xs font-bold bg-cyan-600 hover:bg-cyan-500 text-white transition active:scale-95 disabled:opacity-50 flex items-center space-x-1.5">
+          <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+          <span>Register Project</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast Notification -->
   <div x-show="toastMessage" x-cloak class="fixed bottom-6 right-6 z-50 bg-slate-900 text-white dark:bg-white dark:text-slate-900 px-4 py-2.5 rounded-xl shadow-2xl font-mono text-xs flex items-center space-x-2 animate-in fade-in slide-in-from-bottom-5">
     <i data-lucide="check-circle" class="w-4 h-4 text-emerald-500"></i>
@@ -3052,6 +3587,41 @@ export function getDashboardHtml() {
         overview: {},
         seeds: [],
         intersections: [],
+
+        // Tab 4: Competitor Intelligence State
+        competitorsOverview: { tracked_profiles: 0, combined_reach: 0, total_audience: 0, pins_tracked: 0 },
+        competitors: [],
+        competitorFilter: 'all',
+        competitorSearch: '',
+        isAddCompetitorModalOpen: false,
+        newCompetitorHandle: '',
+
+        // Tab 5: Keyword Velocity State
+        keywords: [],
+        keywordSearch: '',
+        isAddKeywordModalOpen: false,
+        newKeywordText: '',
+        newKeywordCategory: 'General',
+
+        // Tab 6: Fleet State
+        fleetProjects: [],
+        isAddFleetModalOpen: false,
+        newFleetProjectId: '',
+        newFleetProjectName: '',
+        newFleetDatabaseUrl: '',
+        selectedProject: 'all',
+
+        get filteredCompetitors() {
+          let list = this.competitors || [];
+          if (this.competitorFilter && this.competitorFilter !== 'all') {
+            list = list.filter(c => c.account_type === this.competitorFilter);
+          }
+          if (this.competitorSearch) {
+            const q = this.competitorSearch.toLowerCase().replace('@', '');
+            list = list.filter(c => (c.username && c.username.toLowerCase().includes(q)) || (c.display_name && c.display_name.toLowerCase().includes(q)));
+          }
+          return list;
+        },
 
         // Tab 2: Global Intersections State
         intersectionViewMode: (typeof localStorage !== 'undefined' && localStorage.getItem('pin_hub_view_mode')) || 'grid',
@@ -3831,7 +4401,10 @@ export function getDashboardHtml() {
               this.fetchOverview(),
               this.fetchSeeds(),
               this.fetchIntersections(),
-              this.fetchCookieStatus()
+              this.fetchCookieStatus(),
+              this.fetchCompetitors(),
+              this.fetchKeywords(),
+              this.fetchFleetProjects()
             ]);
             if (this.currentTab === 'explorer') {
               await this.loadExplorerData();
@@ -3842,6 +4415,129 @@ export function getDashboardHtml() {
               if (window.lucide) window.lucide.createIcons();
             });
           }
+        },
+
+        async fetchCompetitors() {
+          try {
+            const res = await fetch('/api/competitors');
+            if (res.ok) {
+              const data = await res.json();
+              if (data.overview) this.competitorsOverview = data.overview;
+              if (data.competitors) this.competitors = data.competitors;
+            }
+          } catch (e) {}
+        },
+
+        async syncCompetitor(username) {
+          try {
+            this.showToast('Syncing profile for @' + username + '...');
+            const res = await fetch('/api/competitors/sync', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ username })
+            });
+            if (res.ok) {
+              await this.fetchCompetitors();
+              this.showToast('Profile @' + username + ' synced successfully!');
+            }
+          } catch (e) {
+            this.showToast('Failed to sync: ' + e.message);
+          }
+        },
+
+        async syncAllCompetitors() {
+          this.isLoading = true;
+          this.showToast('Running full competitor update pipeline...');
+          try {
+            for (const c of this.competitors.slice(0, 5)) {
+              await fetch('/api/competitors/sync', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: c.username })
+              }).catch(() => {});
+            }
+            await this.fetchCompetitors();
+            this.showToast('Full update completed!');
+          } finally {
+            this.isLoading = false;
+          }
+        },
+
+        async deleteCompetitor(id) {
+          if (!confirm('Are you sure you want to stop tracking this competitor?')) return;
+          try {
+            const res = await fetch('/api/competitors?id=' + id, { method: 'DELETE' });
+            if (res.ok) {
+              await this.fetchCompetitors();
+              this.showToast('Competitor removed.');
+            }
+          } catch (e) {}
+        },
+
+        exportCompetitorsCsv() {
+          const rows = [
+            ['Profile', 'Monthly Reach', 'Profile Views', 'Total Pins', 'Boards', 'Activity']
+          ];
+          for (const c of this.filteredCompetitors) {
+            rows.push([
+              '@' + c.username,
+              c.monthly_reach,
+              c.profile_views,
+              c.total_pins,
+              c.total_boards,
+              c.activity_status || '1d ago'
+            ]);
+          }
+          const csvContent = 'data:text/csv;charset=utf-8,' + rows.map(e => e.join(',')).join('\n');
+          const encodedUri = encodeURI(csvContent);
+          const link = document.createElement('a');
+          link.setAttribute('href', encodedUri);
+          link.setAttribute('download', 'pinterest_competitors_' + new Date().toISOString().slice(0, 10) + '.csv');
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+        },
+
+        async fetchKeywords() {
+          try {
+            const res = await fetch('/api/keywords');
+            if (res.ok) {
+              const data = await res.json();
+              if (data.keywords) this.keywords = data.keywords;
+            }
+          } catch (e) {}
+        },
+
+        async syncKeyword(keywordId) {
+          try {
+            this.showToast('Crawling Pinterest search SERP...');
+            const res = await fetch('/api/keywords/sync', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ keyword_id: keywordId })
+            });
+            if (res.ok) {
+              await this.fetchKeywords();
+              this.showToast('Keyword SERP updated with daily velocity!');
+            }
+          } catch (e) {
+            this.showToast('Failed to crawl keyword: ' + e.message);
+          }
+        },
+
+        async fetchFleetProjects() {
+          try {
+            const res = await fetch('/api/fleet/projects');
+            if (res.ok) {
+              const data = await res.json();
+              if (data.projects) this.fleetProjects = data.projects;
+            }
+          } catch (e) {}
+        },
+
+        async switchProject(projId) {
+          this.showToast('Switched view to project: ' + projId);
+          await this.refreshAll();
         },
 
         async fetchOverview() {
@@ -4015,6 +4711,71 @@ export function getDashboardHtml() {
             this.rawJsonIsError = true;
           } finally {
             this.isSubmittingRawJson = false;
+          }
+        },
+
+        async submitAddCompetitor() {
+          const handle = this.newCompetitorHandle.trim().replace('@', '');
+          if (!handle) return;
+          try {
+            const res = await fetch('/api/competitors', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ username: handle })
+            });
+            if (res.ok) {
+              this.newCompetitorHandle = '';
+              this.isAddCompetitorModalOpen = false;
+              await this.fetchCompetitors();
+              this.showToast('Competitor @' + handle + ' added successfully!');
+            }
+          } catch (e) {
+            this.showToast('Failed to add competitor: ' + e.message);
+          }
+        },
+
+        async submitAddKeyword() {
+          const kw = this.newKeywordText.trim();
+          if (!kw) return;
+          try {
+            const res = await fetch('/api/keywords', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ keyword: kw, category: this.newKeywordCategory })
+            });
+            if (res.ok) {
+              this.newKeywordText = '';
+              this.isAddKeywordModalOpen = false;
+              await this.fetchKeywords();
+              this.showToast('Keyword "' + kw + '" tracked successfully!');
+            }
+          } catch (e) {
+            this.showToast('Failed to track keyword: ' + e.message);
+          }
+        },
+
+        async submitAddFleetProject() {
+          if (!this.newFleetProjectId.trim() || !this.newFleetDatabaseUrl.trim()) return;
+          try {
+            const res = await fetch('/api/fleet/projects', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                project_id: this.newFleetProjectId.trim(),
+                project_name: this.newFleetProjectName.trim() || this.newFleetProjectId.trim(),
+                database_url: this.newFleetDatabaseUrl.trim()
+              })
+            });
+            if (res.ok) {
+              this.newFleetProjectId = '';
+              this.newFleetProjectName = '';
+              this.newFleetDatabaseUrl = '';
+              this.isAddFleetModalOpen = false;
+              await this.fetchFleetProjects();
+              this.showToast('Neon project registered in fleet!');
+            }
+          } catch (e) {
+            this.showToast('Failed to register project: ' + e.message);
           }
         },
 
