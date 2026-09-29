@@ -3300,10 +3300,10 @@ export function getDashboardHtml() {
 
         get bulkParsedPinIds() {
           if (!this.bulkPinsInput || typeof this.bulkPinsInput !== 'string') return [];
-          const matches = this.bulkPinsInput.match(/(?:pin\/)?(\d{10,25})/g) || [];
+          const matches = this.bulkPinsInput.match(/\\d{10,25}/g) || [];
           const cleanIds = [];
           for (const m of matches) {
-            const id = m.replace(/^pin\//, '').trim();
+            const id = m.trim();
             if (id && !cleanIds.includes(id)) {
               cleanIds.push(id);
             }
@@ -4243,7 +4243,7 @@ export function getDashboardHtml() {
               s.last_crawled_at || ''
             ].join(','));
           }
-          const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+          const blob = new Blob([rows.join('\\n')], { type: 'text/csv;charset=utf-8;' });
           const url = URL.createObjectURL(blob);
           const link = document.createElement('a');
           link.setAttribute('href', url);
