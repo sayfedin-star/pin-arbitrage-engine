@@ -367,15 +367,18 @@ export default {
 
       // 4C. GET /api/workflow/runs (Cloudflare Worker GitHub API integration)
       if (method === 'GET' && pathname === '/api/workflow/runs') {
-        const ghToken = env.GITHUB_TOKEN || env.GH_TOKEN;
+        const ghToken = env.GITHUB_TOKEN || env.GH_TOKEN || env.GH_REFRESH_TOKEN;
         const repo = 'sayfedin-star/pin-arbitrage-engine';
         try {
           const headers = {
             'User-Agent': 'Cloudflare-Worker-Pin-Arbitrage-Engine',
             'Accept': 'application/vnd.github.v3+json'
           };
-          if (ghToken) headers['Authorization'] = `token ${ghToken}`;
-          const res = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/cluster-intelligence.yml/runs?per_page=10`, { headers });
+          if (ghToken) {
+            const cleanToken = String(ghToken).replace(/^(token|Bearer)\s+/i, '').trim();
+            headers['Authorization'] = `Bearer ${cleanToken}`;
+          }
+          const res = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/cluster-intelligence.yml/runs?per_page=15`, { headers });
           if (res.ok) {
             const data = await res.json();
             const formatted = (data.workflow_runs || []).map(r => ({
@@ -398,13 +401,14 @@ export default {
 
       // 4D. POST /api/workflow/trigger (Cloudflare Worker GitHub API dispatch)
       if (method === 'POST' && pathname === '/api/workflow/trigger') {
-        const ghToken = env.GITHUB_TOKEN || env.GH_TOKEN;
+        const ghToken = env.GITHUB_TOKEN || env.GH_TOKEN || env.GH_REFRESH_TOKEN;
         if (!ghToken) {
           return jsonResponse({
             success: false,
-            error: 'GITHUB_TOKEN secret not configured in Cloudflare Workers settings. Please trigger locally or add GITHUB_TOKEN secret.'
+            error: 'GITHUB_TOKEN secret not configured in Cloudflare Workers settings. Please trigger locally or add GITHUB_TOKEN / GH_REFRESH_TOKEN variable.'
           }, 400);
         }
+        const cleanToken = String(ghToken).replace(/^(token|Bearer)\s+/i, '').trim();
         const body = await request.json().catch(() => ({}));
         let target = '';
         if (Array.isArray(body.seed_pin_ids) && body.seed_pin_ids.length > 0) {
@@ -420,7 +424,7 @@ export default {
           headers: {
             'User-Agent': 'Cloudflare-Worker-Pin-Arbitrage-Engine',
             'Accept': 'application/vnd.github.v3+json',
-            'Authorization': `token ${ghToken}`,
+            'Authorization': `Bearer ${cleanToken}`,
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
@@ -441,7 +445,7 @@ export default {
           });
         } else {
           const errText = await res.text();
-          return jsonResponse({ success: false, error: `GitHub API error: ${errText}` }, res.status);
+          return jsonResponse({ success: false, error: `GitHub API error (${res.status}): ${errText}` }, res.status);
         }
       }
 
