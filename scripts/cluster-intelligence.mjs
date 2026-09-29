@@ -1331,26 +1331,28 @@ async function main() {
   let seedsToProcess = [];
 
   if (targetPinArg) {
-    const cleanId = String(targetPinArg).trim();
-    console.log(`[*] Target pin override specified: ${cleanId}`);
+    const rawIds = String(targetPinArg).split(',').map(s => s.trim()).filter(Boolean);
+    console.log(`[*] Target pin(s) override specified: ${rawIds.join(', ')}`);
 
-    // Ensure seed exists in database
-    await sql`
-      INSERT INTO cluster_seeds (pin_id, label, is_competitor, velocity)
-      VALUES (${cleanId}, 'Target Pin Override', false, 0)
-      ON CONFLICT (pin_id) DO NOTHING;
-    `;
+    for (const cleanId of rawIds) {
+      // Ensure seed exists in database
+      await sql`
+        INSERT INTO cluster_seeds (pin_id, label, is_competitor, velocity)
+        VALUES (${cleanId}, 'Target Pin Override', false, 0)
+        ON CONFLICT (pin_id) DO NOTHING;
+      `;
+    }
 
     const existing = await sql`
       SELECT pin_id, label, is_competitor, velocity, last_crawled_at
       FROM cluster_seeds
-      WHERE pin_id = ${cleanId};
+      WHERE pin_id = ANY(${rawIds});
     `;
 
-    seedsToProcess = existing.length > 0 ? [existing[0]] : [{
-      pin_id: cleanId,
+    seedsToProcess = existing.length > 0 ? existing : rawIds.map(id => ({
+      pin_id: id,
       label: 'Target Pin Override'
-    }];
+    }));
   } else {
     console.log(`[*] Querying seeds needing crawl (last_crawled_at IS NULL or > 24h old)...`);
     seedsToProcess = await sql`

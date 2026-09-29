@@ -83,11 +83,11 @@ export function getDashboardHtml() {
             <i data-lucide="rotate-cw" :class="{'animate-spin': isLoading}" class="w-4 h-4"></i>
           </button>
 
-          <!-- Live Crawl Button -->
-          <button @click="triggerCrawl()" :disabled="crawlStatus.is_crawling" class="flex items-center space-x-2 px-3.5 py-2 text-xs font-bold rounded-xl transition shadow-sm active:scale-95 disabled:opacity-50" :class="crawlStatus.is_crawling ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 cursor-not-allowed' : 'bg-gradient-to-r from-rose-600 to-amber-600 hover:from-rose-500 hover:to-amber-500 text-white shadow-rose-950/20'">
+          <!-- ⚡ Crawl Controller & Workflow Dispatcher Button -->
+          <button @click="openCrawlModal()" class="flex items-center space-x-2 px-3.5 py-2 text-xs font-bold rounded-xl transition shadow-sm active:scale-95" :class="crawlStatus.is_crawling ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30' : 'bg-gradient-to-r from-rose-600 to-amber-600 hover:from-rose-500 hover:to-amber-500 text-white shadow-rose-950/20'">
             <i data-lucide="zap" :class="{'animate-spin': crawlStatus.is_crawling}" class="w-3.5 h-3.5"></i>
-            <span class="hidden sm:inline" x-text="crawlStatus.is_crawling ? 'Crawling...' : '⚡ Crawl Queued Seeds'"></span>
-            <span class="sm:hidden">Crawl</span>
+            <span class="hidden sm:inline" x-text="crawlStatus.is_crawling ? '⚡ Crawling In Progress...' : '⚡ Crawl & Workflows'"></span>
+            <span class="sm:hidden">⚡ Crawl</span>
           </button>
 
           <!-- Pinterest Session Cookie Status Button -->
@@ -97,10 +97,11 @@ export function getDashboardHtml() {
             <span class="sm:hidden" x-text="cookieStatus.has_cookie ? 'Auth' : 'Guest'"></span>
           </button>
 
-          <!-- Add Competitor Button -->
-          <button @click="isAddSeedOpen = true" class="flex items-center space-x-1.5 px-3 py-2 text-xs font-semibold rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/90 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition active:scale-95">
+          <!-- Add Seeds Button (Single & Bulk) -->
+          <button @click="openAddSeedModal()" class="flex items-center space-x-1.5 px-3 py-2 text-xs font-semibold rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/90 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition active:scale-95 shadow-sm">
             <i data-lucide="plus-circle" class="w-3.5 h-3.5 text-rose-500"></i>
-            <span class="hidden sm:inline">Add Seed</span>
+            <span class="hidden sm:inline">Add Seeds (Single / Bulk)</span>
+            <span class="sm:hidden">Add Seeds</span>
           </button>
         </div>
       </div>
@@ -150,41 +151,167 @@ export function getDashboardHtml() {
     <!-- ======================================================== -->
     <div x-show="currentTab === 'seeds'" class="space-y-6">
 
-      <!-- View A: Grid of All Tracked Seeds -->
+      <!-- View A: Modern Grid & Table of Tracked Seeds -->
       <template x-if="!activeDossierSeed">
         <div class="space-y-4">
-          <div class="flex items-center justify-between">
+          <!-- Top Overview & Stats Bar -->
+          <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-white dark:bg-[#0d1526] p-4 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-sm">
             <div>
               <h2 class="text-base font-bold text-slate-900 dark:text-white flex items-center space-x-2">
                 <i data-lucide="layers" class="w-4 h-4 text-rose-500"></i>
                 <span>Tracked Seeds in Neon Postgres Database</span>
               </h2>
-              <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Click "Inspect Seed Cluster" to view isolated telemetry quotas, Color DNA, and its full harvested candidate list.</p>
+              <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Manage cluster seed nodes, execute multi-seed crawls via GitHub Actions, and inspect isolated telemetry quotas.</p>
             </div>
-            <span class="text-xs font-mono text-slate-500" x-text="seeds.length + ' Tracked Cluster Seeds'"></span>
+            <div class="flex items-center space-x-2 flex-wrap text-xs font-mono">
+              <span class="px-2.5 py-1 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300">
+                Total Seeds: <strong class="text-rose-600 dark:text-rose-400" x-text="seeds.length">0</strong>
+              </span>
+              <span class="px-2.5 py-1 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-400">
+                Crawled: <strong x-text="seeds.filter(s => s.last_crawled_at).length">0</strong>
+              </span>
+              <span class="px-2.5 py-1 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-400">
+                Queued: <strong x-text="seeds.filter(s => !s.last_crawled_at).length">0</strong>
+              </span>
+            </div>
           </div>
 
-          <!-- Responsive Grid of Seed Cards -->
-          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-            <template x-for="seed in seeds" :key="seed.pin_id">
-              <div class="bg-white dark:bg-[#0d1526] border border-slate-200/90 dark:border-slate-800 rounded-2xl p-5 shadow-sm dark:shadow-xl hover:border-slate-400 dark:hover:border-slate-700 transition space-y-4 flex flex-col justify-between">
+          <!-- Seeds Control & Filter Toolbar -->
+          <div class="bg-white dark:bg-[#0d1526] p-3.5 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+            
+            <!-- Left: Search & Filter Inputs -->
+            <div class="flex items-center space-x-2 flex-1 flex-wrap gap-y-2">
+              <!-- Search Input -->
+              <div class="relative flex-1 min-w-[200px] max-w-md">
+                <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
+                <input type="text" x-model="seedSearch" placeholder="Filter by Pin ID or Label..." class="w-full pl-9 pr-7 py-1.5 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:outline-none focus:border-rose-500 font-mono">
+                <button x-show="seedSearch" @click="seedSearch = ''" class="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                  <i data-lucide="x" class="w-3 h-3"></i>
+                </button>
+              </div>
+
+              <!-- Status Filter -->
+              <select x-model="seedFilterStatus" class="px-2.5 py-1.5 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 font-medium focus:outline-none focus:border-rose-500">
+                <option value="all">Status: All</option>
+                <option value="crawled">Crawled</option>
+                <option value="pending">Pending Crawl</option>
+              </select>
+
+              <!-- Type Filter -->
+              <select x-model="seedFilterType" class="px-2.5 py-1.5 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 font-medium focus:outline-none focus:border-rose-500">
+                <option value="all">Type: All</option>
+                <option value="competitor">Competitor Clusters</option>
+                <option value="internal">Internal Seeds</option>
+              </select>
+
+              <!-- Sort Dropdown -->
+              <select x-model="seedSort" class="px-2.5 py-1.5 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 font-medium focus:outline-none focus:border-rose-500 font-mono">
+                <option value="crawled_desc">Sort: Newest Crawled</option>
+                <option value="candidates_desc">Sort: Harvested Nodes (High-Low)</option>
+                <option value="candidates_asc">Sort: Harvested Nodes (Low-High)</option>
+                <option value="gap_desc">Sort: Commercial Gap</option>
+                <option value="id_desc">Sort: Pin ID</option>
+              </select>
+            </div>
+
+            <!-- Right: View Toggle, Select All & Quick Add -->
+            <div class="flex items-center space-x-2 justify-end">
+              <!-- Select All Toggle -->
+              <button @click="toggleSelectAllSeeds()" class="px-3 py-1.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition active:scale-95 flex items-center space-x-1.5">
+                <i :data-lucide="isAllSeedsSelected ? 'check-square' : 'square'" class="w-3.5 h-3.5" :class="isAllSeedsSelected ? 'text-rose-600' : 'text-slate-400'"></i>
+                <span x-text="isAllSeedsSelected ? 'Deselect All' : 'Select All'"></span>
+              </button>
+
+              <!-- View Switcher (Grid vs Table) -->
+              <div class="flex items-center bg-slate-100 dark:bg-slate-900 p-0.5 rounded-xl border border-slate-200 dark:border-slate-800">
+                <button @click="seedViewMode = 'grid'" :class="seedViewMode === 'grid' ? 'bg-white dark:bg-slate-800 text-rose-600 dark:text-rose-400 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'" class="p-1.5 px-2.5 rounded-lg text-xs flex items-center space-x-1 transition" title="Grid Cards View">
+                  <i data-lucide="layout-grid" class="w-3.5 h-3.5"></i>
+                  <span class="hidden sm:inline">Cards</span>
+                </button>
+                <button @click="seedViewMode = 'table'" :class="seedViewMode === 'table' ? 'bg-white dark:bg-slate-800 text-rose-600 dark:text-rose-400 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'" class="p-1.5 px-2.5 rounded-lg text-xs flex items-center space-x-1 transition" title="Compact Table View">
+                  <i data-lucide="table" class="w-3.5 h-3.5"></i>
+                  <span class="hidden sm:inline">Table</span>
+                </button>
+              </div>
+
+              <!-- Quick Bulk Add Button -->
+              <button @click="openAddSeedModal('bulk')" class="px-3 py-1.5 text-xs font-bold rounded-xl bg-rose-600 hover:bg-rose-500 text-white transition active:scale-95 flex items-center space-x-1.5 shadow-sm shadow-rose-900/20">
+                <i data-lucide="file-plus-2" class="w-3.5 h-3.5"></i>
+                <span class="hidden sm:inline">Bulk Pins</span>
+                <span class="sm:hidden">Bulk</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Sticky Floating Bulk Actions Bar (Appears when >= 1 seed is selected) -->
+          <div x-show="selectedSeedIds.length > 0" x-cloak class="sticky top-20 z-30 bg-slate-900 text-white dark:bg-[#111c35] dark:text-slate-100 p-3 px-4 rounded-2xl shadow-xl border border-rose-500/30 flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-2">
+            <div class="flex items-center space-x-3">
+              <span class="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping"></span>
+              <span class="text-xs font-mono font-bold">
+                <span class="text-rose-400 text-sm font-extrabold" x-text="selectedSeedIds.length"></span> seeds selected
+              </span>
+            </div>
+
+            <div class="flex items-center space-x-2">
+              <!-- Crawl Selected -->
+              <button @click="openCrawlModal('selected')" class="px-3 py-1.5 rounded-xl bg-gradient-to-r from-rose-600 to-amber-600 hover:from-rose-500 hover:to-amber-500 text-white text-xs font-bold transition flex items-center space-x-1.5 shadow-sm active:scale-95">
+                <i data-lucide="zap" class="w-3.5 h-3.5"></i>
+                <span>⚡ Crawl Selected (<span x-text="selectedSeedIds.length"></span>)</span>
+              </button>
+
+              <!-- Delete Selected from Database -->
+              <button @click="openDeleteModal('selected')" class="px-3 py-1.5 rounded-xl bg-rose-700 hover:bg-rose-600 text-white text-xs font-bold transition flex items-center space-x-1.5 shadow-sm active:scale-95">
+                <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                <span>🗑️ Delete & Purge DB</span>
+              </button>
+
+              <!-- Export Selected -->
+              <button @click="exportSelectedSeeds()" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition flex items-center space-x-1.5 active:scale-95">
+                <i data-lucide="download" class="w-3.5 h-3.5"></i>
+                <span class="hidden sm:inline">Export</span>
+              </button>
+
+              <!-- Clear Selection -->
+              <button @click="selectedSeedIds = []" class="p-1.5 rounded-xl hover:bg-slate-800 text-slate-400 hover:text-white transition" title="Clear selection">
+                <i data-lucide="x" class="w-4 h-4"></i>
+              </button>
+            </div>
+          </div>
+
+          <!-- 1. Grid of Seed Cards (When seedViewMode === 'grid') -->
+          <div x-show="seedViewMode === 'grid'" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            <template x-for="seed in filteredSeeds" :key="seed.pin_id">
+              <div class="bg-white dark:bg-[#0d1526] border rounded-2xl p-5 shadow-sm dark:shadow-xl transition space-y-4 flex flex-col justify-between relative group"
+                   :class="selectedSeedIds.includes(seed.pin_id) ? 'border-rose-500 ring-2 ring-rose-500/20 bg-rose-50/20 dark:bg-rose-950/20' : 'border-slate-200/90 dark:border-slate-800 hover:border-slate-400 dark:hover:border-slate-700'">
                 
                 <div class="space-y-3">
-                  <!-- Seed Card Top Row -->
+                  <!-- Top Row: Checkbox, Badge & Crawl Timestamp -->
                   <div class="flex items-start justify-between gap-2">
-                    <div class="flex items-center space-x-1.5 flex-wrap gap-y-1">
-                      <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase tracking-wider" :class="seed.is_competitor ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20' : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20'" x-text="seed.is_competitor ? 'Competitor Cluster' : 'Internal Seed'"></span>
-                      <span x-show="Number(seed.total_capsules || 0) > 0" class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-purple-500/10 text-purple-700 dark:text-purple-400 border border-purple-500/20" x-text="seed.total_capsules + ' Guided Capsules'"></span>
+                    <div class="flex items-center space-x-2">
+                      <input type="checkbox"
+                             :checked="selectedSeedIds.includes(seed.pin_id)"
+                             @change="toggleSeedSelection(seed.pin_id)"
+                             class="w-4 h-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500 cursor-pointer">
+                      <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase tracking-wider"
+                            :class="seed.is_competitor ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20' : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20'"
+                            x-text="seed.is_competitor ? 'Competitor Cluster' : 'Internal Seed'"></span>
                     </div>
-                    <span class="text-[10px] font-mono text-slate-400 truncate" x-text="seed.last_crawled_at ? 'Crawled ' + new Date(seed.last_crawled_at).toLocaleDateString() : 'Pending Crawl'"></span>
+
+                    <div class="flex items-center space-x-1.5 text-[10px] font-mono text-slate-400">
+                      <span x-show="Number(seed.total_capsules || 0) > 0" class="px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-700 dark:text-purple-400 border border-purple-500/20" x-text="seed.total_capsules + ' Caps'"></span>
+                      <span x-text="seed.last_crawled_at ? new Date(seed.last_crawled_at).toLocaleDateString() : 'Pending'"></span>
+                    </div>
                   </div>
 
-                  <!-- Label & Pin ID -->
+                  <!-- Label & Pin ID with Pinterest Link -->
                   <div>
                     <h3 class="font-bold text-sm text-slate-900 dark:text-white line-clamp-2" x-text="seed.label || 'Tracked Cluster Seed'"></h3>
-                    <div class="flex items-center space-x-1 text-xs font-mono text-slate-500 dark:text-slate-400 mt-1">
+                    <div class="flex items-center space-x-1.5 text-xs font-mono text-slate-500 dark:text-slate-400 mt-1">
                       <span>Pin ID:</span>
-                      <strong class="text-slate-800 dark:text-slate-200" x-text="seed.pin_id"></strong>
+                      <a :href="'https://www.pinterest.com/pin/' + seed.pin_id + '/'" target="_blank" class="font-bold text-rose-600 dark:text-rose-400 hover:underline inline-flex items-center space-x-0.5">
+                        <span x-text="seed.pin_id"></span>
+                        <i data-lucide="external-link" class="w-3 h-3"></i>
+                      </a>
                     </div>
                   </div>
 
@@ -201,18 +328,102 @@ export function getDashboardHtml() {
                   </div>
                 </div>
 
-                <!-- Primary Action Button: Inspect Seed Cluster & Delete -->
-                <div class="flex items-center space-x-2">
-                  <button @click="openSeedDossier(seed)" class="flex-1 flex items-center justify-center space-x-2 py-2.5 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-900 font-bold text-xs shadow-sm active:scale-95 transition">
+                <!-- Primary Action Buttons: Inspect, Quick Crawl & Delete -->
+                <div class="flex items-center space-x-2 pt-2 border-t border-slate-100 dark:border-slate-800/80">
+                  <button @click="openSeedDossier(seed)" class="flex-1 flex items-center justify-center space-x-1.5 py-2 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-900 font-bold text-xs shadow-sm active:scale-95 transition">
                     <i data-lucide="eye" class="w-3.5 h-3.5"></i>
-                    <span>Inspect Seed Cluster</span>
+                    <span>Inspect</span>
                   </button>
-                  <button @click.stop="deleteSeed(seed.pin_id, seed.label)" class="p-2.5 rounded-xl border border-rose-200 dark:border-rose-900/50 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 transition active:scale-95" title="Delete this seed">
-                    <i data-lucide="trash-2" class="w-4 h-4"></i>
+                  <button @click.stop="openCrawlModal(seed.pin_id)" class="p-2 rounded-xl border border-amber-200 dark:border-amber-900/40 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 transition active:scale-95" title="⚡ Crawl this seed">
+                    <i data-lucide="zap" class="w-3.5 h-3.5"></i>
+                  </button>
+                  <button @click.stop="openDeleteModal(seed)" class="p-2 rounded-xl border border-rose-200 dark:border-rose-900/50 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 transition active:scale-95" title="Delete & purge seed from database">
+                    <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
                   </button>
                 </div>
               </div>
             </template>
+          </div>
+
+          <!-- 2. Compact Table View (When seedViewMode === 'table') -->
+          <div x-show="seedViewMode === 'table'" class="bg-white dark:bg-[#0d1526] border border-slate-200/90 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
+            <div class="overflow-x-auto">
+              <table class="w-full text-left text-xs font-sans">
+                <thead class="bg-slate-50 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-800 text-[11px] font-mono text-slate-500 uppercase">
+                  <tr>
+                    <th class="p-3 pl-4 w-10">
+                      <input type="checkbox" :checked="isAllSeedsSelected" @change="toggleSelectAllSeeds()" class="w-4 h-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500 cursor-pointer">
+                    </th>
+                    <th class="p-3">Seed Pin ID & Label</th>
+                    <th class="p-3">Type</th>
+                    <th class="p-3 text-right">Harvested Nodes</th>
+                    <th class="p-3 text-right">Guided Capsules</th>
+                    <th class="p-3 text-right">Commercial Gap</th>
+                    <th class="p-3">Last Crawled</th>
+                    <th class="p-3 text-right pr-4">Actions</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono">
+                  <template x-for="seed in filteredSeeds" :key="seed.pin_id">
+                    <tr class="hover:bg-slate-50/70 dark:hover:bg-slate-900/40 transition"
+                        :class="selectedSeedIds.includes(seed.pin_id) ? 'bg-rose-50/20 dark:bg-rose-950/15' : ''">
+                      <td class="p-3 pl-4">
+                        <input type="checkbox" :checked="selectedSeedIds.includes(seed.pin_id)" @change="toggleSeedSelection(seed.pin_id)" class="w-4 h-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500 cursor-pointer">
+                      </td>
+                      <td class="p-3 font-sans">
+                        <div class="font-bold text-slate-900 dark:text-white text-xs line-clamp-1" x-text="seed.label || 'Tracked Cluster Seed'"></div>
+                        <div class="text-[11px] font-mono text-slate-500 flex items-center space-x-1.5 mt-0.5">
+                          <a :href="'https://www.pinterest.com/pin/' + seed.pin_id + '/'" target="_blank" class="text-rose-600 dark:text-rose-400 hover:underline flex items-center space-x-0.5">
+                            <span x-text="seed.pin_id"></span>
+                            <i data-lucide="external-link" class="w-2.5 h-2.5"></i>
+                          </a>
+                        </div>
+                      </td>
+                      <td class="p-3">
+                        <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase tracking-wider whitespace-nowrap"
+                              :class="seed.is_competitor ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20' : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20'"
+                              x-text="seed.is_competitor ? 'Competitor' : 'Internal'"></span>
+                      </td>
+                      <td class="p-3 text-right">
+                        <span class="font-bold text-slate-900 dark:text-white" x-text="seed.total_candidates || 0"></span>
+                      </td>
+                      <td class="p-3 text-right">
+                        <span class="px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-700 dark:text-purple-400 border border-purple-500/20 text-[10px] font-bold" x-text="seed.total_capsules || 0"></span>
+                      </td>
+                      <td class="p-3 text-right">
+                        <span class="font-bold text-emerald-600 dark:text-emerald-400" x-text="(seed.commercial_gap_ratio ? seed.commercial_gap_ratio + '%' : '100%')"></span>
+                      </td>
+                      <td class="p-3 text-[11px] text-slate-500">
+                        <span x-text="seed.last_crawled_at ? new Date(seed.last_crawled_at).toLocaleDateString() : 'Pending Crawl'"></span>
+                      </td>
+                      <td class="p-3 text-right pr-4">
+                        <div class="flex items-center justify-end space-x-1.5">
+                          <button @click="openSeedDossier(seed)" class="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-900 font-bold text-[11px] transition shadow-sm" title="Inspect Seed Cluster">
+                            Inspect
+                          </button>
+                          <button @click.stop="openCrawlModal(seed.pin_id)" class="p-1.5 rounded-lg border border-amber-200 dark:border-amber-900/40 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 transition" title="⚡ Crawl this seed">
+                            <i data-lucide="zap" class="w-3.5 h-3.5"></i>
+                          </button>
+                          <button @click.stop="openDeleteModal(seed)" class="p-1.5 rounded-lg border border-rose-200 dark:border-rose-900/50 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 transition" title="Delete seed">
+                            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Empty Search/Filter State -->
+          <div x-show="filteredSeeds.length === 0" class="bg-white dark:bg-[#0d1526] border border-slate-200 dark:border-slate-800 rounded-2xl p-8 text-center space-y-3">
+            <i data-lucide="inbox" class="w-10 h-10 text-slate-400 mx-auto"></i>
+            <h3 class="font-bold text-sm text-slate-700 dark:text-slate-300">No Tracked Seeds Match Your Filter</h3>
+            <p class="text-xs text-slate-500 max-w-sm mx-auto">Try clearing your search query or filters, or add new pins using the Bulk Ingestion feature.</p>
+            <button @click="seedSearch = ''; seedFilterStatus = 'all'; seedFilterType = 'all';" class="px-3 py-1.5 text-xs font-semibold rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-200">
+              Clear All Filters
+            </button>
           </div>
         </div>
       </template>
@@ -2315,27 +2526,128 @@ export function getDashboardHtml() {
     </div>
   </div>
 
-  <!-- Add New Seed Modal -->
-  <div x-show="isAddSeedOpen" x-cloak class="fixed inset-0 z-50 overflow-y-auto bg-slate-950/70 backdrop-blur-md flex items-center justify-center p-4">
-    <div class="bg-white dark:bg-[#0d1526] border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-md shadow-2xl p-6 space-y-4" @click.away="isAddSeedOpen = false">
+  <!-- Add Seed Modal (Single Pin & Bulk Pins Mode) -->
+  <div x-show="isAddSeedOpen" x-cloak class="fixed inset-0 z-50 overflow-y-auto bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="bg-white dark:bg-[#0d1526] border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-xl shadow-2xl p-6 space-y-4" @click.away="isAddSeedOpen = false">
+      
+      <!-- Modal Header -->
       <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
-        <h3 class="font-bold text-slate-900 dark:text-white text-sm flex items-center space-x-2">
-          <i data-lucide="plus-circle" class="w-4 h-4 text-rose-500"></i>
-          <span>Track New Competitor Seed Pin</span>
-        </h3>
+        <div class="flex items-center space-x-2">
+          <div class="w-8 h-8 rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center justify-center">
+            <i data-lucide="plus-circle" class="w-4 h-4"></i>
+          </div>
+          <div>
+            <h3 class="font-bold text-slate-900 dark:text-white text-sm">Add Tracked Seeds to Neon</h3>
+            <p class="text-[11px] text-slate-500">Insert single seed or bulk-import dozens of Pinterest pins</p>
+          </div>
+        </div>
         <button @click="isAddSeedOpen = false" class="text-slate-400 hover:text-slate-700 dark:hover:text-white">
           <i data-lucide="x" class="w-4 h-4"></i>
         </button>
       </div>
 
-      <div class="space-y-3 text-xs">
+      <!-- Mode Tabs (Single Pin vs Bulk Pins) -->
+      <div class="flex border-b border-slate-200 dark:border-slate-800 text-xs font-semibold">
+        <button @click="addSeedTab = 'bulk'" class="pb-2.5 px-4 border-b-2 flex items-center space-x-2 transition"
+                :class="addSeedTab === 'bulk' ? 'border-rose-500 text-rose-600 dark:text-rose-400 font-bold' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'">
+          <i data-lucide="layers" class="w-3.5 h-3.5"></i>
+          <span>Bulk Pins Ingestion (استيراد بالجملة)</span>
+          <span class="px-1.5 py-0.2 rounded-full bg-rose-500/10 text-rose-600 text-[10px] font-bold">Fast</span>
+        </button>
+        <button @click="addSeedTab = 'single'" class="pb-2.5 px-4 border-b-2 flex items-center space-x-2 transition"
+                :class="addSeedTab === 'single' ? 'border-rose-500 text-rose-600 dark:text-rose-400 font-bold' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'">
+          <i data-lucide="hash" class="w-3.5 h-3.5"></i>
+          <span>Single Pin (بين فردي)</span>
+        </button>
+      </div>
+
+      <!-- Tab A: Bulk Pins Ingestion -->
+      <div x-show="addSeedTab === 'bulk'" class="space-y-3.5 text-xs">
+        <div>
+          <div class="flex items-center justify-between mb-1">
+            <label class="font-semibold text-slate-700 dark:text-slate-300">
+              Paste Pinterest Pin IDs or URLs (أرقام أو روابط البين)
+            </label>
+            <span class="font-mono text-[11px]" :class="bulkParsedPinIds.length > 0 ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-slate-400'"
+                  x-text="bulkParsedPinIds.length + ' Valid Pins Detected'"></span>
+          </div>
+          <textarea x-model="bulkPinsInput" rows="6" placeholder="Paste pin IDs or URLs (one per line, comma or space-separated):&#10;1125829606880675896&#10;https://www.pinterest.com/pin/951737333775793129/&#10;146437425381037749"
+                    class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:outline-none focus:border-rose-500 font-mono text-[11px]"></textarea>
+          <p class="text-[10px] text-slate-400 mt-1">Smart parser extracts raw 18-20 digit Pin IDs automatically and strips duplicates in real time.</p>
+        </div>
+
+        <!-- Detected Pins Preview Chips -->
+        <template x-if="bulkParsedPinIds.length > 0">
+          <div class="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 space-y-1.5">
+            <div class="text-[10px] font-mono text-slate-500 flex items-center justify-between">
+              <span>Preview Extracted IDs:</span>
+              <span class="font-bold text-slate-700 dark:text-slate-300" x-text="bulkParsedPinIds.length + ' items'"></span>
+            </div>
+            <div class="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
+              <template x-for="pid in bulkParsedPinIds.slice(0, 20)" :key="pid">
+                <span class="px-2 py-0.5 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[10px] font-mono text-slate-700 dark:text-slate-300" x-text="pid"></span>
+              </template>
+              <template x-if="bulkParsedPinIds.length > 20">
+                <span class="px-2 py-0.5 rounded-md bg-slate-200 dark:bg-slate-700 text-[10px] font-mono text-slate-500" x-text="'+' + (bulkParsedPinIds.length - 20) + ' more'"></span>
+              </template>
+            </div>
+          </div>
+        </template>
+
+        <!-- Options: Label Prefix & Classification -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Label Prefix / Campaign Name</label>
+            <input type="text" x-model="bulkLabelPrefix" placeholder="e.g. Recipe Cluster" class="w-full px-3 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:outline-none focus:border-rose-500 text-xs">
+          </div>
+          <div>
+            <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Classification Type</label>
+            <select x-model="bulkIsCompetitor" class="w-full px-3 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:outline-none focus:border-rose-500 text-xs">
+              <option :value="true">Competitor Cluster</option>
+              <option :value="false">Internal / Our Seed</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Crawl Execution Settings -->
+        <div class="p-3 rounded-xl bg-rose-50/50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 flex items-center justify-between">
+          <label class="flex items-center space-x-2 cursor-pointer">
+            <input type="checkbox" x-model="bulkAutoCrawl" class="w-4 h-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500">
+            <div>
+              <span class="font-bold text-slate-900 dark:text-slate-100">Auto-Crawl Pins Immediately</span>
+              <p class="text-[10px] text-slate-500">Trigger crawl pipeline right after inserting seeds into Neon</p>
+            </div>
+          </label>
+          <div x-show="bulkAutoCrawl" class="flex items-center space-x-1.5 text-[11px] font-mono">
+            <label class="flex items-center space-x-1 cursor-pointer">
+              <input type="radio" value="workflow" x-model="bulkCrawlEngine" class="text-rose-600">
+              <span>🚀 GitHub Actions</span>
+            </label>
+            <label class="flex items-center space-x-1 cursor-pointer">
+              <input type="radio" value="local" x-model="bulkCrawlEngine" class="text-rose-600">
+              <span>💻 Local</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-end space-x-2">
+          <button @click="isAddSeedOpen = false" class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-500 hover:text-slate-700">Cancel</button>
+          <button @click="submitBulkSeeds()" :disabled="bulkParsedPinIds.length === 0 || isSubmittingBulk" class="px-4 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white transition active:scale-95 disabled:opacity-50 flex items-center space-x-1.5 shadow-sm">
+            <i data-lucide="check" class="w-3.5 h-3.5"></i>
+            <span x-text="isSubmittingBulk ? 'Importing Seeds...' : 'Import ' + bulkParsedPinIds.length + ' Seeds to Neon'"></span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Tab B: Single Pin Mode -->
+      <div x-show="addSeedTab === 'single'" class="space-y-3 text-xs">
         <div>
           <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Pinterest Pin ID</label>
-          <input type="text" x-model="newSeed.pin_id" placeholder="e.g. 346495765100199292" class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:outline-none focus:border-rose-500 font-mono">
+          <input type="text" x-model="newSeed.pin_id" placeholder="e.g. 1125829606880675896" class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:outline-none focus:border-rose-500 font-mono">
         </div>
         <div>
           <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Label / Recipe Name</label>
-          <input type="text" x-model="newSeed.label" placeholder="e.g. Garlic Butter Chicken Competitor" class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:outline-none focus:border-rose-500">
+          <input type="text" x-model="newSeed.label" placeholder="e.g. Slow Cooker Honey Garlic Competitor" class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:outline-none focus:border-rose-500">
         </div>
         <div class="flex items-center justify-between pt-1">
           <label class="flex items-center space-x-2 cursor-pointer">
@@ -2347,11 +2659,266 @@ export function getDashboardHtml() {
             <span class="text-rose-600 dark:text-rose-400 font-medium font-mono">Auto-Crawl Now</span>
           </label>
         </div>
+
+        <div class="pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-end space-x-2">
+          <button @click="isAddSeedOpen = false" class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-500 hover:text-slate-700">Cancel</button>
+          <button @click="addSeed()" class="px-4 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white transition active:scale-95">Save Seed</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Crawl Controller & Workflow Dispatcher Modal -->
+  <div x-show="isCrawlModalOpen" x-cloak class="fixed inset-0 z-50 overflow-y-auto bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="bg-white dark:bg-[#0d1526] border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-2xl shadow-2xl p-6 space-y-4" @click.away="isCrawlModalOpen = false">
+      
+      <!-- Modal Header -->
+      <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+        <div class="flex items-center space-x-2.5">
+          <div class="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center">
+            <i data-lucide="zap" class="w-4 h-4"></i>
+          </div>
+          <div>
+            <h3 class="font-bold text-slate-900 dark:text-white text-sm">Cluster Intelligence Crawler Dispatcher</h3>
+            <p class="text-[11px] text-slate-500">Execute targeted crawls locally or at scale via GitHub Actions Workflow</p>
+          </div>
+        </div>
+        <button @click="isCrawlModalOpen = false" class="text-slate-400 hover:text-slate-700 dark:hover:text-white">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <!-- Navigation Tabs: Launch Crawl vs Workflow Runs History -->
+      <div class="flex border-b border-slate-200 dark:border-slate-800 text-xs font-semibold">
+        <button @click="crawlModalTab = 'launch'" class="pb-2.5 px-4 border-b-2 flex items-center space-x-2 transition"
+                :class="crawlModalTab === 'launch' ? 'border-amber-500 text-amber-600 dark:text-amber-400 font-bold' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'">
+          <i data-lucide="play" class="w-3.5 h-3.5"></i>
+          <span>Launch Crawl (إطلاق عملية زحف)</span>
+        </button>
+        <button @click="crawlModalTab = 'history'; fetchWorkflowRuns();" class="pb-2.5 px-4 border-b-2 flex items-center space-x-2 transition"
+                :class="crawlModalTab === 'history' ? 'border-amber-500 text-amber-600 dark:text-amber-400 font-bold' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'">
+          <i data-lucide="git-pull-request" class="w-3.5 h-3.5"></i>
+          <span>GitHub Actions Workflow Runs (سجل التشغيل الحي)</span>
+          <span class="px-1.5 py-0.2 rounded-full bg-slate-200 dark:bg-slate-800 text-[10px]" x-text="workflowRuns.length"></span>
+        </button>
+      </div>
+
+      <!-- Tab 1: Launch Crawl Config -->
+      <div x-show="crawlModalTab === 'launch'" class="space-y-4 text-xs">
+        
+        <!-- Step 1: Target Scope Selection -->
+        <div class="space-y-2">
+          <label class="font-bold text-slate-900 dark:text-white block">1. Select Target Pin(s) Scope (تحديد الهدف)</label>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            
+            <!-- Selected Pins Option -->
+            <label class="p-3 rounded-xl border flex items-start space-x-3 cursor-pointer transition"
+                   :class="crawlTargetScope === 'selected' ? 'border-amber-500 bg-amber-50/20 dark:bg-amber-950/20' : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900/50'"
+                   :class="{'opacity-50 cursor-not-allowed': selectedSeedIds.length === 0}">
+              <input type="radio" value="selected" x-model="crawlTargetScope" :disabled="selectedSeedIds.length === 0" class="mt-0.5 text-amber-600 focus:ring-amber-500">
+              <div>
+                <span class="font-bold text-slate-800 dark:text-slate-200">Selected Pins</span>
+                <span class="text-[10px] font-mono block text-slate-500" x-text="selectedSeedIds.length > 0 ? selectedSeedIds.length + ' seeds selected from list' : 'No seeds selected (Check seeds first)'"></span>
+              </div>
+            </label>
+
+            <!-- Specific Pin ID Option -->
+            <label class="p-3 rounded-xl border flex items-start space-x-3 cursor-pointer transition"
+                   :class="crawlTargetScope === 'single' ? 'border-amber-500 bg-amber-50/20 dark:bg-amber-950/20' : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900/50'">
+              <input type="radio" value="single" x-model="crawlTargetScope" class="mt-0.5 text-amber-600 focus:ring-amber-500">
+              <div class="flex-1">
+                <span class="font-bold text-slate-800 dark:text-slate-200">Specific Pin ID</span>
+                <span class="text-[10px] text-slate-500 block">Single Pin ID to target</span>
+              </div>
+            </label>
+
+            <!-- All Queued Seeds Option -->
+            <label class="p-3 rounded-xl border flex items-start space-x-3 cursor-pointer transition"
+                   :class="crawlTargetScope === 'queued' ? 'border-amber-500 bg-amber-50/20 dark:bg-amber-950/20' : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900/50'">
+              <input type="radio" value="queued" x-model="crawlTargetScope" class="mt-0.5 text-amber-600 focus:ring-amber-500">
+              <div>
+                <span class="font-bold text-slate-800 dark:text-slate-200">All Queued Seeds</span>
+                <span class="text-[10px] text-slate-500 block" x-text="seeds.filter(s => !s.last_crawled_at).length + ' pending seeds needing crawl'"></span>
+              </div>
+            </label>
+
+            <!-- All Tracked Seeds Option -->
+            <label class="p-3 rounded-xl border flex items-start space-x-3 cursor-pointer transition"
+                   :class="crawlTargetScope === 'all' ? 'border-amber-500 bg-amber-50/20 dark:bg-amber-950/20' : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900/50'">
+              <input type="radio" value="all" x-model="crawlTargetScope" class="mt-0.5 text-amber-600 focus:ring-amber-500">
+              <div>
+                <span class="font-bold text-slate-800 dark:text-slate-200">All Tracked Seeds (Sweep)</span>
+                <span class="text-[10px] text-slate-500 block" x-text="'Force sweep all ' + seeds.length + ' tracked seeds'"></span>
+              </div>
+            </label>
+
+          </div>
+
+          <!-- Specific Pin ID input if 'single' chosen -->
+          <div x-show="crawlTargetScope === 'single'" class="pt-1">
+            <input type="text" x-model="crawlCustomPinId" placeholder="Enter target Pin ID (e.g. 1125829606880675896)" class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-mono text-xs focus:outline-none focus:border-amber-500">
+          </div>
+        </div>
+
+        <!-- Step 2: Execution Engine Selection -->
+        <div class="space-y-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+          <label class="font-bold text-slate-900 dark:text-white block">2. Execution Engine & Runner (بيئة التشغيل)</label>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            
+            <!-- GitHub Actions Workflow Engine -->
+            <label class="p-3 rounded-xl border flex items-start space-x-3 cursor-pointer transition"
+                   :class="crawlEngine === 'workflow' ? 'border-purple-500 bg-purple-50/20 dark:bg-purple-950/20' : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900/50'">
+              <input type="radio" value="workflow" x-model="crawlEngine" class="mt-0.5 text-purple-600 focus:ring-purple-500">
+              <div>
+                <div class="flex items-center space-x-1.5">
+                  <span class="font-bold text-slate-800 dark:text-slate-200">🚀 GitHub Actions Workflow</span>
+                  <span class="px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-700 dark:text-purple-300 text-[9px] font-bold">Recommended</span>
+                </div>
+                <p class="text-[10px] text-slate-500 mt-0.5 leading-relaxed">
+                  Dispatches <code class="text-purple-600">cluster-intelligence.yml</code> on GitHub Runner. Uses GitHub egress IP to prevent local rate-limits, runs 40 pages deep.
+                </p>
+              </div>
+            </label>
+
+            <!-- Local Background Crawler Engine -->
+            <label class="p-3 rounded-xl border flex items-start space-x-3 cursor-pointer transition"
+                   :class="crawlEngine === 'local' ? 'border-amber-500 bg-amber-50/20 dark:bg-amber-950/20' : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900/50'">
+              <input type="radio" value="local" x-model="crawlEngine" class="mt-0.5 text-amber-600 focus:ring-amber-500">
+              <div>
+                <span class="font-bold text-slate-800 dark:text-slate-200">💻 Local Background Process</span>
+                <p class="text-[10px] text-slate-500 mt-0.5 leading-relaxed">
+                  Spawns crawler asynchronously on this server via <code class="text-amber-600">node scripts/cluster-intelligence.mjs</code>. Instant feedback in top banner.
+                </p>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <!-- Pagination Depth -->
+        <div class="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800">
+          <div>
+            <span class="font-semibold text-slate-800 dark:text-slate-200">Max Pagination Depth Per Seed</span>
+            <span class="text-[10px] text-slate-500 block">Default 40 pages (~600 candidates per seed)</span>
+          </div>
+          <input type="number" x-model="crawlMaxPages" min="5" max="100" class="w-20 px-2 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-right font-mono font-bold text-xs">
+        </div>
+
+        <div class="pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-end space-x-2">
+          <button @click="isCrawlModalOpen = false" class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-500 hover:text-slate-700">Cancel</button>
+          <button @click="executeCrawl()" :disabled="isTriggeringWorkflow || (crawlTargetScope === 'selected' && selectedSeedIds.length === 0)"
+                  class="px-5 py-2 rounded-xl text-xs font-bold text-white transition active:scale-95 disabled:opacity-50 flex items-center space-x-2 shadow-sm"
+                  :class="crawlEngine === 'workflow' ? 'bg-gradient-to-r from-purple-600 to-rose-600 hover:from-purple-500 hover:to-rose-500' : 'bg-gradient-to-r from-amber-600 to-rose-600 hover:from-amber-500 hover:to-rose-500'">
+            <i data-lucide="zap" :class="{'animate-spin': isTriggeringWorkflow}" class="w-3.5 h-3.5"></i>
+            <span x-text="isTriggeringWorkflow ? 'Triggering Workflow...' : 'Execute Crawl Pipeline'"></span>
+          </button>
+        </div>
+
+      </div>
+
+      <!-- Tab 2: GitHub Actions Workflow Runs History -->
+      <div x-show="crawlModalTab === 'history'" class="space-y-3 text-xs">
+        <div class="flex items-center justify-between">
+          <span class="font-semibold text-slate-700 dark:text-slate-300">Recent Workflow Runs in GitHub Repository</span>
+          <button @click="fetchWorkflowRuns()" :disabled="isLoadingWorkflowRuns" class="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300 text-[11px] font-mono flex items-center space-x-1">
+            <i data-lucide="refresh-cw" :class="{'animate-spin': isLoadingWorkflowRuns}" class="w-3 h-3"></i>
+            <span>Refresh</span>
+          </button>
+        </div>
+
+        <div class="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden divide-y divide-slate-100 dark:divide-slate-800/80 max-h-80 overflow-y-auto">
+          <template x-for="run in workflowRuns" :key="run.databaseId">
+            <div class="p-3 bg-white dark:bg-slate-900/50 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
+              <div class="flex items-center space-x-3">
+                <span class="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                      :class="{
+                        'bg-emerald-500': run.conclusion === 'success',
+                        'bg-rose-500': run.conclusion === 'failure',
+                        'bg-amber-500 animate-ping': run.status === 'in_progress' || run.status === 'queued',
+                        'bg-slate-400': run.conclusion === 'cancelled'
+                      }"></span>
+                <div>
+                  <div class="font-bold text-slate-900 dark:text-slate-100 flex items-center space-x-2">
+                    <span x-text="run.displayTitle || 'Cluster Intelligence'"></span>
+                    <span class="px-1.5 py-0.2 rounded text-[9px] font-mono uppercase"
+                          :class="run.event === 'workflow_dispatch' ? 'bg-purple-500/10 text-purple-600' : 'bg-slate-500/10 text-slate-600'"
+                          x-text="run.event"></span>
+                  </div>
+                  <div class="text-[10px] font-mono text-slate-400 flex items-center space-x-2 mt-0.5">
+                    <span x-text="'Run #' + run.databaseId"></span>
+                    <span>•</span>
+                    <span x-text="new Date(run.createdAt).toLocaleString()"></span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="flex items-center space-x-2">
+                <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase"
+                      :class="{
+                        'bg-emerald-500/10 text-emerald-600 border border-emerald-500/20': run.conclusion === 'success',
+                        'bg-rose-500/10 text-rose-600 border border-rose-500/20': run.conclusion === 'failure',
+                        'bg-amber-500/10 text-amber-600 border border-amber-500/20 animate-pulse': run.status === 'in_progress',
+                        'bg-slate-500/10 text-slate-500 border border-slate-500/20': run.conclusion === 'cancelled'
+                      }"
+                      x-text="run.conclusion || run.status"></span>
+                <a :href="run.url" target="_blank" class="p-1 text-slate-400 hover:text-purple-500" title="View run log on GitHub Actions">
+                  <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+                </a>
+              </div>
+            </div>
+          </template>
+
+          <div x-show="workflowRuns.length === 0" class="p-6 text-center text-slate-400">
+            <span>No workflow runs retrieved yet. Click Refresh to query GitHub.</span>
+          </div>
+        </div>
+
+        <div class="pt-2 text-right">
+          <button @click="isCrawlModalOpen = false" class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-500 hover:text-slate-700">Close</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Delete Confirmation & Neon Purge Modal -->
+  <div x-show="isDeleteModalOpen" x-cloak class="fixed inset-0 z-50 overflow-y-auto bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="bg-white dark:bg-[#0d1526] border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-md shadow-2xl p-6 space-y-4" @click.away="isDeleteModalOpen = false">
+      <div class="flex items-center space-x-3 text-rose-600 dark:text-rose-400 border-b border-slate-200 dark:border-slate-800 pb-3">
+        <div class="w-9 h-9 rounded-xl bg-rose-500/10 flex items-center justify-center">
+          <i data-lucide="alert-triangle" class="w-5 h-5"></i>
+        </div>
+        <div>
+          <h3 class="font-bold text-slate-900 dark:text-white text-sm">Confirm Deletion</h3>
+          <p class="text-[11px] text-slate-500">Database cleanup & record removal</p>
+        </div>
+      </div>
+
+      <div class="space-y-3 text-xs">
+        <p class="text-slate-700 dark:text-slate-300 leading-relaxed">
+          Are you sure you want to delete <strong class="text-rose-600 dark:text-rose-400" x-text="deleteTargetSummary"></strong>?
+        </p>
+
+        <!-- Prominent Purge Option Checkbox -->
+        <div class="p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/40 space-y-2">
+          <label class="flex items-start space-x-2.5 cursor-pointer">
+            <input type="checkbox" x-model="deletePurgeNeon" class="mt-0.5 w-4 h-4 rounded border-rose-300 text-rose-600 focus:ring-rose-500">
+            <div>
+              <span class="font-bold text-rose-900 dark:text-rose-300">حذف وتطهير شامل من قاعدة بيانات Neon (Purge from DB)</span>
+              <p class="text-[11px] text-rose-800/80 dark:text-rose-400/80 mt-0.5 leading-relaxed">
+                يقوم بحذف جميع الكانديديت المحصودة (<code class="text-[10px]">candidate_graph_nodes</code>)، وكبسولات الاستكشاف (<code class="text-[10px]">seed_guided_search_capsules</code>)، والمقاييس التحليلية (<code class="text-[10px]">cluster_arbitrage_metrics</code>) المرتبطة بهذه البذور من Neon Serverless نهائياً.
+              </p>
+            </div>
+          </label>
+        </div>
       </div>
 
       <div class="pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-end space-x-2">
-        <button @click="isAddSeedOpen = false" class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-500 hover:text-slate-700">Cancel</button>
-        <button @click="addSeed()" class="px-4 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white transition active:scale-95">Save Seed</button>
+        <button @click="isDeleteModalOpen = false" class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-500 hover:text-slate-700">Cancel</button>
+        <button @click="confirmDelete()" :disabled="isDeleting" class="px-4 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white transition active:scale-95 disabled:opacity-50 flex items-center space-x-1.5 shadow-sm">
+          <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+          <span x-text="isDeleting ? 'Deleting...' : 'Confirm Delete'"></span>
+        </button>
       </div>
     </div>
   </div>
@@ -2548,6 +3115,40 @@ export function getDashboardHtml() {
           auto_crawl: true
         },
 
+        // Seeds Selection & Controls State
+        selectedSeedIds: [],
+        seedViewMode: (typeof localStorage !== 'undefined' && localStorage.getItem('pin_seed_view_mode')) || 'grid',
+        seedSearch: '',
+        seedFilterStatus: 'all',
+        seedFilterType: 'all',
+        seedSort: 'crawled_desc',
+
+        // Bulk / Add Seed Modal State
+        addSeedTab: 'bulk',
+        bulkPinsInput: '',
+        bulkLabelPrefix: 'Tracked Seed',
+        bulkIsCompetitor: true,
+        bulkAutoCrawl: true,
+        bulkCrawlEngine: 'workflow',
+        isSubmittingBulk: false,
+
+        // Crawl Controller Modal State
+        isCrawlModalOpen: false,
+        crawlModalTab: 'launch',
+        crawlTargetScope: 'queued',
+        crawlCustomPinId: '',
+        crawlEngine: 'workflow',
+        crawlMaxPages: '40',
+        workflowRuns: [],
+        isLoadingWorkflowRuns: false,
+        isTriggeringWorkflow: false,
+
+        // Delete Modal State
+        isDeleteModalOpen: false,
+        deleteTarget: null,
+        deletePurgeNeon: true,
+        isDeleting: false,
+
         toggleTheme() {
           this.isDark = !this.isDark;
           localStorage.setItem('pin_theme', this.isDark ? 'dark' : 'light');
@@ -2695,6 +3296,82 @@ export function getDashboardHtml() {
           });
 
           return res;
+        },
+
+        get bulkParsedPinIds() {
+          if (!this.bulkPinsInput || typeof this.bulkPinsInput !== 'string') return [];
+          const matches = this.bulkPinsInput.match(/(?:pin\/)?(\d{10,25})/g) || [];
+          const cleanIds = [];
+          for (const m of matches) {
+            const id = m.replace(/^pin\//, '').trim();
+            if (id && !cleanIds.includes(id)) {
+              cleanIds.push(id);
+            }
+          }
+          return cleanIds;
+        },
+
+        get filteredSeeds() {
+          let list = Array.isArray(this.seeds) ? [...this.seeds] : [];
+
+          // 1. Text Search
+          if (this.seedSearch && this.seedSearch.trim()) {
+            const q = this.seedSearch.toLowerCase().trim();
+            list = list.filter(s =>
+              (s.pin_id && String(s.pin_id).includes(q)) ||
+              (s.label && s.label.toLowerCase().includes(q))
+            );
+          }
+
+          // 2. Status Filter
+          if (this.seedFilterStatus === 'crawled') {
+            list = list.filter(s => Boolean(s.last_crawled_at));
+          } else if (this.seedFilterStatus === 'pending') {
+            list = list.filter(s => !s.last_crawled_at);
+          }
+
+          // 3. Type Filter
+          if (this.seedFilterType === 'competitor') {
+            list = list.filter(s => Boolean(s.is_competitor));
+          } else if (this.seedFilterType === 'internal') {
+            list = list.filter(s => !s.is_competitor);
+          }
+
+          // 4. Sort
+          if (this.seedSort === 'crawled_desc') {
+            list.sort((a, b) => {
+              if (!a.last_crawled_at && !b.last_crawled_at) return 0;
+              if (!a.last_crawled_at) return 1;
+              if (!b.last_crawled_at) return -1;
+              return new Date(b.last_crawled_at) - new Date(a.last_crawled_at);
+            });
+          } else if (this.seedSort === 'candidates_desc') {
+            list.sort((a, b) => Number(b.total_candidates || 0) - Number(a.total_candidates || 0));
+          } else if (this.seedSort === 'candidates_asc') {
+            list.sort((a, b) => Number(a.total_candidates || 0) - Number(b.total_candidates || 0));
+          } else if (this.seedSort === 'gap_desc') {
+            list.sort((a, b) => Number(b.commercial_gap_ratio || 100) - Number(a.commercial_gap_ratio || 100));
+          } else if (this.seedSort === 'id_desc') {
+            list.sort((a, b) => String(b.pin_id).localeCompare(String(a.pin_id)));
+          }
+
+          return list;
+        },
+
+        get isAllSeedsSelected() {
+          const list = this.filteredSeeds;
+          return list.length > 0 && list.every(s => this.selectedSeedIds.includes(s.pin_id));
+        },
+
+        get deleteTargetSummary() {
+          if (!this.deleteTarget) return 'selected items';
+          if (this.deleteTarget === 'selected') {
+            return this.selectedSeedIds.length + ' selected seeds';
+          }
+          if (typeof this.deleteTarget === 'object') {
+            return '"' + (this.deleteTarget.label || this.deleteTarget.pin_id) + '" (' + this.deleteTarget.pin_id + ')';
+          }
+          return 'seed ' + this.deleteTarget;
         },
 
         get paginatedIntersections() {
@@ -3341,6 +4018,243 @@ export function getDashboardHtml() {
           }
         },
 
+        toggleSeedSelection(pinId) {
+          if (this.selectedSeedIds.includes(pinId)) {
+            this.selectedSeedIds = this.selectedSeedIds.filter(id => id !== pinId);
+          } else {
+            this.selectedSeedIds.push(pinId);
+          }
+          this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+        },
+
+        toggleSelectAllSeeds() {
+          const currentFilteredIds = this.filteredSeeds.map(s => s.pin_id);
+          if (this.isAllSeedsSelected) {
+            this.selectedSeedIds = this.selectedSeedIds.filter(id => !currentFilteredIds.includes(id));
+          } else {
+            const set = new Set([...this.selectedSeedIds, ...currentFilteredIds]);
+            this.selectedSeedIds = Array.from(set);
+          }
+          this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+        },
+
+        openAddSeedModal(tab = 'bulk') {
+          this.addSeedTab = tab;
+          this.isAddSeedOpen = true;
+          this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+        },
+
+        async submitBulkSeeds() {
+          const pinIds = this.bulkParsedPinIds;
+          if (pinIds.length === 0) {
+            alert('No valid Pin IDs detected');
+            return;
+          }
+          this.isSubmittingBulk = true;
+          try {
+            const res = await fetch('/api/seeds/bulk', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                pin_ids: pinIds,
+                label_prefix: this.bulkLabelPrefix.trim() || 'Tracked Seed',
+                is_competitor: Boolean(this.bulkIsCompetitor)
+              })
+            });
+
+            if (res.ok) {
+              const data = await res.json();
+              this.showToast('✅ Successfully imported ' + data.count + ' seeds into Neon!');
+              this.bulkPinsInput = '';
+              this.isAddSeedOpen = false;
+              await this.refreshAll();
+
+              if (this.bulkAutoCrawl) {
+                if (this.bulkCrawlEngine === 'workflow') {
+                  await this.triggerWorkflowRun(pinIds.join(','));
+                } else {
+                  await this.triggerCrawl(pinIds);
+                }
+              }
+            } else {
+              const err = await res.json();
+              alert('Error importing bulk seeds: ' + (err.error || 'Failed'));
+            }
+          } catch (e) {
+            alert('Failed to import bulk seeds: ' + e.message);
+          } finally {
+            this.isSubmittingBulk = false;
+          }
+        },
+
+        openCrawlModal(target = null) {
+          if (target === 'selected') {
+            this.crawlTargetScope = 'selected';
+          } else if (typeof target === 'string') {
+            this.crawlTargetScope = 'single';
+            this.crawlCustomPinId = target;
+          } else if (this.selectedSeedIds.length > 0) {
+            this.crawlTargetScope = 'selected';
+          } else {
+            this.crawlTargetScope = 'queued';
+          }
+          this.crawlModalTab = 'launch';
+          this.isCrawlModalOpen = true;
+          this.fetchWorkflowRuns();
+          this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+        },
+
+        async fetchWorkflowRuns() {
+          this.isLoadingWorkflowRuns = true;
+          try {
+            const res = await fetch('/api/workflow/runs?limit=15');
+            if (res.ok) {
+              this.workflowRuns = await res.json();
+            }
+          } catch (e) {
+            console.warn('Failed to load workflow runs:', e);
+          } finally {
+            this.isLoadingWorkflowRuns = false;
+            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+          }
+        },
+
+        async executeCrawl() {
+          let targetIds = [];
+          if (this.crawlTargetScope === 'selected') {
+            targetIds = [...this.selectedSeedIds];
+            if (targetIds.length === 0) {
+              alert('Please select at least one seed to crawl.');
+              return;
+            }
+          } else if (this.crawlTargetScope === 'single') {
+            if (!this.crawlCustomPinId.trim()) {
+              alert('Please enter a target Pin ID.');
+              return;
+            }
+            targetIds = [this.crawlCustomPinId.trim()];
+          } else if (this.crawlTargetScope === 'queued') {
+            targetIds = []; // sweep queued
+          } else if (this.crawlTargetScope === 'all') {
+            targetIds = this.seeds.map(s => s.pin_id);
+          }
+
+          if (this.crawlEngine === 'workflow') {
+            await this.triggerWorkflowRun(targetIds.join(','), this.crawlMaxPages);
+          } else {
+            await this.triggerCrawl(targetIds.length > 0 ? targetIds : null);
+            this.isCrawlModalOpen = false;
+          }
+        },
+
+        async triggerWorkflowRun(seedPinIdsStr = '', maxPages = '40') {
+          this.isTriggeringWorkflow = true;
+          try {
+            const res = await fetch('/api/workflow/trigger', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                seed_pin_id: seedPinIdsStr,
+                max_pages: maxPages || '40'
+              })
+            });
+
+            const data = await res.json();
+            if (res.ok && data.success) {
+              this.showToast('🚀 GitHub Actions Workflow Run triggered successfully!');
+              this.crawlModalTab = 'history';
+              setTimeout(() => this.fetchWorkflowRuns(), 2000);
+            } else {
+              alert('Failed to trigger workflow: ' + (data.error || 'Unknown error'));
+            }
+          } catch (e) {
+            alert('Workflow dispatch network error: ' + e.message);
+          } finally {
+            this.isTriggeringWorkflow = false;
+          }
+        },
+
+        openDeleteModal(target) {
+          this.deleteTarget = target;
+          this.deletePurgeNeon = true;
+          this.isDeleteModalOpen = true;
+          this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+        },
+
+        async confirmDelete() {
+          this.isDeleting = true;
+          try {
+            let pinIds = [];
+            if (this.deleteTarget === 'selected') {
+              pinIds = [...this.selectedSeedIds];
+            } else if (typeof this.deleteTarget === 'object' && this.deleteTarget?.pin_id) {
+              pinIds = [this.deleteTarget.pin_id];
+            } else if (typeof this.deleteTarget === 'string') {
+              pinIds = [this.deleteTarget];
+            }
+
+            if (pinIds.length === 0) {
+              this.isDeleteModalOpen = false;
+              return;
+            }
+
+            const res = await fetch('/api/seeds/bulk-delete', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                pin_ids: pinIds,
+                purge_database: Boolean(this.deletePurgeNeon)
+              })
+            });
+
+            if (res.ok) {
+              const data = await res.json();
+              this.showToast('🗑️ Deleted ' + data.deleted_count + ' seeds ' + (data.purged_database ? '(Neon DB purged cleanly)' : ''));
+              this.selectedSeedIds = this.selectedSeedIds.filter(id => !pinIds.includes(id));
+              this.isDeleteModalOpen = false;
+              if (this.activeDossierSeed && pinIds.includes(this.activeDossierSeed.pin_id)) {
+                this.closeSeedDossier();
+              }
+              await this.refreshAll();
+            } else {
+              const err = await res.json();
+              alert('Error deleting seeds: ' + (err.error || 'Failed'));
+            }
+          } catch (e) {
+            alert('Failed to delete seeds: ' + e.message);
+          } finally {
+            this.isDeleting = false;
+          }
+        },
+
+        exportSelectedSeeds() {
+          const selected = this.seeds.filter(s => this.selectedSeedIds.includes(s.pin_id));
+          if (selected.length === 0) return;
+          const headers = ['pin_id', 'label', 'is_competitor', 'total_candidates', 'total_capsules', 'commercial_gap_ratio', 'last_crawled_at'];
+          const rows = [headers.join(',')];
+          for (const s of selected) {
+            rows.push([
+              s.pin_id,
+              '"' + (s.label || '').replace(/"/g, '""') + '"',
+              s.is_competitor,
+              s.total_candidates || 0,
+              s.total_capsules || 0,
+              s.commercial_gap_ratio || 100,
+              s.last_crawled_at || ''
+            ].join(','));
+          }
+          const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.setAttribute('href', url);
+          link.setAttribute('download', 'selected-seeds-' + Date.now() + '.csv');
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+          this.showToast('Exported ' + selected.length + ' seeds to CSV');
+        },
+
         async addSeed() {
           if (!this.newSeed.pin_id.trim()) {
             alert('Please enter a valid Pinterest Pin ID');
@@ -3371,27 +4285,7 @@ export function getDashboardHtml() {
         },
 
         async deleteSeed(pinId, label) {
-          const name = label || pinId;
-          if (!confirm('Are you sure you want to delete seed "' + name + '" (' + pinId + ') and all associated candidates and metrics? This action cannot be undone.')) {
-            return;
-          }
-          try {
-            const res = await fetch('/api/seeds?pin_id=' + encodeURIComponent(pinId), {
-              method: 'DELETE'
-            });
-            if (res.ok) {
-              this.showToast('Seed ' + pinId + ' deleted successfully');
-              if (this.activeDossierSeed && this.activeDossierSeed.pin_id === pinId) {
-                this.closeSeedDossier();
-              }
-              await this.refreshAll();
-            } else {
-              const err = await res.json();
-              alert('Error deleting seed: ' + (err.error || 'Unknown error'));
-            }
-          } catch (e) {
-            alert('Failed to delete seed: ' + e.message);
-          }
+          this.openDeleteModal({ pin_id: pinId, label: label });
         },
 
         exportCsv(list, filename) {

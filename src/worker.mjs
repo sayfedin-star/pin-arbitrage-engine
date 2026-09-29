@@ -255,14 +255,194 @@ export default {
         return jsonResponse({ success: true, seed: result[0] }, 201);
       }
 
+      // 3B. POST /api/seeds/bulk
+      if (method === 'POST' && pathname === '/api/seeds/bulk') {
+        const body = await request.json().catch(() => ({}));
+        const rawSeeds = [];
+        if (Array.isArray(body.seeds)) {
+          for (const s of body.seeds) {
+            const pid = String(s.pin_id || '').trim();
+            if (pid && /^\d+$/.test(pid)) {
+              rawSeeds.push({
+                pin_id: pid,
+                label: String(s.label || `Tracked Seed ${pid}`).trim(),
+                is_competitor: Boolean(s.is_competitor ?? true)
+              });
+            }
+          }
+        } else if (Array.isArray(body.pin_ids)) {
+          const isComp = Boolean(body.is_competitor ?? true);
+          const prefix = String(body.label_prefix || 'Tracked Seed').trim();
+          for (const raw of body.pin_ids) {
+            const pid = String(raw || '').trim();
+            if (pid && /^\d+$/.test(pid)) {
+              rawSeeds.push({
+                pin_id: pid,
+                label: `${prefix} ${pid}`,
+                is_competitor: isComp
+              });
+            }
+          }
+        }
+
+        if (rawSeeds.length === 0) {
+          return jsonResponse({ error: 'No valid numeric pin IDs provided in payload' }, 400);
+        }
+
+        const inserted = [];
+        for (const s of rawSeeds) {
+          const resRow = await sql`
+            INSERT INTO cluster_seeds (pin_id, label, is_competitor, created_at)
+            VALUES (${s.pin_id}, ${s.label}, ${s.is_competitor}, NOW())
+            ON CONFLICT (pin_id) DO UPDATE SET
+              label = EXCLUDED.label,
+              is_competitor = EXCLUDED.is_competitor
+            RETURNING pin_id, label, is_competitor, last_crawled_at;
+          `;
+          if (resRow.length > 0) inserted.push(resRow[0]);
+        }
+
+        return jsonResponse({ success: true, count: inserted.length, seeds: inserted }, 201);
+      }
+
+      // 3C. POST /api/seeds/bulk-delete
+      if (method === 'POST' && pathname === '/api/seeds/bulk-delete') {
+        const body = await request.json().catch(() => ({}));
+        const pinIds = Array.isArray(body.pin_ids) ? body.pin_ids.map(p => String(p).trim()).filter(Boolean) : [];
+        const purgeDatabase = Boolean(body.purge_database ?? true);
+
+        if (pinIds.length === 0) {
+          return jsonResponse({ error: 'pin_ids array is required' }, 400);
+        }
+
+        if (purgeDatabase) {
+          await sql`DELETE FROM candidate_graph_nodes WHERE seed_pin_id = ANY(${pinIds});`;
+          await sql`DELETE FROM seed_guided_search_capsules WHERE seed_pin_id = ANY(${pinIds});`;
+          await sql`DELETE FROM cluster_arbitrage_metrics WHERE seed_pin_id = ANY(${pinIds});`;
+        }
+        await sql`DELETE FROM cluster_seeds WHERE pin_id = ANY(${pinIds});`;
+
+        return jsonResponse({
+          success: true,
+          deleted_count: pinIds.length,
+          purged_database: purgeDatabase,
+          deleted_pin_ids: pinIds
+        });
+      }
+
       // 4. DELETE /api/seeds
       if (method === 'DELETE' && pathname === '/api/seeds') {
         const pinId = searchParams.get('pin_id');
+        const purgeData = searchParams.get('purge_data') === 'true' || searchParams.get('purge_database') === 'true';
         if (!pinId) {
           return jsonResponse({ error: 'pin_id query parameter is required' }, 400);
         }
+        if (purgeData) {
+          await sql`DELETE FROM candidate_graph_nodes WHERE seed_pin_id = ${pinId};`;
+          await sql`DELETE FROM seed_guided_search_capsules WHERE seed_pin_id = ${pinId};`;
+          await sql`DELETE FROM cluster_arbitrage_metrics WHERE seed_pin_id = ${pinId};`;
+        }
         await sql`DELETE FROM cluster_seeds WHERE pin_id = ${pinId};`;
-        return jsonResponse({ success: true, deleted_pin_id: pinId });
+        return jsonResponse({ success: true, deleted_pin_id: pinId, purged_database: purgeData });
+      }
+
+      // 4B. POST /api/candidates/delete
+      if (method === 'POST' && pathname === '/api/candidates/delete') {
+        const body = await request.json().catch(() => ({}));
+        const candIds = Array.isArray(body.candidate_pin_ids) ? body.candidate_pin_ids.map(c => String(c).trim()).filter(Boolean) : [];
+        const seedPinId = body.seed_pin_id ? String(body.seed_pin_id).trim() : null;
+
+        if (candIds.length === 0) {
+          return jsonResponse({ error: 'candidate_pin_ids array is required' }, 400);
+        }
+
+        if (seedPinId) {
+          await sql`DELETE FROM candidate_graph_nodes WHERE candidate_pin_id = ANY(${candIds}) AND seed_pin_id = ${seedPinId};`;
+        } else {
+          await sql`DELETE FROM candidate_graph_nodes WHERE candidate_pin_id = ANY(${candIds});`;
+        }
+
+        return jsonResponse({ success: true, deleted_count: candIds.length });
+      }
+
+      // 4C. GET /api/workflow/runs (Cloudflare Worker GitHub API integration)
+      if (method === 'GET' && pathname === '/api/workflow/runs') {
+        const ghToken = env.GITHUB_TOKEN || env.GH_TOKEN;
+        const repo = 'sayfedin-star/pin-arbitrage-engine';
+        try {
+          const headers = {
+            'User-Agent': 'Cloudflare-Worker-Pin-Arbitrage-Engine',
+            'Accept': 'application/vnd.github.v3+json'
+          };
+          if (ghToken) headers['Authorization'] = `token ${ghToken}`;
+          const res = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/cluster-intelligence.yml/runs?per_page=10`, { headers });
+          if (res.ok) {
+            const data = await res.json();
+            const formatted = (data.workflow_runs || []).map(r => ({
+              databaseId: r.id,
+              status: r.status,
+              conclusion: r.conclusion,
+              createdAt: r.created_at,
+              url: r.html_url,
+              event: r.event,
+              displayTitle: r.display_title || r.name,
+              headBranch: r.head_branch
+            }));
+            return jsonResponse(formatted);
+          }
+          return jsonResponse([]);
+        } catch (e) {
+          return jsonResponse([]);
+        }
+      }
+
+      // 4D. POST /api/workflow/trigger (Cloudflare Worker GitHub API dispatch)
+      if (method === 'POST' && pathname === '/api/workflow/trigger') {
+        const ghToken = env.GITHUB_TOKEN || env.GH_TOKEN;
+        if (!ghToken) {
+          return jsonResponse({
+            success: false,
+            error: 'GITHUB_TOKEN secret not configured in Cloudflare Workers settings. Please trigger locally or add GITHUB_TOKEN secret.'
+          }, 400);
+        }
+        const body = await request.json().catch(() => ({}));
+        let target = '';
+        if (Array.isArray(body.seed_pin_ids) && body.seed_pin_ids.length > 0) {
+          target = body.seed_pin_ids.map(s => String(s).trim()).filter(Boolean).join(',');
+        } else if (body.seed_pin_id) {
+          target = String(body.seed_pin_id).trim();
+        }
+        const maxPages = body.max_pages ? String(body.max_pages).trim() : '40';
+
+        const repo = 'sayfedin-star/pin-arbitrage-engine';
+        const res = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/cluster-intelligence.yml/dispatches`, {
+          method: 'POST',
+          headers: {
+            'User-Agent': 'Cloudflare-Worker-Pin-Arbitrage-Engine',
+            'Accept': 'application/vnd.github.v3+json',
+            'Authorization': `token ${ghToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            ref: 'main',
+            inputs: {
+              seed_pin_id: target,
+              max_pages: maxPages
+            }
+          })
+        });
+
+        if (res.ok || res.status === 204) {
+          return jsonResponse({
+            success: true,
+            seed_pin_id: target || 'all_queued',
+            max_pages: maxPages,
+            message: 'Workflow dispatched successfully to GitHub Actions.'
+          });
+        } else {
+          const errText = await res.text();
+          return jsonResponse({ success: false, error: `GitHub API error: ${errText}` }, res.status);
+        }
       }
 
       // 5. GET /api/candidates
