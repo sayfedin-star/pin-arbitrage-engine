@@ -4528,10 +4528,12 @@ export function getDashboardHtml() {
         },
 
         async initDashboard() {
-          const savedTheme = localStorage.getItem('pin_theme');
-          if (savedTheme) {
-            this.isDark = savedTheme === 'dark';
-          }
+          try {
+            const savedTheme = typeof localStorage !== 'undefined' ? localStorage.getItem('pin_theme') : null;
+            if (savedTheme) {
+              this.isDark = savedTheme === 'dark';
+            }
+          } catch (_) {}
           await this.refreshAll();
           this.pollCrawlStatus();
           setInterval(() => this.pollCrawlStatus(), 3000);
@@ -4648,14 +4650,15 @@ export function getDashboardHtml() {
               c.activity_status || '1d ago'
             ]);
           }
-          const csvContent = 'data:text/csv;charset=utf-8,' + rows.map(e => e.join(',')).join('\n');
-          const encodedUri = encodeURI(csvContent);
+          const blob = new Blob([rows.map(e => e.join(',')).join(String.fromCharCode(10))], { type: 'text/csv;charset=utf-8;' });
+          const url = URL.createObjectURL(blob);
           const link = document.createElement('a');
-          link.setAttribute('href', encodedUri);
+          link.setAttribute('href', url);
           link.setAttribute('download', 'pinterest_competitors_' + new Date().toISOString().slice(0, 10) + '.csv');
           document.body.appendChild(link);
           link.click();
           document.body.removeChild(link);
+          URL.revokeObjectURL(url);
         },
 
         async fetchKeywords() {
