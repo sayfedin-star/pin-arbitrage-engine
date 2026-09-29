@@ -968,6 +968,22 @@ export function getDashboardHtml() {
           </div>
 
           <div class="flex items-center space-x-2 flex-wrap gap-y-1">
+            <!-- View Mode Switcher: Grid Cards ⊞ vs Data Table ☰ -->
+            <div class="flex items-center bg-slate-100 dark:bg-slate-800/80 p-0.5 rounded-xl border border-slate-200 dark:border-slate-700/80 shadow-inner">
+              <button @click="setIntersectionViewMode('grid')" 
+                      class="flex items-center space-x-1.5 px-3 py-1 rounded-lg text-xs font-semibold font-mono transition active:scale-95"
+                      :class="intersectionViewMode === 'grid' ? 'bg-white dark:bg-slate-900 text-amber-600 dark:text-amber-400 shadow-sm' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">
+                <i data-lucide="layout-grid" class="w-3.5 h-3.5"></i>
+                <span>Cards Grid</span>
+              </button>
+              <button @click="setIntersectionViewMode('table')" 
+                      class="flex items-center space-x-1.5 px-3 py-1 rounded-lg text-xs font-semibold font-mono transition active:scale-95"
+                      :class="intersectionViewMode === 'table' ? 'bg-white dark:bg-slate-900 text-amber-600 dark:text-amber-400 shadow-sm' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">
+                <i data-lucide="table" class="w-3.5 h-3.5"></i>
+                <span>Data Table</span>
+              </button>
+            </div>
+
             <button @click="exportCsv(filteredIntersections, 'global-intersections-filtered.csv')" class="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-semibold shadow-sm transition active:scale-95">
               <i data-lucide="download" class="w-3.5 h-3.5 text-amber-500"></i>
               <span>Export CSV</span>
@@ -1072,17 +1088,157 @@ export function getDashboardHtml() {
           </div>
         </div>
 
-        <!-- 3. Intersections Table (Paginated & Compact) -->
-        <div class="overflow-x-auto">
+        <!-- 3A. Visual Arbitrage Card Grid (Pinterest-Native 2:3 Cards) -->
+        <div x-show="intersectionViewMode === 'grid'" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+          <template x-for="item in paginatedIntersections" :key="item.candidate_pin_id">
+            <div class="group relative rounded-2xl bg-white dark:bg-[#0b1120] border border-slate-200/90 dark:border-slate-800/90 hover:border-amber-500/50 dark:hover:border-amber-500/50 shadow-sm hover:shadow-xl transition-all duration-300 flex flex-col overflow-hidden">
+              
+              <!-- 1. Media Image Container (2:3 Aspect Ratio) -->
+              <div class="relative w-full aspect-[2/3] bg-slate-100 dark:bg-slate-900 overflow-hidden cursor-pointer" @click="openHubDrawer(item)">
+                <template x-if="item.image_url">
+                  <img :src="item.image_url" alt="Pin preview" loading="lazy" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500">
+                </template>
+                <template x-if="!item.image_url">
+                  <div class="w-full h-full flex flex-col items-center justify-center text-slate-400 p-4 text-center">
+                    <i data-lucide="image" class="w-8 h-8 mb-2 opacity-50"></i>
+                    <span class="text-xs font-mono">No Image</span>
+                  </div>
+                </template>
+
+                <!-- Top Floating Glassmorphism Badges -->
+                <div class="absolute top-2.5 inset-x-2.5 flex items-center justify-between pointer-events-none">
+                  <!-- Multi-Hit Overlap Badge -->
+                  <span class="px-2 py-0.5 rounded-lg text-[10px] font-mono font-bold uppercase backdrop-blur-md shadow-md border"
+                        :class="{
+                          'bg-purple-950/85 text-purple-200 border-purple-500/40': item.seed_overlap_count >= 7,
+                          'bg-rose-950/85 text-rose-200 border-rose-500/40': item.seed_overlap_count >= 5 && item.seed_overlap_count < 7,
+                          'bg-amber-950/85 text-amber-200 border-amber-500/40': item.seed_overlap_count >= 3 && item.seed_overlap_count < 5,
+                          'bg-slate-900/85 text-slate-200 border-slate-700/60': item.seed_overlap_count < 3
+                        }">
+                    <span x-text="'🔥 ' + item.seed_overlap_count + ' Seeds'"></span>
+                    <span class="text-[9px] opacity-80" x-text="'(' + Math.pow(item.seed_overlap_count, 2) + 'x)'"></span>
+                  </span>
+
+                  <!-- Vacuum / Format Badge -->
+                  <div class="flex items-center space-x-1">
+                    <template x-if="item.is_vacuum_target">
+                      <span class="px-2 py-0.5 rounded-lg text-[10px] font-extrabold uppercase bg-emerald-950/85 text-emerald-300 border border-emerald-500/40 backdrop-blur-md shadow-md">
+                        🎯 VACUUM
+                      </span>
+                    </template>
+                    <span class="px-1.5 py-0.5 rounded-lg text-[9px] font-mono font-bold uppercase backdrop-blur-md shadow-md bg-slate-950/70 text-white border border-white/20" x-text="item.format_type === 'PRODUCT CARD' ? 'PRODUCT' : (item.format_type === 'VIDEO PIN' ? 'VIDEO' : 'PIN')"></span>
+                  </div>
+                </div>
+
+                <!-- Hover Overlay Trigger -->
+                <div class="absolute inset-0 bg-gradient-to-t from-slate-950/85 via-slate-950/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-3 pointer-events-none">
+                  <span class="text-xs font-semibold text-white flex items-center space-x-1 font-mono">
+                    <i data-lucide="eye" class="w-3.5 h-3.5 text-amber-400"></i>
+                    <span>Click for Deep Dossier</span>
+                  </span>
+                </div>
+              </div>
+
+              <!-- 2. Card Content & Metrics Body -->
+              <div class="p-3.5 flex-1 flex flex-col justify-between space-y-3">
+                
+                <!-- Title & Domain -->
+                <div>
+                  <div class="flex items-start justify-between gap-1.5">
+                    <button @click="openHubDrawer(item)" 
+                            class="font-bold text-xs text-left text-slate-900 dark:text-slate-100 hover:text-amber-500 transition line-clamp-2"
+                            :title="item.title"
+                            x-text="item.title || ('Pin ' + item.candidate_pin_id)"></button>
+                    <a :href="'https://www.pinterest.com/pin/' + item.candidate_pin_id + '/'" target="_blank" class="text-slate-400 hover:text-amber-500 flex-shrink-0 mt-0.5" title="Open on Pinterest">
+                      <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+                    </a>
+                  </div>
+                  <div class="flex items-center space-x-2 text-[10px] font-mono text-slate-400 mt-1 truncate">
+                    <span x-text="item.domain"></span>
+                    <span>•</span>
+                    <button @click="copyToClipboard(item.candidate_pin_id, 'pin-' + item.candidate_pin_id)" class="hover:text-amber-500 cursor-pointer flex items-center space-x-0.5">
+                      <span x-text="'ID: ' + item.candidate_pin_id"></span>
+                      <i data-lucide="copy" class="w-2.5 h-2.5"></i>
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Pixie Resonance Tier & Energy Micro-Bar (WWW 2018 Formula) -->
+                <div class="p-2 rounded-xl bg-slate-50 dark:bg-slate-900/80 border border-slate-200/70 dark:border-slate-800/70 space-y-1.5">
+                  <div class="flex items-center justify-between text-[11px] font-mono">
+                    <span class="px-1.5 py-0.5 rounded font-bold uppercase tracking-wider text-[9px]" :class="getPixieResonance(item).badgeClass" x-text="getPixieResonance(item).label"></span>
+                    <span class="font-extrabold text-slate-900 dark:text-white" x-text="Number(item.pixie_multihit_score || 0).toLocaleString()"></span>
+                  </div>
+                  <!-- Energy Progress Bar -->
+                  <div class="w-full bg-slate-200 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                    <div class="h-full rounded-full transition-all duration-500" :class="getPixieResonance(item).barGradient" :style="'width: ' + getPixieResonance(item).barPercent + '%'"></div>
+                  </div>
+                  <div class="flex items-center justify-between text-[9px] font-mono text-slate-400">
+                    <span>Random Walk Mass</span>
+                    <span x-text="getPixieResonance(item).barPercent + '% Peak Pull'"></span>
+                  </div>
+                </div>
+
+                <!-- Engagement Stats Grid -->
+                <div class="grid grid-cols-2 gap-2 text-xs font-mono pt-1 border-t border-slate-100 dark:border-slate-800/60">
+                  <div>
+                    <div class="text-[9px] uppercase text-slate-400">Saves / Repins</div>
+                    <div class="font-bold text-slate-900 dark:text-slate-100" x-text="Number(item.total_saves != null ? item.total_saves : (item.saves || 0)).toLocaleString()"></div>
+                    <div class="text-[10px] text-slate-500" x-text="(item.avg_save_rate || item.save_rate || 0) + '% rate'"></div>
+                  </div>
+                  <div>
+                    <div class="text-[9px] uppercase text-slate-400">Daily Velocity</div>
+                    <template x-if="Number(item.daily_velocity || 0) > 0">
+                      <div class="font-bold text-emerald-600 dark:text-emerald-400" x-text="'🔥 ' + item.daily_velocity + '/d'"></div>
+                    </template>
+                    <template x-if="!Number(item.daily_velocity || 0)">
+                      <div class="text-slate-400 text-[10px]">Stagnant</div>
+                    </template>
+                    <div class="flex items-center space-x-1 mt-0.5">
+                      <span class="w-2.5 h-2.5 rounded-full border border-black/20" :style="'background-color: ' + (item.winning_color || '#888')"></span>
+                      <span class="text-[9px] text-slate-400 truncate max-w-[70px]" x-text="item.culinary_color_name || item.winning_color"></span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Action Bar -->
+                <div class="flex items-center space-x-1.5 pt-2 border-t border-slate-100 dark:border-slate-800">
+                  <button @click="openHubDrawer(item)" class="flex-1 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 text-[11px] font-bold font-mono transition active:scale-95 flex items-center justify-center space-x-1">
+                    <i data-lucide="eye" class="w-3 h-3"></i>
+                    <span>Inspect Dossier</span>
+                  </button>
+                  <button @click="copyHubReSpinAngle(item)" class="p-1.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition active:scale-95" title="Copy Viral Angle Hook">
+                    <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                  </button>
+                </div>
+
+              </div>
+            </div>
+          </template>
+
+          <!-- Empty Grid Placeholder -->
+          <template x-if="paginatedIntersections.length === 0">
+            <div class="col-span-full py-16 text-center text-slate-500 dark:text-slate-400 font-mono text-xs">
+              <div class="flex flex-col items-center justify-center space-y-2">
+                <i data-lucide="search-x" class="w-10 h-10 text-slate-400"></i>
+                <div class="font-bold text-slate-700 dark:text-slate-300">No intersecting hubs matching your filters</div>
+                <button @click="resetIntersectionFilters()" class="text-amber-600 dark:text-amber-400 underline font-semibold cursor-pointer">Reset all filters</button>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <!-- 3B. Polished Precision Data Table -->
+        <div x-show="intersectionViewMode === 'table'" class="overflow-x-auto">
           <table class="w-full text-left text-xs border-collapse">
             <thead>
               <tr class="border-b border-slate-200 dark:border-slate-800/80 bg-slate-50/80 dark:bg-slate-900/60 text-slate-500 dark:text-slate-400 font-mono text-[11px] uppercase tracking-wider">
                 <th class="py-3 px-3">Preview & Format</th>
                 <th class="py-3 px-3 min-w-[260px]">Intersecting Candidate Title</th>
-                <th class="py-3 px-3 min-w-[240px] max-w-[320px]">Originating Seeds Convergence</th>
-                <th class="py-3 px-3">Pixie Multi-Hit Mass</th>
-                <th class="py-3 px-3">Engagement Metrics</th>
-                <th class="py-3 px-3">Color DNA</th>
+                <th class="py-3 px-3 min-w-[220px] max-w-[280px]">Originating Seeds Convergence</th>
+                <th class="py-3 px-3 min-w-[170px]">Pixie Multi-Hit Mass</th>
+                <th class="py-3 px-3 min-w-[150px]">Engagement Metrics</th>
+                <th class="py-3 px-3 min-w-[120px]">Color DNA</th>
                 <th class="py-3 px-3 text-right">Actions</th>
               </tr>
             </thead>
@@ -1092,19 +1248,19 @@ export function getDashboardHtml() {
                   
                   <!-- 1. Preview & Format -->
                   <td class="py-3 px-3 whitespace-nowrap">
-                    <div class="flex items-center space-x-2">
-                      <template x-if="item.image_url">
-                        <a :href="'https://www.pinterest.com/pin/' + item.candidate_pin_id + '/'" target="_blank" class="group/thumb block relative flex-shrink-0">
-                          <img :src="item.image_url" alt="pin preview" loading="lazy" class="w-8 h-12 rounded-lg object-cover border shadow-sm group-hover/thumb:scale-125 transition-transform duration-200" :style="'border-color: ' + (item.winning_color || '#cbd5e1')">
-                        </a>
-                      </template>
-                      <template x-if="!item.image_url">
-                        <div class="w-8 h-12 rounded-lg flex-shrink-0 flex items-center justify-center border shadow-sm" :style="'border-color: ' + (item.winning_color || '#cbd5e1') + '; background-color: ' + (item.winning_color || '#cbd5e1') + '15;'">
-                          <i data-lucide="image" class="w-4 h-4 text-slate-400"></i>
-                        </div>
-                      </template>
+                    <div class="flex items-center space-x-2.5">
+                      <div @click="openHubDrawer(item)" class="group/thumb block relative flex-shrink-0 cursor-pointer">
+                        <template x-if="item.image_url">
+                          <img :src="item.image_url" alt="pin preview" loading="lazy" class="w-10 h-14 rounded-xl object-cover border-2 shadow-sm group-hover/thumb:scale-110 transition-transform duration-200" :style="'border-color: ' + (item.winning_color || '#cbd5e1')">
+                        </template>
+                        <template x-if="!item.image_url">
+                          <div class="w-10 h-14 rounded-xl flex-shrink-0 flex items-center justify-center border-2 shadow-sm" :style="'border-color: ' + (item.winning_color || '#cbd5e1') + '; background-color: ' + (item.winning_color || '#cbd5e1') + '15;'">
+                            <i data-lucide="image" class="w-4 h-4 text-slate-400"></i>
+                          </div>
+                        </template>
+                      </div>
                       <div class="space-y-1">
-                        <div class="flex items-center space-x-1">
+                        <div class="flex flex-col space-y-1">
                           <span class="inline-block px-1.5 py-0.5 rounded text-[9px] font-mono font-bold tracking-wider uppercase" :class="{
                             'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20': item.format_type === 'PRODUCT CARD',
                             'bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20': item.format_type === 'ORGANIC PIN',
@@ -1113,8 +1269,8 @@ export function getDashboardHtml() {
                           }" x-text="item.format_type"></span>
 
                           <template x-if="item.is_vacuum_target">
-                            <span class="px-1.5 py-0.5 rounded text-[8px] font-extrabold uppercase bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/40">
-                              VACUUM
+                            <span class="inline-block px-1.5 py-0.5 rounded text-[8px] font-extrabold uppercase bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/40">
+                              🎯 VACUUM
                             </span>
                           </template>
                         </div>
@@ -1133,13 +1289,12 @@ export function getDashboardHtml() {
                   <td class="py-3 px-3 min-w-[260px]">
                     <div class="space-y-1">
                       <div class="flex items-center space-x-1.5">
+                        <button @click="openHubDrawer(item)" 
+                                class="font-bold text-left text-slate-900 dark:text-slate-100 hover:text-amber-500 line-clamp-1 hover:underline text-xs" 
+                                x-text="item.title || ('Pin ' + item.candidate_pin_id)"></button>
                         <a :href="'https://www.pinterest.com/pin/' + item.candidate_pin_id + '/'" 
                            target="_blank" 
-                           class="font-bold text-slate-900 dark:text-slate-100 hover:text-rose-600 dark:hover:text-rose-400 line-clamp-1 hover:underline text-xs" 
-                           x-text="item.title || ('Pin ' + item.candidate_pin_id)"></a>
-                        <a :href="'https://www.pinterest.com/pin/' + item.candidate_pin_id + '/'" 
-                           target="_blank" 
-                           class="text-slate-400 hover:text-rose-500 transition flex-shrink-0" title="Open on Pinterest">
+                           class="text-slate-400 hover:text-amber-500 transition flex-shrink-0" title="Open on Pinterest">
                           <i data-lucide="external-link" class="w-3 h-3"></i>
                         </a>
                       </div>
@@ -1148,7 +1303,7 @@ export function getDashboardHtml() {
                         <span class="px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 truncate max-w-[130px]" x-text="item.domain"></span>
                         <span>•</span>
                         <button @click="copyToClipboard(item.candidate_pin_id, 'pin-' + item.candidate_pin_id)" 
-                                class="hover:text-rose-500 flex items-center space-x-0.5 cursor-pointer text-slate-500" title="Copy Pin ID">
+                                class="hover:text-amber-500 flex items-center space-x-0.5 cursor-pointer text-slate-500" title="Copy Pin ID">
                           <span x-text="'ID: ' + item.candidate_pin_id"></span>
                           <i data-lucide="copy" class="w-2.5 h-2.5"></i>
                         </button>
@@ -1163,17 +1318,18 @@ export function getDashboardHtml() {
                   </td>
 
                   <!-- 3. Overlapping Originating Seeds (Compact with Expand/Collapse) -->
-                  <td class="py-3 px-3 min-w-[240px] max-w-[320px]">
+                  <td class="py-3 px-3 min-w-[220px] max-w-[280px]">
                     <div class="space-y-1">
                       <div class="flex items-center justify-between">
                         <div class="flex items-center space-x-1 font-mono text-[11px] font-bold" :class="{
-                          'text-rose-600 dark:text-rose-400': item.seed_overlap_count >= 7,
-                          'text-amber-600 dark:text-amber-400': item.seed_overlap_count >= 5 && item.seed_overlap_count < 7,
-                          'text-sky-600 dark:text-sky-400': item.seed_overlap_count >= 3 && item.seed_overlap_count < 5,
+                          'text-purple-600 dark:text-purple-400': item.seed_overlap_count >= 7,
+                          'text-rose-600 dark:text-rose-400': item.seed_overlap_count >= 5 && item.seed_overlap_count < 7,
+                          'text-amber-600 dark:text-amber-400': item.seed_overlap_count >= 3 && item.seed_overlap_count < 5,
                           'text-slate-600 dark:text-slate-400': item.seed_overlap_count < 3
                         }">
                           <i data-lucide="git-merge" class="w-3.5 h-3.5"></i>
                           <span x-text="'Found in ' + item.seed_overlap_count + ' Seeds'"></span>
+                          <span class="text-[9px] font-normal opacity-80" x-text="'(' + Math.pow(item.seed_overlap_count, 2) + 'x)'"></span>
                         </div>
 
                         <template x-if="(item.originating_seed_details || []).length > 2">
@@ -1207,16 +1363,23 @@ export function getDashboardHtml() {
                     </div>
                   </td>
 
-                  <!-- 4. Pixie Multi-Hit Score -->
-                  <td class="py-3 px-3 whitespace-nowrap font-mono">
-                    <div class="text-sm font-extrabold text-amber-600 dark:text-amber-400" x-text="Number(item.pixie_multihit_score || 0).toLocaleString()"></div>
-                    <div class="text-[10px] text-slate-400 flex items-center space-x-1">
-                      <span>Random Walk Mass</span>
+                  <!-- 4. Pixie Multi-Hit Score & Energy Bar -->
+                  <td class="py-3 px-3 whitespace-nowrap font-mono min-w-[170px]">
+                    <div class="space-y-1">
+                      <div class="flex items-center space-x-1.5">
+                        <span class="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider" :class="getPixieResonance(item).badgeClass" x-text="getPixieResonance(item).label"></span>
+                      </div>
+                      <div class="text-sm font-extrabold text-slate-900 dark:text-white" x-text="Number(item.pixie_multihit_score || 0).toLocaleString()"></div>
+                      <!-- Micro Energy Bar -->
+                      <div class="w-28 bg-slate-200 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                        <div class="h-full rounded-full transition-all duration-500" :class="getPixieResonance(item).barGradient" :style="'width: ' + getPixieResonance(item).barPercent + '%'"></div>
+                      </div>
+                      <div class="text-[9px] text-slate-400">Random Walk Mass</div>
                     </div>
                   </td>
 
                   <!-- 5. Metrics -->
-                  <td class="py-3 px-3 whitespace-nowrap font-mono">
+                  <td class="py-3 px-3 whitespace-nowrap font-mono min-w-[150px]">
                     <div class="font-bold text-slate-900 dark:text-white" x-text="Number(item.total_saves != null ? item.total_saves : (item.saves || 0)).toLocaleString() + ' saves'"></div>
                     <div class="text-[10px] text-slate-500" x-text="Number(item.total_repins != null ? item.total_repins : (item.repins || 0)).toLocaleString() + ' repins • ' + (item.avg_save_rate != null ? item.avg_save_rate : (item.save_rate != null ? item.save_rate : 0)) + '% rate'"></div>
                     <template x-if="Number(item.daily_velocity || 0) > 0">
@@ -1225,27 +1388,32 @@ export function getDashboardHtml() {
                   </td>
 
                   <!-- 6. Color DNA -->
-                  <td class="py-3 px-3 whitespace-nowrap">
+                  <td class="py-3 px-3 whitespace-nowrap min-w-[120px]">
                     <div class="flex items-center space-x-2">
                       <span class="w-4 h-4 rounded border flex-shrink-0 shadow-sm" :style="'background-color: ' + (item.winning_color || item.dominant_color || '#888888')"></span>
                       <div class="space-y-0.5 min-w-0">
                         <div class="font-mono text-[10px] font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wide" x-text="item.winning_color || item.dominant_color || '#888888'"></div>
-                        <div class="text-[9px] text-slate-500 dark:text-slate-400 font-medium truncate max-w-[130px]" x-text="item.culinary_color_name || 'Culinary Accent'" :title="item.culinary_color_name"></div>
+                        <div class="text-[9px] text-slate-500 dark:text-slate-400 font-medium truncate max-w-[110px]" x-text="item.culinary_color_name || 'Culinary Accent'" :title="item.culinary_color_name"></div>
                       </div>
                     </div>
                   </td>
 
                   <!-- 7. Action -->
                   <td class="py-3 px-3 text-right whitespace-nowrap">
-                    <button @click="inspectCandidate(item)" class="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-rose-600 to-amber-600 hover:from-rose-500 hover:to-amber-500 text-white text-xs font-semibold shadow-sm active:scale-95 transition">
-                      <i data-lucide="zap" class="w-3.5 h-3.5"></i>
-                      <span>⚡ Blueprint</span>
-                    </button>
+                    <div class="flex items-center justify-end space-x-1">
+                      <button @click="openHubDrawer(item)" class="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 text-xs font-semibold shadow-sm active:scale-95 transition">
+                        <i data-lucide="eye" class="w-3.5 h-3.5"></i>
+                        <span>Inspect</span>
+                      </button>
+                      <button @click="copyHubReSpinAngle(item)" class="p-1.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition active:scale-95" title="Copy Viral Angle">
+                        <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                      </button>
+                    </div>
                   </td>
                 </tr>
               </template>
 
-              <!-- Empty Results Placeholder -->
+              <!-- Empty Table Placeholder -->
               <template x-if="paginatedIntersections.length === 0">
                 <tr>
                   <td colspan="7" class="py-12 text-center text-slate-500 dark:text-slate-400 font-mono text-xs">
@@ -1274,10 +1442,10 @@ export function getDashboardHtml() {
             <div class="flex items-center space-x-1 pl-2 border-l border-slate-200 dark:border-slate-800">
               <span class="text-[10px] uppercase text-slate-400">Per page:</span>
               <select x-model.number="intersectionPageSize" @change="intersectionPage = 1" class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-2 py-0.5 text-xs text-slate-800 dark:text-slate-200 font-mono focus:outline-none cursor-pointer">
-                <option :value="15">15</option>
-                <option :value="25">25</option>
-                <option :value="50">50</option>
-                <option :value="100">100</option>
+                <option :value="12">12</option>
+                <option :value="24">24 (Golden Core)</option>
+                <option :value="48">48</option>
+                <option :value="96">96</option>
               </select>
             </div>
           </div>
@@ -1929,6 +2097,224 @@ export function getDashboardHtml() {
     </div>
   </div>
 
+  <!-- ======================================================== -->
+  <!-- PIXIE MULTI-HIT CENTROID DOSSIER (SLIDE-OVER DRAWER)     -->
+  <!-- Grounded in Pinterest Pixie WWW 2018 Paper (Sec 4.3)     -->
+  <!-- ======================================================== -->
+  <div x-show="isHubDrawerOpen" x-cloak 
+       class="fixed inset-0 z-50 overflow-hidden bg-slate-950/75 backdrop-blur-sm flex justify-end" 
+       @keydown.escape.window="closeHubDrawer()">
+    <div class="bg-white dark:bg-[#0b1120] border-l border-slate-200 dark:border-slate-800 w-full max-w-2xl h-full shadow-2xl overflow-y-auto p-6 space-y-6 animate-in slide-in-from-right duration-200" 
+         @click.away="closeHubDrawer()">
+      
+      <!-- Drawer Header -->
+      <div class="flex items-start justify-between border-b border-slate-200 dark:border-slate-800 pb-4">
+        <div class="flex items-center space-x-3">
+          <div class="w-10 h-10 rounded-xl bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30 flex items-center justify-center flex-shrink-0">
+            <i data-lucide="git-merge" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <div class="flex items-center space-x-2">
+              <h3 class="font-bold text-slate-900 dark:text-white text-base">Pixie Gravitational Centroid Dossier</h3>
+              <template x-if="selectedHub">
+                <span class="px-2 py-0.5 rounded text-[9px] font-mono font-bold uppercase tracking-wider" :class="getPixieResonance(selectedHub).badgeClass" x-text="getPixieResonance(selectedHub).label"></span>
+              </template>
+            </div>
+            <p class="text-xs text-slate-500 dark:text-slate-400 font-mono mt-0.5">
+              <span>Section 4.3 Multi-Query Bipartite Random Walk Centroid</span>
+            </p>
+          </div>
+        </div>
+        <button @click="closeHubDrawer()" class="text-slate-400 hover:text-slate-700 dark:hover:text-white p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <template x-if="selectedHub">
+        <div class="space-y-6">
+
+          <!-- 1. Media Preview & Key Identifiers -->
+          <div class="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/60 flex flex-col sm:flex-row gap-4 items-start">
+            <!-- Pin Image (2:3 Aspect) -->
+            <div class="w-32 sm:w-36 aspect-[2/3] rounded-xl overflow-hidden flex-shrink-0 border-2 shadow-md relative group" :style="'border-color: ' + (selectedHub.winning_color || '#cbd5e1')">
+              <template x-if="selectedHub.image_url">
+                <img :src="selectedHub.image_url" alt="Pin preview" class="w-full h-full object-cover">
+              </template>
+              <template x-if="!selectedHub.image_url">
+                <div class="w-full h-full flex items-center justify-center bg-slate-200 dark:bg-slate-800 text-slate-400">
+                  <i data-lucide="image" class="w-6 h-6"></i>
+                </div>
+              </template>
+              <a :href="'https://www.pinterest.com/pin/' + selectedHub.candidate_pin_id + '/'" target="_blank" class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-xs font-semibold">
+                <i data-lucide="external-link" class="w-4 h-4 mr-1"></i> View Live
+              </a>
+            </div>
+
+            <!-- Details Stack -->
+            <div class="flex-1 space-y-2.5 min-w-0">
+              <div class="space-y-1">
+                <div class="flex items-center space-x-2">
+                  <span class="px-2 py-0.5 rounded text-[9px] font-mono font-bold uppercase tracking-wider" :class="{
+                    'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20': selectedHub.format_type === 'PRODUCT CARD',
+                    'bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20': selectedHub.format_type === 'ORGANIC PIN',
+                    'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20': selectedHub.format_type === 'VIDEO PIN',
+                    'bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20': selectedHub.format_type === 'IDEA PIN'
+                  }" x-text="selectedHub.format_type"></span>
+
+                  <template x-if="selectedHub.is_vacuum_target">
+                    <span class="px-2 py-0.5 rounded text-[9px] font-extrabold uppercase bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
+                      🎯 Vacuum Target
+                    </span>
+                  </template>
+                </div>
+
+                <h4 class="font-bold text-slate-900 dark:text-white text-sm leading-snug" x-text="selectedHub.title || ('Pin ' + selectedHub.candidate_pin_id)"></h4>
+              </div>
+
+              <!-- Metadata Pills -->
+              <div class="flex items-center space-x-2 text-[11px] font-mono text-slate-500 flex-wrap gap-y-1">
+                <span class="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300" x-text="selectedHub.domain"></span>
+                <span>•</span>
+                <button @click="copyToClipboard(selectedHub.candidate_pin_id, 'drawer-pin')" class="hover:text-amber-500 cursor-pointer flex items-center space-x-1">
+                  <span x-text="'ID: ' + selectedHub.candidate_pin_id"></span>
+                  <i data-lucide="copy" class="w-3 h-3"></i>
+                </button>
+              </div>
+
+              <!-- Metrics Mini Bar -->
+              <div class="grid grid-cols-3 gap-2 pt-2 border-t border-slate-200/80 dark:border-slate-800/80 font-mono text-xs">
+                <div>
+                  <div class="text-[9px] uppercase text-slate-400">Total Saves</div>
+                  <div class="font-bold text-slate-900 dark:text-white" x-text="Number(selectedHub.total_saves != null ? selectedHub.total_saves : (selectedHub.saves || 0)).toLocaleString()"></div>
+                </div>
+                <div>
+                  <div class="text-[9px] uppercase text-slate-400">Repin Rate</div>
+                  <div class="font-bold text-slate-900 dark:text-white" x-text="(selectedHub.avg_save_rate || selectedHub.save_rate || 0) + '%'"></div>
+                </div>
+                <div>
+                  <div class="text-[9px] uppercase text-slate-400">Velocity</div>
+                  <div class="font-bold text-emerald-600 dark:text-emerald-400" x-text="Number(selectedHub.daily_velocity || 0) > 0 ? ('🔥 ' + selectedHub.daily_velocity + '/d') : 'Stagnant'"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 2. Pixie Bipartite Multi-Query Formula Card (WWW 2018 Sec 4.3) -->
+          <div class="p-4 rounded-2xl border border-purple-500/20 bg-purple-500/[0.04] space-y-3">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold uppercase font-mono tracking-wider text-purple-700 dark:text-purple-300 flex items-center space-x-1.5">
+                <i data-lucide="calculator" class="w-4 h-4"></i>
+                <span>Pixie Multi-Hit Resonance Mathematics</span>
+              </span>
+              <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-purple-500/20 text-purple-800 dark:text-purple-200 border border-purple-500/30" x-text="'Boost Factor: ' + getPixieResonance(selectedHub).boostFactor + 'x (k²)'"></span>
+            </div>
+
+            <p class="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed font-sans">
+              Under Pinterest's Pixie formulation, visit counts across distinct query walks scale super-linearly: 
+              <code class="px-1.5 py-0.5 rounded bg-purple-500/10 font-mono text-[10px] text-purple-600 dark:text-purple-300">S(p, Q) = (∑ √V)²</code>. 
+              Because this pin was discovered across <strong class="text-purple-600 dark:text-purple-400" x-text="selectedHub.seed_overlap_count"></strong> distinct seed queries, its cross-cluster gravity is amplified <strong class="text-purple-600 dark:text-purple-400" x-text="getPixieResonance(selectedHub).boostFactor + 'x'"></strong>.
+            </p>
+
+            <!-- Visual Energy Bar in Drawer -->
+            <div class="space-y-1 pt-1">
+              <div class="flex items-center justify-between text-xs font-mono">
+                <span class="text-slate-500">Aggregate Multi-Hit Mass</span>
+                <span class="font-extrabold text-purple-600 dark:text-purple-400" x-text="Number(selectedHub.pixie_multihit_score || 0).toLocaleString()"></span>
+              </div>
+              <div class="w-full bg-slate-200 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
+                <div class="h-full rounded-full transition-all duration-500" :class="getPixieResonance(selectedHub).barGradient" :style="'width: ' + getPixieResonance(selectedHub).barPercent + '%'"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 3. Complete Originating Seeds Decomposition Matrix -->
+          <div class="space-y-2.5">
+            <div class="flex items-center justify-between">
+              <h5 class="text-xs font-bold uppercase font-mono tracking-wider text-slate-800 dark:text-slate-200 flex items-center space-x-1.5">
+                <i data-lucide="layers" class="w-3.5 h-3.5 text-amber-500"></i>
+                <span>Originating Seeds Decomposition (<span x-text="(selectedHub.originating_seed_details || []).length"></span> Seeds)</span>
+              </h5>
+              <span class="text-[10px] font-mono text-slate-400">All Independent Walks</span>
+            </div>
+
+            <div class="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden divide-y divide-slate-100 dark:divide-slate-800">
+              <template x-for="(s, idx) in (selectedHub.originating_seed_details || [])" :key="s.pin_id">
+                <div class="p-3 bg-white dark:bg-slate-900/50 flex items-center justify-between text-xs hover:bg-slate-50 dark:hover:bg-slate-800/50 transition">
+                  <div class="flex items-center space-x-2.5 min-w-0">
+                    <span class="w-5 h-5 rounded-full bg-slate-100 dark:bg-slate-800 font-mono text-[10px] font-bold text-slate-500 flex items-center justify-center flex-shrink-0" x-text="idx + 1"></span>
+                    <div class="min-w-0">
+                      <div class="font-bold text-slate-900 dark:text-slate-100 truncate" x-text="s.label"></div>
+                      <div class="text-[10px] font-mono text-slate-400" x-text="'Seed Pin ID: ' + s.pin_id"></div>
+                    </div>
+                  </div>
+                  <div class="flex items-center space-x-2 flex-shrink-0">
+                    <span class="px-2 py-0.5 rounded text-[9px] font-mono font-bold uppercase" :class="s.is_competitor ? 'bg-amber-500/10 text-amber-600 border border-amber-500/20' : 'bg-emerald-500/10 text-emerald-600 border border-emerald-500/20'" x-text="s.is_competitor ? 'Competitor' : 'Target'"></span>
+                    <a :href="'https://www.pinterest.com/pin/' + s.pin_id + '/'" target="_blank" class="p-1 text-slate-400 hover:text-amber-500" title="Open Seed Pin">
+                      <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+                    </a>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+
+          <!-- 4. Pinterest Vision Model OCR Text Block -->
+          <template x-if="selectedHub.ocr_text">
+            <div class="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 space-y-2">
+              <div class="flex items-center justify-between">
+                <span class="text-[10px] font-mono font-bold uppercase tracking-wider text-rose-500 flex items-center space-x-1">
+                  <i data-lucide="scan-text" class="w-3.5 h-3.5"></i>
+                  <span>Pinterest Vision Pipeline OCR Text</span>
+                </span>
+                <button @click="copyToClipboard(selectedHub.ocr_text, 'drawer-ocr')" class="text-rose-600 dark:text-rose-400 hover:underline font-mono text-[10px] flex items-center space-x-1">
+                  <i data-lucide="copy" class="w-2.5 h-2.5"></i>
+                  <span x-text="copiedField === 'drawer-ocr' ? 'Copied!' : 'Copy OCR'"></span>
+                </button>
+              </div>
+              <div class="text-xs font-mono text-slate-700 dark:text-slate-300 leading-relaxed bg-white dark:bg-slate-950 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800" x-text="selectedHub.ocr_text"></div>
+            </div>
+          </template>
+
+          <!-- 5. Arbitrage Action Hub (One-Click Copy AI Prompts) -->
+          <div class="space-y-3 pt-2 border-t border-slate-200 dark:border-slate-800">
+            <h5 class="text-xs font-bold uppercase font-mono tracking-wider text-slate-800 dark:text-slate-200 flex items-center space-x-1.5">
+              <i data-lucide="sparkles" class="w-3.5 h-3.5 text-amber-500"></i>
+              <span>Arbitrage Execution Studio (One-Click AI Hooks)</span>
+            </h5>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <!-- Action 1: Copy Re-spin Angle -->
+              <button @click="copyHubReSpinAngle(selectedHub)" class="p-3 rounded-xl border border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 text-amber-800 dark:text-amber-200 font-mono text-xs font-bold transition active:scale-95 flex items-center space-x-2 text-left">
+                <i data-lucide="copy" class="w-4 h-4 text-amber-500 flex-shrink-0"></i>
+                <div>
+                  <div>Copy Viral Angle Prompt</div>
+                  <div class="text-[10px] font-normal text-amber-700/80 dark:text-amber-300/70">Optimized for high-save copy</div>
+                </div>
+              </button>
+
+              <!-- Action 2: Copy Midjourney/Imagen Image Prompt -->
+              <button @click="copyHubImagePrompt(selectedHub)" class="p-3 rounded-xl border border-purple-500/30 bg-purple-500/10 hover:bg-purple-500/20 text-purple-800 dark:text-purple-200 font-mono text-xs font-bold transition active:scale-95 flex items-center space-x-2 text-left">
+                <i data-lucide="camera" class="w-4 h-4 text-purple-500 flex-shrink-0"></i>
+                <div>
+                  <div>Copy Midjourney Prompt</div>
+                  <div class="text-[10px] font-normal text-purple-700/80 dark:text-purple-300/70">Replicates visual composition</div>
+                </div>
+              </button>
+            </div>
+
+            <!-- Action 3: Open in Pinterest Direct Link -->
+            <a :href="'https://www.pinterest.com/pin/' + selectedHub.candidate_pin_id + '/'" target="_blank" class="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white font-mono text-xs font-bold transition active:scale-95 flex items-center justify-center space-x-2 shadow-sm">
+              <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+              <span>Inspect Live Pin on Pinterest (Pin ID: <span x-text="selectedHub.candidate_pin_id"></span>)</span>
+            </a>
+          </div>
+
+        </div>
+      </template>
+
+    </div>
+  </div>
+
   <!-- Add New Seed Modal -->
   <div x-show="isAddSeedOpen" x-cloak class="fixed inset-0 z-50 overflow-y-auto bg-slate-950/70 backdrop-blur-md flex items-center justify-center p-4">
     <div class="bg-white dark:bg-[#0d1526] border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-md shadow-2xl p-6 space-y-4" @click.away="isAddSeedOpen = false">
@@ -2101,8 +2487,11 @@ export function getDashboardHtml() {
         intersections: [],
 
         // Tab 2: Global Intersections State
+        intersectionViewMode: (typeof localStorage !== 'undefined' && localStorage.getItem('pin_hub_view_mode')) || 'grid',
+        isHubDrawerOpen: false,
+        selectedHub: null,
         intersectionPage: 1,
-        intersectionPageSize: 25,
+        intersectionPageSize: 24,
         intersectionSort: 'pixie',
         intersectionExpandedHubs: {},
         intersectionFilters: {
@@ -2349,8 +2738,107 @@ export function getDashboardHtml() {
             goldenCore,
             superHubs,
             vacuumTargets,
+            maxPixieRaw: maxPixie || 3878953.86,
             maxPixie: maxPixie.toLocaleString()
           };
+        },
+
+        getPixieResonance(item) {
+          if (!item) {
+            return {
+              tier: 'B',
+              label: '⭐ Tier B',
+              badgeClass: 'bg-slate-500/15 text-slate-700 dark:text-slate-300 border border-slate-500/30',
+              barGradient: 'bg-gradient-to-r from-slate-400 to-slate-500',
+              barPercent: 10,
+              boostFactor: 1
+            };
+          }
+          const score = Number(item.pixie_multihit_score || 0);
+          const overlap = Number(item.seed_overlap_count || 1);
+          const maxRaw = Number(this.intersectionStats?.maxPixieRaw || 3878953.86);
+          const barPercent = Math.min(100, Math.max(10, Math.round((score / maxRaw) * 100)));
+          const boostFactor = Math.pow(overlap, 2);
+
+          if (score >= 3000000 || overlap >= 7) {
+            return {
+              tier: 'S+',
+              label: '👑 Tier S+ (Top 0.1%)',
+              badgeClass: 'bg-purple-500/15 text-purple-700 dark:text-purple-300 border border-purple-500/30',
+              barGradient: 'bg-gradient-to-r from-purple-500 via-rose-500 to-amber-500',
+              barPercent,
+              boostFactor
+            };
+          }
+          if (score >= 1000000 || overlap >= 5) {
+            return {
+              tier: 'S',
+              label: '🔥 Tier S (Golden Core)',
+              badgeClass: 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30',
+              barGradient: 'bg-gradient-to-r from-rose-500 to-amber-500',
+              barPercent,
+              boostFactor
+            };
+          }
+          if (score >= 500000 || overlap >= 3) {
+            return {
+              tier: 'A',
+              label: '⚡ Tier A (Cluster Hub)',
+              badgeClass: 'bg-sky-500/15 text-sky-700 dark:text-sky-300 border border-sky-500/30',
+              barGradient: 'bg-gradient-to-r from-sky-500 to-emerald-500',
+              barPercent,
+              boostFactor
+            };
+          }
+          return {
+            tier: 'B',
+            label: '⭐ Tier B (Pairwise)',
+            badgeClass: 'bg-slate-500/15 text-slate-700 dark:text-slate-300 border border-slate-500/30',
+            barGradient: 'bg-gradient-to-r from-slate-400 to-slate-500',
+            barPercent,
+            boostFactor
+          };
+        },
+
+        setIntersectionViewMode(mode) {
+          this.intersectionViewMode = mode;
+          try {
+            if (typeof localStorage !== 'undefined') localStorage.setItem('pin_hub_view_mode', mode);
+          } catch (e) {}
+          this.$nextTick(() => {
+            if (window.lucide) window.lucide.createIcons();
+          });
+        },
+
+        openHubDrawer(item) {
+          this.selectedHub = item;
+          this.isHubDrawerOpen = true;
+          this.$nextTick(() => {
+            if (window.lucide) window.lucide.createIcons();
+          });
+        },
+
+        closeHubDrawer() {
+          this.isHubDrawerOpen = false;
+          this.selectedHub = null;
+        },
+
+        copyHubReSpinAngle(item) {
+          if (!item) return;
+          const title = item.title || ('Pin ' + item.candidate_pin_id);
+          const ocr = item.ocr_text ? (' Key detected image text: ' + item.ocr_text + '.') : '';
+          const prompt = 'Act as an elite Pinterest viral growth strategist. Re-engineer this winning Pin concept into 5 high-converting headlines and 3 curiosity hooks.\\n\\nOriginal Winning Title: ' + title + '\\n' + ocr + '\\n\\nTarget: Maximize save rate, curiosity gap, and viral distribution across culinary/recipe clusters.';
+          this.copyToClipboard(prompt, 'hub-angle-' + item.candidate_pin_id);
+          this.showToast('Copied Viral Re-spin Prompt for "' + title.slice(0, 30) + '..."');
+        },
+
+        copyHubImagePrompt(item) {
+          if (!item) return;
+          const title = item.title || ('Pin ' + item.candidate_pin_id);
+          const color = item.culinary_color_name ? (item.culinary_color_name + ' aesthetic') : (item.winning_color || 'warm appetizing tones');
+          const prompt = 'High-end commercial cookbook photography of ' + title + ', styled for Pinterest viral engagement, ' + color + ', mouthwatering details, shallow depth of field, natural diffused kitchen lighting, shot on Hasselblad 50mm f/1.8 --ar 2:3 --v 6.1 --style raw';
+          this.copyToClipboard(prompt, 'hub-image-' + item.candidate_pin_id);
+          this.showToast('Copied Midjourney / Imagen Prompt!');
         },
 
         setIntersectionPage(p) {
