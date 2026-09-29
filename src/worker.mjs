@@ -289,18 +289,14 @@ export default {
           return jsonResponse({ error: 'No valid numeric pin IDs provided in payload' }, 400);
         }
 
-        const inserted = [];
-        for (const s of rawSeeds) {
-          const resRow = await sql`
-            INSERT INTO cluster_seeds (pin_id, label, is_competitor, created_at)
-            VALUES (${s.pin_id}, ${s.label}, ${s.is_competitor}, NOW())
-            ON CONFLICT (pin_id) DO UPDATE SET
-              label = EXCLUDED.label,
-              is_competitor = EXCLUDED.is_competitor
-            RETURNING pin_id, label, is_competitor, last_crawled_at;
-          `;
-          if (resRow.length > 0) inserted.push(resRow[0]);
-        }
+        const inserted = (await Promise.all(rawSeeds.map(s => sql`
+          INSERT INTO cluster_seeds (pin_id, label, is_competitor, created_at)
+          VALUES (${s.pin_id}, ${s.label}, ${s.is_competitor}, NOW())
+          ON CONFLICT (pin_id) DO UPDATE SET
+            label = EXCLUDED.label,
+            is_competitor = EXCLUDED.is_competitor
+          RETURNING pin_id, label, is_competitor, last_crawled_at;
+        `))).flat();
 
         return jsonResponse({ success: true, count: inserted.length, seeds: inserted }, 201);
       }
@@ -316,9 +312,11 @@ export default {
         }
 
         if (purgeDatabase) {
-          await sql`DELETE FROM candidate_graph_nodes WHERE seed_pin_id = ANY(${pinIds});`;
-          await sql`DELETE FROM seed_guided_search_capsules WHERE seed_pin_id = ANY(${pinIds});`;
-          await sql`DELETE FROM cluster_arbitrage_metrics WHERE seed_pin_id = ANY(${pinIds});`;
+          await Promise.all([
+            sql`DELETE FROM candidate_graph_nodes WHERE seed_pin_id = ANY(${pinIds});`,
+            sql`DELETE FROM seed_guided_search_capsules WHERE seed_pin_id = ANY(${pinIds});`,
+            sql`DELETE FROM cluster_arbitrage_metrics WHERE seed_pin_id = ANY(${pinIds});`
+          ]);
         }
         await sql`DELETE FROM cluster_seeds WHERE pin_id = ANY(${pinIds});`;
 
@@ -338,9 +336,11 @@ export default {
           return jsonResponse({ error: 'pin_id query parameter is required' }, 400);
         }
         if (purgeData) {
-          await sql`DELETE FROM candidate_graph_nodes WHERE seed_pin_id = ${pinId};`;
-          await sql`DELETE FROM seed_guided_search_capsules WHERE seed_pin_id = ${pinId};`;
-          await sql`DELETE FROM cluster_arbitrage_metrics WHERE seed_pin_id = ${pinId};`;
+          await Promise.all([
+            sql`DELETE FROM candidate_graph_nodes WHERE seed_pin_id = ${pinId};`,
+            sql`DELETE FROM seed_guided_search_capsules WHERE seed_pin_id = ${pinId};`,
+            sql`DELETE FROM cluster_arbitrage_metrics WHERE seed_pin_id = ${pinId};`
+          ]);
         }
         await sql`DELETE FROM cluster_seeds WHERE pin_id = ${pinId};`;
         return jsonResponse({ success: true, deleted_pin_id: pinId, purged_database: purgeData });
