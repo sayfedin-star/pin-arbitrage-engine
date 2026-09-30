@@ -14,7 +14,9 @@ import {
   syncCompetitorProfile,
   getCompetitorBoards,
   syncCompetitorBoards,
-  syncCompetitorPins
+  syncCompetitorPins,
+  getCompetitorDetail,
+  deleteCompetitorSnapshot
 } from './modules/competitors/service.mjs';
 import { listKeywords, addKeyword, crawlKeywordSERP, getKeywordPins } from './modules/keywords/service.mjs';
 import { getFleetProjects, registerNewProject } from './modules/fleet/service.mjs';
@@ -1336,6 +1338,30 @@ export default {
         return jsonResponse({ success: true, ...result });
       }
 
+      if (method === 'GET' && pathname === '/api/competitors/detail') {
+        const idOrUser = searchParams.get('id') || searchParams.get('username') || searchParams.get('account');
+        if (!idOrUser) return jsonResponse({ error: 'id or username is required' }, 400);
+        try {
+          const detail = await getCompetitorDetail(targetSql, idOrUser);
+          return jsonResponse({ success: true, ...detail });
+        } catch (err) {
+          return jsonResponse({ success: false, error: err.message }, 500);
+        }
+      }
+
+      if (method === 'DELETE' && (pathname === '/api/competitors/snapshot' || pathname === '/api/competitors/snapshots')) {
+        let snapshotId = searchParams.get('id') || searchParams.get('snapshot_id');
+        if (!snapshotId) {
+          try {
+            const body = await request.json();
+            snapshotId = body.snapshot_id || body.id;
+          } catch (_) {}
+        }
+        if (!snapshotId) return jsonResponse({ error: 'snapshot_id is required' }, 400);
+        await deleteCompetitorSnapshot(targetSql, snapshotId);
+        return jsonResponse({ success: true, deleted_snapshot_id: snapshotId });
+      }
+
       // 16. Keyword Velocity Tracker API
       if (method === 'GET' && pathname === '/api/keywords') {
         const keywords = await listKeywords(targetSql, {
@@ -1437,13 +1463,18 @@ export default {
       if (method === 'GET' && pathname === '/api/pinarchive/pins') {
         const search = searchParams.get('search') || '';
         const topic = searchParams.get('topic') || '';
-        const account = searchParams.get('account') || '';
+        const board = searchParams.get('board') || '';
+        const stage = searchParams.get('stage') || '';
+        const account = searchParams.get('account') || searchParams.get('username') || '';
         const minSaves = Number(searchParams.get('min_saves') || 0);
+        const maxSaves = searchParams.get('max_saves') ? Number(searchParams.get('max_saves')) : null;
+        const timeframe = searchParams.get('timeframe') || '24h';
+        const changedOnly = searchParams.get('changed_only') === 'true' || searchParams.get('changed_only') === '1';
         const sortBy = searchParams.get('sort') || searchParams.get('sort_by') || 'saves';
         const order = searchParams.get('order') || 'desc';
         const limit = Number(searchParams.get('limit') || 50);
         const offset = Number(searchParams.get('offset') || 0);
-        const pins = await listArchivedPins(targetSql, { search, topic, account, minSaves, sortBy, order, limit, offset });
+        const pins = await listArchivedPins(targetSql, { search, topic, board, stage, account, minSaves, maxSaves, timeframe, changedOnly, sortBy, order, limit, offset });
         return jsonResponse({ success: true, pins });
       }
 

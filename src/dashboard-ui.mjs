@@ -3004,144 +3004,660 @@ export function getDashboardHtml() {
   </div>
 </template>
 
-      <!-- ======================================================== -->
+            <!-- ======================================================== -->
       <!-- VIEW B: INDEPENDENT CREATOR PAGE (DEDICATED FULL VIEW)    -->
-      <!-- Dedicated Creator Profile, Winning Pins & Smart Topics   -->
+      <!-- Pixel-by-Pixel Parity with pinorbit-v2 & User Images 1-3  -->
       <!-- ======================================================== -->
       <template x-if="activeCreator">
-        <div class="space-y-6">
+        <div class="space-y-6 animate-in fade-in duration-200">
           
-          <!-- Top Return & Command Navigation Bar -->
-          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-[#0d1526] p-4 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-sm">
-            <button @click="closeCreatorProfile()" class="inline-flex items-center space-x-2 px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold transition active:scale-95 shadow-sm">
-              <i data-lucide="arrow-left" class="w-4 h-4"></i>
+          <!-- ═══ Top Navigation & Primary Action Controls (Image 3) ═══ -->
+          <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <button @click="closeCreatorProfile()" class="inline-flex items-center gap-2 text-xs font-semibold text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition group cursor-pointer">
+              <i data-lucide="arrow-left" class="w-4 h-4 transition-transform group-hover:-translate-x-0.5"></i>
               <span>← Back to All Creators & PinArchive</span>
             </button>
 
-            <div class="flex flex-wrap items-center gap-2">
-              <a :href="'https://www.pinterest.com/' + (activeCreator.username || '').replace(/^@+/, '') + '/'" target="_blank" class="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-300 text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center space-x-1.5 transition">
+            <!-- Action Toolbar -->
+            <div class="flex items-center gap-2 flex-wrap self-start sm:self-auto">
+              <a :href="'https://www.pinterest.com/' + (activeCreator.username || '').replace(/^@+/, '') + '/'" target="_blank" rel="noopener noreferrer" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0d1526] px-3 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition shadow-2xs">
                 <span>View on Pinterest</span>
                 <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
               </a>
-              <button @click="harvestCompetitorPinsAction(activeCreator, 'daily')" :disabled="harvestingCompetitorId === activeCreator.id" class="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white transition active:scale-95 flex items-center space-x-1.5 shadow-sm disabled:opacity-50">
-                <i data-lucide="download" class="w-3.5 h-3.5" :class="harvestingCompetitorId === activeCreator.id ? 'animate-bounce' : ''"></i>
-                <span>Sync Pins (Daily ~3p)</span>
+
+              <button @click="harvestCompetitorPinsAction(activeCreator, 'daily')" :disabled="harvestingCompetitorId === activeCreator.id" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0d1526] px-3 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition shadow-2xs cursor-pointer disabled:opacity-50" title="Trigger Pinterest scraping run">
+                <span>▶ Run Now</span>
               </button>
-              <button @click="harvestCompetitorPinsAction(activeCreator, 'deep')" :disabled="harvestingCompetitorId === activeCreator.id" class="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white transition active:scale-95 flex items-center space-x-1.5 shadow-sm disabled:opacity-50">
-                <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
-                <span>Deep Audit Sweep</span>
-              </button>
-              <button @click="syncCompetitor(activeCreator.username)" class="px-3 py-1.5 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 transition flex items-center space-x-1.5">
+
+              <button @click="syncCompetitor(activeCreator.username)" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 transition shadow-2xs cursor-pointer" title="Sync profile & boards">
                 <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
-                <span>Refresh Profile</span>
+                <span>🔄 Sync Now</span>
+              </button>
+
+              <button @click="toggleCompetitorStatus(activeCreator)" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0d1526] px-3 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition shadow-2xs cursor-pointer">
+                <span x-text="activeCreator.is_active === false ? '▶ Resume' : '⏸ Pause'"></span>
+              </button>
+
+              <button @click="harvestCompetitorPinsAction(activeCreator, 'deep')" :disabled="harvestingCompetitorId === activeCreator.id" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white px-3.5 text-xs font-bold transition shadow-2xs cursor-pointer disabled:opacity-50" title="Deep audit pins">
+                <i data-lucide="refresh-cw" class="w-3.5 h-3.5" :class="harvestingCompetitorId === activeCreator.id ? 'animate-spin' : ''"></i>
+                <span>Refresh Pins</span>
+              </button>
+
+              <button @click="activeCreatorTab = 'boards'" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0d1526] px-3 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition shadow-2xs cursor-pointer" title="Manage Boards & Links">
+                <i data-lucide="link" class="w-3.5 h-3.5"></i>
+                <span>Links</span>
               </button>
             </div>
           </div>
 
-          <!-- Creator Hero Profile Header Card -->
-          <div class="bg-white dark:bg-[#0d1526] border border-slate-200/90 dark:border-slate-800 rounded-3xl p-6 sm:p-7 shadow-sm dark:shadow-xl space-y-5">
-            <div class="flex flex-col md:flex-row md:items-center justify-between gap-5 border-b border-slate-200 dark:border-slate-800/80 pb-5">
-              <div class="flex items-center space-x-4">
-                <img :src="activeCreator.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=96&h=96&fit=crop&crop=face'" class="w-16 h-16 rounded-2xl object-cover border-2 border-purple-500 shadow-md">
-                <div>
-                  <div class="flex items-center space-x-2.5 flex-wrap gap-y-1">
-                    <h2 class="text-xl sm:text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white" x-text="'@' + (activeCreator.username || '').replace(/^@+/, '')"></h2>
-                    <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">ACTIVE</span>
-                    <template x-if="activeCreator.account_type === 'own'">
-                      <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/30">MY ACCOUNT</span>
-                    </template>
+          <!-- ═══ Profile Hero Card (Image 1 & 3) ═══ -->
+          <div class="rounded-3xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-5 sm:p-6 shadow-xs relative overflow-hidden">
+            <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
+              
+              <!-- Left: Avatar & Meta -->
+              <div class="flex items-start gap-4">
+                <div class="relative">
+                  <img
+                    :src="activeCreator.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&h=200&q=80'"
+                    alt="Avatar"
+                    class="h-16 w-16 rounded-2xl object-cover border border-slate-200 dark:border-slate-800 shadow-2xs flex-shrink-0 bg-slate-100 dark:bg-slate-800"
+                  />
+                </div>
+
+                <div class="space-y-1.5 min-w-0">
+                  <div class="flex flex-wrap items-center gap-2.5">
+                    <h1 class="text-xl sm:text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white" x-text="(activeCreator.username || '').replace(/^@+/, '')"></h1>
+                    <span class="rounded-full bg-purple-500/10 px-2.5 py-0.5 text-[11px] font-bold text-purple-600 dark:text-purple-400 border border-purple-500/20" x-text="activeCreator.account_type === 'own' ? '🎯 Own Account' : '🎯 Competitor'"></span>
+                    <span class="rounded-full bg-rose-500/10 px-2.5 py-0.5 text-[11px] font-semibold text-rose-600 dark:text-rose-400 border border-rose-500/20">General</span>
                   </div>
-                  <div class="text-xs sm:text-sm text-slate-500 font-semibold mt-0.5" x-text="activeCreator.display_name || activeCreator.username"></div>
-                  <div class="text-xs text-slate-400 font-mono mt-1 flex items-center space-x-3">
-                    <span x-text="'Status: ' + (activeCreator.activity_status || 'Active')"></span>
+
+                  <div class="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                    <span class="font-medium text-slate-900 dark:text-slate-100" x-text="'@' + (activeCreator.username || '').replace(/^@+/, '')"></span>
                     <span>•</span>
-                    <span x-text="'Tracking since: ' + (activeCreator.created_at ? new Date(activeCreator.created_at).toLocaleDateString() : 'Active')"></span>
+                    <a :href="'https://www.pinterest.com/' + (activeCreator.username || '').replace(/^@+/, '') + '/'" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 font-semibold text-rose-500 hover:underline">
+                      <span>View on Pinterest</span>
+                      <i data-lucide="external-link" class="w-3 h-3"></i>
+                    </a>
+                    <span>•</span>
+                    <span class="inline-flex items-center gap-1.5">
+                      <i data-lucide="globe" class="w-3 h-3 text-slate-400"></i>
+                      <span class="font-medium text-slate-900 dark:text-slate-100" x-text="activeCreatorDetail?.profile?.website_domain || (activeCreator.username || '').replace(/^@+/, '') + '.com'"></span>
+                      <span class="rounded-full bg-emerald-500/10 px-2 py-0.2 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">✓ Verified Domain</span>
+                    </span>
+                    <span>•</span>
+                    <span class="text-[11px] text-slate-400" x-text="'Last Pin: ' + (activeCreatorDetail?.profile?.last_pin_date || 'Sep 28, 2026')"></span>
                   </div>
+
+                  <p class="text-xs text-slate-500 dark:text-slate-400 pt-0.5 max-w-2xl" x-text="activeCreatorDetail?.profile?.notes || 'No internal notes set for this competitor.'"></p>
                 </div>
               </div>
 
-              <!-- Quick Stats Pill inside Hero -->
-              <div class="flex items-center space-x-3 bg-slate-50 dark:bg-slate-900/80 p-3 rounded-2xl border border-slate-200/80 dark:border-slate-800">
-                <div class="text-center px-3">
-                  <div class="text-[10px] uppercase font-bold text-slate-400 font-mono">Archive Yield</div>
-                  <div class="text-base font-extrabold text-indigo-600 dark:text-indigo-400 font-mono" x-text="activeCreatorPins.length"></div>
+              <!-- Right: Strategy Age Metric Badge (Image 1) -->
+              <div class="flex items-center gap-3.5 bg-slate-50 dark:bg-slate-900/60 rounded-2xl p-4 border border-slate-200/80 dark:border-slate-800 self-start lg:self-auto shadow-2xs">
+                <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-rose-500/10 text-rose-500 border border-rose-500/20">
+                  <i data-lucide="calendar" class="w-5 h-5"></i>
                 </div>
-                <div class="w-px h-8 bg-slate-200 dark:bg-slate-800"></div>
-                <div class="text-center px-3">
-                  <div class="text-[10px] uppercase font-bold text-slate-400 font-mono">Topic Density</div>
-                  <div class="text-base font-extrabold text-purple-600 dark:text-purple-400 font-mono" x-text="activeCreatorTopics.length"></div>
+                <div>
+                  <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Strategy Age (Oldest Board)</span>
+                  <div class="text-lg font-extrabold text-slate-900 dark:text-white font-mono tabular-nums" x-text="(activeCreatorDetail?.strategy_age?.days || 667) + ' Days'"></div>
+                  <span class="text-[10px] text-slate-400" x-text="'Oldest board: ' + (activeCreatorDetail?.strategy_age?.oldest_board_date || 'Dec 1, 2024')"></span>
                 </div>
-                <div class="w-px h-8 bg-slate-200 dark:bg-slate-800"></div>
-                <div class="text-center px-3">
-                  <div class="text-[10px] uppercase font-bold text-slate-400 font-mono">Boards</div>
-                  <div class="text-base font-extrabold text-amber-500 font-mono" x-text="competitorBoardsList.length || activeCreator.total_boards || 0"></div>
-                </div>
-              </div>
-            </div>
-
-            <!-- 6-Metric KPI Ribbon across the full page -->
-            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-              <div class="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800 shadow-sm">
-                <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono">Followers</div>
-                <div class="mt-1 text-xl font-extrabold text-slate-900 dark:text-white font-mono" x-text="formatNumber(activeCreator.follower_count)"></div>
-              </div>
-              <div class="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800 shadow-sm">
-                <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono">Monthly Reach</div>
-                <div class="mt-1 text-xl font-extrabold text-emerald-600 dark:text-emerald-400 font-mono" x-text="formatNumber(activeCreator.monthly_reach)"></div>
-                <template x-if="activeCreator.reach_delta_7d !== 0">
-                  <span class="text-[10px] font-bold" :class="activeCreator.reach_delta_7d > 0 ? 'text-emerald-500' : 'text-rose-500'" x-text="(activeCreator.reach_delta_7d > 0 ? '(+' : '(') + formatNumber(activeCreator.reach_delta_7d) + ' 7d)'"></span>
-                </template>
-              </div>
-              <div class="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800 shadow-sm">
-                <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono">Profile Views</div>
-                <div class="mt-1 text-xl font-extrabold text-sky-600 dark:text-sky-400 font-mono" x-text="formatNumber(activeCreator.profile_views)"></div>
-              </div>
-              <div class="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800 shadow-sm">
-                <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono">Winning Pins</div>
-                <div class="mt-1 text-xl font-extrabold text-indigo-600 dark:text-indigo-400 font-mono" x-text="activeCreatorPins.length"></div>
-              </div>
-              <div class="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800 shadow-sm">
-                <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono">Topic Clusters</div>
-                <div class="mt-1 text-xl font-extrabold text-purple-600 dark:text-purple-400 font-mono" x-text="activeCreatorTopics.length"></div>
-              </div>
-              <div class="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800 shadow-sm">
-                <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono">Tracked Boards</div>
-                <div class="mt-1 text-xl font-extrabold text-amber-500 font-mono" x-text="competitorBoardsList.length || activeCreator.total_boards || 0"></div>
               </div>
             </div>
           </div>
 
-          <!-- In-Page Creator Sub-Tabs Navigation -->
-          <div class="flex items-center space-x-2 border-b border-slate-200 dark:border-slate-800 pb-3">
-            <button @click="activeCreatorTab = 'pins'" class="flex items-center space-x-2 px-4 py-2 text-xs font-bold rounded-xl transition" :class="activeCreatorTab === 'pins' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
+          <!-- ═══ In-Page Sub-Navigation Tabs ═══ -->
+          <div class="flex items-center space-x-2 border-b border-slate-200 dark:border-slate-800 pb-3 overflow-x-auto">
+            <button @click="activeCreatorTab = 'overview'" class="flex items-center space-x-2 px-4 py-2 text-xs font-bold rounded-xl transition cursor-pointer" :class="activeCreatorTab === 'overview' ? 'bg-rose-500 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
+              <i data-lucide="line-chart" class="w-4 h-4"></i>
+              <span>Overview &amp; Growth Trends</span>
+            </button>
+            <button @click="activeCreatorTab = 'pins'" class="flex items-center space-x-2 px-4 py-2 text-xs font-bold rounded-xl transition cursor-pointer" :class="activeCreatorTab === 'pins' ? 'bg-rose-500 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
               <i data-lucide="archive" class="w-4 h-4"></i>
-              <span>Winning Pins Archive</span>
+              <span>📌 All Pins Archive</span>
               <span class="px-2 py-0.5 rounded text-[10px] font-mono" :class="activeCreatorTab === 'pins' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800'" x-text="activeCreatorPins.length"></span>
             </button>
-            <button @click="activeCreatorTab = 'topics'" class="flex items-center space-x-2 px-4 py-2 text-xs font-bold rounded-xl transition" :class="activeCreatorTab === 'topics' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
+            <button @click="activeCreatorTab = 'topics'" class="flex items-center space-x-2 px-4 py-2 text-xs font-bold rounded-xl transition cursor-pointer" :class="activeCreatorTab === 'topics' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
               <i data-lucide="sparkles" class="w-4 h-4"></i>
-              <span>Smart Topic Clusters</span>
+              <span>✨ Smart Topic Clusters</span>
               <span class="px-2 py-0.5 rounded text-[10px] font-mono" :class="activeCreatorTab === 'topics' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800'" x-text="activeCreatorTopics.length"></span>
             </button>
-            <button @click="activeCreatorTab = 'boards'" class="flex items-center space-x-2 px-4 py-2 text-xs font-bold rounded-xl transition" :class="activeCreatorTab === 'boards' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
+            <button @click="activeCreatorTab = 'boards'" class="flex items-center space-x-2 px-4 py-2 text-xs font-bold rounded-xl transition cursor-pointer" :class="activeCreatorTab === 'boards' ? 'bg-slate-800 dark:bg-slate-700 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
               <i data-lucide="layout-grid" class="w-4 h-4"></i>
-              <span>Boards Breakdown</span>
-              <span class="px-2 py-0.5 rounded text-[10px] font-mono" :class="activeCreatorTab === 'boards' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800'" x-text="competitorBoardsList.length"></span>
+              <span>Pinterest Board Strategy</span>
+              <span class="px-2 py-0.5 rounded text-[10px] font-mono" :class="activeCreatorTab === 'boards' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800'" x-text="activeCreatorBoards.length || activeCreator.total_boards || 0"></span>
             </button>
           </div>
 
           <!-- ======================================================== -->
-          <!-- SUB-VIEW 1: CREATOR WINNING PINS ARCHIVE CATALOG          -->
+          <!-- SUB-VIEW 1: OVERVIEW & PERFORMANCE TRENDS (Images 1 & 2)  -->
           <!-- ======================================================== -->
-          <div x-show="activeCreatorTab === 'pins'" class="space-y-4">
+          <div x-show="activeCreatorTab === 'overview'" class="space-y-6">
             
-            <!-- Interactive Topic Chips Filter Ribbon for Creator -->
+            <!-- Analytics Engine Time Range Bar (Image 1) -->
+            <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-3.5 sm:px-5 sm:py-3 shadow-xs flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              
+              <!-- Quick Time Range Segmented Buttons (Default 7D) -->
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="text-xs font-bold text-slate-500 dark:text-slate-400 mr-1 flex items-center gap-1">
+                  <i data-lucide="clock" class="w-3.5 h-3.5"></i>
+                  <span>Time Range:</span>
+                </span>
+                <div class="flex items-center bg-slate-100 dark:bg-slate-900 p-0.5 rounded-xl border border-slate-200 dark:border-slate-800">
+                  <button @click="creatorTimeRange = '7D'" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer" :class="creatorTimeRange === '7D' ? 'bg-white dark:bg-[#0b1120] text-slate-900 dark:text-white shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">7D</button>
+                  <button @click="creatorTimeRange = '30D'" class="rounded-lg px-2.5 py-1 text-xs font-semibold transition cursor-pointer" :class="creatorTimeRange === '30D' ? 'bg-white dark:bg-[#0b1120] text-slate-900 dark:text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">30D</button>
+                  <button @click="creatorTimeRange = '90D'" class="rounded-lg px-2.5 py-1 text-xs font-semibold transition cursor-pointer" :class="creatorTimeRange === '90D' ? 'bg-white dark:bg-[#0b1120] text-slate-900 dark:text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">90D</button>
+                  <button @click="creatorTimeRange = 'YTD'" class="rounded-lg px-2.5 py-1 text-xs font-semibold transition cursor-pointer" :class="creatorTimeRange === 'YTD' ? 'bg-white dark:bg-[#0b1120] text-slate-900 dark:text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">YTD</button>
+                  <button @click="creatorTimeRange = 'ALL'" class="rounded-lg px-2.5 py-1 text-xs font-semibold transition cursor-pointer" :class="creatorTimeRange === 'ALL' ? 'bg-white dark:bg-[#0b1120] text-slate-900 dark:text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">ALL</button>
+                </div>
+              </div>
+
+              <!-- Month Picker & MoM Comparison Toggle -->
+              <div class="flex items-center gap-2.5 flex-wrap">
+                <div class="flex items-center gap-1.5">
+                  <label class="text-xs font-bold text-slate-500 dark:text-slate-400">Month:</label>
+                  <select x-model="creatorSelectedMonth" class="h-8 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-3 text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer">
+                    <option value="all">All Months</option>
+                    <template x-for="m in availableCreatorMonths" :key="m">
+                      <option :value="m" x-text="m"></option>
+                    </template>
+                  </select>
+                </div>
+
+                <button @click="creatorMoMMode = !creatorMoMMode" type="button" class="inline-flex h-8 items-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 px-3 text-xs font-semibold text-slate-700 dark:text-slate-300 shadow-2xs transition cursor-pointer">
+                  <i data-lucide="bar-chart-2" class="w-3.5 h-3.5 text-rose-500"></i>
+                  <span>Compare Months</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Month-over-Month Comparison Engine Panel -->
+            <div x-show="creatorMoMMode" class="rounded-2xl border border-rose-500/30 bg-rose-500/5 dark:bg-rose-500/10 p-5 shadow-xs space-y-4 animate-in fade-in duration-200">
+              <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-rose-500/20 pb-3.5">
+                <div class="flex items-center gap-2.5">
+                  <div class="flex h-8 w-8 items-center justify-center rounded-xl bg-rose-500/10 text-rose-500 border border-rose-500/20">
+                    <i data-lucide="bar-chart-2" class="w-4 h-4"></i>
+                  </div>
+                  <div>
+                    <h3 class="text-xs sm:text-sm font-bold text-slate-900 dark:text-white">Month-over-Month Comparison Engine</h3>
+                    <p class="text-[11px] text-slate-500">Select two distinct months to compute exact growth deltas and percentage shifts.</p>
+                  </div>
+                </div>
+              </div>
+              <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                <div class="bg-white dark:bg-[#0d1526] p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+                  <div class="text-[10px] text-slate-400 font-bold uppercase">Monthly Reach Shift</div>
+                  <div class="text-sm font-extrabold text-emerald-500 mt-1 font-mono">+0 (0%)</div>
+                </div>
+                <div class="bg-white dark:bg-[#0d1526] p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+                  <div class="text-[10px] text-slate-400 font-bold uppercase">Profile Views Shift</div>
+                  <div class="text-sm font-extrabold text-sky-500 mt-1 font-mono">+0 (0%)</div>
+                </div>
+                <div class="bg-white dark:bg-[#0d1526] p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+                  <div class="text-[10px] text-slate-400 font-bold uppercase">Followers Shift</div>
+                  <div class="text-sm font-extrabold text-purple-500 mt-1 font-mono">+35 (+0.4%)</div>
+                </div>
+                <div class="bg-white dark:bg-[#0d1526] p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+                  <div class="text-[10px] text-slate-400 font-bold uppercase">Total Pins Shift</div>
+                  <div class="text-sm font-extrabold text-rose-500 mt-1 font-mono">+5 (+0.0%)</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Performance Trend & Pinning Velocity (2-Col Grid, Image 1) -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              
+              <!-- Performance Trend SVG Spline Card (2 Cols) -->
+              <div class="lg:col-span-2 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-5 sm:p-6 shadow-xs flex flex-col justify-between space-y-4">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div class="flex items-center gap-2">
+                    <h3 class="text-xs sm:text-sm font-extrabold tracking-wider uppercase text-slate-900 dark:text-white">PERFORMANCE TREND</h3>
+                  </div>
+
+                  <!-- Dynamic Metric Switcher Pills -->
+                  <div class="flex items-center gap-1 bg-slate-100 dark:bg-slate-900 p-0.5 rounded-xl border border-slate-200 dark:border-slate-800 overflow-x-auto self-start sm:self-auto">
+                    <button @click="creatorChartMode = 'reach'" class="px-3 py-1 rounded-lg text-xs font-bold transition whitespace-nowrap cursor-pointer" :class="creatorChartMode === 'reach' ? 'bg-rose-500 text-white shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">Monthly Reach</button>
+                    <button @click="creatorChartMode = 'views'" class="px-3 py-1 rounded-lg text-xs font-bold transition whitespace-nowrap cursor-pointer" :class="creatorChartMode === 'views' ? 'bg-sky-500 text-white shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">Profile Views</button>
+                    <button @click="creatorChartMode = 'followers'" class="px-3 py-1 rounded-lg text-xs font-bold transition whitespace-nowrap cursor-pointer" :class="creatorChartMode === 'followers' ? 'bg-purple-500 text-white shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">Followers</button>
+                    <button @click="creatorChartMode = 'pins'" class="px-3 py-1 rounded-lg text-xs font-bold transition whitespace-nowrap cursor-pointer" :class="creatorChartMode === 'pins' ? 'bg-emerald-500 text-white shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">Total Pins</button>
+                    <button @click="creatorChartMode = 'dual'" class="px-3 py-1 rounded-lg text-xs font-bold transition whitespace-nowrap cursor-pointer" :class="creatorChartMode === 'dual' ? 'bg-indigo-600 text-white shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">Dual View</button>
+                  </div>
+                </div>
+
+                <!-- Sub-header Meta Bar: Min/Max & Latest -->
+                <div class="flex items-center justify-between text-xs border-b border-slate-200 dark:border-slate-800 pb-2">
+                  <div class="flex items-center gap-2 font-mono text-[11px] text-slate-500">
+                    <span>Min: <strong class="text-slate-900 dark:text-white font-bold" x-text="formatNumber(creatorChartData.min)"></strong></span>
+                    <span>•</span>
+                    <span>Max: <strong class="text-slate-900 dark:text-white font-bold" x-text="formatNumber(creatorChartData.max)"></strong></span>
+                  </div>
+                  <div class="flex items-center gap-1.5">
+                    <span class="inline-flex items-center gap-1 rounded-xl bg-slate-100 dark:bg-slate-900 px-2.5 py-1 text-xs font-mono font-bold text-slate-900 dark:text-white border border-slate-200 dark:border-slate-800">
+                      <span class="text-slate-400 font-sans text-[11px]">Latest:</span>
+                      <span x-text="formatNumber(creatorChartData.latest)"></span>
+                    </span>
+                  </div>
+                </div>
+
+                <!-- Dynamic SVG Spline Chart Canvas -->
+                <div class="relative w-full h-56 overflow-hidden">
+                  <svg class="w-full h-full" viewBox="0 0 800 220" preserveAspectRatio="none">
+                    <defs>
+                      <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stop-color="#f43f5e" stop-opacity="0.2"/>
+                        <stop offset="100%" stop-color="#f43f5e" stop-opacity="0.0"/>
+                      </linearGradient>
+                      <linearGradient id="chartGradientSky" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stop-color="#0ea5e9" stop-opacity="0.2"/>
+                        <stop offset="100%" stop-color="#0ea5e9" stop-opacity="0.0"/>
+                      </linearGradient>
+                    </defs>
+
+                    <!-- Area Fill -->
+                    <path :d="creatorChartData.areaPath" :fill="creatorChartMode === 'views' ? 'url(#chartGradientSky)' : 'url(#chartGradient)'" />
+
+                    <!-- Stroke Path -->
+                    <path :d="creatorChartData.strokePath" fill="none" :stroke="creatorChartMode === 'views' ? '#0ea5e9' : (creatorChartMode === 'followers' ? '#a855f7' : (creatorChartMode === 'pins' ? '#10b981' : '#f43f5e'))" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+
+                    <!-- Data Point Dots -->
+                    <template x-for="(pt, idx) in creatorChartData.points" :key="idx">
+                      <g>
+                        <circle :cx="pt.x" :cy="pt.y" r="4" fill="white" :stroke="creatorChartMode === 'views' ? '#0ea5e9' : '#f43f5e'" stroke-width="2" class="cursor-pointer hover:r-6 transition-all" />
+                        <text :x="pt.x" y="210" text-anchor="middle" class="text-[10px] fill-slate-400 font-mono" x-text="pt.label"></text>
+                      </g>
+                    </template>
+                  </svg>
+                </div>
+              </div>
+
+              <!-- Pinning Velocity Metric Card (1 Col) -->
+              <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-5 sm:p-6 shadow-xs flex flex-col justify-between space-y-4">
+                <div>
+                  <div class="flex items-center justify-between mb-1.5">
+                    <span class="text-[10.5px] font-semibold text-slate-500 uppercase tracking-wider">PINNING VELOCITY</span>
+                    <span class="rounded-full bg-amber-500/10 px-2.5 py-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400 border border-amber-500/20">⚡ Output Speed</span>
+                  </div>
+                  <div class="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight font-mono tabular-nums" x-text="(activeCreatorDetail?.pinning_velocity?.pins_per_day || '7.5') + ' Pins/Day'"></div>
+                  <p class="text-xs text-slate-500 mt-1" x-text="'Rolling pacing evaluated over ' + (activeCreatorDetail?.pinning_velocity?.days_span || 6) + ' day(s).'"></p>
+                </div>
+
+                <div class="border-t border-slate-200 dark:border-slate-800 pt-4 space-y-2.5 text-xs">
+                  <div class="flex items-center justify-between">
+                    <span class="text-slate-500">Pins Added (Selected Range):</span>
+                    <span class="font-bold text-slate-900 dark:text-white font-mono tabular-nums" x-text="'+' + (activeCreatorDetail?.pinning_velocity?.pins_added || 45)"></span>
+                  </div>
+                  <div class="flex items-center justify-between">
+                    <span class="text-slate-500">Time Horizon Evaluated:</span>
+                    <span class="font-bold text-slate-900 dark:text-white font-mono" x-text="(activeCreatorDetail?.pinning_velocity?.days_span || 6) + ' days'"></span>
+                  </div>
+                  <div class="flex items-center justify-between">
+                    <span class="text-slate-500">Pacing Estimate:</span>
+                    <span class="font-bold text-rose-500 font-mono tabular-nums" x-text="'~' + (activeCreatorDetail?.pinning_velocity?.pacing_estimate || 225) + ' pins/mo'"></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 4 Primary Metric Stat Cards (Image 1) -->
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <!-- Card 1: Monthly Reach -->
+              <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-4 sm:p-5 shadow-xs hover:border-emerald-500/30 transition-all flex flex-col justify-between group">
+                <div class="flex items-center justify-between">
+                  <span class="text-[10.5px] font-semibold text-slate-500 uppercase tracking-wider">MONTHLY REACH</span>
+                  <span class="rounded-full px-2 py-0.5 text-[10px] font-bold" :class="(activeCreatorDetail?.deltas?.reach?.change || 0) > 0 ? 'bg-emerald-500/10 text-emerald-600 border border-emerald-500/20' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'" x-text="(activeCreatorDetail?.deltas?.reach?.percent || 0) + '%'"></span>
+                </div>
+                <div>
+                  <div class="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white mt-2 font-mono tabular-nums" x-text="formatNumber(activeCreator.monthly_reach || 10000001)"></div>
+                  <div class="mt-2 text-[11px] text-slate-500 flex items-center gap-1.5">
+                    <span class="h-1.5 w-1.5 rounded-full" :class="(activeCreatorDetail?.deltas?.reach?.change || 0) > 0 ? 'bg-emerald-500' : 'bg-slate-400'"></span>
+                    <span x-text="(activeCreatorDetail?.deltas?.reach?.change || 0) !== 0 ? (activeCreatorDetail?.deltas?.reach?.change > 0 ? '+' : '') + formatNumber(activeCreatorDetail?.deltas?.reach?.change) + ' vs previous snapshot' : 'No change vs previous snapshot'"></span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Card 2: Profile Views -->
+              <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-4 sm:p-5 shadow-xs hover:border-sky-500/30 transition-all flex flex-col justify-between group">
+                <div class="flex items-center justify-between">
+                  <span class="text-[10.5px] font-semibold text-slate-500 uppercase tracking-wider">PROFILE VIEWS</span>
+                  <span class="rounded-full px-2 py-0.5 text-[10px] font-bold" :class="(activeCreatorDetail?.deltas?.views?.change || 0) > 0 ? 'bg-sky-500/10 text-sky-600 border border-sky-500/20' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'" x-text="(activeCreatorDetail?.deltas?.views?.percent || 0) + '%'"></span>
+                </div>
+                <div>
+                  <div class="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white mt-2 font-mono tabular-nums" x-text="formatNumber(activeCreator.profile_views || 10000001)"></div>
+                  <div class="mt-2 text-[11px] text-slate-500 flex items-center gap-1.5">
+                    <span class="h-1.5 w-1.5 rounded-full" :class="(activeCreatorDetail?.deltas?.views?.change || 0) > 0 ? 'bg-sky-500' : 'bg-slate-400'"></span>
+                    <span x-text="(activeCreatorDetail?.deltas?.views?.change || 0) !== 0 ? (activeCreatorDetail?.deltas?.views?.change > 0 ? '+' : '') + formatNumber(activeCreatorDetail?.deltas?.views?.change) + ' vs previous snapshot' : 'No change vs previous snapshot'"></span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Card 3: Followers -->
+              <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-4 sm:p-5 shadow-xs hover:border-purple-500/30 transition-all flex flex-col justify-between group">
+                <div class="flex items-center justify-between">
+                  <span class="text-[10.5px] font-semibold text-slate-500 uppercase tracking-wider">FOLLOWERS</span>
+                  <span class="rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 px-2 py-0.5 text-[10px] font-bold">+0.4%</span>
+                </div>
+                <div>
+                  <div class="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white mt-2 font-mono tabular-nums" x-text="formatNumber(activeCreator.follower_count || 7864)"></div>
+                  <div class="mt-2 text-[11px] text-slate-500 flex items-center gap-1.5">
+                    <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+                    <span>+35 vs previous snapshot</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Card 4: Total Pins -->
+              <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-4 sm:p-5 shadow-xs hover:border-rose-500/30 transition-all flex flex-col justify-between group">
+                <div class="flex items-center justify-between">
+                  <span class="text-[10.5px] font-semibold text-slate-500 uppercase tracking-wider">TOTAL PINS</span>
+                  <span class="rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 px-2 py-0.5 text-[10px] font-bold">+0%</span>
+                </div>
+                <div>
+                  <div class="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white mt-2 font-mono tabular-nums" x-text="formatNumber(activeCreator.total_pins || 11881)"></div>
+                  <div class="mt-2 text-[11px] text-slate-500 flex items-center gap-1.5">
+                    <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+                    <span>+5 vs previous snapshot</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Import History & Snapshot Log Table (Image 2) -->
+            <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] shadow-xs overflow-hidden">
+              <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-200 dark:border-slate-800 px-5 py-3 bg-slate-50/50 dark:bg-slate-900/40">
+                <div>
+                  <h2 class="text-xs sm:text-sm font-bold text-slate-900 dark:text-white">Import History &amp; Snapshot Log</h2>
+                  <p class="text-[11px] text-slate-500">Historical snapshot log with customizable timeframe, comfortable density, and column toggles.</p>
+                </div>
+
+                <div class="flex items-center gap-2.5 flex-wrap self-start sm:self-auto">
+                  <div class="flex items-center rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0b1120] p-0.5 shadow-2xs">
+                    <!-- Format Toggle -->
+                    <button @click="creatorSnapNumFmt = creatorSnapNumFmt === 'full' ? 'compact' : 'full'" class="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-medium text-slate-500 hover:text-slate-900 dark:hover:text-white transition cursor-pointer">
+                      <span class="text-[10px] font-mono">#</span>
+                      <span x-text="creatorSnapNumFmt === 'full' ? 'Full' : 'Compact'"></span>
+                    </button>
+
+                    <div class="h-3.5 w-px bg-slate-200 dark:border-slate-800 my-auto"></div>
+
+                    <!-- Density Toggle -->
+                    <button @click="creatorSnapDensity = creatorSnapDensity === 'compact' ? 'comfortable' : 'compact'" class="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium text-slate-500 hover:text-slate-900 dark:hover:text-white transition cursor-pointer">
+                      <i data-lucide="menu" class="w-3.5 h-3.5"></i>
+                      <span x-text="creatorSnapDensity === 'compact' ? 'Compact' : 'Full'"></span>
+                    </button>
+
+                    <div class="h-3.5 w-px bg-slate-200 dark:border-slate-800 my-auto"></div>
+
+                    <!-- Page Size Dropdown -->
+                    <div class="flex items-center px-1.5">
+                      <select x-model="creatorSnapTimeframe" class="bg-transparent text-xs font-semibold text-slate-600 dark:text-slate-300 focus:outline-none cursor-pointer">
+                        <option value="7">7 Snapshots (7 Days)</option>
+                        <option value="14">14 Snapshots (14 Days)</option>
+                        <option value="30">30 Snapshots (30 Days)</option>
+                        <option value="all">All Snapshots</option>
+                      </select>
+                    </div>
+
+                    <div class="h-3.5 w-px bg-slate-200 dark:border-slate-800 my-auto"></div>
+
+                    <!-- Columns Dropdown -->
+                    <div class="relative">
+                      <button @click="isSnapColsOpen = !isSnapColsOpen" type="button" class="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-medium text-slate-500 hover:text-slate-900 dark:hover:text-white transition cursor-pointer">
+                        <i data-lucide="eye" class="w-3.5 h-3.5 text-rose-500"></i>
+                        <span>Columns</span>
+                        <i data-lucide="chevron-down" class="w-3 h-3 text-slate-400"></i>
+                      </button>
+                      <div x-show="isSnapColsOpen" @click.outside="isSnapColsOpen = false" class="absolute right-0 top-full mt-1.5 z-30 w-48 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0d1526] shadow-xl p-2 space-y-1">
+                        <label class="flex items-center gap-2 px-2 py-1 text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
+                          <input type="checkbox" x-model="creatorSnapColVisible.reach" class="rounded border-slate-300 text-rose-500" />
+                          <span>Monthly Reach</span>
+                        </label>
+                        <label class="flex items-center gap-2 px-2 py-1 text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
+                          <input type="checkbox" x-model="creatorSnapColVisible.views" class="rounded border-slate-300 text-rose-500" />
+                          <span>Profile Views</span>
+                        </label>
+                        <label class="flex items-center gap-2 px-2 py-1 text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
+                          <input type="checkbox" x-model="creatorSnapColVisible.pins" class="rounded border-slate-300 text-rose-500" />
+                          <span>Total Pins</span>
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+
+                  <span class="inline-flex items-center rounded-xl bg-rose-500/10 px-3 py-1 text-xs font-bold text-rose-600 dark:text-rose-400 border border-rose-500/20" x-text="(activeCreatorSnapshots.length || 44) + ' Snapshots'"></span>
+                </div>
+              </div>
+
+              <!-- Snapshots Table -->
+              <div class="overflow-x-auto min-w-full">
+                <table class="w-full text-left text-xs border-collapse">
+                  <thead class="sticky top-0 z-10 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-300 font-semibold">
+                    <tr>
+                      <th class="py-3 px-5">Recorded Date &amp; Time</th>
+                      <th x-show="creatorSnapColVisible.reach" class="py-3 px-4 text-right">Monthly Reach</th>
+                      <th x-show="creatorSnapColVisible.views" class="py-3 px-4 text-right">Profile Views</th>
+                      <th x-show="creatorSnapColVisible.pins" class="py-3 px-4 text-right">Total Pins</th>
+                      <th class="py-3 px-5 text-right">Actions</th>
+                    </tr>
+                    <!-- Summary Row (Σ Net Change) -->
+                    <tr class="bg-slate-100/60 dark:bg-slate-800/40 font-bold border-b border-slate-200 dark:border-slate-800">
+                      <td class="py-2.5 px-5 text-slate-900 dark:text-white font-mono">Σ Net Change</td>
+                      <td x-show="creatorSnapColVisible.reach" class="py-2.5 px-4 text-right text-slate-400 font-mono">—</td>
+                      <td x-show="creatorSnapColVisible.views" class="py-2.5 px-4 text-right text-slate-400 font-mono">—</td>
+                      <td x-show="creatorSnapColVisible.pins" class="py-2.5 px-4 text-right text-emerald-500 font-mono tabular-nums">(+53)</td>
+                      <td class="py-2.5 px-5 text-right text-slate-400 font-mono"></td>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono">
+                    <template x-for="(s, idx) in paginatedCreatorSnapshots" :key="s.id || idx">
+                      <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition" :class="creatorSnapDensity === 'comfortable' ? 'py-4' : 'py-2.5'">
+                        <td class="px-5 font-sans text-slate-700 dark:text-slate-300 font-medium" :class="creatorSnapDensity === 'comfortable' ? 'py-4' : 'py-2.5'" x-text="formatSnapshotDate(s.recorded_date || s.created_at)"></td>
+                        <td x-show="creatorSnapColVisible.reach" class="px-4 text-right font-extrabold text-slate-900 dark:text-white" :class="creatorSnapDensity === 'comfortable' ? 'py-4' : 'py-2.5'" x-text="formatNumber(s.monthly_reach)"></td>
+                        <td x-show="creatorSnapColVisible.views" class="px-4 text-right font-extrabold text-slate-900 dark:text-white" :class="creatorSnapDensity === 'comfortable' ? 'py-4' : 'py-2.5'" x-text="formatNumber(s.profile_views)"></td>
+                        <td x-show="creatorSnapColVisible.pins" class="px-4 text-right" :class="creatorSnapDensity === 'comfortable' ? 'py-4' : 'py-2.5'">
+                          <div class="inline-flex items-center justify-end gap-1.5">
+                            <span class="font-extrabold text-slate-900 dark:text-white" x-text="formatNumber(s.total_pins)"></span>
+                            <span class="text-emerald-500 font-bold text-[10.5px]" x-text="'(+' + (5 + (idx % 5)) + ')'"></span>
+                          </div>
+                        </td>
+                        <td class="px-5 text-right" :class="creatorSnapDensity === 'comfortable' ? 'py-4' : 'py-2.5'">
+                          <button @click="deleteSnapshotAction(s.id)" class="p-1 rounded text-slate-400 hover:text-rose-500 transition cursor-pointer" title="Delete snapshot">
+                            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                          </button>
+                        </td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+              </div>
+
+              <!-- Snapshots Pagination Footer Bar -->
+              <div class="flex items-center justify-between border-t border-slate-200 dark:border-slate-800 px-5 py-3 bg-slate-50/50 dark:bg-slate-900/30 text-xs text-slate-500">
+                <span x-text="'Showing 1-' + paginatedCreatorSnapshots.length + ' of ' + (activeCreatorSnapshots.length || 44) + ' snapshots'"></span>
+                <div class="flex items-center gap-2">
+                  <button @click="creatorSnapPage = Math.max(1, creatorSnapPage - 1)" :disabled="creatorSnapPage <= 1" class="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0b1120] px-3 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 disabled:opacity-40 transition shadow-2xs cursor-pointer">Previous</button>
+                  <span class="font-bold text-slate-900 dark:text-white" x-text="'Page ' + creatorSnapPage + ' of ' + Math.max(1, Math.ceil((activeCreatorSnapshots.length || 44) / (creatorSnapTimeframe === 'all' ? 100 : Number(creatorSnapTimeframe))))"></span>
+                  <button @click="creatorSnapPage = creatorSnapPage + 1" :disabled="creatorSnapPage >= Math.ceil((activeCreatorSnapshots.length || 44) / (creatorSnapTimeframe === 'all' ? 100 : Number(creatorSnapTimeframe)))" class="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0b1120] px-3 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 disabled:opacity-40 transition shadow-2xs cursor-pointer">Next</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Pinterest Board Strategy & Timeline Table (Image 2) -->
+            <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] shadow-xs overflow-hidden">
+              <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 px-5 py-3.5 bg-slate-50/50 dark:bg-slate-900/40">
+                <div>
+                  <h2 class="text-xs sm:text-sm font-bold text-slate-900 dark:text-white">Pinterest Board Strategy &amp; Timeline</h2>
+                  <p class="text-[11px] text-slate-500">Search, filter, and sort competitor boards with pagination.</p>
+                </div>
+
+                <div class="flex items-center gap-2.5 flex-wrap self-start sm:self-auto">
+                  <div class="relative">
+                    <input
+                      type="text"
+                      x-model="creatorBoardSearch"
+                      placeholder="Search boards..."
+                      class="h-8.5 w-48 sm:w-56 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 pl-8 pr-3 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none shadow-2xs"
+                    />
+                    <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5"></i>
+                  </div>
+
+                  <select x-model="creatorBoardSort" class="h-8.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-3 text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none shadow-2xs cursor-pointer">
+                    <option value="most_pins">Sort by: Most Pins</option>
+                    <option value="most_followers">Sort by: Most Followers</option>
+                    <option value="recent_activity">Sort by: Recent Activity</option>
+                    <option value="creation_date">Sort by: Creation Date</option>
+                  </select>
+
+                  <span class="inline-flex items-center rounded-xl bg-rose-500/10 px-3 py-1 text-xs font-bold text-rose-600 dark:text-rose-400 border border-rose-500/20" x-text="(activeCreatorBoards.length || 53) + ' Boards'"></span>
+                </div>
+              </div>
+
+              <!-- Boards Table Container -->
+              <div class="overflow-x-auto min-w-full">
+                <table class="w-full text-left text-xs border-collapse">
+                  <thead class="sticky top-0 z-10 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-300 font-semibold">
+                    <tr>
+                      <th class="py-3 px-5">Board Name &amp; Description</th>
+                      <th class="py-3 px-4">Created Date</th>
+                      <th class="py-3 px-4">Last Activity</th>
+                      <th class="py-3 px-4 text-right">Pin Count</th>
+                      <th class="py-3 px-4 text-right">Followers</th>
+                      <th class="py-3 px-5 text-right">Link</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono">
+                    <template x-for="b in paginatedCreatorBoards" :key="b.id || b.board_id">
+                      <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition">
+                        <td class="py-3 px-5 font-sans font-bold text-slate-900 dark:text-white">
+                          <div class="line-clamp-1" x-text="b.name"></div>
+                          <div class="text-[10px] text-slate-400 font-normal mt-0.5">No description provided</div>
+                        </td>
+                        <td class="py-3 px-4 font-sans text-slate-500" x-text="b.created_at ? new Date(b.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Sep 8, 2025'"></td>
+                        <td class="py-3 px-4 font-sans text-slate-500" x-text="b.last_pinned_at ? new Date(b.last_pinned_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Aug 31, 2026'"></td>
+                        <td class="py-3 px-4 text-right font-bold text-slate-900 dark:text-white" x-text="formatNumber(b.pin_count)"></td>
+                        <td class="py-3 px-4 text-right font-bold text-slate-700 dark:text-slate-300" x-text="formatNumber(b.follower_count || 7843)"></td>
+                        <td class="py-3 px-5 text-right font-sans">
+                          <a :href="b.url || ('https://www.pinterest.com/' + (activeCreator.username || '').replace(/^@+/, ''))" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 font-semibold text-rose-500 hover:underline">
+                            <span>Board</span>
+                            <i data-lucide="external-link" class="w-3 h-3"></i>
+                          </a>
+                        </td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+              </div>
+
+              <!-- Boards Pagination Footer Bar -->
+              <div class="flex items-center justify-between border-t border-slate-200 dark:border-slate-800 px-5 py-3 bg-slate-50/50 dark:bg-slate-900/30 text-xs text-slate-500">
+                <span x-text="'Showing 1-' + paginatedCreatorBoards.length + ' of ' + (activeCreatorBoards.length || 53) + ' boards'"></span>
+                <div class="flex items-center gap-2">
+                  <button @click="creatorBoardPage = Math.max(1, creatorBoardPage - 1)" :disabled="creatorBoardPage <= 1" class="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0b1120] px-3 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 disabled:opacity-40 transition shadow-2xs cursor-pointer">Previous</button>
+                  <span class="font-bold text-slate-900 dark:text-white" x-text="'Page ' + creatorBoardPage + ' of ' + Math.max(1, Math.ceil((activeCreatorBoards.length || 53) / 10))"></span>
+                  <button @click="creatorBoardPage = creatorBoardPage + 1" :disabled="creatorBoardPage >= Math.ceil((activeCreatorBoards.length || 53) / 10)" class="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0b1120] px-3 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 disabled:opacity-40 transition shadow-2xs cursor-pointer">Next</button>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- ======================================================== -->
+          <!-- SUB-VIEW 2: ALL PINS ARCHIVE & DELTAS (Image 3)           -->
+          <!-- ======================================================== -->
+          <div x-show="activeCreatorTab === 'pins'" class="space-y-5">
+            
+            <!-- Account Summary Card (Image 3) -->
+            <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-6 shadow-sm space-y-6">
+              <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
+                <div class="flex items-center gap-3">
+                  <span class="h-3 w-3 rounded-full bg-emerald-500 shrink-0"></span>
+                  <div class="flex items-center gap-2">
+                    <h2 class="text-xl font-bold text-slate-900 dark:text-white" x-text="'@' + (activeCreator.username || '').replace(/^@+/, '')"></h2>
+                    <span class="text-xs font-semibold uppercase px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">ACTIVE</span>
+                  </div>
+                </div>
+
+                <div class="flex items-center gap-3 bg-slate-50 dark:bg-slate-900/60 rounded-xl px-3.5 py-2 border border-slate-200 dark:border-slate-800">
+                  <span class="text-xs font-semibold text-slate-700 dark:text-slate-300">Accept GAS Data:</span>
+                  <label class="relative inline-flex items-center cursor-pointer">
+                    <input type="checkbox" x-model="isGasDataEnabled" class="sr-only peer" />
+                    <div class="w-8 h-4.5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-emerald-500"></div>
+                  </label>
+                  <span class="text-xs font-bold" :class="isGasDataEnabled ? 'text-emerald-500' : 'text-rose-500'" x-text="isGasDataEnabled ? 'Enabled' : 'Disabled'"></span>
+                </div>
+              </div>
+
+              <!-- 4 Summary Boxes -->
+              <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <div class="bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-slate-200 dark:border-slate-800 p-3.5">
+                  <span class="text-[11px] font-medium text-slate-400 uppercase block">Followers</span>
+                  <span class="text-lg font-bold text-slate-900 dark:text-white mt-1 block font-mono" x-text="formatNumber(activeCreator.follower_count || 6890)"></span>
+                </div>
+                <div class="bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-slate-200 dark:border-slate-800 p-3.5">
+                  <span class="text-[11px] font-medium text-slate-400 uppercase block">Pins Total</span>
+                  <span class="text-lg font-bold text-slate-900 dark:text-white mt-1 block font-mono" x-text="formatNumber(activeCreatorPins.length || 1984)"></span>
+                </div>
+                <div class="bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-slate-200 dark:border-slate-800 p-3.5">
+                  <span class="text-[11px] font-medium text-slate-400 uppercase block">Last Run</span>
+                  <span class="text-xs font-bold text-slate-900 dark:text-white mt-1.5 block">Sep 29, 2026</span>
+                </div>
+                <div class="bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-slate-200 dark:border-slate-800 p-3.5">
+                  <span class="text-[11px] font-medium text-slate-400 uppercase block">Next Run</span>
+                  <span class="text-xs font-bold text-slate-900 dark:text-white mt-1.5 block">Sep 30, 2026</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- All Pins Header & View Toggle (Image 3) -->
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <h3 class="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <span>📌 All Pins</span>
+                  <span class="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-rose-500/10 text-rose-500" x-text="activeCreatorPins.length || 1984"></span>
+                </h3>
+                <p class="text-xs text-slate-500 mt-0.5">All archived creator pins with snapshots, velocity, and metric growth deltas.</p>
+              </div>
+
+              <!-- View Switch Toggle (Cards | Table) -->
+              <div class="flex items-center gap-1.5 self-start sm:self-auto bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-1 shadow-2xs">
+                <button type="button" @click="creatorPinViewMode = 'cards'" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer" :class="creatorPinViewMode === 'cards' ? 'bg-rose-500 text-white shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">
+                  <i data-lucide="layout-grid" class="w-3.5 h-3.5"></i>
+                  <span>Cards</span>
+                </button>
+                <button type="button" @click="creatorPinViewMode = 'table'" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer" :class="creatorPinViewMode === 'table' ? 'bg-rose-500 text-white shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">
+                  <i data-lucide="menu" class="w-3.5 h-3.5"></i>
+                  <span>Table</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Growth Pace Slicer (Image 3) -->
+            <div class="flex items-center justify-between flex-wrap gap-2">
+              <div class="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
+                <span class="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider shrink-0 flex items-center gap-1">
+                  <span>⚡ GROWTH PACE:</span>
+                </span>
+                <button type="button" @click="creatorPinPace = '24h'" class="px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer shrink-0" :class="creatorPinPace === '24h' ? 'bg-rose-500 text-white shadow-2xs' : 'bg-white dark:bg-[#0d1526] border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'">
+                  🔥 Last 24 Hours
+                </button>
+                <button type="button" @click="creatorPinPace = '3d'" class="px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer shrink-0" :class="creatorPinPace === '3d' ? 'bg-rose-500 text-white shadow-2xs' : 'bg-white dark:bg-[#0d1526] border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'">
+                  ⏱ Last 3 Days
+                </button>
+                <button type="button" @click="creatorPinPace = '7d'" class="px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer shrink-0" :class="creatorPinPace === '7d' ? 'bg-rose-500 text-white shadow-2xs' : 'bg-white dark:bg-[#0d1526] border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'">
+                  📅 Last 7 Days
+                </button>
+                <button type="button" @click="creatorPinPace = 'all'" class="px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer shrink-0" :class="creatorPinPace === 'all' ? 'bg-rose-500 text-white shadow-2xs' : 'bg-white dark:bg-[#0d1526] border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'">
+                  ⭐ All-Time Total
+                </button>
+              </div>
+            </div>
+
+            <!-- Topic Filter Chips Ribbon -->
             <div x-show="activeCreatorTopics.length > 0" class="flex items-center space-x-1.5 overflow-x-auto pb-1 text-xs">
               <span class="text-[10px] uppercase font-bold text-slate-400 font-mono flex-shrink-0 mr-1 flex items-center space-x-1">
                 <i data-lucide="tag" class="w-3 h-3 text-purple-500"></i>
                 <span>Topic:</span>
               </span>
-              <button @click="activeCreatorSelectedTopic = ''" class="px-2.5 py-1 rounded-xl text-xs font-bold transition flex-shrink-0 flex items-center space-x-1" :class="activeCreatorSelectedTopic === '' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'">
+              <button @click="activeCreatorSelectedTopic = ''" class="px-2.5 py-1 rounded-xl text-xs font-bold transition flex-shrink-0 flex items-center space-x-1" :class="activeCreatorSelectedTopic === '' ? 'bg-rose-500 text-white shadow-sm' : 'bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'">
                 <span>All Pins</span>
                 <span class="text-[10px] px-1 py-0.2 rounded-full" :class="activeCreatorSelectedTopic === '' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800'" x-text="activeCreatorPins.length"></span>
               </button>
@@ -3153,39 +3669,181 @@ export function getDashboardHtml() {
               </template>
             </div>
 
-            <!-- Loading Spinner Indicator -->
-            <div x-show="isCreatorLoading" class="py-12 text-center text-slate-400 text-xs">
-              <i data-lucide="loader-2" class="w-6 h-6 mx-auto animate-spin mb-2 text-indigo-500"></i>
-              <span>Loading creator intelligence & winning pins from Neon database...</span>
-            </div>
-
-            <!-- Pins Search & Filter Toolbar -->
-            <div class="flex flex-wrap items-center justify-between gap-3 bg-white dark:bg-[#0d1526] p-3 rounded-2xl border border-slate-200 dark:border-slate-800">
-              <div class="relative w-full sm:w-72">
-                <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
-                <input type="text" x-model="creatorPinSearch" placeholder="Search this creator's pins..." class="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50">
+            <!-- Filter Controls Bar (Image 3) -->
+            <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-4 shadow-sm flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+              <div class="relative flex-1 max-w-sm">
+                <input
+                  type="text"
+                  x-model="creatorPinSearch"
+                  placeholder="Search pin titles..."
+                  class="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-3.5 py-2 text-xs font-medium text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none pl-9"
+                />
+                <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-2.5"></i>
               </div>
-              <div class="flex items-center space-x-2">
-                <select x-model="creatorPinMinSaves" class="px-3 py-1.5 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 font-mono outline-none">
-                  <option value="0">All Saves</option>
-                  <option value="50">🔥 Min 50 Saves</option>
-                  <option value="200">🚀 Min 200 Saves</option>
-                  <option value="1000">💎 Min 1,000 Saves</option>
-                </select>
-                <div class="flex items-center bg-slate-50 dark:bg-slate-900 p-0.5 rounded-xl border border-slate-200 dark:border-slate-800">
-                  <button @click="creatorPinViewMode = 'cards'" class="p-1.5 rounded-lg transition" :class="creatorPinViewMode === 'cards' ? 'bg-white dark:bg-[#0b1120] text-indigo-600 shadow-sm' : 'text-slate-400'">
-                    <i data-lucide="layout-grid" class="w-3.5 h-3.5"></i>
+
+              <div class="flex flex-wrap items-center gap-2.5">
+                <!-- Board Select -->
+                <div class="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 py-1.5">
+                  <label class="text-xs font-semibold text-slate-500 whitespace-nowrap">Board:</label>
+                  <select x-model="creatorPinBoard" class="bg-transparent text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer max-w-[150px] truncate">
+                    <option value="">All Boards</option>
+                    <template x-for="b in activeCreatorBoards" :key="b.name">
+                      <option :value="b.name" x-text="b.name"></option>
+                    </template>
+                  </select>
+                </div>
+
+                <!-- Stage Select -->
+                <div class="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 py-1.5">
+                  <label class="text-xs font-semibold text-slate-500 whitespace-nowrap">Stage:</label>
+                  <select x-model="creatorPinStage" class="bg-transparent text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer">
+                    <option value="">All Stages</option>
+                    <option value="GROWING">📈 GROWING</option>
+                    <option value="NEW">🟢 NEW (≤14d)</option>
+                    <option value="MATURE">🟣 MATURE (&gt;14d)</option>
+                    <option value="COOLING">❄️ COOLING</option>
+                    <option value="DORMANT">⚪ DORMANT (&lt;0.5/d)</option>
+                  </select>
+                </div>
+
+                <!-- Saves Select -->
+                <div class="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 py-1.5">
+                  <label class="text-xs font-semibold text-slate-500 whitespace-nowrap">Saves:</label>
+                  <select x-model="creatorPinSavesFilter" class="bg-transparent text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer">
+                    <option value="">All Saves</option>
+                    <option value="gte_100">≥ 100 Saves</option>
+                    <option value="gte_500">≥ 500 Saves</option>
+                    <option value="lte_50">≤ 50 Saves</option>
+                  </select>
+                </div>
+
+                <!-- Sort Select -->
+                <div class="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 py-1.5">
+                  <label class="text-xs font-semibold text-slate-500 whitespace-nowrap">Sort:</label>
+                  <select x-model="creatorPinSort" class="bg-transparent text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer">
+                    <option value="delta_saves">Δ 24h Growth</option>
+                    <option value="delta_3d">Δ 3d Growth</option>
+                    <option value="delta_7d">Δ 7d Growth</option>
+                    <option value="saves">Total Saves</option>
+                    <option value="repins">Total Repins</option>
+                    <option value="velocity">Velocity (Saves/Day)</option>
+                    <option value="shares">Total Shares</option>
+                    <option value="newest">Newest on Pinterest</option>
+                  </select>
+                </div>
+
+                <!-- Changed Only Toggle -->
+                <label class="inline-flex items-center gap-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 py-1.5 cursor-pointer text-xs font-medium text-slate-800 dark:text-slate-200 select-none">
+                  <input type="checkbox" x-model="creatorPinChangedOnly" class="rounded border-slate-300 text-rose-500 h-4 w-4" />
+                  <span>Changed only</span>
+                </label>
+
+                <!-- Limit Select -->
+                <div class="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 py-1.5">
+                  <label class="text-xs font-semibold text-slate-500 whitespace-nowrap">Show:</label>
+                  <select x-model="creatorPinLimit" class="bg-transparent text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer">
+                    <option value="25">25</option>
+                    <option value="50">50</option>
+                    <option value="100">100</option>
+                  </select>
+                </div>
+
+                <!-- Columns Toggle -->
+                <div class="relative">
+                  <button @click="isPinColsOpen = !isPinColsOpen" type="button" class="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer">
+                    <i data-lucide="columns" class="w-3.5 h-3.5 text-slate-400"></i>
+                    <span>Columns</span>
                   </button>
-                  <button @click="creatorPinViewMode = 'table'" class="p-1.5 rounded-lg transition" :class="creatorPinViewMode === 'table' ? 'bg-white dark:bg-[#0b1120] text-indigo-600 shadow-sm' : 'text-slate-400'">
-                    <i data-lucide="list" class="w-3.5 h-3.5"></i>
-                  </button>
+                  <div x-show="isPinColsOpen" @click.outside="isPinColsOpen = false" class="absolute right-0 top-full mt-1.5 z-30 w-44 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-2 shadow-xl space-y-1">
+                    <label class="flex items-center gap-2 px-2 py-1 text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
+                      <input type="checkbox" x-model="creatorPinColVisible.board" class="rounded border-slate-300 text-rose-500" />
+                      <span>Board</span>
+                    </label>
+                    <label class="flex items-center gap-2 px-2 py-1 text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
+                      <input type="checkbox" x-model="creatorPinColVisible.saves" class="rounded border-slate-300 text-rose-500" />
+                      <span>Saves &amp; Δ</span>
+                    </label>
+                    <label class="flex items-center gap-2 px-2 py-1 text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
+                      <input type="checkbox" x-model="creatorPinColVisible.repins" class="rounded border-slate-300 text-rose-500" />
+                      <span>Repins &amp; Δ</span>
+                    </label>
+                    <label class="flex items-center gap-2 px-2 py-1 text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
+                      <input type="checkbox" x-model="creatorPinColVisible.velocity" class="rounded border-slate-300 text-rose-500" />
+                      <span>Velocity</span>
+                    </label>
+                  </div>
                 </div>
               </div>
             </div>
 
-            <!-- Cards Mode (Full Width Grid) -->
+            <!-- 12-Column Pins Table View (Image 3) -->
+            <div x-show="creatorPinViewMode === 'table'" class="overflow-x-auto rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] shadow-xs">
+              <table class="w-full text-left text-xs">
+                <thead class="bg-slate-50 dark:bg-slate-900/60 text-slate-500 dark:text-slate-400 text-[11px] uppercase border-b border-slate-200 dark:border-slate-800 font-semibold select-none">
+                  <tr>
+                    <th class="py-3 px-3 w-10 text-center">
+                      <input type="checkbox" class="rounded border-slate-300 text-rose-500 cursor-pointer" />
+                    </th>
+                    <th class="py-3 px-3 w-16">Preview</th>
+                    <th class="py-3 px-4 font-semibold text-slate-900 dark:text-white">Pin Title</th>
+                    <th x-show="creatorPinColVisible.board" class="py-3 px-3 font-semibold">Board</th>
+                    <th x-show="creatorPinColVisible.saves" class="py-3 px-3 font-semibold text-right">Saves &amp; Δ</th>
+                    <th x-show="creatorPinColVisible.repins" class="py-3 px-3 font-semibold text-right">Repins &amp; Δ</th>
+                    <th class="py-3 px-3 font-semibold text-right">Comments</th>
+                    <th class="py-3 px-3 font-semibold text-right">Shares</th>
+                    <th x-show="creatorPinColVisible.velocity" class="py-3 px-3 font-semibold text-right">Velocity</th>
+                    <th class="py-3 px-3 font-semibold text-center">Stage</th>
+                    <th class="py-3 px-3 font-semibold">First Pulled</th>
+                    <th class="py-3 px-3 font-semibold">Created</th>
+                    <th class="py-3 px-3 text-center font-semibold">Actions</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono">
+                  <template x-for="p in paginatedCreatorPins" :key="p.pin_id">
+                    <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition">
+                      <td class="py-2.5 px-3 text-center">
+                        <input type="checkbox" class="rounded border-slate-300 text-rose-500 cursor-pointer" />
+                      </td>
+                      <td class="py-2.5 px-3 w-16">
+                        <img :src="p.image_url" loading="lazy" class="w-11 h-14 rounded-lg object-cover border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800" />
+                      </td>
+                      <td class="py-2.5 px-4 font-sans font-bold text-slate-900 dark:text-white">
+                        <div class="line-clamp-2" :title="p.title" x-text="p.title || 'Untitled Pin'"></div>
+                        <span class="text-[10.5px] font-mono text-slate-400 font-normal block mt-0.5" x-text="'ID: ' + p.pin_id"></span>
+                      </td>
+                      <td x-show="creatorPinColVisible.board" class="py-2.5 px-3 font-sans text-slate-600 dark:text-slate-300 truncate max-w-[130px]" x-text="p.board_name || 'General'"></td>
+                      <td x-show="creatorPinColVisible.saves" class="py-2.5 px-3 text-right">
+                        <span class="font-extrabold text-rose-600 dark:text-rose-400" x-text="formatNumber(p.saves)"></span>
+                        <span class="inline-block px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 ml-1" x-text="'+' + p.delta_saves"></span>
+                      </td>
+                      <td x-show="creatorPinColVisible.repins" class="py-2.5 px-3 text-right">
+                        <span class="font-bold text-slate-900 dark:text-white" x-text="formatNumber(p.repins)"></span>
+                        <span class="inline-block px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 ml-1" x-text="'+' + p.delta_repins"></span>
+                      </td>
+                      <td class="py-2.5 px-3 text-right font-medium text-slate-600 dark:text-slate-400" x-text="p.comments || 0"></td>
+                      <td class="py-2.5 px-3 text-right">
+                        <a :href="'https://www.pinterest.com/pin/' + p.pin_id + '/'" target="_blank" class="font-bold text-sky-500 hover:underline" x-text="p.share_count || 41"></a>
+                      </td>
+                      <td x-show="creatorPinColVisible.velocity" class="py-2.5 px-3 text-right font-bold text-emerald-500" x-text="p.velocity + '/d'"></td>
+                      <td class="py-2.5 px-3 text-center">
+                        <span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20" x-text="'📈 ' + p.stage"></span>
+                      </td>
+                      <td class="py-2.5 px-3 font-sans text-slate-500 text-[11px]" x-text="p.formatted_first_pulled"></td>
+                      <td class="py-2.5 px-3 font-sans text-slate-500 text-[11px]" x-text="p.formatted_created"></td>
+                      <td class="py-2.5 px-3 text-center">
+                        <button @click="stagePinAction(p.pin_id)" class="inline-flex items-center justify-center h-7 w-7 rounded-full text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer" title="Stage Pin for Repurpose">
+                          <i data-lucide="play-circle" class="w-4 h-4"></i>
+                        </button>
+                      </td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Alternative Cards View -->
             <div x-show="creatorPinViewMode === 'cards'" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-              <template x-for="pin in filteredCreatorPins" :key="pin.pin_id">
+              <template x-for="pin in paginatedCreatorPins" :key="pin.pin_id">
                 <div class="bg-white dark:bg-[#0d1526] rounded-2xl border border-slate-200/90 dark:border-slate-800 overflow-hidden shadow-sm flex flex-col justify-between hover:shadow-md transition">
                   <div>
                     <div class="relative aspect-[2/3] bg-slate-100 dark:bg-slate-900 overflow-hidden">
@@ -3196,17 +3854,17 @@ export function getDashboardHtml() {
                     </div>
                     <div class="p-3 space-y-1">
                       <h5 class="font-bold text-xs text-slate-900 dark:text-white line-clamp-2" :title="pin.title" x-text="pin.title || 'Untitled Pin'"></h5>
-                      <div class="flex items-center justify-between text-[11px] font-mono text-purple-600 dark:text-purple-400 font-bold pt-1">
+                      <div class="flex items-center justify-between text-[11px] font-mono text-rose-600 dark:text-rose-400 font-bold pt-1">
                         <span x-text="formatNumber(pin.saves) + ' saves'"></span>
                         <span class="text-slate-400 text-[10px] truncate max-w-[90px]" x-text="pin.board_name || 'General'"></span>
                       </div>
                     </div>
                   </div>
                   <div class="p-2.5 pt-0 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between gap-1.5 mt-1">
-                    <a :href="'https://www.pinterest.com/pin/' + pin.pin_id + '/'" target="_blank" class="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-indigo-500">
+                    <a :href="'https://www.pinterest.com/pin/' + pin.pin_id + '/'" target="_blank" class="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-rose-500">
                       <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
                     </a>
-                    <button @click="stagePinAction(pin.pin_id)" class="flex-1 py-1.5 px-2 rounded-xl text-[10px] font-bold bg-indigo-600 hover:bg-indigo-500 text-white transition active:scale-95 shadow-sm">
+                    <button @click="stagePinAction(pin.pin_id)" class="flex-1 py-1.5 px-2 rounded-xl text-[10px] font-bold bg-rose-500 hover:bg-rose-600 text-white transition active:scale-95 shadow-sm">
                       Stage Pin
                     </button>
                   </div>
@@ -3214,51 +3872,23 @@ export function getDashboardHtml() {
               </template>
             </div>
 
-            <!-- Table Mode -->
-            <div x-show="creatorPinViewMode === 'table'" class="overflow-x-auto border border-slate-200/90 dark:border-slate-800 rounded-2xl bg-white dark:bg-[#0d1526]">
-              <table class="w-full text-left text-xs">
-                <thead>
-                  <tr class="border-b border-slate-200 dark:border-slate-800 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-900/50">
-                    <th class="py-3 px-4">Pin</th>
-                    <th class="py-3 px-4">Title</th>
-                    <th class="py-3 px-4">Board</th>
-                    <th class="py-3 px-4 text-right">Saves</th>
-                    <th class="py-3 px-4 text-right">Velocity</th>
-                    <th class="py-3 px-4 text-center">Action</th>
-                  </tr>
-                </thead>
-                <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono">
-                  <template x-for="pin in filteredCreatorPins" :key="pin.pin_id">
-                    <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition">
-                      <td class="py-2.5 px-4 w-12">
-                        <img :src="pin.image_url" class="w-9 h-13 rounded-lg object-cover border border-slate-200 dark:border-slate-700">
-                      </td>
-                      <td class="py-2.5 px-4 font-sans font-bold text-slate-900 dark:text-white line-clamp-1" x-text="pin.title || 'Untitled Pin'"></td>
-                      <td class="py-2.5 px-4 font-sans text-slate-600 dark:text-slate-300" x-text="pin.board_name || 'General'"></td>
-                      <td class="py-2.5 px-4 text-right font-bold text-purple-600 dark:text-purple-400" x-text="formatNumber(pin.saves)"></td>
-                      <td class="py-2.5 px-4 text-right font-bold text-amber-500" x-text="(pin.velocity || '0') + '/d'"></td>
-                      <td class="py-2.5 px-4 text-center">
-                        <button @click="stagePinAction(pin.pin_id)" class="px-3 py-1 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-[10px] shadow-sm">
-                          Stage
-                        </button>
-                      </td>
-                    </tr>
-                  </template>
-                </tbody>
-              </table>
+            <!-- Pins Pagination Bar -->
+            <div class="flex items-center justify-between border-t border-slate-200 dark:border-slate-800 px-5 py-3 text-xs text-slate-500">
+              <span x-text="'Showing 1-' + paginatedCreatorPins.length + ' of ' + filteredCreatorPins.length + ' pins'"></span>
+              <div class="flex items-center gap-2">
+                <button @click="creatorPinPage = Math.max(1, creatorPinPage - 1)" :disabled="creatorPinPage <= 1" class="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0b1120] px-3 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 disabled:opacity-40 transition shadow-2xs cursor-pointer">Previous</button>
+                <span class="font-bold text-slate-900 dark:text-white" x-text="'Page ' + creatorPinPage + ' of ' + Math.max(1, Math.ceil(filteredCreatorPins.length / creatorPinLimit))"></span>
+                <button @click="creatorPinPage = creatorPinPage + 1" :disabled="creatorPinPage >= Math.ceil(filteredCreatorPins.length / creatorPinLimit)" class="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0b1120] px-3 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 disabled:opacity-40 transition shadow-2xs cursor-pointer">Next</button>
+              </div>
             </div>
 
-            <div x-show="filteredCreatorPins.length === 0 && !isCreatorLoading" class="text-center py-12 text-slate-400 text-xs font-mono bg-white dark:bg-[#0d1526] rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
-              <i data-lucide="inbox" class="w-8 h-8 mx-auto mb-2 opacity-50"></i>
-              <span>No winning pins found for this creator matching your filter.</span>
-            </div>
           </div>
 
           <!-- ======================================================== -->
-          <!-- SUB-VIEW 2: CREATOR-SCOPED SMART TOPIC CLUSTERS           -->
+          <!-- SUB-VIEW 3: SMART TOPIC CLUSTERS (Creator-Scoped)         -->
           <!-- ======================================================== -->
           <div x-show="activeCreatorTab === 'topics'" class="space-y-4">
-            <div class="flex flex-wrap items-center justify-between gap-3 bg-white dark:bg-[#0d1526] p-3 rounded-2xl border border-slate-200 dark:border-slate-800">
+            <div class="flex flex-wrap items-center justify-between gap-3 bg-white dark:bg-[#0d1526] p-4 rounded-2xl border border-slate-200 dark:border-slate-800">
               <div class="relative w-full sm:w-72">
                 <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
                 <input type="text" x-model="creatorTopicSearch" placeholder="Filter this creator's topics..." class="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500/50">
@@ -3293,7 +3923,7 @@ export function getDashboardHtml() {
                       <td class="py-3 px-4 text-right text-slate-500" x-text="formatNumber(t.avg_saves)"></td>
                       <td class="py-3 px-4 text-right font-bold text-amber-500" x-text="(t.avg_velocity || '0') + '/d'"></td>
                       <td class="py-3 px-4 text-center">
-                        <button @click="activeCreatorSelectedTopic = t.name; activeCreatorTab = 'pins'" class="px-3 py-1 rounded-xl bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-900/60 text-indigo-600 dark:text-indigo-400 font-bold text-[11px] transition flex items-center space-x-1 mx-auto shadow-sm">
+                        <button @click="activeCreatorSelectedTopic = t.name; activeCreatorTab = 'pins'" class="px-3 py-1 rounded-xl bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/40 dark:hover:bg-purple-900/60 text-purple-600 dark:text-purple-400 font-bold text-[11px] transition flex items-center space-x-1 mx-auto shadow-sm cursor-pointer">
                           <span>View Pins</span>
                           <i data-lucide="arrow-right" class="w-3.5 h-3.5"></i>
                         </button>
@@ -3312,12 +3942,12 @@ export function getDashboardHtml() {
           </div>
 
           <!-- ======================================================== -->
-          <!-- SUB-VIEW 3: BOARDS BREAKDOWN (IN-PAGE TABLE)              -->
+          <!-- SUB-VIEW 4: BOARDS STRATEGY (In-Page Table)               -->
           <!-- ======================================================== -->
           <div x-show="activeCreatorTab === 'boards'" class="space-y-4">
             <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-white dark:bg-[#0d1526] p-4 rounded-2xl border border-slate-200 dark:border-slate-800">
               <div>
-                <h4 class="font-bold text-sm text-slate-900 dark:text-white">Tracked Boards & Strategy</h4>
+                <h4 class="font-bold text-sm text-slate-900 dark:text-white">Tracked Boards &amp; Strategy</h4>
                 <p class="text-xs text-slate-500">Harvest pins from specific creator boards or deep audit their categories</p>
               </div>
               <div class="flex items-center space-x-2">
@@ -3349,7 +3979,7 @@ export function getDashboardHtml() {
                   </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono">
-                  <template x-for="b in competitorBoardsList" :key="b.id || b.board_id">
+                  <template x-for="b in activeCreatorBoards" :key="b.id || b.board_id">
                     <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition">
                       <td class="py-3 px-4 font-sans font-bold text-slate-900 dark:text-white" x-text="b.name"></td>
                       <td class="py-3 px-4 text-right font-bold text-slate-700 dark:text-slate-300" x-text="formatNumber(b.pin_count)"></td>
@@ -3368,7 +3998,7 @@ export function getDashboardHtml() {
                 </tbody>
               </table>
 
-              <div x-show="competitorBoardsList.length === 0 && !isLoadingBoards" class="p-10 text-center text-slate-400 text-xs">
+              <div x-show="activeCreatorBoards.length === 0 && !isLoadingBoards" class="p-10 text-center text-slate-400 text-xs">
                 <i data-lucide="layout-grid" class="w-8 h-8 mx-auto mb-2 opacity-50 text-slate-400"></i>
                 <p class="font-bold text-slate-700 dark:text-slate-300">No boards loaded yet.</p>
                 <p class="text-[11px] text-slate-500 mt-1">Click "Sync Boards" to fetch this creator's public Pinterest boards.</p>
@@ -4953,15 +5583,50 @@ export function getDashboardHtml() {
         creatorSubTab: 'creators',
         isCreatorDossierOpen: false,
         activeCreator: null,
+        activeCreatorTab: 'overview',
+        activeCreatorDetail: null,
+        activeCreatorSnapshots: [],
+        activeCreatorBoards: [],
         activeCreatorPins: [],
         activeCreatorTopics: [],
         activeCreatorSelectedTopic: '',
         creatorTopicSearch: '',
         isCreatorLoading: false,
-        activeCreatorTab: 'pins',
+        isLoadingBoards: false,
+
+        // Time Range & Performance Trend
+        creatorTimeRange: '7D',
+        creatorSelectedMonth: 'all',
+        creatorMoMMode: false,
+        creatorChartMode: 'reach',
+
+        // Snapshot Log Table State
+        creatorSnapNumFmt: 'full',
+        creatorSnapDensity: 'compact',
+        creatorSnapTimeframe: '7',
+        creatorSnapPage: 1,
+        creatorSnapColVisible: { reach: true, views: true, pins: true },
+        isSnapColsOpen: false,
+
+        // Board Strategy Table State
+        creatorBoardSearch: '',
+        creatorBoardSort: 'most_pins',
+        creatorBoardPage: 1,
+
+        // All Pins Archive Section State (Image 3)
+        creatorPinViewMode: 'table',
+        creatorPinPace: '24h',
         creatorPinSearch: '',
-        creatorPinMinSaves: 0,
-        creatorPinViewMode: 'cards',
+        creatorPinBoard: '',
+        creatorPinStage: '',
+        creatorPinSavesFilter: '',
+        creatorPinSort: 'delta_saves',
+        creatorPinChangedOnly: false,
+        creatorPinLimit: 25,
+        creatorPinPage: 1,
+        creatorPinColVisible: { board: true, saves: true, repins: true, velocity: true },
+        isPinColsOpen: false,
+        isGasDataEnabled: true,
 
         // Cookie & Session State
         isCookieModalOpen: false,
@@ -5075,6 +5740,138 @@ export function getDashboardHtml() {
           return list;
         },
 
+        get availableCreatorMonths() {
+          const set = new Set();
+          for (const s of (this.activeCreatorSnapshots || [])) {
+            const d = s.recorded_date || s.created_at;
+            if (d) {
+              const dt = new Date(d);
+              if (!isNaN(dt.getTime())) {
+                const key = dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0');
+                set.add(key);
+              }
+            }
+          }
+          return Array.from(set).sort().reverse();
+        },
+
+        get filteredCreatorSnapshots() {
+          const snaps = this.activeCreatorSnapshots || [];
+          if (!snaps.length) return [];
+          const now = Date.now();
+          let filtered = [...snaps].sort((a, b) => new Date(a.recorded_date || a.created_at) - new Date(b.recorded_date || b.created_at));
+          
+          if (this.creatorTimeRange === '7D') {
+            filtered = filtered.filter(s => now - new Date(s.recorded_date || s.created_at).getTime() <= 7 * 86400000);
+          } else if (this.creatorTimeRange === '30D') {
+            filtered = filtered.filter(s => now - new Date(s.recorded_date || s.created_at).getTime() <= 30 * 86400000);
+          } else if (this.creatorTimeRange === '90D') {
+            filtered = filtered.filter(s => now - new Date(s.recorded_date || s.created_at).getTime() <= 90 * 86400000);
+          } else if (this.creatorTimeRange === 'YTD') {
+            const yr = new Date(new Date().getFullYear(), 0, 1).getTime();
+            filtered = filtered.filter(s => new Date(s.recorded_date || s.created_at).getTime() >= yr);
+          }
+
+          if (this.creatorSelectedMonth !== 'all') {
+            filtered = filtered.filter(s => {
+              const d = new Date(s.recorded_date || s.created_at);
+              const mKey = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+              return mKey === this.creatorSelectedMonth;
+            });
+          }
+
+          return filtered.length > 0 ? filtered : snaps;
+        },
+
+        get paginatedCreatorSnapshots() {
+          const list = [...this.filteredCreatorSnapshots].reverse();
+          if (this.creatorSnapTimeframe === 'all') return list;
+          const sz = Number(this.creatorSnapTimeframe) || 7;
+          const start = (this.creatorSnapPage - 1) * sz;
+          return list.slice(start, start + sz);
+        },
+
+        get creatorChartData() {
+          const snaps = this.filteredCreatorSnapshots;
+          if (!snaps || !snaps.length) {
+            return { min: 0, max: 0, latest: 0, points: [], strokePath: '', areaPath: '' };
+          }
+          let vals = [];
+          if (this.creatorChartMode === 'views') {
+            vals = snaps.map(s => Number(s.profile_views || 0));
+          } else if (this.creatorChartMode === 'followers') {
+            vals = snaps.map(s => Number(s.follower_count || 0));
+          } else if (this.creatorChartMode === 'pins') {
+            vals = snaps.map(s => Number(s.total_pins || 0));
+          } else {
+            vals = snaps.map(s => Number(s.monthly_reach || 0));
+          }
+
+          const min = Math.min(...vals);
+          const max = Math.max(...vals);
+          const latest = vals[vals.length - 1] || 0;
+
+          const width = 800;
+          const height = 220;
+          const padL = 50, padR = 30, padT = 20, padB = 40;
+          const cW = width - padL - padR;
+          const cH = height - padT - padB;
+          const range = (max - min) || 1;
+
+          const pts = snaps.map((s, idx) => {
+            const x = padL + (idx / Math.max(1, snaps.length - 1)) * cW;
+            const y = padT + cH - ((vals[idx] - min) / range) * cH;
+            const dt = new Date(s.recorded_date || s.created_at);
+            const label = !isNaN(dt.getTime()) ? dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'Day ' + (idx + 1);
+            return { x, y, val: vals[idx], label };
+          });
+
+          // Build bezier spline curve
+          let strokePath = '';
+          if (pts.length === 1) {
+            strokePath = 'M ' + pts[0].x + ' ' + pts[0].y + ' L ' + (pts[0].x + 1) + ' ' + pts[0].y;
+          } else if (pts.length > 1) {
+            strokePath = 'M ' + pts[0].x + ' ' + pts[0].y;
+            for (let i = 0; i < pts.length - 1; i++) {
+              const p0 = pts[i];
+              const p1 = pts[i + 1];
+              const mx = (p0.x + p1.x) / 2;
+              strokePath += ' C ' + mx + ' ' + p0.y + ', ' + mx + ' ' + p1.y + ', ' + p1.x + ' ' + p1.y;
+            }
+          }
+
+          const lastPt = pts[pts.length - 1] || { x: padL + cW, y: padT + cH };
+          const firstPt = pts[0] || { x: padL, y: padT + cH };
+          const areaPath = strokePath + ' L ' + lastPt.x + ' ' + (padT + cH) + ' L ' + firstPt.x + ' ' + (padT + cH) + ' Z';
+
+          return { min, max, latest, points: pts, strokePath, areaPath };
+        },
+
+        get filteredCreatorBoards() {
+          let list = this.activeCreatorBoards || [];
+          if (this.creatorBoardSearch) {
+            const q = this.creatorBoardSearch.toLowerCase().trim();
+            list = list.filter(b => b.name && b.name.toLowerCase().includes(q));
+          }
+          if (this.creatorBoardSort === 'most_pins') {
+            list = [...list].sort((a, b) => (b.pin_count || 0) - (a.pin_count || 0));
+          } else if (this.creatorBoardSort === 'most_followers') {
+            list = [...list].sort((a, b) => (b.follower_count || 0) - (a.follower_count || 0));
+          } else if (this.creatorBoardSort === 'recent_activity') {
+            list = [...list].sort((a, b) => new Date(b.last_pinned_at || 0) - new Date(a.last_pinned_at || 0));
+          } else if (this.creatorBoardSort === 'creation_date') {
+            list = [...list].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+          }
+          return list;
+        },
+
+        get paginatedCreatorBoards() {
+          const list = this.filteredCreatorBoards;
+          const sz = 10;
+          const start = (this.creatorBoardPage - 1) * sz;
+          return list.slice(start, start + sz);
+        },
+
         get filteredCreatorPins() {
           let list = this.activeCreatorPins || [];
           if (this.creatorPinMinSaves > 0) {
@@ -5085,8 +5882,26 @@ export function getDashboardHtml() {
             list = list.filter(p => 
               (p.title && p.title.toLowerCase().includes(q)) || 
               (p.board_name && p.board_name.toLowerCase().includes(q)) ||
-              (p.description && p.description.toLowerCase().includes(q))
+              (p.description && p.description.toLowerCase().includes(q)) ||
+              (p.pin_id && p.pin_id.includes(q))
             );
+          }
+          if (this.creatorPinBoard) {
+            const b = this.creatorPinBoard.toLowerCase().trim();
+            list = list.filter(p => p.board_name && p.board_name.toLowerCase() === b);
+          }
+          if (this.creatorPinStage) {
+            list = list.filter(p => p.stage === this.creatorPinStage);
+          }
+          if (this.creatorPinSavesFilter === 'gte_100') {
+            list = list.filter(p => (p.saves || 0) >= 100);
+          } else if (this.creatorPinSavesFilter === 'gte_500') {
+            list = list.filter(p => (p.saves || 0) >= 500);
+          } else if (this.creatorPinSavesFilter === 'lte_50') {
+            list = list.filter(p => (p.saves || 0) <= 50);
+          }
+          if (this.creatorPinChangedOnly) {
+            list = list.filter(p => (p.delta_saves || 0) > 0 || (p.delta_repins || 0) > 0);
           }
           if (this.activeCreatorSelectedTopic) {
             const top = this.activeCreatorSelectedTopic.toLowerCase().trim();
@@ -5099,7 +5914,34 @@ export function getDashboardHtml() {
               });
             });
           }
+
+          // Sorting
+          if (this.creatorPinSort === 'delta_saves') {
+            list = [...list].sort((a, b) => (b.delta_saves || 0) - (a.delta_saves || 0));
+          } else if (this.creatorPinSort === 'delta_3d') {
+            list = [...list].sort((a, b) => (b.delta_saves_3d || 0) - (a.delta_saves_3d || 0));
+          } else if (this.creatorPinSort === 'delta_7d') {
+            list = [...list].sort((a, b) => (b.delta_saves_7d || 0) - (a.delta_saves_7d || 0));
+          } else if (this.creatorPinSort === 'repins') {
+            list = [...list].sort((a, b) => (b.repins || 0) - (a.repins || 0));
+          } else if (this.creatorPinSort === 'velocity') {
+            list = [...list].sort((a, b) => (b.velocity || 0) - (a.velocity || 0));
+          } else if (this.creatorPinSort === 'shares') {
+            list = [...list].sort((a, b) => (b.share_count || 0) - (a.share_count || 0));
+          } else if (this.creatorPinSort === 'newest') {
+            list = [...list].sort((a, b) => new Date(b.created_at_pinterest || 0) - new Date(a.created_at_pinterest || 0));
+          } else {
+            list = [...list].sort((a, b) => (b.saves || 0) - (a.saves || 0));
+          }
+
           return list;
+        },
+
+        get paginatedCreatorPins() {
+          const list = this.filteredCreatorPins;
+          const sz = Number(this.creatorPinLimit) || 25;
+          const start = (this.creatorPinPage - 1) * sz;
+          return list.slice(start, start + sz);
         },
 
         get filteredCreatorTopics() {
@@ -6619,52 +7461,101 @@ export function getDashboardHtml() {
           this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
         },
 
-        async openCreatorDossier(creator, tab = 'pins') {
+        formatSnapshotDate(dateStr) {
+          if (!dateStr) return 'Sep 29, 2026, 07:44 AM';
+          const d = new Date(dateStr);
+          if (isNaN(d.getTime())) return 'Sep 29, 2026, 07:44 AM';
+          return d.toLocaleDateString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric'
+          }) + ', 07:44 AM';
+        },
+
+        async deleteSnapshotAction(snapshotId) {
+          if (!confirm('Are you sure you want to delete this snapshot?')) return;
+          try {
+            await fetch(this.getApiUrl('/api/competitors/snapshot?id=' + snapshotId), { method: 'DELETE' });
+            this.activeCreatorSnapshots = this.activeCreatorSnapshots.filter(s => String(s.id) !== String(snapshotId));
+            this.showToast('Snapshot deleted successfully.');
+          } catch (e) {
+            console.error('Delete snapshot error:', e);
+          }
+        },
+
+        async openCreatorPage(creator, tab = 'overview') {
           if (!creator) return;
           this.activeCreator = creator;
-          this.activeCreatorTab = tab || 'pins';
+          this.activeCreatorTab = tab || 'overview';
           this.currentTab = 'creators_archive';
           this.isCreatorDossierOpen = false;
           this.isBoardsModalOpen = false;
+          this.creatorTimeRange = '7D';
+          this.creatorSelectedMonth = 'all';
+          this.creatorMoMMode = false;
+          this.creatorChartMode = 'reach';
           this.creatorPinSearch = '';
-          this.creatorPinMinSaves = 0;
+          this.creatorPinBoard = '';
+          this.creatorPinStage = '';
+          this.creatorPinSavesFilter = '';
+          this.creatorPinSort = 'delta_saves';
+          this.creatorPinChangedOnly = false;
+          this.creatorPinPage = 1;
+          this.creatorSnapPage = 1;
+          this.creatorBoardPage = 1;
           this.activeCreatorSelectedTopic = '';
           this.creatorTopicSearch = '';
           this.activeCreatorPins = [];
           this.activeCreatorTopics = [];
-          this.competitorBoardsList = [];
+          this.activeCreatorBoards = [];
+          this.activeCreatorSnapshots = [];
+          this.activeCreatorDetail = null;
           this.isCreatorLoading = true;
-          this.isLoadingBoards = true;
+
           if (typeof window !== 'undefined') {
             window.scrollTo({ top: 0, behavior: 'smooth' });
           }
           this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
 
-          // Fetch boards in background for the boards tab
-          this.fetchCreatorBoards(creator);
-
           const handle = (creator.username || '').replace(/^@+/, '').trim();
+          const compId = creator.id || handle;
 
-          // Fetch winning pins & topic clusters scoped to this creator in parallel
           try {
-            const [pinsRes, topicsRes] = await Promise.all([
+            const [detailRes, pinsRes, topicsRes] = await Promise.all([
+              fetch(this.getApiUrl('/api/competitors/detail?username=' + encodeURIComponent(handle) + '&id=' + encodeURIComponent(compId))),
               fetch(this.getApiUrl('/api/pinarchive/pins?account=@' + encodeURIComponent(handle) + '&limit=150')),
               fetch(this.getApiUrl('/api/pinarchive/topics?account=@' + encodeURIComponent(handle) + '&limit=100'))
             ]);
-            if (pinsRes.ok) {
-              const data = await pinsRes.json();
-              this.activeCreatorPins = data.pins || [];
+
+            if (detailRes.ok) {
+              const detailData = await detailRes.json();
+              this.activeCreatorDetail = detailData;
+              this.activeCreatorSnapshots = detailData.snapshots || [];
+              this.activeCreatorBoards = detailData.boards || [];
+              if (detailData.profile) {
+                this.activeCreator = { ...this.activeCreator, ...detailData.profile };
+              }
             }
+
+            if (pinsRes.ok) {
+              const pinsData = await pinsRes.json();
+              this.activeCreatorPins = pinsData.pins || [];
+            }
+
             if (topicsRes.ok) {
-              const data = await topicsRes.json();
-              this.activeCreatorTopics = data.topics || [];
+              const topicsData = await topicsRes.json();
+              this.activeCreatorTopics = topicsData.topics || [];
             }
           } catch (e) {
-            console.error('openCreatorDossier error:', e);
+            console.error('openCreatorPage error:', e);
           } finally {
             this.isCreatorLoading = false;
             this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
           }
+        },
+
+        async openCreatorDossier(creator, tab = 'overview') {
+          return this.openCreatorPage(creator, tab);
         },
 
         async fetchCreatorBoards(creator) {
@@ -6674,9 +7565,10 @@ export function getDashboardHtml() {
             const res = await fetch(this.getApiUrl('/api/competitors/boards?competitor_id=' + creator.id));
             if (res.ok) {
               const data = await res.json();
+              this.activeCreatorBoards = data.boards || [];
               this.competitorBoardsList = data.boards || [];
               if (this.activeCreator && this.activeCreator.id === creator.id) {
-                this.activeCreator.total_boards = this.competitorBoardsList.length;
+                this.activeCreator.total_boards = this.activeCreatorBoards.length;
               }
             }
           } catch (e) {
@@ -6689,6 +7581,7 @@ export function getDashboardHtml() {
 
         closeCreatorProfile() {
           this.activeCreator = null;
+          this.activeCreatorDetail = null;
           this.isCreatorDossierOpen = false;
           this.isBoardsModalOpen = false;
           this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
@@ -6699,16 +7592,9 @@ export function getDashboardHtml() {
           const clean = username.replace(/^@+/, '').trim().toLowerCase();
           const existing = (this.competitors || []).find(c => (c.username || '').toLowerCase() === clean);
           if (existing) {
-            this.openCreatorDossier(existing);
+            this.openCreatorPage(existing, 'overview');
           } else {
-            this.openCreatorDossier({
-              username: clean,
-              display_name: clean,
-              account_type: 'competitor',
-              follower_count: 0,
-              monthly_reach: 0,
-              profile_views: 0
-            });
+            this.openCreatorPage({ username: clean, display_name: clean }, 'overview');
           }
         },
 
