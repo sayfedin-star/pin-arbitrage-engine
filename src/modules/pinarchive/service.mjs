@@ -69,18 +69,19 @@ export async function getQualificationRules(sql) {
  * Update and persist Pin Qualification Rules
  */
 export async function updateQualificationRules(sql, rules = {}) {
-  const t1Saves = Math.max(0, Number(rules.tier1_min_saves ?? 100));
-  const t2Repins = Math.max(0, Number(rules.tier2_min_repins ?? 100));
-  const t3Days = Math.max(1, Number(rules.tier3_max_age_days ?? 14));
-  const t3Saves = Math.max(0, Number(rules.tier3_min_saves ?? 25));
+  const current = await getQualificationRules(sql);
+  const t1Saves = Math.max(0, Number(rules.tier1_min_saves ?? current.tier1_min_saves ?? 100));
+  const t2Repins = Math.max(0, Number(rules.tier2_min_repins ?? current.tier2_min_repins ?? 100));
+  const t3Days = Math.max(1, Number(rules.tier3_max_age_days ?? current.tier3_max_age_days ?? 14));
+  const t3Saves = Math.max(0, Number(rules.tier3_min_saves ?? current.tier3_min_saves ?? 25));
   const masterEnabled = rules.master_ingest_enabled !== undefined 
     ? Boolean(rules.master_ingest_enabled) 
-    : (rules.cron_enabled !== undefined ? Boolean(rules.cron_enabled) : true);
-  const earlyStop = Math.max(1, Math.min(Number(rules.early_stop_pages ?? 3), 100));
-  const maxBatch = Math.max(10, Math.min(Number(rules.max_batch_pins ?? 500), 5000));
-  const discMax = Math.max(1, Math.min(Number(rules.discovery_max_pages ?? 500), 2000));
-  const refreshMax = Math.max(0, Number(rules.refresh_max_pins ?? 0));
-  const pausedPol = String(rules.paused_policy ?? 'reject');
+    : (rules.cron_enabled !== undefined ? Boolean(rules.cron_enabled) : Boolean(current.master_ingest_enabled));
+  const earlyStop = Math.max(1, Math.min(Number(rules.early_stop_pages ?? current.early_stop_pages ?? 3), 100));
+  const maxBatch = Math.max(10, Math.min(Number(rules.max_batch_pins ?? current.max_batch_pins ?? 500), 5000));
+  const discMax = Math.max(1, Math.min(Number(rules.discovery_max_pages ?? current.discovery_max_pages ?? 500), 2000));
+  const refreshMax = Math.max(0, Number(rules.refresh_max_pins ?? current.refresh_max_pins ?? 0));
+  const pausedPol = String(rules.paused_policy ?? current.paused_policy ?? 'reject');
 
   const [updated] = await sql`
     INSERT INTO pa_qualification_rules (
@@ -242,6 +243,7 @@ export async function ingestPinsBatch(sql, pins, accountUsername = null, { filte
   }
 
   const activeRules = filterQualified ? (rules || (await getQualificationRules(sql))) : null;
+  const cleanAccount = accountUsername ? String(accountUsername).replace(/^@/, '').trim().toLowerCase() : null;
 
   let addedCount = 0;
   let updatedCount = 0;
@@ -276,9 +278,23 @@ export async function ingestPinsBatch(sql, pins, accountUsername = null, { filte
       const repins = Number(pin.repins || saves);
       const comments = Number(pin.comments || 0);
       const shareCount = Number(pin.share_count || 0);
-      const reactions = (pin.reactions && typeof pin.reactions === 'object') ? JSON.stringify(pin.reactions) : '{}';
+      
+      let reactions = '{}';
+      if (pin.reactions && typeof pin.reactions === 'object') {
+        reactions = JSON.stringify(pin.reactions);
+      } else if (typeof pin.reactions === 'string' && pin.reactions.trim().startsWith('{')) {
+        reactions = pin.reactions.trim();
+      }
+
       const velocity = Number(pin.velocity || 0);
-      const annotations = Array.isArray(pin.annotations) ? JSON.stringify(pin.annotations) : '[]';
+
+      let annotations = '[]';
+      if (Array.isArray(pin.annotations)) {
+        annotations = JSON.stringify(pin.annotations);
+      } else if (typeof pin.annotations === 'string' && pin.annotations.trim().startsWith('[')) {
+        annotations = pin.annotations.trim();
+      }
+
       const isVideo = Boolean(pin.is_video);
       const isProduct = Boolean(pin.is_product);
       let createdAtPinterest = null;
@@ -312,7 +328,7 @@ export async function ingestPinsBatch(sql, pins, accountUsername = null, { filte
           last_updated_at
         ) VALUES (
           ${pinId},
-          ${accountUsername},
+          ${cleanAccount},
           ${title},
           ${description},
           ${link},
@@ -480,17 +496,18 @@ export async function listArchivedPins(sql, {
   // Normalize sort column
   let sortColumn = 'saves';
   if (sortBy === 'velocity') sortColumn = 'velocity';
-  else if (sortBy === 'created_at') sortColumn = 'created_at_pinterest';
+  else if (sortBy === 'created_at' || sortBy === 'date' || sortBy === 'newest') sortColumn = 'created_at_pinterest';
   else if (sortBy === 'repins') sortColumn = 'repins';
+  else if (sortBy === 'comments') sortColumn = 'comments';
 
   return await sql`
     SELECT *
     FROM pa_pins
     WHERE saves >= ${minNum}
       AND (${searchPattern}::text IS NULL OR (
-        LOWER(title) LIKE ${searchPattern} OR
-        LOWER(description) LIKE ${searchPattern} OR
-        LOWER(board_name) LIKE ${searchPattern}
+        COALESCE(LOWER(title), '') LIKE ${searchPattern} OR
+        COALESCE(LOWER(description), '') LIKE ${searchPattern} OR
+        COALESCE(LOWER(board_name), '') LIKE ${searchPattern}
       ))
       AND (${topicPattern}::text IS NULL OR (
         EXISTS (
@@ -503,7 +520,7 @@ export async function listArchivedPins(sql, {
           )
         )
       ))
-      AND (${accountPattern}::text IS NULL OR LOWER(account_username) LIKE ${accountPattern})
+      AND (${accountPattern}::text IS NULL OR COALESCE(LOWER(account_username), '') LIKE ${accountPattern})
     ORDER BY
       CASE WHEN ${sortColumn} = 'saves' AND ${isAsc} THEN saves END ASC,
       CASE WHEN ${sortColumn} = 'saves' AND NOT ${isAsc} THEN saves END DESC,
@@ -513,6 +530,8 @@ export async function listArchivedPins(sql, {
       CASE WHEN ${sortColumn} = 'created_at_pinterest' AND NOT ${isAsc} THEN created_at_pinterest END DESC NULLS LAST,
       CASE WHEN ${sortColumn} = 'repins' AND ${isAsc} THEN repins END ASC,
       CASE WHEN ${sortColumn} = 'repins' AND NOT ${isAsc} THEN repins END DESC,
+      CASE WHEN ${sortColumn} = 'comments' AND ${isAsc} THEN comments END ASC,
+      CASE WHEN ${sortColumn} = 'comments' AND NOT ${isAsc} THEN comments END DESC,
       saves DESC
     LIMIT ${lim} OFFSET ${off};
   `;
@@ -570,16 +589,20 @@ export async function claimStagedPinCas(sql, stagedId) {
   if (!stagedId) throw new Error('Invalid staged ID');
   const cleanStr = String(stagedId).trim();
   const numericId = parseInt(cleanStr, 10);
+  const isSerialId = !isNaN(numericId) && String(numericId) === cleanStr && numericId > 0 && numericId <= 2147483647;
 
   let claimed;
-  if (!isNaN(numericId) && String(numericId) === cleanStr) {
+  if (isSerialId) {
     [claimed] = await sql`
       UPDATE pa_staged_pins
       SET status = 'dispatched', updated_at = NOW()
       WHERE id = ${numericId} AND status = 'staged'
       RETURNING *;
     `;
-  } else {
+  }
+
+  // Fallback to claim by Pinterest pin_id if not claimed by serial primary key
+  if (!claimed) {
     [claimed] = await sql`
       UPDATE pa_staged_pins
       SET status = 'dispatched', updated_at = NOW()

@@ -31,7 +31,7 @@ export function getPinterestXhrHeaders(username, activeCookie = '', options = {}
   const src = options.sourceUrl || `/${cleanUser}/_created/`;
   const handler = options.handler || `www/${cleanUser}/_created.js`;
 
-  return {
+  const headers = {
     'User-Agent':
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',
     'Accept': 'application/json, text/javascript, */*; q=0.01',
@@ -42,9 +42,14 @@ export function getPinterestXhrHeaders(username, activeCookie = '', options = {}
     'X-Pinterest-PWS-Handler': handler,
     'X-Pinterest-Source-Url': src,
     'Referer': `https://www.pinterest.com${src}`,
-    'Cookie': activeCookie || '',
     ...(options.extraHeaders || {}),
   };
+
+  if (activeCookie && String(activeCookie).trim()) {
+    headers['Cookie'] = String(activeCookie).trim();
+  }
+
+  return headers;
 }
 
 export function randomJitterMs(min = 2500, max = 4000) {
@@ -200,11 +205,15 @@ export function formatPin(pin) {
     ? Math.round((saves / ageDays) * 100) / 100
     : 0;
 
-  // Domain extraction (safely handling relative or malformed URLs)
+  // Domain extraction (safely handling relative, protocol-less, or malformed URLs)
+  let rawLink = String(pin.link || pin.url || '').trim();
+  if (rawLink && !/^https?:\/\//i.test(rawLink) && !rawLink.startsWith('/')) {
+    rawLink = `https://${rawLink}`;
+  }
   let domain = pin.domain || '';
-  if (!domain && (pin.link || pin.url)) {
+  if (!domain && rawLink && !rawLink.startsWith('/')) {
     try {
-      domain = new URL(pin.link || pin.url).hostname;
+      domain = new URL(rawLink).hostname;
     } catch (_) {
       domain = '';
     }
@@ -227,7 +236,7 @@ export function formatPin(pin) {
     pin_id: pinId,
     title: (pin.grid_title || pin.title || pin.headline || '').trim(),
     description: (pin.description || pin.articleBody || '').trim(),
-    link: pin.link || pin.url || '',
+    link: rawLink || pin.link || pin.url || '',
     domain,
     board_id: pin.board?.id || pin.board_id || null,
     board_name: pin.board?.name || pin.board_name || '',
@@ -351,19 +360,16 @@ export function extractPinData(html, pinId) {
 export async function fetchPinFromPinterest(pinId, activeCookie = '') {
   try {
     const url = `https://www.pinterest.com/pin/${pinId}/`;
-    const res = await fetch(url, {
+    let res = await fetch(url, {
       headers: { ...PINTEREST_PAGE_HEADERS, Cookie: activeCookie || '' },
       redirect: 'follow',
       signal: AbortSignal.timeout(8000),
     });
 
-    if (res.status === 401 || res.status === 403) {
-      // Self-heal: retry anonymously
-      const anonRes = await fetch(url, { headers: PINTEREST_PAGE_HEADERS, redirect: 'follow', signal: AbortSignal.timeout(8000) });
-      if (!anonRes.ok) return { ok: false, status: anonRes.status };
-      const html = await anonRes.text();
-      const parsed = extractPinData(html, pinId);
-      return parsed ? { ok: true, pin: parsed, anonymous_fallback: true } : { ok: false, status: 200, error: 'parse_failed' };
+    if (res.status === 401 || res.status === 403 || res.status === 429) {
+      // Rule 6: Jitter delay (2500ms-4000ms) before anonymous retry
+      await sleep(randomJitterMs(2500, 4000));
+      res = await fetch(url, { headers: PINTEREST_PAGE_HEADERS, redirect: 'follow', signal: AbortSignal.timeout(8000) });
     }
 
     if (!res.ok) return { ok: false, status: res.status };
@@ -516,8 +522,9 @@ export async function fetchUserActivityPinsResource(username, bookmark = null, a
       return { ok: false, error: errMsg, pins: [], nextBookmark: null };
     }
     const data = json.resource_response?.data;
-    const rawBookmark = json.resource_response?.bookmark;
-    const nextBookmark = (rawBookmark && rawBookmark !== '-end-') ? rawBookmark : null;
+    const rawBookmark = json.resource_response?.bookmark ||
+      (Array.isArray(json.resource_response?.bookmarks) ? json.resource_response.bookmarks[0] : null);
+    const nextBookmark = (rawBookmark && rawBookmark !== '-end-') ? String(rawBookmark).trim() : null;
 
     const rawList = Array.isArray(data) ? data : (data?.items || data?.pins || data?.results || []);
 

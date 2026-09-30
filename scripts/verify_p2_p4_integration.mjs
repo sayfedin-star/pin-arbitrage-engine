@@ -13,7 +13,8 @@ import { fileURLToPath } from 'url';
 import {
   getCompetitorBoards,
   getCompetitorsOverview,
-  syncCompetitorPins
+  syncCompetitorPins,
+  trackCompetitor
 } from '../src/modules/competitors/service.mjs';
 
 import {
@@ -134,6 +135,11 @@ async function runTests() {
     `;
     const ourBoardCount = boardCounts.find(b => Number(b.competitor_id) === testCompetitorId);
     assert(ourBoardCount && Number(ourBoardCount.board_count) >= 1, `get_competitor_board_counts returned count: ${ourBoardCount?.board_count}`);
+
+    // 1.6 Test trackCompetitor leaves last_synced_at as NULL for cron prioritization
+    const trackedComp = await trackCompetitor(sql, { username: 'test_brand_new_handle', display_name: 'Brand New' });
+    assert(trackedComp && trackedComp.last_synced_at === null, 'trackCompetitor leaves last_synced_at as NULL for immediate cron prioritization');
+    await sql`DELETE FROM competitor_profiles WHERE username = 'test_brand_new_handle';`;
 
     console.log('\n=== TEST SUITE 2: P4 PinArchive Monotonic Invariants & AI Topics ===');
 
@@ -378,13 +384,35 @@ async function runTests() {
     }
     assert(scheduledPassed, 'Cloudflare Worker scheduled cron executed cleanly without ReferenceError (getPool)');
 
+    // 3.12 Test claimStagedPinCas with 64-bit numeric Pinterest pin ID (prevents PostgreSQL integer overflow)
+    const PIN_64BIT_NUMERIC = '795170940510168393';
+    await ingestPinsBatch(sql, [{
+      pin_id: PIN_64BIT_NUMERIC,
+      title: '64-Bit Pinterest Pin Test',
+      saves: 500,
+      repins: 200,
+      annotations: ['Test64']
+    }], '@TestCamelCaseUser');
+
+    const [persisted64] = await sql`SELECT account_username FROM pa_pins WHERE pin_id = ${PIN_64BIT_NUMERIC};`;
+    assert(persisted64?.account_username === 'testcamelcaseuser', 'ingestPinsBatch normalized @TestCamelCaseUser to clean lowercase without @');
+
+    await stagePinsForRepurpose(sql, { pinIds: [PIN_64BIT_NUMERIC] });
+    const claim64Res = await claimStagedPinCas(sql, PIN_64BIT_NUMERIC);
+    assert(claim64Res.success === true && claim64Res.item?.pin_id === PIN_64BIT_NUMERIC, 'claimStagedPinCas cleanly claimed 64-bit numeric pin without integer out-of-range error');
+
+    // 3.13 Test comments and newest sorting in listArchivedPins
+    const commentSorted = await listArchivedPins(sql, { sortBy: 'comments', order: 'desc', limit: 3 });
+    const newestSorted = await listArchivedPins(sql, { sortBy: 'newest', order: 'desc', limit: 3 });
+    assert(Array.isArray(commentSorted) && Array.isArray(newestSorted), 'listArchivedPins supports comments and newest sorting without SQL errors');
+
     console.log('\n=== TEST SUITE 4: Cleanup ===');
     // Cleanup staged pins
-    await sql`DELETE FROM pa_staged_pins WHERE pin_id IN (${TEST_PIN_ID}, ${TEST_QUALIFIED_PIN}, ${TEST_UNQUALIFIED_PIN});`;
+    await sql`DELETE FROM pa_staged_pins WHERE pin_id IN (${TEST_PIN_ID}, ${TEST_QUALIFIED_PIN}, ${TEST_UNQUALIFIED_PIN}, ${PIN_64BIT_NUMERIC});`;
     // Cleanup metrics
-    await sql`DELETE FROM pa_pin_metrics WHERE pin_id IN (${TEST_PIN_ID}, ${TEST_QUALIFIED_PIN}, ${TEST_UNQUALIFIED_PIN});`;
+    await sql`DELETE FROM pa_pin_metrics WHERE pin_id IN (${TEST_PIN_ID}, ${TEST_QUALIFIED_PIN}, ${TEST_UNQUALIFIED_PIN}, ${PIN_64BIT_NUMERIC});`;
     // Cleanup pa_pins
-    await sql`DELETE FROM pa_pins WHERE pin_id IN (${TEST_PIN_ID}, ${TEST_QUALIFIED_PIN}, ${TEST_UNQUALIFIED_PIN});`;
+    await sql`DELETE FROM pa_pins WHERE pin_id IN (${TEST_PIN_ID}, ${TEST_QUALIFIED_PIN}, ${TEST_UNQUALIFIED_PIN}, ${PIN_64BIT_NUMERIC});`;
     // Cleanup boards
     await sql`DELETE FROM competitor_boards WHERE competitor_id = ${testCompetitorId};`;
     // Cleanup profile

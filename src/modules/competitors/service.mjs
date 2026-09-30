@@ -5,7 +5,7 @@
  */
 
 import { formatPinterestCookie } from '../../utils.mjs';
-import { fetchBoardsResource, fetchUserActivityPinsResource, sleep, randomJitterMs } from '../../../scripts/lib/pinterest.mjs';
+import { fetchUserResource, fetchBoardsResource, fetchUserActivityPinsResource, sleep, randomJitterMs } from '../../../scripts/lib/pinterest.mjs';
 import { ingestPinsBatch, getQualificationRules } from '../pinarchive/service.mjs';
 
 /**
@@ -132,14 +132,12 @@ export async function trackCompetitor(sql, { username, display_name, account_typ
       display_name,
       account_type,
       is_active,
-      last_synced_at,
       updated_at
     ) VALUES (
       ${cleanUsername},
       ${display_name || cleanUsername},
       ${account_type},
       TRUE,
-      NOW(),
       NOW()
     )
     ON CONFLICT (username) DO UPDATE SET
@@ -157,19 +155,9 @@ export async function trackCompetitor(sql, { username, display_name, account_typ
 export async function syncCompetitorProfile(sql, username, cookie = (typeof process !== 'undefined' && process?.env ? process.env.PINTEREST_COOKIE : null)) {
   const cleanUsername = String(username || '').replace(/^@/, '').trim().toLowerCase();
   if (!cleanUsername) throw new Error('Username is required.');
-  const url = `https://www.pinterest.com/resource/UserResource/get/?source_url=%2F${cleanUsername}%2F&data=%7B%22options%22%3A%7B%22username%22%3A%22${cleanUsername}%22%2C%22field_set_key%22%3A%22profile%22%7D%2C%22context%22%3A%7B%7D%7D`;
 
-  const headers = {
-    'Accept': 'application/json, text/javascript, */*, q=0.01',
-    'X-Requested-With': 'XMLHttpRequest',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
-    'Referer': `https://www.pinterest.com/${cleanUsername}/`
-  };
-  if (cookie) {
-    headers['Cookie'] = formatPinterestCookie(cookie);
-  }
-
-  const res = await fetch(url, { headers, signal: AbortSignal.timeout(9000) });
+  const formattedCookie = formatPinterestCookie(cookie);
+  const res = await fetchUserResource(cleanUsername, formattedCookie);
   if (!res.ok) {
     if (res.status === 404) {
       throw new Error(`Competitor @${cleanUsername} does not exist or was renamed on Pinterest.`);
@@ -178,20 +166,16 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
     } else if (res.status === 403) {
       throw new Error(`Pinterest access denied (HTTP 403). Consider updating your PINTEREST_COOKIE in Settings.`);
     }
-    throw new Error(`Pinterest API returned HTTP ${res.status} for @${cleanUsername}`);
+    throw new Error(`Pinterest API returned error for @${cleanUsername}: ${res.error || res.status}`);
   }
 
-  const data = await res.json();
-  const user = data?.resource_response?.data;
-  if (!user) throw new Error(`Could not parse UserResource data for @${cleanUsername}`);
-
-  const monthlyReach = Number(user.profile_reach || user.profile_views || user.monthly_views || 0);
-  const profileViews = Number(user.profile_views || user.profile_reach || user.monthly_views || 0);
-  const totalPins = Number(user.pin_count || 0);
-  const totalBoards = Number(user.board_count || 0);
-  const followers = Number(user.follower_count || 0);
-  const avatarUrl = user.image_xlarge_url || user.image_medium_url || null;
-  const displayName = user.full_name || cleanUsername;
+  const monthlyReach = Number(res.monthly_reach || 0);
+  const profileViews = Number(res.profile_views || 0);
+  const totalPins = Number(res.total_pins || 0);
+  const totalBoards = Number(res.total_boards || 0);
+  const followers = Number(res.follower_count || 0);
+  const avatarUrl = res.avatar_url || null;
+  const displayName = res.display_name || cleanUsername;
 
   // Retrieve previous snapshot to calculate 7d deltas
   const [prevSnapshot] = await sql`
@@ -313,14 +297,17 @@ export async function syncCompetitorBoards(sql, competitorId, username, cookie =
   let cleanUsername = String(username || '').replace(/^@/, '').trim().toLowerCase();
   let numericId = parseInt(competitorId, 10);
 
-  if (isNaN(numericId) && cleanUsername) {
+  if (cleanUsername) {
     try {
-      const [c] = await sql`SELECT id FROM competitor_profiles WHERE LOWER(username) = ${cleanUsername} LIMIT 1;`;
-      if (c?.id) numericId = c.id;
+      const [c] = await sql`SELECT id, username FROM competitor_profiles WHERE LOWER(username) = ${cleanUsername} LIMIT 1;`;
+      if (c?.id) {
+        numericId = c.id;
+        cleanUsername = c.username;
+      }
     } catch (_) {}
   } else if (!cleanUsername && !isNaN(numericId)) {
     try {
-      const [c] = await sql`SELECT username FROM competitor_profiles WHERE id = ${numericId} LIMIT 1;`;
+      const [c] = await sql`SELECT id, username FROM competitor_profiles WHERE id = ${numericId} LIMIT 1;`;
       if (c?.username) cleanUsername = c.username;
     } catch (_) {}
   }
@@ -398,14 +385,17 @@ export async function syncCompetitorPins(sql, competitorId, username, { mode = '
   let cleanUsername = String(username || '').replace(/^@/, '').trim().toLowerCase();
   let numericId = parseInt(competitorId, 10);
 
-  if (isNaN(numericId) && cleanUsername) {
+  if (cleanUsername) {
     try {
-      const [c] = await sql`SELECT id FROM competitor_profiles WHERE LOWER(username) = ${cleanUsername} LIMIT 1;`;
-      if (c?.id) numericId = c.id;
+      const [c] = await sql`SELECT id, username FROM competitor_profiles WHERE LOWER(username) = ${cleanUsername} LIMIT 1;`;
+      if (c?.id) {
+        numericId = c.id;
+        cleanUsername = c.username;
+      }
     } catch (_) {}
   } else if (!cleanUsername && !isNaN(numericId)) {
     try {
-      const [c] = await sql`SELECT username FROM competitor_profiles WHERE id = ${numericId} LIMIT 1;`;
+      const [c] = await sql`SELECT id, username FROM competitor_profiles WHERE id = ${numericId} LIMIT 1;`;
       if (c?.username) cleanUsername = c.username;
     } catch (_) {}
   }
@@ -452,9 +442,9 @@ export async function syncCompetitorPins(sql, competitorId, username, { mode = '
     currentBookmark = res.nextBookmark;
     if (!currentBookmark || currentBookmark === '-end-') break; // End of feed
 
-    // Inject jitter delay between pages to absorb Pinterest 429 rate limits
+    // Inject jitter delay between pages to absorb Pinterest 429 rate limits (Rule 6 compliant)
     if (page < pageLimit) {
-      await sleep(randomJitterMs(1500, 3000));
+      await sleep(randomJitterMs(2500, 4000));
     }
   }
 

@@ -1484,7 +1484,7 @@ const server = http.createServer(async (req, res) => {
     if (method === 'POST' && pathname === '/api/competitors/sync-boards') {
       const body = await parseJsonBody(req);
       const { competitor_id, username } = body;
-      if (!competitor_id || !username) return sendJson(res, 400, { error: 'competitor_id and username are required' });
+      if (!competitor_id && !username) return sendJson(res, 400, { error: 'competitor_id or username is required' });
       const result = await syncCompetitorBoards(targetSql, competitor_id, username, process.env.PINTEREST_COOKIE);
       if (!result.ok) return sendJson(res, 400, { success: false, ...result });
       return sendJson(res, 200, { success: true, ...result });
@@ -1493,7 +1493,7 @@ const server = http.createServer(async (req, res) => {
     if (method === 'POST' && pathname === '/api/competitors/sync-pins') {
       const body = await parseJsonBody(req);
       const { competitor_id, username, mode, max_pages } = body;
-      if (!username) return sendJson(res, 400, { error: 'username is required' });
+      if (!username && !competitor_id) return sendJson(res, 400, { error: 'username or competitor_id is required' });
       const result = await syncCompetitorPins(targetSql, competitor_id, username, { 
         mode, 
         maxPages: max_pages, 

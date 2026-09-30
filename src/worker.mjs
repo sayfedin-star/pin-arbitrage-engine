@@ -1308,7 +1308,7 @@ export default {
       if (method === 'POST' && pathname === '/api/competitors/sync-boards') {
         const body = await request.json().catch(() => ({}));
         const { competitor_id, username } = body;
-        if (!competitor_id || !username) return jsonResponse({ error: 'competitor_id and username are required' }, 400);
+        if (!competitor_id && !username) return jsonResponse({ error: 'competitor_id or username is required' }, 400);
         const cookie = env.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env.PINTEREST_COOKIE : null);
         const result = await syncCompetitorBoards(targetSql, competitor_id, username, cookie);
         if (!result.ok) return jsonResponse({ success: false, ...result }, 400);
@@ -1318,7 +1318,7 @@ export default {
       if (method === 'POST' && pathname === '/api/competitors/sync-pins') {
         const body = await request.json().catch(() => ({}));
         const { competitor_id, username, mode, max_pages } = body;
-        if (!username) return jsonResponse({ error: 'username is required' }, 400);
+        if (!username && !competitor_id) return jsonResponse({ error: 'username or competitor_id is required' }, 400);
         const cookie = env.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env.PINTEREST_COOKIE : null);
         const result = await syncCompetitorPins(targetSql, competitor_id, username, { mode, maxPages: max_pages, cookie });
         if (!result.ok) return jsonResponse({ success: false, ...result }, 400);
