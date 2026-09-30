@@ -37,7 +37,7 @@ export function normalizePinterestUsername(input) {
     }
   } catch (_) {}
   str = str.replace(/^(?:https?:\/\/)?(?:www\.)?pinterest\.[a-z.]+\/+/i, '');
-  return str.split('/')[0].replace(/^@/, '').trim().toLowerCase();
+  return str.split('?')[0].split('#')[0].split('/')[0].replace(/^@+/, '').trim().toLowerCase();
 }
 
 /**
@@ -339,6 +339,22 @@ export async function syncCompetitorBoards(sql, competitorId, username, cookie =
     } catch (_) {}
   }
 
+  // Auto-provision competitor profile if cleanUsername is provided but profile doesn't exist yet
+  if (cleanUsername && isNaN(numericId)) {
+    try {
+      const [c] = await sql`
+        INSERT INTO competitor_profiles (username, display_name, account_type, is_active, updated_at)
+        VALUES (${cleanUsername}, ${cleanUsername}, 'competitor', TRUE, NOW())
+        ON CONFLICT (username) DO UPDATE SET updated_at = NOW()
+        RETURNING id, username;
+      `;
+      if (c?.id) {
+        numericId = c.id;
+        cleanUsername = c.username;
+      }
+    } catch (_) {}
+  }
+
   if (isNaN(numericId) || !cleanUsername) {
     throw new Error('Valid competitorId or username is required to sync boards');
   }
@@ -435,9 +451,10 @@ export async function syncCompetitorPins(sql, competitorId, username, { mode = '
   }
 
   // Enforce paused_policy: reject if competitor is inactive
+  const safeId = isNaN(numericId) ? -1 : numericId;
   const [profile] = await sql`
     SELECT id, username, is_active FROM competitor_profiles 
-    WHERE id = ${numericId} OR LOWER(username) = ${cleanUsername} 
+    WHERE id = ${safeId} OR LOWER(username) = ${cleanUsername} 
     LIMIT 1;
   `;
   if (profile && profile.is_active === false && String(rules.paused_policy).toLowerCase() === 'reject') {

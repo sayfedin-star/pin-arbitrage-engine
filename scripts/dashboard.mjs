@@ -412,13 +412,13 @@ const server = http.createServer(async (req, res) => {
       let rows;
       if (seedPinId && query) {
         const qPattern = `%${query.toLowerCase()}%`;
-        rows = sort === 'velocity' ? await sql`
+        rows = sort === 'velocity' ? await targetSql`
           SELECT * FROM candidate_graph_nodes
           WHERE seed_pin_id = ${seedPinId}
             AND (LOWER(title) LIKE ${qPattern} OR LOWER(domain) LIKE ${qPattern} OR LOWER(COALESCE(ocr_text, '')) LIKE ${qPattern} OR candidate_pin_id LIKE ${qPattern})
           ORDER BY daily_velocity DESC NULLS LAST, saves DESC
           LIMIT ${limit} OFFSET ${offset};
-        ` : await sql`
+        ` : await targetSql`
           SELECT * FROM candidate_graph_nodes
           WHERE seed_pin_id = ${seedPinId}
             AND (LOWER(title) LIKE ${qPattern} OR LOWER(domain) LIKE ${qPattern} OR LOWER(COALESCE(ocr_text, '')) LIKE ${qPattern} OR candidate_pin_id LIKE ${qPattern})
@@ -426,12 +426,12 @@ const server = http.createServer(async (req, res) => {
           LIMIT ${limit} OFFSET ${offset};
         `;
       } else if (seedPinId) {
-        rows = sort === 'velocity' ? await sql`
+        rows = sort === 'velocity' ? await targetSql`
           SELECT * FROM candidate_graph_nodes
           WHERE seed_pin_id = ${seedPinId}
           ORDER BY daily_velocity DESC NULLS LAST, saves DESC
           LIMIT ${limit} OFFSET ${offset};
-        ` : await sql`
+        ` : await targetSql`
           SELECT * FROM candidate_graph_nodes
           WHERE seed_pin_id = ${seedPinId}
           ORDER BY saves DESC
@@ -439,23 +439,23 @@ const server = http.createServer(async (req, res) => {
         `;
       } else if (query) {
         const qPattern = `%${query.toLowerCase()}%`;
-        rows = sort === 'velocity' ? await sql`
+        rows = sort === 'velocity' ? await targetSql`
           SELECT * FROM candidate_graph_nodes
           WHERE LOWER(title) LIKE ${qPattern} OR LOWER(domain) LIKE ${qPattern} OR LOWER(COALESCE(ocr_text, '')) LIKE ${qPattern} OR candidate_pin_id LIKE ${qPattern}
           ORDER BY daily_velocity DESC NULLS LAST, saves DESC
           LIMIT ${limit} OFFSET ${offset};
-        ` : await sql`
+        ` : await targetSql`
           SELECT * FROM candidate_graph_nodes
           WHERE LOWER(title) LIKE ${qPattern} OR LOWER(domain) LIKE ${qPattern} OR LOWER(COALESCE(ocr_text, '')) LIKE ${qPattern} OR candidate_pin_id LIKE ${qPattern}
           ORDER BY saves DESC
           LIMIT ${limit} OFFSET ${offset};
         `;
       } else {
-        rows = sort === 'velocity' ? await sql`
+        rows = sort === 'velocity' ? await targetSql`
           SELECT * FROM candidate_graph_nodes
           ORDER BY daily_velocity DESC NULLS LAST, saves DESC
           LIMIT ${limit} OFFSET ${offset};
-        ` : await sql`
+        ` : await targetSql`
           SELECT * FROM candidate_graph_nodes
           ORDER BY saves DESC
           LIMIT ${limit} OFFSET ${offset};
@@ -536,20 +536,20 @@ const server = http.createServer(async (req, res) => {
 
       let isBakerySeed = false;
       if (seedPinId) {
-        const sInfo = await sql`SELECT label FROM cluster_seeds WHERE pin_id = ${seedPinId} LIMIT 1;`;
+        const sInfo = await targetSql`SELECT label FROM cluster_seeds WHERE pin_id = ${seedPinId} LIMIT 1;`;
         if (sInfo.length > 0) {
           isBakerySeed = /\b(muffin|muffins|cake|cakes|cookie|cookies|brownie|brownies|roll|rolls|cinnamon|pie|pies|tart|bread|cupcake|cupcakes|donut|donuts|pastry|pastries|bake|baking|dessert|sweet|chocolate|caramel|pumpkin spice)\b/i.test(sInfo[0].label || '');
         }
 
         if (isBakerySeed) {
-          const dRows = await sql`
+          const dRows = await targetSql`
             SELECT * FROM candidate_graph_nodes
             WHERE seed_pin_id = ${seedPinId} AND sequence_role IN ('DESSERT_HERO', 'DINNER_ANCHOR')
             ORDER BY (sequence_role = 'DESSERT_HERO') DESC, saves DESC LIMIT 1;
           `;
           if (dRows.length > 0) dinnerAnchor = dRows[0];
 
-          const nRows = await sql`
+          const nRows = await targetSql`
             SELECT * FROM candidate_graph_nodes
             WHERE seed_pin_id = ${seedPinId} AND sequence_role IN ('BEVERAGE_PAIRING', 'NAVBOOST_CO_VISITOR')
               AND candidate_pin_id != ${dinnerAnchor?.candidate_pin_id || ''}
@@ -557,7 +557,7 @@ const server = http.createServer(async (req, res) => {
           `;
           if (nRows.length > 0) navboostSide = nRows[0];
 
-          const sRows = await sql`
+          const sRows = await targetSql`
             SELECT * FROM candidate_graph_nodes
             WHERE seed_pin_id = ${seedPinId} AND sequence_role IN ('PASTRY_BITES', 'SESSION_FINISHER')
               AND candidate_pin_id != ${dinnerAnchor?.candidate_pin_id || ''}
@@ -566,21 +566,21 @@ const server = http.createServer(async (req, res) => {
           `;
           if (sRows.length > 0) sessionFinisher = sRows[0];
         } else {
-          const dRows = await sql`
+          const dRows = await targetSql`
             SELECT * FROM candidate_graph_nodes
             WHERE seed_pin_id = ${seedPinId} AND sequence_role = 'DINNER_ANCHOR'
             ORDER BY saves DESC LIMIT 1;
           `;
           if (dRows.length > 0) dinnerAnchor = dRows[0];
 
-          const nRows = await sql`
+          const nRows = await targetSql`
             SELECT * FROM candidate_graph_nodes
             WHERE seed_pin_id = ${seedPinId} AND sequence_role = 'NAVBOOST_CO_VISITOR'
             ORDER BY saves DESC LIMIT 1;
           `;
           if (nRows.length > 0) navboostSide = nRows[0];
 
-          const sRows = await sql`
+          const sRows = await targetSql`
             SELECT * FROM candidate_graph_nodes
             WHERE seed_pin_id = ${seedPinId} AND sequence_role = 'SESSION_FINISHER'
             ORDER BY saves DESC LIMIT 1;
@@ -590,7 +590,7 @@ const server = http.createServer(async (req, res) => {
 
         // Seed-scoped fallbacks: never cross into another seed!
         if (!dinnerAnchor) {
-          const f = await sql`
+          const f = await targetSql`
             SELECT * FROM candidate_graph_nodes
             WHERE seed_pin_id = ${seedPinId}
             ORDER BY saves DESC LIMIT 1;
@@ -598,7 +598,7 @@ const server = http.createServer(async (req, res) => {
           dinnerAnchor = f[0] || null;
         }
         if (!navboostSide) {
-          const f = await sql`
+          const f = await targetSql`
             SELECT * FROM candidate_graph_nodes
             WHERE seed_pin_id = ${seedPinId} AND candidate_pin_id != ${dinnerAnchor?.candidate_pin_id || ''}
             ORDER BY saves DESC LIMIT 1;
@@ -606,7 +606,7 @@ const server = http.createServer(async (req, res) => {
           navboostSide = f[0] || null;
         }
         if (!sessionFinisher) {
-          const f = await sql`
+          const f = await targetSql`
             SELECT * FROM candidate_graph_nodes
             WHERE seed_pin_id = ${seedPinId}
               AND candidate_pin_id != ${dinnerAnchor?.candidate_pin_id || ''}
@@ -618,28 +618,28 @@ const server = http.createServer(async (req, res) => {
       } else {
         // Global explorer fallbacks only when no specific seed is requested
         if (!dinnerAnchor) {
-          const f = await sql`SELECT * FROM candidate_graph_nodes WHERE sequence_role = 'DINNER_ANCHOR' ORDER BY saves DESC LIMIT 1;`;
+          const f = await targetSql`SELECT * FROM candidate_graph_nodes WHERE sequence_role = 'DINNER_ANCHOR' ORDER BY saves DESC LIMIT 1;`;
           dinnerAnchor = f[0] || null;
         }
         if (!navboostSide) {
-          const f = await sql`SELECT * FROM candidate_graph_nodes WHERE sequence_role = 'NAVBOOST_CO_VISITOR' ORDER BY saves DESC LIMIT 1;`;
+          const f = await targetSql`SELECT * FROM candidate_graph_nodes WHERE sequence_role = 'NAVBOOST_CO_VISITOR' ORDER BY saves DESC LIMIT 1;`;
           navboostSide = f[0] || null;
         }
         if (!sessionFinisher) {
-          const f = await sql`SELECT * FROM candidate_graph_nodes WHERE sequence_role = 'SESSION_FINISHER' ORDER BY saves DESC LIMIT 1;`;
+          const f = await targetSql`SELECT * FROM candidate_graph_nodes WHERE sequence_role = 'SESSION_FINISHER' ORDER BY saves DESC LIMIT 1;`;
           sessionFinisher = f[0] || null;
         }
 
         if (!dinnerAnchor) {
-          const f = await sql`SELECT * FROM candidate_graph_nodes ORDER BY saves DESC LIMIT 1;`;
+          const f = await targetSql`SELECT * FROM candidate_graph_nodes ORDER BY saves DESC LIMIT 1;`;
           dinnerAnchor = f[0] || null;
         }
         if (!navboostSide) {
-          const f = await sql`SELECT * FROM candidate_graph_nodes ORDER BY saves DESC OFFSET 1 LIMIT 1;`;
+          const f = await targetSql`SELECT * FROM candidate_graph_nodes ORDER BY saves DESC OFFSET 1 LIMIT 1;`;
           navboostSide = f[0] || null;
         }
         if (!sessionFinisher) {
-          const f = await sql`SELECT * FROM candidate_graph_nodes ORDER BY saves DESC OFFSET 2 LIMIT 1;`;
+          const f = await targetSql`SELECT * FROM candidate_graph_nodes ORDER BY saves DESC OFFSET 2 LIMIT 1;`;
           sessionFinisher = f[0] || null;
         }
       }
@@ -693,7 +693,7 @@ const server = http.createServer(async (req, res) => {
       let seedPinId = parsedUrl.searchParams.get('seed_pin_id');
 
       if (!seedPinId) {
-        const latestSeed = await sql`
+        const latestSeed = await targetSql`
           SELECT pin_id FROM cluster_seeds
           WHERE last_crawled_at IS NOT NULL
           ORDER BY last_crawled_at DESC
@@ -718,7 +718,7 @@ const server = http.createServer(async (req, res) => {
         });
       }
 
-      const metricsRows = await sql`
+      const metricsRows = await targetSql`
         SELECT *
         FROM cluster_arbitrage_metrics
         WHERE seed_pin_id = ${seedPinId}
@@ -737,7 +737,7 @@ const server = http.createServer(async (req, res) => {
       const totalEngineQuota = recgpt + navboost + randomwalk + twoTower + fresh || 1;
       const calcPct = (val) => Number(((val / totalEngineQuota) * 100).toFixed(1));
 
-      const countRows = await sql`
+      const countRows = await targetSql`
         SELECT COUNT(*) AS count
         FROM candidate_graph_nodes
         WHERE seed_pin_id = ${seedPinId};
@@ -769,7 +769,7 @@ const server = http.createServer(async (req, res) => {
 
     // 5. GET /api/overview
     if (method === 'GET' && pathname === '/api/overview') {
-      const overviewRows = await sql`
+      const overviewRows = await targetSql`
         SELECT 
           (SELECT COUNT(*) FROM cluster_seeds) AS total_seeds,
           (SELECT COUNT(*) FROM cluster_seeds WHERE last_crawled_at IS NOT NULL) AS indexed_seeds,
@@ -820,11 +820,11 @@ const server = http.createServer(async (req, res) => {
       const limit = Number(parsedUrl.searchParams.get('limit')) || 1000;
 
       // Get seeds map for labels
-      const allSeeds = await sql`SELECT pin_id, label, is_competitor FROM cluster_seeds;`;
+      const allSeeds = await targetSql`SELECT pin_id, label, is_competitor FROM cluster_seeds;`;
       const seedMap = new Map();
       for (const s of allSeeds) seedMap.set(s.pin_id, s);
 
-      const rows = await sql`
+      const rows = await targetSql`
         SELECT 
             c.candidate_pin_id,
             MAX(c.title) AS title,
@@ -910,7 +910,7 @@ const server = http.createServer(async (req, res) => {
 
     // 7. GET /api/seeds
     if (method === 'GET' && pathname === '/api/seeds') {
-      const seeds = await sql`
+      const seeds = await targetSql`
         SELECT 
             s.pin_id,
             s.label,
@@ -965,7 +965,7 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 400, { error: 'pin_id is required' });
       }
 
-      const result = await sql`
+      const result = await targetSql`
         INSERT INTO cluster_seeds (pin_id, label, is_competitor, created_at)
         VALUES (${pinId}, ${label}, ${isCompetitor}, NOW())
         ON CONFLICT (pin_id) DO UPDATE SET
@@ -1011,7 +1011,7 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 400, { error: 'No valid numeric pin IDs provided in payload' });
       }
 
-      const inserted = (await Promise.all(rawSeeds.map(s => sql`
+      const inserted = (await Promise.all(rawSeeds.map(s => targetSql`
         INSERT INTO cluster_seeds (pin_id, label, is_competitor, created_at)
         VALUES (${s.pin_id}, ${s.label}, ${s.is_competitor}, NOW())
         ON CONFLICT (pin_id) DO UPDATE SET
@@ -1035,12 +1035,12 @@ const server = http.createServer(async (req, res) => {
 
       if (purgeDatabase) {
         await Promise.all([
-          sql`DELETE FROM candidate_graph_nodes WHERE seed_pin_id = ANY(${pinIds});`,
-          sql`DELETE FROM seed_guided_search_capsules WHERE seed_pin_id = ANY(${pinIds});`,
-          sql`DELETE FROM cluster_arbitrage_metrics WHERE seed_pin_id = ANY(${pinIds});`
+          targetSql`DELETE FROM candidate_graph_nodes WHERE seed_pin_id = ANY(${pinIds});`,
+          targetSql`DELETE FROM seed_guided_search_capsules WHERE seed_pin_id = ANY(${pinIds});`,
+          targetSql`DELETE FROM cluster_arbitrage_metrics WHERE seed_pin_id = ANY(${pinIds});`
         ]);
       }
-      await sql`DELETE FROM cluster_seeds WHERE pin_id = ANY(${pinIds});`;
+      await targetSql`DELETE FROM cluster_seeds WHERE pin_id = ANY(${pinIds});`;
 
       return sendJson(res, 200, {
         success: true,
@@ -1059,12 +1059,12 @@ const server = http.createServer(async (req, res) => {
       }
       if (purgeData) {
         await Promise.all([
-          sql`DELETE FROM candidate_graph_nodes WHERE seed_pin_id = ${pinId};`,
-          sql`DELETE FROM seed_guided_search_capsules WHERE seed_pin_id = ${pinId};`,
-          sql`DELETE FROM cluster_arbitrage_metrics WHERE seed_pin_id = ${pinId};`
+          targetSql`DELETE FROM candidate_graph_nodes WHERE seed_pin_id = ${pinId};`,
+          targetSql`DELETE FROM seed_guided_search_capsules WHERE seed_pin_id = ${pinId};`,
+          targetSql`DELETE FROM cluster_arbitrage_metrics WHERE seed_pin_id = ${pinId};`
         ]);
       }
-      await sql`DELETE FROM cluster_seeds WHERE pin_id = ${pinId};`;
+      await targetSql`DELETE FROM cluster_seeds WHERE pin_id = ${pinId};`;
       return sendJson(res, 200, { success: true, deleted_pin_id: pinId, purged_database: purgeData });
     }
 
@@ -1079,12 +1079,12 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (seedPinId) {
-        await sql`
+        await targetSql`
           DELETE FROM candidate_graph_nodes 
           WHERE candidate_pin_id = ANY(${candIds}) AND seed_pin_id = ${seedPinId};
         `;
       } else {
-        await sql`
+        await targetSql`
           DELETE FROM candidate_graph_nodes 
           WHERE candidate_pin_id = ANY(${candIds});
         `;
@@ -1098,7 +1098,7 @@ const server = http.createServer(async (req, res) => {
       const seedPinId = parsedUrl.searchParams.get('seed_pin_id');
       let rows;
       if (seedPinId && seedPinId !== 'all') {
-        rows = await sql`
+        rows = await targetSql`
           SELECT g.*, s.label AS seed_label
           FROM seed_guided_search_capsules g
           LEFT JOIN cluster_seeds s ON s.pin_id = g.seed_pin_id
@@ -1106,7 +1106,7 @@ const server = http.createServer(async (req, res) => {
           ORDER BY g.discovered_at DESC;
         `;
       } else {
-        rows = await sql`
+        rows = await targetSql`
           SELECT g.*, s.label AS seed_label
           FROM seed_guided_search_capsules g
           LEFT JOIN cluster_seeds s ON s.pin_id = g.seed_pin_id
@@ -1317,7 +1317,7 @@ const server = http.createServer(async (req, res) => {
 
       // Save capsules
       for (const cap of capturedCapsules) {
-        await sql`
+        await targetSql`
           INSERT INTO seed_guided_search_capsules (
             seed_pin_id, query_term, normalized_query, image_url, search_url, node_id, discovered_at
           ) VALUES (
@@ -1344,7 +1344,7 @@ const server = http.createServer(async (req, res) => {
 
       // Save candidates
       for (const node of parsedCandidates) {
-        await sql`
+        await targetSql`
           INSERT INTO candidate_graph_nodes (
             seed_pin_id, candidate_pin_id, title,
             dominant_color, aspect_ratio, saves,
@@ -1389,7 +1389,7 @@ const server = http.createServer(async (req, res) => {
 
       // Update metrics if authoritative counts present
       if (authoritativeCounts) {
-        const existingMetrics = await sql`
+        const existingMetrics = await targetSql`
           SELECT id FROM cluster_arbitrage_metrics
           WHERE seed_pin_id = ${seedPinId}
           ORDER BY analyzed_at DESC
@@ -1397,7 +1397,7 @@ const server = http.createServer(async (req, res) => {
         `;
 
         if (existingMetrics.length > 0) {
-          await sql`
+          await targetSql`
             UPDATE cluster_arbitrage_metrics
             SET
               recgpt_count = ${authoritativeCounts.recgpt},
@@ -1409,7 +1409,7 @@ const server = http.createServer(async (req, res) => {
             WHERE id = ${existingMetrics[0].id};
           `;
         } else {
-          await sql`
+          await targetSql`
             INSERT INTO cluster_arbitrage_metrics (
               seed_pin_id, total_candidates, recgpt_count, navboost_count,
               randomwalk_count, two_tower_count, fresh_candidate_count, product_count,
@@ -1423,7 +1423,7 @@ const server = http.createServer(async (req, res) => {
           `;
         }
 
-        await sql`
+        await targetSql`
           UPDATE cluster_seeds
           SET last_crawled_at = NOW()
           WHERE pin_id = ${seedPinId};

@@ -514,7 +514,7 @@ export function getDashboardHtml() {
                     </div>
 
                     <div class="flex items-center space-x-1.5 text-[10px] font-mono text-slate-400">
-                      <span x-show="Number(seed.total_capsules || 0) > 0" class="px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-700 dark:text-purple-400 border border-purple-500/20" x-text="seed.total_capsules + ' Caps'"></span>
+                      <span x-show="(seed?.total_capsules || 0) > 0" class="px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-700 dark:text-purple-400 border border-purple-500/20" x-text="seed.total_capsules + ' Caps'"></span>
                       <span x-text="seed.last_crawled_at ? new Date(seed.last_crawled_at).toLocaleDateString() : 'Pending'"></span>
                     </div>
                   </div>
@@ -4841,6 +4841,7 @@ export function getDashboardHtml() {
         isAddFleetModalOpen: false,
         newFleetProjectId: '',
         newFleetProjectName: '',
+        newFleetDatabaseUrl: '',
         selectedProject: 'all',
 
         // Tab 6: PinArchive & Topic Clusters State
@@ -4937,6 +4938,7 @@ export function getDashboardHtml() {
         dossierCandidates: [],
         dossierTelemetry: {},
         dossierGuidedCapsules: [],
+        dossierSearchQuery: '',
         dossierTab: 'table',
         dossierSort: 'saves',
         recgptPlaybook: null,
@@ -5612,10 +5614,10 @@ export function getDashboardHtml() {
 
           try {
             const [candRes, telRes, pbRes, capRes] = await Promise.all([
-              fetch('/api/candidates?seed_pin_id=' + seed.pin_id + '&sort=' + this.dossierSort + '&limit=1000'),
-              fetch('/api/cluster-telemetry?seed_pin_id=' + seed.pin_id),
-              fetch('/api/recgpt-playbook?seed_pin_id=' + seed.pin_id),
-              fetch('/api/guided-search?seed_pin_id=' + seed.pin_id)
+              fetch(this.getApiUrl('/api/candidates?seed_pin_id=' + seed.pin_id + '&sort=' + this.dossierSort + '&limit=1000')),
+              fetch(this.getApiUrl('/api/cluster-telemetry?seed_pin_id=' + seed.pin_id)),
+              fetch(this.getApiUrl('/api/recgpt-playbook?seed_pin_id=' + seed.pin_id)),
+              fetch(this.getApiUrl('/api/guided-search?seed_pin_id=' + seed.pin_id))
             ]);
             if (candRes.ok) this.dossierCandidates = await candRes.json();
             if (telRes.ok) this.dossierTelemetry = await telRes.json();
@@ -5634,8 +5636,8 @@ export function getDashboardHtml() {
           if (!this.activeDossierSeed) return;
           try {
             const [candRes, capRes] = await Promise.all([
-              fetch('/api/candidates?seed_pin_id=' + this.activeDossierSeed.pin_id + '&sort=' + this.dossierSort + '&limit=1000'),
-              fetch('/api/guided-search?seed_pin_id=' + this.activeDossierSeed.pin_id)
+              fetch(this.getApiUrl('/api/candidates?seed_pin_id=' + this.activeDossierSeed.pin_id + '&sort=' + this.dossierSort + '&limit=1000')),
+              fetch(this.getApiUrl('/api/guided-search?seed_pin_id=' + this.activeDossierSeed.pin_id))
             ]);
             if (candRes.ok) this.dossierCandidates = await candRes.json();
             if (capRes.ok) this.dossierGuidedCapsules = await capRes.json();
@@ -5662,7 +5664,7 @@ export function getDashboardHtml() {
           this.isDossierOpen = true;
           if (!this.recgptPlaybook || (item?.seed_pin_id && this.recgptPlaybook.seed_pin_id !== item.seed_pin_id)) {
             try {
-              const res = await fetch('/api/recgpt-playbook' + (item?.seed_pin_id ? '?seed_pin_id=' + item.seed_pin_id : ''));
+              const res = await fetch(this.getApiUrl('/api/recgpt-playbook' + (item?.seed_pin_id ? '?seed_pin_id=' + item.seed_pin_id : '')));
               if (res.ok) this.recgptPlaybook = await res.json();
             } catch (e) {}
           }
@@ -6374,7 +6376,7 @@ export function getDashboardHtml() {
           this.rawJsonIsError = false;
 
           try {
-            const res = await fetch('/api/seeds/import-raw-json', {
+            const res = await fetch(this.getApiUrl('/api/seeds/import-raw-json'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -6622,7 +6624,7 @@ export function getDashboardHtml() {
           }
           this.isSubmittingBulk = true;
           try {
-            const res = await fetch('/api/seeds/bulk', {
+            const res = await fetch(this.getApiUrl('/api/seeds/bulk'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -6768,7 +6770,7 @@ export function getDashboardHtml() {
               return;
             }
 
-            const res = await fetch('/api/seeds/bulk-delete', {
+            const res = await fetch(this.getApiUrl('/api/seeds/bulk-delete'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -6831,7 +6833,7 @@ export function getDashboardHtml() {
             return;
           }
           try {
-            const res = await fetch('/api/seeds', {
+            const res = await fetch(this.getApiUrl('/api/seeds'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(this.newSeed)
