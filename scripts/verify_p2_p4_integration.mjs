@@ -192,6 +192,18 @@ async function runTests() {
       `pa_topic_clusters_page extracted topic cluster 'Garlic Butter Steak' from JSONB annotations`
     );
 
+    // 2.3.1 Test listArchivedPins topic filter
+    const topicFilteredPins = await listArchivedPins(sql, { topic: 'Garlic Butter Steak', limit: 10 });
+    assert(
+      Array.isArray(topicFilteredPins) && topicFilteredPins.some(p => p.pin_id === TEST_PIN_ID),
+      `listArchivedPins filtered by topic 'Garlic Butter Steak' correctly returned pin ${TEST_PIN_ID}`
+    );
+    const nonExistentTopicPins = await listArchivedPins(sql, { topic: 'NonExistentTopicX99', limit: 10 });
+    assert(
+      Array.isArray(nonExistentTopicPins) && !nonExistentTopicPins.some(p => p.pin_id === TEST_PIN_ID),
+      `listArchivedPins with non-matching topic excluded pin ${TEST_PIN_ID}`
+    );
+
     // 2.4 Test Overview RPC
     const overview = await getPinArchiveOverview(sql);
     assert(
@@ -208,6 +220,23 @@ async function runTests() {
     assert(stageRes.ok && stageRes.stagedCount === 1, `stagePinsForRepurpose successfully staged pin in queue`);
     const stagedId = stageRes.items[0].id;
 
+    // 2.5.1 Test duplicate staging prevention (idempotency)
+    const dupStageRes = await stagePinsForRepurpose(sql, {
+      pinIds: [TEST_PIN_ID],
+      targetBoard: 'Keto Repurposed 2'
+    });
+    assert(
+      dupStageRes.ok && dupStageRes.stagedCount === 0,
+      `stagePinsForRepurpose idempotency verified: prevented duplicate active staging for pin ${TEST_PIN_ID}`
+    );
+
+    // 2.5.2 Test listStagedPins with status='all' and status='staged'
+    const stagedAll = await listStagedPins(sql, { status: 'all' });
+    assert(
+      stagedAll.some(s => s.id === stagedId && s.status === 'staged'),
+      `listStagedPins(status='all') retrieved staged pin without query failure`
+    );
+
     // CAS Attempt 1: Should claim and transition status to 'dispatched'
     const cas1 = await claimStagedPinCas(sql, stagedId);
     assert(cas1.success === true && cas1.item.status === 'dispatched', `First CAS claim succeeded: status transitioned to 'dispatched'`);
@@ -215,6 +244,13 @@ async function runTests() {
     // CAS Attempt 2: Should fail gracefully with success === false (idempotent / race protected)
     const cas2 = await claimStagedPinCas(sql, stagedId);
     assert(cas2.success === false && cas2.item === null, `Second CAS claim rejected: atomic collision prevented duplicate posting`);
+
+    // 2.5.3 Test listStagedPins with status='dispatched'
+    const stagedDispatched = await listStagedPins(sql, { status: 'dispatched' });
+    assert(
+      stagedDispatched.some(s => s.id === stagedId && s.status === 'dispatched'),
+      `listStagedPins(status='dispatched') retrieved dispatched pin`
+    );
 
     console.log('\n=== TEST SUITE 3: Cleanup ===');
     // Cleanup staged pins

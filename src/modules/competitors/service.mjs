@@ -322,6 +322,11 @@ export async function syncCompetitorBoards(sql, competitorId, username, cookie =
 
   let syncedCount = 0;
   for (const b of res.boards) {
+    let lastPinnedDate = null;
+    if (b.last_pinned_at) {
+      const d = new Date(b.last_pinned_at);
+      if (!isNaN(d.getTime())) lastPinnedDate = d;
+    }
     await sql`
       INSERT INTO competitor_boards (
         competitor_id,
@@ -339,7 +344,7 @@ export async function syncCompetitorBoards(sql, competitorId, username, cookie =
         ${b.url},
         ${b.pin_count},
         ${b.follower_count},
-        ${b.last_pinned_at ? new Date(b.last_pinned_at) : null},
+        ${lastPinnedDate},
         NOW()
       )
       ON CONFLICT (competitor_id, board_id) DO UPDATE SET
@@ -361,5 +366,5 @@ export async function syncCompetitorBoards(sql, competitorId, username, cookie =
     WHERE id = ${numericId};
   `;
 
-  return { ok: true, synced: syncedCount, boards: res.boards };
+  return { ok: true, synced: syncedCount, synced_boards_count: syncedCount, boards: res.boards };
 }

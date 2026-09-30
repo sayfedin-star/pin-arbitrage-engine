@@ -329,7 +329,7 @@ export async function runMigrations() {
           p.saves,
           p.velocity
         FROM pa_pins p,
-        jsonb_array_elements(p.annotations) AS ann
+        LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(p.annotations) = 'array' THEN p.annotations ELSE '[]'::jsonb END) AS ann
         WHERE (
           (jsonb_typeof(ann) = 'object' AND ann->>'name' IS NOT NULL AND trim(ann->>'name') <> '')
           OR

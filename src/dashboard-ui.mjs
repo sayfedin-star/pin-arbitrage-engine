@@ -5052,7 +5052,7 @@ export function getDashboardHtml() {
             });
             if (res.ok) {
               const data = await res.json();
-              this.showToast('✅ Synced ' + (data.synced_boards_count || 0) + ' boards for @' + competitor.username);
+              this.showToast('✅ Synced ' + (data.synced_boards_count ?? data.synced ?? 0) + ' boards for @' + competitor.username);
               const bRes = await fetch(this.getApiUrl('/api/competitors/boards?competitor_id=' + competitor.id));
               if (bRes.ok) {
                 const bData = await bRes.json();
@@ -5148,7 +5148,8 @@ export function getDashboardHtml() {
           try {
             const res = await fetch(this.getApiUrl('/api/pinarchive/overview'));
             if (res.ok) {
-              this.pinarchiveOverview = await res.json();
+              const data = await res.json();
+              this.pinarchiveOverview = data.overview || data;
             }
           } catch (e) {
             console.error('fetchPinArchiveOverview error:', e);
@@ -5235,7 +5236,7 @@ export function getDashboardHtml() {
             const res = await fetch(this.getApiUrl('/api/pinarchive/staged?status=all&limit=50'));
             if (res.ok) {
               const data = await res.json();
-              this.stagedPinsList = data.staged || [];
+              this.stagedPinsList = data.staged || data.items || [];
             }
           } catch (e) {
             console.error('fetchStagedPins error:', e);
@@ -5250,7 +5251,7 @@ export function getDashboardHtml() {
             const res = await fetch(this.getApiUrl('/api/pinarchive/claim-cas'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ id: stagedId, expected_version: 1 })
+              body: JSON.stringify({ id: stagedId, staged_id: stagedId, expected_version: 1 })
             });
             if (res.ok) {
               this.showToast('🚀 Pin marked dispatched via atomic CAS!');

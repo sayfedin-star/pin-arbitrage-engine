@@ -27,8 +27,9 @@ export const PINTEREST_PAGE_HEADERS = {
 };
 
 export function getPinterestXhrHeaders(username, activeCookie = '', options = {}) {
-  const src = options.sourceUrl || `/${username}/_created/`;
-  const handler = options.handler || `www/${username}/_created.js`;
+  const cleanUser = String(username || '').replace(/^@/, '').trim();
+  const src = options.sourceUrl || `/${cleanUser}/_created/`;
+  const handler = options.handler || `www/${cleanUser}/_created.js`;
 
   return {
     'User-Agent':
@@ -177,14 +178,31 @@ export function formatPin(pin) {
 
   const pinId = String(pin.id || pin.pin_id || pin.node_id || '').trim();
 
-  // Created at date & velocity calculation
+  // Created at date & velocity calculation (safely handling malformed dates)
   const createdRaw = pin.created_at || pin.created_at_pinterest || pin.createdAt;
-  const createdAtPinterest = createdRaw ? new Date(createdRaw).toISOString() : new Date().toISOString();
-  const createdMs = new Date(createdAtPinterest).getTime();
+  let createdAtPinterest = new Date().toISOString();
+  let createdMs = Date.now();
+  if (createdRaw) {
+    const d = new Date(createdRaw);
+    if (!isNaN(d.getTime())) {
+      createdAtPinterest = d.toISOString();
+      createdMs = d.getTime();
+    }
+  }
   const ageDays = !Number.isFinite(createdMs) || createdMs <= 0
     ? 1
     : Math.max(1, (Date.now() - createdMs) / 86400000);
   const velocity = Math.round((saves / ageDays) * 100) / 100;
+
+  // Domain extraction (safely handling relative or malformed URLs)
+  let domain = pin.domain || '';
+  if (!domain && (pin.link || pin.url)) {
+    try {
+      domain = new URL(pin.link || pin.url).hostname;
+    } catch (_) {
+      domain = '';
+    }
+  }
 
   // Image URL
   const imageUrl =
@@ -204,7 +222,7 @@ export function formatPin(pin) {
     title: (pin.grid_title || pin.title || pin.headline || '').trim(),
     description: (pin.description || pin.articleBody || '').trim(),
     link: pin.link || pin.url || '',
-    domain: pin.domain || (pin.link ? new URL(pin.link).hostname : ''),
+    domain,
     board_id: pin.board?.id || pin.board_id || null,
     board_name: pin.board?.name || pin.board_name || '',
     created_at_pinterest: createdAtPinterest,
@@ -412,13 +430,18 @@ export async function fetchBoardsResource(username, activeCookie = '') {
     if (Array.isArray(items)) {
       for (const item of items) {
         if (item && (item.type === 'board' || item.id || item.node_id)) {
+          let lastPinned = null;
+          if (item.board_order_modified_at) {
+            const d = new Date(item.board_order_modified_at);
+            if (!isNaN(d.getTime())) lastPinned = d.toISOString();
+          }
           boards.push({
             board_id: String(item.id || item.node_id),
             name: item.name || 'Untitled Board',
             url: item.url ? `https://www.pinterest.com${item.url}` : '',
             pin_count: Number(item.pin_count || 0),
             follower_count: Number(item.follower_count || 0),
-            last_pinned_at: item.board_order_modified_at ? new Date(item.board_order_modified_at).toISOString() : null,
+            last_pinned_at: lastPinned,
           });
         }
       }

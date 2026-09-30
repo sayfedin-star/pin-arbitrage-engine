@@ -1382,20 +1382,22 @@ export default {
 
       if (method === 'GET' && pathname === '/api/pinarchive/pins') {
         const search = searchParams.get('search') || '';
+        const topic = searchParams.get('topic') || '';
         const minSaves = Number(searchParams.get('min_saves') || 0);
-        const sortBy = searchParams.get('sort_by') || 'saves';
+        const sortBy = searchParams.get('sort') || searchParams.get('sort_by') || 'saves';
         const order = searchParams.get('order') || 'desc';
         const limit = Number(searchParams.get('limit') || 50);
         const offset = Number(searchParams.get('offset') || 0);
-        const pins = await listArchivedPins(targetSql, { search, minSaves, sortBy, order, limit, offset });
+        const pins = await listArchivedPins(targetSql, { search, topic, minSaves, sortBy, order, limit, offset });
         return jsonResponse({ success: true, pins });
       }
 
       if (method === 'POST' && pathname === '/api/pinarchive/stage') {
         const body = await request.json().catch(() => ({}));
-        const { pin_ids, target_board, override_link } = body;
-        if (!pin_ids || !pin_ids.length) return jsonResponse({ error: 'pin_ids are required' }, 400);
-        const result = await stagePinsForRepurpose(targetSql, { pinIds: pin_ids, targetBoard: target_board, overrideLink: override_link });
+        const pinIds = body.pin_ids || body.pinIds;
+        const { target_board, override_link } = body;
+        if (!pinIds || !pinIds.length) return jsonResponse({ error: 'pin_ids are required' }, 400);
+        const result = await stagePinsForRepurpose(targetSql, { pinIds, targetBoard: target_board, overrideLink: override_link });
         return jsonResponse({ success: true, ...result });
       }
 
@@ -1404,12 +1406,12 @@ export default {
         const limit = Number(searchParams.get('limit') || 50);
         const offset = Number(searchParams.get('offset') || 0);
         const items = await listStagedPins(targetSql, { status, limit, offset });
-        return jsonResponse({ success: true, items });
+        return jsonResponse({ success: true, staged: items, items });
       }
 
       if (method === 'POST' && pathname === '/api/pinarchive/claim-cas') {
         const body = await request.json().catch(() => ({}));
-        const stagedId = body.staged_id;
+        const stagedId = body.staged_id || body.id;
         if (!stagedId) return jsonResponse({ error: 'staged_id is required' }, 400);
         const result = await claimStagedPinCas(targetSql, stagedId);
         return jsonResponse({ success: true, ...result });
