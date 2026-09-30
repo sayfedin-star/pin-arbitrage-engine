@@ -467,7 +467,7 @@ export async function getTopicClusters(sql, { minPins = 1, search = '', account 
           p.velocity
         FROM pa_pins p,
         LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(p.annotations) = 'array' THEN p.annotations ELSE '[]'::jsonb END) AS ann
-        WHERE LOWER(p.account_username) = ${cleanAccount}
+        WHERE LOWER(REPLACE(p.account_username, '@', '')) = ${cleanAccount}
           AND (
             (jsonb_typeof(ann) = 'object' AND ann->>'name' IS NOT NULL AND trim(ann->>'name') <> '')
             OR
