@@ -173,6 +173,195 @@ export async function runMigrations() {
   await sql`CREATE INDEX IF NOT EXISTS idx_keyword_pins_lookup ON keyword_pins_snapshots(keyword_id, snapshot_date DESC);`;
   await sql`CREATE INDEX IF NOT EXISTS idx_keyword_pins_velocity ON keyword_pins_snapshots(daily_save_velocity DESC);`;
   console.log('[+] Migration 003 applied.');
+
+  // Migration 004: Competitor Boards Breakdown & Lateral Snapshots
+  console.log('[*] 4/5 Applying Competitor Boards tables and lateral RPCs...');
+  await sql`
+    CREATE TABLE IF NOT EXISTS competitor_boards (
+      id SERIAL PRIMARY KEY,
+      competitor_id INT NOT NULL REFERENCES competitor_profiles(id) ON DELETE CASCADE,
+      board_id VARCHAR(64) NOT NULL,
+      name VARCHAR(255) NOT NULL,
+      url TEXT,
+      pin_count INT DEFAULT 0,
+      follower_count INT DEFAULT 0,
+      last_pinned_at TIMESTAMPTZ,
+      metadata JSONB DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(competitor_id, board_id)
+    );
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS idx_competitor_boards_comp_id ON competitor_boards(competitor_id);`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_competitor_boards_activity ON competitor_boards(competitor_id, last_pinned_at DESC NULLS LAST);`;
+  await sql`
+    CREATE OR REPLACE FUNCTION get_competitor_board_counts()
+    RETURNS TABLE (competitor_id INT, board_count BIGINT)
+    LANGUAGE sql STABLE AS $$
+      SELECT competitor_id, count(*)::BIGINT FROM competitor_boards GROUP BY competitor_id;
+    $$;
+  `;
+  await sql`
+    CREATE OR REPLACE FUNCTION get_latest_competitor_snapshots(p_competitor_ids INT[])
+    RETURNS TABLE (
+      competitor_id INT,
+      monthly_reach BIGINT,
+      profile_views BIGINT,
+      follower_count INT,
+      total_pins INT,
+      total_boards INT,
+      recorded_date DATE
+    )
+    LANGUAGE sql STABLE AS $$
+      SELECT s.competitor_id, s.monthly_reach, s.profile_views, s.follower_count, s.total_pins, s.total_boards, s.recorded_date
+      FROM unnest(p_competitor_ids) AS cid
+      CROSS JOIN LATERAL (
+        SELECT chs.competitor_id, chs.monthly_reach, chs.profile_views, chs.follower_count, chs.total_pins, chs.total_boards, chs.recorded_date
+        FROM competitor_history_snapshots chs
+        WHERE chs.competitor_id = cid
+        ORDER BY chs.recorded_date DESC
+        LIMIT 2
+      ) s;
+    $$;
+  `;
+  console.log('[+] Migration 004 applied.');
+
+  // Migration 005: PinArchive Engine, Monotonic Metrics & Topic Clustering
+  console.log('[*] 5/5 Applying PinArchive tables, monotonic triggers & topic clustering...');
+  await sql`
+    CREATE TABLE IF NOT EXISTS pa_pins (
+      pin_id VARCHAR(64) PRIMARY KEY,
+      account_username VARCHAR(128),
+      title TEXT,
+      description TEXT,
+      link TEXT,
+      domain VARCHAR(255),
+      board_name VARCHAR(255),
+      image_url TEXT,
+      dominant_color VARCHAR(32),
+      saves BIGINT DEFAULT 0,
+      repins BIGINT DEFAULT 0,
+      comments INT DEFAULT 0,
+      share_count BIGINT DEFAULT 0,
+      reactions JSONB DEFAULT '{}'::jsonb,
+      velocity NUMERIC(10, 2) DEFAULT 0,
+      annotations JSONB DEFAULT '[]'::jsonb,
+      is_video BOOLEAN DEFAULT FALSE,
+      is_product BOOLEAN DEFAULT FALSE,
+      created_at_pinterest TIMESTAMPTZ,
+      first_seen_at TIMESTAMPTZ DEFAULT NOW(),
+      last_updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS idx_pa_pins_saves ON pa_pins(saves DESC);`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_pa_pins_velocity ON pa_pins(velocity DESC);`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_pa_pins_account ON pa_pins(account_username);`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_pa_pins_annotations_gin ON pa_pins USING gin(annotations);`;
+  await sql`
+    CREATE TABLE IF NOT EXISTS pa_pin_metrics (
+      id BIGSERIAL PRIMARY KEY,
+      pin_id VARCHAR(64) NOT NULL REFERENCES pa_pins(pin_id) ON DELETE CASCADE,
+      recorded_at TIMESTAMPTZ DEFAULT NOW(),
+      saves BIGINT DEFAULT 0,
+      repins BIGINT DEFAULT 0,
+      comments INT DEFAULT 0,
+      UNIQUE(pin_id, recorded_at)
+    );
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS idx_pa_pin_metrics_lookup ON pa_pin_metrics(pin_id, recorded_at DESC);`;
+  await sql`
+    CREATE TABLE IF NOT EXISTS pa_staged_pins (
+      id SERIAL PRIMARY KEY,
+      pin_id VARCHAR(64) NOT NULL REFERENCES pa_pins(pin_id) ON DELETE CASCADE,
+      target_board VARCHAR(255),
+      override_link TEXT,
+      status VARCHAR(32) DEFAULT 'staged',
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS idx_pa_staged_pins_status ON pa_staged_pins(status);`;
+  await sql`
+    CREATE OR REPLACE FUNCTION trg_pa_pins_enforce_monotonic_metrics()
+    RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN
+      IF TG_OP = 'UPDATE' THEN
+        NEW.saves := GREATEST(COALESCE(OLD.saves, 0), COALESCE(NEW.saves, 0));
+        NEW.repins := GREATEST(COALESCE(OLD.repins, 0), COALESCE(NEW.repins, 0));
+        NEW.comments := GREATEST(COALESCE(OLD.comments, 0), COALESCE(NEW.comments, 0));
+        NEW.share_count := GREATEST(COALESCE(OLD.share_count, 0), COALESCE(NEW.share_count, 0));
+      END IF;
+      RETURN NEW;
+    END;
+    $$;
+  `;
+  await sql`DROP TRIGGER IF EXISTS trg_pa_pins_monotonic_metrics ON pa_pins;`;
+  await sql`
+    CREATE TRIGGER trg_pa_pins_monotonic_metrics
+      BEFORE UPDATE ON pa_pins
+      FOR EACH ROW EXECUTE FUNCTION trg_pa_pins_enforce_monotonic_metrics();
+  `;
+  await sql`
+    CREATE OR REPLACE FUNCTION pa_topic_clusters_page(
+      p_min_pins INT DEFAULT 1,
+      p_search TEXT DEFAULT NULL,
+      p_limit INT DEFAULT 50,
+      p_offset INT DEFAULT 0
+    )
+    RETURNS TABLE (
+      topic_name TEXT,
+      pins_count BIGINT,
+      total_saves NUMERIC,
+      avg_saves BIGINT,
+      avg_velocity NUMERIC
+    )
+    LANGUAGE plpgsql AS $$
+    BEGIN
+      RETURN QUERY
+      WITH extracted AS (
+        SELECT
+          CASE
+            WHEN jsonb_typeof(ann) = 'object' THEN trim(ann->>'name')
+            WHEN jsonb_typeof(ann) = 'string' THEN trim(ann #>> '{}')
+            ELSE NULL
+          END AS raw_topic,
+          p.pin_id,
+          p.saves,
+          p.velocity
+        FROM pa_pins p,
+        jsonb_array_elements(p.annotations) AS ann
+        WHERE (
+          (jsonb_typeof(ann) = 'object' AND ann->>'name' IS NOT NULL AND trim(ann->>'name') <> '')
+          OR
+          (jsonb_typeof(ann) = 'string' AND trim(ann #>> '{}') <> '')
+        )
+      ),
+      aggregated AS (
+        SELECT
+          e.raw_topic AS t_name,
+          count(DISTINCT e.pin_id)::BIGINT AS p_count,
+          coalesce(sum(e.saves), 0)::NUMERIC AS s_saves,
+          CASE WHEN count(DISTINCT e.pin_id) > 0 THEN (coalesce(sum(e.saves), 0) / count(DISTINCT e.pin_id))::BIGINT ELSE 0::BIGINT END AS a_saves,
+          round(avg(e.velocity), 2) AS a_velocity
+        FROM extracted e
+        WHERE (p_search IS NULL OR p_search = '' OR e.raw_topic ILIKE '%' || p_search || '%')
+        GROUP BY e.raw_topic
+        HAVING count(DISTINCT e.pin_id) >= coalesce(p_min_pins, 1)
+      )
+      SELECT
+        a.t_name AS topic_name,
+        a.p_count AS pins_count,
+        a.s_saves AS total_saves,
+        a.a_saves AS avg_saves,
+        a.a_velocity AS avg_velocity
+      FROM aggregated a
+      ORDER BY a.s_saves DESC
+      LIMIT coalesce(p_limit, 50)
+      OFFSET coalesce(p_offset, 0);
+    END;
+    $$;
+  `;
+  console.log('[+] Migration 005 applied.');
 }
 
 /**

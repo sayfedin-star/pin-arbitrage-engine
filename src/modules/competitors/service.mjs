@@ -5,6 +5,7 @@
  */
 
 import { formatPinterestCookie } from '../../utils.mjs';
+import { fetchBoardsResource } from '../../../scripts/lib/pinterest.mjs';
 
 /**
  * Format large numbers with commas or abbreviation (e.g. 10.5M, 42.8K)
@@ -285,4 +286,80 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
   }
 
   return updated;
+}
+
+/**
+ * Get all boards for a competitor
+ */
+export async function getCompetitorBoards(sql, competitorId) {
+  const numericId = parseInt(competitorId, 10);
+  if (isNaN(numericId)) return [];
+
+  return await sql`
+    SELECT *
+    FROM competitor_boards
+    WHERE competitor_id = ${numericId}
+    ORDER BY pin_count DESC;
+  `;
+}
+
+/**
+ * Sync boards for a competitor from Pinterest BoardsResource
+ */
+export async function syncCompetitorBoards(sql, competitorId, username, cookie = '') {
+  const numericId = parseInt(competitorId, 10);
+  if (isNaN(numericId) || !username) {
+    throw new Error('Invalid competitorId or username');
+  }
+
+  const cleanUsername = username.replace('@', '').trim();
+  const formattedCookie = formatPinterestCookie(cookie);
+
+  const res = await fetchBoardsResource(cleanUsername, formattedCookie);
+  if (!res.ok || !Array.isArray(res.boards)) {
+    return { ok: false, error: res.error || 'Failed to fetch boards from Pinterest' };
+  }
+
+  let syncedCount = 0;
+  for (const b of res.boards) {
+    await sql`
+      INSERT INTO competitor_boards (
+        competitor_id,
+        board_id,
+        name,
+        url,
+        pin_count,
+        follower_count,
+        last_pinned_at,
+        updated_at
+      ) VALUES (
+        ${numericId},
+        ${b.board_id},
+        ${b.name},
+        ${b.url},
+        ${b.pin_count},
+        ${b.follower_count},
+        ${b.last_pinned_at ? new Date(b.last_pinned_at) : null},
+        NOW()
+      )
+      ON CONFLICT (competitor_id, board_id) DO UPDATE SET
+        name = EXCLUDED.name,
+        url = EXCLUDED.url,
+        pin_count = EXCLUDED.pin_count,
+        follower_count = EXCLUDED.follower_count,
+        last_pinned_at = EXCLUDED.last_pinned_at,
+        updated_at = NOW();
+    `;
+    syncedCount++;
+  }
+
+  // Update total_boards on competitor profile
+  await sql`
+    UPDATE competitor_profiles
+    SET total_boards = (SELECT count(*)::int FROM competitor_boards WHERE competitor_id = ${numericId}),
+        updated_at = NOW()
+    WHERE id = ${numericId};
+  `;
+
+  return { ok: true, synced: syncedCount, boards: res.boards };
 }

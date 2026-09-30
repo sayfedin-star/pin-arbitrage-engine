@@ -156,7 +156,14 @@ export function getDashboardHtml() {
           <span class="px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" x-text="keywords.length"></span>
         </button>
 
-        <!-- Tab 6: Neon Projects Fleet -->
+        <!-- Tab 6: PinArchive & Topic Clusters -->
+        <button @click="switchTab('pinarchive')" class="flex items-center space-x-2 px-3 py-3 text-xs sm:text-sm font-semibold border-b-2 transition whitespace-nowrap" :class="currentTab === 'pinarchive' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400 font-bold' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'">
+          <i data-lucide="archive" class="w-4 h-4 text-indigo-500"></i>
+          <span>📦 PinArchive & Topics</span>
+          <span class="px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-indigo-500/10 text-indigo-700 dark:text-indigo-400" x-text="formatNumber(pinarchiveOverview.total_pins)"></span>
+        </button>
+
+        <!-- Tab 7: Neon Projects Fleet -->
         <button @click="switchTab('fleet')" class="flex items-center space-x-2 px-3 py-3 text-xs sm:text-sm font-semibold border-b-2 transition whitespace-nowrap" :class="currentTab === 'fleet' ? 'border-cyan-500 text-cyan-600 dark:text-cyan-400 font-bold' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'">
           <i data-lucide="server" class="w-4 h-4 text-cyan-500"></i>
           <span>⚡ Neon Fleet (100 Projects)</span>
@@ -2213,7 +2220,10 @@ export function getDashboardHtml() {
                   </td>
                   <td class="py-3 px-3 text-right font-bold text-slate-800 dark:text-slate-200" x-text="formatNumber(c.total_pins)"></td>
                   <td class="py-3 px-3 text-center">
-                    <span class="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold text-[11px]" x-text="formatNumber(c.total_boards)"></span>
+                    <button @click="openBoardsModal(c)" class="px-2.5 py-1 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-700 dark:text-purple-300 font-bold text-[11px] transition flex items-center justify-center space-x-1.5 mx-auto border border-purple-500/30 active:scale-95" title="Click to view boards breakdown & activity">
+                      <span x-text="formatNumber(c.total_boards)"></span>
+                      <i data-lucide="layout-grid" class="w-3 h-3 text-purple-500"></i>
+                    </button>
                   </td>
                   <td class="py-3 px-3 text-center">
                     <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30" x-text="'• ' + (c.activity_status || '1d ago')"></span>
@@ -2466,6 +2476,199 @@ export function getDashboardHtml() {
               </template>
             </tbody>
           </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab 6: PinArchive & Topic Clusters -->
+    <div x-show="currentTab === 'pinarchive'" class="space-y-6">
+      <!-- 5 Metric Cards matching Neon SaaS style -->
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
+        <!-- Metric 1: Total Pins -->
+        <div class="p-4 rounded-2xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 shadow-sm">
+          <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider">
+            <span>Archived Pins</span>
+            <i data-lucide="archive" class="w-4 h-4 text-indigo-500"></i>
+          </div>
+          <div class="mt-2.5 flex items-baseline space-x-2">
+            <span class="text-2xl font-extrabold text-indigo-600 dark:text-indigo-400 font-mono" x-text="formatNumber(pinarchiveOverview.total_pins)"></span>
+          </div>
+          <div class="mt-1 text-[11px] text-slate-500" x-text="formatNumber(pinarchiveOverview.tracked_accounts) + ' Accounts Tracked'"></div>
+        </div>
+
+        <!-- Metric 2: Total Saves -->
+        <div class="p-4 rounded-2xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 shadow-sm">
+          <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider">
+            <span>Aggregated Saves</span>
+            <i data-lucide="bookmark" class="w-4 h-4 text-purple-500"></i>
+          </div>
+          <div class="mt-2.5 flex items-baseline space-x-2">
+            <span class="text-2xl font-extrabold text-purple-600 dark:text-purple-400 font-mono" x-text="formatNumber(pinarchiveOverview.total_saves)"></span>
+          </div>
+          <div class="mt-1 text-[11px] text-slate-500 font-mono" x-text="formatNumber(pinarchiveOverview.total_repins) + ' Repins'"></div>
+        </div>
+
+        <!-- Metric 3: Avg Velocity -->
+        <div class="p-4 rounded-2xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 shadow-sm">
+          <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider">
+            <span>Avg Daily Velocity</span>
+            <i data-lucide="zap" class="w-4 h-4 text-amber-500"></i>
+          </div>
+          <div class="mt-2.5 flex items-baseline space-x-2">
+            <span class="text-2xl font-extrabold text-amber-600 dark:text-amber-400 font-mono" x-text="(pinarchiveOverview.avg_velocity || '0') + '/day'"></span>
+          </div>
+          <div class="mt-1 text-[11px] text-slate-500">Monotonic metrics pace</div>
+        </div>
+
+        <!-- Metric 4: Top Topic Cluster -->
+        <div class="p-4 rounded-2xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 shadow-sm">
+          <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider">
+            <span>Top Topic Cluster</span>
+            <i data-lucide="sparkles" class="w-4 h-4 text-emerald-500"></i>
+          </div>
+          <div class="mt-2.5 flex items-baseline space-x-2 truncate">
+            <span class="text-lg font-bold text-emerald-600 dark:text-emerald-400 truncate" x-text="pinarchiveOverview.top_cluster ? pinarchiveOverview.top_cluster.name : 'Analyzing...'"></span>
+          </div>
+          <div class="mt-1 text-[11px] text-slate-500" x-text="pinarchiveOverview.top_cluster ? (formatNumber(pinarchiveOverview.top_cluster.avg_saves) + ' avg saves') : 'No clusters yet'"></div>
+        </div>
+
+        <!-- Metric 5: Staged for Repurposing -->
+        <div class="p-4 rounded-2xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 shadow-sm cursor-pointer hover:border-rose-500/50 transition" @click="openStagedModal()">
+          <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider">
+            <span>Staged Queue</span>
+            <i data-lucide="send" class="w-4 h-4 text-rose-500"></i>
+          </div>
+          <div class="mt-2.5 flex items-baseline space-x-2">
+            <span class="text-2xl font-extrabold text-rose-600 dark:text-rose-400 font-mono" x-text="formatNumber(pinarchiveOverview.staged_pins_count)"></span>
+          </div>
+          <div class="mt-1 text-[11px] text-rose-500 font-semibold flex items-center space-x-1">
+            <span>View Staged Pins</span>
+            <i data-lucide="arrow-right" class="w-3 h-3"></i>
+          </div>
+        </div>
+      </div>
+
+      <!-- Section 1: Topic Clusters (Extracted via AI Annotations) -->
+      <div class="p-4 rounded-2xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 space-y-4 shadow-sm">
+        <div class="flex flex-col sm:flex-row items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800/80 pb-3">
+          <div class="flex items-center space-x-2">
+            <i data-lucide="layers" class="w-4 h-4 text-indigo-500"></i>
+            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">Smart Topic Clusters (مستكشف العناقيد الذكية من وسوم بينتريست)</h3>
+          </div>
+          <div class="flex items-center space-x-2 w-full sm:w-auto">
+            <div class="relative w-full sm:w-56">
+              <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
+              <input type="text" x-model="pinarchiveTopicSearch" @input.debounce.300ms="fetchPinArchiveTopics()" placeholder="Filter topic clusters..." class="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/50">
+            </div>
+            <span class="px-2.5 py-1 rounded-full text-xs font-bold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 whitespace-nowrap" x-text="pinarchiveTopics.length + ' Clusters'"></span>
+          </div>
+        </div>
+
+        <!-- Clusters Grid Chips -->
+        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5 max-h-56 overflow-y-auto p-1">
+          <template x-for="t in pinarchiveTopics" :key="t.name">
+            <div @click="filterByTopic(t.name)" class="p-3 rounded-xl border transition cursor-pointer active:scale-95" :class="pinarchiveSelectedTopic === t.name ? 'bg-indigo-500/15 border-indigo-500 text-indigo-700 dark:text-indigo-300 shadow-sm' : 'bg-slate-50 dark:bg-slate-900/60 border-slate-200 dark:border-slate-800 hover:border-indigo-500/40 text-slate-800 dark:text-slate-200'">
+              <div class="font-bold text-xs truncate flex items-center justify-between">
+                <span class="truncate" x-text="t.name"></span>
+                <span class="ml-1 text-[10px] font-mono px-1.5 py-0.5 rounded bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400" x-text="t.pins_count + ' pins'"></span>
+              </div>
+              <div class="mt-2 flex items-center justify-between text-[11px] font-mono text-slate-500 dark:text-slate-400">
+                <span>Avg: <strong class="text-purple-600 dark:text-purple-400" x-text="formatNumber(t.avg_saves)"></strong></span>
+                <span>Tot: <strong class="text-indigo-600 dark:text-indigo-400" x-text="formatNumber(t.total_saves)"></strong></span>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- Section 2: Winning Pins Archive Grid -->
+      <div class="p-4 rounded-2xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 space-y-4 shadow-sm">
+        <div class="flex flex-col sm:flex-row items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800/80 pb-3">
+          <div class="flex items-center space-x-2">
+            <i data-lucide="trophy" class="w-4 h-4 text-amber-500"></i>
+            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">Archived Winning Pins (أرشيف الدبابيس الفائزة)</h3>
+            <template x-if="pinarchiveSelectedTopic">
+              <span class="flex items-center space-x-1 px-2 py-0.5 rounded-full text-xs bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30">
+                <span x-text="'Topic: ' + pinarchiveSelectedTopic"></span>
+                <button @click="pinarchiveSelectedTopic = ''; fetchPinArchivePins()" class="hover:text-rose-500 ml-1">×</button>
+              </span>
+            </template>
+          </div>
+
+          <!-- Controls: Search, Min Saves, Sort -->
+          <div class="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+            <div class="relative w-full sm:w-48">
+              <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
+              <input type="text" x-model="pinarchiveSearch" @input.debounce.300ms="fetchPinArchivePins()" placeholder="Search pins..." class="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none">
+            </div>
+
+            <select x-model="pinarchiveMinSaves" @change="fetchPinArchivePins()" class="px-2.5 py-1.5 text-xs rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 font-mono outline-none">
+              <option value="0">All Saves</option>
+              <option value="50">🔥 Min 50 Saves</option>
+              <option value="200">⚡ Min 200 Saves</option>
+              <option value="1000">👑 Min 1,000 Saves</option>
+              <option value="5000">🏆 Min 5,000 Saves</option>
+            </select>
+
+            <select x-model="pinarchiveSort" @change="fetchPinArchivePins()" class="px-2.5 py-1.5 text-xs rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 font-mono outline-none">
+              <option value="saves">Sort: Saves DESC</option>
+              <option value="velocity">Sort: Daily Velocity</option>
+              <option value="created_at">Sort: Newest Pin</option>
+              <option value="repins">Sort: Repins DESC</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Pins Grid View -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+          <template x-for="pin in pinarchivePins" :key="pin.pin_id">
+            <div class="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800/80 hover:border-indigo-500/40 transition flex flex-col justify-between space-y-3 group">
+              <!-- Pin Image & Badges -->
+              <div class="relative overflow-hidden rounded-xl aspect-[3/4] bg-slate-200 dark:bg-slate-800">
+                <template x-if="pin.image_url">
+                  <img :src="pin.image_url" class="w-full h-full object-cover group-hover:scale-105 transition duration-300">
+                </template>
+                <div class="absolute top-2 left-2 flex flex-col gap-1">
+                  <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-slate-950/80 text-white backdrop-blur-sm flex items-center space-x-1">
+                    <i data-lucide="zap" class="w-3 h-3 text-amber-400"></i>
+                    <span x-text="(pin.velocity || '0') + '/day'"></span>
+                  </span>
+                </div>
+                <div class="absolute top-2 right-2">
+                  <span class="w-4 h-4 rounded-full border border-white/40 shadow-sm block" :style="'background-color: ' + (pin.dominant_color || '#888888')" :title="'Color: ' + pin.dominant_color"></span>
+                </div>
+                <div class="absolute bottom-2 left-2 right-2 flex justify-between items-center text-[10px] font-mono font-bold text-white bg-slate-950/70 backdrop-blur-sm px-2 py-1 rounded-lg">
+                  <span x-text="formatNumber(pin.saves) + ' saves'"></span>
+                  <span x-text="formatNumber(pin.repins) + ' repins'"></span>
+                </div>
+              </div>
+
+              <!-- Pin Metadata -->
+              <div class="space-y-1.5 flex-1 min-w-0">
+                <h4 class="font-bold text-xs text-slate-900 dark:text-white line-clamp-2 leading-snug" x-text="pin.title || 'Untitled Pin'"></h4>
+                <div class="flex items-center space-x-1.5 text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                  <i data-lucide="folder" class="w-3 h-3 text-slate-400"></i>
+                  <span class="truncate" x-text="pin.board_name || 'General Board'"></span>
+                </div>
+              </div>
+
+              <!-- Action Bar -->
+              <div class="pt-2 border-t border-slate-200 dark:border-slate-800/80 flex items-center justify-between gap-2">
+                <a :href="'https://www.pinterest.com/pin/' + pin.pin_id + '/'" target="_blank" class="p-1.5 rounded-lg bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-indigo-500 transition" title="Open on Pinterest">
+                  <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+                </a>
+                <button @click="stagePinAction(pin.pin_id)" class="flex-1 py-1.5 px-2.5 rounded-xl text-[11px] font-bold bg-indigo-600 hover:bg-indigo-500 text-white transition active:scale-95 flex items-center justify-center space-x-1 shadow-sm">
+                  <i data-lucide="plus" class="w-3 h-3"></i>
+                  <span>Stage for Repurpose</span>
+                </button>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <div x-show="!isLoadingPinArchive && pinarchivePins.length === 0" class="text-center py-12 text-slate-500 font-mono text-xs">
+          <i data-lucide="inbox" class="w-8 h-8 mx-auto mb-2 text-slate-400"></i>
+          <span>No archived pins matching the current filters.</span>
         </div>
       </div>
     </div>
@@ -3666,6 +3869,129 @@ export function getDashboardHtml() {
     </div>
   </div>
 
+  <!-- Modal: Competitor Boards Breakdown -->
+  <div x-show="isBoardsModalOpen" x-cloak class="fixed inset-0 z-50 overflow-y-auto bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="bg-white dark:bg-[#0d1526] border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-2xl shadow-2xl p-6 space-y-4 text-slate-900 dark:text-white" @click.away="isBoardsModalOpen = false">
+      <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+        <div class="flex items-center space-x-3">
+          <img :src="activeBoardsCompetitor?.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=64&h=64&fit=crop&crop=face'" class="w-9 h-9 rounded-full object-cover border border-slate-200 dark:border-slate-700">
+          <div>
+            <h3 class="font-bold text-sm flex items-center space-x-2">
+              <span x-text="'@' + (activeBoardsCompetitor?.username || '') + ' - Boards Breakdown'"></span>
+            </h3>
+            <p class="text-[11px] text-slate-500" x-text="competitorBoardsList.length + ' Tracked Boards with Activity History'"></p>
+          </div>
+        </div>
+        <button @click="isBoardsModalOpen = false" class="text-slate-400 hover:text-slate-700 dark:hover:text-white">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <div class="flex justify-between items-center">
+        <span class="text-xs text-slate-500">Board strategy and last-pinned activity timestamps</span>
+        <button @click="syncCompetitorBoardsAction(activeBoardsCompetitor)" :disabled="isSyncingBoards" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white transition active:scale-95 disabled:opacity-50 flex items-center space-x-1.5 shadow-sm">
+          <i data-lucide="refresh-cw" :class="{'animate-spin': isSyncingBoards}" class="w-3.5 h-3.5"></i>
+          <span x-text="isSyncingBoards ? 'Syncing Boards...' : 'Sync Boards from Pinterest'"></span>
+        </button>
+      </div>
+
+      <!-- Boards Table -->
+      <div class="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden max-h-80 overflow-y-auto">
+        <table class="w-full text-left text-xs">
+          <thead>
+            <tr class="border-b border-slate-200 dark:border-slate-800 text-[11px] font-bold uppercase text-slate-500 bg-slate-50 dark:bg-slate-900/50">
+              <th class="py-2.5 px-3">Board Name</th>
+              <th class="py-2.5 px-3 text-right">Pins</th>
+              <th class="py-2.5 px-3 text-right">Followers</th>
+              <th class="py-2.5 px-3 text-center">Last Activity</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono">
+            <template x-for="b in competitorBoardsList" :key="b.board_id">
+              <tr class="hover:bg-slate-50 dark:hover:bg-slate-900/40 transition">
+                <td class="py-2.5 px-3 font-sans">
+                  <a :href="b.url || 'https://www.pinterest.com/' + activeBoardsCompetitor?.username" target="_blank" class="font-bold text-slate-900 dark:text-white hover:text-purple-500 flex items-center space-x-1">
+                    <span x-text="b.name"></span>
+                    <i data-lucide="external-link" class="w-3 h-3 text-slate-400"></i>
+                  </a>
+                </td>
+                <td class="py-2.5 px-3 text-right font-bold text-slate-800 dark:text-slate-200" x-text="formatNumber(b.pin_count)"></td>
+                <td class="py-2.5 px-3 text-right text-slate-600 dark:text-slate-400" x-text="formatNumber(b.follower_count)"></td>
+                <td class="py-2.5 px-3 text-center">
+                  <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/30" x-text="b.last_pinned_at ? new Date(b.last_pinned_at).toLocaleDateString() : 'Unknown'"></span>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+        <div x-show="competitorBoardsList.length === 0 && !isLoadingBoards" class="p-6 text-center text-slate-400 text-xs">
+          <span>No boards loaded yet. Click 'Sync Boards from Pinterest' to fetch board breakdowns.</span>
+        </div>
+      </div>
+
+      <div class="pt-2 text-right border-t border-slate-200 dark:border-slate-800">
+        <button @click="isBoardsModalOpen = false" class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-500 hover:text-slate-700">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Staged Pins for Repurposing Queue -->
+  <div x-show="isStagedModalOpen" x-cloak class="fixed inset-0 z-50 overflow-y-auto bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="bg-white dark:bg-[#0d1526] border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-3xl shadow-2xl p-6 space-y-4 text-slate-900 dark:text-white" @click.away="isStagedModalOpen = false">
+      <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+        <div class="flex items-center space-x-2">
+          <i data-lucide="send" class="w-5 h-5 text-rose-500"></i>
+          <div>
+            <h3 class="font-bold text-sm">Staged Pins Queue (طابور النشر بالـ Compare-And-Swap)</h3>
+            <p class="text-[11px] text-slate-500">Atomic CAS ensures zero double-posting across concurrent runners.</p>
+          </div>
+        </div>
+        <button @click="isStagedModalOpen = false" class="text-slate-400 hover:text-slate-700 dark:hover:text-white">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <!-- Staged List -->
+      <div class="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden max-h-96 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
+        <template x-for="item in stagedPinsList" :key="item.id">
+          <div class="p-3 bg-white dark:bg-slate-900/50 flex items-center justify-between gap-3 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
+            <div class="flex items-center space-x-3 min-w-0">
+              <template x-if="item.image_url">
+                <img :src="item.image_url" class="w-10 h-14 rounded-lg object-cover border border-slate-200 dark:border-slate-700 flex-shrink-0">
+              </template>
+              <div class="min-w-0 space-y-1">
+                <h5 class="font-bold text-xs text-slate-900 dark:text-white truncate" x-text="item.title || 'Archived Pin'"></h5>
+                <div class="flex items-center space-x-2 text-[11px] font-mono text-slate-500">
+                  <span x-text="'Pin ID: ' + item.pin_id"></span>
+                  <span>•</span>
+                  <span x-text="formatNumber(item.saves) + ' saves'"></span>
+                  <span>•</span>
+                  <span class="text-amber-500" x-text="(item.velocity || '0') + '/day'"></span>
+                </div>
+              </div>
+            </div>
+
+            <div class="flex items-center space-x-2">
+              <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase" :class="item.status === 'staged' ? 'bg-amber-500/10 text-amber-600 border border-amber-500/30' : 'bg-emerald-500/10 text-emerald-600 border border-emerald-500/30'" x-text="item.status"></span>
+              <template x-if="item.status === 'staged'">
+                <button @click="claimStagedPinAction(item.id)" class="px-3 py-1 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white transition active:scale-95 shadow-sm">
+                  Mark Dispatched (CAS)
+                </button>
+              </template>
+            </div>
+          </div>
+        </template>
+        <div x-show="stagedPinsList.length === 0" class="p-8 text-center text-slate-400 text-xs">
+          <span>No pins currently staged. Stage pins from the PinArchive tab to populate this queue.</span>
+        </div>
+      </div>
+
+      <div class="pt-2 text-right border-t border-slate-200 dark:border-slate-800">
+        <button @click="isStagedModalOpen = false" class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-500 hover:text-slate-700">Close</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast Notification -->
   <div x-show="toastMessage" x-cloak class="fixed bottom-6 right-6 z-50 bg-slate-900 text-white dark:bg-white dark:text-slate-900 px-4 py-2.5 rounded-xl shadow-2xl font-mono text-xs flex items-center space-x-2 animate-in fade-in slide-in-from-bottom-5">
     <i data-lucide="check-circle" class="w-4 h-4 text-emerald-500"></i>
@@ -3736,8 +4062,30 @@ export function getDashboardHtml() {
         isAddFleetModalOpen: false,
         newFleetProjectId: '',
         newFleetProjectName: '',
-        newFleetDatabaseUrl: '',
         selectedProject: 'all',
+
+        // Tab 6: PinArchive & Topic Clusters State
+        pinarchiveOverview: { total_pins: 0, total_saves: 0, total_repins: 0, avg_velocity: 0, tracked_accounts: 0, top_cluster: null, staged_pins_count: 0 },
+        pinarchiveTopics: [],
+        pinarchivePins: [],
+        pinarchiveTopicSearch: '',
+        pinarchiveSearch: '',
+        pinarchiveMinSaves: 0,
+        pinarchiveSort: 'saves',
+        pinarchiveSelectedTopic: '',
+        isLoadingPinArchive: false,
+
+        // Competitor Boards Modal State
+        isBoardsModalOpen: false,
+        activeBoardsCompetitor: null,
+        competitorBoardsList: [],
+        isLoadingBoards: false,
+        isSyncingBoards: false,
+
+        // Staged Queue Modal State
+        isStagedModalOpen: false,
+        stagedPinsList: [],
+        isLoadingStaged: false,
 
         get filteredCompetitors() {
           let list = this.competitors || [];
@@ -3879,6 +4227,12 @@ export function getDashboardHtml() {
             if (this.keywords.length === 0) this.fetchKeywords();
           } else if (tab === 'fleet') {
             if (this.fleetProjects.length === 0) this.fetchFleetProjects();
+          } else if (tab === 'pinarchive') {
+            if (this.pinarchivePins.length === 0) {
+              this.fetchPinArchiveOverview();
+              this.fetchPinArchiveTopics();
+              this.fetchPinArchivePins();
+            }
           }
           this.$nextTick(() => {
             if (window.lucide) window.lucide.createIcons();
@@ -4552,10 +4906,14 @@ export function getDashboardHtml() {
               this.fetchCookieStatus(),
               this.fetchCompetitors(),
               this.fetchKeywords(),
-              this.fetchFleetProjects()
+              this.fetchFleetProjects(),
+              this.fetchPinArchiveOverview(),
+              this.fetchPinArchiveTopics()
             ]);
             if (this.currentTab === 'explorer') {
               await this.loadExplorerData();
+            } else if (this.currentTab === 'pinarchive') {
+              await this.fetchPinArchivePins();
             }
           } finally {
             this.isLoading = false;
@@ -4661,6 +5019,59 @@ export function getDashboardHtml() {
           URL.revokeObjectURL(url);
         },
 
+        async openBoardsModal(competitor) {
+          if (!competitor) return;
+          this.activeBoardsCompetitor = competitor;
+          this.competitorBoardsList = [];
+          this.isBoardsModalOpen = true;
+          this.isLoadingBoards = true;
+          this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+          try {
+            const res = await fetch(this.getApiUrl('/api/competitors/boards?competitor_id=' + competitor.id));
+            if (res.ok) {
+              const data = await res.json();
+              this.competitorBoardsList = data.boards || [];
+            }
+          } catch (e) {
+            console.error('openBoardsModal error:', e);
+          } finally {
+            this.isLoadingBoards = false;
+            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+          }
+        },
+
+        async syncCompetitorBoardsAction(competitor) {
+          if (!competitor) return;
+          this.isSyncingBoards = true;
+          this.showToast('Syncing boards for @' + competitor.username + ' from Pinterest...');
+          try {
+            const res = await fetch(this.getApiUrl('/api/competitors/sync-boards'), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ competitor_id: competitor.id, username: competitor.username })
+            });
+            if (res.ok) {
+              const data = await res.json();
+              this.showToast('✅ Synced ' + (data.synced_boards_count || 0) + ' boards for @' + competitor.username);
+              const bRes = await fetch(this.getApiUrl('/api/competitors/boards?competitor_id=' + competitor.id));
+              if (bRes.ok) {
+                const bData = await bRes.json();
+                this.competitorBoardsList = bData.boards || [];
+                competitor.total_boards = this.competitorBoardsList.length;
+              }
+              await this.fetchCompetitors();
+            } else {
+              const err = await res.json();
+              this.showToast('Failed to sync boards: ' + (err.error || 'Error'));
+            }
+          } catch (e) {
+            this.showToast('Sync boards error: ' + e.message);
+          } finally {
+            this.isSyncingBoards = false;
+            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+          }
+        },
+
         async fetchKeywords() {
           try {
             const res = await fetch(this.getApiUrl('/api/keywords'));
@@ -4731,6 +5142,127 @@ export function getDashboardHtml() {
           this.selectedProject = projId;
           this.showToast('Switched view to project: ' + projId);
           await this.refreshAll();
+        },
+
+        async fetchPinArchiveOverview() {
+          try {
+            const res = await fetch(this.getApiUrl('/api/pinarchive/overview'));
+            if (res.ok) {
+              this.pinarchiveOverview = await res.json();
+            }
+          } catch (e) {
+            console.error('fetchPinArchiveOverview error:', e);
+          }
+        },
+
+        async fetchPinArchiveTopics() {
+          try {
+            const search = encodeURIComponent(this.pinarchiveTopicSearch || '');
+            const res = await fetch(this.getApiUrl('/api/pinarchive/topics?search=' + search));
+            if (res.ok) {
+              const data = await res.json();
+              this.pinarchiveTopics = data.topics || [];
+            }
+          } catch (e) {
+            console.error('fetchPinArchiveTopics error:', e);
+          } finally {
+            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+          }
+        },
+
+        async fetchPinArchivePins() {
+          this.isLoadingPinArchive = true;
+          try {
+            const p = new URLSearchParams();
+            if (this.pinarchiveSearch) p.set('search', this.pinarchiveSearch.trim());
+            if (this.pinarchiveMinSaves) p.set('min_saves', this.pinarchiveMinSaves);
+            if (this.pinarchiveSort) p.set('sort', this.pinarchiveSort);
+            if (this.pinarchiveSelectedTopic) p.set('topic', this.pinarchiveSelectedTopic);
+            p.set('limit', '48');
+            const res = await fetch(this.getApiUrl('/api/pinarchive/pins?' + p.toString()));
+            if (res.ok) {
+              const data = await res.json();
+              this.pinarchivePins = data.pins || [];
+            }
+          } catch (e) {
+            console.error('fetchPinArchivePins error:', e);
+          } finally {
+            this.isLoadingPinArchive = false;
+            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+          }
+        },
+
+        filterByTopic(topicName) {
+          if (this.pinarchiveSelectedTopic === topicName) {
+            this.pinarchiveSelectedTopic = '';
+          } else {
+            this.pinarchiveSelectedTopic = topicName;
+          }
+          this.fetchPinArchivePins();
+        },
+
+        async stagePinAction(pinId) {
+          try {
+            const res = await fetch(this.getApiUrl('/api/pinarchive/stage'), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ pin_ids: [pinId], scheduled_slot: 'morning' })
+            });
+            if (res.ok) {
+              const data = await res.json();
+              this.showToast('✅ Pin staged for repurposing queue!');
+              if (this.pinarchiveOverview) {
+                this.pinarchiveOverview.staged_pins_count = (this.pinarchiveOverview.staged_pins_count || 0) + (data.staged_count || 1);
+              }
+            } else {
+              const err = await res.json();
+              this.showToast('Failed to stage pin: ' + (err.error || 'Error'));
+            }
+          } catch (e) {
+            this.showToast('Error staging pin: ' + e.message);
+          }
+        },
+
+        async openStagedModal() {
+          this.isStagedModalOpen = true;
+          await this.fetchStagedPins();
+          this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+        },
+
+        async fetchStagedPins() {
+          this.isLoadingStaged = true;
+          try {
+            const res = await fetch(this.getApiUrl('/api/pinarchive/staged?status=all&limit=50'));
+            if (res.ok) {
+              const data = await res.json();
+              this.stagedPinsList = data.staged || [];
+            }
+          } catch (e) {
+            console.error('fetchStagedPins error:', e);
+          } finally {
+            this.isLoadingStaged = false;
+            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+          }
+        },
+
+        async claimStagedPinAction(stagedId) {
+          try {
+            const res = await fetch(this.getApiUrl('/api/pinarchive/claim-cas'), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: stagedId, expected_version: 1 })
+            });
+            if (res.ok) {
+              this.showToast('🚀 Pin marked dispatched via atomic CAS!');
+              await this.fetchStagedPins();
+              await this.fetchPinArchiveOverview();
+            } else {
+              const err = await res.json();
+              this.showToast('CAS Claim conflict: ' + (err.error || 'Failed'));
+            }
+          } catch (e) {
+            this.showToast('Claim error: ' + e.message);
+          }
         },
 
         async fetchOverview() {

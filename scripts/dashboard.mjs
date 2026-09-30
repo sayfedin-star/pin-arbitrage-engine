@@ -16,9 +16,24 @@ import { promisify } from 'node:util';
 import { neon } from '@neondatabase/serverless';
 import { parsePinCandidate, formatPinterestCookie } from './cluster-intelligence.mjs';
 import { getDashboardHtml } from '../src/dashboard-ui.mjs';
-import { getCompetitorsOverview, listCompetitors, trackCompetitor, syncCompetitorProfile } from '../src/modules/competitors/service.mjs';
+import {
+  getCompetitorsOverview,
+  listCompetitors,
+  trackCompetitor,
+  syncCompetitorProfile,
+  getCompetitorBoards,
+  syncCompetitorBoards
+} from '../src/modules/competitors/service.mjs';
 import { listKeywords, addKeyword, crawlKeywordSERP, getKeywordPins } from '../src/modules/keywords/service.mjs';
 import { getFleetProjects, registerNewProject } from '../src/modules/fleet/service.mjs';
+import {
+  getPinArchiveOverview,
+  getTopicClusters,
+  listArchivedPins,
+  stagePinsForRepurpose,
+  listStagedPins,
+  claimStagedPinCas
+} from '../src/modules/pinarchive/service.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -296,6 +311,7 @@ const server = http.createServer(async (req, res) => {
   const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const pathname = parsedUrl.pathname;
   const method = req.method;
+  const searchParams = parsedUrl.searchParams;
 
   if (method === 'OPTIONS') {
     res.writeHead(204, {
@@ -1454,6 +1470,21 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { success: true });
     }
 
+    if (method === 'GET' && pathname === '/api/competitors/boards') {
+      const competitorId = searchParams.get('competitor_id');
+      if (!competitorId) return sendJson(res, 400, { error: 'competitor_id is required' });
+      const boards = await getCompetitorBoards(targetSql, competitorId);
+      return sendJson(res, 200, { success: true, boards });
+    }
+
+    if (method === 'POST' && pathname === '/api/competitors/sync-boards') {
+      const body = await parseJsonBody(req);
+      const { competitor_id, username } = body;
+      if (!competitor_id || !username) return sendJson(res, 400, { error: 'competitor_id and username are required' });
+      const result = await syncCompetitorBoards(targetSql, competitor_id, username, process.env.PINTEREST_COOKIE);
+      return sendJson(res, 200, { success: true, ...result });
+    }
+
     // Keyword Velocity Tracker API
     if (method === 'GET' && pathname === '/api/keywords') {
       const keywords = await listKeywords(targetSql, {
@@ -1506,6 +1537,56 @@ const server = http.createServer(async (req, res) => {
       const body = await parseJsonBody(req);
       const row = await registerNewProject(sql, body);
       return sendJson(res, 200, { success: true, project: row });
+    }
+
+    // PinArchive & Topic Clusters API
+    if (method === 'GET' && pathname === '/api/pinarchive/overview') {
+      const overview = await getPinArchiveOverview(targetSql);
+      return sendJson(res, 200, { success: true, overview });
+    }
+
+    if (method === 'GET' && pathname === '/api/pinarchive/topics') {
+      const minPins = Number(searchParams.get('min_pins') || 1);
+      const search = searchParams.get('search') || '';
+      const limit = Number(searchParams.get('limit') || 50);
+      const offset = Number(searchParams.get('offset') || 0);
+      const topics = await getTopicClusters(targetSql, { minPins, search, limit, offset });
+      return sendJson(res, 200, { success: true, topics });
+    }
+
+    if (method === 'GET' && pathname === '/api/pinarchive/pins') {
+      const search = searchParams.get('search') || '';
+      const minSaves = Number(searchParams.get('min_saves') || 0);
+      const sortBy = searchParams.get('sort_by') || 'saves';
+      const order = searchParams.get('order') || 'desc';
+      const limit = Number(searchParams.get('limit') || 50);
+      const offset = Number(searchParams.get('offset') || 0);
+      const pins = await listArchivedPins(targetSql, { search, minSaves, sortBy, order, limit, offset });
+      return sendJson(res, 200, { success: true, pins });
+    }
+
+    if (method === 'POST' && pathname === '/api/pinarchive/stage') {
+      const body = await parseJsonBody(req);
+      const { pin_ids, target_board, override_link } = body;
+      if (!pin_ids || !pin_ids.length) return sendJson(res, 400, { error: 'pin_ids are required' });
+      const result = await stagePinsForRepurpose(targetSql, { pinIds: pin_ids, targetBoard: target_board, overrideLink: override_link });
+      return sendJson(res, 200, { success: true, ...result });
+    }
+
+    if (method === 'GET' && pathname === '/api/pinarchive/staged') {
+      const status = searchParams.get('status') || 'staged';
+      const limit = Number(searchParams.get('limit') || 50);
+      const offset = Number(searchParams.get('offset') || 0);
+      const items = await listStagedPins(targetSql, { status, limit, offset });
+      return sendJson(res, 200, { success: true, items });
+    }
+
+    if (method === 'POST' && pathname === '/api/pinarchive/claim-cas') {
+      const body = await parseJsonBody(req);
+      const stagedId = body.staged_id;
+      if (!stagedId) return sendJson(res, 400, { error: 'staged_id is required' });
+      const result = await claimStagedPinCas(targetSql, stagedId);
+      return sendJson(res, 200, { success: true, ...result });
     }
 
     // 9. GET or HEAD /

@@ -7,9 +7,24 @@
 
 import { neon } from '@neondatabase/serverless';
 import { getDashboardHtml } from './dashboard-ui.mjs';
-import { getCompetitorsOverview, listCompetitors, trackCompetitor, syncCompetitorProfile } from './modules/competitors/service.mjs';
+import {
+  getCompetitorsOverview,
+  listCompetitors,
+  trackCompetitor,
+  syncCompetitorProfile,
+  getCompetitorBoards,
+  syncCompetitorBoards
+} from './modules/competitors/service.mjs';
 import { listKeywords, addKeyword, crawlKeywordSERP, getKeywordPins } from './modules/keywords/service.mjs';
 import { getFleetProjects, registerNewProject } from './modules/fleet/service.mjs';
+import {
+  getPinArchiveOverview,
+  getTopicClusters,
+  listArchivedPins,
+  stagePinsForRepurpose,
+  listStagedPins,
+  claimStagedPinCas
+} from './modules/pinarchive/service.mjs';
 
 function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -1279,6 +1294,22 @@ export default {
         return jsonResponse({ success: true });
       }
 
+      if (method === 'GET' && pathname === '/api/competitors/boards') {
+        const competitorId = searchParams.get('competitor_id');
+        if (!competitorId) return jsonResponse({ error: 'competitor_id is required' }, 400);
+        const boards = await getCompetitorBoards(targetSql, competitorId);
+        return jsonResponse({ success: true, boards });
+      }
+
+      if (method === 'POST' && pathname === '/api/competitors/sync-boards') {
+        const body = await request.json().catch(() => ({}));
+        const { competitor_id, username } = body;
+        if (!competitor_id || !username) return jsonResponse({ error: 'competitor_id and username are required' }, 400);
+        const cookie = env.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env.PINTEREST_COOKIE : null);
+        const result = await syncCompetitorBoards(targetSql, competitor_id, username, cookie);
+        return jsonResponse({ success: true, ...result });
+      }
+
       // 16. Keyword Velocity Tracker API
       if (method === 'GET' && pathname === '/api/keywords') {
         const keywords = await listKeywords(targetSql, {
@@ -1332,6 +1363,56 @@ export default {
         const body = await request.json().catch(() => ({}));
         const row = await registerNewProject(sql, body);
         return jsonResponse({ success: true, project: row });
+      }
+
+      // 18. PinArchive & Topic Clusters API
+      if (method === 'GET' && pathname === '/api/pinarchive/overview') {
+        const overview = await getPinArchiveOverview(targetSql);
+        return jsonResponse({ success: true, overview });
+      }
+
+      if (method === 'GET' && pathname === '/api/pinarchive/topics') {
+        const minPins = Number(searchParams.get('min_pins') || 1);
+        const search = searchParams.get('search') || '';
+        const limit = Number(searchParams.get('limit') || 50);
+        const offset = Number(searchParams.get('offset') || 0);
+        const topics = await getTopicClusters(targetSql, { minPins, search, limit, offset });
+        return jsonResponse({ success: true, topics });
+      }
+
+      if (method === 'GET' && pathname === '/api/pinarchive/pins') {
+        const search = searchParams.get('search') || '';
+        const minSaves = Number(searchParams.get('min_saves') || 0);
+        const sortBy = searchParams.get('sort_by') || 'saves';
+        const order = searchParams.get('order') || 'desc';
+        const limit = Number(searchParams.get('limit') || 50);
+        const offset = Number(searchParams.get('offset') || 0);
+        const pins = await listArchivedPins(targetSql, { search, minSaves, sortBy, order, limit, offset });
+        return jsonResponse({ success: true, pins });
+      }
+
+      if (method === 'POST' && pathname === '/api/pinarchive/stage') {
+        const body = await request.json().catch(() => ({}));
+        const { pin_ids, target_board, override_link } = body;
+        if (!pin_ids || !pin_ids.length) return jsonResponse({ error: 'pin_ids are required' }, 400);
+        const result = await stagePinsForRepurpose(targetSql, { pinIds: pin_ids, targetBoard: target_board, overrideLink: override_link });
+        return jsonResponse({ success: true, ...result });
+      }
+
+      if (method === 'GET' && pathname === '/api/pinarchive/staged') {
+        const status = searchParams.get('status') || 'staged';
+        const limit = Number(searchParams.get('limit') || 50);
+        const offset = Number(searchParams.get('offset') || 0);
+        const items = await listStagedPins(targetSql, { status, limit, offset });
+        return jsonResponse({ success: true, items });
+      }
+
+      if (method === 'POST' && pathname === '/api/pinarchive/claim-cas') {
+        const body = await request.json().catch(() => ({}));
+        const stagedId = body.staged_id;
+        if (!stagedId) return jsonResponse({ error: 'staged_id is required' }, 400);
+        const result = await claimStagedPinCas(targetSql, stagedId);
+        return jsonResponse({ success: true, ...result });
       }
 
       // Default 404
