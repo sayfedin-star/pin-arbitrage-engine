@@ -1604,9 +1604,10 @@ const server = http.createServer(async (req, res) => {
     if (method === 'GET' && pathname === '/api/pinarchive/topics') {
       const minPins = Number(searchParams.get('min_pins') || 1);
       const search = searchParams.get('search') || '';
+      const account = searchParams.get('account') || '';
       const limit = Number(searchParams.get('limit') || 50);
       const offset = Number(searchParams.get('offset') || 0);
-      const topics = await getTopicClusters(targetSql, { minPins, search, limit, offset });
+      const topics = await getTopicClusters(targetSql, { minPins, search, account, limit, offset });
       return sendJson(res, 200, { success: true, topics });
     }
 

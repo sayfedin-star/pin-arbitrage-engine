@@ -446,11 +446,66 @@ export async function getPinArchiveOverview(sql) {
 /**
  * Get topic clusters extracted from AI annotations in Postgres
  */
-export async function getTopicClusters(sql, { minPins = 1, search = '', limit = 50, offset = 0 } = {}) {
+export async function getTopicClusters(sql, { minPins = 1, search = '', account = '', limit = 50, offset = 0 } = {}) {
   const searchPattern = search ? search.trim() : null;
+  const cleanAccount = account ? account.toLowerCase().replace(/^@/, '').trim() : null;
   const minNum = Math.max(1, isNaN(Number(minPins)) ? 1 : Number(minPins));
   const lim = Math.max(1, Math.min(isNaN(Number(limit)) ? 50 : Number(limit), 200));
   const off = Math.max(0, isNaN(Number(offset)) ? 0 : Number(offset));
+
+  if (cleanAccount) {
+    const rows = await sql`
+      WITH extracted AS (
+        SELECT
+          CASE
+            WHEN jsonb_typeof(ann) = 'object' THEN trim(ann->>'name')
+            WHEN jsonb_typeof(ann) = 'string' THEN trim(ann #>> '{}')
+            ELSE NULL
+          END AS raw_topic,
+          p.pin_id,
+          p.saves,
+          p.velocity
+        FROM pa_pins p,
+        LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(p.annotations) = 'array' THEN p.annotations ELSE '[]'::jsonb END) AS ann
+        WHERE LOWER(p.account_username) = ${cleanAccount}
+          AND (
+            (jsonb_typeof(ann) = 'object' AND ann->>'name' IS NOT NULL AND trim(ann->>'name') <> '')
+            OR
+            (jsonb_typeof(ann) = 'string' AND trim(ann #>> '{}') <> '')
+          )
+      ),
+      aggregated AS (
+        SELECT
+          e.raw_topic AS t_name,
+          count(DISTINCT e.pin_id)::BIGINT AS p_count,
+          coalesce(sum(e.saves), 0)::NUMERIC AS s_saves,
+          CASE WHEN count(DISTINCT e.pin_id) > 0 THEN (coalesce(sum(e.saves), 0) / count(DISTINCT e.pin_id))::BIGINT ELSE 0::BIGINT END AS a_saves,
+          round(avg(e.velocity), 2) AS a_velocity
+        FROM extracted e
+        WHERE (${searchPattern}::text IS NULL OR e.raw_topic ILIKE ${'%' + (searchPattern || '') + '%'})
+        GROUP BY e.raw_topic
+        HAVING count(DISTINCT e.pin_id) >= ${minNum}
+      )
+      SELECT
+        a.t_name AS topic_name,
+        a.p_count AS pins_count,
+        a.s_saves AS total_saves,
+        a.a_saves AS avg_saves,
+        a.a_velocity AS avg_velocity
+      FROM aggregated a
+      ORDER BY a.s_saves DESC
+      LIMIT ${lim}
+      OFFSET ${off};
+    `;
+
+    return rows.map(r => ({
+      name: r.topic_name,
+      pins_count: Number(r.pins_count),
+      total_saves: Number(r.total_saves),
+      avg_saves: Number(r.avg_saves),
+      avg_velocity: Number(r.avg_velocity),
+    }));
+  }
 
   const rows = await sql`
     SELECT

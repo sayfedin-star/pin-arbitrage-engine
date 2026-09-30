@@ -125,28 +125,16 @@ export function getDashboardHtml() {
 
       <!-- Mobile Navigation Links -->
       <nav class="space-y-1">
-        <button @click="switchTab('seeds'); isMobileMenuOpen = false" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition" :class="currentTab === 'seeds' ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 font-bold border border-rose-500/20' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900/60'">
+        <!-- Unified Related Pins Tab -->
+        <button @click="switchTab('related_pins'); isMobileMenuOpen = false" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition" :class="(currentTab === 'related_pins' || currentTab === 'seeds' || currentTab === 'intersections' || currentTab === 'explorer') ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 font-bold border border-rose-500/20' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900/60'">
           <div class="flex items-center space-x-2.5">
-            <i data-lucide="folder-git-2" class="w-4 h-4 text-rose-500"></i>
-            <span>Tracked Seeds</span>
+            <i data-lucide="git-fork" class="w-4 h-4 text-rose-500"></i>
+            <span>Related Pins</span>
           </div>
-          <span class="px-2 py-0.5 rounded-full text-[11px] font-mono font-bold bg-slate-200 dark:bg-slate-800" x-text="seeds.length"></span>
-        </button>
-
-        <button @click="switchTab('intersections'); isMobileMenuOpen = false" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition" :class="currentTab === 'intersections' ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 font-bold border border-amber-500/20' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900/60'">
-          <div class="flex items-center space-x-2.5">
-            <i data-lucide="flame" class="w-4 h-4 text-amber-500"></i>
-            <span>Global Intersections</span>
+          <div class="flex items-center space-x-1 font-mono">
+            <span class="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-rose-500/15 text-rose-700 dark:text-rose-300" x-text="seeds.length + 's'"></span>
+            <span class="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300" x-text="intersections.length + 'i'"></span>
           </div>
-          <span class="px-2 py-0.5 rounded-full text-[11px] font-mono font-bold bg-amber-500/20 text-amber-700 dark:text-amber-400" x-text="intersections.length"></span>
-        </button>
-
-        <button @click="switchTab('explorer'); isMobileMenuOpen = false" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition" :class="currentTab === 'explorer' ? 'bg-sky-500/10 text-sky-600 dark:text-sky-400 font-bold border border-sky-500/20' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900/60'">
-          <div class="flex items-center space-x-2.5">
-            <i data-lucide="database" class="w-4 h-4 text-sky-500"></i>
-            <span>Master Explorer</span>
-          </div>
-          <span class="px-2 py-0.5 rounded-full text-[11px] font-mono font-bold bg-sky-500/10 text-sky-700 dark:text-sky-400" x-text="overview.total_candidates || '...'"></span>
         </button>
 
         <button @click="switchTab('creators_archive'); isMobileMenuOpen = false" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition" :class="(currentTab === 'creators_archive' || currentTab === 'competitors' || currentTab === 'pinarchive') ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400 font-bold border border-purple-500/20' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900/60'">
@@ -262,31 +250,16 @@ export function getDashboardHtml() {
 
       <!-- Navigation Links (Desktop) -->
       <nav class="space-y-1 pt-2">
-        <!-- Tab 1: Tracked Seeds -->
-        <button @click="switchTab('seeds')" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition" :class="currentTab === 'seeds' ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 font-bold border border-rose-500/20 shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900/60 hover:text-slate-900 dark:hover:text-slate-200'">
+        <!-- Tab 1: Related Pins (UNIFIED SEEDS, INTERSECTIONS, EXPLORER) -->
+        <button @click="switchTab('related_pins')" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition" :class="(currentTab === 'related_pins' || currentTab === 'seeds' || currentTab === 'intersections' || currentTab === 'explorer') ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 font-bold border border-rose-500/20 shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900/60 hover:text-slate-900 dark:hover:text-slate-200'">
           <div class="flex items-center space-x-2.5">
-            <i data-lucide="folder-git-2" class="w-4 h-4 text-rose-500"></i>
-            <span>Tracked Seeds</span>
+            <i data-lucide="git-fork" class="w-4 h-4 text-rose-500"></i>
+            <span>Related Pins</span>
           </div>
-          <span class="px-2 py-0.5 rounded-full text-[11px] font-mono font-bold bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300" x-text="seeds.length"></span>
-        </button>
-
-        <!-- Tab 2: Global Intersections -->
-        <button @click="switchTab('intersections')" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition" :class="currentTab === 'intersections' ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 font-bold border border-amber-500/20 shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900/60 hover:text-slate-900 dark:hover:text-slate-200'">
-          <div class="flex items-center space-x-2.5">
-            <i data-lucide="flame" class="w-4 h-4 text-amber-500"></i>
-            <span>Global Intersections</span>
+          <div class="flex items-center space-x-1 font-mono">
+            <span class="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-rose-500/15 text-rose-700 dark:text-rose-300" x-text="seeds.length + 's'"></span>
+            <span class="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300" x-text="intersections.length + 'i'"></span>
           </div>
-          <span class="px-2 py-0.5 rounded-full text-[11px] font-mono font-bold bg-amber-500/20 text-amber-700 dark:text-amber-400" x-text="intersections.length"></span>
-        </button>
-
-        <!-- Tab 3: Master Database Explorer -->
-        <button @click="switchTab('explorer')" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition" :class="currentTab === 'explorer' ? 'bg-sky-500/10 text-sky-600 dark:text-sky-400 font-bold border border-sky-500/20 shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900/60 hover:text-slate-900 dark:hover:text-slate-200'">
-          <div class="flex items-center space-x-2.5">
-            <i data-lucide="database" class="w-4 h-4 text-sky-500"></i>
-            <span>Master Explorer</span>
-          </div>
-          <span class="px-2 py-0.5 rounded-full text-[11px] font-mono font-bold bg-sky-500/10 text-sky-700 dark:text-sky-400" x-text="overview.total_candidates || '...'"></span>
         </button>
 
         <!-- Tab 4: Creator Intelligence & PinArchive (UNIFIED!) -->
@@ -363,9 +336,118 @@ export function getDashboardHtml() {
     </div>
 
     <!-- ======================================================== -->
-    <!-- TAB 1: 📁 TRACKED SEEDS (GRID & DEDICATED SEED DOSSIER)  -->
+    <!-- UNIFIED TAB: 🌿 RELATED PINS HUB (SEEDS, INTERSECTIONS, EXPLORER) -->
+    <!-- Combines Tracked Seeds, Global Intersections & Master Explorer -->
     <!-- ======================================================== -->
-    <div x-show="currentTab === 'seeds'" class="space-y-6">
+    <div x-show="currentTab === 'related_pins' || currentTab === 'seeds' || currentTab === 'intersections' || currentTab === 'explorer'" class="space-y-6">
+      
+      <!-- Unified Related Pins Header -->
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div class="flex items-center space-x-3">
+          <div class="h-11 w-11 rounded-2xl bg-gradient-to-tr from-rose-600 via-amber-500 to-sky-600 text-white flex items-center justify-center shadow-md shadow-rose-950/20">
+            <i data-lucide="git-fork" class="w-6 h-6"></i>
+          </div>
+          <div>
+            <div class="flex items-center space-x-2">
+              <h1 class="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">Related Pins Intelligence</h1>
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">HUB</span>
+            </div>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Unified discovery: Tracked seed nodes, multi-pin global intersections, and candidate graph explorer in one single place.</p>
+          </div>
+        </div>
+
+        <div class="flex items-center space-x-2 flex-wrap gap-y-2">
+          <button @click="openAddSeedModal()" class="px-3.5 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white shadow-sm transition active:scale-95 flex items-center space-x-1.5">
+            <i data-lucide="plus-circle" class="w-4 h-4"></i>
+            <span>Add Seeds</span>
+          </button>
+          <button @click="openCrawlModal()" class="px-3.5 py-2 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-sm transition active:scale-95 flex items-center space-x-1.5">
+            <i data-lucide="zap" class="w-4 h-4"></i>
+            <span>Crawl</span>
+          </button>
+          <button @click="exportCandidatesCSV()" class="px-3 py-2 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition flex items-center space-x-1.5 shadow-sm">
+            <i data-lucide="download" class="w-3.5 h-3.5"></i>
+            <span>Export CSV</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 5-KPI Ribbon -->
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        <!-- KPI 1: Tracked Seeds -->
+        <div @click="relatedSubTab = 'seeds'" class="p-3.5 rounded-2xl bg-white dark:bg-[#0d1526] border cursor-pointer transition hover:border-rose-500/50 shadow-sm" :class="relatedSubTab === 'seeds' ? 'border-rose-500/80 ring-2 ring-rose-500/20' : 'border-slate-200/90 dark:border-slate-800'">
+          <div class="flex items-center justify-between">
+            <span class="text-[10px] font-mono uppercase text-slate-500 dark:text-slate-400 font-bold">Tracked Seeds</span>
+            <i data-lucide="folder-git-2" class="w-4 h-4 text-rose-500"></i>
+          </div>
+          <div class="mt-1 text-xl font-mono font-extrabold text-slate-900 dark:text-white" x-text="seeds.length"></div>
+          <div class="text-[10px] text-slate-400 font-medium mt-0.5 truncate" x-text="seeds.filter(s => s.last_crawled_at).length + ' crawled'"></div>
+        </div>
+
+        <!-- KPI 2: Global Intersections -->
+        <div @click="relatedSubTab = 'intersections'" class="p-3.5 rounded-2xl bg-white dark:bg-[#0d1526] border cursor-pointer transition hover:border-amber-500/50 shadow-sm" :class="relatedSubTab === 'intersections' ? 'border-amber-500/80 ring-2 ring-amber-500/20' : 'border-slate-200/90 dark:border-slate-800'">
+          <div class="flex items-center justify-between">
+            <span class="text-[10px] font-mono uppercase text-slate-500 dark:text-slate-400 font-bold">Intersections</span>
+            <i data-lucide="flame" class="w-4 h-4 text-amber-500"></i>
+          </div>
+          <div class="mt-1 text-xl font-mono font-extrabold text-amber-600 dark:text-amber-400" x-text="intersections.length"></div>
+          <div class="text-[10px] text-slate-400 font-medium mt-0.5 truncate">≥ 2 seeds overlap</div>
+        </div>
+
+        <!-- KPI 3: Graph Candidates -->
+        <div @click="relatedSubTab = 'explorer'" class="p-3.5 rounded-2xl bg-white dark:bg-[#0d1526] border cursor-pointer transition hover:border-sky-500/50 shadow-sm" :class="relatedSubTab === 'explorer' ? 'border-sky-500/80 ring-2 ring-sky-500/20' : 'border-slate-200/90 dark:border-slate-800'">
+          <div class="flex items-center justify-between">
+            <span class="text-[10px] font-mono uppercase text-slate-500 dark:text-slate-400 font-bold">Candidates</span>
+            <i data-lucide="database" class="w-4 h-4 text-sky-500"></i>
+          </div>
+          <div class="mt-1 text-xl font-mono font-extrabold text-sky-600 dark:text-sky-400" x-text="formatNumber(overview.total_candidates)"></div>
+          <div class="text-[10px] text-slate-400 font-medium mt-0.5 truncate">Discovered graph</div>
+        </div>
+
+        <!-- KPI 4: High Velocity -->
+        <div class="p-3.5 rounded-2xl bg-white dark:bg-[#0d1526] border border-slate-200/90 dark:border-slate-800 shadow-sm">
+          <div class="flex items-center justify-between">
+            <span class="text-[10px] font-mono uppercase text-slate-500 dark:text-slate-400 font-bold">High Velocity</span>
+            <i data-lucide="zap" class="w-4 h-4 text-emerald-500"></i>
+          </div>
+          <div class="mt-1 text-xl font-mono font-extrabold text-emerald-600 dark:text-emerald-400" x-text="formatNumber(overview.high_velocity_candidates)"></div>
+          <div class="text-[10px] text-slate-400 font-medium mt-0.5 truncate">Surging growth</div>
+        </div>
+
+        <!-- KPI 5: Commercial Gap -->
+        <div class="p-3.5 rounded-2xl bg-white dark:bg-[#0d1526] border border-slate-200/90 dark:border-slate-800 shadow-sm col-span-2 sm:col-span-1">
+          <div class="flex items-center justify-between">
+            <span class="text-[10px] font-mono uppercase text-slate-500 dark:text-slate-400 font-bold">Commercial Gap</span>
+            <i data-lucide="trending-up" class="w-4 h-4 text-purple-500"></i>
+          </div>
+          <div class="mt-1 text-xl font-mono font-extrabold text-purple-600 dark:text-purple-400" x-text="(overview.avg_commercial_gap || 0) + '%'"></div>
+          <div class="text-[10px] text-slate-400 font-medium mt-0.5 truncate">Arbitrage spread</div>
+        </div>
+      </div>
+
+      <!-- Unified Sub-Tabs Navigation Bar -->
+      <div class="flex items-center space-x-2 border-b border-slate-200 dark:border-slate-800 pb-2">
+        <button @click="relatedSubTab = 'seeds'" class="flex items-center space-x-2 px-3.5 py-2 text-xs font-bold rounded-xl transition" :class="relatedSubTab === 'seeds' ? 'bg-rose-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
+          <i data-lucide="folder-git-2" class="w-3.5 h-3.5"></i>
+          <span>Tracked Seeds</span>
+          <span class="px-1.5 py-0.5 rounded text-[10px] font-mono" :class="relatedSubTab === 'seeds' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800'" x-text="seeds.length"></span>
+        </button>
+
+        <button @click="relatedSubTab = 'intersections'" class="flex items-center space-x-2 px-3.5 py-2 text-xs font-bold rounded-xl transition" :class="relatedSubTab === 'intersections' ? 'bg-amber-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
+          <i data-lucide="flame" class="w-3.5 h-3.5"></i>
+          <span>Global Intersections</span>
+          <span class="px-1.5 py-0.5 rounded text-[10px] font-mono" :class="relatedSubTab === 'intersections' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800'" x-text="intersections.length"></span>
+        </button>
+
+        <button @click="relatedSubTab = 'explorer'" class="flex items-center space-x-2 px-3.5 py-2 text-xs font-bold rounded-xl transition" :class="relatedSubTab === 'explorer' ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
+          <i data-lucide="database" class="w-3.5 h-3.5"></i>
+          <span>Master Explorer</span>
+          <span class="px-1.5 py-0.5 rounded text-[10px] font-mono" :class="relatedSubTab === 'explorer' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800'" x-text="formatNumber(overview.total_candidates)"></span>
+        </button>
+      </div>
+
+      <!-- Sub-Tab 1: 📁 TRACKED SEEDS (GRID & DEDICATED SEED DOSSIER) -->
+      <div x-show="relatedSubTab === 'seeds'" class="space-y-6">
 
       <!-- View A: Modern Grid & Table of Tracked Seeds -->
       <template x-if="!activeDossierSeed">
@@ -1326,9 +1408,9 @@ export function getDashboardHtml() {
     </div>
 
     <!-- ======================================================== -->
-    <!-- TAB 2: ⚡ GLOBAL INTERSECTIONS (STANDALONE 24 HUBS PAGE)  -->
+    <!-- SUB-TAB 2: ⚡ GLOBAL INTERSECTIONS (STANDALONE 24 HUBS)   -->
     <!-- ======================================================== -->
-    <div x-show="currentTab === 'intersections'" class="space-y-5">
+    <div x-show="relatedSubTab === 'intersections'" class="space-y-5">
       
       <!-- 1. Executive Summary Ribbon (KPI Cards) -->
       <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -1922,9 +2004,9 @@ export function getDashboardHtml() {
     </div>
 
     <!-- ======================================================== -->
-    <!-- TAB 3: 📊 MASTER DATABASE EXPLORER (SEARCH & SEED FILTER)-->
+    <!-- SUB-TAB 3: 📊 MASTER DATABASE EXPLORER (SEARCH & FILTER) -->
     <!-- ======================================================== -->
-    <div x-show="currentTab === 'explorer'" class="space-y-4">
+    <div x-show="relatedSubTab === 'explorer'" class="space-y-4">
       <div class="bg-white dark:bg-[#0d1526] border border-slate-200/90 dark:border-slate-800 rounded-2xl p-5 shadow-sm dark:shadow-xl space-y-4">
         
         <!-- Master Explorer Filter & Segment Toolbar -->
@@ -2208,6 +2290,7 @@ export function getDashboardHtml() {
         </div>
 
       </div>
+    </div>
     </div>
 
     <!-- ======================================================== -->
@@ -2580,7 +2663,7 @@ export function getDashboardHtml() {
                   <div class="p-3.5 space-y-2">
                     <h4 class="font-bold text-xs text-slate-900 dark:text-white line-clamp-2" x-text="pin.title || 'Untitled Pin'"></h4>
                     <div class="flex items-center justify-between text-[11px] font-mono text-slate-500">
-                      <span class="truncate" x-text="'@' + (pin.account_username || 'creator')"></span>
+                      <span class="truncate hover:text-purple-600 dark:hover:text-purple-400 hover:underline cursor-pointer" @click="openCreatorDossierByName(pin.account_username)" :title="'Inspect @' + pin.account_username + ' Dossier'" x-text="'@' + (pin.account_username || 'creator')"></span>
                       <span class="px-1.5 py-0.2 rounded bg-slate-200 dark:bg-slate-800 text-[10px]" x-text="pin.board_name || 'General'"></span>
                     </div>
 
@@ -2634,7 +2717,7 @@ export function getDashboardHtml() {
                     </td>
                     <td class="py-2 px-3 font-sans">
                       <div class="font-bold text-slate-900 dark:text-white line-clamp-1" x-text="pin.title || 'Untitled Pin'"></div>
-                      <div class="text-[11px] text-purple-600 dark:text-purple-400 font-mono mt-0.5" x-text="'@' + (pin.account_username || 'creator')"></div>
+                      <div class="text-[11px] text-purple-600 dark:text-purple-400 font-mono mt-0.5 hover:underline cursor-pointer" @click="openCreatorDossierByName(pin.account_username)" :title="'Inspect @' + pin.account_username + ' Dossier'" x-text="'@' + (pin.account_username || 'creator')"></div>
                     </td>
                     <td class="py-2 px-3 font-sans text-slate-600 dark:text-slate-300" x-text="pin.board_name || 'General'"></td>
                     <td class="py-2 px-3 text-right font-bold text-purple-600 dark:text-purple-400" x-text="formatNumber(pin.saves)"></td>
@@ -4212,8 +4295,8 @@ export function getDashboardHtml() {
             </button>
           </div>
 
-          <!-- Creator 4 Metric Cards -->
-          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <!-- Creator 5 Metric Cards -->
+          <div class="grid grid-cols-2 sm:grid-cols-5 gap-3">
             <div class="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800">
               <div class="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Followers</div>
               <div class="mt-1 text-xl font-extrabold text-slate-900 dark:text-white font-mono" x-text="formatNumber(activeCreator.follower_count)"></div>
@@ -4230,19 +4313,28 @@ export function getDashboardHtml() {
               <div class="mt-1 text-xl font-extrabold text-sky-600 dark:text-sky-400 font-mono" x-text="formatNumber(activeCreator.profile_views)"></div>
             </div>
             <div class="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800">
-              <div class="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Archived Pins</div>
+              <div class="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Winning Pins</div>
               <div class="mt-1 text-xl font-extrabold text-indigo-600 dark:text-indigo-400 font-mono" x-text="activeCreatorPins.length"></div>
+            </div>
+            <div class="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800">
+              <div class="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Topic Clusters</div>
+              <div class="mt-1 text-xl font-extrabold text-purple-600 dark:text-purple-400 font-mono" x-text="activeCreatorTopics.length"></div>
             </div>
           </div>
 
-          <!-- Dossier Sub-Tabs (Archived Pins vs Boards Breakdown) -->
+          <!-- Dossier Sub-Tabs (Winning Pins vs Topics vs Boards) -->
           <div class="flex items-center space-x-2 border-b border-slate-200 dark:border-slate-800 pb-2">
             <button @click="activeCreatorTab = 'pins'" class="flex items-center space-x-2 px-3 py-1.5 text-xs font-bold rounded-xl transition" :class="activeCreatorTab === 'pins' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
               <i data-lucide="archive" class="w-3.5 h-3.5"></i>
-              <span>Archived Winning Pins</span>
+              <span>Winning Pins Archive</span>
               <span class="px-1.5 py-0.2 rounded text-[10px] font-mono" :class="activeCreatorTab === 'pins' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800'" x-text="activeCreatorPins.length"></span>
             </button>
-            <button @click="activeCreatorTab = 'boards'" class="flex items-center space-x-2 px-3 py-1.5 text-xs font-bold rounded-xl transition" :class="activeCreatorTab === 'boards' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
+            <button @click="activeCreatorTab = 'topics'" class="flex items-center space-x-2 px-3 py-1.5 text-xs font-bold rounded-xl transition" :class="activeCreatorTab === 'topics' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
+              <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+              <span>Smart Topic Clusters</span>
+              <span class="px-1.5 py-0.2 rounded text-[10px] font-mono" :class="activeCreatorTab === 'topics' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800'" x-text="activeCreatorTopics.length"></span>
+            </button>
+            <button @click="activeCreatorTab = 'boards'" class="flex items-center space-x-2 px-3 py-1.5 text-xs font-bold rounded-xl transition" :class="activeCreatorTab === 'boards' ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
               <i data-lucide="layout-grid" class="w-3.5 h-3.5"></i>
               <span>Boards Breakdown</span>
               <span class="px-1.5 py-0.2 rounded text-[10px] font-mono" :class="activeCreatorTab === 'boards' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800'" x-text="competitorBoardsList.length"></span>
@@ -4251,6 +4343,31 @@ export function getDashboardHtml() {
 
           <!-- Dossier View 1: Creator Winning Pins Catalog (Image 4 Reference) -->
           <div x-show="activeCreatorTab === 'pins'" class="space-y-4">
+            
+            <!-- Interactive Topic Chips Filter Ribbon -->
+            <div x-show="activeCreatorTopics.length > 0" class="flex items-center space-x-1.5 overflow-x-auto pb-1 text-xs">
+              <span class="text-[10px] uppercase font-bold text-slate-400 font-mono flex-shrink-0 mr-1 flex items-center space-x-1">
+                <i data-lucide="tag" class="w-3 h-3 text-purple-500"></i>
+                <span>Topic:</span>
+              </span>
+              <button @click="activeCreatorSelectedTopic = ''" class="px-2.5 py-1 rounded-xl text-xs font-bold transition flex-shrink-0 flex items-center space-x-1" :class="activeCreatorSelectedTopic === '' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'">
+                <span>All Pins</span>
+                <span class="text-[10px] px-1 py-0.2 rounded-full" :class="activeCreatorSelectedTopic === '' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800'" x-text="activeCreatorPins.length"></span>
+              </button>
+              <template x-for="top in activeCreatorTopics" :key="top.name">
+                <button @click="activeCreatorSelectedTopic = (activeCreatorSelectedTopic === top.name ? '' : top.name)" class="px-2.5 py-1 rounded-xl text-xs transition flex-shrink-0 flex items-center space-x-1.5" :class="activeCreatorSelectedTopic === top.name ? 'bg-purple-600 text-white shadow-sm font-bold' : 'bg-slate-100 dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800'">
+                  <span x-text="top.name"></span>
+                  <span class="text-[10px] px-1 py-0.2 rounded-full font-mono" :class="activeCreatorSelectedTopic === top.name ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-500'" x-text="top.pins_count"></span>
+                </button>
+              </template>
+            </div>
+
+            <!-- Loading Spinner Indicator -->
+            <div x-show="isCreatorLoading" class="py-8 text-center text-slate-400 text-xs">
+              <i data-lucide="loader-2" class="w-5 h-5 mx-auto animate-spin mb-1.5 text-indigo-500"></i>
+              <span>Loading creator intelligence & winning pins...</span>
+            </div>
+
             <div class="flex flex-wrap items-center justify-between gap-2">
               <div class="relative w-full sm:w-56">
                 <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
@@ -4345,7 +4462,62 @@ export function getDashboardHtml() {
             </div>
           </div>
 
-          <!-- Dossier View 2: Boards Breakdown (Image 3 Reference) -->
+          <!-- Dossier View 2: Creator-Scoped Smart Topic Clusters (Dedicated to this creator alone) -->
+          <div x-show="activeCreatorTab === 'topics'" class="space-y-4">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <div class="relative w-full sm:w-64">
+                <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
+                <input type="text" x-model="creatorTopicSearch" placeholder="Filter this creator's topics..." class="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:outline-none">
+              </div>
+              <div class="text-xs text-slate-500 font-mono">
+                Showing <strong class="text-purple-600 dark:text-purple-400" x-text="filteredCreatorTopics.length"></strong> topics for @<span x-text="activeCreator.username"></span>
+              </div>
+            </div>
+
+            <!-- Topic Clusters Table -->
+            <div class="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
+              <table class="w-full text-left text-xs">
+                <thead>
+                  <tr class="bg-slate-50 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-800 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    <th class="py-2.5 px-3">Topic / Semantic Cluster</th>
+                    <th class="py-2.5 px-3 text-right">Pins Count</th>
+                    <th class="py-2.5 px-3 text-right">Total Saves</th>
+                    <th class="py-2.5 px-3 text-right">Avg Saves</th>
+                    <th class="py-2.5 px-3 text-right">Avg Velocity</th>
+                    <th class="py-2.5 px-3 text-center">Action</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono">
+                  <template x-for="t in filteredCreatorTopics" :key="t.name">
+                    <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition">
+                      <td class="py-2.5 px-3 font-sans font-bold text-slate-900 dark:text-white flex items-center space-x-2">
+                        <span class="w-2 h-2 rounded-full bg-purple-500 flex-shrink-0"></span>
+                        <span class="truncate" x-text="t.name"></span>
+                      </td>
+                      <td class="py-2.5 px-3 text-right font-bold text-slate-700 dark:text-slate-300" x-text="formatNumber(t.pins_count)"></td>
+                      <td class="py-2.5 px-3 text-right font-bold text-purple-600 dark:text-purple-400" x-text="formatNumber(t.total_saves)"></td>
+                      <td class="py-2.5 px-3 text-right text-slate-500" x-text="formatNumber(t.avg_saves)"></td>
+                      <td class="py-2.5 px-3 text-right font-bold text-amber-500" x-text="(t.avg_velocity || '0') + '/d'"></td>
+                      <td class="py-2.5 px-3 text-center">
+                        <button @click="activeCreatorSelectedTopic = t.name; activeCreatorTab = 'pins'" class="px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-900/60 text-indigo-600 dark:text-indigo-400 font-bold text-[10px] transition flex items-center space-x-1 mx-auto shadow-sm">
+                          <span>View Pins</span>
+                          <i data-lucide="arrow-right" class="w-3 h-3"></i>
+                        </button>
+                      </td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+
+              <div x-show="filteredCreatorTopics.length === 0" class="p-8 text-center text-slate-400 text-xs">
+                <i data-lucide="sparkles" class="w-6 h-6 mx-auto mb-1.5 opacity-50 text-purple-500"></i>
+                <p>No topic clusters found for this creator yet.</p>
+                <p class="text-[11px] text-slate-500 mt-1">Run "Sync Pins" or "Deep Audit Sweep" to ingest pins with Pinterest visual annotations.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Dossier View 3: Boards Breakdown (Image 3 Reference) -->
           <div x-show="activeCreatorTab === 'boards'" class="space-y-3">
             <div class="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
               <table class="w-full text-left text-xs">
@@ -4774,11 +4946,18 @@ export function getDashboardHtml() {
         copiedField: null,
         toastMessage: null,
 
+        // Related Pins Hub Sub-Tab State
+        relatedSubTab: 'seeds',
+
         // Unified Creator Intelligence & PinArchive State
         creatorSubTab: 'creators',
         isCreatorDossierOpen: false,
         activeCreator: null,
         activeCreatorPins: [],
+        activeCreatorTopics: [],
+        activeCreatorSelectedTopic: '',
+        creatorTopicSearch: '',
+        isCreatorLoading: false,
         activeCreatorTab: 'pins',
         creatorPinSearch: '',
         creatorPinMinSaves: 0,
@@ -4909,6 +5088,26 @@ export function getDashboardHtml() {
               (p.description && p.description.toLowerCase().includes(q))
             );
           }
+          if (this.activeCreatorSelectedTopic) {
+            const top = this.activeCreatorSelectedTopic.toLowerCase().trim();
+            list = list.filter(p => {
+              if (!p.annotations) return false;
+              const anns = Array.isArray(p.annotations) ? p.annotations : [];
+              return anns.some(a => {
+                const name = (typeof a === 'string' ? a : (a && a.name)) || '';
+                return name.toLowerCase().includes(top);
+              });
+            });
+          }
+          return list;
+        },
+
+        get filteredCreatorTopics() {
+          let list = this.activeCreatorTopics || [];
+          if (this.creatorTopicSearch) {
+            const q = this.creatorTopicSearch.toLowerCase().trim();
+            list = list.filter(t => t.name && t.name.toLowerCase().includes(q));
+          }
           return list;
         },
 
@@ -5030,7 +5229,15 @@ export function getDashboardHtml() {
         },
 
         switchTab(tab) {
-          if (tab === 'creators_archive' || tab === 'competitors' || tab === 'pinarchive' || tab === 'creators') {
+          if (tab === 'related_pins' || tab === 'seeds' || tab === 'intersections' || tab === 'explorer') {
+            this.currentTab = 'related_pins';
+            if (tab === 'seeds' || tab === 'intersections' || tab === 'explorer') {
+              this.relatedSubTab = tab;
+            }
+            if (this.seeds.length === 0) this.fetchSeeds();
+            if (this.intersections.length === 0) this.fetchIntersections();
+            if (this.explorerCandidates.length === 0) this.loadExplorerData();
+          } else if (tab === 'creators_archive' || tab === 'competitors' || tab === 'pinarchive' || tab === 'creators') {
             this.currentTab = 'creators_archive';
             if (this.competitors.length === 0) this.fetchCompetitors();
             if (this.pinarchivePins.length === 0) {
@@ -5041,11 +5248,7 @@ export function getDashboardHtml() {
             }
           } else {
             this.currentTab = tab;
-            if (tab === 'intersections' && this.intersections.length === 0) {
-              this.fetchIntersections();
-            } else if (tab === 'explorer' && this.explorerCandidates.length === 0) {
-              this.loadExplorerData();
-            } else if (tab === 'keywords') {
+            if (tab === 'keywords') {
               if (this.keywords.length === 0) this.fetchKeywords();
             } else if (tab === 'fleet') {
               if (this.fleetProjects.length === 0) this.fetchFleetProjects();
@@ -6425,24 +6628,55 @@ export function getDashboardHtml() {
           this.activeCreatorTab = 'pins';
           this.creatorPinSearch = '';
           this.creatorPinMinSaves = 0;
+          this.activeCreatorSelectedTopic = '';
+          this.creatorTopicSearch = '';
           this.activeCreatorPins = [];
+          this.activeCreatorTopics = [];
+          this.isCreatorLoading = true;
           this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
 
           // Fetch boards in background for the boards tab
           this.openBoardsModal(creator);
 
-          // Fetch winning pins for this creator
+          const handle = (creator.username || '').replace(/^@+/, '').trim();
+
+          // Fetch winning pins & topic clusters scoped to this creator in parallel
           try {
-            const handle = (creator.username || '').replace('@', '').trim();
-            const res = await fetch(this.getApiUrl('/api/pinarchive/pins?account=@' + encodeURIComponent(handle) + '&limit=100'));
-            if (res.ok) {
-              const data = await res.json();
+            const [pinsRes, topicsRes] = await Promise.all([
+              fetch(this.getApiUrl('/api/pinarchive/pins?account=@' + encodeURIComponent(handle) + '&limit=150')),
+              fetch(this.getApiUrl('/api/pinarchive/topics?account=@' + encodeURIComponent(handle) + '&limit=100'))
+            ]);
+            if (pinsRes.ok) {
+              const data = await pinsRes.json();
               this.activeCreatorPins = data.pins || [];
             }
+            if (topicsRes.ok) {
+              const data = await topicsRes.json();
+              this.activeCreatorTopics = data.topics || [];
+            }
           } catch (e) {
-            console.error('openCreatorDossier pins error:', e);
+            console.error('openCreatorDossier error:', e);
           } finally {
+            this.isCreatorLoading = false;
             this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+          }
+        },
+
+        openCreatorDossierByName(username) {
+          if (!username) return;
+          const clean = username.replace(/^@+/, '').trim().toLowerCase();
+          const existing = (this.competitors || []).find(c => (c.username || '').toLowerCase() === clean);
+          if (existing) {
+            this.openCreatorDossier(existing);
+          } else {
+            this.openCreatorDossier({
+              username: clean,
+              display_name: clean,
+              account_type: 'competitor',
+              follower_count: 0,
+              monthly_reach: 0,
+              profile_views: 0
+            });
           }
         },
 
