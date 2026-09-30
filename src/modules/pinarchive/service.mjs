@@ -52,6 +52,7 @@ export async function getQualificationRules(sql) {
         tier3_max_age_days: Number(row.tier3_max_age_days ?? 14),
         tier3_min_saves: Number(row.tier3_min_saves ?? 25),
         master_ingest_enabled: Boolean(row.master_ingest_enabled ?? true),
+        cron_enabled: Boolean(row.master_ingest_enabled ?? true),
         early_stop_pages: Number(row.early_stop_pages ?? 3),
         max_batch_pins: Number(row.max_batch_pins ?? 500),
         discovery_max_pages: Number(row.discovery_max_pages ?? 500),
@@ -61,7 +62,7 @@ export async function getQualificationRules(sql) {
       };
     }
   } catch (_) {}
-  return { ...DEFAULT_QUALIFICATION_RULES };
+  return { ...DEFAULT_QUALIFICATION_RULES, cron_enabled: true };
 }
 
 /**
@@ -72,7 +73,9 @@ export async function updateQualificationRules(sql, rules = {}) {
   const t2Repins = Math.max(0, Number(rules.tier2_min_repins ?? 100));
   const t3Days = Math.max(1, Number(rules.tier3_max_age_days ?? 14));
   const t3Saves = Math.max(0, Number(rules.tier3_min_saves ?? 25));
-  const masterEnabled = rules.master_ingest_enabled !== undefined ? Boolean(rules.master_ingest_enabled) : true;
+  const masterEnabled = rules.master_ingest_enabled !== undefined 
+    ? Boolean(rules.master_ingest_enabled) 
+    : (rules.cron_enabled !== undefined ? Boolean(rules.cron_enabled) : true);
   const earlyStop = Math.max(1, Math.min(Number(rules.early_stop_pages ?? 3), 100));
   const maxBatch = Math.max(10, Math.min(Number(rules.max_batch_pins ?? 500), 5000));
   const discMax = Math.max(1, Math.min(Number(rules.discovery_max_pages ?? 500), 2000));
@@ -122,7 +125,11 @@ export async function updateQualificationRules(sql, rules = {}) {
     RETURNING *;
   `;
 
-  return updated || { ...DEFAULT_QUALIFICATION_RULES, ...rules };
+  return {
+    ...(updated || { ...DEFAULT_QUALIFICATION_RULES, ...rules }),
+    master_ingest_enabled: masterEnabled,
+    cron_enabled: masterEnabled
+  };
 }
 
 /**
@@ -135,14 +142,14 @@ export function qualifyPin(pin, rules = DEFAULT_QUALIFICATION_RULES) {
   const saves = Number(pin.saves || 0);
   const repins = Number(pin.repins || 0);
 
-  let ageDays = Number(pin.age_days);
+  let ageDays = (pin.age_days !== undefined && pin.age_days !== null) ? Number(pin.age_days) : NaN;
   if (isNaN(ageDays)) {
     const rawDate = pin.created_at_pinterest || pin.created_at;
     if (rawDate) {
       const ms = Date.now() - new Date(rawDate).getTime();
-      ageDays = Math.max(0, ms / (1000 * 60 * 60 * 24));
-    } else {
-      ageDays = 9999;
+      if (Number.isFinite(ms) && ms >= 0) {
+        ageDays = Math.max(0.1, ms / (1000 * 60 * 60 * 24));
+      }
     }
   }
 
@@ -157,7 +164,8 @@ export function qualifyPin(pin, rules = DEFAULT_QUALIFICATION_RULES) {
   }
 
   // Tier 3: Fresh High-Velocity Breakouts (Age & Saves)
-  if (ageDays <= Number(rules.tier3_max_age_days ?? 14) && saves >= Number(rules.tier3_min_saves ?? 25)) {
+  // Pin MUST have a verified age <= tier3_max_age_days
+  if (!isNaN(ageDays) && ageDays !== null && ageDays <= Number(rules.tier3_max_age_days ?? 14) && saves >= Number(rules.tier3_min_saves ?? 25)) {
     return { qualified: true, matchedTier: 'tier3' };
   }
 
@@ -174,25 +182,37 @@ export function isPinQualified(pin, rules) {
  */
 export async function reEvaluateArchivedPins(sql, rules = null) {
   const activeRules = rules || (await getQualificationRules(sql));
+  const t1 = Number(activeRules.tier1_min_saves ?? 100);
+  const t2 = Number(activeRules.tier2_min_repins ?? 100);
+  const t3Days = Number(activeRules.tier3_max_age_days ?? 14);
+  const t3Saves = Number(activeRules.tier3_min_saves ?? 25);
+
   const [res] = await sql`
     SELECT
       count(*)::int AS total_pins,
       count(CASE 
-        WHEN saves >= ${activeRules.tier1_min_saves} 
-          OR repins >= ${activeRules.tier2_min_repins}
+        WHEN saves >= ${t1} 
+          OR repins >= ${t2}
           OR (
-            EXTRACT(EPOCH FROM (NOW() - created_at_pinterest))/86400 <= ${activeRules.tier3_max_age_days} 
-            AND saves >= ${activeRules.tier3_min_saves}
+            created_at_pinterest IS NOT NULL
+            AND EXTRACT(EPOCH FROM (NOW() - created_at_pinterest))/86400 <= ${t3Days} 
+            AND saves >= ${t3Saves}
           )
         THEN 1 
       END)::int AS qualified_pins
     FROM pa_pins;
   `;
 
+  const total = res?.total_pins || 0;
+  const qualified = res?.qualified_pins || 0;
+  const disqualified = Math.max(0, total - qualified);
+
   return {
     ok: true,
-    total_evaluated: res?.total_pins || 0,
-    qualified_count: res?.qualified_pins || 0,
+    total_evaluated: total,
+    qualified_count: qualified,
+    disqualified_count: disqualified,
+    disqualified_pruned: disqualified,
     rules: activeRules
   };
 }
@@ -246,9 +266,9 @@ export async function ingestPinsBatch(sql, pins, accountUsername = null, { filte
       const annotations = Array.isArray(pin.annotations) ? JSON.stringify(pin.annotations) : '[]';
       const isVideo = Boolean(pin.is_video);
       const isProduct = Boolean(pin.is_product);
-      let createdAtPinterest = new Date();
-      if (pin.created_at_pinterest) {
-        const d = new Date(pin.created_at_pinterest);
+      let createdAtPinterest = null;
+      if (pin.created_at_pinterest || pin.created_at) {
+        const d = new Date(pin.created_at_pinterest || pin.created_at);
         if (!isNaN(d.getTime())) createdAtPinterest = d;
       }
 
@@ -314,6 +334,7 @@ export async function ingestPinsBatch(sql, pins, accountUsername = null, { filte
           reactions = EXCLUDED.reactions,
           velocity = EXCLUDED.velocity,
           annotations = CASE WHEN jsonb_typeof(EXCLUDED.annotations) = 'array' AND jsonb_array_length(EXCLUDED.annotations) > 0 THEN EXCLUDED.annotations ELSE pa_pins.annotations END,
+          created_at_pinterest = COALESCE(pa_pins.created_at_pinterest, EXCLUDED.created_at_pinterest),
           last_updated_at = NOW()
         RETURNING (xmax = 0) AS is_inserted;
       `;
@@ -527,17 +548,26 @@ export async function stagePinsForRepurpose(sql, { pinIds = [], targetBoard = ''
  * Prevents double-posting across concurrent workers.
  */
 export async function claimStagedPinCas(sql, stagedId) {
-  const numericId = parseInt(stagedId, 10);
-  if (isNaN(numericId)) {
-    throw new Error('Invalid staged ID');
-  }
+  if (!stagedId) throw new Error('Invalid staged ID');
+  const cleanStr = String(stagedId).trim();
+  const numericId = parseInt(cleanStr, 10);
 
-  const [claimed] = await sql`
-    UPDATE pa_staged_pins
-    SET status = 'dispatched', updated_at = NOW()
-    WHERE id = ${numericId} AND status = 'staged'
-    RETURNING *;
-  `;
+  let claimed;
+  if (!isNaN(numericId) && String(numericId) === cleanStr) {
+    [claimed] = await sql`
+      UPDATE pa_staged_pins
+      SET status = 'dispatched', updated_at = NOW()
+      WHERE id = ${numericId} AND status = 'staged'
+      RETURNING *;
+    `;
+  } else {
+    [claimed] = await sql`
+      UPDATE pa_staged_pins
+      SET status = 'dispatched', updated_at = NOW()
+      WHERE pin_id = ${cleanStr} AND status = 'staged'
+      RETURNING *;
+    `;
+  }
 
   return {
     success: Boolean(claimed),

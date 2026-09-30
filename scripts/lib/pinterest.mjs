@@ -181,19 +181,23 @@ export function formatPin(pin) {
 
   // Created at date & velocity calculation (safely handling malformed dates)
   const createdRaw = pin.created_at || pin.created_at_pinterest || pin.createdAt;
-  let createdAtPinterest = new Date().toISOString();
-  let createdMs = Date.now();
+  let createdAtPinterest = null;
+  let ageDays = null;
+  let createdMs = null;
   if (createdRaw) {
     const d = new Date(createdRaw);
     if (!isNaN(d.getTime())) {
       createdAtPinterest = d.toISOString();
       createdMs = d.getTime();
+      const msDiff = Date.now() - createdMs;
+      if (Number.isFinite(msDiff) && msDiff >= 0) {
+        ageDays = Math.max(0.1, msDiff / 86400000);
+      }
     }
   }
-  const ageDays = !Number.isFinite(createdMs) || createdMs <= 0
-    ? 1
-    : Math.max(1, (Date.now() - createdMs) / 86400000);
-  const velocity = Math.round((saves / ageDays) * 100) / 100;
+  const velocity = (ageDays !== null && ageDays > 0)
+    ? Math.round((saves / ageDays) * 100) / 100
+    : 0;
 
   // Domain extraction (safely handling relative or malformed URLs)
   let domain = pin.domain || '';
@@ -227,7 +231,7 @@ export function formatPin(pin) {
     board_id: pin.board?.id || pin.board_id || null,
     board_name: pin.board?.name || pin.board_name || '',
     created_at_pinterest: createdAtPinterest,
-    age_days: Math.round(ageDays * 10) / 10,
+    age_days: ageDays !== null ? Math.round(ageDays * 10) / 10 : null,
     velocity,
     image_url: imageUrl,
     dominant_color: dominantColor,
@@ -498,8 +502,8 @@ export async function fetchUserActivityPinsResource(username, bookmark = null, a
 
     if (!res.ok) return { ok: false, status: res.status, pins: [], nextBookmark: null };
     const json = await res.json();
-    const data = json.resource_response?.data || [];
-    const nextBookmark = json.resource_response?.bookmark || null;
+    const rawBookmark = json.resource_response?.bookmark;
+    const nextBookmark = (rawBookmark && rawBookmark !== '-end-') ? rawBookmark : null;
 
     const rawList = Array.isArray(data) ? data : (data?.items || data?.pins || data?.results || []);
 

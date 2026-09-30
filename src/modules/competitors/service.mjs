@@ -5,7 +5,7 @@
  */
 
 import { formatPinterestCookie } from '../../utils.mjs';
-import { fetchBoardsResource, fetchUserActivityPinsResource } from '../../../scripts/lib/pinterest.mjs';
+import { fetchBoardsResource, fetchUserActivityPinsResource, sleep, randomJitterMs } from '../../../scripts/lib/pinterest.mjs';
 import { ingestPinsBatch, getQualificationRules } from '../pinarchive/service.mjs';
 
 /**
@@ -418,10 +418,15 @@ export async function syncCompetitorPins(sql, competitorId, username, { mode = '
     }
 
     currentBookmark = res.nextBookmark;
-    if (!currentBookmark) break; // End of feed
+    if (!currentBookmark || currentBookmark === '-end-') break; // End of feed
+
+    // Inject jitter delay between pages to absorb Pinterest 429 rate limits
+    if (page < pageLimit) {
+      await sleep(randomJitterMs(1500, 3000));
+    }
   }
 
-  // Update total_pins and harvest metadata on competitor profile
+  // Update harvest metadata on competitor profile without clobbering total_pins published catalog
   const numericId = parseInt(competitorId, 10);
   const harvestMeta = {
     last_sync_mode: mode,
@@ -433,8 +438,7 @@ export async function syncCompetitorPins(sql, competitorId, username, { mode = '
 
   await sql`
     UPDATE competitor_profiles
-    SET total_pins = (SELECT count(*)::int FROM pa_pins WHERE LOWER(account_username) = ${cleanUsername}),
-        last_harvest_metadata = ${JSON.stringify(harvestMeta)}::jsonb,
+    SET last_harvest_metadata = ${JSON.stringify(harvestMeta)}::jsonb,
         last_synced_at = NOW(),
         updated_at = NOW()
     WHERE LOWER(username) = ${cleanUsername} OR id = ${isNaN(numericId) ? -1 : numericId};
@@ -445,6 +449,9 @@ export async function syncCompetitorPins(sql, competitorId, username, { mode = '
     mode,
     pages_crawled: pagesCrawled,
     total_fetched: totalFetched,
+    crawled: totalFetched,
+    qualified: allQualifiedCount,
+    inserted: allQualifiedCount,
     qualified_archived: allQualifiedCount,
     metadata: harvestMeta
   };

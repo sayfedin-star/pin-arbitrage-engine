@@ -291,11 +291,16 @@ async function runTests() {
     const qd = qualifyPin(pinDisqualified, rules);
     assert(!qd.qualified && qd.matchedTier === null, 'Pin 30 days old with 20 saves and 15 repins is DISQUALIFIED');
 
-    // 3.3 Test updateQualificationRules
-    const updatedRules = await updateQualificationRules(sql, { tier1_min_saves: 150 });
-    assert(updatedRules.tier1_min_saves === 150, 'updateQualificationRules successfully updated tier1_min_saves to 150');
+    // 3.2.1 Boundary: Pin with missing creation date must NOT qualify under Tier 3
+    const pinUnknownDate = { pin_id: 't_unknown', saves: 25, repins: 2 };
+    const qu = qualifyPin(pinUnknownDate, rules);
+    assert(!qu.qualified, 'Pin with unknown creation date and 25 saves does NOT falsely qualify under Tier 3');
+
+    // 3.3 Test updateQualificationRules and dual alias support
+    const updatedRules = await updateQualificationRules(sql, { tier1_min_saves: 150, cron_enabled: true });
+    assert(updatedRules.tier1_min_saves === 150 && updatedRules.cron_enabled === true, 'updateQualificationRules successfully updated tier1_min_saves to 150 and aliased cron_enabled');
     // Restore default
-    await updateQualificationRules(sql, { tier1_min_saves: 100 });
+    await updateQualificationRules(sql, { tier1_min_saves: 100, master_ingest_enabled: true });
 
     // 3.4 Ingest batch with qualification filter: only qualified pins should enter pa_pins
     const TEST_QUALIFIED_PIN = 'test_p4_qual_' + Date.now();
@@ -326,9 +331,15 @@ async function runTests() {
     assert(Boolean(shouldExist), 'Qualified pin exists in pa_pins table');
     assert(!shouldNotExist, 'Unqualified pin was discarded and prevented database bloat');
 
-    // 3.5 Test reEvaluateArchivedPins
+    // 3.5 Test reEvaluateArchivedPins with rules argument
     const reEvalResult = await reEvaluateArchivedPins(sql, rules);
-    assert(reEvalResult.ok && reEvalResult.total_evaluated >= 1, `reEvaluateArchivedPins evaluated ${reEvalResult.total_evaluated} pins successfully`);
+    assert(reEvalResult.ok && reEvalResult.total_evaluated >= 1 && reEvalResult.disqualified_count !== undefined, `reEvaluateArchivedPins evaluated ${reEvalResult.total_evaluated} pins successfully with disqualified count`);
+
+    // 3.6 Test claimStagedPinCas by string pin_id (polymorphic claim)
+    const stageQualRes = await stagePinsForRepurpose(sql, { pinIds: [TEST_QUALIFIED_PIN] });
+    assert(stageQualRes.ok && stageQualRes.stagedCount === 1, 'Staged qualified pin successfully for raw pin_id claim');
+    const casByPinId = await claimStagedPinCas(sql, TEST_QUALIFIED_PIN);
+    assert(casByPinId.success === true && casByPinId.item.status === 'dispatched', 'claimStagedPinCas claimed pin by raw string pin_id');
 
     console.log('\n=== TEST SUITE 4: Cleanup ===');
     // Cleanup staged pins

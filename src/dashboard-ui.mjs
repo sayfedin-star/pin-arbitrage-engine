@@ -5470,7 +5470,14 @@ export function getDashboardHtml() {
             if (res.ok) {
               const data = await res.json();
               if (data.rules) {
-                this.qualificationRules = { ...this.qualificationRules, ...data.rules };
+                const r = data.rules;
+                const enabled = r.master_ingest_enabled !== undefined ? Boolean(r.master_ingest_enabled) : (r.cron_enabled !== undefined ? Boolean(r.cron_enabled) : true);
+                this.qualificationRules = {
+                  ...this.qualificationRules,
+                  ...r,
+                  master_ingest_enabled: enabled,
+                  cron_enabled: enabled
+                };
               }
             }
           } catch (e) {
@@ -5481,15 +5488,26 @@ export function getDashboardHtml() {
         async saveQualificationRulesAction() {
           this.isSavingRules = true;
           try {
+            const payload = {
+              ...this.qualificationRules,
+              master_ingest_enabled: Boolean(this.qualificationRules.cron_enabled)
+            };
             const res = await fetch(this.getApiUrl('/api/pinarchive/rules'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(this.qualificationRules)
+              body: JSON.stringify(payload)
             });
             if (res.ok) {
               const data = await res.json();
               if (data.rules) {
-                this.qualificationRules = { ...this.qualificationRules, ...data.rules };
+                const r = data.rules;
+                const enabled = r.master_ingest_enabled !== undefined ? Boolean(r.master_ingest_enabled) : (r.cron_enabled !== undefined ? Boolean(r.cron_enabled) : true);
+                this.qualificationRules = {
+                  ...this.qualificationRules,
+                  ...r,
+                  master_ingest_enabled: enabled,
+                  cron_enabled: enabled
+                };
               }
               this.showToast('✅ Qualification rules updated successfully!');
             } else {
@@ -5514,7 +5532,10 @@ export function getDashboardHtml() {
             });
             if (res.ok) {
               const data = await res.json();
-              this.showToast('⚡ Evaluated ' + data.total_evaluated + ' pins: ' + data.qualified_count + ' qualified, ' + data.disqualified_pruned + ' pruned.');
+              const evalTotal = data.total_evaluated ?? 0;
+              const qualCount = data.qualified_count ?? 0;
+              const disCount = data.disqualified_pruned ?? data.disqualified_count ?? 0;
+              this.showToast('⚡ Evaluated ' + evalTotal + ' pins: ' + qualCount + ' qualified, ' + disCount + ' non-qualifying.');
               await this.fetchPinArchiveOverview();
               await this.fetchPinArchivePins();
             } else {
@@ -5552,7 +5573,9 @@ export function getDashboardHtml() {
             });
             if (res.ok) {
               const data = await res.json();
-              this.showToast('🎉 Harvested ' + (data.crawled || 0) + ' pins for @' + competitor.username + ': ' + (data.qualified || 0) + ' qualified, ' + (data.inserted || 0) + ' archived!');
+              const crawled = data.crawled ?? data.total_fetched ?? 0;
+              const qualified = data.qualified ?? data.qualified_archived ?? data.inserted ?? 0;
+              this.showToast('🎉 Harvested ' + crawled + ' pins for @' + competitor.username + ': ' + qualified + ' qualified & archived!');
               await this.fetchCompetitors();
               await this.fetchPinArchiveOverview();
               if (this.currentTab === 'pinarchive') {

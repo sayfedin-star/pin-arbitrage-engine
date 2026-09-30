@@ -1575,7 +1575,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'POST' && pathname === '/api/pinarchive/re-evaluate') {
-      const audit = await reEvaluateArchivedPins(targetSql);
+      const body = await parseJsonBody(req).catch(() => ({}));
+      const audit = await reEvaluateArchivedPins(targetSql, (body && Object.keys(body).length > 0) ? body : null);
       return sendJson(res, 200, { success: true, ...audit });
     }
 
@@ -1621,8 +1622,8 @@ const server = http.createServer(async (req, res) => {
 
     if (method === 'POST' && pathname === '/api/pinarchive/claim-cas') {
       const body = await parseJsonBody(req);
-      const stagedId = body.staged_id || body.id;
-      if (!stagedId) return sendJson(res, 400, { error: 'staged_id is required' });
+      const stagedId = body.staged_id || body.id || body.pin_id;
+      if (!stagedId) return sendJson(res, 400, { error: 'staged_id or pin_id is required' });
       const result = await claimStagedPinCas(targetSql, stagedId);
       if (!result.success) {
         return sendJson(res, 409, { success: false, error: 'CAS Conflict: pin already dispatched or not in staged status' });

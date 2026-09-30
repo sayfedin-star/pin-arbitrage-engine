@@ -1398,7 +1398,8 @@ export default {
       }
 
       if (method === 'POST' && pathname === '/api/pinarchive/re-evaluate') {
-        const audit = await reEvaluateArchivedPins(targetSql);
+        const body = await request.json().catch(() => ({}));
+        const audit = await reEvaluateArchivedPins(targetSql, (body && Object.keys(body).length > 0) ? body : null);
         return jsonResponse({ success: true, ...audit });
       }
 
@@ -1444,8 +1445,8 @@ export default {
 
       if (method === 'POST' && pathname === '/api/pinarchive/claim-cas') {
         const body = await request.json().catch(() => ({}));
-        const stagedId = body.staged_id || body.id;
-        if (!stagedId) return jsonResponse({ error: 'staged_id is required' }, 400);
+        const stagedId = body.staged_id || body.id || body.pin_id;
+        if (!stagedId) return jsonResponse({ error: 'staged_id or pin_id is required' }, 400);
         const result = await claimStagedPinCas(targetSql, stagedId);
         if (!result.success) {
           return jsonResponse({ success: false, error: 'CAS Conflict: pin already dispatched or not in staged status' }, 409);
@@ -1457,6 +1458,42 @@ export default {
       return jsonResponse({ error: 'Endpoint not found', path: pathname }, 404);
     } catch (err) {
       return jsonResponse({ error: 'Internal Server Error', message: err.message }, 500);
+    }
+  },
+
+  /**
+   * Cloudflare Worker Scheduled Cron Handler
+   * Runs automated daily Early-Stop pin harvest across active competitors
+   */
+  async scheduled(event, env, ctx) {
+    const dbUrl = env.DATABASE_URL || (typeof process !== 'undefined' ? process.env.DATABASE_URL : null);
+    if (!dbUrl) return;
+    const sql = getPool(dbUrl);
+
+    try {
+      const rules = await getQualificationRules(sql);
+      if (!rules.master_ingest_enabled) return;
+
+      const competitors = await sql`
+        SELECT id, username FROM competitor_profiles
+        WHERE is_active = TRUE
+        ORDER BY last_synced_at ASC NULLS FIRST
+        LIMIT 10;
+      `;
+
+      for (const c of competitors) {
+        try {
+          await syncCompetitorPins(sql, c.id, c.username, {
+            mode: 'daily',
+            maxPages: rules.early_stop_pages || 3,
+            cookie: env.PINTEREST_COOKIE || ''
+          });
+        } catch (err) {
+          console.error(`Scheduled harvest failed for @${c.username}:`, err.message);
+        }
+      }
+    } catch (schedErr) {
+      console.error('Scheduled cron execution error:', schedErr.message);
     }
   }
 };
