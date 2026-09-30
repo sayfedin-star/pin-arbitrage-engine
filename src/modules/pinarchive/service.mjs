@@ -457,22 +457,20 @@ export async function getTopicClusters(sql, { minPins = 1, search = '', account 
     const rows = await sql`
       WITH extracted AS (
         SELECT
-          CASE
-            WHEN jsonb_typeof(ann) = 'object' THEN trim(ann->>'name')
-            WHEN jsonb_typeof(ann) = 'string' THEN trim(ann #>> '{}')
-            ELSE NULL
-          END AS raw_topic,
+          COALESCE(
+            CASE
+              WHEN jsonb_typeof(ann) = 'object' THEN trim(ann->>'name')
+              WHEN jsonb_typeof(ann) = 'string' THEN trim(ann #>> '{}')
+              ELSE NULL
+            END,
+            NULLIF(TRIM(p.board_name), '')
+          ) AS raw_topic,
           p.pin_id,
           p.saves,
           p.velocity
-        FROM pa_pins p,
-        LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(p.annotations) = 'array' THEN p.annotations ELSE '[]'::jsonb END) AS ann
+        FROM pa_pins p
+        LEFT JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(p.annotations) = 'array' THEN p.annotations ELSE '[]'::jsonb END) AS ann ON TRUE
         WHERE LOWER(REPLACE(p.account_username, '@', '')) = ${cleanAccount}
-          AND (
-            (jsonb_typeof(ann) = 'object' AND ann->>'name' IS NOT NULL AND trim(ann->>'name') <> '')
-            OR
-            (jsonb_typeof(ann) = 'string' AND trim(ann #>> '{}') <> '')
-          )
       ),
       aggregated AS (
         SELECT
@@ -482,7 +480,8 @@ export async function getTopicClusters(sql, { minPins = 1, search = '', account 
           CASE WHEN count(DISTINCT e.pin_id) > 0 THEN (coalesce(sum(e.saves), 0) / count(DISTINCT e.pin_id))::BIGINT ELSE 0::BIGINT END AS a_saves,
           round(avg(e.velocity), 2) AS a_velocity
         FROM extracted e
-        WHERE (${searchPattern}::text IS NULL OR e.raw_topic ILIKE ${'%' + (searchPattern || '') + '%'})
+        WHERE e.raw_topic IS NOT NULL AND TRIM(e.raw_topic) <> ''
+          AND (${searchPattern}::text IS NULL OR e.raw_topic ILIKE ${'%' + (searchPattern || '') + '%'})
         GROUP BY e.raw_topic
         HAVING count(DISTINCT e.pin_id) >= ${minNum}
       )
@@ -592,6 +591,8 @@ export async function listArchivedPins(sql, {
       ))
       AND (${boardPattern}::text IS NULL OR COALESCE(LOWER(board_name), '') LIKE ${boardPattern})
       AND (${topicPattern}::text IS NULL OR (
+        COALESCE(LOWER(board_name), '') LIKE ${topicPattern} OR
+        COALESCE(LOWER(title), '') LIKE ${topicPattern} OR
         EXISTS (
           SELECT 1
           FROM jsonb_array_elements(CASE WHEN jsonb_typeof(annotations) = 'array' THEN annotations ELSE '[]'::jsonb END) AS elem
@@ -626,9 +627,9 @@ export async function listArchivedPins(sql, {
     const createdDate = p.created_at_pinterest ? new Date(p.created_at_pinterest) : (p.first_seen_at ? new Date(p.first_seen_at) : new Date());
     const ageDays = Math.max(1, Math.round((now - createdDate.getTime()) / 86400000));
     
-    // Growth deltas calculation
-    const deltaSaves = Math.max(1, Math.round(velocity * (0.8 + ((p.pin_id.charCodeAt(p.pin_id.length - 1) % 5) * 0.1))));
-    const deltaRepins = Math.max(0, Math.round(deltaSaves * 0.42));
+    // Growth deltas calculation based on velocity
+    const deltaSaves = velocity > 0 ? Math.max(1, Math.round(velocity * (0.8 + ((p.pin_id.charCodeAt(p.pin_id.length - 1) % 5) * 0.1)))) : 0;
+    const deltaRepins = deltaSaves > 0 ? Math.max(0, Math.round(deltaSaves * 0.42)) : 0;
     const deltaSaves3d = Math.round(deltaSaves * 2.85);
     const deltaSaves7d = Math.round(deltaSaves * 6.6);
 
@@ -639,7 +640,7 @@ export async function listArchivedPins(sql, {
       saves: Number(p.saves || 0),
       repins: Number(p.repins || 0),
       comments: Number(p.comments || 0),
-      share_count: Number(p.share_count || Math.round((p.saves || 0) * 0.08)),
+      share_count: Number(p.share_count || 0),
       velocity: Number(velocity.toFixed(1)),
       age_days: ageDays,
       delta_saves: deltaSaves,
@@ -648,7 +649,7 @@ export async function listArchivedPins(sql, {
       delta_saves_7d: deltaSaves7d,
       stage: pinStage,
       formatted_created: createdDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-      formatted_first_pulled: p.first_seen_at ? new Date(p.first_seen_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Sep 1, 2026'
+      formatted_first_pulled: p.first_seen_at ? new Date(p.first_seen_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : (p.created_at_pinterest ? new Date(p.created_at_pinterest).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—')
     };
   });
 

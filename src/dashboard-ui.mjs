@@ -3078,14 +3078,16 @@ export function getDashboardHtml() {
                       <span>View on Pinterest</span>
                       <i data-lucide="external-link" class="w-3 h-3"></i>
                     </a>
+                    <template x-if="activeCreatorDetail?.profile?.website_domain">
+                      <span class="inline-flex items-center gap-1.5">
+                        <span>•</span>
+                        <i data-lucide="globe" class="w-3 h-3 text-slate-400"></i>
+                        <span class="font-medium text-slate-900 dark:text-slate-100" x-text="activeCreatorDetail.profile.website_domain"></span>
+                        <span x-show="activeCreatorDetail.profile.verified_domain" class="rounded-full bg-emerald-500/10 px-2 py-0.2 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">✓ Verified Domain</span>
+                      </span>
+                    </template>
                     <span>•</span>
-                    <span class="inline-flex items-center gap-1.5">
-                      <i data-lucide="globe" class="w-3 h-3 text-slate-400"></i>
-                      <span class="font-medium text-slate-900 dark:text-slate-100" x-text="activeCreatorDetail?.profile?.website_domain || (activeCreator.username || '').replace(/^@+/, '') + '.com'"></span>
-                      <span class="rounded-full bg-emerald-500/10 px-2 py-0.2 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">✓ Verified Domain</span>
-                    </span>
-                    <span>•</span>
-                    <span class="text-[11px] text-slate-400" x-text="'Last Pin: ' + (activeCreatorDetail?.profile?.last_pin_date || 'Sep 28, 2026')"></span>
+                    <span class="text-[11px] text-slate-400" x-text="'Last Pin: ' + (activeCreatorDetail?.profile?.last_pin_date || '—')"></span>
                   </div>
 
                   <p class="text-xs text-slate-500 dark:text-slate-400 pt-0.5 max-w-2xl" x-text="activeCreatorDetail?.profile?.notes || 'No internal notes set for this competitor.'"></p>
@@ -3099,8 +3101,8 @@ export function getDashboardHtml() {
                 </div>
                 <div>
                   <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Strategy Age (Oldest Board)</span>
-                  <div class="text-lg font-extrabold text-slate-900 dark:text-white font-mono tabular-nums" x-text="(activeCreatorDetail?.strategy_age?.days || 667) + ' Days'"></div>
-                  <span class="text-[10px] text-slate-400" x-text="'Oldest board: ' + (activeCreatorDetail?.strategy_age?.oldest_board_date || 'Dec 1, 2024')"></span>
+                  <div class="text-lg font-extrabold text-slate-900 dark:text-white font-mono tabular-nums" x-text="(activeCreatorDetail?.strategy_age?.days || 0) + ' Days'"></div>
+                  <span class="text-[10px] text-slate-400" x-text="'Oldest board: ' + (activeCreatorDetail?.strategy_age?.oldest_board_date || '—')"></span>
                 </div>
               </div>
             </div>
@@ -3183,23 +3185,43 @@ export function getDashboardHtml() {
                     <p class="text-[11px] text-slate-500">Select two distinct months to compute exact growth deltas and percentage shifts.</p>
                   </div>
                 </div>
+
+                <div class="flex items-center gap-2.5 flex-wrap">
+                  <div class="flex items-center gap-1.5">
+                    <label class="text-xs font-semibold text-slate-500">Base (A):</label>
+                    <select x-model="creatorMoMBaseMonth" class="h-8 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0d1526] px-2.5 text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer">
+                      <template x-for="m in availableCreatorMonths" :key="'base-' + m">
+                        <option :value="m" x-text="m"></option>
+                      </template>
+                    </select>
+                  </div>
+                  <span class="text-xs font-bold text-slate-400">vs</span>
+                  <div class="flex items-center gap-1.5">
+                    <label class="text-xs font-semibold text-slate-500">Target (B):</label>
+                    <select x-model="creatorMoMTargetMonth" class="h-8 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0d1526] px-2.5 text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer">
+                      <template x-for="m in availableCreatorMonths" :key="'target-' + m">
+                        <option :value="m" x-text="m"></option>
+                      </template>
+                    </select>
+                  </div>
+                </div>
               </div>
               <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
                 <div class="bg-white dark:bg-[#0d1526] p-3 rounded-xl border border-slate-200 dark:border-slate-800">
                   <div class="text-[10px] text-slate-400 font-bold uppercase">Monthly Reach Shift</div>
-                  <div class="text-sm font-extrabold text-emerald-500 mt-1 font-mono">+0 (0%)</div>
+                  <div class="text-sm font-extrabold mt-1 font-mono tabular-nums" :class="creatorMoMStats.reach.diff >= 0 ? 'text-emerald-500' : 'text-rose-500'" x-text="(creatorMoMStats.reach.diff >= 0 ? '+' : '') + formatNumber(creatorMoMStats.reach.diff) + ' (' + (creatorMoMStats.reach.pct >= 0 ? '+' : '') + creatorMoMStats.reach.pct + '%)'"></div>
                 </div>
                 <div class="bg-white dark:bg-[#0d1526] p-3 rounded-xl border border-slate-200 dark:border-slate-800">
                   <div class="text-[10px] text-slate-400 font-bold uppercase">Profile Views Shift</div>
-                  <div class="text-sm font-extrabold text-sky-500 mt-1 font-mono">+0 (0%)</div>
+                  <div class="text-sm font-extrabold mt-1 font-mono tabular-nums" :class="creatorMoMStats.views.diff >= 0 ? 'text-sky-500' : 'text-rose-500'" x-text="(creatorMoMStats.views.diff >= 0 ? '+' : '') + formatNumber(creatorMoMStats.views.diff) + ' (' + (creatorMoMStats.views.pct >= 0 ? '+' : '') + creatorMoMStats.views.pct + '%)'"></div>
                 </div>
                 <div class="bg-white dark:bg-[#0d1526] p-3 rounded-xl border border-slate-200 dark:border-slate-800">
                   <div class="text-[10px] text-slate-400 font-bold uppercase">Followers Shift</div>
-                  <div class="text-sm font-extrabold text-purple-500 mt-1 font-mono">+35 (+0.4%)</div>
+                  <div class="text-sm font-extrabold mt-1 font-mono tabular-nums" :class="creatorMoMStats.followers.diff >= 0 ? 'text-purple-500' : 'text-rose-500'" x-text="(creatorMoMStats.followers.diff >= 0 ? '+' : '') + formatNumber(creatorMoMStats.followers.diff) + ' (' + (creatorMoMStats.followers.pct >= 0 ? '+' : '') + creatorMoMStats.followers.pct + '%)'"></div>
                 </div>
                 <div class="bg-white dark:bg-[#0d1526] p-3 rounded-xl border border-slate-200 dark:border-slate-800">
                   <div class="text-[10px] text-slate-400 font-bold uppercase">Total Pins Shift</div>
-                  <div class="text-sm font-extrabold text-rose-500 mt-1 font-mono">+5 (+0.0%)</div>
+                  <div class="text-sm font-extrabold mt-1 font-mono tabular-nums" :class="creatorMoMStats.pins.diff >= 0 ? 'text-emerald-500' : 'text-rose-500'" x-text="(creatorMoMStats.pins.diff >= 0 ? '+' : '') + formatNumber(creatorMoMStats.pins.diff) + ' (' + (creatorMoMStats.pins.pct >= 0 ? '+' : '') + creatorMoMStats.pins.pct + '%)'"></div>
                 </div>
               </div>
             </div>
@@ -3241,32 +3263,57 @@ export function getDashboardHtml() {
 
                 <!-- Dynamic SVG Spline Chart Canvas -->
                 <div class="relative w-full h-56 overflow-hidden">
-                  <svg class="w-full h-full" viewBox="0 0 800 220" preserveAspectRatio="none">
-                    <defs>
-                      <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stop-color="#f43f5e" stop-opacity="0.2"/>
-                        <stop offset="100%" stop-color="#f43f5e" stop-opacity="0.0"/>
-                      </linearGradient>
-                      <linearGradient id="chartGradientSky" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stop-color="#0ea5e9" stop-opacity="0.2"/>
-                        <stop offset="100%" stop-color="#0ea5e9" stop-opacity="0.0"/>
-                      </linearGradient>
-                    </defs>
+                  <template x-if="!activeCreatorSnapshots || activeCreatorSnapshots.length === 0">
+                    <div class="w-full h-full flex items-center justify-center text-xs text-slate-400 font-sans">
+                      No historical snapshot data recorded yet.
+                    </div>
+                  </template>
+                  <template x-if="activeCreatorSnapshots && activeCreatorSnapshots.length > 0">
+                    <svg class="w-full h-full" viewBox="0 0 800 220" preserveAspectRatio="none">
+                      <defs>
+                        <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stop-color="#f43f5e" stop-opacity="0.2"/>
+                          <stop offset="100%" stop-color="#f43f5e" stop-opacity="0.0"/>
+                        </linearGradient>
+                        <linearGradient id="chartGradientSky" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stop-color="#0ea5e9" stop-opacity="0.2"/>
+                          <stop offset="100%" stop-color="#0ea5e9" stop-opacity="0.0"/>
+                        </linearGradient>
+                      </defs>
 
-                    <!-- Area Fill -->
-                    <path :d="creatorChartData.areaPath" :fill="creatorChartMode === 'views' ? 'url(#chartGradientSky)' : 'url(#chartGradient)'" />
+                      <template x-if="creatorChartData.dual">
+                        <g>
+                          <!-- Reach (Rose) Area & Stroke -->
+                          <path :d="creatorChartData.areaPathA" fill="url(#chartGradient)" />
+                          <path :d="creatorChartData.strokePathA" fill="none" stroke="#f43f5e" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+                          <!-- Views (Sky) Stroke -->
+                          <path :d="creatorChartData.strokePathB" fill="none" stroke="#0ea5e9" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+                          <template x-for="(pt, idx) in creatorChartData.pointsA" :key="'dual-a-' + idx">
+                            <circle :cx="pt.x" :cy="pt.y" r="3.5" fill="white" stroke="#f43f5e" stroke-width="2" />
+                          </template>
+                          <template x-for="(pt, idx) in creatorChartData.pointsB" :key="'dual-b-' + idx">
+                            <circle :cx="pt.x" :cy="pt.y" r="3.5" fill="white" stroke="#0ea5e9" stroke-width="2" />
+                          </template>
+                        </g>
+                      </template>
 
-                    <!-- Stroke Path -->
-                    <path :d="creatorChartData.strokePath" fill="none" :stroke="creatorChartMode === 'views' ? '#0ea5e9' : (creatorChartMode === 'followers' ? '#a855f7' : (creatorChartMode === 'pins' ? '#10b981' : '#f43f5e'))" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
-
-                    <!-- Data Point Dots -->
-                    <template x-for="(pt, idx) in creatorChartData.points" :key="idx">
-                      <g>
-                        <circle :cx="pt.x" :cy="pt.y" r="4" fill="white" :stroke="creatorChartMode === 'views' ? '#0ea5e9' : '#f43f5e'" stroke-width="2" class="cursor-pointer hover:r-6 transition-all" />
-                        <text :x="pt.x" y="210" text-anchor="middle" class="text-[10px] fill-slate-400 font-mono" x-text="pt.label"></text>
-                      </g>
-                    </template>
-                  </svg>
+                      <template x-if="!creatorChartData.dual">
+                        <g>
+                          <!-- Area Fill -->
+                          <path :d="creatorChartData.areaPath" :fill="creatorChartMode === 'views' ? 'url(#chartGradientSky)' : 'url(#chartGradient)'" />
+                          <!-- Stroke Path -->
+                          <path :d="creatorChartData.strokePath" fill="none" :stroke="creatorChartMode === 'views' ? '#0ea5e9' : (creatorChartMode === 'followers' ? '#a855f7' : (creatorChartMode === 'pins' ? '#10b981' : '#f43f5e'))" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+                          <!-- Data Point Dots -->
+                          <template x-for="(pt, idx) in creatorChartData.points" :key="idx">
+                            <g>
+                              <circle :cx="pt.x" :cy="pt.y" r="4" fill="white" :stroke="creatorChartMode === 'views' ? '#0ea5e9' : '#f43f5e'" stroke-width="2" class="cursor-pointer hover:r-6 transition-all" />
+                              <text :x="pt.x" y="210" text-anchor="middle" class="text-[10px] fill-slate-400 font-mono" x-text="pt.label"></text>
+                            </g>
+                          </template>
+                        </g>
+                      </template>
+                    </svg>
+                  </template>
                 </div>
               </div>
 
@@ -3277,22 +3324,22 @@ export function getDashboardHtml() {
                     <span class="text-[10.5px] font-semibold text-slate-500 uppercase tracking-wider">PINNING VELOCITY</span>
                     <span class="rounded-full bg-amber-500/10 px-2.5 py-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400 border border-amber-500/20">⚡ Output Speed</span>
                   </div>
-                  <div class="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight font-mono tabular-nums" x-text="(activeCreatorDetail?.pinning_velocity?.pins_per_day || '7.5') + ' Pins/Day'"></div>
-                  <p class="text-xs text-slate-500 mt-1" x-text="'Rolling pacing evaluated over ' + (activeCreatorDetail?.pinning_velocity?.days_span || 6) + ' day(s).'"></p>
+                  <div class="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight font-mono tabular-nums" x-text="(activeCreatorDetail?.pinning_velocity?.pins_per_day || '0.0') + ' Pins/Day'"></div>
+                  <p class="text-xs text-slate-500 mt-1" x-text="'Rolling pacing evaluated over ' + (activeCreatorDetail?.pinning_velocity?.days_span || 1) + ' day(s).'"></p>
                 </div>
 
                 <div class="border-t border-slate-200 dark:border-slate-800 pt-4 space-y-2.5 text-xs">
                   <div class="flex items-center justify-between">
                     <span class="text-slate-500">Pins Added (Selected Range):</span>
-                    <span class="font-bold text-slate-900 dark:text-white font-mono tabular-nums" x-text="'+' + (activeCreatorDetail?.pinning_velocity?.pins_added || 45)"></span>
+                    <span class="font-bold text-slate-900 dark:text-white font-mono tabular-nums" x-text="'+' + (activeCreatorDetail?.pinning_velocity?.pins_added || 0)"></span>
                   </div>
                   <div class="flex items-center justify-between">
                     <span class="text-slate-500">Time Horizon Evaluated:</span>
-                    <span class="font-bold text-slate-900 dark:text-white font-mono" x-text="(activeCreatorDetail?.pinning_velocity?.days_span || 6) + ' days'"></span>
+                    <span class="font-bold text-slate-900 dark:text-white font-mono" x-text="(activeCreatorDetail?.pinning_velocity?.days_span || 1) + ' days'"></span>
                   </div>
                   <div class="flex items-center justify-between">
                     <span class="text-slate-500">Pacing Estimate:</span>
-                    <span class="font-bold text-rose-500 font-mono tabular-nums" x-text="'~' + (activeCreatorDetail?.pinning_velocity?.pacing_estimate || 225) + ' pins/mo'"></span>
+                    <span class="font-bold text-rose-500 font-mono tabular-nums" x-text="'~' + (activeCreatorDetail?.pinning_velocity?.pacing_estimate || 0) + ' pins/mo'"></span>
                   </div>
                 </div>
               </div>
@@ -3304,13 +3351,13 @@ export function getDashboardHtml() {
               <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-4 sm:p-5 shadow-xs hover:border-emerald-500/30 transition-all flex flex-col justify-between group">
                 <div class="flex items-center justify-between">
                   <span class="text-[10.5px] font-semibold text-slate-500 uppercase tracking-wider">MONTHLY REACH</span>
-                  <span class="rounded-full px-2 py-0.5 text-[10px] font-bold" :class="(activeCreatorDetail?.deltas?.reach?.change || 0) > 0 ? 'bg-emerald-500/10 text-emerald-600 border border-emerald-500/20' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'" x-text="(activeCreatorDetail?.deltas?.reach?.percent || 0) + '%'"></span>
+                  <span class="rounded-full px-2 py-0.5 text-[10px] font-bold" :class="(activeCreatorDetail?.deltas?.reach?.change || 0) > 0 ? 'bg-emerald-500/10 text-emerald-600 border border-emerald-500/20' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'" x-text="((activeCreatorDetail?.deltas?.reach?.change || 0) > 0 ? '+' : '') + (activeCreatorDetail?.deltas?.reach?.percent || 0) + '%'"></span>
                 </div>
                 <div>
-                  <div class="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white mt-2 font-mono tabular-nums" x-text="formatNumber(activeCreator.monthly_reach || 10000001)"></div>
+                  <div class="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white mt-2 font-mono tabular-nums" x-text="formatNumber(activeCreator.monthly_reach || 0)"></div>
                   <div class="mt-2 text-[11px] text-slate-500 flex items-center gap-1.5">
                     <span class="h-1.5 w-1.5 rounded-full" :class="(activeCreatorDetail?.deltas?.reach?.change || 0) > 0 ? 'bg-emerald-500' : 'bg-slate-400'"></span>
-                    <span x-text="(activeCreatorDetail?.deltas?.reach?.change || 0) !== 0 ? (activeCreatorDetail?.deltas?.reach?.change > 0 ? '+' : '') + formatNumber(activeCreatorDetail?.deltas?.reach?.change) + ' vs previous snapshot' : 'No change vs previous snapshot'"></span>
+                    <span x-text="(activeCreatorDetail?.deltas?.reach?.change || 0) !== 0 ? ((activeCreatorDetail?.deltas?.reach?.change || 0) > 0 ? '+' : '') + formatNumber(activeCreatorDetail?.deltas?.reach?.change) + ' vs previous snapshot' : 'No change vs previous snapshot'"></span>
                   </div>
                 </div>
               </div>
@@ -3319,13 +3366,13 @@ export function getDashboardHtml() {
               <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-4 sm:p-5 shadow-xs hover:border-sky-500/30 transition-all flex flex-col justify-between group">
                 <div class="flex items-center justify-between">
                   <span class="text-[10.5px] font-semibold text-slate-500 uppercase tracking-wider">PROFILE VIEWS</span>
-                  <span class="rounded-full px-2 py-0.5 text-[10px] font-bold" :class="(activeCreatorDetail?.deltas?.views?.change || 0) > 0 ? 'bg-sky-500/10 text-sky-600 border border-sky-500/20' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'" x-text="(activeCreatorDetail?.deltas?.views?.percent || 0) + '%'"></span>
+                  <span class="rounded-full px-2 py-0.5 text-[10px] font-bold" :class="(activeCreatorDetail?.deltas?.views?.change || 0) > 0 ? 'bg-sky-500/10 text-sky-600 border border-sky-500/20' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'" x-text="((activeCreatorDetail?.deltas?.views?.change || 0) > 0 ? '+' : '') + (activeCreatorDetail?.deltas?.views?.percent || 0) + '%'"></span>
                 </div>
                 <div>
-                  <div class="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white mt-2 font-mono tabular-nums" x-text="formatNumber(activeCreator.profile_views || 10000001)"></div>
+                  <div class="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white mt-2 font-mono tabular-nums" x-text="formatNumber(activeCreator.profile_views || 0)"></div>
                   <div class="mt-2 text-[11px] text-slate-500 flex items-center gap-1.5">
                     <span class="h-1.5 w-1.5 rounded-full" :class="(activeCreatorDetail?.deltas?.views?.change || 0) > 0 ? 'bg-sky-500' : 'bg-slate-400'"></span>
-                    <span x-text="(activeCreatorDetail?.deltas?.views?.change || 0) !== 0 ? (activeCreatorDetail?.deltas?.views?.change > 0 ? '+' : '') + formatNumber(activeCreatorDetail?.deltas?.views?.change) + ' vs previous snapshot' : 'No change vs previous snapshot'"></span>
+                    <span x-text="(activeCreatorDetail?.deltas?.views?.change || 0) !== 0 ? ((activeCreatorDetail?.deltas?.views?.change || 0) > 0 ? '+' : '') + formatNumber(activeCreatorDetail?.deltas?.views?.change) + ' vs previous snapshot' : 'No change vs previous snapshot'"></span>
                   </div>
                 </div>
               </div>
@@ -3334,13 +3381,13 @@ export function getDashboardHtml() {
               <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-4 sm:p-5 shadow-xs hover:border-purple-500/30 transition-all flex flex-col justify-between group">
                 <div class="flex items-center justify-between">
                   <span class="text-[10.5px] font-semibold text-slate-500 uppercase tracking-wider">FOLLOWERS</span>
-                  <span class="rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 px-2 py-0.5 text-[10px] font-bold">+0.4%</span>
+                  <span class="rounded-full px-2 py-0.5 text-[10px] font-bold" :class="(activeCreatorDetail?.deltas?.followers?.change || 0) > 0 ? 'bg-purple-500/10 text-purple-600 border border-purple-500/20' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'" x-text="((activeCreatorDetail?.deltas?.followers?.change || 0) > 0 ? '+' : '') + (activeCreatorDetail?.deltas?.followers?.percent || 0) + '%'"></span>
                 </div>
                 <div>
-                  <div class="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white mt-2 font-mono tabular-nums" x-text="formatNumber(activeCreator.follower_count || 7864)"></div>
+                  <div class="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white mt-2 font-mono tabular-nums" x-text="formatNumber(activeCreator.follower_count || 0)"></div>
                   <div class="mt-2 text-[11px] text-slate-500 flex items-center gap-1.5">
-                    <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
-                    <span>+35 vs previous snapshot</span>
+                    <span class="h-1.5 w-1.5 rounded-full" :class="(activeCreatorDetail?.deltas?.followers?.change || 0) > 0 ? 'bg-purple-500' : 'bg-slate-400'"></span>
+                    <span x-text="(activeCreatorDetail?.deltas?.followers?.change || 0) !== 0 ? ((activeCreatorDetail?.deltas?.followers?.change || 0) > 0 ? '+' : '') + formatNumber(activeCreatorDetail?.deltas?.followers?.change) + ' vs previous snapshot' : 'No change vs previous snapshot'"></span>
                   </div>
                 </div>
               </div>
@@ -3349,13 +3396,13 @@ export function getDashboardHtml() {
               <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-4 sm:p-5 shadow-xs hover:border-rose-500/30 transition-all flex flex-col justify-between group">
                 <div class="flex items-center justify-between">
                   <span class="text-[10.5px] font-semibold text-slate-500 uppercase tracking-wider">TOTAL PINS</span>
-                  <span class="rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 px-2 py-0.5 text-[10px] font-bold">+0%</span>
+                  <span class="rounded-full px-2 py-0.5 text-[10px] font-bold" :class="(activeCreatorDetail?.deltas?.pins?.change || 0) > 0 ? 'bg-rose-500/10 text-rose-600 border border-rose-500/20' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'" x-text="((activeCreatorDetail?.deltas?.pins?.change || 0) > 0 ? '+' : '') + (activeCreatorDetail?.deltas?.pins?.percent || 0) + '%'"></span>
                 </div>
                 <div>
-                  <div class="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white mt-2 font-mono tabular-nums" x-text="formatNumber(activeCreator.total_pins || 11881)"></div>
+                  <div class="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white mt-2 font-mono tabular-nums" x-text="formatNumber(activeCreator.total_pins || activeCreatorPins.length || 0)"></div>
                   <div class="mt-2 text-[11px] text-slate-500 flex items-center gap-1.5">
-                    <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
-                    <span>+5 vs previous snapshot</span>
+                    <span class="h-1.5 w-1.5 rounded-full" :class="(activeCreatorDetail?.deltas?.pins?.change || 0) > 0 ? 'bg-rose-500' : 'bg-slate-400'"></span>
+                    <span x-text="(activeCreatorDetail?.deltas?.pins?.change || 0) !== 0 ? ((activeCreatorDetail?.deltas?.pins?.change || 0) > 0 ? '+' : '') + formatNumber(activeCreatorDetail?.deltas?.pins?.change) + ' vs previous snapshot' : 'No change vs previous snapshot'"></span>
                   </div>
                 </div>
               </div>
@@ -3423,7 +3470,7 @@ export function getDashboardHtml() {
                     </div>
                   </div>
 
-                  <span class="inline-flex items-center rounded-xl bg-rose-500/10 px-3 py-1 text-xs font-bold text-rose-600 dark:text-rose-400 border border-rose-500/20" x-text="(activeCreatorSnapshots.length || 44) + ' Snapshots'"></span>
+                  <span class="inline-flex items-center rounded-xl bg-rose-500/10 px-3 py-1 text-xs font-bold text-rose-600 dark:text-rose-400 border border-rose-500/20" x-text="activeCreatorSnapshots.length + ' Snapshots'"></span>
                 </div>
               </div>
 
@@ -3441,9 +3488,9 @@ export function getDashboardHtml() {
                     <!-- Summary Row (Σ Net Change) -->
                     <tr class="bg-slate-100/60 dark:bg-slate-800/40 font-bold border-b border-slate-200 dark:border-slate-800">
                       <td class="py-2.5 px-5 text-slate-900 dark:text-white font-mono">Σ Net Change</td>
-                      <td x-show="creatorSnapColVisible.reach" class="py-2.5 px-4 text-right text-slate-400 font-mono">—</td>
-                      <td x-show="creatorSnapColVisible.views" class="py-2.5 px-4 text-right text-slate-400 font-mono">—</td>
-                      <td x-show="creatorSnapColVisible.pins" class="py-2.5 px-4 text-right text-emerald-500 font-mono tabular-nums">(+53)</td>
+                      <td x-show="creatorSnapColVisible.reach" class="py-2.5 px-4 text-right text-slate-700 dark:text-slate-300 font-mono" x-text="creatorSnapshotsNetChange.reach"></td>
+                      <td x-show="creatorSnapColVisible.views" class="py-2.5 px-4 text-right text-slate-700 dark:text-slate-300 font-mono" x-text="creatorSnapshotsNetChange.views"></td>
+                      <td x-show="creatorSnapColVisible.pins" class="py-2.5 px-4 text-right font-mono tabular-nums" :class="creatorSnapshotsNetChange.pins.startsWith('(-') ? 'text-rose-500' : 'text-emerald-500'" x-text="creatorSnapshotsNetChange.pins"></td>
                       <td class="py-2.5 px-5 text-right text-slate-400 font-mono"></td>
                     </tr>
                   </thead>
@@ -3456,7 +3503,7 @@ export function getDashboardHtml() {
                         <td x-show="creatorSnapColVisible.pins" class="px-4 text-right" :class="creatorSnapDensity === 'comfortable' ? 'py-4' : 'py-2.5'">
                           <div class="inline-flex items-center justify-end gap-1.5">
                             <span class="font-extrabold text-slate-900 dark:text-white" x-text="formatNumber(s.total_pins)"></span>
-                            <span class="text-emerald-500 font-bold text-[10.5px]" x-text="'(+' + (5 + (idx % 5)) + ')'"></span>
+                            <span class="font-bold text-[10.5px]" :class="(s.delta_pins || 0) > 0 ? 'text-emerald-500' : 'text-slate-400'" x-text="(s.delta_pins || 0) > 0 ? '(+' + s.delta_pins + ')' : ((s.delta_pins || 0) < 0 ? '(' + s.delta_pins + ')' : '')"></span>
                           </div>
                         </td>
                         <td class="px-5 text-right" :class="creatorSnapDensity === 'comfortable' ? 'py-4' : 'py-2.5'">
@@ -3472,11 +3519,11 @@ export function getDashboardHtml() {
 
               <!-- Snapshots Pagination Footer Bar -->
               <div class="flex items-center justify-between border-t border-slate-200 dark:border-slate-800 px-5 py-3 bg-slate-50/50 dark:bg-slate-900/30 text-xs text-slate-500">
-                <span x-text="'Showing 1-' + paginatedCreatorSnapshots.length + ' of ' + (activeCreatorSnapshots.length || 44) + ' snapshots'"></span>
+                <span x-text="'Showing 1-' + paginatedCreatorSnapshots.length + ' of ' + activeCreatorSnapshots.length + ' snapshots'"></span>
                 <div class="flex items-center gap-2">
                   <button @click="creatorSnapPage = Math.max(1, creatorSnapPage - 1)" :disabled="creatorSnapPage <= 1" class="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0b1120] px-3 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 disabled:opacity-40 transition shadow-2xs cursor-pointer">Previous</button>
-                  <span class="font-bold text-slate-900 dark:text-white" x-text="'Page ' + creatorSnapPage + ' of ' + Math.max(1, Math.ceil((activeCreatorSnapshots.length || 44) / (creatorSnapTimeframe === 'all' ? 100 : Number(creatorSnapTimeframe))))"></span>
-                  <button @click="creatorSnapPage = creatorSnapPage + 1" :disabled="creatorSnapPage >= Math.ceil((activeCreatorSnapshots.length || 44) / (creatorSnapTimeframe === 'all' ? 100 : Number(creatorSnapTimeframe)))" class="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0b1120] px-3 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 disabled:opacity-40 transition shadow-2xs cursor-pointer">Next</button>
+                  <span class="font-bold text-slate-900 dark:text-white" x-text="'Page ' + creatorSnapPage + ' of ' + Math.max(1, Math.ceil(activeCreatorSnapshots.length / (creatorSnapTimeframe === 'all' ? 100 : Number(creatorSnapTimeframe))))"></span>
+                  <button @click="creatorSnapPage = creatorSnapPage + 1" :disabled="creatorSnapPage >= Math.ceil(activeCreatorSnapshots.length / (creatorSnapTimeframe === 'all' ? 100 : Number(creatorSnapTimeframe)))" class="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0b1120] px-3 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 disabled:opacity-40 transition shadow-2xs cursor-pointer">Next</button>
                 </div>
               </div>
             </div>
@@ -3507,7 +3554,7 @@ export function getDashboardHtml() {
                     <option value="creation_date">Sort by: Creation Date</option>
                   </select>
 
-                  <span class="inline-flex items-center rounded-xl bg-rose-500/10 px-3 py-1 text-xs font-bold text-rose-600 dark:text-rose-400 border border-rose-500/20" x-text="(activeCreatorBoards.length || 53) + ' Boards'"></span>
+                  <span class="inline-flex items-center rounded-xl bg-rose-500/10 px-3 py-1 text-xs font-bold text-rose-600 dark:text-rose-400 border border-rose-500/20" x-text="activeCreatorBoards.length + ' Boards'"></span>
                 </div>
               </div>
 
@@ -3531,10 +3578,10 @@ export function getDashboardHtml() {
                           <div class="line-clamp-1" x-text="b.name"></div>
                           <div class="text-[10px] text-slate-400 font-normal mt-0.5">No description provided</div>
                         </td>
-                        <td class="py-3 px-4 font-sans text-slate-500" x-text="b.created_at ? new Date(b.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Sep 8, 2025'"></td>
-                        <td class="py-3 px-4 font-sans text-slate-500" x-text="b.last_pinned_at ? new Date(b.last_pinned_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Aug 31, 2026'"></td>
+                        <td class="py-3 px-4 font-sans text-slate-500" x-text="b.created_at ? new Date(b.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'"></td>
+                        <td class="py-3 px-4 font-sans text-slate-500" x-text="b.last_pinned_at ? new Date(b.last_pinned_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'"></td>
                         <td class="py-3 px-4 text-right font-bold text-slate-900 dark:text-white" x-text="formatNumber(b.pin_count)"></td>
-                        <td class="py-3 px-4 text-right font-bold text-slate-700 dark:text-slate-300" x-text="formatNumber(b.follower_count || 7843)"></td>
+                        <td class="py-3 px-4 text-right font-bold text-slate-700 dark:text-slate-300" x-text="formatNumber(b.follower_count || 0)"></td>
                         <td class="py-3 px-5 text-right font-sans">
                           <a :href="b.url || ('https://www.pinterest.com/' + (activeCreator.username || '').replace(/^@+/, ''))" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 font-semibold text-rose-500 hover:underline">
                             <span>Board</span>
@@ -3549,11 +3596,11 @@ export function getDashboardHtml() {
 
               <!-- Boards Pagination Footer Bar -->
               <div class="flex items-center justify-between border-t border-slate-200 dark:border-slate-800 px-5 py-3 bg-slate-50/50 dark:bg-slate-900/30 text-xs text-slate-500">
-                <span x-text="'Showing 1-' + paginatedCreatorBoards.length + ' of ' + (activeCreatorBoards.length || 53) + ' boards'"></span>
+                <span x-text="'Showing 1-' + paginatedCreatorBoards.length + ' of ' + activeCreatorBoards.length + ' boards'"></span>
                 <div class="flex items-center gap-2">
                   <button @click="creatorBoardPage = Math.max(1, creatorBoardPage - 1)" :disabled="creatorBoardPage <= 1" class="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0b1120] px-3 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 disabled:opacity-40 transition shadow-2xs cursor-pointer">Previous</button>
-                  <span class="font-bold text-slate-900 dark:text-white" x-text="'Page ' + creatorBoardPage + ' of ' + Math.max(1, Math.ceil((activeCreatorBoards.length || 53) / 10))"></span>
-                  <button @click="creatorBoardPage = creatorBoardPage + 1" :disabled="creatorBoardPage >= Math.ceil((activeCreatorBoards.length || 53) / 10)" class="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0b1120] px-3 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 disabled:opacity-40 transition shadow-2xs cursor-pointer">Next</button>
+                  <span class="font-bold text-slate-900 dark:text-white" x-text="'Page ' + creatorBoardPage + ' of ' + Math.max(1, Math.ceil(activeCreatorBoards.length / 10))"></span>
+                  <button @click="creatorBoardPage = creatorBoardPage + 1" :disabled="creatorBoardPage >= Math.ceil(activeCreatorBoards.length / 10)" class="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0b1120] px-3 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 disabled:opacity-40 transition shadow-2xs cursor-pointer">Next</button>
                 </div>
               </div>
             </div>
@@ -3590,19 +3637,19 @@ export function getDashboardHtml() {
               <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
                 <div class="bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-slate-200 dark:border-slate-800 p-3.5">
                   <span class="text-[11px] font-medium text-slate-400 uppercase block">Followers</span>
-                  <span class="text-lg font-bold text-slate-900 dark:text-white mt-1 block font-mono" x-text="formatNumber(activeCreator.follower_count || 6890)"></span>
+                  <span class="text-lg font-bold text-slate-900 dark:text-white mt-1 block font-mono" x-text="formatNumber(activeCreator.follower_count || 0)"></span>
                 </div>
                 <div class="bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-slate-200 dark:border-slate-800 p-3.5">
                   <span class="text-[11px] font-medium text-slate-400 uppercase block">Pins Total</span>
-                  <span class="text-lg font-bold text-slate-900 dark:text-white mt-1 block font-mono" x-text="formatNumber(activeCreatorPins.length || 1984)"></span>
+                  <span class="text-lg font-bold text-slate-900 dark:text-white mt-1 block font-mono" x-text="formatNumber(activeCreatorPins.length || activeCreator.total_pins || 0)"></span>
                 </div>
                 <div class="bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-slate-200 dark:border-slate-800 p-3.5">
                   <span class="text-[11px] font-medium text-slate-400 uppercase block">Last Run</span>
-                  <span class="text-xs font-bold text-slate-900 dark:text-white mt-1.5 block">Sep 29, 2026</span>
+                  <span class="text-xs font-bold text-slate-900 dark:text-white mt-1.5 block" x-text="activeCreator.last_synced_at ? new Date(activeCreator.last_synced_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Never'"></span>
                 </div>
                 <div class="bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-slate-200 dark:border-slate-800 p-3.5">
                   <span class="text-[11px] font-medium text-slate-400 uppercase block">Next Run</span>
-                  <span class="text-xs font-bold text-slate-900 dark:text-white mt-1.5 block">Sep 30, 2026</span>
+                  <span class="text-xs font-bold text-slate-900 dark:text-white mt-1.5 block" x-text="activeCreator.next_run_at ? new Date(activeCreator.next_run_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Pending'"></span>
                 </div>
               </div>
             </div>
@@ -3612,7 +3659,7 @@ export function getDashboardHtml() {
               <div>
                 <h3 class="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
                   <span>📌 All Pins</span>
-                  <span class="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-rose-500/10 text-rose-500" x-text="activeCreatorPins.length || 1984"></span>
+                  <span class="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-rose-500/10 text-rose-500" x-text="activeCreatorPins.length"></span>
                 </h3>
                 <p class="text-xs text-slate-500 mt-0.5">All archived creator pins with snapshots, velocity, and metric growth deltas.</p>
               </div>
@@ -3636,17 +3683,34 @@ export function getDashboardHtml() {
                 <span class="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider shrink-0 flex items-center gap-1">
                   <span>⚡ GROWTH PACE:</span>
                 </span>
-                <button type="button" @click="creatorPinPace = '24h'" class="px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer shrink-0" :class="creatorPinPace === '24h' ? 'bg-rose-500 text-white shadow-2xs' : 'bg-white dark:bg-[#0d1526] border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'">
+                <button type="button" @click="setCreatorPinPace('24h')" class="px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer shrink-0" :class="creatorPinPace === '24h' ? 'bg-rose-500 text-white shadow-2xs' : 'bg-white dark:bg-[#0d1526] border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'">
                   🔥 Last 24 Hours
                 </button>
-                <button type="button" @click="creatorPinPace = '3d'" class="px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer shrink-0" :class="creatorPinPace === '3d' ? 'bg-rose-500 text-white shadow-2xs' : 'bg-white dark:bg-[#0d1526] border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'">
+                <button type="button" @click="setCreatorPinPace('3d')" class="px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer shrink-0" :class="creatorPinPace === '3d' ? 'bg-rose-500 text-white shadow-2xs' : 'bg-white dark:bg-[#0d1526] border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'">
                   ⏱ Last 3 Days
                 </button>
-                <button type="button" @click="creatorPinPace = '7d'" class="px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer shrink-0" :class="creatorPinPace === '7d' ? 'bg-rose-500 text-white shadow-2xs' : 'bg-white dark:bg-[#0d1526] border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'">
+                <button type="button" @click="setCreatorPinPace('7d')" class="px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer shrink-0" :class="creatorPinPace === '7d' ? 'bg-rose-500 text-white shadow-2xs' : 'bg-white dark:bg-[#0d1526] border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'">
                   📅 Last 7 Days
                 </button>
-                <button type="button" @click="creatorPinPace = 'all'" class="px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer shrink-0" :class="creatorPinPace === 'all' ? 'bg-rose-500 text-white shadow-2xs' : 'bg-white dark:bg-[#0d1526] border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'">
+                <button type="button" @click="setCreatorPinPace('all')" class="px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer shrink-0" :class="creatorPinPace === 'all' ? 'bg-rose-500 text-white shadow-2xs' : 'bg-white dark:bg-[#0d1526] border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'">
                   ⭐ All-Time Total
+                </button>
+              </div>
+            </div>
+
+            <!-- Bulk Selection & Staging Action Ribbon -->
+            <div x-show="selectedCreatorPinIds.length > 0" class="flex items-center justify-between bg-rose-500/10 border border-rose-500/30 rounded-2xl px-4 py-2.5 shadow-sm text-xs">
+              <div class="flex items-center gap-2">
+                <i data-lucide="check-square" class="w-4 h-4 text-rose-500"></i>
+                <span class="font-bold text-rose-600 dark:text-rose-400 font-mono" x-text="selectedCreatorPinIds.length + ' pin(s) selected'"></span>
+              </div>
+              <div class="flex items-center gap-2">
+                <button type="button" @click="selectedCreatorPinIds = []" class="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0d1526] text-slate-700 dark:text-slate-300 font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer">
+                  Deselect All
+                </button>
+                <button type="button" @click="stageSelectedCreatorPins()" class="px-4 py-1.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold transition shadow-sm cursor-pointer flex items-center gap-1.5">
+                  <i data-lucide="play-circle" class="w-3.5 h-3.5"></i>
+                  <span>Stage Selected Pins</span>
                 </button>
               </div>
             </div>
@@ -3782,7 +3846,7 @@ export function getDashboardHtml() {
                 <thead class="bg-slate-50 dark:bg-slate-900/60 text-slate-500 dark:text-slate-400 text-[11px] uppercase border-b border-slate-200 dark:border-slate-800 font-semibold select-none">
                   <tr>
                     <th class="py-3 px-3 w-10 text-center">
-                      <input type="checkbox" class="rounded border-slate-300 text-rose-500 cursor-pointer" />
+                      <input type="checkbox" :checked="isAllCreatorPinsSelected" @change="toggleSelectAllCreatorPins()" class="rounded border-slate-300 text-rose-500 cursor-pointer" />
                     </th>
                     <th class="py-3 px-3 w-16">Preview</th>
                     <th class="py-3 px-4 font-semibold text-slate-900 dark:text-white">Pin Title</th>
@@ -3802,7 +3866,7 @@ export function getDashboardHtml() {
                   <template x-for="p in paginatedCreatorPins" :key="p.pin_id">
                     <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition">
                       <td class="py-2.5 px-3 text-center">
-                        <input type="checkbox" class="rounded border-slate-300 text-rose-500 cursor-pointer" />
+                        <input type="checkbox" :checked="selectedCreatorPinIds.includes(p.pin_id)" @change="toggleCreatorPinSelection(p.pin_id)" class="rounded border-slate-300 text-rose-500 cursor-pointer" />
                       </td>
                       <td class="py-2.5 px-3 w-16">
                         <img :src="p.image_url" loading="lazy" class="w-11 h-14 rounded-lg object-cover border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800" />
@@ -3814,22 +3878,22 @@ export function getDashboardHtml() {
                       <td x-show="creatorPinColVisible.board" class="py-2.5 px-3 font-sans text-slate-600 dark:text-slate-300 truncate max-w-[130px]" x-text="p.board_name || 'General'"></td>
                       <td x-show="creatorPinColVisible.saves" class="py-2.5 px-3 text-right">
                         <span class="font-extrabold text-rose-600 dark:text-rose-400" x-text="formatNumber(p.saves)"></span>
-                        <span class="inline-block px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 ml-1" x-text="'+' + p.delta_saves"></span>
+                        <span x-show="(creatorPinPace === '3d' ? Number(p.delta_saves_3d || 0) : creatorPinPace === '7d' ? Number(p.delta_saves_7d || 0) : Number(p.delta_saves || 0)) > 0" class="inline-block px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 ml-1" x-text="'+' + (creatorPinPace === '3d' ? (p.delta_saves_3d || 0) : creatorPinPace === '7d' ? (p.delta_saves_7d || 0) : (p.delta_saves || 0))"></span>
                       </td>
                       <td x-show="creatorPinColVisible.repins" class="py-2.5 px-3 text-right">
                         <span class="font-bold text-slate-900 dark:text-white" x-text="formatNumber(p.repins)"></span>
-                        <span class="inline-block px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 ml-1" x-text="'+' + p.delta_repins"></span>
+                        <span x-show="(creatorPinPace === '3d' ? Number(p.delta_repins_3d || 0) : creatorPinPace === '7d' ? Number(p.delta_repins_7d || 0) : Number(p.delta_repins || 0)) > 0" class="inline-block px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 ml-1" x-text="'+' + (creatorPinPace === '3d' ? (p.delta_repins_3d || 0) : creatorPinPace === '7d' ? (p.delta_repins_7d || 0) : (p.delta_repins || 0))"></span>
                       </td>
                       <td class="py-2.5 px-3 text-right font-medium text-slate-600 dark:text-slate-400" x-text="p.comments || 0"></td>
                       <td class="py-2.5 px-3 text-right">
-                        <a :href="'https://www.pinterest.com/pin/' + p.pin_id + '/'" target="_blank" class="font-bold text-sky-500 hover:underline" x-text="p.share_count || 41"></a>
+                        <a :href="'https://www.pinterest.com/pin/' + p.pin_id + '/'" target="_blank" class="font-bold text-sky-500 hover:underline" x-text="p.share_count ? formatNumber(p.share_count) : '—'"></a>
                       </td>
-                      <td x-show="creatorPinColVisible.velocity" class="py-2.5 px-3 text-right font-bold text-emerald-500" x-text="p.velocity + '/d'"></td>
+                      <td x-show="creatorPinColVisible.velocity" class="py-2.5 px-3 text-right font-bold text-emerald-500" x-text="(p.velocity || 0) + '/d'"></td>
                       <td class="py-2.5 px-3 text-center">
-                        <span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20" x-text="'📈 ' + p.stage"></span>
+                        <span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20" x-text="'📈 ' + (p.stage || 'ACTIVE')"></span>
                       </td>
-                      <td class="py-2.5 px-3 font-sans text-slate-500 text-[11px]" x-text="p.formatted_first_pulled"></td>
-                      <td class="py-2.5 px-3 font-sans text-slate-500 text-[11px]" x-text="p.formatted_created"></td>
+                      <td class="py-2.5 px-3 font-sans text-slate-500 text-[11px]" x-text="p.formatted_first_pulled || '—'"></td>
+                      <td class="py-2.5 px-3 font-sans text-slate-500 text-[11px]" x-text="p.formatted_created || '—'"></td>
                       <td class="py-2.5 px-3 text-center">
                         <button @click="stagePinAction(p.pin_id)" class="inline-flex items-center justify-center h-7 w-7 rounded-full text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer" title="Stage Pin for Repurpose">
                           <i data-lucide="play-circle" class="w-4 h-4"></i>
@@ -5598,7 +5662,10 @@ export function getDashboardHtml() {
         creatorTimeRange: '7D',
         creatorSelectedMonth: 'all',
         creatorMoMMode: false,
+        creatorMoMBaseMonth: '',
+        creatorMoMTargetMonth: '',
         creatorChartMode: 'reach',
+        selectedCreatorPinIds: [],
 
         // Snapshot Log Table State
         creatorSnapNumFmt: 'full',
@@ -5783,19 +5850,181 @@ export function getDashboardHtml() {
           return filtered.length > 0 ? filtered : snaps;
         },
 
+        get availableCreatorMonths() {
+          const snaps = this.activeCreatorSnapshots || [];
+          const set = new Set();
+          for (const s of snaps) {
+            const d = new Date(s.recorded_date || s.created_at);
+            if (!isNaN(d.getTime())) {
+              const mKey = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+              set.add(mKey);
+            }
+          }
+          return Array.from(set).sort();
+        },
+
+        get creatorMoMStats() {
+          const snaps = this.activeCreatorSnapshots || [];
+          const months = this.availableCreatorMonths;
+          const baseMonth = this.creatorMoMBaseMonth || (months.length > 1 ? months[0] : (months[0] || ''));
+          const targetMonth = this.creatorMoMTargetMonth || (months.length > 1 ? months[months.length - 1] : (months[0] || ''));
+
+          const getMonthAgg = (m) => {
+            if (!m) return null;
+            const filtered = snaps.filter(s => {
+              const d = new Date(s.recorded_date || s.created_at);
+              const mKey = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+              return mKey === m;
+            });
+            if (!filtered.length) return null;
+            const last = filtered[filtered.length - 1];
+            return {
+              reach: Number(last.monthly_reach || 0),
+              views: Number(last.profile_views || 0),
+              followers: Number(last.follower_count || 0),
+              pins: Number(last.total_pins || 0)
+            };
+          };
+
+          const aggA = getMonthAgg(baseMonth);
+          const aggB = getMonthAgg(targetMonth);
+
+          const calc = (key) => {
+            if (!aggA || !aggB) return { diff: 0, pct: 0 };
+            const vA = aggA[key] || 0;
+            const vB = aggB[key] || 0;
+            const diff = vB - vA;
+            const pct = vA > 0 ? Number(((diff / vA) * 100).toFixed(1)) : 0;
+            return { diff, pct };
+          };
+
+          return {
+            reach: calc('reach'),
+            views: calc('views'),
+            followers: calc('followers'),
+            pins: calc('pins')
+          };
+        },
+
+        get creatorSnapshotsWithDeltas() {
+          const list = [...(this.activeCreatorSnapshots || [])].sort((a, b) => new Date(a.recorded_date || a.created_at || 0) - new Date(b.recorded_date || b.created_at || 0));
+          return list.map((s, idx) => {
+            const prev = idx > 0 ? list[idx - 1] : null;
+            const delta_pins = prev ? (Number(s.total_pins || 0) - Number(prev.total_pins || 0)) : 0;
+            const delta_reach = prev ? (Number(s.monthly_reach || 0) - Number(prev.monthly_reach || 0)) : 0;
+            const delta_views = prev ? (Number(s.profile_views || 0) - Number(prev.profile_views || 0)) : 0;
+            return {
+              ...s,
+              delta_pins,
+              delta_reach,
+              delta_views
+            };
+          });
+        },
+
         get paginatedCreatorSnapshots() {
-          const list = [...this.filteredCreatorSnapshots].reverse();
+          let list = [...this.creatorSnapshotsWithDeltas];
+          if (this.creatorSelectedMonth !== 'all') {
+            list = list.filter(s => {
+              const d = new Date(s.recorded_date || s.created_at);
+              const mKey = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+              return mKey === this.creatorSelectedMonth;
+            });
+          }
+          list.reverse();
           if (this.creatorSnapTimeframe === 'all') return list;
           const sz = Number(this.creatorSnapTimeframe) || 7;
           const start = (this.creatorSnapPage - 1) * sz;
           return list.slice(start, start + sz);
         },
 
+        get creatorSnapshotsNetChange() {
+          const slice = this.paginatedCreatorSnapshots;
+          if (!slice || slice.length < 2) {
+            return { reach: '—', views: '—', pins: '(+0)' };
+          }
+          const latest = slice[0];
+          const earliest = slice[slice.length - 1];
+          const pinsDiff = (Number(latest.total_pins || 0) - Number(earliest.total_pins || 0));
+          const reachDiff = (Number(latest.monthly_reach || 0) - Number(earliest.monthly_reach || 0));
+          const viewsDiff = (Number(latest.profile_views || 0) - Number(earliest.profile_views || 0));
+          return {
+            reach: (reachDiff > 0 ? '+' : '') + this.formatNumber(reachDiff),
+            views: (viewsDiff > 0 ? '+' : '') + this.formatNumber(viewsDiff),
+            pins: (pinsDiff > 0 ? '(+' + pinsDiff + ')' : (pinsDiff < 0 ? '(' + pinsDiff + ')' : '(+0)'))
+          };
+        },
+
+        get isAllCreatorPinsSelected() {
+          const pins = this.paginatedCreatorPins;
+          if (!pins || !pins.length) return false;
+          return pins.every(p => this.selectedCreatorPinIds.includes(p.pin_id));
+        },
+
         get creatorChartData() {
           const snaps = this.filteredCreatorSnapshots;
           if (!snaps || !snaps.length) {
-            return { min: 0, max: 0, latest: 0, points: [], strokePath: '', areaPath: '' };
+            return { min: 0, max: 0, latest: 0, points: [], strokePath: '', areaPath: '', dual: false, pointsA: [], pointsB: [], strokePathA: '', strokePathB: '', areaPathA: '' };
           }
+          const width = 800;
+          const height = 220;
+          const padL = 50, padR = 30, padT = 20, padB = 40;
+          const cW = width - padL - padR;
+          const cH = height - padT - padB;
+
+          if (this.creatorChartMode === 'dual') {
+            const valsReach = snaps.map(s => Number(s.monthly_reach || 0));
+            const valsViews = snaps.map(s => Number(s.profile_views || 0));
+            const allVals = [...valsReach, ...valsViews];
+            const min = Math.min(...allVals);
+            const max = Math.max(...allVals);
+            const range = (max - min) || 1;
+
+            const mapSeries = (vals) => snaps.map((s, idx) => {
+              const x = padL + (snaps.length === 1 ? cW / 2 : (idx / Math.max(1, snaps.length - 1)) * cW);
+              const y = padT + cH - ((vals[idx] - min) / range) * cH;
+              const dt = new Date(s.recorded_date || s.created_at);
+              const label = !isNaN(dt.getTime()) ? dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'Day ' + (idx + 1);
+              return { x, y, val: vals[idx], label };
+            });
+
+            const ptsReach = mapSeries(valsReach);
+            const ptsViews = mapSeries(valsViews);
+
+            const buildSpline = (pts) => {
+              if (pts.length <= 1) return pts.length === 1 ? 'M ' + pts[0].x + ' ' + pts[0].y + ' L ' + (pts[0].x + 1) + ' ' + pts[0].y : '';
+              let d = 'M ' + pts[0].x + ' ' + pts[0].y;
+              for (let i = 0; i < pts.length - 1; i++) {
+                const p0 = pts[i];
+                const p1 = pts[i + 1];
+                const mx = (p0.x + p1.x) / 2;
+                d += ' C ' + mx + ' ' + p0.y + ', ' + mx + ' ' + p1.y + ', ' + p1.x + ' ' + p1.y;
+              }
+              return d;
+            };
+
+            const strokeReach = buildSpline(ptsReach);
+            const strokeViews = buildSpline(ptsViews);
+            const lastReach = ptsReach[ptsReach.length - 1] || { x: padL + cW, y: padT + cH };
+            const firstReach = ptsReach[0] || { x: padL, y: padT + cH };
+            const areaReach = strokeReach ? (strokeReach + ' L ' + lastReach.x + ' ' + (padT + cH) + ' L ' + firstReach.x + ' ' + (padT + cH) + ' Z') : '';
+
+            return {
+              dual: true,
+              min,
+              max,
+              latest: valsReach[valsReach.length - 1] || 0,
+              points: ptsReach,
+              pointsA: ptsReach,
+              pointsB: ptsViews,
+              strokePath: strokeReach,
+              strokePathA: strokeReach,
+              strokePathB: strokeViews,
+              areaPath: areaReach,
+              areaPathA: areaReach
+            };
+          }
+
           let vals = [];
           if (this.creatorChartMode === 'views') {
             vals = snaps.map(s => Number(s.profile_views || 0));
@@ -5810,23 +6039,16 @@ export function getDashboardHtml() {
           const min = Math.min(...vals);
           const max = Math.max(...vals);
           const latest = vals[vals.length - 1] || 0;
-
-          const width = 800;
-          const height = 220;
-          const padL = 50, padR = 30, padT = 20, padB = 40;
-          const cW = width - padL - padR;
-          const cH = height - padT - padB;
           const range = (max - min) || 1;
 
           const pts = snaps.map((s, idx) => {
-            const x = padL + (idx / Math.max(1, snaps.length - 1)) * cW;
+            const x = padL + (snaps.length === 1 ? cW / 2 : (idx / Math.max(1, snaps.length - 1)) * cW);
             const y = padT + cH - ((vals[idx] - min) / range) * cH;
             const dt = new Date(s.recorded_date || s.created_at);
             const label = !isNaN(dt.getTime()) ? dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'Day ' + (idx + 1);
             return { x, y, val: vals[idx], label };
           });
 
-          // Build bezier spline curve
           let strokePath = '';
           if (pts.length === 1) {
             strokePath = 'M ' + pts[0].x + ' ' + pts[0].y + ' L ' + (pts[0].x + 1) + ' ' + pts[0].y;
@@ -5842,9 +6064,9 @@ export function getDashboardHtml() {
 
           const lastPt = pts[pts.length - 1] || { x: padL + cW, y: padT + cH };
           const firstPt = pts[0] || { x: padL, y: padT + cH };
-          const areaPath = strokePath + ' L ' + lastPt.x + ' ' + (padT + cH) + ' L ' + firstPt.x + ' ' + (padT + cH) + ' Z';
+          const areaPath = strokePath ? (strokePath + ' L ' + lastPt.x + ' ' + (padT + cH) + ' L ' + firstPt.x + ' ' + (padT + cH) + ' Z') : '';
 
-          return { min, max, latest, points: pts, strokePath, areaPath };
+          return { dual: false, min, max, latest, points: pts, strokePath, areaPath };
         },
 
         get filteredCreatorBoards() {
@@ -5906,12 +6128,16 @@ export function getDashboardHtml() {
           if (this.activeCreatorSelectedTopic) {
             const top = this.activeCreatorSelectedTopic.toLowerCase().trim();
             list = list.filter(p => {
-              if (!p.annotations) return false;
-              const anns = Array.isArray(p.annotations) ? p.annotations : [];
-              return anns.some(a => {
-                const name = (typeof a === 'string' ? a : (a && a.name)) || '';
-                return name.toLowerCase().includes(top);
-              });
+              if (p.board_name && p.board_name.toLowerCase().includes(top)) return true;
+              if (p.title && p.title.toLowerCase().includes(top)) return true;
+              if (p.annotations) {
+                const anns = Array.isArray(p.annotations) ? p.annotations : [];
+                return anns.some(a => {
+                  const name = (typeof a === 'string' ? a : (a && a.name)) || '';
+                  return name.toLowerCase().includes(top);
+                });
+              }
+              return false;
             });
           }
 
@@ -7462,14 +7688,17 @@ export function getDashboardHtml() {
         },
 
         formatSnapshotDate(dateStr) {
-          if (!dateStr) return 'Sep 29, 2026, 07:44 AM';
+          if (!dateStr) return '—';
           const d = new Date(dateStr);
-          if (isNaN(d.getTime())) return 'Sep 29, 2026, 07:44 AM';
-          return d.toLocaleDateString('en-US', {
+          if (isNaN(d.getTime())) return '—';
+          const datePart = d.toLocaleDateString('en-US', {
             month: 'short',
             day: 'numeric',
             year: 'numeric'
-          }) + ', 07:44 AM';
+          });
+          const hours = String(d.getHours()).padStart(2, '0');
+          const mins = String(d.getMinutes()).padStart(2, '0');
+          return datePart + ', ' + hours + ':' + mins;
         },
 
         async deleteSnapshotAction(snapshotId) {
@@ -7584,7 +7813,119 @@ export function getDashboardHtml() {
           this.activeCreatorDetail = null;
           this.isCreatorDossierOpen = false;
           this.isBoardsModalOpen = false;
+          this.selectedCreatorPinIds = [];
           this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+        },
+
+        async toggleCompetitorStatus(creator) {
+          if (!creator) return;
+          const newStatus = creator.is_active === false;
+          const targetId = creator.id || creator.username;
+          try {
+            const res = await fetch(this.getApiUrl('/api/competitors/status'), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: targetId, is_active: newStatus })
+            });
+            if (res.ok) {
+              creator.is_active = newStatus;
+              if (this.activeCreator && (this.activeCreator.id === creator.id || this.activeCreator.username === creator.username)) {
+                this.activeCreator.is_active = newStatus;
+              }
+              const existing = (this.competitors || []).find(c => c.id === creator.id || c.username === creator.username);
+              if (existing) existing.is_active = newStatus;
+              this.showToast(newStatus ? '✅ Competitor resumed.' : '⏸ Competitor paused.');
+            } else {
+              this.showToast('Failed to update status', 'error');
+            }
+          } catch (e) {
+            console.error('toggleCompetitorStatus error:', e);
+            this.showToast('Error updating competitor status', 'error');
+          }
+        },
+
+        exportCandidatesCSV(items, filename = 'related-pins-candidates.csv') {
+          const data = items || this.filteredExplorerCandidates || this.candidates || [];
+          if (!data || data.length === 0) {
+            this.showToast('No candidate data to export.', 'info');
+            return;
+          }
+          const headers = ['candidate_pin_id', 'domain', 'frequency', 'composite_score', 'shared_seed_count', 'board_diversity_count', 'created_at'];
+          const rows = data.map(c => [
+            c.candidate_pin_id || '',
+            c.domain || '',
+            c.frequency || 0,
+            c.composite_score || 0,
+            c.shared_seed_count || 0,
+            c.board_diversity_count || 0,
+            c.created_at || ''
+          ]);
+          const csvContent = [headers.join(','), ...rows.map(r => r.map(val => '"' + String(val).replace(/"/g, '""') + '"').join(','))].join(String.fromCharCode(10));
+          const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.setAttribute('href', url);
+          link.setAttribute('download', filename);
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+          this.showToast('✅ Exported ' + data.length + ' candidates to CSV.');
+        },
+
+        setCreatorPinPace(pace) {
+          this.creatorPinPace = pace;
+          if (pace === '24h') this.creatorPinSort = 'delta_saves';
+          else if (pace === '3d') this.creatorPinSort = 'delta_3d';
+          else if (pace === '7d') this.creatorPinSort = 'delta_7d';
+          else if (pace === 'all') this.creatorPinSort = 'saves';
+        },
+
+        toggleCreatorPinSelection(pinId) {
+          const idx = this.selectedCreatorPinIds.indexOf(pinId);
+          if (idx > -1) {
+            this.selectedCreatorPinIds.splice(idx, 1);
+          } else {
+            this.selectedCreatorPinIds.push(pinId);
+          }
+        },
+
+        toggleSelectAllCreatorPins() {
+          const currentPageIds = this.paginatedCreatorPins.map(p => p.pin_id);
+          const allSelected = currentPageIds.length > 0 && currentPageIds.every(id => this.selectedCreatorPinIds.includes(id));
+          if (allSelected) {
+            this.selectedCreatorPinIds = this.selectedCreatorPinIds.filter(id => !currentPageIds.includes(id));
+          } else {
+            for (const id of currentPageIds) {
+              if (!this.selectedCreatorPinIds.includes(id)) {
+                this.selectedCreatorPinIds.push(id);
+              }
+            }
+          }
+        },
+
+        async stageSelectedCreatorPins() {
+          if (!this.selectedCreatorPinIds.length) {
+            this.showToast('No pins selected.', 'info');
+            return;
+          }
+          const count = this.selectedCreatorPinIds.length;
+          try {
+            const res = await fetch(this.getApiUrl('/api/pinarchive/stage'), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ pinIds: this.selectedCreatorPinIds })
+            });
+            if (res.ok) {
+              this.showToast('✅ Successfully staged ' + count + ' pin(s)!');
+              this.selectedCreatorPinIds = [];
+            } else {
+              this.showToast('Failed to stage pins.', 'error');
+            }
+          } catch (e) {
+            console.error('stageSelectedCreatorPins error:', e);
+            this.showToast('Error staging pins.', 'error');
+          }
         },
 
         openCreatorDossierByName(username) {

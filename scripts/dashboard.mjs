@@ -25,7 +25,8 @@ import {
   syncCompetitorBoards,
   syncCompetitorPins,
   getCompetitorDetail,
-  deleteCompetitorSnapshot
+  deleteCompetitorSnapshot,
+  updateCompetitorStatus
 } from '../src/modules/competitors/service.mjs';
 import { listKeywords, addKeyword, crawlKeywordSERP, getKeywordPins } from '../src/modules/keywords/service.mjs';
 import { getFleetProjects, registerNewProject } from '../src/modules/fleet/service.mjs';
@@ -1538,6 +1539,14 @@ const server = http.createServer(async (req, res) => {
       if (!snapshotId) return sendJson(res, 400, { error: 'snapshot_id is required' });
       await deleteCompetitorSnapshot(targetSql, snapshotId);
       return sendJson(res, 200, { success: true, deleted_snapshot_id: snapshotId });
+    }
+
+    if (method === 'POST' && (pathname === '/api/competitors/status' || pathname === '/api/competitors/toggle')) {
+      const body = await parseJsonBody(req);
+      const idOrUser = body.id || body.username || body.competitor_id;
+      if (!idOrUser) return sendJson(res, 400, { error: 'id or username is required' });
+      const row = await updateCompetitorStatus(targetSql, idOrUser, body.is_active);
+      return sendJson(res, 200, { success: true, competitor: row });
     }
 
     // Keyword Velocity Tracker API
