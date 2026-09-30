@@ -11,6 +11,8 @@ import { formatPinterestCookie } from '../../utils.mjs';
  */
 export async function listKeywords(sql, { search = '', limit = 50, offset = 0 } = {}) {
   let query;
+  const lim = Math.max(1, Math.min(isNaN(Number(limit)) ? 50 : Number(limit), 200));
+  const off = Math.max(0, isNaN(Number(offset)) ? 0 : Number(offset));
   if (search) {
     const pattern = `%${search.toLowerCase().trim()}%`;
     query = await sql`
@@ -30,7 +32,7 @@ export async function listKeywords(sql, { search = '', limit = 50, offset = 0 } 
       ) s_count ON true
       WHERE LOWER(k.keyword) LIKE ${pattern}
       ORDER BY k.created_at DESC
-      LIMIT ${limit} OFFSET ${offset};
+      LIMIT ${lim} OFFSET ${off};
     `;
   } else {
     query = await sql`
@@ -49,7 +51,7 @@ export async function listKeywords(sql, { search = '', limit = 50, offset = 0 } 
           )
       ) s_count ON true
       ORDER BY k.created_at DESC
-      LIMIT ${limit} OFFSET ${offset};
+      LIMIT ${lim} OFFSET ${off};
     `;
   }
   return query;
@@ -104,11 +106,19 @@ export async function crawlKeywordSERP(sql, keywordId, cookie = (typeof process 
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
     'Referer': `https://www.pinterest.com/search/pins/?q=${query}`
   };
-  if (cookie) {
+  if (cookie && String(cookie).trim()) {
     headers['Cookie'] = formatPinterestCookie(cookie);
   }
 
-  const res = await fetch(url, { headers, signal: AbortSignal.timeout(10000) });
+  let res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
+  if (res.status === 401 || res.status === 403 || res.status === 429) {
+    const jitter = 2500 + Math.floor(Math.random() * 1500);
+    await new Promise(r => setTimeout(r, jitter));
+    const anonHeaders = { ...headers };
+    delete anonHeaders['Cookie'];
+    res = await fetch(url, { headers: anonHeaders, signal: AbortSignal.timeout(8000) });
+  }
+
   if (!res.ok) {
     throw new Error(`Pinterest Search API returned HTTP ${res.status}`);
   }

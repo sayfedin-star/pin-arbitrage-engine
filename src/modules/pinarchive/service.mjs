@@ -165,8 +165,8 @@ export function qualifyPin(pin, rules = DEFAULT_QUALIFICATION_RULES) {
   }
 
   // Tier 3: Fresh High-Velocity Breakouts (Age & Saves)
-  // Pin MUST have a verified age <= tier3_max_age_days
-  if (!isNaN(ageDays) && ageDays !== null && ageDays <= Number(rules.tier3_max_age_days ?? 14) && saves >= Number(rules.tier3_min_saves ?? 25)) {
+  // Pin MUST have a verified non-negative age <= tier3_max_age_days
+  if (!isNaN(ageDays) && ageDays !== null && ageDays >= 0 && ageDays <= Number(rules.tier3_max_age_days ?? 14) && saves >= Number(rules.tier3_min_saves ?? 25)) {
     return { qualified: true, matchedTier: 'tier3' };
   }
 
@@ -211,6 +211,7 @@ export async function reEvaluateArchivedPins(sql, rules = null) {
           OR repins >= ${t2}
           OR (
             created_at_pinterest IS NOT NULL
+            AND (NOW() - created_at_pinterest) >= INTERVAL '0 seconds'
             AND EXTRACT(EPOCH FROM (NOW() - created_at_pinterest))/86400 <= ${t3Days} 
             AND saves >= ${t3Saves}
           )
@@ -274,10 +275,10 @@ export async function ingestPinsBatch(sql, pins, accountUsername = null, { filte
       const boardName = pin.board_name || '';
       const imageUrl = pin.image_url || '';
       const dominantColor = pin.dominant_color || '#888888';
-      const saves = Number(pin.saves || 0);
-      const repins = Number(pin.repins || saves);
-      const comments = Number(pin.comments || 0);
-      const shareCount = Number(pin.share_count || 0);
+      const saves = Math.max(0, isNaN(Number(pin.saves)) ? 0 : Number(pin.saves));
+      const repins = Math.max(0, isNaN(Number(pin.repins)) ? saves : Number(pin.repins));
+      const comments = Math.max(0, isNaN(Number(pin.comments)) ? 0 : Number(pin.comments));
+      const shareCount = Math.max(0, isNaN(Number(pin.share_count)) ? 0 : Number(pin.share_count));
       
       let reactions = '{}';
       if (pin.reactions && typeof pin.reactions === 'object') {
@@ -286,7 +287,7 @@ export async function ingestPinsBatch(sql, pins, accountUsername = null, { filte
         reactions = pin.reactions.trim();
       }
 
-      const velocity = Number(pin.velocity || 0);
+      const velocity = Math.max(0, isNaN(Number(pin.velocity)) ? 0 : Number(pin.velocity));
 
       let annotations = '[]';
       if (Array.isArray(pin.annotations)) {
@@ -357,13 +358,13 @@ export async function ingestPinsBatch(sql, pins, accountUsername = null, { filte
           domain = CASE WHEN EXCLUDED.domain <> '' THEN EXCLUDED.domain ELSE pa_pins.domain END,
           board_name = CASE WHEN EXCLUDED.board_name <> '' THEN EXCLUDED.board_name ELSE pa_pins.board_name END,
           image_url = CASE WHEN EXCLUDED.image_url <> '' THEN EXCLUDED.image_url ELSE pa_pins.image_url END,
-          dominant_color = EXCLUDED.dominant_color,
+          dominant_color = CASE WHEN EXCLUDED.dominant_color <> '#888888' AND EXCLUDED.dominant_color <> '' THEN EXCLUDED.dominant_color ELSE pa_pins.dominant_color END,
           saves = GREATEST(pa_pins.saves, EXCLUDED.saves),
           repins = GREATEST(pa_pins.repins, EXCLUDED.repins),
           comments = GREATEST(pa_pins.comments, EXCLUDED.comments),
           share_count = GREATEST(pa_pins.share_count, EXCLUDED.share_count),
-          reactions = EXCLUDED.reactions,
-          velocity = EXCLUDED.velocity,
+          reactions = CASE WHEN EXCLUDED.reactions <> '{}'::jsonb THEN EXCLUDED.reactions ELSE pa_pins.reactions END,
+          velocity = CASE WHEN EXCLUDED.velocity > 0 THEN EXCLUDED.velocity ELSE pa_pins.velocity END,
           annotations = CASE WHEN jsonb_typeof(EXCLUDED.annotations) = 'array' AND jsonb_array_length(EXCLUDED.annotations) > 0 THEN EXCLUDED.annotations ELSE pa_pins.annotations END,
           created_at_pinterest = COALESCE(pa_pins.created_at_pinterest, EXCLUDED.created_at_pinterest),
           last_updated_at = NOW()
@@ -418,7 +419,7 @@ export async function getPinArchiveOverview(sql) {
     sql`
       SELECT *
       FROM pa_topic_clusters_page(1, NULL, 1, 0);
-    `,
+    `.catch(() => []),
     sql`
       SELECT COUNT(*)::int AS count
       FROM pa_staged_pins
@@ -447,6 +448,9 @@ export async function getPinArchiveOverview(sql) {
  */
 export async function getTopicClusters(sql, { minPins = 1, search = '', limit = 50, offset = 0 } = {}) {
   const searchPattern = search ? search.trim() : null;
+  const minNum = Math.max(1, isNaN(Number(minPins)) ? 1 : Number(minPins));
+  const lim = Math.max(1, Math.min(isNaN(Number(limit)) ? 50 : Number(limit), 200));
+  const off = Math.max(0, isNaN(Number(offset)) ? 0 : Number(offset));
 
   const rows = await sql`
     SELECT
@@ -456,10 +460,10 @@ export async function getTopicClusters(sql, { minPins = 1, search = '', limit = 
       avg_saves::bigint AS avg_saves,
       avg_velocity::numeric AS avg_velocity
     FROM pa_topic_clusters_page(
-      ${minPins},
+      ${minNum},
       ${searchPattern},
-      ${limit},
-      ${offset}
+      ${lim},
+      ${off}
     );
   `;
 
@@ -485,9 +489,9 @@ export async function listArchivedPins(sql, {
   limit = 50,
   offset = 0
 } = {}) {
-  const minNum = Number(minSaves || 0);
-  const lim = Math.max(1, Math.min(Number(limit || 50), 200));
-  const off = Math.max(0, Number(offset || 0));
+  const minNum = Math.max(0, isNaN(Number(minSaves)) ? 0 : Number(minSaves));
+  const lim = Math.max(1, Math.min(isNaN(Number(limit)) ? 50 : Number(limit), 200));
+  const off = Math.max(0, isNaN(Number(offset)) ? 0 : Number(offset));
   const searchPattern = search ? `%${search.toLowerCase().trim()}%` : null;
   const topicPattern = topic ? `%${topic.toLowerCase().trim()}%` : null;
   const accountPattern = account ? `%${account.toLowerCase().replace('@', '').trim()}%` : null;
@@ -567,7 +571,10 @@ export async function stagePinsForRepurpose(sql, { pinIds = [], targetBoard = ''
           'staged',
           NOW(),
           NOW()
-        WHERE NOT EXISTS (
+        WHERE EXISTS (
+          SELECT 1 FROM pa_pins WHERE pin_id = ${cleanId}
+        )
+        AND NOT EXISTS (
           SELECT 1 FROM pa_staged_pins WHERE pin_id = ${cleanId} AND status = 'staged'
         )
         RETURNING *;
@@ -618,11 +625,46 @@ export async function claimStagedPinCas(sql, stagedId) {
 }
 
 /**
+ * Cancel or unstage a pin in pa_staged_pins
+ */
+export async function cancelStagedPin(sql, stagedId) {
+  if (!stagedId) throw new Error('Invalid staged ID');
+  const cleanStr = String(stagedId).trim();
+  const numericId = parseInt(cleanStr, 10);
+  const isSerialId = !isNaN(numericId) && String(numericId) === cleanStr && numericId > 0 && numericId <= 2147483647;
+
+  let cancelled;
+  if (isSerialId) {
+    [cancelled] = await sql`
+      UPDATE pa_staged_pins
+      SET status = 'cancelled', updated_at = NOW()
+      WHERE id = ${numericId} AND status = 'staged'
+      RETURNING *;
+    `;
+  }
+
+  // Fallback to cancel by Pinterest pin_id if not matched by serial ID
+  if (!cancelled) {
+    [cancelled] = await sql`
+      UPDATE pa_staged_pins
+      SET status = 'cancelled', updated_at = NOW()
+      WHERE pin_id = ${cleanStr} AND status = 'staged'
+      RETURNING *;
+    `;
+  }
+
+  return {
+    success: Boolean(cancelled),
+    item: cancelled || null,
+  };
+}
+
+/**
  * List all staged pins in the repurposing pipeline (supports status 'all' and individual statuses)
  */
 export async function listStagedPins(sql, { status = 'all', limit = 50, offset = 0 } = {}) {
-  const lim = Math.max(1, Math.min(Number(limit || 50), 200));
-  const off = Math.max(0, Number(offset || 0));
+  const lim = Math.max(1, Math.min(isNaN(Number(limit)) ? 50 : Number(limit), 200));
+  const off = Math.max(0, isNaN(Number(offset)) ? 0 : Number(offset));
 
   if (status && status !== 'all') {
     return await sql`

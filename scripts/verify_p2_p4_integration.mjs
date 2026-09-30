@@ -24,6 +24,7 @@ import {
   listArchivedPins,
   stagePinsForRepurpose,
   claimStagedPinCas,
+  cancelStagedPin,
   listStagedPins,
   getQualificationRules,
   updateQualificationRules,
@@ -31,7 +32,7 @@ import {
   reEvaluateArchivedPins
 } from '../src/modules/pinarchive/service.mjs';
 
-import { formatPin } from './lib/pinterest.mjs';
+import { formatPin, parseCleanMetric } from './lib/pinterest.mjs';
 import workerModule from '../src/worker.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -377,7 +378,7 @@ async function runTests() {
     // 3.11 Test Cloudflare Worker scheduled cron handler (verifies getPool is removed and neon is used)
     let scheduledPassed = false;
     try {
-      await workerModule.scheduled({}, { DATABASE_URL: dbUrl, PINTEREST_COOKIE: '' }, {});
+      await workerModule.scheduled({ limit: 1 }, { DATABASE_URL: dbUrl, PINTEREST_COOKIE: '' }, {});
       scheduledPassed = true;
     } catch (schedErr) {
       console.error('Worker scheduled error:', schedErr.message);
@@ -406,13 +407,75 @@ async function runTests() {
     const newestSorted = await listArchivedPins(sql, { sortBy: 'newest', order: 'desc', limit: 3 });
     assert(Array.isArray(commentSorted) && Array.isArray(newestSorted), 'listArchivedPins supports comments and newest sorting without SQL errors');
 
+    // 3.14 Test cancelStagedPin functionality
+    const cancelPinId = 'test_cancel_pin_' + Date.now();
+    await ingestPinsBatch(sql, [{ pin_id: cancelPinId, title: 'Pin to cancel', saves: 200, annotations: ['Cancel'] }]);
+    await stagePinsForRepurpose(sql, { pinIds: [cancelPinId] });
+    const cancelRes = await cancelStagedPin(sql, cancelPinId);
+    assert(cancelRes.success === true && cancelRes.item?.status === 'cancelled', 'cancelStagedPin successfully transitioned pin status to cancelled');
+
+    // 3.15 Test paused_policy: reject prevents crawling inactive competitor
+    const [pausedComp] = await sql`
+      INSERT INTO competitor_profiles (username, display_name, is_active)
+      VALUES ('test_paused_competitor', 'Paused Competitor', FALSE)
+      ON CONFLICT (username) DO UPDATE SET is_active = FALSE
+      RETURNING id, username;
+    `;
+    const pausedSyncRes = await syncCompetitorPins(sql, pausedComp.id, pausedComp.username, { mode: 'daily' });
+    assert(pausedSyncRes.ok === false && pausedSyncRes.error?.includes('paused_policy'), 'syncCompetitorPins rejected inactive competitor when paused_policy is reject');
+    await sql`DELETE FROM competitor_profiles WHERE id = ${pausedComp.id};`;
+
+    // 3.16 Test parseCleanMetric parses string numbers and prevents NaN emission
+    assert(parseCleanMetric('1.2k') === 1200, 'parseCleanMetric parsed 1.2k to 1200');
+    assert(parseCleanMetric('1,500') === 1500, 'parseCleanMetric parsed comma-separated 1,500 to 1500');
+    assert(parseCleanMetric('2.5M') === 2500000, 'parseCleanMetric parsed 2.5M to 2500000');
+    assert(parseCleanMetric(null) === 0 && parseCleanMetric('invalid') === 0, 'parseCleanMetric returned safe 0 fallback for null/invalid values');
+
+    // 3.17 Test future-dated pin qualification prevention (negative epoch defense)
+    const futurePin = {
+      pin_id: 'future_pin_test_' + Date.now(),
+      title: 'Future Pin',
+      saves: 30, // < 100 saves, so relies on Tier 3
+      created_at_pinterest: new Date(Date.now() + 1000 * 86400 * 30).toISOString(), // 30 days in the future!
+      age_days: -30
+    };
+    const futureQual = qualifyPin(futurePin, rules);
+    assert(futureQual.qualified === false, 'qualifyPin correctly rejected pin with negative age (-30 days)');
+
+    // 3.18 Test dominant color and velocity preservation on pin update
+    const presPinId = 'preservation_pin_' + Date.now();
+    await ingestPinsBatch(sql, [{
+      pin_id: presPinId,
+      title: 'Preserve Color & Velocity',
+      dominant_color: '#ea580c',
+      saves: 50,
+      velocity: 12.5,
+      annotations: ['Culinary']
+    }]);
+    // Now update with fallback #888888 and 0 velocity (as happens when created_at is omitted)
+    await ingestPinsBatch(sql, [{
+      pin_id: presPinId,
+      title: 'Preserve Color & Velocity Updated',
+      dominant_color: '#888888',
+      saves: 60,
+      velocity: 0
+    }]);
+    const [preservedPinRow] = await sql`SELECT dominant_color, velocity, saves FROM pa_pins WHERE pin_id = ${presPinId};`;
+    assert(preservedPinRow?.dominant_color === '#ea580c', 'ingestPinsBatch preserved original dominant color #ea580c instead of overwriting with #888888');
+    assert(Number(preservedPinRow?.velocity) === 12.5, 'ingestPinsBatch preserved original velocity 12.5 instead of overwriting with 0');
+    assert(Number(preservedPinRow?.saves) === 60, 'ingestPinsBatch updated saves to 60');
+
+    // 3.19 Test getCompetitorBoards resolving string username handle
+    const boardsByHandle = await getCompetitorBoards(sql, `@${TEST_COMPETITOR_USERNAME}`);
+    assert(Array.isArray(boardsByHandle) && boardsByHandle.length >= 1, 'getCompetitorBoards cleanly resolved @username handle to competitor ID');
+
     console.log('\n=== TEST SUITE 4: Cleanup ===');
     // Cleanup staged pins
-    await sql`DELETE FROM pa_staged_pins WHERE pin_id IN (${TEST_PIN_ID}, ${TEST_QUALIFIED_PIN}, ${TEST_UNQUALIFIED_PIN}, ${PIN_64BIT_NUMERIC});`;
+    await sql`DELETE FROM pa_staged_pins WHERE pin_id IN (${TEST_PIN_ID}, ${TEST_QUALIFIED_PIN}, ${TEST_UNQUALIFIED_PIN}, ${PIN_64BIT_NUMERIC}, ${cancelPinId}, ${presPinId});`;
     // Cleanup metrics
-    await sql`DELETE FROM pa_pin_metrics WHERE pin_id IN (${TEST_PIN_ID}, ${TEST_QUALIFIED_PIN}, ${TEST_UNQUALIFIED_PIN}, ${PIN_64BIT_NUMERIC});`;
+    await sql`DELETE FROM pa_pin_metrics WHERE pin_id IN (${TEST_PIN_ID}, ${TEST_QUALIFIED_PIN}, ${TEST_UNQUALIFIED_PIN}, ${PIN_64BIT_NUMERIC}, ${cancelPinId}, ${presPinId});`;
     // Cleanup pa_pins
-    await sql`DELETE FROM pa_pins WHERE pin_id IN (${TEST_PIN_ID}, ${TEST_QUALIFIED_PIN}, ${TEST_UNQUALIFIED_PIN}, ${PIN_64BIT_NUMERIC});`;
+    await sql`DELETE FROM pa_pins WHERE pin_id IN (${TEST_PIN_ID}, ${TEST_QUALIFIED_PIN}, ${TEST_UNQUALIFIED_PIN}, ${PIN_64BIT_NUMERIC}, ${cancelPinId}, ${presPinId});`;
     // Cleanup boards
     await sql`DELETE FROM competitor_boards WHERE competitor_id = ${testCompetitorId};`;
     // Cleanup profile

@@ -34,6 +34,7 @@ import {
   stagePinsForRepurpose,
   listStagedPins,
   claimStagedPinCas,
+  cancelStagedPin,
   getQualificationRules,
   updateQualificationRules,
   reEvaluateArchivedPins
@@ -1464,14 +1465,24 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'DELETE' && pathname === '/api/competitors') {
-      const id = searchParams.get('id');
-      const username = searchParams.get('username');
+      let id = searchParams.get('id');
+      let username = searchParams.get('username');
+      if (!id && !username) {
+        try {
+          const body = await parseJsonBody(req);
+          id = body.id || body.competitor_id;
+          username = body.username;
+        } catch (_) {}
+      }
       if (id && !isNaN(Number(id))) {
         await targetSql`DELETE FROM competitor_profiles WHERE id = ${Number(id)};`;
+        return sendJson(res, 200, { success: true, deleted_id: Number(id) });
       } else if (username) {
-        await targetSql`DELETE FROM competitor_profiles WHERE username = ${username.toLowerCase()};`;
+        const cleanUser = String(username).replace(/^@/, '').trim().toLowerCase();
+        await targetSql`DELETE FROM competitor_profiles WHERE LOWER(username) = ${cleanUser};`;
+        return sendJson(res, 200, { success: true, deleted_username: cleanUser });
       }
-      return sendJson(res, 200, { success: true });
+      return sendJson(res, 400, { error: 'id or username is required to delete competitor' });
     }
 
     if (method === 'GET' && pathname === '/api/competitors/boards') {
@@ -1528,14 +1539,24 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'DELETE' && pathname === '/api/keywords') {
-      const id = searchParams.get('id');
-      const keyword = searchParams.get('keyword');
+      let id = searchParams.get('id');
+      let keyword = searchParams.get('keyword');
+      if (!id && !keyword) {
+        try {
+          const body = await parseJsonBody(req);
+          id = body.id || body.keyword_id;
+          keyword = body.keyword;
+        } catch (_) {}
+      }
       if (id && !isNaN(Number(id))) {
         await targetSql`DELETE FROM tracked_keywords WHERE id = ${Number(id)};`;
+        return sendJson(res, 200, { success: true, deleted_id: Number(id) });
       } else if (keyword) {
-        await targetSql`DELETE FROM tracked_keywords WHERE LOWER(keyword) = ${keyword.toLowerCase().trim()};`;
+        const cleanKeyword = keyword.toLowerCase().trim();
+        await targetSql`DELETE FROM tracked_keywords WHERE LOWER(keyword) = ${cleanKeyword};`;
+        return sendJson(res, 200, { success: true, deleted_keyword: cleanKeyword });
       }
-      return sendJson(res, 200, { success: true });
+      return sendJson(res, 400, { error: 'id or keyword is required to delete tracked keyword' });
     }
 
     if (method === 'GET' && pathname === '/api/keywords/pins') {
@@ -1627,6 +1648,17 @@ const server = http.createServer(async (req, res) => {
       const result = await claimStagedPinCas(targetSql, stagedId);
       if (!result.success) {
         return sendJson(res, 409, { success: false, error: 'CAS Conflict: pin already dispatched or not in staged status' });
+      }
+      return sendJson(res, 200, { success: true, ...result });
+    }
+
+    if (method === 'DELETE' && (pathname === '/api/pinarchive/staged' || pathname === '/api/pinarchive/cancel-staged')) {
+      const body = await parseJsonBody(req).catch(() => ({}));
+      const stagedId = searchParams.get('id') || searchParams.get('staged_id') || body.staged_id || body.id || body.pin_id;
+      if (!stagedId) return sendJson(res, 400, { error: 'staged_id or pin_id is required' });
+      const result = await cancelStagedPin(targetSql, stagedId);
+      if (!result.success) {
+        return sendJson(res, 404, { success: false, error: 'Staged pin not found or already dispatched/cancelled', ...result });
       }
       return sendJson(res, 200, { success: true, ...result });
     }

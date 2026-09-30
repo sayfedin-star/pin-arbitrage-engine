@@ -25,6 +25,7 @@ import {
   stagePinsForRepurpose,
   listStagedPins,
   claimStagedPinCas,
+  cancelStagedPin,
   getQualificationRules,
   updateQualificationRules,
   reEvaluateArchivedPins
@@ -1288,14 +1289,24 @@ export default {
       }
 
       if (method === 'DELETE' && pathname === '/api/competitors') {
-        const id = searchParams.get('id');
-        const username = searchParams.get('username');
+        let id = searchParams.get('id');
+        let username = searchParams.get('username');
+        if (!id && !username) {
+          try {
+            const body = await request.json();
+            id = body.id || body.competitor_id;
+            username = body.username;
+          } catch (_) {}
+        }
         if (id && !isNaN(Number(id))) {
           await targetSql`DELETE FROM competitor_profiles WHERE id = ${Number(id)};`;
+          return jsonResponse({ success: true, deleted_id: Number(id) });
         } else if (username) {
-          await targetSql`DELETE FROM competitor_profiles WHERE username = ${username.toLowerCase()};`;
+          const cleanUser = String(username).replace(/^@/, '').trim().toLowerCase();
+          await targetSql`DELETE FROM competitor_profiles WHERE LOWER(username) = ${cleanUser};`;
+          return jsonResponse({ success: true, deleted_username: cleanUser });
         }
-        return jsonResponse({ success: true });
+        return jsonResponse({ error: 'id or username is required to delete competitor' }, 400);
       }
 
       if (method === 'GET' && pathname === '/api/competitors/boards') {
@@ -1351,14 +1362,24 @@ export default {
       }
 
       if (method === 'DELETE' && pathname === '/api/keywords') {
-        const id = searchParams.get('id');
-        const keyword = searchParams.get('keyword');
+        let id = searchParams.get('id');
+        let keyword = searchParams.get('keyword');
+        if (!id && !keyword) {
+          try {
+            const body = await request.json();
+            id = body.id || body.keyword_id;
+            keyword = body.keyword;
+          } catch (_) {}
+        }
         if (id && !isNaN(Number(id))) {
           await targetSql`DELETE FROM tracked_keywords WHERE id = ${Number(id)};`;
+          return jsonResponse({ success: true, deleted_id: Number(id) });
         } else if (keyword) {
-          await targetSql`DELETE FROM tracked_keywords WHERE LOWER(keyword) = ${keyword.toLowerCase().trim()};`;
+          const cleanKeyword = keyword.toLowerCase().trim();
+          await targetSql`DELETE FROM tracked_keywords WHERE LOWER(keyword) = ${cleanKeyword};`;
+          return jsonResponse({ success: true, deleted_keyword: cleanKeyword });
         }
-        return jsonResponse({ success: true });
+        return jsonResponse({ error: 'id or keyword is required to delete tracked keyword' }, 400);
       }
 
       if (method === 'GET' && pathname === '/api/keywords/pins') {
@@ -1454,6 +1475,17 @@ export default {
         return jsonResponse({ success: true, ...result });
       }
 
+      if (method === 'DELETE' && (pathname === '/api/pinarchive/staged' || pathname === '/api/pinarchive/cancel-staged')) {
+        const body = await request.json().catch(() => ({}));
+        const stagedId = searchParams.get('id') || searchParams.get('staged_id') || body.staged_id || body.id || body.pin_id;
+        if (!stagedId) return jsonResponse({ error: 'staged_id or pin_id is required' }, 400);
+        const result = await cancelStagedPin(targetSql, stagedId);
+        if (!result.success) {
+          return jsonResponse({ success: false, error: 'Staged pin not found or already dispatched/cancelled', ...result }, 404);
+        }
+        return jsonResponse({ success: true, ...result });
+      }
+
       // Default 404
       return jsonResponse({ error: 'Endpoint not found', path: pathname }, 404);
     } catch (err) {
@@ -1474,11 +1506,12 @@ export default {
       const rules = await getQualificationRules(sql);
       if (!rules.master_ingest_enabled) return;
 
+      const competitorLimit = (event?.limit && Number(event.limit) > 0) ? Number(event.limit) : 10;
       const competitors = await sql`
         SELECT id, username FROM competitor_profiles
         WHERE is_active = TRUE
         ORDER BY last_synced_at ASC NULLS FIRST
-        LIMIT 10;
+        LIMIT ${competitorLimit};
       `;
 
       for (const c of competitors) {
@@ -1490,6 +1523,13 @@ export default {
           });
         } catch (err) {
           console.error(`Scheduled harvest failed for @${c.username}:`, err.message);
+          // Advance last_synced_at so a single failing profile doesn't block the round-robin queue indefinitely
+          await sql`
+            UPDATE competitor_profiles
+            SET last_synced_at = NOW(),
+                updated_at = NOW()
+            WHERE id = ${c.id};
+          `.catch(() => {});
         }
       }
     } catch (schedErr) {

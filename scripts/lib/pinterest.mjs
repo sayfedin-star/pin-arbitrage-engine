@@ -61,6 +61,27 @@ export function sleep(ms) {
 }
 
 /**
+ * Robust metric parser: safely converts numbers, formatted strings ('1.2k', '1.5M', '1,250')
+ * into clean integers, guaranteeing no NaN is emitted to PostgreSQL.
+ */
+export function parseCleanMetric(val, fallback = 0) {
+  if (val === null || val === undefined) return fallback;
+  if (typeof val === 'number') return isNaN(val) ? fallback : Math.round(val);
+  const s = String(val).replace(/,/g, '').trim().toLowerCase();
+  if (!s) return fallback;
+  if (s.endsWith('m')) {
+    const num = parseFloat(s.slice(0, -1));
+    return isNaN(num) ? fallback : Math.round(num * 1000000);
+  }
+  if (s.endsWith('k')) {
+    const num = parseFloat(s.slice(0, -1));
+    return isNaN(num) ? fallback : Math.round(num * 1000);
+  }
+  const num = Number(s);
+  return isNaN(num) ? fallback : Math.round(num);
+}
+
+/**
  * Recursively search a Pinterest JSON/Redux/Relay object tree for a pin matching pinId.
  */
 export function findPinInTree(obj, pinId, depth = 0) {
@@ -154,7 +175,7 @@ export function formatPin(pin) {
 
   const annotations = Array.from(annotationsMap.values());
 
-  const saves = Number(
+  const saves = parseCleanMetric(
     st.saves ??
     st.save_count ??
     pin.save_count ??
@@ -163,7 +184,7 @@ export function formatPin(pin) {
     0
   );
 
-  const repins = Number(
+  const repins = parseCleanMetric(
     st.repins ??
     st.repin_count ??
     pin.repin_count ??
@@ -172,7 +193,7 @@ export function formatPin(pin) {
     saves
   );
 
-  const comments = Number(
+  const comments = parseCleanMetric(
     pin.comment_count ??
     pin.commentCount ??
     pin.comments ??
@@ -250,7 +271,7 @@ export function formatPin(pin) {
     saves,
     repins,
     comments,
-    share_count: Number(pin.share_count || 0),
+    share_count: parseCleanMetric(pin.share_count || 0),
     reactions: pin.reaction_counts || pin.reactions || {},
     annotations,
     tags: annotations.map(a => a.name),
@@ -360,8 +381,12 @@ export function extractPinData(html, pinId) {
 export async function fetchPinFromPinterest(pinId, activeCookie = '') {
   try {
     const url = `https://www.pinterest.com/pin/${pinId}/`;
+    const headers = { ...PINTEREST_PAGE_HEADERS };
+    if (activeCookie && String(activeCookie).trim()) {
+      headers['Cookie'] = String(activeCookie).trim();
+    }
     let res = await fetch(url, {
-      headers: { ...PINTEREST_PAGE_HEADERS, Cookie: activeCookie || '' },
+      headers,
       redirect: 'follow',
       signal: AbortSignal.timeout(8000),
     });
@@ -416,12 +441,12 @@ export async function fetchUserResource(username, activeCookie = '') {
       avatar_url: data.image_large_url || data.image_medium_url || null,
       bio: data.about || '',
       website_url: data.website_url || null,
-      monthly_reach: Number(data.profile_reach || data.profile_views || data.monthly_views || 0),
-      profile_views: Number(data.profile_views || data.profile_reach || data.monthly_views || 0),
-      follower_count: Number(data.follower_count || 0),
-      following_count: Number(data.following_count || 0),
-      total_pins: Number(data.pin_count || 0),
-      total_boards: Number(data.board_count || 0),
+      monthly_reach: parseCleanMetric(data.profile_reach || data.profile_views || data.monthly_views || 0),
+      profile_views: parseCleanMetric(data.profile_views || data.profile_reach || data.monthly_views || 0),
+      follower_count: parseCleanMetric(data.follower_count || 0),
+      following_count: parseCleanMetric(data.following_count || 0),
+      total_pins: parseCleanMetric(data.pin_count || 0),
+      total_boards: parseCleanMetric(data.board_count || 0),
     };
   } catch (err) {
     return { ok: false, error: err.message };
@@ -465,12 +490,16 @@ export async function fetchBoardsResource(username, activeCookie = '') {
           const d = new Date(item.board_order_modified_at);
           if (!isNaN(d.getTime())) lastPinned = d.toISOString();
         }
+        let boardUrl = '';
+        if (item.url) {
+          boardUrl = item.url.startsWith('http') ? item.url : `https://www.pinterest.com${item.url.startsWith('/') ? '' : '/'}${item.url}`;
+        }
         boards.push({
           board_id: boardId,
           name: item.name || 'Untitled Board',
-          url: item.url ? `https://www.pinterest.com${item.url}` : '',
-          pin_count: Number(item.pin_count || 0),
-          follower_count: Number(item.follower_count || 0),
+          url: boardUrl,
+          pin_count: parseCleanMetric(item.pin_count || 0),
+          follower_count: parseCleanMetric(item.follower_count || 0),
           last_pinned_at: lastPinned,
         });
       }

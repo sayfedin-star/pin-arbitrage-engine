@@ -66,6 +66,8 @@ export async function getCompetitorsOverview(sql) {
  */
 export async function listCompetitors(sql, { account_type = 'all', search = '', limit = 50, offset = 0 } = {}) {
   let query;
+  const lim = Math.max(1, Math.min(isNaN(Number(limit)) ? 50 : Number(limit), 200));
+  const off = Math.max(0, isNaN(Number(offset)) ? 0 : Number(offset));
   const searchPattern = search ? `%${search.toLowerCase().replace('@', '')}%` : null;
 
   if (account_type && account_type !== 'all') {
@@ -76,7 +78,7 @@ export async function listCompetitors(sql, { account_type = 'all', search = '', 
         WHERE account_type = ${account_type}
           AND (LOWER(username) LIKE ${searchPattern} OR LOWER(COALESCE(display_name, '')) LIKE ${searchPattern})
         ORDER BY monthly_reach DESC
-        LIMIT ${limit} OFFSET ${offset};
+        LIMIT ${lim} OFFSET ${off};
       `;
     } else {
       query = await sql`
@@ -84,7 +86,7 @@ export async function listCompetitors(sql, { account_type = 'all', search = '', 
         FROM competitor_profiles
         WHERE account_type = ${account_type}
         ORDER BY monthly_reach DESC
-        LIMIT ${limit} OFFSET ${offset};
+        LIMIT ${lim} OFFSET ${off};
       `;
     }
   } else {
@@ -94,14 +96,14 @@ export async function listCompetitors(sql, { account_type = 'all', search = '', 
         FROM competitor_profiles
         WHERE (LOWER(username) LIKE ${searchPattern} OR LOWER(COALESCE(display_name, '')) LIKE ${searchPattern})
         ORDER BY monthly_reach DESC
-        LIMIT ${limit} OFFSET ${offset};
+        LIMIT ${lim} OFFSET ${off};
       `;
     } else {
       query = await sql`
         SELECT *
         FROM competitor_profiles
         ORDER BY monthly_reach DESC
-        LIMIT ${limit} OFFSET ${offset};
+        LIMIT ${lim} OFFSET ${off};
       `;
     }
   }
@@ -181,7 +183,7 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
   const [prevSnapshot] = await sql`
     SELECT monthly_reach, profile_views
     FROM competitor_history_snapshots
-    WHERE competitor_id = (SELECT id FROM competitor_profiles WHERE username = ${cleanUsername})
+    WHERE competitor_id = (SELECT id FROM competitor_profiles WHERE LOWER(username) = ${cleanUsername} LIMIT 1)
       AND recorded_date <= CURRENT_DATE - INTERVAL '6 days'
     ORDER BY recorded_date DESC
     LIMIT 1;
@@ -279,7 +281,14 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
  * Get all boards for a competitor
  */
 export async function getCompetitorBoards(sql, competitorId) {
-  const numericId = parseInt(competitorId, 10);
+  let numericId = parseInt(competitorId, 10);
+  if (isNaN(numericId) && competitorId) {
+    const cleanUser = String(competitorId).replace(/^@/, '').trim().toLowerCase();
+    try {
+      const [c] = await sql`SELECT id FROM competitor_profiles WHERE LOWER(username) = ${cleanUser} LIMIT 1;`;
+      if (c?.id) numericId = c.id;
+    } catch (_) {}
+  }
   if (isNaN(numericId)) return [];
 
   return await sql`
@@ -407,17 +416,31 @@ export async function syncCompetitorPins(sql, competitorId, username, { mode = '
     return { ok: false, error: 'Master Ingest is currently disabled in Pin Qualification Rules.' };
   }
 
-  // Determine pagination depth based on mode
-  let pageLimit = rules.early_stop_pages || 3;
+  // Enforce paused_policy: reject if competitor is inactive
+  const [profile] = await sql`
+    SELECT id, username, is_active FROM competitor_profiles 
+    WHERE id = ${numericId} OR LOWER(username) = ${cleanUsername} 
+    LIMIT 1;
+  `;
+  if (profile && profile.is_active === false && String(rules.paused_policy).toLowerCase() === 'reject') {
+    return { ok: false, error: `Competitor @${cleanUsername} is paused/inactive and paused_policy is set to 'reject'.` };
+  }
+
+  // Determine pagination depth based on mode (strictly bounds daily mode to rules.early_stop_pages)
+  const numMaxPages = (maxPages !== null && maxPages !== undefined && !isNaN(Number(maxPages)) && Number(maxPages) > 0)
+    ? Number(maxPages)
+    : null;
+  let pageLimit = Number(rules.early_stop_pages) || 3;
   if (mode === 'deep') {
-    pageLimit = maxPages ? Math.min(Number(maxPages), rules.discovery_max_pages || 500) : (rules.discovery_max_pages || 500);
-  } else if (maxPages) {
-    pageLimit = Math.min(Number(maxPages), 50);
+    pageLimit = numMaxPages ? Math.min(numMaxPages, Number(rules.discovery_max_pages) || 500) : (Number(rules.discovery_max_pages) || 500);
+  } else if (numMaxPages) {
+    pageLimit = Math.min(numMaxPages, Number(rules.early_stop_pages) || 3);
   }
 
   const formattedCookie = formatPinterestCookie(cookie);
 
   let currentBookmark = null;
+  let lastSeenBookmark = null;
   let totalFetched = 0;
   let allQualifiedCount = 0;
   let pagesCrawled = 0;
@@ -440,7 +463,8 @@ export async function syncCompetitorPins(sql, competitorId, username, { mode = '
     }
 
     currentBookmark = res.nextBookmark;
-    if (!currentBookmark || currentBookmark === '-end-') break; // End of feed
+    if (!currentBookmark || currentBookmark === '-end-' || currentBookmark === lastSeenBookmark) break; // End of feed
+    lastSeenBookmark = currentBookmark;
 
     // Inject jitter delay between pages to absorb Pinterest 429 rate limits (Rule 6 compliant)
     if (page < pageLimit) {
