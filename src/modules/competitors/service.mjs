@@ -24,6 +24,23 @@ export function formatMetric(num, abbrev = false) {
 }
 
 /**
+ * Normalize Pinterest handle or full URL to clean username
+ */
+export function normalizePinterestUsername(input) {
+  if (!input) return '';
+  let str = String(input).trim();
+  try {
+    if (str.startsWith('http://') || str.startsWith('https://')) {
+      const url = new URL(str);
+      const parts = url.pathname.split('/').filter(Boolean);
+      if (parts.length > 0) return parts[0].replace(/^@/, '').toLowerCase();
+    }
+  } catch (_) {}
+  str = str.replace(/^(?:https?:\/\/)?(?:www\.)?pinterest\.[a-z.]+\/+/i, '');
+  return str.split('/')[0].replace(/^@/, '').trim().toLowerCase();
+}
+
+/**
  * Get aggregated KPIs across all tracked competitor profiles
  */
 export async function getCompetitorsOverview(sql) {
@@ -125,7 +142,7 @@ export async function listCompetitors(sql, { account_type = 'all', search = '', 
  * Track a new competitor handle
  */
 export async function trackCompetitor(sql, { username, display_name, account_type = 'competitor' }) {
-  const cleanUsername = String(username || '').replace(/^@/, '').trim().toLowerCase();
+  const cleanUsername = normalizePinterestUsername(username);
   if (!cleanUsername) throw new Error('Username is required.');
 
   const [row] = await sql`
@@ -148,6 +165,7 @@ export async function trackCompetitor(sql, { username, display_name, account_typ
       updated_at = NOW()
     RETURNING *;
   `;
+
   return row;
 }
 
@@ -155,7 +173,7 @@ export async function trackCompetitor(sql, { username, display_name, account_typ
  * Resilient live crawl of a Pinterest user profile
  */
 export async function syncCompetitorProfile(sql, username, cookie = (typeof process !== 'undefined' && process?.env ? process.env.PINTEREST_COOKIE : null)) {
-  const cleanUsername = String(username || '').replace(/^@/, '').trim().toLowerCase();
+  const cleanUsername = normalizePinterestUsername(username);
   if (!cleanUsername) throw new Error('Username is required.');
 
   const formattedCookie = formatPinterestCookie(cookie);
@@ -283,7 +301,7 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
 export async function getCompetitorBoards(sql, competitorId) {
   let numericId = parseInt(competitorId, 10);
   if (isNaN(numericId) && competitorId) {
-    const cleanUser = String(competitorId).replace(/^@/, '').trim().toLowerCase();
+    const cleanUser = normalizePinterestUsername(competitorId);
     try {
       const [c] = await sql`SELECT id FROM competitor_profiles WHERE LOWER(username) = ${cleanUser} LIMIT 1;`;
       if (c?.id) numericId = c.id;
@@ -303,7 +321,7 @@ export async function getCompetitorBoards(sql, competitorId) {
  * Sync boards for a competitor from Pinterest BoardsResource
  */
 export async function syncCompetitorBoards(sql, competitorId, username, cookie = '') {
-  let cleanUsername = String(username || '').replace(/^@/, '').trim().toLowerCase();
+  let cleanUsername = normalizePinterestUsername(username);
   let numericId = parseInt(competitorId, 10);
 
   if (cleanUsername) {
@@ -391,7 +409,7 @@ export async function syncCompetitorBoards(sql, competitorId, username, cookie =
  * Evaluates all pins against active Pin Qualification Rules (Tier 1/2/3 OR Criteria).
  */
 export async function syncCompetitorPins(sql, competitorId, username, { mode = 'daily', maxPages = null, cookie = '' } = {}) {
-  let cleanUsername = String(username || '').replace(/^@/, '').trim().toLowerCase();
+  let cleanUsername = normalizePinterestUsername(username);
   let numericId = parseInt(competitorId, 10);
 
   if (cleanUsername) {
