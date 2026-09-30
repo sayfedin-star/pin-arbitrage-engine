@@ -177,9 +177,9 @@ export function formatPin(pin) {
   );
 
   const pinId = String(pin.id || pin.pin_id || pin.node_id || '').trim();
-  if (!pinId) return null;
+  if (!pinId || pinId === 'undefined' || pinId === 'null') return null;
 
-  // Created at date & velocity calculation (safely handling malformed dates)
+  // Created at date & velocity calculation (safely handling malformed dates and clock skew)
   const createdRaw = pin.created_at || pin.created_at_pinterest || pin.createdAt;
   let createdAtPinterest = null;
   let ageDays = null;
@@ -190,7 +190,8 @@ export function formatPin(pin) {
       createdAtPinterest = d.toISOString();
       createdMs = d.getTime();
       const msDiff = Date.now() - createdMs;
-      if (Number.isFinite(msDiff) && msDiff >= 0) {
+      if (Number.isFinite(msDiff)) {
+        // Guard against slight server clock skew while ensuring fresh pins are assigned a positive age (min 0.1 days)
         ageDays = Math.max(0.1, msDiff / 86400000);
       }
     }
@@ -395,6 +396,10 @@ export async function fetchUserResource(username, activeCookie = '') {
 
     if (!res.ok) return { ok: false, status: res.status };
     const json = await res.json();
+    if (json.resource_response?.status === 'failure' || json.resource_response?.error) {
+      const errMsg = json.resource_response?.error?.message || json.resource_response?.message || 'Pinterest resource failure';
+      return { ok: false, error: errMsg };
+    }
     const data = json.resource_response?.data;
     if (!data) return { ok: false, error: 'no_data' };
 
@@ -437,6 +442,10 @@ export async function fetchBoardsResource(username, activeCookie = '') {
 
     if (!res.ok) return { ok: false, status: res.status, boards: [] };
     const json = await res.json();
+    if (json.resource_response?.status === 'failure' || json.resource_response?.error) {
+      const errMsg = json.resource_response?.error?.message || json.resource_response?.message || 'Pinterest resource failure';
+      return { ok: false, error: errMsg, boards: [] };
+    }
     const items = json.resource_response?.data || [];
     const rawList = Array.isArray(items) ? items : (items?.items || items?.boards || []);
 
@@ -502,6 +511,11 @@ export async function fetchUserActivityPinsResource(username, bookmark = null, a
 
     if (!res.ok) return { ok: false, status: res.status, pins: [], nextBookmark: null };
     const json = await res.json();
+    if (json.resource_response?.status === 'failure' || json.resource_response?.error) {
+      const errMsg = json.resource_response?.error?.message || json.resource_response?.message || 'Pinterest resource failure';
+      return { ok: false, error: errMsg, pins: [], nextBookmark: null };
+    }
+    const data = json.resource_response?.data;
     const rawBookmark = json.resource_response?.bookmark;
     const nextBookmark = (rawBookmark && rawBookmark !== '-end-') ? rawBookmark : null;
 

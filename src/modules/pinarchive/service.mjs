@@ -182,6 +182,21 @@ export function isPinQualified(pin, rules) {
  */
 export async function reEvaluateArchivedPins(sql, rules = null) {
   const activeRules = rules || (await getQualificationRules(sql));
+  
+  // If master ingest is disabled, no pins qualify
+  if (activeRules.master_ingest_enabled === false) {
+    const [cntRes] = await sql`SELECT count(*)::int AS total_pins FROM pa_pins;`;
+    const total = cntRes?.total_pins || 0;
+    return {
+      ok: true,
+      total_evaluated: total,
+      qualified_count: 0,
+      disqualified_count: total,
+      disqualified_pruned: total,
+      rules: activeRules
+    };
+  }
+
   const t1 = Number(activeRules.tier1_min_saves ?? 100);
   const t2 = Number(activeRules.tier2_min_repins ?? 100);
   const t3Days = Number(activeRules.tier3_max_age_days ?? 14);
@@ -494,8 +509,8 @@ export async function listArchivedPins(sql, {
       CASE WHEN ${sortColumn} = 'saves' AND NOT ${isAsc} THEN saves END DESC,
       CASE WHEN ${sortColumn} = 'velocity' AND ${isAsc} THEN velocity END ASC,
       CASE WHEN ${sortColumn} = 'velocity' AND NOT ${isAsc} THEN velocity END DESC,
-      CASE WHEN ${sortColumn} = 'created_at_pinterest' AND ${isAsc} THEN created_at_pinterest END ASC,
-      CASE WHEN ${sortColumn} = 'created_at_pinterest' AND NOT ${isAsc} THEN created_at_pinterest END DESC,
+      CASE WHEN ${sortColumn} = 'created_at_pinterest' AND ${isAsc} THEN created_at_pinterest END ASC NULLS LAST,
+      CASE WHEN ${sortColumn} = 'created_at_pinterest' AND NOT ${isAsc} THEN created_at_pinterest END DESC NULLS LAST,
       CASE WHEN ${sortColumn} = 'repins' AND ${isAsc} THEN repins END ASC,
       CASE WHEN ${sortColumn} = 'repins' AND NOT ${isAsc} THEN repins END DESC,
       saves DESC
@@ -516,28 +531,32 @@ export async function stagePinsForRepurpose(sql, { pinIds = [], targetBoard = ''
     const cleanId = String(pinId).trim();
     if (!cleanId) continue;
 
-    const [inserted] = await sql`
-      INSERT INTO pa_staged_pins (
-        pin_id,
-        target_board,
-        override_link,
-        status,
-        created_at,
-        updated_at
-      )
-      SELECT
-        ${cleanId},
-        ${targetBoard || null},
-        ${overrideLink || null},
-        'staged',
-        NOW(),
-        NOW()
-      WHERE NOT EXISTS (
-        SELECT 1 FROM pa_staged_pins WHERE pin_id = ${cleanId} AND status = 'staged'
-      )
-      RETURNING *;
-    `;
-    if (inserted) stagedRows.push(inserted);
+    try {
+      const [inserted] = await sql`
+        INSERT INTO pa_staged_pins (
+          pin_id,
+          target_board,
+          override_link,
+          status,
+          created_at,
+          updated_at
+        )
+        SELECT
+          ${cleanId},
+          ${targetBoard || null},
+          ${overrideLink || null},
+          'staged',
+          NOW(),
+          NOW()
+        WHERE NOT EXISTS (
+          SELECT 1 FROM pa_staged_pins WHERE pin_id = ${cleanId} AND status = 'staged'
+        )
+        RETURNING *;
+      `;
+      if (inserted) stagedRows.push(inserted);
+    } catch (err) {
+      console.warn(`[stagePinsForRepurpose] Skipped pin ${cleanId}:`, err.message);
+    }
   }
 
   return { ok: true, stagedCount: stagedRows.length, staged_count: stagedRows.length, items: stagedRows };

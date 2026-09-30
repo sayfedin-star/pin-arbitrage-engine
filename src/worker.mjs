@@ -1468,7 +1468,7 @@ export default {
   async scheduled(event, env, ctx) {
     const dbUrl = env.DATABASE_URL || (typeof process !== 'undefined' ? process.env.DATABASE_URL : null);
     if (!dbUrl) return;
-    const sql = getPool(dbUrl);
+    const sql = neon(dbUrl);
 
     try {
       const rules = await getQualificationRules(sql);

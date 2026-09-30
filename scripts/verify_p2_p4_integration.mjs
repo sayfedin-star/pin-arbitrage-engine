@@ -30,6 +30,9 @@ import {
   reEvaluateArchivedPins
 } from '../src/modules/pinarchive/service.mjs';
 
+import { formatPin } from './lib/pinterest.mjs';
+import workerModule from '../src/worker.mjs';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -340,6 +343,40 @@ async function runTests() {
     assert(stageQualRes.ok && stageQualRes.stagedCount === 1, 'Staged qualified pin successfully for raw pin_id claim');
     const casByPinId = await claimStagedPinCas(sql, TEST_QUALIFIED_PIN);
     assert(casByPinId.success === true && casByPinId.item.status === 'dispatched', 'claimStagedPinCas claimed pin by raw string pin_id');
+
+    // 3.7 Test formatPin clock skew resilience (negative msDiff handled gracefully)
+    const clockSkewPin = formatPin({
+      id: 'skew_pin_1',
+      created_at: new Date(Date.now() + 5000).toISOString(),
+      saves: 30,
+      repins: 5
+    });
+    assert(clockSkewPin && clockSkewPin.age_days === 0.1, 'formatPin safely assigned 0.1 age_days to pin with clock skew');
+    const skewQual = qualifyPin(clockSkewPin, rules);
+    assert(skewQual.qualified && skewQual.matchedTier === 'tier3', 'Pin with clock skew qualifies under Tier 3');
+
+    // 3.8 Test stagePinsForRepurpose FK error resilience
+    const nonExistentStageRes = await stagePinsForRepurpose(sql, { pinIds: ['non_existent_pin_fk_test_999'] });
+    assert(nonExistentStageRes.ok && nonExistentStageRes.stagedCount === 0, 'stagePinsForRepurpose handled non-existent pin ID gracefully without throwing FK exception');
+
+    // 3.9 Test reEvaluateArchivedPins with master_ingest_enabled: false
+    const disabledRules = { ...rules, master_ingest_enabled: false };
+    const disabledReEval = await reEvaluateArchivedPins(sql, disabledRules);
+    assert(disabledReEval.ok && disabledReEval.qualified_count === 0, 'reEvaluateArchivedPins returned 0 qualified pins when master_ingest_enabled is false');
+
+    // 3.10 Test listArchivedPins sorting with NULLS LAST
+    const dateSortedPins = await listArchivedPins(sql, { sortBy: 'created_at', order: 'desc', limit: 5 });
+    assert(Array.isArray(dateSortedPins), 'listArchivedPins sorted by created_at DESC with NULLS LAST cleanly executed');
+
+    // 3.11 Test Cloudflare Worker scheduled cron handler (verifies getPool is removed and neon is used)
+    let scheduledPassed = false;
+    try {
+      await workerModule.scheduled({}, { DATABASE_URL: dbUrl, PINTEREST_COOKIE: '' }, {});
+      scheduledPassed = true;
+    } catch (schedErr) {
+      console.error('Worker scheduled error:', schedErr.message);
+    }
+    assert(scheduledPassed, 'Cloudflare Worker scheduled cron executed cleanly without ReferenceError (getPool)');
 
     console.log('\n=== TEST SUITE 4: Cleanup ===');
     // Cleanup staged pins

@@ -123,7 +123,7 @@ export async function listCompetitors(sql, { account_type = 'all', search = '', 
  * Track a new competitor handle
  */
 export async function trackCompetitor(sql, { username, display_name, account_type = 'competitor' }) {
-  const cleanUsername = username.trim().toLowerCase().replace('@', '');
+  const cleanUsername = String(username || '').replace(/^@/, '').trim().toLowerCase();
   if (!cleanUsername) throw new Error('Username is required.');
 
   const [row] = await sql`
@@ -155,7 +155,8 @@ export async function trackCompetitor(sql, { username, display_name, account_typ
  * Resilient live crawl of a Pinterest user profile
  */
 export async function syncCompetitorProfile(sql, username, cookie = (typeof process !== 'undefined' && process?.env ? process.env.PINTEREST_COOKIE : null)) {
-  const cleanUsername = username.trim().toLowerCase().replace('@', '');
+  const cleanUsername = String(username || '').replace(/^@/, '').trim().toLowerCase();
+  if (!cleanUsername) throw new Error('Username is required.');
   const url = `https://www.pinterest.com/resource/UserResource/get/?source_url=%2F${cleanUsername}%2F&data=%7B%22options%22%3A%7B%22username%22%3A%22${cleanUsername}%22%2C%22field_set_key%22%3A%22profile%22%7D%2C%22context%22%3A%7B%7D%7D`;
 
   const headers = {
@@ -309,12 +310,25 @@ export async function getCompetitorBoards(sql, competitorId) {
  * Sync boards for a competitor from Pinterest BoardsResource
  */
 export async function syncCompetitorBoards(sql, competitorId, username, cookie = '') {
-  const numericId = parseInt(competitorId, 10);
-  if (isNaN(numericId) || !username) {
-    throw new Error('Invalid competitorId or username');
+  let cleanUsername = String(username || '').replace(/^@/, '').trim().toLowerCase();
+  let numericId = parseInt(competitorId, 10);
+
+  if (isNaN(numericId) && cleanUsername) {
+    try {
+      const [c] = await sql`SELECT id FROM competitor_profiles WHERE LOWER(username) = ${cleanUsername} LIMIT 1;`;
+      if (c?.id) numericId = c.id;
+    } catch (_) {}
+  } else if (!cleanUsername && !isNaN(numericId)) {
+    try {
+      const [c] = await sql`SELECT username FROM competitor_profiles WHERE id = ${numericId} LIMIT 1;`;
+      if (c?.username) cleanUsername = c.username;
+    } catch (_) {}
   }
 
-  const cleanUsername = username.replace('@', '').trim();
+  if (isNaN(numericId) || !cleanUsername) {
+    throw new Error('Valid competitorId or username is required to sync boards');
+  }
+
   const formattedCookie = formatPinterestCookie(cookie);
 
   const res = await fetchBoardsResource(cleanUsername, formattedCookie);
@@ -330,35 +344,39 @@ export async function syncCompetitorBoards(sql, competitorId, username, cookie =
       const d = new Date(b.last_pinned_at);
       if (!isNaN(d.getTime())) lastPinnedDate = d;
     }
-    await sql`
-      INSERT INTO competitor_boards (
-        competitor_id,
-        board_id,
-        name,
-        url,
-        pin_count,
-        follower_count,
-        last_pinned_at,
-        updated_at
-      ) VALUES (
-        ${numericId},
-        ${b.board_id},
-        ${b.name},
-        ${b.url},
-        ${b.pin_count},
-        ${b.follower_count},
-        ${lastPinnedDate},
-        NOW()
-      )
-      ON CONFLICT (competitor_id, board_id) DO UPDATE SET
-        name = EXCLUDED.name,
-        url = EXCLUDED.url,
-        pin_count = EXCLUDED.pin_count,
-        follower_count = EXCLUDED.follower_count,
-        last_pinned_at = EXCLUDED.last_pinned_at,
-        updated_at = NOW();
-    `;
-    syncedCount++;
+    try {
+      await sql`
+        INSERT INTO competitor_boards (
+          competitor_id,
+          board_id,
+          name,
+          url,
+          pin_count,
+          follower_count,
+          last_pinned_at,
+          updated_at
+        ) VALUES (
+          ${numericId},
+          ${b.board_id},
+          ${b.name},
+          ${b.url},
+          ${b.pin_count},
+          ${b.follower_count},
+          ${lastPinnedDate},
+          NOW()
+        )
+        ON CONFLICT (competitor_id, board_id) DO UPDATE SET
+          name = EXCLUDED.name,
+          url = EXCLUDED.url,
+          pin_count = EXCLUDED.pin_count,
+          follower_count = EXCLUDED.follower_count,
+          last_pinned_at = EXCLUDED.last_pinned_at,
+          updated_at = NOW();
+      `;
+      syncedCount++;
+    } catch (bErr) {
+      console.warn(`[syncCompetitorBoards] Skipped board ${b.board_id}:`, bErr.message);
+    }
   }
 
   // Update total_boards on competitor profile
@@ -377,7 +395,21 @@ export async function syncCompetitorBoards(sql, competitorId, username, cookie =
  * Evaluates all pins against active Pin Qualification Rules (Tier 1/2/3 OR Criteria).
  */
 export async function syncCompetitorPins(sql, competitorId, username, { mode = 'daily', maxPages = null, cookie = '' } = {}) {
-  const cleanUsername = String(username || '').replace(/^@/, '').trim().toLowerCase();
+  let cleanUsername = String(username || '').replace(/^@/, '').trim().toLowerCase();
+  let numericId = parseInt(competitorId, 10);
+
+  if (isNaN(numericId) && cleanUsername) {
+    try {
+      const [c] = await sql`SELECT id FROM competitor_profiles WHERE LOWER(username) = ${cleanUsername} LIMIT 1;`;
+      if (c?.id) numericId = c.id;
+    } catch (_) {}
+  } else if (!cleanUsername && !isNaN(numericId)) {
+    try {
+      const [c] = await sql`SELECT username FROM competitor_profiles WHERE id = ${numericId} LIMIT 1;`;
+      if (c?.username) cleanUsername = c.username;
+    } catch (_) {}
+  }
+
   if (!cleanUsername) throw new Error('Username is required');
 
   const rules = await getQualificationRules(sql);
@@ -427,7 +459,6 @@ export async function syncCompetitorPins(sql, competitorId, username, { mode = '
   }
 
   // Update harvest metadata on competitor profile without clobbering total_pins published catalog
-  const numericId = parseInt(competitorId, 10);
   const harvestMeta = {
     last_sync_mode: mode,
     pages_crawled: pagesCrawled,
