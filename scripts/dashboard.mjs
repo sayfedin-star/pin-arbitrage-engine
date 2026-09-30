@@ -22,7 +22,8 @@ import {
   trackCompetitor,
   syncCompetitorProfile,
   getCompetitorBoards,
-  syncCompetitorBoards
+  syncCompetitorBoards,
+  syncCompetitorPins
 } from '../src/modules/competitors/service.mjs';
 import { listKeywords, addKeyword, crawlKeywordSERP, getKeywordPins } from '../src/modules/keywords/service.mjs';
 import { getFleetProjects, registerNewProject } from '../src/modules/fleet/service.mjs';
@@ -32,7 +33,10 @@ import {
   listArchivedPins,
   stagePinsForRepurpose,
   listStagedPins,
-  claimStagedPinCas
+  claimStagedPinCas,
+  getQualificationRules,
+  updateQualificationRules,
+  reEvaluateArchivedPins
 } from '../src/modules/pinarchive/service.mjs';
 
 const execFileAsync = promisify(execFile);
@@ -1482,6 +1486,20 @@ const server = http.createServer(async (req, res) => {
       const { competitor_id, username } = body;
       if (!competitor_id || !username) return sendJson(res, 400, { error: 'competitor_id and username are required' });
       const result = await syncCompetitorBoards(targetSql, competitor_id, username, process.env.PINTEREST_COOKIE);
+      if (!result.ok) return sendJson(res, 400, { success: false, ...result });
+      return sendJson(res, 200, { success: true, ...result });
+    }
+
+    if (method === 'POST' && pathname === '/api/competitors/sync-pins') {
+      const body = await parseJsonBody(req);
+      const { competitor_id, username, mode, max_pages } = body;
+      if (!username) return sendJson(res, 400, { error: 'username is required' });
+      const result = await syncCompetitorPins(targetSql, competitor_id, username, { 
+        mode, 
+        maxPages: max_pages, 
+        cookie: process.env.PINTEREST_COOKIE 
+      });
+      if (!result.ok) return sendJson(res, 400, { success: false, ...result });
       return sendJson(res, 200, { success: true, ...result });
     }
 
@@ -1545,6 +1563,22 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { success: true, overview });
     }
 
+    if (method === 'GET' && pathname === '/api/pinarchive/rules') {
+      const rules = await getQualificationRules(targetSql);
+      return sendJson(res, 200, { success: true, rules });
+    }
+
+    if (method === 'POST' && pathname === '/api/pinarchive/rules') {
+      const body = await parseJsonBody(req);
+      const rules = await updateQualificationRules(targetSql, body);
+      return sendJson(res, 200, { success: true, rules });
+    }
+
+    if (method === 'POST' && pathname === '/api/pinarchive/re-evaluate') {
+      const audit = await reEvaluateArchivedPins(targetSql);
+      return sendJson(res, 200, { success: true, ...audit });
+    }
+
     if (method === 'GET' && pathname === '/api/pinarchive/topics') {
       const minPins = Number(searchParams.get('min_pins') || 1);
       const search = searchParams.get('search') || '';
@@ -1557,21 +1591,23 @@ const server = http.createServer(async (req, res) => {
     if (method === 'GET' && pathname === '/api/pinarchive/pins') {
       const search = searchParams.get('search') || '';
       const topic = searchParams.get('topic') || '';
+      const account = searchParams.get('account') || '';
       const minSaves = Number(searchParams.get('min_saves') || 0);
       const sortBy = searchParams.get('sort') || searchParams.get('sort_by') || 'saves';
       const order = searchParams.get('order') || 'desc';
       const limit = Number(searchParams.get('limit') || 50);
       const offset = Number(searchParams.get('offset') || 0);
-      const pins = await listArchivedPins(targetSql, { search, topic, minSaves, sortBy, order, limit, offset });
+      const pins = await listArchivedPins(targetSql, { search, topic, account, minSaves, sortBy, order, limit, offset });
       return sendJson(res, 200, { success: true, pins });
     }
 
     if (method === 'POST' && pathname === '/api/pinarchive/stage') {
       const body = await parseJsonBody(req);
       const pinIds = body.pin_ids || body.pinIds;
-      const { target_board, override_link } = body;
+      const targetBoard = body.target_board || body.targetBoard || '';
+      const overrideLink = body.override_link || body.overrideLink || '';
       if (!pinIds || !pinIds.length) return sendJson(res, 400, { error: 'pin_ids are required' });
-      const result = await stagePinsForRepurpose(targetSql, { pinIds, targetBoard: target_board, overrideLink: override_link });
+      const result = await stagePinsForRepurpose(targetSql, { pinIds, targetBoard, overrideLink });
       return sendJson(res, 200, { success: true, ...result });
     }
 
@@ -1588,6 +1624,9 @@ const server = http.createServer(async (req, res) => {
       const stagedId = body.staged_id || body.id;
       if (!stagedId) return sendJson(res, 400, { error: 'staged_id is required' });
       const result = await claimStagedPinCas(targetSql, stagedId);
+      if (!result.success) {
+        return sendJson(res, 409, { success: false, error: 'CAS Conflict: pin already dispatched or not in staged status' });
+      }
       return sendJson(res, 200, { success: true, ...result });
     }
 

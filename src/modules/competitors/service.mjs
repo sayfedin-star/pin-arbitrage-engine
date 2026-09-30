@@ -5,7 +5,8 @@
  */
 
 import { formatPinterestCookie } from '../../utils.mjs';
-import { fetchBoardsResource } from '../../../scripts/lib/pinterest.mjs';
+import { fetchBoardsResource, fetchUserActivityPinsResource } from '../../../scripts/lib/pinterest.mjs';
+import { ingestPinsBatch, getQualificationRules } from '../pinarchive/service.mjs';
 
 /**
  * Format large numbers with commas or abbreviation (e.g. 10.5M, 42.8K)
@@ -183,7 +184,8 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
   const user = data?.resource_response?.data;
   if (!user) throw new Error(`Could not parse UserResource data for @${cleanUsername}`);
 
-  const monthlyReach = Number(user.profile_views || user.monthly_views || 0);
+  const monthlyReach = Number(user.profile_reach || user.profile_views || user.monthly_views || 0);
+  const profileViews = Number(user.profile_views || user.profile_reach || user.monthly_views || 0);
   const totalPins = Number(user.pin_count || 0);
   const totalBoards = Number(user.board_count || 0);
   const followers = Number(user.follower_count || 0);
@@ -201,7 +203,7 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
   `;
 
   const reachDelta = prevSnapshot ? (monthlyReach - Number(prevSnapshot.monthly_reach || 0)) : 0;
-  const viewsDelta = prevSnapshot ? (monthlyReach - Number(prevSnapshot.profile_views || 0)) : 0;
+  const viewsDelta = prevSnapshot ? (profileViews - Number(prevSnapshot.profile_views || 0)) : 0;
 
   // Atomic Upsert: ensures profile is created even if sync is called before tracking
   const [updated] = await sql`
@@ -228,7 +230,7 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
       ${avatarUrl},
       ${monthlyReach},
       ${reachDelta},
-      ${monthlyReach},
+      ${profileViews},
       ${viewsDelta},
       ${totalPins},
       ${totalBoards},
@@ -270,7 +272,7 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
       ) VALUES (
         ${updated.id},
         ${monthlyReach},
-        ${monthlyReach},
+        ${profileViews},
         ${followers},
         ${totalPins},
         ${totalBoards},
@@ -322,6 +324,7 @@ export async function syncCompetitorBoards(sql, competitorId, username, cookie =
 
   let syncedCount = 0;
   for (const b of res.boards) {
+    if (!b.board_id || String(b.board_id).trim() === '' || b.board_id === 'undefined') continue;
     let lastPinnedDate = null;
     if (b.last_pinned_at) {
       const d = new Date(b.last_pinned_at);
@@ -367,4 +370,82 @@ export async function syncCompetitorBoards(sql, competitorId, username, cookie =
   `;
 
   return { ok: true, synced: syncedCount, synced_boards_count: syncedCount, boards: res.boards };
+}
+
+/**
+ * Harvest winning pins for a competitor into PinArchive using Early-Stop (daily) or Deep Sweep (audit)
+ * Evaluates all pins against active Pin Qualification Rules (Tier 1/2/3 OR Criteria).
+ */
+export async function syncCompetitorPins(sql, competitorId, username, { mode = 'daily', maxPages = null, cookie = '' } = {}) {
+  const cleanUsername = String(username || '').replace(/^@/, '').trim().toLowerCase();
+  if (!cleanUsername) throw new Error('Username is required');
+
+  const rules = await getQualificationRules(sql);
+  if (rules.master_ingest_enabled === false) {
+    return { ok: false, error: 'Master Ingest is currently disabled in Pin Qualification Rules.' };
+  }
+
+  // Determine pagination depth based on mode
+  let pageLimit = rules.early_stop_pages || 3;
+  if (mode === 'deep') {
+    pageLimit = maxPages ? Math.min(Number(maxPages), rules.discovery_max_pages || 500) : (rules.discovery_max_pages || 500);
+  } else if (maxPages) {
+    pageLimit = Math.min(Number(maxPages), 50);
+  }
+
+  const formattedCookie = formatPinterestCookie(cookie);
+
+  let currentBookmark = null;
+  let totalFetched = 0;
+  let allQualifiedCount = 0;
+  let pagesCrawled = 0;
+
+  for (let page = 1; page <= pageLimit; page++) {
+    pagesCrawled++;
+    const res = await fetchUserActivityPinsResource(cleanUsername, currentBookmark, formattedCookie);
+    if (!res.ok) {
+      if (page === 1) return { ok: false, error: res.error || `Pinterest API returned error ${res.status}` };
+      break; // Stop pagination on error for later pages
+    }
+
+    const pins = res.pins || [];
+    totalFetched += pins.length;
+
+    // Filter through 3-tier OR qualification rules & ingest qualified winning pins into pa_pins
+    if (pins.length > 0) {
+      const ingestRes = await ingestPinsBatch(sql, pins, cleanUsername, { filterQualified: true, rules });
+      allQualifiedCount += (ingestRes.added + ingestRes.updated);
+    }
+
+    currentBookmark = res.nextBookmark;
+    if (!currentBookmark) break; // End of feed
+  }
+
+  // Update total_pins and harvest metadata on competitor profile
+  const numericId = parseInt(competitorId, 10);
+  const harvestMeta = {
+    last_sync_mode: mode,
+    pages_crawled: pagesCrawled,
+    total_fetched: totalFetched,
+    qualified_archived: allQualifiedCount,
+    synced_at: new Date().toISOString()
+  };
+
+  await sql`
+    UPDATE competitor_profiles
+    SET total_pins = (SELECT count(*)::int FROM pa_pins WHERE LOWER(account_username) = ${cleanUsername}),
+        last_harvest_metadata = ${JSON.stringify(harvestMeta)}::jsonb,
+        last_synced_at = NOW(),
+        updated_at = NOW()
+    WHERE LOWER(username) = ${cleanUsername} OR id = ${isNaN(numericId) ? -1 : numericId};
+  `;
+
+  return {
+    ok: true,
+    mode,
+    pages_crawled: pagesCrawled,
+    total_fetched: totalFetched,
+    qualified_archived: allQualifiedCount,
+    metadata: harvestMeta
+  };
 }

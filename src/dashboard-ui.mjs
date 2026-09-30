@@ -2230,6 +2230,9 @@ export function getDashboardHtml() {
                   </td>
                   <td class="py-3 px-3 text-center">
                     <div class="flex items-center justify-center space-x-1.5">
+                      <button @click="harvestCompetitorPinsAction(c, 'daily')" :disabled="harvestingCompetitorId === c.id" class="p-1.5 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-950/40 text-slate-400 hover:text-indigo-500 transition" title="Harvest Pins (Early-Stop 3 Pages - ~150 latest pins)">
+                        <i data-lucide="download" class="w-3.5 h-3.5" :class="harvestingCompetitorId === c.id ? 'animate-bounce text-indigo-500' : ''"></i>
+                      </button>
                       <button @click="syncCompetitor(c.username)" class="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400 hover:text-emerald-500 transition" title="Sync live profile">
                         <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
                       </button>
@@ -2544,6 +2547,165 @@ export function getDashboardHtml() {
           <div class="mt-1 text-[11px] text-rose-500 font-semibold flex items-center space-x-1">
             <span>View Staged Pins</span>
             <i data-lucide="arrow-right" class="w-3 h-3"></i>
+          </div>
+        </div>
+      </div>
+
+      <!-- Section 0: Pin Qualification & Ingest Rules (Anti-Bloat & Early-Stop Engine) -->
+      <div class="p-5 rounded-2xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 shadow-sm space-y-4">
+        <!-- Header -->
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800/80 pb-3.5">
+          <div class="flex items-center space-x-3">
+            <div class="p-2 rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400">
+              <i data-lucide="sliders" class="w-5 h-5"></i>
+            </div>
+            <div>
+              <div class="flex items-center space-x-2">
+                <h3 class="text-sm font-bold text-slate-900 dark:text-white">Pin Qualification & Ingest Rules</h3>
+                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">Active Engine</span>
+              </div>
+              <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">فلاتر تصفية الدبابيس وشروط الاستبعاد لتجنب فحص 20,000 دبوس وسحب الفائزين فقط</p>
+            </div>
+          </div>
+
+          <div class="flex items-center space-x-2 self-end md:self-auto">
+            <button @click="reEvaluateCandidatesAction()" :disabled="isReEvaluating" class="px-3 py-1.5 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 transition active:scale-95 disabled:opacity-50 flex items-center space-x-1.5 shadow-sm" title="Re-evaluate already archived pins against current criteria">
+              <i data-lucide="refresh-cw" :class="{'animate-spin': isReEvaluating}" class="w-3.5 h-3.5 text-purple-500"></i>
+              <span x-text="isReEvaluating ? 'Evaluating...' : 'إعادة تقييم الدبابيس الحالية'"></span>
+            </button>
+
+            <button @click="saveQualificationRulesAction()" :disabled="isSavingRules" class="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white transition active:scale-95 disabled:opacity-50 flex items-center space-x-1.5 shadow-sm">
+              <i data-lucide="save" :class="{'animate-spin': isSavingRules}" class="w-3.5 h-3.5"></i>
+              <span x-text="isSavingRules ? 'Saving...' : 'حفظ القواعد'"></span>
+            </button>
+
+            <button @click="isRulesCollapsed = !isRulesCollapsed; $nextTick(() => { if (window.lucide) window.lucide.createIcons(); });" class="p-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition">
+              <i :data-lucide="isRulesCollapsed ? 'chevron-down' : 'chevron-up'" class="w-4 h-4"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Collapsible Content -->
+        <div x-show="!isRulesCollapsed" class="space-y-4 pt-1">
+          <!-- 3 Qualification Tiers (Grid) -->
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+            <!-- Tier 1 -->
+            <div class="p-4 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200/80 dark:border-slate-800 space-y-2.5 relative">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center space-x-1.5">
+                  <i data-lucide="bookmark" class="w-3.5 h-3.5 text-indigo-500"></i>
+                  <span>الشرط الأول (Tier 1: High Saves)</span>
+                </span>
+                <span class="px-1.5 py-0.5 rounded text-[10px] font-bold font-mono bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">OR Rule</span>
+              </div>
+              <div>
+                <label class="text-[11px] font-semibold text-slate-500 dark:text-slate-400 block mb-1">الحد الأدنى للحفظ (Saves):</label>
+                <div class="relative">
+                  <input type="number" min="0" step="5" x-model.number="qualificationRules.tier1_min_saves" class="w-full px-3 py-1.5 text-xs font-mono font-bold rounded-lg bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50">
+                  <span class="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-mono">saves</span>
+                </div>
+              </div>
+              <p class="text-[11px] text-slate-500 dark:text-slate-400">تطبيق تلقائي عند اكتشاف دبابيس ذات حفظ عالي ومعدل تخزين استثنائي.</p>
+            </div>
+
+            <!-- Tier 2 -->
+            <div class="p-4 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200/80 dark:border-slate-800 space-y-2.5 relative">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center space-x-1.5">
+                  <i data-lucide="repeat" class="w-3.5 h-3.5 text-purple-500"></i>
+                  <span>الشرط الثاني (Tier 2: High Repins)</span>
+                </span>
+                <span class="px-1.5 py-0.5 rounded text-[10px] font-bold font-mono bg-purple-500/10 text-purple-600 dark:text-purple-400">OR Rule</span>
+              </div>
+              <div>
+                <label class="text-[11px] font-semibold text-slate-500 dark:text-slate-400 block mb-1">الحد الأدنى لإعادة النشر (Repins):</label>
+                <div class="relative">
+                  <input type="number" min="0" step="5" x-model.number="qualificationRules.tier2_min_repins" class="w-full px-3 py-1.5 text-xs font-mono font-bold rounded-lg bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500/50">
+                  <span class="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-mono">repins</span>
+                </div>
+              </div>
+              <p class="text-[11px] text-slate-500 dark:text-slate-400">تطبيق على الدبابيس الفيروسية ذات الانتشار الواسع وإعادة النشر.</p>
+            </div>
+
+            <!-- Tier 3 -->
+            <div class="p-4 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200/80 dark:border-slate-800 space-y-2.5 relative">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center space-x-1.5">
+                  <i data-lucide="zap" class="w-3.5 h-3.5 text-amber-500"></i>
+                  <span>الشرط الثالث (Tier 3: Fresh High-Velocity)</span>
+                </span>
+                <span class="px-1.5 py-0.5 rounded text-[10px] font-bold font-mono bg-amber-500/10 text-amber-600 dark:text-amber-400">OR Rule</span>
+              </div>
+              <div class="grid grid-cols-2 gap-2">
+                <div>
+                  <label class="text-[11px] font-semibold text-slate-500 dark:text-slate-400 block mb-1">أقصى عمر (أيام):</label>
+                  <input type="number" min="1" step="1" x-model.number="qualificationRules.tier3_max_age_days" class="w-full px-2.5 py-1.5 text-xs font-mono font-bold rounded-lg bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50">
+                </div>
+                <div>
+                  <label class="text-[11px] font-semibold text-slate-500 dark:text-slate-400 block mb-1">أدنى حفظ:</label>
+                  <input type="number" min="1" step="5" x-model.number="qualificationRules.tier3_min_saves" class="w-full px-2.5 py-1.5 text-xs font-mono font-bold rounded-lg bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50">
+                </div>
+              </div>
+              <p class="text-[11px] text-slate-500 dark:text-slate-400">اصطياد المحتوى الصاعد بسرعة (Fresh Breakouts) حتى لو لم يصل للحد العام بعد.</p>
+            </div>
+          </div>
+
+          <!-- Formula Logic Card -->
+          <div class="p-3.5 rounded-xl bg-indigo-50/70 dark:bg-indigo-950/20 border border-indigo-200/80 dark:border-indigo-900/40 text-xs">
+            <div class="flex items-center space-x-2 text-indigo-700 dark:text-indigo-300 font-bold mb-1">
+              <i data-lucide="shield-check" class="w-4 h-4"></i>
+              <span>منطق التصفية المعتمد (OR Logic Engine)</span>
+            </div>
+            <p class="text-slate-600 dark:text-slate-300 text-[11px] leading-relaxed">
+              الدبوس يتأهل ويتم حفظه في الأرشيف إذا حقق:
+              <span class="font-bold text-indigo-600 dark:text-indigo-400" x-text="'(الحفظ ≥ ' + qualificationRules.tier1_min_saves + ')'"></span>
+              أو
+              <span class="font-bold text-purple-600 dark:text-purple-400" x-text="'(الريبينز ≥ ' + qualificationRules.tier2_min_repins + ')'"></span>
+              أو
+              <span class="font-bold text-amber-600 dark:text-amber-400" x-text="'(العمر ≤ ' + qualificationRules.tier3_max_age_days + ' أيام والحفظ ≥ ' + qualificationRules.tier3_min_saves + ')'"></span>.
+              <span class="text-slate-500 dark:text-slate-400 block mt-1">⚠️ يتم استبعاد باقي الدبابيس الضعيفة فوراً لحماية قاعدة بيانات Neon Postgres من التضخم وضمان جودة دبابيس الأربتراج.</span>
+            </p>
+          </div>
+
+          <!-- Automation Routines & Ingest Scheduler -->
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3.5 pt-1">
+            <!-- Daily Cron Switch -->
+            <div class="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200/80 dark:border-slate-800 flex items-center justify-between">
+              <div>
+                <span class="text-xs font-bold text-slate-800 dark:text-slate-200 block">التشغيل التلقائي اليومي</span>
+                <span class="text-[10px] text-slate-500 dark:text-slate-400">Daily Ingest Cron Automation</span>
+              </div>
+              <label class="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" x-model="qualificationRules.cron_enabled" class="sr-only peer">
+                <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-800 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+              </label>
+            </div>
+
+            <!-- Early-Stop Limit -->
+            <div class="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200/80 dark:border-slate-800 space-y-1.5">
+              <div class="flex items-center justify-between">
+                <label class="text-xs font-bold text-slate-800 dark:text-slate-200">عمق الفحص اليومي (Early-Stop):</label>
+                <span class="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 font-mono">Recommended: 3</span>
+              </div>
+              <div class="relative">
+                <input type="number" min="1" max="10" x-model.number="qualificationRules.early_stop_pages" class="w-full px-3 py-1 text-xs font-mono font-bold rounded-lg bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50">
+                <span class="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-mono">pages (~150 pins)</span>
+              </div>
+              <span class="text-[10px] text-slate-500 dark:text-slate-400 block">كافية لاكتشاف دبابيس المنافس الحديثة وتفادي حظر Pinterest.</span>
+            </div>
+
+            <!-- Deep Audit Limit -->
+            <div class="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200/80 dark:border-slate-800 space-y-1.5">
+              <div class="flex items-center justify-between">
+                <label class="text-xs font-bold text-slate-800 dark:text-slate-200">فحص شامل (Deep Audit Sweep):</label>
+                <span class="text-[10px] font-bold text-purple-600 dark:text-purple-400 font-mono">Manual Only</span>
+              </div>
+              <div class="relative">
+                <input type="number" min="10" max="1000" x-model.number="qualificationRules.discovery_max_pages" class="w-full px-3 py-1 text-xs font-mono font-bold rounded-lg bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500/50">
+                <span class="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-mono">pages (max 500)</span>
+              </div>
+              <span class="text-[10px] text-slate-500 dark:text-slate-400 block">فحص حسابات المنافسين الجديدة عند إضافتها فقط.</span>
+            </div>
           </div>
         </div>
       </div>
@@ -3887,12 +4049,22 @@ export function getDashboardHtml() {
         </button>
       </div>
 
-      <div class="flex justify-between items-center">
-        <span class="text-xs text-slate-500">Board strategy and last-pinned activity timestamps</span>
-        <button @click="syncCompetitorBoardsAction(activeBoardsCompetitor)" :disabled="isSyncingBoards" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white transition active:scale-95 disabled:opacity-50 flex items-center space-x-1.5 shadow-sm">
-          <i data-lucide="refresh-cw" :class="{'animate-spin': isSyncingBoards}" class="w-3.5 h-3.5"></i>
-          <span x-text="isSyncingBoards ? 'Syncing Boards...' : 'Sync Boards from Pinterest'"></span>
-        </button>
+      <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+        <span class="text-xs text-slate-500">Board strategy and pin harvest actions</span>
+        <div class="flex items-center space-x-2">
+          <button @click="harvestCompetitorPinsAction(activeBoardsCompetitor, 'daily')" :disabled="harvestingCompetitorId === activeBoardsCompetitor?.id" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white transition active:scale-95 disabled:opacity-50 flex items-center space-x-1.5 shadow-sm" title="Harvest ~150 latest pins using 3-tier rules">
+            <i data-lucide="download" :class="{'animate-bounce': harvestingCompetitorId === activeBoardsCompetitor?.id}" class="w-3.5 h-3.5"></i>
+            <span>Harvest (3p)</span>
+          </button>
+          <button @click="harvestCompetitorPinsAction(activeBoardsCompetitor, 'deep')" :disabled="harvestingCompetitorId === activeBoardsCompetitor?.id" class="px-3 py-1.5 rounded-xl text-xs font-semibold border border-purple-500/40 bg-purple-500/10 hover:bg-purple-500/20 text-purple-700 dark:text-purple-300 transition active:scale-95 disabled:opacity-50 flex items-center space-x-1.5" title="Deep Audit Sweep (up to 500 pages)">
+            <i data-lucide="zap" class="w-3.5 h-3.5 text-purple-500"></i>
+            <span>Deep Audit</span>
+          </button>
+          <button @click="syncCompetitorBoardsAction(activeBoardsCompetitor)" :disabled="isSyncingBoards" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white transition active:scale-95 disabled:opacity-50 flex items-center space-x-1.5 shadow-sm">
+            <i data-lucide="refresh-cw" :class="{'animate-spin': isSyncingBoards}" class="w-3.5 h-3.5"></i>
+            <span x-text="isSyncingBoards ? 'Syncing...' : 'Sync Boards'"></span>
+          </button>
+        </div>
       </div>
 
       <!-- Boards Table -->
@@ -4075,6 +4247,21 @@ export function getDashboardHtml() {
         pinarchiveSelectedTopic: '',
         isLoadingPinArchive: false,
 
+        // Pin Qualification & Ingest Rules State
+        qualificationRules: {
+          tier1_min_saves: 100,
+          tier2_min_repins: 100,
+          tier3_max_age_days: 14,
+          tier3_min_saves: 25,
+          cron_enabled: true,
+          early_stop_pages: 3,
+          discovery_max_pages: 500
+        },
+        isRulesCollapsed: false,
+        isSavingRules: false,
+        isReEvaluating: false,
+        harvestingCompetitorId: null,
+
         // Competitor Boards Modal State
         isBoardsModalOpen: false,
         activeBoardsCompetitor: null,
@@ -4232,6 +4419,7 @@ export function getDashboardHtml() {
               this.fetchPinArchiveOverview();
               this.fetchPinArchiveTopics();
               this.fetchPinArchivePins();
+              this.fetchQualificationRules();
             }
           }
           this.$nextTick(() => {
@@ -4908,7 +5096,8 @@ export function getDashboardHtml() {
               this.fetchKeywords(),
               this.fetchFleetProjects(),
               this.fetchPinArchiveOverview(),
-              this.fetchPinArchiveTopics()
+              this.fetchPinArchiveTopics(),
+              this.fetchQualificationRules()
             ]);
             if (this.currentTab === 'explorer') {
               await this.loadExplorerData();
@@ -5211,9 +5400,14 @@ export function getDashboardHtml() {
             });
             if (res.ok) {
               const data = await res.json();
-              this.showToast('✅ Pin staged for repurposing queue!');
-              if (this.pinarchiveOverview) {
-                this.pinarchiveOverview.staged_pins_count = (this.pinarchiveOverview.staged_pins_count || 0) + (data.staged_count || 1);
+              const count = data.staged_count !== undefined ? data.staged_count : (data.stagedCount || 0);
+              if (count > 0) {
+                this.showToast('✅ Pin staged for repurposing queue! (' + count + ' added)');
+                if (this.pinarchiveOverview) {
+                  this.pinarchiveOverview.staged_pins_count = (this.pinarchiveOverview.staged_pins_count || 0) + count;
+                }
+              } else {
+                this.showToast('ℹ️ Pin is already in the staged repurposing queue.');
               }
             } else {
               const err = await res.json();
@@ -5257,12 +5451,122 @@ export function getDashboardHtml() {
               this.showToast('🚀 Pin marked dispatched via atomic CAS!');
               await this.fetchStagedPins();
               await this.fetchPinArchiveOverview();
+            } else if (res.status === 409) {
+              const err = await res.json();
+              this.showToast('⚠️ CAS Conflict (409): ' + (err.error || 'Pin was already claimed by another worker.'));
+              await this.fetchStagedPins();
             } else {
               const err = await res.json();
               this.showToast('CAS Claim conflict: ' + (err.error || 'Failed'));
             }
           } catch (e) {
             this.showToast('Claim error: ' + e.message);
+          }
+        },
+
+        async fetchQualificationRules() {
+          try {
+            const res = await fetch(this.getApiUrl('/api/pinarchive/rules'));
+            if (res.ok) {
+              const data = await res.json();
+              if (data.rules) {
+                this.qualificationRules = { ...this.qualificationRules, ...data.rules };
+              }
+            }
+          } catch (e) {
+            console.error('fetchQualificationRules error:', e);
+          }
+        },
+
+        async saveQualificationRulesAction() {
+          this.isSavingRules = true;
+          try {
+            const res = await fetch(this.getApiUrl('/api/pinarchive/rules'), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(this.qualificationRules)
+            });
+            if (res.ok) {
+              const data = await res.json();
+              if (data.rules) {
+                this.qualificationRules = { ...this.qualificationRules, ...data.rules };
+              }
+              this.showToast('✅ Qualification rules updated successfully!');
+            } else {
+              const err = await res.json();
+              this.showToast('Failed to save rules: ' + (err.error || 'Error'));
+            }
+          } catch (e) {
+            this.showToast('Error saving rules: ' + e.message);
+          } finally {
+            this.isSavingRules = false;
+          }
+        },
+
+        async reEvaluateCandidatesAction() {
+          if (!confirm('Re-evaluate all archived pins against current qualification rules? Non-qualifying pins may be pruned or deactivated.')) return;
+          this.isReEvaluating = true;
+          try {
+            const res = await fetch(this.getApiUrl('/api/pinarchive/re-evaluate'), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(this.qualificationRules)
+            });
+            if (res.ok) {
+              const data = await res.json();
+              this.showToast('⚡ Evaluated ' + data.total_evaluated + ' pins: ' + data.qualified_count + ' qualified, ' + data.disqualified_pruned + ' pruned.');
+              await this.fetchPinArchiveOverview();
+              await this.fetchPinArchivePins();
+            } else {
+              const err = await res.json();
+              this.showToast('Re-evaluation error: ' + (err.error || 'Failed'));
+            }
+          } catch (e) {
+            this.showToast('Re-evaluation request failed: ' + e.message);
+          } finally {
+            this.isReEvaluating = false;
+          }
+        },
+
+        async harvestCompetitorPinsAction(competitor, mode = 'daily') {
+          if (!competitor || !competitor.id) return;
+          const maxPages = mode === 'deep' ? (this.qualificationRules?.discovery_max_pages || 500) : (this.qualificationRules?.early_stop_pages || 3);
+          const confirmMsg = mode === 'deep' 
+            ? 'Start Deep Audit Sweep for @' + competitor.username + ' (up to ' + maxPages + ' pages)? This may take a minute.'
+            : 'Harvest latest pins for @' + competitor.username + ' (Early-Stop ' + maxPages + ' pages)?';
+          
+          if (mode === 'deep' && !confirm(confirmMsg)) return;
+
+          this.harvestingCompetitorId = competitor.id;
+          this.showToast('⏳ Crawling pins for @' + competitor.username + ' (' + mode + ' mode, max ' + maxPages + 'p)...');
+          try {
+            const res = await fetch(this.getApiUrl('/api/competitors/sync-pins'), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                competitor_id: competitor.id,
+                username: competitor.username,
+                mode: mode,
+                max_pages: maxPages
+              })
+            });
+            if (res.ok) {
+              const data = await res.json();
+              this.showToast('🎉 Harvested ' + (data.crawled || 0) + ' pins for @' + competitor.username + ': ' + (data.qualified || 0) + ' qualified, ' + (data.inserted || 0) + ' archived!');
+              await this.fetchCompetitors();
+              await this.fetchPinArchiveOverview();
+              if (this.currentTab === 'pinarchive') {
+                await this.fetchPinArchivePins();
+              }
+            } else {
+              const err = await res.json();
+              this.showToast('Harvest failed: ' + (err.error || 'Error'));
+            }
+          } catch (e) {
+            this.showToast('Harvest error: ' + e.message);
+          } finally {
+            this.harvestingCompetitorId = null;
+            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
           }
         },
 

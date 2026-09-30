@@ -13,7 +13,8 @@ import {
   trackCompetitor,
   syncCompetitorProfile,
   getCompetitorBoards,
-  syncCompetitorBoards
+  syncCompetitorBoards,
+  syncCompetitorPins
 } from './modules/competitors/service.mjs';
 import { listKeywords, addKeyword, crawlKeywordSERP, getKeywordPins } from './modules/keywords/service.mjs';
 import { getFleetProjects, registerNewProject } from './modules/fleet/service.mjs';
@@ -23,7 +24,10 @@ import {
   listArchivedPins,
   stagePinsForRepurpose,
   listStagedPins,
-  claimStagedPinCas
+  claimStagedPinCas,
+  getQualificationRules,
+  updateQualificationRules,
+  reEvaluateArchivedPins
 } from './modules/pinarchive/service.mjs';
 
 function jsonResponse(data, status = 200) {
@@ -1307,6 +1311,17 @@ export default {
         if (!competitor_id || !username) return jsonResponse({ error: 'competitor_id and username are required' }, 400);
         const cookie = env.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env.PINTEREST_COOKIE : null);
         const result = await syncCompetitorBoards(targetSql, competitor_id, username, cookie);
+        if (!result.ok) return jsonResponse({ success: false, ...result }, 400);
+        return jsonResponse({ success: true, ...result });
+      }
+
+      if (method === 'POST' && pathname === '/api/competitors/sync-pins') {
+        const body = await request.json().catch(() => ({}));
+        const { competitor_id, username, mode, max_pages } = body;
+        if (!username) return jsonResponse({ error: 'username is required' }, 400);
+        const cookie = env.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env.PINTEREST_COOKIE : null);
+        const result = await syncCompetitorPins(targetSql, competitor_id, username, { mode, maxPages: max_pages, cookie });
+        if (!result.ok) return jsonResponse({ success: false, ...result }, 400);
         return jsonResponse({ success: true, ...result });
       }
 
@@ -1371,6 +1386,22 @@ export default {
         return jsonResponse({ success: true, overview });
       }
 
+      if (method === 'GET' && pathname === '/api/pinarchive/rules') {
+        const rules = await getQualificationRules(targetSql);
+        return jsonResponse({ success: true, rules });
+      }
+
+      if (method === 'POST' && pathname === '/api/pinarchive/rules') {
+        const body = await request.json().catch(() => ({}));
+        const rules = await updateQualificationRules(targetSql, body);
+        return jsonResponse({ success: true, rules });
+      }
+
+      if (method === 'POST' && pathname === '/api/pinarchive/re-evaluate') {
+        const audit = await reEvaluateArchivedPins(targetSql);
+        return jsonResponse({ success: true, ...audit });
+      }
+
       if (method === 'GET' && pathname === '/api/pinarchive/topics') {
         const minPins = Number(searchParams.get('min_pins') || 1);
         const search = searchParams.get('search') || '';
@@ -1383,21 +1414,23 @@ export default {
       if (method === 'GET' && pathname === '/api/pinarchive/pins') {
         const search = searchParams.get('search') || '';
         const topic = searchParams.get('topic') || '';
+        const account = searchParams.get('account') || '';
         const minSaves = Number(searchParams.get('min_saves') || 0);
         const sortBy = searchParams.get('sort') || searchParams.get('sort_by') || 'saves';
         const order = searchParams.get('order') || 'desc';
         const limit = Number(searchParams.get('limit') || 50);
         const offset = Number(searchParams.get('offset') || 0);
-        const pins = await listArchivedPins(targetSql, { search, topic, minSaves, sortBy, order, limit, offset });
+        const pins = await listArchivedPins(targetSql, { search, topic, account, minSaves, sortBy, order, limit, offset });
         return jsonResponse({ success: true, pins });
       }
 
       if (method === 'POST' && pathname === '/api/pinarchive/stage') {
         const body = await request.json().catch(() => ({}));
         const pinIds = body.pin_ids || body.pinIds;
-        const { target_board, override_link } = body;
+        const targetBoard = body.target_board || body.targetBoard || '';
+        const overrideLink = body.override_link || body.overrideLink || '';
         if (!pinIds || !pinIds.length) return jsonResponse({ error: 'pin_ids are required' }, 400);
-        const result = await stagePinsForRepurpose(targetSql, { pinIds, targetBoard: target_board, overrideLink: override_link });
+        const result = await stagePinsForRepurpose(targetSql, { pinIds, targetBoard, overrideLink });
         return jsonResponse({ success: true, ...result });
       }
 
@@ -1414,6 +1447,9 @@ export default {
         const stagedId = body.staged_id || body.id;
         if (!stagedId) return jsonResponse({ error: 'staged_id is required' }, 400);
         const result = await claimStagedPinCas(targetSql, stagedId);
+        if (!result.success) {
+          return jsonResponse({ success: false, error: 'CAS Conflict: pin already dispatched or not in staged status' }, 409);
+        }
         return jsonResponse({ success: true, ...result });
       }
 

@@ -12,7 +12,8 @@ import { fileURLToPath } from 'url';
 
 import {
   getCompetitorBoards,
-  getCompetitorsOverview
+  getCompetitorsOverview,
+  syncCompetitorPins
 } from '../src/modules/competitors/service.mjs';
 
 import {
@@ -22,7 +23,11 @@ import {
   listArchivedPins,
   stagePinsForRepurpose,
   claimStagedPinCas,
-  listStagedPins
+  listStagedPins,
+  getQualificationRules,
+  updateQualificationRules,
+  qualifyPin,
+  reEvaluateArchivedPins
 } from '../src/modules/pinarchive/service.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -252,13 +257,86 @@ async function runTests() {
       `listStagedPins(status='dispatched') retrieved dispatched pin`
     );
 
-    console.log('\n=== TEST SUITE 3: Cleanup ===');
+    console.log('\n=== TEST SUITE 3: Pin Qualification Rules (Anti-Bloat & Early-Stop) ===');
+
+    // 3.1 Verify getQualificationRules returns default 3-tier rules
+    const rules = await getQualificationRules(sql);
+    assert(
+      rules.tier1_min_saves === 100 &&
+      rules.tier2_min_repins === 100 &&
+      rules.tier3_max_age_days === 14 &&
+      rules.tier3_min_saves === 25 &&
+      rules.early_stop_pages === 3,
+      `getQualificationRules returned expected defaults (T1: ≥100 saves, T2: ≥100 repins, T3: ≤14d & ≥25 saves, early_stop: 3p)`
+    );
+
+    // 3.2 Verify qualifyPin boundary logic (3 OR tiers)
+    const now = new Date();
+    const tenDaysAgo = new Date(now.getTime() - 10 * 86400 * 1000).toISOString();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 86400 * 1000).toISOString();
+
+    const pinTier1 = { pin_id: 't1', saves: 100, repins: 0, created_at: thirtyDaysAgo };
+    const q1 = qualifyPin(pinTier1, rules);
+    assert(q1.qualified && q1.matchedTier === 'tier1', 'Pin with 100 saves qualifies under Tier 1 (High Saves)');
+
+    const pinTier2 = { pin_id: 't2', saves: 5, repins: 100, created_at: thirtyDaysAgo };
+    const q2 = qualifyPin(pinTier2, rules);
+    assert(q2.qualified && q2.matchedTier === 'tier2', 'Pin with 100 repins qualifies under Tier 2 (High Repins)');
+
+    const pinTier3 = { pin_id: 't3', saves: 25, repins: 2, created_at: tenDaysAgo };
+    const q3 = qualifyPin(pinTier3, rules);
+    assert(q3.qualified && q3.matchedTier === 'tier3', 'Pin 10 days old with 25 saves qualifies under Tier 3 (Fresh Breakout)');
+
+    const pinDisqualified = { pin_id: 'td', saves: 20, repins: 15, created_at: thirtyDaysAgo };
+    const qd = qualifyPin(pinDisqualified, rules);
+    assert(!qd.qualified && qd.matchedTier === null, 'Pin 30 days old with 20 saves and 15 repins is DISQUALIFIED');
+
+    // 3.3 Test updateQualificationRules
+    const updatedRules = await updateQualificationRules(sql, { tier1_min_saves: 150 });
+    assert(updatedRules.tier1_min_saves === 150, 'updateQualificationRules successfully updated tier1_min_saves to 150');
+    // Restore default
+    await updateQualificationRules(sql, { tier1_min_saves: 100 });
+
+    // 3.4 Ingest batch with qualification filter: only qualified pins should enter pa_pins
+    const TEST_QUALIFIED_PIN = 'test_p4_qual_' + Date.now();
+    const TEST_UNQUALIFIED_PIN = 'test_p4_unqual_' + Date.now();
+    const testBatch = [
+      {
+        pin_id: TEST_QUALIFIED_PIN,
+        title: 'Winning Garlic Butter Steak (Qualified)',
+        saves: 150,
+        repins: 80,
+        annotations: ['Garlic Steak', 'Keto Dinner']
+      },
+      {
+        pin_id: TEST_UNQUALIFIED_PIN,
+        title: 'Weak Potato Recipe (Disqualified)',
+        saves: 10,
+        repins: 5,
+        created_at: thirtyDaysAgo,
+        annotations: ['Potatoes']
+      }
+    ];
+
+    const filterIngestRes = await ingestPinsBatch(sql, testBatch, TEST_COMPETITOR_USERNAME, { filterQualified: true });
+    assert(filterIngestRes.ok && filterIngestRes.inserted === 1, 'ingestPinsBatch with filterQualified: true inserted ONLY 1 qualified pin');
+
+    const [shouldExist] = await sql`SELECT pin_id FROM pa_pins WHERE pin_id = ${TEST_QUALIFIED_PIN};`;
+    const [shouldNotExist] = await sql`SELECT pin_id FROM pa_pins WHERE pin_id = ${TEST_UNQUALIFIED_PIN};`;
+    assert(Boolean(shouldExist), 'Qualified pin exists in pa_pins table');
+    assert(!shouldNotExist, 'Unqualified pin was discarded and prevented database bloat');
+
+    // 3.5 Test reEvaluateArchivedPins
+    const reEvalResult = await reEvaluateArchivedPins(sql, rules);
+    assert(reEvalResult.ok && reEvalResult.total_evaluated >= 1, `reEvaluateArchivedPins evaluated ${reEvalResult.total_evaluated} pins successfully`);
+
+    console.log('\n=== TEST SUITE 4: Cleanup ===');
     // Cleanup staged pins
-    await sql`DELETE FROM pa_staged_pins WHERE pin_id = ${TEST_PIN_ID};`;
+    await sql`DELETE FROM pa_staged_pins WHERE pin_id IN (${TEST_PIN_ID}, ${TEST_QUALIFIED_PIN}, ${TEST_UNQUALIFIED_PIN});`;
     // Cleanup metrics
-    await sql`DELETE FROM pa_pin_metrics WHERE pin_id = ${TEST_PIN_ID};`;
+    await sql`DELETE FROM pa_pin_metrics WHERE pin_id IN (${TEST_PIN_ID}, ${TEST_QUALIFIED_PIN}, ${TEST_UNQUALIFIED_PIN});`;
     // Cleanup pa_pins
-    await sql`DELETE FROM pa_pins WHERE pin_id = ${TEST_PIN_ID};`;
+    await sql`DELETE FROM pa_pins WHERE pin_id IN (${TEST_PIN_ID}, ${TEST_QUALIFIED_PIN}, ${TEST_UNQUALIFIED_PIN});`;
     // Cleanup boards
     await sql`DELETE FROM competitor_boards WHERE competitor_id = ${testCompetitorId};`;
     // Cleanup profile
