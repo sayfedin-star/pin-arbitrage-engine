@@ -26,10 +26,11 @@ import {
   syncCompetitorPins,
   getCompetitorDetail,
   deleteCompetitorSnapshot,
-  updateCompetitorStatus
+  updateCompetitorStatus,
+  listCompetitorAccountPins
 } from '../src/modules/competitors/service.mjs';
 import { listKeywords, addKeyword, crawlKeywordSERP, getKeywordPins } from '../src/modules/keywords/service.mjs';
-import { getFleetProjects, registerNewProject } from '../src/modules/fleet/service.mjs';
+import { getFleetProjects, registerNewProject, getFleetCompetitors, syncProjectCompetitorStats } from '../src/modules/fleet/service.mjs';
 import {
   getPinArchiveOverview,
   getTopicClusters,
@@ -1443,6 +1444,17 @@ const server = http.createServer(async (req, res) => {
 
     // Competitor Intelligence API
     if (method === 'GET' && pathname === '/api/competitors') {
+      const isFleetAll = (!reqProjectId || reqProjectId === 'all');
+      if (isFleetAll) {
+        const fleetData = await getFleetCompetitors(sql, {
+          account_type: searchParams.get('account_type') || 'all',
+          search: searchParams.get('search') || '',
+          limit: Number(searchParams.get('limit') || 50),
+          offset: Number(searchParams.get('offset') || 0)
+        });
+        return sendJson(res, 200, { success: true, ...fleetData });
+      }
+
       const overview = await getCompetitorsOverview(targetSql);
       const competitors = await listCompetitors(targetSql, {
         account_type: searchParams.get('account_type') || 'all',
@@ -1456,6 +1468,7 @@ const server = http.createServer(async (req, res) => {
     if (method === 'POST' && pathname === '/api/competitors') {
       const body = await parseJsonBody(req);
       const row = await trackCompetitor(targetSql, body);
+      await syncProjectCompetitorStats(sql, targetSql, reqProjectId);
       return sendJson(res, 200, { success: true, competitor: row });
     }
 
@@ -1464,6 +1477,7 @@ const server = http.createServer(async (req, res) => {
       const username = body.username;
       if (!username) return sendJson(res, 400, { error: 'username is required' });
       const updated = await syncCompetitorProfile(targetSql, username, process.env.PINTEREST_COOKIE);
+      await syncProjectCompetitorStats(sql, targetSql, reqProjectId);
       return sendJson(res, 200, { success: true, profile: updated });
     }
 
@@ -1479,10 +1493,12 @@ const server = http.createServer(async (req, res) => {
       }
       if (id && !isNaN(Number(id))) {
         await targetSql`DELETE FROM competitor_profiles WHERE id = ${Number(id)};`;
+        await syncProjectCompetitorStats(sql, targetSql, reqProjectId);
         return sendJson(res, 200, { success: true, deleted_id: Number(id) });
       } else if (username) {
         const cleanUser = String(username).replace(/^@/, '').trim().toLowerCase();
         await targetSql`DELETE FROM competitor_profiles WHERE LOWER(username) = ${cleanUser};`;
+        await syncProjectCompetitorStats(sql, targetSql, reqProjectId);
         return sendJson(res, 200, { success: true, deleted_username: cleanUser });
       }
       return sendJson(res, 400, { error: 'id or username is required to delete competitor' });
@@ -1523,6 +1539,25 @@ const server = http.createServer(async (req, res) => {
       try {
         const detail = await getCompetitorDetail(targetSql, idOrUser);
         return sendJson(res, 200, { success: true, ...detail });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, error: err.message });
+      }
+    }
+
+    if (method === 'GET' && pathname === '/api/competitors/all-pins') {
+      const idOrUser = searchParams.get('id') || searchParams.get('competitor_id') || searchParams.get('username') || searchParams.get('account');
+      if (!idOrUser) return sendJson(res, 400, { error: 'id or username is required' });
+      try {
+        const data = await listCompetitorAccountPins(targetSql, idOrUser, {
+          search: searchParams.get('search') || '',
+          board: searchParams.get('board') || '',
+          min_saves: Number(searchParams.get('min_saves') || 0),
+          sort: searchParams.get('sort') || 'saves_desc',
+          page: Number(searchParams.get('page') || 1),
+          limit: Number(searchParams.get('limit') || 50),
+          qualified_only: searchParams.get('qualified_only') === 'true'
+        });
+        return sendJson(res, 200, { success: true, ...data });
       } catch (err) {
         return sendJson(res, 500, { success: false, error: err.message });
       }

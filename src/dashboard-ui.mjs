@@ -2514,6 +2514,9 @@ export function getDashboardHtml() {
                           <div class="font-bold text-slate-900 dark:text-white hover:text-purple-600 dark:hover:text-purple-400 flex items-center space-x-1">
                             <span x-text="'@' + c.username"></span>
                             <i data-lucide="external-link" class="w-3 h-3 text-slate-400"></i>
+                            <template x-if="c._shard_name && selectedProject === 'all'">
+                              <span class="text-[9px] font-mono px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20" x-text="c._shard_name.replace('pin-arbitrage-', '')"></span>
+                            </template>
                           </div>
                           <div class="text-[10px] text-slate-500 truncate max-w-[140px]" x-text="c.display_name || c.username"></div>
                         </div>
@@ -3043,6 +3046,11 @@ export function getDashboardHtml() {
                 <span>Refresh Pins</span>
               </button>
 
+              <button @click="harvestAllAccountPinsAction(activeCreator)" :disabled="isHarvestingAllPins" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white px-3.5 text-xs font-bold transition shadow-2xs cursor-pointer disabled:opacity-50" title="Crawl entire creator feed from Pinterest">
+                <i data-lucide="download" class="w-3.5 h-3.5" :class="isHarvestingAllPins ? 'animate-bounce' : ''"></i>
+                <span x-text="isHarvestingAllPins ? 'Harvesting...' : '📥 Harvest All Pins'"></span>
+              </button>
+
               <button @click="activeCreatorTab = 'boards'" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0d1526] px-3 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition shadow-2xs cursor-pointer" title="Manage Boards & Links">
                 <i data-lucide="link" class="w-3.5 h-3.5"></i>
                 <span>Links</span>
@@ -3114,9 +3122,14 @@ export function getDashboardHtml() {
               <i data-lucide="line-chart" class="w-4 h-4"></i>
               <span>Overview &amp; Growth Trends</span>
             </button>
+            <button @click="activeCreatorTab = 'all_pins'; fetchCreatorAllPins()" class="flex items-center space-x-2 px-4 py-2 text-xs font-bold rounded-xl transition cursor-pointer" :class="activeCreatorTab === 'all_pins' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
+              <i data-lucide="list" class="w-4 h-4"></i>
+              <span>📋 All Account Pins</span>
+              <span class="px-2 py-0.5 rounded text-[10px] font-mono" :class="activeCreatorTab === 'all_pins' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800'" x-text="activeCreatorAllPinsTotal || 0"></span>
+            </button>
             <button @click="activeCreatorTab = 'pins'" class="flex items-center space-x-2 px-4 py-2 text-xs font-bold rounded-xl transition cursor-pointer" :class="activeCreatorTab === 'pins' ? 'bg-rose-500 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
               <i data-lucide="archive" class="w-4 h-4"></i>
-              <span>📌 All Pins Archive</span>
+              <span>📌 All Pins Archive (Winning Pins)</span>
               <span class="px-2 py-0.5 rounded text-[10px] font-mono" :class="activeCreatorTab === 'pins' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800'" x-text="activeCreatorPins.length"></span>
             </button>
             <button @click="activeCreatorTab = 'topics'" class="flex items-center space-x-2 px-4 py-2 text-xs font-bold rounded-xl transition cursor-pointer" :class="activeCreatorTab === 'topics' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
@@ -3605,6 +3618,245 @@ export function getDashboardHtml() {
               </div>
             </div>
 
+          </div>
+
+          <!-- ======================================================== -->
+          <!-- SUB-VIEW: ALL ACCOUNT PINS (FULL DISCOVERED INVENTORY)    -->
+          <!-- ======================================================== -->
+          <div x-show="activeCreatorTab === 'all_pins'" class="space-y-5">
+            <!-- Header Card -->
+            <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-5 shadow-xs flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+              <div>
+                <div class="flex items-center gap-2">
+                  <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-500 font-bold text-sm">📋</span>
+                  <h3 class="text-base font-bold text-slate-900 dark:text-white">All Account Pins (Raw Catalog)</h3>
+                  <span class="text-xs font-mono font-bold px-2.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20" x-text="(activeCreatorAllPinsTotal || 0) + ' total pins'"></span>
+                </div>
+                <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Complete discovered pin inventory for this account. Qualified winning pins meeting 3-tier rules are automatically isolated in the <button type="button" @click="activeCreatorTab = 'pins'" class="text-rose-500 font-bold hover:underline cursor-pointer inline-flex items-center gap-0.5">📌 All Pins Archive</button> tab.</p>
+              </div>
+
+              <!-- Action buttons -->
+              <div class="flex items-center gap-2">
+                <button type="button" @click="fetchCreatorAllPins()" class="px-3 py-2 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0d1526] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition flex items-center gap-1.5 cursor-pointer shadow-2xs">
+                  <i data-lucide="refresh-cw" class="w-3.5 h-3.5" :class="isLoadingAllPins ? 'animate-spin text-indigo-500' : ''"></i>
+                  <span>Refresh</span>
+                </button>
+                <button type="button" @click="harvestAllAccountPinsAction(activeCreator)" :disabled="isHarvestingAllPins" class="px-4 py-2 text-xs font-bold rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white transition flex items-center gap-2 cursor-pointer shadow-sm shadow-indigo-600/20 active:scale-95 disabled:opacity-50">
+                  <i data-lucide="download-cloud" class="w-4 h-4" :class="isHarvestingAllPins ? 'animate-bounce' : ''"></i>
+                  <span x-text="isHarvestingAllPins ? 'Harvesting pins...' : '📥 Harvest All Pins'"></span>
+                </button>
+              </div>
+            </div>
+
+            <!-- 4 Summary Stat Mini-Cards -->
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
+              <div class="bg-white dark:bg-[#0d1526] rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 shadow-2xs">
+                <span class="text-[10.5px] font-bold text-slate-400 uppercase tracking-wider block">Discovered Pins</span>
+                <span class="text-xl font-black text-slate-900 dark:text-white mt-1 block font-mono" x-text="formatNumber(activeCreatorAllPinsTotal || 0)"></span>
+              </div>
+              <div class="bg-white dark:bg-[#0d1526] rounded-2xl border border-emerald-500/20 dark:border-emerald-500/30 p-4 shadow-2xs bg-emerald-50/20 dark:bg-emerald-950/10">
+                <span class="text-[10.5px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider block">🏆 Qualified (In Archive)</span>
+                <span class="text-xl font-black text-emerald-600 dark:text-emerald-400 mt-1 block font-mono" x-text="formatNumber(activeCreatorPins.length || 0)"></span>
+              </div>
+              <div class="bg-white dark:bg-[#0d1526] rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 shadow-2xs">
+                <span class="text-[10.5px] font-bold text-slate-400 uppercase tracking-wider block">Discovered Boards</span>
+                <span class="text-xl font-black text-slate-900 dark:text-white mt-1 block font-mono" x-text="activeCreatorAllPinsBoards.length"></span>
+              </div>
+              <div class="bg-white dark:bg-[#0d1526] rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 shadow-2xs">
+                <span class="text-[10.5px] font-bold text-slate-400 uppercase tracking-wider block">Active Page</span>
+                <span class="text-xl font-black text-indigo-600 dark:text-indigo-400 mt-1 block font-mono" x-text="(activeCreatorAllPinsPage || 1) + ' / ' + (activeCreatorAllPinsTotalPages || 1)"></span>
+              </div>
+            </div>
+
+            <!-- Filters & Search Toolbar -->
+            <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-4 shadow-xs flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+              <!-- Search bar -->
+              <div class="relative flex-1 max-w-sm">
+                <input
+                  type="text"
+                  x-model="creatorAllPinSearch"
+                  @input.debounce.400ms="activeCreatorAllPinsPage = 1; fetchCreatorAllPins()"
+                  placeholder="Search pins by title or link..."
+                  class="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-3.5 py-2 text-xs font-medium text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none pl-9 focus:ring-1 focus:ring-indigo-500"
+                />
+                <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-2.5"></i>
+              </div>
+
+              <!-- Filter Dropdowns -->
+              <div class="flex flex-wrap items-center gap-2">
+                <!-- Board Select -->
+                <div class="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 py-1.5">
+                  <label class="text-xs font-semibold text-slate-500 whitespace-nowrap">Board:</label>
+                  <select x-model="creatorAllPinBoard" @change="activeCreatorAllPinsPage = 1; fetchCreatorAllPins()" class="bg-transparent text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer max-w-[140px] truncate">
+                    <option value="">All Boards</option>
+                    <template x-for="b in activeCreatorAllPinsBoards" :key="b">
+                      <option :value="b" x-text="b"></option>
+                    </template>
+                  </select>
+                </div>
+
+                <!-- Min Saves Filter -->
+                <div class="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 py-1.5">
+                  <label class="text-xs font-semibold text-slate-500 whitespace-nowrap">Saves:</label>
+                  <select x-model.number="creatorAllPinMinSaves" @change="activeCreatorAllPinsPage = 1; fetchCreatorAllPins()" class="bg-transparent text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer">
+                    <option value="0">All Saves</option>
+                    <option value="10">10+ saves</option>
+                    <option value="50">50+ saves</option>
+                    <option value="100">100+ (Tier 1)</option>
+                    <option value="500">500+ saves</option>
+                  </select>
+                </div>
+
+                <!-- Sort Order -->
+                <div class="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 py-1.5">
+                  <label class="text-xs font-semibold text-slate-500 whitespace-nowrap">Sort:</label>
+                  <select x-model="creatorAllPinSort" @change="activeCreatorAllPinsPage = 1; fetchCreatorAllPins()" class="bg-transparent text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer">
+                    <option value="saves_desc">Highest Saves</option>
+                    <option value="repins_desc">Highest Repins</option>
+                    <option value="created_desc">Newest Pin</option>
+                    <option value="created_asc">Oldest Pin</option>
+                  </select>
+                </div>
+
+                <!-- Qualified Only Toggle -->
+                <label class="inline-flex items-center gap-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 py-1.5 cursor-pointer text-xs font-medium text-slate-800 dark:text-slate-200 select-none">
+                  <input type="checkbox" x-model="creatorAllPinQualifiedOnly" @change="activeCreatorAllPinsPage = 1; fetchCreatorAllPins()" class="rounded border-slate-300 text-indigo-600 h-4 w-4" />
+                  <span>🏆 Qualified Only</span>
+                </label>
+
+                <!-- Clear filters button -->
+                <button
+                  x-show="creatorAllPinSearch || creatorAllPinBoard || creatorAllPinMinSaves > 0 || creatorAllPinQualifiedOnly"
+                  @click="creatorAllPinSearch = ''; creatorAllPinBoard = ''; creatorAllPinMinSaves = 0; creatorAllPinQualifiedOnly = false; activeCreatorAllPinsPage = 1; fetchCreatorAllPins()"
+                  class="px-2.5 py-1.5 rounded-xl text-xs font-semibold text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition cursor-pointer"
+                >
+                  Clear Filters
+                </button>
+              </div>
+            </div>
+
+            <!-- Loading Spinner -->
+            <div x-show="isLoadingAllPins" class="py-12 flex flex-col items-center justify-center space-y-3">
+              <i data-lucide="loader" class="w-8 h-8 text-indigo-500 animate-spin"></i>
+              <span class="text-xs font-semibold text-slate-400">Loading pins inventory...</span>
+            </div>
+
+            <!-- Empty State -->
+            <div x-show="!isLoadingAllPins && activeCreatorAllPins.length === 0" class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-12 text-center shadow-xs">
+              <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-50 dark:bg-indigo-950/40 text-indigo-500 mx-auto mb-3">
+                <i data-lucide="inbox" class="w-6 h-6"></i>
+              </div>
+              <h4 class="text-sm font-bold text-slate-900 dark:text-white">No pins found in inventory</h4>
+              <p class="text-xs text-slate-500 max-w-sm mx-auto mt-1">No pins match the current filter or this account has not been harvested yet. Click "Harvest All Pins" to pull the full catalog from Pinterest.</p>
+              <button type="button" @click="harvestAllAccountPinsAction(activeCreator)" class="mt-4 px-4 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm inline-flex items-center gap-1.5 transition cursor-pointer">
+                <i data-lucide="download-cloud" class="w-4 h-4"></i>
+                <span>Harvest All Pins Now</span>
+              </button>
+            </div>
+
+            <!-- Table of All Account Pins -->
+            <div x-show="!isLoadingAllPins && activeCreatorAllPins.length > 0" class="overflow-x-auto rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] shadow-xs">
+              <table class="w-full text-left text-xs">
+                <thead class="bg-slate-50 dark:bg-slate-900/60 text-slate-500 dark:text-slate-400 text-[11px] uppercase border-b border-slate-200 dark:border-slate-800 font-semibold select-none">
+                  <tr>
+                    <th class="py-3 px-3 w-14">Media</th>
+                    <th class="py-3 px-4 font-semibold text-slate-900 dark:text-white">Pin Title &amp; Destination</th>
+                    <th class="py-3 px-3 font-semibold">Board</th>
+                    <th class="py-3 px-3 font-semibold text-right">Saves</th>
+                    <th class="py-3 px-3 font-semibold text-right">Repins</th>
+                    <th class="py-3 px-3 text-center font-semibold">Qualification</th>
+                    <th class="py-3 px-3 font-semibold">Created / Discovered</th>
+                    <th class="py-3 px-3 text-center font-semibold">Actions</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono">
+                  <template x-for="p in activeCreatorAllPins" :key="p.pin_id">
+                    <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition">
+                      <!-- Thumbnail with hover preview -->
+                      <td class="py-2.5 px-3 w-14">
+                        <div class="relative group cursor-pointer">
+                          <img :src="p.image_url" loading="lazy" class="w-11 h-14 rounded-lg object-cover border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800" />
+                          <div class="hidden group-hover:block absolute left-14 top-0 z-40 w-44 rounded-xl overflow-hidden shadow-2xl border border-slate-200 dark:border-slate-700 pointer-events-none bg-white dark:bg-slate-900">
+                            <img :src="p.image_url" class="w-full h-auto object-cover" />
+                          </div>
+                        </div>
+                      </td>
+
+                      <!-- Title & Destination -->
+                      <td class="py-2.5 px-4 font-sans font-bold text-slate-900 dark:text-white max-w-md">
+                        <div class="line-clamp-2" :title="p.title" x-text="p.title || 'Untitled Pin'"></div>
+                        <div class="flex items-center gap-2 mt-1 font-mono text-[10.5px] font-normal">
+                          <span class="text-slate-400" x-text="'ID: ' + p.pin_id"></span>
+                          <template x-if="p.destination_url">
+                            <a :href="p.destination_url" target="_blank" class="text-sky-500 hover:underline flex items-center gap-1 truncate max-w-[200px]" :title="p.destination_url">
+                              <i data-lucide="link" class="w-3 h-3 shrink-0"></i>
+                              <span x-text="p.link_domain || 'Destination'"></span>
+                            </a>
+                          </template>
+                        </div>
+                      </td>
+
+                      <!-- Board Name -->
+                      <td class="py-2.5 px-3 font-sans text-slate-600 dark:text-slate-300 truncate max-w-[130px]">
+                        <span class="inline-block px-2 py-0.5 rounded-lg text-[10.5px] font-semibold bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700/60" x-text="p.board_name || 'General'"></span>
+                      </td>
+
+                      <!-- Saves -->
+                      <td class="py-2.5 px-3 text-right">
+                        <span class="font-extrabold" :class="Number(p.save_count || 0) >= 100 ? 'text-rose-600 dark:text-rose-400 font-black' : 'text-slate-700 dark:text-slate-300'" x-text="formatNumber(p.save_count || 0)"></span>
+                      </td>
+
+                      <!-- Repins -->
+                      <td class="py-2.5 px-3 text-right">
+                        <span class="font-bold text-slate-700 dark:text-slate-300" x-text="formatNumber(p.repin_count || 0)"></span>
+                      </td>
+
+                      <!-- Status Badge -->
+                      <td class="py-2.5 px-3 text-center">
+                        <template x-if="p.is_qualified">
+                          <button @click="activeCreatorTab = 'pins'" class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10.5px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 cursor-pointer hover:bg-emerald-500/20 transition" title="Click to view in Winning Archive">
+                            <span>🏆 Qualified</span>
+                            <i data-lucide="arrow-right" class="w-2.5 h-2.5"></i>
+                          </button>
+                        </template>
+                        <template x-if="!p.is_qualified">
+                          <span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700">
+                            Standard
+                          </span>
+                        </template>
+                      </td>
+
+                      <!-- Created / Discovered -->
+                      <td class="py-2.5 px-3 font-sans text-slate-500 text-[11px]">
+                        <span x-text="p.created_at_pinterest ? new Date(p.created_at_pinterest).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : (p.first_seen_at ? new Date(p.first_seen_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—')"></span>
+                      </td>
+
+                      <!-- Actions -->
+                      <td class="py-2.5 px-3 text-center">
+                        <div class="flex items-center justify-center gap-1">
+                          <a :href="'https://www.pinterest.com/pin/' + p.pin_id + '/'" target="_blank" class="inline-flex items-center justify-center h-7 w-7 rounded-lg text-slate-500 hover:text-rose-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition" title="Open on Pinterest">
+                            <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+                          </a>
+                          <button @click="stagePinAction(p.pin_id)" class="inline-flex items-center justify-center h-7 w-7 rounded-lg text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer" title="Stage Pin for Repurpose">
+                            <i data-lucide="play-circle" class="w-4 h-4"></i>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+
+              <!-- Pagination Footer Bar -->
+              <div class="flex items-center justify-between border-t border-slate-200 dark:border-slate-800 px-5 py-3 bg-slate-50/50 dark:bg-slate-900/30 text-xs text-slate-500">
+                <span x-text="'Showing ' + (((activeCreatorAllPinsPage - 1) * 25) + 1) + '-' + Math.min(activeCreatorAllPinsPage * 25, activeCreatorAllPinsTotal) + ' of ' + activeCreatorAllPinsTotal + ' pins'"></span>
+                <div class="flex items-center gap-2">
+                  <button @click="activeCreatorAllPinsPage = Math.max(1, activeCreatorAllPinsPage - 1); fetchCreatorAllPins()" :disabled="activeCreatorAllPinsPage <= 1" class="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0b1120] px-3 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 disabled:opacity-40 transition shadow-2xs cursor-pointer">Previous</button>
+                  <span class="font-bold text-slate-900 dark:text-white" x-text="'Page ' + activeCreatorAllPinsPage + ' of ' + Math.max(1, activeCreatorAllPinsTotalPages)"></span>
+                  <button @click="activeCreatorAllPinsPage = activeCreatorAllPinsPage + 1; fetchCreatorAllPins()" :disabled="activeCreatorAllPinsPage >= activeCreatorAllPinsTotalPages" class="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0b1120] px-3 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 disabled:opacity-40 transition shadow-2xs cursor-pointer">Next</button>
+                </div>
+              </div>
+            </div>
           </div>
 
           <!-- ======================================================== -->
@@ -5658,6 +5910,20 @@ export function getDashboardHtml() {
         isCreatorLoading: false,
         isLoadingBoards: false,
 
+        // All Account Pins State (Raw Inventory)
+        activeCreatorAllPins: [],
+        activeCreatorAllPinsTotal: 0,
+        activeCreatorAllPinsPage: 1,
+        activeCreatorAllPinsTotalPages: 1,
+        activeCreatorAllPinsBoards: [],
+        creatorAllPinSearch: '',
+        creatorAllPinBoard: '',
+        creatorAllPinMinSaves: 0,
+        creatorAllPinSort: 'saves_desc',
+        creatorAllPinQualifiedOnly: false,
+        isLoadingAllPins: false,
+        isHarvestingAllPins: false,
+
         // Time Range & Performance Trend
         creatorTimeRange: '7D',
         creatorSelectedMonth: 'all',
@@ -7024,7 +7290,7 @@ export function getDashboardHtml() {
         },
 
         getApiUrl(base) {
-          if (this.selectedProject && this.selectedProject !== 'all' && this.selectedProject !== 'hub' && this.selectedProject !== 'weathered-band-34334459') {
+          if (this.selectedProject && this.selectedProject !== 'all') {
             const sep = base.includes('?') ? '&' : '?';
             return base + sep + 'project_id=' + encodeURIComponent(this.selectedProject);
           }
@@ -7036,10 +7302,16 @@ export function getDashboardHtml() {
             const res = await fetch(this.getApiUrl('/api/competitors'));
             if (res.ok) {
               const data = await res.json();
-              if (data.overview) this.competitorsOverview = data.overview;
-              if (data.competitors) this.competitors = data.competitors;
+              this.competitorsOverview = data.overview || { tracked_profiles: 0, total_pins_stored: 0, high_velocity_pins: 0, top_competitors: [] };
+              this.competitors = data.competitors || [];
+            } else {
+              this.competitorsOverview = { tracked_profiles: 0, total_pins_stored: 0, high_velocity_pins: 0, top_competitors: [] };
+              this.competitors = [];
             }
-          } catch (e) {}
+          } catch (e) {
+            this.competitorsOverview = { tracked_profiles: 0, total_pins_stored: 0, high_velocity_pins: 0, top_competitors: [] };
+            this.competitors = [];
+          }
         },
 
         async syncCompetitor(username) {
@@ -7172,9 +7444,13 @@ export function getDashboardHtml() {
             const res = await fetch(this.getApiUrl('/api/keywords'));
             if (res.ok) {
               const data = await res.json();
-              if (data.keywords) this.keywords = data.keywords;
+              this.keywords = data.keywords || [];
+            } else {
+              this.keywords = [];
             }
-          } catch (e) {}
+          } catch (e) {
+            this.keywords = [];
+          }
         },
 
         async syncKeyword(keywordId) {
@@ -7235,6 +7511,24 @@ export function getDashboardHtml() {
 
         async switchProject(projId) {
           this.selectedProject = projId;
+          this.activeCreator = null;
+          this.activeCreatorDetail = null;
+          this.activeCreatorPins = [];
+          this.activeCreatorAllPins = [];
+          this.activeCreatorAllPinsTotal = 0;
+          this.activeCreatorTopics = [];
+          this.activeCreatorBoards = [];
+          this.activeCreatorSnapshots = [];
+          this.activeDossierSeed = null;
+          this.dossierCandidates = [];
+          this.competitors = [];
+          this.competitorsOverview = { tracked_profiles: 0, total_pins_stored: 0, high_velocity_pins: 0, top_competitors: [] };
+          this.seeds = [];
+          this.overview = { total_seeds: 0, total_candidates: 0, commercial_gaps: 0, top_clusters: [] };
+          this.intersections = [];
+          this.pinarchivePins = [];
+          this.pinarchiveOverview = { total_pins: 0, total_saves: 0, total_repins: 0, avg_velocity: 0, tracked_accounts: 0, top_cluster: null, staged_pins_count: 0 };
+          this.pinarchiveTopics = [];
           this.showToast('Switched view to project: ' + projId);
           await this.refreshAll();
         },
@@ -7245,9 +7539,12 @@ export function getDashboardHtml() {
             if (res.ok) {
               const data = await res.json();
               this.pinarchiveOverview = data.overview || data;
+            } else {
+              this.pinarchiveOverview = { total_pins: 0, total_saves: 0, total_repins: 0, avg_velocity: 0, tracked_accounts: 0, top_cluster: null, staged_pins_count: 0 };
             }
           } catch (e) {
             console.error('fetchPinArchiveOverview error:', e);
+            this.pinarchiveOverview = { total_pins: 0, total_saves: 0, total_repins: 0, avg_velocity: 0, tracked_accounts: 0, top_cluster: null, staged_pins_count: 0 };
           }
         },
 
@@ -7258,9 +7555,12 @@ export function getDashboardHtml() {
             if (res.ok) {
               const data = await res.json();
               this.pinarchiveTopics = data.topics || [];
+            } else {
+              this.pinarchiveTopics = [];
             }
           } catch (e) {
             console.error('fetchPinArchiveTopics error:', e);
+            this.pinarchiveTopics = [];
           } finally {
             this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
           }
@@ -7280,9 +7580,12 @@ export function getDashboardHtml() {
             if (res.ok) {
               const data = await res.json();
               this.pinarchivePins = data.pins || [];
+            } else {
+              this.pinarchivePins = [];
             }
           } catch (e) {
             console.error('fetchPinArchivePins error:', e);
+            this.pinarchivePins = [];
           } finally {
             this.isLoadingPinArchive = false;
             this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
@@ -7506,22 +7809,40 @@ export function getDashboardHtml() {
         async fetchOverview() {
           try {
             const res = await fetch(this.getApiUrl('/api/overview'));
-            if (res.ok) this.overview = await res.json();
-          } catch (e) {}
+            if (res.ok) {
+              this.overview = await res.json();
+            } else {
+              this.overview = { total_seeds: 0, total_candidates: 0, commercial_gaps: 0, top_clusters: [] };
+            }
+          } catch (e) {
+            this.overview = { total_seeds: 0, total_candidates: 0, commercial_gaps: 0, top_clusters: [] };
+          }
         },
 
         async fetchSeeds() {
           try {
             const res = await fetch(this.getApiUrl('/api/seeds'));
-            if (res.ok) this.seeds = await res.json();
-          } catch (e) {}
+            if (res.ok) {
+              this.seeds = await res.json();
+            } else {
+              this.seeds = [];
+            }
+          } catch (e) {
+            this.seeds = [];
+          }
         },
 
         async fetchIntersections() {
           try {
             const res = await fetch(this.getApiUrl('/api/intersections?min_overlap=2&limit=1000'));
-            if (res.ok) this.intersections = await res.json();
-          } catch (e) {}
+            if (res.ok) {
+              this.intersections = await res.json();
+            } else {
+              this.intersections = [];
+            }
+          } catch (e) {
+            this.intersections = [];
+          }
         },
 
         async loadExplorerData() {
@@ -7775,6 +8096,7 @@ export function getDashboardHtml() {
               const topicsData = await topicsRes.json();
               this.activeCreatorTopics = topicsData.topics || [];
             }
+            await this.fetchCreatorAllPins();
           } catch (e) {
             console.error('openCreatorPage error:', e);
           } finally {
@@ -7785,6 +8107,83 @@ export function getDashboardHtml() {
 
         async openCreatorDossier(creator, tab = 'overview') {
           return this.openCreatorPage(creator, tab);
+        },
+
+        async fetchCreatorAllPins() {
+          if (!this.activeCreator) return;
+          this.isLoadingAllPins = true;
+          try {
+            const handle = (this.activeCreator.username || '').replace(/^@+/, '').trim();
+            const compId = this.activeCreator.id || handle;
+            const p = new URLSearchParams();
+            p.set('id', compId);
+            p.set('username', handle);
+            if (this.creatorAllPinSearch) p.set('search', this.creatorAllPinSearch.trim());
+            if (this.creatorAllPinBoard) p.set('board', this.creatorAllPinBoard.trim());
+            if (this.creatorAllPinMinSaves > 0) p.set('min_saves', this.creatorAllPinMinSaves);
+            if (this.creatorAllPinSort) p.set('sort', this.creatorAllPinSort);
+            if (this.creatorAllPinQualifiedOnly) p.set('qualified_only', 'true');
+            p.set('page', this.activeCreatorAllPinsPage || 1);
+            p.set('limit', 25);
+
+            const res = await fetch(this.getApiUrl('/api/competitors/all-pins?' + p.toString()));
+            if (res.ok) {
+              const data = await res.json();
+              this.activeCreatorAllPins = data.pins || [];
+              this.activeCreatorAllPinsTotal = data.total || 0;
+              this.activeCreatorAllPinsPage = data.page || 1;
+              this.activeCreatorAllPinsTotalPages = data.total_pages || 1;
+              if (data.boards) this.activeCreatorAllPinsBoards = data.boards;
+            }
+          } catch (e) {
+            console.error('fetchCreatorAllPins error:', e);
+          } finally {
+            this.isLoadingAllPins = false;
+            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+          }
+        },
+
+        async harvestAllAccountPinsAction(creator) {
+          if (!creator) return;
+          const handle = (creator.username || '').replace(/^@+/, '').trim();
+          const compId = creator.id || handle;
+          const input = prompt('Enter max pages to harvest (each page = 50 pins). Enter 50 for ~2,500 pins, or 100 for all pins:', '50');
+          if (!input || isNaN(Number(input))) return;
+          const maxPages = Number(input);
+
+          this.isHarvestingAllPins = true;
+          this.showToast('🚀 Starting full pin harvest for @' + handle + ' (up to ' + maxPages + ' pages)...');
+          try {
+            const res = await fetch(this.getApiUrl('/api/competitors/sync-pins'), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                competitor_id: compId,
+                username: handle,
+                mode: 'all',
+                max_pages: maxPages
+              })
+            });
+            if (res.ok) {
+              const data = await res.json();
+              const crawled = data.crawled ?? data.total_fetched ?? 0;
+              const qualified = data.qualified ?? data.qualified_archived ?? 0;
+              this.showToast('🎉 Harvested ' + crawled + ' pins for @' + handle + '! (' + qualified + ' qualified & archived)');
+              await this.fetchCreatorAllPins();
+              await this.fetchPinArchivePins();
+              if (this.activeCreator) {
+                await this.openCreatorPage(this.activeCreator, this.activeCreatorTab);
+              }
+            } else {
+              const err = await res.json();
+              this.showToast('Harvest failed: ' + (err.error || 'Error'));
+            }
+          } catch (e) {
+            this.showToast('Harvest error: ' + e.message);
+          } finally {
+            this.isHarvestingAllPins = false;
+            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+          }
         },
 
         async fetchCreatorBoards(creator) {

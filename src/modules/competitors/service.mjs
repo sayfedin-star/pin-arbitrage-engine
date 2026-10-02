@@ -466,7 +466,9 @@ export async function syncCompetitorPins(sql, competitorId, username, { mode = '
     ? Number(maxPages)
     : null;
   let pageLimit = Number(rules.early_stop_pages) || 3;
-  if (mode === 'deep') {
+  if (mode === 'all' || mode === 'full') {
+    pageLimit = numMaxPages ? Math.min(numMaxPages, 200) : 100;
+  } else if (mode === 'deep') {
     pageLimit = numMaxPages ? Math.min(numMaxPages, Number(rules.discovery_max_pages) || 500) : (Number(rules.discovery_max_pages) || 500);
   } else if (numMaxPages) {
     pageLimit = Math.min(numMaxPages, Number(rules.early_stop_pages) || 3);
@@ -491,7 +493,12 @@ export async function syncCompetitorPins(sql, competitorId, username, { mode = '
     const pins = res.pins || [];
     totalFetched += pins.length;
 
-    // Filter through 3-tier OR qualification rules & ingest qualified winning pins into pa_pins
+    // 1. Always store ALL raw fetched pins in competitor_pins inventory
+    if (pins.length > 0 && numericId) {
+      await upsertCompetitorPins(sql, numericId, pins);
+    }
+
+    // 2. Filter through 3-tier OR qualification rules & ingest qualified winning pins into pa_pins
     if (pins.length > 0) {
       const ingestRes = await ingestPinsBatch(sql, pins, cleanUsername, { filterQualified: true, rules });
       allQualifiedCount += (ingestRes.added + ingestRes.updated);
@@ -822,5 +829,180 @@ export async function updateCompetitorStatus(sql, idOrUsername, isActive) {
   `;
   return row;
 }
+
+/**
+ * Bulk upserts raw pins from Pinterest into competitor_pins inventory
+ */
+export async function upsertCompetitorPins(sql, competitorId, pins) {
+  if (!competitorId || !Array.isArray(pins) || pins.length === 0) return 0;
+  let saved = 0;
+  for (const p of pins) {
+    const pinId = String(p.pin_id || p.id || '').trim();
+    if (!pinId) continue;
+    try {
+      await sql`
+        INSERT INTO competitor_pins (
+          competitor_id,
+          pin_id,
+          title,
+          description,
+          link_domain,
+          destination_url,
+          board_name,
+          image_url,
+          save_count,
+          repin_count,
+          comment_count,
+          created_at_pinterest,
+          first_seen_at,
+          last_seen_at
+        ) VALUES (
+          ${competitorId},
+          ${pinId},
+          ${p.title || ''},
+          ${p.description || ''},
+          ${p.domain || ''},
+          ${p.link || ''},
+          ${p.board_name || ''},
+          ${p.image_url || ''},
+          ${Math.max(0, Number(p.saves) || 0)},
+          ${Math.max(0, Number(p.repins) || 0)},
+          ${Math.max(0, Number(p.comments) || 0)},
+          ${p.created_at_pinterest ? new Date(p.created_at_pinterest) : null},
+          NOW(),
+          NOW()
+        )
+        ON CONFLICT (competitor_id, pin_id) DO UPDATE SET
+          title = CASE WHEN EXCLUDED.title <> '' THEN EXCLUDED.title ELSE competitor_pins.title END,
+          description = CASE WHEN EXCLUDED.description <> '' THEN EXCLUDED.description ELSE competitor_pins.description END,
+          destination_url = CASE WHEN EXCLUDED.destination_url <> '' THEN EXCLUDED.destination_url ELSE competitor_pins.destination_url END,
+          link_domain = CASE WHEN EXCLUDED.link_domain <> '' THEN EXCLUDED.link_domain ELSE competitor_pins.link_domain END,
+          board_name = CASE WHEN EXCLUDED.board_name <> '' THEN EXCLUDED.board_name ELSE competitor_pins.board_name END,
+          image_url = CASE WHEN EXCLUDED.image_url <> '' THEN EXCLUDED.image_url ELSE competitor_pins.image_url END,
+          save_count = GREATEST(competitor_pins.save_count, EXCLUDED.save_count),
+          repin_count = GREATEST(competitor_pins.repin_count, EXCLUDED.repin_count),
+          comment_count = GREATEST(competitor_pins.comment_count, EXCLUDED.comment_count),
+          last_seen_at = NOW();
+      `;
+      saved++;
+    } catch (err) {
+      console.warn(`[upsertCompetitorPins] Failed to insert pin ${pinId}:`, err.message);
+    }
+  }
+  return saved;
+}
+
+/**
+ * List all creator pins from competitor_pins inventory with rich filtering, sorting, and pagination
+ */
+export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
+  search = '',
+  board = '',
+  min_saves = 0,
+  sort = 'saves_desc',
+  page = 1,
+  limit = 50,
+  qualified_only = false
+} = {}) {
+  let numericId = parseInt(competitorIdOrUsername, 10);
+  let cleanUsername = null;
+  if (isNaN(numericId) || !numericId) {
+    cleanUsername = normalizePinterestUsername(competitorIdOrUsername);
+    const [c] = await sql`SELECT id, username FROM competitor_profiles WHERE LOWER(username) = ${cleanUsername} LIMIT 1;`;
+    if (c) {
+      numericId = c.id;
+      cleanUsername = c.username;
+    }
+  } else {
+    const [c] = await sql`SELECT id, username FROM competitor_profiles WHERE id = ${numericId} LIMIT 1;`;
+    if (c) cleanUsername = c.username;
+  }
+
+  if (!numericId) {
+    return { pins: [], total: 0, page: 1, limit, total_pages: 0, boards: [] };
+  }
+
+  const pNum = Math.max(1, parseInt(page, 10) || 1);
+  const pLim = Math.max(1, Math.min(parseInt(limit, 10) || 50, 200));
+  const offset = (pNum - 1) * pLim;
+
+  const minSavesNum = Math.max(0, parseInt(min_saves, 10) || 0);
+  const searchPattern = search ? `%${search.toLowerCase().trim()}%` : null;
+  const boardPattern = board ? board.trim() : null;
+
+  const boardsRows = await sql`
+    SELECT DISTINCT board_name, COUNT(*)::int as count
+    FROM competitor_pins
+    WHERE competitor_id = ${numericId} AND board_name IS NOT NULL AND board_name <> ''
+    GROUP BY board_name
+    ORDER BY count DESC;
+  `;
+
+  const rows = await sql`
+    SELECT 
+      cp.id,
+      cp.competitor_id,
+      cp.pin_id,
+      cp.title,
+      cp.description,
+      cp.link_domain,
+      cp.destination_url,
+      cp.board_name,
+      cp.image_url,
+      cp.save_count,
+      cp.repin_count,
+      cp.comment_count,
+      cp.created_at_pinterest,
+      cp.first_seen_at,
+      cp.last_seen_at,
+      (pa.pin_id IS NOT NULL) AS is_qualified,
+      COALESCE(pa.velocity, 0) AS velocity
+    FROM competitor_pins cp
+    LEFT JOIN pa_pins pa ON pa.pin_id = cp.pin_id
+    WHERE cp.competitor_id = ${numericId}
+      AND (${minSavesNum} = 0 OR cp.save_count >= ${minSavesNum})
+      AND (${searchPattern}::text IS NULL OR LOWER(cp.title) LIKE ${searchPattern} OR LOWER(COALESCE(cp.description, '')) LIKE ${searchPattern})
+      AND (${boardPattern}::text IS NULL OR cp.board_name = ${boardPattern})
+      AND (${qualified_only} = FALSE OR pa.pin_id IS NOT NULL)
+    ORDER BY 
+      CASE WHEN ${sort} = 'saves_desc' THEN cp.save_count END DESC NULLS LAST,
+      CASE WHEN ${sort} = 'repins_desc' THEN cp.repin_count END DESC NULLS LAST,
+      CASE WHEN ${sort} = 'newest' THEN cp.created_at_pinterest END DESC NULLS LAST,
+      CASE WHEN ${sort} = 'oldest' THEN cp.created_at_pinterest END ASC NULLS LAST,
+      cp.save_count DESC
+    LIMIT ${pLim} OFFSET ${offset};
+  `;
+
+  const [countRow] = await sql`
+    SELECT COUNT(*)::int as total
+    FROM competitor_pins cp
+    LEFT JOIN pa_pins pa ON pa.pin_id = cp.pin_id
+    WHERE cp.competitor_id = ${numericId}
+      AND (${minSavesNum} = 0 OR cp.save_count >= ${minSavesNum})
+      AND (${searchPattern}::text IS NULL OR LOWER(cp.title) LIKE ${searchPattern} OR LOWER(COALESCE(cp.description, '')) LIKE ${searchPattern})
+      AND (${boardPattern}::text IS NULL OR cp.board_name = ${boardPattern})
+      AND (${qualified_only} = FALSE OR pa.pin_id IS NOT NULL);
+  `;
+
+  const total = countRow ? countRow.total : 0;
+  const total_pages = Math.ceil(total / pLim);
+
+  return {
+    pins: rows.map(r => ({
+      ...r,
+      saves: Number(r.save_count || 0),
+      repins: Number(r.repin_count || 0),
+      comments: Number(r.comment_count || 0),
+      velocity: Number(r.velocity || 0),
+      is_qualified: Boolean(r.is_qualified)
+    })),
+    total,
+    page: pNum,
+    limit: pLim,
+    total_pages,
+    boards: boardsRows
+  };
+}
+
 
 
