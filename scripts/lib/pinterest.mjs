@@ -447,6 +447,8 @@ export async function fetchUserResource(username, activeCookie = '') {
       following_count: parseCleanMetric(data.following_count || 0),
       total_pins: parseCleanMetric(data.pin_count || 0),
       total_boards: parseCleanMetric(data.board_count || 0),
+      account_created_at: data.created_at || null,
+      last_pin_save_time: data.last_pin_save_time || null
     };
   } catch (err) {
     return { ok: false, error: err.message };

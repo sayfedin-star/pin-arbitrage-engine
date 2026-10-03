@@ -3516,15 +3516,30 @@ export function getDashboardHtml() {
                 </div>
               </div>
 
-              <!-- Right: Strategy Age Metric Badge (Image 1) -->
-              <div class="flex items-center gap-3.5 bg-slate-50 dark:bg-slate-900/60 rounded-2xl p-4 border border-slate-200/80 dark:border-slate-800 self-start lg:self-auto shadow-2xs">
-                <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-rose-500/10 text-rose-500 border border-rose-500/20">
-                  <i data-lucide="calendar" class="w-5 h-5"></i>
+              <!-- Right: Account Age & Strategy Age Metric Badges -->
+              <div class="flex flex-wrap items-center gap-3 self-start lg:self-auto">
+                <!-- Account Age Metric Badge -->
+                <div class="flex items-center gap-3.5 bg-slate-50 dark:bg-slate-900/60 rounded-2xl p-4 border border-slate-200/80 dark:border-slate-800 shadow-2xs">
+                  <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-500/10 text-blue-500 border border-blue-500/20">
+                    <i data-lucide="user-check" class="w-5 h-5"></i>
+                  </div>
+                  <div>
+                    <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Account Age</span>
+                    <div class="text-lg font-extrabold text-slate-900 dark:text-white font-mono tabular-nums" x-text="(activeCreatorDetail?.account_age?.days || activeCreatorDetail?.strategy_age?.days || 0) + ' Days'"></div>
+                    <span class="text-[10px] text-slate-400" x-text="'Created: ' + (activeCreatorDetail?.account_age?.created_at || activeCreatorDetail?.strategy_age?.oldest_board_date || '—')"></span>
+                  </div>
                 </div>
-                <div>
-                  <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Strategy Age (Oldest Board)</span>
-                  <div class="text-lg font-extrabold text-slate-900 dark:text-white font-mono tabular-nums" x-text="(activeCreatorDetail?.strategy_age?.days || 0) + ' Days'"></div>
-                  <span class="text-[10px] text-slate-400" x-text="'Oldest board: ' + (activeCreatorDetail?.strategy_age?.oldest_board_date || '—')"></span>
+
+                <!-- Strategy Age Metric Badge (Oldest Board Created Date) -->
+                <div class="flex items-center gap-3.5 bg-slate-50 dark:bg-slate-900/60 rounded-2xl p-4 border border-slate-200/80 dark:border-slate-800 shadow-2xs">
+                  <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-rose-500/10 text-rose-500 border border-rose-500/20">
+                    <i data-lucide="calendar" class="w-5 h-5"></i>
+                  </div>
+                  <div>
+                    <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Strategy Age (Oldest Board)</span>
+                    <div class="text-lg font-extrabold text-slate-900 dark:text-white font-mono tabular-nums" x-text="(activeCreatorDetail?.strategy_age?.days || 0) + ' Days'"></div>
+                    <span class="text-[10px] text-slate-400" x-text="'Oldest board: ' + (activeCreatorDetail?.strategy_age?.oldest_board_date || '—')"></span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -3541,17 +3556,17 @@ export function getDashboardHtml() {
               <span>📋 All Account Pins</span>
               <span class="px-2 py-0.5 rounded text-[10px] font-mono" :class="activeCreatorTab === 'all_pins' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800'" x-text="activeCreatorAllPinsTotal || 0"></span>
             </button>
-            <button @click="activeCreatorTab = 'pins'" class="flex items-center space-x-2 px-4 py-2 text-xs font-bold rounded-xl transition cursor-pointer" :class="activeCreatorTab === 'pins' ? 'bg-rose-500 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
+            <button @click="activeCreatorTab = 'pins'; if (!activeCreatorPins || activeCreatorPins.length === 0) fetchPinArchivePins()" class="flex items-center space-x-2 px-4 py-2 text-xs font-bold rounded-xl transition cursor-pointer" :class="activeCreatorTab === 'pins' ? 'bg-rose-500 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
               <i data-lucide="archive" class="w-4 h-4"></i>
               <span>📌 All Pins Archive (Winning Pins)</span>
               <span class="px-2 py-0.5 rounded text-[10px] font-mono" :class="activeCreatorTab === 'pins' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800'" x-text="formatNumber(activeCreatorWinningPinsTotal || activeCreatorPins.length || 0)"></span>
             </button>
-            <button @click="activeCreatorTab = 'topics'" class="flex items-center space-x-2 px-4 py-2 text-xs font-bold rounded-xl transition cursor-pointer" :class="activeCreatorTab === 'topics' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
+            <button @click="activeCreatorTab = 'topics'; if (!activeCreatorTopics || activeCreatorTopics.length === 0) fetchPinArchiveTopics()" class="flex items-center space-x-2 px-4 py-2 text-xs font-bold rounded-xl transition cursor-pointer" :class="activeCreatorTab === 'topics' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
               <i data-lucide="sparkles" class="w-4 h-4"></i>
               <span>✨ Smart Topic Clusters</span>
               <span class="px-2 py-0.5 rounded text-[10px] font-mono" :class="activeCreatorTab === 'topics' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800'" x-text="activeCreatorTopics.length"></span>
             </button>
-            <button @click="activeCreatorTab = 'boards'" class="flex items-center space-x-2 px-4 py-2 text-xs font-bold rounded-xl transition cursor-pointer" :class="activeCreatorTab === 'boards' ? 'bg-slate-800 dark:bg-slate-700 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
+            <button @click="activeCreatorTab = 'boards'; if (!activeCreatorBoards || activeCreatorBoards.length === 0) fetchCreatorBoards(activeCreator)" class="flex items-center space-x-2 px-4 py-2 text-xs font-bold rounded-xl transition cursor-pointer" :class="activeCreatorTab === 'boards' ? 'bg-slate-800 dark:bg-slate-700 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
               <i data-lucide="layout-grid" class="w-4 h-4"></i>
               <span>Pinterest Board Strategy</span>
               <span class="px-2 py-0.5 rounded text-[10px] font-mono" :class="activeCreatorTab === 'boards' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800'" x-text="activeCreatorBoards.length || activeCreator.total_boards || 0"></span>
@@ -3772,7 +3787,78 @@ export function getDashboardHtml() {
               </div>
             </div>
 
-            <!-- 4 Primary Metric Stat Cards (Image 1) -->
+            <!-- 4 Engagement & Virality Metric Stat Cards (Total Saves, Shares, 24h Deltas) -->
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <!-- Card 1: Total Saves -->
+              <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-4 sm:p-5 shadow-xs hover:border-rose-500/30 transition-all flex flex-col justify-between group">
+                <div class="flex items-center justify-between">
+                  <span class="text-[10.5px] font-bold text-slate-500 uppercase tracking-wider">TOTAL SAVES</span>
+                  <div class="w-8 h-8 rounded-full bg-rose-50 dark:bg-rose-950/40 text-rose-500 flex items-center justify-center border border-rose-100 dark:border-rose-900/40">
+                    <i data-lucide="heart" class="w-4 h-4"></i>
+                  </div>
+                </div>
+                <div>
+                  <div class="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white mt-2 font-mono tabular-nums" x-text="formatNumber(activeCreatorDetail?.engagement?.total_saves || 0)"></div>
+                  <div class="mt-2 text-[11px] text-slate-500 flex items-center gap-1.5 font-medium">
+                    <span class="h-1.5 w-1.5 rounded-full bg-rose-500"></span>
+                    <span>Cumulative saves</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Card 2: Total Shares -->
+              <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-4 sm:p-5 shadow-xs hover:border-blue-500/30 transition-all flex flex-col justify-between group">
+                <div class="flex items-center justify-between">
+                  <span class="text-[10.5px] font-bold text-slate-500 uppercase tracking-wider">TOTAL SHARES</span>
+                  <div class="w-8 h-8 rounded-full bg-blue-50 dark:bg-blue-950/40 text-blue-500 flex items-center justify-center border border-blue-100 dark:border-blue-900/40">
+                    <i data-lucide="share-2" class="w-4 h-4"></i>
+                  </div>
+                </div>
+                <div>
+                  <div class="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white mt-2 font-mono tabular-nums" x-text="formatNumber(activeCreatorDetail?.engagement?.total_shares || 0)"></div>
+                  <div class="mt-2 text-[11px] text-slate-500 flex items-center gap-1.5 font-medium">
+                    <span class="h-1.5 w-1.5 rounded-full bg-blue-500"></span>
+                    <span>Engagement signals</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Card 3: 24H Saves Δ -->
+              <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-4 sm:p-5 shadow-xs hover:border-rose-500/30 transition-all flex flex-col justify-between group">
+                <div class="flex items-center justify-between">
+                  <span class="text-[10.5px] font-bold text-rose-500 dark:text-rose-400 uppercase tracking-wider">24H SAVES &Delta;</span>
+                  <div class="w-8 h-8 rounded-full bg-rose-50 dark:bg-rose-950/40 text-rose-500 flex items-center justify-center border border-rose-100 dark:border-rose-900/40 font-bold text-xs">
+                    <span>$</span>
+                  </div>
+                </div>
+                <div>
+                  <div class="text-2xl sm:text-3xl font-extrabold tracking-tight text-rose-600 dark:text-rose-400 mt-2 font-mono tabular-nums" x-text="((activeCreatorDetail?.engagement?.delta_saves_24h || 0) >= 0 ? '+' : '') + formatNumber(activeCreatorDetail?.engagement?.delta_saves_24h || 0)"></div>
+                  <div class="mt-2 text-[11px] text-slate-500 flex items-center gap-1.5 font-medium">
+                    <span class="h-1.5 w-1.5 rounded-full bg-rose-500"></span>
+                    <span>Past 24h saves gained</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Card 4: 24H Repins Δ -->
+              <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-4 sm:p-5 shadow-xs hover:border-emerald-500/30 transition-all flex flex-col justify-between group">
+                <div class="flex items-center justify-between">
+                  <span class="text-[10.5px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">24H REPINS &Delta;</span>
+                  <div class="w-8 h-8 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-500 flex items-center justify-center border border-emerald-100 dark:border-emerald-900/40">
+                    <i data-lucide="repeat" class="w-4 h-4"></i>
+                  </div>
+                </div>
+                <div>
+                  <div class="text-2xl sm:text-3xl font-extrabold tracking-tight text-emerald-600 dark:text-emerald-400 mt-2 font-mono tabular-nums" x-text="((activeCreatorDetail?.engagement?.delta_repins_24h || 0) >= 0 ? '+' : '') + formatNumber(activeCreatorDetail?.engagement?.delta_repins_24h || 0)"></div>
+                  <div class="mt-2 text-[11px] text-slate-500 flex items-center gap-1.5 font-medium">
+                    <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+                    <span>Past 24h viral repins</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 4 Primary Metric Stat Cards (Audience & Reach) -->
             <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <!-- Card 1: Monthly Reach -->
               <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-4 sm:p-5 shadow-xs hover:border-emerald-500/30 transition-all flex flex-col justify-between group">
@@ -7940,19 +8026,16 @@ export function getDashboardHtml() {
             }
             this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
           });
-          await this.refreshAll();
-          this.pollCrawlStatus();
-          setInterval(() => this.pollCrawlStatus(), 3000);
-
-          // Deep Link URL Hydration (e.g. /pin/1083467622873349531 or /wifesrecipesbyme)
+          // Immediate Deep Link URL Hydration (e.g. /pin/1083467622873349531 or /wifesrecipesbyme)
           if (typeof window !== 'undefined') {
             const segments = (window.location.pathname || '').split('/').filter(Boolean);
             const first = segments[0] || '';
             const second = segments[1] || '';
             if (first === 'pin' && second) {
-              await this.openPinPage(second, false);
+              this.openPinPage(second, false);
             } else if (first && !first.startsWith('api') && first !== 'index.html') {
-              await this.openCreatorByHandle(first);
+              this.currentTab = 'creators_archive';
+              this.openCreatorByHandle(first);
             }
 
             window.addEventListener('popstate', (e) => {
@@ -7974,6 +8057,11 @@ export function getDashboardHtml() {
               }
             });
           }
+
+          // Background fleet & telemetry refresh (does not block instant SPA hydration)
+          this.refreshAll().catch((err) => console.error('refreshAll background error:', err));
+          this.pollCrawlStatus();
+          setInterval(() => this.pollCrawlStatus(), 3000);
 
           this.$nextTick(() => {
             if (window.lucide) window.lucide.createIcons();
@@ -8620,6 +8708,9 @@ export function getDashboardHtml() {
                 await this.refreshAll();
                 if (this.activeDossierSeed) {
                   await this.openSeedDossier(this.activeDossierSeed);
+                }
+                if (this.activeCreator) {
+                  await this.openCreatorPage(this.activeCreator, this.activeCreatorTab);
                 }
                 this.showToast('Crawl completed! Data refreshed.');
               }
