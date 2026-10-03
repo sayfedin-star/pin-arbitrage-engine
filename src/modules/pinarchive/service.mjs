@@ -964,11 +964,8 @@ export async function getPinDetailWithMetrics(sql, pinId, options = {}) {
     }
   }
 
-  // If pin is not found in database, live refresh requested, OR pin lacks authentic annotations/alt_text:
-  // Fetch directly from Pinterest public HTML without any cookies!
-  const hasAnnotations = Array.isArray(pin?.annotations) ? pin.annotations.length > 0 : Boolean(pin?.annotations && pin.annotations !== '[]');
-  const hasAltText = Boolean(pin?.alt_text && String(pin.alt_text).trim().length > 0);
-  const needsEnrichment = !pin || forceRefresh || (!hasAnnotations && !hasAltText);
+  // Only fetch live from Pinterest if the pin does not exist in DB OR user explicitly clicked "Live Refresh"
+  const needsEnrichment = !pin || forceRefresh;
 
   if (needsEnrichment) {
     try {

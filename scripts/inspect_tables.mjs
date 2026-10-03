@@ -29,6 +29,10 @@ async function main() {
       console.log(`- ${t.table_name}: error querying (${e.message})`);
     }
   }
+
+  const sampleProjects = await sql`SELECT project_name, stats FROM neon_projects_registry LIMIT 3;`;
+  console.log('\nSample registry stats:');
+  console.log(sampleProjects);
 }
 
 main().catch(console.error);

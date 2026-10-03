@@ -378,8 +378,28 @@ export function extractPinData(html, pinId) {
         if (repins !== undefined && repins !== null) {
           mergedRelayPin.repins = Math.max(mergedRelayPin.repins || 0, Number(repins));
         }
-        if (v3.commentCount !== undefined) {
-          mergedRelayPin.commentCount = Math.max(mergedRelayPin.commentCount || 0, Number(v3.commentCount));
+        const comments = v3.commentCount ?? v3.aggregatedPinData?.commentCount ?? v3.aggregatedStats?.comments;
+        if (comments !== undefined && comments !== null) {
+          mergedRelayPin.commentCount = Math.max(mergedRelayPin.commentCount || 0, Number(comments));
+        }
+
+        const totalReactions = v3.totalReactionCount ?? v3.reactionCounts?.total;
+        if (totalReactions !== undefined && totalReactions !== null) {
+          mergedRelayPin.total_reaction_count = Number(totalReactions);
+        }
+
+        if (Array.isArray(v3.reactionCountsData)) {
+          const rMap = {};
+          for (const item of v3.reactionCountsData) {
+            rMap[String(item.reactionType)] = Number(item.reactionCount || 0);
+          }
+          mergedRelayPin.reaction_counts = rMap;
+        } else if (v3.reactionCounts) {
+          mergedRelayPin.reaction_counts = v3.reactionCounts;
+        }
+
+        if (v3.shareCount !== undefined && v3.shareCount !== null) {
+          mergedRelayPin.share_count = Number(v3.shareCount);
         }
 
         const imgOrig = v3.images_orig?.url || v3.images_736x?.url || v3.imageLargeUrl || v3.images?.orig?.url;
