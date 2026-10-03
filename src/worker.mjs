@@ -38,15 +38,19 @@ import {
   deletePinMetricSnapshot
 } from './modules/pinarchive/service.mjs';
 
-function jsonResponse(data, status = 200) {
+function jsonResponse(data, status = 200, cacheSeconds = 0) {
+  const headers = {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+  };
+  if (cacheSeconds > 0) {
+    headers['Cache-Control'] = `public, max-age=${cacheSeconds}, stale-while-revalidate=${cacheSeconds * 3}`;
+  }
   return new Response(JSON.stringify(data), {
     status,
-    headers: {
-      'Content-Type': 'application/json; charset=utf-8',
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization'
-    }
+    headers
   });
 }
 
@@ -1332,7 +1336,7 @@ export default {
         const idOrUser = username || competitorId;
         if (!idOrUser) return jsonResponse({ error: 'competitor_id or username is required' }, 400);
         const boards = await getCompetitorBoards(targetSql, idOrUser, { username });
-        return jsonResponse({ success: true, boards });
+        return jsonResponse({ success: true, boards }, 200, 30);
       }
 
       if (method === 'POST' && pathname === '/api/competitors/sync-boards') {
@@ -1369,7 +1373,7 @@ export default {
         if (!idOrUser) return jsonResponse({ error: 'id or username is required' }, 400);
         try {
           const detail = await getCompetitorDetail(targetSql, idOrUser, { username });
-          return jsonResponse({ success: true, ...detail });
+          return jsonResponse({ success: true, ...detail }, 200, 20);
         } catch (err) {
           return jsonResponse({ success: false, error: err.message }, 500);
         }
@@ -1382,7 +1386,7 @@ export default {
         try {
           const forceRefresh = searchParams.get('refresh') === 'true';
           const boardData = await getOrSyncBoardDetail(targetSql, username, board, { forceRefresh });
-          return jsonResponse({ success: true, board: boardData });
+          return jsonResponse({ success: true, board: boardData }, 200, forceRefresh ? 0 : 60);
         } catch (err) {
           return jsonResponse({ success: false, error: err.message }, 500);
         }
@@ -1405,7 +1409,7 @@ export default {
             qualified_only: searchParams.get('qualified_only') === 'true',
             product_only: searchParams.get('product_only') === 'true'
           });
-          return jsonResponse({ success: true, ...data });
+          return jsonResponse({ success: true, ...data }, 200, 15);
         } catch (err) {
           return jsonResponse({ success: false, error: err.message }, 500);
         }
@@ -1630,7 +1634,7 @@ export default {
         const refresh = searchParams.get('refresh') === 'true';
         const detail = await getPinDetailWithMetrics(targetSql, pinId, { refresh });
         if (!detail) return jsonResponse({ error: 'Pin not found' }, 404);
-        return jsonResponse({ success: true, ...detail });
+        return jsonResponse({ success: true, ...detail }, 200, refresh ? 0 : 60);
       }
 
       if (method === 'DELETE' && pathname === '/api/pinarchive/pin-snapshot') {

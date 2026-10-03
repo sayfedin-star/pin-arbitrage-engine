@@ -87,22 +87,36 @@ export function getDashboardHtml() {
         </button>
       </div>
 
-      <!-- Mobile Project Switcher -->
-      <div class="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 text-xs space-y-1">
-        <div class="flex items-center justify-between text-[11px] font-semibold text-slate-500 dark:text-slate-400">
-          <span class="flex items-center space-x-1">
-            <i data-lucide="database" class="w-3.5 h-3.5 text-cyan-500"></i>
-            <span>Neon DB Fleet</span>
+      <!-- Mobile Unified Storage Engine Status & Collapsible DevOps Shard Inspector -->
+      <div class="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 text-xs space-y-1.5">
+        <div class="flex items-center justify-between text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+          <span class="flex items-center space-x-1.5">
+            <span class="relative flex h-2 w-2">
+              <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+            </span>
+            <span class="font-bold">Unified Fleet Engine</span>
           </span>
-          <span class="font-mono text-[10px] text-cyan-600 dark:text-cyan-400 font-bold" x-text="fleetProjects.length + ' Projects'"></span>
+          <span class="font-mono text-[10px] text-cyan-600 dark:text-cyan-400 font-bold px-1.5 py-0.5 rounded bg-cyan-500/10 border border-cyan-500/20" x-text="(fleetProjects.length || 100) + ' Nodes (50 GB)'"></span>
         </div>
-        <select x-model="selectedProject" @change="switchProject(selectedProject); isMobileMenuOpen = false" class="w-full bg-white dark:bg-[#070c18] border border-slate-200 dark:border-slate-800 rounded-lg px-2 py-1.5 text-xs font-bold text-slate-800 dark:text-slate-200 outline-none">
-          <option value="all">🌐 All Projects (Fleet View)</option>
-          <option value="weathered-band-34334459">⚡ weathered-band-34334459 (Hub)</option>
-          <template x-for="p in fleetProjects.filter(p => !p.is_hub)" :key="p.project_id">
-            <option :value="p.project_id" x-text="'📦 ' + p.project_name"></option>
-          </template>
-        </select>
+        <div class="flex items-center justify-between text-[10.5px] text-slate-500 pt-0.5">
+          <span class="truncate max-w-[170px]" x-text="selectedProject === 'all' ? '🌐 Mode: All Projects (Auto)' : '📦 Node: ' + selectedProject"></span>
+          <button type="button" @click="showDevOpsFleetSelector = !showDevOpsFleetSelector; $nextTick(() => { if (window.lucide) window.lucide.createIcons(); })" class="text-cyan-600 dark:text-cyan-400 hover:underline cursor-pointer shrink-0 ml-1 font-semibold flex items-center gap-0.5">
+            <span x-text="showDevOpsFleetSelector ? 'Close' : 'Inspect'"></span>
+            <i data-lucide="sliders-horizontal" class="w-3 h-3"></i>
+          </button>
+        </div>
+        <!-- Collapsible Shard Picker (DevOps Only) -->
+        <div x-show="showDevOpsFleetSelector" x-transition class="pt-1.5 space-y-1 border-t border-slate-200 dark:border-slate-800">
+          <div class="text-[10px] text-slate-400">Manual Node Override (DevOps):</div>
+          <select x-model="selectedProject" @change="switchProject(selectedProject); isMobileMenuOpen = false" class="w-full bg-white dark:bg-[#070c18] border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1.5 text-xs font-bold text-slate-800 dark:text-slate-200 outline-none">
+            <option value="all">🌐 All Projects (Fleet View - Recommended)</option>
+            <option value="weathered-band-34334459">⚡ weathered-band-34334459 (Hub)</option>
+            <template x-for="p in fleetProjects.filter(p => !p.is_hub)" :key="p.project_id">
+              <option :value="p.project_id" x-text="'📦 ' + p.project_name"></option>
+            </template>
+          </select>
+        </div>
       </div>
 
       <!-- Mobile Quick Actions -->
@@ -207,22 +221,36 @@ export function getDashboardHtml() {
         </div>
       </div>
 
-      <!-- DB Project Switcher (Multi-Project Neon Fleet) -->
-      <div class="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 text-xs shadow-inner space-y-1">
-        <div class="flex items-center justify-between text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+      <!-- Unified Storage Engine Status & Collapsible DevOps Shard Inspector -->
+      <div class="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 text-xs shadow-inner space-y-1.5">
+        <div class="flex items-center justify-between text-[11px] font-semibold text-slate-700 dark:text-slate-300">
           <span class="flex items-center space-x-1.5">
-            <i data-lucide="database" class="w-3.5 h-3.5 text-cyan-500"></i>
-            <span>Neon DB Fleet</span>
+            <span class="relative flex h-2 w-2">
+              <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+            </span>
+            <span class="font-bold">Unified Fleet Engine</span>
           </span>
-          <span class="font-mono text-[10px] text-cyan-600 dark:text-cyan-400 font-bold" x-text="fleetProjects.length + ' Projects'"></span>
+          <span class="font-mono text-[10px] text-cyan-600 dark:text-cyan-400 font-bold px-1.5 py-0.5 rounded bg-cyan-500/10 border border-cyan-500/20" x-text="(fleetProjects.length || 100) + ' Nodes (50 GB)'"></span>
         </div>
-        <select x-model="selectedProject" @change="switchProject(selectedProject)" class="w-full bg-white dark:bg-[#070c18] border border-slate-200 dark:border-slate-800 rounded-lg px-2 py-1.5 text-xs font-bold text-slate-800 dark:text-slate-200 outline-none cursor-pointer focus:ring-1 focus:ring-cyan-500">
-          <option value="all">🌐 All Projects (Fleet View)</option>
-          <option value="weathered-band-34334459">⚡ weathered-band-34334459 (Hub)</option>
-          <template x-for="p in fleetProjects.filter(p => !p.is_hub)" :key="p.project_id">
-            <option :value="p.project_id" x-text="'📦 ' + p.project_name"></option>
-          </template>
-        </select>
+        <div class="flex items-center justify-between text-[10.5px] text-slate-500 pt-0.5">
+          <span class="truncate max-w-[170px]" :title="selectedProject === 'all' ? 'Auto-routed across 100 shards' : selectedProject" x-text="selectedProject === 'all' ? '🌐 Mode: All Projects (Auto-Routed)' : '📦 Node: ' + selectedProject"></span>
+          <button type="button" @click="showDevOpsFleetSelector = !showDevOpsFleetSelector; $nextTick(() => { if (window.lucide) window.lucide.createIcons(); })" class="text-cyan-600 dark:text-cyan-400 hover:underline cursor-pointer shrink-0 ml-1 font-semibold flex items-center gap-0.5">
+            <span x-text="showDevOpsFleetSelector ? 'Close' : 'Inspect'"></span>
+            <i data-lucide="sliders-horizontal" class="w-3 h-3"></i>
+          </button>
+        </div>
+        <!-- Collapsible Shard Picker (DevOps Only) -->
+        <div x-show="showDevOpsFleetSelector" x-transition class="pt-1.5 space-y-1 border-t border-slate-200 dark:border-slate-800">
+          <div class="text-[10px] text-slate-400">Manual Node Override (DevOps):</div>
+          <select x-model="selectedProject" @change="switchProject(selectedProject)" class="w-full bg-white dark:bg-[#070c18] border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1.5 text-xs font-bold text-slate-800 dark:text-slate-200 outline-none cursor-pointer">
+            <option value="all">🌐 All Projects (Fleet View - Recommended)</option>
+            <option value="weathered-band-34334459">⚡ weathered-band-34334459 (Hub)</option>
+            <template x-for="p in fleetProjects.filter(p => !p.is_hub)" :key="p.project_id">
+              <option :value="p.project_id" x-text="'📦 ' + p.project_name"></option>
+            </template>
+          </select>
+        </div>
       </div>
 
       <!-- Quick Action Buttons -->
@@ -7553,6 +7581,12 @@ export function getDashboardHtml() {
         newFleetProjectName: '',
         newFleetDatabaseUrl: '',
         selectedProject: 'all',
+        showDevOpsFleetSelector: false,
+        _clientCache: {
+          creators: new Map(),
+          boards: new Map(),
+          pins: new Map()
+        },
 
         // Tab 6: PinArchive & Topic Clusters State
         pinarchiveOverview: { total_pins: 0, total_saves: 0, total_repins: 0, avg_velocity: 0, tracked_accounts: 0, top_cluster: null, staged_pins_count: 0 },
@@ -9969,21 +10003,37 @@ export function getDashboardHtml() {
           this.creatorBoardPage = 1;
           this.activeCreatorSelectedTopic = '';
           this.creatorTopicSearch = '';
-          this.activeCreatorPins = [];
-          this.activeCreatorWinningPinsTotal = 0;
-          this.activeCreatorTopics = [];
-          this.activeCreatorBoards = [];
-          this.activeCreatorSnapshots = [];
-          this.activeCreatorDetail = null;
-          this.isCreatorLoading = true;
+
+          const handle = (creator.username || '').replace(/^@+/, '').trim().toLowerCase();
+          const compId = creator.id || handle;
+
+          // Check SWR In-Memory Cache for Instant Render (0ms)
+          const cachedCreator = this._clientCache?.creators?.get(handle);
+          if (cachedCreator) {
+            this.activeCreator = { ...creator, ...(cachedCreator.detail?.profile || {}) };
+            this.activeCreatorDetail = cachedCreator.detail;
+            this.activeCreatorSnapshots = cachedCreator.detail?.snapshots || [];
+            this.activeCreatorBoards = cachedCreator.detail?.boards || [];
+            this.activeCreatorPins = cachedCreator.pins || [];
+            this.activeCreatorWinningPinsTotal = cachedCreator.winningPinsTotal || (cachedCreator.pins ? cachedCreator.pins.length : 0);
+            this.activeCreatorTopics = cachedCreator.topics || [];
+            this.isCreatorLoading = false;
+          } else {
+            this.activeCreator = { ...creator };
+            this.activeCreatorPins = [];
+            this.activeCreatorWinningPinsTotal = 0;
+            this.activeCreatorTopics = [];
+            this.activeCreatorBoards = [];
+            this.activeCreatorSnapshots = [];
+            this.activeCreatorDetail = null;
+            this.isCreatorLoading = true;
+          }
 
           if (typeof window !== 'undefined') {
             window.scrollTo({ top: 0, behavior: 'smooth' });
           }
           this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
 
-          const handle = (creator.username || '').replace(/^@+/, '').trim();
-          const compId = creator.id || handle;
           if (typeof window !== 'undefined' && handle) {
             const targetPath = '/' + handle;
             if (window.location.pathname !== targetPath) {
@@ -9998,26 +10048,44 @@ export function getDashboardHtml() {
               fetch(this.getApiUrl('/api/pinarchive/topics?account=@' + encodeURIComponent(handle) + '&limit=100'))
             ]);
 
+            let freshDetail = null;
+            let freshPins = null;
+            let freshTopics = null;
+
             if (detailRes.ok) {
-              const detailData = await detailRes.json();
-              this.activeCreatorDetail = detailData;
-              this.activeCreatorSnapshots = detailData.snapshots || [];
-              this.activeCreatorBoards = detailData.boards || [];
-              if (detailData.profile) {
-                this.activeCreator = { ...this.activeCreator, ...detailData.profile };
+              freshDetail = await detailRes.json();
+              this.activeCreatorDetail = freshDetail;
+              this.activeCreatorSnapshots = freshDetail.snapshots || [];
+              this.activeCreatorBoards = freshDetail.boards || [];
+              if (freshDetail.profile) {
+                this.activeCreator = { ...this.activeCreator, ...freshDetail.profile };
               }
             }
 
             if (pinsRes.ok) {
               const pinsData = await pinsRes.json();
-              this.activeCreatorPins = pinsData.pins || [];
-              this.activeCreatorWinningPinsTotal = pinsData.total ?? (pinsData.pins ? pinsData.pins.length : 0);
+              freshPins = pinsData.pins || [];
+              this.activeCreatorPins = freshPins;
+              this.activeCreatorWinningPinsTotal = pinsData.total ?? (freshPins.length);
             }
 
             if (topicsRes.ok) {
               const topicsData = await topicsRes.json();
-              this.activeCreatorTopics = topicsData.topics || [];
+              freshTopics = topicsData.topics || [];
+              this.activeCreatorTopics = freshTopics;
             }
+
+            // Save to SWR In-Memory Cache
+            if (this._clientCache?.creators) {
+              this._clientCache.creators.set(handle, {
+                detail: freshDetail || cachedCreator?.detail,
+                pins: freshPins || cachedCreator?.pins,
+                winningPinsTotal: this.activeCreatorWinningPinsTotal,
+                topics: freshTopics || cachedCreator?.topics,
+                cachedAt: Date.now()
+              });
+            }
+
             await this.fetchCreatorAllPins();
           } catch (e) {
             console.error('openCreatorPage error:', e);
@@ -10075,7 +10143,13 @@ export function getDashboardHtml() {
           const pinId = typeof pinOrId === 'object' ? String(pinOrId.pin_id || pinOrId.id || '') : String(pinOrId);
           if (!pinId) return;
 
-          if (typeof pinOrId === 'object') {
+          // Check SWR In-Memory Cache for Instant Render
+          const cachedPin = (!forceRefresh && this._clientCache?.pins) ? this._clientCache.pins.get(pinId) : null;
+          if (cachedPin) {
+            this.activePinDossier = { ...cachedPin.pin };
+            this.pinDossierSnapshots = cachedPin.snapshots || [];
+            this.isLoadingPinDossier = false;
+          } else if (typeof pinOrId === 'object') {
             this.activePinDossier = {
               ...pinOrId,
               pin_id: pinId,
@@ -10086,6 +10160,7 @@ export function getDashboardHtml() {
               velocity: Number(pinOrId.velocity || 0),
               dominant_color: pinOrId.dominant_color || '#a88d56'
             };
+            this.isLoadingPinDossier = true;
           } else {
             this.activePinDossier = {
               pin_id: pinId,
@@ -10096,6 +10171,7 @@ export function getDashboardHtml() {
               velocity: 0,
               dominant_color: '#a88d56'
             };
+            this.isLoadingPinDossier = true;
           }
 
           if (typeof window !== 'undefined' && !this.previousPinPath && window.location.pathname !== ('/pin/' + pinId)) {
@@ -10104,9 +10180,10 @@ export function getDashboardHtml() {
 
           this.activePinId = pinId;
           this.isPinDossierOpen = true;
-          this.isLoadingPinDossier = true;
           this.pinDossierTimeframe = '7d';
-          this.pinDossierSnapshots = [];
+          if (!cachedPin) {
+            this.pinDossierSnapshots = [];
+          }
 
           if (typeof window !== 'undefined') {
             window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -10135,6 +10212,13 @@ export function getDashboardHtml() {
                 }
               }
               this.pinDossierSnapshots = data.snapshots || [];
+              if (this._clientCache?.pins && data.pin) {
+                this._clientCache.pins.set(pinId, {
+                  pin: this.activePinDossier,
+                  snapshots: this.pinDossierSnapshots,
+                  cachedAt: Date.now()
+                });
+              }
               if (forceRefresh) {
                 this.showToast('✅ Pin live metrics refreshed from Pinterest without cookies!');
               }
@@ -10202,79 +10286,103 @@ export function getDashboardHtml() {
           if (!boardName) return;
 
           const targetCreator = creator || this.activeCreator;
+          const cleanUser = targetCreator ? (targetCreator.username || '').replace(/^@+/, '').trim().toLowerCase() : '';
+          const cacheKey = cleanUser + ':' + boardName.toLowerCase();
+
           this.activeBoardName = boardName;
           this.activeBoardCreator = targetCreator;
 
-          // Find full board metadata from activeCreatorBoards if available
-          let foundBoard = null;
-          if (typeof boardOrName === 'object' && boardOrName.name && (boardOrName.pin_count || boardOrName.image_cover_url || boardOrName.url)) {
-            foundBoard = boardOrName;
-          } else if (this.activeCreatorBoards && this.activeCreatorBoards.length > 0) {
-            foundBoard = this.activeCreatorBoards.find(b => (b.name || '').toLowerCase() === boardName.toLowerCase());
+          // Check SWR In-Memory Cache for Instant Render (0ms)
+          const cachedBoard = this._clientCache?.boards?.get(cacheKey);
+          if (cachedBoard) {
+            this.activeBoard = cachedBoard.board;
+            this.boardPins = cachedBoard.pins || [];
+            this.boardPinsTotal = cachedBoard.pinsTotal || this.boardPins.length;
+            this.isLoadingBoardPins = false;
+          } else {
+            // Find full board metadata from activeCreatorBoards if available
+            let foundBoard = null;
+            if (typeof boardOrName === 'object' && boardOrName.name && (boardOrName.pin_count || boardOrName.image_cover_url || boardOrName.url)) {
+              foundBoard = boardOrName;
+            } else if (this.activeCreatorBoards && this.activeCreatorBoards.length > 0) {
+              foundBoard = this.activeCreatorBoards.find(b => (b.name || '').toLowerCase() === boardName.toLowerCase());
+            }
+            this.activeBoard = foundBoard || {
+              name: boardName,
+              url: targetCreator ? ('https://www.pinterest.com/' + cleanUser + '/' + encodeURIComponent(boardName.toLowerCase().replace(/\s+/g, '-'))) : null,
+              pin_count: 0,
+              follower_count: 0,
+              image_cover_url: null,
+              description: null,
+              board_vase: []
+            };
+            this.boardPins = [];
+            this.isLoadingBoardPins = true;
           }
-          this.activeBoard = foundBoard || {
-            name: boardName,
-            url: targetCreator ? ('https://www.pinterest.com/' + (targetCreator.username || '').replace(/^@+/, '') + '/' + encodeURIComponent(boardName.toLowerCase().replace(/\s+/g, '-'))) : null,
-            pin_count: 0,
-            follower_count: 0,
-            image_cover_url: null,
-            description: null,
-            board_vase: []
-          };
 
-          this.boardPins = [];
           this.boardPinsSearch = '';
           this.boardPinsFilter = 'all';
           this.boardPinsSort = 'saves_desc';
           this.boardPinsPage = 1;
           this.boardPinsPageSize = 24;
-          this.isLoadingBoardPins = true;
 
           if (typeof window !== 'undefined') {
             window.scrollTo({ top: 0, behavior: 'smooth' });
             if (updateHistory && targetCreator) {
-              const cleanUser = (targetCreator.username || '').replace(/^@+/, '').trim();
               const boardSlug = encodeURIComponent(boardName.toLowerCase().replace(/\s+/g, '-'));
               const targetPath = '/' + cleanUser + '/' + boardSlug;
               if (window.location.pathname !== targetPath) {
                 window.history.pushState({ board: boardName, username: cleanUser }, '', targetPath);
               }
             }
-            document.title = boardName + ' | ' + (targetCreator ? '@' + (targetCreator.username || '').replace(/^@+/, '') + ' | ' : '') + 'Pinterest Intelligence';
+            document.title = boardName + ' | ' + (targetCreator ? '@' + cleanUser + ' | ' : '') + 'Pinterest Intelligence';
           }
 
           try {
-            const handle = targetCreator ? (targetCreator.username || '').replace(/^@+/, '').trim() : '';
-            const compId = targetCreator ? (targetCreator.id || handle) : '';
+            const compId = targetCreator ? (targetCreator.id || cleanUser) : '';
             const p = new URLSearchParams();
             if (compId) p.set('id', compId);
-            if (handle) p.set('username', handle);
+            if (cleanUser) p.set('username', cleanUser);
             p.set('board', boardName);
             p.set('limit', 1000);
 
             const [pinsRes, detailRes] = await Promise.all([
               fetch(this.getApiUrl('/api/competitors/all-pins?' + p.toString())),
-              handle ? fetch(this.getApiUrl('/api/competitors/board-detail?username=' + encodeURIComponent(handle) + '&board=' + encodeURIComponent(boardName))) : Promise.resolve(null)
+              cleanUser ? fetch(this.getApiUrl('/api/competitors/board-detail?username=' + encodeURIComponent(cleanUser) + '&board=' + encodeURIComponent(boardName))) : Promise.resolve(null)
             ]);
 
+            let updatedBoard = { ...this.activeBoard };
             if (detailRes && detailRes.ok) {
               const dData = await detailRes.json();
               if (dData.board) {
-                this.activeBoard = {
-                  ...this.activeBoard,
+                updatedBoard = {
+                  ...updatedBoard,
                   ...dData.board,
-                  board_vase: Array.isArray(dData.board.board_vase) ? dData.board.board_vase : (this.activeBoard.board_vase || [])
+                  board_vase: Array.isArray(dData.board.board_vase) ? dData.board.board_vase : (updatedBoard.board_vase || [])
                 };
+                this.activeBoard = updatedBoard;
               }
             }
 
+            let freshPins = this.boardPins;
             if (pinsRes && pinsRes.ok) {
               const data = await pinsRes.json();
-              this.boardPins = data.pins || [];
+              freshPins = data.pins || [];
+              this.boardPins = freshPins;
               this.boardPinsTotal = data.total || this.boardPins.length;
               if (this.boardPins.length > 0 && (!this.activeBoard.pin_count || this.activeBoard.pin_count === 0)) {
                 this.activeBoard.pin_count = this.boardPinsTotal;
               }
+            }
+
+            // Save to SWR In-Memory Cache
+            if (this._clientCache?.boards) {
+              this._clientCache.boards.set(cacheKey, {
+                board: this.activeBoard,
+                pins: freshPins,
+                pinsTotal: this.boardPinsTotal,
+                cachedAt: Date.now()
+              });
             }
           } catch (err) {
             console.error('Failed to load board pins:', err);
