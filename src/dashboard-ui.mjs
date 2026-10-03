@@ -6070,15 +6070,15 @@ export function getDashboardHtml() {
                     <div class="flex items-center gap-1.5">
                       <span title="Tracked Creators" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10.5px] font-mono font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
                         <i data-lucide="users" class="w-2.5 h-2.5"></i>
-                        <span x-text="(p.stats?.competitors || 16) + 'c'"></span>
+                        <span x-text="(p.stats?.competitors ?? 0) + 'c'"></span>
                       </span>
                       <span title="Thematic Boards" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10.5px] font-mono font-bold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
                         <i data-lucide="layout-grid" class="w-2.5 h-2.5"></i>
-                        <span x-text="(p.stats?.boards || 658) + 'b'"></span>
+                        <span x-text="(p.stats?.boards ?? 0) + 'b'"></span>
                       </span>
                       <span title="Winning Pins" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10.5px] font-mono font-bold bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20">
                         <i data-lucide="pin" class="w-2.5 h-2.5"></i>
-                        <span x-text="(p.stats?.pins || 0) + 'p'"></span>
+                        <span x-text="(p.stats?.pins ?? 0) + 'p'"></span>
                       </span>
                     </div>
                   </td>
