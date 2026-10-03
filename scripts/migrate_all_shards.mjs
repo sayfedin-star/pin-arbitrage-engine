@@ -1,9 +1,22 @@
 #!/usr/bin/env node
 
 /**
- * Migrate all 99 Neon Shards
- * Applies identical schema (competitor_profiles, competitor_pins, pa_pins, pa_pin_metrics, pa_staged_pins)
- * across every registered shard project in parallel batches.
+ * Universal Neon Fleet Migration Runner
+ * Applies the 100% IDENTICAL complete schema across all 99 Neon Shards:
+ * 1. competitor_profiles (with last_harvest_metadata, metadata, etc.)
+ * 2. competitor_history_snapshots
+ * 3. competitor_boards
+ * 4. competitor_pins
+ * 5. pa_pins
+ * 6. pa_pin_metrics
+ * 7. pa_staged_pins
+ * 8. pa_qualification_rules (seeded with default rules)
+ * 9. cluster_seeds
+ * 10. candidate_graph_nodes
+ * 11. cluster_arbitrage_metrics
+ * 12. seed_guided_search_capsules
+ * 13. tracked_keywords
+ * 14. keyword_pins_snapshots
  */
 
 import { neon } from '@neondatabase/serverless';
@@ -22,9 +35,10 @@ if (!DATABASE_URL) {
 
 const hubSql = neon(DATABASE_URL);
 
-async function migrateSingleShard(shard) {
+export async function migrateSingleShard(shard) {
   const sql = neon(shard.database_url);
   
+  // 1. Competitor Profiles
   await sql`
     CREATE TABLE IF NOT EXISTS competitor_profiles (
       id SERIAL PRIMARY KEY,
@@ -47,10 +61,16 @@ async function migrateSingleShard(shard) {
       is_active BOOLEAN DEFAULT TRUE,
       tags TEXT[] DEFAULT '{}',
       metadata JSONB DEFAULT '{}'::jsonb,
+      last_harvest_metadata JSONB DEFAULT '{}'::jsonb,
       created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
       updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
     );
   `;
+  await sql`ALTER TABLE competitor_profiles ADD COLUMN IF NOT EXISTS last_harvest_metadata JSONB DEFAULT '{}'::jsonb;`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_competitor_profiles_type ON competitor_profiles(account_type);`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_competitor_profiles_reach ON competitor_profiles(monthly_reach DESC);`;
+
+  // 2. Competitor History Snapshots
   await sql`
     CREATE TABLE IF NOT EXISTS competitor_history_snapshots (
       id BIGSERIAL PRIMARY KEY,
@@ -66,6 +86,9 @@ async function migrateSingleShard(shard) {
       UNIQUE(competitor_id, recorded_date)
     );
   `;
+  await sql`CREATE INDEX IF NOT EXISTS idx_competitor_history_date ON competitor_history_snapshots(competitor_id, recorded_date DESC);`;
+
+  // 3. Competitor Boards
   await sql`
     CREATE TABLE IF NOT EXISTS competitor_boards (
       id SERIAL PRIMARY KEY,
@@ -84,6 +107,8 @@ async function migrateSingleShard(shard) {
   `;
   await sql`CREATE INDEX IF NOT EXISTS idx_competitor_boards_comp_id ON competitor_boards(competitor_id);`;
   await sql`CREATE INDEX IF NOT EXISTS idx_competitor_boards_activity ON competitor_boards(competitor_id, last_pinned_at DESC NULLS LAST);`;
+
+  // 4. Competitor Pins (Raw Inventory)
   await sql`
     CREATE TABLE IF NOT EXISTS competitor_pins (
       id BIGSERIAL PRIMARY KEY,
@@ -105,6 +130,11 @@ async function migrateSingleShard(shard) {
       UNIQUE(competitor_id, pin_id)
     );
   `;
+  await sql`CREATE INDEX IF NOT EXISTS idx_competitor_pins_comp_id ON competitor_pins(competitor_id);`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_competitor_pins_pin_id ON competitor_pins(pin_id);`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_competitor_pins_saves ON competitor_pins(save_count DESC);`;
+
+  // 5. PinArchive Pins (pa_pins)
   await sql`
     CREATE TABLE IF NOT EXISTS pa_pins (
       pin_id VARCHAR(64) PRIMARY KEY,
@@ -130,6 +160,11 @@ async function migrateSingleShard(shard) {
       last_updated_at TIMESTAMPTZ DEFAULT NOW()
     );
   `;
+  await sql`CREATE INDEX IF NOT EXISTS idx_pa_pins_saves ON pa_pins(saves DESC);`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_pa_pins_velocity ON pa_pins(velocity DESC);`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_pa_pins_account ON pa_pins(account_username);`;
+
+  // 6. PinArchive Time-Series Metrics (pa_pin_metrics)
   await sql`
     CREATE TABLE IF NOT EXISTS pa_pin_metrics (
       id BIGSERIAL PRIMARY KEY,
@@ -141,6 +176,9 @@ async function migrateSingleShard(shard) {
       UNIQUE(pin_id, recorded_at)
     );
   `;
+  await sql`CREATE INDEX IF NOT EXISTS idx_pa_pin_metrics_lookup ON pa_pin_metrics(pin_id, recorded_at DESC);`;
+
+  // 7. PinArchive Staged Repurposing Queue (pa_staged_pins)
   await sql`
     CREATE TABLE IF NOT EXISTS pa_staged_pins (
       id SERIAL PRIMARY KEY,
@@ -152,9 +190,157 @@ async function migrateSingleShard(shard) {
       updated_at TIMESTAMPTZ DEFAULT NOW()
     );
   `;
-  await sql`CREATE INDEX IF NOT EXISTS idx_pa_pins_saves ON pa_pins(saves DESC);`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_pa_pins_velocity ON pa_pins(velocity DESC);`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_pa_pins_account ON pa_pins(account_username);`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_pa_staged_pins_status ON pa_staged_pins(status);`;
+
+  // 8. Pin Qualification Rules (pa_qualification_rules)
+  await sql`
+    CREATE TABLE IF NOT EXISTS pa_qualification_rules (
+      id INT PRIMARY KEY DEFAULT 1,
+      tier1_min_saves INT DEFAULT 100,
+      tier2_min_repins INT DEFAULT 100,
+      tier3_max_age_days INT DEFAULT 14,
+      tier3_min_saves INT DEFAULT 25,
+      master_ingest_enabled BOOLEAN DEFAULT TRUE,
+      early_stop_pages INT DEFAULT 3,
+      max_batch_pins INT DEFAULT 500,
+      discovery_max_pages INT DEFAULT 500,
+      refresh_max_pins INT DEFAULT 0,
+      paused_policy VARCHAR(32) DEFAULT 'reject',
+      updated_at TIMESTAMPTZ DEFAULT NOW(),
+      CONSTRAINT single_rules_row CHECK (id = 1)
+    );
+  `;
+  await sql`
+    INSERT INTO pa_qualification_rules (
+      id, tier1_min_saves, tier2_min_repins, tier3_max_age_days, tier3_min_saves,
+      master_ingest_enabled, early_stop_pages, max_batch_pins, discovery_max_pages, refresh_max_pins, paused_policy, updated_at
+    ) VALUES (
+      1, 100, 100, 14, 25, TRUE, 3, 500, 500, 0, 'reject', NOW()
+    )
+    ON CONFLICT (id) DO NOTHING;
+  `;
+
+  // 9. Cluster Seeds (Phase 1 Core)
+  await sql`
+    CREATE TABLE IF NOT EXISTS cluster_seeds (
+      pin_id VARCHAR(64) PRIMARY KEY,
+      label VARCHAR(255),
+      is_competitor BOOLEAN DEFAULT FALSE,
+      velocity NUMERIC DEFAULT 0,
+      last_crawled_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `;
+
+  // 10. Candidate Graph Nodes (Phase 1 Graph)
+  await sql`
+    CREATE TABLE IF NOT EXISTS candidate_graph_nodes (
+      id BIGSERIAL PRIMARY KEY,
+      seed_pin_id VARCHAR(64),
+      candidate_pin_id VARCHAR(64) NOT NULL,
+      title TEXT,
+      dominant_color VARCHAR(32),
+      aspect_ratio NUMERIC,
+      saves INT DEFAULT 0,
+      repins INT DEFAULT 0,
+      save_rate NUMERIC,
+      domain TEXT,
+      is_product BOOLEAN DEFAULT FALSE,
+      ocr_text TEXT,
+      extracted_at TIMESTAMPTZ DEFAULT NOW(),
+      pin_created_at TIMESTAMPTZ,
+      age_days INT DEFAULT 1,
+      daily_velocity NUMERIC DEFAULT 0,
+      provenance_engine VARCHAR(64) DEFAULT 'P2P_TWO_TOWER',
+      individual_prod_score NUMERIC DEFAULT 0,
+      recgpt_transition_score NUMERIC DEFAULT 0,
+      sequence_role VARCHAR(64) DEFAULT 'DIRECT_MATCH',
+      is_recgpt_candidate BOOLEAN DEFAULT FALSE,
+      visual_entropy_score NUMERIC DEFAULT 0,
+      image_url TEXT,
+      is_video BOOLEAN DEFAULT FALSE,
+      ingestion_method VARCHAR(64)
+    );
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS idx_cgn_seed ON candidate_graph_nodes(seed_pin_id);`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_cgn_candidate ON candidate_graph_nodes(candidate_pin_id);`;
+
+  // 11. Cluster Arbitrage Metrics
+  await sql`
+    CREATE TABLE IF NOT EXISTS cluster_arbitrage_metrics (
+      id BIGSERIAL PRIMARY KEY,
+      seed_pin_id VARCHAR(64),
+      total_candidates INT,
+      recgpt_count INT DEFAULT 0,
+      navboost_count INT DEFAULT 0,
+      randomwalk_count INT DEFAULT 0,
+      two_tower_count INT DEFAULT 0,
+      fresh_candidate_count INT DEFAULT 0,
+      product_count INT DEFAULT 0,
+      commercial_gap_ratio NUMERIC,
+      winning_color_centroids JSONB,
+      high_save_tokens JSONB,
+      utility_snapshot JSONB,
+      analyzed_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `;
+
+  // 12. Guided Search Capsules
+  await sql`
+    CREATE TABLE IF NOT EXISTS seed_guided_search_capsules (
+      id SERIAL PRIMARY KEY,
+      seed_pin_id VARCHAR(64) NOT NULL,
+      query_term TEXT NOT NULL,
+      normalized_query TEXT NOT NULL,
+      image_url TEXT,
+      search_url TEXT,
+      node_id TEXT,
+      discovered_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `;
+
+  // 13. Tracked Keywords
+  await sql`
+    CREATE TABLE IF NOT EXISTS tracked_keywords (
+      id SERIAL PRIMARY KEY,
+      keyword VARCHAR(255) UNIQUE NOT NULL,
+      category VARCHAR(100) DEFAULT 'General',
+      target_pin_count INT DEFAULT 50,
+      refresh_interval_hours INT DEFAULT 24,
+      last_crawled_at TIMESTAMPTZ,
+      top_pin_id VARCHAR(64),
+      top_pin_title TEXT,
+      top_pin_image TEXT,
+      avg_daily_velocity NUMERIC(10, 2) DEFAULT 0,
+      is_active BOOLEAN DEFAULT TRUE,
+      tags TEXT[] DEFAULT '{}',
+      metadata JSONB DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `;
+
+  // 14. Keyword Pins Snapshots
+  await sql`
+    CREATE TABLE IF NOT EXISTS keyword_pins_snapshots (
+      id BIGSERIAL PRIMARY KEY,
+      keyword_id INT NOT NULL REFERENCES tracked_keywords(id) ON DELETE CASCADE,
+      pin_id VARCHAR(64) NOT NULL,
+      rank_position INT DEFAULT 1,
+      title TEXT,
+      domain VARCHAR(255),
+      destination_url TEXT,
+      image_url TEXT,
+      save_count INT DEFAULT 0,
+      repin_count INT DEFAULT 0,
+      comment_count INT DEFAULT 0,
+      daily_save_velocity INT DEFAULT 0,
+      snapshot_date DATE NOT NULL DEFAULT CURRENT_DATE,
+      metadata JSONB DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(keyword_id, pin_id, snapshot_date)
+    );
+  `;
 }
 
 async function main() {
@@ -181,7 +367,7 @@ async function main() {
     console.log(`  -> Migrated ${Math.min(i + BATCH_SIZE, shards.length)} / ${shards.length} shards...`);
   }
 
-  console.log('\n[+] SUCCESS: All 99 Neon shards have identical tables and indexes!');
+  console.log('\n[+] SUCCESS: All 99 Neon shards have 100% IDENTICAL tables, columns, and indexes!');
 }
 
 main().catch(err => {
