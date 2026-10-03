@@ -570,3 +570,75 @@ export async function fetchUserActivityPinsResource(username, bookmark = null, a
     return { ok: false, error: err.message, pins: [], nextBookmark: null };
   }
 }
+
+/**
+ * Fetch pins from BoardFeedResource (board-level crawling for sharded distributed crawling).
+ */
+export async function fetchBoardFeedResource(boardId, boardUrl, bookmark = null, activeCookie = '') {
+  const cleanId = String(boardId || '').trim();
+  if (!cleanId) return { ok: false, error: 'invalid_board_id', pins: [], nextBookmark: null };
+
+  let srcUrl = String(boardUrl || '').trim();
+  if (srcUrl.startsWith('http')) {
+    try {
+      srcUrl = new URL(srcUrl).pathname;
+    } catch (_) {}
+  }
+  if (!srcUrl.startsWith('/')) srcUrl = `/${srcUrl}`;
+  if (!srcUrl.endsWith('/')) srcUrl = `${srcUrl}/`;
+
+  // Extract username from boardUrl (e.g. /wifesrecipesbyme/dinner/ -> wifesrecipesbyme)
+  const pathParts = srcUrl.split('/').filter(Boolean);
+  const username = pathParts[0] || '';
+
+  const options = {
+    board_id: cleanId,
+    board_url: srcUrl,
+    field_set_key: 'grid_item',
+    filter_section_pins: true,
+    sort: 'default',
+    page_size: 25,
+  };
+  if (bookmark) options.bookmarks = [bookmark];
+
+  const url = `https://www.pinterest.com/resource/BoardFeedResource/get/?source_url=${encodeURIComponent(
+    srcUrl
+  )}&data=${encodeURIComponent(JSON.stringify({ options, context: {} }))}&_=${Date.now()}`;
+
+  const headers = getPinterestXhrHeaders(username, activeCookie, { sourceUrl: srcUrl });
+
+  try {
+    let res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
+    if (res.status === 401 || res.status === 403 || res.status === 429) {
+      await sleep(randomJitterMs(2500, 4000));
+      const anonHeaders = getPinterestXhrHeaders(username, '', { sourceUrl: srcUrl });
+      res = await fetch(url, { headers: anonHeaders, signal: AbortSignal.timeout(8000) });
+    }
+
+    if (!res.ok) return { ok: false, status: res.status, pins: [], nextBookmark: null };
+    const json = await res.json();
+    if (json.resource_response?.status === 'failure' || json.resource_response?.error) {
+      const errMsg = json.resource_response?.error?.message || json.resource_response?.message || 'Pinterest resource failure';
+      return { ok: false, error: errMsg, pins: [], nextBookmark: null };
+    }
+    const data = json.resource_response?.data;
+    const rawBookmark = json.resource_response?.bookmark ||
+      (Array.isArray(json.resource_response?.bookmarks) ? json.resource_response.bookmarks[0] : null);
+    const nextBookmark = (rawBookmark && rawBookmark !== '-end-') ? String(rawBookmark).trim() : null;
+
+    const rawList = Array.isArray(data) ? data : (data?.items || data?.pins || data?.results || []);
+
+    const formattedPins = [];
+    for (const raw of rawList) {
+      const p = formatPin(raw);
+      if (p && p.pin_id) {
+        formattedPins.push(p);
+      }
+    }
+
+    return { ok: true, pins: formattedPins, nextBookmark };
+  } catch (err) {
+    return { ok: false, error: err.message, pins: [], nextBookmark: null };
+  }
+}
+

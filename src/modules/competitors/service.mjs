@@ -5,7 +5,7 @@
  */
 
 import { formatPinterestCookie } from '../../utils.mjs';
-import { fetchUserResource, fetchBoardsResource, fetchUserActivityPinsResource, sleep, randomJitterMs } from '../../../scripts/lib/pinterest.mjs';
+import { fetchUserResource, fetchBoardsResource, fetchUserActivityPinsResource, fetchBoardFeedResource, sleep, randomJitterMs } from '../../../scripts/lib/pinterest.mjs';
 import { ingestPinsBatch, getQualificationRules } from '../pinarchive/service.mjs';
 
 /**
@@ -541,6 +541,107 @@ export async function syncCompetitorPins(sql, competitorId, username, { mode = '
     inserted: allQualifiedCount,
     qualified_archived: allQualifiedCount,
     metadata: harvestMeta
+  };
+}
+
+/**
+ * Harvest pins from a specific board of a competitor into competitor_pins and pa_pins (board-level crawling).
+ */
+export async function syncCompetitorBoardPins(sql, competitorId, username, board, { maxPages = 50, cookie = '' } = {}) {
+  let cleanUsername = normalizePinterestUsername(username);
+  let numericId = parseInt(competitorId, 10);
+
+  if (cleanUsername) {
+    try {
+      const [c] = await sql`SELECT id, username FROM competitor_profiles WHERE LOWER(username) = ${cleanUsername} LIMIT 1;`;
+      if (c?.id) {
+        numericId = c.id;
+        cleanUsername = c.username;
+      }
+    } catch (_) {}
+  } else if (!cleanUsername && !isNaN(numericId)) {
+    try {
+      const [c] = await sql`SELECT id, username FROM competitor_profiles WHERE id = ${numericId} LIMIT 1;`;
+      if (c?.username) cleanUsername = c.username;
+    } catch (_) {}
+  }
+
+  if (!cleanUsername) throw new Error('Username is required to sync board pins');
+
+  const boardId = String(board?.board_id || board?.id || '').trim();
+  const boardName = String(board?.name || 'Untitled Board').trim();
+  let boardUrl = String(board?.url || '').trim();
+
+  if (!boardUrl) {
+    boardUrl = `/${cleanUsername}/${encodeURIComponent(boardName.toLowerCase().replace(/\s+/g, '-'))}/`;
+  }
+
+  const rules = await getQualificationRules(sql);
+  const formattedCookie = formatPinterestCookie(cookie);
+
+  let currentBookmark = null;
+  let lastSeenBookmark = null;
+  let totalFetched = 0;
+  let allQualifiedCount = 0;
+  let pagesCrawled = 0;
+  const pageLimit = Math.max(1, Math.min(Number(maxPages) || 50, 200));
+
+  for (let page = 1; page <= pageLimit; page++) {
+    pagesCrawled++;
+    const res = await fetchBoardFeedResource(boardId, boardUrl, currentBookmark, formattedCookie);
+    if (!res.ok) {
+      if (page === 1) return { ok: false, error: res.error || `BoardFeedResource error ${res.status}` };
+      break;
+    }
+
+    const pins = (res.pins || []).map(p => ({
+      ...p,
+      board_name: boardName
+    }));
+    totalFetched += pins.length;
+
+    // 1. Raw inventory upsert to competitor_pins
+    if (pins.length > 0 && numericId) {
+      await upsertCompetitorPins(sql, numericId, pins);
+    }
+
+    // 2. Filter through 3-tier OR rules & ingest qualified winning pins into pa_pins
+    if (pins.length > 0) {
+      const ingestRes = await ingestPinsBatch(sql, pins, cleanUsername, { filterQualified: true, rules });
+      allQualifiedCount += (ingestRes.added + ingestRes.updated);
+    }
+
+    currentBookmark = res.nextBookmark;
+    if (!currentBookmark || currentBookmark === '-end-' || currentBookmark === lastSeenBookmark) break;
+    lastSeenBookmark = currentBookmark;
+
+    if (page < pageLimit) {
+      await sleep(randomJitterMs(2500, 4000));
+    }
+  }
+
+  // Update board's pin_count in competitor_boards
+  if (numericId && boardId) {
+    try {
+      await sql`
+        UPDATE competitor_boards
+        SET pin_count = GREATEST(pin_count, ${totalFetched}),
+            last_pinned_at = NOW(),
+            updated_at = NOW()
+        WHERE competitor_id = ${numericId} AND board_id = ${boardId};
+      `;
+    } catch (_) {}
+  }
+
+  return {
+    ok: true,
+    board_id: boardId,
+    board_name: boardName,
+    pages_crawled: pagesCrawled,
+    total_fetched: totalFetched,
+    crawled: totalFetched,
+    qualified: allQualifiedCount,
+    inserted: allQualifiedCount
   };
 }
 

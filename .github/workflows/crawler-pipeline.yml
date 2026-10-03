@@ -24,6 +24,11 @@ on:
         required: false
         type: string
         default: '3'
+      target_boards:
+        description: 'Target board names or IDs (comma-separated, e.g. "Dinner, Desserts"). Leave empty to shard all creator boards.'
+        required: false
+        type: string
+        default: ''
 
 concurrency:
   group: cluster-intelligence-${{ github.workflow }}-${{ github.ref }}
@@ -64,6 +69,7 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           PINTEREST_COOKIE: ${{ secrets.PINTEREST_COOKIE }}
           TARGET_ACCOUNT: ${{ inputs.target_account }}
+          TARGET_BOARDS: ${{ inputs.target_boards }}
           CRAWL_MODE: ${{ inputs.crawl_mode || 'refresh' }}
           MAX_PAGES: ${{ inputs.max_pages || '3' }}
           SHARD_NUMBER: ${{ matrix.shard }}

@@ -1400,6 +1400,7 @@ export default {
             ref: 'main',
             inputs: {
               target_account: username,
+              target_boards: String(body.target_boards || body.boards || '').trim(),
               crawl_mode: body.crawl_mode || 'discovery',
               max_pages: String(body.max_pages || '500')
             }
@@ -1410,8 +1411,9 @@ export default {
           return jsonResponse({
             success: true,
             target_account: username,
+            target_boards: body.target_boards || '',
             crawl_mode: body.crawl_mode || 'discovery',
-            message: `20-Shard Crawler Pipeline dispatched successfully on GitHub Actions for @${username}!`
+            message: `20-Shard Crawler Pipeline dispatched successfully on GitHub Actions for @${username}!${body.target_boards ? ` (Target Boards: ${body.target_boards})` : ' (Board-level sharded across 20 nodes)'}`
           });
         } else {
           const errText = await res.text();
@@ -1553,7 +1555,7 @@ export default {
         const limit = Number(searchParams.get('limit') || 50);
         const offset = Number(searchParams.get('offset') || 0);
         const pins = await listArchivedPins(targetSql, { search, topic, board, stage, account, minSaves, maxSaves, timeframe, changedOnly, sortBy, order, limit, offset });
-        return jsonResponse({ success: true, pins });
+        return jsonResponse({ success: true, pins, total: pins.total ?? pins.length });
       }
 
       if (method === 'POST' && pathname === '/api/pinarchive/stage') {

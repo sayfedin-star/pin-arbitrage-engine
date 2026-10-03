@@ -562,7 +562,7 @@ export async function listArchivedPins(sql, {
 } = {}) {
   const minNum = Math.max(0, isNaN(Number(minSaves)) ? 0 : Number(minSaves));
   const maxNum = (maxSaves !== null && !isNaN(Number(maxSaves))) ? Number(maxSaves) : null;
-  const lim = Math.max(1, Math.min(isNaN(Number(limit)) ? 50 : Number(limit), 200));
+  const lim = Math.max(1, Math.min(isNaN(Number(limit)) ? 50 : Number(limit), 1000));
   const off = Math.max(0, isNaN(Number(offset)) ? 0 : Number(offset));
   const searchPattern = search ? `%${search.toLowerCase().trim()}%` : null;
   const topicPattern = topic ? `%${topic.toLowerCase().trim()}%` : null;
@@ -578,48 +578,77 @@ export async function listArchivedPins(sql, {
   else if (sortBy === 'comments') sortColumn = 'comments';
   else if (sortBy === 'shares' || sortBy === 'share_count') sortColumn = 'share_count';
 
-  const rows = await sql`
-    SELECT *
-    FROM pa_pins
-    WHERE saves >= ${minNum}
-      AND (${maxNum}::bigint IS NULL OR saves <= ${maxNum})
-      AND (${searchPattern}::text IS NULL OR (
-        COALESCE(LOWER(title), '') LIKE ${searchPattern} OR
-        COALESCE(LOWER(description), '') LIKE ${searchPattern} OR
-        COALESCE(LOWER(board_name), '') LIKE ${searchPattern} OR
-        COALESCE(pin_id, '') LIKE ${searchPattern}
-      ))
-      AND (${boardPattern}::text IS NULL OR COALESCE(LOWER(board_name), '') LIKE ${boardPattern})
-      AND (${topicPattern}::text IS NULL OR (
-        COALESCE(LOWER(board_name), '') LIKE ${topicPattern} OR
-        COALESCE(LOWER(title), '') LIKE ${topicPattern} OR
-        EXISTS (
-          SELECT 1
-          FROM jsonb_array_elements(CASE WHEN jsonb_typeof(annotations) = 'array' THEN annotations ELSE '[]'::jsonb END) AS elem
-          WHERE (
-            (jsonb_typeof(elem) = 'object' AND LOWER(elem->>'name') LIKE ${topicPattern})
-            OR
-            (jsonb_typeof(elem) = 'string' AND LOWER(elem #>> '{}') LIKE ${topicPattern})
+  const [rows, [countRow]] = await Promise.all([
+    sql`
+      SELECT *
+      FROM pa_pins
+      WHERE saves >= ${minNum}
+        AND (${maxNum}::bigint IS NULL OR saves <= ${maxNum})
+        AND (${searchPattern}::text IS NULL OR (
+          COALESCE(LOWER(title), '') LIKE ${searchPattern} OR
+          COALESCE(LOWER(description), '') LIKE ${searchPattern} OR
+          COALESCE(LOWER(board_name), '') LIKE ${searchPattern} OR
+          COALESCE(pin_id, '') LIKE ${searchPattern}
+        ))
+        AND (${boardPattern}::text IS NULL OR COALESCE(LOWER(board_name), '') LIKE ${boardPattern})
+        AND (${topicPattern}::text IS NULL OR (
+          COALESCE(LOWER(board_name), '') LIKE ${topicPattern} OR
+          COALESCE(LOWER(title), '') LIKE ${topicPattern} OR
+          EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements(CASE WHEN jsonb_typeof(annotations) = 'array' THEN annotations ELSE '[]'::jsonb END) AS elem
+            WHERE (
+              (jsonb_typeof(elem) = 'object' AND LOWER(elem->>'name') LIKE ${topicPattern})
+              OR
+              (jsonb_typeof(elem) = 'string' AND LOWER(elem #>> '{}') LIKE ${topicPattern})
+            )
           )
-        )
-      ))
-      AND (${accountPattern}::text IS NULL OR COALESCE(LOWER(account_username), '') LIKE ${accountPattern})
-    ORDER BY
-      CASE WHEN ${sortColumn} = 'saves' AND ${isAsc} THEN saves END ASC,
-      CASE WHEN ${sortColumn} = 'saves' AND NOT ${isAsc} THEN saves END DESC,
-      CASE WHEN ${sortColumn} = 'velocity' AND ${isAsc} THEN velocity END ASC,
-      CASE WHEN ${sortColumn} = 'velocity' AND NOT ${isAsc} THEN velocity END DESC,
-      CASE WHEN ${sortColumn} = 'created_at_pinterest' AND ${isAsc} THEN created_at_pinterest END ASC NULLS LAST,
-      CASE WHEN ${sortColumn} = 'created_at_pinterest' AND NOT ${isAsc} THEN created_at_pinterest END DESC NULLS LAST,
-      CASE WHEN ${sortColumn} = 'repins' AND ${isAsc} THEN repins END ASC,
-      CASE WHEN ${sortColumn} = 'repins' AND NOT ${isAsc} THEN repins END DESC,
-      CASE WHEN ${sortColumn} = 'comments' AND ${isAsc} THEN comments END ASC,
-      CASE WHEN ${sortColumn} = 'comments' AND NOT ${isAsc} THEN comments END DESC,
-      CASE WHEN ${sortColumn} = 'share_count' AND ${isAsc} THEN share_count END ASC,
-      CASE WHEN ${sortColumn} = 'share_count' AND NOT ${isAsc} THEN share_count END DESC,
-      saves DESC
-    LIMIT ${lim} OFFSET ${off};
-  `;
+        ))
+        AND (${accountPattern}::text IS NULL OR COALESCE(LOWER(account_username), '') LIKE ${accountPattern})
+      ORDER BY
+        CASE WHEN ${sortColumn} = 'saves' AND ${isAsc} THEN saves END ASC,
+        CASE WHEN ${sortColumn} = 'saves' AND NOT ${isAsc} THEN saves END DESC,
+        CASE WHEN ${sortColumn} = 'velocity' AND ${isAsc} THEN velocity END ASC,
+        CASE WHEN ${sortColumn} = 'velocity' AND NOT ${isAsc} THEN velocity END DESC,
+        CASE WHEN ${sortColumn} = 'created_at_pinterest' AND ${isAsc} THEN created_at_pinterest END ASC NULLS LAST,
+        CASE WHEN ${sortColumn} = 'created_at_pinterest' AND NOT ${isAsc} THEN created_at_pinterest END DESC NULLS LAST,
+        CASE WHEN ${sortColumn} = 'repins' AND ${isAsc} THEN repins END ASC,
+        CASE WHEN ${sortColumn} = 'repins' AND NOT ${isAsc} THEN repins END DESC,
+        CASE WHEN ${sortColumn} = 'comments' AND ${isAsc} THEN comments END ASC,
+        CASE WHEN ${sortColumn} = 'comments' AND NOT ${isAsc} THEN comments END DESC,
+        CASE WHEN ${sortColumn} = 'share_count' AND ${isAsc} THEN share_count END ASC,
+        CASE WHEN ${sortColumn} = 'share_count' AND NOT ${isAsc} THEN share_count END DESC,
+        saves DESC
+      LIMIT ${lim} OFFSET ${off};
+    `,
+    sql`
+      SELECT COUNT(*)::int as total
+      FROM pa_pins
+      WHERE saves >= ${minNum}
+        AND (${maxNum}::bigint IS NULL OR saves <= ${maxNum})
+        AND (${searchPattern}::text IS NULL OR (
+          COALESCE(LOWER(title), '') LIKE ${searchPattern} OR
+          COALESCE(LOWER(description), '') LIKE ${searchPattern} OR
+          COALESCE(LOWER(board_name), '') LIKE ${searchPattern} OR
+          COALESCE(pin_id, '') LIKE ${searchPattern}
+        ))
+        AND (${boardPattern}::text IS NULL OR COALESCE(LOWER(board_name), '') LIKE ${boardPattern})
+        AND (${topicPattern}::text IS NULL OR (
+          COALESCE(LOWER(board_name), '') LIKE ${topicPattern} OR
+          COALESCE(LOWER(title), '') LIKE ${topicPattern} OR
+          EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements(CASE WHEN jsonb_typeof(annotations) = 'array' THEN annotations ELSE '[]'::jsonb END) AS elem
+            WHERE (
+              (jsonb_typeof(elem) = 'object' AND LOWER(elem->>'name') LIKE ${topicPattern})
+              OR
+              (jsonb_typeof(elem) = 'string' AND LOWER(elem #>> '{}') LIKE ${topicPattern})
+            )
+          )
+        ))
+        AND (${accountPattern}::text IS NULL OR COALESCE(LOWER(account_username), '') LIKE ${accountPattern});
+    `
+  ]);
 
   const now = Date.now();
   let mapped = rows.map(p => {
@@ -662,6 +691,7 @@ export async function listArchivedPins(sql, {
     mapped = mapped.filter(p => p.delta_saves > 0 || p.delta_repins > 0);
   }
 
+  mapped.total = countRow ? countRow.total : mapped.length;
   return mapped;
 }
 

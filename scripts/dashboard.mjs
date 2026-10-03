@@ -276,12 +276,16 @@ async function triggerWorkflowDispatch(seedPinId = '', maxPages = '60') {
   }
 }
 
-async function triggerCrawlerWorkflowDispatch(targetAccount = '', crawlMode = 'discovery', maxPages = '500') {
+async function triggerCrawlerWorkflowDispatch(targetAccount = '', crawlMode = 'discovery', maxPages = '500', targetBoards = '') {
   const cleanAccount = String(targetAccount || '').replace(/^@+/, '').trim();
+  const cleanBoards = String(targetBoards || '').trim();
   try {
     const args = ['workflow', 'run', 'crawler-pipeline.yml'];
     if (cleanAccount) {
       args.push('-f', `target_account=${cleanAccount}`);
+    }
+    if (cleanBoards) {
+      args.push('-f', `target_boards=${cleanBoards}`);
     }
     if (crawlMode) {
       args.push('-f', `crawl_mode=${crawlMode}`);
@@ -314,6 +318,7 @@ async function triggerCrawlerWorkflowDispatch(targetAccount = '', crawlMode = 'd
         ref: 'main',
         inputs: {
           target_account: cleanAccount,
+          target_boards: cleanBoards,
           crawl_mode: crawlMode,
           max_pages: String(maxPages || '500').trim()
         }
@@ -1624,12 +1629,18 @@ const server = http.createServer(async (req, res) => {
       const username = (body.username || body.target_account || '').replace(/^@+/, '').trim();
       if (!username) return sendJson(res, 400, { error: 'username is required' });
       try {
-        const dispatchRes = await triggerCrawlerWorkflowDispatch(username, body.crawl_mode || 'discovery', body.max_pages || '500');
+        const dispatchRes = await triggerCrawlerWorkflowDispatch(
+          username,
+          body.crawl_mode || 'discovery',
+          body.max_pages || '500',
+          body.target_boards || body.boards || ''
+        );
         return sendJson(res, 200, {
           success: true,
           target_account: username,
+          target_boards: body.target_boards || '',
           crawl_mode: body.crawl_mode || 'discovery',
-          message: `20-Shard Crawler Pipeline dispatched successfully on GitHub Actions for @${username}!`,
+          message: `20-Shard Crawler Pipeline dispatched successfully on GitHub Actions for @${username}!${body.target_boards ? ` (Target Boards: ${body.target_boards})` : ' (Board-level sharded across 20 nodes)'}`,
           ...dispatchRes
         });
       } catch (err) {
@@ -1770,7 +1781,7 @@ const server = http.createServer(async (req, res) => {
       const limit = Number(searchParams.get('limit') || 50);
       const offset = Number(searchParams.get('offset') || 0);
       const pins = await listArchivedPins(targetSql, { search, topic, board, stage, account, minSaves, maxSaves, timeframe, changedOnly, sortBy, order, limit, offset });
-      return sendJson(res, 200, { success: true, pins });
+      return sendJson(res, 200, { success: true, pins, total: pins.total ?? pins.length });
     }
 
     if (method === 'POST' && pathname === '/api/pinarchive/stage') {
