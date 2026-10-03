@@ -473,6 +473,17 @@ export async function fetchUserProfileUnauth(username) {
           if (state.boards && typeof state.boards === 'object') {
             for (const b of Object.values(state.boards)) {
               if (b && b.id && !String(b.id).startsWith('-')) {
+                const coverImg = b.image_cover_hd_url || b.image_cover_url || b.images?.['736x']?.url || b.images?.['236x']?.url || b.image_thumbnail_url || null;
+                const rawVase = b.board_vase || [];
+                const boardVase = Array.isArray(rawVase) ? rawVase.map(v => {
+                  if (typeof v === 'string') return { text: v.trim(), link: '' };
+                  return {
+                    text: String(v?.text || '').trim(),
+                    link: v?.link ? (v.link.startsWith('http') ? v.link : `https://www.pinterest.com${v.link}`) : ''
+                  };
+                }).filter(v => v.text.length > 0) : [];
+                const desc = b.description || '';
+
                 initialBoards.push({
                   board_id: String(b.id),
                   name: b.name || 'Untitled Board',
@@ -481,6 +492,17 @@ export async function fetchUserProfileUnauth(username) {
                   follower_count: parseCleanMetric(b.follower_count || 0),
                   created_at: b.created_at || null,
                   last_pinned_at: b.board_order_modified_at || null,
+                  image_cover_url: coverImg,
+                  board_vase: boardVase,
+                  description: desc,
+                  metadata: {
+                    image_cover_url: coverImg,
+                    board_vase: boardVase,
+                    description: desc,
+                    section_count: b.section_count || 0,
+                    privacy: b.privacy || 'public',
+                    is_collaborative: Boolean(b.is_collaborative)
+                  }
                 });
               }
             }
@@ -651,6 +673,17 @@ export async function fetchBoardsResource(username, activeCookie = '') {
         if (item.url) {
           boardUrl = item.url.startsWith('http') ? item.url : `https://www.pinterest.com${item.url.startsWith('/') ? '' : '/'}${item.url}`;
         }
+        const coverImg = item.image_cover_hd_url || item.image_cover_url || item.images?.['736x']?.url || item.images?.['236x']?.url || item.image_thumbnail_url || null;
+        const rawVase = item.board_vase || [];
+        const boardVase = Array.isArray(rawVase) ? rawVase.map(v => {
+          if (typeof v === 'string') return { text: v.trim(), link: '' };
+          return {
+            text: String(v?.text || '').trim(),
+            link: v?.link ? (v.link.startsWith('http') ? v.link : `https://www.pinterest.com${v.link}`) : ''
+          };
+        }).filter(v => v.text.length > 0) : [];
+        const desc = item.description || '';
+
         boards.push({
           board_id: boardId,
           name: item.name || 'Untitled Board',
@@ -659,12 +692,34 @@ export async function fetchBoardsResource(username, activeCookie = '') {
           follower_count: parseCleanMetric(item.follower_count || 0),
           last_pinned_at: lastPinned,
           created_at: boardCreatedAt,
+          image_cover_url: coverImg,
+          board_vase: boardVase,
+          description: desc,
+          metadata: {
+            image_cover_url: coverImg,
+            board_vase: boardVase,
+            description: desc,
+            section_count: item.section_count || 0,
+            privacy: item.privacy || 'public',
+            is_collaborative: Boolean(item.is_collaborative)
+          }
         });
+      }
+    }
+
+    if (boards.length === 0) {
+      const unauth = await fetchUserProfileUnauth(cleanUser);
+      if (unauth.ok && Array.isArray(unauth.initial_boards) && unauth.initial_boards.length > 0) {
+        return { ok: true, boards: unauth.initial_boards };
       }
     }
 
     return { ok: true, boards };
   } catch (err) {
+    const unauth = await fetchUserProfileUnauth(cleanUser);
+    if (unauth.ok && Array.isArray(unauth.initial_boards) && unauth.initial_boards.length > 0) {
+      return { ok: true, boards: unauth.initial_boards };
+    }
     return { ok: false, error: err.message, boards: [] };
   }
 }

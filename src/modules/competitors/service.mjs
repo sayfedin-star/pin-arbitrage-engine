@@ -396,6 +396,43 @@ export async function getCompetitorBoards(sql, competitorId) {
     boards.sort((a, b) => (b.pin_count || 0) - (a.pin_count || 0));
   } catch (_) {}
 
+  // Map metadata to top-level fields for fast access
+  boards = boards.map(b => {
+    const meta = (typeof b.metadata === 'object' && b.metadata !== null) ? b.metadata : {};
+    return {
+      ...b,
+      image_cover_url: b.image_cover_url || meta.image_cover_url || null,
+      board_vase: Array.isArray(b.board_vase) && b.board_vase.length > 0 ? b.board_vase : (Array.isArray(meta.board_vase) ? meta.board_vase : []),
+      description: b.description || meta.description || ''
+    };
+  });
+
+  // Fallback: Populate missing board covers using the top saved pin from pa_pins for that board
+  const boardsNeedingCover = boards.filter(b => !b.image_cover_url && b.name);
+  if (boardsNeedingCover.length > 0 && cleanUser) {
+    try {
+      const pinCovers = await sql`
+        SELECT DISTINCT ON (LOWER(TRIM(board_name)))
+          LOWER(TRIM(board_name)) AS b_name,
+          image_url
+        FROM pa_pins
+        WHERE LOWER(REPLACE(account_username, '@', '')) = ${cleanUser}
+          AND image_url IS NOT NULL AND image_url <> ''
+        ORDER BY LOWER(TRIM(board_name)), saves DESC;
+      `;
+      const coverMap = new Map();
+      for (const row of pinCovers) {
+        coverMap.set(row.b_name, row.image_url);
+      }
+      for (const b of boards) {
+        if (!b.image_cover_url && b.name) {
+          const c = coverMap.get(b.name.trim().toLowerCase());
+          if (c) b.image_cover_url = c;
+        }
+      }
+    } catch (_) {}
+  }
+
   return boards;
 }
 
@@ -461,6 +498,14 @@ export async function syncCompetitorBoards(sql, competitorId, username, cookie =
       const cd = new Date(b.created_at);
       if (!isNaN(cd.getTime())) boardCreatedAt = cd;
     }
+    const metadataObj = {
+      image_cover_url: b.image_cover_url || b.metadata?.image_cover_url || null,
+      board_vase: Array.isArray(b.board_vase) && b.board_vase.length > 0 ? b.board_vase : (Array.isArray(b.metadata?.board_vase) ? b.metadata.board_vase : []),
+      description: b.description || b.metadata?.description || '',
+      section_count: b.metadata?.section_count || 0,
+      privacy: b.metadata?.privacy || 'public',
+      is_collaborative: Boolean(b.metadata?.is_collaborative)
+    };
     try {
       await sql`
         INSERT INTO competitor_boards (
@@ -471,6 +516,7 @@ export async function syncCompetitorBoards(sql, competitorId, username, cookie =
           pin_count,
           follower_count,
           last_pinned_at,
+          metadata,
           created_at,
           updated_at
         ) VALUES (
@@ -481,6 +527,7 @@ export async function syncCompetitorBoards(sql, competitorId, username, cookie =
           ${b.pin_count},
           ${b.follower_count},
           ${lastPinnedDate},
+          ${JSON.stringify(metadataObj)}::jsonb,
           COALESCE(${boardCreatedAt}, NOW()),
           NOW()
         )
@@ -490,6 +537,7 @@ export async function syncCompetitorBoards(sql, competitorId, username, cookie =
           pin_count = EXCLUDED.pin_count,
           follower_count = EXCLUDED.follower_count,
           last_pinned_at = EXCLUDED.last_pinned_at,
+          metadata = EXCLUDED.metadata,
           created_at = COALESCE(EXCLUDED.created_at, competitor_boards.created_at),
           updated_at = NOW();
       `;
@@ -896,6 +944,43 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
         }
       }
       boards.sort((a, b) => (b.pin_count || 0) - (a.pin_count || 0));
+    } catch (_) {}
+  }
+
+  // Map metadata to top-level fields for fast frontend access
+  boards = boards.map(b => {
+    const meta = (typeof b.metadata === 'object' && b.metadata !== null) ? b.metadata : {};
+    return {
+      ...b,
+      image_cover_url: b.image_cover_url || meta.image_cover_url || null,
+      board_vase: Array.isArray(b.board_vase) && b.board_vase.length > 0 ? b.board_vase : (Array.isArray(meta.board_vase) ? meta.board_vase : []),
+      description: b.description || meta.description || ''
+    };
+  });
+
+  // Fallback: Populate missing board covers using the top saved pin from pa_pins for that board
+  const boardsNeedingCover = boards.filter(b => !b.image_cover_url && b.name);
+  if (boardsNeedingCover.length > 0 && cleanUsername) {
+    try {
+      const pinCovers = await sql`
+        SELECT DISTINCT ON (LOWER(TRIM(board_name)))
+          LOWER(TRIM(board_name)) AS b_name,
+          image_url
+        FROM pa_pins
+        WHERE LOWER(REPLACE(account_username, '@', '')) = ${cleanUsername}
+          AND image_url IS NOT NULL AND image_url <> ''
+        ORDER BY LOWER(TRIM(board_name)), saves DESC;
+      `;
+      const coverMap = new Map();
+      for (const row of pinCovers) {
+        coverMap.set(row.b_name, row.image_url);
+      }
+      for (const b of boards) {
+        if (!b.image_cover_url && b.name) {
+          const c = coverMap.get(b.name.trim().toLowerCase());
+          if (c) b.image_cover_url = c;
+        }
+      }
     } catch (_) {}
   }
 
