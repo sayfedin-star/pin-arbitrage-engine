@@ -4989,9 +4989,9 @@ export function getDashboardHtml() {
             <i data-lucide="hard-drive" class="w-4 h-4 text-emerald-500"></i>
           </div>
           <div class="mt-3 flex items-baseline space-x-2">
-            <span class="text-3xl font-extrabold text-emerald-600 dark:text-emerald-400 font-mono" x-text="(fleetProjects.length * 0.5) + ' GB'"></span>
+            <span class="text-3xl font-extrabold text-emerald-600 dark:text-emerald-400 font-mono" x-text="(fleetProjects.length * 1.0) + ' GB'"></span>
           </div>
-          <div class="mt-3 text-[11px] text-slate-500">512 MB per isolated project</div>
+          <div class="mt-3 text-[11px] text-slate-500">1 GB per isolated project (Neon Free Plan Quota)</div>
         </div>
 
         <div class="p-5 rounded-2xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 shadow-sm">
