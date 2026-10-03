@@ -467,11 +467,11 @@ export async function syncCompetitorPins(sql, competitorId, username, { mode = '
     : null;
   let pageLimit = Number(rules.early_stop_pages) || 3;
   if (mode === 'all' || mode === 'full') {
-    pageLimit = numMaxPages ? Math.min(numMaxPages, 200) : 100;
-  } else if (mode === 'deep') {
-    pageLimit = numMaxPages ? Math.min(numMaxPages, Number(rules.discovery_max_pages) || 500) : (Number(rules.discovery_max_pages) || 500);
+    pageLimit = numMaxPages ? Math.min(numMaxPages, 500) : 100;
+  } else if (mode === 'deep' || mode === 'discovery') {
+    pageLimit = numMaxPages ? Math.min(numMaxPages, 500) : (Number(rules.discovery_max_pages) || 500);
   } else if (numMaxPages) {
-    pageLimit = Math.min(numMaxPages, Number(rules.early_stop_pages) || 3);
+    pageLimit = numMaxPages;
   }
 
   const formattedCookie = formatPinterestCookie(cookie);
