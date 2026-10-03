@@ -243,10 +243,10 @@ export async function syncCompetitorAcrossFleet(hubSql, competitorUsernameOrId) 
               avatar_url = COALESCE(EXCLUDED.avatar_url, competitor_profiles.avatar_url),
               bio = COALESCE(EXCLUDED.bio, competitor_profiles.bio),
               website_url = COALESCE(EXCLUDED.website_url, competitor_profiles.website_url),
-              monthly_reach = EXCLUDED.monthly_reach,
-              reach_delta_7d = EXCLUDED.reach_delta_7d,
-              profile_views = EXCLUDED.profile_views,
-              views_delta_7d = EXCLUDED.views_delta_7d,
+              monthly_reach = CASE WHEN EXCLUDED.monthly_reach > 0 THEN EXCLUDED.monthly_reach ELSE competitor_profiles.monthly_reach END,
+              reach_delta_7d = CASE WHEN EXCLUDED.monthly_reach > 0 THEN EXCLUDED.reach_delta_7d ELSE competitor_profiles.reach_delta_7d END,
+              profile_views = CASE WHEN EXCLUDED.profile_views > 0 THEN EXCLUDED.profile_views ELSE competitor_profiles.profile_views END,
+              views_delta_7d = CASE WHEN EXCLUDED.profile_views > 0 THEN EXCLUDED.views_delta_7d ELSE competitor_profiles.views_delta_7d END,
               total_pins = EXCLUDED.total_pins,
               total_boards = EXCLUDED.total_boards,
               follower_count = EXCLUDED.follower_count,
@@ -412,6 +412,11 @@ export async function syncFleetDatabases(hubSql, { targetProjectId = null } = {}
       try {
         const sSql = neon(shard.database_url);
 
+        // 0. Ensure schema compatibility on target shard
+        await sSql`ALTER TABLE competitor_pins ADD COLUMN IF NOT EXISTS is_product BOOLEAN DEFAULT FALSE;`.catch(() => {});
+        await sSql`ALTER TABLE competitor_pins ADD COLUMN IF NOT EXISTS alt_text TEXT;`.catch(() => {});
+        await sSql`ALTER TABLE pa_pins ADD COLUMN IF NOT EXISTS alt_text TEXT;`.catch(() => {});
+
         // 1. Sync Profiles
         await Promise.all(profiles.map(p => {
           const tagsArray = Array.isArray(p.tags) ? p.tags : [];
@@ -438,10 +443,10 @@ export async function syncFleetDatabases(hubSql, { targetProjectId = null } = {}
               avatar_url = COALESCE(EXCLUDED.avatar_url, competitor_profiles.avatar_url),
               bio = COALESCE(EXCLUDED.bio, competitor_profiles.bio),
               website_url = COALESCE(EXCLUDED.website_url, competitor_profiles.website_url),
-              monthly_reach = EXCLUDED.monthly_reach,
-              reach_delta_7d = EXCLUDED.reach_delta_7d,
-              profile_views = EXCLUDED.profile_views,
-              views_delta_7d = EXCLUDED.views_delta_7d,
+              monthly_reach = CASE WHEN EXCLUDED.monthly_reach > 0 THEN EXCLUDED.monthly_reach ELSE competitor_profiles.monthly_reach END,
+              reach_delta_7d = CASE WHEN EXCLUDED.monthly_reach > 0 THEN EXCLUDED.reach_delta_7d ELSE competitor_profiles.reach_delta_7d END,
+              profile_views = CASE WHEN EXCLUDED.profile_views > 0 THEN EXCLUDED.profile_views ELSE competitor_profiles.profile_views END,
+              views_delta_7d = CASE WHEN EXCLUDED.profile_views > 0 THEN EXCLUDED.views_delta_7d ELSE competitor_profiles.views_delta_7d END,
               total_pins = EXCLUDED.total_pins,
               total_boards = EXCLUDED.total_boards,
               follower_count = EXCLUDED.follower_count,

@@ -4359,7 +4359,7 @@ export function getDashboardHtml() {
                   <span class="rounded-full px-2 py-0.5 text-[10px] font-bold" :class="(activeCreatorDetail?.deltas?.reach?.change || 0) > 0 ? 'bg-emerald-500/10 text-emerald-600 border border-emerald-500/20' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'" x-text="((activeCreatorDetail?.deltas?.reach?.change || 0) > 0 ? '+' : '') + (activeCreatorDetail?.deltas?.reach?.percent || 0) + '%'"></span>
                 </div>
                 <div>
-                  <div class="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white mt-2 font-mono tabular-nums" x-text="formatNumber(activeCreator.monthly_reach || 0)"></div>
+                  <div class="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white mt-2 font-mono tabular-nums" x-text="formatNumber(activeCreator.monthly_reach || (activeCreatorSnapshots && activeCreatorSnapshots.length > 0 ? (activeCreatorSnapshots[activeCreatorSnapshots.length - 1].monthly_reach || activeCreatorSnapshots[0].monthly_reach) : 0) || 0)"></div>
                   <div class="mt-2 text-[11px] text-slate-500 flex items-center gap-1.5">
                     <span class="h-1.5 w-1.5 rounded-full" :class="(activeCreatorDetail?.deltas?.reach?.change || 0) > 0 ? 'bg-emerald-500' : 'bg-slate-400'"></span>
                     <span x-text="(activeCreatorDetail?.deltas?.reach?.change || 0) !== 0 ? ((activeCreatorDetail?.deltas?.reach?.change || 0) > 0 ? '+' : '') + formatNumber(activeCreatorDetail?.deltas?.reach?.change) + ' vs previous snapshot' : 'No change vs previous snapshot'"></span>
@@ -4374,7 +4374,7 @@ export function getDashboardHtml() {
                   <span class="rounded-full px-2 py-0.5 text-[10px] font-bold" :class="(activeCreatorDetail?.deltas?.views?.change || 0) > 0 ? 'bg-sky-500/10 text-sky-600 border border-sky-500/20' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'" x-text="((activeCreatorDetail?.deltas?.views?.change || 0) > 0 ? '+' : '') + (activeCreatorDetail?.deltas?.views?.percent || 0) + '%'"></span>
                 </div>
                 <div>
-                  <div class="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white mt-2 font-mono tabular-nums" x-text="formatNumber(activeCreator.profile_views || 0)"></div>
+                  <div class="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white mt-2 font-mono tabular-nums" x-text="formatNumber(activeCreator.profile_views || (activeCreatorSnapshots && activeCreatorSnapshots.length > 0 ? (activeCreatorSnapshots[activeCreatorSnapshots.length - 1].profile_views || activeCreatorSnapshots[0].profile_views) : 0) || 0)"></div>
                   <div class="mt-2 text-[11px] text-slate-500 flex items-center gap-1.5">
                     <span class="h-1.5 w-1.5 rounded-full" :class="(activeCreatorDetail?.deltas?.views?.change || 0) > 0 ? 'bg-sky-500' : 'bg-slate-400'"></span>
                     <span x-text="(activeCreatorDetail?.deltas?.views?.change || 0) !== 0 ? ((activeCreatorDetail?.deltas?.views?.change || 0) > 0 ? '+' : '') + formatNumber(activeCreatorDetail?.deltas?.views?.change) + ' vs previous snapshot' : 'No change vs previous snapshot'"></span>
@@ -4404,7 +4404,7 @@ export function getDashboardHtml() {
                   <span class="rounded-full px-2 py-0.5 text-[10px] font-bold" :class="(activeCreatorDetail?.deltas?.pins?.change || 0) > 0 ? 'bg-rose-500/10 text-rose-600 border border-rose-500/20' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'" x-text="((activeCreatorDetail?.deltas?.pins?.change || 0) > 0 ? '+' : '') + (activeCreatorDetail?.deltas?.pins?.percent || 0) + '%'"></span>
                 </div>
                 <div>
-                  <div class="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white mt-2 font-mono tabular-nums" x-text="formatNumber(activeCreator.total_pins || activeCreatorPins.length || 0)"></div>
+                  <div class="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white mt-2 font-mono tabular-nums" x-text="formatNumber(activeCreator.total_pins || activeCreatorAllPinsTotal || activeCreatorPins.length || 0)"></div>
                   <div class="mt-2 text-[11px] text-slate-500 flex items-center gap-1.5">
                     <span class="h-1.5 w-1.5 rounded-full" :class="(activeCreatorDetail?.deltas?.pins?.change || 0) > 0 ? 'bg-rose-500' : 'bg-slate-400'"></span>
                     <span x-text="(activeCreatorDetail?.deltas?.pins?.change || 0) !== 0 ? ((activeCreatorDetail?.deltas?.pins?.change || 0) > 0 ? '+' : '') + formatNumber(activeCreatorDetail?.deltas?.pins?.change) + ' vs previous snapshot' : 'No change vs previous snapshot'"></span>

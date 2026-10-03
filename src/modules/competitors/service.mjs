@@ -256,13 +256,13 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
     ON CONFLICT (username) DO UPDATE SET
       display_name = EXCLUDED.display_name,
       avatar_url = COALESCE(EXCLUDED.avatar_url, competitor_profiles.avatar_url),
-      monthly_reach = EXCLUDED.monthly_reach,
-      reach_delta_7d = EXCLUDED.reach_delta_7d,
-      profile_views = EXCLUDED.profile_views,
-      views_delta_7d = EXCLUDED.views_delta_7d,
-      total_pins = EXCLUDED.total_pins,
-      total_boards = EXCLUDED.total_boards,
-      follower_count = EXCLUDED.follower_count,
+      monthly_reach = CASE WHEN EXCLUDED.monthly_reach > 0 THEN EXCLUDED.monthly_reach ELSE competitor_profiles.monthly_reach END,
+      reach_delta_7d = CASE WHEN EXCLUDED.monthly_reach > 0 THEN EXCLUDED.reach_delta_7d ELSE competitor_profiles.reach_delta_7d END,
+      profile_views = CASE WHEN EXCLUDED.profile_views > 0 THEN EXCLUDED.profile_views ELSE competitor_profiles.profile_views END,
+      views_delta_7d = CASE WHEN EXCLUDED.profile_views > 0 THEN EXCLUDED.views_delta_7d ELSE competitor_profiles.views_delta_7d END,
+      total_pins = GREATEST(competitor_profiles.total_pins, EXCLUDED.total_pins),
+      total_boards = GREATEST(competitor_profiles.total_boards, EXCLUDED.total_boards),
+      follower_count = CASE WHEN EXCLUDED.follower_count > 0 THEN EXCLUDED.follower_count ELSE competitor_profiles.follower_count END,
       activity_status = '1d ago',
       metadata = COALESCE(competitor_profiles.metadata, '{}'::jsonb) || ${JSON.stringify(metaUpdate)}::jsonb,
       last_synced_at = NOW(),
@@ -291,11 +291,11 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
         CURRENT_DATE
       )
       ON CONFLICT (competitor_id, recorded_date) DO UPDATE SET
-        monthly_reach = EXCLUDED.monthly_reach,
-        profile_views = EXCLUDED.profile_views,
-        follower_count = EXCLUDED.follower_count,
-        total_pins = EXCLUDED.total_pins,
-        total_boards = EXCLUDED.total_boards;
+        monthly_reach = CASE WHEN EXCLUDED.monthly_reach > 0 THEN EXCLUDED.monthly_reach ELSE competitor_history_snapshots.monthly_reach END,
+        profile_views = CASE WHEN EXCLUDED.profile_views > 0 THEN EXCLUDED.profile_views ELSE competitor_history_snapshots.profile_views END,
+        follower_count = CASE WHEN EXCLUDED.follower_count > 0 THEN EXCLUDED.follower_count ELSE competitor_history_snapshots.follower_count END,
+        total_pins = GREATEST(competitor_history_snapshots.total_pins, EXCLUDED.total_pins),
+        total_boards = GREATEST(competitor_history_snapshots.total_boards, EXCLUDED.total_boards);
     `;
 
     // Upsert any initial boards discovered directly from unauthenticated profile HTML
@@ -330,11 +330,15 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
 /**
  * Get all boards for a competitor
  */
-export async function getCompetitorBoards(sql, competitorId) {
+export async function getCompetitorBoards(sql, competitorId, { username = '' } = {}) {
+  let cleanUser = username ? normalizePinterestUsername(username) : null;
   let numericId = parseInt(competitorId, 10);
-  let cleanUser = null;
-  if (isNaN(numericId) && competitorId) {
+  if (!cleanUser && isNaN(numericId) && competitorId) {
     cleanUser = normalizePinterestUsername(competitorId);
+  }
+
+  // Always resolve local shard numeric ID by canonical username first:
+  if (cleanUser) {
     try {
       const [c] = await sql`SELECT id, username FROM competitor_profiles WHERE LOWER(username) = ${cleanUser} LIMIT 1;`;
       if (c?.id) {
@@ -345,10 +349,14 @@ export async function getCompetitorBoards(sql, competitorId) {
   } else if (!isNaN(numericId)) {
     try {
       const [c] = await sql`SELECT id, username FROM competitor_profiles WHERE id = ${numericId} LIMIT 1;`;
-      if (c?.username) cleanUser = c.username;
+      if (c?.username) {
+        cleanUser = c.username;
+      } else {
+        numericId = null;
+      }
     } catch (_) {}
   }
-  if (isNaN(numericId)) return [];
+  if (!numericId || isNaN(numericId)) return [];
 
   let boards = [];
   try {
@@ -971,24 +979,31 @@ export async function syncCompetitorBoardPins(sql, competitorId, username, board
  * Retrieve comprehensive details for a competitor, including profile,
  * historical snapshots, deltas, strategy age, velocity, and boards.
  */
-export async function getCompetitorDetail(sql, competitorIdOrUsername, { generateIfEmpty = false } = {}) {
+export async function getCompetitorDetail(sql, competitorIdOrUsername, { generateIfEmpty = false, username = '' } = {}) {
+  let cleanUsername = username ? normalizePinterestUsername(username) : null;
   const isNumeric = typeof competitorIdOrUsername === 'number' || (typeof competitorIdOrUsername === 'string' && /^\d+$/.test(competitorIdOrUsername.trim()));
   let numericId = isNumeric ? parseInt(competitorIdOrUsername, 10) : NaN;
-  let cleanUsername = !isNumeric ? normalizePinterestUsername(competitorIdOrUsername) : null;
+  if (!cleanUsername && !isNumeric) {
+    cleanUsername = normalizePinterestUsername(competitorIdOrUsername);
+  }
 
   let profile = null;
-  if (!isNaN(numericId)) {
+
+  // Step 1: Canonical lookup by username first across any shard
+  if (cleanUsername) {
+    const [pByUsername] = await sql`SELECT * FROM competitor_profiles WHERE LOWER(username) = ${cleanUsername} LIMIT 1;`;
+    if (pByUsername) {
+      profile = pByUsername;
+      numericId = profile.id;
+    }
+  }
+
+  // Step 2: Fallback lookup by local numeric ID
+  if (!profile && !isNaN(numericId)) {
     const [pById] = await sql`SELECT * FROM competitor_profiles WHERE id = ${numericId} LIMIT 1;`;
     if (pById) {
       profile = pById;
       cleanUsername = normalizePinterestUsername(profile.username);
-    }
-  }
-
-  if (!profile && cleanUsername) {
-    const [pByUsername] = await sql`SELECT * FROM competitor_profiles WHERE LOWER(username) = ${cleanUsername} LIMIT 1;`;
-    if (pByUsername) {
-      profile = pByUsername;
     }
   }
 
@@ -1448,12 +1463,39 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
     }
   }
 
+  // Auto-heal non-zero reach & profile_views if profile record was degraded to 0
+  let resolvedMonthlyReach = Number(profile.monthly_reach || 0);
+  let resolvedProfileViews = Number(profile.profile_views || 0);
+  if (resolvedMonthlyReach <= 0 && Array.isArray(snapshots) && snapshots.length > 0) {
+    const latestWithReach = [...snapshots].reverse().find(s => Number(s.monthly_reach || 0) > 0);
+    if (latestWithReach) {
+      resolvedMonthlyReach = Number(latestWithReach.monthly_reach);
+    }
+  }
+  if (resolvedProfileViews <= 0 && Array.isArray(snapshots) && snapshots.length > 0) {
+    const latestWithViews = [...snapshots].reverse().find(s => Number(s.profile_views || 0) > 0);
+    if (latestWithViews) {
+      resolvedProfileViews = Number(latestWithViews.profile_views);
+    }
+  }
+
+  // Asynchronously persist healed reach and views to Postgres profile
+  if (resolvedMonthlyReach > Number(profile.monthly_reach || 0) || resolvedProfileViews > Number(profile.profile_views || 0)) {
+    sql`
+      UPDATE competitor_profiles
+      SET monthly_reach = GREATEST(monthly_reach, ${resolvedMonthlyReach}),
+          profile_views = GREATEST(profile_views, ${resolvedProfileViews}),
+          updated_at = NOW()
+      WHERE id = ${compId};
+    `.catch(() => {});
+  }
+
   return {
     profile: {
       ...profile,
       handle: `@${profile.username}`,
-      monthly_reach: Number(profile.monthly_reach || 0),
-      profile_views: Number(profile.profile_views || 0),
+      monthly_reach: resolvedMonthlyReach,
+      profile_views: resolvedProfileViews,
       follower_count: Number(profile.follower_count || 0),
       total_pins: Number(profile.total_pins || boards.reduce((acc, b) => acc + (b.pin_count || 0), 0) || 0),
       total_boards: Number(profile.total_boards || boards.length || 0),
@@ -1612,6 +1654,7 @@ export async function upsertCompetitorPins(sql, competitorId, pins) {
  * List all creator pins from competitor_pins inventory with rich filtering, sorting, and pagination
  */
 export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
+  username = '',
   search = '',
   board = '',
   min_saves = 0,
@@ -1621,18 +1664,39 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
   qualified_only = false,
   product_only = false
 } = {}) {
+  let cleanUsername = username ? normalizePinterestUsername(username) : null;
   let numericId = parseInt(competitorIdOrUsername, 10);
-  let cleanUsername = null;
-  if (isNaN(numericId) || !numericId) {
+  if (!cleanUsername && (isNaN(numericId) || !numericId)) {
     cleanUsername = normalizePinterestUsername(competitorIdOrUsername);
-    const [c] = await sql`SELECT id, username FROM competitor_profiles WHERE LOWER(username) = ${cleanUsername} LIMIT 1;`;
-    if (c) {
-      numericId = c.id;
-      cleanUsername = c.username;
-    }
-  } else {
-    const [c] = await sql`SELECT id, username FROM competitor_profiles WHERE id = ${numericId} LIMIT 1;`;
-    if (c) cleanUsername = c.username;
+    numericId = null;
+  }
+
+  // 1. If username is known, ALWAYS resolve local numeric ID on this specific database instance
+  if (cleanUsername) {
+    try {
+      const [c] = await sql`
+        SELECT id, username FROM competitor_profiles 
+        WHERE LOWER(username) = ${cleanUsername} 
+        LIMIT 1;
+      `;
+      if (c) {
+        numericId = c.id;
+        cleanUsername = c.username;
+      }
+    } catch (_) {}
+  } else if (!isNaN(numericId) && numericId) {
+    try {
+      const [c] = await sql`
+        SELECT id, username FROM competitor_profiles 
+        WHERE id = ${numericId} 
+        LIMIT 1;
+      `;
+      if (c) {
+        cleanUsername = c.username;
+      } else {
+        numericId = null;
+      }
+    } catch (_) {}
   }
 
   if (!numericId) {
@@ -1645,7 +1709,7 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
 
   const minSavesNum = Math.max(0, parseInt(min_saves, 10) || 0);
   const searchPattern = search ? `%${search.toLowerCase().trim()}%` : null;
-  const boardPattern = board ? board.trim().toLowerCase() : null;
+  const boardPattern = (board && board.trim()) ? board.trim().toLowerCase() : null;
 
   const boardsRows = await sql`
     SELECT DISTINCT board_name, COUNT(*)::int as count
@@ -1684,7 +1748,13 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
     WHERE cp.competitor_id = ${numericId}
       AND (${minSavesNum} = 0 OR cp.save_count >= ${minSavesNum})
       AND (${searchPattern}::text IS NULL OR LOWER(cp.title) LIKE ${searchPattern} OR LOWER(COALESCE(cp.description, '')) LIKE ${searchPattern})
-      AND (${boardPattern}::text IS NULL OR LOWER(TRIM(cp.board_name)) = ${boardPattern})
+      AND (
+        ${boardPattern}::text IS NULL OR 
+        LOWER(TRIM(cp.board_name)) = ${boardPattern} OR
+        REPLACE(LOWER(TRIM(cp.board_name)), '-', ' ') = REPLACE(${boardPattern}, '-', ' ') OR
+        REPLACE(LOWER(TRIM(cp.board_name)), ' ', '-') = REPLACE(${boardPattern}, ' ', '-') OR
+        REPLACE(REPLACE(LOWER(TRIM(cp.board_name)), '-', ''), ' ', '') = REPLACE(REPLACE(${boardPattern}, '-', ''), ' ', '')
+      )
       AND (${qualified_only} = FALSE OR pa.pin_id IS NOT NULL)
       AND (${product_only} = FALSE OR (
         COALESCE(cp.is_product, false) OR 
@@ -1707,7 +1777,13 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
     WHERE cp.competitor_id = ${numericId}
       AND (${minSavesNum} = 0 OR cp.save_count >= ${minSavesNum})
       AND (${searchPattern}::text IS NULL OR LOWER(cp.title) LIKE ${searchPattern} OR LOWER(COALESCE(cp.description, '')) LIKE ${searchPattern})
-      AND (${boardPattern}::text IS NULL OR LOWER(TRIM(cp.board_name)) = ${boardPattern})
+      AND (
+        ${boardPattern}::text IS NULL OR 
+        LOWER(TRIM(cp.board_name)) = ${boardPattern} OR
+        REPLACE(LOWER(TRIM(cp.board_name)), '-', ' ') = REPLACE(${boardPattern}, '-', ' ') OR
+        REPLACE(LOWER(TRIM(cp.board_name)), ' ', '-') = REPLACE(${boardPattern}, ' ', '-') OR
+        REPLACE(REPLACE(LOWER(TRIM(cp.board_name)), '-', ''), ' ', '') = REPLACE(REPLACE(${boardPattern}, '-', ''), ' ', '')
+      )
       AND (${qualified_only} = FALSE OR pa.pin_id IS NOT NULL)
       AND (${product_only} = FALSE OR (
         COALESCE(cp.is_product, false) OR 
@@ -1726,6 +1802,7 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
       repins: Number(r.repin_count || 0),
       comments: Number(r.comment_count || 0),
       velocity: Number(r.velocity || 0),
+      is_product: Boolean(r.is_product),
       is_qualified: Boolean(r.is_qualified)
     })),
     total,

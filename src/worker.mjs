@@ -1327,9 +1327,11 @@ export default {
       }
 
       if (method === 'GET' && pathname === '/api/competitors/boards') {
-        const competitorId = searchParams.get('competitor_id');
-        if (!competitorId) return jsonResponse({ error: 'competitor_id is required' }, 400);
-        const boards = await getCompetitorBoards(targetSql, competitorId);
+        const username = searchParams.get('username') || searchParams.get('account');
+        const competitorId = searchParams.get('competitor_id') || searchParams.get('id');
+        const idOrUser = username || competitorId;
+        if (!idOrUser) return jsonResponse({ error: 'competitor_id or username is required' }, 400);
+        const boards = await getCompetitorBoards(targetSql, idOrUser, { username });
         return jsonResponse({ success: true, boards });
       }
 
@@ -1361,10 +1363,12 @@ export default {
       }
 
       if (method === 'GET' && pathname === '/api/competitors/detail') {
-        const idOrUser = searchParams.get('id') || searchParams.get('username') || searchParams.get('account');
+        const username = searchParams.get('username') || searchParams.get('account');
+        const id = searchParams.get('id') || searchParams.get('competitor_id');
+        const idOrUser = username || id;
         if (!idOrUser) return jsonResponse({ error: 'id or username is required' }, 400);
         try {
-          const detail = await getCompetitorDetail(targetSql, idOrUser);
+          const detail = await getCompetitorDetail(targetSql, idOrUser, { username });
           return jsonResponse({ success: true, ...detail });
         } catch (err) {
           return jsonResponse({ success: false, error: err.message }, 500);
@@ -1385,12 +1389,15 @@ export default {
       }
 
       if (method === 'GET' && pathname === '/api/competitors/all-pins') {
-        const idOrUser = searchParams.get('id') || searchParams.get('competitor_id') || searchParams.get('username') || searchParams.get('account');
+        const username = searchParams.get('username') || searchParams.get('account');
+        const id = searchParams.get('id') || searchParams.get('competitor_id');
+        const idOrUser = username || id;
         if (!idOrUser) return jsonResponse({ error: 'id or username is required' }, 400);
         try {
           const data = await listCompetitorAccountPins(targetSql, idOrUser, {
+            username,
             search: searchParams.get('search') || '',
-            board: searchParams.get('board') || '',
+            board: searchParams.get('board') || searchParams.get('board_name') || searchParams.get('slug') || '',
             min_saves: Number(searchParams.get('min_saves') || 0),
             sort: searchParams.get('sort') || 'saves_desc',
             page: Number(searchParams.get('page') || 1),
