@@ -601,3 +601,55 @@ export async function syncFleetDatabases(hubSql, { targetProjectId = null } = {}
   };
 }
 
+/**
+ * Ping a specific fleet shard to measure live roundtrip database latency.
+ */
+export async function pingFleetProject(hubSql, projectId) {
+  if (!projectId) throw new Error('project_id is required.');
+  const [proj] = await hubSql`
+    SELECT id, project_id, project_name, database_url, status
+    FROM neon_projects_registry
+    WHERE project_id = ${projectId}
+    LIMIT 1;
+  `;
+  if (!proj) {
+    throw new Error(`Project ${projectId} not found in fleet registry.`);
+  }
+
+  const start = performance.now();
+  const shardSql = neon(proj.database_url);
+  await shardSql`SELECT 1;`;
+  const latencyMs = Math.round(performance.now() - start);
+
+  return {
+    ok: true,
+    project_id: proj.project_id,
+    project_name: proj.project_name,
+    latency_ms: latencyMs,
+    status: 'active'
+  };
+}
+
+/**
+ * Retrieve clean database connection URL for authorized fleet administration.
+ */
+export async function getFleetProjectUrl(hubSql, projectId) {
+  if (!projectId) throw new Error('project_id is required.');
+  const [proj] = await hubSql`
+    SELECT id, project_id, project_name, database_url
+    FROM neon_projects_registry
+    WHERE project_id = ${projectId} OR id::text = ${String(projectId)}
+    LIMIT 1;
+  `;
+  if (!proj) {
+    throw new Error(`Project ${projectId} not found in fleet registry.`);
+  }
+  return {
+    ok: true,
+    project_id: proj.project_id,
+    project_name: proj.project_name,
+    database_url: proj.database_url
+  };
+}
+
+

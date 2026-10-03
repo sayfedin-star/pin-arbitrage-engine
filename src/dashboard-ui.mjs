@@ -5062,14 +5062,22 @@ export function getDashboardHtml() {
                   <td class="py-3 px-3">
                     <div class="flex items-center space-x-2">
                       <span class="text-slate-500 dark:text-slate-400 text-[11px]" x-text="p.masked_url || '••••••••••••••••••••••••••••••••'"></span>
-                      <button @click="copyToClipboard(p.masked_url, 'url-' + p.id)" class="px-2 py-0.5 rounded text-[10px] bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-sans transition">
+                      <button @click="copyFleetUrl(p)" class="px-2 py-0.5 rounded text-[10px] bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-sans transition cursor-pointer" title="Copy clean connection string">
                         <span x-text="copiedField === 'url-' + p.id ? 'Copied!' : 'Copy'"></span>
                       </button>
                     </div>
                   </td>
                   <td class="py-3 px-3 text-center">
-                    <button class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-[10px] font-sans font-semibold transition">
-                      Test Ping
+                    <button @click="pingFleetShard(p)" :disabled="pingingProjectId === p.project_id" class="px-2.5 py-1 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-[10px] font-sans font-semibold transition flex items-center justify-center space-x-1 mx-auto cursor-pointer border border-slate-200 dark:border-slate-700 active:scale-95">
+                      <template x-if="pingingProjectId === p.project_id">
+                        <span class="text-purple-600 dark:text-purple-400">Pinging...</span>
+                      </template>
+                      <template x-if="pingingProjectId !== p.project_id">
+                        <span>
+                          <span x-show="!p.ping_latency">Test Ping</span>
+                          <span x-show="p.ping_latency" class="font-mono text-emerald-600 dark:text-emerald-400 font-bold" x-text="'⚡ ' + p.ping_latency + 'ms'"></span>
+                        </span>
+                      </template>
                     </button>
                   </td>
                 </tr>
@@ -8346,6 +8354,54 @@ export function getDashboardHtml() {
               if (data.projects) this.fleetProjects = data.projects;
             }
           } catch (e) {}
+        },
+
+        pingingProjectId: null,
+
+        async pingFleetShard(project) {
+          if (!project || !project.project_id) return;
+          this.pingingProjectId = project.project_id;
+          try {
+            const res = await fetch(this.getApiUrl('/api/fleet/ping'), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ project_id: project.project_id })
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+              project.ping_latency = data.latency_ms;
+              this.showToast('⚡ ' + project.project_name + ' active: ' + data.latency_ms + 'ms latency');
+            } else {
+              this.showToast('Ping failed: ' + (data.error || 'Serverless unreachable'), 'error');
+            }
+          } catch (e) {
+            this.showToast('Ping error: ' + e.message, 'error');
+          } finally {
+            this.pingingProjectId = null;
+          }
+        },
+
+        async copyFleetUrl(project) {
+          if (!project) return;
+          try {
+            const res = await fetch(this.getApiUrl('/api/fleet/url?project_id=' + encodeURIComponent(project.project_id)));
+            if (res.ok) {
+              const data = await res.json();
+              if (data.database_url) {
+                await navigator.clipboard.writeText(data.database_url);
+                this.copiedField = 'url-' + project.id;
+                this.showToast('Copied pooled connection URL for ' + project.project_name + '!');
+                setTimeout(() => { if (this.copiedField === 'url-' + project.id) this.copiedField = null; }, 2000);
+                return;
+              }
+            }
+          } catch (_) {}
+          if (project.masked_url) {
+            await navigator.clipboard.writeText(project.masked_url);
+            this.copiedField = 'url-' + project.id;
+            this.showToast('Copied connection URL for ' + project.project_name + '!');
+            setTimeout(() => { if (this.copiedField === 'url-' + project.id) this.copiedField = null; }, 2000);
+          }
         },
 
         async syncAllFleetDatabasesAction() {

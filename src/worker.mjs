@@ -21,7 +21,7 @@ import {
   listCompetitorAccountPins
 } from './modules/competitors/service.mjs';
 import { listKeywords, addKeyword, crawlKeywordSERP, getKeywordPins } from './modules/keywords/service.mjs';
-import { getFleetProjects, registerNewProject, syncFleetDatabases, syncCompetitorAcrossFleet } from './modules/fleet/service.mjs';
+import { getFleetProjects, registerNewProject, syncFleetDatabases, syncCompetitorAcrossFleet, pingFleetProject, getFleetProjectUrl } from './modules/fleet/service.mjs';
 import {
   getPinArchiveOverview,
   getTopicClusters,
@@ -1527,6 +1527,28 @@ export default {
         const targetProj = body?.project_id || searchParams.get('project_id');
         const syncRes = await syncFleetDatabases(sql, { targetProjectId: targetProj });
         return jsonResponse(syncRes);
+      }
+
+      if (method === 'POST' && pathname === '/api/fleet/ping') {
+        const body = await request.json().catch(() => ({}));
+        const projId = body?.project_id || searchParams.get('project_id');
+        try {
+          const pingRes = await pingFleetProject(sql, projId);
+          return jsonResponse({ success: true, ...pingRes });
+        } catch (err) {
+          return jsonResponse({ success: false, error: err.message }, 500);
+        }
+      }
+
+      if ((method === 'GET' || method === 'POST') && pathname === '/api/fleet/url') {
+        const body = method === 'POST' ? await request.json().catch(() => ({})) : {};
+        const projId = body?.project_id || searchParams.get('project_id') || searchParams.get('id');
+        try {
+          const urlRes = await getFleetProjectUrl(sql, projId);
+          return jsonResponse({ success: true, ...urlRes });
+        } catch (err) {
+          return jsonResponse({ success: false, error: err.message }, 500);
+        }
       }
 
       // 18. PinArchive & Topic Clusters API

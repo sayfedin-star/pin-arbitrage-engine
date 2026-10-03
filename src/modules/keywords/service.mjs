@@ -130,6 +130,8 @@ export async function crawlKeywordSERP(sql, keywordId, cookie = (typeof process 
   let topPin = null;
   let totalVelocity = 0;
 
+  const preparedPins = [];
+
   for (const item of rawResults) {
     if (!item || !item.id) continue;
     const pinId = String(item.id);
@@ -152,20 +154,46 @@ export async function crawlKeywordSERP(sql, keywordId, cookie = (typeof process 
       topPin = { pinId, title, imageUrl };
     }
 
-    // Check most recent historical snapshot before today to compute daily save velocity
-    const [prevSnapshot] = await sql`
-      SELECT save_count
+    preparedPins.push({
+      pin_id: pinId,
+      rank_position: rank,
+      title,
+      domain,
+      destination_url: destinationUrl,
+      image_url: imageUrl,
+      save_count: saves,
+      daily_save_velocity: 0
+    });
+
+    rank++;
+  }
+
+  // Batch query all previous snapshots in ONE single query (eliminating N+1)
+  if (preparedPins.length > 0) {
+    const pinIds = preparedPins.map(p => p.pin_id);
+    const prevSnapshots = await sql`
+      SELECT pin_id, save_count
       FROM keyword_pins_snapshots
       WHERE keyword_id = ${keywordId}
-        AND pin_id = ${pinId}
+        AND pin_id = ANY(${pinIds})
         AND snapshot_date < CURRENT_DATE
-      ORDER BY snapshot_date DESC
-      LIMIT 1;
+      ORDER BY snapshot_date DESC;
     `;
+    const prevMap = new Map();
+    for (const s of prevSnapshots) {
+      if (!prevMap.has(s.pin_id)) {
+        prevMap.set(s.pin_id, Number(s.save_count || 0));
+      }
+    }
 
-    const velocity = prevSnapshot ? Math.max(0, saves - Number(prevSnapshot.save_count || 0)) : 0;
-    totalVelocity += velocity;
+    for (const p of preparedPins) {
+      const prevSaves = prevMap.get(p.pin_id);
+      const velocity = prevSaves !== undefined ? Math.max(0, p.save_count - prevSaves) : 0;
+      p.daily_save_velocity = velocity;
+      totalVelocity += velocity;
+    }
 
+    // Single bulk upsert using jsonb_to_recordset
     await sql`
       INSERT INTO keyword_pins_snapshots (
         keyword_id,
@@ -179,18 +207,28 @@ export async function crawlKeywordSERP(sql, keywordId, cookie = (typeof process 
         daily_save_velocity,
         snapshot_date,
         created_at
-      ) VALUES (
+      )
+      SELECT
         ${keywordId},
-        ${pinId},
-        ${rank},
-        ${title},
-        ${domain},
-        ${destinationUrl},
-        ${imageUrl},
-        ${saves},
-        ${velocity},
+        u.pin_id,
+        u.rank_position,
+        u.title,
+        u.domain,
+        u.destination_url,
+        u.image_url,
+        u.save_count,
+        u.daily_save_velocity,
         CURRENT_DATE,
         NOW()
+      FROM jsonb_to_recordset(${JSON.stringify(preparedPins)}::jsonb) AS u(
+        pin_id text,
+        rank_position int,
+        title text,
+        domain text,
+        destination_url text,
+        image_url text,
+        save_count bigint,
+        daily_save_velocity numeric
       )
       ON CONFLICT (keyword_id, pin_id, snapshot_date) DO UPDATE SET
         rank_position = EXCLUDED.rank_position,
@@ -201,8 +239,6 @@ export async function crawlKeywordSERP(sql, keywordId, cookie = (typeof process 
         save_count = EXCLUDED.save_count,
         daily_save_velocity = EXCLUDED.daily_save_velocity;
     `;
-
-    rank++;
   }
 
   const crawledCount = rank - 1;

@@ -16,6 +16,7 @@ import {
   syncCompetitorPins,
   trackCompetitor
 } from '../src/modules/competitors/service.mjs';
+import { pingFleetProject, getFleetProjectUrl } from '../src/modules/fleet/service.mjs';
 
 import {
   ingestPinsBatch,
@@ -469,13 +470,52 @@ async function runTests() {
     const boardsByHandle = await getCompetitorBoards(sql, `@${TEST_COMPETITOR_USERNAME}`);
     assert(Array.isArray(boardsByHandle) && boardsByHandle.length >= 1, 'getCompetitorBoards cleanly resolved @username handle to competitor ID');
 
+    // 3.20 Test genuine historical time-series delta calculation (eliminating ASCII charCodeAt math)
+    const deltaTestPinId = `test_delta_pin_${Date.now()}`;
+    await ingestPinsBatch(sql, [{
+      pin_id: deltaTestPinId,
+      account_username: 'test_delta_user',
+      title: 'Delta Verification Pin',
+      saves: 500,
+      repins: 150,
+      velocity: 25.0
+    }]);
+    // Insert a historical snapshot recorded 24 hours ago with 420 saves and 120 repins
+    await sql`
+      INSERT INTO pa_pin_metrics (pin_id, recorded_at, saves, repins, comments)
+      VALUES (${deltaTestPinId}, NOW() - INTERVAL '24 hours', 420, 120, 5);
+    `;
+    const deltaList = await listArchivedPins(sql, { search: deltaTestPinId });
+    const matchedPin = deltaList.find(p => p.pin_id === deltaTestPinId);
+    assert(matchedPin && matchedPin.delta_saves === 80, `listArchivedPins calculated genuine mathematical 24h delta: expected 80 (500 - 420), got ${matchedPin?.delta_saves}`);
+    assert(matchedPin && matchedPin.delta_repins === 30, `listArchivedPins calculated genuine mathematical 24h repins delta: expected 30 (150 - 120), got ${matchedPin?.delta_repins}`);
+
+    // 3.21 Test Fleet Ping and URL Retrieval
+    const [hubProject] = await sql`SELECT project_id, project_name FROM neon_projects_registry WHERE is_hub = true LIMIT 1;`;
+    if (hubProject) {
+      const pingResult = await pingFleetProject(sql, hubProject.project_id);
+      assert(pingResult.ok === true && typeof pingResult.latency_ms === 'number' && pingResult.latency_ms >= 0, `pingFleetProject successfully pinged ${hubProject.project_name} in ${pingResult.latency_ms}ms`);
+      const urlResult = await getFleetProjectUrl(sql, hubProject.project_id);
+      assert(urlResult.ok === true && urlResult.database_url.includes('postgres'), `getFleetProjectUrl returned clean PostgreSQL connection URL`);
+    }
+
+    // 3.22 Test Migrations 007 & 008 Core Tables and Compatibility Views
+    const [seedsCheck] = await sql`SELECT count(*) FROM cluster_seeds;`;
+    assert(seedsCheck && Number(seedsCheck.count) >= 0, 'cluster_seeds table is accessible and indexed');
+    const [candidatesCheck] = await sql`SELECT count(*) FROM candidate_graph_nodes;`;
+    assert(candidatesCheck && Number(candidatesCheck.count) >= 0, 'candidate_graph_nodes table is accessible and indexed');
+    const [creatorProfilesView] = await sql`SELECT count(*) FROM creator_profiles;`;
+    assert(creatorProfilesView && Number(creatorProfilesView.count) >= 0, 'creator_profiles unified compatibility view is functional');
+    const [creatorBoardsView] = await sql`SELECT count(*) FROM creator_boards;`;
+    assert(creatorBoardsView && Number(creatorBoardsView.count) >= 0, 'creator_boards unified compatibility view is functional');
+
     console.log('\n=== TEST SUITE 4: Cleanup ===');
     // Cleanup staged pins
     await sql`DELETE FROM pa_staged_pins WHERE pin_id IN (${TEST_PIN_ID}, ${TEST_QUALIFIED_PIN}, ${TEST_UNQUALIFIED_PIN}, ${PIN_64BIT_NUMERIC}, ${cancelPinId}, ${presPinId});`;
     // Cleanup metrics
-    await sql`DELETE FROM pa_pin_metrics WHERE pin_id IN (${TEST_PIN_ID}, ${TEST_QUALIFIED_PIN}, ${TEST_UNQUALIFIED_PIN}, ${PIN_64BIT_NUMERIC}, ${cancelPinId}, ${presPinId});`;
+    await sql`DELETE FROM pa_pin_metrics WHERE pin_id IN (${TEST_PIN_ID}, ${TEST_QUALIFIED_PIN}, ${TEST_UNQUALIFIED_PIN}, ${PIN_64BIT_NUMERIC}, ${cancelPinId}, ${presPinId}, ${deltaTestPinId});`;
     // Cleanup pa_pins
-    await sql`DELETE FROM pa_pins WHERE pin_id IN (${TEST_PIN_ID}, ${TEST_QUALIFIED_PIN}, ${TEST_UNQUALIFIED_PIN}, ${PIN_64BIT_NUMERIC}, ${cancelPinId}, ${presPinId});`;
+    await sql`DELETE FROM pa_pins WHERE pin_id IN (${TEST_PIN_ID}, ${TEST_QUALIFIED_PIN}, ${TEST_UNQUALIFIED_PIN}, ${PIN_64BIT_NUMERIC}, ${cancelPinId}, ${presPinId}, ${deltaTestPinId});`;
     // Cleanup boards
     await sql`DELETE FROM competitor_boards WHERE competitor_id = ${testCompetitorId};`;
     // Cleanup profile

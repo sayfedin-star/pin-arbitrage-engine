@@ -30,7 +30,7 @@ import {
   listCompetitorAccountPins
 } from '../src/modules/competitors/service.mjs';
 import { listKeywords, addKeyword, crawlKeywordSERP, getKeywordPins } from '../src/modules/keywords/service.mjs';
-import { getFleetProjects, registerNewProject, getFleetCompetitors, syncProjectCompetitorStats, syncFleetDatabases, syncCompetitorAcrossFleet } from '../src/modules/fleet/service.mjs';
+import { getFleetProjects, registerNewProject, getFleetCompetitors, syncProjectCompetitorStats, syncFleetDatabases, syncCompetitorAcrossFleet, pingFleetProject, getFleetProjectUrl } from '../src/modules/fleet/service.mjs';
 import {
   getPinArchiveOverview,
   getTopicClusters,
@@ -1753,6 +1753,28 @@ const server = http.createServer(async (req, res) => {
       const targetProj = body?.project_id || searchParams.get('project_id');
       const syncRes = await syncFleetDatabases(sql, { targetProjectId: targetProj });
       return sendJson(res, 200, syncRes);
+    }
+
+    if (method === 'POST' && pathname === '/api/fleet/ping') {
+      const body = await parseJsonBody(req).catch(() => ({}));
+      const projId = body?.project_id || searchParams.get('project_id');
+      try {
+        const pingRes = await pingFleetProject(sql, projId);
+        return sendJson(res, 200, { success: true, ...pingRes });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, error: err.message });
+      }
+    }
+
+    if ((method === 'GET' || method === 'POST') && pathname === '/api/fleet/url') {
+      const body = method === 'POST' ? await parseJsonBody(req).catch(() => ({})) : {};
+      const projId = body?.project_id || searchParams.get('project_id') || searchParams.get('id');
+      try {
+        const urlRes = await getFleetProjectUrl(sql, projId);
+        return sendJson(res, 200, { success: true, ...urlRes });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, error: err.message });
+      }
     }
 
     // PinArchive & Topic Clusters API

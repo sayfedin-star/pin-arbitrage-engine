@@ -653,23 +653,82 @@ export async function listArchivedPins(sql, {
   ]);
 
   const now = Date.now();
+
+  // Batch-fetch true historical time-series snapshots for the retrieved page of pins
+  const metricsMap = new Map();
+  if (rows.length > 0) {
+    try {
+      const pinIds = rows.map(r => r.pin_id);
+      const metricSnapshots = await sql`
+        SELECT pin_id, saves, repins, comments, recorded_at
+        FROM pa_pin_metrics
+        WHERE pin_id = ANY(${pinIds})
+        ORDER BY pin_id, recorded_at DESC;
+      `;
+      for (const snap of metricSnapshots) {
+        if (!metricsMap.has(snap.pin_id)) {
+          metricsMap.set(snap.pin_id, []);
+        }
+        metricsMap.get(snap.pin_id).push(snap);
+      }
+    } catch (_) {}
+  }
+
   let mapped = rows.map(p => {
     const velocity = Number(p.velocity || 0);
     const createdDate = p.created_at_pinterest ? new Date(p.created_at_pinterest) : (p.first_seen_at ? new Date(p.first_seen_at) : new Date());
     const ageDays = Math.max(1, Math.round((now - createdDate.getTime()) / 86400000));
     
-    // Growth deltas calculation based on velocity
-    const deltaSaves = velocity > 0 ? Math.max(1, Math.round(velocity * (0.8 + ((p.pin_id.charCodeAt(p.pin_id.length - 1) % 5) * 0.1)))) : 0;
-    const deltaRepins = deltaSaves > 0 ? Math.max(0, Math.round(deltaSaves * 0.42)) : 0;
-    const deltaSaves3d = Math.round(deltaSaves * 2.85);
-    const deltaSaves7d = Math.round(deltaSaves * 6.6);
+    // Genuine growth deltas calculation directly from time-series snapshots
+    const history = metricsMap.get(p.pin_id) || [];
+    const curSaves = Number(p.saves || 0);
+    const curRepins = Number(p.repins || 0);
+
+    let deltaSaves = 0;
+    let deltaRepins = 0;
+    let deltaSaves3d = 0;
+    let deltaSaves7d = 0;
+
+    if (history.length > 0) {
+      const tNow = Date.now();
+      // Find snapshot closest to 24 hours ago (between 16h and 36h, or oldest in window, or previous snapshot)
+      const snap24h = history.find(s => {
+        const diffHours = (tNow - new Date(s.recorded_at).getTime()) / 3600000;
+        return diffHours >= 16 && diffHours <= 36;
+      }) || (history.length > 1 && (tNow - new Date(history[history.length - 1].recorded_at).getTime()) >= 6 * 3600000 ? history[history.length - 1] : null);
+
+      if (snap24h) {
+        deltaSaves = Math.max(0, curSaves - Number(snap24h.saves || 0));
+        deltaRepins = Math.max(0, curRepins - Number(snap24h.repins || 0));
+      }
+
+      const snap3d = history.find(s => {
+        const diffDays = (tNow - new Date(s.recorded_at).getTime()) / 86400000;
+        return diffDays >= 2.5 && diffDays <= 4.5;
+      });
+      if (snap3d) {
+        deltaSaves3d = Math.max(0, curSaves - Number(snap3d.saves || 0));
+      } else if (deltaSaves > 0) {
+        deltaSaves3d = deltaSaves;
+      }
+
+      const snap7d = history.find(s => {
+        const diffDays = (tNow - new Date(s.recorded_at).getTime()) / 86400000;
+        return diffDays >= 6 && diffDays <= 8.5;
+      });
+      if (snap7d) {
+        deltaSaves7d = Math.max(0, curSaves - Number(snap7d.saves || 0));
+      } else if (deltaSaves3d > 0) {
+        deltaSaves7d = deltaSaves3d;
+      }
+    }
 
     const pinStage = computePinStage(velocity, deltaSaves, ageDays);
 
     return {
       ...p,
-      saves: Number(p.saves || 0),
-      repins: Number(p.repins || 0),
+      saves: curSaves,
+      repins: curRepins,
       comments: Number(p.comments || 0),
       share_count: Number(p.share_count || 0),
       velocity: Number(velocity.toFixed(1)),
