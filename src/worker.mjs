@@ -17,7 +17,8 @@ import {
   syncCompetitorPins,
   getCompetitorDetail,
   deleteCompetitorSnapshot,
-  updateCompetitorStatus
+  updateCompetitorStatus,
+  listCompetitorAccountPins
 } from './modules/competitors/service.mjs';
 import { listKeywords, addKeyword, crawlKeywordSERP, getKeywordPins } from './modules/keywords/service.mjs';
 import { getFleetProjects, registerNewProject } from './modules/fleet/service.mjs';
@@ -113,8 +114,8 @@ export default {
       return corsOptionsResponse();
     }
 
-    // Serve Frontend Dashboard HTML
-    if (pathname === '/' || pathname === '/index.html') {
+    // Serve Frontend Dashboard HTML for root or any creator handle route (e.g. /wifesrecipesbyme)
+    if (!pathname.startsWith('/api/')) {
       return new Response(getDashboardHtml(), {
         status: 200,
         headers: {
@@ -164,10 +165,14 @@ export default {
 
     const sql = neon(dbUrl);
     let targetSql = sql;
-    const reqProjectId = searchParams.get('project_id');
+    const reqProjectId = searchParams.get('project_id') || searchParams.get('shard') || request.headers.get('x-target-project');
     if (reqProjectId && reqProjectId !== 'all' && reqProjectId !== 'hub') {
       try {
-        const [proj] = await sql`SELECT database_url FROM neon_projects_registry WHERE project_id = ${reqProjectId} AND status = 'active' LIMIT 1;`;
+        const [proj] = await sql`
+          SELECT database_url FROM neon_projects_registry 
+          WHERE (project_id = ${reqProjectId} OR project_name = ${reqProjectId}) AND status = 'active' 
+          LIMIT 1;
+        `;
         if (proj && proj.database_url) {
           targetSql = neon(proj.database_url);
         }
@@ -1347,6 +1352,70 @@ export default {
           return jsonResponse({ success: true, ...detail });
         } catch (err) {
           return jsonResponse({ success: false, error: err.message }, 500);
+        }
+      }
+
+      if (method === 'GET' && pathname === '/api/competitors/all-pins') {
+        const idOrUser = searchParams.get('id') || searchParams.get('competitor_id') || searchParams.get('username') || searchParams.get('account');
+        if (!idOrUser) return jsonResponse({ error: 'id or username is required' }, 400);
+        try {
+          const data = await listCompetitorAccountPins(targetSql, idOrUser, {
+            search: searchParams.get('search') || '',
+            board: searchParams.get('board') || '',
+            min_saves: Number(searchParams.get('min_saves') || 0),
+            sort: searchParams.get('sort') || 'saves_desc',
+            page: Number(searchParams.get('page') || 1),
+            limit: Number(searchParams.get('limit') || 50),
+            qualified_only: searchParams.get('qualified_only') === 'true'
+          });
+          return jsonResponse({ success: true, ...data });
+        } catch (err) {
+          return jsonResponse({ success: false, error: err.message }, 500);
+        }
+      }
+
+      if (method === 'POST' && pathname === '/api/competitors/dispatch-crawl') {
+        const body = await request.json().catch(() => ({}));
+        const username = (body.username || body.target_account || '').replace(/^@+/, '').trim();
+        if (!username) return jsonResponse({ error: 'username is required' }, 400);
+        const ghToken = env.GITHUB_TOKEN || env.GH_TOKEN || env.GH_REFRESH_TOKEN;
+        if (!ghToken) {
+          return jsonResponse({
+            success: false,
+            error: 'GITHUB_TOKEN secret is not configured in Cloudflare Workers settings. Please configure GITHUB_TOKEN to enable automatic GitHub Actions dispatching.'
+          }, 400);
+        }
+        const cleanToken = String(ghToken).replace(/^(token|Bearer)\s+/i, '').replace(/^["']|["']$/g, '').trim();
+        const authHeader = cleanToken.startsWith('ghp_') ? `token ${cleanToken}` : `Bearer ${cleanToken}`;
+        const repo = 'sayfedin-star/pin-arbitrage-engine';
+        const res = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/crawler-pipeline.yml/dispatches`, {
+          method: 'POST',
+          headers: {
+            'User-Agent': 'Cloudflare-Worker-Pin-Arbitrage-Engine',
+            'Accept': 'application/vnd.github.v3+json',
+            'Authorization': authHeader,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            ref: 'main',
+            inputs: {
+              target_account: username,
+              crawl_mode: body.crawl_mode || 'discovery',
+              max_pages: String(body.max_pages || '500')
+            }
+          })
+        });
+
+        if (res.ok || res.status === 204) {
+          return jsonResponse({
+            success: true,
+            target_account: username,
+            crawl_mode: body.crawl_mode || 'discovery',
+            message: `20-Shard Crawler Pipeline dispatched successfully on GitHub Actions for @${username}!`
+          });
+        } else {
+          const errText = await res.text();
+          return jsonResponse({ success: false, error: `GitHub API error (${res.status}): ${errText}` }, res.status);
         }
       }
 

@@ -587,39 +587,76 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
   const compId = profile.id;
 
   // 1. Fetch boards
-  let boards = await sql`
-    SELECT *
-    FROM competitor_boards
-    WHERE competitor_id = ${compId}
-    ORDER BY pin_count DESC;
-  `;
-
-  // Fallback: If no competitor_boards record exists yet, discover boards from pa_pins
-  if (boards.length === 0 && cleanUsername) {
-    const pinBoards = await sql`
-      SELECT 
-        COALESCE(NULLIF(TRIM(board_name), ''), 'General') AS name,
-        COUNT(*)::int AS pin_count,
-        COALESCE(MAX(saves), 0)::int AS follower_count,
-        MAX(created_at_pinterest) AS last_pinned_at,
-        MIN(created_at_pinterest) AS created_at
-      FROM pa_pins
-      WHERE LOWER(REPLACE(account_username, '@', '')) = ${cleanUsername}
-      GROUP BY name
+  let boards = [];
+  try {
+    boards = await sql`
+      SELECT *
+      FROM competitor_boards
+      WHERE competitor_id = ${compId}
       ORDER BY pin_count DESC;
     `;
-    if (pinBoards.length > 0) {
-      boards = pinBoards.map((b, idx) => ({
-        id: idx + 1,
-        board_id: 'b-' + idx,
-        name: b.name,
-        url: `https://www.pinterest.com/${cleanUsername}/${encodeURIComponent(b.name.toLowerCase().replace(/\s+/g, '-'))}/`,
-        pin_count: b.pin_count,
-        follower_count: b.follower_count,
-        last_pinned_at: b.last_pinned_at,
-        created_at: b.created_at
-      }));
-    }
+  } catch (boardErr) {
+    console.warn(`[getCompetitorDetail] Could not query competitor_boards for #${compId}:`, boardErr.message);
+  }
+
+  // Fallback A: If no competitor_boards record exists yet, discover boards from pa_pins
+  if (boards.length === 0 && cleanUsername) {
+    try {
+      const pinBoards = await sql`
+        SELECT 
+          COALESCE(NULLIF(TRIM(board_name), ''), 'General') AS name,
+          COUNT(*)::int AS pin_count,
+          COALESCE(MAX(saves), 0)::int AS follower_count,
+          MAX(created_at_pinterest) AS last_pinned_at,
+          MIN(created_at_pinterest) AS created_at
+        FROM pa_pins
+        WHERE LOWER(REPLACE(account_username, '@', '')) = ${cleanUsername}
+        GROUP BY name
+        ORDER BY pin_count DESC;
+      `;
+      if (pinBoards.length > 0) {
+        boards = pinBoards.map((b, idx) => ({
+          id: idx + 1,
+          board_id: 'b-' + idx,
+          name: b.name,
+          url: `https://www.pinterest.com/${cleanUsername}/${encodeURIComponent(b.name.toLowerCase().replace(/\s+/g, '-'))}/`,
+          pin_count: b.pin_count,
+          follower_count: b.follower_count,
+          last_pinned_at: b.last_pinned_at,
+          created_at: b.created_at
+        }));
+      }
+    } catch (_) {}
+  }
+
+  // Fallback B: If still no boards, discover boards from competitor_pins
+  if (boards.length === 0 && compId) {
+    try {
+      const rawBoards = await sql`
+        SELECT 
+          COALESCE(NULLIF(TRIM(board_name), ''), 'General') AS name,
+          COUNT(*)::int AS pin_count,
+          COALESCE(MAX(save_count), 0)::int AS follower_count,
+          MAX(created_at_pinterest) AS last_pinned_at,
+          MIN(created_at_pinterest) AS created_at
+        FROM competitor_pins
+        WHERE competitor_id = ${compId}
+        GROUP BY name
+        ORDER BY pin_count DESC;
+      `;
+      if (rawBoards.length > 0) {
+        boards = rawBoards.map((b, idx) => ({
+          id: idx + 1,
+          board_id: 'cb-' + idx,
+          name: b.name,
+          url: `https://www.pinterest.com/${cleanUsername || profile.username}/${encodeURIComponent(b.name.toLowerCase().replace(/\s+/g, '-'))}/`,
+          pin_count: b.pin_count,
+          follower_count: b.follower_count,
+          last_pinned_at: b.last_pinned_at,
+          created_at: b.created_at
+        }));
+      }
+    } catch (_) {}
   }
 
   // 2. Compute Strategy Age
@@ -645,31 +682,59 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
   }
 
   if (strategyAgeDays === 0 && cleanUsername) {
-    const [oldestPin] = await sql`
-      SELECT MIN(COALESCE(created_at_pinterest, first_seen_at)) AS oldest
-      FROM pa_pins
-      WHERE LOWER(REPLACE(account_username, '@', '')) = ${cleanUsername};
-    `;
-    if (oldestPin && oldestPin.oldest) {
-      const oTime = new Date(oldestPin.oldest).getTime();
-      if (!isNaN(oTime)) {
-        strategyAgeDays = Math.max(0, Math.floor((Date.now() - oTime) / 86400000));
-        oldestBoardDateStr = new Date(oTime).toLocaleDateString('en-US', {
-          year: 'numeric',
-          month: 'short',
-          day: 'numeric'
-        });
+    try {
+      const [oldestPin] = await sql`
+        SELECT MIN(COALESCE(created_at_pinterest, first_seen_at)) AS oldest
+        FROM pa_pins
+        WHERE LOWER(REPLACE(account_username, '@', '')) = ${cleanUsername};
+      `;
+      if (oldestPin && oldestPin.oldest) {
+        const oTime = new Date(oldestPin.oldest).getTime();
+        if (!isNaN(oTime)) {
+          strategyAgeDays = Math.max(0, Math.floor((Date.now() - oTime) / 86400000));
+          oldestBoardDateStr = new Date(oTime).toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric'
+          });
+        }
       }
-    }
+    } catch (_) {}
+  }
+
+  if (strategyAgeDays === 0 && compId) {
+    try {
+      const [oldestRawPin] = await sql`
+        SELECT MIN(COALESCE(created_at_pinterest, first_seen_at)) AS oldest
+        FROM competitor_pins
+        WHERE competitor_id = ${compId};
+      `;
+      if (oldestRawPin && oldestRawPin.oldest) {
+        const oTime = new Date(oldestRawPin.oldest).getTime();
+        if (!isNaN(oTime)) {
+          strategyAgeDays = Math.max(0, Math.floor((Date.now() - oTime) / 86400000));
+          oldestBoardDateStr = new Date(oTime).toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric'
+          });
+        }
+      }
+    } catch (_) {}
   }
 
   // 3. Fetch snapshots
-  let snapshots = await sql`
-    SELECT id, competitor_id, monthly_reach, profile_views, follower_count, total_pins, total_boards, recorded_date, created_at
-    FROM competitor_history_snapshots
-    WHERE competitor_id = ${compId}
-    ORDER BY recorded_date ASC, id ASC;
-  `;
+  let snapshots = [];
+  try {
+    snapshots = await sql`
+      SELECT id, competitor_id, monthly_reach, profile_views, follower_count, total_pins, total_boards, recorded_date, created_at
+      FROM competitor_history_snapshots
+      WHERE competitor_id = ${compId}
+      ORDER BY recorded_date ASC, id ASC;
+    `;
+  } catch (snapErr) {
+    console.warn(`[getCompetitorDetail] Could not query competitor_history_snapshots for #${compId}:`, snapErr.message);
+  }
 
   // 4. Compute Deltas (curr vs prev snapshot)
   let deltas = null;
@@ -714,20 +779,41 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
     pinningVelocity = (pinsAdded / daysSpan).toFixed(1);
     pacingEstimate = Math.round((pinsAdded / daysSpan) * 30);
   } else if (cleanUsername) {
-    const [pinStats] = await sql`
-      SELECT 
-        COUNT(*)::int AS cnt,
-        MIN(COALESCE(created_at_pinterest, first_seen_at)) AS earliest,
-        MAX(COALESCE(created_at_pinterest, first_seen_at)) AS latest
-      FROM pa_pins
-      WHERE LOWER(REPLACE(account_username, '@', '')) = ${cleanUsername};
-    `;
-    if (pinStats && pinStats.cnt > 0) {
-      pinsAdded = pinStats.cnt;
-      daysSpan = pinStats.earliest && pinStats.latest ? Math.max(1, Math.round((new Date(pinStats.latest).getTime() - new Date(pinStats.earliest).getTime()) / 86400000)) : 1;
-      pinningVelocity = (pinsAdded / daysSpan).toFixed(1);
-      pacingEstimate = Math.round((pinsAdded / daysSpan) * 30);
-    }
+    try {
+      const [pinStats] = await sql`
+        SELECT 
+          COUNT(*)::int AS cnt,
+          MIN(COALESCE(created_at_pinterest, first_seen_at)) AS earliest,
+          MAX(COALESCE(created_at_pinterest, first_seen_at)) AS latest
+        FROM pa_pins
+        WHERE LOWER(REPLACE(account_username, '@', '')) = ${cleanUsername};
+      `;
+      if (pinStats && pinStats.cnt > 0) {
+        pinsAdded = pinStats.cnt;
+        daysSpan = pinStats.earliest && pinStats.latest ? Math.max(1, Math.round((new Date(pinStats.latest).getTime() - new Date(pinStats.earliest).getTime()) / 86400000)) : 1;
+        pinningVelocity = (pinsAdded / daysSpan).toFixed(1);
+        pacingEstimate = Math.round((pinsAdded / daysSpan) * 30);
+      }
+    } catch (_) {}
+  }
+
+  if (pinningVelocity === '0.0' && compId) {
+    try {
+      const [rawStats] = await sql`
+        SELECT 
+          COUNT(*)::int AS cnt,
+          MIN(COALESCE(created_at_pinterest, first_seen_at)) AS earliest,
+          MAX(COALESCE(created_at_pinterest, first_seen_at)) AS latest
+        FROM competitor_pins
+        WHERE competitor_id = ${compId};
+      `;
+      if (rawStats && rawStats.cnt > 0) {
+        pinsAdded = rawStats.cnt;
+        daysSpan = rawStats.earliest && rawStats.latest ? Math.max(1, Math.round((new Date(rawStats.latest).getTime() - new Date(rawStats.earliest).getTime()) / 86400000)) : 1;
+        pinningVelocity = (pinsAdded / daysSpan).toFixed(1);
+        pacingEstimate = Math.round((pinsAdded / daysSpan) * 30);
+      }
+    } catch (_) {}
   }
 
   let latestPinDateStr = '—';

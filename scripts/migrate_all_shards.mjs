@@ -67,6 +67,24 @@ async function migrateSingleShard(shard) {
     );
   `;
   await sql`
+    CREATE TABLE IF NOT EXISTS competitor_boards (
+      id SERIAL PRIMARY KEY,
+      competitor_id INT NOT NULL REFERENCES competitor_profiles(id) ON DELETE CASCADE,
+      board_id VARCHAR(64) NOT NULL,
+      name VARCHAR(255) NOT NULL,
+      url TEXT,
+      pin_count INT DEFAULT 0,
+      follower_count INT DEFAULT 0,
+      last_pinned_at TIMESTAMPTZ,
+      metadata JSONB DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(competitor_id, board_id)
+    );
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS idx_competitor_boards_comp_id ON competitor_boards(competitor_id);`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_competitor_boards_activity ON competitor_boards(competitor_id, last_pinned_at DESC NULLS LAST);`;
+  await sql`
     CREATE TABLE IF NOT EXISTS competitor_pins (
       id BIGSERIAL PRIMARY KEY,
       competitor_id INT NOT NULL REFERENCES competitor_profiles(id) ON DELETE CASCADE,

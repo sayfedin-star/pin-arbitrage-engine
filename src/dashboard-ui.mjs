@@ -3028,32 +3028,23 @@ export function getDashboardHtml() {
                 <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
               </a>
 
-              <button @click="harvestCompetitorPinsAction(activeCreator, 'daily')" :disabled="harvestingCompetitorId === activeCreator.id" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0d1526] px-3 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition shadow-2xs cursor-pointer disabled:opacity-50" title="Trigger Pinterest scraping run">
-                <span>▶ Run Now</span>
+              <button @click="syncCompetitor(activeCreator.username)" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 transition shadow-2xs cursor-pointer" title="Sync profile reach, followers, and boards breakdown">
+                <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+                <span>🔄 Sync Profile</span>
               </button>
 
-              <button @click="syncCompetitor(activeCreator.username)" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 transition shadow-2xs cursor-pointer" title="Sync profile & boards">
-                <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
-                <span>🔄 Sync Now</span>
+              <button @click="harvestAllAccountPinsAction(activeCreator)" :disabled="isHarvestingAllPins" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white px-3.5 text-xs font-bold transition shadow-2xs cursor-pointer disabled:opacity-50" title="Harvest account pins directly via Worker API">
+                <i data-lucide="download" class="w-3.5 h-3.5" :class="isHarvestingAllPins ? 'animate-bounce' : ''"></i>
+                <span x-text="isHarvestingAllPins ? 'Harvesting...' : '📥 Harvest Pins (Worker)'"></span>
+              </button>
+
+              <button @click="dispatchCreatorGitHubCrawlAction(activeCreator, 'discovery')" :disabled="isDispatchingGitHubCrawl" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-sky-500/30 bg-sky-500/10 hover:bg-sky-500/20 text-sky-600 dark:text-sky-400 px-3.5 text-xs font-bold transition shadow-2xs cursor-pointer disabled:opacity-50" title="Launch 20-Shard Parallel Matrix Crawler on GitHub Actions (Distributed IP Egress & Monotonic Triggers)">
+                <i data-lucide="git-branch" class="w-3.5 h-3.5" :class="isDispatchingGitHubCrawl ? 'animate-spin' : ''"></i>
+                <span x-text="isDispatchingGitHubCrawl ? 'Dispatching...' : '⚡ GitHub Actions (20 Shards)'"></span>
               </button>
 
               <button @click="toggleCompetitorStatus(activeCreator)" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0d1526] px-3 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition shadow-2xs cursor-pointer">
                 <span x-text="activeCreator.is_active === false ? '▶ Resume' : '⏸ Pause'"></span>
-              </button>
-
-              <button @click="harvestCompetitorPinsAction(activeCreator, 'deep')" :disabled="harvestingCompetitorId === activeCreator.id" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white px-3.5 text-xs font-bold transition shadow-2xs cursor-pointer disabled:opacity-50" title="Deep audit pins">
-                <i data-lucide="refresh-cw" class="w-3.5 h-3.5" :class="harvestingCompetitorId === activeCreator.id ? 'animate-spin' : ''"></i>
-                <span>Refresh Pins</span>
-              </button>
-
-              <button @click="harvestAllAccountPinsAction(activeCreator)" :disabled="isHarvestingAllPins" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white px-3.5 text-xs font-bold transition shadow-2xs cursor-pointer disabled:opacity-50" title="Crawl entire creator feed from Pinterest">
-                <i data-lucide="download" class="w-3.5 h-3.5" :class="isHarvestingAllPins ? 'animate-bounce' : ''"></i>
-                <span x-text="isHarvestingAllPins ? 'Harvesting...' : '📥 Harvest All Pins'"></span>
-              </button>
-
-              <button @click="activeCreatorTab = 'boards'" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0d1526] px-3 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition shadow-2xs cursor-pointer" title="Manage Boards & Links">
-                <i data-lucide="link" class="w-3.5 h-3.5"></i>
-                <span>Links</span>
               </button>
             </div>
           </div>
@@ -5923,6 +5914,7 @@ export function getDashboardHtml() {
         creatorAllPinQualifiedOnly: false,
         isLoadingAllPins: false,
         isHarvestingAllPins: false,
+        isDispatchingGitHubCrawl: false,
 
         // Time Range & Performance Trend
         creatorTimeRange: '7D',
@@ -7253,6 +7245,26 @@ export function getDashboardHtml() {
           await this.refreshAll();
           this.pollCrawlStatus();
           setInterval(() => this.pollCrawlStatus(), 3000);
+
+          // Deep Link URL Hydration (e.g. /wifesrecipesbyme)
+          if (typeof window !== 'undefined') {
+            const segments = (window.location.pathname || '').split('/').filter(Boolean);
+            const handle = segments[0] || '';
+            if (handle && !handle.startsWith('api') && handle !== 'index.html') {
+              await this.openCreatorByHandle(handle);
+            }
+
+            window.addEventListener('popstate', (e) => {
+              const pSegments = (window.location.pathname || '').split('/').filter(Boolean);
+              const pHandle = pSegments[0] || '';
+              if (pHandle && !pHandle.startsWith('api') && pHandle !== 'index.html') {
+                this.openCreatorByHandle(pHandle);
+              } else {
+                this.closeCreatorProfile(false);
+              }
+            });
+          }
+
           this.$nextTick(() => {
             if (window.lucide) window.lucide.createIcons();
           });
@@ -8069,6 +8081,12 @@ export function getDashboardHtml() {
 
           const handle = (creator.username || '').replace(/^@+/, '').trim();
           const compId = creator.id || handle;
+          if (typeof window !== 'undefined' && handle) {
+            const targetPath = '/' + handle;
+            if (window.location.pathname !== targetPath) {
+              window.history.pushState({ creator: handle }, '', targetPath);
+            }
+          }
 
           try {
             const [detailRes, pinsRes, topicsRes] = await Promise.all([
@@ -8207,13 +8225,59 @@ export function getDashboardHtml() {
           }
         },
 
-        closeCreatorProfile() {
+        closeCreatorProfile(updateHistory = true) {
           this.activeCreator = null;
           this.activeCreatorDetail = null;
           this.isCreatorDossierOpen = false;
           this.isBoardsModalOpen = false;
           this.selectedCreatorPinIds = [];
+          if (updateHistory && typeof window !== 'undefined' && window.location.pathname !== '/') {
+            window.history.pushState({}, '', '/');
+          }
           this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+        },
+
+        async openCreatorByHandle(handle) {
+          const clean = (handle || '').replace(/^@+/, '').trim();
+          if (!clean) return;
+          const existing = (this.competitors || []).find(c => (c.username || '').toLowerCase() === clean.toLowerCase());
+          if (existing) {
+            await this.openCreatorPage(existing, 'overview');
+          } else {
+            await this.openCreatorPage({ username: clean, display_name: clean }, 'overview');
+          }
+        },
+
+        async dispatchCreatorGitHubCrawlAction(creator, mode = 'discovery') {
+          if (!creator) return;
+          const handle = (creator.username || '').replace(/^@+/, '').trim();
+          if (!confirm('🚀 Launch 20-Shard Parallel Matrix Crawler on GitHub Actions for @' + handle + '?\\n\\nMode: ' + (mode || '').toUpperCase() + ' (Up to 500 pages with distributed IP egress & monotonic triggers)')) {
+            return;
+          }
+          this.isDispatchingGitHubCrawl = true;
+          this.showToast('⚡ Dispatching 20-shard GHA crawler for @' + handle + '...');
+          try {
+            const res = await fetch(this.getApiUrl('/api/competitors/dispatch-crawl'), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                username: handle,
+                crawl_mode: mode,
+                max_pages: mode === 'discovery' ? 500 : 3
+              })
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+              this.showToast('✅ ' + (data.message || 'Crawler pipeline launched on GitHub Actions!'));
+            } else {
+              this.showToast('❌ Dispatch failed: ' + (data.error || 'Check GitHub token configuration'));
+            }
+          } catch (err) {
+            this.showToast('❌ Network error: ' + err.message);
+          } finally {
+            this.isDispatchingGitHubCrawl = false;
+            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+          }
         },
 
         async toggleCompetitorStatus(creator) {

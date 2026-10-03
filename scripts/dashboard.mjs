@@ -276,6 +276,58 @@ async function triggerWorkflowDispatch(seedPinId = '', maxPages = '60') {
   }
 }
 
+async function triggerCrawlerWorkflowDispatch(targetAccount = '', crawlMode = 'discovery', maxPages = '500') {
+  const cleanAccount = String(targetAccount || '').replace(/^@+/, '').trim();
+  try {
+    const args = ['workflow', 'run', 'crawler-pipeline.yml'];
+    if (cleanAccount) {
+      args.push('-f', `target_account=${cleanAccount}`);
+    }
+    if (crawlMode) {
+      args.push('-f', `crawl_mode=${crawlMode}`);
+    }
+    if (maxPages) {
+      args.push('-f', `max_pages=${String(maxPages).trim()}`);
+    }
+    console.log(`[*] Triggering 20-shard crawler workflow via gh CLI: gh ${args.join(' ')}`);
+    const { stdout, stderr } = await execFileAsync('gh', args);
+    return { success: true, output: (stdout || stderr || '').trim() || 'Crawler pipeline dispatched via gh CLI' };
+  } catch (ghErr) {
+    console.warn(`[*] gh CLI unavailable (${ghErr.message}). Falling back to GitHub REST API...`);
+    const ghToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || process.env.GH_REFRESH_TOKEN;
+    if (!ghToken) {
+      throw new Error('Neither gh CLI nor GitHub Token (GITHUB_TOKEN / GH_REFRESH_TOKEN in .env) are available for workflow dispatch.');
+    }
+    const cleanToken = String(ghToken).replace(/^(token|Bearer)\s+/i, '').replace(/^["']|["']$/g, '').trim();
+    const authHeader = cleanToken.startsWith('ghp_') ? `token ${cleanToken}` : `Bearer ${cleanToken}`;
+    const repo = 'sayfedin-star/pin-arbitrage-engine';
+
+    const res = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/crawler-pipeline.yml/dispatches`, {
+      method: 'POST',
+      headers: {
+        'User-Agent': 'Local-Dashboard-Pin-Arbitrage-Engine',
+        'Accept': 'application/vnd.github.v3+json',
+        'Authorization': authHeader,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        ref: 'main',
+        inputs: {
+          target_account: cleanAccount,
+          crawl_mode: crawlMode,
+          max_pages: String(maxPages || '500').trim()
+        }
+      })
+    });
+
+    if (!res.ok && res.status !== 204) {
+      const errText = await res.text();
+      throw new Error(`GitHub API error (${res.status}): ${errText}`);
+    }
+    return { success: true, output: `Crawler pipeline dispatched via GitHub API for @${cleanAccount}` };
+  }
+}
+
 // Helper to send JSON response
 function sendJson(res, statusCode, data) {
   res.writeHead(statusCode, {
@@ -333,10 +385,14 @@ const server = http.createServer(async (req, res) => {
 
   try {
     let targetSql = sql;
-    const reqProjectId = parsedUrl.searchParams.get('project_id');
+    const reqProjectId = parsedUrl.searchParams.get('project_id') || parsedUrl.searchParams.get('shard') || req.headers['x-target-project'];
     if (reqProjectId && reqProjectId !== 'all' && reqProjectId !== 'hub') {
       try {
-        const [proj] = await sql`SELECT database_url FROM neon_projects_registry WHERE project_id = ${reqProjectId} AND status = 'active' LIMIT 1;`;
+        const [proj] = await sql`
+          SELECT database_url FROM neon_projects_registry 
+          WHERE (project_id = ${reqProjectId} OR project_name = ${reqProjectId}) AND status = 'active' 
+          LIMIT 1;
+        `;
         if (proj && proj.database_url) {
           targetSql = neon(proj.database_url);
         }
@@ -1563,6 +1619,24 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
+    if (method === 'POST' && pathname === '/api/competitors/dispatch-crawl') {
+      const body = await parseJsonBody(req);
+      const username = (body.username || body.target_account || '').replace(/^@+/, '').trim();
+      if (!username) return sendJson(res, 400, { error: 'username is required' });
+      try {
+        const dispatchRes = await triggerCrawlerWorkflowDispatch(username, body.crawl_mode || 'discovery', body.max_pages || '500');
+        return sendJson(res, 200, {
+          success: true,
+          target_account: username,
+          crawl_mode: body.crawl_mode || 'discovery',
+          message: `20-Shard Crawler Pipeline dispatched successfully on GitHub Actions for @${username}!`,
+          ...dispatchRes
+        });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, error: err.message });
+      }
+    }
+
     if (method === 'DELETE' && (pathname === '/api/competitors/snapshot' || pathname === '/api/competitors/snapshots')) {
       let snapshotId = searchParams.get('id') || searchParams.get('snapshot_id');
       if (!snapshotId) {
@@ -1739,8 +1813,8 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { success: true, ...result });
     }
 
-    // 9. GET or HEAD /
-    if ((method === 'GET' || method === 'HEAD') && pathname === '/') {
+    // 9. GET or HEAD / or SPA creator routes (e.g. /wifesrecipesbyme)
+    if ((method === 'GET' || method === 'HEAD') && !pathname.startsWith('/api/')) {
       const html = getDashboardHtml();
       res.writeHead(200, {
         'Content-Type': 'text/html; charset=utf-8',
