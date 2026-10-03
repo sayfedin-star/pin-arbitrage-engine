@@ -308,6 +308,19 @@ export async function syncCompetitorAcrossFleet(hubSql, competitorUsernameOrId) 
                 metadata = EXCLUDED.metadata,
                 updated_at = NOW();
             `;
+
+            // Purge any synthetic duplicate boards on shard
+            await sSql`
+              DELETE FROM competitor_boards
+              WHERE competitor_id = ${targetCompId}
+                AND board_id LIKE 'cb-%'
+                AND EXISTS (
+                  SELECT 1 FROM competitor_boards auth
+                  WHERE auth.competitor_id = competitor_boards.competitor_id
+                    AND auth.board_id NOT LIKE 'cb-%'
+                    AND LOWER(TRIM(auth.name)) = LOWER(TRIM(competitor_boards.name))
+                );
+            `.catch(() => {});
           }
 
           // Bulk replicate creator winning pins from pa_pins to shard
@@ -508,6 +521,29 @@ export async function syncFleetDatabases(hubSql, { targetProjectId = null } = {}
               updated_at = NOW();
           `));
         }
+
+        // Purge any synthetic duplicate boards on shard and recount distinct boards
+        await sSql`
+          DELETE FROM competitor_boards
+          WHERE board_id LIKE 'cb-%'
+            AND EXISTS (
+              SELECT 1 FROM competitor_boards auth
+              WHERE auth.competitor_id = competitor_boards.competitor_id
+                AND auth.board_id NOT LIKE 'cb-%'
+                AND LOWER(TRIM(auth.name)) = LOWER(TRIM(competitor_boards.name))
+            );
+        `.catch(() => {});
+
+        await sSql`
+          UPDATE competitor_profiles cp
+          SET total_boards = (
+            SELECT count(DISTINCT LOWER(TRIM(name)))::int 
+            FROM competitor_boards cb 
+            WHERE cb.competitor_id = cp.id
+          ),
+          updated_at = NOW()
+          WHERE EXISTS (SELECT 1 FROM competitor_boards WHERE competitor_id = cp.id);
+        `.catch(() => {});
 
         // 5. Ensure Topic Clusters RPC function
         await sSql`

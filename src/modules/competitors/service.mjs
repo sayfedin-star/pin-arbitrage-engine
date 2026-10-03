@@ -361,9 +361,17 @@ export async function getCompetitorBoards(sql, competitorId, { username = '' } =
   let boards = [];
   try {
     boards = await sql`
-      SELECT *
-      FROM competitor_boards
-      WHERE competitor_id = ${numericId}
+      WITH deduped AS (
+        SELECT DISTINCT ON (LOWER(TRIM(cb.name)))
+          cb.*
+        FROM competitor_boards cb
+        WHERE cb.competitor_id = ${numericId}
+        ORDER BY 
+          LOWER(TRIM(cb.name)),
+          (CASE WHEN cb.board_id NOT LIKE 'cb-%' THEN 0 ELSE 1 END) ASC,
+          cb.pin_count DESC
+      )
+      SELECT * FROM deduped
       ORDER BY pin_count DESC;
     `;
   } catch (_) {}
@@ -401,8 +409,27 @@ export async function getCompetitorBoards(sql, competitorId, { username = '' } =
         });
       }
     }
-    boards.sort((a, b) => (b.pin_count || 0) - (a.pin_count || 0));
   } catch (_) {}
+
+  // Invariant guarantee: strictly one entry per unique normalized board name, prioritizing authentic boards
+  const uniqueBoardMap = new Map();
+  for (const b of boards) {
+    const norm = (b.name || '').trim().toLowerCase();
+    if (!norm) continue;
+    const existing = uniqueBoardMap.get(norm);
+    if (!existing) {
+      uniqueBoardMap.set(norm, b);
+    } else {
+      const isCurAuthentic = !String(b.board_id || '').startsWith('cb-');
+      const isExistingAuthentic = !String(existing.board_id || '').startsWith('cb-');
+      if (isCurAuthentic && !isExistingAuthentic) {
+        uniqueBoardMap.set(norm, b);
+      } else if (isCurAuthentic === isExistingAuthentic && (b.pin_count || 0) > (existing.pin_count || 0)) {
+        uniqueBoardMap.set(norm, b);
+      }
+    }
+  }
+  boards = Array.from(uniqueBoardMap.values()).sort((a, b) => (b.pin_count || 0) - (a.pin_count || 0));
 
   // Map metadata to top-level fields for fast access
   boards = boards.map(b => {
@@ -515,6 +542,16 @@ export async function syncCompetitorBoards(sql, competitorId, username, cookie =
       is_collaborative: Boolean(b.metadata?.is_collaborative)
     };
     try {
+      // Purge any legacy synthetic placeholder board for this name when inserting authentic board
+      if (b.board_id && !String(b.board_id).startsWith('cb-')) {
+        await sql`
+          DELETE FROM competitor_boards
+          WHERE competitor_id = ${numericId}
+            AND board_id LIKE 'cb-%'
+            AND LOWER(TRIM(name)) = LOWER(TRIM(${b.name}));
+        `.catch(() => {});
+      }
+
       await sql`
         INSERT INTO competitor_boards (
           competitor_id,
@@ -555,10 +592,10 @@ export async function syncCompetitorBoards(sql, competitorId, username, cookie =
     }
   }
 
-  // Update total_boards on competitor profile
+  // Update total_boards on competitor profile (counting unique boards)
   await sql`
     UPDATE competitor_profiles
-    SET total_boards = (SELECT count(*)::int FROM competitor_boards WHERE competitor_id = ${numericId}),
+    SET total_boards = (SELECT count(DISTINCT LOWER(TRIM(name)))::int FROM competitor_boards WHERE competitor_id = ${numericId}),
         updated_at = NOW()
     WHERE id = ${numericId};
   `;
@@ -603,7 +640,9 @@ export async function getOrSyncBoardDetail(sql, username, boardNameOrSlug, optio
             url ILIKE ${'%' + encodeURIComponent(rawBoard.toLowerCase().replace(/\s+/g, '-')) + '%'} OR
             url ILIKE ${'%' + rawBoard.toLowerCase().replace(/\s+/g, '-') + '%'}
           )
-        ORDER BY pin_count DESC
+        ORDER BY 
+          (CASE WHEN board_id NOT LIKE 'cb-%' THEN 0 ELSE 1 END) ASC,
+          pin_count DESC
         LIMIT 1;
       `;
       existingBoard = rows[0] || null;
@@ -652,6 +691,18 @@ export async function getOrSyncBoardDetail(sql, username, boardNameOrSlug, optio
 
     if (competitorId && scraped.board_id) {
       try {
+        if (!String(scraped.board_id).startsWith('cb-')) {
+          await sql`
+            DELETE FROM competitor_boards
+            WHERE competitor_id = ${competitorId}
+              AND board_id LIKE 'cb-%'
+              AND (
+                LOWER(TRIM(name)) = ${rawBoard.toLowerCase()} OR
+                LOWER(TRIM(name)) = LOWER(TRIM(${scraped.name || ''}))
+              );
+          `.catch(() => {});
+        }
+
         await sql`
           INSERT INTO competitor_boards (
             competitor_id, board_id, name, url, pin_count, follower_count,
@@ -1030,21 +1081,28 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
   let boards = [];
   try {
     boards = await sql`
-      SELECT 
-        cb.*,
-        COALESCE(
-          CASE 
-            WHEN cb.created_at IS NOT NULL AND cb.created_at < (NOW() - INTERVAL '1 day') THEN cb.created_at
-            ELSE NULL
-          END,
-          (SELECT MIN(created_at_pinterest) FROM competitor_pins WHERE competitor_id = cb.competitor_id AND LOWER(TRIM(board_name)) = LOWER(TRIM(cb.name))),
-          (SELECT MIN(created_at_pinterest) FROM pa_pins WHERE LOWER(REPLACE(account_username, '@', '')) = ${cleanUsername} AND LOWER(TRIM(board_name)) = LOWER(TRIM(cb.name))),
-          cb.created_at,
-          cb.last_pinned_at
-        ) AS board_created_at
-      FROM competitor_boards cb
-      WHERE cb.competitor_id = ${compId}
-      ORDER BY cb.pin_count DESC;
+      WITH deduped AS (
+        SELECT DISTINCT ON (LOWER(TRIM(cb.name)))
+          cb.*,
+          COALESCE(
+            CASE 
+              WHEN cb.created_at IS NOT NULL AND cb.created_at < (NOW() - INTERVAL '1 day') THEN cb.created_at
+              ELSE NULL
+            END,
+            (SELECT MIN(created_at_pinterest) FROM competitor_pins WHERE competitor_id = cb.competitor_id AND LOWER(TRIM(board_name)) = LOWER(TRIM(cb.name))),
+            (SELECT MIN(created_at_pinterest) FROM pa_pins WHERE LOWER(REPLACE(account_username, '@', '')) = ${cleanUsername} AND LOWER(TRIM(board_name)) = LOWER(TRIM(cb.name))),
+            cb.created_at,
+            cb.last_pinned_at
+          ) AS board_created_at
+        FROM competitor_boards cb
+        WHERE cb.competitor_id = ${compId}
+        ORDER BY 
+          LOWER(TRIM(cb.name)),
+          (CASE WHEN cb.board_id NOT LIKE 'cb-%' THEN 0 ELSE 1 END) ASC,
+          cb.pin_count DESC
+      )
+      SELECT * FROM deduped
+      ORDER BY pin_count DESC;
     `;
   } catch (boardErr) {
     console.warn(`[getCompetitorDetail] Could not query competitor_boards for #${compId}:`, boardErr.message);
@@ -1114,9 +1172,28 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
           });
         }
       }
-      boards.sort((a, b) => (b.pin_count || 0) - (a.pin_count || 0));
     } catch (_) {}
   }
+
+  // Invariant guarantee: strictly one entry per unique normalized board name, prioritizing authentic boards
+  const uniqueDetailBoardMap = new Map();
+  for (const b of boards) {
+    const norm = (b.name || '').trim().toLowerCase();
+    if (!norm) continue;
+    const existing = uniqueDetailBoardMap.get(norm);
+    if (!existing) {
+      uniqueDetailBoardMap.set(norm, b);
+    } else {
+      const isCurAuthentic = !String(b.board_id || '').startsWith('cb-');
+      const isExistingAuthentic = !String(existing.board_id || '').startsWith('cb-');
+      if (isCurAuthentic && !isExistingAuthentic) {
+        uniqueDetailBoardMap.set(norm, b);
+      } else if (isCurAuthentic === isExistingAuthentic && (b.pin_count || 0) > (existing.pin_count || 0)) {
+        uniqueDetailBoardMap.set(norm, b);
+      }
+    }
+  }
+  boards = Array.from(uniqueDetailBoardMap.values()).sort((a, b) => (b.pin_count || 0) - (a.pin_count || 0));
 
   // Map metadata to top-level fields for fast frontend access
   boards = boards.map(b => {
@@ -1500,7 +1577,7 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
       profile_views: resolvedProfileViews,
       follower_count: Number(profile.follower_count || 0),
       total_pins: Number(profile.total_pins || boards.reduce((acc, b) => acc + (b.pin_count || 0), 0) || 0),
-      total_boards: Number(profile.total_boards || boards.length || 0),
+      total_boards: boards.length > 0 ? boards.length : Number(profile.total_boards || 0),
       website_domain: profile.website_url ? profile.website_url.replace(/^https?:\/\//, '').replace(/\/.*$/, '') : null,
       verified_domain: Boolean(profile.website_url),
       notes: profile.bio || profileMeta?.notes || 'No internal notes set for this competitor.',
