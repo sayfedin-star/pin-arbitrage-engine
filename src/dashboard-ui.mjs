@@ -336,6 +336,429 @@ export function getDashboardHtml() {
     </div>
 
     <!-- ======================================================== -->
+    <!-- DEDICATED PIN DETAIL PAGE (Route: /pin/:id)               -->
+    <!-- Full-screen Dossier & Performance Trajectory             -->
+    <!-- ======================================================== -->
+    <div x-show="activePinId" x-cloak class="space-y-6 max-w-7xl mx-auto">
+      
+      <!-- Top Sticky Navigation & Breadcrumbs Bar -->
+      <div class="sticky top-0 z-30 -mx-4 -mt-4 sm:-mx-6 sm:-mt-6 lg:-mx-8 lg:-mt-8 px-4 sm:px-6 lg:px-8 py-3.5 bg-white/90 dark:bg-[#0b1120]/90 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+        <div class="flex items-center gap-3">
+          <button type="button" @click="closePinPage()" class="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0d1526] hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 transition shadow-2xs cursor-pointer group">
+            <i data-lucide="arrow-left" class="w-4 h-4 text-slate-400 group-hover:-translate-x-0.5 transition-transform"></i>
+            <span x-text="activeCreator ? ('← Back to @' + (activeCreator.username || '').replace(/^@+/, '')) : (activePinDossier?.account_username ? ('← Back to @' + activePinDossier.account_username.replace(/^@+/, '')) : '← Back to Pins Archive')"></span>
+          </button>
+          
+          <div class="hidden md:flex items-center gap-2 text-xs font-mono">
+            <span class="text-slate-400">/</span>
+            <span class="text-slate-500">pin</span>
+            <span class="text-slate-400">/</span>
+            <span class="font-bold text-rose-500" x-text="activePinId"></span>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2 flex-wrap">
+          <!-- Copy Page Link -->
+          <button type="button" @click="copyPinField('Direct Pin Page URL', window.location.origin + '/pin/' + activePinId)" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0d1526] text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition shadow-2xs cursor-pointer">
+            <i data-lucide="link" class="w-3.5 h-3.5 text-slate-400"></i>
+            <span>Copy Page Link</span>
+          </button>
+
+          <!-- External Pinterest Link -->
+          <a :href="'https://www.pinterest.com/pin/' + activePinId + '/'" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition shadow-xs">
+            <span>Open on Pinterest</span>
+            <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+          </a>
+        </div>
+      </div>
+
+      <!-- Loading State -->
+      <template x-if="isLoadingPinDossier">
+        <div class="py-24 flex flex-col items-center justify-center space-y-3">
+          <div class="w-10 h-10 border-4 border-rose-500 border-t-transparent rounded-full animate-spin"></div>
+          <p class="text-xs font-mono text-slate-400">Loading pin dossier telemetry &amp; snapshots...</p>
+        </div>
+      </template>
+
+      <!-- Pin Dossier Loaded Content -->
+      <template x-if="!isLoadingPinDossier &amp;&amp; activePinDossier">
+        <div class="space-y-6">
+          
+          <!-- 1. Header Pills & Status Badges (Image 2) -->
+          <div class="flex items-center gap-2 flex-wrap">
+            <!-- Stage Badge -->
+            <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border"
+                  :class="{
+                    'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30': Number(activePinDossier.velocity || 0) >= 10,
+                    'bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/30': Number(activePinDossier.velocity || 0) < 10 &amp;&amp; Number(activePinDossier.velocity || 0) >= 1,
+                    'bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/30': Number(activePinDossier.velocity || 0) < 1
+                  }">
+              <span x-text="Number(activePinDossier.velocity || 0) >= 10 ? '🌱 GROWING (>10/d)' : (Number(activePinDossier.velocity || 0) >= 1 ? '🟣 MATURE' : '⚪ DORMANT (<1/d)')"></span>
+            </span>
+
+            <!-- Spike Badge -->
+            <template x-if="Number(activePinDossier.velocity || 0) >= 50 || Number(activePinDossier.saves || 0) >= 5000">
+              <span class="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30">
+                <span>🔥 SPIKE</span>
+              </span>
+            </template>
+
+            <!-- Board Badge -->
+            <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/30">
+              <span>📁</span>
+              <span class="font-bold" x-text="activePinDossier.board_name || 'General'"></span>
+            </span>
+
+            <!-- Dominant Color Badge -->
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-mono font-bold bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+              <span class="h-2.5 w-2.5 rounded-full inline-block" :style="'background-color: ' + (activePinDossier.dominant_color || '#a88d56')"></span>
+              <span x-text="activePinDossier.dominant_color || '#a88d56'"></span>
+            </span>
+
+            <!-- Canonical ID Badge -->
+            <span class="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-mono font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/30">
+              <span>🔗 Canonical #<span x-text="activePinDossier.pin_id"></span></span>
+            </span>
+
+            <!-- Creator Badge -->
+            <span class="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30 cursor-pointer hover:opacity-80 transition"
+                  @click="if (activePinDossier.account_username) { openCreatorByHandle(activePinDossier.account_username); }">
+              <span x-text="'@' + (activePinDossier.account_username || activeCreator?.username || '').replace(/^@+/, '')"></span>
+            </span>
+          </div>
+
+          <!-- 2. Two-Column Hero: Image + Details (Image 2) -->
+          <div class="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
+            
+            <!-- Left: Image Preview (4 cols) -->
+            <div class="md:col-span-4 relative rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 group shadow-md">
+              <img :src="activePinDossier.image_url" loading="lazy" class="w-full h-auto object-cover max-h-[520px] mx-auto" />
+              
+              <!-- Category Pill Overlay on Image -->
+              <div class="absolute top-3 left-3">
+                <span class="px-2.5 py-1 rounded-lg text-[10.5px] font-bold bg-white/90 dark:bg-slate-950/90 text-slate-800 dark:text-white backdrop-blur-md shadow border border-white/20">
+                  <span x-text="activePinDossier.board_name || 'Food And Drinks'"></span>
+                </span>
+              </div>
+            </div>
+
+            <!-- Right: Metadata & Content (8 cols) -->
+            <div class="md:col-span-8 space-y-4">
+              
+              <!-- Title -->
+              <h1 class="text-xl sm:text-2xl font-black text-slate-900 dark:text-white leading-tight" x-text="activePinDossier.title || 'Untitled Pin'"></h1>
+
+              <!-- Description -->
+              <p class="text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed" x-text="activePinDossier.description || 'No description provided for this pin.'"></p>
+
+              <!-- Pinterest SEO Alt Text Box (matches Image 2) -->
+              <div class="rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/50 p-4 space-y-1.5 shadow-2xs">
+                <div class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400"></i>
+                  <span>Pinterest SEO Alt Text</span>
+                </div>
+                <p class="text-xs font-serif italic text-slate-700 dark:text-slate-300 leading-relaxed" x-text="'&ldquo;' + (activePinDossier.description || activePinDossier.title || '') + '&rdquo;'"></p>
+              </div>
+
+              <!-- Copy Toolbar (Copy Pin ID, Copy Pinterest URL, Copy Title) -->
+              <div class="flex items-center gap-2 flex-wrap pt-1">
+                <button type="button" @click="copyPinField('Pin ID', activePinDossier.pin_id)" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition shadow-2xs cursor-pointer">
+                  <i data-lucide="copy" class="w-3.5 h-3.5 text-slate-400"></i>
+                  <span>Copy Pin ID</span>
+                </button>
+                <button type="button" @click="copyPinField('Pinterest URL', 'https://www.pinterest.com/pin/' + activePinDossier.pin_id + '/')" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition shadow-2xs cursor-pointer">
+                  <i data-lucide="link" class="w-3.5 h-3.5 text-slate-400"></i>
+                  <span>Copy Pinterest URL</span>
+                </button>
+                <button type="button" @click="copyPinField('Title', activePinDossier.title)" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition shadow-2xs cursor-pointer">
+                  <span class="font-bold font-serif">T</span>
+                  <span>Copy Title</span>
+                </button>
+              </div>
+
+              <!-- 6 Mini Metadata Cards Grid (Exact Image 2 match) -->
+              <div class="grid grid-cols-2 sm:grid-cols-3 gap-2.5 pt-1">
+                <div class="p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30">
+                  <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Pin ID</div>
+                  <div class="font-mono text-xs font-bold text-slate-900 dark:text-white truncate" x-text="activePinDossier.pin_id"></div>
+                </div>
+                <div class="p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30">
+                  <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Created Date</div>
+                  <div class="font-sans text-xs font-bold text-slate-900 dark:text-white truncate" x-text="activePinDossier.created_at_pinterest ? new Date(activePinDossier.created_at_pinterest).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'"></div>
+                </div>
+                <div class="p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30">
+                  <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400">First Tracked</div>
+                  <div class="font-sans text-xs font-bold text-slate-900 dark:text-white truncate" x-text="activePinDossier.first_seen_at ? new Date(activePinDossier.first_seen_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'"></div>
+                </div>
+                <div class="p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30">
+                  <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Last Archived</div>
+                  <div class="font-sans text-xs font-bold text-slate-900 dark:text-white truncate" x-text="activePinDossier.last_updated_at ? new Date(activePinDossier.last_updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'"></div>
+                </div>
+                <div class="p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30">
+                  <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Dominant Color</div>
+                  <div class="font-mono text-xs font-bold flex items-center gap-1.5 text-slate-900 dark:text-white">
+                    <span class="h-2.5 w-2.5 rounded-full inline-block" :style="'background-color: ' + (activePinDossier.dominant_color || '#a88d56')"></span>
+                    <span x-text="activePinDossier.dominant_color || '#a88d56'"></span>
+                  </div>
+                </div>
+                <div class="p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30">
+                  <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Image Signature</div>
+                  <div class="font-mono text-xs font-bold text-slate-900 dark:text-white truncate" x-text="(activePinDossier.image_url ? activePinDossier.image_url.split('/').pop().slice(0, 16) : '—') + '...'"></div>
+                </div>
+              </div>
+
+              <!-- View on Pinterest Link -->
+              <div>
+                <a :href="'https://www.pinterest.com/pin/' + activePinDossier.pin_id + '/'" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 text-xs font-semibold text-rose-500 hover:text-rose-600 hover:underline">
+                  <span>View on Pinterest</span>
+                  <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+                </a>
+              </div>
+
+              <!-- Annotations & SEO Keywords (Image 2 match) -->
+              <div class="space-y-2 pt-2 border-t border-slate-200/70 dark:border-slate-800/80">
+                <div class="flex items-center justify-between text-xs">
+                  <div class="flex items-center gap-1.5 font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
+                    <span>🏷</span>
+                    <span>Annotations &amp; SEO Keywords</span>
+                  </div>
+                  <span class="text-slate-400 text-[11px]" x-text="(activePinDossier.annotations ? activePinDossier.annotations.length : 0) + ' linked ideas'"></span>
+                </div>
+                
+                <div class="flex items-center gap-2 flex-wrap">
+                  <template x-for="(ann, aIdx) in (activePinDossier.annotations || [])" :key="aIdx">
+                    <a :href="'https://www.pinterest.com/search/pins/?q=' + encodeURIComponent(ann.name || ann)" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-medium bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/30 dark:hover:bg-rose-950/50 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/50 transition">
+                      <span>💡</span>
+                      <span x-text="ann.name || ann"></span>
+                      <i data-lucide="external-link" class="w-2.5 h-2.5 opacity-60"></i>
+                    </a>
+                  </template>
+                  <template x-if="!activePinDossier.annotations || activePinDossier.annotations.length === 0">
+                    <span class="text-xs text-slate-400 italic">No semantic keywords discovered yet for this pin.</span>
+                  </template>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- 3. Metrics Summary Row (6 Metric Cards - Exact Image 2 Match) -->
+          <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            <!-- Card 1: TOTAL SAVES -->
+            <div class="p-4 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] shadow-xs space-y-1">
+              <div class="text-[10.5px] font-bold uppercase tracking-wider text-slate-400">Total Saves</div>
+              <div class="flex items-baseline gap-1.5 flex-wrap">
+                <span class="text-xl sm:text-2xl font-black text-rose-600 dark:text-rose-400" x-text="formatNumber(activePinDossier.saves)"></span>
+                <span class="text-xs font-bold text-emerald-500 font-mono" x-show="Number(pinDossierTopDelta.saves || 0) > 0" x-text="'(+' + formatNumber(pinDossierTopDelta.saves) + ')'"></span>
+              </div>
+              <div class="text-[10px] text-slate-400">Cumulative saves</div>
+            </div>
+
+            <!-- Card 2: REPINS -->
+            <div class="p-4 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] shadow-xs space-y-1">
+              <div class="text-[10.5px] font-bold uppercase tracking-wider text-slate-400">Repins</div>
+              <div class="flex items-baseline gap-1.5 flex-wrap">
+                <span class="text-xl sm:text-2xl font-black text-slate-900 dark:text-white" x-text="formatNumber(activePinDossier.repins)"></span>
+                <span class="text-xs font-bold text-emerald-500 font-mono" x-show="Number(pinDossierTopDelta.repins || 0) > 0" x-text="'(+' + formatNumber(pinDossierTopDelta.repins) + ')'"></span>
+              </div>
+              <div class="text-[10px] text-slate-400">Re-pin shares</div>
+            </div>
+
+            <!-- Card 3: COMMENTS -->
+            <div class="p-4 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] shadow-xs space-y-1">
+              <div class="text-[10.5px] font-bold uppercase tracking-wider text-slate-400">Comments</div>
+              <div class="flex items-baseline gap-1.5 flex-wrap">
+                <span class="text-xl sm:text-2xl font-black text-slate-900 dark:text-white" x-text="formatNumber(activePinDossier.comments)"></span>
+                <span class="text-xs font-bold text-emerald-500 font-mono" x-show="Number(pinDossierTopDelta.comments || 0) > 0" x-text="'(+' + formatNumber(pinDossierTopDelta.comments) + ')'"></span>
+              </div>
+              <div class="text-[10px] text-slate-400">User comments</div>
+            </div>
+
+            <!-- Card 4: SHARES -->
+            <div class="p-4 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] shadow-xs space-y-1">
+              <div class="text-[10.5px] font-bold uppercase tracking-wider text-slate-400">Shares</div>
+              <div class="flex items-baseline gap-1.5 flex-wrap">
+                <span class="text-xl sm:text-2xl font-black text-sky-500" x-text="formatNumber(activePinDossier.share_count || 0)"></span>
+                <span class="text-xs font-bold text-emerald-500 font-mono" x-show="Number(pinDossierTopDelta.shares || 0) > 0" x-text="'(+' + formatNumber(pinDossierTopDelta.shares) + ')'"></span>
+              </div>
+              <div class="text-[10px] text-slate-400">Social shares</div>
+            </div>
+
+            <!-- Card 5: VELOCITY -->
+            <div class="p-4 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] shadow-xs space-y-1">
+              <div class="text-[10.5px] font-bold uppercase tracking-wider text-slate-400">Velocity</div>
+              <div class="flex items-baseline gap-1 flex-wrap">
+                <span class="text-xl sm:text-2xl font-black text-emerald-500 font-mono" x-text="(activePinDossier.velocity || 0) + '/d'"></span>
+              </div>
+              <div class="text-[10px] text-slate-400">Saves / day</div>
+            </div>
+
+            <!-- Card 6: REACTIONS -->
+            <div class="p-4 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] shadow-xs space-y-1">
+              <div class="text-[10.5px] font-bold uppercase tracking-wider text-slate-400">Reactions</div>
+              <div class="flex items-baseline gap-1.5 flex-wrap">
+                <span class="text-xl sm:text-2xl font-black text-purple-500" x-text="formatNumber(activePinDossier.reactions_count || 0)"></span>
+                <span class="text-xs font-bold text-emerald-500 font-mono" x-show="Number(pinDossierTopDelta.reactions || 0) > 0" x-text="'(+' + formatNumber(pinDossierTopDelta.reactions) + ')'"></span>
+              </div>
+              <div class="text-[10px] text-slate-400">Total reactions</div>
+            </div>
+          </div>
+
+          <!-- 4. Performance Trajectory SVG Chart (Exact Image 2 & 3 Match) -->
+          <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-5 shadow-xs space-y-4">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800/80 pb-3">
+              <div class="flex items-center gap-2.5 flex-wrap">
+                <span class="text-base">📈</span>
+                <h3 class="text-sm font-bold text-slate-900 dark:text-white">Performance Trajectory</h3>
+                <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20" x-text="pinDossierChartData.activeCount + ' of ' + pinDossierChartData.totalCount + ' Snapshots (' + pinDossierTimeframe + ')'"></span>
+              </div>
+
+              <div class="flex items-center gap-3 flex-wrap">
+                <!-- Timeframe selector -->
+                <div class="flex items-center bg-slate-100 dark:bg-slate-900 p-0.5 rounded-xl border border-slate-200 dark:border-slate-800 text-xs font-semibold">
+                  <button type="button" @click="pinDossierTimeframe = '7d'" class="px-2.5 py-1 rounded-lg transition cursor-pointer" :class="pinDossierTimeframe === '7d' ? 'bg-rose-500 text-white shadow-xs font-bold' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">7d</button>
+                  <button type="button" @click="pinDossierTimeframe = '14d'" class="px-2.5 py-1 rounded-lg transition cursor-pointer" :class="pinDossierTimeframe === '14d' ? 'bg-rose-500 text-white shadow-xs font-bold' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">14d</button>
+                  <button type="button" @click="pinDossierTimeframe = '30d'" class="px-2.5 py-1 rounded-lg transition cursor-pointer" :class="pinDossierTimeframe === '30d' ? 'bg-rose-500 text-white shadow-xs font-bold' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">30d</button>
+                  <button type="button" @click="pinDossierTimeframe = 'all'" class="px-2.5 py-1 rounded-lg transition cursor-pointer" :class="pinDossierTimeframe === 'all' ? 'bg-rose-500 text-white shadow-xs font-bold' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">All</button>
+                </div>
+
+                <!-- Legend -->
+                <div class="flex items-center gap-3 text-xs font-semibold">
+                  <span class="flex items-center gap-1.5 text-rose-500">
+                    <span class="h-2 w-2 rounded-full bg-rose-500"></span>
+                    <span>Saves</span>
+                  </span>
+                  <span class="flex items-center gap-1.5 text-sky-500">
+                    <span class="h-2 w-2 rounded-full bg-sky-500"></span>
+                    <span>Repins</span>
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <!-- SVG Visual Chart -->
+            <div class="relative w-full h-56 pt-2">
+              <svg class="w-full h-full overflow-visible" viewBox="0 0 700 200" preserveAspectRatio="none">
+                <defs>
+                  <linearGradient id="pinDossierGradSaves" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="#f43f5e" stop-opacity="0.25" />
+                    <stop offset="100%" stop-color="#f43f5e" stop-opacity="0.0" />
+                  </linearGradient>
+                  <linearGradient id="pinDossierGradRepins" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="#3b82f6" stop-opacity="0.2" />
+                    <stop offset="100%" stop-color="#3b82f6" stop-opacity="0.0" />
+                  </linearGradient>
+                </defs>
+
+                <!-- Horizontal grid lines -->
+                <line x1="40" y1="20" x2="680" y2="20" stroke="currentColor" class="text-slate-200 dark:text-slate-800" stroke-dasharray="3 3" />
+                <line x1="40" y1="95" x2="680" y2="95" stroke="currentColor" class="text-slate-200 dark:text-slate-800" stroke-dasharray="3 3" />
+                <line x1="40" y1="170" x2="680" y2="170" stroke="currentColor" class="text-slate-200 dark:text-slate-800" />
+
+                <!-- Area fills -->
+                <path :d="pinDossierChartData.areaSaves" fill="url(#pinDossierGradSaves)" />
+                <path :d="pinDossierChartData.areaRepins" fill="url(#pinDossierGradRepins)" />
+
+                <!-- Spline lines -->
+                <path :d="pinDossierChartData.strokeSaves" fill="none" stroke="#f43f5e" stroke-width="2.5" stroke-linecap="round" />
+                <path :d="pinDossierChartData.strokeRepins" fill="none" stroke="#3b82f6" stroke-width="2.5" stroke-linecap="round" />
+
+                <!-- Data point dots for Saves -->
+                <template x-for="(pt, pIdx) in pinDossierChartData.pointsSaves" :key="'ps-' + pIdx">
+                  <circle :cx="pt.x" :cy="pt.y" r="4" fill="#f43f5e" class="transition-all hover:r-6 cursor-pointer" />
+                </template>
+
+                <!-- Data point dots for Repins -->
+                <template x-for="(pt, pIdx) in pinDossierChartData.pointsRepins" :key="'pr-' + pIdx">
+                  <circle :cx="pt.x" :cy="pt.y" r="3.5" fill="#3b82f6" class="transition-all hover:r-5 cursor-pointer" />
+                </template>
+              </svg>
+
+              <!-- Axis Labels -->
+              <div class="flex items-center justify-between text-[11px] font-mono text-slate-400 mt-2 px-6">
+                <span x-text="pinDossierChartData.firstDateLabel"></span>
+                <span x-text="pinDossierChartData.lastDateLabel"></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 5. Historical Snapshots Table (Exact Image 2 & 3 Match) -->
+          <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] shadow-xs overflow-hidden">
+            <div class="overflow-x-auto">
+              <table class="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr class="border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/60 text-slate-500 dark:text-slate-400 text-[11px] font-bold uppercase tracking-wider select-none">
+                    <th class="py-3 px-5">Recorded Date &amp; Time</th>
+                    <th class="py-3 px-4 text-right">Saves</th>
+                    <th class="py-3 px-4 text-right">Repins</th>
+                    <th class="py-3 px-4 text-right">Comments</th>
+                    <th class="py-3 px-4 text-right">Shares</th>
+                    <th class="py-3 px-4 text-right">Reactions</th>
+                    <th class="py-3 px-5 text-center">Actions</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono">
+                  
+                  <!-- Top Highlight Row: Total Net Growth (Image 2 & 3) -->
+                  <tr class="bg-emerald-500/5 dark:bg-emerald-950/20 font-bold border-b border-emerald-500/20 text-emerald-600 dark:text-emerald-400">
+                    <td class="py-3 px-5 font-sans">
+                      <span>Σ Total Net Growth</span>
+                    </td>
+                    <td class="py-3 px-4 text-right" x-text="pinDossierNetChange.saves"></td>
+                    <td class="py-3 px-4 text-right" x-text="pinDossierNetChange.repins"></td>
+                    <td class="py-3 px-4 text-right" x-text="pinDossierNetChange.comments"></td>
+                    <td class="py-3 px-4 text-right" x-text="pinDossierNetChange.shares"></td>
+                    <td class="py-3 px-4 text-right" x-text="pinDossierNetChange.reactions"></td>
+                    <td class="py-3 px-5 text-center"></td>
+                  </tr>
+
+                  <!-- Individual Snapshot Rows -->
+                  <template x-for="s in filteredPinSnapshots" :key="s.id">
+                    <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition">
+                      <td class="py-3 px-5 font-sans text-slate-600 dark:text-slate-300" x-text="s.recorded_at ? new Date(s.recorded_at).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'"></td>
+                      <td class="py-3 px-4 text-right font-bold text-slate-900 dark:text-white">
+                        <span x-text="formatNumber(s.saves)"></span>
+                        <span x-show="Number(s.delta_saves || 0) > 0" class="text-emerald-500 font-bold ml-1" x-text="'(+' + formatNumber(s.delta_saves) + ')'"></span>
+                      </td>
+                      <td class="py-3 px-4 text-right font-bold text-slate-900 dark:text-white">
+                        <span x-text="formatNumber(s.repins)"></span>
+                        <span x-show="Number(s.delta_repins || 0) > 0" class="text-emerald-500 font-bold ml-1" x-text="'(+' + formatNumber(s.delta_repins) + ')'"></span>
+                      </td>
+                      <td class="py-3 px-4 text-right font-medium text-slate-700 dark:text-slate-300">
+                        <span x-text="formatNumber(s.comments)"></span>
+                        <span x-show="Number(s.delta_comments || 0) > 0" class="text-emerald-500 font-bold ml-1" x-text="'(+' + formatNumber(s.delta_comments) + ')'"></span>
+                      </td>
+                      <td class="py-3 px-4 text-right font-medium text-slate-700 dark:text-slate-300">
+                        <span x-text="formatNumber(s.shares || 0)"></span>
+                        <span x-show="Number(s.delta_shares || 0) > 0" class="text-emerald-500 font-bold ml-1" x-text="'(+' + formatNumber(s.delta_shares) + ')'"></span>
+                      </td>
+                      <td class="py-3 px-4 text-right font-medium text-slate-700 dark:text-slate-300">
+                        <span x-text="formatNumber(s.reactions || 0)"></span>
+                        <span x-show="Number(s.delta_reactions || 0) > 0" class="text-emerald-500 font-bold ml-1" x-text="'(+' + formatNumber(s.delta_reactions) + ')'"></span>
+                      </td>
+                      <td class="py-3 px-5 text-center">
+                        <button type="button" @click="deletePinSnapshot(s.id)" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 text-[11px] font-semibold transition cursor-pointer">
+                          <i data-lucide="trash-2" class="w-3 h-3"></i>
+                          <span>Delete</span>
+                        </button>
+                      </td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+      </template>
+    </div>
+
+    <!-- ======================================================== -->
+    <!-- MAIN DASHBOARD TABS (Hidden when viewing dedicated Pin)   -->
+    <!-- ======================================================== -->
+    <div x-show="!activePinId" class="space-y-6">
+
+    <!-- ======================================================== -->
     <!-- UNIFIED TAB: 🌿 RELATED PINS HUB (SEEDS, INTERSECTIONS, EXPLORER) -->
     <!-- Combines Tracked Seeds, Global Intersections & Master Explorer -->
     <!-- ======================================================== -->
@@ -4548,6 +4971,7 @@ export function getDashboardHtml() {
         </div>
       </div>
     </div>
+    </div> <!-- Close !activePinId wrapper -->
 
   </main>
 
@@ -5980,403 +6404,6 @@ export function getDashboardHtml() {
       </div>
     </div>
   </div>
-
-  <!-- ======================================================== -->
-  <!-- MODAL: PIN DETAIL DOSSIER & TIME-SERIES TRAJECTORY       -->
-  <!-- Matches Images 2 & 3 Reference Specifications           -->
-  <!-- ======================================================== -->
-  <div x-show="isPinDossierOpen" x-cloak class="fixed inset-0 z-50 overflow-y-auto bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-6" @keydown.escape.window="closePinDossier()">
-    <div class="bg-white dark:bg-[#0b1120] border border-slate-200/90 dark:border-slate-800 rounded-3xl w-full max-w-5xl shadow-2xl overflow-hidden my-auto relative text-slate-900 dark:text-white" @click.away="closePinDossier()">
-      
-      <!-- Top Close Button -->
-      <button @click="closePinDossier()" class="absolute top-4 right-4 z-20 h-9 w-9 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 flex items-center justify-center text-slate-500 hover:text-slate-900 dark:hover:text-white transition cursor-pointer shadow-sm">
-        <i data-lucide="x" class="w-5 h-5"></i>
-      </button>
-
-      <!-- Scrollable Container -->
-      <div class="max-h-[90vh] overflow-y-auto p-5 sm:p-7 space-y-6">
-
-        <template x-if="isLoadingPinDossier">
-          <div class="py-20 flex flex-col items-center justify-center space-y-3">
-            <div class="w-10 h-10 border-4 border-rose-500 border-t-transparent rounded-full animate-spin"></div>
-            <p class="text-xs font-mono text-slate-400">Loading pin dossier telemetry &amp; snapshots...</p>
-          </div>
-        </template>
-
-        <template x-if="!isLoadingPinDossier &amp;&amp; activePinDossier">
-          <div class="space-y-6">
-            
-            <!-- 1. Header Pills & Status Badges (Image 2) -->
-            <div class="flex items-center gap-2 flex-wrap pr-10">
-              <!-- Stage Badge -->
-              <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border"
-                    :class="{
-                      'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30': Number(activePinDossier.velocity || 0) >= 10,
-                      'bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/30': Number(activePinDossier.velocity || 0) < 10 &amp;&amp; Number(activePinDossier.velocity || 0) >= 1,
-                      'bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/30': Number(activePinDossier.velocity || 0) < 1
-                    }">
-                <span x-text="Number(activePinDossier.velocity || 0) >= 10 ? '🌱 GROWING (>10/d)' : (Number(activePinDossier.velocity || 0) >= 1 ? '🟣 MATURE' : '⚪ DORMANT (<1/d)')"></span>
-              </span>
-
-              <!-- Spike Badge -->
-              <template x-if="Number(activePinDossier.velocity || 0) >= 50 || Number(activePinDossier.saves || 0) >= 5000">
-                <span class="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30">
-                  <span>🔥 SPIKE</span>
-                </span>
-              </template>
-
-              <!-- Board Badge -->
-              <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/30">
-                <span>📁</span>
-                <span class="font-bold" x-text="activePinDossier.board_name || 'General'"></span>
-              </span>
-
-              <!-- Dominant Color Badge -->
-              <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-mono font-bold bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-                <span class="h-2.5 w-2.5 rounded-full inline-block" :style="'background-color: ' + (activePinDossier.dominant_color || '#a88d56')"></span>
-                <span x-text="activePinDossier.dominant_color || '#a88d56'"></span>
-              </span>
-
-              <!-- Canonical ID Badge -->
-              <span class="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-mono font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/30">
-                <span>🔗 Canonical #<span x-text="activePinDossier.pin_id"></span></span>
-              </span>
-
-              <!-- Creator Badge -->
-              <span class="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30">
-                <span x-text="'@' + (activePinDossier.account_username || activeCreator?.username || '').replace(/^@+/, '')"></span>
-              </span>
-            </div>
-
-            <!-- 2. Two-Column Hero: Image + Details (Image 2) -->
-            <div class="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
-              
-              <!-- Left: Image Preview (4 cols) -->
-              <div class="md:col-span-4 relative rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 group shadow-md">
-                <img :src="activePinDossier.image_url" loading="lazy" class="w-full h-auto object-cover max-h-[460px] mx-auto" />
-                
-                <!-- Category Pill Overlay on Image -->
-                <div class="absolute top-3 left-3">
-                  <span class="px-2.5 py-1 rounded-lg text-[10.5px] font-bold bg-white/90 dark:bg-slate-950/90 text-slate-800 dark:text-white backdrop-blur-md shadow border border-white/20">
-                    <span x-text="activePinDossier.board_name || 'Food And Drinks'"></span>
-                  </span>
-                </div>
-              </div>
-
-              <!-- Right: Metadata & Content (8 cols) -->
-              <div class="md:col-span-8 space-y-4">
-                
-                <!-- Title -->
-                <h1 class="text-xl sm:text-2xl font-black text-slate-900 dark:text-white leading-tight" x-text="activePinDossier.title || 'Untitled Pin'"></h1>
-
-                <!-- Description -->
-                <p class="text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed" x-text="activePinDossier.description || 'No description provided for this pin.'"></p>
-
-                <!-- Pinterest SEO Alt Text Box (matches Image 2) -->
-                <div class="rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/50 p-4 space-y-1.5 shadow-2xs">
-                  <div class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                    <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400"></i>
-                    <span>Pinterest SEO Alt Text</span>
-                  </div>
-                  <p class="text-xs font-serif italic text-slate-700 dark:text-slate-300 leading-relaxed" x-text="'&ldquo;' + (activePinDossier.description || activePinDossier.title || '') + '&rdquo;'"></p>
-                </div>
-
-                <!-- Copy Toolbar (Copy Pin ID, Copy Pinterest URL, Copy Title) -->
-                <div class="flex items-center gap-2 flex-wrap pt-1">
-                  <button type="button" @click="copyPinField('Pin ID', activePinDossier.pin_id)" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition shadow-2xs cursor-pointer">
-                    <i data-lucide="copy" class="w-3.5 h-3.5 text-slate-400"></i>
-                    <span>Copy Pin ID</span>
-                  </button>
-                  <button type="button" @click="copyPinField('Pinterest URL', 'https://www.pinterest.com/pin/' + activePinDossier.pin_id + '/')" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition shadow-2xs cursor-pointer">
-                    <i data-lucide="link" class="w-3.5 h-3.5 text-slate-400"></i>
-                    <span>Copy Pinterest URL</span>
-                  </button>
-                  <button type="button" @click="copyPinField('Title', activePinDossier.title)" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition shadow-2xs cursor-pointer">
-                    <span class="font-bold font-serif">T</span>
-                    <span>Copy Title</span>
-                  </button>
-                </div>
-
-                <!-- 6 Mini Metadata Cards Grid (Exact Image 2 match) -->
-                <div class="grid grid-cols-2 sm:grid-cols-3 gap-2.5 pt-1">
-                  <div class="p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30">
-                    <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Pin ID</div>
-                    <div class="font-mono text-xs font-bold text-slate-900 dark:text-white truncate" x-text="activePinDossier.pin_id"></div>
-                  </div>
-                  <div class="p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30">
-                    <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Created Date</div>
-                    <div class="font-sans text-xs font-bold text-slate-900 dark:text-white truncate" x-text="activePinDossier.created_at_pinterest ? new Date(activePinDossier.created_at_pinterest).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'"></div>
-                  </div>
-                  <div class="p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30">
-                    <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400">First Tracked</div>
-                    <div class="font-sans text-xs font-bold text-slate-900 dark:text-white truncate" x-text="activePinDossier.first_seen_at ? new Date(activePinDossier.first_seen_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'"></div>
-                  </div>
-                  <div class="p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30">
-                    <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Last Archived</div>
-                    <div class="font-sans text-xs font-bold text-slate-900 dark:text-white truncate" x-text="activePinDossier.last_updated_at ? new Date(activePinDossier.last_updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'"></div>
-                  </div>
-                  <div class="p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30">
-                    <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Dominant Color</div>
-                    <div class="font-mono text-xs font-bold flex items-center gap-1.5 text-slate-900 dark:text-white">
-                      <span class="h-2.5 w-2.5 rounded-full inline-block" :style="'background-color: ' + (activePinDossier.dominant_color || '#a88d56')"></span>
-                      <span x-text="activePinDossier.dominant_color || '#a88d56'"></span>
-                    </div>
-                  </div>
-                  <div class="p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30">
-                    <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Image Signature</div>
-                    <div class="font-mono text-xs font-bold text-slate-900 dark:text-white truncate" x-text="(activePinDossier.image_url ? activePinDossier.image_url.split('/').pop().slice(0, 16) : '—') + '...'"></div>
-                  </div>
-                </div>
-
-                <!-- View on Pinterest Link -->
-                <div>
-                  <a :href="'https://www.pinterest.com/pin/' + activePinDossier.pin_id + '/'" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 text-xs font-semibold text-rose-500 hover:text-rose-600 hover:underline">
-                    <span>View on Pinterest</span>
-                    <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
-                  </a>
-                </div>
-
-                <!-- Annotations & SEO Keywords (Image 2 match) -->
-                <div class="space-y-2 pt-2 border-t border-slate-200/70 dark:border-slate-800/80">
-                  <div class="flex items-center justify-between text-xs">
-                    <div class="flex items-center gap-1.5 font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
-                      <span>🏷</span>
-                      <span>Annotations &amp; SEO Keywords</span>
-                    </div>
-                    <span class="text-slate-400 text-[11px]" x-text="(activePinDossier.annotations ? activePinDossier.annotations.length : 0) + ' linked ideas'"></span>
-                  </div>
-                  
-                  <div class="flex items-center gap-2 flex-wrap">
-                    <template x-for="(ann, aIdx) in (activePinDossier.annotations || [])" :key="aIdx">
-                      <a :href="'https://www.pinterest.com/search/pins/?q=' + encodeURIComponent(ann.name || ann)" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-medium bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/30 dark:hover:bg-rose-950/50 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/50 transition">
-                        <span>💡</span>
-                        <span x-text="ann.name || ann"></span>
-                        <i data-lucide="external-link" class="w-2.5 h-2.5 opacity-60"></i>
-                      </a>
-                    </template>
-                    <template x-if="!activePinDossier.annotations || activePinDossier.annotations.length === 0">
-                      <span class="text-xs text-slate-400 italic">No semantic keywords discovered yet for this pin.</span>
-                    </template>
-                  </div>
-                </div>
-
-              </div>
-            </div>
-
-            <!-- 3. Metrics Summary Row (6 Metric Cards - Exact Image 2 Match) -->
-            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-              <!-- Card 1: TOTAL SAVES -->
-              <div class="p-4 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] shadow-xs space-y-1">
-                <div class="text-[10.5px] font-bold uppercase tracking-wider text-slate-400">Total Saves</div>
-                <div class="flex items-baseline gap-1.5 flex-wrap">
-                  <span class="text-xl sm:text-2xl font-black text-rose-600 dark:text-rose-400" x-text="formatNumber(activePinDossier.saves)"></span>
-                  <span class="text-xs font-bold text-emerald-500 font-mono" x-show="Number(pinDossierTopDelta.saves || 0) > 0" x-text="'(+' + formatNumber(pinDossierTopDelta.saves) + ')'"></span>
-                </div>
-                <div class="text-[10px] text-slate-400">Cumulative saves</div>
-              </div>
-
-              <!-- Card 2: REPINS -->
-              <div class="p-4 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] shadow-xs space-y-1">
-                <div class="text-[10.5px] font-bold uppercase tracking-wider text-slate-400">Repins</div>
-                <div class="flex items-baseline gap-1.5 flex-wrap">
-                  <span class="text-xl sm:text-2xl font-black text-slate-900 dark:text-white" x-text="formatNumber(activePinDossier.repins)"></span>
-                  <span class="text-xs font-bold text-emerald-500 font-mono" x-show="Number(pinDossierTopDelta.repins || 0) > 0" x-text="'(+' + formatNumber(pinDossierTopDelta.repins) + ')'"></span>
-                </div>
-                <div class="text-[10px] text-slate-400">Re-pin shares</div>
-              </div>
-
-              <!-- Card 3: COMMENTS -->
-              <div class="p-4 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] shadow-xs space-y-1">
-                <div class="text-[10.5px] font-bold uppercase tracking-wider text-slate-400">Comments</div>
-                <div class="flex items-baseline gap-1.5 flex-wrap">
-                  <span class="text-xl sm:text-2xl font-black text-slate-900 dark:text-white" x-text="formatNumber(activePinDossier.comments)"></span>
-                  <span class="text-xs font-bold text-emerald-500 font-mono" x-show="Number(pinDossierTopDelta.comments || 0) > 0" x-text="'(+' + formatNumber(pinDossierTopDelta.comments) + ')'"></span>
-                </div>
-                <div class="text-[10px] text-slate-400">User comments</div>
-              </div>
-
-              <!-- Card 4: SHARES -->
-              <div class="p-4 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] shadow-xs space-y-1">
-                <div class="text-[10.5px] font-bold uppercase tracking-wider text-slate-400">Shares</div>
-                <div class="flex items-baseline gap-1.5 flex-wrap">
-                  <span class="text-xl sm:text-2xl font-black text-sky-500" x-text="formatNumber(activePinDossier.share_count || 0)"></span>
-                  <span class="text-xs font-bold text-emerald-500 font-mono" x-show="Number(pinDossierTopDelta.shares || 0) > 0" x-text="'(+' + formatNumber(pinDossierTopDelta.shares) + ')'"></span>
-                </div>
-                <div class="text-[10px] text-slate-400">Social shares</div>
-              </div>
-
-              <!-- Card 5: VELOCITY -->
-              <div class="p-4 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] shadow-xs space-y-1">
-                <div class="text-[10.5px] font-bold uppercase tracking-wider text-slate-400">Velocity</div>
-                <div class="flex items-baseline gap-1 flex-wrap">
-                  <span class="text-xl sm:text-2xl font-black text-emerald-500 font-mono" x-text="(activePinDossier.velocity || 0) + '/d'"></span>
-                </div>
-                <div class="text-[10px] text-slate-400">Saves / day</div>
-              </div>
-
-              <!-- Card 6: REACTIONS -->
-              <div class="p-4 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] shadow-xs space-y-1">
-                <div class="text-[10.5px] font-bold uppercase tracking-wider text-slate-400">Reactions</div>
-                <div class="flex items-baseline gap-1.5 flex-wrap">
-                  <span class="text-xl sm:text-2xl font-black text-purple-500" x-text="formatNumber(activePinDossier.reactions_count || 0)"></span>
-                  <span class="text-xs font-bold text-emerald-500 font-mono" x-show="Number(pinDossierTopDelta.reactions || 0) > 0" x-text="'(+' + formatNumber(pinDossierTopDelta.reactions) + ')'"></span>
-                </div>
-                <div class="text-[10px] text-slate-400">Total reactions</div>
-              </div>
-            </div>
-
-            <!-- 4. Performance Trajectory SVG Chart (Exact Image 2 & 3 Match) -->
-            <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-5 shadow-xs space-y-4">
-              <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800/80 pb-3">
-                <div class="flex items-center gap-2.5 flex-wrap">
-                  <span class="text-base">📈</span>
-                  <h3 class="text-sm font-bold text-slate-900 dark:text-white">Performance Trajectory</h3>
-                  <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20" x-text="pinDossierChartData.activeCount + ' of ' + pinDossierChartData.totalCount + ' Snapshots (' + pinDossierTimeframe + ')'"></span>
-                </div>
-
-                <div class="flex items-center gap-3 flex-wrap">
-                  <!-- Timeframe selector -->
-                  <div class="flex items-center bg-slate-100 dark:bg-slate-900 p-0.5 rounded-xl border border-slate-200 dark:border-slate-800 text-xs font-semibold">
-                    <button type="button" @click="pinDossierTimeframe = '7d'" class="px-2.5 py-1 rounded-lg transition cursor-pointer" :class="pinDossierTimeframe === '7d' ? 'bg-rose-500 text-white shadow-xs font-bold' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">7d</button>
-                    <button type="button" @click="pinDossierTimeframe = '14d'" class="px-2.5 py-1 rounded-lg transition cursor-pointer" :class="pinDossierTimeframe === '14d' ? 'bg-rose-500 text-white shadow-xs font-bold' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">14d</button>
-                    <button type="button" @click="pinDossierTimeframe = '30d'" class="px-2.5 py-1 rounded-lg transition cursor-pointer" :class="pinDossierTimeframe === '30d' ? 'bg-rose-500 text-white shadow-xs font-bold' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">30d</button>
-                    <button type="button" @click="pinDossierTimeframe = 'all'" class="px-2.5 py-1 rounded-lg transition cursor-pointer" :class="pinDossierTimeframe === 'all' ? 'bg-rose-500 text-white shadow-xs font-bold' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">All</button>
-                  </div>
-
-                  <!-- Legend -->
-                  <div class="flex items-center gap-3 text-xs font-semibold">
-                    <span class="flex items-center gap-1.5 text-rose-500">
-                      <span class="h-2 w-2 rounded-full bg-rose-500"></span>
-                      <span>Saves</span>
-                    </span>
-                    <span class="flex items-center gap-1.5 text-sky-500">
-                      <span class="h-2 w-2 rounded-full bg-sky-500"></span>
-                      <span>Repins</span>
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <!-- SVG Visual Chart -->
-              <div class="relative w-full h-56 pt-2">
-                <svg class="w-full h-full overflow-visible" viewBox="0 0 700 200" preserveAspectRatio="none">
-                  <defs>
-                    <linearGradient id="pinDossierGradSaves" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stop-color="#f43f5e" stop-opacity="0.25" />
-                      <stop offset="100%" stop-color="#f43f5e" stop-opacity="0.0" />
-                    </linearGradient>
-                    <linearGradient id="pinDossierGradRepins" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stop-color="#3b82f6" stop-opacity="0.2" />
-                      <stop offset="100%" stop-color="#3b82f6" stop-opacity="0.0" />
-                    </linearGradient>
-                  </defs>
-
-                  <!-- Horizontal grid lines -->
-                  <line x1="40" y1="20" x2="680" y2="20" stroke="currentColor" class="text-slate-200 dark:text-slate-800" stroke-dasharray="3 3" />
-                  <line x1="40" y1="95" x2="680" y2="95" stroke="currentColor" class="text-slate-200 dark:text-slate-800" stroke-dasharray="3 3" />
-                  <line x1="40" y1="170" x2="680" y2="170" stroke="currentColor" class="text-slate-200 dark:text-slate-800" />
-
-                  <!-- Area fills -->
-                  <path :d="pinDossierChartData.areaSaves" fill="url(#pinDossierGradSaves)" />
-                  <path :d="pinDossierChartData.areaRepins" fill="url(#pinDossierGradRepins)" />
-
-                  <!-- Spline lines -->
-                  <path :d="pinDossierChartData.strokeSaves" fill="none" stroke="#f43f5e" stroke-width="2.5" stroke-linecap="round" />
-                  <path :d="pinDossierChartData.strokeRepins" fill="none" stroke="#3b82f6" stroke-width="2.5" stroke-linecap="round" />
-
-                  <!-- Data point dots for Saves -->
-                  <template x-for="(pt, pIdx) in pinDossierChartData.pointsSaves" :key="'ps-' + pIdx">
-                    <circle :cx="pt.x" :cy="pt.y" r="4" fill="#f43f5e" class="transition-all hover:r-6 cursor-pointer" />
-                  </template>
-
-                  <!-- Data point dots for Repins -->
-                  <template x-for="(pt, pIdx) in pinDossierChartData.pointsRepins" :key="'pr-' + pIdx">
-                    <circle :cx="pt.x" :cy="pt.y" r="3.5" fill="#3b82f6" class="transition-all hover:r-5 cursor-pointer" />
-                  </template>
-                </svg>
-
-                <!-- Axis Labels -->
-                <div class="flex items-center justify-between text-[11px] font-mono text-slate-400 mt-2 px-6">
-                  <span x-text="pinDossierChartData.firstDateLabel"></span>
-                  <span x-text="pinDossierChartData.lastDateLabel"></span>
-                </div>
-              </div>
-            </div>
-
-            <!-- 5. Historical Snapshots Table (Exact Image 2 & 3 Match) -->
-            <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] shadow-xs overflow-hidden">
-              <div class="overflow-x-auto">
-                <table class="w-full text-left text-xs border-collapse">
-                  <thead>
-                    <tr class="border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/60 text-slate-500 dark:text-slate-400 text-[11px] font-bold uppercase tracking-wider select-none">
-                      <th class="py-3 px-5">Recorded Date &amp; Time</th>
-                      <th class="py-3 px-4 text-right">Saves</th>
-                      <th class="py-3 px-4 text-right">Repins</th>
-                      <th class="py-3 px-4 text-right">Comments</th>
-                      <th class="py-3 px-4 text-right">Shares</th>
-                      <th class="py-3 px-4 text-right">Reactions</th>
-                      <th class="py-3 px-5 text-center">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono">
-                    
-                    <!-- Top Highlight Row: Total Net Growth (Image 2 & 3) -->
-                    <tr class="bg-emerald-500/5 dark:bg-emerald-950/20 font-bold border-b border-emerald-500/20 text-emerald-600 dark:text-emerald-400">
-                      <td class="py-3 px-5 font-sans">
-                        <span>Σ Total Net Growth</span>
-                      </td>
-                      <td class="py-3 px-4 text-right" x-text="pinDossierNetChange.saves"></td>
-                      <td class="py-3 px-4 text-right" x-text="pinDossierNetChange.repins"></td>
-                      <td class="py-3 px-4 text-right" x-text="pinDossierNetChange.comments"></td>
-                      <td class="py-3 px-4 text-right" x-text="pinDossierNetChange.shares"></td>
-                      <td class="py-3 px-4 text-right" x-text="pinDossierNetChange.reactions"></td>
-                      <td class="py-3 px-5 text-center"></td>
-                    </tr>
-
-                    <!-- Individual Snapshot Rows -->
-                    <template x-for="s in filteredPinSnapshots" :key="s.id">
-                      <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition">
-                        <td class="py-3 px-5 font-sans text-slate-600 dark:text-slate-300" x-text="s.recorded_at ? new Date(s.recorded_at).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'"></td>
-                        <td class="py-3 px-4 text-right font-bold text-slate-900 dark:text-white">
-                          <span x-text="formatNumber(s.saves)"></span>
-                          <span x-show="Number(s.delta_saves || 0) > 0" class="text-emerald-500 font-bold ml-1" x-text="'(+' + formatNumber(s.delta_saves) + ')'"></span>
-                        </td>
-                        <td class="py-3 px-4 text-right font-bold text-slate-900 dark:text-white">
-                          <span x-text="formatNumber(s.repins)"></span>
-                          <span x-show="Number(s.delta_repins || 0) > 0" class="text-emerald-500 font-bold ml-1" x-text="'(+' + formatNumber(s.delta_repins) + ')'"></span>
-                        </td>
-                        <td class="py-3 px-4 text-right font-medium text-slate-700 dark:text-slate-300">
-                          <span x-text="formatNumber(s.comments)"></span>
-                          <span x-show="Number(s.delta_comments || 0) > 0" class="text-emerald-500 font-bold ml-1" x-text="'(+' + formatNumber(s.delta_comments) + ')'"></span>
-                        </td>
-                        <td class="py-3 px-4 text-right font-medium text-slate-700 dark:text-slate-300">
-                          <span x-text="formatNumber(s.shares || 0)"></span>
-                          <span x-show="Number(s.delta_shares || 0) > 0" class="text-emerald-500 font-bold ml-1" x-text="'(+' + formatNumber(s.delta_shares) + ')'"></span>
-                        </td>
-                        <td class="py-3 px-4 text-right font-medium text-slate-700 dark:text-slate-300">
-                          <span x-text="formatNumber(s.reactions || 0)"></span>
-                          <span x-show="Number(s.delta_reactions || 0) > 0" class="text-emerald-500 font-bold ml-1" x-text="'(+' + formatNumber(s.delta_reactions) + ')'"></span>
-                        </td>
-                        <td class="py-3 px-5 text-center">
-                          <button type="button" @click="deletePinSnapshot(s.id)" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 text-[11px] font-semibold transition cursor-pointer">
-                            <i data-lucide="trash-2" class="w-3 h-3"></i>
-                            <span>Delete</span>
-                          </button>
-                        </td>
-                      </tr>
-                    </template>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-          </div>
-        </template>
-
-      </div>
-    </div>
-  </div>
-
   <!-- Toast Notification -->
   <div x-show="toastMessage" x-cloak class="fixed bottom-6 right-6 z-50 bg-slate-900 text-white dark:bg-white dark:text-slate-900 px-4 py-2.5 rounded-xl shadow-2xl font-mono text-xs flex items-center space-x-2 animate-in fade-in slide-in-from-bottom-5">
     <i data-lucide="check-circle" class="w-4 h-4 text-emerald-500"></i>
@@ -6399,12 +6426,14 @@ export function getDashboardHtml() {
         // Related Pins Hub Sub-Tab State
         relatedSubTab: 'seeds',
 
-        // Pin Detail Dossier State (Image 2 & 3)
-        isPinDossierOpen: false,
+        // Dedicated Pin Detail Page State (Route: /pin/:id)
+        activePinId: null,
         activePinDossier: null,
         isLoadingPinDossier: false,
         pinDossierTimeframe: '7d',
         pinDossierSnapshots: [],
+        previousPinPath: null,
+        isPinDossierOpen: false,
 
         // Unified Creator Intelligence & PinArchive State
         creatorSubTab: 'creators',
@@ -7221,6 +7250,9 @@ export function getDashboardHtml() {
         },
 
         switchTab(tab) {
+          if (this.activePinId) {
+            this.closePinPage(true);
+          }
           if (tab === 'related_pins' || tab === 'seeds' || tab === 'intersections' || tab === 'explorer') {
             this.currentTab = 'related_pins';
             if (tab === 'seeds' || tab === 'intersections' || tab === 'explorer') {
@@ -7912,20 +7944,32 @@ export function getDashboardHtml() {
           this.pollCrawlStatus();
           setInterval(() => this.pollCrawlStatus(), 3000);
 
-          // Deep Link URL Hydration (e.g. /wifesrecipesbyme)
+          // Deep Link URL Hydration (e.g. /pin/1083467622873349531 or /wifesrecipesbyme)
           if (typeof window !== 'undefined') {
             const segments = (window.location.pathname || '').split('/').filter(Boolean);
-            const handle = segments[0] || '';
-            if (handle && !handle.startsWith('api') && handle !== 'index.html') {
-              await this.openCreatorByHandle(handle);
+            const first = segments[0] || '';
+            const second = segments[1] || '';
+            if (first === 'pin' && second) {
+              await this.openPinPage(second, false);
+            } else if (first && !first.startsWith('api') && first !== 'index.html') {
+              await this.openCreatorByHandle(first);
             }
 
             window.addEventListener('popstate', (e) => {
               const pSegments = (window.location.pathname || '').split('/').filter(Boolean);
-              const pHandle = pSegments[0] || '';
-              if (pHandle && !pHandle.startsWith('api') && pHandle !== 'index.html') {
-                this.openCreatorByHandle(pHandle);
+              const pFirst = pSegments[0] || '';
+              const pSecond = pSegments[1] || '';
+              if (pFirst === 'pin' && pSecond) {
+                this.openPinPage(pSecond, false);
+              } else if (pFirst && !pFirst.startsWith('api') && pFirst !== 'index.html') {
+                if (this.activePinId) {
+                  this.closePinPage(false);
+                }
+                this.openCreatorByHandle(pFirst);
               } else {
+                if (this.activePinId) {
+                  this.closePinPage(false);
+                }
                 this.closeCreatorProfile(false);
               }
             });
@@ -8716,6 +8760,8 @@ export function getDashboardHtml() {
           this.activeCreator = creator;
           this.activeCreatorTab = tab || 'overview';
           this.currentTab = 'creators_archive';
+          this.activePinId = null;
+          this.activePinDossier = null;
           this.isCreatorDossierOpen = false;
           this.isBoardsModalOpen = false;
           this.creatorTimeRange = '7D';
@@ -8872,28 +8918,65 @@ export function getDashboardHtml() {
           }
         },
 
-        // Pin Detail Dossier Action Methods (Image 2 & 3)
-        async openPinDossier(pin) {
-          if (!pin || !pin.pin_id) return;
-          this.activePinDossier = {
-            ...pin,
-            saves: Number(pin.saves || pin.save_count || 0),
-            repins: Number(pin.repins || pin.repin_count || 0),
-            comments: Number(pin.comments || pin.comment_count || 0),
-            share_count: Number(pin.share_count || 0),
-            velocity: Number(pin.velocity || 0),
-            dominant_color: pin.dominant_color || '#a88d56'
-          };
+        // Dedicated Pin Detail Page & Dossier Action Methods (Route: /pin/:id)
+        async openPinPage(pinOrId, updateHistory = true) {
+          if (!pinOrId) return;
+          const pinId = typeof pinOrId === 'object' ? String(pinOrId.pin_id || pinOrId.id || '') : String(pinOrId);
+          if (!pinId) return;
+
+          if (typeof pinOrId === 'object') {
+            this.activePinDossier = {
+              ...pinOrId,
+              pin_id: pinId,
+              saves: Number(pinOrId.saves || pinOrId.save_count || 0),
+              repins: Number(pinOrId.repins || pinOrId.repin_count || 0),
+              comments: Number(pinOrId.comments || pinOrId.comment_count || 0),
+              share_count: Number(pinOrId.share_count || 0),
+              velocity: Number(pinOrId.velocity || 0),
+              dominant_color: pinOrId.dominant_color || '#a88d56'
+            };
+          } else {
+            this.activePinDossier = {
+              pin_id: pinId,
+              saves: 0,
+              repins: 0,
+              comments: 0,
+              share_count: 0,
+              velocity: 0,
+              dominant_color: '#a88d56'
+            };
+          }
+
+          if (typeof window !== 'undefined' && !this.previousPinPath && window.location.pathname !== ('/pin/' + pinId)) {
+            this.previousPinPath = window.location.pathname;
+          }
+
+          this.activePinId = pinId;
           this.isPinDossierOpen = true;
           this.isLoadingPinDossier = true;
           this.pinDossierTimeframe = '7d';
           this.pinDossierSnapshots = [];
+
+          if (typeof window !== 'undefined') {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            if (updateHistory) {
+              const targetPath = '/pin/' + pinId;
+              if (window.location.pathname !== targetPath) {
+                window.history.pushState({ pinId: pinId }, '', targetPath);
+              }
+            }
+            document.title = (this.activePinDossier.title ? this.activePinDossier.title + ' | ' : '') + 'Pin #' + pinId + ' | Pinterest Intelligence';
+          }
+
           try {
-            const res = await fetch(this.getApiUrl('/api/pinarchive/pin-detail?pin_id=' + encodeURIComponent(pin.pin_id)));
+            const res = await fetch(this.getApiUrl('/api/pinarchive/pin-detail?pin_id=' + encodeURIComponent(pinId)));
             if (res.ok) {
               const data = await res.json();
               if (data.pin) {
                 this.activePinDossier = { ...this.activePinDossier, ...data.pin };
+                if (typeof window !== 'undefined' && data.pin.title) {
+                  document.title = data.pin.title + ' | Pin #' + pinId + ' | Pinterest Intelligence';
+                }
               }
               this.pinDossierSnapshots = data.snapshots || [];
             }
@@ -8905,9 +8988,38 @@ export function getDashboardHtml() {
           }
         },
 
-        closePinDossier() {
+        closePinPage(updateHistory = true) {
+          this.activePinId = null;
           this.isPinDossierOpen = false;
           this.activePinDossier = null;
+          const returnPath = this.previousPinPath;
+          this.previousPinPath = null;
+
+          if (updateHistory && typeof window !== 'undefined') {
+            let targetPath = '/';
+            if (this.activeCreator) {
+              targetPath = '/' + (this.activeCreator.username || '').replace(/^@+/, '').trim();
+            } else if (returnPath && !returnPath.startsWith('/pin/')) {
+              targetPath = returnPath;
+            }
+            if (window.location.pathname !== targetPath) {
+              window.history.pushState({}, '', targetPath);
+            }
+            document.title = this.activeCreator ? ('@' + (this.activeCreator.username || '').replace(/^@+/, '') + ' | Creator Intelligence | Pin Arbitrage Engine') : 'Pin Arbitrage Engine | Pinterest Intelligence Dashboard';
+          }
+          if (typeof window !== 'undefined') {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }
+          this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+        },
+
+        // Backwards compatibility wrappers
+        async openPinDossier(pin) {
+          return this.openPinPage(pin, true);
+        },
+
+        closePinDossier() {
+          return this.closePinPage(true);
         },
 
         copyPinField(type, text) {
@@ -8924,7 +9036,7 @@ export function getDashboardHtml() {
             });
             if (res.ok) {
               this.showToast('Metric snapshot deleted');
-              await this.openPinDossier(this.activePinDossier);
+              await this.openPinPage(this.activePinDossier, false);
             }
           } catch (err) {
             console.error('Failed to delete snapshot:', err);
