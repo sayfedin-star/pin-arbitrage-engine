@@ -279,24 +279,39 @@ export function formatPin(pin) {
   // Dominant color
   const dominantColor = pin.dominant_color || pin.dominantColor || '#888888';
 
-  return {
-    pin_id: pinId,
-    title: safeString(pin.grid_title || pin.title || pin.headline || pin.grid_description),
-    description: safeString(pin.description || pin.articleBody || pin.unauth_on_page_description),
-    link: safeString(rawLink || pin.link || pin.url),
-    domain,
-    board_id: pin.board?.id || pin.board_id || null,
-    board_name: safeString(pin.board?.name || pin.board_name),
-    created_at_pinterest: createdAtPinterest,
-    age_days: ageDays !== null ? Math.round(ageDays * 10) / 10 : null,
-    velocity,
-    image_url: imageUrl,
-    dominant_color: dominantColor,
-    is_video: Boolean(pin.is_video || pin.isVideo || pin.video_status),
-    is_product: Boolean(pin.is_product || pin.isProduct),
-    saves,
-    repins,
-    comments,
+    const isProduct = Boolean(
+      pin.is_product ||
+      pin.isProduct ||
+      pin.is_eligible_for_pdp ||
+      pin.is_shoppable ||
+      pin.is_retail_product ||
+      pin.rich_metadata?.type === 'product' ||
+      pin.rich_summary?.type === 'product' ||
+      Boolean(pin.buyable_product) ||
+      Boolean(pin.shopping_data) ||
+      Boolean(pin.product_metadata) ||
+      Boolean(pin.price_value) ||
+      Boolean(pin.price_currency)
+    );
+
+    return {
+      pin_id: pinId,
+      title: safeString(pin.grid_title || pin.title || pin.headline || pin.grid_description),
+      description: safeString(pin.description || pin.articleBody || pin.unauth_on_page_description),
+      link: safeString(rawLink || pin.link || pin.url),
+      domain,
+      board_id: pin.board?.id || pin.board_id || null,
+      board_name: safeString(pin.board?.name || pin.board_name),
+      created_at_pinterest: createdAtPinterest,
+      age_days: ageDays !== null ? Math.round(ageDays * 10) / 10 : null,
+      velocity,
+      image_url: imageUrl,
+      dominant_color: dominantColor,
+      is_video: Boolean(pin.is_video || pin.isVideo || pin.video_status),
+      is_product: isProduct,
+      saves,
+      repins,
+      comments,
     share_count: parseCleanMetric(pin.share_count || 0),
     reactions: pin.reaction_counts || pin.reactions || {},
     annotations,

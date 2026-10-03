@@ -368,6 +368,7 @@ export async function ingestPinsBatch(sql, pins, accountUsername = null, { filte
           reactions = CASE WHEN EXCLUDED.reactions <> '{}'::jsonb THEN EXCLUDED.reactions ELSE pa_pins.reactions END,
           velocity = CASE WHEN EXCLUDED.velocity > 0 THEN EXCLUDED.velocity ELSE pa_pins.velocity END,
           annotations = CASE WHEN jsonb_typeof(EXCLUDED.annotations) = 'array' AND jsonb_array_length(EXCLUDED.annotations) > 0 THEN EXCLUDED.annotations ELSE pa_pins.annotations END,
+          is_product = (pa_pins.is_product OR EXCLUDED.is_product),
           created_at_pinterest = COALESCE(pa_pins.created_at_pinterest, EXCLUDED.created_at_pinterest),
           last_updated_at = NOW()
         RETURNING (xmax = 0) AS is_inserted;

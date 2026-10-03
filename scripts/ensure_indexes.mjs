@@ -63,7 +63,40 @@ async function optimizeIndexes() {
   await sql`CREATE INDEX IF NOT EXISTS idx_competitor_boards_lookup ON competitor_boards(competitor_id, pin_count DESC);`;
   await sql`CREATE INDEX IF NOT EXISTS idx_competitor_history_lookup ON competitor_history_snapshots(competitor_id, recorded_date DESC);`;
 
-  console.log('[+] All indexes verified and active in Neon Serverless Postgres!');
+  console.log('[*] 7. Ensuring is_product column on competitor_pins and pa_pins...');
+  await sql`ALTER TABLE competitor_pins ADD COLUMN IF NOT EXISTS is_product BOOLEAN DEFAULT FALSE;`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_competitor_pins_is_product ON competitor_pins(competitor_id, is_product) WHERE is_product = TRUE;`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_pa_pins_is_product ON pa_pins(is_product) WHERE is_product = TRUE;`;
+
+  console.log('[*] 8. Backfilling is_product flag for identified commercial product pins...');
+  await sql`
+    UPDATE competitor_pins
+    SET is_product = TRUE
+    WHERE is_product = FALSE AND (
+      link_domain ILIKE '%etsy%' OR 
+      link_domain ILIKE '%shopify%' OR 
+      link_domain ILIKE '%amazon%' OR 
+      destination_url ILIKE '%/listing/%' OR 
+      destination_url ILIKE '%/product/%' OR 
+      destination_url ILIKE '%/item/%' OR 
+      destination_url ILIKE '%gumroad.com%'
+    );
+  `;
+  await sql`
+    UPDATE pa_pins
+    SET is_product = TRUE
+    WHERE is_product = FALSE AND (
+      domain ILIKE '%etsy%' OR 
+      domain ILIKE '%shopify%' OR 
+      domain ILIKE '%amazon%' OR 
+      link ILIKE '%/listing/%' OR 
+      link ILIKE '%/product/%' OR 
+      link ILIKE '%/item/%' OR 
+      link ILIKE '%gumroad.com%'
+    );
+  `;
+
+  console.log('[+] All indexes and columns verified and active in Neon Serverless Postgres!');
 }
 
 optimizeIndexes()

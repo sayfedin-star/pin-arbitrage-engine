@@ -1412,6 +1412,7 @@ export async function upsertCompetitorPins(sql, competitorId, pins) {
           save_count,
           repin_count,
           comment_count,
+          is_product,
           created_at_pinterest,
           first_seen_at,
           last_seen_at
@@ -1427,6 +1428,7 @@ export async function upsertCompetitorPins(sql, competitorId, pins) {
           ${Math.max(0, Number(p.saves) || 0)},
           ${Math.max(0, Number(p.repins) || 0)},
           ${Math.max(0, Number(p.comments) || 0)},
+          ${Boolean(p.is_product)},
           ${p.created_at_pinterest ? new Date(p.created_at_pinterest) : null},
           NOW(),
           NOW()
@@ -1441,6 +1443,7 @@ export async function upsertCompetitorPins(sql, competitorId, pins) {
           save_count = GREATEST(competitor_pins.save_count, EXCLUDED.save_count),
           repin_count = GREATEST(competitor_pins.repin_count, EXCLUDED.repin_count),
           comment_count = GREATEST(competitor_pins.comment_count, EXCLUDED.comment_count),
+          is_product = (competitor_pins.is_product OR EXCLUDED.is_product),
           last_seen_at = NOW();
       `;
       saved++;
@@ -1461,7 +1464,8 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
   sort = 'saves_desc',
   page = 1,
   limit = 50,
-  qualified_only = false
+  qualified_only = false,
+  product_only = false
 } = {}) {
   let numericId = parseInt(competitorIdOrUsername, 10);
   let cleanUsername = null;
@@ -1482,12 +1486,12 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
   }
 
   const pNum = Math.max(1, parseInt(page, 10) || 1);
-  const pLim = Math.max(1, Math.min(parseInt(limit, 10) || 50, 200));
+  const pLim = Math.max(1, Math.min(parseInt(limit, 10) || 50, 1000));
   const offset = (pNum - 1) * pLim;
 
   const minSavesNum = Math.max(0, parseInt(min_saves, 10) || 0);
   const searchPattern = search ? `%${search.toLowerCase().trim()}%` : null;
-  const boardPattern = board ? board.trim() : null;
+  const boardPattern = board ? board.trim().toLowerCase() : null;
 
   const boardsRows = await sql`
     SELECT DISTINCT board_name, COUNT(*)::int as count
@@ -1514,6 +1518,11 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
       cp.created_at_pinterest,
       cp.first_seen_at,
       cp.last_seen_at,
+      (
+        COALESCE(cp.is_product, false) OR 
+        COALESCE(pa.is_product, false) OR 
+        COALESCE(cp.link_domain ILIKE '%etsy%' OR cp.link_domain ILIKE '%shopify%' OR cp.link_domain ILIKE '%amazon%' OR cp.destination_url ILIKE '%/listing/%' OR cp.destination_url ILIKE '%/product/%' OR cp.destination_url ILIKE '%/item/%' OR cp.destination_url ILIKE '%gumroad.com%', false)
+      ) AS is_product,
       (pa.pin_id IS NOT NULL) AS is_qualified,
       COALESCE(pa.velocity, 0) AS velocity
     FROM competitor_pins cp
@@ -1521,8 +1530,13 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
     WHERE cp.competitor_id = ${numericId}
       AND (${minSavesNum} = 0 OR cp.save_count >= ${minSavesNum})
       AND (${searchPattern}::text IS NULL OR LOWER(cp.title) LIKE ${searchPattern} OR LOWER(COALESCE(cp.description, '')) LIKE ${searchPattern})
-      AND (${boardPattern}::text IS NULL OR cp.board_name = ${boardPattern})
+      AND (${boardPattern}::text IS NULL OR LOWER(TRIM(cp.board_name)) = ${boardPattern})
       AND (${qualified_only} = FALSE OR pa.pin_id IS NOT NULL)
+      AND (${product_only} = FALSE OR (
+        COALESCE(cp.is_product, false) OR 
+        COALESCE(pa.is_product, false) OR 
+        COALESCE(cp.link_domain ILIKE '%etsy%' OR cp.link_domain ILIKE '%shopify%' OR cp.link_domain ILIKE '%amazon%' OR cp.destination_url ILIKE '%/listing/%' OR cp.destination_url ILIKE '%/product/%' OR cp.destination_url ILIKE '%/item/%' OR cp.destination_url ILIKE '%gumroad.com%', false)
+      ) = TRUE)
     ORDER BY 
       CASE WHEN ${sort} = 'saves_desc' THEN cp.save_count END DESC NULLS LAST,
       CASE WHEN ${sort} = 'repins_desc' THEN cp.repin_count END DESC NULLS LAST,
@@ -1539,8 +1553,13 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
     WHERE cp.competitor_id = ${numericId}
       AND (${minSavesNum} = 0 OR cp.save_count >= ${minSavesNum})
       AND (${searchPattern}::text IS NULL OR LOWER(cp.title) LIKE ${searchPattern} OR LOWER(COALESCE(cp.description, '')) LIKE ${searchPattern})
-      AND (${boardPattern}::text IS NULL OR cp.board_name = ${boardPattern})
-      AND (${qualified_only} = FALSE OR pa.pin_id IS NOT NULL);
+      AND (${boardPattern}::text IS NULL OR LOWER(TRIM(cp.board_name)) = ${boardPattern})
+      AND (${qualified_only} = FALSE OR pa.pin_id IS NOT NULL)
+      AND (${product_only} = FALSE OR (
+        COALESCE(cp.is_product, false) OR 
+        COALESCE(pa.is_product, false) OR 
+        COALESCE(cp.link_domain ILIKE '%etsy%' OR cp.link_domain ILIKE '%shopify%' OR cp.link_domain ILIKE '%amazon%' OR cp.destination_url ILIKE '%/listing/%' OR cp.destination_url ILIKE '%/product/%' OR cp.destination_url ILIKE '%/item/%' OR cp.destination_url ILIKE '%gumroad.com%', false)
+      ) = TRUE);
   `;
 
   const total = countRow ? countRow.total : 0;

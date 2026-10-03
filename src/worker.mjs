@@ -1381,7 +1381,8 @@ export default {
             sort: searchParams.get('sort') || 'saves_desc',
             page: Number(searchParams.get('page') || 1),
             limit: Number(searchParams.get('limit') || 50),
-            qualified_only: searchParams.get('qualified_only') === 'true'
+            qualified_only: searchParams.get('qualified_only') === 'true',
+            product_only: searchParams.get('product_only') === 'true'
           });
           return jsonResponse({ success: true, ...data });
         } catch (err) {
