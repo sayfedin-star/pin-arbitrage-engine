@@ -14,7 +14,8 @@ import {
   getCompetitorBoards,
   getCompetitorsOverview,
   syncCompetitorPins,
-  trackCompetitor
+  trackCompetitor,
+  getOrSyncBoardDetail
 } from '../src/modules/competitors/service.mjs';
 import { pingFleetProject, getFleetProjectUrl } from '../src/modules/fleet/service.mjs';
 
@@ -30,7 +31,8 @@ import {
   getQualificationRules,
   updateQualificationRules,
   qualifyPin,
-  reEvaluateArchivedPins
+  reEvaluateArchivedPins,
+  getPinDetailWithMetrics
 } from '../src/modules/pinarchive/service.mjs';
 
 import { formatPin, parseCleanMetric } from './lib/pinterest.mjs';
@@ -526,6 +528,29 @@ async function runTests() {
     };
     const parsedValidPin = formatPin(validPinWithObjectTitle);
     assert(parsedValidPin && parsedValidPin.title === 'Delicious Homemade Apple Pie', 'formatPin safely extracts title from object without .trim() error');
+
+    // 3.24 Test Pin Dossier Live Relay Enrichment: Authentic SEO Alt Text & Annotations
+    console.log('\n--- Verifying Pin Dossier Live Relay & SEO Alt-Text ---');
+    const pinDossier = await getPinDetailWithMetrics(sql, '1083467622873513891', { forceRefresh: true });
+    assert(pinDossier && pinDossier.pin, 'getPinDetailWithMetrics returned pin dossier');
+    assert(pinDossier?.pin?.alt_text === 'crispy ham and cheese puff pastry stacks', `Authentic SEO Alt Text extracted via Relay: expected "crispy ham and cheese puff pastry stacks", got "${pinDossier?.pin?.alt_text}"`);
+    assert(Array.isArray(pinDossier?.pin?.annotations) && pinDossier.pin.annotations.length >= 9, `Authentic annotations extracted: expected >= 9 tags, got ${pinDossier?.pin?.annotations?.length}`);
+    assert(pinDossier?.pin?.is_product === true, `Authentic is_product flag detected: got ${pinDossier?.pin?.is_product}`);
+
+    // 3.25 Test Board Detail Live Scraping: Authentic board_vase (Related Interests)
+    console.log('\n--- Verifying Board Detail & Algorithmic Topics (board_vase) ---');
+    const boardDetail = await getOrSyncBoardDetail(sql, 'wifesrecipesbyme', 'Dinner ideas', { forceRefresh: true });
+    assert(boardDetail && boardDetail.name === 'Dinner ideas', `getOrSyncBoardDetail resolved board name: ${boardDetail?.name}`);
+    assert(Array.isArray(boardDetail?.board_vase) && boardDetail.board_vase.length >= 9, `Authentic board_vase extracted: expected >= 9 topics, got ${boardDetail?.board_vase?.length}`);
+    const sampleVase = boardDetail?.board_vase?.[0];
+    assert(sampleVase && sampleVase.text && sampleVase.text.length > 0, `board_vase contains structured topic: "${sampleVase?.text}" -> ${sampleVase?.link}`);
+
+    // 3.26 Test Edge Worker Endpoint: GET /api/competitors/board-detail
+    const boardReq = new Request('http://localhost/api/competitors/board-detail?username=wifesrecipesbyme&board=Dinner%20ideas');
+    const boardRes = await workerModule.fetch(boardReq, { DATABASE_URL: dbUrl });
+    assert(boardRes.status === 200, `GET /api/competitors/board-detail returned HTTP 200`);
+    const boardJson = await boardRes.json();
+    assert(boardJson.success === true && Array.isArray(boardJson.board?.board_vase) && boardJson.board.board_vase.length >= 9, `Worker endpoint delivered authentic board_vase with ${boardJson.board?.board_vase?.length} topics`);
 
     console.log('\n=== TEST SUITE 4: Cleanup ===');
     // Cleanup staged pins

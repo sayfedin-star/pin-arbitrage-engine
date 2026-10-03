@@ -963,16 +963,20 @@ export async function getPinDetailWithMetrics(sql, pinId, options = {}) {
     }
   }
 
-  // If pin is not found in database OR live refresh was explicitly requested:
+  // If pin is not found in database, live refresh requested, OR pin lacks authentic annotations/alt_text:
   // Fetch directly from Pinterest public HTML without any cookies!
-  if (!pin || forceRefresh) {
+  const hasAnnotations = Array.isArray(pin?.annotations) ? pin.annotations.length > 0 : Boolean(pin?.annotations && pin.annotations !== '[]');
+  const hasAltText = Boolean(pin?.alt_text && String(pin.alt_text).trim().length > 0);
+  const needsEnrichment = !pin || forceRefresh || (!hasAnnotations && !hasAltText);
+
+  if (needsEnrichment) {
     try {
       const pRes = await fetchPinFromPinterest(cleanId, '');
       if (pRes?.ok && pRes.pin) {
         const live = pRes.pin;
         await sql`
           INSERT INTO pa_pins (
-            pin_id, title, description, link, domain, board_name, image_url,
+            pin_id, title, description, alt_text, link, domain, board_name, image_url,
             saves, repins, comments, share_count, reactions, velocity,
             annotations, is_video, is_product, created_at_pinterest,
             first_seen_at, last_updated_at
@@ -980,6 +984,7 @@ export async function getPinDetailWithMetrics(sql, pinId, options = {}) {
             ${cleanId},
             ${live.title || ''},
             ${live.description || ''},
+            ${live.alt_text || null},
             ${live.link || ''},
             ${live.domain || ''},
             ${live.board_name || 'General'},
@@ -1000,6 +1005,7 @@ export async function getPinDetailWithMetrics(sql, pinId, options = {}) {
           ON CONFLICT (pin_id) DO UPDATE SET
             title = EXCLUDED.title,
             description = EXCLUDED.description,
+            alt_text = COALESCE(EXCLUDED.alt_text, pa_pins.alt_text),
             link = EXCLUDED.link,
             domain = EXCLUDED.domain,
             board_name = COALESCE(EXCLUDED.board_name, pa_pins.board_name),
@@ -1010,8 +1016,20 @@ export async function getPinDetailWithMetrics(sql, pinId, options = {}) {
             share_count = EXCLUDED.share_count,
             reactions = EXCLUDED.reactions,
             annotations = EXCLUDED.annotations,
+            is_product = EXCLUDED.is_product,
             last_updated_at = NOW();
         `;
+
+        try {
+          await sql`
+            UPDATE competitor_pins
+            SET
+              alt_text = COALESCE(${live.alt_text || null}, competitor_pins.alt_text),
+              is_product = COALESCE(${Boolean(live.is_product)}, competitor_pins.is_product),
+              metadata = jsonb_set(COALESCE(competitor_pins.metadata, '{}'::jsonb), '{annotations}', ${JSON.stringify(live.annotations || [])}::jsonb)
+            WHERE pin_id = ${cleanId};
+          `;
+        } catch (_) {}
 
         // Record live metric snapshot
         await sql`

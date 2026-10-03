@@ -5,7 +5,7 @@
  */
 
 import { formatPinterestCookie } from '../../utils.mjs';
-import { fetchUserResource, fetchBoardsResource, fetchUserActivityPinsResource, fetchBoardFeedResource, sleep, randomJitterMs } from '../../../scripts/lib/pinterest.mjs';
+import { fetchUserResource, fetchBoardsResource, fetchBoardDetailUnauth, fetchUserActivityPinsResource, fetchBoardFeedResource, sleep, randomJitterMs } from '../../../scripts/lib/pinterest.mjs';
 import { ingestPinsBatch, getQualificationRules } from '../pinarchive/service.mjs';
 
 /**
@@ -556,6 +556,160 @@ export async function syncCompetitorBoards(sql, competitorId, username, cookie =
   `;
 
   return { ok: true, synced: syncedCount, synced_boards_count: syncedCount, boards: res.boards };
+}
+
+/**
+ * Retrieve board details with authentic algorithmic board_vase (Related Interests).
+ * If board_vase is missing in competitor_boards, automatically fetches from Pinterest live HTML and persists it.
+ */
+export async function getOrSyncBoardDetail(sql, username, boardNameOrSlug, options = {}) {
+  const cleanUsername = normalizePinterestUsername(username);
+  if (!cleanUsername) throw new Error('username is required');
+  const rawBoard = String(boardNameOrSlug || '').trim();
+  if (!rawBoard) throw new Error('board is required');
+
+  const forceRefresh = options?.forceRefresh === true || options?.refresh === true;
+
+  // 1. Look up competitor profile
+  let competitorId = null;
+  try {
+    const [c] = await sql`
+      SELECT id, username FROM competitor_profiles 
+      WHERE LOWER(username) = ${cleanUsername} 
+      LIMIT 1;
+    `;
+    if (c?.id) competitorId = c.id;
+  } catch (_) {}
+
+  // 2. Query competitor_boards
+  let existingBoard = null;
+  if (competitorId) {
+    try {
+      const rows = await sql`
+        SELECT * FROM competitor_boards
+        WHERE competitor_id = ${competitorId}
+          AND (
+            LOWER(TRIM(name)) = ${rawBoard.toLowerCase()} OR
+            url ILIKE ${'%' + encodeURIComponent(rawBoard.toLowerCase().replace(/\s+/g, '-')) + '%'} OR
+            url ILIKE ${'%' + rawBoard.toLowerCase().replace(/\s+/g, '-') + '%'}
+          )
+        ORDER BY pin_count DESC
+        LIMIT 1;
+      `;
+      existingBoard = rows[0] || null;
+    } catch (_) {}
+  }
+
+  const existingMeta = (typeof existingBoard?.metadata === 'object' && existingBoard?.metadata !== null) ? existingBoard.metadata : {};
+  const existingVase = Array.isArray(existingBoard?.board_vase) && existingBoard.board_vase.length > 0
+    ? existingBoard.board_vase
+    : (Array.isArray(existingMeta.board_vase) ? existingMeta.board_vase : []);
+
+  // If already has board_vase and not forcing refresh, return immediately
+  if (existingBoard && existingVase.length > 0 && !forceRefresh) {
+    return {
+      board_id: existingBoard.board_id,
+      name: existingBoard.name,
+      url: existingBoard.url,
+      pin_count: Number(existingBoard.pin_count || 0),
+      follower_count: Number(existingBoard.follower_count || 0),
+      image_cover_url: existingBoard.image_cover_url || existingMeta.image_cover_url || null,
+      description: existingBoard.description || existingMeta.description || '',
+      board_vase: existingVase,
+      last_pinned_at: existingBoard.last_pinned_at,
+      created_at: existingBoard.created_at
+    };
+  }
+
+  // 3. Live fetch from Pinterest unauthenticated board page
+  let scraped = null;
+  try {
+    const sRes = await fetchBoardDetailUnauth(cleanUsername, rawBoard);
+    if (sRes.ok && sRes.board) {
+      scraped = sRes.board;
+    }
+  } catch (err) {
+    console.warn(`[getOrSyncBoardDetail] Anonymous board scrape failed for ${cleanUsername}/${rawBoard}:`, err.message);
+  }
+
+  if (scraped) {
+    const metaToSave = {
+      ...(existingMeta || {}),
+      image_cover_url: scraped.image_cover_url || existingMeta.image_cover_url || null,
+      board_vase: scraped.board_vase || [],
+      description: scraped.description || existingMeta.description || '',
+    };
+
+    if (competitorId && scraped.board_id) {
+      try {
+        await sql`
+          INSERT INTO competitor_boards (
+            competitor_id, board_id, name, url, pin_count, follower_count,
+            metadata, created_at, updated_at
+          ) VALUES (
+            ${competitorId},
+            ${scraped.board_id},
+            ${scraped.name || rawBoard},
+            ${scraped.url},
+            ${scraped.pin_count || 0},
+            ${scraped.follower_count || 0},
+            ${JSON.stringify(metaToSave)}::jsonb,
+            COALESCE(${scraped.created_at ? new Date(scraped.created_at) : null}, NOW()),
+            NOW()
+          )
+          ON CONFLICT (competitor_id, board_id) DO UPDATE SET
+            name = EXCLUDED.name,
+            url = EXCLUDED.url,
+            pin_count = GREATEST(competitor_boards.pin_count, EXCLUDED.pin_count),
+            follower_count = EXCLUDED.follower_count,
+            metadata = EXCLUDED.metadata,
+            updated_at = NOW();
+        `;
+      } catch (saveErr) {
+        console.warn(`[getOrSyncBoardDetail] Failed to persist board to DB:`, saveErr.message);
+      }
+    }
+
+    return {
+      board_id: scraped.board_id,
+      name: scraped.name,
+      url: scraped.url,
+      pin_count: scraped.pin_count,
+      follower_count: scraped.follower_count,
+      image_cover_url: scraped.image_cover_url,
+      description: scraped.description,
+      board_vase: scraped.board_vase,
+      board_order_modified_at: scraped.board_order_modified_at,
+      created_at: scraped.created_at
+    };
+  }
+
+  // Fallback to existingBoard if Pinterest scrape failed
+  if (existingBoard) {
+    return {
+      board_id: existingBoard.board_id,
+      name: existingBoard.name,
+      url: existingBoard.url,
+      pin_count: Number(existingBoard.pin_count || 0),
+      follower_count: Number(existingBoard.follower_count || 0),
+      image_cover_url: existingBoard.image_cover_url || existingMeta.image_cover_url || null,
+      description: existingBoard.description || existingMeta.description || '',
+      board_vase: existingVase,
+      last_pinned_at: existingBoard.last_pinned_at,
+      created_at: existingBoard.created_at
+    };
+  }
+
+  return {
+    board_id: null,
+    name: rawBoard,
+    url: `https://www.pinterest.com/${cleanUsername}/${encodeURIComponent(rawBoard.toLowerCase().replace(/\s+/g, '-'))}/`,
+    pin_count: 0,
+    follower_count: 0,
+    image_cover_url: null,
+    description: '',
+    board_vase: []
+  };
 }
 
 /**

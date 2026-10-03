@@ -269,9 +269,13 @@ export function formatPin(pin) {
   // Image URL
   const imageUrl =
     pin.images?.orig?.url ||
+    pin.images_orig?.url ||
     pin.images?.['736x']?.url ||
+    pin.images_736x?.url ||
     pin.images?.['474x']?.url ||
+    pin.images_474x?.url ||
     pin.image_large_url ||
+    pin.imageLargeUrl ||
     pin.image_url ||
     pin.image ||
     '';
@@ -279,39 +283,46 @@ export function formatPin(pin) {
   // Dominant color
   const dominantColor = pin.dominant_color || pin.dominantColor || '#888888';
 
-    const isProduct = Boolean(
-      pin.is_product ||
-      pin.isProduct ||
-      pin.is_eligible_for_pdp ||
-      pin.is_shoppable ||
-      pin.is_retail_product ||
-      pin.rich_metadata?.type === 'product' ||
-      pin.rich_summary?.type === 'product' ||
-      Boolean(pin.buyable_product) ||
-      Boolean(pin.shopping_data) ||
-      Boolean(pin.product_metadata) ||
-      Boolean(pin.price_value) ||
-      Boolean(pin.price_currency)
-    );
+  const altText = safeString(pin.seoAltText || pin.altText || pin.alt_text || pin.auto_alt_text || '');
+  const seoTitle = safeString(pin.seoTitle || pin.seo_title || '');
+  const seoDescription = safeString(pin.seoDescription || pin.seo_description || '');
 
-    return {
-      pin_id: pinId,
-      title: safeString(pin.grid_title || pin.title || pin.headline || pin.grid_description),
-      description: safeString(pin.description || pin.articleBody || pin.unauth_on_page_description),
-      link: safeString(rawLink || pin.link || pin.url),
-      domain,
-      board_id: pin.board?.id || pin.board_id || null,
-      board_name: safeString(pin.board?.name || pin.board_name),
-      created_at_pinterest: createdAtPinterest,
-      age_days: ageDays !== null ? Math.round(ageDays * 10) / 10 : null,
-      velocity,
-      image_url: imageUrl,
-      dominant_color: dominantColor,
-      is_video: Boolean(pin.is_video || pin.isVideo || pin.video_status),
-      is_product: isProduct,
-      saves,
-      repins,
-      comments,
+  const isProduct = Boolean(
+    pin.is_product ||
+    pin.isProduct ||
+    pin.is_eligible_for_pdp ||
+    pin.is_shoppable ||
+    pin.is_retail_product ||
+    pin.rich_metadata?.type === 'product' ||
+    pin.rich_summary?.type === 'product' ||
+    Boolean(pin.buyable_product) ||
+    Boolean(pin.shopping_data) ||
+    Boolean(pin.product_metadata) ||
+    Boolean(pin.price_value) ||
+    Boolean(pin.price_currency)
+  );
+
+  return {
+    pin_id: pinId,
+    title: safeString(pin.grid_title || pin.title || pin.headline || pin.grid_description),
+    description: safeString(pin.description || pin.articleBody || pin.unauth_on_page_description),
+    alt_text: altText,
+    seo_title: seoTitle,
+    seo_description: seoDescription,
+    link: safeString(rawLink || pin.link || pin.url),
+    domain,
+    board_id: pin.board?.id || pin.board_id || null,
+    board_name: safeString(pin.board?.name || pin.board_name),
+    created_at_pinterest: createdAtPinterest,
+    age_days: ageDays !== null ? Math.round(ageDays * 10) / 10 : null,
+    velocity,
+    image_url: imageUrl,
+    dominant_color: dominantColor,
+    is_video: Boolean(pin.is_video || pin.isVideo || pin.video_status),
+    is_product: isProduct,
+    saves,
+    repins,
+    comments,
     share_count: parseCleanMetric(pin.share_count || 0),
     reactions: pin.reaction_counts || pin.reactions || {},
     annotations,
@@ -325,16 +336,94 @@ export function formatPin(pin) {
 export function extractPinData(html, pinId) {
   if (!html || typeof html !== 'string') return null;
 
-  // 1. Relay Completed Request
-  const relayMatch = html.match(
-    /<script[^>]*id="__PWS_RELAY_REGISTER_COMPLETED_REQUEST__"[^>]*>([\s\S]*?)<\/script>/i
-  );
-  if (relayMatch) {
+  // 1. Modern Relay Completed Request Calls (__PWS_RELAY_REGISTER_COMPLETED_REQUEST__)
+  const relayRegex = /__PWS_RELAY_REGISTER_COMPLETED_REQUEST__\s*\(([^,]+),\s*(\{[\s\S]*?\})\);/g;
+  let rMatch;
+  let mergedRelayPin = null;
+
+  while ((rMatch = relayRegex.exec(html)) !== null) {
     try {
-      const data = JSON.parse(relayMatch[1]);
-      const found = findPinInTree(data, pinId);
-      if (found) return formatPin(found);
+      const payload = JSON.parse(rMatch[2]);
+      const v3 = payload?.data?.v3GetPinQueryv2?.data;
+      if (v3 && (String(v3.entityId || v3.id || '') === String(pinId) || !pinId || String(v3.id || '').includes(String(pinId)))) {
+        if (!mergedRelayPin) mergedRelayPin = {};
+        const realId = v3.entityId || (typeof v3.id === 'string' && /^\d+$/.test(v3.id) ? v3.id : null);
+        if (realId) mergedRelayPin.id = realId;
+
+        if (v3.seoAltText) mergedRelayPin.seoAltText = v3.seoAltText;
+        if (v3.altText) mergedRelayPin.altText = v3.altText;
+        if (v3.title) mergedRelayPin.title = v3.title;
+        if (v3.gridTitle && !mergedRelayPin.title) mergedRelayPin.title = v3.gridTitle;
+        if (v3.description) mergedRelayPin.description = v3.description;
+        if (v3.seoTitle) mergedRelayPin.seoTitle = v3.seoTitle;
+        if (v3.seoDescription) mergedRelayPin.seoDescription = v3.seoDescription;
+        if (v3.link) mergedRelayPin.link = v3.link;
+        if (v3.domain) mergedRelayPin.domain = v3.domain;
+        if (v3.dominantColor) mergedRelayPin.dominantColor = v3.dominantColor;
+        if (v3.createdAt) mergedRelayPin.createdAt = v3.createdAt;
+
+        if (v3.board && v3.board.name) {
+          mergedRelayPin.board = {
+            id: v3.board.entityId || v3.board.id,
+            name: v3.board.name,
+            url: v3.board.url
+          };
+        }
+
+        const saves = v3.saveCount ?? v3.aggregatedStats?.saves ?? v3.aggregatedPinData?.aggregatedStats?.saves;
+        if (saves !== undefined && saves !== null) {
+          mergedRelayPin.saves = Math.max(mergedRelayPin.saves || 0, Number(saves));
+        }
+        const repins = v3.repinCount ?? v3.aggregatedStats?.repins ?? v3.aggregatedPinData?.aggregatedStats?.repins;
+        if (repins !== undefined && repins !== null) {
+          mergedRelayPin.repins = Math.max(mergedRelayPin.repins || 0, Number(repins));
+        }
+        if (v3.commentCount !== undefined) {
+          mergedRelayPin.commentCount = Math.max(mergedRelayPin.commentCount || 0, Number(v3.commentCount));
+        }
+
+        const imgOrig = v3.images_orig?.url || v3.images_736x?.url || v3.imageLargeUrl || v3.images?.orig?.url;
+        if (imgOrig) mergedRelayPin.image_url = imgOrig;
+
+        if (v3.isEligibleForPdp || (Array.isArray(v3.shoppingFlags) && v3.shoppingFlags.length > 0) || v3.isProduct || v3.priceValue) {
+          mergedRelayPin.is_product = true;
+        }
+
+        if (!mergedRelayPin.pinJoin) mergedRelayPin.pinJoin = {};
+        if (v3.pinJoin) {
+          if (Array.isArray(v3.pinJoin.visualAnnotation)) {
+            mergedRelayPin.pinJoin.visualAnnotation = [
+              ...(mergedRelayPin.pinJoin.visualAnnotation || []),
+              ...v3.pinJoin.visualAnnotation
+            ];
+          }
+          if (Array.isArray(v3.pinJoin.annotationsWithLinksArray)) {
+            mergedRelayPin.pinJoin.annotationsWithLinksArray = [
+              ...(mergedRelayPin.pinJoin.annotationsWithLinksArray || []),
+              ...v3.pinJoin.annotationsWithLinksArray
+            ];
+          }
+          if (Array.isArray(v3.pinJoin.seoRelatedInterests)) {
+            mergedRelayPin.pinJoin.seoRelatedInterests = [
+              ...(mergedRelayPin.pinJoin.seoRelatedInterests || []),
+              ...v3.pinJoin.seoRelatedInterests
+            ];
+          }
+        }
+      } else {
+        const found = findPinInTree(payload, pinId);
+        if (found) {
+          if (!mergedRelayPin) mergedRelayPin = { ...found };
+          else mergedRelayPin = { ...mergedRelayPin, ...found };
+        }
+      }
     } catch (_) {}
+  }
+
+  if (mergedRelayPin && (mergedRelayPin.id || Object.keys(mergedRelayPin).length > 0)) {
+    if (!mergedRelayPin.id) mergedRelayPin.id = pinId;
+    const formatted = formatPin(mergedRelayPin);
+    if (formatted) return formatted;
   }
 
   // 2. Prefetched Queries
@@ -869,4 +958,140 @@ export async function fetchBoardFeedResource(boardId, boardUrl, bookmark = null,
     return { ok: false, error: err.message, pins: [], nextBookmark: null };
   }
 }
+
+/**
+ * Scrape dedicated board page from Pinterest unauthenticated SSR HTML document.
+ * 100% cookie-free, extracts board metadata, cover, stats, and authentic algorithmic board_vase (Related Interests).
+ */
+export async function fetchBoardDetailUnauth(username, boardSlugOrName) {
+  const cleanUser = String(username || '').replace(/^@/, '').trim().toLowerCase();
+  if (!cleanUser) return { ok: false, error: 'invalid_username' };
+
+  let rawBoard = String(boardSlugOrName || '').trim();
+  if (rawBoard.startsWith('http')) {
+    try {
+      const u = new URL(rawBoard);
+      const parts = u.pathname.split('/').filter(Boolean);
+      rawBoard = parts[1] || parts[0] || '';
+    } catch (_) {}
+  }
+  const cleanSlug = rawBoard
+    .toLowerCase()
+    .replace(/[^\w\s-]/g, '')
+    .trim()
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-');
+
+  if (!cleanSlug) return { ok: false, error: 'invalid_board_name' };
+
+  const url = `https://www.pinterest.com/${cleanUser}/${cleanSlug}/`;
+  try {
+    let res = await fetch(url, {
+      headers: PINTEREST_PAGE_HEADERS,
+      redirect: 'follow',
+      signal: AbortSignal.timeout(8000),
+    });
+
+    if (res.status === 401 || res.status === 403 || res.status === 429) {
+      await sleep(randomJitterMs(2500, 4000));
+      res = await fetch(url, {
+        headers: PINTEREST_PAGE_HEADERS,
+        redirect: 'follow',
+        signal: AbortSignal.timeout(8000),
+      });
+    }
+
+    if (!res.ok) return { ok: false, status: res.status, error: `HTTP ${res.status}` };
+    const html = await res.text();
+
+    let targetBoard = null;
+
+    // 1. Scan initialReduxState
+    const scriptRegex = /<script\b[^>]*>([\s\S]*?)<\/script>/gi;
+    let match;
+    while ((match = scriptRegex.exec(html)) !== null) {
+      const content = match[1];
+      if (content.includes('initialReduxState') && (content.includes('boards') || content.includes('board_vase'))) {
+        try {
+          const parsed = JSON.parse(content);
+          const boards = parsed?.initialReduxState?.boards || {};
+          for (const [id, b] of Object.entries(boards)) {
+            if (b && (b.id || b.name)) {
+              const bSlug = String(b.url || b.name || '')
+                .toLowerCase()
+                .replace(/[^\w\s-]/g, '')
+                .trim()
+                .replace(/\s+/g, '-');
+              if (
+                b.board_vase?.length > 0 ||
+                bSlug.includes(cleanSlug) ||
+                cleanSlug.includes(bSlug) ||
+                (b.name && b.name.toLowerCase() === rawBoard.toLowerCase())
+              ) {
+                targetBoard = b;
+                break;
+              }
+            }
+          }
+        } catch (_) {}
+      }
+      if (targetBoard && targetBoard.board_vase?.length > 0) break;
+    }
+
+    if (!targetBoard) {
+      return { ok: false, error: 'board_not_found_in_html' };
+    }
+
+    const coverImg =
+      targetBoard.image_cover_hd_url ||
+      targetBoard.image_cover_url ||
+      targetBoard.images?.['736x']?.url ||
+      targetBoard.images?.['474x']?.url ||
+      targetBoard.images?.['236x']?.url ||
+      targetBoard.image_thumbnail_url ||
+      null;
+
+    const rawVase = targetBoard.board_vase || [];
+    const boardVase = Array.isArray(rawVase)
+      ? rawVase
+          .map(v => {
+            if (typeof v === 'string') return { text: v.trim(), link: '' };
+            return {
+              text: String(v?.text || '').trim(),
+              link: v?.link ? (v.link.startsWith('http') ? v.link : `https://www.pinterest.com${v.link}`) : '',
+            };
+          })
+          .filter(v => v.text.length > 0)
+      : [];
+
+    const boardUrl = targetBoard.url
+      ? (targetBoard.url.startsWith('http') ? targetBoard.url : `https://www.pinterest.com${targetBoard.url.startsWith('/') ? '' : '/'}${targetBoard.url}`)
+      : url;
+
+    return {
+      ok: true,
+      board: {
+        board_id: String(targetBoard.id || targetBoard.entityId || '').trim(),
+        name: targetBoard.name || rawBoard,
+        url: boardUrl,
+        pin_count: parseCleanMetric(targetBoard.pin_count || 0),
+        follower_count: parseCleanMetric(targetBoard.follower_count || 0),
+        board_order_modified_at: targetBoard.board_order_modified_at || null,
+        created_at: targetBoard.created_at || null,
+        image_cover_url: coverImg,
+        description: targetBoard.description || '',
+        board_vase: boardVase,
+        metadata: {
+          image_cover_url: coverImg,
+          board_vase: boardVase,
+          description: targetBoard.description || '',
+          privacy: targetBoard.privacy || 'public',
+        }
+      }
+    };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
 

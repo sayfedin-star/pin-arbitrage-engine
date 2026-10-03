@@ -18,7 +18,8 @@ import {
   getCompetitorDetail,
   deleteCompetitorSnapshot,
   updateCompetitorStatus,
-  listCompetitorAccountPins
+  listCompetitorAccountPins,
+  getOrSyncBoardDetail
 } from './modules/competitors/service.mjs';
 import { listKeywords, addKeyword, crawlKeywordSERP, getKeywordPins } from './modules/keywords/service.mjs';
 import { getFleetProjects, registerNewProject, syncFleetDatabases, syncCompetitorAcrossFleet, pingFleetProject, getFleetProjectUrl } from './modules/fleet/service.mjs';
@@ -1365,6 +1366,19 @@ export default {
         try {
           const detail = await getCompetitorDetail(targetSql, idOrUser);
           return jsonResponse({ success: true, ...detail });
+        } catch (err) {
+          return jsonResponse({ success: false, error: err.message }, 500);
+        }
+      }
+
+      if (method === 'GET' && pathname === '/api/competitors/board-detail') {
+        const username = searchParams.get('username') || searchParams.get('account') || searchParams.get('id');
+        const board = searchParams.get('board') || searchParams.get('board_name') || searchParams.get('slug');
+        if (!username || !board) return jsonResponse({ error: 'username and board are required' }, 400);
+        try {
+          const forceRefresh = searchParams.get('refresh') === 'true';
+          const boardData = await getOrSyncBoardDetail(targetSql, username, board, { forceRefresh });
+          return jsonResponse({ success: true, board: boardData });
         } catch (err) {
           return jsonResponse({ success: false, error: err.message }, 500);
         }

@@ -426,6 +426,13 @@ export function getDashboardHtml() {
               <span>🔗 Canonical #<span x-text="activePinDossier.pin_id"></span></span>
             </span>
 
+            <!-- Product Badge -->
+            <template x-if="activePinDossier.is_product">
+              <span class="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                <span>🛒 Product Pin</span>
+              </span>
+            </template>
+
             <!-- Creator Badge -->
             <span class="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30 cursor-pointer hover:opacity-80 transition"
                   @click="if (activePinDossier.account_username) { openCreatorByHandle(activePinDossier.account_username); }">
@@ -459,14 +466,25 @@ export function getDashboardHtml() {
 
               <!-- Pinterest SEO Alt Text Box (matches Image 2) -->
               <div class="rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/50 p-4 space-y-1.5 shadow-2xs">
-                <div class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                  <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400"></i>
-                  <span>Pinterest SEO Alt Text</span>
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                    <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400"></i>
+                    <span>Pinterest SEO Alt Text</span>
+                  </div>
+                  <button type="button" x-show="activePinDossier.alt_text" @click="copyPinField('Alt Text', activePinDossier.alt_text)" class="text-[10px] font-semibold text-rose-500 hover:text-rose-600 flex items-center gap-1 cursor-pointer">
+                    <i data-lucide="copy" class="w-3 h-3"></i>
+                    <span>Copy</span>
+                  </button>
                 </div>
-                <p class="text-xs font-serif italic text-slate-700 dark:text-slate-300 leading-relaxed" x-text="'&ldquo;' + (activePinDossier.description || activePinDossier.title || '') + '&rdquo;'"></p>
+                <template x-if="activePinDossier.alt_text">
+                  <p class="text-xs font-serif italic text-slate-700 dark:text-slate-300 leading-relaxed" x-text="'&ldquo;' + activePinDossier.alt_text + '&rdquo;'"></p>
+                </template>
+                <template x-if="!activePinDossier.alt_text">
+                  <p class="text-xs italic text-slate-400 leading-relaxed">No Pinterest SEO Alt Text specified for this pin.</p>
+                </template>
               </div>
 
-              <!-- Copy Toolbar (Copy Pin ID, Copy Pinterest URL, Copy Title) -->
+              <!-- Copy Toolbar (Copy Pin ID, Copy Pinterest URL, Copy Title, Copy Alt Text) -->
               <div class="flex items-center gap-2 flex-wrap pt-1">
                 <button type="button" @click="copyPinField('Pin ID', activePinDossier.pin_id)" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition shadow-2xs cursor-pointer">
                   <i data-lucide="copy" class="w-3.5 h-3.5 text-slate-400"></i>
@@ -479,6 +497,10 @@ export function getDashboardHtml() {
                 <button type="button" @click="copyPinField('Title', activePinDossier.title)" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition shadow-2xs cursor-pointer">
                   <span class="font-bold font-serif">T</span>
                   <span>Copy Title</span>
+                </button>
+                <button type="button" x-show="activePinDossier.alt_text" @click="copyPinField('Alt Text', activePinDossier.alt_text)" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition shadow-2xs cursor-pointer">
+                  <i data-lucide="file-text" class="w-3.5 h-3.5 text-slate-400"></i>
+                  <span>Copy Alt Text</span>
                 </button>
               </div>
 
@@ -533,7 +555,7 @@ export function getDashboardHtml() {
                 
                 <div class="flex items-center gap-2 flex-wrap">
                   <template x-for="(ann, aIdx) in (activePinDossier.annotations || [])" :key="aIdx">
-                    <a :href="'https://www.pinterest.com/search/pins/?q=' + encodeURIComponent(ann.name || ann)" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-medium bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/30 dark:hover:bg-rose-950/50 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/50 transition">
+                    <a :href="(ann.url && ann.url.startsWith('/')) ? ('https://www.pinterest.com' + ann.url) : (ann.url || ('https://www.pinterest.com/search/pins/?q=' + encodeURIComponent(ann.name || ann)))" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-medium bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/30 dark:hover:bg-rose-950/50 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/50 transition">
                       <span>💡</span>
                       <span x-text="ann.name || ann"></span>
                       <i data-lucide="external-link" class="w-2.5 h-2.5 opacity-60"></i>
@@ -831,8 +853,12 @@ export function getDashboardHtml() {
           </div>
         </div>
 
-        <!-- Quick Harvest Action -->
-        <div class="flex items-center gap-2 shrink-0">
+        <!-- Quick Board Actions -->
+        <div class="flex items-center gap-2 shrink-0 flex-wrap">
+          <button type="button" @click="refreshBoardDetail()" class="px-3.5 py-2.5 rounded-xl text-xs font-bold border border-purple-500/30 bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 transition active:scale-95 flex items-center space-x-1.5 shadow-2xs cursor-pointer" title="Scrape authentic board topics (board_vase) & follower stats from Pinterest">
+            <i data-lucide="sparkles" class="w-4 h-4"></i>
+            <span>Sync Topics (board_vase)</span>
+          </button>
           <button type="button" @click="crawlSingleBoardGha(activeBoardName)" class="px-4 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white transition active:scale-95 flex items-center space-x-1.5 shadow-sm cursor-pointer" title="Crawl this specific board with 20 parallel GitHub Actions runners">
             <i data-lucide="zap" class="w-4 h-4"></i>
             <span>Harvest Board (GHA 20-Shards)</span>
@@ -842,19 +868,44 @@ export function getDashboardHtml() {
 
       <!-- Algorithmic Related Interests (board_vase) -->
       <template x-if="activeBoard && activeBoard.board_vase && activeBoard.board_vase.length > 0">
-        <div class="p-4 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] shadow-2xs space-y-2">
-          <div class="flex items-center gap-1.5 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-            <i data-lucide="sparkles" class="w-3.5 h-3.5 text-purple-500"></i>
-            <span>Discovered Algorithmic Related Topics (board_vase)</span>
+        <div class="p-4 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] shadow-2xs space-y-2.5">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-1.5 text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider">
+              <i data-lucide="sparkles" class="w-3.5 h-3.5 text-purple-500"></i>
+              <span>Discovered Algorithmic Related Topics (board_vase)</span>
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-mono bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 font-bold" x-text="activeBoard.board_vase.length + ' topics'"></span>
+            </div>
+            <span class="text-[11px] text-slate-400">Click any topic to filter board pins</span>
           </div>
           <div class="flex flex-wrap gap-1.5">
             <template x-for="v in activeBoard.board_vase" :key="v.text || v">
-              <button type="button" @click="boardPinsSearch = (v.text || v)" class="inline-flex items-center gap-1 px-3 py-1 rounded-xl text-xs font-semibold bg-purple-500/10 text-purple-700 dark:text-purple-300 border border-purple-500/20 hover:bg-purple-500/20 transition cursor-pointer" :title="'Search board pins for: ' + (v.text || v)">
-                <span>#</span>
-                <span x-text="v.text || v"></span>
-              </button>
+              <div class="inline-flex items-center rounded-xl bg-purple-500/10 text-purple-700 dark:text-purple-300 border border-purple-500/20 overflow-hidden hover:bg-purple-500/20 transition">
+                <button type="button" @click="boardPinsSearch = (v.text || v)" class="inline-flex items-center gap-1 px-3 py-1 text-xs font-semibold cursor-pointer" :title="'Filter board pins for: ' + (v.text || v)">
+                  <span>#</span>
+                  <span x-text="v.text || v"></span>
+                </button>
+                <template x-if="v.link">
+                  <a :href="v.link.startsWith('http') ? v.link : ('https://www.pinterest.com' + v.link)" target="_blank" rel="noopener noreferrer" class="px-1.5 py-1 text-purple-400 hover:text-purple-600 dark:hover:text-white transition" title="Open Topic on Pinterest">
+                    <i data-lucide="external-link" class="w-2.5 h-2.5"></i>
+                  </a>
+                </template>
+              </div>
             </template>
           </div>
+        </div>
+      </template>
+
+      <!-- Empty board_vase prompt -->
+      <template x-if="activeBoard && (!activeBoard.board_vase || activeBoard.board_vase.length === 0)">
+        <div class="p-3.5 rounded-2xl border border-dashed border-purple-500/30 bg-purple-500/5 flex items-center justify-between gap-3 flex-wrap">
+          <div class="flex items-center gap-2 text-xs text-purple-700 dark:text-purple-300">
+            <i data-lucide="sparkles" class="w-4 h-4 text-purple-500 shrink-0"></i>
+            <span>No algorithmic Related Interests discovered for this board yet.</span>
+          </div>
+          <button type="button" @click="refreshBoardDetail()" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white shadow-2xs transition active:scale-95 cursor-pointer flex items-center gap-1">
+            <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+            <span>Fetch Related Interests Now</span>
+          </button>
         </div>
       </template>
 
@@ -10201,9 +10252,24 @@ export function getDashboardHtml() {
             p.set('board', boardName);
             p.set('limit', 1000);
 
-            const res = await fetch(this.getApiUrl('/api/competitors/all-pins?' + p.toString()));
-            if (res.ok) {
-              const data = await res.json();
+            const [pinsRes, detailRes] = await Promise.all([
+              fetch(this.getApiUrl('/api/competitors/all-pins?' + p.toString())),
+              handle ? fetch(this.getApiUrl('/api/competitors/board-detail?username=' + encodeURIComponent(handle) + '&board=' + encodeURIComponent(boardName))) : Promise.resolve(null)
+            ]);
+
+            if (detailRes && detailRes.ok) {
+              const dData = await detailRes.json();
+              if (dData.board) {
+                this.activeBoard = {
+                  ...this.activeBoard,
+                  ...dData.board,
+                  board_vase: Array.isArray(dData.board.board_vase) ? dData.board.board_vase : (this.activeBoard.board_vase || [])
+                };
+              }
+            }
+
+            if (pinsRes && pinsRes.ok) {
+              const data = await pinsRes.json();
               this.boardPins = data.pins || [];
               this.boardPinsTotal = data.total || this.boardPins.length;
               if (this.boardPins.length > 0 && (!this.activeBoard.pin_count || this.activeBoard.pin_count === 0)) {
@@ -10215,6 +10281,34 @@ export function getDashboardHtml() {
             this.showToast('Error loading pins for board: ' + boardName);
           } finally {
             this.isLoadingBoardPins = false;
+            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+          }
+        },
+
+        async refreshBoardDetail() {
+          if (!this.activeBoardName) return;
+          const creator = this.activeBoardCreator || this.activeCreator;
+          const handle = creator ? (creator.username || '').replace(/^@+/, '').trim() : '';
+          if (!handle) return;
+          this.showToast('🔍 Scraping authentic Related Interests (board_vase) from Pinterest...');
+          try {
+            const res = await fetch(this.getApiUrl('/api/competitors/board-detail?username=' + encodeURIComponent(handle) + '&board=' + encodeURIComponent(this.activeBoardName) + '&refresh=true'));
+            if (res.ok) {
+              const data = await res.json();
+              if (data.board) {
+                this.activeBoard = {
+                  ...this.activeBoard,
+                  ...data.board,
+                  board_vase: Array.isArray(data.board.board_vase) ? data.board.board_vase : []
+                };
+                this.showToast('✅ Discovered ' + (this.activeBoard.board_vase?.length || 0) + ' algorithmic Related Topics (board_vase)!');
+              }
+            } else {
+              this.showToast('❌ Could not refresh board topics from Pinterest.');
+            }
+          } catch (e) {
+            this.showToast('❌ Error refreshing board: ' + e.message);
+          } finally {
             this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
           }
         },
