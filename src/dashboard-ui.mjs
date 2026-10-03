@@ -364,6 +364,12 @@ export function getDashboardHtml() {
             <span>Copy Page Link</span>
           </button>
 
+          <!-- Live Refresh from Pinterest (No Cookies) -->
+          <button type="button" @click="openPinPage(activePinId, false, true)" :disabled="isLoadingPinDossier" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 transition shadow-2xs cursor-pointer disabled:opacity-50" title="Scrape live Pinterest page anonymously without cookies and refresh metrics">
+            <i data-lucide="refresh-cw" class="w-3.5 h-3.5" :class="isLoadingPinDossier ? 'animate-spin' : ''"></i>
+            <span>Live Refresh (No Cookies)</span>
+          </button>
+
           <!-- External Pinterest Link -->
           <a :href="'https://www.pinterest.com/pin/' + activePinId + '/'" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition shadow-xs">
             <span>Open on Pinterest</span>
@@ -3456,14 +3462,9 @@ export function getDashboardHtml() {
                 <span>🔄 Sync Profile</span>
               </button>
 
-              <button @click="harvestAllAccountPinsAction(activeCreator)" :disabled="isHarvestingAllPins" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white px-3.5 text-xs font-bold transition shadow-2xs cursor-pointer disabled:opacity-50" title="Harvest account pins directly via Worker API">
-                <i data-lucide="download" class="w-3.5 h-3.5" :class="isHarvestingAllPins ? 'animate-bounce' : ''"></i>
-                <span x-text="isHarvestingAllPins ? 'Harvesting...' : '📥 Harvest Pins (Worker)'"></span>
-              </button>
-
-              <button @click="dispatchCreatorGitHubCrawlAction(activeCreator, 'discovery')" :disabled="isDispatchingGitHubCrawl" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-sky-500/30 bg-sky-500/10 hover:bg-sky-500/20 text-sky-600 dark:text-sky-400 px-3.5 text-xs font-bold transition shadow-2xs cursor-pointer disabled:opacity-50" title="Launch 20-Shard Parallel Matrix Crawler on GitHub Actions (Distributed IP Egress & Monotonic Triggers)">
-                <i data-lucide="git-branch" class="w-3.5 h-3.5" :class="isDispatchingGitHubCrawl ? 'animate-spin' : ''"></i>
-                <span x-text="isDispatchingGitHubCrawl ? 'Dispatching...' : '⚡ GitHub Actions (20 Shards)'"></span>
+              <button @click="openGhaCrawlerModal(activeCreator)" :disabled="isDispatchingGitHubCrawl" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white px-4 text-xs font-bold transition shadow-md cursor-pointer disabled:opacity-50" title="Launch 20-Shard Parallel Matrix Crawler on GitHub Actions (Distributed IP Egress & 100% Reliability)">
+                <i data-lucide="zap" class="w-3.5 h-3.5" :class="isDispatchingGitHubCrawl ? 'animate-spin' : ''"></i>
+                <span x-text="isDispatchingGitHubCrawl ? 'Dispatching...' : '⚡ Harvest Pins (GitHub Actions 20 Shards)'"></span>
               </button>
 
               <button @click="toggleCompetitorStatus(activeCreator)" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0d1526] px-3 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition shadow-2xs cursor-pointer">
@@ -4147,9 +4148,9 @@ export function getDashboardHtml() {
                   <i data-lucide="refresh-cw" class="w-3.5 h-3.5" :class="isLoadingAllPins ? 'animate-spin text-indigo-500' : ''"></i>
                   <span>Refresh</span>
                 </button>
-                <button type="button" @click="harvestAllAccountPinsAction(activeCreator)" :disabled="isHarvestingAllPins" class="px-4 py-2 text-xs font-bold rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white transition flex items-center gap-2 cursor-pointer shadow-sm shadow-indigo-600/20 active:scale-95 disabled:opacity-50">
-                  <i data-lucide="download-cloud" class="w-4 h-4" :class="isHarvestingAllPins ? 'animate-bounce' : ''"></i>
-                  <span x-text="isHarvestingAllPins ? 'Harvesting pins...' : '📥 Harvest All Pins'"></span>
+                <button type="button" @click="openGhaCrawlerModal(activeCreator)" :disabled="isDispatchingGitHubCrawl" class="px-4 py-2 text-xs font-bold rounded-xl bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white transition flex items-center gap-2 cursor-pointer shadow-sm active:scale-95 disabled:opacity-50" title="Harvest creator pins using 20 parallel GitHub Actions runner shards">
+                  <i data-lucide="zap" class="w-4 h-4" :class="isDispatchingGitHubCrawl ? 'animate-spin' : ''"></i>
+                  <span x-text="isDispatchingGitHubCrawl ? 'Dispatching...' : '⚡ Harvest via GitHub Actions (20 Shards)'"></span>
                 </button>
               </div>
             </div>
@@ -4254,9 +4255,9 @@ export function getDashboardHtml() {
               </div>
               <h4 class="text-sm font-bold text-slate-900 dark:text-white">No pins found in inventory</h4>
               <p class="text-xs text-slate-500 max-w-sm mx-auto mt-1">No pins match the current filter or this account has not been harvested yet. Click "Harvest All Pins" to pull the full catalog from Pinterest.</p>
-              <button type="button" @click="harvestAllAccountPinsAction(activeCreator)" class="mt-4 px-4 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm inline-flex items-center gap-1.5 transition cursor-pointer">
-                <i data-lucide="download-cloud" class="w-4 h-4"></i>
-                <span>Harvest All Pins Now</span>
+              <button type="button" @click="openGhaCrawlerModal(activeCreator)" class="mt-4 px-4 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white shadow-sm inline-flex items-center gap-1.5 transition cursor-pointer">
+                <i data-lucide="zap" class="w-4 h-4"></i>
+                <span>⚡ Launch 20-Shard GitHub Actions Harvest</span>
               </button>
             </div>
 
@@ -4775,13 +4776,13 @@ export function getDashboardHtml() {
                 <p class="text-xs text-slate-500">Harvest pins from specific creator boards or deep audit their categories</p>
               </div>
               <div class="flex items-center space-x-2">
-                <button @click="harvestCompetitorPinsAction(activeCreator, 'daily')" :disabled="harvestingCompetitorId === activeCreator?.id" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white transition active:scale-95 disabled:opacity-50 flex items-center space-x-1.5 shadow-sm" title="Harvest ~150 latest pins using 3-tier rules">
-                  <i data-lucide="download" :class="{'animate-bounce': harvestingCompetitorId === activeCreator?.id}" class="w-3.5 h-3.5"></i>
-                  <span>Harvest (3p)</span>
+                <button @click="harvestCompetitorPinsAction(activeCreator, 'daily')" :disabled="isDispatchingGitHubCrawl || harvestingCompetitorId === activeCreator?.id" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-sky-600 hover:bg-sky-500 text-white transition active:scale-95 disabled:opacity-50 flex items-center space-x-1.5 shadow-sm" title="Harvest latest pins via 20-Shard GitHub Actions Crawler">
+                  <i data-lucide="zap" :class="{'animate-spin': isDispatchingGitHubCrawl || harvestingCompetitorId === activeCreator?.id}" class="w-3.5 h-3.5"></i>
+                  <span>⚡ GHA Refresh (3p)</span>
                 </button>
-                <button @click="harvestCompetitorPinsAction(activeCreator, 'deep')" :disabled="harvestingCompetitorId === activeCreator?.id" class="px-3 py-1.5 rounded-xl text-xs font-semibold border border-purple-500/40 bg-purple-500/10 hover:bg-purple-500/20 text-purple-700 dark:text-purple-300 transition active:scale-95 disabled:opacity-50 flex items-center space-x-1.5" title="Deep Audit Sweep (up to 500 pages)">
+                <button @click="harvestCompetitorPinsAction(activeCreator, 'deep')" :disabled="isDispatchingGitHubCrawl || harvestingCompetitorId === activeCreator?.id" class="px-3 py-1.5 rounded-xl text-xs font-semibold border border-purple-500/40 bg-purple-500/10 hover:bg-purple-500/20 text-purple-700 dark:text-purple-300 transition active:scale-95 disabled:opacity-50 flex items-center space-x-1.5" title="Deep Audit Sweep on GitHub Actions (up to 500 pages)">
                   <i data-lucide="zap" class="w-3.5 h-3.5 text-purple-500"></i>
-                  <span>Deep Audit</span>
+                  <span>⚡ Deep Audit (GHA 500p)</span>
                 </button>
                 <button @click="syncCompetitorBoardsAction(activeCreator)" :disabled="isSyncingBoards" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white transition active:scale-95 disabled:opacity-50 flex items-center space-x-1.5 shadow-sm">
                   <i data-lucide="refresh-cw" :class="{'animate-spin': isSyncingBoards}" class="w-3.5 h-3.5"></i>
@@ -4799,6 +4800,7 @@ export function getDashboardHtml() {
                     <th class="py-3 px-4 text-right">Pins</th>
                     <th class="py-3 px-4 text-right">Followers</th>
                     <th class="py-3 px-4 text-center">Last Activity</th>
+                    <th class="py-3 px-4 text-center">Crawl (GHA)</th>
                     <th class="py-3 px-4 text-center">Link</th>
                   </tr>
                 </thead>
@@ -4810,6 +4812,12 @@ export function getDashboardHtml() {
                       <td class="py-3 px-4 text-right text-slate-600 dark:text-slate-400" x-text="formatNumber(b.follower_count)"></td>
                       <td class="py-3 px-4 text-center">
                         <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/30" x-text="b.last_pinned_at ? new Date(b.last_pinned_at).toLocaleDateString() : 'Active'"></span>
+                      </td>
+                      <td class="py-3 px-4 text-center">
+                        <button type="button" @click="ghaBoardScope = 'custom'; ghaTargetBoards = [b.name]; openGhaCrawlerModal(activeCreator);" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-sky-500/30 bg-sky-500/10 text-sky-600 dark:text-sky-400 text-[11px] font-bold hover:bg-sky-500/20 transition cursor-pointer" title="Crawl this board on GitHub Actions">
+                          <i data-lucide="zap" class="w-3 h-3"></i>
+                          <span>⚡ Crawl Board</span>
+                        </button>
                       </td>
                       <td class="py-3 px-4 text-center">
                         <a :href="b.url || ('https://www.pinterest.com/' + (activeCreator.username || '').replace(/^@+/, ''))" target="_blank" class="p-1 rounded text-purple-600 dark:text-purple-400 hover:underline inline-flex items-center space-x-1">
@@ -4950,6 +4958,10 @@ export function getDashboardHtml() {
           </div>
         </div>
         <div class="flex items-center space-x-2">
+          <button @click="syncAllFleetDatabasesAction()" :disabled="isSyncingFleet" class="px-3.5 py-2 text-xs font-bold rounded-xl border border-cyan-500/30 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-600 dark:text-cyan-400 transition flex items-center space-x-1.5 shadow-2xs active:scale-95 disabled:opacity-50 cursor-pointer" title="Synchronize all competitor profiles & boards from Hub across all 99 Neon shard databases">
+            <i data-lucide="refresh-cw" class="w-3.5 h-3.5" :class="isSyncingFleet ? 'animate-spin' : ''"></i>
+            <span x-text="isSyncingFleet ? 'Syncing Fleet...' : '🔄 Sync Fleet Databases (100 DBs)'"></span>
+          </button>
           <button @click="isAddFleetModalOpen = true" class="px-3.5 py-2 text-xs font-bold rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white transition flex items-center space-x-1.5 shadow-sm shadow-cyan-950/20 active:scale-95">
             <i data-lucide="plus" class="w-3.5 h-3.5"></i>
             <span>+ Add Project to Fleet</span>
@@ -6643,6 +6655,7 @@ export function getDashboardHtml() {
         // Tab 6: Fleet State
         fleetProjects: [],
         isAddFleetModalOpen: false,
+        isSyncingFleet: false,
         newFleetProjectId: '',
         newFleetProjectName: '',
         newFleetDatabaseUrl: '',
@@ -8325,6 +8338,31 @@ export function getDashboardHtml() {
           } catch (e) {}
         },
 
+        async syncAllFleetDatabasesAction() {
+          this.isSyncingFleet = true;
+          this.showToast('🔄 Synchronizing Hub profiles & boards across all 99 Neon database shards...');
+          try {
+            const res = await fetch(this.getApiUrl('/api/fleet/sync'), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({})
+            });
+            const data = await res.json();
+            if (res.ok && data.ok) {
+              this.showToast('🎉 Fleet synchronized! Replicated across ' + data.successful_shards + ' shards (' + data.profiles_count + ' profiles, ' + data.boards_count + ' boards).');
+              await this.fetchFleetProjects();
+              await this.fetchCompetitors();
+            } else {
+              this.showToast('❌ Fleet sync note: ' + (data.error || 'Check server logs'));
+            }
+          } catch (e) {
+            this.showToast('❌ Fleet sync network error: ' + e.message);
+          } finally {
+            this.isSyncingFleet = false;
+            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+          }
+        },
+
         async switchProject(projId) {
           this.selectedProject = projId;
           this.activeCreator = null;
@@ -8576,46 +8614,32 @@ export function getDashboardHtml() {
         },
 
         async harvestCompetitorPinsAction(competitor, mode = 'daily') {
-          if (!competitor || !competitor.id) return;
-          const maxPages = mode === 'deep' ? (this.qualificationRules?.discovery_max_pages || 500) : (this.qualificationRules?.early_stop_pages || 3);
-          const confirmMsg = mode === 'deep' 
-            ? 'Start Deep Audit Sweep for @' + competitor.username + ' (up to ' + maxPages + ' pages)? This may take a minute.'
-            : 'Harvest latest pins for @' + competitor.username + ' (Early-Stop ' + maxPages + ' pages)?';
-          
-          if (mode === 'deep' && !confirm(confirmMsg)) return;
+          if (!competitor) return;
+          const handle = (competitor.username || '').replace(/^@+/, '').trim();
+          const compId = competitor.id || handle;
+          const crawlMode = mode === 'deep' ? 'discovery' : 'refresh';
+          const maxPages = mode === 'deep' ? 500 : 3;
 
-          this.harvestingCompetitorId = competitor.id;
-          this.showToast('⏳ Crawling pins for @' + competitor.username + ' (' + mode + ' mode, max ' + maxPages + 'p)...');
+          this.harvestingCompetitorId = compId;
+          this.showToast('⚡ Dispatching 20-shard GHA Crawler for @' + handle + ' (' + crawlMode + ' mode, max ' + maxPages + 'p)...');
           try {
-            const res = await fetch(this.getApiUrl('/api/competitors/sync-pins'), {
+            const res = await fetch(this.getApiUrl('/api/competitors/dispatch-crawl'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                competitor_id: competitor.id,
-                username: competitor.username,
-                mode: mode,
+                username: handle,
+                crawl_mode: crawlMode,
                 max_pages: maxPages
               })
             });
-            if (res.ok) {
-              const data = await res.json();
-              const crawled = data.crawled ?? data.total_fetched ?? 0;
-              const qualified = data.qualified ?? data.qualified_archived ?? data.inserted ?? 0;
-              this.showToast('🎉 Harvested ' + crawled + ' pins for @' + competitor.username + ': ' + qualified + ' qualified & archived!');
-              await this.fetchCompetitors();
-              await this.fetchPinArchiveOverview();
-              if (this.currentTab === 'pinarchive' || this.currentTab === 'creators_archive') {
-                await this.fetchPinArchivePins();
-              }
-              if (this.activeCreator && (this.activeCreator.id === competitor.id || (this.activeCreator.username || '').replace(/^@+/, '') === (competitor.username || '').replace(/^@+/, ''))) {
-                await this.openCreatorDossier(competitor, this.activeCreatorTab);
-              }
+            const data = await res.json();
+            if (res.ok && data.success) {
+              this.showToast('🚀 ' + (data.message || 'Crawler pipeline launched on GitHub Actions!'));
             } else {
-              const err = await res.json();
-              this.showToast('Harvest failed: ' + (err.error || 'Error'));
+              this.showToast('❌ Dispatch note: ' + (data.error || 'Check GitHub token configuration'));
             }
           } catch (e) {
-            this.showToast('Harvest error: ' + e.message);
+            this.showToast('❌ Dispatch network error: ' + e.message);
           } finally {
             this.harvestingCompetitorId = null;
             this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
@@ -8973,50 +8997,11 @@ export function getDashboardHtml() {
         },
 
         async harvestAllAccountPinsAction(creator) {
-          if (!creator) return;
-          const handle = (creator.username || '').replace(/^@+/, '').trim();
-          const compId = creator.id || handle;
-          const input = prompt('Enter max pages to harvest (each page = 50 pins). Enter 50 for ~2,500 pins, or 100 for all pins:', '50');
-          if (!input || isNaN(Number(input))) return;
-          const maxPages = Number(input);
-
-          this.isHarvestingAllPins = true;
-          this.showToast('🚀 Starting full pin harvest for @' + handle + ' (up to ' + maxPages + ' pages)...');
-          try {
-            const res = await fetch(this.getApiUrl('/api/competitors/sync-pins'), {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                competitor_id: compId,
-                username: handle,
-                mode: 'all',
-                max_pages: maxPages
-              })
-            });
-            if (res.ok) {
-              const data = await res.json();
-              const crawled = data.crawled ?? data.total_fetched ?? 0;
-              const qualified = data.qualified ?? data.qualified_archived ?? 0;
-              this.showToast('🎉 Harvested ' + crawled + ' pins for @' + handle + '! (' + qualified + ' qualified & archived)');
-              await this.fetchCreatorAllPins();
-              await this.fetchPinArchivePins();
-              if (this.activeCreator) {
-                await this.openCreatorPage(this.activeCreator, this.activeCreatorTab);
-              }
-            } else {
-              const err = await res.json();
-              this.showToast('Harvest failed: ' + (err.error || 'Error'));
-            }
-          } catch (e) {
-            this.showToast('Harvest error: ' + e.message);
-          } finally {
-            this.isHarvestingAllPins = false;
-            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
-          }
+          return this.openGhaCrawlerModal(creator);
         },
 
         // Dedicated Pin Detail Page & Dossier Action Methods (Route: /pin/:id)
-        async openPinPage(pinOrId, updateHistory = true) {
+        async openPinPage(pinOrId, updateHistory = true, forceRefresh = false) {
           if (!pinOrId) return;
           const pinId = typeof pinOrId === 'object' ? String(pinOrId.pin_id || pinOrId.id || '') : String(pinOrId);
           if (!pinId) return;
@@ -9065,8 +9050,13 @@ export function getDashboardHtml() {
             document.title = (this.activePinDossier.title ? this.activePinDossier.title + ' | ' : '') + 'Pin #' + pinId + ' | Pinterest Intelligence';
           }
 
+          if (forceRefresh) {
+            this.showToast('🔍 Scraping live Pinterest HTML for Pin #' + pinId + ' without cookies...');
+          }
+
           try {
-            const res = await fetch(this.getApiUrl('/api/pinarchive/pin-detail?pin_id=' + encodeURIComponent(pinId)));
+            const refreshParam = forceRefresh ? '&refresh=true' : '';
+            const res = await fetch(this.getApiUrl('/api/pinarchive/pin-detail?pin_id=' + encodeURIComponent(pinId) + refreshParam));
             if (res.ok) {
               const data = await res.json();
               if (data.pin) {
@@ -9076,9 +9066,19 @@ export function getDashboardHtml() {
                 }
               }
               this.pinDossierSnapshots = data.snapshots || [];
+              if (forceRefresh) {
+                this.showToast('✅ Pin live metrics refreshed from Pinterest without cookies!');
+              }
+            } else {
+              if (forceRefresh) {
+                this.showToast('❌ Live refresh could not reach Pinterest page.');
+              }
             }
           } catch (err) {
             console.error('Failed to load pin detail dossier:', err);
+            if (forceRefresh) {
+              this.showToast('❌ Error during live refresh: ' + err.message);
+            }
           } finally {
             this.isLoadingPinDossier = false;
             this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
@@ -9446,27 +9446,24 @@ export function getDashboardHtml() {
               }
             }
 
-            // 2. If discover pins immediately
+            // 2. If discover pins immediately -> Dispatch to 20-Shard GitHub Actions Crawler
             if (this.newCompetitorDiscoverPins) {
-              const maxPages = this.newCompetitorDiscoverMode === 'deep' 
-                ? (this.qualificationRules?.discovery_max_pages || 500) 
-                : (this.qualificationRules?.early_stop_pages || 3);
-              this.showToast('⏳ Discovering winning pins for @' + handle + ' (' + this.newCompetitorDiscoverMode + ' mode)...');
+              const crawlMode = this.newCompetitorDiscoverMode === 'deep' ? 'discovery' : 'refresh';
+              const maxPages = this.newCompetitorDiscoverMode === 'deep' ? 500 : 3;
+              this.showToast('⚡ Dispatching 20-shard GHA Crawler for @' + handle + ' (' + crawlMode + ' mode)...');
               
-              const resPins = await fetch(this.getApiUrl('/api/competitors/sync-pins'), {
+              const resPins = await fetch(this.getApiUrl('/api/competitors/dispatch-crawl'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   username: handle,
-                  mode: this.newCompetitorDiscoverMode,
+                  crawl_mode: crawlMode,
                   max_pages: maxPages
                 })
               });
               if (resPins.ok) {
                 const data = await resPins.json();
-                const crawled = data.crawled ?? data.total_fetched ?? 0;
-                const qual = data.qualified ?? data.qualified_archived ?? data.inserted ?? 0;
-                this.showToast('🎉 Discovered ' + crawled + ' pins for @' + handle + ' (' + qual + ' qualified into archive)');
+                this.showToast('🚀 ' + (data.message || '20-Shard Crawler dispatched on GitHub Actions!'));
               }
             }
 

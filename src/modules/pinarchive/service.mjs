@@ -9,6 +9,8 @@
  * - Safe staging & Bulk Compare-And-Swap (CAS) dispatching via pa_staged_pins.
  */
 
+import { fetchPinFromPinterest } from '../../../scripts/lib/pinterest.mjs';
+
 /**
  * Format numbers with abbreviation (e.g. 12.4K, 1.2M)
  */
@@ -857,42 +859,112 @@ export async function listStagedPins(sql, { status = 'all', limit = 50, offset =
 /**
  * Fetch complete pin detail dossier including all historical metric snapshots and deltas
  */
-export async function getPinDetailWithMetrics(sql, pinId) {
+export async function getPinDetailWithMetrics(sql, pinId, options = {}) {
   const cleanId = String(pinId || '').trim();
   if (!cleanId) throw new Error('pinId is required');
+  const forceRefresh = options?.forceRefresh === true || options?.refresh === true;
 
-  let [pin] = await sql`
-    SELECT * FROM pa_pins WHERE pin_id = ${cleanId} LIMIT 1;
-  `;
+  let pin = null;
 
-  if (!pin) {
-    const [rawPin] = await sql`
-      SELECT 
-        pin_id,
-        title,
-        description,
-        destination_url AS link,
-        link_domain AS domain,
-        board_name,
-        image_url,
-        NULL AS dominant_color,
-        save_count AS saves,
-        repin_count AS repins,
-        comment_count AS comments,
-        0 AS share_count,
-        '{}'::jsonb AS reactions,
-        0 AS velocity,
-        metadata->'annotations' AS annotations,
-        FALSE AS is_video,
-        FALSE AS is_product,
-        created_at_pinterest,
-        first_seen_at,
-        last_seen_at AS last_updated_at
-      FROM competitor_pins
-      WHERE pin_id = ${cleanId}
-      LIMIT 1;
+  if (!forceRefresh) {
+    const [p] = await sql`
+      SELECT * FROM pa_pins WHERE pin_id = ${cleanId} LIMIT 1;
     `;
-    pin = rawPin || null;
+    pin = p || null;
+
+    if (!pin) {
+      const [rawPin] = await sql`
+        SELECT 
+          pin_id,
+          title,
+          description,
+          destination_url AS link,
+          link_domain AS domain,
+          board_name,
+          image_url,
+          NULL AS dominant_color,
+          save_count AS saves,
+          repin_count AS repins,
+          comment_count AS comments,
+          0 AS share_count,
+          '{}'::jsonb AS reactions,
+          0 AS velocity,
+          metadata->'annotations' AS annotations,
+          FALSE AS is_video,
+          FALSE AS is_product,
+          created_at_pinterest,
+          first_seen_at,
+          last_seen_at AS last_updated_at
+        FROM competitor_pins
+        WHERE pin_id = ${cleanId}
+        LIMIT 1;
+      `;
+      pin = rawPin || null;
+    }
+  }
+
+  // If pin is not found in database OR live refresh was explicitly requested:
+  // Fetch directly from Pinterest public HTML without any cookies!
+  if (!pin || forceRefresh) {
+    try {
+      const pRes = await fetchPinFromPinterest(cleanId, '');
+      if (pRes?.ok && pRes.pin) {
+        const live = pRes.pin;
+        await sql`
+          INSERT INTO pa_pins (
+            pin_id, title, description, link, domain, board_name, image_url,
+            saves, repins, comments, share_count, reactions, velocity,
+            annotations, is_video, is_product, created_at_pinterest,
+            first_seen_at, last_updated_at
+          ) VALUES (
+            ${cleanId},
+            ${live.title || ''},
+            ${live.description || ''},
+            ${live.link || ''},
+            ${live.domain || ''},
+            ${live.board_name || 'General'},
+            ${live.image_url || null},
+            ${live.saves || 0},
+            ${live.repins || 0},
+            ${live.comments || 0},
+            ${live.share_count || 0},
+            ${JSON.stringify(live.reactions || {})}::jsonb,
+            ${live.velocity || 0},
+            ${JSON.stringify(live.annotations || [])}::jsonb,
+            ${Boolean(live.is_video)},
+            ${Boolean(live.is_product)},
+            ${live.created_at_pinterest || null},
+            NOW(),
+            NOW()
+          )
+          ON CONFLICT (pin_id) DO UPDATE SET
+            title = EXCLUDED.title,
+            description = EXCLUDED.description,
+            link = EXCLUDED.link,
+            domain = EXCLUDED.domain,
+            board_name = COALESCE(EXCLUDED.board_name, pa_pins.board_name),
+            image_url = COALESCE(EXCLUDED.image_url, pa_pins.image_url),
+            saves = EXCLUDED.saves,
+            repins = EXCLUDED.repins,
+            comments = EXCLUDED.comments,
+            share_count = EXCLUDED.share_count,
+            reactions = EXCLUDED.reactions,
+            annotations = EXCLUDED.annotations,
+            last_updated_at = NOW();
+        `;
+
+        // Record live metric snapshot
+        await sql`
+          INSERT INTO pa_pin_metrics (pin_id, recorded_at, saves, repins, comments)
+          VALUES (${cleanId}, NOW(), ${live.saves || 0}, ${live.repins || 0}, ${live.comments || 0});
+        `;
+
+        const [refreshed] = await sql`SELECT * FROM pa_pins WHERE pin_id = ${cleanId} LIMIT 1;`;
+        pin = refreshed || null;
+      }
+    } catch (fetchErr) {
+      console.warn(`[getPinDetailWithMetrics] Anonymous Pinterest fetch fallback failed for pin ${cleanId}:`, fetchErr.message);
+    }
   }
 
   if (!pin) return null;

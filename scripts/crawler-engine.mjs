@@ -29,6 +29,7 @@ import {
   syncCompetitorBoards,
   syncCompetitorProfile
 } from '../src/modules/competitors/service.mjs';
+import { syncCompetitorAcrossFleet } from '../src/modules/fleet/service.mjs';
 import { fetchBoardsResource } from './lib/pinterest.mjs';
 
 // Auto-load .env in local execution environments
@@ -157,6 +158,17 @@ async function main() {
   }
   console.log('================================================================');
 
+  // Look up dedicated shard database in Neon registry if configured
+  const shardName = `pin-arbitrage-shard-${String(shardNumber).padStart(2, '0')}`;
+  let shardSql = null;
+  try {
+    const [sRow] = await sql`SELECT database_url FROM neon_projects_registry WHERE project_name = ${shardName} LIMIT 1;`;
+    if (sRow?.database_url) {
+      shardSql = neon(sRow.database_url);
+      console.log(`[*] [Fleet Shard] Connected to dedicated shard DB: ${shardName}`);
+    }
+  } catch (_) {}
+
   let totalCrawled = 0;
   let totalQualified = 0;
 
@@ -171,6 +183,7 @@ async function main() {
       try {
         console.log(`[*] [Shard 1] Performing profile refresh for @${cleanUser}...`);
         await syncCompetitorProfile(sql, cleanUser, cookie);
+        await syncCompetitorAcrossFleet(sql, cleanUser);
       } catch (profErr) {
         console.warn(`[!] Profile refresh failed for @${cleanUser}:`, profErr.message);
       }
@@ -259,6 +272,16 @@ async function main() {
         const qualified = boardRes.qualified ?? 0;
         totalCrawled += crawled;
         totalQualified += qualified;
+
+        // Dual-write to dedicated shard database in Neon fleet if connected
+        if (shardSql) {
+          try {
+            await syncCompetitorBoardPins(shardSql, cleanUser, cleanUser, board, {
+              maxPages: maxPages,
+              cookie: cookie
+            });
+          } catch (_) {}
+        }
 
         console.log(`[✓] Finished Board "${board.name}": ${crawled} pins crawled, ${qualified} qualified & mirrored to Winning Archive.`);
       } catch (bErr) {

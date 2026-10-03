@@ -21,7 +21,7 @@ import {
   listCompetitorAccountPins
 } from './modules/competitors/service.mjs';
 import { listKeywords, addKeyword, crawlKeywordSERP, getKeywordPins } from './modules/keywords/service.mjs';
-import { getFleetProjects, registerNewProject } from './modules/fleet/service.mjs';
+import { getFleetProjects, registerNewProject, syncFleetDatabases, syncCompetitorAcrossFleet } from './modules/fleet/service.mjs';
 import {
   getPinArchiveOverview,
   getTopicClusters,
@@ -1286,6 +1286,9 @@ export default {
       if (method === 'POST' && pathname === '/api/competitors') {
         const body = await request.json().catch(() => ({}));
         const row = await trackCompetitor(targetSql, body);
+        if (row?.username) {
+          syncCompetitorAcrossFleet(sql, row.username).catch(() => {});
+        }
         return jsonResponse({ success: true, competitor: row });
       }
 
@@ -1295,6 +1298,9 @@ export default {
         if (!username) return jsonResponse({ error: 'username is required' }, 400);
         const cookie = env.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env.PINTEREST_COOKIE : null);
         const updated = await syncCompetitorProfile(targetSql, username, cookie);
+        if (updated?.username) {
+          syncCompetitorAcrossFleet(sql, updated.username).catch(() => {});
+        }
         return jsonResponse({ success: true, profile: updated });
       }
 
@@ -1327,13 +1333,20 @@ export default {
       }
 
       if (method === 'POST' && pathname === '/api/competitors/sync-boards') {
-        const body = await request.json().catch(() => ({}));
-        const { competitor_id, username } = body;
-        if (!competitor_id && !username) return jsonResponse({ error: 'competitor_id or username is required' }, 400);
-        const cookie = env.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env.PINTEREST_COOKIE : null);
-        const result = await syncCompetitorBoards(targetSql, competitor_id, username, cookie);
-        if (!result.ok) return jsonResponse({ success: false, ...result }, 400);
-        return jsonResponse({ success: true, ...result });
+        try {
+          const body = await request.json().catch(() => ({}));
+          const { competitor_id, username } = body;
+          if (!competitor_id && !username) return jsonResponse({ error: 'competitor_id or username is required' }, 400);
+          const cookie = env.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env.PINTEREST_COOKIE : null);
+          const result = await syncCompetitorBoards(targetSql, competitor_id, username, cookie);
+          if (result?.ok && (username || competitor_id)) {
+            syncCompetitorAcrossFleet(sql, username || competitor_id).catch(() => {});
+          }
+          if (!result.ok) return jsonResponse({ success: false, ...result }, 400);
+          return jsonResponse({ success: true, ...result });
+        } catch (err) {
+          return jsonResponse({ success: false, error: err.message }, 500);
+        }
       }
 
       if (method === 'POST' && pathname === '/api/competitors/sync-pins') {
@@ -1509,6 +1522,13 @@ export default {
         return jsonResponse({ success: true, project: row });
       }
 
+      if (method === 'POST' && pathname === '/api/fleet/sync') {
+        const body = await request.json().catch(() => ({}));
+        const targetProj = body?.project_id || searchParams.get('project_id');
+        const syncRes = await syncFleetDatabases(sql, { targetProjectId: targetProj });
+        return jsonResponse(syncRes);
+      }
+
       // 18. PinArchive & Topic Clusters API
       if (method === 'GET' && pathname === '/api/pinarchive/overview') {
         const overview = await getPinArchiveOverview(targetSql);
@@ -1563,7 +1583,8 @@ export default {
       if (method === 'GET' && pathname === '/api/pinarchive/pin-detail') {
         const pinId = searchParams.get('pin_id') || searchParams.get('id');
         if (!pinId) return jsonResponse({ error: 'pin_id is required' }, 400);
-        const detail = await getPinDetailWithMetrics(targetSql, pinId);
+        const refresh = searchParams.get('refresh') === 'true';
+        const detail = await getPinDetailWithMetrics(targetSql, pinId, { refresh });
         if (!detail) return jsonResponse({ error: 'Pin not found' }, 404);
         return jsonResponse({ success: true, ...detail });
       }

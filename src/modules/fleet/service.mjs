@@ -186,3 +186,267 @@ export async function syncProjectCompetitorStats(sql, targetSql, projectId) {
   } catch (_) {}
 }
 
+/**
+ * Synchronize a single competitor and its boards across all active fleet shards
+ */
+export async function syncCompetitorAcrossFleet(hubSql, competitorUsernameOrId) {
+  if (!competitorUsernameOrId) return { ok: false, error: 'competitor identifier required' };
+  try {
+    const cleanUser = String(competitorUsernameOrId).replace(/^@+/, '').trim().toLowerCase();
+    const [p] = await hubSql`
+      SELECT * FROM competitor_profiles 
+      WHERE LOWER(username) = ${cleanUser} OR id::text = ${String(competitorUsernameOrId)} 
+      LIMIT 1;
+    `;
+    if (!p) return { ok: false, error: 'Competitor profile not found on Hub' };
+
+    const boards = await hubSql`
+      SELECT * FROM competitor_boards WHERE competitor_id = ${p.id};
+    `;
+
+    const activeShards = await hubSql`
+      SELECT project_id, project_name, database_url
+      FROM neon_projects_registry
+      WHERE NOT is_hub AND status = 'active' AND database_url IS NOT NULL;
+    `;
+
+    const tagsArray = Array.isArray(p.tags) ? p.tags : [];
+    let syncedShards = 0;
+
+    // Run across shards with bounded concurrency
+    const BATCH = 5;
+    for (let i = 0; i < activeShards.length; i += BATCH) {
+      const chunk = activeShards.slice(i, i + BATCH);
+      await Promise.allSettled(chunk.map(async (shard) => {
+        try {
+          const sSql = neon(shard.database_url);
+          const [insertedP] = await sSql`
+            INSERT INTO competitor_profiles (
+              username, display_name, avatar_url, bio, website_url,
+              account_type, monthly_reach, reach_delta_7d, profile_views,
+              views_delta_7d, total_pins, total_boards, follower_count,
+              following_count, activity_status, is_active, tags,
+              metadata, last_harvest_metadata, last_synced_at, updated_at
+            ) VALUES (
+              ${p.username}, ${p.display_name}, ${p.avatar_url}, ${p.bio}, ${p.website_url},
+              ${p.account_type || 'competitor'}, ${p.monthly_reach || 0}, ${p.reach_delta_7d || 0},
+              ${p.profile_views || 0}, ${p.views_delta_7d || 0}, ${p.total_pins || 0},
+              ${p.total_boards || 0}, ${p.follower_count || 0}, ${p.following_count || 0},
+              ${p.activity_status || 'active'}, ${p.is_active},
+              ${tagsArray},
+              ${JSON.stringify(p.metadata || {})}::jsonb,
+              ${JSON.stringify(p.last_harvest_metadata || {})}::jsonb,
+              ${p.last_synced_at}, NOW()
+            )
+            ON CONFLICT (username) DO UPDATE SET
+              display_name = EXCLUDED.display_name,
+              avatar_url = COALESCE(EXCLUDED.avatar_url, competitor_profiles.avatar_url),
+              bio = COALESCE(EXCLUDED.bio, competitor_profiles.bio),
+              website_url = COALESCE(EXCLUDED.website_url, competitor_profiles.website_url),
+              monthly_reach = EXCLUDED.monthly_reach,
+              reach_delta_7d = EXCLUDED.reach_delta_7d,
+              profile_views = EXCLUDED.profile_views,
+              views_delta_7d = EXCLUDED.views_delta_7d,
+              total_pins = EXCLUDED.total_pins,
+              total_boards = EXCLUDED.total_boards,
+              follower_count = EXCLUDED.follower_count,
+              following_count = EXCLUDED.following_count,
+              activity_status = EXCLUDED.activity_status,
+              is_active = EXCLUDED.is_active,
+              tags = EXCLUDED.tags,
+              metadata = EXCLUDED.metadata,
+              last_harvest_metadata = EXCLUDED.last_harvest_metadata,
+              last_synced_at = EXCLUDED.last_synced_at,
+              updated_at = NOW()
+            RETURNING id;
+          `;
+
+          const targetCompId = insertedP?.id;
+          if (targetCompId && boards.length > 0) {
+            for (let bIdx = 0; bIdx < boards.length; bIdx += 25) {
+              const bChunk = boards.slice(bIdx, bIdx + 25);
+              await Promise.all(bChunk.map(b => sSql`
+                INSERT INTO competitor_boards (
+                  competitor_id, board_id, name, url, pin_count, follower_count,
+                  last_pinned_at, metadata, updated_at
+                ) VALUES (
+                  ${targetCompId}, ${b.board_id}, ${b.name}, ${b.url},
+                  ${b.pin_count || 0}, ${b.follower_count || 0},
+                  ${b.last_pinned_at}, ${JSON.stringify(b.metadata || {})}::jsonb,
+                  NOW()
+                )
+                ON CONFLICT (competitor_id, board_id) DO UPDATE SET
+                  name = EXCLUDED.name,
+                  url = EXCLUDED.url,
+                  pin_count = EXCLUDED.pin_count,
+                  follower_count = EXCLUDED.follower_count,
+                  last_pinned_at = EXCLUDED.last_pinned_at,
+                  metadata = EXCLUDED.metadata,
+                  updated_at = NOW();
+              `));
+            }
+          }
+          syncedShards++;
+        } catch (_) {}
+      }));
+    }
+
+    return { ok: true, username: p.username, synced_shards: syncedShards, boards_count: boards.length };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
+/**
+ * Full fleet synchronization: synchronizes all competitor profiles and boards across all active Neon shards.
+ */
+export async function syncFleetDatabases(hubSql, { targetProjectId = null } = {}) {
+  const profiles = await hubSql`SELECT * FROM competitor_profiles WHERE is_active = TRUE;`;
+  const boards = await hubSql`SELECT * FROM competitor_boards;`;
+
+  let query = hubSql`
+    SELECT project_id, project_name, database_url
+    FROM neon_projects_registry
+    WHERE NOT is_hub AND status = 'active' AND database_url IS NOT NULL
+  `;
+  if (targetProjectId) {
+    query = hubSql`
+      SELECT project_id, project_name, database_url
+      FROM neon_projects_registry
+      WHERE NOT is_hub AND (project_id = ${targetProjectId} OR project_name = ${targetProjectId}) AND database_url IS NOT NULL
+    `;
+  }
+  const shards = await query;
+  let successfulShards = 0;
+  const SHARD_BATCH = 5;
+
+  for (let sIdx = 0; sIdx < shards.length; sIdx += SHARD_BATCH) {
+    const shardChunk = shards.slice(sIdx, sIdx + SHARD_BATCH);
+    await Promise.allSettled(shardChunk.map(async (shard) => {
+      try {
+        const sSql = neon(shard.database_url);
+
+        // 1. Sync Profiles
+        await Promise.all(profiles.map(p => {
+          const tagsArray = Array.isArray(p.tags) ? p.tags : [];
+          return sSql`
+            INSERT INTO competitor_profiles (
+              username, display_name, avatar_url, bio, website_url,
+              account_type, monthly_reach, reach_delta_7d, profile_views,
+              views_delta_7d, total_pins, total_boards, follower_count,
+              following_count, activity_status, is_active, tags,
+              metadata, last_harvest_metadata, last_synced_at, updated_at
+            ) VALUES (
+              ${p.username}, ${p.display_name}, ${p.avatar_url}, ${p.bio}, ${p.website_url},
+              ${p.account_type || 'competitor'}, ${p.monthly_reach || 0}, ${p.reach_delta_7d || 0},
+              ${p.profile_views || 0}, ${p.views_delta_7d || 0}, ${p.total_pins || 0},
+              ${p.total_boards || 0}, ${p.follower_count || 0}, ${p.following_count || 0},
+              ${p.activity_status || 'active'}, ${p.is_active},
+              ${tagsArray},
+              ${JSON.stringify(p.metadata || {})}::jsonb,
+              ${JSON.stringify(p.last_harvest_metadata || {})}::jsonb,
+              ${p.last_synced_at}, NOW()
+            )
+            ON CONFLICT (username) DO UPDATE SET
+              display_name = EXCLUDED.display_name,
+              avatar_url = COALESCE(EXCLUDED.avatar_url, competitor_profiles.avatar_url),
+              bio = COALESCE(EXCLUDED.bio, competitor_profiles.bio),
+              website_url = COALESCE(EXCLUDED.website_url, competitor_profiles.website_url),
+              monthly_reach = EXCLUDED.monthly_reach,
+              reach_delta_7d = EXCLUDED.reach_delta_7d,
+              profile_views = EXCLUDED.profile_views,
+              views_delta_7d = EXCLUDED.views_delta_7d,
+              total_pins = EXCLUDED.total_pins,
+              total_boards = EXCLUDED.total_boards,
+              follower_count = EXCLUDED.follower_count,
+              following_count = EXCLUDED.following_count,
+              activity_status = EXCLUDED.activity_status,
+              is_active = EXCLUDED.is_active,
+              tags = EXCLUDED.tags,
+              metadata = EXCLUDED.metadata,
+              last_harvest_metadata = EXCLUDED.last_harvest_metadata,
+              last_synced_at = EXCLUDED.last_synced_at,
+              updated_at = NOW();
+          `;
+        }));
+
+        // 2. Map Profile IDs
+        const shardProfiles = await sSql`SELECT id, username FROM competitor_profiles;`;
+        const userToId = new Map(shardProfiles.map(sp => [sp.username.toLowerCase(), sp.id]));
+
+        // 3. Prepare Boards
+        const validBoardItems = [];
+        for (const b of boards) {
+          if (!b.board_id) continue;
+          const [hubP] = profiles.filter(p => p.id === b.competitor_id);
+          const targetCompId = hubP ? userToId.get(hubP.username.toLowerCase()) : null;
+          if (!targetCompId) continue;
+          validBoardItems.push({
+            competitor_id: targetCompId,
+            board_id: b.board_id,
+            name: b.name,
+            url: b.url,
+            pin_count: b.pin_count || 0,
+            follower_count: b.follower_count || 0,
+            last_pinned_at: b.last_pinned_at,
+            metadata: JSON.stringify(b.metadata || {})
+          });
+        }
+
+        // 4. Batch Sync Boards
+        const CHUNK_SIZE = 25;
+        for (let i = 0; i < validBoardItems.length; i += CHUNK_SIZE) {
+          const chunk = validBoardItems.slice(i, i + CHUNK_SIZE);
+          await Promise.all(chunk.map(item => sSql`
+            INSERT INTO competitor_boards (
+              competitor_id, board_id, name, url, pin_count, follower_count,
+              last_pinned_at, metadata, updated_at
+            ) VALUES (
+              ${item.competitor_id}, ${item.board_id}, ${item.name}, ${item.url},
+              ${item.pin_count}, ${item.follower_count},
+              ${item.last_pinned_at}, ${item.metadata}::jsonb,
+              NOW()
+            )
+            ON CONFLICT (competitor_id, board_id) DO UPDATE SET
+              name = EXCLUDED.name,
+              url = EXCLUDED.url,
+              pin_count = EXCLUDED.pin_count,
+              follower_count = EXCLUDED.follower_count,
+              last_pinned_at = EXCLUDED.last_pinned_at,
+              metadata = EXCLUDED.metadata,
+              updated_at = NOW();
+          `));
+        }
+
+        // 5. Update stats in neon_projects_registry on Hub
+        const [cnt] = await sSql`SELECT COUNT(*)::int as c FROM competitor_profiles;`;
+        const [bCnt] = await sSql`SELECT COUNT(*)::int as c FROM competitor_boards;`;
+        await hubSql`
+          UPDATE neon_projects_registry
+          SET stats = jsonb_set(
+            jsonb_set(
+              jsonb_set(COALESCE(stats, '{}'::jsonb), '{competitors}', ${JSON.stringify(cnt.c)}::jsonb),
+              '{boards}', ${JSON.stringify(bCnt.c)}::jsonb
+            ),
+            '{last_fleet_sync}', ${JSON.stringify(new Date().toISOString())}::jsonb
+          ),
+          updated_at = NOW()
+          WHERE project_id = ${shard.project_id};
+        `;
+
+        successfulShards++;
+      } catch (err) {
+        console.warn(`[syncFleetDatabases] Error syncing shard ${shard.project_name}:`, err.message);
+      }
+    }));
+  }
+
+  return {
+    ok: true,
+    total_shards: shards.length,
+    successful_shards: successfulShards,
+    profiles_count: profiles.length,
+    boards_count: boards.length
+  };
+}
+
