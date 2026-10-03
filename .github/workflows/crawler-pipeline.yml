@@ -2,8 +2,8 @@ name: Distributed Crawler & Intelligence Pipeline
 
 on:
   schedule:
-    # Runs daily at 04:00 UTC
-    - cron: '0 4 * * *'
+    # Runs twice daily at 04:00 and 16:00 UTC for fresh 24h delta tracking & competitor snapshots
+    - cron: '0 4,16 * * *'
   workflow_dispatch:
     inputs:
       target_account:

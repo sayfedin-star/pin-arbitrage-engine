@@ -30,7 +30,7 @@ import {
   syncCompetitorProfile
 } from '../src/modules/competitors/service.mjs';
 import { syncCompetitorAcrossFleet } from '../src/modules/fleet/service.mjs';
-import { fetchBoardsResource } from './lib/pinterest.mjs';
+import { fetchBoardsResource, fetchPinFromPinterest } from './lib/pinterest.mjs';
 
 // Auto-load .env in local execution environments
 if (typeof process.loadEnvFile === 'function') {
@@ -310,6 +310,32 @@ async function main() {
     const username = (acc.username || '').replace(/^@+/, '').trim();
     console.log(`\n[${i + 1}/${queue.length}] Processing @${username} (Mode: ${crawlMode}, Max Pages: ${maxPages})...`);
 
+    // 1. Daily Competitor Profile Refresh (Monthly Reach, Views, Followers & History Snapshot)
+    console.log(`[*] [1/5 Profile] Refreshing reach & follower stats for @${username}...`);
+    try {
+      await syncCompetitorProfile(sql, username, cookie);
+      if (shardSql) {
+        await syncCompetitorProfile(shardSql, username, cookie).catch(() => {});
+      }
+      console.log(`    [✓] Profile updated with latest Pinterest reach and snapshot recorded.`);
+    } catch (profErr) {
+      console.warn(`    [!] Profile refresh warning for @${username}:`, profErr.message);
+    }
+
+    // 2. Discover & Update Competitor Boards
+    console.log(`[*] [2/5 Boards] Syncing discovered boards for @${username}...`);
+    try {
+      const bRes = await syncCompetitorBoards(sql, acc.id, username, cookie);
+      if (shardSql) {
+        await syncCompetitorBoards(shardSql, acc.id, username, cookie).catch(() => {});
+      }
+      console.log(`    [✓] Synced ${bRes?.boards?.length || bRes?.boards_synced || 0} boards.`);
+    } catch (boardErr) {
+      console.warn(`    [!] Board sync warning for @${username}:`, boardErr.message);
+    }
+
+    // 3. Harvest Latest Activity Pins (Anti-Bloat 3-Tier Filter)
+    console.log(`[*] [3/5 Harvest] Ingesting latest pins for @${username}...`);
     try {
       const result = await syncCompetitorPins(sql, acc.id, username, {
         mode: crawlMode,
@@ -333,10 +359,82 @@ async function main() {
         } catch (_) {}
       }
 
-      console.log(`[✓] Finished @${username}: ${crawled} pins crawled, ${qualified} qualified & mirrored to Winning Archive.`);
+      console.log(`    [✓] Crawled ${crawled} new pins, ${qualified} newly qualified for Winning Archive.`);
     } catch (err) {
-      console.error(`[-] Error crawling @${username}:`, err.message);
+      console.error(`    [-] Error harvesting pins for @${username}:`, err.message);
     }
+
+    // 4. Live Refresh of Existing Winning Pins in pa_pins (Capturing 24h Saves Deltas & Snapshots)
+    console.log(`[*] [4/5 PinArchive] Refreshing metrics for archived winning pins of @${username}...`);
+    try {
+      const existingPins = await sql`
+        SELECT pin_id, saves, repins, comments
+        FROM pa_pins
+        WHERE LOWER(account_username) = ${username.toLowerCase()}
+        ORDER BY saves DESC
+        LIMIT 50;
+      `;
+      if (existingPins.length > 0) {
+        let refreshedCount = 0;
+        for (const p of existingPins) {
+          try {
+            const fetchRes = await fetchPinFromPinterest(p.pin_id, '');
+            if (fetchRes.ok && fetchRes.pin) {
+              const fresh = fetchRes.pin;
+              const freshSaves = Number(fresh.saves || fresh.save_count || p.saves || 0);
+              const freshRepins = Number(fresh.repins || fresh.repin_count || p.repins || 0);
+              const freshComments = Number(fresh.comments || fresh.comment_count || p.comments || 0);
+
+              // Update pa_pins
+              await sql`
+                UPDATE pa_pins
+                SET saves = GREATEST(pa_pins.saves, ${freshSaves}::bigint),
+                    repins = GREATEST(pa_pins.repins, ${freshRepins}::bigint),
+                    comments = GREATEST(pa_pins.comments, ${freshComments}::int),
+                    last_updated_at = NOW()
+                WHERE pin_id = ${p.pin_id};
+              `;
+
+              // Record time-series metric snapshot in pa_pin_metrics
+              await sql`
+                INSERT INTO pa_pin_metrics (pin_id, recorded_at, saves, repins, comments)
+                VALUES (${p.pin_id}, NOW(), ${freshSaves}, ${freshRepins}, ${freshComments})
+                ON CONFLICT (pin_id, recorded_at) DO NOTHING;
+              `;
+
+              if (shardSql) {
+                await shardSql`
+                  UPDATE pa_pins
+                  SET saves = GREATEST(pa_pins.saves, ${freshSaves}::bigint),
+                      repins = GREATEST(pa_pins.repins, ${freshRepins}::bigint),
+                      comments = GREATEST(pa_pins.comments, ${freshComments}::int),
+                      last_updated_at = NOW()
+                  WHERE pin_id = ${p.pin_id};
+                `.catch(() => {});
+                await shardSql`
+                  INSERT INTO pa_pin_metrics (pin_id, recorded_at, saves, repins, comments)
+                  VALUES (${p.pin_id}, NOW(), ${freshSaves}, ${freshRepins}, ${freshComments})
+                  ON CONFLICT (pin_id, recorded_at) DO NOTHING;
+                `.catch(() => {});
+              }
+              refreshedCount++;
+            }
+          } catch (_) {}
+        }
+        console.log(`    [✓] Refreshed ${refreshedCount}/${existingPins.length} winning pins and captured time-series snapshots.`);
+      } else {
+        console.log(`    (No existing winning pins in pa_pins for @${username} yet)`);
+      }
+    } catch (refErr) {
+      console.warn(`    [!] Pin metrics refresh warning for @${username}:`, refErr.message);
+    }
+
+    // 5. Fleet Cross-Database Replication
+    console.log(`[*] [5/5 Fleet] Replicating updates for @${username} across fleet...`);
+    try {
+      await syncCompetitorAcrossFleet(sql, username);
+      console.log(`    [✓] Fleet replicated.`);
+    } catch (_) {}
   }
 
   printSummary(shardNumber, shardTotal, queue.length, totalCrawled, totalQualified, 'Accounts');
