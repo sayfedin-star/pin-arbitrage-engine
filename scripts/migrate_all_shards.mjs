@@ -248,6 +248,68 @@ export async function migrateSingleShard(shard) {
     ON CONFLICT (id) DO NOTHING;
   `;
 
+  // 8.1 Topic Clusters RPC Function (pa_topic_clusters_page)
+  await sql`
+    CREATE OR REPLACE FUNCTION pa_topic_clusters_page(
+      p_min_pins INT DEFAULT 1,
+      p_search TEXT DEFAULT NULL,
+      p_limit INT DEFAULT 50,
+      p_offset INT DEFAULT 0
+    )
+    RETURNS TABLE (
+      topic_name TEXT,
+      pins_count BIGINT,
+      total_saves NUMERIC,
+      avg_saves BIGINT,
+      avg_velocity NUMERIC
+    )
+    LANGUAGE plpgsql AS $$
+    BEGIN
+      RETURN QUERY
+      WITH extracted AS (
+        SELECT
+          CASE
+            WHEN jsonb_typeof(ann) = 'object' THEN trim(ann->>'name')
+            WHEN jsonb_typeof(ann) = 'string' THEN trim(ann #>> '{}')
+            ELSE NULL
+          END AS raw_topic,
+          p.pin_id,
+          p.saves,
+          p.velocity
+        FROM pa_pins p,
+        LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(p.annotations) = 'array' THEN p.annotations ELSE '[]'::jsonb END) AS ann
+        WHERE (
+          (jsonb_typeof(ann) = 'object' AND ann->>'name' IS NOT NULL AND trim(ann->>'name') <> '')
+          OR
+          (jsonb_typeof(ann) = 'string' AND trim(ann #>> '{}') <> '')
+        )
+      ),
+      aggregated AS (
+        SELECT
+          e.raw_topic AS t_name,
+          count(DISTINCT e.pin_id)::BIGINT AS p_count,
+          coalesce(sum(e.saves), 0)::NUMERIC AS s_saves,
+          CASE WHEN count(DISTINCT e.pin_id) > 0 THEN (coalesce(sum(e.saves), 0) / count(DISTINCT e.pin_id))::BIGINT ELSE 0::BIGINT END AS a_saves,
+          round(avg(e.velocity), 2) AS a_velocity
+        FROM extracted e
+        WHERE (p_search IS NULL OR p_search = '' OR e.raw_topic ILIKE '%' || p_search || '%')
+        GROUP BY e.raw_topic
+        HAVING count(DISTINCT e.pin_id) >= coalesce(p_min_pins, 1)
+      )
+      SELECT
+        a.t_name AS topic_name,
+        a.p_count AS pins_count,
+        a.s_saves AS total_saves,
+        a.a_saves AS avg_saves,
+        a.a_velocity AS avg_velocity
+      FROM aggregated a
+      ORDER BY a.s_saves DESC
+      LIMIT coalesce(p_limit, 50)
+      OFFSET coalesce(p_offset, 0);
+    END;
+    $$;
+  `;
+
   // 9. Cluster Seeds (Phase 1 Core)
   await sql`
     CREATE TABLE IF NOT EXISTS cluster_seeds (

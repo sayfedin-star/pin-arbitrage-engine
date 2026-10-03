@@ -298,11 +298,16 @@ export async function syncCompetitorAcrossFleet(hubSql, competitorUsernameOrId) 
 }
 
 /**
- * Full fleet synchronization: synchronizes all competitor profiles and boards across all active Neon shards.
+ * Full fleet synchronization: synchronizes all competitor profiles, boards,
+ * archived pins, metrics, qualification rules, and topic cluster RPC across all active Neon shards.
  */
 export async function syncFleetDatabases(hubSql, { targetProjectId = null } = {}) {
   const profiles = await hubSql`SELECT * FROM competitor_profiles WHERE is_active = TRUE;`;
   const boards = await hubSql`SELECT * FROM competitor_boards;`;
+  const pins = await hubSql`SELECT * FROM pa_pins;`;
+  const metrics = await hubSql`SELECT * FROM pa_pin_metrics;`;
+  const [rules] = await hubSql`SELECT * FROM pa_qualification_rules WHERE id = 1;`;
+  const staged = await hubSql`SELECT * FROM pa_staged_pins;`;
 
   let query = hubSql`
     SELECT project_id, project_name, database_url
@@ -418,15 +423,159 @@ export async function syncFleetDatabases(hubSql, { targetProjectId = null } = {}
           `));
         }
 
-        // 5. Update stats in neon_projects_registry on Hub
+        // 5. Ensure Topic Clusters RPC function
+        await sSql`
+          CREATE OR REPLACE FUNCTION pa_topic_clusters_page(
+            p_min_pins INT DEFAULT 1,
+            p_search TEXT DEFAULT NULL,
+            p_limit INT DEFAULT 50,
+            p_offset INT DEFAULT 0
+          )
+          RETURNS TABLE (
+            topic_name TEXT,
+            pins_count BIGINT,
+            total_saves NUMERIC,
+            avg_saves BIGINT,
+            avg_velocity NUMERIC
+          )
+          LANGUAGE plpgsql AS $$
+          BEGIN
+            RETURN QUERY
+            WITH extracted AS (
+              SELECT
+                CASE
+                  WHEN jsonb_typeof(ann) = 'object' THEN trim(ann->>'name')
+                  WHEN jsonb_typeof(ann) = 'string' THEN trim(ann #>> '{}')
+                  ELSE NULL
+                END AS raw_topic,
+                p.pin_id,
+                p.saves,
+                p.velocity
+              FROM pa_pins p,
+              LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(p.annotations) = 'array' THEN p.annotations ELSE '[]'::jsonb END) AS ann
+              WHERE (
+                (jsonb_typeof(ann) = 'object' AND ann->>'name' IS NOT NULL AND trim(ann->>'name') <> '')
+                OR
+                (jsonb_typeof(ann) = 'string' AND trim(ann #>> '{}') <> '')
+              )
+            ),
+            aggregated AS (
+              SELECT
+                e.raw_topic AS t_name,
+                count(DISTINCT e.pin_id)::BIGINT AS p_count,
+                coalesce(sum(e.saves), 0)::NUMERIC AS s_saves,
+                CASE WHEN count(DISTINCT e.pin_id) > 0 THEN (coalesce(sum(e.saves), 0) / count(DISTINCT e.pin_id))::BIGINT ELSE 0::BIGINT END AS a_saves,
+                round(avg(e.velocity), 2) AS a_velocity
+              FROM extracted e
+              WHERE (p_search IS NULL OR p_search = '' OR e.raw_topic ILIKE '%' || p_search || '%')
+              GROUP BY e.raw_topic
+              HAVING count(DISTINCT e.pin_id) >= coalesce(p_min_pins, 1)
+            )
+            SELECT
+              a.t_name AS topic_name,
+              a.p_count AS pins_count,
+              a.s_saves AS total_saves,
+              a.a_saves AS avg_saves,
+              a.a_velocity AS avg_velocity
+            FROM aggregated a
+            ORDER BY a.s_saves DESC
+            LIMIT coalesce(p_limit, 50)
+            OFFSET coalesce(p_offset, 0);
+          END;
+          $$;
+        `;
+
+        // 6. Sync Qualification Rules
+        if (rules) {
+          await sSql`
+            INSERT INTO pa_qualification_rules (
+              id, tier1_min_saves, tier2_min_repins, tier3_max_age_days, tier3_min_saves,
+              master_ingest_enabled, early_stop_pages, max_batch_pins, discovery_max_pages, refresh_max_pins, paused_policy, updated_at
+            ) VALUES (
+              1, ${rules.tier1_min_saves}, ${rules.tier2_min_repins}, ${rules.tier3_max_age_days}, ${rules.tier3_min_saves},
+              ${rules.master_ingest_enabled}, ${rules.early_stop_pages}, ${rules.max_batch_pins}, ${rules.discovery_max_pages},
+              ${rules.refresh_max_pins || 0}, ${rules.paused_policy || 'reject'}, NOW()
+            )
+            ON CONFLICT (id) DO UPDATE SET
+              tier1_min_saves = EXCLUDED.tier1_min_saves,
+              tier2_min_repins = EXCLUDED.tier2_min_repins,
+              tier3_max_age_days = EXCLUDED.tier3_max_age_days,
+              tier3_min_saves = EXCLUDED.tier3_min_saves,
+              master_ingest_enabled = EXCLUDED.master_ingest_enabled,
+              updated_at = NOW();
+          `;
+        }
+
+        // 7. Sync pa_pins (Winning Pins Archive)
+        if (pins.length > 0) {
+          const PIN_CHUNK = 50;
+          for (let pIdx = 0; pIdx < pins.length; pIdx += PIN_CHUNK) {
+            const pBatch = pins.slice(pIdx, pIdx + PIN_CHUNK);
+            await Promise.all(pBatch.map(p => sSql`
+              INSERT INTO pa_pins (
+                pin_id, account_username, title, description, link, domain,
+                board_name, image_url, dominant_color, saves, repins, comments,
+                share_count, reactions, velocity, annotations, is_video, is_product,
+                created_at_pinterest, first_seen_at, last_updated_at
+              ) VALUES (
+                ${p.pin_id}, ${p.account_username}, ${p.title}, ${p.description},
+                ${p.link}, ${p.domain}, ${p.board_name}, ${p.image_url},
+                ${p.dominant_color}, ${p.saves || 0}, ${p.repins || 0}, ${p.comments || 0},
+                ${p.share_count || 0}, ${JSON.stringify(p.reactions || {})}::jsonb,
+                ${p.velocity || 0}, ${JSON.stringify(p.annotations || [])}::jsonb,
+                ${p.is_video || false}, ${p.is_product || false},
+                ${p.created_at_pinterest}, ${p.first_seen_at || new Date()}, ${p.last_updated_at || new Date()}
+              )
+              ON CONFLICT (pin_id) DO UPDATE SET
+                saves = GREATEST(pa_pins.saves, EXCLUDED.saves),
+                repins = GREATEST(pa_pins.repins, EXCLUDED.repins),
+                velocity = EXCLUDED.velocity,
+                last_updated_at = NOW();
+            `));
+          }
+        }
+
+        // 8. Sync pa_pin_metrics (Time-series snapshots)
+        if (metrics.length > 0) {
+          const METRIC_CHUNK = 50;
+          for (let mIdx = 0; mIdx < metrics.length; mIdx += METRIC_CHUNK) {
+            const mBatch = metrics.slice(mIdx, mIdx + METRIC_CHUNK);
+            await Promise.all(mBatch.map(m => sSql`
+              INSERT INTO pa_pin_metrics (
+                pin_id, recorded_at, saves, repins, comments
+              ) VALUES (
+                ${m.pin_id}, ${m.recorded_at}, ${m.saves || 0}, ${m.repins || 0}, ${m.comments || 0}
+              )
+              ON CONFLICT (pin_id, recorded_at) DO NOTHING;
+            `));
+          }
+        }
+
+        // 9. Sync pa_staged_pins
+        if (staged.length > 0) {
+          await Promise.all(staged.map(st => sSql`
+            INSERT INTO pa_staged_pins (
+              pin_id, target_board, override_link, status, created_at, updated_at
+            ) VALUES (
+              ${st.pin_id}, ${st.target_board}, ${st.override_link}, ${st.status}, ${st.created_at}, NOW()
+            )
+            ON CONFLICT DO NOTHING;
+          `));
+        }
+
+        // 10. Update stats in neon_projects_registry on Hub
         const [cnt] = await sSql`SELECT COUNT(*)::int as c FROM competitor_profiles;`;
         const [bCnt] = await sSql`SELECT COUNT(*)::int as c FROM competitor_boards;`;
+        const [pCnt] = await sSql`SELECT COUNT(*)::int as c FROM pa_pins;`;
         await hubSql`
           UPDATE neon_projects_registry
           SET stats = jsonb_set(
             jsonb_set(
-              jsonb_set(COALESCE(stats, '{}'::jsonb), '{competitors}', ${JSON.stringify(cnt.c)}::jsonb),
-              '{boards}', ${JSON.stringify(bCnt.c)}::jsonb
+              jsonb_set(
+                jsonb_set(COALESCE(stats, '{}'::jsonb), '{competitors}', ${JSON.stringify(cnt.c)}::jsonb),
+                '{boards}', ${JSON.stringify(bCnt.c)}::jsonb
+              ),
+              '{pins}', ${JSON.stringify(pCnt.c)}::jsonb
             ),
             '{last_fleet_sync}', ${JSON.stringify(new Date().toISOString())}::jsonb
           ),
@@ -446,7 +595,9 @@ export async function syncFleetDatabases(hubSql, { targetProjectId = null } = {}
     total_shards: shards.length,
     successful_shards: successfulShards,
     profiles_count: profiles.length,
-    boards_count: boards.length
+    boards_count: boards.length,
+    pins_count: pins.length,
+    metrics_count: metrics.length
   };
 }
 

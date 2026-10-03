@@ -322,6 +322,17 @@ async function main() {
       totalCrawled += crawled;
       totalQualified += qualified;
 
+      // Dual-write to dedicated shard database in Neon fleet if connected
+      if (shardSql) {
+        try {
+          await syncCompetitorPins(shardSql, acc.id, username, {
+            mode: crawlMode,
+            maxPages: maxPages,
+            cookie: cookie
+          });
+        } catch (_) {}
+      }
+
       console.log(`[✓] Finished @${username}: ${crawled} pins crawled, ${qualified} qualified & mirrored to Winning Archive.`);
     } catch (err) {
       console.error(`[-] Error crawling @${username}:`, err.message);

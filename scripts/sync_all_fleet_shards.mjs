@@ -26,8 +26,25 @@ const sql = neon(DATABASE_URL);
 async function main() {
   console.log('================================================================');
   console.log('🔄 Neon Multi-Project Fleet Synchronization');
-  console.log('   Propagating Hub Competitors & Boards across all Shards');
+  console.log('   Propagating Hub Creators, Boards, Pins & Metrics across all Shards');
   console.log('================================================================');
+
+  // Update Hub stats in registry first
+  const [hProfiles] = await sql`SELECT count(*)::int as c FROM competitor_profiles;`;
+  const [hBoards] = await sql`SELECT count(*)::int as c FROM competitor_boards;`;
+  const [hPins] = await sql`SELECT count(*)::int as c FROM pa_pins;`;
+  await sql`
+    UPDATE neon_projects_registry
+    SET stats = jsonb_set(
+      jsonb_set(
+        jsonb_set(COALESCE(stats, '{}'::jsonb), '{competitors}', ${JSON.stringify(hProfiles.c)}::jsonb),
+        '{boards}', ${JSON.stringify(hBoards.c)}::jsonb
+      ),
+      '{pins}', ${JSON.stringify(hPins.c)}::jsonb
+    ),
+    updated_at = NOW()
+    WHERE is_hub = TRUE;
+  `;
 
   const t0 = Date.now();
   const res = await syncFleetDatabases(sql);
@@ -39,6 +56,8 @@ async function main() {
   console.log(`   Successfully Synced:      ${res.successful_shards}`);
   console.log(`   Profiles Replicated:      ${res.profiles_count}`);
   console.log(`   Boards Replicated:        ${res.boards_count}`);
+  console.log(`   Pins Replicated:          ${res.pins_count}`);
+  console.log(`   Metrics Replicated:       ${res.metrics_count}`);
   console.log('================================================================\n');
 }
 

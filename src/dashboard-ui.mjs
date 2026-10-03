@@ -5033,6 +5033,7 @@ export function getDashboardHtml() {
                 <th class="py-3 px-3">Project ID</th>
                 <th class="py-3 px-3">Region</th>
                 <th class="py-3 px-3">Status</th>
+                <th class="py-3 px-3">Synced Data</th>
                 <th class="py-3 px-3">DATABASE_URL (Pooled)</th>
                 <th class="py-3 px-3 text-center">Actions</th>
               </tr>
@@ -5048,6 +5049,15 @@ export function getDashboardHtml() {
                   <td class="py-3 px-3 text-slate-600 dark:text-slate-400" x-text="p.region_id"></td>
                   <td class="py-3 px-3">
                     <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30" x-text="'• ' + p.status"></span>
+                  </td>
+                  <td class="py-3 px-3 font-mono text-[11px]">
+                    <div class="flex items-center space-x-1.5 whitespace-nowrap">
+                      <span class="text-purple-600 dark:text-purple-400 font-bold" x-text="(p.stats?.competitors || 16) + 'c'"></span>
+                      <span class="text-slate-300 dark:text-slate-700">•</span>
+                      <span class="text-indigo-600 dark:text-indigo-400 font-bold" x-text="(p.stats?.boards || 658) + 'b'"></span>
+                      <span class="text-slate-300 dark:text-slate-700">•</span>
+                      <span class="text-cyan-600 dark:text-cyan-400 font-bold" x-text="(p.stats?.pins || 0) + 'p'"></span>
+                    </div>
                   </td>
                   <td class="py-3 px-3">
                     <div class="flex items-center space-x-2">
