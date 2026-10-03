@@ -1669,45 +1669,42 @@ export default {
 
   /**
    * Cloudflare Worker Scheduled Cron Handler
-   * Runs automated daily Early-Stop pin harvest across active competitors
+   * 100% reliant on GitHub Actions (20-Shard Parallel Matrix) for harvesting.
+   * Dispatches crawler-pipeline.yml on GitHub Actions rather than harvesting on Worker.
    */
   async scheduled(event, env, ctx) {
-    const dbUrl = env.DATABASE_URL || (typeof process !== 'undefined' ? process.env.DATABASE_URL : null);
-    if (!dbUrl) return;
-    const sql = neon(dbUrl);
+    const githubToken = env.GITHUB_TOKEN || env.GITHUB_PAT;
+    const repo = env.GITHUB_REPOSITORY || 'sayfedin-star/pin-arbitrage-engine';
 
-    try {
-      const rules = await getQualificationRules(sql);
-      if (!rules.master_ingest_enabled) return;
-
-      const competitorLimit = (event?.limit && Number(event.limit) > 0) ? Number(event.limit) : 10;
-      const competitors = await sql`
-        SELECT id, username FROM competitor_profiles
-        WHERE is_active = TRUE
-        ORDER BY last_synced_at ASC NULLS FIRST
-        LIMIT ${competitorLimit};
-      `;
-
-      for (const c of competitors) {
-        try {
-          await syncCompetitorPins(sql, c.id, c.username, {
-            mode: 'daily',
-            maxPages: rules.early_stop_pages || 3,
-            cookie: env.PINTEREST_COOKIE || ''
-          });
-        } catch (err) {
-          console.error(`Scheduled harvest failed for @${c.username}:`, err.message);
-          // Advance last_synced_at so a single failing profile doesn't block the round-robin queue indefinitely
-          await sql`
-            UPDATE competitor_profiles
-            SET last_synced_at = NOW(),
-                updated_at = NOW()
-            WHERE id = ${c.id};
-          `.catch(() => {});
+    if (githubToken) {
+      console.log(`[Worker Cron] Delegating scheduled crawl to GitHub Actions 20-shard pipeline (${repo})...`);
+      try {
+        const res = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/crawler-pipeline.yml/dispatches`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${githubToken}`,
+            'Accept': 'application/vnd.github.v3+json',
+            'User-Agent': 'Pin-Arbitrage-Engine-EdgeWorker'
+          },
+          body: JSON.stringify({
+            ref: 'main',
+            inputs: {
+              crawl_mode: 'refresh',
+              max_pages: '3'
+            }
+          })
+        });
+        if (res.ok) {
+          console.log('[Worker Cron] Successfully dispatched crawler-pipeline.yml to GitHub Actions.');
+        } else {
+          const errText = await res.text();
+          console.warn(`[Worker Cron] GitHub Actions dispatch returned ${res.status}: ${errText}`);
         }
+      } catch (err) {
+        console.error('[Worker Cron] GitHub dispatch error:', err.message);
       }
-    } catch (schedErr) {
-      console.error('Scheduled cron execution error:', schedErr.message);
+    } else {
+      console.log('[Worker Cron] Automated crawl delegated 100% to GitHub Actions native daily cron schedule (.github/workflows/crawler-pipeline.yml)');
     }
   }
 };

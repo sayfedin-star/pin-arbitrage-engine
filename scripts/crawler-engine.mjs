@@ -289,6 +289,13 @@ async function main() {
       }
     }
 
+    // Replicate harvested data for this creator across the Neon fleet
+    try {
+      console.log(`[*] Replicating updates for @${cleanUser} across Neon fleet...`);
+      await syncCompetitorAcrossFleet(sql, cleanUser);
+      console.log(`[✓] Fleet replication complete for @${cleanUser}.`);
+    } catch (_) {}
+
     printSummary(shardNumber, shardTotal, assignedBoards.length, totalCrawled, totalQualified, 'Boards');
     process.exit(0);
   }

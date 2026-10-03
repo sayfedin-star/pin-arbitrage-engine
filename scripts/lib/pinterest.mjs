@@ -102,10 +102,36 @@ export function findPinInTree(obj, pinId, depth = 0) {
 }
 
 /**
+ * Robust string extractor: handles string, object ({text: string}), or numbers cleanly without throwing .trim() errors
+ */
+export function safeString(val) {
+  if (val === null || val === undefined) return '';
+  if (typeof val === 'string') return val.trim();
+  if (typeof val === 'object') {
+    if (typeof val.text === 'string') return val.text.trim();
+    if (typeof val.title === 'string') return val.title.trim();
+    if (typeof val.headline === 'string') return val.headline.trim();
+    if (typeof val.name === 'string') return val.name.trim();
+    if (typeof val.description === 'string') return val.description.trim();
+  }
+  return '';
+}
+
+/**
  * Normalize and format raw Pinterest pin data across diverse payload shapes into a consistent object.
  */
 export function formatPin(pin) {
   if (!pin || typeof pin !== 'object') return null;
+
+  // Filter out non-pin cards, interstitials, and section headers
+  if (
+    pin.type === 'interstitial' ||
+    pin.type === 'board' ||
+    pin.format === 'Related Interests' ||
+    Boolean(pin.is_promoted && !pin.id)
+  ) {
+    return null;
+  }
 
   const st =
     pin?.aggregated_pin_data?.aggregated_stats ||
@@ -255,12 +281,12 @@ export function formatPin(pin) {
 
   return {
     pin_id: pinId,
-    title: (pin.grid_title || pin.title || pin.headline || '').trim(),
-    description: (pin.description || pin.articleBody || '').trim(),
-    link: rawLink || pin.link || pin.url || '',
+    title: safeString(pin.grid_title || pin.title || pin.headline || pin.grid_description),
+    description: safeString(pin.description || pin.articleBody || pin.unauth_on_page_description),
+    link: safeString(rawLink || pin.link || pin.url),
     domain,
     board_id: pin.board?.id || pin.board_id || null,
-    board_name: pin.board?.name || pin.board_name || '',
+    board_name: safeString(pin.board?.name || pin.board_name),
     created_at_pinterest: createdAtPinterest,
     age_days: ageDays !== null ? Math.round(ageDays * 10) / 10 : null,
     velocity,
@@ -407,11 +433,123 @@ export async function fetchPinFromPinterest(pinId, activeCookie = '') {
 }
 
 /**
- * Fetch competitor user profile from UserResource.
+ * Scrape user profile from Pinterest unauthenticated SSR HTML document.
+ * 100% cookie-free, extracts user details from initialReduxState and JSON-LD ProfilePage.
+ */
+export async function fetchUserProfileUnauth(username) {
+  const cleanUser = String(username || '').replace(/^@/, '').trim().toLowerCase();
+  if (!cleanUser) return { ok: false, error: 'invalid_username' };
+
+  try {
+    const url = `https://www.pinterest.com/${cleanUser}/`;
+    const res = await fetch(url, {
+      headers: PINTEREST_PAGE_HEADERS,
+      redirect: 'follow',
+      signal: AbortSignal.timeout(8000),
+    });
+
+    if (!res.ok) return { ok: false, status: res.status };
+    const html = await res.text();
+
+    let userData = null;
+    let jsonLdData = null;
+    const initialBoards = [];
+
+    // Scan script tags for initialReduxState and JSON-LD
+    const scriptRegex = /<script\b[^>]*>([\s\S]*?)<\/script>/gi;
+    let match;
+    while ((match = scriptRegex.exec(html)) !== null) {
+      const scriptContent = match[1];
+      if (scriptContent.includes('initialReduxState')) {
+        try {
+          const parsed = JSON.parse(scriptContent);
+          const state = parsed.initialReduxState || {};
+          const users = state.users || {};
+          for (const [k, u] of Object.entries(users)) {
+            if (u && (u.username?.toLowerCase() === cleanUser || (k && k !== '' && !userData))) {
+              userData = u;
+            }
+          }
+          if (state.boards && typeof state.boards === 'object') {
+            for (const b of Object.values(state.boards)) {
+              if (b && b.id && !String(b.id).startsWith('-')) {
+                initialBoards.push({
+                  board_id: String(b.id),
+                  name: b.name || 'Untitled Board',
+                  url: b.url ? (b.url.startsWith('http') ? b.url : `https://www.pinterest.com${b.url}`) : '',
+                  pin_count: parseCleanMetric(b.pin_count || 0),
+                  follower_count: parseCleanMetric(b.follower_count || 0),
+                  created_at: b.created_at || null,
+                  last_pinned_at: b.board_order_modified_at || null,
+                });
+              }
+            }
+          }
+        } catch (_) {}
+      } else if (scriptContent.includes('"@type"') && scriptContent.includes('ProfilePage')) {
+        try {
+          const parsed = JSON.parse(scriptContent);
+          if (parsed?.mainEntity) {
+            jsonLdData = parsed;
+          }
+        } catch (_) {}
+      }
+    }
+
+    if (!userData && !jsonLdData) {
+      return { ok: false, error: 'profile_not_found_in_html' };
+    }
+
+    const mainEntity = jsonLdData?.mainEntity || {};
+    const displayName = userData?.full_name || userData?.first_name || mainEntity?.name || cleanUser;
+    const avatarUrl = userData?.image_xlarge_url || userData?.image_large_url || userData?.image_medium_url ||
+      (typeof mainEntity?.image === 'string' ? mainEntity.image : mainEntity?.image?.contentUrl) || null;
+    const bio = userData?.about || userData?.seo_description || mainEntity?.description || '';
+    const websiteUrl = userData?.website_url || (Array.isArray(mainEntity?.sameAs) ? mainEntity.sameAs[0] : null) || null;
+    const followerCount = parseCleanMetric(userData?.follower_count || 0);
+    const followingCount = parseCleanMetric(userData?.following_count || 0);
+    const totalPins = parseCleanMetric(userData?.pin_count || 0);
+    const totalBoards = parseCleanMetric(userData?.board_count || initialBoards.length || 0);
+    const monthlyReach = parseCleanMetric(userData?.profile_reach || userData?.profile_views || userData?.monthly_views || 0);
+    const profileViews = parseCleanMetric(userData?.profile_views || userData?.profile_reach || userData?.monthly_views || 0);
+    const accountCreatedAt = userData?.created_at || jsonLdData?.dateCreated || null;
+    const lastPinSaveTime = userData?.last_pin_save_time || null;
+
+    return {
+      ok: true,
+      username: cleanUser,
+      display_name: displayName,
+      avatar_url: avatarUrl,
+      bio,
+      website_url: websiteUrl,
+      monthly_reach: monthlyReach,
+      profile_views: profileViews,
+      follower_count: followerCount,
+      following_count: followingCount,
+      total_pins: totalPins,
+      total_boards: totalBoards,
+      account_created_at: accountCreatedAt,
+      last_pin_save_time: lastPinSaveTime,
+      initial_boards: initialBoards
+    };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
+/**
+ * Fetch competitor user profile with resilient unauthenticated SSR HTML fallback.
+ * Works 100% cookie-free without triggering 401/403 session errors.
  */
 export async function fetchUserResource(username, activeCookie = '') {
   const cleanUser = String(username || '').replace(/^@/, '').trim().toLowerCase();
   if (!cleanUser) return { ok: false, error: 'invalid_username' };
+
+  // If no cookie provided, directly attempt the unauthenticated SSR HTML extraction first
+  if (!activeCookie) {
+    const unauthRes = await fetchUserProfileUnauth(cleanUser);
+    if (unauthRes.ok) return unauthRes;
+  }
 
   const url = `https://www.pinterest.com/resource/UserResource/get/?source_url=%2F${cleanUser}%2F&data=%7B%22options%22%3A%7B%22username%22%3A%22${cleanUser}%22%2C%22field_set_key%22%3A%22profile%22%7D%2C%22context%22%3A%7B%7D%7D`;
   const headers = getPinterestXhrHeaders(cleanUser, activeCookie);
@@ -419,20 +557,29 @@ export async function fetchUserResource(username, activeCookie = '') {
   try {
     let res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
     if (res.status === 401 || res.status === 403 || res.status === 429) {
-      // Jitter delay per Rule 6 before retry
       await sleep(randomJitterMs(2500, 4000));
       const anonHeaders = getPinterestXhrHeaders(cleanUser, '');
       res = await fetch(url, { headers: anonHeaders, signal: AbortSignal.timeout(8000) });
     }
 
-    if (!res.ok) return { ok: false, status: res.status };
+    if (!res.ok) {
+      const unauthRes = await fetchUserProfileUnauth(cleanUser);
+      if (unauthRes.ok) return unauthRes;
+      return { ok: false, status: res.status };
+    }
     const json = await res.json();
     if (json.resource_response?.status === 'failure' || json.resource_response?.error) {
+      const unauthRes = await fetchUserProfileUnauth(cleanUser);
+      if (unauthRes.ok) return unauthRes;
       const errMsg = json.resource_response?.error?.message || json.resource_response?.message || 'Pinterest resource failure';
       return { ok: false, error: errMsg };
     }
     const data = json.resource_response?.data;
-    if (!data) return { ok: false, error: 'no_data' };
+    if (!data) {
+      const unauthRes = await fetchUserProfileUnauth(cleanUser);
+      if (unauthRes.ok) return unauthRes;
+      return { ok: false, error: 'no_data' };
+    }
 
     return {
       ok: true,
@@ -451,6 +598,8 @@ export async function fetchUserResource(username, activeCookie = '') {
       last_pin_save_time: data.last_pin_save_time || null
     };
   } catch (err) {
+    const unauthRes = await fetchUserProfileUnauth(cleanUser);
+    if (unauthRes.ok) return unauthRes;
     return { ok: false, error: err.message };
   }
 }
@@ -486,7 +635,8 @@ export async function fetchBoardsResource(username, activeCookie = '') {
     for (const item of rawList) {
       if (item && (item.type === 'board' || item.id || item.node_id)) {
         const boardId = String(item.id || item.node_id || '').trim();
-        if (!boardId || boardId === 'undefined') continue;
+        if (!boardId || boardId === 'undefined' || boardId.startsWith('-')) continue;
+        if ((item.name === 'Untitled Board' || !item.name) && !item.url) continue;
         let lastPinned = null;
         if (item.board_order_modified_at) {
           const d = new Date(item.board_order_modified_at);

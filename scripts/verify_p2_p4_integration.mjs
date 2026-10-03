@@ -509,6 +509,24 @@ async function runTests() {
     const [creatorBoardsView] = await sql`SELECT count(*) FROM creator_boards;`;
     assert(creatorBoardsView && Number(creatorBoardsView.count) >= 0, 'creator_boards unified compatibility view is functional');
 
+    // 3.23 Test formatPin robustness against non-string titles & interstitial objects
+    const interstitialRaw = {
+      type: 'interstitial',
+      format: 'Related Interests',
+      grid_title: { text: null, format: 'Related Interests' }
+    };
+    const interstitialResult = formatPin(interstitialRaw);
+    assert(interstitialResult === null, 'formatPin correctly drops non-pin interstitial cards');
+
+    const validPinWithObjectTitle = {
+      id: '9988776655',
+      grid_title: { text: 'Delicious Homemade Apple Pie' },
+      images: { orig: { url: 'https://i.pinimg.com/orig/pie.jpg' } },
+      saves: 250
+    };
+    const parsedValidPin = formatPin(validPinWithObjectTitle);
+    assert(parsedValidPin && parsedValidPin.title === 'Delicious Homemade Apple Pie', 'formatPin safely extracts title from object without .trim() error');
+
     console.log('\n=== TEST SUITE 4: Cleanup ===');
     // Cleanup staged pins
     await sql`DELETE FROM pa_staged_pins WHERE pin_id IN (${TEST_PIN_ID}, ${TEST_QUALIFIED_PIN}, ${TEST_UNQUALIFIED_PIN}, ${PIN_64BIT_NUMERIC}, ${cancelPinId}, ${presPinId});`;

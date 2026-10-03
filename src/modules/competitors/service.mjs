@@ -297,6 +297,31 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
         total_pins = EXCLUDED.total_pins,
         total_boards = EXCLUDED.total_boards;
     `;
+
+    // Upsert any initial boards discovered directly from unauthenticated profile HTML
+    if (Array.isArray(res.initial_boards) && res.initial_boards.length > 0) {
+      for (const b of res.initial_boards) {
+        try {
+          await sql`
+            INSERT INTO competitor_boards (
+              competitor_id, board_id, name, url, pin_count, follower_count,
+              last_pinned_at, updated_at
+            ) VALUES (
+              ${updated.id}, ${b.board_id}, ${b.name}, ${b.url},
+              ${b.pin_count || 0}, ${b.follower_count || 0},
+              ${b.last_pinned_at ? new Date(b.last_pinned_at) : null}, NOW()
+            )
+            ON CONFLICT (competitor_id, board_id) DO UPDATE SET
+              name = EXCLUDED.name,
+              url = EXCLUDED.url,
+              pin_count = EXCLUDED.pin_count,
+              follower_count = EXCLUDED.follower_count,
+              last_pinned_at = COALESCE(EXCLUDED.last_pinned_at, competitor_boards.last_pinned_at),
+              updated_at = NOW();
+          `;
+        } catch (_) {}
+      }
+    }
   }
 
   return updated;

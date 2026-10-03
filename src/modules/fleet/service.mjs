@@ -263,29 +263,110 @@ export async function syncCompetitorAcrossFleet(hubSql, competitorUsernameOrId) 
 
           const targetCompId = insertedP?.id;
           if (targetCompId && boards.length > 0) {
-            for (let bIdx = 0; bIdx < boards.length; bIdx += 25) {
-              const bChunk = boards.slice(bIdx, bIdx + 25);
-              await Promise.all(bChunk.map(b => sSql`
-                INSERT INTO competitor_boards (
-                  competitor_id, board_id, name, url, pin_count, follower_count,
-                  last_pinned_at, metadata, updated_at
-                ) VALUES (
-                  ${targetCompId}, ${b.board_id}, ${b.name}, ${b.url},
-                  ${b.pin_count || 0}, ${b.follower_count || 0},
-                  ${b.last_pinned_at}, ${JSON.stringify(b.metadata || {})}::jsonb,
-                  NOW()
-                )
-                ON CONFLICT (competitor_id, board_id) DO UPDATE SET
-                  name = EXCLUDED.name,
-                  url = EXCLUDED.url,
-                  pin_count = EXCLUDED.pin_count,
-                  follower_count = EXCLUDED.follower_count,
-                  last_pinned_at = EXCLUDED.last_pinned_at,
-                  metadata = EXCLUDED.metadata,
-                  updated_at = NOW();
-              `));
-            }
+            const boardRecords = boards.map(b => ({
+              competitor_id: targetCompId,
+              board_id: String(b.board_id),
+              name: b.name || 'Untitled Board',
+              url: b.url || '',
+              pin_count: Number(b.pin_count || 0),
+              follower_count: Number(b.follower_count || 0),
+              last_pinned_at: b.last_pinned_at ? new Date(b.last_pinned_at).toISOString() : null,
+              metadata: b.metadata || {}
+            }));
+
+            await sSql`
+              INSERT INTO competitor_boards (
+                competitor_id, board_id, name, url, pin_count, follower_count,
+                last_pinned_at, metadata, updated_at
+              )
+              SELECT
+                x.competitor_id,
+                x.board_id,
+                x.name,
+                x.url,
+                x.pin_count,
+                x.follower_count,
+                x.last_pinned_at::timestamptz,
+                x.metadata,
+                NOW()
+              FROM jsonb_to_recordset(${JSON.stringify(boardRecords)}::jsonb) AS x(
+                competitor_id int,
+                board_id varchar,
+                name text,
+                url text,
+                pin_count int,
+                follower_count int,
+                last_pinned_at text,
+                metadata jsonb
+              )
+              ON CONFLICT (competitor_id, board_id) DO UPDATE SET
+                name = EXCLUDED.name,
+                url = EXCLUDED.url,
+                pin_count = EXCLUDED.pin_count,
+                follower_count = EXCLUDED.follower_count,
+                last_pinned_at = EXCLUDED.last_pinned_at,
+                metadata = EXCLUDED.metadata,
+                updated_at = NOW();
+            `;
           }
+
+          // Bulk replicate creator winning pins from pa_pins to shard
+          const compPins = await hubSql`
+            SELECT * FROM pa_pins
+            WHERE LOWER(account_username) = ${p.username.toLowerCase()}
+            ORDER BY saves DESC
+            LIMIT 100;
+          `;
+          if (compPins.length > 0) {
+            const pinRecords = compPins.map(cp => ({
+              pin_id: cp.pin_id,
+              account_username: cp.account_username,
+              title: cp.title || '',
+              description: cp.description || '',
+              link: cp.link || '',
+              domain: cp.domain || '',
+              board_name: cp.board_name || '',
+              image_url: cp.image_url || '',
+              dominant_color: cp.dominant_color || '#888888',
+              saves: Number(cp.saves || 0),
+              repins: Number(cp.repins || 0),
+              comments: Number(cp.comments || 0),
+              share_count: Number(cp.share_count || 0),
+              reactions: cp.reactions || {},
+              velocity: Number(cp.velocity || 0),
+              annotations: cp.annotations || [],
+              is_video: Boolean(cp.is_video),
+              is_product: Boolean(cp.is_product),
+              created_at_pinterest: cp.created_at_pinterest ? new Date(cp.created_at_pinterest).toISOString() : null,
+              first_seen_at: cp.first_seen_at ? new Date(cp.first_seen_at).toISOString() : new Date().toISOString()
+            }));
+
+            await sSql`
+              INSERT INTO pa_pins (
+                pin_id, account_username, title, description, link, domain,
+                board_name, image_url, dominant_color, saves, repins, comments,
+                share_count, reactions, velocity, annotations, is_video, is_product,
+                created_at_pinterest, first_seen_at, last_updated_at
+              )
+              SELECT
+                x.pin_id, x.account_username, x.title, x.description, x.link, x.domain,
+                x.board_name, x.image_url, x.dominant_color, x.saves, x.repins, x.comments,
+                x.share_count, x.reactions, x.velocity, x.annotations, x.is_video, x.is_product,
+                x.created_at_pinterest::timestamptz, x.first_seen_at::timestamptz, NOW()
+              FROM jsonb_to_recordset(${JSON.stringify(pinRecords)}::jsonb) AS x(
+                pin_id varchar, account_username varchar, title text, description text, link text, domain varchar,
+                board_name varchar, image_url text, dominant_color varchar, saves bigint, repins bigint, comments int,
+                share_count bigint, reactions jsonb, velocity numeric, annotations jsonb, is_video boolean, is_product boolean,
+                created_at_pinterest text, first_seen_at text
+              )
+              ON CONFLICT (pin_id) DO UPDATE SET
+                saves = GREATEST(pa_pins.saves, EXCLUDED.saves),
+                repins = GREATEST(pa_pins.repins, EXCLUDED.repins),
+                velocity = EXCLUDED.velocity,
+                last_updated_at = NOW();
+            `;
+          }
+
           syncedShards++;
         } catch (_) {}
       }));
