@@ -853,3 +853,160 @@ export async function listStagedPins(sql, { status = 'all', limit = 50, offset =
     LIMIT ${lim} OFFSET ${off};
   `;
 }
+
+/**
+ * Fetch complete pin detail dossier including all historical metric snapshots and deltas
+ */
+export async function getPinDetailWithMetrics(sql, pinId) {
+  const cleanId = String(pinId || '').trim();
+  if (!cleanId) throw new Error('pinId is required');
+
+  let [pin] = await sql`
+    SELECT * FROM pa_pins WHERE pin_id = ${cleanId} LIMIT 1;
+  `;
+
+  if (!pin) {
+    const [rawPin] = await sql`
+      SELECT 
+        pin_id,
+        title,
+        description,
+        destination_url AS link,
+        link_domain AS domain,
+        board_name,
+        image_url,
+        NULL AS dominant_color,
+        save_count AS saves,
+        repin_count AS repins,
+        comment_count AS comments,
+        0 AS share_count,
+        '{}'::jsonb AS reactions,
+        0 AS velocity,
+        metadata->'annotations' AS annotations,
+        FALSE AS is_video,
+        FALSE AS is_product,
+        created_at_pinterest,
+        first_seen_at,
+        last_seen_at AS last_updated_at
+      FROM competitor_pins
+      WHERE pin_id = ${cleanId}
+      LIMIT 1;
+    `;
+    pin = rawPin || null;
+  }
+
+  if (!pin) return null;
+
+  // Fetch snapshots from pa_pin_metrics
+  const rawSnaps = await sql`
+    SELECT id, pin_id, recorded_at, saves, repins, comments
+    FROM pa_pin_metrics
+    WHERE pin_id = ${cleanId}
+    ORDER BY recorded_at DESC;
+  `;
+
+  const totalReactions = typeof pin.reactions === 'object' && pin.reactions !== null
+    ? Object.values(pin.reactions).reduce((a, b) => a + Number(b || 0), 0)
+    : Number(pin.reactions || 0);
+
+  // Compute deltas between consecutive snapshots
+  const snapshots = rawSnaps.map((s, idx) => {
+    const next = rawSnaps[idx + 1]; // next in DESC order is chronologically previous
+    const sSaves = Number(s.saves || 0);
+    const sRepins = Number(s.repins || 0);
+    const sComments = Number(s.comments || 0);
+    const nSaves = next ? Number(next.saves || 0) : sSaves;
+    const nRepins = next ? Number(next.repins || 0) : sRepins;
+    const nComments = next ? Number(next.comments || 0) : sComments;
+
+    return {
+      id: s.id,
+      pin_id: s.pin_id,
+      recorded_at: s.recorded_at,
+      saves: sSaves,
+      repins: sRepins,
+      comments: sComments,
+      shares: Number(pin.share_count || 0),
+      reactions: totalReactions,
+      delta_saves: next ? (sSaves - nSaves) : 0,
+      delta_repins: next ? (sRepins - nRepins) : 0,
+      delta_comments: next ? (sComments - nComments) : 0,
+      delta_shares: 0,
+      delta_reactions: 0
+    };
+  });
+
+  if (snapshots.length === 0) {
+    snapshots.push({
+      id: 'baseline-' + pin.pin_id,
+      pin_id: pin.pin_id,
+      recorded_at: pin.last_updated_at || pin.first_seen_at || new Date().toISOString(),
+      saves: Number(pin.saves || 0),
+      repins: Number(pin.repins || 0),
+      comments: Number(pin.comments || 0),
+      shares: Number(pin.share_count || 0),
+      reactions: totalReactions,
+      delta_saves: 0,
+      delta_repins: 0,
+      delta_comments: 0,
+      delta_shares: 0,
+      delta_reactions: 0
+    });
+  }
+
+  // Calculate Net Growth
+  let netGrowth = { saves: 0, repins: 0, comments: 0, shares: 0, reactions: 0 };
+  if (snapshots.length >= 2) {
+    const latest = snapshots[0];
+    const earliest = snapshots[snapshots.length - 1];
+    netGrowth = {
+      saves: latest.saves - earliest.saves,
+      repins: latest.repins - earliest.repins,
+      comments: latest.comments - earliest.comments,
+      shares: latest.shares - earliest.shares,
+      reactions: latest.reactions - earliest.reactions
+    };
+  }
+
+  // Format annotations
+  let annotationsList = [];
+  if (Array.isArray(pin.annotations)) {
+    annotationsList = pin.annotations;
+  } else if (typeof pin.annotations === 'string') {
+    try { annotationsList = JSON.parse(pin.annotations); } catch (_) {}
+  }
+
+  return {
+    pin: {
+      ...pin,
+      saves: Number(pin.saves || 0),
+      repins: Number(pin.repins || 0),
+      comments: Number(pin.comments || 0),
+      share_count: Number(pin.share_count || 0),
+      velocity: Number(pin.velocity || 0),
+      annotations: annotationsList,
+      reactions_count: totalReactions,
+      dominant_color: pin.dominant_color || '#a88d56'
+    },
+    snapshots,
+    net_growth: netGrowth
+  };
+}
+
+/**
+ * Delete a specific pin metric snapshot
+ */
+export async function deletePinMetricSnapshot(sql, snapshotId, pinId) {
+  if (!snapshotId) throw new Error('snapshotId is required');
+  const numId = parseInt(snapshotId, 10);
+  if (isNaN(numId)) {
+    return { success: false, error: 'Invalid snapshot ID' };
+  }
+  const deleted = await sql`
+    DELETE FROM pa_pin_metrics 
+    WHERE id = ${numId} AND pin_id = ${String(pinId).trim()}
+    RETURNING id;
+  `;
+  return { success: deleted.length > 0 };
+}
+

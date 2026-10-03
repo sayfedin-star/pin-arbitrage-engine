@@ -41,7 +41,9 @@ import {
   cancelStagedPin,
   getQualificationRules,
   updateQualificationRules,
-  reEvaluateArchivedPins
+  reEvaluateArchivedPins,
+  getPinDetailWithMetrics,
+  deletePinMetricSnapshot
 } from '../src/modules/pinarchive/service.mjs';
 
 const execFileAsync = promisify(execFile);
@@ -1782,6 +1784,23 @@ const server = http.createServer(async (req, res) => {
       const offset = Number(searchParams.get('offset') || 0);
       const pins = await listArchivedPins(targetSql, { search, topic, board, stage, account, minSaves, maxSaves, timeframe, changedOnly, sortBy, order, limit, offset });
       return sendJson(res, 200, { success: true, pins, total: pins.total ?? pins.length });
+    }
+
+    if (method === 'GET' && pathname === '/api/pinarchive/pin-detail') {
+      const pinId = searchParams.get('pin_id') || searchParams.get('id');
+      if (!pinId) return sendJson(res, 400, { error: 'pin_id is required' });
+      const detail = await getPinDetailWithMetrics(targetSql, pinId);
+      if (!detail) return sendJson(res, 404, { error: 'Pin not found' });
+      return sendJson(res, 200, { success: true, ...detail });
+    }
+
+    if (method === 'DELETE' && pathname === '/api/pinarchive/pin-snapshot') {
+      const body = await parseJsonBody(req).catch(() => ({}));
+      const snapshotId = searchParams.get('id') || searchParams.get('snapshot_id') || body.id || body.snapshot_id;
+      const pinId = searchParams.get('pin_id') || body.pin_id;
+      if (!snapshotId || !pinId) return sendJson(res, 400, { error: 'snapshot_id and pin_id are required' });
+      const result = await deletePinMetricSnapshot(targetSql, snapshotId, pinId);
+      return sendJson(res, 200, result);
     }
 
     if (method === 'POST' && pathname === '/api/pinarchive/stage') {

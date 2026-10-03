@@ -490,6 +490,11 @@ export async function fetchBoardsResource(username, activeCookie = '') {
           const d = new Date(item.board_order_modified_at);
           if (!isNaN(d.getTime())) lastPinned = d.toISOString();
         }
+        let boardCreatedAt = null;
+        if (item.created_at) {
+          const cd = new Date(item.created_at);
+          if (!isNaN(cd.getTime())) boardCreatedAt = cd.toISOString();
+        }
         let boardUrl = '';
         if (item.url) {
           boardUrl = item.url.startsWith('http') ? item.url : `https://www.pinterest.com${item.url.startsWith('/') ? '' : '/'}${item.url}`;
@@ -501,6 +506,7 @@ export async function fetchBoardsResource(username, activeCookie = '') {
           pin_count: parseCleanMetric(item.pin_count || 0),
           follower_count: parseCleanMetric(item.follower_count || 0),
           last_pinned_at: lastPinned,
+          created_at: boardCreatedAt,
         });
       }
     }

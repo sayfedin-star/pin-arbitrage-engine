@@ -374,6 +374,11 @@ export async function syncCompetitorBoards(sql, competitorId, username, cookie =
       const d = new Date(b.last_pinned_at);
       if (!isNaN(d.getTime())) lastPinnedDate = d;
     }
+    let boardCreatedAt = null;
+    if (b.created_at) {
+      const cd = new Date(b.created_at);
+      if (!isNaN(cd.getTime())) boardCreatedAt = cd;
+    }
     try {
       await sql`
         INSERT INTO competitor_boards (
@@ -384,6 +389,7 @@ export async function syncCompetitorBoards(sql, competitorId, username, cookie =
           pin_count,
           follower_count,
           last_pinned_at,
+          created_at,
           updated_at
         ) VALUES (
           ${numericId},
@@ -393,6 +399,7 @@ export async function syncCompetitorBoards(sql, competitorId, username, cookie =
           ${b.pin_count},
           ${b.follower_count},
           ${lastPinnedDate},
+          COALESCE(${boardCreatedAt}, NOW()),
           NOW()
         )
         ON CONFLICT (competitor_id, board_id) DO UPDATE SET
@@ -401,6 +408,7 @@ export async function syncCompetitorBoards(sql, competitorId, username, cookie =
           pin_count = EXCLUDED.pin_count,
           follower_count = EXCLUDED.follower_count,
           last_pinned_at = EXCLUDED.last_pinned_at,
+          created_at = COALESCE(EXCLUDED.created_at, competitor_boards.created_at),
           updated_at = NOW();
       `;
       syncedCount++;
@@ -691,10 +699,21 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
   let boards = [];
   try {
     boards = await sql`
-      SELECT *
-      FROM competitor_boards
-      WHERE competitor_id = ${compId}
-      ORDER BY pin_count DESC;
+      SELECT 
+        cb.*,
+        COALESCE(
+          CASE 
+            WHEN cb.created_at IS NOT NULL AND cb.created_at < (NOW() - INTERVAL '1 day') THEN cb.created_at
+            ELSE NULL
+          END,
+          (SELECT MIN(created_at_pinterest) FROM competitor_pins WHERE competitor_id = cb.competitor_id AND LOWER(TRIM(board_name)) = LOWER(TRIM(cb.name))),
+          (SELECT MIN(created_at_pinterest) FROM pa_pins WHERE LOWER(REPLACE(account_username, '@', '')) = ${cleanUsername} AND LOWER(TRIM(board_name)) = LOWER(TRIM(cb.name))),
+          cb.created_at,
+          cb.last_pinned_at
+        ) AS board_created_at
+      FROM competitor_boards cb
+      WHERE cb.competitor_id = ${compId}
+      ORDER BY cb.pin_count DESC;
     `;
   } catch (boardErr) {
     console.warn(`[getCompetitorDetail] Could not query competitor_boards for #${compId}:`, boardErr.message);
