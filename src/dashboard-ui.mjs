@@ -3832,10 +3832,10 @@ export function getDashboardHtml() {
                   </div>
                 </div>
                 <div>
-                  <div class="text-2xl sm:text-3xl font-extrabold tracking-tight text-rose-600 dark:text-rose-400 mt-2 font-mono tabular-nums" x-text="((activeCreatorDetail?.engagement?.delta_saves_24h || 0) >= 0 ? '+' : '') + formatNumber(activeCreatorDetail?.engagement?.delta_saves_24h || 0)"></div>
+                  <div class="text-2xl sm:text-3xl font-extrabold tracking-tight text-rose-600 dark:text-rose-400 mt-2 font-mono tabular-nums" x-text="activeCreatorDetail?.engagement?.delta_saves_24h != null ? ((activeCreatorDetail.engagement.delta_saves_24h >= 0 ? '+' : '') + formatNumber(activeCreatorDetail.engagement.delta_saves_24h)) : '—'"></div>
                   <div class="mt-2 text-[11px] text-slate-500 flex items-center gap-1.5 font-medium">
-                    <span class="h-1.5 w-1.5 rounded-full bg-rose-500"></span>
-                    <span>Past 24h saves gained</span>
+                    <span class="h-1.5 w-1.5 rounded-full" :class="activeCreatorDetail?.engagement?.delta_saves_24h != null ? 'bg-rose-500' : 'bg-slate-400'"></span>
+                    <span x-text="activeCreatorDetail?.engagement?.delta_saves_24h != null ? 'Past 24h saves gained' : 'Requires 2+ snapshots (Baseline recorded)'"></span>
                   </div>
                 </div>
               </div>
@@ -3849,10 +3849,10 @@ export function getDashboardHtml() {
                   </div>
                 </div>
                 <div>
-                  <div class="text-2xl sm:text-3xl font-extrabold tracking-tight text-emerald-600 dark:text-emerald-400 mt-2 font-mono tabular-nums" x-text="((activeCreatorDetail?.engagement?.delta_repins_24h || 0) >= 0 ? '+' : '') + formatNumber(activeCreatorDetail?.engagement?.delta_repins_24h || 0)"></div>
+                  <div class="text-2xl sm:text-3xl font-extrabold tracking-tight text-emerald-600 dark:text-emerald-400 mt-2 font-mono tabular-nums" x-text="activeCreatorDetail?.engagement?.delta_repins_24h != null ? ((activeCreatorDetail.engagement.delta_repins_24h >= 0 ? '+' : '') + formatNumber(activeCreatorDetail.engagement.delta_repins_24h)) : '—'"></div>
                   <div class="mt-2 text-[11px] text-slate-500 flex items-center gap-1.5 font-medium">
-                    <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
-                    <span>Past 24h viral repins</span>
+                    <span class="h-1.5 w-1.5 rounded-full" :class="activeCreatorDetail?.engagement?.delta_repins_24h != null ? 'bg-emerald-500' : 'bg-slate-400'"></span>
+                    <span x-text="activeCreatorDetail?.engagement?.delta_repins_24h != null ? 'Past 24h viral repins' : 'Requires 2+ snapshots (Baseline recorded)'"></span>
                   </div>
                 </div>
               </div>
@@ -9152,7 +9152,7 @@ export function getDashboardHtml() {
               this.activeCreatorBoards = data.boards || [];
               this.competitorBoardsList = data.boards || [];
               if (this.activeCreator && (this.activeCreator.id === creator.id || this.activeCreator.username === creator.username)) {
-                this.activeCreator.total_boards = this.activeCreatorBoards.length;
+                this.activeCreator.total_boards = Math.max(Number(this.activeCreator.total_boards || 0), this.activeCreatorBoards.length);
               }
             }
           } catch (e) {

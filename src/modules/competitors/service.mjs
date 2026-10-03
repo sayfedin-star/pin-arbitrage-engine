@@ -307,21 +307,71 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
  */
 export async function getCompetitorBoards(sql, competitorId) {
   let numericId = parseInt(competitorId, 10);
+  let cleanUser = null;
   if (isNaN(numericId) && competitorId) {
-    const cleanUser = normalizePinterestUsername(competitorId);
+    cleanUser = normalizePinterestUsername(competitorId);
     try {
-      const [c] = await sql`SELECT id FROM competitor_profiles WHERE LOWER(username) = ${cleanUser} LIMIT 1;`;
-      if (c?.id) numericId = c.id;
+      const [c] = await sql`SELECT id, username FROM competitor_profiles WHERE LOWER(username) = ${cleanUser} LIMIT 1;`;
+      if (c?.id) {
+        numericId = c.id;
+        cleanUser = c.username;
+      }
+    } catch (_) {}
+  } else if (!isNaN(numericId)) {
+    try {
+      const [c] = await sql`SELECT id, username FROM competitor_profiles WHERE id = ${numericId} LIMIT 1;`;
+      if (c?.username) cleanUser = c.username;
     } catch (_) {}
   }
   if (isNaN(numericId)) return [];
 
-  return await sql`
-    SELECT *
-    FROM competitor_boards
-    WHERE competitor_id = ${numericId}
-    ORDER BY pin_count DESC;
-  `;
+  let boards = [];
+  try {
+    boards = await sql`
+      SELECT *
+      FROM competitor_boards
+      WHERE competitor_id = ${numericId}
+      ORDER BY pin_count DESC;
+    `;
+  } catch (_) {}
+
+  // Discover & merge any additional boards from competitor_pins
+  try {
+    const rawBoards = await sql`
+      SELECT 
+        COALESCE(NULLIF(TRIM(board_name), ''), 'General') AS name,
+        COUNT(*)::int AS pin_count,
+        COALESCE(MAX(save_count), 0)::int AS follower_count,
+        MAX(created_at_pinterest) AS last_pinned_at,
+        MIN(created_at_pinterest) AS created_at
+      FROM competitor_pins
+      WHERE competitor_id = ${numericId} AND board_name IS NOT NULL AND TRIM(board_name) <> ''
+      GROUP BY name
+      ORDER BY pin_count DESC;
+    `;
+    const existingNames = new Set(boards.map(b => (b.name || '').trim().toLowerCase()));
+    for (const b of rawBoards) {
+      const norm = (b.name || '').trim().toLowerCase();
+      if (!existingNames.has(norm)) {
+        existingNames.add(norm);
+        boards.push({
+          id: boards.length + 1,
+          competitor_id: numericId,
+          board_id: 'cb-' + (boards.length + 1),
+          name: b.name,
+          url: `https://www.pinterest.com/${cleanUser || 'pin'}/${encodeURIComponent(b.name.toLowerCase().replace(/\s+/g, '-'))}/`,
+          pin_count: b.pin_count,
+          follower_count: b.follower_count,
+          last_pinned_at: b.last_pinned_at,
+          created_at: b.created_at,
+          metadata: {}
+        });
+      }
+    }
+    boards.sort((a, b) => (b.pin_count || 0) - (a.pin_count || 0));
+  } catch (_) {}
+
+  return boards;
 }
 
 /**
@@ -527,6 +577,36 @@ export async function syncCompetitorPins(sql, competitorId, username, { mode = '
     if (page < pageLimit) {
       await sleep(randomJitterMs(2500, 4000));
     }
+  }
+
+  // Auto-backfill discovered boards from competitor_pins into competitor_boards
+  if (numericId && cleanUsername) {
+    try {
+      await sql`
+        INSERT INTO competitor_boards (competitor_id, board_id, name, url, pin_count, follower_count, last_pinned_at, created_at, updated_at)
+        SELECT 
+          ${numericId},
+          'cb-' || substr(md5(lower(trim(cp.board_name))), 1, 16),
+          trim(cp.board_name),
+          'https://www.pinterest.com/' || ${cleanUsername} || '/' || lower(regexp_replace(trim(cp.board_name), '[^a-zA-Z0-9]+', '-', 'g')) || '/',
+          count(*)::int,
+          coalesce(max(cp.save_count), 0)::int,
+          max(cp.created_at_pinterest),
+          min(cp.created_at_pinterest),
+          NOW()
+        FROM competitor_pins cp
+        WHERE cp.competitor_id = ${numericId} 
+          AND cp.board_name IS NOT NULL 
+          AND trim(cp.board_name) <> ''
+          AND NOT EXISTS (
+            SELECT 1 FROM competitor_boards cb 
+            WHERE cb.competitor_id = ${numericId} 
+              AND lower(trim(cb.name)) = lower(trim(cp.board_name))
+          )
+        GROUP BY trim(cp.board_name)
+        ON CONFLICT (competitor_id, board_id) DO NOTHING;
+      `;
+    } catch (_) {}
   }
 
   // Update harvest metadata on competitor profile without clobbering total_pins published catalog
@@ -756,8 +836,8 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
     } catch (_) {}
   }
 
-  // Fallback B: If still no boards, discover boards from competitor_pins
-  if (boards.length === 0 && compId) {
+  // Always discover & merge any additional boards from competitor_pins
+  if (compId) {
     try {
       const rawBoards = await sql`
         SELECT 
@@ -767,22 +847,30 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
           MAX(created_at_pinterest) AS last_pinned_at,
           MIN(created_at_pinterest) AS created_at
         FROM competitor_pins
-        WHERE competitor_id = ${compId}
+        WHERE competitor_id = ${compId} AND board_name IS NOT NULL AND TRIM(board_name) <> ''
         GROUP BY name
         ORDER BY pin_count DESC;
       `;
-      if (rawBoards.length > 0) {
-        boards = rawBoards.map((b, idx) => ({
-          id: idx + 1,
-          board_id: 'cb-' + idx,
-          name: b.name,
-          url: `https://www.pinterest.com/${cleanUsername || profile.username}/${encodeURIComponent(b.name.toLowerCase().replace(/\s+/g, '-'))}/`,
-          pin_count: b.pin_count,
-          follower_count: b.follower_count,
-          last_pinned_at: b.last_pinned_at,
-          created_at: b.created_at
-        }));
+      const existingNames = new Set(boards.map(b => (b.name || '').trim().toLowerCase()));
+      for (const b of rawBoards) {
+        const norm = (b.name || '').trim().toLowerCase();
+        if (!existingNames.has(norm)) {
+          existingNames.add(norm);
+          boards.push({
+            id: boards.length + 1,
+            competitor_id: compId,
+            board_id: 'cb-' + (boards.length + 1),
+            name: b.name,
+            url: `https://www.pinterest.com/${cleanUsername || profile.username}/${encodeURIComponent(b.name.toLowerCase().replace(/\s+/g, '-'))}/`,
+            pin_count: b.pin_count,
+            follower_count: b.follower_count,
+            last_pinned_at: b.last_pinned_at,
+            created_at: b.created_at,
+            board_created_at: b.created_at
+          });
+        }
       }
+      boards.sort((a, b) => (b.pin_count || 0) - (a.pin_count || 0));
     } catch (_) {}
   }
 
@@ -1078,8 +1166,8 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
     totalShares = Math.round(totalRepins * 0.22) || Math.round(totalSaves * 0.02);
   }
 
-  let deltaSaves24h = 0;
-  let deltaRepins24h = 0;
+  let deltaSaves24h = null;
+  let deltaRepins24h = null;
 
   if (snapshots.length >= 2) {
     const curr = snapshots[snapshots.length - 1];
@@ -1094,13 +1182,6 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
     if (currRepins > 0 && prevRepins > 0) {
       deltaRepins24h = currRepins - prevRepins;
     }
-  }
-
-  if (deltaSaves24h === 0 && totalSaves > 0) {
-    const pinRate = Number(pinningVelocity) > 0 ? Number(pinningVelocity) : 4.0;
-    const avgSavesPerPin = totalSaves / Math.max(1, Number(profile.total_pins) || 3000);
-    deltaSaves24h = Math.round(pinRate * avgSavesPerPin * 12) || Math.round(totalSaves * 0.005);
-    deltaRepins24h = Math.round(deltaSaves24h * 2.18);
   }
 
   return {

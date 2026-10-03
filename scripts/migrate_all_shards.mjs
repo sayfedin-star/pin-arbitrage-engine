@@ -134,6 +134,34 @@ export async function migrateSingleShard(shard) {
   await sql`CREATE INDEX IF NOT EXISTS idx_competitor_pins_pin_id ON competitor_pins(pin_id);`;
   await sql`CREATE INDEX IF NOT EXISTS idx_competitor_pins_saves ON competitor_pins(save_count DESC);`;
 
+  // Auto-backfill discovered boards from competitor_pins into competitor_boards
+  try {
+    await sql`
+      INSERT INTO competitor_boards (competitor_id, board_id, name, url, pin_count, follower_count, last_pinned_at, created_at, updated_at)
+      SELECT 
+        cp.competitor_id,
+        'cb-' || substr(md5(lower(trim(cp.board_name))), 1, 16),
+        trim(cp.board_name),
+        'https://www.pinterest.com/' || p.username || '/' || lower(regexp_replace(trim(cp.board_name), '[^a-zA-Z0-9]+', '-', 'g')) || '/',
+        count(*)::int,
+        coalesce(max(cp.save_count), 0)::int,
+        max(cp.created_at_pinterest),
+        min(cp.created_at_pinterest),
+        NOW()
+      FROM competitor_pins cp
+      JOIN competitor_profiles p ON p.id = cp.competitor_id
+      WHERE cp.board_name IS NOT NULL 
+        AND trim(cp.board_name) <> ''
+        AND NOT EXISTS (
+          SELECT 1 FROM competitor_boards cb 
+          WHERE cb.competitor_id = cp.competitor_id 
+            AND lower(trim(cb.name)) = lower(trim(cp.board_name))
+        )
+      GROUP BY cp.competitor_id, p.username, trim(cp.board_name)
+      ON CONFLICT (competitor_id, board_id) DO NOTHING;
+    `;
+  } catch (_) {}
+
   // 5. PinArchive Pins (pa_pins)
   await sql`
     CREATE TABLE IF NOT EXISTS pa_pins (
