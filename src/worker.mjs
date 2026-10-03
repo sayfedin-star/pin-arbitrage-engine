@@ -1315,13 +1315,13 @@ export default {
             username = body.username;
           } catch (_) {}
         }
-        if (id && !isNaN(Number(id))) {
-          await targetSql`DELETE FROM competitor_profiles WHERE id = ${Number(id)};`;
-          return jsonResponse({ success: true, deleted_id: Number(id) });
-        } else if (username) {
+        if (username) {
           const cleanUser = String(username).replace(/^@/, '').trim().toLowerCase();
           await targetSql`DELETE FROM competitor_profiles WHERE LOWER(username) = ${cleanUser};`;
           return jsonResponse({ success: true, deleted_username: cleanUser });
+        } else if (id && !isNaN(Number(id))) {
+          await targetSql`DELETE FROM competitor_profiles WHERE id = ${Number(id)};`;
+          return jsonResponse({ success: true, deleted_id: Number(id) });
         }
         return jsonResponse({ error: 'id or username is required to delete competitor' }, 400);
       }
@@ -1473,7 +1473,7 @@ export default {
 
       if (method === 'POST' && (pathname === '/api/competitors/status' || pathname === '/api/competitors/toggle')) {
         const body = await request.json();
-        const idOrUser = body.id || body.username || body.competitor_id;
+        const idOrUser = body.username || body.id || body.competitor_id;
         if (!idOrUser) return jsonResponse({ error: 'id or username is required' }, 400);
         const row = await updateCompetitorStatus(targetSql, idOrUser, body.is_active);
         return jsonResponse({ success: true, competitor: row });

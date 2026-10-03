@@ -951,7 +951,8 @@ export async function getPinDetailWithMetrics(sql, pinId, options = {}) {
           0 AS velocity,
           metadata->'annotations' AS annotations,
           FALSE AS is_video,
-          FALSE AS is_product,
+          COALESCE(is_product, false) AS is_product,
+          alt_text,
           created_at_pinterest,
           first_seen_at,
           last_seen_at AS last_updated_at

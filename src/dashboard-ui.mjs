@@ -914,7 +914,7 @@ export function getDashboardHtml() {
         <!-- KPI 1: Board Pins Total -->
         <div class="p-4 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] shadow-xs space-y-1">
           <div class="text-[10.5px] font-bold uppercase tracking-wider text-slate-400">Total Pins In Board</div>
-          <div class="text-2xl font-black text-slate-900 dark:text-white font-mono" x-text="formatNumber(boardPinsTotal || boardPins.length || (activeBoard ? activeBoard.pin_count : 0))"></div>
+          <div class="text-2xl font-black text-slate-900 dark:text-white font-mono" x-text="formatNumber((activeBoard && activeBoard.pin_count ? activeBoard.pin_count : 0) || boardPinsTotal || boardPins.length || 0)"></div>
           <div class="text-[10.5px] text-slate-400" x-text="boardPins.length + ' indexed in Neon'"></div>
         </div>
 
@@ -9266,7 +9266,7 @@ export function getDashboardHtml() {
             if (res.ok) {
               const data = await res.json();
               this.showToast('✅ Synced ' + (data.synced_boards_count ?? data.synced ?? 0) + ' boards for @' + competitor.username);
-              const bRes = await fetch(this.getApiUrl('/api/competitors/boards?competitor_id=' + competitor.id));
+              const bRes = await fetch(this.getApiUrl('/api/competitors/boards?competitor_id=' + encodeURIComponent(competitor.id) + (competitor.username ? '&username=' + encodeURIComponent(competitor.username) : '')));
               if (bRes.ok) {
                 const bData = await bRes.json();
                 this.competitorBoardsList = bData.boards || [];
@@ -10359,9 +10359,10 @@ export function getDashboardHtml() {
           if (!creator) return;
           const targetId = creator.id || (creator.username || '').replace(/^@+/, '').trim();
           if (!targetId) return;
+          const cleanUser = (creator.username || '').replace(/^@+/, '').trim();
           this.isLoadingBoards = true;
           try {
-            const res = await fetch(this.getApiUrl('/api/competitors/boards?competitor_id=' + encodeURIComponent(targetId)));
+            const res = await fetch(this.getApiUrl('/api/competitors/boards?competitor_id=' + encodeURIComponent(targetId) + (cleanUser ? '&username=' + encodeURIComponent(cleanUser) : '')));
             if (res.ok) {
               const data = await res.json();
               this.activeCreatorBoards = data.boards || [];

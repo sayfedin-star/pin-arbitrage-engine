@@ -598,6 +598,8 @@ export async function getOrSyncBoardDetail(sql, username, boardNameOrSlug, optio
         WHERE competitor_id = ${competitorId}
           AND (
             LOWER(TRIM(name)) = ${rawBoard.toLowerCase()} OR
+            REPLACE(LOWER(TRIM(name)), ' ', '-') = REPLACE(${rawBoard.toLowerCase()}, ' ', '-') OR
+            REPLACE(LOWER(TRIM(name)), '-', ' ') = REPLACE(${rawBoard.toLowerCase()}, '-', ' ') OR
             url ILIKE ${'%' + encodeURIComponent(rawBoard.toLowerCase().replace(/\s+/g, '-')) + '%'} OR
             url ILIKE ${'%' + rawBoard.toLowerCase().replace(/\s+/g, '-') + '%'}
           )
@@ -1764,6 +1766,8 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
     ORDER BY 
       CASE WHEN ${sort} = 'saves_desc' THEN cp.save_count END DESC NULLS LAST,
       CASE WHEN ${sort} = 'repins_desc' THEN cp.repin_count END DESC NULLS LAST,
+      CASE WHEN ${sort} = 'velocity' OR ${sort} = 'velocity_desc' THEN COALESCE(pa.velocity, 0) END DESC NULLS LAST,
+      CASE WHEN ${sort} = 'comments' OR ${sort} = 'comments_desc' THEN cp.comment_count END DESC NULLS LAST,
       CASE WHEN ${sort} = 'newest' THEN cp.created_at_pinterest END DESC NULLS LAST,
       CASE WHEN ${sort} = 'oldest' THEN cp.created_at_pinterest END ASC NULLS LAST,
       cp.save_count DESC
