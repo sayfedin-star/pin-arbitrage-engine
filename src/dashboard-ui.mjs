@@ -484,15 +484,15 @@ export function getDashboardHtml() {
                 </div>
                 <div class="p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30">
                   <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Created Date</div>
-                  <div class="font-sans text-xs font-bold text-slate-900 dark:text-white truncate" x-text="activePinDossier.created_at_pinterest ? new Date(activePinDossier.created_at_pinterest).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'"></div>
+                  <div class="font-sans text-xs font-bold text-slate-900 dark:text-white truncate" x-text="(activePinDossier.created_at_pinterest &amp;&amp; !isNaN(new Date(activePinDossier.created_at_pinterest).getTime())) ? new Date(activePinDossier.created_at_pinterest).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : (activePinDossier.first_seen_at &amp;&amp; !isNaN(new Date(activePinDossier.first_seen_at).getTime()) ? new Date(activePinDossier.first_seen_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—')"></div>
                 </div>
                 <div class="p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30">
                   <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400">First Tracked</div>
-                  <div class="font-sans text-xs font-bold text-slate-900 dark:text-white truncate" x-text="activePinDossier.first_seen_at ? new Date(activePinDossier.first_seen_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'"></div>
+                  <div class="font-sans text-xs font-bold text-slate-900 dark:text-white truncate" x-text="(activePinDossier.first_seen_at &amp;&amp; !isNaN(new Date(activePinDossier.first_seen_at).getTime())) ? new Date(activePinDossier.first_seen_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'"></div>
                 </div>
                 <div class="p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30">
                   <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Last Archived</div>
-                  <div class="font-sans text-xs font-bold text-slate-900 dark:text-white truncate" x-text="activePinDossier.last_updated_at ? new Date(activePinDossier.last_updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'"></div>
+                  <div class="font-sans text-xs font-bold text-slate-900 dark:text-white truncate" x-text="(activePinDossier.last_updated_at &amp;&amp; !isNaN(new Date(activePinDossier.last_updated_at).getTime())) ? new Date(activePinDossier.last_updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'"></div>
                 </div>
                 <div class="p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30">
                   <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Dominant Color</div>
@@ -3556,12 +3556,12 @@ export function getDashboardHtml() {
               <span>📋 All Account Pins</span>
               <span class="px-2 py-0.5 rounded text-[10px] font-mono" :class="activeCreatorTab === 'all_pins' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800'" x-text="activeCreatorAllPinsTotal || 0"></span>
             </button>
-            <button @click="activeCreatorTab = 'pins'; if (!activeCreatorPins || activeCreatorPins.length === 0) fetchPinArchivePins()" class="flex items-center space-x-2 px-4 py-2 text-xs font-bold rounded-xl transition cursor-pointer" :class="activeCreatorTab === 'pins' ? 'bg-rose-500 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
+            <button @click="activeCreatorTab = 'pins'; if (!activeCreatorPins || activeCreatorPins.length === 0) fetchCreatorWinningPins(activeCreator)" class="flex items-center space-x-2 px-4 py-2 text-xs font-bold rounded-xl transition cursor-pointer" :class="activeCreatorTab === 'pins' ? 'bg-rose-500 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
               <i data-lucide="archive" class="w-4 h-4"></i>
               <span>📌 All Pins Archive (Winning Pins)</span>
               <span class="px-2 py-0.5 rounded text-[10px] font-mono" :class="activeCreatorTab === 'pins' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800'" x-text="formatNumber(activeCreatorWinningPinsTotal || activeCreatorPins.length || 0)"></span>
             </button>
-            <button @click="activeCreatorTab = 'topics'; if (!activeCreatorTopics || activeCreatorTopics.length === 0) fetchPinArchiveTopics()" class="flex items-center space-x-2 px-4 py-2 text-xs font-bold rounded-xl transition cursor-pointer" :class="activeCreatorTab === 'topics' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
+            <button @click="activeCreatorTab = 'topics'; if (!activeCreatorTopics || activeCreatorTopics.length === 0) fetchCreatorTopics(activeCreator)" class="flex items-center space-x-2 px-4 py-2 text-xs font-bold rounded-xl transition cursor-pointer" :class="activeCreatorTab === 'topics' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
               <i data-lucide="sparkles" class="w-4 h-4"></i>
               <span>✨ Smart Topic Clusters</span>
               <span class="px-2 py-0.5 rounded text-[10px] font-mono" :class="activeCreatorTab === 'topics' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800'" x-text="activeCreatorTopics.length"></span>
@@ -4399,7 +4399,7 @@ export function getDashboardHtml() {
                 </div>
                 <div class="bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-slate-200 dark:border-slate-800 p-3.5">
                   <span class="text-[11px] font-medium text-slate-400 uppercase block">Pins Total</span>
-                  <span class="text-lg font-bold text-slate-900 dark:text-white mt-1 block font-mono" x-text="formatNumber(activeCreatorWinningPinsTotal || activeCreatorPins.length || activeCreator.total_pins || 0)"></span>
+                  <span class="text-lg font-bold text-slate-900 dark:text-white mt-1 block font-mono" x-text="formatNumber(activeCreator.total_pins || activeCreatorAllPinsTotal || activeCreatorWinningPinsTotal || 0)"></span>
                 </div>
                 <div class="bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-slate-200 dark:border-slate-800 p-3.5">
                   <span class="text-[11px] font-medium text-slate-400 uppercase block">Last Run</span>
@@ -8114,6 +8114,12 @@ export function getDashboardHtml() {
               const data = await res.json();
               this.competitorsOverview = data.overview || { tracked_profiles: 0, total_pins_stored: 0, high_velocity_pins: 0, top_competitors: [] };
               this.competitors = data.competitors || [];
+              if (this.activeCreator) {
+                const matched = this.competitors.find(c => (c.username || '').toLowerCase() === (this.activeCreator.username || '').toLowerCase());
+                if (matched) {
+                  this.activeCreator = { ...matched, ...this.activeCreator };
+                }
+              }
             } else {
               this.competitorsOverview = { tracked_profiles: 0, total_pins_stored: 0, high_velocity_pins: 0, top_competitors: [] };
               this.competitors = [];
@@ -9134,16 +9140,18 @@ export function getDashboardHtml() {
           }
         },
 
-        async fetchCreatorBoards(creator) {
-          if (!creator || !creator.id) return;
+        async fetchCreatorBoards(creator = this.activeCreator) {
+          if (!creator) return;
+          const targetId = creator.id || (creator.username || '').replace(/^@+/, '').trim();
+          if (!targetId) return;
           this.isLoadingBoards = true;
           try {
-            const res = await fetch(this.getApiUrl('/api/competitors/boards?competitor_id=' + creator.id));
+            const res = await fetch(this.getApiUrl('/api/competitors/boards?competitor_id=' + encodeURIComponent(targetId)));
             if (res.ok) {
               const data = await res.json();
               this.activeCreatorBoards = data.boards || [];
               this.competitorBoardsList = data.boards || [];
-              if (this.activeCreator && this.activeCreator.id === creator.id) {
+              if (this.activeCreator && (this.activeCreator.id === creator.id || this.activeCreator.username === creator.username)) {
                 this.activeCreator.total_boards = this.activeCreatorBoards.length;
               }
             }
@@ -9151,6 +9159,41 @@ export function getDashboardHtml() {
             console.error('fetchCreatorBoards error:', e);
           } finally {
             this.isLoadingBoards = false;
+            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+          }
+        },
+
+        async fetchCreatorWinningPins(creator = this.activeCreator) {
+          if (!creator) return;
+          const handle = (creator.username || '').replace(/^@+/, '').trim();
+          if (!handle) return;
+          try {
+            const res = await fetch(this.getApiUrl('/api/pinarchive/pins?account=@' + encodeURIComponent(handle) + '&limit=500'));
+            if (res.ok) {
+              const data = await res.json();
+              this.activeCreatorPins = data.pins || [];
+              this.activeCreatorWinningPinsTotal = data.total ?? (data.pins ? data.pins.length : 0);
+            }
+          } catch (e) {
+            console.error('fetchCreatorWinningPins error:', e);
+          } finally {
+            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+          }
+        },
+
+        async fetchCreatorTopics(creator = this.activeCreator) {
+          if (!creator) return;
+          const handle = (creator.username || '').replace(/^@+/, '').trim();
+          if (!handle) return;
+          try {
+            const res = await fetch(this.getApiUrl('/api/pinarchive/topics?account=@' + encodeURIComponent(handle) + '&limit=100'));
+            if (res.ok) {
+              const data = await res.json();
+              this.activeCreatorTopics = data.topics || [];
+            }
+          } catch (e) {
+            console.error('fetchCreatorTopics error:', e);
+          } finally {
             this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
           }
         },

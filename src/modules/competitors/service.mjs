@@ -210,6 +210,10 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
   const reachDelta = prevSnapshot ? (monthlyReach - Number(prevSnapshot.monthly_reach || 0)) : 0;
   const viewsDelta = prevSnapshot ? (profileViews - Number(prevSnapshot.profile_views || 0)) : 0;
 
+  const metaUpdate = {};
+  if (res.account_created_at) metaUpdate.account_created_at = res.account_created_at;
+  if (res.last_pin_save_time) metaUpdate.last_pin_save_time = res.last_pin_save_time;
+
   // Atomic Upsert: ensures profile is created even if sync is called before tracking
   const [updated] = await sql`
     INSERT INTO competitor_profiles (
@@ -227,6 +231,7 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
       account_type,
       last_synced_at,
       is_active,
+      metadata,
       created_at,
       updated_at
     ) VALUES (
@@ -244,6 +249,7 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
       'competitor',
       NOW(),
       TRUE,
+      ${JSON.stringify(metaUpdate)}::jsonb,
       NOW(),
       NOW()
     )
@@ -258,6 +264,7 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
       total_boards = EXCLUDED.total_boards,
       follower_count = EXCLUDED.follower_count,
       activity_status = '1d ago',
+      metadata = COALESCE(competitor_profiles.metadata, '{}'::jsonb) || ${JSON.stringify(metaUpdate)}::jsonb,
       last_synced_at = NOW(),
       updated_at = NOW()
     RETURNING *;
@@ -847,8 +854,13 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
   let accountAgeDays = strategyAgeDays;
   let accountCreatedDateStr = oldestBoardDateStr;
 
-  if (profile.metadata?.account_created_at) {
-    const dTime = new Date(profile.metadata.account_created_at).getTime();
+  let profileMeta = profile.metadata;
+  if (typeof profileMeta === 'string') {
+    try { profileMeta = JSON.parse(profileMeta); } catch (_) { profileMeta = {}; }
+  }
+
+  if (profileMeta?.account_created_at) {
+    const dTime = new Date(profileMeta.account_created_at).getTime();
     if (!isNaN(dTime)) {
       accountAgeDays = Math.max(0, Math.floor((Date.now() - dTime) / 86400000));
       accountCreatedDateStr = new Date(dTime).toLocaleDateString('en-US', {
@@ -879,6 +891,42 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
         }
       }
     } catch (_) {}
+  }
+
+  if ((accountAgeDays === 0 || accountCreatedDateStr === 'No boards yet') && cleanUsername) {
+    try {
+      const [earliestPaPin] = await sql`
+        SELECT MIN(COALESCE(created_at_pinterest, first_seen_at)) AS oldest
+        FROM pa_pins
+        WHERE LOWER(REPLACE(account_username, '@', '')) = ${cleanUsername} AND COALESCE(created_at_pinterest, first_seen_at) IS NOT NULL;
+      `;
+      if (earliestPaPin && earliestPaPin.oldest) {
+        const pTime = new Date(earliestPaPin.oldest).getTime();
+        if (!isNaN(pTime)) {
+          const pDays = Math.max(0, Math.floor((Date.now() - pTime) / 86400000));
+          if (pDays > accountAgeDays || accountAgeDays === 0) {
+            accountAgeDays = pDays;
+            accountCreatedDateStr = new Date(pTime).toLocaleDateString('en-US', {
+              year: 'numeric',
+              month: 'short',
+              day: 'numeric'
+            });
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  if (accountAgeDays === 0 && profile.created_at) {
+    const cTime = new Date(profile.created_at).getTime();
+    if (!isNaN(cTime)) {
+      accountAgeDays = Math.max(1, Math.floor((Date.now() - cTime) / 86400000));
+      accountCreatedDateStr = new Date(cTime).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+      });
+    }
   }
 
   // 3. Fetch snapshots
@@ -1008,21 +1056,23 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
     }
   } catch (_) {}
 
-  try {
-    const [paPinStats] = await sql`
-      SELECT 
-        COALESCE(SUM(saves), 0)::bigint AS total_saves,
-        COALESCE(SUM(repins), 0)::bigint AS total_repins,
-        COALESCE(SUM(COALESCE(share_count, 0)), 0)::bigint AS total_shares
-      FROM pa_pins
-      WHERE LOWER(REPLACE(account_username, '@', '')) = ${cleanUsername};
-    `;
-    if (paPinStats) {
-      totalSaves = Math.max(totalSaves, Number(paPinStats.total_saves || 0));
-      totalRepins = Math.max(totalRepins, Number(paPinStats.total_repins || 0));
-      totalShares = Math.max(totalShares, Number(paPinStats.total_shares || 0));
-    }
-  } catch (_) {}
+  if (cleanUsername) {
+    try {
+      const [paPinStats] = await sql`
+        SELECT 
+          COALESCE(SUM(saves), 0)::bigint AS total_saves,
+          COALESCE(SUM(repins), 0)::bigint AS total_repins,
+          COALESCE(SUM(COALESCE(share_count, 0)), 0)::bigint AS total_shares
+        FROM pa_pins
+        WHERE LOWER(REPLACE(account_username, '@', '')) = ${cleanUsername};
+      `;
+      if (paPinStats) {
+        totalSaves = Math.max(totalSaves, Number(paPinStats.total_saves || 0));
+        totalRepins = Math.max(totalRepins, Number(paPinStats.total_repins || 0));
+        totalShares = Math.max(totalShares, Number(paPinStats.total_shares || 0));
+      }
+    } catch (_) {}
+  }
 
   if (totalShares === 0 && totalRepins > 0) {
     totalShares = Math.round(totalRepins * 0.22) || Math.round(totalSaves * 0.02);
@@ -1064,7 +1114,7 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
       total_boards: Number(profile.total_boards || boards.length || 0),
       website_domain: profile.website_url ? profile.website_url.replace(/^https?:\/\//, '').replace(/\/.*$/, '') : null,
       verified_domain: Boolean(profile.website_url),
-      notes: profile.bio || profile.metadata?.notes || 'No internal notes set for this competitor.',
+      notes: profile.bio || profileMeta?.notes || 'No internal notes set for this competitor.',
       last_pin_date: latestPinDateStr
     },
     account_age: {
