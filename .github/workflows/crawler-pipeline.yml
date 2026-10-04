@@ -44,7 +44,7 @@ jobs:
     name: Stage 1 - Ingest & Discover Account
     if: "${{ inputs.target_account != '' }}"
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - name: 1. Checkout repository code (Shallow fetch for speed)
         uses: actions/checkout@v4
@@ -83,7 +83,7 @@ jobs:
     if: "${{ !failure() && !cancelled() && (inputs.target_account == '' || needs.discovery.result == 'success') }}"
     needs: [discovery]
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     strategy:
       fail-fast: false       # If one shard encounters an anomaly, the other 19 continue
       max-parallel: 20       # Run all 20 worker nodes in full parallel execution

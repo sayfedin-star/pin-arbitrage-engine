@@ -868,18 +868,25 @@ export async function syncCompetitorPins(sql, competitorId, username, { mode = '
     }
 
     // 2. Filter through 3-tier OR qualification rules & ingest qualified winning pins into pa_pins
-    if (pins.length > 0) {
+    // Only run during refresh/daily sync; in discovery mode, 20 shards handle deep Relay v3 enrichment!
+    if (pins.length > 0 && mode !== 'discovery') {
       const ingestRes = await ingestPinsBatch(sql, pins, cleanUsername, { filterQualified: true, rules });
       allQualifiedCount += (ingestRes.added + ingestRes.updated);
+    }
+
+    // Real-time progress feedback in workflow logs
+    if (page === 1 || page % 10 === 0) {
+      console.log(`    [✓] Ingestion Progress: Page ${page}/${pageLimit} (${totalFetched} pin IDs discovered so far)...`);
     }
 
     currentBookmark = res.nextBookmark;
     if (!currentBookmark || currentBookmark === '-end-' || currentBookmark === lastSeenBookmark) break; // End of feed
     lastSeenBookmark = currentBookmark;
 
-    // Inject jitter delay between pages to absorb Pinterest 429 rate limits (Rule 6 compliant)
+    // Inject jitter delay between pages (discovery: 250-450ms for high-speed indexing; refresh: 1500-2500ms)
     if (page < pageLimit) {
-      await sleep(randomJitterMs(2500, 4000));
+      const delay = (mode === 'discovery') ? randomJitterMs(250, 450) : randomJitterMs(1500, 2500);
+      await sleep(delay);
     }
   }
 
