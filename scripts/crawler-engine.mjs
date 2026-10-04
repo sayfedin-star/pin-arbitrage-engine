@@ -57,6 +57,16 @@ const BATCH_SIZE = 15;
 async function bulkUpsertPaPins(sqlClient, pins) {
   if (!Array.isArray(pins) || pins.length === 0) return 0;
 
+  // Deduplicate and enforce monotonic ORDER BY pin_id ASC
+  const uniquePinsMap = new Map();
+  for (const p of pins) {
+    if (p && p.pin_id) {
+      uniquePinsMap.set(String(p.pin_id), p);
+    }
+  }
+  const sortedPins = Array.from(uniquePinsMap.values()).sort((a, b) => String(a.pin_id).localeCompare(String(b.pin_id)));
+  if (sortedPins.length === 0) return 0;
+
   try {
     await sqlClient`
       INSERT INTO pa_pins (
@@ -70,7 +80,7 @@ async function bulkUpsertPaPins(sqlClient, pins) {
         board_name, image_url, dominant_color, saves, repins, comments,
         share_count, reactions, velocity, annotations, is_video, is_product,
         alt_text, created_at_pinterest, NOW(), NOW()
-      FROM jsonb_to_recordset(${JSON.stringify(pins)}::jsonb) AS x(
+      FROM jsonb_to_recordset(${JSON.stringify(sortedPins)}::jsonb) AS x(
         pin_id VARCHAR(64), account_username VARCHAR(128), title TEXT, description TEXT,
         link TEXT, domain VARCHAR(255), board_name VARCHAR(255), image_url TEXT,
         dominant_color VARCHAR(32), saves BIGINT, repins BIGINT, comments INT,
@@ -97,7 +107,7 @@ async function bulkUpsertPaPins(sqlClient, pins) {
         velocity = CASE WHEN EXCLUDED.velocity > 0 THEN EXCLUDED.velocity ELSE pa_pins.velocity END,
         last_updated_at = NOW();
     `;
-    return pins.length;
+    return sortedPins.length;
   } catch (err) {
     console.warn(`[bulkUpsertPaPins] Warning:`, err.message);
     return 0;
@@ -111,11 +121,20 @@ async function bulkUpsertPaPins(sqlClient, pins) {
 async function bulkInsertMetrics(sqlClient, metrics) {
   if (!Array.isArray(metrics) || metrics.length === 0) return 0;
 
+  const uniqueMetricsMap = new Map();
+  for (const m of metrics) {
+    if (m && m.pin_id) {
+      uniqueMetricsMap.set(String(m.pin_id), m);
+    }
+  }
+  const sortedMetrics = Array.from(uniqueMetricsMap.values()).sort((a, b) => String(a.pin_id).localeCompare(String(b.pin_id)));
+  if (sortedMetrics.length === 0) return 0;
+
   try {
     await sqlClient`
       INSERT INTO pa_pin_metrics (pin_id, recorded_at, saves, repins, comments)
       SELECT pin_id, date_trunc('hour', NOW()), saves, repins, comments
-      FROM jsonb_to_recordset(${JSON.stringify(metrics)}::jsonb) AS x(
+      FROM jsonb_to_recordset(${JSON.stringify(sortedMetrics)}::jsonb) AS x(
         pin_id VARCHAR(64), saves BIGINT, repins BIGINT, comments INT
       )
       ORDER BY pin_id ASC
@@ -124,7 +143,7 @@ async function bulkInsertMetrics(sqlClient, metrics) {
         repins = GREATEST(pa_pin_metrics.repins, EXCLUDED.repins),
         comments = GREATEST(pa_pin_metrics.comments, EXCLUDED.comments);
     `;
-    return metrics.length;
+    return sortedMetrics.length;
   } catch (err) {
     console.warn(`[bulkInsertMetrics] Warning:`, err.message);
     return 0;
@@ -133,9 +152,20 @@ async function bulkInsertMetrics(sqlClient, metrics) {
 
 /**
  * True Atomic Bulk Update on competitor_pins via jsonb_to_recordset
+ * Deduplicates and enforces monotonic ORDER BY id ASC in JavaScript and SQL
  */
 async function bulkUpdateCompetitorPins(sqlClient, updates) {
   if (!Array.isArray(updates) || updates.length === 0) return 0;
+
+  // Deduplicate and enforce monotonic ORDER BY id ASC
+  const uniqueUpdatesMap = new Map();
+  for (const u of updates) {
+    if (u && u.id) {
+      uniqueUpdatesMap.set(String(u.id), u);
+    }
+  }
+  const sortedUpdates = Array.from(uniqueUpdatesMap.values()).sort((a, b) => Number(a.id) - Number(b.id));
+  if (sortedUpdates.length === 0) return 0;
 
   try {
     const res = await sqlClient`
@@ -147,9 +177,12 @@ async function bulkUpdateCompetitorPins(sqlClient, updates) {
           alt_text = COALESCE(cp.alt_text, x.alt_text),
           last_seen_at = NOW(),
           updated_at = NOW()
-      FROM jsonb_to_recordset(${JSON.stringify(updates)}::jsonb) AS x(
-        id BIGINT, status VARCHAR(32), saves INT, repins INT, comments INT, alt_text TEXT
-      )
+      FROM (
+        SELECT * FROM jsonb_to_recordset(${JSON.stringify(sortedUpdates)}::jsonb) AS u(
+          id BIGINT, status VARCHAR(32), saves INT, repins INT, comments INT, alt_text TEXT
+        )
+        ORDER BY id ASC
+      ) AS x
       WHERE cp.id = x.id
       RETURNING cp.id;
     `;
@@ -476,13 +509,22 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
 
   let compId = null;
   if (cleanUser) {
-    try {
-      const [row] = await sqlClient`SELECT id FROM competitor_profiles WHERE LOWER(username) = ${cleanUser} LIMIT 1;`;
-      compId = row?.id || null;
-    } catch (_) {}
+    for (let attempt = 1; attempt <= 15; attempt++) {
+      try {
+        const [row] = await sqlClient`SELECT id FROM competitor_profiles WHERE LOWER(username) = ${cleanUser} LIMIT 1;`;
+        if (row?.id) {
+          compId = row.id;
+          break;
+        }
+      } catch (_) {}
+      if (attempt < 15) {
+        console.log(`[*] [Shard ${shardNumber}] Waiting for competitor @${cleanUser} profile registration (Attempt ${attempt}/15)...`);
+        await sleep(2000);
+      }
+    }
 
     if (!compId) {
-      console.error(`[-] CRITICAL: Competitor @${cleanUser} not found in database. Exiting.`);
+      console.error(`[-] CRITICAL: Competitor @${cleanUser} not found in database after 30s. Exiting.`);
       return;
     }
   }
@@ -545,6 +587,7 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
   let totalFailed = 0;
   let emptyPolls = 0;
   const MAX_EMPTY_POLLS = 25; // 25 polls * 3.5s = ~87 seconds grace period
+  let consecutive429Count = 0;
 
   while (true) {
     // 1. Deadlock-free atomic claim with CTE join for guaranteed account_username
@@ -790,8 +833,13 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
     console.log(`    [✓] [Shard ${shardNumber}] Committed batch (${enrichedPins.length} enriched, ${statusUpdates.length - enrichedPins.length} un-enriched/re-queued).`);
 
     if (rateLimitHit) {
-      await sleep(15000);
+      consecutive429Count++;
+      const backoffSec = Math.min(60, 15 * Math.pow(2, consecutive429Count - 1));
+      console.warn(`[!] [Shard ${shardNumber}] Rate-limited by Pinterest. IP cooling off for ${backoffSec}s (Consecutive 429 Streak: ${consecutive429Count})...`);
+      await sleep(backoffSec * 1000);
       rateLimitHit = false;
+    } else {
+      consecutive429Count = 0;
     }
   }
 

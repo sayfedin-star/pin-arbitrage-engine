@@ -1754,6 +1754,14 @@ export async function upsertCompetitorPins(sql, competitorId, pins) {
 
   if (cleanedPins.length === 0) return 0;
 
+  // Deduplicate and sort pins strictly by pin_id ASC to prevent deadlocks
+  const uniquePinsMap = new Map();
+  for (const p of cleanedPins) {
+    if (p.pin_id) uniquePinsMap.set(p.pin_id, p);
+  }
+  const sortedPins = Array.from(uniquePinsMap.values()).sort((a, b) => a.pin_id.localeCompare(b.pin_id));
+  if (sortedPins.length === 0) return 0;
+
   try {
     await sql`
       INSERT INTO competitor_pins (
@@ -1765,11 +1773,12 @@ export async function upsertCompetitorPins(sql, competitorId, pins) {
         ${competitorId}, x.pin_id, x.title, x.description, x.link_domain,
         x.destination_url, x.board_name, x.image_url, x.save_count, x.repin_count,
         x.comment_count, x.is_product, x.created_at_pinterest, NOW(), NOW(), 'pending'
-      FROM jsonb_to_recordset(${JSON.stringify(cleanedPins)}::jsonb) AS x(
+      FROM jsonb_to_recordset(${JSON.stringify(sortedPins)}::jsonb) AS x(
         pin_id VARCHAR(64), title TEXT, description TEXT, link_domain VARCHAR(255),
         destination_url TEXT, board_name VARCHAR(255), image_url TEXT,
         save_count INT, repin_count INT, comment_count INT, is_product BOOLEAN, created_at_pinterest TIMESTAMPTZ
       )
+      ORDER BY x.pin_id ASC
       ON CONFLICT (competitor_id, pin_id) DO UPDATE SET
         title = CASE WHEN EXCLUDED.title <> '' THEN EXCLUDED.title ELSE competitor_pins.title END,
         description = CASE WHEN EXCLUDED.description <> '' THEN EXCLUDED.description ELSE competitor_pins.description END,
@@ -1784,7 +1793,7 @@ export async function upsertCompetitorPins(sql, competitorId, pins) {
         enrichment_status = COALESCE(competitor_pins.enrichment_status, 'pending'),
         last_seen_at = NOW();
     `;
-    return cleanedPins.length;
+    return sortedPins.length;
   } catch (err) {
     console.warn(`[upsertCompetitorPins] Bulk insert fallback:`, err.message);
     let saved = 0;
