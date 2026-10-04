@@ -432,44 +432,61 @@ async function runDiscoveryJob(sqlClient, shardSql, cleanUser, maxPages, cookie,
 
   // 3. Fast Catalog Ingestion
   let totalDiscovered = 0;
-  if (crawlMode === 'sharded_boards') {
-    console.log(`[*] [3/3 Sharded Boards Mode] ${allBoards.length} authentic boards registered in database.`);
-    console.log(`    [✓] Stage 2 will crawl all ${allBoards.length} boards concurrently across all 20 Shards!`);
-  } else {
-    console.log(`[*] [3/3 Catalog Ingest] Harvesting all pin IDs (maxPages: ${maxPages})...`);
 
-    // Primary: Profile created feed (UserPinsResource fetches 100% of user pins in seconds)
-    // Skip full user feed when a specific target board was explicitly requested
-    if (!targetBoardsRaw) {
+  // Primary: Profile created feed (fetches up to 10,000+ user pins in seconds)
+  // Skip full user feed only when a specific target board was explicitly requested
+  if (!targetBoardsRaw) {
+    try {
+      console.log(`[*] [3/3 Catalog Ingest] Harvesting created pin feed (maxPages: ${maxPages})...`);
+      const feedRes = await syncCompetitorPins(sqlClient, compId, cleanUser, {
+        mode: 'discovery',
+        maxPages: maxPages,
+        cookie: cookie
+      });
+      totalDiscovered = feedRes?.crawled ?? feedRes?.total_fetched ?? 0;
+      console.log(`    [✓] User Feed: Ingested ${totalDiscovered} pin IDs.`);
+    } catch (feedErr) {
+      console.warn(`[!] Profile feed ingest warning:`, feedErr.message);
+    }
+  }
+
+  // Board Distribution Strategy:
+  if (crawlMode === 'sharded_boards') {
+    console.log(`[*] [Sharded Boards Matrix] ${allBoards.length} authentic boards registered in database.`);
+    console.log(`    [✓] Stage 2 will crawl all ${allBoards.length} boards concurrently across all 20 Shards to backfill board pins!`);
+
+    // Pre-initialize heartbeats for all 20 shards in sharded_boards mode to eliminate boot race conditions
+    try {
+      await sqlClient`
+        INSERT INTO crawler_shard_heartbeats (
+          competitor_id, shard_number, shard_total, status, discovered_count, enriched_count, updated_at
+        )
+        SELECT 
+          ${compId}, s, 20, 'crawling_boards', 0, 0, NOW()
+        FROM generate_series(1, 20) AS s
+        ON CONFLICT (competitor_id, shard_number) DO UPDATE SET
+          shard_total = 20,
+          status = 'crawling_boards',
+          updated_at = NOW();
+      `;
+      console.log(`    [✓] Distributed Matrix: Pre-initialized 20 shard coordination heartbeats.`);
+    } catch (hErr) {
+      console.warn(`[!] Heartbeat pre-initialization warning:`, hErr.message);
+    }
+  } else if (totalDiscovered === 0 || targetBoardsRaw) {
+    console.log(`[*] Crawling board feeds to backfill pins...`);
+    for (const board of allBoards) {
       try {
-        const feedRes = await syncCompetitorPins(sqlClient, compId, cleanUser, {
+        const bRes = await syncCompetitorBoardPins(sqlClient, compId, cleanUser, board, {
           mode: 'discovery',
-          maxPages: maxPages,
+          maxPages: 50,
           cookie: cookie
         });
-        totalDiscovered = feedRes?.crawled ?? feedRes?.total_fetched ?? 0;
-        console.log(`    [✓] User Feed: Ingested ${totalDiscovered} pin IDs.`);
-      } catch (feedErr) {
-        console.warn(`[!] Profile feed ingest warning:`, feedErr.message);
-      }
-    }
-
-    // Fallback / Targeted Boards: Crawl board feeds with discovery mode
-    if (totalDiscovered === 0 || targetBoardsRaw) {
-      console.log(`[*] Crawling board feeds to backfill pins...`);
-      for (const board of allBoards) {
-        try {
-          const bRes = await syncCompetitorBoardPins(sqlClient, compId, cleanUser, board, {
-            mode: 'discovery',
-            maxPages: 50,
-            cookie: cookie
-          });
-          const bCount = bRes?.crawled ?? bRes?.total_fetched ?? 0;
-          totalDiscovered += bCount;
-          console.log(`    [✓] Board "${board.name}": Ingested ${bCount} pin IDs.`);
-        } catch (bErr) {
-          console.warn(`[!] Board "${board.name}" warning:`, bErr.message);
-        }
+        const bCount = bRes?.crawled ?? bRes?.total_fetched ?? 0;
+        totalDiscovered += bCount;
+        console.log(`    [✓] Board "${board.name}": Ingested ${bCount} pin IDs.`);
+      } catch (bErr) {
+        console.warn(`[!] Board "${board.name}" warning:`, bErr.message);
       }
     }
   }
@@ -624,6 +641,14 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
       console.log(`🚀 [SHARDED BOARD MATRIX] Shard ${sNum}/${sTot}: Assigned ${assignedBoards.length} of ${allBoards.length} total boards.`);
       for (let bi = 0; bi < assignedBoards.length; bi++) {
         const board = assignedBoards[bi];
+        // Proactive Heartbeat Ping at start of each board to prevent peer timeout misdetection
+        await sqlClient`
+          UPDATE crawler_shard_heartbeats
+          SET status = 'crawling_boards',
+              updated_at = NOW()
+          WHERE competitor_id = ${compId} AND shard_number = ${sNum};
+        `.catch(() => {});
+
         try {
           console.log(`[*] [Shard ${sNum}] [${bi + 1}/${assignedBoards.length}] Ingesting board "${board.name}" (est. ${board.pin_count} pins)...`);
           const bRes = await syncCompetitorBoardPins(sqlClient, compId, cleanUser, board, {
@@ -634,10 +659,10 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
           const fetchedCount = bRes?.total_fetched || 0;
           console.log(`    [✓] [Shard ${sNum}] Board "${board.name}": Discovered ${fetchedCount} pins.`);
 
-          // Update heartbeat and discovered count
+          // Update heartbeat and discovered count with COALESCE
           await sqlClient`
             UPDATE crawler_shard_heartbeats
-            SET discovered_count = discovered_count + ${fetchedCount},
+            SET discovered_count = COALESCE(discovered_count, 0) + ${fetchedCount},
                 updated_at = NOW()
             WHERE competitor_id = ${compId} AND shard_number = ${sNum};
           `.catch(() => {});
@@ -669,10 +694,17 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
   let totalEnriched = 0;
   let totalFailed = 0;
   let emptyPolls = 0;
+  let batchCounter = 0;
   const MAX_EMPTY_POLLS = 25; // 25 polls * 3.5s = ~87 seconds grace period
   let consecutive429Count = 0;
 
   while (true) {
+    batchCounter++;
+    // Periodic Stale Job Reclamation during active processing (every 25 batches = ~2.5 minutes)
+    if (batchCounter % 25 === 0) {
+      await reclaimStaleJobs(sqlClient, compId);
+    }
+
     // 1. Deadlock-free atomic claim with CTE join for guaranteed account_username
     let claimed = [];
     try {

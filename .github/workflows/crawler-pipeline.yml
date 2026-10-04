@@ -73,7 +73,7 @@ jobs:
           PINTEREST_COOKIE: ${{ secrets.PINTEREST_COOKIE }}
           TARGET_ACCOUNT: ${{ inputs.target_account }}
           TARGET_BOARDS: ${{ inputs.target_boards }}
-          CRAWL_MODE: ${{ inputs.crawl_mode || 'discovery' }}
+          CRAWL_MODE: ${{ inputs.crawl_mode || 'sharded_boards' }}
           CRAWL_PHASE: 'discovery'
           MAX_PAGES: ${{ inputs.max_pages || '500' }}
           SHARD_NUMBER: 1
@@ -124,7 +124,7 @@ jobs:
           PINTEREST_COOKIE: ${{ secrets.PINTEREST_COOKIE }}
           TARGET_ACCOUNT: ${{ inputs.target_account }}
           TARGET_BOARDS: ${{ inputs.target_boards }}
-          CRAWL_MODE: ${{ inputs.crawl_mode || 'discovery' }}
+          CRAWL_MODE: ${{ inputs.crawl_mode || 'sharded_boards' }}
           CRAWL_PHASE: "${{ inputs.target_account != '' && 'enrichment' || 'scheduled' }}"
           MAX_PAGES: ${{ inputs.max_pages || '500' }}
           SHARD_NUMBER: ${{ matrix.shard }}
