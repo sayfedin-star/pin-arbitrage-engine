@@ -101,8 +101,8 @@ async function bulkUpsertPaPins(sqlClient, pins) {
         repins = GREATEST(pa_pins.repins, EXCLUDED.repins),
         comments = GREATEST(pa_pins.comments, EXCLUDED.comments),
         share_count = GREATEST(pa_pins.share_count, EXCLUDED.share_count),
-        reactions = CASE WHEN EXCLUDED.reactions != '{}'::jsonb THEN EXCLUDED.reactions ELSE pa_pins.reactions END,
-        annotations = CASE WHEN jsonb_typeof(EXCLUDED.annotations) = 'array' AND jsonb_array_length(EXCLUDED.annotations) > 0 THEN EXCLUDED.annotations ELSE pa_pins.annotations END,
+        reactions = CASE WHEN COALESCE(EXCLUDED.reactions, '{}'::jsonb) != '{}'::jsonb THEN EXCLUDED.reactions ELSE pa_pins.reactions END,
+        annotations = CASE WHEN jsonb_typeof(COALESCE(EXCLUDED.annotations, '[]'::jsonb)) = 'array' AND jsonb_array_length(COALESCE(EXCLUDED.annotations, '[]'::jsonb)) > 0 THEN EXCLUDED.annotations ELSE pa_pins.annotations END,
         dominant_color = COALESCE(EXCLUDED.dominant_color, pa_pins.dominant_color),
         alt_text = COALESCE(EXCLUDED.alt_text, pa_pins.alt_text),
         velocity = CASE WHEN EXCLUDED.velocity > 0 THEN EXCLUDED.velocity ELSE pa_pins.velocity END,
@@ -700,8 +700,9 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
 
   while (true) {
     batchCounter++;
-    // Periodic Stale Job Reclamation during active processing (every 25 batches = ~2.5 minutes)
-    if (batchCounter % 25 === 0) {
+    // Periodic Stale Job Reclamation during active processing:
+    // Restrict to Shard 1 every 25 batches (~2.5 minutes) to avoid 20 concurrent update queries
+    if (sNum === 1 && batchCounter % 25 === 0) {
       await reclaimStaleJobs(sqlClient, compId);
     }
 
@@ -903,7 +904,8 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
               alt_text: altText
             });
           } else {
-            const isHardFail = (
+            const isRateLimit = (fetchRes.status === 429);
+            const isHardFail = !isRateLimit && (
               fetchRes.status === 404 ||
               fetchRes.status === 410 ||
               fetchRes.status === 400 ||
@@ -925,19 +927,20 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
                 console.warn(`[!] [Shard ${shardNumber}] Pin ${item.pin_id} permanently failed after ${currentAttempts} attempts. Marked as 'failed' to prevent infinite loop.`);
               }
             } else {
-              // Temporary 429, 403, or network timeout: re-queue with attempt counter
+              // Rate limit (429) or transient timeout: preserve attempts on 429 so valid pins never get falsely failed
+              const attemptsToRecord = isRateLimit ? Number(item.enrich_attempts || 0) : currentAttempts;
               statusUpdates.push({
                 id: item.id,
                 status: 'pending',
-                enrich_attempts: currentAttempts,
+                enrich_attempts: attemptsToRecord,
                 saves: 0,
                 repins: 0,
                 comments: 0,
                 alt_text: null
               });
 
-              if (fetchRes.status === 429) {
-                console.warn(`[!] [Shard ${shardNumber}] Encountered 429 Rate Limit on Pin ${item.pin_id}.`);
+              if (isRateLimit) {
+                console.warn(`[!] [Shard ${shardNumber}] Encountered 429 Rate Limit on Pin ${item.pin_id}. Preserving attempts.`);
                 rateLimitHit = true;
                 break;
               }
@@ -1024,8 +1027,29 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
 
   // 4. Update the competitor's snapshot metadata with true enriched sums
   if (cleanUser && compId) {
-    console.log(`[*] [Shard ${sNum}] Synchronizing true enriched totals in competitor_history_snapshots...`);
-    await syncEnrichedSnapshotTotals(sqlClient, compId, cleanUser);
+    // Only the last completing shard (or Shard 1 as leader) executes the final snapshot rollup
+    // This completely eliminates concurrent lock conflicts on competitor_history_snapshots
+    let isRollupLeader = (sNum === 1);
+    if (!isRollupLeader) {
+      try {
+        const [active] = await sqlClient`
+          SELECT COUNT(*)::int AS remaining
+          FROM crawler_shard_heartbeats
+          WHERE competitor_id = ${compId}
+            AND shard_number <> ${sNum}
+            AND status <> 'done';
+        `;
+        if ((active?.remaining || 0) === 0) {
+          isRollupLeader = true;
+        }
+      } catch (_) {}
+    }
+
+    if (isRollupLeader) {
+      console.log(`[*] [Shard ${sNum}] Rollup Leader: Synchronizing true enriched totals in competitor_history_snapshots...`);
+      await syncEnrichedSnapshotTotals(sqlClient, compId, cleanUser);
+    }
+
     await sqlClient`
       UPDATE crawler_shard_heartbeats
       SET status = 'done',
