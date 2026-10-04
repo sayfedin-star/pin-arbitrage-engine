@@ -172,6 +172,7 @@ async function bulkUpdateCompetitorPins(sqlClient, updates) {
     const res = await sqlClient`
       UPDATE competitor_pins AS cp
       SET enrichment_status = x.status,
+          enrich_attempts = COALESCE(x.enrich_attempts, cp.enrich_attempts, 0),
           save_count = GREATEST(cp.save_count, x.saves),
           repin_count = GREATEST(cp.repin_count, x.repins),
           comment_count = GREATEST(cp.comment_count, x.comments),
@@ -180,7 +181,7 @@ async function bulkUpdateCompetitorPins(sqlClient, updates) {
           updated_at = NOW()
       FROM (
         SELECT * FROM jsonb_to_recordset(${JSON.stringify(sortedUpdates)}::jsonb) AS u(
-          id BIGINT, status VARCHAR(32), saves INT, repins INT, comments INT, alt_text TEXT
+          id BIGINT, status VARCHAR(32), enrich_attempts INT, saves INT, repins INT, comments INT, alt_text TEXT
         )
         ORDER BY id ASC
       ) AS x
@@ -196,13 +197,15 @@ async function bulkUpdateCompetitorPins(sqlClient, updates) {
 
 /**
  * Stale Job Reclamation: Rescues zombie/abandoned jobs (>90 seconds) back to 'pending'
+ * Increments enrich_attempts; permanently marks jobs with >= 3 attempts as 'failed'.
  * Verified with Neon array return structure (res.length)
  */
 async function reclaimStaleJobs(sqlClient, compId = null) {
   try {
     const res = await sqlClient`
       UPDATE competitor_pins
-      SET enrichment_status = 'pending',
+      SET enrichment_status = CASE WHEN COALESCE(enrich_attempts, 0) >= 3 THEN 'failed' ELSE 'pending' END,
+          enrich_attempts = COALESCE(enrich_attempts, 0) + 1,
           updated_at = NOW()
       WHERE (${compId}::int IS NULL OR competitor_id = ${compId}::int)
         AND enrichment_status = 'processing'
@@ -658,12 +661,12 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
     try {
       claimed = await sqlClient`
         WITH batch AS (
-          SELECT cp.id, cp.pin_id, cp.competitor_id, cp.board_name, prof.username AS account_username
+          SELECT cp.id, cp.pin_id, cp.competitor_id, cp.board_name, COALESCE(cp.enrich_attempts, 0)::int AS enrich_attempts, prof.username AS account_username
           FROM competitor_pins cp
           JOIN competitor_profiles prof ON prof.id = cp.competitor_id
           WHERE (${compId}::int IS NULL OR cp.competitor_id = ${compId}::int)
             AND cp.enrichment_status = 'pending'
-          ORDER BY cp.id ASC
+          ORDER BY cp.enrich_attempts ASC, cp.id ASC
           LIMIT ${BATCH_SIZE}
           FOR UPDATE OF cp SKIP LOCKED
         )
@@ -672,7 +675,7 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
             updated_at = NOW()
         FROM batch b
         WHERE cp.id = b.id
-        RETURNING b.id, b.pin_id, b.competitor_id, b.board_name, b.account_username;
+        RETURNING b.id, b.pin_id, b.competitor_id, b.board_name, b.enrich_attempts, b.account_username;
       `;
     } catch (err) {
       console.error(`[-] [Shard ${shardNumber}] Error claiming batch:`, err.message);
@@ -682,12 +685,14 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
 
     // Grace Polling on Empty Queue (Zero-Leak & Zero-Race)
     if (!claimed || claimed.length === 0) {
-      // A. Reclaim any jobs from crashed/timed-out runners
-      const reclaimed = await reclaimStaleJobs(sqlClient, compId);
-      if (reclaimed > 0) {
-        console.log(`[*] [Shard ${shardNumber}] Reclaimed ${reclaimed} stale jobs from slow/crashed runners. Resuming...`);
-        emptyPolls = 0;
-        continue;
+      // A. Reclaim any jobs from crashed/timed-out runners (throttled every 5 polls)
+      if (emptyPolls % 5 === 0) {
+        const reclaimed = await reclaimStaleJobs(sqlClient, compId);
+        if (reclaimed > 0) {
+          console.log(`[*] [Shard ${shardNumber}] Reclaimed ${reclaimed} stale jobs from slow/crashed runners. Resuming...`);
+          emptyPolls = 0;
+          continue;
+        }
       }
 
       // B. Inspect active vs pending queue counters
@@ -705,6 +710,7 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
       // New pending items arrived (e.g. from discovery or 429 handoff)
       if (pendingCount > 0) {
         emptyPolls = 0;
+        await sleep(randomJitterMs(1500, 2500));
         continue;
       }
 
@@ -790,6 +796,7 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
         if (i >= claimed.length) break;
         const item = claimed[i];
         const pinUsername = (item.account_username || cleanUser || '').replace(/^@+/, '').trim();
+        const currentAttempts = Number(item.enrich_attempts || 0) + 1;
 
         try {
           const fetchRes = await fetchPinFromPinterest(item.pin_id, cookie);
@@ -840,43 +847,60 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
             statusUpdates.push({
               id: item.id,
               status: 'completed',
+              enrich_attempts: currentAttempts,
               saves,
               repins,
               comments,
               alt_text: altText
             });
-          } else if (fetchRes.status === 404) {
-            // Genuinely deleted by creator
-            statusUpdates.push({
-              id: item.id,
-              status: 'failed',
-              saves: 0,
-              repins: 0,
-              comments: 0,
-              alt_text: null
-            });
           } else {
-            // Temporary 429, 403, or network timeout: reset to 'pending' to prevent leak!
-            statusUpdates.push({
-              id: item.id,
-              status: 'pending',
-              saves: 0,
-              repins: 0,
-              comments: 0,
-              alt_text: null
-            });
+            const isHardFail = (
+              fetchRes.status === 404 ||
+              fetchRes.status === 410 ||
+              fetchRes.status === 400 ||
+              String(item.pin_id).startsWith('-') ||
+              currentAttempts >= 3
+            );
 
-            if (fetchRes.status === 429) {
-              console.warn(`[!] [Shard ${shardNumber}] Encountered 429 Rate Limit on Pin ${item.pin_id}.`);
-              rateLimitHit = true;
-              break;
+            if (isHardFail) {
+              statusUpdates.push({
+                id: item.id,
+                status: 'failed',
+                enrich_attempts: currentAttempts,
+                saves: 0,
+                repins: 0,
+                comments: 0,
+                alt_text: null
+              });
+              if (currentAttempts >= 3) {
+                console.warn(`[!] [Shard ${shardNumber}] Pin ${item.pin_id} permanently failed after ${currentAttempts} attempts. Marked as 'failed' to prevent infinite loop.`);
+              }
+            } else {
+              // Temporary 429, 403, or network timeout: re-queue with attempt counter
+              statusUpdates.push({
+                id: item.id,
+                status: 'pending',
+                enrich_attempts: currentAttempts,
+                saves: 0,
+                repins: 0,
+                comments: 0,
+                alt_text: null
+              });
+
+              if (fetchRes.status === 429) {
+                console.warn(`[!] [Shard ${shardNumber}] Encountered 429 Rate Limit on Pin ${item.pin_id}.`);
+                rateLimitHit = true;
+                break;
+              }
             }
           }
         } catch (pinErr) {
           console.warn(`[!] [Shard ${shardNumber}] Pin fetch exception ${item.pin_id}:`, pinErr.message);
+          const isHardFail = (currentAttempts >= 3);
           statusUpdates.push({
             id: item.id,
-            status: 'pending',
+            status: isHardFail ? 'failed' : 'pending',
+            enrich_attempts: currentAttempts,
             saves: 0,
             repins: 0,
             comments: 0,
@@ -898,6 +922,7 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
         statusUpdates.push({
           id: claimed[r].id,
           status: 'pending',
+          enrich_attempts: Number(claimed[r].enrich_attempts || 0),
           saves: 0,
           repins: 0,
           comments: 0,

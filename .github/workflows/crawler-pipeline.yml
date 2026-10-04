@@ -87,6 +87,8 @@ jobs:
   # ============================================================================
   crawl-shards:
     name: Crawl Shard ${{ matrix.shard }}/20
+    needs: [discovery]
+    if: "${{ always() && (needs.discovery.result == 'success' || needs.discovery.result == 'skipped') }}"
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
