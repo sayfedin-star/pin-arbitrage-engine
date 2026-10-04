@@ -7340,13 +7340,20 @@ export function getDashboardHtml() {
 
         <!-- Crawl Depth Mode -->
         <div>
-          <label class="block font-bold text-slate-800 dark:text-slate-200 mb-2">Crawl Depth:</label>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <label class="block font-bold text-slate-800 dark:text-slate-200 mb-2">Crawl Architecture & Depth:</label>
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
             <label class="flex items-center space-x-2 p-2.5 rounded-xl border cursor-pointer transition" :class="ghaCrawlMode === 'discovery' ? 'bg-sky-50/50 dark:bg-sky-950/30 border-sky-500 text-sky-700 dark:text-sky-300 font-bold shadow-2xs' : 'border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'">
               <input type="radio" value="discovery" x-model="ghaCrawlMode" class="text-sky-600">
               <div>
-                <div class="text-xs font-bold">Deep Audit Discovery</div>
-                <div class="text-[10px] text-slate-500 dark:text-slate-400">Up to 500 pages (Full Catalog)</div>
+                <div class="text-xs font-bold">Deep Feed Discovery</div>
+                <div class="text-[10px] text-slate-500 dark:text-slate-400">Full Catalog Feed + 20-Shard 3x Enrichment</div>
+              </div>
+            </label>
+            <label class="flex items-center space-x-2 p-2.5 rounded-xl border cursor-pointer transition" :class="ghaCrawlMode === 'sharded_boards' ? 'bg-emerald-50/50 dark:bg-emerald-950/30 border-emerald-500 text-emerald-700 dark:text-emerald-300 font-bold shadow-2xs' : 'border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'">
+              <input type="radio" value="sharded_boards" x-model="ghaCrawlMode" class="text-emerald-600">
+              <div>
+                <div class="text-xs font-bold">🚀 Sharded Board Matrix</div>
+                <div class="text-[10px] text-slate-500 dark:text-slate-400">20 Nodes Crawl Boards in Parallel (Fastest)</div>
               </div>
             </label>
             <label class="flex items-center space-x-2 p-2.5 rounded-xl border cursor-pointer transition" :class="ghaCrawlMode === 'refresh' ? 'bg-sky-50/50 dark:bg-sky-950/30 border-sky-500 text-sky-700 dark:text-sky-300 font-bold shadow-2xs' : 'border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'">
@@ -10981,7 +10988,7 @@ export function getDashboardHtml() {
               body: JSON.stringify({
                 username: handle,
                 crawl_mode: this.ghaCrawlMode,
-                max_pages: this.ghaCrawlMode === 'discovery' ? 500 : 3,
+                max_pages: this.ghaCrawlMode === 'refresh' ? 3 : 500,
                 target_boards: targetBoards
               })
             });

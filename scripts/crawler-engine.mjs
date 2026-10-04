@@ -313,9 +313,9 @@ export async function getBoardsForTargetAccount(sqlClient, username, cookie = ''
 /**
  * STAGE 1: Discovery Job (Ingests 100% of pin IDs into competitor_pins as 'pending')
  */
-async function runDiscoveryJob(sqlClient, shardSql, cleanUser, maxPages, cookie, targetBoardsRaw) {
+async function runDiscoveryJob(sqlClient, shardSql, cleanUser, maxPages, cookie, targetBoardsRaw, crawlMode = 'discovery') {
   console.log(`\n================================================================`);
-  console.log(`🔎 [STAGE 1: DISCOVERY] Full Catalog Discovery for @${cleanUser}`);
+  console.log(`🔎 [STAGE 1: DISCOVERY] Full Catalog Discovery for @${cleanUser} (Mode: ${crawlMode})`);
   console.log(`================================================================`);
 
   // 1. Sync Profile & Baseline
@@ -368,40 +368,45 @@ async function runDiscoveryJob(sqlClient, shardSql, cleanUser, maxPages, cookie,
   console.log(`    [✓] Discovered ${allBoards.length} boards.`);
 
   // 3. Fast Catalog Ingestion
-  console.log(`[*] [3/3 Catalog Ingest] Harvesting all pin IDs (maxPages: ${maxPages})...`);
   let totalDiscovered = 0;
+  if (crawlMode === 'sharded_boards') {
+    console.log(`[*] [3/3 Sharded Boards Mode] Discovered ${allBoards.length} boards registered in database.`);
+    console.log(`    [✓] Stage 2 will crawl all ${allBoards.length} boards concurrently across all 20 Shards!`);
+  } else {
+    console.log(`[*] [3/3 Catalog Ingest] Harvesting all pin IDs (maxPages: ${maxPages})...`);
 
-  // Primary: Profile created feed (UserPinsResource fetches 100% of user pins in seconds)
-  // Skip full user feed when a specific target board was explicitly requested
-  if (!targetBoardsRaw) {
-    try {
-      const feedRes = await syncCompetitorPins(sqlClient, compId, cleanUser, {
-        mode: 'discovery',
-        maxPages: maxPages,
-        cookie: cookie
-      });
-      totalDiscovered = feedRes?.crawled ?? feedRes?.total_fetched ?? 0;
-      console.log(`    [✓] User Feed: Ingested ${totalDiscovered} pin IDs.`);
-    } catch (feedErr) {
-      console.warn(`[!] Profile feed ingest warning:`, feedErr.message);
-    }
-  }
-
-  // Fallback / Targeted Boards: Crawl board feeds with discovery mode
-  if (totalDiscovered === 0 || targetBoardsRaw) {
-    console.log(`[*] Crawling board feeds to backfill pins...`);
-    for (const board of allBoards) {
+    // Primary: Profile created feed (UserPinsResource fetches 100% of user pins in seconds)
+    // Skip full user feed when a specific target board was explicitly requested
+    if (!targetBoardsRaw) {
       try {
-        const bRes = await syncCompetitorBoardPins(sqlClient, compId, cleanUser, board, {
+        const feedRes = await syncCompetitorPins(sqlClient, compId, cleanUser, {
           mode: 'discovery',
-          maxPages: 50,
+          maxPages: maxPages,
           cookie: cookie
         });
-        const bCount = bRes?.crawled ?? bRes?.total_fetched ?? 0;
-        totalDiscovered += bCount;
-        console.log(`    [✓] Board "${board.name}": Ingested ${bCount} pin IDs.`);
-      } catch (bErr) {
-        console.warn(`[!] Board "${board.name}" warning:`, bErr.message);
+        totalDiscovered = feedRes?.crawled ?? feedRes?.total_fetched ?? 0;
+        console.log(`    [✓] User Feed: Ingested ${totalDiscovered} pin IDs.`);
+      } catch (feedErr) {
+        console.warn(`[!] Profile feed ingest warning:`, feedErr.message);
+      }
+    }
+
+    // Fallback / Targeted Boards: Crawl board feeds with discovery mode
+    if (totalDiscovered === 0 || targetBoardsRaw) {
+      console.log(`[*] Crawling board feeds to backfill pins...`);
+      for (const board of allBoards) {
+        try {
+          const bRes = await syncCompetitorBoardPins(sqlClient, compId, cleanUser, board, {
+            mode: 'discovery',
+            maxPages: 50,
+            cookie: cookie
+          });
+          const bCount = bRes?.crawled ?? bRes?.total_fetched ?? 0;
+          totalDiscovered += bCount;
+          console.log(`    [✓] Board "${board.name}": Ingested ${bCount} pin IDs.`);
+        } catch (bErr) {
+          console.warn(`[!] Board "${board.name}" warning:`, bErr.message);
+        }
       }
     }
   }
@@ -466,7 +471,7 @@ async function runDiscoveryJob(sqlClient, shardSql, cleanUser, maxPages, cookie,
  * - Anti-race: Grace polling prevents premature worker exits
  * - Deadlock-free: Monotonic ORDER BY cp.id ASC FOR UPDATE OF cp SKIP LOCKED
  */
-async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, targetAccount, cookie) {
+async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, targetAccount, cookie, crawlMode = 'discovery', targetBoardsRaw = '') {
   const cleanUser = targetAccount ? targetAccount.replace(/^@+/, '').trim().toLowerCase() : '';
 
   let compId = null;
@@ -485,8 +490,50 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
   console.log(`\n================================================================`);
   console.log(`⚡ [STAGE 2: MATRIX ENRICHMENT] Runner ${shardNumber}/${shardTotal} Active`);
   console.log(`   Target: ${cleanUser ? `@${cleanUser} (ID: ${compId})` : 'Global Active Queue'}`);
+  console.log(`   Mode: ${crawlMode.toUpperCase()} (3x Micro-Concurrency Worker Pool)`);
   console.log(`   Lock Model: Monotonic ORDER BY cp.id ASC FOR UPDATE OF cp SKIP LOCKED`);
   console.log(`================================================================\n`);
+
+  // SHARDED BOARD MATRIX: If enabled, shard harvests its assigned slice of competitor boards first
+  if (crawlMode === 'sharded_boards' && cleanUser && compId) {
+    try {
+      let allBoards = await getBoardsForTargetAccount(sqlClient, cleanUser, cookie);
+      if (targetBoardsRaw) {
+        const filters = targetBoardsRaw.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+        if (filters.length > 0) {
+          allBoards = allBoards.filter(b => {
+            const bName = (b.name || '').toLowerCase();
+            const bId = String(b.board_id || '').toLowerCase();
+            return filters.some(f => bName.includes(f) || bId === f);
+          });
+        }
+      }
+
+      const sNum = parseInt(shardNumber, 10);
+      const sTot = parseInt(shardTotal, 10);
+      const shardIndex = sNum - 1;
+      const assignedBoards = allBoards.filter((_, idx) => (idx % sTot) === shardIndex);
+
+      console.log(`🚀 [SHARDED BOARD MATRIX] Shard ${sNum}/${sTot}: Assigned ${assignedBoards.length} of ${allBoards.length} total boards.`);
+      for (let bi = 0; bi < assignedBoards.length; bi++) {
+        const board = assignedBoards[bi];
+        try {
+          console.log(`[*] [Shard ${sNum}] [${bi + 1}/${assignedBoards.length}] Ingesting board "${board.name}" (est. ${board.pin_count} pins)...`);
+          const bRes = await syncCompetitorBoardPins(sqlClient, compId, cleanUser, board, {
+            mode: 'discovery',
+            maxPages: 50,
+            cookie: cookie
+          });
+          console.log(`    [✓] [Shard ${sNum}] Board "${board.name}": Discovered ${bRes.total_fetched || 0} pins.`);
+        } catch (bErr) {
+          console.warn(`[!] [Shard ${sNum}] Board "${board.name}" error:`, bErr.message);
+        }
+      }
+      console.log(`\n[✓] [Shard ${sNum}/${sTot}] Board ingestion slice complete! Moving into parallel 3x micro-concurrency enrichment queue...\n`);
+    } catch (sbErr) {
+      console.warn(`[!] [Shard ${shardNumber}] Sharded board ingestion error:`, sbErr.message);
+    }
+  }
 
   // Stagger worker boot by tiny micro-jitter (50ms - 250ms) to prevent thundering herds
   await sleep(Math.floor(Math.random() * 200) + 50);
@@ -595,77 +642,100 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
     const statusUpdates = [];
     let rateLimitHit = false;
 
-    // 2. Fetch deep Pinterest data in memory
-    for (let i = 0; i < claimed.length; i++) {
-      const item = claimed[i];
-      const pinUsername = item.account_username || cleanUser || '';
+    // 2. Micro-Concurrency: Fetch deep Pinterest data using 3 concurrent workers per shard
+    const CONCURRENCY = 3;
+    let nextIdx = 0;
 
-      try {
-        const fetchRes = await fetchPinFromPinterest(item.pin_id, cookie);
-        if (fetchRes.ok && fetchRes.pin) {
-          const pin = fetchRes.pin;
+    async function microWorker() {
+      while (nextIdx < claimed.length && !rateLimitHit) {
+        const i = nextIdx++;
+        if (i >= claimed.length) break;
+        const item = claimed[i];
+        const pinUsername = (item.account_username || cleanUser || '').replace(/^@+/, '').trim();
 
-          const saves = Math.max(0, Number(pin.saves || pin.save_count || 0));
-          const repins = Math.max(0, Number(pin.repins || pin.repin_count || 0));
-          const comments = Math.max(0, Number(pin.comments || pin.comment_count || 0));
-          const shares = Math.max(0, Number(pin.shares || pin.share_count || 0));
-          const reactions = pin.reactions || {};
-          const annotations = Array.isArray(pin.annotations) ? pin.annotations : [];
-          const dominantColor = pin.dominant_color || '#e60023';
-          const altText = pin.alt_text || pin.seo_alt_text || '';
-          const velocity = Number(pin.velocity || 0);
-          const createdAtPinterest = pin.created_at_pinterest || pin.created_at || null;
+        try {
+          const fetchRes = await fetchPinFromPinterest(item.pin_id, cookie);
+          if (fetchRes.ok && fetchRes.pin) {
+            const pin = fetchRes.pin;
 
-          enrichedPins.push({
-            pin_id: item.pin_id,
-            account_username: pinUsername,
-            title: pin.title || '',
-            description: pin.description || '',
-            link: pin.link || '',
-            domain: pin.domain || pin.link_domain || '',
-            board_name: item.board_name || pin.board_name || '',
-            image_url: pin.image_url || '',
-            dominant_color: dominantColor,
-            saves,
-            repins,
-            comments,
-            share_count: shares,
-            reactions,
-            velocity,
-            annotations,
-            is_video: Boolean(pin.is_video),
-            is_product: Boolean(pin.is_product),
-            alt_text: altText,
-            created_at_pinterest: createdAtPinterest ? new Date(createdAtPinterest).toISOString() : null
-          });
+            const saves = Math.max(0, Number(pin.saves || pin.save_count || 0));
+            const repins = Math.max(0, Number(pin.repins || pin.repin_count || 0));
+            const comments = Math.max(0, Number(pin.comments || pin.comment_count || 0));
+            const shares = Math.max(0, Number(pin.shares || pin.share_count || 0));
+            const reactions = pin.reactions || {};
+            const annotations = Array.isArray(pin.annotations) ? pin.annotations : [];
+            const dominantColor = pin.dominant_color || '#e60023';
+            const altText = pin.alt_text || pin.seo_alt_text || '';
+            const velocity = Number(pin.velocity || 0);
+            const createdAtPinterest = pin.created_at_pinterest || pin.created_at || null;
 
-          metricSnapshots.push({
-            pin_id: item.pin_id,
-            saves,
-            repins,
-            comments
-          });
+            enrichedPins.push({
+              pin_id: item.pin_id,
+              account_username: pinUsername,
+              title: pin.title || '',
+              description: pin.description || '',
+              link: pin.link || '',
+              domain: pin.domain || pin.link_domain || '',
+              board_name: item.board_name || pin.board_name || '',
+              image_url: pin.image_url || '',
+              dominant_color: dominantColor,
+              saves,
+              repins,
+              comments,
+              share_count: shares,
+              reactions,
+              velocity,
+              annotations,
+              is_video: Boolean(pin.is_video),
+              is_product: Boolean(pin.is_product),
+              alt_text: altText,
+              created_at_pinterest: createdAtPinterest ? new Date(createdAtPinterest).toISOString() : null
+            });
 
-          statusUpdates.push({
-            id: item.id,
-            status: 'completed',
-            saves,
-            repins,
-            comments,
-            alt_text: altText
-          });
-        } else if (fetchRes.status === 404) {
-          // Genuinely deleted by creator
-          statusUpdates.push({
-            id: item.id,
-            status: 'failed',
-            saves: 0,
-            repins: 0,
-            comments: 0,
-            alt_text: null
-          });
-        } else {
-          // Temporary 429, 403, or network timeout: reset to 'pending' to prevent leak!
+            metricSnapshots.push({
+              pin_id: item.pin_id,
+              saves,
+              repins,
+              comments
+            });
+
+            statusUpdates.push({
+              id: item.id,
+              status: 'completed',
+              saves,
+              repins,
+              comments,
+              alt_text: altText
+            });
+          } else if (fetchRes.status === 404) {
+            // Genuinely deleted by creator
+            statusUpdates.push({
+              id: item.id,
+              status: 'failed',
+              saves: 0,
+              repins: 0,
+              comments: 0,
+              alt_text: null
+            });
+          } else {
+            // Temporary 429, 403, or network timeout: reset to 'pending' to prevent leak!
+            statusUpdates.push({
+              id: item.id,
+              status: 'pending',
+              saves: 0,
+              repins: 0,
+              comments: 0,
+              alt_text: null
+            });
+
+            if (fetchRes.status === 429) {
+              console.warn(`[!] [Shard ${shardNumber}] Encountered 429 Rate Limit on Pin ${item.pin_id}.`);
+              rateLimitHit = true;
+              break;
+            }
+          }
+        } catch (pinErr) {
+          console.warn(`[!] [Shard ${shardNumber}] Pin fetch exception ${item.pin_id}:`, pinErr.message);
           statusUpdates.push({
             id: item.id,
             status: 'pending',
@@ -674,30 +744,21 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
             comments: 0,
             alt_text: null
           });
-
-          if (fetchRes.status === 429) {
-            console.warn(`[!] [Shard ${shardNumber}] Encountered 429 Rate Limit on Pin ${item.pin_id}.`);
-            // Hand off all remaining pins in this batch to other shards with fresh IPs
-            for (let r = i + 1; r < claimed.length; r++) {
-              statusUpdates.push({
-                id: claimed[r].id,
-                status: 'pending',
-                saves: 0,
-                repins: 0,
-                comments: 0,
-                alt_text: null
-              });
-            }
-            console.warn(`[!] [Shard ${shardNumber}] Re-queued ${claimed.length - i} pins for other shards. Backing off 15s...`);
-            rateLimitHit = true;
-            break; // Stop requesting on this rate-limited IP for this batch
-          }
         }
-      } catch (pinErr) {
-        console.warn(`[!] [Shard ${shardNumber}] Pin fetch exception ${item.pin_id}:`, pinErr.message);
-        // Reset to pending on network exception
+
+        // Micro-jitter delay per worker
+        await sleep(randomJitterMs(600, 1100));
+      }
+    }
+
+    // Execute 3 concurrent workers in parallel within this runner
+    await Promise.all(Array.from({ length: CONCURRENCY }, () => microWorker()));
+
+    // If 429 rate limit occurred, re-queue any unvisited pins in this batch
+    if (rateLimitHit) {
+      for (let r = nextIdx; r < claimed.length; r++) {
         statusUpdates.push({
-          id: item.id,
+          id: claimed[r].id,
           status: 'pending',
           saves: 0,
           repins: 0,
@@ -705,9 +766,7 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
           alt_text: null
         });
       }
-
-      // Jitter delay between pin requests to keep IP healthy
-      await sleep(randomJitterMs(1000, 1800));
+      console.warn(`[!] [Shard ${shardNumber}] Re-queued unpicked pins due to 429. Backing off 15s...`);
     }
 
     // 3. Atomically commit the batch using single bulk SQL operations (<50ms total)
@@ -895,12 +954,12 @@ async function main() {
 
   // Dispatch based on CRAWL_PHASE or context
   if (crawlPhase === 'discovery') {
-    await runDiscoveryJob(sql, shardSql, targetAccount, maxPages, cookie, targetBoardsRaw);
+    await runDiscoveryJob(sql, shardSql, targetAccount, maxPages, cookie, targetBoardsRaw, crawlMode);
   } else if (crawlPhase === 'enrichment') {
-    await runEnrichmentQueue(sql, shardSql, shardNumber, shardTotal, targetAccount, cookie);
+    await runEnrichmentQueue(sql, shardSql, shardNumber, shardTotal, targetAccount, cookie, crawlMode, targetBoardsRaw);
   } else if (targetAccount) {
     if (shardNumber === 1) {
-      await runDiscoveryJob(sql, shardSql, targetAccount, maxPages, cookie, targetBoardsRaw);
+      await runDiscoveryJob(sql, shardSql, targetAccount, maxPages, cookie, targetBoardsRaw, crawlMode);
     } else {
       console.log(`[*] Shard ${shardNumber}/${shardTotal} waiting for Discovery Job to populate initial queue...`);
       for (let attempt = 0; attempt < 15; attempt++) {
@@ -909,7 +968,7 @@ async function main() {
         if (row) break;
       }
     }
-    await runEnrichmentQueue(sql, shardSql, shardNumber, shardTotal, targetAccount, cookie);
+    await runEnrichmentQueue(sql, shardSql, shardNumber, shardTotal, targetAccount, cookie, crawlMode, targetBoardsRaw);
   } else {
     await runDailyScheduledMode(sql, shardSql, shardNumber, shardTotal, crawlMode, maxPages, cookie);
   }

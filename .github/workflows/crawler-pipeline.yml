@@ -12,11 +12,12 @@ on:
         type: string
         default: ''
       crawl_mode:
-        description: 'Crawl Mode: discovery (deep backfill: 500 pages) or refresh (early-stop: 3 pages)'
+        description: 'Crawl Mode: discovery (full catalog feed), sharded_boards (20-shard parallel board matrix), or refresh (early-stop: 3 pages)'
         required: true
         type: choice
         options:
           - discovery
+          - sharded_boards
           - refresh
         default: 'discovery'
       max_pages:
