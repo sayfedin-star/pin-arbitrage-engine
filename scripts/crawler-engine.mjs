@@ -28,7 +28,8 @@ import {
   syncCompetitorPins,
   syncCompetitorBoardPins,
   syncCompetitorBoards,
-  syncCompetitorProfile
+  syncCompetitorProfile,
+  getCompetitorBoards
 } from '../src/modules/competitors/service.mjs';
 import { syncCompetitorAcrossFleet } from '../src/modules/fleet/service.mjs';
 import { fetchBoardsResource, fetchPinFromPinterest, sleep, randomJitterMs } from './lib/pinterest.mjs';
@@ -203,7 +204,7 @@ async function reclaimStaleJobs(sqlClient, compId = null) {
       UPDATE competitor_pins
       SET enrichment_status = 'pending',
           updated_at = NOW()
-      WHERE (${compId ? sqlClient`competitor_id = ${compId}` : sqlClient`TRUE`})
+      WHERE (${compId}::int IS NULL OR competitor_id = ${compId}::int)
         AND enrichment_status = 'processing'
         AND (updated_at IS NULL OR updated_at < NOW() - INTERVAL '90 seconds')
       RETURNING id;
@@ -306,6 +307,15 @@ export async function getAccountsAssignedToShard(sqlClient, shardNumber, shardTo
  */
 export async function getBoardsForTargetAccount(sqlClient, username, cookie = '') {
   const cleanUsername = String(username).replace(/^@+/, '').trim().toLowerCase();
+
+  try {
+    const boards = await getCompetitorBoards(sqlClient, cleanUsername, { username: cleanUsername });
+    if (Array.isArray(boards) && boards.length > 0) {
+      return boards;
+    }
+  } catch (err) {
+    console.warn(`[!] getCompetitorBoards fallback for @${cleanUsername}:`, err.message);
+  }
 
   let dbBoards = [];
   try {
@@ -651,7 +661,7 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
           SELECT cp.id, cp.pin_id, cp.competitor_id, cp.board_name, prof.username AS account_username
           FROM competitor_pins cp
           JOIN competitor_profiles prof ON prof.id = cp.competitor_id
-          WHERE (${compId ? sqlClient`cp.competitor_id = ${compId}` : sqlClient`TRUE`})
+          WHERE (${compId}::int IS NULL OR cp.competitor_id = ${compId}::int)
             AND cp.enrichment_status = 'pending'
           ORDER BY cp.id ASC
           LIMIT ${BATCH_SIZE}
@@ -686,7 +696,7 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
           COUNT(CASE WHEN enrichment_status = 'processing' THEN 1 END)::int AS processing_cnt,
           COUNT(CASE WHEN enrichment_status = 'pending' THEN 1 END)::int AS pending_cnt
         FROM competitor_pins
-        WHERE (${compId ? sqlClient`competitor_id = ${compId}` : sqlClient`TRUE`});
+        WHERE (${compId}::int IS NULL OR competitor_id = ${compId}::int);
       `.catch(() => [{ processing_cnt: 0, pending_cnt: 0 }]);
 
       const processingCount = counts?.processing_cnt || 0;
