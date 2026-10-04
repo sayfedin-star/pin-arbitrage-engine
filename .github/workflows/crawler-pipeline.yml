@@ -80,7 +80,7 @@ jobs:
   # ============================================================================
   crawl-shards:
     name: Crawl Shard ${{ matrix.shard }}/20
-    if: "${{ always() && (inputs.target_account == '' || needs.discovery.result == 'success') }}"
+    if: "${{ !failure() && !cancelled() && (inputs.target_account == '' || needs.discovery.result == 'success') }}"
     needs: [discovery]
     runs-on: ubuntu-latest
     timeout-minutes: 30
