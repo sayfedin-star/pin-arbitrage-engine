@@ -964,8 +964,8 @@ export async function getPinDetailWithMetrics(sql, pinId, options = {}) {
     }
   }
 
-  // Only fetch live from Pinterest if the pin does not exist in DB OR user explicitly clicked "Live Refresh"
-  const needsEnrichment = !pin || forceRefresh;
+  // Only fetch live from Pinterest if user explicitly clicked "Live Refresh" (never auto-crawl on pin modal open)
+  const needsEnrichment = forceRefresh;
 
   if (needsEnrichment) {
     try {

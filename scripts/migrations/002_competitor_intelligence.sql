@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS competitor_pins (
     last_seen_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     metadata JSONB DEFAULT '{}'::jsonb,
     enrichment_status VARCHAR(32) DEFAULT 'pending',
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     UNIQUE(competitor_id, pin_id)
 );
 
@@ -69,4 +70,5 @@ CREATE INDEX IF NOT EXISTS idx_competitor_profiles_reach ON competitor_profiles(
 CREATE INDEX IF NOT EXISTS idx_competitor_pins_comp_id ON competitor_pins(competitor_id);
 CREATE INDEX IF NOT EXISTS idx_competitor_pins_pin_id ON competitor_pins(pin_id);
 CREATE INDEX IF NOT EXISTS idx_competitor_pins_enrichment_queue ON competitor_pins(competitor_id, enrichment_status);
+CREATE INDEX IF NOT EXISTS idx_competitor_pins_queue_fast ON competitor_pins(competitor_id, enrichment_status, id);
 CREATE INDEX IF NOT EXISTS idx_competitor_history_date ON competitor_history_snapshots(competitor_id, recorded_date DESC);

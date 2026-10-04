@@ -1395,7 +1395,7 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
   let snapshots = [];
   try {
     snapshots = await sql`
-      SELECT id, competitor_id, monthly_reach, profile_views, follower_count, total_pins, total_boards, recorded_date, created_at
+      SELECT id, competitor_id, monthly_reach, profile_views, follower_count, total_pins, total_boards, recorded_date, metadata, created_at
       FROM competitor_history_snapshots
       WHERE competitor_id = ${compId}
       ORDER BY recorded_date ASC, id ASC;
@@ -1548,14 +1548,45 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
     const prev = snapshots[snapshots.length - 2];
     const currSaves = Number(curr.metadata?.total_saves || 0);
     const prevSaves = Number(prev.metadata?.total_saves || 0);
-    if (currSaves > 0 && prevSaves > 0) {
+    if (curr.metadata && prev.metadata && (currSaves > 0 || prevSaves > 0)) {
       deltaSaves24h = currSaves - prevSaves;
     }
     const currRepins = Number(curr.metadata?.total_repins || 0);
     const prevRepins = Number(prev.metadata?.total_repins || 0);
-    if (currRepins > 0 && prevRepins > 0) {
+    if (curr.metadata && prev.metadata && (currRepins > 0 || prevRepins > 0)) {
       deltaRepins24h = currRepins - prevRepins;
     }
+  }
+
+  // Fallback: Calculate 24h deltas from pa_pin_metrics if snapshot deltas are not yet available
+  if (deltaSaves24h === null && cleanUsername) {
+    try {
+      const [growthRow] = await sql`
+        WITH recent_samples AS (
+          SELECT 
+            m.pin_id,
+            m.saves,
+            m.repins,
+            m.recorded_at,
+            ROW_NUMBER() OVER (PARTITION BY m.pin_id ORDER BY m.recorded_at DESC) as rn_latest,
+            ROW_NUMBER() OVER (PARTITION BY m.pin_id ORDER BY m.recorded_at ASC) as rn_oldest
+          FROM pa_pin_metrics m
+          JOIN pa_pins p ON p.pin_id = m.pin_id
+          WHERE LOWER(REPLACE(p.account_username, '@', '')) = ${cleanUsername}
+            AND m.recorded_at >= NOW() - INTERVAL '24 hours'
+        )
+        SELECT 
+          COALESCE(SUM(latest.saves - oldest.saves), 0)::bigint AS delta_saves,
+          COALESCE(SUM(latest.repins - oldest.repins), 0)::bigint AS delta_repins
+        FROM recent_samples latest
+        JOIN recent_samples oldest ON latest.pin_id = oldest.pin_id AND oldest.rn_oldest = 1
+        WHERE latest.rn_latest = 1 AND latest.recorded_at > oldest.recorded_at;
+      `;
+      if (growthRow && (Number(growthRow.delta_saves) > 0 || Number(growthRow.delta_repins) > 0)) {
+        deltaSaves24h = Number(growthRow.delta_saves);
+        deltaRepins24h = Number(growthRow.delta_repins);
+      }
+    } catch (_) {}
   }
 
   // Auto-heal non-zero reach & profile_views if profile record was degraded to 0
@@ -1629,6 +1660,7 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
       total_pins: Number(s.total_pins || 0),
       total_boards: Number(s.total_boards || 0),
       recorded_date: s.recorded_date,
+      metadata: s.metadata || {},
       created_at: s.created_at
     })),
     boards: boards.map(b => ({
@@ -1766,8 +1798,6 @@ export async function upsertCompetitorPins(sql, competitorId, pins) {
     }
     return saved;
   }
-}
-  return saved;
 }
 
 /**
