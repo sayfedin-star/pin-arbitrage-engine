@@ -306,40 +306,45 @@ export async function getAccountsAssignedToShard(sqlClient, shardNumber, shardTo
 }
 
 /**
- * Discover or load boards for a targeted account
+ * Discover or load boards for a targeted account.
+ * Filters out any legacy synthetic 'cb-' placeholder boards to prevent invalid_board_id API errors.
  */
-export async function getBoardsForTargetAccount(sqlClient, username, cookie = '') {
+export async function getBoardsForTargetAccount(sqlClient, username, cookie = '', forceRefresh = false) {
   const cleanUsername = String(username).replace(/^@+/, '').trim().toLowerCase();
 
-  try {
-    const boards = await getCompetitorBoards(sqlClient, cleanUsername, { username: cleanUsername });
-    if (Array.isArray(boards) && boards.length > 0) {
-      return boards;
+  // If forceRefresh is false, try loading authentic boards directly from DB first
+  if (!forceRefresh) {
+    try {
+      const dbBoards = await sqlClient`
+        SELECT cb.board_id, cb.name, cb.url, cb.pin_count, cb.follower_count
+        FROM competitor_boards cb
+        JOIN competitor_profiles cp ON cp.id = cb.competitor_id
+        WHERE LOWER(cp.username) = ${cleanUsername}
+          AND cb.board_id NOT LIKE 'cb-%'
+          AND cb.board_id NOT LIKE '-%'
+        ORDER BY cb.pin_count DESC, cb.id ASC;
+      `;
+      if (dbBoards && dbBoards.length > 0) {
+        return dbBoards;
+      }
+    } catch (_) {}
+
+    try {
+      const boards = await getCompetitorBoards(sqlClient, cleanUsername, { username: cleanUsername });
+      if (Array.isArray(boards) && boards.length > 0) {
+        const valid = boards.filter(b => b.board_id && !String(b.board_id).startsWith('cb-') && !String(b.board_id).startsWith('-'));
+        if (valid.length > 0) return valid;
+      }
+    } catch (err) {
+      console.warn(`[!] getCompetitorBoards fallback for @${cleanUsername}:`, err.message);
     }
-  } catch (err) {
-    console.warn(`[!] getCompetitorBoards fallback for @${cleanUsername}:`, err.message);
   }
 
-  let dbBoards = [];
-  try {
-    dbBoards = await sqlClient`
-      SELECT cb.board_id, cb.name, cb.url, cb.pin_count, cb.follower_count
-      FROM competitor_boards cb
-      JOIN competitor_profiles cp ON cp.id = cb.competitor_id
-      WHERE LOWER(cp.username) = ${cleanUsername}
-      ORDER BY cb.pin_count DESC, cb.id ASC;
-    `;
-  } catch (_) {}
-
-  if (dbBoards.length > 0) {
-    const valid = dbBoards.filter(b => b.board_id && !String(b.board_id).startsWith('-'));
-    if (valid.length > 0) return valid;
-  }
-
+  // Sync authentic boards from Pinterest with bookmark pagination & bulk upsert
   try {
     const syncRes = await syncCompetitorBoards(sqlClient, cleanUsername, cleanUsername, cookie);
     if (syncRes.ok && Array.isArray(syncRes.boards) && syncRes.boards.length > 0) {
-      const valid = syncRes.boards.filter(b => b.board_id && !String(b.board_id).startsWith('-'));
+      const valid = syncRes.boards.filter(b => b.board_id && !String(b.board_id).startsWith('cb-') && !String(b.board_id).startsWith('-'));
       if (valid.length > 0) return valid;
     }
   } catch (err) {
@@ -349,7 +354,7 @@ export async function getBoardsForTargetAccount(sqlClient, username, cookie = ''
   try {
     const pRes = await fetchBoardsResource(cleanUsername, cookie);
     if (pRes.ok && Array.isArray(pRes.boards)) {
-      return pRes.boards.filter(b => b.board_id && !String(b.board_id).startsWith('-'));
+      return pRes.boards.filter(b => b.board_id && !String(b.board_id).startsWith('cb-') && !String(b.board_id).startsWith('-'));
     }
   } catch (_) {}
 
@@ -397,9 +402,21 @@ async function runDiscoveryJob(sqlClient, shardSql, cleanUser, maxPages, cookie,
     WHERE id = ${compId};
   `.catch(() => {});
 
-  // 2. Discover Boards
-  console.log(`[*] [2/3 Boards] Discovering boards for @${cleanUser}...`);
-  let allBoards = await getBoardsForTargetAccount(sqlClient, cleanUser, cookie);
+  // 2. Discover & Sync Boards
+  console.log(`[*] [2/3 Boards] Syncing & discovering authentic boards for @${cleanUser}...`);
+  let allBoards = [];
+  try {
+    const syncRes = await syncCompetitorBoards(sqlClient, compId, cleanUser, cookie);
+    if (syncRes.ok && Array.isArray(syncRes.boards) && syncRes.boards.length > 0) {
+      allBoards = syncRes.boards.filter(b => b.board_id && !String(b.board_id).startsWith('cb-') && !String(b.board_id).startsWith('-'));
+    }
+  } catch (syncErr) {
+    console.warn(`[!] syncCompetitorBoards warning:`, syncErr.message);
+  }
+  if (allBoards.length === 0) {
+    allBoards = await getBoardsForTargetAccount(sqlClient, cleanUser, cookie);
+  }
+
   if (targetBoardsRaw) {
     const filters = targetBoardsRaw.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
     if (filters.length > 0) {
@@ -411,12 +428,12 @@ async function runDiscoveryJob(sqlClient, shardSql, cleanUser, maxPages, cookie,
       if (filtered.length > 0) allBoards = filtered;
     }
   }
-  console.log(`    [✓] Discovered ${allBoards.length} boards.`);
+  console.log(`    [✓] Discovered & registered ${allBoards.length} authentic boards in database.`);
 
   // 3. Fast Catalog Ingestion
   let totalDiscovered = 0;
   if (crawlMode === 'sharded_boards') {
-    console.log(`[*] [3/3 Sharded Boards Mode] Discovered ${allBoards.length} boards registered in database.`);
+    console.log(`[*] [3/3 Sharded Boards Mode] ${allBoards.length} authentic boards registered in database.`);
     console.log(`    [✓] Stage 2 will crawl all ${allBoards.length} boards concurrently across all 20 Shards!`);
   } else {
     console.log(`[*] [3/3 Catalog Ingest] Harvesting all pin IDs (maxPages: ${maxPages})...`);
@@ -1159,7 +1176,16 @@ async function main() {
   }
 }
 
-main().catch(err => {
-  console.error('[-] Fatal Crawler Engine Error:', err);
-  process.exit(1);
-});
+const isDirectCli = Boolean(
+  process.argv[1] && (
+    process.argv[1].endsWith('crawler-engine.mjs') ||
+    process.argv[1].replace(/\\/g, '/').endsWith('scripts/crawler-engine.mjs')
+  )
+);
+
+if (isDirectCli) {
+  main().catch(err => {
+    console.error('[-] Fatal Crawler Engine Error:', err);
+    process.exit(1);
+  });
+}

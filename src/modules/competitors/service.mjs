@@ -536,18 +536,21 @@ export async function syncCompetitorBoards(sql, competitorId, username, cookie =
     return { ok: false, error: res.error || 'Failed to fetch boards from Pinterest' };
   }
 
-  let syncedCount = 0;
+  const records = [];
+  const authenticNames = [];
+
   for (const b of res.boards) {
-    if (!b.board_id || String(b.board_id).trim() === '' || b.board_id === 'undefined') continue;
+    const boardId = String(b.board_id || '').trim();
+    if (!boardId || boardId === 'undefined') continue;
     let lastPinnedDate = null;
     if (b.last_pinned_at) {
       const d = new Date(b.last_pinned_at);
-      if (!isNaN(d.getTime())) lastPinnedDate = d;
+      if (!isNaN(d.getTime())) lastPinnedDate = d.toISOString();
     }
     let boardCreatedAt = null;
     if (b.created_at) {
       const cd = new Date(b.created_at);
-      if (!isNaN(cd.getTime())) boardCreatedAt = cd;
+      if (!isNaN(cd.getTime())) boardCreatedAt = cd.toISOString();
     }
     const metadataObj = {
       image_cover_url: b.image_cover_url || b.metadata?.image_cover_url || null,
@@ -557,18 +560,39 @@ export async function syncCompetitorBoards(sql, competitorId, username, cookie =
       privacy: b.metadata?.privacy || 'public',
       is_collaborative: Boolean(b.metadata?.is_collaborative)
     };
-    try {
-      // Purge any legacy synthetic placeholder board for this name when inserting authentic board
-      if (b.board_id && !String(b.board_id).startsWith('cb-')) {
-        await sql`
-          DELETE FROM competitor_boards
-          WHERE competitor_id = ${numericId}
-            AND board_id LIKE 'cb-%'
-            AND LOWER(TRIM(name)) = LOWER(TRIM(${b.name}));
-        `.catch(() => {});
-      }
+    records.push({
+      board_id: boardId,
+      name: String(b.name || 'Untitled Board').slice(0, 255),
+      url: b.url || '',
+      pin_count: Number(b.pin_count) || 0,
+      follower_count: Number(b.follower_count) || 0,
+      last_pinned_at: lastPinnedDate,
+      metadata: metadataObj,
+      created_at: boardCreatedAt
+    });
+    if (!boardId.startsWith('cb-') && b.name) {
+      authenticNames.push(b.name.trim().toLowerCase());
+    }
+  }
 
+  // Purge any legacy synthetic placeholder boards
+  if (authenticNames.length > 0) {
+    try {
       await sql`
+        DELETE FROM competitor_boards
+        WHERE competitor_id = ${numericId}
+          AND board_id LIKE 'cb-%'
+          AND LOWER(TRIM(name)) = ANY(${authenticNames});
+      `;
+    } catch (_) {}
+  }
+
+  let syncedCount = 0;
+  const chunkSize = 200;
+  for (let i = 0; i < records.length; i += chunkSize) {
+    const chunk = records.slice(i, i + chunkSize);
+    try {
+      const inserted = await sql`
         INSERT INTO competitor_boards (
           competitor_id,
           board_id,
@@ -580,17 +604,27 @@ export async function syncCompetitorBoards(sql, competitorId, username, cookie =
           metadata,
           created_at,
           updated_at
-        ) VALUES (
+        )
+        SELECT
           ${numericId},
-          ${b.board_id},
-          ${b.name},
-          ${b.url},
-          ${b.pin_count},
-          ${b.follower_count},
-          ${lastPinnedDate},
-          ${JSON.stringify(metadataObj)}::jsonb,
-          COALESCE(${boardCreatedAt}, NOW()),
+          x.board_id,
+          x.name,
+          x.url,
+          COALESCE(x.pin_count, 0),
+          COALESCE(x.follower_count, 0),
+          x.last_pinned_at,
+          COALESCE(x.metadata, '{}'::jsonb),
+          COALESCE(x.created_at, NOW()),
           NOW()
+        FROM jsonb_to_recordset(${JSON.stringify(chunk)}::jsonb) AS x(
+          board_id VARCHAR(64),
+          name VARCHAR(255),
+          url TEXT,
+          pin_count INT,
+          follower_count INT,
+          last_pinned_at TIMESTAMPTZ,
+          metadata JSONB,
+          created_at TIMESTAMPTZ
         )
         ON CONFLICT (competitor_id, board_id) DO UPDATE SET
           name = EXCLUDED.name,
@@ -600,11 +634,34 @@ export async function syncCompetitorBoards(sql, competitorId, username, cookie =
           last_pinned_at = EXCLUDED.last_pinned_at,
           metadata = EXCLUDED.metadata,
           created_at = COALESCE(EXCLUDED.created_at, competitor_boards.created_at),
-          updated_at = NOW();
+          updated_at = NOW()
+        RETURNING id;
       `;
-      syncedCount++;
-    } catch (bErr) {
-      console.warn(`[syncCompetitorBoards] Skipped board ${b.board_id}:`, bErr.message);
+      syncedCount += inserted.length || chunk.length;
+    } catch (batchErr) {
+      console.warn(`[syncCompetitorBoards] Batch insert fallback for chunk:`, batchErr.message);
+      for (const b of chunk) {
+        try {
+          await sql`
+            INSERT INTO competitor_boards (
+              competitor_id, board_id, name, url, pin_count, follower_count, last_pinned_at, metadata, created_at, updated_at
+            ) VALUES (
+              ${numericId}, ${b.board_id}, ${b.name}, ${b.url}, ${b.pin_count}, ${b.follower_count},
+              ${b.last_pinned_at}, ${JSON.stringify(b.metadata)}::jsonb, COALESCE(${b.created_at}, NOW()), NOW()
+            )
+            ON CONFLICT (competitor_id, board_id) DO UPDATE SET
+              name = EXCLUDED.name,
+              url = EXCLUDED.url,
+              pin_count = EXCLUDED.pin_count,
+              follower_count = EXCLUDED.follower_count,
+              last_pinned_at = EXCLUDED.last_pinned_at,
+              metadata = EXCLUDED.metadata,
+              created_at = COALESCE(EXCLUDED.created_at, competitor_boards.created_at),
+              updated_at = NOW();
+          `;
+          syncedCount++;
+        } catch (_) {}
+      }
     }
   }
 

@@ -755,101 +755,155 @@ export async function fetchUserResource(username, activeCookie = '') {
 }
 
 /**
- * Fetch competitor boards from BoardsResource.
+ * Fetch competitor boards from BoardsResource with full bookmark pagination.
+ * Supports accounts with thousands of boards (e.g. 1,600+ boards).
  */
-export async function fetchBoardsResource(username, activeCookie = '') {
+export async function fetchBoardsResource(username, activeCookie = '', maxPages = 45) {
   const cleanUser = String(username || '').replace(/^@/, '').trim().toLowerCase();
   if (!cleanUser) return { ok: false, error: 'invalid_username', boards: [] };
 
-  const url = `https://www.pinterest.com/resource/BoardsResource/get/?source_url=%2F${cleanUser}%2F&data=%7B%22options%22%3A%7B%22privacy_filter%22%3A%22all%22%2C%22sort%22%3A%22last_pinned_to%22%2C%22field_set_key%22%3A%22profile_grid_item%22%2C%22filter_stories%22%3Afalse%2C%22username%22%3A%22${cleanUser}%22%2C%22page_size%22%3A50%2C%22group_by%22%3A%22visibility%22%2C%22include_archived%22%3Atrue%2C%22filter_all_pins%22%3Afalse%2C%22add_fields%22%3A%22board.%7Bmeal_plan%7D%22%7D%2C%22context%22%3A%7B%7D%7D`;
-  const headers = getPinterestXhrHeaders(cleanUser, activeCookie);
+  const boards = [];
+  const seenBoardIds = new Set();
+  let bookmark = null;
+  let lastSeenBookmark = null;
+  const pageLimit = Math.max(1, Math.min(Number(maxPages) || 45, 100));
 
-  try {
-    let res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
-    if (res.status === 401 || res.status === 403 || res.status === 429) {
-      await sleep(randomJitterMs(2500, 4000));
-      const anonHeaders = getPinterestXhrHeaders(cleanUser, '');
-      res = await fetch(url, { headers: anonHeaders, signal: AbortSignal.timeout(8000) });
-    }
+  for (let page = 1; page <= pageLimit; page++) {
+    const options = {
+      privacy_filter: 'all',
+      sort: 'last_pinned_to',
+      field_set_key: 'profile_grid_item',
+      filter_stories: false,
+      username: cleanUser,
+      page_size: 50,
+      group_by: 'visibility',
+      include_archived: true,
+      filter_all_pins: false,
+      add_fields: 'board.{meal_plan}'
+    };
+    if (bookmark) options.bookmarks = [bookmark];
 
-    if (!res.ok) return { ok: false, status: res.status, boards: [] };
-    const json = await res.json();
-    if (json.resource_response?.status === 'failure' || json.resource_response?.error) {
-      const errMsg = json.resource_response?.error?.message || json.resource_response?.message || 'Pinterest resource failure';
-      return { ok: false, error: errMsg, boards: [] };
-    }
-    const items = json.resource_response?.data || [];
-    const rawList = Array.isArray(items) ? items : (items?.items || items?.boards || []);
+    const src = `/${cleanUser}/`;
+    const url = `https://www.pinterest.com/resource/BoardsResource/get/?source_url=${encodeURIComponent(src)}&data=${encodeURIComponent(JSON.stringify({ options, context: {} }))}&_=${Date.now()}`;
+    const headers = getPinterestXhrHeaders(cleanUser, activeCookie, { sourceUrl: src });
 
-    const boards = [];
-    for (const item of rawList) {
-      if (item && (item.type === 'board' || item.id || item.node_id)) {
-        const boardId = String(item.id || item.node_id || '').trim();
-        if (!boardId || boardId === 'undefined' || boardId.startsWith('-')) continue;
-        if ((item.name === 'Untitled Board' || !item.name) && !item.url) continue;
-        let lastPinned = null;
-        if (item.board_order_modified_at) {
-          const d = new Date(item.board_order_modified_at);
-          if (!isNaN(d.getTime())) lastPinned = d.toISOString();
+    try {
+      let res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
+      if (res.status === 401 || res.status === 403 || res.status === 429) {
+        await sleep(randomJitterMs(2500, 4000));
+        const anonHeaders = getPinterestXhrHeaders(cleanUser, '', { sourceUrl: src });
+        res = await fetch(url, { headers: anonHeaders, signal: AbortSignal.timeout(8000) });
+      }
+
+      if (!res.ok) {
+        if (page === 1) {
+          const unauth = await fetchUserProfileUnauth(cleanUser);
+          if (unauth.ok && Array.isArray(unauth.initial_boards) && unauth.initial_boards.length > 0) {
+            return { ok: true, boards: unauth.initial_boards };
+          }
+          return { ok: false, status: res.status, boards: [] };
         }
-        let boardCreatedAt = null;
-        if (item.created_at) {
-          const cd = new Date(item.created_at);
-          if (!isNaN(cd.getTime())) boardCreatedAt = cd.toISOString();
-        }
-        let boardUrl = '';
-        if (item.url) {
-          boardUrl = item.url.startsWith('http') ? item.url : `https://www.pinterest.com${item.url.startsWith('/') ? '' : '/'}${item.url}`;
-        }
-        const coverImg = item.image_cover_hd_url || item.image_cover_url || item.images?.['736x']?.url || item.images?.['236x']?.url || item.image_thumbnail_url || null;
-        const rawVase = item.board_vase || [];
-        const boardVase = Array.isArray(rawVase) ? rawVase.map(v => {
-          if (typeof v === 'string') return { text: v.trim(), link: '' };
-          return {
-            text: String(v?.text || '').trim(),
-            link: v?.link ? (v.link.startsWith('http') ? v.link : `https://www.pinterest.com${v.link}`) : ''
-          };
-        }).filter(v => v.text.length > 0) : [];
-        const desc = item.description || '';
+        break;
+      }
 
-        boards.push({
-          board_id: boardId,
-          name: item.name || 'Untitled Board',
-          url: boardUrl,
-          pin_count: parseCleanMetric(item.pin_count || 0),
-          follower_count: parseCleanMetric(item.follower_count || 0),
-          last_pinned_at: lastPinned,
-          created_at: boardCreatedAt,
-          image_cover_url: coverImg,
-          board_vase: boardVase,
-          description: desc,
-          metadata: {
+      const json = await res.json();
+      if (json.resource_response?.status === 'failure' || json.resource_response?.error) {
+        if (page === 1) {
+          const errMsg = json.resource_response?.error?.message || json.resource_response?.message || 'Pinterest resource failure';
+          return { ok: false, error: errMsg, boards: [] };
+        }
+        break;
+      }
+
+      const items = json.resource_response?.data || [];
+      const rawList = Array.isArray(items) ? items : (items?.items || items?.boards || []);
+
+      for (const item of rawList) {
+        if (item && (item.type === 'board' || item.id || item.node_id)) {
+          const boardId = String(item.id || item.node_id || '').trim();
+          if (!boardId || boardId === 'undefined' || boardId.startsWith('-')) continue;
+          if (seenBoardIds.has(boardId)) continue;
+          seenBoardIds.add(boardId);
+
+          if ((item.name === 'Untitled Board' || !item.name) && !item.url) continue;
+          let lastPinned = null;
+          if (item.board_order_modified_at) {
+            const d = new Date(item.board_order_modified_at);
+            if (!isNaN(d.getTime())) lastPinned = d.toISOString();
+          }
+          let boardCreatedAt = null;
+          if (item.created_at) {
+            const cd = new Date(item.created_at);
+            if (!isNaN(cd.getTime())) boardCreatedAt = cd.toISOString();
+          }
+          let boardUrl = '';
+          if (item.url) {
+            boardUrl = item.url.startsWith('http') ? item.url : `https://www.pinterest.com${item.url.startsWith('/') ? '' : '/'}${item.url}`;
+          }
+          const coverImg = item.image_cover_hd_url || item.image_cover_url || item.images?.['736x']?.url || item.images?.['236x']?.url || item.image_thumbnail_url || null;
+          const rawVase = item.board_vase || [];
+          const boardVase = Array.isArray(rawVase) ? rawVase.map(v => {
+            if (typeof v === 'string') return { text: v.trim(), link: '' };
+            return {
+              text: String(v?.text || '').trim(),
+              link: v?.link ? (v.link.startsWith('http') ? v.link : `https://www.pinterest.com${v.link}`) : ''
+            };
+          }).filter(v => v.text.length > 0) : [];
+          const desc = item.description || '';
+
+          boards.push({
+            board_id: boardId,
+            name: item.name || 'Untitled Board',
+            url: boardUrl,
+            pin_count: parseCleanMetric(item.pin_count || 0),
+            follower_count: parseCleanMetric(item.follower_count || 0),
+            last_pinned_at: lastPinned,
+            created_at: boardCreatedAt,
             image_cover_url: coverImg,
             board_vase: boardVase,
             description: desc,
-            section_count: item.section_count || 0,
-            privacy: item.privacy || 'public',
-            is_collaborative: Boolean(item.is_collaborative)
-          }
-        });
+            metadata: {
+              image_cover_url: coverImg,
+              board_vase: boardVase,
+              description: desc,
+              section_count: item.section_count || 0,
+              privacy: item.privacy || 'public',
+              is_collaborative: Boolean(item.is_collaborative)
+            }
+          });
+        }
       }
-    }
 
-    if (boards.length === 0) {
-      const unauth = await fetchUserProfileUnauth(cleanUser);
-      if (unauth.ok && Array.isArray(unauth.initial_boards) && unauth.initial_boards.length > 0) {
-        return { ok: true, boards: unauth.initial_boards };
+      const rawBookmark = json.resource_response?.bookmark ||
+        (Array.isArray(json.resource_response?.bookmarks) ? json.resource_response.bookmarks[0] : null);
+      bookmark = (rawBookmark && rawBookmark !== '-end-') ? String(rawBookmark).trim() : null;
+
+      if (!bookmark || bookmark === lastSeenBookmark) break;
+      lastSeenBookmark = bookmark;
+
+      if (page < pageLimit) {
+        await sleep(randomJitterMs(250, 450));
       }
+    } catch (err) {
+      if (page === 1) {
+        const unauth = await fetchUserProfileUnauth(cleanUser);
+        if (unauth.ok && Array.isArray(unauth.initial_boards) && unauth.initial_boards.length > 0) {
+          return { ok: true, boards: unauth.initial_boards };
+        }
+        return { ok: false, error: err.message, boards: [] };
+      }
+      break;
     }
+  }
 
-    return { ok: true, boards };
-  } catch (err) {
+  if (boards.length === 0) {
     const unauth = await fetchUserProfileUnauth(cleanUser);
     if (unauth.ok && Array.isArray(unauth.initial_boards) && unauth.initial_boards.length > 0) {
       return { ok: true, boards: unauth.initial_boards };
     }
-    return { ok: false, error: err.message, boards: [] };
   }
+
+  return { ok: true, boards };
 }
 
 /**

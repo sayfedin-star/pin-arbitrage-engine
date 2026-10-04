@@ -12,14 +12,14 @@ on:
         type: string
         default: ''
       crawl_mode:
-        description: 'Crawl Mode: discovery (full catalog feed), sharded_boards (20-shard parallel board matrix), or refresh (early-stop: 3 pages)'
+        description: 'Crawl Mode: sharded_boards (20-shard parallel board matrix - RECOMMENDED for 100% full catalog), discovery (profile created feed), or refresh (early-stop: 3 pages)'
         required: true
         type: choice
         options:
-          - discovery
           - sharded_boards
+          - discovery
           - refresh
-        default: 'discovery'
+        default: 'sharded_boards'
       max_pages:
         description: 'Maximum pages to fetch per account'
         required: false
