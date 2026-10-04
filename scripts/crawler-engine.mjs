@@ -517,6 +517,23 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
           break;
         }
       } catch (_) {}
+
+      // Resilient auto-provision fallback on attempt 3 to eliminate boot race condition
+      if (attempt === 3) {
+        try {
+          const [prov] = await sqlClient`
+            INSERT INTO competitor_profiles (username, display_name, account_type, is_active, updated_at)
+            VALUES (${cleanUser}, ${cleanUser}, 'competitor', TRUE, NOW())
+            ON CONFLICT (username) DO UPDATE SET updated_at = NOW()
+            RETURNING id;
+          `;
+          if (prov?.id) {
+            compId = prov.id;
+            break;
+          }
+        } catch (_) {}
+      }
+
       if (attempt < 15) {
         console.log(`[*] [Shard ${shardNumber}] Waiting for competitor @${cleanUser} profile registration (Attempt ${attempt}/15)...`);
         await sleep(2000);
@@ -529,12 +546,32 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
     }
   }
 
+  const sNum = parseInt(shardNumber, 10) || 1;
+  const sTot = parseInt(shardTotal, 10) || 20;
+
   console.log(`\n================================================================`);
-  console.log(`⚡ [STAGE 2: MATRIX ENRICHMENT] Runner ${shardNumber}/${shardTotal} Active`);
+  console.log(`⚡ [STAGE 2: MATRIX ENRICHMENT] Runner ${sNum}/${sTot} Active`);
   console.log(`   Target: ${cleanUser ? `@${cleanUser} (ID: ${compId})` : 'Global Active Queue'}`);
   console.log(`   Mode: ${crawlMode.toUpperCase()} (3x Micro-Concurrency Worker Pool)`);
   console.log(`   Lock Model: Monotonic ORDER BY cp.id ASC FOR UPDATE OF cp SKIP LOCKED`);
   console.log(`================================================================\n`);
+
+  // Register initial shard heartbeat
+  if (compId) {
+    try {
+      await sqlClient`
+        INSERT INTO crawler_shard_heartbeats (
+          competitor_id, shard_number, shard_total, status, updated_at
+        ) VALUES (
+          ${compId}, ${sNum}, ${sTot}, ${crawlMode === 'sharded_boards' ? 'crawling_boards' : 'enriching'}, NOW()
+        )
+        ON CONFLICT (competitor_id, shard_number) DO UPDATE SET
+          shard_total = EXCLUDED.shard_total,
+          status = EXCLUDED.status,
+          updated_at = NOW();
+      `;
+    } catch (_) {}
+  }
 
   // SHARDED BOARD MATRIX: If enabled, shard harvests its assigned slice of competitor boards first
   if (crawlMode === 'sharded_boards' && cleanUser && compId) {
@@ -551,8 +588,6 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
         }
       }
 
-      const sNum = parseInt(shardNumber, 10);
-      const sTot = parseInt(shardTotal, 10);
       const shardIndex = sNum - 1;
       const assignedBoards = allBoards.filter((_, idx) => (idx % sTot) === shardIndex);
 
@@ -566,14 +601,32 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
             maxPages: 50,
             cookie: cookie
           });
-          console.log(`    [✓] [Shard ${sNum}] Board "${board.name}": Discovered ${bRes.total_fetched || 0} pins.`);
+          const fetchedCount = bRes?.total_fetched || 0;
+          console.log(`    [✓] [Shard ${sNum}] Board "${board.name}": Discovered ${fetchedCount} pins.`);
+
+          // Update heartbeat and discovered count
+          await sqlClient`
+            UPDATE crawler_shard_heartbeats
+            SET discovered_count = discovered_count + ${fetchedCount},
+                updated_at = NOW()
+            WHERE competitor_id = ${compId} AND shard_number = ${sNum};
+          `.catch(() => {});
         } catch (bErr) {
           console.warn(`[!] [Shard ${sNum}] Board "${board.name}" error:`, bErr.message);
         }
       }
+
+      // Mark this shard's board discovery phase as complete
+      await sqlClient`
+        UPDATE crawler_shard_heartbeats
+        SET status = 'enriching',
+            updated_at = NOW()
+        WHERE competitor_id = ${compId} AND shard_number = ${sNum};
+      `.catch(() => {});
+
       console.log(`\n[✓] [Shard ${sNum}/${sTot}] Board ingestion slice complete! Moving into parallel 3x micro-concurrency enrichment queue...\n`);
     } catch (sbErr) {
-      console.warn(`[!] [Shard ${shardNumber}] Sharded board ingestion error:`, sbErr.message);
+      console.warn(`[!] [Shard ${sNum}] Sharded board ingestion error:`, sbErr.message);
     }
   }
 
@@ -660,7 +713,30 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
 
       if (isDiscoveryRunning && emptyPolls < 60) {
         emptyPolls++;
-        console.log(`[*] [Shard ${shardNumber}] Discovery Producer actively running. Waiting for incoming pins (Polling ${emptyPolls}/60)...`);
+        console.log(`[*] [Shard ${sNum}] Discovery Producer actively running. Waiting for incoming pins (Polling ${emptyPolls}/60)...`);
+        await sleep(3500);
+        continue;
+      }
+
+      // Check if peer shards are still harvesting boards in sharded_boards mode (Prevents early exit race condition)
+      let activePeerBoardCrawlers = 0;
+      if (crawlMode === 'sharded_boards' && compId) {
+        try {
+          const [hRow] = await sqlClient`
+            SELECT COUNT(*)::int AS cnt
+            FROM crawler_shard_heartbeats
+            WHERE competitor_id = ${compId}
+              AND shard_number <> ${sNum}
+              AND status = 'crawling_boards'
+              AND updated_at > NOW() - INTERVAL '3 minutes';
+          `;
+          activePeerBoardCrawlers = hRow?.cnt || 0;
+        } catch (_) {}
+      }
+
+      if (activePeerBoardCrawlers > 0 && emptyPolls < 60) {
+        emptyPolls++;
+        console.log(`[*] [Shard ${sNum}] Queue temporarily empty, but ${activePeerBoardCrawlers} peer shards are actively harvesting boards. Waiting for incoming pins (Polling ${emptyPolls}/60)...`);
         await sleep(3500);
         continue;
       }
@@ -668,12 +744,21 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
       // Wait gracefully while other shards are actively working on in-flight items
       if (processingCount > 0 && emptyPolls < MAX_EMPTY_POLLS) {
         emptyPolls++;
-        console.log(`[*] [Shard ${shardNumber}] Queue temporarily empty (${processingCount} pins in-flight across other shards). Polling ${emptyPolls}/${MAX_EMPTY_POLLS}...`);
+        console.log(`[*] [Shard ${sNum}] Queue temporarily empty (${processingCount} pins in-flight across other shards). Polling ${emptyPolls}/${MAX_EMPTY_POLLS}...`);
         await sleep(3500);
         continue;
       }
 
-      console.log(`[*] [Shard ${shardNumber}/${shardTotal}] Queue completely drained (0 pending, 0 in-flight). Finishing execution.`);
+      if (compId) {
+        await sqlClient`
+          UPDATE crawler_shard_heartbeats
+          SET status = 'done',
+              updated_at = NOW()
+          WHERE competitor_id = ${compId} AND shard_number = ${sNum};
+        `.catch(() => {});
+      }
+
+      console.log(`[*] [Shard ${sNum}/${sTot}] Queue completely drained (0 pending, 0 in-flight). Finishing execution.`);
       break;
     }
 
@@ -830,12 +915,22 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
       totalFailed += failedCount;
     }
 
-    console.log(`    [✓] [Shard ${shardNumber}] Committed batch (${enrichedPins.length} enriched, ${statusUpdates.length - enrichedPins.length} un-enriched/re-queued).`);
+    console.log(`    [✓] [Shard ${sNum}] Committed batch (${enrichedPins.length} enriched, ${statusUpdates.length - enrichedPins.length} un-enriched/re-queued).`);
+
+    // Update enriched heartbeat counter
+    if (compId) {
+      await sqlClient`
+        UPDATE crawler_shard_heartbeats
+        SET enriched_count = ${totalEnriched},
+            updated_at = NOW()
+        WHERE competitor_id = ${compId} AND shard_number = ${sNum};
+      `.catch(() => {});
+    }
 
     if (rateLimitHit) {
       consecutive429Count++;
       const backoffSec = Math.min(60, 15 * Math.pow(2, consecutive429Count - 1));
-      console.warn(`[!] [Shard ${shardNumber}] Rate-limited by Pinterest. IP cooling off for ${backoffSec}s (Consecutive 429 Streak: ${consecutive429Count})...`);
+      console.warn(`[!] [Shard ${sNum}] Rate-limited by Pinterest. IP cooling off for ${backoffSec}s (Consecutive 429 Streak: ${consecutive429Count})...`);
       await sleep(backoffSec * 1000);
       rateLimitHit = false;
     } else {
@@ -845,12 +940,19 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
 
   // 4. Update the competitor's snapshot metadata with true enriched sums
   if (cleanUser && compId) {
-    console.log(`[*] [Shard ${shardNumber}] Synchronizing true enriched totals in competitor_history_snapshots...`);
+    console.log(`[*] [Shard ${sNum}] Synchronizing true enriched totals in competitor_history_snapshots...`);
     await syncEnrichedSnapshotTotals(sqlClient, compId, cleanUser);
+    await sqlClient`
+      UPDATE crawler_shard_heartbeats
+      SET status = 'done',
+          enriched_count = ${totalEnriched},
+          updated_at = NOW()
+      WHERE competitor_id = ${compId} AND shard_number = ${sNum};
+    `.catch(() => {});
   }
 
   console.log(`\n================================================================`);
-  console.log(`🎉 [Shard ${shardNumber}/${shardTotal} Execution Complete]`);
+  console.log(`🎉 [Shard ${sNum}/${sTot} Execution Complete]`);
   console.log(`   Successfully Enriched: ${totalEnriched} pins`);
   console.log(`   Deleted (404):          ${totalFailed} pins`);
   console.log(`================================================================\n`);
