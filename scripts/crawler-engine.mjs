@@ -874,6 +874,14 @@ async function main() {
     maxPages = crawlMode === 'discovery' ? 500 : 3;
   }
 
+  // Probe and log current runner public IP address
+  let egressIp = 'unknown';
+  try {
+    const ipRes = await fetch('https://api.ipify.org', { signal: AbortSignal.timeout(3000) });
+    if (ipRes.ok) egressIp = (await ipRes.text()).trim();
+  } catch (_) {}
+  console.log(`🌐 [Runner Network Diagnostic] Public Egress IP: ${egressIp} (Shard ${shardNumber}/${shardTotal})`);
+
   // Look up dedicated shard database in Neon registry if configured
   const shardName = `pin-arbitrage-shard-${String(shardNumber).padStart(2, '0')}`;
   let shardSql = null;
