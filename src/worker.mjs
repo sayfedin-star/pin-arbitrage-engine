@@ -1596,7 +1596,8 @@ export default {
 
       if (method === 'POST' && pathname === '/api/pinarchive/re-evaluate') {
         const body = await request.json().catch(() => ({}));
-        const audit = await reEvaluateArchivedPins(targetSql, (body && Object.keys(body).length > 0) ? body : null);
+        const account = searchParams.get('account') || searchParams.get('username') || body.account_username || null;
+        const audit = await reEvaluateArchivedPins(targetSql, (body && Object.keys(body).length > 0) ? body : null, account);
         return jsonResponse({ success: true, ...audit });
       }
 

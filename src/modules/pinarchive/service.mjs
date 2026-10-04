@@ -183,13 +183,18 @@ export function isPinQualified(pin, rules) {
 /**
  * Re-evaluate candidate pins stored in pa_pins against active rules
  */
-export async function reEvaluateArchivedPins(sql, rules = null) {
+export async function reEvaluateArchivedPins(sql, rules = null, accountUsername = null) {
   const activeRules = rules || (await getQualificationRules(sql));
+  const cleanUser = accountUsername ? String(accountUsername).replace(/^@/, '').trim().toLowerCase() : null;
   
   // If master ingest is disabled, no pins qualify
   if (activeRules.master_ingest_enabled === false) {
-    const [cntRes] = await sql`SELECT count(*)::int AS total_pins FROM pa_pins;`;
-    const total = cntRes?.total_pins || 0;
+    const delRes = await sql`
+      DELETE FROM pa_pins
+      WHERE (${cleanUser}::text IS NULL OR LOWER(account_username) = ${cleanUser})
+      RETURNING pin_id;
+    `;
+    const total = delRes.length || 0;
     return {
       ok: true,
       total_evaluated: total,
@@ -219,19 +224,40 @@ export async function reEvaluateArchivedPins(sql, rules = null) {
           )
         THEN 1 
       END)::int AS qualified_pins
-    FROM pa_pins;
+    FROM pa_pins
+    WHERE (${cleanUser}::text IS NULL OR LOWER(account_username) = ${cleanUser});
   `;
 
   const total = res?.total_pins || 0;
   const qualified = res?.qualified_pins || 0;
   const disqualified = Math.max(0, total - qualified);
 
+  let prunedCount = 0;
+  if (disqualified > 0) {
+    const delRes = await sql`
+      DELETE FROM pa_pins
+      WHERE (${cleanUser}::text IS NULL OR LOWER(account_username) = ${cleanUser})
+        AND NOT (
+          saves >= ${t1} 
+          OR repins >= ${t2}
+          OR (
+            created_at_pinterest IS NOT NULL
+            AND (NOW() - created_at_pinterest) >= INTERVAL '0 seconds'
+            AND EXTRACT(EPOCH FROM (NOW() - created_at_pinterest))/86400 <= ${t3Days} 
+            AND saves >= ${t3Saves}
+          )
+        )
+      RETURNING pin_id;
+    `;
+    prunedCount = delRes.length || 0;
+  }
+
   return {
     ok: true,
     total_evaluated: total,
     qualified_count: qualified,
     disqualified_count: disqualified,
-    disqualified_pruned: disqualified,
+    disqualified_pruned: prunedCount,
     rules: activeRules
   };
 }

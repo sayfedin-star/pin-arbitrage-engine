@@ -32,6 +32,7 @@ import {
   getCompetitorBoards
 } from '../src/modules/competitors/service.mjs';
 import { syncCompetitorAcrossFleet } from '../src/modules/fleet/service.mjs';
+import { getQualificationRules, isPinQualified } from '../src/modules/pinarchive/service.mjs';
 import { fetchBoardsResource, fetchPinFromPinterest, sleep, randomJitterMs } from './lib/pinterest.mjs';
 
 // Auto-load .env in local execution environments
@@ -225,13 +226,31 @@ async function reclaimStaleJobs(sqlClient, compId = null) {
 async function syncEnrichedSnapshotTotals(sqlClient, compId, cleanUser) {
   if (!compId || !cleanUser) return;
   try {
-    const [totals] = await sqlClient`
+    const [rawTotals] = await sqlClient`
       SELECT 
-        COALESCE(SUM(saves), 0)::bigint AS total_saves,
-        COALESCE(SUM(repins), 0)::bigint AS total_repins
-      FROM pa_pins
-      WHERE LOWER(account_username) = ${cleanUser.toLowerCase()};
-    `;
+        COALESCE(SUM(save_count), 0)::bigint AS total_saves,
+        COALESCE(SUM(repin_count), 0)::bigint AS total_repins
+      FROM competitor_pins
+      WHERE competitor_id = ${compId};
+    `.catch(() => [{}]);
+
+    let totalSaves = Number(rawTotals?.total_saves || 0);
+    let totalRepins = Number(rawTotals?.total_repins || 0);
+
+    if (totalSaves === 0) {
+      const [paTotals] = await sqlClient`
+        SELECT 
+          COALESCE(SUM(saves), 0)::bigint AS total_saves,
+          COALESCE(SUM(repins), 0)::bigint AS total_repins
+        FROM pa_pins
+        WHERE LOWER(account_username) = ${cleanUser.toLowerCase()};
+      `.catch(() => [{}]);
+
+      totalSaves = Number(paTotals?.total_saves || 0);
+      totalRepins = Number(paTotals?.total_repins || 0);
+    }
+
+    const totals = { total_saves: totalSaves, total_repins: totalRepins };
 
     if (totals) {
       await sqlClient`
@@ -603,6 +622,10 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
   console.log(`   Lock Model: Monotonic ORDER BY cp.id ASC FOR UPDATE OF cp SKIP LOCKED`);
   console.log(`================================================================\n`);
 
+  // Fetch active 3-tier qualification rules (T1: saves>=100, T2: repins>=100, T3: fresh viral)
+  const qualRules = await getQualificationRules(sqlClient);
+  console.log(`[*] [Shard ${sNum}] Qualification Rules Active: Tier 1 Saves >= ${qualRules.tier1_min_saves}, Tier 2 Repins >= ${qualRules.tier2_min_repins}, Tier 3 Fresh <= ${qualRules.tier3_max_age_days}d & Saves >= ${qualRules.tier3_min_saves}`);
+
   // Register initial shard heartbeat
   if (compId) {
     try {
@@ -864,7 +887,7 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
             const velocity = Number(pin.velocity || 0);
             const createdAtPinterest = pin.created_at_pinterest || pin.created_at || null;
 
-            enrichedPins.push({
+            const pinCandidate = {
               pin_id: item.pin_id,
               account_username: pinUsername,
               title: pin.title || '',
@@ -885,14 +908,18 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
               is_product: Boolean(pin.is_product),
               alt_text: altText,
               created_at_pinterest: createdAtPinterest ? new Date(createdAtPinterest).toISOString() : null
-            });
+            };
 
-            metricSnapshots.push({
-              pin_id: item.pin_id,
-              saves,
-              repins,
-              comments
-            });
+            // Gate pa_pins (Winning Pins Archive): strictly qualify via active 3-tier rules
+            if (isPinQualified(pinCandidate, qualRules)) {
+              enrichedPins.push(pinCandidate);
+              metricSnapshots.push({
+                pin_id: item.pin_id,
+                saves,
+                repins,
+                comments
+              });
+            }
 
             statusUpdates.push({
               id: item.id,
@@ -992,17 +1019,18 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
       if (shardSql) {
         await bulkUpsertPaPins(shardSql, enrichedPins).catch(() => {});
       }
-
-      totalEnriched += enrichedPins.length;
     }
 
+    let completedCount = 0;
     if (statusUpdates.length > 0) {
       await bulkUpdateCompetitorPins(sqlClient, statusUpdates);
+      completedCount = statusUpdates.filter(s => s.status === 'completed').length;
       const failedCount = statusUpdates.filter(s => s.status === 'failed').length;
+      totalEnriched += completedCount;
       totalFailed += failedCount;
     }
 
-    console.log(`    [✓] [Shard ${sNum}] Committed batch (${enrichedPins.length} enriched, ${statusUpdates.length - enrichedPins.length} un-enriched/re-queued).`);
+    console.log(`    [✓] [Shard ${sNum}] Committed batch: ${completedCount} pins enriched in catalog, ${enrichedPins.length} winning pins archived into pa_pins.`);
 
     // Update enriched heartbeat counter
     if (compId) {
