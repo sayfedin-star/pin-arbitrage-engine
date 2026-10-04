@@ -272,6 +272,19 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
 
   // Record daily history snapshot
   if (updated) {
+    let pinAgg = { total_saves: 0, total_repins: 0 };
+    try {
+      const [agg] = await sql`
+        SELECT COALESCE(SUM(save_count), 0)::bigint AS total_saves, COALESCE(SUM(repin_count), 0)::bigint AS total_repins
+        FROM competitor_pins
+        WHERE competitor_id = ${updated.id};
+      `;
+      if (agg) {
+        pinAgg.total_saves = Number(agg.total_saves || 0);
+        pinAgg.total_repins = Number(agg.total_repins || 0);
+      }
+    } catch (_) {}
+
     await sql`
       INSERT INTO competitor_history_snapshots (
         competitor_id,
@@ -280,7 +293,8 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
         follower_count,
         total_pins,
         total_boards,
-        recorded_date
+        recorded_date,
+        metadata
       ) VALUES (
         ${updated.id},
         ${monthlyReach},
@@ -288,14 +302,16 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
         ${followers},
         ${totalPins},
         ${totalBoards},
-        CURRENT_DATE
+        CURRENT_DATE,
+        ${JSON.stringify(pinAgg)}::jsonb
       )
       ON CONFLICT (competitor_id, recorded_date) DO UPDATE SET
         monthly_reach = CASE WHEN EXCLUDED.monthly_reach > 0 THEN EXCLUDED.monthly_reach ELSE competitor_history_snapshots.monthly_reach END,
         profile_views = CASE WHEN EXCLUDED.profile_views > 0 THEN EXCLUDED.profile_views ELSE competitor_history_snapshots.profile_views END,
         follower_count = CASE WHEN EXCLUDED.follower_count > 0 THEN EXCLUDED.follower_count ELSE competitor_history_snapshots.follower_count END,
         total_pins = GREATEST(competitor_history_snapshots.total_pins, EXCLUDED.total_pins),
-        total_boards = GREATEST(competitor_history_snapshots.total_boards, EXCLUDED.total_boards);
+        total_boards = GREATEST(competitor_history_snapshots.total_boards, EXCLUDED.total_boards),
+        metadata = COALESCE(competitor_history_snapshots.metadata, '{}'::jsonb) || EXCLUDED.metadata;
     `;
 
     // Upsert any initial boards discovered directly from unauthenticated profile HTML
@@ -1719,6 +1735,7 @@ export async function upsertCompetitorPins(sql, competitorId, pins) {
           repin_count = GREATEST(competitor_pins.repin_count, EXCLUDED.repin_count),
           comment_count = GREATEST(competitor_pins.comment_count, EXCLUDED.comment_count),
           is_product = (competitor_pins.is_product OR EXCLUDED.is_product),
+          enrichment_status = COALESCE(competitor_pins.enrichment_status, 'pending'),
           last_seen_at = NOW();
       `;
       saved++;

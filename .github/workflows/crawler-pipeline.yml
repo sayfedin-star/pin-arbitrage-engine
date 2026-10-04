@@ -2,8 +2,8 @@ name: Distributed Crawler & Intelligence Pipeline
 
 on:
   schedule:
-    # Runs twice daily at 04:00 and 16:00 UTC for fresh 24h delta tracking & competitor snapshots
-    - cron: '0 4,16 * * *'
+    # Runs daily at 02:00 UTC for fresh 24h delta tracking & competitor snapshots
+    - cron: '0 2 * * *'
   workflow_dispatch:
     inputs:
       target_account:
@@ -12,33 +12,78 @@ on:
         type: string
         default: ''
       crawl_mode:
-        description: 'Crawl Mode: refresh (early-stop: 3 pages) or discovery (deep backfill: 500 pages)'
+        description: 'Crawl Mode: discovery (deep backfill: 500 pages) or refresh (early-stop: 3 pages)'
         required: true
         type: choice
         options:
-          - refresh
           - discovery
-        default: 'refresh'
+          - refresh
+        default: 'discovery'
       max_pages:
-        description: 'Maximum pages to fetch per account (custom override)'
+        description: 'Maximum pages to fetch per account'
         required: false
         type: string
-        default: '3'
+        default: '500'
       target_boards:
-        description: 'Target board names or IDs (comma-separated, e.g. "Dinner, Desserts"). Leave empty to shard all creator boards.'
+        description: 'Target board names or IDs (comma-separated). Leave empty for all boards.'
         required: false
         type: string
         default: ''
 
 concurrency:
-  group: cluster-intelligence-${{ github.workflow }}-${{ github.ref }}
+  group: cluster-intelligence-${{ github.workflow }}-${{ github.ref }}-${{ inputs.target_account || 'cron' }}
   cancel-in-progress: false
 
 jobs:
+  # ============================================================================
+  # STAGE 1: Discovery Job (Single runner, 100% pin ID ingestion)
+  # Discovers all boards & feeds, inserting pin IDs into competitor_pins as 'pending'.
+  # Only executes when a specific target_account is provided.
+  # ============================================================================
+  discovery:
+    name: Stage 1 - Ingest & Discover Account
+    if: "${{ inputs.target_account != '' }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: 1. Checkout repository code (Shallow fetch for speed)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: 2. Setup Node.js 22 runtime with npm cache
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: 3. Install dependencies
+        run: npm ci
+
+      - name: 4. Execute Discovery Job
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PINTEREST_COOKIE: ${{ secrets.PINTEREST_COOKIE }}
+          TARGET_ACCOUNT: ${{ inputs.target_account }}
+          TARGET_BOARDS: ${{ inputs.target_boards }}
+          CRAWL_MODE: ${{ inputs.crawl_mode || 'discovery' }}
+          CRAWL_PHASE: 'discovery'
+          MAX_PAGES: ${{ inputs.max_pages || '500' }}
+          SHARD_NUMBER: 1
+          SHARD_TOTAL: 1
+        run: node scripts/crawler-engine.mjs
+
+  # ============================================================================
+  # STAGE 2: 20-Shard Parallel Matrix
+  # - If target_account is set: runs AFTER discovery to consume Postgres Queue (SKIP LOCKED)
+  # - If target_account is empty (cron): runs daily scheduled pulse across active competitors
+  # ============================================================================
   crawl-shards:
     name: Crawl Shard ${{ matrix.shard }}/20
+    if: "${{ always() && (inputs.target_account == '' || needs.discovery.result == 'success') }}"
+    needs: [discovery]
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 30
     strategy:
       fail-fast: false       # If one shard encounters an anomaly, the other 19 continue
       max-parallel: 20       # Run all 20 worker nodes in full parallel execution
@@ -46,10 +91,12 @@ jobs:
         shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
 
     steps:
-      - name: 1. Checkout repository code
+      - name: 1. Checkout repository code (Shallow fetch for speed)
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
-      - name: 2. Setup Node.js 22 runtime
+      - name: 2. Setup Node.js 22 runtime with npm cache
         uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -64,14 +111,15 @@ jobs:
       - name: 4. Install dependencies
         run: npm ci
 
-      - name: 5. Execute Distributed Crawler Engine
+      - name: 5. Execute Distributed Shard Engine
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           PINTEREST_COOKIE: ${{ secrets.PINTEREST_COOKIE }}
           TARGET_ACCOUNT: ${{ inputs.target_account }}
           TARGET_BOARDS: ${{ inputs.target_boards }}
-          CRAWL_MODE: ${{ inputs.crawl_mode || 'refresh' }}
-          MAX_PAGES: ${{ inputs.max_pages || '3' }}
+          CRAWL_MODE: ${{ inputs.crawl_mode || 'discovery' }}
+          CRAWL_PHASE: "${{ inputs.target_account != '' && 'enrichment' || 'scheduled' }}"
+          MAX_PAGES: ${{ inputs.max_pages || '500' }}
           SHARD_NUMBER: ${{ matrix.shard }}
           SHARD_TOTAL: 20
         run: node scripts/crawler-engine.mjs

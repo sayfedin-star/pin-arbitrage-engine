@@ -1454,7 +1454,7 @@ export default {
             target_account: username,
             target_boards: body.target_boards || '',
             crawl_mode: body.crawl_mode || 'discovery',
-            message: `20-Shard Crawler Pipeline dispatched successfully on GitHub Actions for @${username}!${body.target_boards ? ` (Target Boards: ${body.target_boards})` : ' (Board-level sharded across 20 nodes)'}`
+            message: `Two-Stage Pipeline (Discovery + 20-Shard Parallel Matrix) dispatched successfully on GitHub Actions for @${username}!${body.target_boards ? ` (Target Boards: ${body.target_boards})` : ''}`
           });
         } else {
           const errText = await res.text();

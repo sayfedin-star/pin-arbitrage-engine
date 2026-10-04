@@ -98,6 +98,11 @@ async function optimizeIndexes() {
     );
   `;
 
+  console.log('[*] 9. Ensuring enrichment_status on competitor_pins for GHA 20-shard queue...');
+  await sql`ALTER TABLE competitor_pins ADD COLUMN IF NOT EXISTS enrichment_status VARCHAR(32) DEFAULT 'pending';`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_competitor_pins_enrichment_queue ON competitor_pins(competitor_id, enrichment_status);`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_competitor_pins_enrichment_global ON competitor_pins(enrichment_status) WHERE enrichment_status = 'pending';`;
+
   console.log('[+] All indexes and columns verified and active in Neon Serverless Postgres!');
 }
 
