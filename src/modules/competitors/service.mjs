@@ -953,7 +953,7 @@ export async function syncCompetitorPins(sql, competitorId, username, { mode = '
 /**
  * Harvest pins from a specific board of a competitor into competitor_pins and pa_pins (board-level crawling).
  */
-export async function syncCompetitorBoardPins(sql, competitorId, username, board, { maxPages = 50, cookie = '' } = {}) {
+export async function syncCompetitorBoardPins(sql, competitorId, username, board, { mode = 'daily', maxPages = 50, cookie = '' } = {}) {
   let cleanUsername = normalizePinterestUsername(username);
   let numericId = parseInt(competitorId, 10);
 
@@ -1012,9 +1012,15 @@ export async function syncCompetitorBoardPins(sql, competitorId, username, board
     }
 
     // 2. Filter through 3-tier OR rules & ingest qualified winning pins into pa_pins
-    if (pins.length > 0) {
+    // Only run during refresh/daily sync; in discovery mode, 20 shards handle deep Relay v3 enrichment!
+    if (pins.length > 0 && mode !== 'discovery') {
       const ingestRes = await ingestPinsBatch(sql, pins, cleanUsername, { filterQualified: true, rules });
       allQualifiedCount += (ingestRes.added + ingestRes.updated);
+    }
+
+    // Real-time progress feedback in workflow logs
+    if (page === 1 || page % 5 === 0) {
+      console.log(`    [✓] Board "${boardName}": Page ${page}/${pageLimit} (${totalFetched} pins discovered so far)...`);
     }
 
     currentBookmark = res.nextBookmark;
@@ -1022,7 +1028,8 @@ export async function syncCompetitorBoardPins(sql, competitorId, username, board
     lastSeenBookmark = currentBookmark;
 
     if (page < pageLimit) {
-      await sleep(randomJitterMs(2500, 4000));
+      const delay = (mode === 'discovery') ? randomJitterMs(250, 450) : randomJitterMs(1500, 2500);
+      await sleep(delay);
     }
   }
 

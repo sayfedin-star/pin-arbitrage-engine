@@ -343,6 +343,14 @@ async function runDiscoveryJob(sqlClient, shardSql, cleanUser, maxPages, cookie,
     return;
   }
 
+  // Mark discovery as active
+  await sqlClient`
+    UPDATE competitor_profiles
+    SET last_harvest_metadata = jsonb_set(COALESCE(last_harvest_metadata, '{}'::jsonb), '{discovery_status}', '"running"'),
+        updated_at = NOW()
+    WHERE id = ${compId};
+  `.catch(() => {});
+
   // 2. Discover Boards
   console.log(`[*] [2/3 Boards] Discovering boards for @${cleanUser}...`);
   let allBoards = await getBoardsForTargetAccount(sqlClient, cleanUser, cookie);
@@ -364,24 +372,28 @@ async function runDiscoveryJob(sqlClient, shardSql, cleanUser, maxPages, cookie,
   let totalDiscovered = 0;
 
   // Primary: Profile created feed (UserPinsResource fetches 100% of user pins in seconds)
-  try {
-    const feedRes = await syncCompetitorPins(sqlClient, compId, cleanUser, {
-      mode: 'discovery',
-      maxPages: maxPages,
-      cookie: cookie
-    });
-    totalDiscovered = feedRes?.crawled ?? feedRes?.total_fetched ?? 0;
-    console.log(`    [✓] User Feed: Ingested ${totalDiscovered} pin IDs.`);
-  } catch (feedErr) {
-    console.warn(`[!] Profile feed ingest warning:`, feedErr.message);
+  // Skip full user feed when a specific target board was explicitly requested
+  if (!targetBoardsRaw) {
+    try {
+      const feedRes = await syncCompetitorPins(sqlClient, compId, cleanUser, {
+        mode: 'discovery',
+        maxPages: maxPages,
+        cookie: cookie
+      });
+      totalDiscovered = feedRes?.crawled ?? feedRes?.total_fetched ?? 0;
+      console.log(`    [✓] User Feed: Ingested ${totalDiscovered} pin IDs.`);
+    } catch (feedErr) {
+      console.warn(`[!] Profile feed ingest warning:`, feedErr.message);
+    }
   }
 
-  // Fallback: If feed returned 0 or if custom boards were requested, crawl boards
+  // Fallback / Targeted Boards: Crawl board feeds with discovery mode
   if (totalDiscovered === 0 || targetBoardsRaw) {
     console.log(`[*] Crawling board feeds to backfill pins...`);
     for (const board of allBoards) {
       try {
         const bRes = await syncCompetitorBoardPins(sqlClient, compId, cleanUser, board, {
+          mode: 'discovery',
           maxPages: 50,
           cookie: cookie
         });
@@ -393,6 +405,14 @@ async function runDiscoveryJob(sqlClient, shardSql, cleanUser, maxPages, cookie,
       }
     }
   }
+
+  // Mark discovery as completed
+  await sqlClient`
+    UPDATE competitor_profiles
+    SET last_harvest_metadata = jsonb_set(COALESCE(last_harvest_metadata, '{}'::jsonb), '{discovery_status}', '"completed"'),
+        updated_at = NOW()
+    WHERE id = ${compId};
+  `.catch(() => {});
 
   // 4. Record Initial Baseline Snapshot
   try {
@@ -532,6 +552,26 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
       // New pending items arrived (e.g. from discovery or 429 handoff)
       if (pendingCount > 0) {
         emptyPolls = 0;
+        continue;
+      }
+
+      // Check if Discovery Producer is actively writing new pins into the queue
+      let isDiscoveryRunning = false;
+      if (compId) {
+        try {
+          const [pMeta] = await sqlClient`
+            SELECT last_harvest_metadata->>'discovery_status' AS d_status
+            FROM competitor_profiles
+            WHERE id = ${compId};
+          `;
+          isDiscoveryRunning = (pMeta?.d_status === 'running');
+        } catch (_) {}
+      }
+
+      if (isDiscoveryRunning && emptyPolls < 60) {
+        emptyPolls++;
+        console.log(`[*] [Shard ${shardNumber}] Discovery Producer actively running. Waiting for incoming pins (Polling ${emptyPolls}/60)...`);
+        await sleep(3500);
         continue;
       }
 
