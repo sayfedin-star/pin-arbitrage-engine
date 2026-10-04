@@ -1685,64 +1685,88 @@ export async function updateCompetitorStatus(sql, idOrUsername, isActive) {
  */
 export async function upsertCompetitorPins(sql, competitorId, pins) {
   if (!competitorId || !Array.isArray(pins) || pins.length === 0) return 0;
-  let saved = 0;
+  
+  const cleanedPins = [];
   for (const p of pins) {
     const pinId = String(p.pin_id || p.id || '').trim();
     if (!pinId) continue;
-    try {
-      await sql`
-        INSERT INTO competitor_pins (
-          competitor_id,
-          pin_id,
-          title,
-          description,
-          link_domain,
-          destination_url,
-          board_name,
-          image_url,
-          save_count,
-          repin_count,
-          comment_count,
-          is_product,
-          created_at_pinterest,
-          first_seen_at,
-          last_seen_at
-        ) VALUES (
-          ${competitorId},
-          ${pinId},
-          ${p.title || ''},
-          ${p.description || ''},
-          ${p.domain || ''},
-          ${p.link || ''},
-          ${p.board_name || ''},
-          ${p.image_url || ''},
-          ${Math.max(0, Number(p.saves) || 0)},
-          ${Math.max(0, Number(p.repins) || 0)},
-          ${Math.max(0, Number(p.comments) || 0)},
-          ${Boolean(p.is_product)},
-          ${p.created_at_pinterest ? new Date(p.created_at_pinterest) : null},
-          NOW(),
-          NOW()
-        )
-        ON CONFLICT (competitor_id, pin_id) DO UPDATE SET
-          title = CASE WHEN EXCLUDED.title <> '' THEN EXCLUDED.title ELSE competitor_pins.title END,
-          description = CASE WHEN EXCLUDED.description <> '' THEN EXCLUDED.description ELSE competitor_pins.description END,
-          destination_url = CASE WHEN EXCLUDED.destination_url <> '' THEN EXCLUDED.destination_url ELSE competitor_pins.destination_url END,
-          link_domain = CASE WHEN EXCLUDED.link_domain <> '' THEN EXCLUDED.link_domain ELSE competitor_pins.link_domain END,
-          board_name = CASE WHEN EXCLUDED.board_name <> '' THEN EXCLUDED.board_name ELSE competitor_pins.board_name END,
-          image_url = CASE WHEN EXCLUDED.image_url <> '' THEN EXCLUDED.image_url ELSE competitor_pins.image_url END,
-          save_count = GREATEST(competitor_pins.save_count, EXCLUDED.save_count),
-          repin_count = GREATEST(competitor_pins.repin_count, EXCLUDED.repin_count),
-          comment_count = GREATEST(competitor_pins.comment_count, EXCLUDED.comment_count),
-          is_product = (competitor_pins.is_product OR EXCLUDED.is_product),
-          enrichment_status = COALESCE(competitor_pins.enrichment_status, 'pending'),
-          last_seen_at = NOW();
-      `;
-      saved++;
-    } catch (err) {
-      console.warn(`[upsertCompetitorPins] Failed to insert pin ${pinId}:`, err.message);
-    }
+    cleanedPins.push({
+      pin_id: pinId,
+      title: p.title || '',
+      description: p.description || '',
+      link_domain: p.domain || '',
+      destination_url: p.link || '',
+      board_name: p.board_name || '',
+      image_url: p.image_url || '',
+      save_count: Math.max(0, Number(p.saves) || 0),
+      repin_count: Math.max(0, Number(p.repins) || 0),
+      comment_count: Math.max(0, Number(p.comments) || 0),
+      is_product: Boolean(p.is_product),
+      created_at_pinterest: p.created_at_pinterest ? new Date(p.created_at_pinterest).toISOString() : null
+    });
   }
+
+  if (cleanedPins.length === 0) return 0;
+
+  try {
+    await sql`
+      INSERT INTO competitor_pins (
+        competitor_id, pin_id, title, description, link_domain,
+        destination_url, board_name, image_url, save_count, repin_count,
+        comment_count, is_product, created_at_pinterest, first_seen_at, last_seen_at, enrichment_status
+      )
+      SELECT 
+        ${competitorId}, x.pin_id, x.title, x.description, x.link_domain,
+        x.destination_url, x.board_name, x.image_url, x.save_count, x.repin_count,
+        x.comment_count, x.is_product, x.created_at_pinterest, NOW(), NOW(), 'pending'
+      FROM jsonb_to_recordset(${JSON.stringify(cleanedPins)}::jsonb) AS x(
+        pin_id VARCHAR(64), title TEXT, description TEXT, link_domain VARCHAR(255),
+        destination_url TEXT, board_name VARCHAR(255), image_url TEXT,
+        save_count INT, repin_count INT, comment_count INT, is_product BOOLEAN, created_at_pinterest TIMESTAMPTZ
+      )
+      ON CONFLICT (competitor_id, pin_id) DO UPDATE SET
+        title = CASE WHEN EXCLUDED.title <> '' THEN EXCLUDED.title ELSE competitor_pins.title END,
+        description = CASE WHEN EXCLUDED.description <> '' THEN EXCLUDED.description ELSE competitor_pins.description END,
+        destination_url = CASE WHEN EXCLUDED.destination_url <> '' THEN EXCLUDED.destination_url ELSE competitor_pins.destination_url END,
+        link_domain = CASE WHEN EXCLUDED.link_domain <> '' THEN EXCLUDED.link_domain ELSE competitor_pins.link_domain END,
+        board_name = CASE WHEN EXCLUDED.board_name <> '' THEN EXCLUDED.board_name ELSE competitor_pins.board_name END,
+        image_url = CASE WHEN EXCLUDED.image_url <> '' THEN EXCLUDED.image_url ELSE competitor_pins.image_url END,
+        save_count = GREATEST(competitor_pins.save_count, EXCLUDED.save_count),
+        repin_count = GREATEST(competitor_pins.repin_count, EXCLUDED.repin_count),
+        comment_count = GREATEST(competitor_pins.comment_count, EXCLUDED.comment_count),
+        is_product = (competitor_pins.is_product OR EXCLUDED.is_product),
+        enrichment_status = COALESCE(competitor_pins.enrichment_status, 'pending'),
+        last_seen_at = NOW();
+    `;
+    return cleanedPins.length;
+  } catch (err) {
+    console.warn(`[upsertCompetitorPins] Bulk insert fallback:`, err.message);
+    let saved = 0;
+    for (const p of cleanedPins) {
+      try {
+        await sql`
+          INSERT INTO competitor_pins (
+            competitor_id, pin_id, title, description, link_domain,
+            destination_url, board_name, image_url, save_count, repin_count,
+            comment_count, is_product, created_at_pinterest, first_seen_at, last_seen_at, enrichment_status
+          ) VALUES (
+            ${competitorId}, ${p.pin_id}, ${p.title}, ${p.description}, ${p.link_domain},
+            ${p.destination_url}, ${p.board_name}, ${p.image_url}, ${p.save_count}, ${p.repin_count},
+            ${p.comment_count}, ${p.is_product}, ${p.created_at_pinterest ? new Date(p.created_at_pinterest) : null},
+            NOW(), NOW(), 'pending'
+          )
+          ON CONFLICT (competitor_id, pin_id) DO UPDATE SET
+            save_count = GREATEST(competitor_pins.save_count, EXCLUDED.save_count),
+            repin_count = GREATEST(competitor_pins.repin_count, EXCLUDED.repin_count),
+            enrichment_status = COALESCE(competitor_pins.enrichment_status, 'pending'),
+            last_seen_at = NOW();
+        `;
+        saved++;
+      } catch (_) {}
+    }
+    return saved;
+  }
+}
   return saved;
 }
 
