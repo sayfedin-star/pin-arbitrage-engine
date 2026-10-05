@@ -508,6 +508,7 @@ export default {
         });
 
         if (res.ok || res.status === 204) {
+          if (res?.body && !res.bodyUsed) await res.body.cancel().catch(() => {});
           return jsonResponse({
             success: true,
             seed_pin_id: target || 'all_queued',
@@ -1513,6 +1514,7 @@ export default {
         });
 
         if (res.ok || res.status === 204) {
+          if (res?.body && !res.bodyUsed) await res.body.cancel().catch(() => {});
           return jsonResponse({
             success: true,
             target_account: username,
@@ -1552,11 +1554,11 @@ export default {
 
       if (method === 'DELETE' && pathname === '/api/competitors/related-pins/seeds') {
         let id = searchParams.get('competitor_id') || searchParams.get('id');
-        let pinId = searchParams.get('pin_id');
+        let pinId = searchParams.get('pin_id') || searchParams.get('pin_ids');
         if (!id || !pinId) {
           const body = await request.json().catch(() => ({}));
           id = id || body.competitor_id || body.id;
-          pinId = pinId || body.pin_id;
+          pinId = pinId || body.pin_id || body.pin_ids;
         }
         if (!id || !pinId) return jsonResponse({ error: 'competitor_id and pin_id are required' }, 400);
         try {
@@ -1630,6 +1632,7 @@ export default {
         });
 
         if (res.ok || res.status === 204) {
+          if (res?.body && !res.bodyUsed) await res.body.cancel().catch(() => {});
           return jsonResponse({
             success: true,
             target_account: username,
@@ -1901,6 +1904,7 @@ export default {
           })
         });
         if (res.ok) {
+          if (res?.body && !res.bodyUsed) await res.body.cancel().catch(() => {});
           console.log('[Worker Cron] Successfully dispatched crawler-pipeline.yml to GitHub Actions.');
         } else {
           const errText = await res.text();

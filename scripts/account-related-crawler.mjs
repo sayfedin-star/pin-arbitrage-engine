@@ -29,10 +29,18 @@ if (!dbUrl) {
 
 const sql = neon(dbUrl);
 
+function getCliArg(flag) {
+  const eq = process.argv.find(a => a.startsWith(`${flag}=`));
+  if (eq) return eq.split('=')[1];
+  const idx = process.argv.indexOf(flag);
+  if (idx !== -1 && idx < process.argv.length - 1) return process.argv[idx + 1];
+  return '';
+}
+
 // Configuration & CLI args
-const targetAccountArg = process.env.TARGET_ACCOUNT || process.argv.find(a => a.startsWith('--account='))?.split('=')[1] || '';
-const targetPinIdsArg = process.env.TARGET_PIN_IDS || process.argv.find(a => a.startsWith('--pins='))?.split('=')[1] || '';
-const maxPages = Math.min(Math.max(1, parseInt(process.env.MAX_PAGES || '2', 10)), 10);
+const targetAccountArg = process.env.TARGET_ACCOUNT || getCliArg('--account') || '';
+const targetPinIdsArg = process.env.TARGET_PIN_IDS || getCliArg('--pins') || '';
+const maxPages = Math.min(Math.max(1, parseInt(process.env.MAX_PAGES || getCliArg('--pages') || '2', 10)), 10);
 
 const cleanAccount = String(targetAccountArg || '').replace(/^@+/, '').trim().toLowerCase();
 
@@ -128,8 +136,8 @@ async function crawlSeedPin(competitorId, seedPinId, targetUsername) {
       break;
     }
 
-    // Extract valid pins
-    const candidateRows = [];
+    // Extract valid pins & deduplicate via Map to prevent cardinality violations on batch upsert
+    const candidateMap = new Map();
     for (const item of items) {
       const isPin = item?.type === 'pin' || (item?.id && /^\d+$/.test(String(item.id)));
       if (!isPin) continue;
@@ -149,7 +157,7 @@ async function crawlSeedPin(competitorId, seedPinId, targetUsername) {
       const isProduct = Boolean(item.is_product || item.commerce_product);
       const isSameAccount = creator.toLowerCase() === targetUsername.toLowerCase();
 
-      candidateRows.push({
+      const candidateObj = {
         competitor_id: competitorId,
         seed_pin_id: String(seedPinId),
         candidate_pin_id: candId,
@@ -165,8 +173,19 @@ async function crawlSeedPin(competitorId, seedPinId, targetUsername) {
         creator_username: creator.slice(0, 100),
         creator_name: creatorName.slice(0, 255),
         provenance_engine: 'P2P_TWO_TOWER'
-      });
+      };
+
+      if (candidateMap.has(candId)) {
+        const existing = candidateMap.get(candId);
+        if (saves > existing.saves) {
+          candidateMap.set(candId, candidateObj);
+        }
+      } else {
+        candidateMap.set(candId, candidateObj);
+      }
     }
+
+    const candidateRows = Array.from(candidateMap.values());
 
     if (candidateRows.length > 0) {
       // Monotonic ORDER BY candidate_pin_id to strictly eliminate deadlocks
@@ -274,16 +293,57 @@ async function main() {
   }
 
   if (seedIds.length === 0) {
-    console.log('[-] No seed pins found to crawl. Register seeds first via UI or --pins argument.');
-    process.exit(0);
+    // Fail-safe auto-seeding: fetch top 10 saved pins from competitor_pins if available
+    const topPins = await sql`
+      SELECT pin_id 
+      FROM competitor_pins 
+      WHERE competitor_id = ${competitorId} 
+      ORDER BY save_count DESC NULLS LAST 
+      LIMIT 10;
+    `;
+    if (topPins.length > 0) {
+      seedIds = topPins.map(p => p.pin_id);
+      console.log(`[*] No explicit seeds found, auto-seeded top ${seedIds.length} winning pins from competitor_pins.`);
+    } else {
+      console.log('[-] No seed pins found to crawl. Register seeds first via UI or --pins argument.');
+      process.exit(0);
+    }
   }
 
-  // Ensure all seedIds exist in competitor_seed_pins
-  for (const sid of seedIds) {
+  // Atomically ensure all seedIds exist in competitor_seed_pins with metadata (Deadlock-Free Batch Upsert)
+  const cleanSeedIds = [...new Set(seedIds)].sort();
+  if (cleanSeedIds.length > 0) {
+    const metaRows = await sql`
+      SELECT pin_id, title, image_url, board_name, save_count
+      FROM competitor_pins
+      WHERE competitor_id = ${competitorId} AND pin_id = ANY(${cleanSeedIds});
+    `;
+    const metaMap = new Map();
+    for (const m of metaRows) metaMap.set(m.pin_id, m);
+
+    const seedRecords = cleanSeedIds.map(sid => {
+      const meta = metaMap.get(sid);
+      return {
+        competitor_id: competitorId,
+        pin_id: sid,
+        title: (meta?.title || `Seed ${sid}`).slice(0, 500),
+        image_url: meta?.image_url || null,
+        board_name: (meta?.board_name || null)?.slice(0, 255),
+        save_count: Number(meta?.save_count || 0)
+      };
+    });
+
     await sql`
-      INSERT INTO competitor_seed_pins (competitor_id, pin_id, title)
-      VALUES (${competitorId}, ${sid}, ${'Seed ' + sid})
-      ON CONFLICT (competitor_id, pin_id) DO NOTHING;
+      INSERT INTO competitor_seed_pins (competitor_id, pin_id, title, image_url, board_name, save_count)
+      SELECT x.competitor_id, x.pin_id, x.title, x.image_url, x.board_name, x.save_count
+      FROM jsonb_to_recordset(${JSON.stringify(seedRecords)}::jsonb) AS x(
+        competitor_id int, pin_id varchar, title text, image_url text, board_name varchar, save_count bigint
+      )
+      ON CONFLICT (competitor_id, pin_id) DO UPDATE SET
+        title = CASE WHEN EXCLUDED.title <> '' AND EXCLUDED.title NOT LIKE 'Seed %' THEN EXCLUDED.title ELSE competitor_seed_pins.title END,
+        image_url = COALESCE(EXCLUDED.image_url, competitor_seed_pins.image_url),
+        board_name = COALESCE(EXCLUDED.board_name, competitor_seed_pins.board_name),
+        save_count = GREATEST(competitor_seed_pins.save_count, EXCLUDED.save_count);
     `;
   }
 
@@ -302,7 +362,7 @@ async function main() {
     }
   }
 
-  // 4. Compute Account Intelligence & Retention Telemetry
+  // 4. Compute Account Intelligence & Retention Telemetry (strictly inner join active seeds)
   console.log('\n================================================================');
   console.log('📊 Account Graph Radar & Retention Summary');
   console.log('================================================================');
@@ -310,11 +370,13 @@ async function main() {
   const [retentionRow] = await sql`
     SELECT 
       COUNT(*)::int AS total_nodes,
-      COUNT(DISTINCT candidate_pin_id)::int AS unique_candidates,
-      COUNT(*) FILTER (WHERE is_same_account = true)::int AS self_nodes,
-      COUNT(*) FILTER (WHERE is_same_account = false)::int AS rival_nodes
-    FROM competitor_related_nodes
-    WHERE competitor_id = ${competitorId};
+      COUNT(DISTINCT crn.candidate_pin_id)::int AS unique_candidates,
+      COUNT(*) FILTER (WHERE crn.is_same_account = true)::int AS self_nodes,
+      COUNT(*) FILTER (WHERE crn.is_same_account = false)::int AS rival_nodes
+    FROM competitor_related_nodes crn
+    INNER JOIN competitor_seed_pins csp 
+      ON csp.competitor_id = crn.competitor_id AND csp.pin_id = crn.seed_pin_id
+    WHERE crn.competitor_id = ${competitorId};
   `;
 
   const totalNodes = Number(retentionRow?.total_nodes || 0);
@@ -329,15 +391,17 @@ async function main() {
   console.log(`  Self-Retention Pins (Own):     ${selfNodes} (${retentionRate}%)`);
   console.log(`  Traffic Leakage Pins (Rivals): ${rivalNodes} (${leakageRate}%)`);
 
-  // 5. Intersections Count (Multi-Seed Overlap >= 2)
+  // 5. Intersections Count (Multi-Seed Overlap >= 2 among active registered seeds)
   const [intersectionsRow] = await sql`
     SELECT COUNT(*)::int AS multi_hit_hubs
     FROM (
-      SELECT candidate_pin_id
-      FROM competitor_related_nodes
-      WHERE competitor_id = ${competitorId}
-      GROUP BY candidate_pin_id
-      HAVING COUNT(DISTINCT seed_pin_id) >= 2
+      SELECT crn.candidate_pin_id
+      FROM competitor_related_nodes crn
+      INNER JOIN competitor_seed_pins csp 
+        ON csp.competitor_id = crn.competitor_id AND csp.pin_id = crn.seed_pin_id
+      WHERE crn.competitor_id = ${competitorId}
+      GROUP BY crn.candidate_pin_id
+      HAVING COUNT(DISTINCT crn.seed_pin_id) >= 2
     ) sub;
   `;
   const multiHitHubs = Number(intersectionsRow?.multi_hit_hubs || 0);

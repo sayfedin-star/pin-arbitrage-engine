@@ -10140,7 +10140,12 @@ export function getDashboardHtml() {
           // Background fleet & telemetry refresh (does not block instant SPA hydration)
           this.refreshAll().catch((err) => console.error('refreshAll background error:', err));
           this.pollCrawlStatus();
-          setInterval(() => this.pollCrawlStatus(), 3000);
+          if (this._crawlStatusInterval) clearInterval(this._crawlStatusInterval);
+          this._crawlStatusInterval = setInterval(() => {
+            if (typeof document === 'undefined' || !document.hidden) {
+              this.pollCrawlStatus();
+            }
+          }, 3000);
 
           this.$nextTick(() => {
             if (window.lucide) window.lucide.createIcons();
@@ -10885,7 +10890,7 @@ export function getDashboardHtml() {
 
         async triggerCrawl(seedPinId = null) {
           try {
-            const res = await fetch('/api/crawl', {
+            const res = await fetch(this.getApiUrl('/api/crawl'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ seed_pin_id: seedPinId })
@@ -10913,8 +10918,10 @@ export function getDashboardHtml() {
         },
 
         async pollCrawlStatus() {
+          if (this._isPollingCrawl) return;
+          this._isPollingCrawl = true;
           try {
-            const res = await fetch('/api/crawl-status');
+            const res = await fetch(this.getApiUrl('/api/crawl-status'));
             if (res.ok) {
               const prevCrawling = this.crawlStatus.is_crawling;
               this.crawlStatus = await res.json();
@@ -10929,12 +10936,15 @@ export function getDashboardHtml() {
                 this.showToast('Crawl completed! Data refreshed.');
               }
             }
-          } catch (e) {}
+          } catch (e) {
+          } finally {
+            this._isPollingCrawl = false;
+          }
         },
 
         async fetchCookieStatus() {
           try {
-            const res = await fetch('/api/settings/cookie');
+            const res = await fetch(this.getApiUrl('/api/settings/cookie'));
             if (res.ok) {
               this.cookieStatus = await res.json();
             }
@@ -10948,7 +10958,7 @@ export function getDashboardHtml() {
           }
           this.isSavingCookie = true;
           try {
-            const res = await fetch('/api/settings/cookie', {
+            const res = await fetch(this.getApiUrl('/api/settings/cookie'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ cookie: this.cookieInput.trim() })
@@ -12329,7 +12339,7 @@ export function getDashboardHtml() {
         async submitAddFleetProject() {
           if (!this.newFleetProjectId.trim() || !this.newFleetDatabaseUrl.trim()) return;
           try {
-            const res = await fetch('/api/fleet/projects', {
+            const res = await fetch(this.getApiUrl('/api/fleet/projects'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -12440,7 +12450,7 @@ export function getDashboardHtml() {
         async fetchWorkflowRuns() {
           this.isLoadingWorkflowRuns = true;
           try {
-            const res = await fetch('/api/workflow/runs?limit=15');
+            const res = await fetch(this.getApiUrl('/api/workflow/runs?limit=15'));
             if (res.ok) {
               this.workflowRuns = await res.json();
             }
@@ -12483,7 +12493,7 @@ export function getDashboardHtml() {
         async triggerWorkflowRun(seedPinIdsStr = '', maxPages = '60') {
           this.isTriggeringWorkflow = true;
           try {
-            const res = await fetch('/api/workflow/trigger', {
+            const res = await fetch(this.getApiUrl('/api/workflow/trigger'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({

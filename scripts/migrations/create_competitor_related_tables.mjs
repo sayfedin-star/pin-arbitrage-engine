@@ -81,7 +81,23 @@ async function runMigration() {
   await sql`CREATE INDEX IF NOT EXISTS idx_crn_comp_candidate ON competitor_related_nodes(competitor_id, candidate_pin_id);`;
   await sql`CREATE INDEX IF NOT EXISTS idx_crn_comp_seed ON competitor_related_nodes(competitor_id, seed_pin_id);`;
   await sql`CREATE INDEX IF NOT EXISTS idx_crn_comp_retention ON competitor_related_nodes(competitor_id, is_same_account);`;
-  console.log('[+] competitor_related_nodes table & indexes verified.');
+
+  // 3. Composite Foreign Key Constraint linking related nodes to seed pins
+  const existingFk = await sql`
+    SELECT conname FROM pg_constraint WHERE conname = 'fk_crn_seed_pins';
+  `;
+  if (existingFk.length === 0) {
+    await sql`
+      ALTER TABLE competitor_related_nodes 
+      ADD CONSTRAINT fk_crn_seed_pins 
+      FOREIGN KEY (competitor_id, seed_pin_id) 
+      REFERENCES competitor_seed_pins (competitor_id, pin_id) 
+      ON DELETE CASCADE;
+    `;
+    console.log('[+] Added fk_crn_seed_pins constraint (ON DELETE CASCADE).');
+  }
+
+  console.log('[+] competitor_related_nodes table, indexes & foreign key verified.');
 
   console.log('[+] Migration complete! All Account Related Pins tables are active on Neon Postgres.');
 }

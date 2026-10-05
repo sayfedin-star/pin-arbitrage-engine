@@ -2429,6 +2429,7 @@ export async function getCompetitorSeeds(sql, competitorId) {
 
 /**
  * Add pin IDs as seeds for a competitor, populating titles and thumbnails from competitor_pins if available.
+ * Fully atomic, deadlock-free monotonic batch upsert via jsonb_to_recordset.
  */
 export async function addCompetitorSeeds(sql, competitorId, pinIds = []) {
   const numericId = await resolveNumericCompetitorId(sql, competitorId);
@@ -2437,6 +2438,9 @@ export async function addCompetitorSeeds(sql, competitorId, pinIds = []) {
 
   const cleanIds = [...new Set(pinIds.map(p => String(p).trim().replace(/\D+/g, '')).filter(Boolean))];
   if (cleanIds.length === 0) return { ok: true, added_count: 0 };
+
+  // Monotonic sorting strictly eliminates PostgreSQL row-level deadlock cycles between concurrent workers
+  cleanIds.sort();
 
   const metaRows = await sql`
     SELECT 
@@ -2452,51 +2456,63 @@ export async function addCompetitorSeeds(sql, competitorId, pinIds = []) {
   const metaMap = new Map();
   for (const m of metaRows) metaMap.set(m.pin_id, m);
 
-  let insertedCount = 0;
-  for (const pid of cleanIds) {
+  const seedRecords = cleanIds.map(pid => {
     const meta = metaMap.get(pid);
-    const title = meta?.title || `Pin #${pid}`;
-    const img = meta?.image_url || null;
-    const board = meta?.board_name || null;
-    const saves = Number(meta?.save_count || 0);
+    return {
+      competitor_id: numericId,
+      pin_id: pid,
+      title: (meta?.title || `Pin #${pid}`).slice(0, 500),
+      image_url: meta?.image_url || null,
+      board_name: (meta?.board_name || null)?.slice(0, 255),
+      save_count: Number(meta?.save_count || 0)
+    };
+  });
 
-    const [row] = await sql`
-      INSERT INTO competitor_seed_pins (competitor_id, pin_id, title, image_url, board_name, save_count)
-      VALUES (${numericId}, ${pid}, ${title}, ${img}, ${board}, ${saves})
-      ON CONFLICT (competitor_id, pin_id) DO UPDATE SET
-        title = CASE WHEN EXCLUDED.title <> '' THEN EXCLUDED.title ELSE competitor_seed_pins.title END,
-        image_url = COALESCE(EXCLUDED.image_url, competitor_seed_pins.image_url)
-      RETURNING id;
-    `;
-    if (row) insertedCount++;
-  }
+  const inserted = await sql`
+    INSERT INTO competitor_seed_pins (competitor_id, pin_id, title, image_url, board_name, save_count)
+    SELECT
+      x.competitor_id, x.pin_id, x.title, x.image_url, x.board_name, x.save_count
+    FROM jsonb_to_recordset(${JSON.stringify(seedRecords)}::jsonb) AS x(
+      competitor_id int, pin_id varchar, title text, image_url text, board_name varchar, save_count bigint
+    )
+    ON CONFLICT (competitor_id, pin_id) DO UPDATE SET
+      title = CASE WHEN EXCLUDED.title <> '' AND EXCLUDED.title NOT LIKE 'Pin #%' THEN EXCLUDED.title ELSE competitor_seed_pins.title END,
+      image_url = COALESCE(EXCLUDED.image_url, competitor_seed_pins.image_url),
+      board_name = COALESCE(EXCLUDED.board_name, competitor_seed_pins.board_name),
+      save_count = GREATEST(competitor_seed_pins.save_count, EXCLUDED.save_count)
+    RETURNING id;
+  `;
 
-  return { ok: true, added_count: insertedCount };
+  return { ok: true, added_count: inserted.length };
 }
 
 /**
- * Delete a seed pin and all its associated related nodes.
+ * Delete a seed pin (or multiple seed pins) and all associated related nodes.
  */
 export async function deleteCompetitorSeed(sql, competitorId, pinId) {
   const numericId = await resolveNumericCompetitorId(sql, competitorId);
   if (!numericId || isNaN(numericId)) throw new Error('Valid competitorId is required.');
-  const cleanPin = String(pinId || '').trim();
-  if (!cleanPin) throw new Error('Valid pinId is required.');
+  const pins = Array.isArray(pinId)
+    ? pinId.map(p => String(p).trim()).filter(Boolean)
+    : String(pinId || '').split(/[\s,]+/).map(p => p.trim().replace(/\D+/g, '')).filter(Boolean);
+  if (pins.length === 0) throw new Error('Valid pinId is required.');
 
+  // Explicitly purge related nodes (also handled automatically via fk_crn_seed_pins ON DELETE CASCADE)
   await sql`
     DELETE FROM competitor_related_nodes 
-    WHERE competitor_id = ${numericId} AND seed_pin_id = ${cleanPin};
+    WHERE competitor_id = ${numericId} AND seed_pin_id = ANY(${pins});
   `;
   await sql`
     DELETE FROM competitor_seed_pins 
-    WHERE competitor_id = ${numericId} AND pin_id = ${cleanPin};
+    WHERE competitor_id = ${numericId} AND pin_id = ANY(${pins});
   `;
 
-  return { ok: true, deleted_pin_id: cleanPin };
+  return { ok: true, deleted_pin_ids: pins, deleted_pin_id: pins[0] };
 }
 
 /**
  * Calculate Multi-Seed Intersections, Account Retention Rate, and Traffic Leakage.
+ * Strictly inner joins competitor_seed_pins to prevent ghost/orphaned nodes from contaminating telemetry.
  */
 export async function getCompetitorRelatedIntersections(sql, competitorId, options = {}) {
   const numericId = await resolveNumericCompetitorId(sql, competitorId);
@@ -2507,64 +2523,44 @@ export async function getCompetitorRelatedIntersections(sql, competitorId, optio
   const page = Math.max(1, Number(options.page) || 1);
   const limit = Math.min(Math.max(1, Number(options.limit) || 50), 200);
   const offset = (page - 1) * limit;
-  const filter = options.filter || 'all'; // 'all', 'self_only', 'rivals_only'
+  const filter = options.filter || options.ownership_filter || 'all'; // 'all', 'self_only', 'rivals_only'
   const searchPattern = options.search ? `%${options.search.toLowerCase().trim()}%` : null;
 
-  // 1. Overall stats for this competitor's graph
-  const [statsRow] = await sql`
-    SELECT 
-      (SELECT COUNT(*)::int FROM competitor_seed_pins WHERE competitor_id = ${numericId}) AS total_seeds,
-      COUNT(*)::int AS total_nodes,
-      COUNT(DISTINCT candidate_pin_id)::int AS unique_candidates,
-      COUNT(*) FILTER (WHERE is_same_account = true)::int AS self_nodes,
-      COUNT(*) FILTER (WHERE is_same_account = false)::int AS rival_nodes
-    FROM competitor_related_nodes
-    WHERE competitor_id = ${numericId};
-  `;
-
-  const totalNodes = Number(statsRow?.total_nodes || 0);
-  const selfNodes = Number(statsRow?.self_nodes || 0);
-  const rivalNodes = Number(statsRow?.rival_nodes || 0);
-  const retentionRate = totalNodes > 0 ? Number(((selfNodes / totalNodes) * 100).toFixed(1)) : 0;
-  const leakageRate = Number((100 - retentionRate).toFixed(1));
-
-  // 2. Fetch intersections matching criteria
-  const rows = await sql`
-    SELECT 
-      crn.candidate_pin_id,
-      MAX(crn.title) AS title,
-      MAX(crn.image_url) AS image_url,
-      MAX(crn.dominant_color) AS dominant_color,
-      MAX(crn.saves)::bigint AS saves,
-      MAX(crn.repins)::bigint AS repins,
-      MAX(crn.domain) AS domain,
-      MAX(crn.destination_url) AS destination_url,
-      BOOL_OR(crn.is_same_account) AS is_same_account,
-      MAX(crn.creator_username) AS creator_username,
-      MAX(crn.creator_name) AS creator_name,
-      MAX(crn.provenance_engine) AS provenance_engine,
-      COUNT(DISTINCT crn.seed_pin_id)::int AS seed_overlap_count,
-      ARRAY_AGG(DISTINCT crn.seed_pin_id) AS originating_seeds
-    FROM competitor_related_nodes crn
-    WHERE crn.competitor_id = ${numericId}
-      AND (${searchPattern}::text IS NULL OR LOWER(crn.title) LIKE ${searchPattern} OR LOWER(COALESCE(crn.creator_username, '')) LIKE ${searchPattern})
-      AND (
-        ${filter} = 'all' OR
-        (${filter} = 'self_only' AND crn.is_same_account = TRUE) OR
-        (${filter} = 'rivals_only' AND crn.is_same_account = FALSE)
-      )
-    GROUP BY crn.candidate_pin_id
-    HAVING COUNT(DISTINCT crn.seed_pin_id) >= ${minOverlap}
-    ORDER BY seed_overlap_count DESC, saves DESC
-    LIMIT ${limit} OFFSET ${offset};
-  `;
-
-  // 3. Count matching intersections for accurate pagination
-  const [countRow] = await sql`
-    SELECT COUNT(*)::int AS total
-    FROM (
-      SELECT crn.candidate_pin_id
+  // Execute stats, paginated rows, and total count concurrently over Neon serverless pipeline
+  const [[statsRow], rows, [countRow]] = await Promise.all([
+    // 1. Overall stats for this competitor's active seed graph
+    sql`
+      SELECT 
+        (SELECT COUNT(*)::int FROM competitor_seed_pins WHERE competitor_id = ${numericId}) AS total_seeds,
+        COUNT(*)::int AS total_nodes,
+        COUNT(DISTINCT crn.candidate_pin_id)::int AS unique_candidates,
+        COUNT(*) FILTER (WHERE crn.is_same_account = true)::int AS self_nodes,
+        COUNT(*) FILTER (WHERE crn.is_same_account = false)::int AS rival_nodes
       FROM competitor_related_nodes crn
+      INNER JOIN competitor_seed_pins csp 
+        ON csp.competitor_id = crn.competitor_id AND csp.pin_id = crn.seed_pin_id
+      WHERE crn.competitor_id = ${numericId};
+    `,
+    // 2. Fetch intersections matching criteria
+    sql`
+      SELECT 
+        crn.candidate_pin_id,
+        MAX(crn.title) AS title,
+        MAX(crn.image_url) AS image_url,
+        MAX(crn.dominant_color) AS dominant_color,
+        MAX(crn.saves)::bigint AS saves,
+        MAX(crn.repins)::bigint AS repins,
+        MAX(crn.domain) AS domain,
+        MAX(crn.destination_url) AS destination_url,
+        BOOL_OR(crn.is_same_account) AS is_same_account,
+        MAX(crn.creator_username) AS creator_username,
+        MAX(crn.creator_name) AS creator_name,
+        MAX(crn.provenance_engine) AS provenance_engine,
+        COUNT(DISTINCT crn.seed_pin_id)::int AS seed_overlap_count,
+        ARRAY_AGG(DISTINCT crn.seed_pin_id) AS originating_seeds
+      FROM competitor_related_nodes crn
+      INNER JOIN competitor_seed_pins csp 
+        ON csp.competitor_id = crn.competitor_id AND csp.pin_id = crn.seed_pin_id
       WHERE crn.competitor_id = ${numericId}
         AND (${searchPattern}::text IS NULL OR LOWER(crn.title) LIKE ${searchPattern} OR LOWER(COALESCE(crn.creator_username, '')) LIKE ${searchPattern})
         AND (
@@ -2574,8 +2570,35 @@ export async function getCompetitorRelatedIntersections(sql, competitorId, optio
         )
       GROUP BY crn.candidate_pin_id
       HAVING COUNT(DISTINCT crn.seed_pin_id) >= ${minOverlap}
-    ) sub;
-  `;
+      ORDER BY seed_overlap_count DESC, saves DESC
+      LIMIT ${limit} OFFSET ${offset};
+    `,
+    // 3. Count matching intersections for accurate pagination
+    sql`
+      SELECT COUNT(*)::int AS total
+      FROM (
+        SELECT crn.candidate_pin_id
+        FROM competitor_related_nodes crn
+        INNER JOIN competitor_seed_pins csp 
+          ON csp.competitor_id = crn.competitor_id AND csp.pin_id = crn.seed_pin_id
+        WHERE crn.competitor_id = ${numericId}
+          AND (${searchPattern}::text IS NULL OR LOWER(crn.title) LIKE ${searchPattern} OR LOWER(COALESCE(crn.creator_username, '')) LIKE ${searchPattern})
+          AND (
+            ${filter} = 'all' OR
+            (${filter} = 'self_only' AND crn.is_same_account = TRUE) OR
+            (${filter} = 'rivals_only' AND crn.is_same_account = FALSE)
+          )
+        GROUP BY crn.candidate_pin_id
+        HAVING COUNT(DISTINCT crn.seed_pin_id) >= ${minOverlap}
+      ) sub;
+    `
+  ]);
+
+  const totalNodes = Number(statsRow?.total_nodes || 0);
+  const selfNodes = Number(statsRow?.self_nodes || 0);
+  const rivalNodes = Number(statsRow?.rival_nodes || 0);
+  const retentionRate = totalNodes > 0 ? Number(((selfNodes / totalNodes) * 100).toFixed(1)) : 0;
+  const leakageRate = Number((100 - retentionRate).toFixed(1));
 
   const total = Number(countRow?.total || 0);
   const totalPages = Math.max(1, Math.ceil(total / limit));
@@ -2606,7 +2629,8 @@ export async function getCompetitorRelatedIntersections(sql, competitorId, optio
 
 /**
  * Fast live harvest for a single pin (Zero-Cookie, Jitter, AbortSignal).
- * Directly upserts discovered nodes into competitor_related_nodes.
+ * In-memory Map deduplication prevents PostgreSQL cardinality violations.
+ * Monotonic sorting eliminates deadlocks.
  */
 export async function harvestSinglePinRelatedLive(sql, competitorId, pinId) {
   const numericId = await resolveNumericCompetitorId(sql, competitorId);
@@ -2614,9 +2638,29 @@ export async function harvestSinglePinRelatedLive(sql, competitorId, pinId) {
   const cleanPin = String(pinId || '').trim();
   if (!cleanPin) throw new Error('Valid pinId is required.');
 
-  // Fetch competitor username
-  const [comp] = await sql`SELECT id, username FROM competitor_profiles WHERE id = ${numericId} LIMIT 1;`;
+  // Fetch competitor username and metadata concurrently
+  const [[comp], [metaPin]] = await Promise.all([
+    sql`SELECT id, username FROM competitor_profiles WHERE id = ${numericId} LIMIT 1;`,
+    sql`SELECT title, image_url, board_name, save_count FROM competitor_pins WHERE competitor_id = ${numericId} AND pin_id = ${cleanPin} LIMIT 1;`
+  ]);
   const targetUsername = comp ? comp.username : '';
+
+  // Ensure seed pin row exists in competitor_seed_pins BEFORE inserting related child nodes
+  const seedTitle = metaPin?.title || `Pin #${cleanPin}`;
+  const seedImg = metaPin?.image_url || null;
+  const seedBoard = metaPin?.board_name || null;
+  const seedSaves = Number(metaPin?.save_count || 0);
+
+  await sql`
+    INSERT INTO competitor_seed_pins (competitor_id, pin_id, title, image_url, board_name, save_count, last_crawled_at)
+    VALUES (${numericId}, ${cleanPin}, ${seedTitle}, ${seedImg}, ${seedBoard}, ${seedSaves}, NOW())
+    ON CONFLICT (competitor_id, pin_id) DO UPDATE SET 
+      title = CASE WHEN EXCLUDED.title <> '' AND EXCLUDED.title NOT LIKE 'Pin #%' THEN EXCLUDED.title ELSE competitor_seed_pins.title END,
+      image_url = COALESCE(EXCLUDED.image_url, competitor_seed_pins.image_url),
+      board_name = COALESCE(EXCLUDED.board_name, competitor_seed_pins.board_name),
+      save_count = GREATEST(competitor_seed_pins.save_count, EXCLUDED.save_count),
+      last_crawled_at = NOW();
+  `;
 
   const optionsObj = {
     pin_id: cleanPin,
@@ -2653,7 +2697,7 @@ export async function harvestSinglePinRelatedLive(sql, competitorId, pinId) {
 
   const res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
   if (!res.ok) {
-    if (res.body) await res.body.cancel().catch(() => {});
+    if (res.body && !res.bodyUsed) await res.body.cancel().catch(() => {});
     throw new Error(`Pinterest returned HTTP ${res.status}`);
   }
 
@@ -2661,13 +2705,14 @@ export async function harvestSinglePinRelatedLive(sql, competitorId, pinId) {
   const resResponse = json?.resource_response || json;
   const items = resResponse?.data || [];
 
-  const candidateRows = [];
+  // Deduplicate candidates using Map<candId, candidateObj> to strictly eliminate PostgreSQL cardinality violations
+  const candidateMap = new Map();
   for (const item of items) {
     const isPin = item?.type === 'pin' || (item?.id && /^\d+$/.test(String(item.id)));
     if (!isPin) continue;
 
     const candId = String(item.id);
-    if (candId === cleanPin) continue;
+    if (candId === cleanPin) continue; // ignore self-reference
 
     const title = typeof item.title === 'string' ? item.title : (typeof item.grid_title === 'string' ? item.grid_title : '');
     const saves = Number(item.aggregated_pin_data?.aggregated_stats?.saves || item.save_count || 0);
@@ -2679,7 +2724,7 @@ export async function harvestSinglePinRelatedLive(sql, competitorId, pinId) {
     const img = item.images?.['236x']?.url || item.images?.['736x']?.url || item.images?.orig?.url || '';
     const isSameAccount = creator.toLowerCase() === targetUsername.toLowerCase();
 
-    candidateRows.push({
+    const candidateObj = {
       competitor_id: numericId,
       seed_pin_id: cleanPin,
       candidate_pin_id: candId,
@@ -2695,10 +2740,22 @@ export async function harvestSinglePinRelatedLive(sql, competitorId, pinId) {
       creator_username: creator.slice(0, 100),
       creator_name: creatorName.slice(0, 255),
       provenance_engine: 'P2P_TWO_TOWER'
-    });
+    };
+
+    if (candidateMap.has(candId)) {
+      const existing = candidateMap.get(candId);
+      if (saves > existing.saves) {
+        candidateMap.set(candId, candidateObj);
+      }
+    } else {
+      candidateMap.set(candId, candidateObj);
+    }
   }
 
+  const candidateRows = Array.from(candidateMap.values());
+
   if (candidateRows.length > 0) {
+    // Monotonic sort to eliminate PostgreSQL unique index locking deadlocks
     candidateRows.sort((a, b) => a.candidate_pin_id.localeCompare(b.candidate_pin_id));
 
     await sql`
@@ -2729,12 +2786,6 @@ export async function harvestSinglePinRelatedLive(sql, competitorId, pinId) {
         is_same_account = EXCLUDED.is_same_account;
     `;
   }
-
-  await sql`
-    INSERT INTO competitor_seed_pins (competitor_id, pin_id, title, last_crawled_at)
-    VALUES (${numericId}, ${cleanPin}, ${'Pin #' + cleanPin}, NOW())
-    ON CONFLICT (competitor_id, pin_id) DO UPDATE SET last_crawled_at = NOW();
-  `;
 
   return { ok: true, pin_id: cleanPin, discovered_count: candidateRows.length };
 }

@@ -1777,7 +1777,7 @@ const server = http.createServer(async (req, res) => {
 
     if (method === 'DELETE' && pathname === '/api/competitors/related-pins/seeds') {
       const competitorId = searchParams.get('id') || searchParams.get('competitor_id');
-      const pinId = searchParams.get('pin_id');
+      const pinId = searchParams.get('pin_id') || searchParams.get('pin_ids');
       if (!competitorId || !pinId) return sendJson(res, 400, { error: 'competitor_id and pin_id are required' });
       try {
         const result = await deleteCompetitorSeed(targetSql, competitorId, pinId);
@@ -1792,8 +1792,8 @@ const server = http.createServer(async (req, res) => {
       if (!competitorId) return sendJson(res, 400, { error: 'competitor_id is required' });
       try {
         const data = await getCompetitorRelatedIntersections(targetSql, competitorId, {
-          min_seed_overlap: Number(searchParams.get('min_overlap') || 2),
-          ownership_filter: searchParams.get('filter') || 'all',
+          min_overlap: Number(searchParams.get('min_overlap') || 2),
+          filter: searchParams.get('filter') || 'all',
           search: searchParams.get('search') || '',
           page: Number(searchParams.get('page') || 1),
           limit: Number(searchParams.get('limit') || 25)
@@ -1819,7 +1819,7 @@ const server = http.createServer(async (req, res) => {
     if (method === 'POST' && pathname === '/api/competitors/related-pins/dispatch-workflow') {
       try {
         const body = await parseJsonBody(req);
-        const username = (body.username || '').replace(/^@+/, '').trim();
+        const username = (body.username || body.target_account || '').replace(/^@+/, '').trim();
         if (!username) return sendJson(res, 400, { error: 'username is required' });
         const token = process.env.GITHUB_TOKEN;
         const repo = process.env.GITHUB_REPOSITORY || 'sayfedin-star/pin-arbitrage-engine';
@@ -1837,7 +1837,8 @@ const server = http.createServer(async (req, res) => {
           body: JSON.stringify({
             ref: 'main',
             inputs: {
-              account_username: username,
+              target_account: username,
+              pin_ids: String(body.pin_ids || body.pins || '').trim(),
               max_pages_per_seed: String(body.max_pages_per_seed || '2')
             }
           })
@@ -1846,6 +1847,7 @@ const server = http.createServer(async (req, res) => {
           const errText = await ghRes.text();
           return sendJson(res, ghRes.status, { success: false, error: `GitHub API error: ${errText}` });
         }
+        if (ghRes.body && !ghRes.bodyUsed) await ghRes.body.cancel().catch(() => {});
         return sendJson(res, 200, {
           success: true,
           message: `Dispatched account-related-pins crawler workflow for @${username}`,
