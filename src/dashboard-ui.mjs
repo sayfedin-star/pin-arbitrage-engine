@@ -377,7 +377,13 @@ export function getDashboardHtml() {
             <span x-text="activeCreator ? ('← Back to @' + (activeCreator.username || '').replace(/^@+/, '')) : (activePinDossier?.account_username ? ('← Back to @' + activePinDossier.account_username.replace(/^@+/, '')) : '← Back to Pins Archive')"></span>
           </button>
           
-          <div class="hidden md:flex items-center gap-2 text-xs font-mono">
+          <div class="hidden md:flex items-center gap-1.5 text-xs font-mono">
+            <template x-if="activeCreator?.username || activePinDossier?.account_username">
+              <span class="flex items-center gap-1">
+                <span class="text-slate-400">/</span>
+                <span class="text-indigo-500 dark:text-indigo-400 font-semibold" x-text="(activeCreator?.username || activePinDossier?.account_username || '').replace(/^@+/, '')"></span>
+              </span>
+            </template>
             <span class="text-slate-400">/</span>
             <span class="text-slate-500">pin</span>
             <span class="text-slate-400">/</span>
@@ -387,7 +393,7 @@ export function getDashboardHtml() {
 
         <div class="flex items-center gap-2 flex-wrap">
           <!-- Copy Page Link -->
-          <button type="button" @click="copyPinField('Direct Pin Page URL', window.location.origin + '/pin/' + activePinId)" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0d1526] text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition shadow-2xs cursor-pointer">
+          <button type="button" @click="copyPinField('Direct Pin Page URL', window.location.href)" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0d1526] text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition shadow-2xs cursor-pointer">
             <i data-lucide="link" class="w-3.5 h-3.5 text-slate-400"></i>
             <span>Copy Page Link</span>
           </button>
@@ -4065,28 +4071,134 @@ export function getDashboardHtml() {
             </div>
           </div>
 
+          <!-- ═══ Per-Account 3-Tier Qualification Rules Card ═══ -->
+          <div class="rounded-3xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-5 sm:p-6 shadow-xs relative overflow-hidden" x-data="{ isRulesOpen: false }">
+            <div class="flex items-center justify-between cursor-pointer" @click="isRulesOpen = !isRulesOpen">
+              <div class="flex items-center gap-3">
+                <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/10 text-amber-500 border border-amber-500/20">
+                  <i data-lucide="sliders" class="w-5 h-5"></i>
+                </div>
+                <div>
+                  <div class="flex items-center gap-2">
+                    <h3 class="text-sm font-extrabold text-slate-900 dark:text-white">Account Qualification Rules</h3>
+                    <span class="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">Active Profile</span>
+                  </div>
+                  <p class="text-xs text-slate-500 dark:text-slate-400">Configure independent 3-tier winning pin thresholds and product filtering specifically for @<span x-text="(activeCreator.username || '').replace(/^@+/, '')"></span>.</p>
+                </div>
+              </div>
+              <button class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-2 rounded-lg cursor-pointer">
+                <i data-lucide="chevron-down" class="w-5 h-5 transition-transform" :class="isRulesOpen ? 'rotate-180' : ''"></i>
+              </button>
+            </div>
+
+            <!-- Expandable Rules Form -->
+            <div x-show="isRulesOpen" x-transition class="mt-5 pt-5 border-t border-slate-200/80 dark:border-slate-800/80 space-y-4">
+              <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                
+                <!-- Tier 1: Saves -->
+                <div class="rounded-2xl bg-slate-50 dark:bg-slate-900/50 p-3.5 border border-slate-200/60 dark:border-slate-800/60">
+                  <div class="flex items-center justify-between mb-1.5">
+                    <span class="text-[11px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider">Tier 1: Min Saves</span>
+                    <i data-lucide="bookmark" class="w-3.5 h-3.5 text-amber-500"></i>
+                  </div>
+                  <input type="number" x-model.number="creatorRules.tier1_min_saves" class="w-full h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#0b1120] px-3 text-xs font-bold text-slate-900 dark:text-white" placeholder="5000" />
+                  <span class="text-[10px] text-slate-400 mt-1 block">Evergreen high-volume target</span>
+                </div>
+
+                <!-- Tier 2: Repins -->
+                <div class="rounded-2xl bg-slate-50 dark:bg-slate-900/50 p-3.5 border border-slate-200/60 dark:border-slate-800/60">
+                  <div class="flex items-center justify-between mb-1.5">
+                    <span class="text-[11px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider">Tier 2: Min Repins</span>
+                    <i data-lucide="repeat" class="w-3.5 h-3.5 text-blue-500"></i>
+                  </div>
+                  <input type="number" x-model.number="creatorRules.tier2_min_repins" class="w-full h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#0b1120] px-3 text-xs font-bold text-slate-900 dark:text-white" placeholder="2500" />
+                  <span class="text-[10px] text-slate-400 mt-1 block">High distribution virality</span>
+                </div>
+
+                <!-- Tier 3: Fresh Age Days -->
+                <div class="rounded-2xl bg-slate-50 dark:bg-slate-900/50 p-3.5 border border-slate-200/60 dark:border-slate-800/60">
+                  <div class="flex items-center justify-between mb-1.5">
+                    <span class="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">Tier 3: Max Age (Days)</span>
+                    <i data-lucide="sparkles" class="w-3.5 h-3.5 text-emerald-500"></i>
+                  </div>
+                  <input type="number" x-model.number="creatorRules.tier3_fresh_days" class="w-full h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#0b1120] px-3 text-xs font-bold text-slate-900 dark:text-white" placeholder="60" />
+                  <span class="text-[10px] text-slate-400 mt-1 block">Fresh breakout window</span>
+                </div>
+
+                <!-- Tier 3: Fresh Min Saves -->
+                <div class="rounded-2xl bg-slate-50 dark:bg-slate-900/50 p-3.5 border border-slate-200/60 dark:border-slate-800/60">
+                  <div class="flex items-center justify-between mb-1.5">
+                    <span class="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">Tier 3: Fresh Min Saves</span>
+                    <i data-lucide="zap" class="w-3.5 h-3.5 text-emerald-500"></i>
+                  </div>
+                  <input type="number" x-model.number="creatorRules.tier3_min_saves" class="w-full h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#0b1120] px-3 text-xs font-bold text-slate-900 dark:text-white" placeholder="500" />
+                  <span class="text-[10px] text-slate-400 mt-1 block">Early breakout acceleration</span>
+                </div>
+              </div>
+
+              <!-- Options & Buttons Bar -->
+              <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2">
+                <div class="flex items-center gap-4">
+                  <label class="inline-flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    <input type="checkbox" x-model="creatorRules.articles_only" class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4" />
+                    <span>🎯 Articles Only (Exclude E-commerce Products: <code class="text-[10px] font-mono bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded">!is_product</code>)</span>
+                  </label>
+                </div>
+
+                <div class="flex items-center gap-2.5">
+                  <button @click="saveCreatorRulesAction()" :disabled="isSavingCreatorRules" class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-900 text-xs font-bold transition shadow-xs cursor-pointer disabled:opacity-50">
+                    <i data-lucide="save" class="w-3.5 h-3.5"></i>
+                    <span x-text="isSavingCreatorRules ? 'Saving...' : 'Save Rules for this Account'"></span>
+                  </button>
+                  <button @click="reEvaluateCreatorPinsAction()" :disabled="isReEvaluatingCreatorPins" class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold transition shadow-xs cursor-pointer disabled:opacity-50">
+                    <i data-lucide="refresh-cw" class="w-3.5 h-3.5" :class="isReEvaluatingCreatorPins ? 'animate-spin' : ''"></i>
+                    <span x-text="isReEvaluatingCreatorPins ? 'Evaluating...' : '⚡ Re-evaluate Pins'"></span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Message feedback -->
+              <template x-if="reEvaluateMessage">
+                <div class="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-xs font-semibold flex items-center gap-2">
+                  <i data-lucide="check-circle" class="w-4 h-4"></i>
+                  <span x-text="reEvaluateMessage"></span>
+                </div>
+              </template>
+            </div>
+          </div>
+
           <!-- ═══ In-Page Sub-Navigation Tabs ═══ -->
           <div class="flex items-center space-x-2 border-b border-slate-200 dark:border-slate-800 pb-3 overflow-x-auto">
-            <button @click="activeCreatorTab = 'overview'" class="flex items-center space-x-2 px-4 py-2 text-xs font-bold rounded-xl transition cursor-pointer" :class="activeCreatorTab === 'overview' ? 'bg-rose-500 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
+            <button @click="switchCreatorTab('overview')" class="flex items-center space-x-2 px-4 py-2 text-xs font-bold rounded-xl transition cursor-pointer" :class="activeCreatorTab === 'overview' ? 'bg-rose-500 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
               <i data-lucide="line-chart" class="w-4 h-4"></i>
               <span>Overview &amp; Growth Trends</span>
             </button>
-            <button @click="activeCreatorTab = 'all_pins'; fetchCreatorAllPins()" class="flex items-center space-x-2 px-4 py-2 text-xs font-bold rounded-xl transition cursor-pointer" :class="activeCreatorTab === 'all_pins' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
+            <button @click="switchCreatorTab('all_pins')" class="flex items-center space-x-2 px-4 py-2 text-xs font-bold rounded-xl transition cursor-pointer" :class="activeCreatorTab === 'all_pins' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
               <i data-lucide="list" class="w-4 h-4"></i>
               <span>📋 All Account Pins</span>
               <span class="px-2 py-0.5 rounded text-[10px] font-mono" :class="activeCreatorTab === 'all_pins' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800'" x-text="activeCreatorAllPinsTotal || 0"></span>
             </button>
-            <button @click="activeCreatorTab = 'pins'; if (!activeCreatorPins || activeCreatorPins.length === 0) fetchCreatorWinningPins(activeCreator)" class="flex items-center space-x-2 px-4 py-2 text-xs font-bold rounded-xl transition cursor-pointer" :class="activeCreatorTab === 'pins' ? 'bg-rose-500 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
+            <button @click="switchCreatorTab('pins')" class="flex items-center space-x-2 px-4 py-2 text-xs font-bold rounded-xl transition cursor-pointer" :class="activeCreatorTab === 'pins' ? 'bg-rose-500 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
               <i data-lucide="archive" class="w-4 h-4"></i>
-              <span>📌 All Pins Archive (Winning Pins)</span>
+              <span>📌 Winning Pins Archive</span>
               <span class="px-2 py-0.5 rounded text-[10px] font-mono" :class="activeCreatorTab === 'pins' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800'" x-text="formatNumber(activeCreatorWinningPinsTotal || activeCreatorPins.length || 0)"></span>
             </button>
-            <button @click="activeCreatorTab = 'topics'; if (!activeCreatorTopics || activeCreatorTopics.length === 0) fetchCreatorTopics(activeCreator)" class="flex items-center space-x-2 px-4 py-2 text-xs font-bold rounded-xl transition cursor-pointer" :class="activeCreatorTab === 'topics' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
+            <button @click="switchCreatorTab('top_urls')" class="flex items-center space-x-2 px-4 py-2 text-xs font-bold rounded-xl transition cursor-pointer" :class="activeCreatorTab === 'top_urls' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
+              <i data-lucide="link" class="w-4 h-4"></i>
+              <span>🔗 [Link Explorer]</span>
+              <span class="px-2 py-0.5 rounded text-[10px] font-mono" :class="activeCreatorTab === 'top_urls' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800'" x-text="creatorTopUrlsTotal || 0"></span>
+            </button>
+            <button @click="switchCreatorTab('related_pins')" class="flex items-center space-x-2 px-4 py-2 text-xs font-bold rounded-xl transition cursor-pointer" :class="activeCreatorTab === 'related_pins' ? 'bg-amber-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
+              <i data-lucide="network" class="w-4 h-4"></i>
+              <span>🕸️ Related Pins Radar</span>
+              <span class="px-2 py-0.5 rounded text-[10px] font-mono" :class="activeCreatorTab === 'related_pins' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800'" x-text="(creatorRelatedStats.total_intersections || 0) + 'i'"></span>
+            </button>
+            <button @click="switchCreatorTab('topics')" class="flex items-center space-x-2 px-4 py-2 text-xs font-bold rounded-xl transition cursor-pointer" :class="activeCreatorTab === 'topics' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
               <i data-lucide="sparkles" class="w-4 h-4"></i>
               <span>✨ Smart Topic Clusters</span>
               <span class="px-2 py-0.5 rounded text-[10px] font-mono" :class="activeCreatorTab === 'topics' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800'" x-text="activeCreatorTopics.length"></span>
             </button>
-            <button @click="activeCreatorTab = 'boards'; if (!activeCreatorBoards || activeCreatorBoards.length === 0) fetchCreatorBoards(activeCreator)" class="flex items-center space-x-2 px-4 py-2 text-xs font-bold rounded-xl transition cursor-pointer" :class="activeCreatorTab === 'boards' ? 'bg-slate-800 dark:bg-slate-700 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
+            <button @click="switchCreatorTab('boards')" class="flex items-center space-x-2 px-4 py-2 text-xs font-bold rounded-xl transition cursor-pointer" :class="activeCreatorTab === 'boards' ? 'bg-slate-800 dark:bg-slate-700 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
               <i data-lucide="layout-grid" class="w-4 h-4"></i>
               <span>Pinterest Board Strategy</span>
               <span class="px-2 py-0.5 rounded text-[10px] font-mono" :class="activeCreatorTab === 'boards' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800'" x-text="activeCreatorBoards.length || activeCreator.total_boards || 0"></span>
@@ -4757,10 +4869,16 @@ export function getDashboardHtml() {
                   <span>🏆 Qualified Only</span>
                 </label>
 
+                <!-- Articles Only Toggle (!is_product) -->
+                <label class="inline-flex items-center gap-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 py-1.5 cursor-pointer text-xs font-medium text-slate-800 dark:text-slate-200 select-none" title="Filter strictly for content/editorial articles and exclude shopping product pins">
+                  <input type="checkbox" x-model="creatorAllPinArticlesOnly" @change="activeCreatorAllPinsPage = 1; fetchCreatorAllPins()" class="rounded border-slate-300 text-emerald-600 h-4 w-4" />
+                  <span>📰 Articles Only</span>
+                </label>
+
                 <!-- Clear filters button -->
                 <button
-                  x-show="creatorAllPinSearch || creatorAllPinBoard || creatorAllPinMinSaves > 0 || creatorAllPinQualifiedOnly"
-                  @click="creatorAllPinSearch = ''; creatorAllPinBoard = ''; creatorAllPinMinSaves = 0; creatorAllPinQualifiedOnly = false; activeCreatorAllPinsPage = 1; fetchCreatorAllPins()"
+                  x-show="creatorAllPinSearch || creatorAllPinBoard || creatorAllPinMinSaves > 0 || creatorAllPinQualifiedOnly || creatorAllPinArticlesOnly"
+                  @click="creatorAllPinSearch = ''; creatorAllPinBoard = ''; creatorAllPinMinSaves = 0; creatorAllPinQualifiedOnly = false; creatorAllPinArticlesOnly = false; activeCreatorAllPinsPage = 1; fetchCreatorAllPins()"
                   class="px-2.5 py-1.5 rounded-xl text-xs font-semibold text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition cursor-pointer"
                 >
                   Clear Filters
@@ -4792,6 +4910,9 @@ export function getDashboardHtml() {
               <table class="w-full text-left text-xs">
                 <thead class="bg-slate-50 dark:bg-slate-900/60 text-slate-500 dark:text-slate-400 text-[11px] uppercase border-b border-slate-200 dark:border-slate-800 font-semibold select-none">
                   <tr>
+                    <th class="py-3 px-3 w-10 text-center">
+                      <input type="checkbox" :checked="activeCreatorAllPins.length > 0 && activeCreatorAllPins.every(p => isPinSelected(p.pin_id))" @change="$event.target.checked ? selectAllCurrentPins(activeCreatorAllPins) : clearSelectedCreatorPins()" class="rounded border-slate-300 text-amber-500 cursor-pointer" />
+                    </th>
                     <th class="py-3 px-3 w-14">Media</th>
                     <th class="py-3 px-4 font-semibold text-slate-900 dark:text-white">Pin Title &amp; Destination</th>
                     <th class="py-3 px-3 font-semibold">Board</th>
@@ -4804,7 +4925,11 @@ export function getDashboardHtml() {
                 </thead>
                 <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono">
                   <template x-for="p in activeCreatorAllPins" :key="p.pin_id">
-                    <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition">
+                    <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition" :class="isPinSelected(p.pin_id) ? 'bg-amber-500/5 dark:bg-amber-500/10' : ''">
+                      <!-- Selection Checkbox -->
+                      <td class="py-2.5 px-3 text-center">
+                        <input type="checkbox" :checked="isPinSelected(p.pin_id)" @change="togglePinSelection(p.pin_id)" class="rounded border-slate-300 text-amber-500 cursor-pointer" />
+                      </td>
                       <!-- Thumbnail with hover preview -->
                       <td class="py-2.5 px-3 w-14">
                         <div class="relative group cursor-pointer" @click="openPinDossier(p)">
@@ -4998,8 +5123,12 @@ export function getDashboardHtml() {
                 <span class="font-bold text-rose-600 dark:text-rose-400 font-mono" x-text="selectedCreatorPinIds.length + ' pin(s) selected'"></span>
               </div>
               <div class="flex items-center gap-2">
-                <button type="button" @click="selectedCreatorPinIds = []" class="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0d1526] text-slate-700 dark:text-slate-300 font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer">
+                <button type="button" @click="clearSelectedCreatorPins()" class="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0d1526] text-slate-700 dark:text-slate-300 font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer">
                   Deselect All
+                </button>
+                <button type="button" @click="analyzeSelectedPinsAsRelated()" :disabled="isAddingSeeds" class="px-3.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold transition shadow-sm cursor-pointer flex items-center gap-1.5">
+                  <i data-lucide="network" class="w-3.5 h-3.5" :class="isAddingSeeds ? 'animate-spin' : ''"></i>
+                  <span>Analyze Related Pins</span>
                 </button>
                 <button type="button" @click="stageSelectedCreatorPins()" class="px-4 py-1.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold transition shadow-sm cursor-pointer flex items-center gap-1.5">
                   <i data-lucide="play-circle" class="w-3.5 h-3.5"></i>
@@ -5241,6 +5370,382 @@ export function getDashboardHtml() {
               </div>
             </div>
 
+          </div>
+
+          <!-- ======================================================== -->
+          <!-- SUB-VIEW: TOP DESTINATION URLS STRATEGY                   -->
+          <!-- ======================================================== -->
+          <div x-show="activeCreatorTab === 'top_urls'" class="space-y-5">
+            <!-- Header & Filter Bar -->
+            <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-5 shadow-xs flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+              <div>
+                <div class="flex items-center gap-2">
+                  <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-500 font-bold text-sm">🔗</span>
+                  <h3 class="text-base font-extrabold text-slate-900 dark:text-white">Top Destination URLs Intelligence</h3>
+                </div>
+                <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                  Aggregated performance per normalized article slug. Discovers high-traffic articles and the volume of pins driving them.
+                </p>
+              </div>
+
+              <!-- Search & Filter Controls -->
+              <div class="flex items-center gap-3 flex-wrap">
+                <!-- Filter Type Segmented Control -->
+                <div class="flex items-center bg-slate-100 dark:bg-slate-900 p-0.5 rounded-xl border border-slate-200 dark:border-slate-800">
+                  <button @click="creatorTopUrlFilterType = 'all'; creatorTopUrlsPage = 1; fetchCreatorTopUrls()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer" :class="creatorTopUrlFilterType === 'all' ? 'bg-white dark:bg-[#0b1120] text-slate-900 dark:text-white shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">All</button>
+                  <button @click="creatorTopUrlFilterType = 'articles_only'; creatorTopUrlsPage = 1; fetchCreatorTopUrls()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer" :class="creatorTopUrlFilterType === 'articles_only' ? 'bg-white dark:bg-[#0b1120] text-emerald-600 dark:text-emerald-400 shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">Articles Only</button>
+                  <button @click="creatorTopUrlFilterType = 'products_only'; creatorTopUrlsPage = 1; fetchCreatorTopUrls()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer" :class="creatorTopUrlFilterType === 'products_only' ? 'bg-white dark:bg-[#0b1120] text-purple-600 dark:text-purple-400 shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">Products Only</button>
+                  <button @click="creatorTopUrlFilterType = 'affiliate_only'; creatorTopUrlsPage = 1; fetchCreatorTopUrls()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer" :class="creatorTopUrlFilterType === 'affiliate_only' ? 'bg-white dark:bg-[#0b1120] text-amber-600 dark:text-amber-400 shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">🛒 Affiliate &amp; Marketplaces</button>
+                </div>
+
+                <!-- Search Input -->
+                <div class="relative">
+                  <input type="text" x-model="creatorTopUrlSearch" @keyup.enter="creatorTopUrlsPage = 1; fetchCreatorTopUrls()" placeholder="Search article slug..." class="h-9 w-48 sm:w-60 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0b1120] px-3 pl-8 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-500" />
+                  <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5"></i>
+                </div>
+
+                <!-- Sort Dropdown -->
+                <select x-model="creatorTopUrlSort" @change="creatorTopUrlsPage = 1; fetchCreatorTopUrls()" class="h-9 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0b1120] px-2.5 text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  <option value="saves_desc">Highest Saves</option>
+                  <option value="pins_desc">Most Pins</option>
+                  <option value="avg_saves_desc">Highest Avg Saves/Pin</option>
+                  <option value="repins_desc">Highest Repins</option>
+                  <option value="newest">Most Recent Pin</option>
+                </select>
+
+                <button @click="fetchCreatorTopUrls()" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 transition cursor-pointer">
+                  <i data-lucide="refresh-cw" class="w-3.5 h-3.5" :class="isLoadingTopUrls ? 'animate-spin' : ''"></i>
+                  <span>Refresh</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Table Card -->
+            <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] shadow-xs overflow-hidden">
+              <div class="overflow-x-auto">
+                <table class="w-full text-left text-xs text-slate-600 dark:text-slate-400">
+                  <thead class="bg-slate-50 dark:bg-slate-900/60 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800">
+                    <tr>
+                      <th class="py-3 px-4">Article / Destination Slug</th>
+                      <th class="py-3 px-3">Type</th>
+                      <th class="py-3 px-3 text-right">Pins Driving URL</th>
+                      <th class="py-3 px-3 text-right">Total Saves</th>
+                      <th class="py-3 px-3 text-right">Avg Saves / Pin</th>
+                      <th class="py-3 px-3 text-right">Repins</th>
+                      <th class="py-3 px-3">First Seen</th>
+                      <th class="py-3 px-3">Last Pin</th>
+                      <th class="py-3 px-3 text-center">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-sans">
+                    <template x-for="item in activeCreatorTopUrls" :key="item.clean_slug">
+                      <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition">
+                        <!-- Slug -->
+                        <td class="py-3 px-4">
+                          <div class="flex items-center gap-2">
+                            <span class="font-bold text-slate-900 dark:text-white text-xs truncate max-w-md" :title="item.clean_slug" x-text="item.clean_slug"></span>
+                            <span class="text-[10px] text-slate-400 font-mono" x-text="'(' + item.domain + ')'"></span>
+                          </div>
+                        </td>
+                        <!-- Type -->
+                        <td class="py-3 px-3">
+                          <template x-if="item.is_affiliate">
+                            <span class="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400 border border-amber-500/20">🛒 Affiliate</span>
+                          </template>
+                          <template x-if="!item.is_affiliate && item.is_product">
+                            <span class="rounded-full bg-purple-500/10 px-2 py-0.5 text-[10px] font-bold text-purple-600 dark:text-purple-400 border border-purple-500/20">🛍️ Product</span>
+                          </template>
+                          <template x-if="!item.is_affiliate && !item.is_product">
+                            <span class="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">📰 Article</span>
+                          </template>
+                        </td>
+                        <!-- Pins Count -->
+                        <td class="py-3 px-3 text-right font-mono font-bold text-slate-900 dark:text-white" x-text="formatNumber(item.pin_count)"></td>
+                        <!-- Total Saves -->
+                        <td class="py-3 px-3 text-right font-mono font-extrabold text-amber-600 dark:text-amber-400" x-text="formatNumber(item.total_saves)"></td>
+                        <!-- Avg Saves -->
+                        <td class="py-3 px-3 text-right font-mono font-bold text-indigo-600 dark:text-indigo-400" x-text="formatNumber(item.avg_saves)"></td>
+                        <!-- Repins -->
+                        <td class="py-3 px-3 text-right font-mono text-slate-500 dark:text-slate-400" x-text="formatNumber(item.total_repins)"></td>
+                        <!-- First Seen -->
+                        <td class="py-3 px-3 text-[11px] text-slate-400" x-text="item.first_pin_date ? item.first_pin_date.slice(0, 10) : '—'"></td>
+                        <!-- Last Pin -->
+                        <td class="py-3 px-3 text-[11px] text-slate-400 font-medium" x-text="item.last_pin_date ? item.last_pin_date.slice(0, 10) : '—'"></td>
+                        <!-- Open Link Button -->
+                        <td class="py-3 px-3 text-center">
+                          <a :href="item.sample_url" target="_blank" rel="noopener noreferrer" class="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-emerald-500 transition" title="Open Article in New Tab">
+                            <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+                          </a>
+                        </td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+              </div>
+
+              <!-- Empty State -->
+              <template x-if="!isLoadingTopUrls && activeCreatorTopUrls.length === 0">
+                <div class="py-12 text-center text-slate-400">
+                  <i data-lucide="link" class="w-8 h-8 mx-auto mb-2 opacity-50"></i>
+                  <p class="text-xs font-semibold">No destination URLs found matching your criteria.</p>
+                </div>
+              </template>
+
+              <!-- Pagination Bar -->
+              <div class="flex items-center justify-between p-4 border-t border-slate-200 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400">
+                <span x-text="'Showing ' + activeCreatorTopUrls.length + ' of ' + formatNumber(creatorTopUrlsTotal) + ' unique URLs'"></span>
+                <div class="flex items-center gap-1.5">
+                  <button @click="if (creatorTopUrlsPage > 1) { creatorTopUrlsPage--; fetchCreatorTopUrls(); }" :disabled="creatorTopUrlsPage <= 1" class="h-8 px-3 rounded-lg border border-slate-200 dark:border-slate-800 disabled:opacity-40 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold cursor-pointer">Previous</button>
+                  <span class="px-2 font-mono" x-text="creatorTopUrlsPage + ' / ' + creatorTopUrlsTotalPages"></span>
+                  <button @click="if (creatorTopUrlsPage < creatorTopUrlsTotalPages) { creatorTopUrlsPage++; fetchCreatorTopUrls(); }" :disabled="creatorTopUrlsPage >= creatorTopUrlsTotalPages" class="h-8 px-3 rounded-lg border border-slate-200 dark:border-slate-800 disabled:opacity-40 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold cursor-pointer">Next</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ======================================================== -->
+          <!-- SUB-VIEW: ACCOUNT RELATED PINS & INTERSECTIONS RADAR     -->
+          <!-- ======================================================== -->
+          <div x-show="activeCreatorTab === 'related_pins'" class="space-y-5">
+            <!-- Header & Action Bar -->
+            <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-5 shadow-xs flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+              <div>
+                <div class="flex items-center gap-2">
+                  <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-500/10 text-amber-500 font-bold text-sm">🕸️</span>
+                  <h3 class="text-base font-extrabold text-slate-900 dark:text-white">Related Pins Radar (Account Intersections)</h3>
+                  <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-amber-500/10 border border-amber-500/20 text-amber-600 font-bold">100% Zero-Cookie</span>
+                </div>
+                <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                  Pixie Graph Co-Occurrence Radar for @<span x-text="(activeCreator.username || '').replace(/^@+/, '')"></span>. Identifies overlapping related pins across multiple seeds, traffic retention, and competitor leakage.
+                </p>
+              </div>
+
+              <!-- Top Action Buttons -->
+              <div class="flex items-center gap-2 flex-wrap">
+                <button @click="autoAddTop10WinningSeedsAction()" :disabled="isAddingSeeds" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-500/20 transition cursor-pointer">
+                  <i data-lucide="zap" class="w-3.5 h-3.5"></i>
+                  <span>⚡ Auto-Add Top 10</span>
+                </button>
+
+                <button @click="isBulkAddSeedsModalOpen = true" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 px-3 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 transition cursor-pointer">
+                  <i data-lucide="plus-circle" class="w-3.5 h-3.5"></i>
+                  <span>+ Bulk Add Pin IDs</span>
+                </button>
+
+                <button @click="dispatchRelatedWorkflowAction()" :disabled="isHarvestingRelated" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white px-3.5 text-xs font-bold transition shadow-sm cursor-pointer disabled:opacity-50">
+                  <i data-lucide="play" class="w-3.5 h-3.5" :class="isHarvestingRelated ? 'animate-spin' : ''"></i>
+                  <span>🚀 Harvest Related (GHA)</span>
+                </button>
+
+                <button @click="fetchCreatorRelatedGraph()" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0b1120] px-3 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer">
+                  <i data-lucide="refresh-cw" class="w-3.5 h-3.5" :class="isLoadingRelatedGraph ? 'animate-spin' : ''"></i>
+                </button>
+              </div>
+            </div>
+
+            <!-- KPI Summary Cards -->
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
+              <!-- KPI 1: Active Seeds -->
+              <div class="p-4 rounded-2xl bg-white dark:bg-[#0d1526] border border-slate-200/90 dark:border-slate-800 shadow-2xs">
+                <span class="text-[10px] font-mono uppercase text-slate-500 dark:text-slate-400 font-bold">Active Analyzed Seeds</span>
+                <div class="mt-1 text-2xl font-mono font-black text-slate-900 dark:text-white" x-text="creatorRelatedStats.total_seeds || creatorRelatedSeeds.length || 0"></div>
+                <div class="text-[10px] text-slate-400 mt-0.5">Seed pins registered for account</div>
+              </div>
+
+              <!-- KPI 2: Total Discovered Related Nodes -->
+              <div class="p-4 rounded-2xl bg-white dark:bg-[#0d1526] border border-slate-200/90 dark:border-slate-800 shadow-2xs">
+                <span class="text-[10px] font-mono uppercase text-slate-500 dark:text-slate-400 font-bold">Total Related Nodes</span>
+                <div class="mt-1 text-2xl font-mono font-black text-indigo-600 dark:text-indigo-400" x-text="formatNumber(creatorRelatedStats.total_nodes || 0)"></div>
+                <div class="text-[10px] text-slate-400 mt-0.5" x-text="(creatorRelatedStats.unique_candidates || 0) + ' unique pins'"></div>
+              </div>
+
+              <!-- KPI 3: Account Retention vs Traffic Leakage -->
+              <div class="p-4 rounded-2xl bg-white dark:bg-[#0d1526] border border-slate-200/90 dark:border-slate-800 shadow-2xs">
+                <div class="flex items-center justify-between">
+                  <span class="text-[10px] font-mono uppercase text-slate-500 dark:text-slate-400 font-bold">Account Retention</span>
+                  <span class="text-[10px] font-mono font-bold text-rose-500" x-text="(creatorRelatedStats.leakage_rate_pct || 0) + '% Leakage'"></span>
+                </div>
+                <div class="mt-1 text-2xl font-mono font-black text-emerald-600 dark:text-emerald-400" x-text="(creatorRelatedStats.retention_rate_pct || 0) + '%'"></div>
+                <div class="text-[10px] text-slate-400 mt-0.5" x-text="(creatorRelatedStats.self_retention_nodes || 0) + ' own / ' + (creatorRelatedStats.rival_leakage_nodes || 0) + ' rivals'"></div>
+              </div>
+
+              <!-- KPI 4: Multi-Seed Intersections (2+ Seeds) -->
+              <div class="p-4 rounded-2xl bg-white dark:bg-[#0d1526] border border-slate-200/90 dark:border-slate-800 shadow-2xs">
+                <span class="text-[10px] font-mono uppercase text-slate-500 dark:text-slate-400 font-bold">Multi-Seed Intersections</span>
+                <div class="mt-1 text-2xl font-mono font-black text-amber-600 dark:text-amber-400" x-text="creatorRelatedStats.total_intersections || creatorRelatedIntersections.length || 0"></div>
+                <div class="text-[10px] text-slate-400 mt-0.5">Shared across 2+ seeds</div>
+              </div>
+            </div>
+
+            <!-- Registered Seeds Shelf -->
+            <div x-show="creatorRelatedSeeds.length > 0" class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-4 shadow-xs">
+              <div class="flex items-center justify-between mb-3">
+                <span class="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                  <i data-lucide="layers" class="w-3.5 h-3.5 text-amber-500"></i>
+                  <span>Registered Seeds Shelf (<span x-text="creatorRelatedSeeds.length"></span>)</span>
+                </span>
+                <span class="text-[11px] text-slate-400 font-mono">Click Live Harvest to refresh a single seed in 2s</span>
+              </div>
+
+              <div class="flex items-center gap-2.5 overflow-x-auto pb-2">
+                <template x-for="s in creatorRelatedSeeds" :key="s.pin_id">
+                  <div class="shrink-0 flex items-center gap-2 p-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs">
+                    <img x-show="s.image_url" :src="s.image_url" class="w-8 h-8 rounded-lg object-cover bg-slate-200 dark:bg-slate-800" />
+                    <div class="max-w-[130px]">
+                      <div class="font-bold text-slate-900 dark:text-white truncate" x-text="s.title || ('Pin #' + s.pin_id)"></div>
+                      <div class="text-[10px] text-slate-400 font-mono" x-text="(s.related_count || 0) + ' related'"></div>
+                    </div>
+                    <button @click="harvestLiveSingleSeedAction(s.pin_id)" title="Live Single-Seed Harvest" class="p-1 rounded-lg text-emerald-600 hover:bg-emerald-500/10 transition cursor-pointer">
+                      <i data-lucide="play-circle" class="w-3.5 h-3.5"></i>
+                    </button>
+                    <button @click="deleteSeedAction(s.pin_id)" title="Delete Seed" class="p-1 rounded-lg text-rose-500 hover:bg-rose-500/10 transition cursor-pointer">
+                      <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                    </button>
+                  </div>
+                </template>
+              </div>
+            </div>
+
+            <!-- Intersections Radar Filter & Search Controls -->
+            <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-4 shadow-xs flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+              <div class="flex items-center gap-2 flex-wrap">
+                <!-- Overlap Threshold Selector -->
+                <div class="flex items-center bg-slate-100 dark:bg-slate-900 p-0.5 rounded-xl border border-slate-200 dark:border-slate-800">
+                  <button @click="creatorRelatedMinOverlap = 2; creatorRelatedPage = 1; fetchCreatorRelatedGraph()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer" :class="creatorRelatedMinOverlap === 2 ? 'bg-white dark:bg-[#0b1120] text-amber-600 dark:text-amber-400 shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">2+ Seeds Overlap</button>
+                  <button @click="creatorRelatedMinOverlap = 3; creatorRelatedPage = 1; fetchCreatorRelatedGraph()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer" :class="creatorRelatedMinOverlap === 3 ? 'bg-white dark:bg-[#0b1120] text-amber-600 dark:text-amber-400 shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">3+ Seeds</button>
+                  <button @click="creatorRelatedMinOverlap = 5; creatorRelatedPage = 1; fetchCreatorRelatedGraph()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer" :class="creatorRelatedMinOverlap === 5 ? 'bg-white dark:bg-[#0b1120] text-amber-600 dark:text-amber-400 shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">5+ Seeds</button>
+                </div>
+
+                <!-- Retention vs Rival Filter -->
+                <div class="flex items-center bg-slate-100 dark:bg-slate-900 p-0.5 rounded-xl border border-slate-200 dark:border-slate-800">
+                  <button @click="creatorRelatedFilter = 'all'; creatorRelatedPage = 1; fetchCreatorRelatedGraph()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer" :class="creatorRelatedFilter === 'all' ? 'bg-white dark:bg-[#0b1120] text-slate-900 dark:text-white shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">All Candidates</button>
+                  <button @click="creatorRelatedFilter = 'self_only'; creatorRelatedPage = 1; fetchCreatorRelatedGraph()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer" :class="creatorRelatedFilter === 'self_only' ? 'bg-white dark:bg-[#0b1120] text-emerald-600 dark:text-emerald-400 shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">Own Retention Only</button>
+                  <button @click="creatorRelatedFilter = 'rivals_only'; creatorRelatedPage = 1; fetchCreatorRelatedGraph()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer" :class="creatorRelatedFilter === 'rivals_only' ? 'bg-white dark:bg-[#0b1120] text-rose-600 dark:text-rose-400 shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">Rival Leakage Only</button>
+                </div>
+              </div>
+
+              <!-- Search & Export -->
+              <div class="flex items-center gap-2">
+                <div class="relative">
+                  <input type="text" x-model="creatorRelatedSearch" @keyup.enter="creatorRelatedPage = 1; fetchCreatorRelatedGraph()" placeholder="Search title or creator..." class="h-9 w-44 sm:w-56 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0b1120] px-3 pl-8 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-amber-500" />
+                  <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5"></i>
+                </div>
+
+                <button @click="exportCsv(creatorRelatedIntersections, (activeCreator.username || 'account') + '-related-intersections.csv')" class="h-9 px-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0b1120] text-xs font-semibold hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer flex items-center gap-1.5">
+                  <i data-lucide="download" class="w-3.5 h-3.5"></i>
+                  <span>CSV</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Intersections Radar Table -->
+            <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] shadow-xs overflow-hidden">
+              <div class="overflow-x-auto">
+                <table class="w-full text-left text-xs text-slate-600 dark:text-slate-400">
+                  <thead class="bg-slate-50/80 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-800 font-mono text-[11px] uppercase tracking-wider text-slate-500">
+                    <tr>
+                      <th class="p-3.5 pl-5">Candidate Pin</th>
+                      <th class="p-3.5 text-center">Multi-Seed Overlap</th>
+                      <th class="p-3.5 text-center">Ownership</th>
+                      <th class="p-3.5 text-right">Saves</th>
+                      <th class="p-3.5 text-right">Repins</th>
+                      <th class="p-3.5">Monetization Domain</th>
+                      <th class="p-3.5 pr-5 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-sans">
+                    <template x-for="item in creatorRelatedIntersections" :key="item.candidate_pin_id">
+                      <tr class="hover:bg-slate-50/60 dark:hover:bg-slate-800/30 transition">
+                        <!-- Pin Preview & Title -->
+                        <td class="p-3.5 pl-5">
+                          <div class="flex items-center gap-3">
+                            <img x-show="item.image_url" :src="item.image_url" class="w-10 h-10 rounded-xl object-cover bg-slate-200 dark:bg-slate-800 shrink-0 cursor-pointer" @click="openPinPage(item.candidate_pin_id)" />
+                            <div class="max-w-xs sm:max-w-sm">
+                              <span @click="openPinPage(item.candidate_pin_id)" class="font-bold text-slate-900 dark:text-white hover:text-amber-500 transition cursor-pointer line-clamp-1" x-text="item.title || ('Pin #' + item.candidate_pin_id)"></span>
+                              <div class="text-[11px] text-slate-400 font-mono flex items-center gap-1 mt-0.5">
+                                <span>@<span x-text="item.creator_username || 'unknown'"></span></span>
+                                <span x-show="item.creator_name" class="text-slate-500">· <span x-text="item.creator_name"></span></span>
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+
+                        <!-- Multi-Seed Overlap Count & Originating Seeds -->
+                        <td class="p-3.5 text-center">
+                          <div class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-mono font-extrabold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                            <i data-lucide="layers" class="w-3 h-3"></i>
+                            <span x-text="(item.seed_overlap_count || 1) + ' Seeds'"></span>
+                          </div>
+                        </td>
+
+                        <!-- Ownership Badge -->
+                        <td class="p-3.5 text-center">
+                          <template x-if="item.is_same_account">
+                            <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                              🛡️ Own Retention
+                            </span>
+                          </template>
+                          <template x-if="!item.is_same_account">
+                            <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
+                              ⚡ Rival Leakage
+                            </span>
+                          </template>
+                        </td>
+
+                        <!-- Saves -->
+                        <td class="p-3.5 text-right font-mono font-bold text-slate-900 dark:text-white" x-text="formatNumber(item.saves || 0)"></td>
+
+                        <!-- Repins -->
+                        <td class="p-3.5 text-right font-mono text-slate-600 dark:text-slate-400" x-text="formatNumber(item.repins || 0)"></td>
+
+                        <!-- Domain -->
+                        <td class="p-3.5">
+                          <div class="flex items-center gap-1.5">
+                            <template x-if="item.domain">
+                              <span class="font-mono text-xs text-slate-700 dark:text-slate-300 truncate max-w-[140px]" x-text="item.domain"></span>
+                            </template>
+                            <template x-if="!item.domain">
+                              <span class="text-slate-400 text-xs">Direct Image</span>
+                            </template>
+                          </div>
+                        </td>
+
+                        <!-- Actions -->
+                        <td class="p-3.5 pr-5 text-right">
+                          <div class="flex items-center justify-end gap-1.5">
+                            <button @click="openPinPage(item.candidate_pin_id)" class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-amber-500 hover:text-white transition cursor-pointer">
+                              Inspect
+                            </button>
+                            <a :href="'https://www.pinterest.com/pin/' + item.candidate_pin_id + '/'" target="_blank" rel="noopener noreferrer" class="p-1 rounded-lg text-slate-400 hover:text-rose-500 transition cursor-pointer" title="Open on Pinterest">
+                              <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+                            </a>
+                          </div>
+                        </td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+              </div>
+
+              <!-- Empty State -->
+              <template x-if="!isLoadingRelatedGraph && creatorRelatedIntersections.length === 0">
+                <div class="py-14 text-center text-slate-400">
+                  <i data-lucide="network" class="w-10 h-10 mx-auto mb-2 opacity-40 text-amber-500"></i>
+                  <p class="text-xs font-semibold">No multi-seed intersections found matching your criteria.</p>
+                  <p class="text-[11px] text-slate-400 mt-1">Add more seed pins or click "Harvest Related" to crawl Pinterest's graph for @<span x-text="(activeCreator.username || '').replace(/^@+/, '')"></span>.</p>
+                </div>
+              </template>
+
+              <!-- Pagination Bar -->
+              <div class="flex items-center justify-between p-4 border-t border-slate-200 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400">
+                <span x-text="'Showing ' + creatorRelatedIntersections.length + ' of ' + formatNumber(creatorRelatedStats.total_intersections || creatorRelatedIntersections.length) + ' intersecting hubs'"></span>
+                <div class="flex items-center gap-1.5">
+                  <button @click="if (creatorRelatedPage > 1) { creatorRelatedPage--; fetchCreatorRelatedGraph(); }" :disabled="creatorRelatedPage <= 1" class="h-8 px-3 rounded-lg border border-slate-200 dark:border-slate-800 disabled:opacity-40 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold cursor-pointer">Previous</button>
+                  <span class="px-2 font-mono" x-text="creatorRelatedPage + ' / ' + creatorRelatedTotalPages"></span>
+                  <button @click="if (creatorRelatedPage < creatorRelatedTotalPages) { creatorRelatedPage++; fetchCreatorRelatedGraph(); }" :disabled="creatorRelatedPage >= creatorRelatedTotalPages" class="h-8 px-3 rounded-lg border border-slate-200 dark:border-slate-800 disabled:opacity-40 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold cursor-pointer">Next</button>
+                </div>
+              </div>
+            </div>
           </div>
 
           <!-- ======================================================== -->
@@ -7648,6 +8153,110 @@ export function getDashboardHtml() {
       </div>
     </div>
   </div>
+
+  <!-- Modal: Bulk Add Related Pin Seeds -->
+  <div x-show="isBulkAddSeedsModalOpen" x-cloak class="fixed inset-0 z-50 overflow-y-auto bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="bg-white dark:bg-[#0d1526] border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-lg shadow-2xl p-6 space-y-4 text-slate-900 dark:text-white" @click.away="isBulkAddSeedsModalOpen = false">
+      <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+        <div class="flex items-center space-x-2.5">
+          <div class="w-8 h-8 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-600 dark:text-amber-400">
+            <i data-lucide="network" class="w-4 h-4"></i>
+          </div>
+          <div>
+            <h3 class="font-bold text-sm">Bulk Add Related Pin Seeds</h3>
+            <p class="text-[11px] text-slate-500">Track seed pins for @<span x-text="(activeCreator?.username || '').replace(/^@+/, '')"></span> to calculate multi-seed graph intersections.</p>
+          </div>
+        </div>
+        <button @click="isBulkAddSeedsModalOpen = false" class="text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <div class="space-y-3">
+        <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+          Enter Pinterest Pin IDs or URLs (one per line, comma or space separated):
+        </label>
+        <textarea
+          x-model="bulkAddSeedsInput"
+          rows="6"
+          placeholder="e.g.&#10;1688918607652644&#10;https://www.pinterest.com/pin/43699058883005370/&#10;43699058883005370"
+          class="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0b1120] p-3 text-xs font-mono text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500 resize-none"
+        ></textarea>
+        <div class="flex items-start gap-1.5 text-[11px] text-slate-400">
+          <i data-lucide="info" class="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5"></i>
+          <span>Any valid 15-20 digit pin ID will be automatically parsed, deduplicated, and registered to this account.</span>
+        </div>
+      </div>
+
+      <div class="pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
+        <button
+          type="button"
+          @click="autoAddTop10WinningSeedsAction(); isBulkAddSeedsModalOpen = false"
+          class="text-xs text-amber-600 dark:text-amber-400 font-bold hover:underline cursor-pointer flex items-center gap-1"
+        >
+          <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+          <span>Auto-add Top 10 Winning Pins</span>
+        </button>
+        <div class="flex items-center gap-2">
+          <button
+            type="button"
+            @click="isBulkAddSeedsModalOpen = false"
+            class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 cursor-pointer"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            @click="addBulkSeedsAction()"
+            :disabled="isAddingSeeds || !bulkAddSeedsInput.trim()"
+            class="px-4 py-2 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-500 text-white disabled:opacity-40 transition shadow-sm cursor-pointer flex items-center gap-1.5"
+          >
+            <i data-lucide="plus-circle" class="w-3.5 h-3.5" :class="isAddingSeeds ? 'animate-spin' : ''"></i>
+            <span x-text="isAddingSeeds ? 'Registering...' : 'Register Seeds'"></span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Floating Action Bar for Selected Account Pins (Fixed bottom toolbar) -->
+  <div
+    x-show="selectedCreatorPinIds.length > 0 && isDossierOpen"
+    x-cloak
+    class="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900/95 dark:bg-[#070c18]/95 text-white backdrop-blur-md border border-slate-700/80 dark:border-slate-700 rounded-2xl px-5 py-3 shadow-2xl flex items-center gap-4 animate-in fade-in slide-in-from-bottom-5"
+  >
+    <div class="flex items-center gap-2">
+      <span class="flex h-2.5 w-2.5 rounded-full bg-amber-400 animate-pulse"></span>
+      <span class="font-mono text-xs font-bold" x-text="selectedCreatorPinIds.length + ' Pin(s) Selected'"></span>
+    </div>
+    <div class="h-4 w-px bg-slate-700"></div>
+    <div class="flex items-center gap-2">
+      <button
+        type="button"
+        @click="analyzeSelectedPinsAsRelated()"
+        :disabled="isAddingSeeds"
+        class="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-white text-xs font-bold transition shadow-sm cursor-pointer flex items-center gap-1.5"
+      >
+        <i data-lucide="network" class="w-3.5 h-3.5" :class="isAddingSeeds ? 'animate-spin' : ''"></i>
+        <span>🕸️ Analyze Related Pins Radar</span>
+      </button>
+      <button
+        type="button"
+        @click="stageSelectedCreatorPins()"
+        class="px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition shadow-sm cursor-pointer flex items-center gap-1.5"
+      >
+        <i data-lucide="play-circle" class="w-3.5 h-3.5"></i>
+        <span>Stage for Repurpose</span>
+      </button>
+      <button
+        type="button"
+        @click="clearSelectedCreatorPins()"
+        class="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition cursor-pointer"
+      >
+        Clear
+      </button>
+    </div>
+  </div>
   <!-- Toast Notification -->
   <div x-show="toastMessage" x-cloak class="fixed bottom-6 right-6 z-50 bg-slate-900 text-white dark:bg-white dark:text-slate-900 px-4 py-2.5 rounded-xl shadow-2xl font-mono text-xs flex items-center space-x-2 animate-in fade-in slide-in-from-bottom-5">
     <i data-lucide="check-circle" class="w-4 h-4 text-emerald-500"></i>
@@ -7720,9 +8329,58 @@ export function getDashboardHtml() {
         creatorAllPinMinSaves: 0,
         creatorAllPinSort: 'saves_desc',
         creatorAllPinQualifiedOnly: false,
+        creatorAllPinArticlesOnly: false,
         isLoadingAllPins: false,
         isHarvestingAllPins: false,
         isDispatchingGitHubCrawl: false,
+
+        // Top Destination URLs State
+        activeCreatorTopUrls: [],
+        creatorTopUrlsTotal: 0,
+        creatorTopUrlsPage: 1,
+        creatorTopUrlsTotalPages: 1,
+        creatorTopUrlSearch: '',
+        creatorTopUrlSort: 'saves_desc',
+        creatorTopUrlFilterType: 'all',
+        isLoadingTopUrls: false,
+
+        // Account-Scoped Related Pins & Intersections Radar State
+        creatorRelatedSeeds: [],
+        creatorRelatedIntersections: [],
+        creatorRelatedStats: {
+          total_seeds: 0,
+          total_nodes: 0,
+          unique_candidates: 0,
+          self_retention_nodes: 0,
+          rival_leakage_nodes: 0,
+          retention_rate_pct: 0,
+          leakage_rate_pct: 0,
+          total_intersections: 0
+        },
+        isLoadingRelatedGraph: false,
+        creatorRelatedMinOverlap: 2,
+        creatorRelatedFilter: 'all',
+        creatorRelatedPage: 1,
+        creatorRelatedTotalPages: 1,
+        creatorRelatedLimit: 25,
+        creatorRelatedSearch: '',
+        isBulkAddSeedsModalOpen: false,
+        bulkAddSeedsInput: '',
+        isAddingSeeds: false,
+        isHarvestingRelated: false,
+
+        // Per-Account Qualification Rules State
+        creatorRules: {
+          tier1_min_saves: 5000,
+          tier2_min_repins: 2500,
+          tier3_fresh_days: 60,
+          tier3_min_saves: 500,
+          articles_only: true,
+          auto_pipeline: true
+        },
+        isSavingCreatorRules: false,
+        isReEvaluatingCreatorPins: false,
+        reEvaluateMessage: '',
 
         // Time Range & Performance Trend
         creatorTimeRange: '7D',
@@ -7732,6 +8390,32 @@ export function getDashboardHtml() {
         creatorMoMTargetMonth: '',
         creatorChartMode: 'reach',
         selectedCreatorPinIds: [],
+        isPinSelected(pinId) {
+          if (!pinId) return false;
+          return this.selectedCreatorPinIds.includes(String(pinId));
+        },
+        togglePinSelection(pinId) {
+          if (!pinId) return;
+          const s = String(pinId);
+          const idx = this.selectedCreatorPinIds.indexOf(s);
+          if (idx >= 0) {
+            this.selectedCreatorPinIds.splice(idx, 1);
+          } else {
+            this.selectedCreatorPinIds.push(s);
+          }
+        },
+        selectAllCurrentPins(pinsList) {
+          if (!Array.isArray(pinsList)) return;
+          for (const p of pinsList) {
+            const pid = String(p.pin_id || p.id || '');
+            if (pid && !this.selectedCreatorPinIds.includes(pid)) {
+              this.selectedCreatorPinIds.push(pid);
+            }
+          }
+        },
+        clearSelectedCreatorPins() {
+          this.selectedCreatorPinIds = [];
+        },
 
         // Snapshot Log Table State
         creatorSnapNumFmt: 'full',
@@ -8098,7 +8782,7 @@ export function getDashboardHtml() {
         get isAllCreatorPinsSelected() {
           const pins = this.paginatedCreatorPins;
           if (!pins || !pins.length) return false;
-          return pins.every(p => this.selectedCreatorPinIds.includes(p.pin_id));
+          return pins.every(p => this.isPinSelected(p.pin_id));
         },
 
         get creatorChartData() {
@@ -9354,20 +10038,47 @@ export function getDashboardHtml() {
             }
             this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
           });
-          // Immediate Deep Link URL Hydration (e.g. /pin/1083467622873349531 or /wifesrecipesbyme)
+          // Immediate Deep Link URL Hydration (e.g. /freshmancook, /freshmancook/links, /freshmancook/related-pins, /freshmancook/pin/1688918607652644)
           if (typeof window !== 'undefined') {
+            const RESERVED_SYSTEM_SLUGS = new Set([
+              'api', 'fleet', 'settings', 'admin', 'health', 'favicon.ico', 
+              'robots.txt', 'index.html', 'assets', 'static', 'pin', 'related_pins', 'intersections', 'archive', 'explorer'
+            ]);
+            const CREATOR_SUB_TABS = {
+              'links': 'top_urls',
+              'link': 'top_urls',
+              'top-urls': 'top_urls',
+              'related-pins': 'related_pins',
+              'related': 'related_pins',
+              'all-pins': 'all_pins',
+              'winning-pins': 'pins',
+              'pins': 'pins',
+              'topics': 'topics',
+              'boards': 'boards',
+              'overview': 'overview'
+            };
+
             const segments = (window.location.pathname || '').split('/').filter(Boolean);
             const first = segments[0] || '';
             const second = segments[1] || '';
+            const third = segments[2] || '';
+
             if (first === 'pin' && second) {
               this.openPinPage(second, false);
             } else if (first === 'fleet') {
               this.currentTab = 'fleet';
               this.fetchFleetProjects();
-            } else if (first && !first.startsWith('api') && first !== 'index.html') {
+            } else if (first && !RESERVED_SYSTEM_SLUGS.has(first.toLowerCase())) {
               this.currentTab = 'creators_archive';
-              if (second) {
-                this.openCreatorByHandle(first).then(() => {
+              if (second === 'pin' && third) {
+                this.openCreatorByHandle(first, 'overview').then(() => {
+                  this.openPinPage(third, false);
+                });
+              } else if (second && CREATOR_SUB_TABS[second.toLowerCase()]) {
+                const targetTab = CREATOR_SUB_TABS[second.toLowerCase()];
+                this.openCreatorByHandle(first, targetTab);
+              } else if (second) {
+                this.openCreatorByHandle(first, 'overview').then(() => {
                   const rawBoard = decodeURIComponent(second).replace(/-/g, ' ');
                   const matchBoard = (this.activeCreatorBoards || []).find(b => 
                     (b.name || '').toLowerCase() === rawBoard.toLowerCase() ||
@@ -9376,7 +10087,7 @@ export function getDashboardHtml() {
                   this.openBoardPage(matchBoard, this.activeCreator, false);
                 });
               } else {
-                this.openCreatorByHandle(first);
+                this.openCreatorByHandle(first, 'overview');
               }
             }
 
@@ -9384,19 +10095,29 @@ export function getDashboardHtml() {
               const pSegments = (window.location.pathname || '').split('/').filter(Boolean);
               const pFirst = pSegments[0] || '';
               const pSecond = pSegments[1] || '';
+              const pThird = pSegments[2] || '';
+
               if (pFirst === 'pin' && pSecond) {
                 this.openPinPage(pSecond, false);
               } else if (pFirst === 'fleet') {
                 this.currentTab = 'fleet';
                 this.fetchFleetProjects();
-              } else if (pFirst && !pFirst.startsWith('api') && pFirst !== 'index.html') {
-                if (this.activePinId) {
-                  this.closePinPage(false);
-                }
-                if (pSecond) {
+              } else if (pFirst && !RESERVED_SYSTEM_SLUGS.has(pFirst.toLowerCase())) {
+                if (pSecond === 'pin' && pThird) {
+                  if (!this.activeCreator || (this.activeCreator.username || '').toLowerCase() !== pFirst.toLowerCase()) {
+                    await this.openCreatorByHandle(pFirst, 'overview');
+                  }
+                  await this.openPinPage(pThird, false);
+                } else if (pSecond && CREATOR_SUB_TABS[pSecond.toLowerCase()]) {
+                  if (this.activePinId) this.closePinPage(false);
+                  if (this.activeBoardName) this.closeBoardPage(false);
+                  const targetTab = CREATOR_SUB_TABS[pSecond.toLowerCase()];
+                  await this.openCreatorByHandle(pFirst, targetTab);
+                } else if (pSecond) {
+                  if (this.activePinId) this.closePinPage(false);
                   const rawBoard = decodeURIComponent(pSecond).replace(/-/g, ' ');
                   if (!this.activeCreator || (this.activeCreator.username || '').toLowerCase() !== pFirst.toLowerCase()) {
-                    await this.openCreatorByHandle(pFirst);
+                    await this.openCreatorByHandle(pFirst, 'overview');
                   }
                   const matchBoard = (this.activeCreatorBoards || []).find(b => 
                     (b.name || '').toLowerCase() === rawBoard.toLowerCase() ||
@@ -9404,18 +10125,13 @@ export function getDashboardHtml() {
                   ) || { name: rawBoard };
                   await this.openBoardPage(matchBoard, this.activeCreator, false);
                 } else {
-                  if (this.activeBoardName) {
-                    this.closeBoardPage(false);
-                  }
-                  this.openCreatorByHandle(pFirst);
+                  if (this.activePinId) this.closePinPage(false);
+                  if (this.activeBoardName) this.closeBoardPage(false);
+                  await this.openCreatorByHandle(pFirst, 'overview');
                 }
               } else {
-                if (this.activePinId) {
-                  this.closePinPage(false);
-                }
-                if (this.activeBoardName) {
-                  this.closeBoardPage(false);
-                }
+                if (this.activePinId) this.closePinPage(false);
+                if (this.activeBoardName) this.closeBoardPage(false);
                 this.closeCreatorProfile(false);
               }
             });
@@ -10400,9 +11116,15 @@ export function getDashboardHtml() {
           this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
 
           if (typeof window !== 'undefined' && handle) {
-            const targetPath = '/' + handle;
+            let targetPath = '/' + handle;
+            if (this.activeCreatorTab === 'top_urls' || this.activeCreatorTab === 'links') targetPath = '/' + handle + '/links';
+            else if (this.activeCreatorTab === 'related_pins') targetPath = '/' + handle + '/related-pins';
+            else if (this.activeCreatorTab === 'all_pins') targetPath = '/' + handle + '/all-pins';
+            else if (this.activeCreatorTab === 'pins') targetPath = '/' + handle + '/winning-pins';
+            else if (this.activeCreatorTab === 'topics') targetPath = '/' + handle + '/topics';
+            else if (this.activeCreatorTab === 'boards') targetPath = '/' + handle + '/boards';
             if (window.location.pathname !== targetPath) {
-              window.history.pushState({ creator: handle }, '', targetPath);
+              window.history.pushState({ creator: handle, tab: this.activeCreatorTab }, '', targetPath);
             }
           }
 
@@ -10451,12 +11173,251 @@ export function getDashboardHtml() {
               });
             }
 
-            await this.fetchCreatorAllPins();
+            const initialFetches = [
+              this.fetchCreatorAllPins(),
+              this.fetchCreatorRules(),
+              this.fetchCreatorTopUrls()
+            ];
+            if (this.activeCreatorTab === 'related_pins') {
+              initialFetches.push(this.fetchCreatorRelatedGraph());
+            } else if (this.activeCreatorTab === 'boards') {
+              initialFetches.push(this.fetchCreatorBoards());
+            } else if (this.activeCreatorTab === 'topics') {
+              initialFetches.push(this.fetchCreatorTopics());
+            }
+            await Promise.all(initialFetches);
           } catch (e) {
             console.error('openCreatorPage error:', e);
           } finally {
             this.isCreatorLoading = false;
             this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+          }
+        },
+
+        switchCreatorTab(tab) {
+          this.activeCreatorTab = tab;
+          if (this.activeCreator) {
+            const cleanU = (this.activeCreator.username || '').replace(/^@+/, '').trim().toLowerCase();
+            let targetPath = '/' + cleanU;
+            if (tab === 'top_urls' || tab === 'links') targetPath = '/' + cleanU + '/links';
+            else if (tab === 'related_pins') targetPath = '/' + cleanU + '/related-pins';
+            else if (tab === 'all_pins') targetPath = '/' + cleanU + '/all-pins';
+            else if (tab === 'pins') targetPath = '/' + cleanU + '/winning-pins';
+            else if (tab === 'topics') targetPath = '/' + cleanU + '/topics';
+            else if (tab === 'boards') targetPath = '/' + cleanU + '/boards';
+
+            if (typeof window !== 'undefined' && window.location.pathname !== targetPath) {
+              window.history.pushState({ creator: cleanU, tab: tab }, '', targetPath);
+            }
+
+            if (tab === 'related_pins') this.fetchCreatorRelatedGraph();
+            else if (tab === 'top_urls') this.fetchCreatorTopUrls();
+            else if (tab === 'all_pins') this.fetchCreatorAllPins();
+            else if (tab === 'boards') this.fetchCreatorBoards();
+            else if (tab === 'topics') this.fetchCreatorTopics();
+            else if (tab === 'pins') this.fetchCreatorWinningPins();
+          }
+          this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+        },
+
+        async fetchCreatorRelatedGraph() {
+          if (!this.activeCreator) return;
+          this.isLoadingRelatedGraph = true;
+          try {
+            const handle = (this.activeCreator.username || '').replace(/^@+/, '').trim();
+            const compId = this.activeCreator.id || handle;
+            const p = new URLSearchParams();
+            p.set('id', compId);
+            p.set('min_overlap', this.creatorRelatedMinOverlap || 2);
+            p.set('page', this.creatorRelatedPage || 1);
+            p.set('limit', this.creatorRelatedLimit || 25);
+            p.set('filter', this.creatorRelatedFilter || 'all');
+            if (this.creatorRelatedSearch) p.set('search', this.creatorRelatedSearch.trim());
+
+            const [interRes, seedsRes] = await Promise.all([
+              fetch(this.getApiUrl('/api/competitors/related-pins/intersections?' + p.toString())),
+              fetch(this.getApiUrl('/api/competitors/related-pins/seeds?id=' + encodeURIComponent(compId)))
+            ]);
+
+            if (interRes.ok) {
+              const data = await interRes.json();
+              this.creatorRelatedIntersections = data.intersections || [];
+              this.creatorRelatedStats = data.stats || this.creatorRelatedStats;
+              this.creatorRelatedPage = data.page || 1;
+              this.creatorRelatedTotalPages = data.total_pages || 1;
+            }
+
+            if (seedsRes.ok) {
+              const sData = await seedsRes.json();
+              this.creatorRelatedSeeds = sData.seeds || [];
+            }
+          } catch (e) {
+            console.error('fetchCreatorRelatedGraph error:', e);
+            this.showToast('Error loading related pins graph');
+          } finally {
+            this.isLoadingRelatedGraph = false;
+            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+          }
+        },
+
+        async addBulkSeedsAction() {
+          if (!this.activeCreator || !this.bulkAddSeedsInput.trim()) return;
+          this.isAddingSeeds = true;
+          try {
+            const compId = this.activeCreator.id || this.activeCreator.username;
+            const matches = this.bulkAddSeedsInput.match(/\d{14,22}/g) || [];
+            if (matches.length === 0) {
+              this.showToast('No valid numeric Pin IDs found in input.');
+              return;
+            }
+            const res = await fetch(this.getApiUrl('/api/competitors/related-pins/seeds'), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ competitor_id: compId, pin_ids: matches })
+            });
+            const data = await res.json();
+            if (data.ok) {
+              this.showToast('✅ Registered ' + data.added_count + ' seeds for @' + (this.activeCreator.username || '').replace(/^@+/, '') + '!');
+              this.bulkAddSeedsInput = '';
+              this.isBulkAddSeedsModalOpen = false;
+              await this.fetchCreatorRelatedGraph();
+            } else {
+              this.showToast('Failed to register seeds: ' + (data.error || 'Error'));
+            }
+          } catch (e) {
+            console.error('addBulkSeedsAction error:', e);
+            this.showToast('Error registering seeds');
+          } finally {
+            this.isAddingSeeds = false;
+          }
+        },
+
+        async autoAddTop10WinningSeedsAction() {
+          if (!this.activeCreator) return;
+          this.isAddingSeeds = true;
+          try {
+            const compId = this.activeCreator.id || this.activeCreator.username;
+            let pins = this.activeCreatorPins || [];
+            if (pins.length === 0) {
+              const handle = (this.activeCreator.username || '').replace(/^@+/, '').trim();
+              const pinsRes = await fetch(this.getApiUrl('/api/pinarchive/pins?account=@' + encodeURIComponent(handle) + '&limit=10'));
+              if (pinsRes.ok) {
+                const pData = await pinsRes.json();
+                pins = pData.pins || [];
+              }
+            }
+            const top10Ids = pins.slice(0, 10).map(p => p.pin_id || p.id).filter(Boolean);
+            if (top10Ids.length === 0) {
+              this.showToast('No winning pins found for this account yet.');
+              return;
+            }
+            const res = await fetch(this.getApiUrl('/api/competitors/related-pins/seeds'), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ competitor_id: compId, pin_ids: top10Ids })
+            });
+            const data = await res.json();
+            if (data.ok) {
+              this.showToast('🎯 Auto-added ' + data.added_count + ' top winning seeds!');
+              await this.fetchCreatorRelatedGraph();
+            }
+          } catch (e) {
+            console.error('autoAddTop10WinningSeedsAction error:', e);
+          } finally {
+            this.isAddingSeeds = false;
+          }
+        },
+
+        async analyzeSelectedPinsAsRelated() {
+          if (!this.activeCreator || this.selectedCreatorPinIds.length === 0) return;
+          const compId = this.activeCreator.id || this.activeCreator.username;
+          this.isAddingSeeds = true;
+          try {
+            const res = await fetch(this.getApiUrl('/api/competitors/related-pins/seeds'), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ competitor_id: compId, pin_ids: this.selectedCreatorPinIds })
+            });
+            const data = await res.json();
+            if (data.ok) {
+              this.showToast('🕸️ Queued ' + data.added_count + ' selected pins for Related Graph analysis!');
+              this.selectedCreatorPinIds = [];
+              await this.openCreatorPage(this.activeCreator, 'related_pins');
+            }
+          } catch (e) {
+            console.error('analyzeSelectedPinsAsRelated error:', e);
+          } finally {
+            this.isAddingSeeds = false;
+          }
+        },
+
+        async deleteSeedAction(pinId) {
+          if (!confirm('Delete Seed #' + pinId + ' and its discovered related nodes?')) return;
+          try {
+            const compId = this.activeCreator.id || this.activeCreator.username;
+            const res = await fetch(this.getApiUrl('/api/competitors/related-pins/seeds?id=' + encodeURIComponent(compId) + '&pin_id=' + encodeURIComponent(pinId)), {
+              method: 'DELETE'
+            });
+            if (res.ok) {
+              this.showToast('Seed #' + pinId + ' removed');
+              await this.fetchCreatorRelatedGraph();
+            }
+          } catch (e) {
+            console.error('deleteSeedAction error:', e);
+          }
+        },
+
+        async harvestLiveSingleSeedAction(pinId) {
+          if (!this.activeCreator) return;
+          this.isHarvestingRelated = true;
+          this.showToast('🔍 Scraping Pinterest Related Feed live for Seed #' + pinId + '...');
+          try {
+            const compId = this.activeCreator.id || this.activeCreator.username;
+            const res = await fetch(this.getApiUrl('/api/competitors/related-pins/harvest-live'), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ competitor_id: compId, pin_id: pinId })
+            });
+            const data = await res.json();
+            if (data.ok) {
+              this.showToast('✅ Discovered ' + data.discovered_count + ' related pins without cookies!');
+              await this.fetchCreatorRelatedGraph();
+            } else {
+              this.showToast('Live scrape failed: ' + (data.error || 'Unknown error'));
+            }
+          } catch (e) {
+            console.error('harvestLiveSingleSeedAction error:', e);
+            this.showToast('Error during live harvest: ' + e.message);
+          } finally {
+            this.isHarvestingRelated = false;
+          }
+        },
+
+        async dispatchRelatedWorkflowAction() {
+          if (!this.activeCreator) return;
+          const handle = (this.activeCreator.username || '').replace(/^@+/, '').trim();
+          if (!confirm('Dispatch dedicated GitHub Actions Harvester for @' + handle + '? This will crawl all account seeds in parallel without cookies.')) return;
+          this.isHarvestingRelated = true;
+          try {
+            const res = await fetch(this.getApiUrl('/api/competitors/related-pins/dispatch-workflow'), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                username: handle,
+                max_pages_per_seed: '2'
+              })
+            });
+            const data = await res.json();
+            if (data.success) {
+              this.showToast('🚀 Dispatched GitHub Actions Harvester for @' + handle + '!');
+            } else {
+              this.showToast('Dispatch failed: ' + (data.error || 'Check GITHUB_TOKEN'));
+            }
+          } catch (e) {
+            console.error('dispatchRelatedWorkflowAction error:', e);
+            this.showToast('Error dispatching workflow: ' + e.message);
+          } finally {
+            this.isHarvestingRelated = false;
           }
         },
 
@@ -10478,6 +11439,7 @@ export function getDashboardHtml() {
             if (this.creatorAllPinMinSaves > 0) p.set('min_saves', this.creatorAllPinMinSaves);
             if (this.creatorAllPinSort) p.set('sort', this.creatorAllPinSort);
             if (this.creatorAllPinQualifiedOnly) p.set('qualified_only', 'true');
+            if (this.creatorAllPinArticlesOnly) p.set('articles_only', 'true');
             p.set('page', this.activeCreatorAllPinsPage || 1);
             p.set('limit', 25);
 
@@ -10494,6 +11456,104 @@ export function getDashboardHtml() {
             console.error('fetchCreatorAllPins error:', e);
           } finally {
             this.isLoadingAllPins = false;
+            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+          }
+        },
+
+        async fetchCreatorRules() {
+          if (!this.activeCreator?.id) return;
+          try {
+            const res = await fetch(this.getApiUrl('/api/competitors/rules?id=' + this.activeCreator.id));
+            if (res.ok) {
+              const data = await res.json();
+              if (data.rules) {
+                this.creatorRules = { ...this.creatorRules, ...data.rules };
+              }
+            }
+          } catch (e) {
+            console.error('fetchCreatorRules error:', e);
+          }
+        },
+
+        async saveCreatorRulesAction() {
+          if (!this.activeCreator?.id) return;
+          this.isSavingCreatorRules = true;
+          try {
+            const res = await fetch(this.getApiUrl('/api/competitors/rules'), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                competitor_id: this.activeCreator.id,
+                rules: this.creatorRules
+              })
+            });
+            if (res.ok) {
+              this.showToast('✅ Qualification rules saved for @' + (this.activeCreator.username || '').replace(/^@+/, ''));
+            } else {
+              this.showToast('Failed to save rules');
+            }
+          } catch (e) {
+            console.error('saveCreatorRules error:', e);
+            this.showToast('Error saving rules');
+          } finally {
+            this.isSavingCreatorRules = false;
+          }
+        },
+
+        async reEvaluateCreatorPinsAction() {
+          if (!this.activeCreator?.id) return;
+          this.isReEvaluatingCreatorPins = true;
+          this.reEvaluateMessage = '';
+          try {
+            const res = await fetch(this.getApiUrl('/api/competitors/re-evaluate'), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ competitor_id: this.activeCreator.id })
+            });
+            const data = await res.json();
+            if (data.ok) {
+              this.reEvaluateMessage = 'Qualified ' + data.qualified_count + ' pins into archive based on active rules!';
+              this.showToast('🎯 Re-evaluation complete: ' + data.qualified_count + ' pins qualified');
+              if (typeof this.fetchCreatorWinningPins === 'function') {
+                this.fetchCreatorWinningPins(this.activeCreator);
+              }
+            } else {
+              this.showToast('Re-evaluation error: ' + (data.error || 'Failed'));
+            }
+          } catch (e) {
+            console.error('reEvaluate error:', e);
+            this.showToast('Failed to re-evaluate');
+          } finally {
+            this.isReEvaluatingCreatorPins = false;
+          }
+        },
+
+        async fetchCreatorTopUrls() {
+          if (!this.activeCreator) return;
+          this.isLoadingTopUrls = true;
+          try {
+            const handle = (this.activeCreator.username || '').replace(/^@+/, '').trim();
+            const compId = this.activeCreator.id || handle;
+            const p = new URLSearchParams();
+            p.set('id', compId);
+            if (this.creatorTopUrlSearch) p.set('search', this.creatorTopUrlSearch.trim());
+            if (this.creatorTopUrlSort) p.set('sort', this.creatorTopUrlSort);
+            if (this.creatorTopUrlFilterType) p.set('filter_type', this.creatorTopUrlFilterType);
+            p.set('page', this.creatorTopUrlsPage || 1);
+            p.set('limit', 50);
+
+            const res = await fetch(this.getApiUrl('/api/competitors/top-urls?' + p.toString()));
+            if (res.ok) {
+              const data = await res.json();
+              this.activeCreatorTopUrls = data.urls || [];
+              this.creatorTopUrlsTotal = data.total || 0;
+              this.creatorTopUrlsPage = data.page || 1;
+              this.creatorTopUrlsTotalPages = data.total_pages || 1;
+            }
+          } catch (e) {
+            console.error('fetchCreatorTopUrls error:', e);
+          } finally {
+            this.isLoadingTopUrls = false;
             this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
           }
         },
@@ -10553,7 +11613,11 @@ export function getDashboardHtml() {
           if (typeof window !== 'undefined') {
             window.scrollTo({ top: 0, behavior: 'smooth' });
             if (updateHistory) {
-              const targetPath = '/pin/' + pinId;
+              let targetPath = '/pin/' + pinId;
+              if (this.activeCreator && this.activeCreator.username) {
+                const cleanU = (this.activeCreator.username || '').replace(/^@+/, '').trim().toLowerCase();
+                targetPath = '/' + cleanU + '/pin/' + pinId;
+              }
               if (window.location.pathname !== targetPath) {
                 window.history.pushState({ pinId: pinId }, '', targetPath);
               }
@@ -10574,6 +11638,12 @@ export function getDashboardHtml() {
                 this.activePinDossier = { ...this.activePinDossier, ...data.pin };
                 if (typeof window !== 'undefined' && data.pin.title) {
                   document.title = data.pin.title + ' | Pin #' + pinId + ' | Pinterest Intelligence';
+                }
+                if (typeof window !== 'undefined' && !this.activeCreator && data.pin.account_username) {
+                  const cleanU = (data.pin.account_username || '').replace(/^@+/, '').trim().toLowerCase();
+                  if (cleanU) {
+                    window.history.replaceState({ pinId: pinId }, '', '/' + cleanU + '/pin/' + pinId);
+                  }
                 }
               }
               this.pinDossierSnapshots = data.snapshots || [];
@@ -10619,8 +11689,15 @@ export function getDashboardHtml() {
               targetPath = '/' + cleanUser + '/' + boardSlug;
               document.title = this.activeBoardName + ' | @' + cleanUser + ' | Pinterest Intelligence';
             } else if (this.activeCreator) {
-              targetPath = '/' + (this.activeCreator.username || '').replace(/^@+/, '').trim();
-              document.title = this.activeCreator ? ('@' + (this.activeCreator.username || '').replace(/^@+/, '') + ' | Creator Intelligence | Pin Arbitrage Engine') : 'Pin Arbitrage Engine | Pinterest Intelligence Dashboard';
+              const cleanUser = (this.activeCreator.username || '').replace(/^@+/, '').trim().toLowerCase();
+              targetPath = '/' + cleanUser;
+              if (this.activeCreatorTab === 'top_urls') targetPath = '/' + cleanUser + '/links';
+              else if (this.activeCreatorTab === 'related_pins') targetPath = '/' + cleanUser + '/related-pins';
+              else if (this.activeCreatorTab === 'all_pins') targetPath = '/' + cleanUser + '/all-pins';
+              else if (this.activeCreatorTab === 'pins') targetPath = '/' + cleanUser + '/winning-pins';
+              else if (this.activeCreatorTab === 'topics') targetPath = '/' + cleanUser + '/topics';
+              else if (this.activeCreatorTab === 'boards') targetPath = '/' + cleanUser + '/boards';
+              document.title = '@' + cleanUser + ' | Creator Intelligence | Pin Arbitrage Engine';
             } else if (returnPath && !returnPath.startsWith('/pin/')) {
               targetPath = returnPath;
               document.title = 'Pin Arbitrage Engine | Pinterest Intelligence Dashboard';
@@ -10899,14 +11976,14 @@ export function getDashboardHtml() {
           this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
         },
 
-        async openCreatorByHandle(handle) {
+        async openCreatorByHandle(handle, tab = 'overview') {
           const clean = (handle || '').replace(/^@+/, '').trim();
           if (!clean) return;
           const existing = (this.competitors || []).find(c => (c.username || '').toLowerCase() === clean.toLowerCase());
           if (existing) {
-            await this.openCreatorPage(existing, 'overview');
+            await this.openCreatorPage(existing, tab);
           } else {
-            await this.openCreatorPage({ username: clean, display_name: clean }, 'overview');
+            await this.openCreatorPage({ username: clean, display_name: clean }, tab);
           }
         },
 
@@ -11075,22 +12152,23 @@ export function getDashboardHtml() {
         },
 
         toggleCreatorPinSelection(pinId) {
-          const idx = this.selectedCreatorPinIds.indexOf(pinId);
+          const s = String(pinId);
+          const idx = this.selectedCreatorPinIds.findIndex(id => String(id) === s);
           if (idx > -1) {
             this.selectedCreatorPinIds.splice(idx, 1);
           } else {
-            this.selectedCreatorPinIds.push(pinId);
+            this.selectedCreatorPinIds.push(s);
           }
         },
 
         toggleSelectAllCreatorPins() {
-          const currentPageIds = this.paginatedCreatorPins.map(p => p.pin_id);
-          const allSelected = currentPageIds.length > 0 && currentPageIds.every(id => this.selectedCreatorPinIds.includes(id));
+          const currentPageIds = this.paginatedCreatorPins.map(p => String(p.pin_id));
+          const allSelected = currentPageIds.length > 0 && currentPageIds.every(id => this.selectedCreatorPinIds.map(String).includes(id));
           if (allSelected) {
-            this.selectedCreatorPinIds = this.selectedCreatorPinIds.filter(id => !currentPageIds.includes(id));
+            this.selectedCreatorPinIds = this.selectedCreatorPinIds.filter(id => !currentPageIds.includes(String(id)));
           } else {
             for (const id of currentPageIds) {
-              if (!this.selectedCreatorPinIds.includes(id)) {
+              if (!this.selectedCreatorPinIds.map(String).includes(id)) {
                 this.selectedCreatorPinIds.push(id);
               }
             }

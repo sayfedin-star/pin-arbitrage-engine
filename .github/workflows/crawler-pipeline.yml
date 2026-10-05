@@ -24,7 +24,12 @@ on:
         description: 'Maximum pages to fetch per account'
         required: false
         type: string
-        default: '500'
+        default: '1000'
+      personal_boards_only:
+        description: 'Crawl Personal Boards only (exclude Group Boards)?'
+        required: false
+        type: boolean
+        default: true
       target_boards:
         description: 'Target board names or IDs (comma-separated). Leave empty for all boards.'
         required: false
@@ -32,7 +37,7 @@ on:
         default: ''
 
 concurrency:
-  group: cluster-intelligence-${{ github.workflow }}-${{ github.ref }}-${{ inputs.target_account || 'cron' }}
+  group: cluster-intelligence-${{ github.workflow }}-${{ github.ref }}-${{ inputs.target_account != '' && format('account-{0}', inputs.target_account) || 'cron' }}
   cancel-in-progress: false
 
 jobs:
@@ -70,12 +75,12 @@ jobs:
       - name: 5. Execute Discovery Job
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          PINTEREST_COOKIE: ${{ secrets.PINTEREST_COOKIE }}
           TARGET_ACCOUNT: ${{ inputs.target_account }}
           TARGET_BOARDS: ${{ inputs.target_boards }}
           CRAWL_MODE: ${{ inputs.crawl_mode || 'sharded_boards' }}
           CRAWL_PHASE: 'discovery'
-          MAX_PAGES: ${{ inputs.max_pages || '500' }}
+          MAX_PAGES: ${{ inputs.max_pages || '1000' }}
+          PERSONAL_BOARDS_ONLY: ${{ inputs.personal_boards_only != '' && inputs.personal_boards_only || 'true' }}
           SHARD_NUMBER: 1
           SHARD_TOTAL: 1
         run: node scripts/crawler-engine.mjs
@@ -121,12 +126,12 @@ jobs:
       - name: 5. Execute Distributed Shard Engine
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          PINTEREST_COOKIE: ${{ secrets.PINTEREST_COOKIE }}
           TARGET_ACCOUNT: ${{ inputs.target_account }}
           TARGET_BOARDS: ${{ inputs.target_boards }}
           CRAWL_MODE: ${{ inputs.crawl_mode || 'sharded_boards' }}
           CRAWL_PHASE: "${{ inputs.target_account != '' && 'enrichment' || 'scheduled' }}"
-          MAX_PAGES: ${{ inputs.max_pages || '500' }}
+          MAX_PAGES: ${{ inputs.max_pages || '1000' }}
+          PERSONAL_BOARDS_ONLY: ${{ inputs.personal_boards_only != '' && inputs.personal_boards_only || 'true' }}
           SHARD_NUMBER: ${{ matrix.shard }}
           SHARD_TOTAL: 20
         run: node scripts/crawler-engine.mjs

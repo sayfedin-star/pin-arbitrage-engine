@@ -19,7 +19,16 @@ import {
   deleteCompetitorSnapshot,
   updateCompetitorStatus,
   listCompetitorAccountPins,
-  getOrSyncBoardDetail
+  getOrSyncBoardDetail,
+  getTopDestinationUrls,
+  getCompetitorRules,
+  saveCompetitorRules,
+  reEvaluateCompetitorPins,
+  getCompetitorSeeds,
+  addCompetitorSeeds,
+  deleteCompetitorSeed,
+  getCompetitorRelatedIntersections,
+  harvestSinglePinRelatedLive
 } from './modules/competitors/service.mjs';
 import { listKeywords, addKeyword, crawlKeywordSERP, getKeywordPins } from './modules/keywords/service.mjs';
 import { getFleetProjects, registerNewProject, syncFleetDatabases, syncCompetitorAcrossFleet, pingFleetProject, getFleetProjectUrl } from './modules/fleet/service.mjs';
@@ -447,6 +456,7 @@ export default {
             }));
             return jsonResponse(formatted);
           }
+          if (res?.body) await res.body.cancel().catch(() => {});
           return jsonResponse([]);
         } catch (e) {
           return jsonResponse([]);
@@ -1407,9 +1417,62 @@ export default {
             page: Number(searchParams.get('page') || 1),
             limit: Number(searchParams.get('limit') || 50),
             qualified_only: searchParams.get('qualified_only') === 'true',
-            product_only: searchParams.get('product_only') === 'true'
+            product_only: searchParams.get('product_only') === 'true',
+            articles_only: searchParams.get('articles_only') === 'true'
           });
           return jsonResponse({ success: true, ...data }, 200, 15);
+        } catch (err) {
+          return jsonResponse({ success: false, error: err.message }, 500);
+        }
+      }
+
+      if (method === 'GET' && pathname === '/api/competitors/top-urls') {
+        const id = searchParams.get('id') || searchParams.get('competitor_id');
+        if (!id) return jsonResponse({ error: 'competitor_id is required' }, 400);
+        try {
+          const result = await getTopDestinationUrls(targetSql, id, {
+            limit: Number(searchParams.get('limit') || 50),
+            page: Number(searchParams.get('page') || 1),
+            search: searchParams.get('search') || '',
+            sort: searchParams.get('sort') || 'saves_desc',
+            filter_type: searchParams.get('filter_type') || 'all'
+          });
+          return jsonResponse({ success: true, ...result }, 200, 15);
+        } catch (err) {
+          return jsonResponse({ success: false, error: err.message }, 500);
+        }
+      }
+
+      if (method === 'GET' && pathname === '/api/competitors/rules') {
+        const id = searchParams.get('id') || searchParams.get('competitor_id');
+        if (!id) return jsonResponse({ error: 'competitor_id is required' }, 400);
+        try {
+          const result = await getCompetitorRules(targetSql, id);
+          return jsonResponse({ success: true, ...result });
+        } catch (err) {
+          return jsonResponse({ success: false, error: err.message }, 500);
+        }
+      }
+
+      if (method === 'POST' && pathname === '/api/competitors/rules') {
+        const body = await request.json().catch(() => ({}));
+        const id = body.competitor_id || body.id;
+        if (!id) return jsonResponse({ error: 'competitor_id is required' }, 400);
+        try {
+          const result = await saveCompetitorRules(targetSql, id, body.rules || body);
+          return jsonResponse({ success: true, ...result });
+        } catch (err) {
+          return jsonResponse({ success: false, error: err.message }, 500);
+        }
+      }
+
+      if (method === 'POST' && pathname === '/api/competitors/re-evaluate') {
+        const body = await request.json().catch(() => ({}));
+        const id = body.competitor_id || body.id;
+        if (!id) return jsonResponse({ error: 'competitor_id is required' }, 400);
+        try {
+          const result = await reEvaluateCompetitorPins(targetSql, id);
+          return jsonResponse({ success: true, ...result });
         } catch (err) {
           return jsonResponse({ success: false, error: err.message }, 500);
         }
@@ -1442,8 +1505,9 @@ export default {
             inputs: {
               target_account: username,
               target_boards: String(body.target_boards || body.boards || '').trim(),
-              crawl_mode: body.crawl_mode || 'discovery',
-              max_pages: String(body.max_pages || '500')
+              crawl_mode: body.crawl_mode || 'sharded_boards',
+              max_pages: String(body.max_pages || '1000'),
+              personal_boards_only: String(body.personal_boards_only !== false)
             }
           })
         });
@@ -1455,6 +1519,121 @@ export default {
             target_boards: body.target_boards || '',
             crawl_mode: body.crawl_mode || 'discovery',
             message: `Two-Stage Pipeline (Discovery + 20-Shard Parallel Matrix) dispatched successfully on GitHub Actions for @${username}!${body.target_boards ? ` (Target Boards: ${body.target_boards})` : ''}`
+          });
+        } else {
+          const errText = await res.text();
+          return jsonResponse({ success: false, error: `GitHub API error (${res.status}): ${errText}` }, res.status);
+        }
+      }
+
+      // Account-Scoped Related Pins & Graph Intersections Radar
+      if (method === 'GET' && pathname === '/api/competitors/related-pins/seeds') {
+        const id = searchParams.get('id') || searchParams.get('competitor_id');
+        if (!id) return jsonResponse({ error: 'competitor_id is required' }, 400);
+        try {
+          const result = await getCompetitorSeeds(targetSql, id);
+          return jsonResponse({ success: true, ...result });
+        } catch (err) {
+          return jsonResponse({ success: false, error: err.message }, 500);
+        }
+      }
+
+      if (method === 'POST' && pathname === '/api/competitors/related-pins/seeds') {
+        const body = await request.json().catch(() => ({}));
+        const id = body.competitor_id || body.id;
+        if (!id) return jsonResponse({ error: 'competitor_id is required' }, 400);
+        try {
+          const result = await addCompetitorSeeds(targetSql, id, body.pin_ids || body.pins || []);
+          return jsonResponse({ success: true, ...result });
+        } catch (err) {
+          return jsonResponse({ success: false, error: err.message }, 500);
+        }
+      }
+
+      if (method === 'DELETE' && pathname === '/api/competitors/related-pins/seeds') {
+        let id = searchParams.get('competitor_id') || searchParams.get('id');
+        let pinId = searchParams.get('pin_id');
+        if (!id || !pinId) {
+          const body = await request.json().catch(() => ({}));
+          id = id || body.competitor_id || body.id;
+          pinId = pinId || body.pin_id;
+        }
+        if (!id || !pinId) return jsonResponse({ error: 'competitor_id and pin_id are required' }, 400);
+        try {
+          const result = await deleteCompetitorSeed(targetSql, id, pinId);
+          return jsonResponse({ success: true, ...result });
+        } catch (err) {
+          return jsonResponse({ success: false, error: err.message }, 500);
+        }
+      }
+
+      if (method === 'GET' && pathname === '/api/competitors/related-pins/intersections') {
+        const id = searchParams.get('id') || searchParams.get('competitor_id');
+        if (!id) return jsonResponse({ error: 'competitor_id is required' }, 400);
+        try {
+          const result = await getCompetitorRelatedIntersections(targetSql, id, {
+            min_overlap: Number(searchParams.get('min_overlap') || 2),
+            page: Number(searchParams.get('page') || 1),
+            limit: Number(searchParams.get('limit') || 50),
+            filter: searchParams.get('filter') || 'all',
+            search: searchParams.get('search') || ''
+          });
+          return jsonResponse({ success: true, ...result });
+        } catch (err) {
+          return jsonResponse({ success: false, error: err.message }, 500);
+        }
+      }
+
+      if (method === 'POST' && pathname === '/api/competitors/related-pins/harvest-live') {
+        const body = await request.json().catch(() => ({}));
+        const id = body.competitor_id || body.id;
+        const pinId = body.pin_id;
+        if (!id || !pinId) return jsonResponse({ error: 'competitor_id and pin_id are required' }, 400);
+        try {
+          const result = await harvestSinglePinRelatedLive(targetSql, id, pinId);
+          return jsonResponse({ success: true, ...result });
+        } catch (err) {
+          return jsonResponse({ success: false, error: err.message }, 500);
+        }
+      }
+
+      if (method === 'POST' && pathname === '/api/competitors/related-pins/dispatch-workflow') {
+        const body = await request.json().catch(() => ({}));
+        const username = (body.username || body.target_account || '').replace(/^@+/, '').trim();
+        if (!username) return jsonResponse({ error: 'username is required' }, 400);
+        const ghToken = env.GITHUB_TOKEN || env.GH_TOKEN || env.GH_REFRESH_TOKEN;
+        if (!ghToken) {
+          return jsonResponse({
+            success: false,
+            error: 'GITHUB_TOKEN secret is not configured in Cloudflare Workers settings. Please configure GITHUB_TOKEN to enable automatic GitHub Actions dispatching.'
+          }, 400);
+        }
+        const cleanToken = String(ghToken).replace(/^(token|Bearer)\s+/i, '').replace(/^["']|["']$/g, '').trim();
+        const authHeader = cleanToken.startsWith('ghp_') ? `token ${cleanToken}` : `Bearer ${cleanToken}`;
+        const repo = 'sayfedin-star/pin-arbitrage-engine';
+        const res = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/account-related-pins.yml/dispatches`, {
+          method: 'POST',
+          headers: {
+            'User-Agent': 'Cloudflare-Worker-Pin-Arbitrage-Engine',
+            'Accept': 'application/vnd.github.v3+json',
+            'Authorization': authHeader,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            ref: 'main',
+            inputs: {
+              target_account: username,
+              pin_ids: String(body.pin_ids || body.pins || '').trim(),
+              max_pages_per_seed: String(body.max_pages_per_seed || '2')
+            }
+          })
+        });
+
+        if (res.ok || res.status === 204) {
+          return jsonResponse({
+            success: true,
+            target_account: username,
+            message: `Account Related Pins Harvester workflow dispatched successfully on GitHub Actions for @${username}!`
           });
         } else {
           const errText = await res.text();

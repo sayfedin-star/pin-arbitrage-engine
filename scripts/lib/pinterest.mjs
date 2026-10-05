@@ -528,17 +528,16 @@ export function extractPinData(html, pinId) {
 /**
  * Fetch a single pin HTML and parse it.
  */
-export async function fetchPinFromPinterest(pinId, activeCookie = '') {
+export async function fetchPinFromPinterest(pinId) {
   try {
     const cleanId = String(pinId || '').trim();
     if (!cleanId || cleanId.startsWith('-') || !/^\d+$/.test(cleanId)) {
       return { ok: false, status: 400, error: 'invalid_pin_id' };
     }
     const url = `https://www.pinterest.com/pin/${cleanId}/`;
+    // Pin details MUST always be queried anonymously (zero cookies)
+    // to guarantee Pinterest serves public aggregate stats (saves/repins) instead of viewer-state zeroes
     const headers = { ...PINTEREST_PAGE_HEADERS };
-    if (activeCookie && String(activeCookie).trim()) {
-      headers['Cookie'] = String(activeCookie).trim();
-    }
     let res = await fetch(url, {
       headers,
       redirect: 'follow',
@@ -546,12 +545,16 @@ export async function fetchPinFromPinterest(pinId, activeCookie = '') {
     });
 
     if (res.status === 401 || res.status === 403 || res.status === 429) {
+      if (res.body) await res.body.cancel().catch(() => {});
       // Rule 6: Jitter delay (2500ms-4000ms) before anonymous retry
       await sleep(randomJitterMs(2500, 4000));
       res = await fetch(url, { headers: PINTEREST_PAGE_HEADERS, redirect: 'follow', signal: AbortSignal.timeout(8000) });
     }
 
-    if (!res.ok) return { ok: false, status: res.status };
+    if (!res.ok) {
+      if (res.body) await res.body.cancel().catch(() => {});
+      return { ok: false, status: res.status };
+    }
     const html = await res.text();
     const parsed = extractPinData(html, pinId);
     return parsed ? { ok: true, pin: parsed } : { ok: false, status: 200, error: 'parse_failed' };
@@ -576,7 +579,10 @@ export async function fetchUserProfileUnauth(username) {
       signal: AbortSignal.timeout(8000),
     });
 
-    if (!res.ok) return { ok: false, status: res.status };
+    if (!res.ok) {
+      if (res.body) await res.body.cancel().catch(() => {});
+      return { ok: false, status: res.status };
+    }
     const html = await res.text();
 
     let userData = null;
@@ -695,24 +701,20 @@ export async function fetchUserResource(username, activeCookie = '') {
   const cleanUser = String(username || '').replace(/^@/, '').trim().toLowerCase();
   if (!cleanUser) return { ok: false, error: 'invalid_username' };
 
-  // If no cookie provided, directly attempt the unauthenticated SSR HTML extraction first
-  if (!activeCookie) {
-    const unauthRes = await fetchUserProfileUnauth(cleanUser);
-    if (unauthRes.ok) return unauthRes;
-  }
-
   const url = `https://www.pinterest.com/resource/UserResource/get/?source_url=%2F${cleanUser}%2F&data=%7B%22options%22%3A%7B%22username%22%3A%22${cleanUser}%22%2C%22field_set_key%22%3A%22profile%22%7D%2C%22context%22%3A%7B%7D%7D`;
   const headers = getPinterestXhrHeaders(cleanUser, activeCookie);
 
   try {
     let res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
     if (res.status === 401 || res.status === 403 || res.status === 429) {
+      if (res.body) await res.body.cancel().catch(() => {});
       await sleep(randomJitterMs(2500, 4000));
       const anonHeaders = getPinterestXhrHeaders(cleanUser, '');
       res = await fetch(url, { headers: anonHeaders, signal: AbortSignal.timeout(8000) });
     }
 
     if (!res.ok) {
+      if (res.body) await res.body.cancel().catch(() => {});
       const unauthRes = await fetchUserProfileUnauth(cleanUser);
       if (unauthRes.ok) return unauthRes;
       return { ok: false, status: res.status };
@@ -744,8 +746,15 @@ export async function fetchUserResource(username, activeCookie = '') {
       following_count: parseCleanMetric(data.following_count || 0),
       total_pins: parseCleanMetric(data.pin_count || 0),
       total_boards: parseCleanMetric(data.board_count || 0),
+      group_board_count: parseCleanMetric(data.group_board_count || 0),
       account_created_at: data.created_at || null,
-      last_pin_save_time: data.last_pin_save_time || null
+      last_pin_save_time: data.last_pin_save_time || null,
+      pinterest_id: data.id || data.node_id || null,
+      domain_verified: Boolean(data.domain_verified || data.is_primary_website_verified),
+      is_verified_merchant: Boolean(data.is_verified_merchant),
+      has_catalog: Boolean(data.has_catalog),
+      video_pin_count: parseCleanMetric(data.video_pin_count || 0),
+      story_pin_count: parseCleanMetric(data.story_pin_count || 0)
     };
   } catch (err) {
     const unauthRes = await fetchUserProfileUnauth(cleanUser);
@@ -779,7 +788,7 @@ export async function fetchBoardsResource(username, activeCookie = '', maxPages 
       group_by: 'visibility',
       include_archived: true,
       filter_all_pins: false,
-      add_fields: 'board.{meal_plan}'
+      add_fields: 'board.{meal_plan,collaborator_count,is_collaborative,owner}'
     };
     if (bookmark) options.bookmarks = [bookmark];
 
@@ -790,12 +799,14 @@ export async function fetchBoardsResource(username, activeCookie = '', maxPages 
     try {
       let res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
       if (res.status === 401 || res.status === 403 || res.status === 429) {
+        if (res.body) await res.body.cancel().catch(() => {});
         await sleep(randomJitterMs(2500, 4000));
         const anonHeaders = getPinterestXhrHeaders(cleanUser, '', { sourceUrl: src });
         res = await fetch(url, { headers: anonHeaders, signal: AbortSignal.timeout(8000) });
       }
 
       if (!res.ok) {
+        if (res.body) await res.body.cancel().catch(() => {});
         if (page === 1) {
           const unauth = await fetchUserProfileUnauth(cleanUser);
           if (unauth.ok && Array.isArray(unauth.initial_boards) && unauth.initial_boards.length > 0) {
@@ -851,6 +862,12 @@ export async function fetchBoardsResource(username, activeCookie = '', maxPages 
           }).filter(v => v.text.length > 0) : [];
           const desc = item.description || '';
 
+          const rawOwner = item.owner || {};
+          const ownerUsername = rawOwner.username ? String(rawOwner.username).toLowerCase() : null;
+          const collaboratorCount = parseCleanMetric(item.collaborator_count || 0);
+          const isCollaborative = Boolean(item.is_collaborative || item.collaborative);
+          const isGroupBoard = Boolean(isCollaborative || (ownerUsername && ownerUsername !== cleanUser) || collaboratorCount > 0);
+
           boards.push({
             board_id: boardId,
             name: item.name || 'Untitled Board',
@@ -862,13 +879,19 @@ export async function fetchBoardsResource(username, activeCookie = '', maxPages 
             image_cover_url: coverImg,
             board_vase: boardVase,
             description: desc,
+            is_group_board: isGroupBoard,
+            owner_username: ownerUsername,
+            collaborator_count: collaboratorCount,
             metadata: {
               image_cover_url: coverImg,
               board_vase: boardVase,
               description: desc,
               section_count: item.section_count || 0,
               privacy: item.privacy || 'public',
-              is_collaborative: Boolean(item.is_collaborative)
+              is_collaborative: isCollaborative,
+              is_group_board: isGroupBoard,
+              owner_username: ownerUsername,
+              collaborator_count: collaboratorCount
             }
           });
         }
@@ -934,12 +957,16 @@ export async function fetchUserActivityPinsResource(username, bookmark = null, a
   try {
     let res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
     if (res.status === 401 || res.status === 403 || res.status === 429) {
+      if (res.body) await res.body.cancel().catch(() => {});
       await sleep(randomJitterMs(2500, 4000));
       const anonHeaders = getPinterestXhrHeaders(cleanUser, '', { sourceUrl: src });
       res = await fetch(url, { headers: anonHeaders, signal: AbortSignal.timeout(8000) });
     }
 
-    if (!res.ok) return { ok: false, status: res.status, pins: [], nextBookmark: null };
+    if (!res.ok) {
+      if (res.body) await res.body.cancel().catch(() => {});
+      return { ok: false, status: res.status, pins: [], nextBookmark: null };
+    }
     const json = await res.json();
     if (json.resource_response?.status === 'failure' || json.resource_response?.error) {
       const errMsg = json.resource_response?.error?.message || json.resource_response?.message || 'Pinterest resource failure';
@@ -1005,12 +1032,16 @@ export async function fetchBoardFeedResource(boardId, boardUrl, bookmark = null,
   try {
     let res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
     if (res.status === 401 || res.status === 403 || res.status === 429) {
+      if (res.body) await res.body.cancel().catch(() => {});
       await sleep(randomJitterMs(2500, 4000));
       const anonHeaders = getPinterestXhrHeaders(username, '', { sourceUrl: srcUrl });
       res = await fetch(url, { headers: anonHeaders, signal: AbortSignal.timeout(8000) });
     }
 
-    if (!res.ok) return { ok: false, status: res.status, pins: [], nextBookmark: null };
+    if (!res.ok) {
+      if (res.body) await res.body.cancel().catch(() => {});
+      return { ok: false, status: res.status, pins: [], nextBookmark: null };
+    }
     const json = await res.json();
     if (json.resource_response?.status === 'failure' || json.resource_response?.error) {
       const errMsg = json.resource_response?.error?.message || json.resource_response?.message || 'Pinterest resource failure';
@@ -1071,6 +1102,7 @@ export async function fetchBoardDetailUnauth(username, boardSlugOrName) {
     });
 
     if (res.status === 401 || res.status === 403 || res.status === 429) {
+      if (res.body) await res.body.cancel().catch(() => {});
       await sleep(randomJitterMs(2500, 4000));
       res = await fetch(url, {
         headers: PINTEREST_PAGE_HEADERS,
@@ -1079,7 +1111,10 @@ export async function fetchBoardDetailUnauth(username, boardSlugOrName) {
       });
     }
 
-    if (!res.ok) return { ok: false, status: res.status, error: `HTTP ${res.status}` };
+    if (!res.ok) {
+      if (res.body) await res.body.cancel().catch(() => {});
+      return { ok: false, status: res.status, error: `HTTP ${res.status}` };
+    }
     const html = await res.text();
 
     let targetBoard = null;

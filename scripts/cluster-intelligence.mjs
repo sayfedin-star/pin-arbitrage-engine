@@ -144,16 +144,19 @@ async function fetchWithRetry(url, headers, maxRetries = 3) {
       });
 
       if (response.status === 429) {
+        if (response?.body) await response.body.cancel().catch(() => {});
         console.warn(`[!] HTTP 429 Rate limited (attempt ${attempt}/${maxRetries}). Sleeping 60 seconds...`);
         await sleep(60000);
         continue;
       }
 
       if (response.status === 403 || response.status === 401) {
+        if (response?.body) await response.body.cancel().catch(() => {});
         console.error(`[-] HTTP ${response.status} Forbidden/Unauthorized on attempt ${attempt}: Pinterest blocked guest request. Check PINTEREST_COOKIE in .env.`);
       }
 
       if (!response.ok) {
+        if (response?.body) await response.body.cancel().catch(() => {});
         console.warn(`[!] HTTP ${response.status} ${response.statusText} on attempt ${attempt}`);
         if (attempt === maxRetries) {
           throw new Error(`HTTP error ${response.status}: ${response.statusText}`);
@@ -814,12 +817,16 @@ export async function fetchPinDetails(pinId, baseHeaders) {
     });
 
     if (response.status === 429) {
+      if (response?.body) await response.body.cancel().catch(() => {});
       console.warn(`[!] HTTP 429 Rate limited during deep pin enrichment on Pin ${pinId}. Sleeping 10s...`);
       await sleep(10000);
       return null;
     }
 
-    if (!response.ok) return null;
+    if (!response.ok) {
+      if (response?.body) await response.body.cancel().catch(() => {});
+      return null;
+    }
     const data = await response.json();
     const pin = data?.resource_response?.data;
     if (!pin) return null;

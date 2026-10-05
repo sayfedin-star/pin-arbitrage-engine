@@ -8,9 +8,10 @@
     "start": "node --use-system-ca scripts/cluster-intelligence.mjs",
     "crawl": "node --use-system-ca scripts/cluster-intelligence.mjs",
     "crawl:creators": "node --use-system-ca scripts/crawler-engine.mjs",
+    "crawl:account-related": "node --use-system-ca scripts/account-related-crawler.mjs",
     "dashboard": "node --use-system-ca scripts/dashboard.mjs",
     "optimize-db": "node --use-system-ca scripts/ensure_indexes.mjs",
-    "check": "node -c scripts/cluster-intelligence.mjs && node -c scripts/crawler-engine.mjs && node -c src/worker.mjs && node -c scripts/dashboard.mjs && node -c src/dashboard-ui.mjs && node scripts/validate_inline_scripts.mjs",
+    "check": "node -c scripts/cluster-intelligence.mjs && node -c scripts/crawler-engine.mjs && node -c scripts/account-related-crawler.mjs && node -c src/worker.mjs && node -c scripts/dashboard.mjs && node -c src/dashboard-ui.mjs && node scripts/validate_inline_scripts.mjs",
     "deploy": "npx wrangler@3 deploy"
   },
   "keywords": [

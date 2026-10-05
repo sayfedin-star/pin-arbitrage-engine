@@ -112,6 +112,7 @@ export async function crawlKeywordSERP(sql, keywordId, cookie = (typeof process 
 
   let res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
   if (res.status === 401 || res.status === 403 || res.status === 429) {
+    if (res?.body) await res.body.cancel().catch(() => {});
     const jitter = 2500 + Math.floor(Math.random() * 1500);
     await new Promise(r => setTimeout(r, jitter));
     const anonHeaders = { ...headers };
@@ -120,6 +121,7 @@ export async function crawlKeywordSERP(sql, keywordId, cookie = (typeof process 
   }
 
   if (!res.ok) {
+    if (res?.body) await res.body.cancel().catch(() => {});
     throw new Error(`Pinterest Search API returned HTTP ${res.status}`);
   }
 

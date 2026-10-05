@@ -27,7 +27,16 @@ import {
   getCompetitorDetail,
   deleteCompetitorSnapshot,
   updateCompetitorStatus,
-  listCompetitorAccountPins
+  listCompetitorAccountPins,
+  getTopDestinationUrls,
+  getCompetitorRules,
+  saveCompetitorRules,
+  reEvaluateCompetitorPins,
+  getCompetitorSeeds,
+  addCompetitorSeeds,
+  deleteCompetitorSeed,
+  getCompetitorRelatedIntersections,
+  harvestSinglePinRelatedLive
 } from '../src/modules/competitors/service.mjs';
 import { listKeywords, addKeyword, crawlKeywordSERP, getKeywordPins } from '../src/modules/keywords/service.mjs';
 import { getFleetProjects, registerNewProject, getFleetCompetitors, syncProjectCompetitorStats, syncFleetDatabases, syncCompetitorAcrossFleet, pingFleetProject, getFleetProjectUrl } from '../src/modules/fleet/service.mjs';
@@ -223,6 +232,8 @@ async function getWorkflowRuns(limit = 10) {
           displayTitle: r.display_title || r.name,
           headBranch: r.head_branch
         }));
+      } else if (res?.body) {
+        await res.body.cancel().catch(() => {});
       }
     } catch (apiErr) {}
     console.warn('[!] Failed to fetch workflow runs via gh CLI & API:', err.message);
@@ -1631,9 +1642,63 @@ const server = http.createServer(async (req, res) => {
           sort: searchParams.get('sort') || 'saves_desc',
           page: Number(searchParams.get('page') || 1),
           limit: Number(searchParams.get('limit') || 50),
-          qualified_only: searchParams.get('qualified_only') === 'true'
+          qualified_only: searchParams.get('qualified_only') === 'true',
+          product_only: searchParams.get('product_only') === 'true',
+          articles_only: searchParams.get('articles_only') === 'true'
         });
         return sendJson(res, 200, { success: true, ...data });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, error: err.message });
+      }
+    }
+
+    if (method === 'GET' && pathname === '/api/competitors/top-urls') {
+      const id = searchParams.get('id') || searchParams.get('competitor_id');
+      if (!id) return sendJson(res, 400, { error: 'competitor_id is required' });
+      try {
+        const result = await getTopDestinationUrls(targetSql, id, {
+          limit: Number(searchParams.get('limit') || 50),
+          page: Number(searchParams.get('page') || 1),
+          search: searchParams.get('search') || '',
+          sort: searchParams.get('sort') || 'saves_desc',
+          filter_type: searchParams.get('filter_type') || 'all'
+        });
+        return sendJson(res, 200, { success: true, ...result });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, error: err.message });
+      }
+    }
+
+    if (method === 'GET' && pathname === '/api/competitors/rules') {
+      const id = searchParams.get('id') || searchParams.get('competitor_id');
+      if (!id) return sendJson(res, 400, { error: 'competitor_id is required' });
+      try {
+        const result = await getCompetitorRules(targetSql, id);
+        return sendJson(res, 200, { success: true, ...result });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, error: err.message });
+      }
+    }
+
+    if (method === 'POST' && pathname === '/api/competitors/rules') {
+      const body = await parseJsonBody(req);
+      const id = body.competitor_id || body.id;
+      if (!id) return sendJson(res, 400, { error: 'competitor_id is required' });
+      try {
+        const result = await saveCompetitorRules(targetSql, id, body.rules || body);
+        return sendJson(res, 200, { success: true, ...result });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, error: err.message });
+      }
+    }
+
+    if (method === 'POST' && pathname === '/api/competitors/re-evaluate') {
+      const body = await parseJsonBody(req);
+      const id = body.competitor_id || body.id;
+      if (!id) return sendJson(res, 400, { error: 'competitor_id is required' });
+      try {
+        const result = await reEvaluateCompetitorPins(targetSql, id);
+        return sendJson(res, 200, { success: true, ...result });
       } catch (err) {
         return sendJson(res, 500, { success: false, error: err.message });
       }
@@ -1682,6 +1747,113 @@ const server = http.createServer(async (req, res) => {
       if (!idOrUser) return sendJson(res, 400, { error: 'id or username is required' });
       const row = await updateCompetitorStatus(targetSql, idOrUser, body.is_active);
       return sendJson(res, 200, { success: true, competitor: row });
+    }
+
+    // Related Pins Intelligence & Seeds
+    if (method === 'GET' && pathname === '/api/competitors/related-pins/seeds') {
+      const competitorId = searchParams.get('id') || searchParams.get('competitor_id') || searchParams.get('username');
+      if (!competitorId) return sendJson(res, 400, { error: 'competitor_id is required' });
+      try {
+        const seeds = await getCompetitorSeeds(targetSql, competitorId);
+        return sendJson(res, 200, { ok: true, competitor_id: competitorId, seeds });
+      } catch (err) {
+        return sendJson(res, 500, { ok: false, error: err.message });
+      }
+    }
+
+    if (method === 'POST' && pathname === '/api/competitors/related-pins/seeds') {
+      try {
+        const body = await parseJsonBody(req);
+        const { competitor_id, pin_ids } = body;
+        if (!competitor_id || !Array.isArray(pin_ids)) {
+          return sendJson(res, 400, { error: 'competitor_id and pin_ids array are required' });
+        }
+        const result = await addCompetitorSeeds(targetSql, competitor_id, pin_ids);
+        return sendJson(res, 200, { ok: true, ...result });
+      } catch (err) {
+        return sendJson(res, 500, { ok: false, error: err.message });
+      }
+    }
+
+    if (method === 'DELETE' && pathname === '/api/competitors/related-pins/seeds') {
+      const competitorId = searchParams.get('id') || searchParams.get('competitor_id');
+      const pinId = searchParams.get('pin_id');
+      if (!competitorId || !pinId) return sendJson(res, 400, { error: 'competitor_id and pin_id are required' });
+      try {
+        const result = await deleteCompetitorSeed(targetSql, competitorId, pinId);
+        return sendJson(res, 200, { ok: true, ...result });
+      } catch (err) {
+        return sendJson(res, 500, { ok: false, error: err.message });
+      }
+    }
+
+    if (method === 'GET' && pathname === '/api/competitors/related-pins/intersections') {
+      const competitorId = searchParams.get('id') || searchParams.get('competitor_id') || searchParams.get('username');
+      if (!competitorId) return sendJson(res, 400, { error: 'competitor_id is required' });
+      try {
+        const data = await getCompetitorRelatedIntersections(targetSql, competitorId, {
+          min_seed_overlap: Number(searchParams.get('min_overlap') || 2),
+          ownership_filter: searchParams.get('filter') || 'all',
+          search: searchParams.get('search') || '',
+          page: Number(searchParams.get('page') || 1),
+          limit: Number(searchParams.get('limit') || 25)
+        });
+        return sendJson(res, 200, { ok: true, ...data });
+      } catch (err) {
+        return sendJson(res, 500, { ok: false, error: err.message });
+      }
+    }
+
+    if (method === 'POST' && pathname === '/api/competitors/related-pins/harvest-live') {
+      try {
+        const body = await parseJsonBody(req);
+        const { competitor_id, pin_id } = body;
+        if (!competitor_id || !pin_id) return sendJson(res, 400, { error: 'competitor_id and pin_id are required' });
+        const result = await harvestSinglePinRelatedLive(targetSql, competitor_id, pin_id);
+        return sendJson(res, 200, { ok: true, ...result });
+      } catch (err) {
+        return sendJson(res, 500, { ok: false, error: err.message });
+      }
+    }
+
+    if (method === 'POST' && pathname === '/api/competitors/related-pins/dispatch-workflow') {
+      try {
+        const body = await parseJsonBody(req);
+        const username = (body.username || '').replace(/^@+/, '').trim();
+        if (!username) return sendJson(res, 400, { error: 'username is required' });
+        const token = process.env.GITHUB_TOKEN;
+        const repo = process.env.GITHUB_REPOSITORY || 'sayfedin-star/pin-arbitrage-engine';
+        if (!token) {
+          return sendJson(res, 500, { success: false, error: 'GITHUB_TOKEN environment variable is not configured' });
+        }
+        const workflowUrl = `https://api.github.com/repos/${repo}/actions/workflows/account-related-pins.yml/dispatches`;
+        const ghRes = await fetch(workflowUrl, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Accept': 'application/vnd.github.v3+json',
+            'User-Agent': 'PinArbitrageEngine-WorkflowDispatcher'
+          },
+          body: JSON.stringify({
+            ref: 'main',
+            inputs: {
+              account_username: username,
+              max_pages_per_seed: String(body.max_pages_per_seed || '2')
+            }
+          })
+        });
+        if (!ghRes.ok) {
+          const errText = await ghRes.text();
+          return sendJson(res, ghRes.status, { success: false, error: `GitHub API error: ${errText}` });
+        }
+        return sendJson(res, 200, {
+          success: true,
+          message: `Dispatched account-related-pins crawler workflow for @${username}`,
+          target_account: username
+        });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, error: err.message });
+      }
     }
 
     // Keyword Velocity Tracker API

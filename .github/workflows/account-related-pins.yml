@@ -1,0 +1,57 @@
+name: Account Related Pins & Intersections Radar
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_account:
+        description: 'Target competitor handle to crawl related pins for (e.g. freshmancook)'
+        required: true
+        type: string
+      pin_ids:
+        description: 'Specific Pin IDs (comma-separated). Leave empty to crawl all registered account seeds'
+        required: false
+        type: string
+        default: ''
+      max_pages_per_seed:
+        description: 'Pagination depth per seed (default: 2 = ~48 candidates per seed)'
+        required: false
+        type: string
+        default: '2'
+
+concurrency:
+  group: account-related-${{ inputs.target_account }}
+  cancel-in-progress: false
+
+jobs:
+  harvest-related-graph:
+    name: Harvest Graph & Compute Overlap for @${{ inputs.target_account }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: 1. Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: 2. Setup Node.js 22 runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: 3. Check Runner Egress IP
+        run: |
+          echo "=== GitHub Actions Runner Egress IP ==="
+          curl -s https://api.ipify.org && echo ""
+          echo "======================================="
+
+      - name: 4. Install dependencies
+        run: npm ci
+
+      - name: 5. Execute Account Related Pins Harvester
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          TARGET_ACCOUNT: ${{ inputs.target_account }}
+          TARGET_PIN_IDS: ${{ inputs.pin_ids }}
+          MAX_PAGES: ${{ inputs.max_pages_per_seed || '2' }}
+        run: node scripts/account-related-crawler.mjs

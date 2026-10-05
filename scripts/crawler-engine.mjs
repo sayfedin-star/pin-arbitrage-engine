@@ -50,6 +50,41 @@ if (!DATABASE_URL) {
 
 const sql = neon(DATABASE_URL);
 
+let activeBatchToRelease = null;
+let sqlClientForCleanup = null;
+
+if (!globalThis.__crawlerSignalHandlersInstalled) {
+  globalThis.__crawlerSignalHandlersInstalled = true;
+
+  const handleGracefulExit = async (signal) => {
+    console.log(`\n[!] Received ${signal}. Releasing in-flight claimed pins...`);
+    if (activeBatchToRelease && activeBatchToRelease.length > 0 && sqlClientForCleanup) {
+      try {
+        const ids = activeBatchToRelease.map(c => c.id);
+        const tokens = activeBatchToRelease.map(c => c.claim_token).filter(Boolean);
+        if (ids.length > 0 && tokens.length > 0) {
+          await sqlClientForCleanup`
+            UPDATE competitor_pins
+            SET enrichment_status = 'pending',
+                claim_token = NULL,
+                updated_at = NOW()
+            WHERE id = ANY(${ids})
+              AND claim_token = ANY(${tokens})
+              AND enrichment_status = 'processing';
+          `;
+          console.log(`[✓] Released ${ids.length} in-flight pins back to 'pending'.`);
+        }
+      } catch (e) {
+        console.error('[-] Failed to release in-flight pins on exit:', e.message);
+      }
+    }
+    process.exit(signal === 'SIGINT' ? 130 : 143);
+  };
+
+  process.once('SIGINT', () => handleGracefulExit('SIGINT'));
+  process.once('SIGTERM', () => handleGracefulExit('SIGTERM'));
+}
+
 const BATCH_SIZE = 15;
 
 /**
@@ -107,6 +142,7 @@ async function bulkUpsertPaPins(sqlClient, pins) {
         dominant_color = COALESCE(EXCLUDED.dominant_color, pa_pins.dominant_color),
         alt_text = COALESCE(EXCLUDED.alt_text, pa_pins.alt_text),
         velocity = CASE WHEN EXCLUDED.velocity > 0 THEN EXCLUDED.velocity ELSE pa_pins.velocity END,
+        is_product = (pa_pins.is_product OR EXCLUDED.is_product),
         last_updated_at = NOW();
     `;
     return sortedPins.length;
@@ -163,6 +199,9 @@ async function bulkUpdateCompetitorPins(sqlClient, updates) {
   const uniqueUpdatesMap = new Map();
   for (const u of updates) {
     if (u && u.id) {
+      if (!u.claim_token || typeof u.claim_token !== 'string' || !/^[0-9a-f-]{36}$/i.test(u.claim_token)) {
+        u.claim_token = null;
+      }
       uniqueUpdatesMap.set(String(u.id), u);
     }
   }
@@ -178,15 +217,26 @@ async function bulkUpdateCompetitorPins(sqlClient, updates) {
           repin_count = GREATEST(cp.repin_count, x.repins),
           comment_count = GREATEST(cp.comment_count, x.comments),
           alt_text = COALESCE(cp.alt_text, x.alt_text),
+          is_product = (cp.is_product OR COALESCE(x.is_product, false)),
+          destination_url = CASE WHEN (cp.destination_url IS NULL OR cp.destination_url = '') AND x.destination_url <> '' THEN x.destination_url ELSE cp.destination_url END,
+          link_domain = CASE WHEN (cp.link_domain IS NULL OR cp.link_domain = '') AND x.link_domain <> '' THEN x.link_domain ELSE cp.link_domain END,
+          title = CASE WHEN (cp.title IS NULL OR cp.title = '') AND x.title <> '' THEN x.title ELSE cp.title END,
+          description = CASE WHEN (cp.description IS NULL OR cp.description = '') AND x.description <> '' THEN x.description ELSE cp.description END,
+          image_url = CASE WHEN (cp.image_url IS NULL OR cp.image_url = '') AND x.image_url <> '' THEN x.image_url ELSE cp.image_url END,
+          claim_token = NULL,
           last_seen_at = NOW(),
           updated_at = NOW()
       FROM (
         SELECT * FROM jsonb_to_recordset(${JSON.stringify(sortedUpdates)}::jsonb) AS u(
-          id BIGINT, status VARCHAR(32), enrich_attempts INT, saves INT, repins INT, comments INT, alt_text TEXT
+          id BIGINT, status VARCHAR(32), enrich_attempts INT, saves INT, repins INT, comments INT, alt_text TEXT,
+          is_product BOOLEAN, destination_url TEXT, link_domain VARCHAR(255), title TEXT, description TEXT, image_url TEXT,
+          claim_token UUID
         )
         ORDER BY id ASC
       ) AS x
       WHERE cp.id = x.id
+        AND cp.enrichment_status = 'processing'
+        AND (x.claim_token IS NULL OR cp.claim_token = x.claim_token)
       RETURNING cp.id;
     `;
     return res.length;
@@ -197,20 +247,20 @@ async function bulkUpdateCompetitorPins(sqlClient, updates) {
 }
 
 /**
- * Stale Job Reclamation: Rescues zombie/abandoned jobs (>90 seconds) back to 'pending'
- * Increments enrich_attempts; permanently marks jobs with >= 3 attempts as 'failed'.
- * Verified with Neon array return structure (res.length)
+ * Stale Job Reclamation: Rescues zombie/abandoned jobs (>5 minutes) back to 'pending'
+ * Clears claim_token and resets status to 'pending' WITHOUT double-incrementing enrich_attempts.
+ * Permanently marks jobs with >= 4 attempts as 'failed'.
  */
 async function reclaimStaleJobs(sqlClient, compId = null) {
   try {
     const res = await sqlClient`
       UPDATE competitor_pins
-      SET enrichment_status = CASE WHEN COALESCE(enrich_attempts, 0) >= 3 THEN 'failed' ELSE 'pending' END,
-          enrich_attempts = COALESCE(enrich_attempts, 0) + 1,
+      SET enrichment_status = CASE WHEN COALESCE(enrich_attempts, 0) >= 4 THEN 'failed' ELSE 'pending' END,
+          claim_token = NULL,
           updated_at = NOW()
       WHERE (${compId}::int IS NULL OR competitor_id = ${compId}::int)
         AND enrichment_status = 'processing'
-        AND (updated_at IS NULL OR updated_at < NOW() - INTERVAL '90 seconds')
+        AND (updated_at IS NULL OR updated_at < NOW() - INTERVAL '5 minutes')
       RETURNING id;
     `;
     return res.length || 0;
@@ -262,23 +312,21 @@ async function syncEnrichedSnapshotTotals(sqlClient, compId, cleanUser) {
         )
         ON CONFLICT (competitor_id, recorded_date) DO UPDATE SET
           metadata = jsonb_set(
-            COALESCE(competitor_history_snapshots.metadata, '{}'::jsonb),
-            '{total_saves}',
-            to_jsonb(${Number(totals.total_saves)}::bigint)
-          ) || jsonb_build_object('total_repins', ${Number(totals.total_repins)}::bigint);
+            jsonb_set(
+              COALESCE(competitor_history_snapshots.metadata, '{}'::jsonb),
+              '{total_saves}',
+              to_jsonb(GREATEST(
+                COALESCE((competitor_history_snapshots.metadata->>'total_saves')::bigint, 0),
+                ${Number(totals.total_saves)}::bigint
+              ))
+            ),
+            '{total_repins}',
+            to_jsonb(GREATEST(
+              COALESCE((competitor_history_snapshots.metadata->>'total_repins')::bigint, 0),
+              ${Number(totals.total_repins)}::bigint
+            ))
+          );
       `;
-
-      // Backfill baseline snapshot if its total_saves was 0
-      await sqlClient`
-        UPDATE competitor_history_snapshots
-        SET metadata = jsonb_set(
-          COALESCE(metadata, '{}'::jsonb),
-          '{total_saves}',
-          to_jsonb(${Number(totals.total_saves)}::bigint)
-        ) || jsonb_build_object('total_repins', ${Number(totals.total_repins)}::bigint)
-        WHERE competitor_id = ${compId}
-          AND (metadata->>'total_saves' IS NULL OR (metadata->>'total_saves')::bigint = 0);
-      `.catch(() => {});
     }
   } catch (err) {
     console.warn(`[syncEnrichedSnapshotTotals] Warning:`, err.message);
@@ -328,31 +376,45 @@ export async function getAccountsAssignedToShard(sqlClient, shardNumber, shardTo
  * Discover or load boards for a targeted account.
  * Filters out any legacy synthetic 'cb-' placeholder boards to prevent invalid_board_id API errors.
  */
-export async function getBoardsForTargetAccount(sqlClient, username, cookie = '', forceRefresh = false) {
+export async function getBoardsForTargetAccount(sqlClient, username, cookie = '', forceRefresh = false, personalOnly = (process.env.PERSONAL_BOARDS_ONLY !== 'false')) {
   const cleanUsername = String(username).replace(/^@+/, '').trim().toLowerCase();
+
+  const isPersonalBoard = (b) => {
+    if (!personalOnly) return true;
+    if (b.is_group_board) return false;
+    if (b.metadata?.is_group_board) return false;
+    if (b.metadata?.is_collaborative) return false;
+    if (b.owner_username && b.owner_username.toLowerCase() !== cleanUsername) return false;
+    if (b.metadata?.owner_username && b.metadata.owner_username.toLowerCase() !== cleanUsername) return false;
+    return true;
+  };
 
   // If forceRefresh is false, try loading authentic boards directly from DB first
   if (!forceRefresh) {
     try {
       const dbBoards = await sqlClient`
-        SELECT cb.board_id, cb.name, cb.url, cb.pin_count, cb.follower_count
+        SELECT cb.board_id, cb.name, cb.url, cb.pin_count, cb.follower_count, cb.metadata
         FROM competitor_boards cb
         JOIN competitor_profiles cp ON cp.id = cb.competitor_id
         WHERE LOWER(cp.username) = ${cleanUsername}
           AND cb.board_id NOT LIKE 'cb-%'
           AND cb.board_id NOT LIKE '-%'
-        ORDER BY cb.pin_count DESC, cb.id ASC;
+        ORDER BY cb.board_id ASC;
       `;
       if (dbBoards && dbBoards.length > 0) {
-        return dbBoards;
+        const filtered = dbBoards.filter(isPersonalBoard);
+        if (filtered.length > 0) return filtered;
       }
     } catch (_) {}
 
     try {
       const boards = await getCompetitorBoards(sqlClient, cleanUsername, { username: cleanUsername });
       if (Array.isArray(boards) && boards.length > 0) {
-        const valid = boards.filter(b => b.board_id && !String(b.board_id).startsWith('cb-') && !String(b.board_id).startsWith('-'));
-        if (valid.length > 0) return valid;
+        const valid = boards.filter(b => b.board_id && !String(b.board_id).startsWith('cb-') && !String(b.board_id).startsWith('-')).filter(isPersonalBoard);
+        if (valid.length > 0) {
+          valid.sort((a, b) => String(a.board_id).localeCompare(String(b.board_id)));
+          return valid;
+        }
       }
     } catch (err) {
       console.warn(`[!] getCompetitorBoards fallback for @${cleanUsername}:`, err.message);
@@ -363,8 +425,11 @@ export async function getBoardsForTargetAccount(sqlClient, username, cookie = ''
   try {
     const syncRes = await syncCompetitorBoards(sqlClient, cleanUsername, cleanUsername, cookie);
     if (syncRes.ok && Array.isArray(syncRes.boards) && syncRes.boards.length > 0) {
-      const valid = syncRes.boards.filter(b => b.board_id && !String(b.board_id).startsWith('cb-') && !String(b.board_id).startsWith('-'));
-      if (valid.length > 0) return valid;
+      const valid = syncRes.boards.filter(b => b.board_id && !String(b.board_id).startsWith('cb-') && !String(b.board_id).startsWith('-')).filter(isPersonalBoard);
+      if (valid.length > 0) {
+        valid.sort((a, b) => String(a.board_id).localeCompare(String(b.board_id)));
+        return valid;
+      }
     }
   } catch (err) {
     console.warn(`[!] Failed to sync boards via syncCompetitorBoards for @${cleanUsername}:`, err.message);
@@ -373,7 +438,7 @@ export async function getBoardsForTargetAccount(sqlClient, username, cookie = ''
   try {
     const pRes = await fetchBoardsResource(cleanUsername, cookie);
     if (pRes.ok && Array.isArray(pRes.boards)) {
-      return pRes.boards.filter(b => b.board_id && !String(b.board_id).startsWith('cb-') && !String(b.board_id).startsWith('-'));
+      return pRes.boards.filter(b => b.board_id && !String(b.board_id).startsWith('cb-') && !String(b.board_id).startsWith('-')).filter(isPersonalBoard);
     }
   } catch (_) {}
 
@@ -447,6 +512,20 @@ async function runDiscoveryJob(sqlClient, shardSql, cleanUser, maxPages, cookie,
       if (filtered.length > 0) allBoards = filtered;
     }
   }
+  const personalOnly = process.env.PERSONAL_BOARDS_ONLY !== 'false';
+  if (personalOnly) {
+    const prevCount = allBoards.length;
+    allBoards = allBoards.filter(b => {
+      if (b.is_group_board) return false;
+      if (b.metadata?.is_group_board) return false;
+      if (b.metadata?.is_collaborative) return false;
+      if (b.owner_username && b.owner_username.toLowerCase() !== cleanUser) return false;
+      if (b.metadata?.owner_username && b.metadata.owner_username.toLowerCase() !== cleanUser) return false;
+      return true;
+    });
+    console.log(`    [✓] Filtered for Personal Boards Only: Kept ${allBoards.length} of ${prevCount} boards (excluded ${prevCount - allBoards.length} group boards).`);
+  }
+
   console.log(`    [✓] Discovered & registered ${allBoards.length} authentic boards in database.`);
 
   // 3. Fast Catalog Ingestion
@@ -662,36 +741,55 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
       const assignedBoards = allBoards.filter((_, idx) => (idx % sTot) === shardIndex);
 
       console.log(`🚀 [SHARDED BOARD MATRIX] Shard ${sNum}/${sTot}: Assigned ${assignedBoards.length} of ${allBoards.length} total boards.`);
-      for (let bi = 0; bi < assignedBoards.length; bi++) {
-        const board = assignedBoards[bi];
-        // Proactive Heartbeat Ping at start of each board to prevent peer timeout misdetection
-        await sqlClient`
-          UPDATE crawler_shard_heartbeats
-          SET status = 'crawling_boards',
-              updated_at = NOW()
-          WHERE competitor_id = ${compId} AND shard_number = ${sNum};
-        `.catch(() => {});
+      
+      let boardHeartbeatTimer = null;
+      if (assignedBoards.length > 0 && compId) {
+        // Continuous 15s heartbeat during board harvesting to prevent peer timeout misdetection on deep multi-page boards
+        boardHeartbeatTimer = setInterval(async () => {
+          try {
+            await sqlClient`
+              UPDATE crawler_shard_heartbeats
+              SET updated_at = NOW()
+              WHERE competitor_id = ${compId} AND shard_number = ${sNum} AND status = 'crawling_boards';
+            `;
+          } catch (_) {}
+        }, 15000);
+      }
 
-        try {
-          console.log(`[*] [Shard ${sNum}] [${bi + 1}/${assignedBoards.length}] Ingesting board "${board.name}" (est. ${board.pin_count} pins)...`);
-          const bRes = await syncCompetitorBoardPins(sqlClient, compId, cleanUser, board, {
-            mode: 'discovery',
-            maxPages: 50,
-            cookie: cookie
-          });
-          const fetchedCount = bRes?.total_fetched || 0;
-          console.log(`    [✓] [Shard ${sNum}] Board "${board.name}": Discovered ${fetchedCount} pins.`);
-
-          // Update heartbeat and discovered count with COALESCE
+      try {
+        for (let bi = 0; bi < assignedBoards.length; bi++) {
+          const board = assignedBoards[bi];
+          // Proactive Heartbeat Ping at start of each board
           await sqlClient`
             UPDATE crawler_shard_heartbeats
-            SET discovered_count = COALESCE(discovered_count, 0) + ${fetchedCount},
+            SET status = 'crawling_boards',
                 updated_at = NOW()
             WHERE competitor_id = ${compId} AND shard_number = ${sNum};
           `.catch(() => {});
-        } catch (bErr) {
-          console.warn(`[!] [Shard ${sNum}] Board "${board.name}" error:`, bErr.message);
+
+          try {
+            console.log(`[*] [Shard ${sNum}] [${bi + 1}/${assignedBoards.length}] Ingesting board "${board.name}" (est. ${board.pin_count} pins)...`);
+            const bRes = await syncCompetitorBoardPins(sqlClient, compId, cleanUser, board, {
+              mode: 'discovery',
+              maxPages: 50,
+              cookie: cookie
+            });
+            const fetchedCount = bRes?.total_fetched || 0;
+            console.log(`    [✓] [Shard ${sNum}] Board "${board.name}": Discovered ${fetchedCount} pins.`);
+
+            // Update heartbeat and discovered count with COALESCE
+            await sqlClient`
+              UPDATE crawler_shard_heartbeats
+              SET discovered_count = COALESCE(discovered_count, 0) + ${fetchedCount},
+                  updated_at = NOW()
+              WHERE competitor_id = ${compId} AND shard_number = ${sNum};
+            `.catch(() => {});
+          } catch (bErr) {
+            console.warn(`[!] [Shard ${sNum}] Board "${board.name}" error:`, bErr.message);
+          }
         }
+      } finally {
+        if (boardHeartbeatTimer) clearInterval(boardHeartbeatTimer);
       }
 
       // Mark this shard's board discovery phase as complete
@@ -711,14 +809,17 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
   // Stagger worker boot by tiny micro-jitter (50ms - 250ms) to prevent thundering herds
   await sleep(Math.floor(Math.random() * 200) + 50);
 
-  // Reclaim any stale jobs that were abandoned (>90 seconds)
-  await reclaimStaleJobs(sqlClient, compId);
+  // Stale Job Reclamation: strictly restricted to Shard 1 to eliminate startup lock contention & thundering herds
+  if (sNum === 1) {
+    await reclaimStaleJobs(sqlClient, compId);
+  }
 
   let totalEnriched = 0;
   let totalFailed = 0;
   let emptyPolls = 0;
   let batchCounter = 0;
-  const MAX_EMPTY_POLLS = 25; // 25 polls * 3.5s = ~87 seconds grace period
+  let lastSeenProcessingCount = -1;
+  const MAX_EMPTY_POLLS = 60; // 60 polls * 3.5s = ~210s grace period (absorbs 60s Pinterest 429 cooling periods cleanly)
   let consecutive429Count = 0;
 
   while (true) {
@@ -745,10 +846,11 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
         )
         UPDATE competitor_pins cp
         SET enrichment_status = 'processing',
+            claim_token = gen_random_uuid(),
             updated_at = NOW()
         FROM batch b
         WHERE cp.id = b.id
-        RETURNING b.id, b.pin_id, b.competitor_id, b.board_name, b.enrich_attempts, b.account_username;
+        RETURNING b.id, b.pin_id, b.competitor_id, b.board_name, b.enrich_attempts, b.account_username, cp.claim_token;
       `;
     } catch (err) {
       console.error(`[-] [Shard ${shardNumber}] Error claiming batch:`, err.message);
@@ -758,8 +860,8 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
 
     // Grace Polling on Empty Queue (Zero-Leak & Zero-Race)
     if (!claimed || claimed.length === 0) {
-      // A. Reclaim any jobs from crashed/timed-out runners (throttled every 5 polls)
-      if (emptyPolls % 5 === 0) {
+      // A. Reclaim any jobs from crashed/timed-out runners (strictly restricted to Shard 1, throttled every 5 polls)
+      if (sNum === 1 && emptyPolls % 5 === 0) {
         const reclaimed = await reclaimStaleJobs(sqlClient, compId);
         if (reclaimed > 0) {
           console.log(`[*] [Shard ${shardNumber}] Reclaimed ${reclaimed} stale jobs from slow/crashed runners. Resuming...`);
@@ -779,6 +881,12 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
 
       const processingCount = counts?.processing_cnt || 0;
       const pendingCount = counts?.pending_cnt || 0;
+
+      // Reset empty poll counter whenever active progress across peers is observed
+      if (processingCount !== lastSeenProcessingCount) {
+        lastSeenProcessingCount = processingCount;
+        emptyPolls = 0;
+      }
 
       // New pending items arrived (e.g. from discovery or 429 handoff)
       if (pendingCount > 0) {
@@ -800,9 +908,9 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
         } catch (_) {}
       }
 
-      if (isDiscoveryRunning && emptyPolls < 60) {
-        emptyPolls++;
-        console.log(`[*] [Shard ${sNum}] Discovery Producer actively running. Waiting for incoming pins (Polling ${emptyPolls}/60)...`);
+      if (isDiscoveryRunning) {
+        emptyPolls = 0;
+        console.log(`[*] [Shard ${sNum}] Discovery Producer actively running. Waiting for incoming pins...`);
         await sleep(3500);
         continue;
       }
@@ -817,15 +925,15 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
             WHERE competitor_id = ${compId}
               AND shard_number <> ${sNum}
               AND status = 'crawling_boards'
-              AND updated_at > NOW() - INTERVAL '3 minutes';
+              AND updated_at > NOW() - INTERVAL '8 minutes';
           `;
           activePeerBoardCrawlers = hRow?.cnt || 0;
         } catch (_) {}
       }
 
-      if (activePeerBoardCrawlers > 0 && emptyPolls < 60) {
-        emptyPolls++;
-        console.log(`[*] [Shard ${sNum}] Queue temporarily empty, but ${activePeerBoardCrawlers} peer shards are actively harvesting boards. Waiting for incoming pins (Polling ${emptyPolls}/60)...`);
+      if (activePeerBoardCrawlers > 0) {
+        emptyPolls = 0;
+        console.log(`[*] [Shard ${sNum}] Queue temporarily empty, but ${activePeerBoardCrawlers} peer shards are actively harvesting boards. Waiting for incoming pins...`);
         await sleep(3500);
         continue;
       }
@@ -854,180 +962,242 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
     emptyPolls = 0;
     console.log(`[*] [Shard ${shardNumber}] Claimed ${claimed.length} pins. Extracting Pinterest Relay v3 fields...`);
 
-    const enrichedPins = [];
-    const metricSnapshots = [];
-    const statusUpdates = [];
+    activeBatchToRelease = claimed;
+    sqlClientForCleanup = sqlClient;
+
+    // Start 20s lease-touch timer so in-flight pins are never mistaken as stale by peer shards
+    const leaseTouchTimer = setInterval(async () => {
+      try {
+        const ids = claimed.map(c => c.id);
+        const tokens = claimed.map(c => c.claim_token).filter(Boolean);
+        if (ids.length > 0 && tokens.length > 0) {
+          await sqlClient`
+            UPDATE competitor_pins
+            SET updated_at = NOW()
+            WHERE id = ANY(${ids})
+              AND claim_token = ANY(${tokens})
+              AND enrichment_status = 'processing';
+          `;
+        }
+      } catch (_) {}
+    }, 20000);
+
+    let completedCount = 0;
     let rateLimitHit = false;
 
-    // 2. Micro-Concurrency: Fetch deep Pinterest data using 3 concurrent workers per shard
-    const CONCURRENCY = 3;
-    let nextIdx = 0;
+    try {
+      const enrichedPins = [];
+      const metricSnapshots = [];
+      const statusUpdates = [];
 
-    async function microWorker() {
-      while (nextIdx < claimed.length && !rateLimitHit) {
-        const i = nextIdx++;
-        if (i >= claimed.length) break;
-        const item = claimed[i];
-        const pinUsername = (item.account_username || cleanUser || '').replace(/^@+/, '').trim();
-        const currentAttempts = Number(item.enrich_attempts || 0) + 1;
+      // 2. Micro-Concurrency: Fetch deep Pinterest data using 3 concurrent workers per shard
+      const CONCURRENCY = 3;
+      let nextIdx = 0;
 
-        try {
-          const fetchRes = await fetchPinFromPinterest(item.pin_id, cookie);
-          if (fetchRes.ok && fetchRes.pin) {
-            const pin = fetchRes.pin;
+      async function microWorker() {
+        while (nextIdx < claimed.length && !rateLimitHit) {
+          const i = nextIdx++;
+          if (i >= claimed.length) break;
+          const item = claimed[i];
+          const pinUsername = (item.account_username || cleanUser || '').replace(/^@+/, '').trim();
+          const currentAttempts = Number(item.enrich_attempts || 0) + 1;
 
-            const saves = Math.max(0, Number(pin.saves || pin.save_count || 0));
-            const repins = Math.max(0, Number(pin.repins || pin.repin_count || 0));
-            const comments = Math.max(0, Number(pin.comments || pin.comment_count || 0));
-            const shares = Math.max(0, Number(pin.shares || pin.share_count || 0));
-            const reactions = pin.reactions || {};
-            const annotations = Array.isArray(pin.annotations) ? pin.annotations : [];
-            const dominantColor = pin.dominant_color || '#e60023';
-            const altText = pin.alt_text || pin.seo_alt_text || '';
-            const velocity = Number(pin.velocity || 0);
-            const createdAtPinterest = pin.created_at_pinterest || pin.created_at || null;
+          try {
+            const fetchRes = await fetchPinFromPinterest(item.pin_id, cookie);
+            if (fetchRes.ok && fetchRes.pin) {
+              const pin = fetchRes.pin;
 
-            const pinCandidate = {
-              pin_id: item.pin_id,
-              account_username: pinUsername,
-              title: pin.title || '',
-              description: pin.description || '',
-              link: pin.link || '',
-              domain: pin.domain || pin.link_domain || '',
-              board_name: item.board_name || pin.board_name || '',
-              image_url: pin.image_url || '',
-              dominant_color: dominantColor,
-              saves,
-              repins,
-              comments,
-              share_count: shares,
-              reactions,
-              velocity,
-              annotations,
-              is_video: Boolean(pin.is_video),
-              is_product: Boolean(pin.is_product),
-              alt_text: altText,
-              created_at_pinterest: createdAtPinterest ? new Date(createdAtPinterest).toISOString() : null
-            };
+              const saves = Math.max(0, Number(pin.saves || pin.save_count || 0));
+              const repins = Math.max(0, Number(pin.repins || pin.repin_count || 0));
+              const comments = Math.max(0, Number(pin.comments || pin.comment_count || 0));
+              const shares = Math.max(0, Number(pin.shares || pin.share_count || 0));
+              const reactions = pin.reactions || {};
+              const annotations = Array.isArray(pin.annotations) ? pin.annotations : [];
+              const dominantColor = pin.dominant_color || '#e60023';
+              const altText = pin.alt_text || pin.seo_alt_text || '';
+              const velocity = Number(pin.velocity || 0);
+              const createdAtPinterest = pin.created_at_pinterest || pin.created_at || null;
 
-            // Gate pa_pins (Winning Pins Archive): strictly qualify via active 3-tier rules
-            if (isPinQualified(pinCandidate, qualRules)) {
-              enrichedPins.push(pinCandidate);
-              metricSnapshots.push({
+              const pinCandidate = {
                 pin_id: item.pin_id,
+                account_username: pinUsername,
+                title: pin.title || '',
+                description: pin.description || '',
+                link: pin.link || '',
+                domain: pin.domain || pin.link_domain || '',
+                board_name: item.board_name || pin.board_name || '',
+                image_url: pin.image_url || '',
+                dominant_color: dominantColor,
                 saves,
                 repins,
-                comments
-              });
-            }
+                comments,
+                share_count: shares,
+                reactions,
+                velocity,
+                annotations,
+                is_video: Boolean(pin.is_video),
+                is_product: Boolean(pin.is_product),
+                alt_text: altText,
+                created_at_pinterest: createdAtPinterest ? new Date(createdAtPinterest).toISOString() : null
+              };
 
+              // Gate pa_pins (Winning Pins Archive): strictly qualify via active 3-tier rules
+              if (isPinQualified(pinCandidate, qualRules)) {
+                enrichedPins.push(pinCandidate);
+                metricSnapshots.push({
+                  pin_id: item.pin_id,
+                  saves,
+                  repins,
+                  comments
+                });
+              }
+
+              statusUpdates.push({
+                id: item.id,
+                claim_token: item.claim_token,
+                status: 'completed',
+                enrich_attempts: currentAttempts,
+                saves,
+                repins,
+                comments,
+                alt_text: altText,
+                is_product: Boolean(pin.is_product),
+                destination_url: pin.link || '',
+                link_domain: pin.domain || '',
+                title: pin.title || '',
+                description: pin.description || '',
+                image_url: pin.image_url || ''
+              });
+            } else {
+              const isRateLimit = (fetchRes.status === 429);
+              const isHardFail = !isRateLimit && (
+                fetchRes.status === 404 ||
+                fetchRes.status === 410 ||
+                fetchRes.status === 400 ||
+                String(item.pin_id).startsWith('-') ||
+                currentAttempts >= 3
+              );
+
+              if (isHardFail) {
+                statusUpdates.push({
+                  id: item.id,
+                  claim_token: item.claim_token,
+                  status: 'failed',
+                  enrich_attempts: currentAttempts,
+                  saves: 0,
+                  repins: 0,
+                  comments: 0,
+                  alt_text: null,
+                  is_product: false,
+                  destination_url: '',
+                  link_domain: '',
+                  title: '',
+                  description: '',
+                  image_url: ''
+                });
+                if (currentAttempts >= 3) {
+                  console.warn(`[!] [Shard ${shardNumber}] Pin ${item.pin_id} permanently failed after ${currentAttempts} attempts. Marked as 'failed' to prevent infinite loop.`);
+                }
+              } else {
+                // Rate limit (429) or transient timeout: preserve attempts on 429 so valid pins never get falsely failed
+                const attemptsToRecord = isRateLimit ? Number(item.enrich_attempts || 0) : currentAttempts;
+                statusUpdates.push({
+                  id: item.id,
+                  claim_token: item.claim_token,
+                  status: 'pending',
+                  enrich_attempts: attemptsToRecord,
+                  saves: 0,
+                  repins: 0,
+                  comments: 0,
+                  alt_text: null,
+                  is_product: false,
+                  destination_url: '',
+                  link_domain: '',
+                  title: '',
+                  description: '',
+                  image_url: ''
+                });
+
+                if (isRateLimit) {
+                  console.warn(`[!] [Shard ${shardNumber}] Encountered 429 Rate Limit on Pin ${item.pin_id}. Preserving attempts.`);
+                  rateLimitHit = true;
+                  break;
+                }
+              }
+            }
+          } catch (pinErr) {
+            console.warn(`[!] [Shard ${shardNumber}] Pin fetch exception ${item.pin_id}:`, pinErr.message);
+            const isHardFail = (currentAttempts >= 3);
             statusUpdates.push({
               id: item.id,
-              status: 'completed',
+              claim_token: item.claim_token,
+              status: isHardFail ? 'failed' : 'pending',
               enrich_attempts: currentAttempts,
-              saves,
-              repins,
-              comments,
-              alt_text: altText
+              saves: 0,
+              repins: 0,
+              comments: 0,
+              alt_text: null,
+              is_product: false,
+              destination_url: '',
+              link_domain: '',
+              title: '',
+              description: '',
+              image_url: ''
             });
-          } else {
-            const isRateLimit = (fetchRes.status === 429);
-            const isHardFail = !isRateLimit && (
-              fetchRes.status === 404 ||
-              fetchRes.status === 410 ||
-              fetchRes.status === 400 ||
-              String(item.pin_id).startsWith('-') ||
-              currentAttempts >= 3
-            );
-
-            if (isHardFail) {
-              statusUpdates.push({
-                id: item.id,
-                status: 'failed',
-                enrich_attempts: currentAttempts,
-                saves: 0,
-                repins: 0,
-                comments: 0,
-                alt_text: null
-              });
-              if (currentAttempts >= 3) {
-                console.warn(`[!] [Shard ${shardNumber}] Pin ${item.pin_id} permanently failed after ${currentAttempts} attempts. Marked as 'failed' to prevent infinite loop.`);
-              }
-            } else {
-              // Rate limit (429) or transient timeout: preserve attempts on 429 so valid pins never get falsely failed
-              const attemptsToRecord = isRateLimit ? Number(item.enrich_attempts || 0) : currentAttempts;
-              statusUpdates.push({
-                id: item.id,
-                status: 'pending',
-                enrich_attempts: attemptsToRecord,
-                saves: 0,
-                repins: 0,
-                comments: 0,
-                alt_text: null
-              });
-
-              if (isRateLimit) {
-                console.warn(`[!] [Shard ${shardNumber}] Encountered 429 Rate Limit on Pin ${item.pin_id}. Preserving attempts.`);
-                rateLimitHit = true;
-                break;
-              }
-            }
           }
-        } catch (pinErr) {
-          console.warn(`[!] [Shard ${shardNumber}] Pin fetch exception ${item.pin_id}:`, pinErr.message);
-          const isHardFail = (currentAttempts >= 3);
+
+          // Micro-jitter delay per worker
+          await sleep(randomJitterMs(600, 1100));
+        }
+      }
+
+      // Execute 3 concurrent workers in parallel within this runner
+      await Promise.all(Array.from({ length: CONCURRENCY }, () => microWorker()));
+
+      // If 429 rate limit occurred, re-queue any unvisited pins in this batch
+      if (rateLimitHit) {
+        for (let r = nextIdx; r < claimed.length; r++) {
           statusUpdates.push({
-            id: item.id,
-            status: isHardFail ? 'failed' : 'pending',
-            enrich_attempts: currentAttempts,
+            id: claimed[r].id,
+            claim_token: claimed[r].claim_token,
+            status: 'pending',
+            enrich_attempts: Number(claimed[r].enrich_attempts || 0),
             saves: 0,
             repins: 0,
             comments: 0,
-            alt_text: null
+            alt_text: null,
+            is_product: false,
+            destination_url: '',
+            link_domain: '',
+            title: '',
+            description: '',
+            image_url: ''
           });
         }
-
-        // Micro-jitter delay per worker
-        await sleep(randomJitterMs(600, 1100));
+        console.warn(`[!] [Shard ${shardNumber}] Re-queued unpicked pins due to 429. Backing off 15s...`);
       }
-    }
 
-    // Execute 3 concurrent workers in parallel within this runner
-    await Promise.all(Array.from({ length: CONCURRENCY }, () => microWorker()));
+      // 3. Atomically commit the batch using single bulk SQL operations (<50ms total)
+      if (enrichedPins.length > 0) {
+        await bulkUpsertPaPins(sqlClient, enrichedPins);
+        await bulkInsertMetrics(sqlClient, metricSnapshots);
 
-    // If 429 rate limit occurred, re-queue any unvisited pins in this batch
-    if (rateLimitHit) {
-      for (let r = nextIdx; r < claimed.length; r++) {
-        statusUpdates.push({
-          id: claimed[r].id,
-          status: 'pending',
-          enrich_attempts: Number(claimed[r].enrich_attempts || 0),
-          saves: 0,
-          repins: 0,
-          comments: 0,
-          alt_text: null
-        });
+        if (shardSql) {
+          await bulkUpsertPaPins(shardSql, enrichedPins).catch(() => {});
+        }
       }
-      console.warn(`[!] [Shard ${shardNumber}] Re-queued unpicked pins due to 429. Backing off 15s...`);
-    }
 
-    // 3. Atomically commit the batch using single bulk SQL operations (<50ms total)
-    if (enrichedPins.length > 0) {
-      await bulkUpsertPaPins(sqlClient, enrichedPins);
-      await bulkInsertMetrics(sqlClient, metricSnapshots);
-
-      if (shardSql) {
-        await bulkUpsertPaPins(shardSql, enrichedPins).catch(() => {});
+      if (statusUpdates.length > 0) {
+        await bulkUpdateCompetitorPins(sqlClient, statusUpdates);
+        completedCount = statusUpdates.filter(s => s.status === 'completed').length;
+        const failedCount = statusUpdates.filter(s => s.status === 'failed').length;
+        totalEnriched += completedCount;
+        totalFailed += failedCount;
       }
-    }
-
-    let completedCount = 0;
-    if (statusUpdates.length > 0) {
-      await bulkUpdateCompetitorPins(sqlClient, statusUpdates);
-      completedCount = statusUpdates.filter(s => s.status === 'completed').length;
-      const failedCount = statusUpdates.filter(s => s.status === 'failed').length;
-      totalEnriched += completedCount;
-      totalFailed += failedCount;
+    } finally {
+      // Lease complete: unconditionally clear active batch and timer
+      clearInterval(leaseTouchTimer);
+      activeBatchToRelease = null;
     }
 
     console.log(`    [✓] [Shard ${sNum}] Committed batch: ${completedCount} pins enriched in catalog, ${enrichedPins.length} winning pins archived into pa_pins.`);
@@ -1055,29 +1225,7 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
 
   // 4. Update the competitor's snapshot metadata with true enriched sums
   if (cleanUser && compId) {
-    // Only the last completing shard (or Shard 1 as leader) executes the final snapshot rollup
-    // This completely eliminates concurrent lock conflicts on competitor_history_snapshots
-    let isRollupLeader = (sNum === 1);
-    if (!isRollupLeader) {
-      try {
-        const [active] = await sqlClient`
-          SELECT COUNT(*)::int AS remaining
-          FROM crawler_shard_heartbeats
-          WHERE competitor_id = ${compId}
-            AND shard_number <> ${sNum}
-            AND status <> 'done';
-        `;
-        if ((active?.remaining || 0) === 0) {
-          isRollupLeader = true;
-        }
-      } catch (_) {}
-    }
-
-    if (isRollupLeader) {
-      console.log(`[*] [Shard ${sNum}] Rollup Leader: Synchronizing true enriched totals in competitor_history_snapshots...`);
-      await syncEnrichedSnapshotTotals(sqlClient, compId, cleanUser);
-    }
-
+    // A. Mark this shard as completed first in heartbeats
     await sqlClient`
       UPDATE crawler_shard_heartbeats
       SET status = 'done',
@@ -1085,6 +1233,48 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
           updated_at = NOW()
       WHERE competitor_id = ${compId} AND shard_number = ${sNum};
     `.catch(() => {});
+
+    // B. Check if all other active shards are also done before attempting final rollup
+    const [activePeers] = await sqlClient`
+      SELECT COUNT(*)::int AS remaining
+      FROM crawler_shard_heartbeats
+      WHERE competitor_id = ${compId}
+        AND shard_number <> ${sNum}
+        AND status <> 'done'
+        AND updated_at > NOW() - INTERVAL '5 minutes';
+    `.catch(() => [{ remaining: 0 }]);
+
+    const remainingShards = activePeers?.remaining || 0;
+
+    // Only the final completing shard (or leader when all shards complete) claims rollup leadership
+    if (remainingShards === 0) {
+      let isRollupLeader = false;
+      try {
+        const claim = await sqlClient`
+          UPDATE competitor_profiles
+          SET last_harvest_metadata = COALESCE(last_harvest_metadata, '{}'::jsonb) || jsonb_build_object('rollup_claimed_at', NOW()::text, 'rollup_leader', ${sNum}::int)
+          WHERE id = ${compId}
+            AND (
+              last_harvest_metadata->>'rollup_claimed_at' IS NULL
+              OR (last_harvest_metadata->>'rollup_claimed_at')::timestamptz < NOW() - INTERVAL '10 minutes'
+            )
+          RETURNING id;
+        `;
+        isRollupLeader = (claim && claim.length > 0);
+      } catch (_) {}
+
+      if (isRollupLeader) {
+        console.log(`[*] [Shard ${sNum}] Rollup Leader: Synchronizing true enriched totals in competitor_history_snapshots...`);
+        await syncEnrichedSnapshotTotals(sqlClient, compId, cleanUser);
+        await sqlClient`
+          UPDATE competitor_profiles
+          SET last_harvest_metadata = COALESCE(last_harvest_metadata, '{}'::jsonb) || jsonb_build_object('rollup_completed_at', NOW()::text)
+          WHERE id = ${compId};
+        `.catch(() => {});
+      }
+    } else {
+      console.log(`[*] [Shard ${sNum}] Finished processing. ${remainingShards} peer shards still active. Snapshot rollup deferred.`);
+    }
   }
 
   console.log(`\n================================================================`);
@@ -1216,14 +1406,18 @@ async function main() {
 
   let maxPages = maxPagesInput;
   if (!maxPages || isNaN(maxPages)) {
-    maxPages = crawlMode === 'discovery' ? 500 : 3;
+    maxPages = (crawlMode === 'discovery' || crawlMode === 'sharded_boards') ? 1000 : 3;
   }
 
   // Probe and log current runner public IP address
   let egressIp = 'unknown';
   try {
     const ipRes = await fetch('https://api.ipify.org', { signal: AbortSignal.timeout(3000) });
-    if (ipRes.ok) egressIp = (await ipRes.text()).trim();
+    if (ipRes.ok) {
+      egressIp = (await ipRes.text()).trim();
+    } else if (ipRes?.body) {
+      await ipRes.body.cancel().catch(() => {});
+    }
   } catch (_) {}
   console.log(`🌐 [Runner Network Diagnostic] Public Egress IP: ${egressIp} (Shard ${shardNumber}/${shardTotal})`);
 

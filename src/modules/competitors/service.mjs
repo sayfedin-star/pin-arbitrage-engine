@@ -213,6 +213,13 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
   const metaUpdate = {};
   if (res.account_created_at) metaUpdate.account_created_at = res.account_created_at;
   if (res.last_pin_save_time) metaUpdate.last_pin_save_time = res.last_pin_save_time;
+  if (res.pinterest_id) metaUpdate.pinterest_id = res.pinterest_id;
+  if (res.group_board_count !== undefined) metaUpdate.group_board_count = res.group_board_count;
+  if (res.domain_verified !== undefined) metaUpdate.domain_verified = res.domain_verified;
+  if (res.is_verified_merchant !== undefined) metaUpdate.is_verified_merchant = res.is_verified_merchant;
+  if (res.has_catalog !== undefined) metaUpdate.has_catalog = res.has_catalog;
+  if (res.video_pin_count !== undefined) metaUpdate.video_pin_count = res.video_pin_count;
+  if (res.story_pin_count !== undefined) metaUpdate.story_pin_count = res.story_pin_count;
 
   // Atomic Upsert: ensures profile is created even if sync is called before tracking
   const [updated] = await sql`
@@ -311,7 +318,21 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
         follower_count = CASE WHEN EXCLUDED.follower_count > 0 THEN EXCLUDED.follower_count ELSE competitor_history_snapshots.follower_count END,
         total_pins = GREATEST(competitor_history_snapshots.total_pins, EXCLUDED.total_pins),
         total_boards = GREATEST(competitor_history_snapshots.total_boards, EXCLUDED.total_boards),
-        metadata = COALESCE(competitor_history_snapshots.metadata, '{}'::jsonb) || EXCLUDED.metadata;
+        metadata = jsonb_set(
+          jsonb_set(
+            COALESCE(competitor_history_snapshots.metadata, '{}'::jsonb),
+            '{total_saves}',
+            to_jsonb(GREATEST(
+              COALESCE((competitor_history_snapshots.metadata->>'total_saves')::bigint, 0),
+              COALESCE((EXCLUDED.metadata->>'total_saves')::bigint, 0)
+            ))
+          ),
+          '{total_repins}',
+          to_jsonb(GREATEST(
+            COALESCE((competitor_history_snapshots.metadata->>'total_repins')::bigint, 0),
+            COALESCE((EXCLUDED.metadata->>'total_repins')::bigint, 0)
+          ))
+        );
     `;
 
     // Upsert any initial boards discovered directly from unauthenticated profile HTML
@@ -558,7 +579,10 @@ export async function syncCompetitorBoards(sql, competitorId, username, cookie =
       description: b.description || b.metadata?.description || '',
       section_count: b.metadata?.section_count || 0,
       privacy: b.metadata?.privacy || 'public',
-      is_collaborative: Boolean(b.metadata?.is_collaborative)
+      is_collaborative: Boolean(b.is_collaborative || b.metadata?.is_collaborative),
+      is_group_board: Boolean(b.is_group_board || b.metadata?.is_group_board),
+      owner_username: b.owner_username || b.metadata?.owner_username || null,
+      collaborator_count: Number(b.collaborator_count || b.metadata?.collaborator_count || 0)
     };
     records.push({
       board_id: boardId,
@@ -893,9 +917,9 @@ export async function syncCompetitorPins(sql, competitorId, username, { mode = '
     : null;
   let pageLimit = Number(rules.early_stop_pages) || 3;
   if (mode === 'all' || mode === 'full') {
-    pageLimit = numMaxPages ? Math.min(numMaxPages, 500) : 100;
+    pageLimit = numMaxPages ? Math.min(numMaxPages, 1000) : 100;
   } else if (mode === 'deep' || mode === 'discovery') {
-    pageLimit = numMaxPages ? Math.min(numMaxPages, 500) : (Number(rules.discovery_max_pages) || 500);
+    pageLimit = numMaxPages ? Math.min(numMaxPages, 2000) : (Number(rules.discovery_max_pages) || 1000);
   } else if (numMaxPages) {
     pageLimit = numMaxPages;
   }
@@ -988,7 +1012,7 @@ export async function syncCompetitorPins(sql, competitorId, username, { mode = '
 
   await sql`
     UPDATE competitor_profiles
-    SET last_harvest_metadata = ${JSON.stringify(harvestMeta)}::jsonb,
+    SET last_harvest_metadata = COALESCE(competitor_profiles.last_harvest_metadata, '{}'::jsonb) || ${JSON.stringify(harvestMeta)}::jsonb,
         last_synced_at = NOW(),
         updated_at = NOW()
     WHERE LOWER(username) = ${cleanUsername} OR id = ${isNaN(numericId) ? -1 : numericId};
@@ -1870,6 +1894,7 @@ export async function upsertCompetitorPins(sql, competitorId, pins) {
           ON CONFLICT (competitor_id, pin_id) DO UPDATE SET
             save_count = GREATEST(competitor_pins.save_count, EXCLUDED.save_count),
             repin_count = GREATEST(competitor_pins.repin_count, EXCLUDED.repin_count),
+            is_product = (competitor_pins.is_product OR EXCLUDED.is_product),
             enrichment_status = COALESCE(competitor_pins.enrichment_status, 'pending'),
             last_seen_at = NOW();
         `;
@@ -1892,7 +1917,8 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
   page = 1,
   limit = 50,
   qualified_only = false,
-  product_only = false
+  product_only = false,
+  articles_only = false
 } = {}) {
   let cleanUsername = username ? normalizePinterestUsername(username) : null;
   let numericId = parseInt(competitorIdOrUsername, 10);
@@ -1991,6 +2017,11 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
         COALESCE(pa.is_product, false) OR 
         COALESCE(cp.link_domain ILIKE '%etsy%' OR cp.link_domain ILIKE '%shopify%' OR cp.link_domain ILIKE '%amazon%' OR cp.destination_url ILIKE '%/listing/%' OR cp.destination_url ILIKE '%/product/%' OR cp.destination_url ILIKE '%/item/%' OR cp.destination_url ILIKE '%gumroad.com%', false)
       ) = TRUE)
+      AND (${articles_only} = FALSE OR (
+        COALESCE(cp.is_product, false) = FALSE AND 
+        COALESCE(pa.is_product, false) = FALSE AND 
+        COALESCE(cp.link_domain ILIKE '%etsy%' OR cp.link_domain ILIKE '%shopify%' OR cp.link_domain ILIKE '%amazon%' OR cp.destination_url ILIKE '%/listing/%' OR cp.destination_url ILIKE '%/product/%' OR cp.destination_url ILIKE '%/item/%' OR cp.destination_url ILIKE '%gumroad.com%', false) = FALSE
+      ))
     ORDER BY 
       CASE WHEN ${sort} = 'saves_desc' THEN cp.save_count END DESC NULLS LAST,
       CASE WHEN ${sort} = 'repins_desc' THEN cp.repin_count END DESC NULLS LAST,
@@ -2021,7 +2052,12 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
         COALESCE(cp.is_product, false) OR 
         COALESCE(pa.is_product, false) OR 
         COALESCE(cp.link_domain ILIKE '%etsy%' OR cp.link_domain ILIKE '%shopify%' OR cp.link_domain ILIKE '%amazon%' OR cp.destination_url ILIKE '%/listing/%' OR cp.destination_url ILIKE '%/product/%' OR cp.destination_url ILIKE '%/item/%' OR cp.destination_url ILIKE '%gumroad.com%', false)
-      ) = TRUE);
+      ) = TRUE)
+      AND (${articles_only} = FALSE OR (
+        COALESCE(cp.is_product, false) = FALSE AND 
+        COALESCE(pa.is_product, false) = FALSE AND 
+        COALESCE(cp.link_domain ILIKE '%etsy%' OR cp.link_domain ILIKE '%shopify%' OR cp.link_domain ILIKE '%amazon%' OR cp.destination_url ILIKE '%/listing/%' OR cp.destination_url ILIKE '%/product/%' OR cp.destination_url ILIKE '%/item/%' OR cp.destination_url ILIKE '%gumroad.com%', false) = FALSE
+      ));
   `;
 
   const total = countRow ? countRow.total : 0;
@@ -2044,6 +2080,665 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
     boards: boardsRows
   };
 }
+
+/**
+ * Top Destination URLs Intelligence:
+ * Aggregates pins by normalized article slug, stripping protocol, www, query params, and anchors.
+ * Supports filtering by articles only (is_product = false) vs products only vs all.
+ */
+export async function getTopDestinationUrls(sql, competitorId, {
+  limit = 50,
+  page = 1,
+  search = '',
+  sort = 'saves_desc',
+  filter_type = 'all'
+} = {}) {
+  const numericId = await resolveNumericCompetitorId(sql, competitorId);
+  if (!numericId || isNaN(numericId)) throw new Error('Valid competitorId is required.');
+
+  const pLim = Math.max(1, Math.min(Number(limit) || 50, 200));
+  const pNum = Math.max(1, Number(page) || 1);
+  const offset = (pNum - 1) * pLim;
+  const searchPattern = search ? `%${search.toLowerCase().trim()}%` : null;
+
+  // Double escaped for Neon template literals: \\1, \\., \\?
+  const rows = await sql`
+    WITH base AS (
+      SELECT 
+        LOWER(
+          REGEXP_REPLACE(
+            REGEXP_REPLACE(
+              REGEXP_REPLACE(destination_url, 'https?://(www\\.)?[^/]+', ''),
+              '\\?.*$', ''
+            ),
+            '#.*$', ''
+          )
+        ) AS clean_slug,
+        destination_url,
+        link_domain,
+        save_count,
+        repin_count,
+        created_at_pinterest,
+        is_product
+      FROM competitor_pins
+      WHERE competitor_id = ${numericId}
+        AND destination_url IS NOT NULL 
+        AND destination_url != ''
+        AND destination_url NOT LIKE '%pinterest.com%'
+    ),
+    aggregated AS (
+      SELECT 
+        clean_slug,
+        MIN(destination_url) AS sample_url,
+        MIN(link_domain) AS domain,
+        COUNT(*)::int AS pin_count,
+        SUM(COALESCE(save_count, 0))::bigint AS total_saves,
+        ROUND(AVG(COALESCE(save_count, 0)))::int AS avg_saves,
+        SUM(COALESCE(repin_count, 0))::bigint AS total_repins,
+        MIN(created_at_pinterest) AS first_pin_date,
+        MAX(created_at_pinterest) AS last_pin_date,
+        BOOL_OR(COALESCE(is_product, false)) AS is_product,
+        BOOL_OR(COALESCE(link_domain ILIKE '%amazon%' OR link_domain ILIKE '%amzn.to%' OR link_domain ILIKE '%etsy%' OR link_domain ILIKE '%shopify%' OR link_domain ILIKE '%rstyle%' OR link_domain ILIKE '%liketoknow%' OR link_domain ILIKE '%shopstyle%' OR link_domain ILIKE '%shareasale%' OR link_domain ILIKE '%rewardstyle%', false)) AS is_affiliate
+      FROM base
+      WHERE clean_slug IS NOT NULL AND clean_slug != '' AND clean_slug != '/'
+      GROUP BY clean_slug
+    )
+    SELECT *
+    FROM aggregated
+    WHERE (${searchPattern}::text IS NULL OR clean_slug LIKE ${searchPattern})
+      AND (
+        ${filter_type} = 'all' OR
+        (${filter_type} = 'articles_only' AND is_product = FALSE) OR
+        (${filter_type} = 'products_only' AND is_product = TRUE) OR
+        (${filter_type} = 'affiliate_only' AND is_affiliate = TRUE)
+      )
+    ORDER BY 
+      CASE WHEN ${sort} = 'saves_desc' THEN total_saves END DESC NULLS LAST,
+      CASE WHEN ${sort} = 'saves_asc' THEN total_saves END ASC NULLS LAST,
+      CASE WHEN ${sort} = 'pins_desc' THEN pin_count END DESC NULLS LAST,
+      CASE WHEN ${sort} = 'avg_saves_desc' THEN avg_saves END DESC NULLS LAST,
+      CASE WHEN ${sort} = 'repins_desc' THEN total_repins END DESC NULLS LAST,
+      CASE WHEN ${sort} = 'newest' THEN last_pin_date END DESC NULLS LAST,
+      total_saves DESC
+    LIMIT ${pLim} OFFSET ${offset};
+  `;
+
+  const [countRow] = await sql`
+    WITH base AS (
+      SELECT 
+        LOWER(
+          REGEXP_REPLACE(
+            REGEXP_REPLACE(
+              REGEXP_REPLACE(destination_url, 'https?://(www\\.)?[^/]+', ''),
+              '\\?.*$', ''
+            ),
+            '#.*$', ''
+          )
+        ) AS clean_slug,
+        link_domain,
+        is_product
+      FROM competitor_pins
+      WHERE competitor_id = ${numericId}
+        AND destination_url IS NOT NULL 
+        AND destination_url != ''
+        AND destination_url NOT LIKE '%pinterest.com%'
+    ),
+    aggregated AS (
+      SELECT 
+        clean_slug,
+        BOOL_OR(COALESCE(is_product, false)) AS is_product,
+        BOOL_OR(COALESCE(link_domain ILIKE '%amazon%' OR link_domain ILIKE '%amzn.to%' OR link_domain ILIKE '%etsy%' OR link_domain ILIKE '%shopify%' OR link_domain ILIKE '%rstyle%' OR link_domain ILIKE '%liketoknow%' OR link_domain ILIKE '%shopstyle%' OR link_domain ILIKE '%shareasale%' OR link_domain ILIKE '%rewardstyle%', false)) AS is_affiliate
+      FROM base
+      WHERE clean_slug IS NOT NULL AND clean_slug != '' AND clean_slug != '/'
+      GROUP BY clean_slug
+    )
+    SELECT COUNT(*)::int AS total
+    FROM aggregated
+    WHERE (${searchPattern}::text IS NULL OR clean_slug LIKE ${searchPattern})
+      AND (
+        ${filter_type} = 'all' OR
+        (${filter_type} = 'articles_only' AND is_product = FALSE) OR
+        (${filter_type} = 'products_only' AND is_product = TRUE) OR
+        (${filter_type} = 'affiliate_only' AND is_affiliate = TRUE)
+      );
+  `;
+
+  const total = countRow ? countRow.total : 0;
+  const total_pages = Math.ceil(total / pLim);
+
+  return {
+    urls: rows.map(r => ({
+      clean_slug: r.clean_slug,
+      sample_url: r.sample_url,
+      domain: r.domain,
+      pin_count: Number(r.pin_count || 0),
+      total_saves: Number(r.total_saves || 0),
+      avg_saves: Number(r.avg_saves || 0),
+      total_repins: Number(r.total_repins || 0),
+      first_pin_date: r.first_pin_date,
+      last_pin_date: r.last_pin_date,
+      is_product: Boolean(r.is_product),
+      is_affiliate: Boolean(r.is_affiliate)
+    })),
+    total,
+    page: pNum,
+    limit: pLim,
+    total_pages
+  };
+}
+
+/**
+ * Get qualification rules for a specific competitor.
+ * Returns custom rules stored in competitor_profiles.metadata->'qualification_rules' or system defaults.
+ */
+export async function getCompetitorRules(sql, competitorId) {
+  const numericId = Number(competitorId);
+  if (!numericId || isNaN(numericId)) throw new Error('Valid competitorId is required.');
+
+  const [row] = await sql`
+    SELECT id, username, metadata->'qualification_rules' AS rules
+    FROM competitor_profiles
+    WHERE id = ${numericId}
+    LIMIT 1;
+  `;
+
+  if (!row) throw new Error(`Competitor #${numericId} not found.`);
+
+  const defaultRules = {
+    tier1_min_saves: 5000,
+    tier2_min_repins: 2500,
+    tier3_fresh_days: 60,
+    tier3_min_saves: 500,
+    articles_only: true,
+    auto_pipeline: true
+  };
+
+  return {
+    competitor_id: row.id,
+    username: row.username,
+    rules: { ...defaultRules, ...(row.rules || {}) }
+  };
+}
+
+/**
+ * Save custom qualification rules for a specific competitor in competitor_profiles.metadata.
+ * Uses PostgreSQL JSONB shallow merge to guarantee non-destructive preservation of other metadata keys.
+ */
+export async function saveCompetitorRules(sql, competitorId, newRules = {}) {
+  const numericId = Number(competitorId);
+  if (!numericId || isNaN(numericId)) throw new Error('Valid competitorId is required.');
+
+  const sanitizedRules = {
+    tier1_min_saves: Math.max(0, Number(newRules.tier1_min_saves) || 5000),
+    tier2_min_repins: Math.max(0, Number(newRules.tier2_min_repins) || 2500),
+    tier3_fresh_days: Math.max(1, Number(newRules.tier3_fresh_days) || 60),
+    tier3_min_saves: Math.max(0, Number(newRules.tier3_min_saves) || 500),
+    articles_only: Boolean(newRules.articles_only ?? true),
+    auto_pipeline: Boolean(newRules.auto_pipeline ?? true)
+  };
+
+  const [updated] = await sql`
+    UPDATE competitor_profiles
+    SET 
+      metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('qualification_rules', ${JSON.stringify(sanitizedRules)}::jsonb),
+      updated_at = NOW()
+    WHERE id = ${numericId}
+    RETURNING id, username, metadata->'qualification_rules' AS rules;
+  `;
+
+  if (!updated) throw new Error(`Competitor #${numericId} not found.`);
+  return { ok: true, competitor_id: updated.id, username: updated.username, rules: updated.rules };
+}
+
+/**
+ * Re-evaluate competitor pins against custom qualification rules and upsert qualified pins into pa_pins.
+ */
+export async function reEvaluateCompetitorPins(sql, competitorId) {
+  const numericId = Number(competitorId);
+  if (!numericId || isNaN(numericId)) throw new Error('Valid competitorId is required.');
+
+  const { rules, username } = await getCompetitorRules(sql, numericId);
+
+  // Fetch all pins from competitor_pins meeting the 3-tier rules
+  const qualifiedPins = await sql`
+    SELECT 
+      cp.pin_id,
+      ${username} AS account_username,
+      cp.title,
+      cp.description,
+      cp.destination_url AS link,
+      cp.link_domain AS domain,
+      cp.board_name,
+      cp.image_url,
+      '#888888' AS dominant_color,
+      cp.save_count AS saves,
+      cp.repin_count AS repins,
+      cp.comment_count AS comments,
+      0::bigint AS share_count,
+      '{}'::jsonb AS reactions,
+      ROUND((cp.save_count::numeric / GREATEST(0.1, EXTRACT(EPOCH FROM (NOW() - cp.created_at_pinterest)) / 86400)), 2) AS velocity,
+      '[]'::jsonb AS annotations,
+      false AS is_video,
+      COALESCE(cp.is_product, false) AS is_product,
+      cp.created_at_pinterest,
+      NOW() AS first_seen_at,
+      NOW() AS last_updated_at,
+      cp.title AS alt_text
+    FROM competitor_pins cp
+    WHERE cp.competitor_id = ${numericId}
+      AND (
+        cp.save_count >= ${rules.tier1_min_saves}
+        OR cp.repin_count >= ${rules.tier2_min_repins}
+        OR (
+          cp.created_at_pinterest >= NOW() - (${rules.tier3_fresh_days} || ' days')::interval
+          AND cp.save_count >= ${rules.tier3_min_saves}
+        )
+      )
+      AND (${rules.articles_only} = FALSE OR (cp.is_product IS NULL OR cp.is_product = FALSE));
+  `;
+
+  let upsertedCount = 0;
+  if (qualifiedPins.length > 0) {
+    // Monotonic ORDER BY pin_id ASC to eliminate lock contention & deadlocks
+    const sortedQualified = [...qualifiedPins].sort((a, b) => String(a.pin_id).localeCompare(String(b.pin_id)));
+
+    // Upsert in batches of 50
+    for (let i = 0; i < sortedQualified.length; i += 50) {
+      const batch = sortedQualified.slice(i, i + 50);
+      await sql`
+        INSERT INTO pa_pins (
+          pin_id, account_username, title, description, link, domain,
+          board_name, image_url, dominant_color, saves, repins, comments,
+          share_count, reactions, velocity, annotations, is_video, is_product,
+          created_at_pinterest, first_seen_at, last_updated_at, alt_text
+        )
+        SELECT 
+          x.pin_id, x.account_username, x.title, x.description, x.link, x.domain,
+          x.board_name, x.image_url, x.dominant_color, x.saves, x.repins, x.comments,
+          x.share_count, x.reactions, x.velocity, x.annotations, x.is_video, x.is_product,
+          x.created_at_pinterest, x.first_seen_at, x.last_updated_at, x.alt_text
+        FROM jsonb_to_recordset(${JSON.stringify(batch)}::jsonb) AS x(
+          pin_id character varying, account_username character varying, title text, description text, link text, domain character varying,
+          board_name character varying, image_url text, dominant_color character varying, saves bigint, repins bigint, comments integer,
+          share_count bigint, reactions jsonb, velocity numeric, annotations jsonb, is_video boolean, is_product boolean,
+          created_at_pinterest timestamp with time zone, first_seen_at timestamp with time zone, last_updated_at timestamp with time zone, alt_text text
+        )
+        ORDER BY x.pin_id ASC
+        ON CONFLICT (pin_id) DO UPDATE SET
+          saves = GREATEST(pa_pins.saves, EXCLUDED.saves),
+          repins = GREATEST(pa_pins.repins, EXCLUDED.repins),
+          comments = GREATEST(pa_pins.comments, EXCLUDED.comments),
+          velocity = CASE WHEN EXCLUDED.velocity > 0 THEN EXCLUDED.velocity ELSE pa_pins.velocity END,
+          is_product = (pa_pins.is_product OR EXCLUDED.is_product),
+          last_updated_at = NOW();
+      `;
+      upsertedCount += batch.length;
+    }
+  }
+
+  return {
+    ok: true,
+    competitor_id: numericId,
+    username,
+    qualified_count: upsertedCount,
+    rules
+  };
+}
+
+export async function resolveNumericCompetitorId(sql, competitorId) {
+  let numericId = parseInt(competitorId, 10);
+  if (isNaN(numericId) || !numericId) {
+    const cleanUser = String(competitorId).replace(/^@+/, '').trim().toLowerCase();
+    try {
+      const [c] = await sql`SELECT id, username FROM competitor_profiles WHERE LOWER(username) = ${cleanUser} LIMIT 1;`;
+      if (c?.id) numericId = c.id;
+    } catch (_) {}
+  }
+  return numericId;
+}
+
+/**
+ * Get registered seed pins for an account along with discovered related candidate counts.
+ */
+export async function getCompetitorSeeds(sql, competitorId) {
+  const numericId = await resolveNumericCompetitorId(sql, competitorId);
+  if (!numericId || isNaN(numericId)) throw new Error('Valid competitorId is required.');
+
+  const rows = await sql`
+    SELECT 
+      csp.id,
+      csp.competitor_id,
+      csp.pin_id,
+      csp.title,
+      csp.image_url,
+      csp.board_name,
+      csp.save_count,
+      csp.created_at,
+      csp.last_crawled_at,
+      COUNT(crn.id)::int AS related_count
+    FROM competitor_seed_pins csp
+    LEFT JOIN competitor_related_nodes crn 
+      ON crn.competitor_id = csp.competitor_id AND crn.seed_pin_id = csp.pin_id
+    WHERE csp.competitor_id = ${numericId}
+    GROUP BY csp.id
+    ORDER BY csp.created_at DESC;
+  `;
+
+  return { seeds: rows };
+}
+
+/**
+ * Add pin IDs as seeds for a competitor, populating titles and thumbnails from competitor_pins if available.
+ */
+export async function addCompetitorSeeds(sql, competitorId, pinIds = []) {
+  const numericId = await resolveNumericCompetitorId(sql, competitorId);
+  if (!numericId || isNaN(numericId)) throw new Error('Valid competitorId is required.');
+  if (!Array.isArray(pinIds) || pinIds.length === 0) return { ok: true, added_count: 0 };
+
+  const cleanIds = [...new Set(pinIds.map(p => String(p).trim().replace(/\D+/g, '')).filter(Boolean))];
+  if (cleanIds.length === 0) return { ok: true, added_count: 0 };
+
+  const metaRows = await sql`
+    SELECT 
+      cp.pin_id,
+      cp.title,
+      cp.image_url,
+      cp.board_name,
+      cp.save_count
+    FROM competitor_pins cp
+    WHERE cp.competitor_id = ${numericId} AND cp.pin_id = ANY(${cleanIds});
+  `;
+
+  const metaMap = new Map();
+  for (const m of metaRows) metaMap.set(m.pin_id, m);
+
+  let insertedCount = 0;
+  for (const pid of cleanIds) {
+    const meta = metaMap.get(pid);
+    const title = meta?.title || `Pin #${pid}`;
+    const img = meta?.image_url || null;
+    const board = meta?.board_name || null;
+    const saves = Number(meta?.save_count || 0);
+
+    const [row] = await sql`
+      INSERT INTO competitor_seed_pins (competitor_id, pin_id, title, image_url, board_name, save_count)
+      VALUES (${numericId}, ${pid}, ${title}, ${img}, ${board}, ${saves})
+      ON CONFLICT (competitor_id, pin_id) DO UPDATE SET
+        title = CASE WHEN EXCLUDED.title <> '' THEN EXCLUDED.title ELSE competitor_seed_pins.title END,
+        image_url = COALESCE(EXCLUDED.image_url, competitor_seed_pins.image_url)
+      RETURNING id;
+    `;
+    if (row) insertedCount++;
+  }
+
+  return { ok: true, added_count: insertedCount };
+}
+
+/**
+ * Delete a seed pin and all its associated related nodes.
+ */
+export async function deleteCompetitorSeed(sql, competitorId, pinId) {
+  const numericId = await resolveNumericCompetitorId(sql, competitorId);
+  if (!numericId || isNaN(numericId)) throw new Error('Valid competitorId is required.');
+  const cleanPin = String(pinId || '').trim();
+  if (!cleanPin) throw new Error('Valid pinId is required.');
+
+  await sql`
+    DELETE FROM competitor_related_nodes 
+    WHERE competitor_id = ${numericId} AND seed_pin_id = ${cleanPin};
+  `;
+  await sql`
+    DELETE FROM competitor_seed_pins 
+    WHERE competitor_id = ${numericId} AND pin_id = ${cleanPin};
+  `;
+
+  return { ok: true, deleted_pin_id: cleanPin };
+}
+
+/**
+ * Calculate Multi-Seed Intersections, Account Retention Rate, and Traffic Leakage.
+ */
+export async function getCompetitorRelatedIntersections(sql, competitorId, options = {}) {
+  const numericId = await resolveNumericCompetitorId(sql, competitorId);
+  if (!numericId || isNaN(numericId)) throw new Error('Valid competitorId is required.');
+
+  const rawMin = options.min_overlap ?? options.min_seed_overlap;
+  const minOverlap = (rawMin !== undefined && rawMin !== null) ? Math.max(1, Number(rawMin)) : 2;
+  const page = Math.max(1, Number(options.page) || 1);
+  const limit = Math.min(Math.max(1, Number(options.limit) || 50), 200);
+  const offset = (page - 1) * limit;
+  const filter = options.filter || 'all'; // 'all', 'self_only', 'rivals_only'
+  const searchPattern = options.search ? `%${options.search.toLowerCase().trim()}%` : null;
+
+  // 1. Overall stats for this competitor's graph
+  const [statsRow] = await sql`
+    SELECT 
+      (SELECT COUNT(*)::int FROM competitor_seed_pins WHERE competitor_id = ${numericId}) AS total_seeds,
+      COUNT(*)::int AS total_nodes,
+      COUNT(DISTINCT candidate_pin_id)::int AS unique_candidates,
+      COUNT(*) FILTER (WHERE is_same_account = true)::int AS self_nodes,
+      COUNT(*) FILTER (WHERE is_same_account = false)::int AS rival_nodes
+    FROM competitor_related_nodes
+    WHERE competitor_id = ${numericId};
+  `;
+
+  const totalNodes = Number(statsRow?.total_nodes || 0);
+  const selfNodes = Number(statsRow?.self_nodes || 0);
+  const rivalNodes = Number(statsRow?.rival_nodes || 0);
+  const retentionRate = totalNodes > 0 ? Number(((selfNodes / totalNodes) * 100).toFixed(1)) : 0;
+  const leakageRate = Number((100 - retentionRate).toFixed(1));
+
+  // 2. Fetch intersections matching criteria
+  const rows = await sql`
+    SELECT 
+      crn.candidate_pin_id,
+      MAX(crn.title) AS title,
+      MAX(crn.image_url) AS image_url,
+      MAX(crn.dominant_color) AS dominant_color,
+      MAX(crn.saves)::bigint AS saves,
+      MAX(crn.repins)::bigint AS repins,
+      MAX(crn.domain) AS domain,
+      MAX(crn.destination_url) AS destination_url,
+      BOOL_OR(crn.is_same_account) AS is_same_account,
+      MAX(crn.creator_username) AS creator_username,
+      MAX(crn.creator_name) AS creator_name,
+      MAX(crn.provenance_engine) AS provenance_engine,
+      COUNT(DISTINCT crn.seed_pin_id)::int AS seed_overlap_count,
+      ARRAY_AGG(DISTINCT crn.seed_pin_id) AS originating_seeds
+    FROM competitor_related_nodes crn
+    WHERE crn.competitor_id = ${numericId}
+      AND (${searchPattern}::text IS NULL OR LOWER(crn.title) LIKE ${searchPattern} OR LOWER(COALESCE(crn.creator_username, '')) LIKE ${searchPattern})
+      AND (
+        ${filter} = 'all' OR
+        (${filter} = 'self_only' AND crn.is_same_account = TRUE) OR
+        (${filter} = 'rivals_only' AND crn.is_same_account = FALSE)
+      )
+    GROUP BY crn.candidate_pin_id
+    HAVING COUNT(DISTINCT crn.seed_pin_id) >= ${minOverlap}
+    ORDER BY seed_overlap_count DESC, saves DESC
+    LIMIT ${limit} OFFSET ${offset};
+  `;
+
+  // 3. Count matching intersections for accurate pagination
+  const [countRow] = await sql`
+    SELECT COUNT(*)::int AS total
+    FROM (
+      SELECT crn.candidate_pin_id
+      FROM competitor_related_nodes crn
+      WHERE crn.competitor_id = ${numericId}
+        AND (${searchPattern}::text IS NULL OR LOWER(crn.title) LIKE ${searchPattern} OR LOWER(COALESCE(crn.creator_username, '')) LIKE ${searchPattern})
+        AND (
+          ${filter} = 'all' OR
+          (${filter} = 'self_only' AND crn.is_same_account = TRUE) OR
+          (${filter} = 'rivals_only' AND crn.is_same_account = FALSE)
+        )
+      GROUP BY crn.candidate_pin_id
+      HAVING COUNT(DISTINCT crn.seed_pin_id) >= ${minOverlap}
+    ) sub;
+  `;
+
+  const total = Number(countRow?.total || 0);
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+
+  return {
+    intersections: rows.map(r => ({
+      ...r,
+      saves: Number(r.saves || 0),
+      repins: Number(r.repins || 0),
+      seed_overlap_count: Number(r.seed_overlap_count || 1)
+    })),
+    stats: {
+      total_seeds: Number(statsRow?.total_seeds || 0),
+      total_nodes: totalNodes,
+      unique_candidates: Number(statsRow?.unique_candidates || 0),
+      self_retention_nodes: selfNodes,
+      rival_leakage_nodes: rivalNodes,
+      retention_rate_pct: retentionRate,
+      leakage_rate_pct: leakageRate,
+      total_intersections: total
+    },
+    total,
+    page,
+    limit,
+    total_pages: totalPages
+  };
+}
+
+/**
+ * Fast live harvest for a single pin (Zero-Cookie, Jitter, AbortSignal).
+ * Directly upserts discovered nodes into competitor_related_nodes.
+ */
+export async function harvestSinglePinRelatedLive(sql, competitorId, pinId) {
+  const numericId = await resolveNumericCompetitorId(sql, competitorId);
+  if (!numericId || isNaN(numericId)) throw new Error('Valid competitorId is required.');
+  const cleanPin = String(pinId || '').trim();
+  if (!cleanPin) throw new Error('Valid pinId is required.');
+
+  // Fetch competitor username
+  const [comp] = await sql`SELECT id, username FROM competitor_profiles WHERE id = ${numericId} LIMIT 1;`;
+  const targetUsername = comp ? comp.username : '';
+
+  const optionsObj = {
+    pin_id: cleanPin,
+    additional_fields: ["pin.gen_ai_topics"],
+    context_pin_ids: [],
+    context_near_dup_image_sigs: [],
+    homefeed_source_sig: null,
+    page_size: 24,
+    search_query: "",
+    source: "deep_linking",
+    top_level_source: "deep_linking",
+    top_level_source_depth: 1,
+    is_pdp: false,
+    client_tracking_params: "CwABAAAAEDE0ODExNTU0MzQxNjE4ODgLAAcAAAAPdW5rbm93bi91bmtub3duAA"
+  };
+
+  const dataParam = JSON.stringify({ options: optionsObj, context: {} });
+  const url = `https://www.pinterest.com/resource/RelatedModulesResource/get/?source_url=${encodeURIComponent(`/pin/${cleanPin}/`)}&data=${encodeURIComponent(dataParam)}`;
+
+  const headers = {
+    'accept': 'application/json, text/javascript, */*, q=0.01',
+    'accept-language': 'en-US,en;q=0.9',
+    'screen-dpr': '1',
+    'x-app-version': '664ee65',
+    'x-pinterest-pws-handler': 'www/pin/[id].js',
+    'x-requested-with': 'XMLHttpRequest',
+    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+    'origin': 'https://www.pinterest.com',
+    'referer': `https://www.pinterest.com/pin/${cleanPin}/`,
+    'sec-fetch-dest': 'empty',
+    'sec-fetch-mode': 'cors',
+    'sec-fetch-site': 'same-origin'
+  };
+
+  const res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
+  if (!res.ok) {
+    if (res.body) await res.body.cancel().catch(() => {});
+    throw new Error(`Pinterest returned HTTP ${res.status}`);
+  }
+
+  const json = await res.json();
+  const resResponse = json?.resource_response || json;
+  const items = resResponse?.data || [];
+
+  const candidateRows = [];
+  for (const item of items) {
+    const isPin = item?.type === 'pin' || (item?.id && /^\d+$/.test(String(item.id)));
+    if (!isPin) continue;
+
+    const candId = String(item.id);
+    if (candId === cleanPin) continue;
+
+    const title = typeof item.title === 'string' ? item.title : (typeof item.grid_title === 'string' ? item.grid_title : '');
+    const saves = Number(item.aggregated_pin_data?.aggregated_stats?.saves || item.save_count || 0);
+    const repins = Number(item.repin_count || 0);
+    const creator = item.pinner?.username || item.origin_pinner?.username || '';
+    const creatorName = item.pinner?.full_name || '';
+    const domain = item.domain || item.link_domain || '';
+    const link = item.link || '';
+    const img = item.images?.['236x']?.url || item.images?.['736x']?.url || item.images?.orig?.url || '';
+    const isSameAccount = creator.toLowerCase() === targetUsername.toLowerCase();
+
+    candidateRows.push({
+      competitor_id: numericId,
+      seed_pin_id: cleanPin,
+      candidate_pin_id: candId,
+      title: title.slice(0, 500),
+      image_url: img,
+      dominant_color: item.dominant_color || '#a88d56',
+      saves,
+      repins,
+      domain: domain.slice(0, 255),
+      destination_url: link,
+      is_product: Boolean(item.is_product || item.commerce_product),
+      is_same_account: isSameAccount,
+      creator_username: creator.slice(0, 100),
+      creator_name: creatorName.slice(0, 255),
+      provenance_engine: 'P2P_TWO_TOWER'
+    });
+  }
+
+  if (candidateRows.length > 0) {
+    candidateRows.sort((a, b) => a.candidate_pin_id.localeCompare(b.candidate_pin_id));
+
+    await sql`
+      INSERT INTO competitor_related_nodes (
+        competitor_id, seed_pin_id, candidate_pin_id, title, image_url,
+        dominant_color, saves, repins, domain, destination_url,
+        is_product, is_same_account, creator_username, creator_name,
+        provenance_engine, discovered_at
+      )
+      SELECT
+        x.competitor_id, x.seed_pin_id, x.candidate_pin_id, x.title, x.image_url,
+        x.dominant_color, x.saves, x.repins, x.domain, x.destination_url,
+        x.is_product, x.is_same_account, x.creator_username, x.creator_name,
+        x.provenance_engine, NOW()
+      FROM jsonb_to_recordset(${JSON.stringify(candidateRows)}::jsonb) AS x(
+        competitor_id int, seed_pin_id varchar, candidate_pin_id varchar, title text, image_url text,
+        dominant_color varchar, saves int, repins int, domain text, destination_url text,
+        is_product boolean, is_same_account boolean, creator_username varchar, creator_name varchar,
+        provenance_engine varchar
+      )
+      ON CONFLICT (competitor_id, seed_pin_id, candidate_pin_id) DO UPDATE SET
+        saves = GREATEST(competitor_related_nodes.saves, EXCLUDED.saves),
+        repins = GREATEST(competitor_related_nodes.repins, EXCLUDED.repins),
+        title = CASE WHEN EXCLUDED.title <> '' THEN EXCLUDED.title ELSE competitor_related_nodes.title END,
+        image_url = CASE WHEN EXCLUDED.image_url <> '' THEN EXCLUDED.image_url ELSE competitor_related_nodes.image_url END,
+        domain = CASE WHEN EXCLUDED.domain <> '' THEN EXCLUDED.domain ELSE competitor_related_nodes.domain END,
+        destination_url = CASE WHEN EXCLUDED.destination_url <> '' THEN EXCLUDED.destination_url ELSE competitor_related_nodes.destination_url END,
+        is_same_account = EXCLUDED.is_same_account;
+    `;
+  }
+
+  await sql`
+    INSERT INTO competitor_seed_pins (competitor_id, pin_id, title, last_crawled_at)
+    VALUES (${numericId}, ${cleanPin}, ${'Pin #' + cleanPin}, NOW())
+    ON CONFLICT (competitor_id, pin_id) DO UPDATE SET last_crawled_at = NOW();
+  `;
+
+  return { ok: true, pin_id: cleanPin, discovered_count: candidateRows.length };
+}
+
 
 
 
