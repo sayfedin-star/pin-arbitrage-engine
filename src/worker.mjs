@@ -37,6 +37,7 @@ import {
   crawlKeywordSERP,
   getKeywordPins,
   fetchKeywordTypeahead,
+  fetchVisualSearchLens,
   getKeywordGuides,
   getKeywordSERPComparison
 } from './modules/keywords/service.mjs';
@@ -1750,6 +1751,14 @@ export default {
         return jsonResponse(result);
       }
 
+      if (method === 'GET' && pathname === '/api/keywords/visual-search') {
+        const pinId = searchParams.get('pin_id');
+        if (!pinId) return jsonResponse({ error: 'pin_id is required' }, 400);
+        const cookie = env.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env.PINTEREST_COOKIE : null);
+        const result = await fetchVisualSearchLens(targetSql, pinId, cookie);
+        return jsonResponse(result, result.success ? 200 : 500);
+      }
+
       if (method === 'GET' && pathname === '/api/keywords/guides') {
         const keywordId = Number(searchParams.get('keyword_id'));
         if (!keywordId) return jsonResponse({ error: 'keyword_id is required' }, 400);
@@ -1773,26 +1782,33 @@ export default {
           return jsonResponse({ success: false, error: 'GITHUB_TOKEN environment variable is not configured' }, 400);
         }
         const workflowUrl = `https://api.github.com/repos/${repo}/actions/workflows/keyword-intelligence-velocity.yml/dispatches`;
-        const dispatchRes = await fetch(workflowUrl, {
-          method: 'POST',
-          headers: {
-            'Accept': 'application/vnd.github.v3+json',
-            'Authorization': `Bearer ${token}`,
-            'User-Agent': 'Pin-Arbitrage-Engine'
-          },
-          body: JSON.stringify({
-            ref: 'main',
-            inputs: {
-              target_keyword: targetKw,
-              max_pins: '50'
-            }
-          })
-        });
-        if (!dispatchRes.ok) {
-          const errText = await dispatchRes.text();
-          return jsonResponse({ success: false, error: `GitHub API error: ${errText}` }, dispatchRes.status);
+        let dispatchRes;
+        try {
+          dispatchRes = await fetch(workflowUrl, {
+            method: 'POST',
+            headers: {
+              'Accept': 'application/vnd.github.v3+json',
+              'Authorization': `Bearer ${token}`,
+              'User-Agent': 'Pin-Arbitrage-Engine'
+            },
+            body: JSON.stringify({
+              ref: 'main',
+              inputs: {
+                target_keyword: targetKw,
+                max_pins: '50'
+              }
+            })
+          });
+          if (!dispatchRes.ok) {
+            const errText = await dispatchRes.text();
+            return jsonResponse({ success: false, error: `GitHub API error: ${errText}` }, dispatchRes.status);
+          }
+          return jsonResponse({ success: true, message: 'Workflow dispatched successfully' });
+        } finally {
+          if (dispatchRes?.body && !dispatchRes.bodyUsed) {
+            await dispatchRes.body.cancel().catch(() => {});
+          }
         }
-        return jsonResponse({ success: true, message: 'Workflow dispatched successfully' });
       }
 
       // 17. Neon Multi-Project Fleet API

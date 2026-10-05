@@ -273,6 +273,15 @@ export function getKeywordsPageHtml() {
                         x-text="(Number(kw.avg_daily_velocity || 0) > 0 ? '+' : '') + Number(kw.avg_daily_velocity || 0) + ' v/d'"></span>
                 </div>
 
+                <!-- Mini Velocity Trend Sparkline -->
+                <div class="mt-2 flex items-center justify-between px-1">
+                  <span class="text-[9px] text-slate-400 font-mono">Velocity Sparkline:</span>
+                  <svg class="w-16 h-3.5 overflow-visible" viewBox="0 0 80 20">
+                    <path :d="generateSparklinePath(getSparklinePoints(kw), 80, 20)"
+                          fill="none" :stroke="Number(kw.avg_daily_velocity || 0) > 0 ? '#10b981' : '#64748b'" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </div>
+
                 <!-- Hover actions footer -->
                 <div class="mt-2 pt-2 border-t border-slate-200/60 dark:border-slate-800/60 flex items-center justify-between text-[11px] text-slate-400">
                   <span class="font-mono text-[10px]" x-text="(kw.snapshots_count || 0) + ' / 50 pins'"></span>
@@ -366,6 +375,44 @@ export function getKeywordsPageHtml() {
                   <span class="text-sm font-black text-purple-700 dark:text-purple-300 font-mono" x-text="selectedKeywordDetails?.stats?.dropped_out || 0"></span>
                 </div>
               </div>
+
+              <!-- Interactive Save Velocity Distribution Chart (رسم بياني لسرعة الحفظ) -->
+              <div class="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200/80 dark:border-slate-800/80 space-y-3">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div class="flex items-center space-x-2">
+                    <i data-lucide="trending-up" class="w-4 h-4 text-emerald-500"></i>
+                    <span class="text-xs font-bold text-slate-900 dark:text-white">SERP Save Velocity Distribution & Progression (Top 50 Pins)</span>
+                  </div>
+                  <!-- 4-Tier Interactive Breakdown -->
+                  <div class="flex flex-wrap items-center gap-1.5 text-[10px] font-mono font-bold">
+                    <span class="px-2 py-0.5 rounded bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30">🔥 Explosive: <strong x-text="selectedKeywordDetails?.velocity_chart?.explosive || 0"></strong></span>
+                    <span class="px-2 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">⚡ Trending: <strong x-text="selectedKeywordDetails?.velocity_chart?.trending || 0"></strong></span>
+                    <span class="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">📈 Steady: <strong x-text="selectedKeywordDetails?.velocity_chart?.steady || 0"></strong></span>
+                    <span class="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-300 dark:border-slate-700">⏸️ Stagnant: <strong x-text="selectedKeywordDetails?.velocity_chart?.stagnant || 0"></strong></span>
+                  </div>
+                </div>
+
+                <!-- SVG Velocity Wave Chart -->
+                <div class="h-20 w-full relative">
+                  <template x-if="selectedKeywordDetails?.velocity_chart?.points?.length > 1">
+                    <svg class="w-full h-full" preserveAspectRatio="none" viewBox="0 0 500 75">
+                      <defs>
+                        <linearGradient id="velocityChartGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stop-color="#10b981" stop-opacity="0.35"/>
+                          <stop offset="100%" stop-color="#10b981" stop-opacity="0.0"/>
+                        </linearGradient>
+                      </defs>
+                      <path :d="getVelocityAreaPath(selectedKeywordDetails.velocity_chart.points, 500, 75).area" fill="url(#velocityChartGrad)" />
+                      <path :d="getVelocityAreaPath(selectedKeywordDetails.velocity_chart.points, 500, 75).line" fill="none" stroke="#10b981" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                  </template>
+                  <template x-if="!selectedKeywordDetails?.velocity_chart?.points || selectedKeywordDetails.velocity_chart.points.length <= 1">
+                    <div class="h-full flex items-center justify-center text-xs text-slate-400 font-mono">
+                      Crawl pins to visualize the 50-pin velocity curve
+                    </div>
+                  </template>
+                </div>
+              </div>
             </div>
 
             <!-- SEMANTIC GUIDED SEARCH CAPSULES CLOUD (v3_guided_search) -->
@@ -455,15 +502,23 @@ export function getKeywordsPageHtml() {
                           </template>
                         </td>
 
-                        <!-- Pin Details (Image, Title, Pin ID) -->
+                        <!-- Pin Details (Image, Badges, Title, Pin ID) -->
                         <td class="py-3 px-3">
                           <div class="flex items-center space-x-3">
                             <template x-if="pin.image_url">
                               <img :src="pin.image_url" class="w-10 h-14 rounded-lg object-cover border border-slate-200 dark:border-slate-700 shrink-0 shadow-xs hover:scale-105 transition">
                             </template>
-                            <div class="min-w-0">
+                            <div class="min-w-0 space-y-1">
+                              <!-- Badges Strip: Format & Aspect Ratio -->
+                              <div class="flex items-center space-x-1.5 flex-wrap">
+                                <span class="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider"
+                                      :class="pin.metadata?.format === 'VIDEO PIN' ? 'bg-purple-500/20 text-purple-600 dark:text-purple-400 border border-purple-500/30' : (pin.metadata?.format === 'PRODUCT CARD' ? 'bg-cyan-500/20 text-cyan-600 dark:text-cyan-400 border border-cyan-500/30' : (pin.metadata?.format === 'IDEA PIN' ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30' : 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'))"
+                                      x-text="pin.metadata?.format || 'ORGANIC PIN'"></span>
+                                <span class="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700"
+                                      x-text="pin.metadata?.aspect_ratio || '2:3'"></span>
+                              </div>
                               <a :href="'https://www.pinterest.com/pin/' + pin.pin_id + '/'" target="_blank"
-                                 class="text-xs font-semibold text-slate-900 dark:text-white hover:text-emerald-500 line-clamp-2"
+                                 class="text-xs font-semibold text-slate-900 dark:text-white hover:text-emerald-500 line-clamp-2 block"
                                  x-text="pin.title || 'Untitled Pin'"></a>
                               <span class="text-[10px] text-slate-400 font-mono" x-text="'Pin ID: ' + pin.pin_id"></span>
                             </div>
@@ -486,23 +541,35 @@ export function getKeywordsPageHtml() {
 
                         <!-- Saves & Daily Velocity -->
                         <td class="py-3 px-3 text-center font-mono">
-                          <div class="space-y-0.5">
+                          <div class="space-y-1">
                             <span class="text-xs font-bold text-slate-900 dark:text-white block" x-text="formatNumber(pin.save_count) + ' saves'"></span>
-                            <span class="px-2 py-0.5 rounded text-[10px] font-bold inline-block"
-                                  :class="Number(pin.daily_save_velocity || 0) > 0 ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-400'"
-                                  x-text="(Number(pin.daily_save_velocity || 0) > 0 ? '+' : '') + Number(pin.daily_save_velocity || 0) + '/day'"></span>
+                            <div class="flex items-center justify-center space-x-1">
+                              <span class="px-2 py-0.5 rounded text-[10px] font-bold inline-block"
+                                    :class="Number(pin.daily_save_velocity || 0) > 0 ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-400'"
+                                    x-text="(Number(pin.daily_save_velocity || 0) > 0 ? '+' : '') + Number(pin.daily_save_velocity || 0) + '/day'"></span>
+                              <span class="px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase"
+                                    :class="pin.metadata?.velocity_tier === 'explosive' ? 'bg-rose-500/20 text-rose-600 dark:text-rose-400' : (pin.metadata?.velocity_tier === 'trending' ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400' : (pin.metadata?.velocity_tier === 'steady' ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400' : 'bg-slate-200 dark:bg-slate-800 text-slate-500'))"
+                                    x-text="pin.metadata?.velocity_tier === 'explosive' ? '🔥 EXPLOSIVE' : (pin.metadata?.velocity_tier === 'trending' ? '⚡ TRENDING' : (pin.metadata?.velocity_tier === 'steady' ? '📈 STEADY' : '⏸️ STAGNANT'))"></span>
+                            </div>
+                            <span class="text-[10px] text-slate-400 font-mono block" x-text="formatNumber(pin.repin_count) + ' repins'"></span>
                           </div>
                         </td>
 
                         <!-- Actions -->
                         <td class="py-3 px-3 text-center">
-                          <div class="flex items-center justify-center space-x-1">
+                          <div class="flex items-center justify-center space-x-1.5">
+                            <button @click="openVisualLens(pin)"
+                                    class="px-2.5 py-1.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-xs font-bold transition flex items-center space-x-1 shadow-xs active:scale-95"
+                                    title="Open Visual Similarity Lens (Find Competitor Clones & Templates)">
+                              <i data-lucide="scan" class="w-3.5 h-3.5"></i>
+                              <span>Lens</span>
+                            </button>
                             <a :href="'https://www.pinterest.com/pin/' + pin.pin_id + '/'" target="_blank"
-                               class="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition" title="Open on Pinterest">
+                               class="p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition" title="Open on Pinterest">
                               <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
                             </a>
                             <button @click="copyToClipboard(pin.pin_id, 'Copied Pin ID')"
-                                    class="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition" title="Copy Pin ID">
+                                    class="p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition" title="Copy Pin ID">
                               <i data-lucide="copy" class="w-3.5 h-3.5"></i>
                             </button>
                           </div>
@@ -552,10 +619,16 @@ export function getKeywordsPageHtml() {
                           <td class="py-3 px-3 font-mono font-bold text-slate-600 dark:text-slate-400" x-text="'Was #' + pin.rank_position"></td>
                           <td class="py-3 px-3 text-center font-mono" x-text="formatNumber(pin.save_count)"></td>
                           <td class="py-3 px-3 text-center">
-                            <a :href="'https://www.pinterest.com/pin/' + pin.pin_id + '/'" target="_blank"
-                               class="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 inline-block">
-                              <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
-                            </a>
+                            <div class="flex items-center justify-center space-x-1">
+                              <button @click="openVisualLens(pin)"
+                                      class="p-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30" title="Visual Lens">
+                                <i data-lucide="scan" class="w-3.5 h-3.5"></i>
+                              </button>
+                              <a :href="'https://www.pinterest.com/pin/' + pin.pin_id + '/'" target="_blank"
+                                 class="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 inline-block">
+                                <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+                              </a>
+                            </div>
                           </td>
                         </tr>
                       </template>
@@ -574,6 +647,172 @@ export function getKeywordsPageHtml() {
     </div>
 
   </main>
+
+  <!-- VISUAL SIMILARITY LENS MODAL (v3_visual_search) -->
+  <div x-show="isVisualLensModalOpen" x-cloak
+       x-transition:enter="transition ease-out duration-300"
+       x-transition:enter-start="opacity-0"
+       x-transition:enter-end="opacity-100"
+       x-transition:leave="transition ease-in duration-200"
+       x-transition:leave-start="opacity-100"
+       x-transition:leave-end="opacity-0"
+       @keydown.escape.window="closeVisualLens()"
+       class="fixed inset-0 z-50 overflow-y-auto bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+    
+    <div @click.away="closeVisualLens()"
+         class="bg-white dark:bg-[#0c1322] border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden transition-all">
+      
+      <!-- Modal Header -->
+      <div class="p-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-900/40">
+        <div class="flex items-center space-x-3">
+          <div class="w-10 h-10 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-500 text-white flex items-center justify-center shadow-lg shadow-emerald-600/20 shrink-0">
+            <i data-lucide="scan" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <div class="flex items-center space-x-2">
+              <h3 class="text-base font-black text-slate-900 dark:text-white">Visual Similarity Lens</h3>
+              <span class="px-2 py-0.5 text-[10px] font-bold uppercase rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 font-mono">v3_visual_search</span>
+            </div>
+            <p class="text-[11px] text-slate-500 dark:text-slate-400">Discover competitor duplicate clones, template matches & visual variants</p>
+          </div>
+        </div>
+        
+        <button @click="closeVisualLens()" class="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- Seed Pin Card -->
+      <template x-if="visualLensPin">
+        <div class="p-4 bg-emerald-500/5 border-b border-slate-200 dark:border-slate-800/80 flex items-center justify-between gap-4">
+          <div class="flex items-center space-x-3 min-w-0">
+            <img :src="visualLensPin.image_url" class="w-12 h-16 rounded-xl object-cover border border-emerald-500/30 shrink-0 shadow-sm">
+            <div class="min-w-0">
+              <div class="flex items-center space-x-2">
+                <span class="text-[10px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 font-mono">Seed Pin</span>
+                <span class="text-[10px] text-slate-400 font-mono" x-text="'ID: ' + visualLensPin.pin_id"></span>
+              </div>
+              <h4 class="text-xs font-bold text-slate-900 dark:text-white truncate" x-text="visualLensPin.title || 'Untitled Pin'"></h4>
+              <p class="text-[11px] text-slate-500 font-mono" x-text="(visualLensPin.domain ? 'Domain: ' + visualLensPin.domain + ' • ' : '') + formatNumber(visualLensPin.save_count) + ' saves'"></p>
+            </div>
+          </div>
+          <a :href="'https://www.pinterest.com/pin/' + visualLensPin.pin_id + '/'" target="_blank"
+             class="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-300 hover:text-emerald-500 transition shrink-0 flex items-center space-x-1">
+            <span>View Seed Pin</span>
+            <i data-lucide="external-link" class="w-3 h-3"></i>
+          </a>
+        </div>
+      </template>
+
+      <!-- Modal Body (Results / Loading / Error) -->
+      <div class="p-5 flex-1 overflow-y-auto space-y-4">
+        
+        <!-- Loading State -->
+        <template x-if="isVisualLensLoading">
+          <div class="py-12 text-center space-y-3">
+            <div class="w-10 h-10 rounded-2xl bg-emerald-500/10 text-emerald-500 mx-auto flex items-center justify-center">
+              <i data-lucide="loader-2" class="w-5 h-5 animate-spin"></i>
+            </div>
+            <p class="text-xs font-semibold text-slate-600 dark:text-slate-300">Scanning Pinterest visual graph for candidate clones...</p>
+            <p class="text-[11px] text-slate-400 font-mono">Analyzing visual embeddings and domain parity</p>
+          </div>
+        </template>
+
+        <!-- Error State -->
+        <template x-if="!isVisualLensLoading && visualLensError">
+          <div class="p-6 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-center space-y-2">
+            <i data-lucide="alert-triangle" class="w-6 h-6 text-rose-500 mx-auto"></i>
+            <p class="text-xs font-bold text-rose-600 dark:text-rose-400" x-text="visualLensError"></p>
+            <button @click="openVisualLens(visualLensPin)" class="px-3 py-1.5 rounded-xl bg-rose-500 text-white text-xs font-bold hover:bg-rose-600 transition">
+              Retry Visual Search
+            </button>
+          </div>
+        </template>
+
+        <!-- Empty Results -->
+        <template x-if="!isVisualLensLoading && !visualLensError && visualLensResults.length === 0">
+          <div class="py-12 text-center space-y-2">
+            <i data-lucide="search-x" class="w-8 h-8 text-slate-400 mx-auto"></i>
+            <p class="text-xs font-bold text-slate-700 dark:text-slate-300">No Direct Visual Clones Found</p>
+            <p class="text-[11px] text-slate-500">This pin appears visually unique with no duplicate template matches detected in the top clusters.</p>
+          </div>
+        </template>
+
+        <!-- Results Grid -->
+        <template x-if="!isVisualLensLoading && !visualLensError && visualLensResults.length > 0">
+          <div class="space-y-3">
+            <div class="flex items-center justify-between text-xs text-slate-500 pb-2 border-b border-slate-100 dark:border-slate-800">
+              <span class="font-bold text-slate-700 dark:text-slate-300" x-text="visualLensResults.length + ' Visual Matches Discovered'"></span>
+              <span class="text-[11px] font-mono">Ranked by Visual Proximity</span>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <template x-for="match in visualLensResults" :key="match.pin_id">
+                <div class="p-3.5 rounded-2xl border transition flex items-start space-x-3.5"
+                     :class="match.similarity_type === 'DOMAIN_CLONE' ? 'bg-rose-500/5 border-rose-500/30 dark:bg-rose-950/15' : 'bg-slate-50/80 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800'">
+                  
+                  <!-- Match Image Thumbnail -->
+                  <template x-if="match.image_url">
+                    <img :src="match.image_url" class="w-14 h-20 rounded-xl object-cover border border-slate-200 dark:border-slate-700 shrink-0 shadow-sm hover:scale-105 transition">
+                  </template>
+                  <template x-if="!match.image_url">
+                    <div class="w-14 h-20 rounded-xl bg-slate-200 dark:bg-slate-800 flex items-center justify-center shrink-0">
+                      <i data-lucide="image" class="w-4 h-4 text-slate-400"></i>
+                    </div>
+                  </template>
+
+                  <!-- Match Info -->
+                  <div class="min-w-0 flex-1 space-y-1.5">
+                    <div class="flex items-center justify-between gap-1">
+                      <span class="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider"
+                            :class="match.similarity_type === 'DOMAIN_CLONE' ? 'bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/40' : (match.similarity_type === 'TEMPLATE_CLONE' ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/40' : 'bg-cyan-500/20 text-cyan-600 dark:text-cyan-400 border border-cyan-500/40')"
+                            x-text="match.similarity_badge || match.similarity_type"></span>
+                      <span class="text-[10px] font-mono font-bold text-slate-700 dark:text-slate-300" x-text="formatNumber(match.save_count) + ' saves'"></span>
+                    </div>
+
+                    <a :href="'https://www.pinterest.com/pin/' + match.pin_id + '/'" target="_blank"
+                       class="text-xs font-bold text-slate-900 dark:text-white hover:text-emerald-500 line-clamp-2 block"
+                       x-text="match.title || 'Untitled Pin'"></a>
+
+                    <div class="flex items-center justify-between text-[11px] pt-1">
+                      <template x-if="match.domain">
+                        <a :href="match.destination_url || '#'" target="_blank"
+                           class="text-[10px] font-mono text-slate-500 hover:text-emerald-500 truncate max-w-[130px] flex items-center space-x-1">
+                          <i data-lucide="globe" class="w-3 h-3 shrink-0"></i>
+                          <span x-text="match.domain"></span>
+                        </a>
+                      </template>
+                      <div class="flex items-center space-x-1 ml-auto">
+                        <button @click="copyToClipboard(match.pin_id, 'Copied Pin ID')"
+                                class="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200" title="Copy Pin ID">
+                          <i data-lucide="copy" class="w-3 h-3"></i>
+                        </button>
+                        <a :href="'https://www.pinterest.com/pin/' + match.pin_id + '/'" target="_blank"
+                           class="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200" title="Open on Pinterest">
+                          <i data-lucide="external-link" class="w-3 h-3"></i>
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+              </template>
+            </div>
+          </div>
+        </template>
+
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 flex items-center justify-between">
+        <span class="text-[11px] text-slate-500 font-mono">Pinterest Reverse Visual Lens Discovery</span>
+        <button @click="closeVisualLens()" class="px-4 py-2 rounded-xl text-xs font-bold bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition">
+          Close Lens
+        </button>
+      </div>
+
+    </div>
+  </div>
 
   <script>
     function keywordStudio() {
@@ -594,6 +833,13 @@ export function getKeywordsPageHtml() {
         typeaheadSuggestions: [],
         isTypeaheadLoading: false,
         isTypeaheadOpen: false,
+
+        // Visual Similarity Lens State (v3_visual_search)
+        isVisualLensModalOpen: false,
+        isVisualLensLoading: false,
+        visualLensPin: null,
+        visualLensResults: [],
+        visualLensError: null,
 
         // UI Tabs & State
         activeTab: 'serp',
@@ -872,6 +1118,73 @@ export function getKeywordsPageHtml() {
           } catch (_) {
             return String(d);
           }
+        },
+
+        async openVisualLens(pin) {
+          this.visualLensPin = pin;
+          this.isVisualLensModalOpen = true;
+          this.isVisualLensLoading = true;
+          this.visualLensResults = [];
+          this.visualLensError = null;
+
+          try {
+            const res = await fetch(this.getApiUrl('/api/keywords/visual-search?pin_id=' + encodeURIComponent(pin.pin_id)));
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Failed to fetch visual search matches');
+            this.visualLensResults = data.matches || [];
+          } catch (err) {
+            this.visualLensError = err.message;
+          } finally {
+            this.isVisualLensLoading = false;
+            this.$nextTick(() => { lucide.createIcons(); });
+          }
+        },
+
+        closeVisualLens() {
+          this.isVisualLensModalOpen = false;
+          this.visualLensPin = null;
+          this.visualLensResults = [];
+          this.visualLensError = null;
+        },
+
+        getSparklinePoints(kw) {
+          const history = kw.metadata?.velocity_history;
+          if (Array.isArray(history) && history.length > 1) {
+            return history.map(h => Number(h.velocity || 0));
+          }
+          const cur = Number(kw.avg_daily_velocity || 0);
+          return [Math.max(0, cur * 0.6), Math.max(0, cur * 0.85), cur];
+        },
+
+        generateSparklinePath(points, width = 80, height = 20) {
+          if (!points || points.length < 2) return '';
+          const min = Math.min(...points);
+          const max = Math.max(...points);
+          const range = (max - min) === 0 ? 1 : (max - min);
+          const step = width / (points.length - 1);
+          return points.map((p, i) => {
+            const x = (i * step).toFixed(1);
+            const y = (height - ((p - min) / range) * (height - 4) - 2).toFixed(1);
+            return (i === 0 ? 'M' : 'L') + ' ' + x + ' ' + y;
+          }).join(' ');
+        },
+
+        getVelocityAreaPath(points, width = 500, height = 75) {
+          if (!points || points.length < 2) return { line: '', area: '' };
+          const min = 0;
+          const max = Math.max(...points, 1);
+          const range = max - min;
+          const step = width / (points.length - 1);
+
+          const coords = points.map((p, i) => {
+            const x = (i * step).toFixed(1);
+            const y = (height - ((p - min) / range) * (height - 12) - 4).toFixed(1);
+            return { x, y };
+          });
+
+          const line = coords.map((c, i) => (i === 0 ? 'M' : 'L') + ' ' + c.x + ' ' + c.y).join(' ');
+          const area = line + ' L ' + width + ' ' + height + ' L 0 ' + height + ' Z';
+          return { line, area };
         }
       };
     }
