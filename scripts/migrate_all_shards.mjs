@@ -17,6 +17,7 @@
  * 12. seed_guided_search_capsules
  * 13. tracked_keywords
  * 14. keyword_pins_snapshots
+ * 15. keyword_guided_capsules
  */
 
 import { neon } from '@neondatabase/serverless';
@@ -398,7 +399,7 @@ export async function migrateSingleShard(shard) {
       target_pin_count INT DEFAULT 50,
       refresh_interval_hours INT DEFAULT 24,
       last_crawled_at TIMESTAMPTZ,
-      top_pin_id VARCHAR(64),
+      top_pin_id VARCHAR(255),
       top_pin_title TEXT,
       top_pin_image TEXT,
       avg_daily_velocity NUMERIC(10, 2) DEFAULT 0,
@@ -409,13 +410,14 @@ export async function migrateSingleShard(shard) {
       updated_at TIMESTAMPTZ DEFAULT NOW()
     );
   `;
+  await sql`ALTER TABLE tracked_keywords ALTER COLUMN top_pin_id TYPE VARCHAR(255);`.catch(() => {});
 
   // 14. Keyword Pins Snapshots
   await sql`
     CREATE TABLE IF NOT EXISTS keyword_pins_snapshots (
       id BIGSERIAL PRIMARY KEY,
       keyword_id INT NOT NULL REFERENCES tracked_keywords(id) ON DELETE CASCADE,
-      pin_id VARCHAR(64) NOT NULL,
+      pin_id VARCHAR(255) NOT NULL,
       rank_position INT DEFAULT 1,
       title TEXT,
       domain VARCHAR(255),
@@ -430,6 +432,31 @@ export async function migrateSingleShard(shard) {
       created_at TIMESTAMPTZ DEFAULT NOW(),
       UNIQUE(keyword_id, pin_id, snapshot_date)
     );
+  `;
+  await sql`ALTER TABLE keyword_pins_snapshots ALTER COLUMN pin_id TYPE VARCHAR(255);`.catch(() => {});
+
+  // 15. Keyword Guided Search Capsules
+  await sql`
+    CREATE TABLE IF NOT EXISTS keyword_guided_capsules (
+      id BIGSERIAL PRIMARY KEY,
+      keyword_id INT NOT NULL REFERENCES tracked_keywords(id) ON DELETE CASCADE,
+      term TEXT NOT NULL,
+      display_label TEXT NOT NULL,
+      score NUMERIC(12, 4) DEFAULT 0.0,
+      dominant_color VARCHAR(64),
+      display_order INT DEFAULT 0,
+      discovered_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(keyword_id, term)
+    );
+  `;
+  await sql`ALTER TABLE keyword_guided_capsules ALTER COLUMN dominant_color TYPE VARCHAR(64);`.catch(() => {});
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_kw_guided_capsules_kw 
+      ON keyword_guided_capsules(keyword_id, display_order ASC);
+  `;
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_kw_guided_capsules_score 
+      ON keyword_guided_capsules(keyword_id, score DESC);
   `;
 }
 

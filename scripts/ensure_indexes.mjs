@@ -106,6 +106,17 @@ async function optimizeIndexes() {
   await sql`CREATE INDEX IF NOT EXISTS idx_competitor_pins_enrichment_global ON competitor_pins(enrichment_status) WHERE enrichment_status = 'pending';`;
   await sql`CREATE INDEX IF NOT EXISTS idx_competitor_pins_stale_reclaim ON competitor_pins(enrichment_status, updated_at) WHERE enrichment_status = 'processing';`;
 
+  console.log('[*] 10. Ensuring keyword intelligence indexes & column widths...');
+  await sql`ALTER TABLE tracked_keywords ALTER COLUMN top_pin_id TYPE VARCHAR(255);`.catch(() => {});
+  await sql`ALTER TABLE keyword_pins_snapshots ALTER COLUMN pin_id TYPE VARCHAR(255);`.catch(() => {});
+  await sql`ALTER TABLE keyword_guided_capsules ALTER COLUMN dominant_color TYPE VARCHAR(64);`.catch(() => {});
+  await sql`CREATE INDEX IF NOT EXISTS idx_tracked_keywords_keyword ON tracked_keywords(keyword);`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_tracked_keywords_active ON tracked_keywords(is_active);`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_keyword_pins_lookup ON keyword_pins_snapshots(keyword_id, snapshot_date DESC);`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_keyword_pins_velocity ON keyword_pins_snapshots(daily_save_velocity DESC);`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_kw_guided_capsules_kw ON keyword_guided_capsules(keyword_id, display_order ASC);`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_kw_guided_capsules_score ON keyword_guided_capsules(keyword_id, score DESC);`;
+
   console.log('[+] All indexes and columns verified and active in Neon Serverless Postgres!');
 }
 

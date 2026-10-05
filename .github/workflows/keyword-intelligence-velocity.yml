@@ -1,0 +1,56 @@
+name: Keyword Intelligence & Velocity Pipeline
+
+on:
+  schedule:
+    # Run daily at 05:00 UTC to compute exact 24h save velocity
+    - cron: '0 5 * * *'
+  workflow_dispatch:
+    inputs:
+      target_keyword:
+        description: 'Specific keyword to crawl (leave empty to crawl all active tracked keywords)'
+        required: false
+        type: string
+        default: ''
+      max_pins:
+        description: 'Target pins count to harvest per keyword (default: 50)'
+        required: false
+        type: string
+        default: '50'
+
+concurrency:
+  group: keyword-intelligence-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  sweep-keyword-serp:
+    name: Crawl SERP & Compute 24h Save Velocity
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: 1. Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: 2. Setup Node.js 22 runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: 3. Check Runner Egress IP
+        run: |
+          echo "=== GitHub Actions Runner Egress IP ==="
+          curl -s https://api.ipify.org && echo ""
+          echo "======================================="
+
+      - name: 4. Install dependencies
+        run: npm ci
+
+      - name: 5. Execute Keyword Velocity Autonomous Crawler
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PINTEREST_COOKIE: ${{ secrets.PINTEREST_COOKIE }}
+          TARGET_KEYWORD: ${{ inputs.target_keyword }}
+          MAX_PINS: ${{ inputs.max_pins || '50' }}
+        run: node scripts/keyword-velocity-crawler.mjs

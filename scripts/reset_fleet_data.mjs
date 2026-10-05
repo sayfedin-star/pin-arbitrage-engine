@@ -62,11 +62,12 @@ export async function purgeHubData() {
   // 4. Truncate keywords data
   await sql`
     TRUNCATE TABLE 
+      keyword_guided_capsules,
       keyword_pins_snapshots,
       tracked_keywords
     CASCADE;
   `;
-  console.log('[+] Purged tracked_keywords, keyword_pins_snapshots');
+  console.log('[+] Purged tracked_keywords, keyword_pins_snapshots, keyword_guided_capsules');
 
   // 5. Reset qualification rules to defaults
   await sql`

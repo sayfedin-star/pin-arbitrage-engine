@@ -7,6 +7,7 @@
 
 import { neon } from '@neondatabase/serverless';
 import { getDashboardHtml } from './dashboard-ui.mjs';
+import { getKeywordsPageHtml } from './keywords-ui.mjs';
 import {
   getCompetitorsOverview,
   listCompetitors,
@@ -30,7 +31,15 @@ import {
   getCompetitorRelatedIntersections,
   harvestSinglePinRelatedLive
 } from './modules/competitors/service.mjs';
-import { listKeywords, addKeyword, crawlKeywordSERP, getKeywordPins } from './modules/keywords/service.mjs';
+import {
+  listKeywords,
+  addKeyword,
+  crawlKeywordSERP,
+  getKeywordPins,
+  fetchKeywordTypeahead,
+  getKeywordGuides,
+  getKeywordSERPComparison
+} from './modules/keywords/service.mjs';
 import { getFleetProjects, registerNewProject, syncFleetDatabases, syncCompetitorAcrossFleet, pingFleetProject, getFleetProjectUrl } from './modules/fleet/service.mjs';
 import {
   getPinArchiveOverview,
@@ -120,6 +129,9 @@ function formatAge(days) {
   return `${(d / 365).toFixed(1)}y ago`;
 }
 
+// Shard database connection cache to prevent connection/memory leaks in Workers
+const shardSqlCache = new Map();
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -128,6 +140,17 @@ export default {
 
     if (method === 'OPTIONS') {
       return corsOptionsResponse();
+    }
+
+    // Serve Dedicated Keywords Studio HTML
+    if (pathname === '/keywords') {
+      return new Response(getKeywordsPageHtml(), {
+        status: 200,
+        headers: {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'no-cache'
+        }
+      });
     }
 
     // Serve Frontend Dashboard HTML for root or any creator handle route (e.g. /wifesrecipesbyme)
@@ -190,7 +213,10 @@ export default {
           LIMIT 1;
         `;
         if (proj && proj.database_url) {
-          targetSql = neon(proj.database_url);
+          if (!shardSqlCache.has(proj.database_url)) {
+            shardSqlCache.set(proj.database_url, neon(proj.database_url));
+          }
+          targetSql = shardSqlCache.get(proj.database_url);
         }
       } catch (_) {}
     }
@@ -1716,6 +1742,57 @@ export default {
         if (!keywordId) return jsonResponse({ error: 'keyword_id is required' }, 400);
         const pins = await getKeywordPins(targetSql, keywordId);
         return jsonResponse({ success: true, pins });
+      }
+
+      if (method === 'GET' && pathname === '/api/keywords/typeahead') {
+        const q = searchParams.get('q') || searchParams.get('term') || '';
+        const result = await fetchKeywordTypeahead(q);
+        return jsonResponse(result);
+      }
+
+      if (method === 'GET' && pathname === '/api/keywords/guides') {
+        const keywordId = Number(searchParams.get('keyword_id'));
+        if (!keywordId) return jsonResponse({ error: 'keyword_id is required' }, 400);
+        const guides = await getKeywordGuides(targetSql, keywordId);
+        return jsonResponse({ success: true, guides });
+      }
+
+      if (method === 'GET' && pathname === '/api/keywords/serp-compare') {
+        const keywordId = Number(searchParams.get('keyword_id'));
+        if (!keywordId) return jsonResponse({ error: 'keyword_id is required' }, 400);
+        const result = await getKeywordSERPComparison(targetSql, keywordId);
+        return jsonResponse({ success: true, ...result });
+      }
+
+      if (method === 'POST' && pathname === '/api/keywords/dispatch-workflow') {
+        const body = await request.json().catch(() => ({}));
+        const targetKw = body.target_keyword || '';
+        const repo = (typeof env !== 'undefined' && env?.GITHUB_REPOSITORY) || (typeof process !== 'undefined' ? process.env?.GITHUB_REPOSITORY : null) || 'sayfedin-star/pin-arbitrage-engine';
+        const token = (typeof env !== 'undefined' && (env?.GITHUB_TOKEN || env?.GITHUB_PAT)) || (typeof process !== 'undefined' ? (process.env?.GITHUB_TOKEN || process.env?.GITHUB_PAT || process.env?.GH_TOKEN) : null);
+        if (!token) {
+          return jsonResponse({ success: false, error: 'GITHUB_TOKEN environment variable is not configured' }, 400);
+        }
+        const workflowUrl = `https://api.github.com/repos/${repo}/actions/workflows/keyword-intelligence-velocity.yml/dispatches`;
+        const dispatchRes = await fetch(workflowUrl, {
+          method: 'POST',
+          headers: {
+            'Accept': 'application/vnd.github.v3+json',
+            'Authorization': `Bearer ${token}`,
+            'User-Agent': 'Pin-Arbitrage-Engine'
+          },
+          body: JSON.stringify({
+            ref: 'main',
+            inputs: {
+              target_keyword: targetKw,
+              max_pins: '50'
+            }
+          })
+        });
+        if (!dispatchRes.ok) {
+          const errText = await dispatchRes.text();
+          return jsonResponse({ success: false, error: `GitHub API error: ${errText}` }, dispatchRes.status);
+        }
+        return jsonResponse({ success: true, message: 'Workflow dispatched successfully' });
       }
 
       // 17. Neon Multi-Project Fleet API

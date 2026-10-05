@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS tracked_keywords (
     target_pin_count INT DEFAULT 50,
     refresh_interval_hours INT DEFAULT 24,
     last_crawled_at TIMESTAMP WITH TIME ZONE,
-    top_pin_id VARCHAR(64),
+    top_pin_id VARCHAR(255),
     top_pin_title TEXT,
     top_pin_image TEXT,
     avg_daily_velocity NUMERIC(10, 2) DEFAULT 0,
@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS tracked_keywords (
 CREATE TABLE IF NOT EXISTS keyword_pins_snapshots (
     id BIGSERIAL PRIMARY KEY,
     keyword_id INT NOT NULL REFERENCES tracked_keywords(id) ON DELETE CASCADE,
-    pin_id VARCHAR(64) NOT NULL,
+    pin_id VARCHAR(255) NOT NULL,
     rank_position INT DEFAULT 1,
     title TEXT,
     domain VARCHAR(255),

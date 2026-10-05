@@ -6251,6 +6251,10 @@ export function getDashboardHtml() {
           </div>
         </div>
         <div class="flex items-center space-x-2">
+          <a href="/keywords" class="px-3.5 py-2 text-xs font-bold rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 transition flex items-center space-x-1.5 border border-slate-200 dark:border-slate-700 shadow-sm active:scale-95" title="Open full-screen standalone studio">
+            <i data-lucide="sparkles" class="w-3.5 h-3.5 text-emerald-500"></i>
+            <span>Open Dedicated Studio ↗</span>
+          </a>
           <button @click="isAddKeywordModalOpen = true" class="px-3.5 py-2 text-xs font-bold rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white transition flex items-center space-x-1.5 shadow-sm shadow-emerald-950/20 active:scale-95">
             <i data-lucide="plus" class="w-3.5 h-3.5"></i>
             <span>+ Add Keywords</span>

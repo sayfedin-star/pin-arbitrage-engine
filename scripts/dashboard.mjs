@@ -16,6 +16,7 @@ import { promisify } from 'node:util';
 import { neon } from '@neondatabase/serverless';
 import { parsePinCandidate, formatPinterestCookie } from './cluster-intelligence.mjs';
 import { getDashboardHtml } from '../src/dashboard-ui.mjs';
+import { getKeywordsPageHtml } from '../src/keywords-ui.mjs';
 import {
   getCompetitorsOverview,
   listCompetitors,
@@ -38,7 +39,15 @@ import {
   getCompetitorRelatedIntersections,
   harvestSinglePinRelatedLive
 } from '../src/modules/competitors/service.mjs';
-import { listKeywords, addKeyword, crawlKeywordSERP, getKeywordPins } from '../src/modules/keywords/service.mjs';
+import {
+  listKeywords,
+  addKeyword,
+  crawlKeywordSERP,
+  getKeywordPins,
+  fetchKeywordTypeahead,
+  getKeywordGuides,
+  getKeywordSERPComparison
+} from '../src/modules/keywords/service.mjs';
 import { getFleetProjects, registerNewProject, getFleetCompetitors, syncProjectCompetitorStats, syncFleetDatabases, syncCompetitorAcrossFleet, pingFleetProject, getFleetProjectUrl } from '../src/modules/fleet/service.mjs';
 import {
   getPinArchiveOverview,
@@ -385,6 +394,9 @@ const parseJsonBody = parseRequestBody;
 
 // getDashboardHtml is imported from ../src/dashboard-ui.mjs
 
+// Cache Neon SQL instances per shard to prevent connection/memory leaks
+const shardSqlCache = new Map();
+
 // HTTP Server
 const server = http.createServer(async (req, res) => {
   const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
@@ -412,7 +424,10 @@ const server = http.createServer(async (req, res) => {
           LIMIT 1;
         `;
         if (proj && proj.database_url) {
-          targetSql = neon(proj.database_url);
+          if (!shardSqlCache.has(proj.database_url)) {
+            shardSqlCache.set(proj.database_url, neon(proj.database_url));
+          }
+          targetSql = shardSqlCache.get(proj.database_url);
         }
       } catch (_) {}
     }
@@ -1910,6 +1925,57 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { success: true, pins });
     }
 
+    if (method === 'GET' && pathname === '/api/keywords/typeahead') {
+      const q = searchParams.get('q') || searchParams.get('term') || '';
+      const result = await fetchKeywordTypeahead(q);
+      return sendJson(res, 200, result);
+    }
+
+    if (method === 'GET' && pathname === '/api/keywords/guides') {
+      const keywordId = Number(searchParams.get('keyword_id'));
+      if (!keywordId) return sendJson(res, 400, { error: 'keyword_id is required' });
+      const guides = await getKeywordGuides(targetSql, keywordId);
+      return sendJson(res, 200, { success: true, guides });
+    }
+
+    if (method === 'GET' && pathname === '/api/keywords/serp-compare') {
+      const keywordId = Number(searchParams.get('keyword_id'));
+      if (!keywordId) return sendJson(res, 400, { error: 'keyword_id is required' });
+      const result = await getKeywordSERPComparison(targetSql, keywordId);
+      return sendJson(res, 200, { success: true, ...result });
+    }
+
+    if (method === 'POST' && pathname === '/api/keywords/dispatch-workflow') {
+      const body = await parseJsonBody(req);
+      const targetKw = body.target_keyword || '';
+      const repo = process.env.GITHUB_REPOSITORY || 'sayfedin-star/pin-arbitrage-engine';
+      const token = process.env.GITHUB_TOKEN || process.env.GITHUB_PAT || process.env.GH_TOKEN;
+      if (!token) {
+        return sendJson(res, 400, { success: false, error: 'GITHUB_TOKEN environment variable is not configured' });
+      }
+      const workflowUrl = `https://api.github.com/repos/${repo}/actions/workflows/keyword-intelligence-velocity.yml/dispatches`;
+      const dispatchRes = await fetch(workflowUrl, {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/vnd.github.v3+json',
+          'Authorization': `Bearer ${token}`,
+          'User-Agent': 'Pin-Arbitrage-Engine'
+        },
+        body: JSON.stringify({
+          ref: 'main',
+          inputs: {
+            target_keyword: targetKw,
+            max_pins: '50'
+          }
+        })
+      });
+      if (!dispatchRes.ok) {
+        const errText = await dispatchRes.text();
+        return sendJson(res, dispatchRes.status, { success: false, error: `GitHub API error: ${errText}` });
+      }
+      return sendJson(res, 200, { success: true, message: 'Workflow dispatched successfully' });
+    }
+
     // Neon Multi-Project Fleet API
     if (method === 'GET' && pathname === '/api/fleet/projects') {
       const projects = await getFleetProjects(sql);
@@ -2060,7 +2126,19 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { success: true, ...result });
     }
 
-    // 9. GET or HEAD / or SPA creator routes (e.g. /wifesrecipesbyme)
+    // 9. GET or HEAD /keywords -> Dedicated Keywords Studio
+    if ((method === 'GET' || method === 'HEAD') && pathname === '/keywords') {
+      const html = getKeywordsPageHtml();
+      res.writeHead(200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-cache',
+        'Content-Length': Buffer.byteLength(html)
+      });
+      if (method === 'HEAD') return res.end();
+      return res.end(html);
+    }
+
+    // 10. GET or HEAD / or SPA creator routes (e.g. /wifesrecipesbyme)
     if ((method === 'GET' || method === 'HEAD') && !pathname.startsWith('/api/')) {
       const html = getDashboardHtml();
       res.writeHead(200, {
