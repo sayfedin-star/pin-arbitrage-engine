@@ -59,6 +59,7 @@ import {
   getKeywordSERPComparison,
   getKeywordIntelligence
 } from '../src/modules/keywords/service.mjs';
+import { fetchPinterestTrends } from '../src/modules/keywords/trends-service.mjs';
 import { getFleetProjects, registerNewProject, getFleetCompetitors, syncProjectCompetitorStats, syncFleetDatabases, syncCompetitorAcrossFleet, pingFleetProject, getFleetProjectUrl } from '../src/modules/fleet/service.mjs';
 import {
   getPinArchiveOverview,
@@ -2038,6 +2039,13 @@ const server = http.createServer(async (req, res) => {
       if (!keywordId) return sendJson(res, 400, { error: 'keyword_id is required' });
       const result = await getKeywordIntelligence(targetSql, keywordId);
       return sendJson(res, 200, result);
+    }
+
+    if (method === 'GET' && pathname === '/api/keywords/trends') {
+      const term = searchParams.get('term') || searchParams.get('q') || searchParams.get('keyword') || '';
+      const country = searchParams.get('country') || 'US';
+      const result = await fetchPinterestTrends(term, country);
+      return sendJson(res, result.success ? 200 : 400, result);
     }
 
     if (method === 'POST' && pathname === '/api/keywords/dispatch-workflow') {

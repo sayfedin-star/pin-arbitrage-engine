@@ -40,10 +40,11 @@ const VISUAL_TTL_MS = 15 * 60 * 1000;
  * preventing JSON format objects (e.g. {"args":[],"format":"..."}) from corrupting pin titles.
  * Traverses all Pinterest title variants, descriptions, link slugs, and visual annotations.
  */
-export function extractPinTitle(item) {
-  if (!item) return 'Untitled Pin';
+export function extractPinTitle(item, fallbackQuery = '') {
+  if (!item) return fallbackQuery ? `${fallbackQuery} Idea` : 'Pinterest Pin Idea';
   
-  const candidates = [
+  // 1. Primary explicit title fields
+  const primaryCandidates = [
     item.title,
     item.grid_title,
     item.headline,
@@ -53,15 +54,10 @@ export function extractPinTitle(item) {
     item.story_pin_data?.metadata?.root?.title,
     item.pin_join?.story_pin_data?.metadata?.root?.title,
     item.seo_title,
-    item.seoTitle,
-    item.seoAltText,
-    item.alt_text,
-    item.closeup_unified_description,
-    item.grid_description,
-    item.description
+    item.seoTitle
   ];
 
-  for (let c of candidates) {
+  for (let c of primaryCandidates) {
     if (!c) continue;
     if (typeof c === 'object') {
       c = c.text || c.title || c.headline || c.format || c.name || '';
@@ -76,13 +72,26 @@ export function extractPinTitle(item) {
     if (!str || str === 'Explore featured boards' || str === 'Untitled Pin' || str === '{}' || str === 'Related Interests') {
       continue;
     }
-    if (str.length > 120 && str.includes('\n')) {
-      str = str.split('\n')[0].trim();
+    // Truncate long descriptions masquerading as titles to first sentence
+    if (str.length > 90 && (str.includes('\n') || str.includes('.') || str.includes('!'))) {
+      const firstSentence = str.split(/[\n.!?]/)[0].trim();
+      if (firstSentence.length > 5) return firstSentence.slice(0, 110);
     }
-    return str.slice(0, 300);
+    return str.slice(0, 150);
   }
 
-  // Fallback 1: Derive clean title from destination link slug
+  // 2. High-precision Fallback: Pinterest Computer-Vision Visual Annotation Taxonomy
+  const firstAnnotation = Array.isArray(item.pin_join?.visual_annotation)
+    ? item.pin_join.visual_annotation[0]
+    : null;
+  if (firstAnnotation && typeof firstAnnotation === 'string' && firstAnnotation.trim()) {
+    const cleanAnn = firstAnnotation.trim();
+    if (cleanAnn.length > 3 && cleanAnn !== 'Related Interests') {
+      return cleanAnn.slice(0, 120);
+    }
+  }
+
+  // 3. Fallback: Clean readable slug derived from destination link URL
   if (item.link || item.url) {
     try {
       const u = new URL(item.link || item.url);
@@ -94,25 +103,37 @@ export function extractPinTitle(item) {
           .replace(/\.html?$/i, '')
           .replace(/\b\w/g, ch => ch.toUpperCase())
           .trim();
-        if (readable.length > 5) return readable.slice(0, 150);
+        if (readable.length > 4) return readable.slice(0, 120);
       }
     } catch (_) {}
   }
 
-  // Fallback 2: Pinterest Visual Annotation
-  const firstAnnotation = Array.isArray(item.pin_join?.visual_annotation)
-    ? item.pin_join.visual_annotation[0]
-    : null;
-  if (firstAnnotation && typeof firstAnnotation === 'string' && firstAnnotation.trim()) {
-    return firstAnnotation.trim();
+  // 4. Secondary fallback: First sentence of description or alt text (never a run-on essay)
+  const secondaryCandidates = [
+    item.seoAltText,
+    item.alt_text,
+    item.grid_description,
+    item.closeup_unified_description,
+    item.description
+  ];
+
+  for (let c of secondaryCandidates) {
+    if (!c) continue;
+    let str = String(c || '').trim();
+    if (!str || str === 'Untitled Pin') continue;
+    const firstSentence = str.split(/[\n.!?]/)[0].trim();
+    if (firstSentence && firstSentence.length > 5) {
+      return firstSentence.slice(0, 110);
+    }
   }
 
-  // Fallback 3: Board Name
+  // 5. Fallback: Board Name
   if (item.board?.name && typeof item.board.name === 'string' && item.board.name.trim()) {
     return `${item.board.name.trim()} Pin`;
   }
 
-  return 'Untitled Pin';
+  // 6. Absolute fail-safe: clean readable query title
+  return fallbackQuery ? `${fallbackQuery} Idea` : 'Pinterest Pin Idea';
 }
 
 /**
@@ -810,7 +831,7 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
       if (preparedPins.length >= targetCount) break;
       seenPinIds.add(pinId);
 
-      const title = extractPinTitle(item);
+      const title = extractPinTitle(item, keywordRow.keyword);
       
       let domain = (item.domain || '').slice(0, 255);
       if (!domain && item.link) {
@@ -830,13 +851,23 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
         item.aggregated_pin_data?.aggregated_stats?.saves ?? 
         0
       );
-      const reactions = Number(
-        item.reaction_counts?.['1'] || 
-        item.reaction_counts?.['like'] || 
-        item.reaction_counts?.['heart'] || 
-        item.reaction_counts?.['total'] || 
-        0
-      );
+      
+      let reactions = 0;
+      if (item.reaction_counts && typeof item.reaction_counts === 'object') {
+        for (const v of Object.values(item.reaction_counts)) {
+          const num = Number(v);
+          if (!isNaN(num) && num > 0) reactions += num;
+        }
+      }
+      if (reactions === 0) {
+        reactions = Number(
+          item.reaction_counts?.['1'] || 
+          item.reaction_counts?.['like'] || 
+          item.reaction_counts?.['heart'] || 
+          item.reaction_counts?.['total'] || 
+          0
+        );
+      }
       // In modern Pinterest search results, public saves are frequently hidden while reactions are exposed.
       // Prioritize raw saves; fallback cleanly to reactions to prevent misleading 0 saves.
       const saves = rawSaves > 0 ? rawSaves : reactions;
@@ -938,6 +969,9 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
         ? item.pin_join.visual_annotation.filter(Boolean)
         : [];
 
+      const description = (item.grid_description || item.closeup_unified_description || item.description || '').slice(0, 500);
+      const boardName = item.board?.name || null;
+
       preparedPins.push({
         pin_id: pinId,
         rank_position: rank,
@@ -968,7 +1002,9 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
           pinner,
           raw_saves: rawSaves,
           reactions,
-          visual_annotations: visualAnnotations
+          visual_annotations: visualAnnotations,
+          description,
+          board_name: boardName
         }
       });
 
