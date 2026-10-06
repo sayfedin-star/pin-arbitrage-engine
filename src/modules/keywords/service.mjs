@@ -196,6 +196,60 @@ export async function addKeyword(sql, { keyword, category = 'General', target_pi
 }
 
 /**
+ * Resolve or auto-register a keyword from a URL slug or search query
+ * Supports: 'tater-tot-casserole', 'tater%20tot%20casserole', 'tater tot casserole'
+ */
+export async function resolveKeywordBySlug(sql, slug, autoCreate = true) {
+  if (!slug || typeof slug !== 'string') return null;
+  const raw = decodeURIComponent(slug).trim();
+  if (!raw) return null;
+  const normalized = raw.replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+  const slugified = normalized.replace(/\s+/g, '-');
+
+  // Query database for existing keyword matching either format
+  const [existing] = await sql`
+    SELECT *
+    FROM tracked_keywords
+    WHERE LOWER(keyword) = ${normalized}
+       OR LOWER(keyword) = ${raw.toLowerCase()}
+       OR REPLACE(LOWER(keyword), ' ', '-') = ${slugified}
+       OR REPLACE(LOWER(keyword), ' ', '-') = ${raw.toLowerCase()}
+    ORDER BY created_at DESC
+    LIMIT 1;
+  `;
+
+  if (existing) return existing;
+
+  // If not found and autoCreate enabled, create new tracked keyword
+  if (autoCreate && normalized.length >= 2) {
+    const [created] = await sql`
+      INSERT INTO tracked_keywords (
+        keyword,
+        category,
+        target_pin_count,
+        is_active,
+        created_at,
+        updated_at
+      ) VALUES (
+        ${normalized},
+        'Organic Search',
+        100,
+        TRUE,
+        NOW(),
+        NOW()
+      )
+      ON CONFLICT (keyword) DO UPDATE SET
+        is_active = TRUE,
+        updated_at = NOW()
+      RETURNING *;
+    `;
+    return created;
+  }
+
+  return null;
+}
+
+/**
  * Endpoint 1: v3_typeahead (AdvancedTypeaheadResource)
  * Fetch predictive autocomplete suggestions from Pinterest.
  * Protected with in-flight request coalescing and True LRU cache (15 min TTL, 500 items max).
@@ -559,12 +613,22 @@ export async function fetchVisualSearchLens(sql, pinId, cookie = (typeof process
  * - Intraday snapshot pruning -> Exactly 50 pins preserved with clean rank sequencing.
  * - Separation of intraday rank movements vs prior-day save velocity baseline.
  */
-export async function crawlKeywordSERP(sql, keywordId, cookie = (typeof process !== 'undefined' && process?.env ? process.env.PINTEREST_COOKIE : null)) {
+export async function crawlKeywordSERP(sql, keywordId, options = {}) {
   const kid = Number(keywordId);
   if (!kid) throw new Error('Valid keyword ID is required');
 
+  let cookie = (typeof process !== 'undefined' && process?.env ? process.env.PINTEREST_COOKIE : null);
+  let force = false;
+
+  if (typeof options === 'string') {
+    cookie = options;
+  } else if (options && typeof options === 'object') {
+    if (options.cookie !== undefined) cookie = options.cookie;
+    if (options.force) force = Boolean(options.force);
+  }
+
   // 1. Process-local fast-fail check and lock acquisition
-  if (activeKeywordCrawls.has(kid)) {
+  if (activeKeywordCrawls.has(kid) && !force) {
     return { success: false, in_progress: true, message: `Crawl already in progress locally for keyword ID ${kid}` };
   }
   activeKeywordCrawls.add(kid);
@@ -574,21 +638,28 @@ export async function crawlKeywordSERP(sql, keywordId, cookie = (typeof process 
 
   try {
     // 2. Distributed Database-level atomic lease (60 seconds self-healing lease)
-    // Protected with regex-safe CASE WHEN numeric casting against dirty metadata
-    const leaseResult = await sql`
-      UPDATE tracked_keywords
-      SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{crawl_lock}', to_jsonb(EXTRACT(EPOCH FROM NOW())::numeric))
-      WHERE id = ${kid}
-        AND (
-          metadata->>'crawl_lock' IS NULL
-          OR CASE 
-               WHEN metadata->>'crawl_lock' ~ '^[0-9]+(\.[0-9]+)?$' 
-               THEN (metadata->>'crawl_lock')::numeric 
-               ELSE 0 
-             END < EXTRACT(EPOCH FROM NOW())::numeric - 60
-        )
-      RETURNING id;
-    `;
+    // When force=true, bypass lease expiry check to break any stuck or stale locks immediately.
+    const leaseResult = force
+      ? await sql`
+          UPDATE tracked_keywords
+          SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{crawl_lock}', to_jsonb(EXTRACT(EPOCH FROM NOW())::numeric))
+          WHERE id = ${kid}
+          RETURNING id;
+        `
+      : await sql`
+          UPDATE tracked_keywords
+          SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{crawl_lock}', to_jsonb(EXTRACT(EPOCH FROM NOW())::numeric))
+          WHERE id = ${kid}
+            AND (
+              metadata->>'crawl_lock' IS NULL
+              OR CASE 
+                   WHEN metadata->>'crawl_lock' ~ '^[0-9]+(\.[0-9]+)?$' 
+                   THEN (metadata->>'crawl_lock')::numeric 
+                   ELSE 0 
+                 END < EXTRACT(EPOCH FROM NOW())::numeric - 60
+            )
+          RETURNING id;
+        `;
 
     if (leaseResult.length === 0) {
       return { success: false, in_progress: true, message: `Crawl actively locked by another node for keyword ID ${kid}` };
@@ -1043,15 +1114,15 @@ export async function crawlKeywordSERP(sql, keywordId, cookie = (typeof process 
       `);
 
       // Intraday pruning: Ensure today's snapshot contains strictly the latest top pins
-      txBatch.push(sql`
-        DELETE FROM keyword_pins_snapshots
-        WHERE keyword_id = ${kid}
-          AND snapshot_date = CURRENT_DATE
-          AND pin_id NOT IN (
-            SELECT u.pin_id 
-            FROM jsonb_to_recordset(${JSON.stringify(preparedPins)}::jsonb) AS u(pin_id text)
-          );
-      `);
+      const pinIds = preparedPins.map(p => p.pin_id);
+      if (pinIds.length > 0) {
+        txBatch.push(sql`
+          DELETE FROM keyword_pins_snapshots
+          WHERE keyword_id = ${kid}
+            AND snapshot_date = CURRENT_DATE
+            AND NOT (pin_id = ANY(${pinIds}));
+        `);
+      }
     }
 
     if (preparedGuides.length > 0) {

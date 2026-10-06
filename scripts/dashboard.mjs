@@ -50,6 +50,7 @@ import {
 import {
   listKeywords,
   addKeyword,
+  resolveKeywordBySlug,
   crawlKeywordSERP,
   getKeywordPins,
   fetchKeywordTypeahead,
@@ -1939,11 +1940,26 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { success: true, keyword: row });
     }
 
+    if (method === 'GET' && pathname === '/api/keywords/resolve') {
+      const slug = searchParams.get('slug') || searchParams.get('keyword') || searchParams.get('q');
+      if (!slug) return sendJson(res, 400, { error: 'slug or keyword query parameter is required' });
+      const autoCreate = searchParams.get('auto_create') !== 'false';
+      const row = await resolveKeywordBySlug(targetSql, slug, autoCreate);
+      if (!row) return sendJson(res, 404, { error: 'Keyword not found and could not be resolved' });
+      return sendJson(res, 200, { success: true, keyword: row });
+    }
+
     if (method === 'POST' && pathname === '/api/keywords/sync') {
       const body = await parseJsonBody(req);
-      const keywordId = Number(body.keyword_id);
-      if (!keywordId) return sendJson(res, 400, { error: 'keyword_id is required' });
-      const result = await crawlKeywordSERP(targetSql, keywordId, process.env.PINTEREST_COOKIE);
+      let keywordId = Number(body.keyword_id);
+      const slug = body.slug || body.keyword;
+      if (!keywordId && slug) {
+        const resolved = await resolveKeywordBySlug(targetSql, slug, true);
+        if (resolved) keywordId = resolved.id;
+      }
+      if (!keywordId) return sendJson(res, 400, { error: 'keyword_id or slug is required' });
+      const force = Boolean(body.force);
+      const result = await crawlKeywordSERP(targetSql, keywordId, { cookie: process.env.PINTEREST_COOKIE, force });
       return sendJson(res, 200, { success: true, result });
     }
 
@@ -1969,7 +1985,12 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'GET' && pathname === '/api/keywords/pins') {
-      const keywordId = Number(searchParams.get('keyword_id'));
+      let keywordId = Number(searchParams.get('keyword_id'));
+      const slug = searchParams.get('slug') || searchParams.get('keyword');
+      if (!keywordId && slug) {
+        const resolved = await resolveKeywordBySlug(targetSql, slug, false);
+        if (resolved) keywordId = resolved.id;
+      }
       if (!keywordId) return sendJson(res, 400, { error: 'keyword_id is required' });
       const pins = await getKeywordPins(targetSql, keywordId);
       return sendJson(res, 200, { success: true, pins });
@@ -1989,15 +2010,25 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'GET' && pathname === '/api/keywords/guides') {
-      const keywordId = Number(searchParams.get('keyword_id'));
+      let keywordId = Number(searchParams.get('keyword_id'));
+      const slug = searchParams.get('slug') || searchParams.get('keyword');
+      if (!keywordId && slug) {
+        const resolved = await resolveKeywordBySlug(targetSql, slug, false);
+        if (resolved) keywordId = resolved.id;
+      }
       if (!keywordId) return sendJson(res, 400, { error: 'keyword_id is required' });
       const guides = await getKeywordGuides(targetSql, keywordId);
       return sendJson(res, 200, { success: true, guides });
     }
 
     if (method === 'GET' && pathname === '/api/keywords/serp-compare') {
-      const keywordId = Number(searchParams.get('keyword_id'));
-      if (!keywordId) return sendJson(res, 400, { error: 'keyword_id is required' });
+      let keywordId = Number(searchParams.get('keyword_id'));
+      const slug = searchParams.get('slug') || searchParams.get('keyword') || searchParams.get('q');
+      if (!keywordId && slug) {
+        const resolved = await resolveKeywordBySlug(targetSql, slug, true);
+        if (resolved) keywordId = resolved.id;
+      }
+      if (!keywordId) return sendJson(res, 400, { error: 'keyword_id or valid slug is required' });
       const result = await getKeywordSERPComparison(targetSql, keywordId);
       return sendJson(res, 200, { success: true, ...result });
     }
@@ -2262,9 +2293,10 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
-    // 9. GET or HEAD /keywords -> Dedicated Keywords Studio
-    if ((method === 'GET' || method === 'HEAD') && pathname === '/keywords') {
-      const html = getKeywordsPageHtml();
+    // 9. GET or HEAD /keywords or /keywords/:slug -> Dedicated Keywords Studio
+    if ((method === 'GET' || method === 'HEAD') && (pathname === '/keywords' || pathname.startsWith('/keywords/'))) {
+      const slug = pathname.startsWith('/keywords/') ? decodeURIComponent(pathname.slice('/keywords/'.length)) : '';
+      const html = getKeywordsPageHtml(slug);
       res.writeHead(200, {
         'Content-Type': 'text/html; charset=utf-8',
         'Cache-Control': 'no-cache',

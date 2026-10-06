@@ -42,6 +42,7 @@ import {
 import {
   listKeywords,
   addKeyword,
+  resolveKeywordBySlug,
   crawlKeywordSERP,
   getKeywordPins,
   fetchKeywordTypeahead,
@@ -171,9 +172,10 @@ export default {
       return corsOptionsResponse();
     }
 
-    // Serve Dedicated Keywords Studio HTML
-    if (pathname === '/keywords') {
-      return new Response(getKeywordsPageHtml(), {
+    // Serve Dedicated Keywords Studio HTML (supports /keywords, /keywords/:slug, /keywords/:keyword)
+    if (pathname === '/keywords' || pathname.startsWith('/keywords/')) {
+      const slug = pathname.startsWith('/keywords/') ? decodeURIComponent(pathname.slice('/keywords/'.length)) : '';
+      return new Response(getKeywordsPageHtml(slug), {
         status: 200,
         headers: {
           'Content-Type': 'text/html; charset=utf-8',
@@ -1752,12 +1754,27 @@ export default {
         return jsonResponse({ success: true, keyword: row });
       }
 
+      if (method === 'GET' && pathname === '/api/keywords/resolve') {
+        const slug = searchParams.get('slug') || searchParams.get('keyword') || searchParams.get('q');
+        if (!slug) return jsonResponse({ error: 'slug or keyword query parameter is required' }, 400);
+        const autoCreate = searchParams.get('auto_create') !== 'false';
+        const row = await resolveKeywordBySlug(targetSql, slug, autoCreate);
+        if (!row) return jsonResponse({ error: 'Keyword not found and could not be resolved' }, 404);
+        return jsonResponse({ success: true, keyword: row });
+      }
+
       if (method === 'POST' && pathname === '/api/keywords/sync') {
         const body = await request.json().catch(() => ({}));
-        const keywordId = Number(body.keyword_id);
-        if (!keywordId) return jsonResponse({ error: 'keyword_id is required' }, 400);
+        let keywordId = Number(body.keyword_id);
+        const slug = body.slug || body.keyword;
+        if (!keywordId && slug) {
+          const resolved = await resolveKeywordBySlug(targetSql, slug, true);
+          if (resolved) keywordId = resolved.id;
+        }
+        if (!keywordId) return jsonResponse({ error: 'keyword_id or slug is required' }, 400);
+        const force = Boolean(body.force);
         const cookie = env.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env.PINTEREST_COOKIE : null);
-        const res = await crawlKeywordSERP(targetSql, keywordId, cookie);
+        const res = await crawlKeywordSERP(targetSql, keywordId, { cookie, force });
         return jsonResponse({ success: true, result: res });
       }
 
@@ -1783,7 +1800,12 @@ export default {
       }
 
       if (method === 'GET' && pathname === '/api/keywords/pins') {
-        const keywordId = Number(searchParams.get('keyword_id'));
+        let keywordId = Number(searchParams.get('keyword_id'));
+        const slug = searchParams.get('slug') || searchParams.get('keyword');
+        if (!keywordId && slug) {
+          const resolved = await resolveKeywordBySlug(targetSql, slug, false);
+          if (resolved) keywordId = resolved.id;
+        }
         if (!keywordId) return jsonResponse({ error: 'keyword_id is required' }, 400);
         const pins = await getKeywordPins(targetSql, keywordId);
         return jsonResponse({ success: true, pins });
@@ -1804,15 +1826,25 @@ export default {
       }
 
       if (method === 'GET' && pathname === '/api/keywords/guides') {
-        const keywordId = Number(searchParams.get('keyword_id'));
+        let keywordId = Number(searchParams.get('keyword_id'));
+        const slug = searchParams.get('slug') || searchParams.get('keyword');
+        if (!keywordId && slug) {
+          const resolved = await resolveKeywordBySlug(targetSql, slug, false);
+          if (resolved) keywordId = resolved.id;
+        }
         if (!keywordId) return jsonResponse({ error: 'keyword_id is required' }, 400);
         const guides = await getKeywordGuides(targetSql, keywordId);
         return jsonResponse({ success: true, guides });
       }
 
       if (method === 'GET' && pathname === '/api/keywords/serp-compare') {
-        const keywordId = Number(searchParams.get('keyword_id'));
-        if (!keywordId) return jsonResponse({ error: 'keyword_id is required' }, 400);
+        let keywordId = Number(searchParams.get('keyword_id'));
+        const slug = searchParams.get('slug') || searchParams.get('keyword') || searchParams.get('q');
+        if (!keywordId && slug) {
+          const resolved = await resolveKeywordBySlug(targetSql, slug, true);
+          if (resolved) keywordId = resolved.id;
+        }
+        if (!keywordId) return jsonResponse({ error: 'keyword_id or valid slug is required' }, 400);
         const result = await getKeywordSERPComparison(targetSql, keywordId);
         return jsonResponse({ success: true, ...result });
       }
