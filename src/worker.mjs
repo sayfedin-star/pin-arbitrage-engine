@@ -47,7 +47,8 @@ import {
   fetchKeywordTypeahead,
   fetchVisualSearchLens,
   getKeywordGuides,
-  getKeywordSERPComparison
+  getKeywordSERPComparison,
+  getKeywordIntelligence
 } from './modules/keywords/service.mjs';
 import { getFleetProjects, registerNewProject, syncFleetDatabases, syncCompetitorAcrossFleet, pingFleetProject, getFleetProjectUrl } from './modules/fleet/service.mjs';
 import {
@@ -1814,6 +1815,13 @@ export default {
         if (!keywordId) return jsonResponse({ error: 'keyword_id is required' }, 400);
         const result = await getKeywordSERPComparison(targetSql, keywordId);
         return jsonResponse({ success: true, ...result });
+      }
+
+      if (method === 'GET' && pathname === '/api/keywords/intelligence') {
+        const keywordId = Number(searchParams.get('keyword_id'));
+        if (!keywordId) return jsonResponse({ error: 'keyword_id is required' }, 400);
+        const result = await getKeywordIntelligence(targetSql, keywordId);
+        return jsonResponse(result);
       }
 
       if (method === 'POST' && pathname === '/api/keywords/dispatch-workflow') {

@@ -551,21 +551,21 @@ export async function crawlKeywordSERP(sql, keywordId, cookie = (typeof process 
       'x-pinterest-pws-handler': 'www/search/pins.js',
       'referer': `https://www.pinterest.com/search/pins/?q=${query}`
     };
-    if (cookie && String(cookie).trim()) {
-      headers['Cookie'] = formatPinterestCookie(cookie);
-    }
 
     let res;
     let data;
     try {
+      // Anonymous request yields unpersonalized SERP rankings and full pin_join.visual_annotation computer-vision taxonomy
       res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
       if (res.status === 401 || res.status === 403 || res.status === 429) {
         if (res?.body && !res.bodyUsed) await res.body.cancel().catch(() => {});
         const jitter = 2500 + Math.floor(Math.random() * 1500);
         await new Promise(r => setTimeout(r, jitter));
-        const anonHeaders = { ...headers };
-        delete anonHeaders['Cookie'];
-        res = await fetch(url, { headers: anonHeaders, signal: AbortSignal.timeout(8000) });
+        const authHeaders = { ...headers };
+        if (cookie && String(cookie).trim()) {
+          authHeaders['Cookie'] = formatPinterestCookie(cookie);
+        }
+        res = await fetch(url, { headers: authHeaders, signal: AbortSignal.timeout(8000) });
       }
 
       if (!res.ok) {
@@ -635,7 +635,7 @@ export async function crawlKeywordSERP(sql, keywordId, cookie = (typeof process 
     const seenPinIds = new Set();
 
     for (const item of rawResults) {
-      if (!item || !item.id) continue;
+      if (!item || !item.id || item.type !== 'pin' || item.format === 'Related Interests' || item.format === 'board') continue;
       const pinId = String(item.id).trim().slice(0, 255);
       if (!pinId || seenPinIds.has(pinId)) continue;
       seenPinIds.add(pinId);
@@ -702,23 +702,62 @@ export async function crawlKeywordSERP(sql, keywordId, cookie = (typeof process 
       else if (isVideo) format = 'VIDEO PIN';
       else if (isIdea) format = 'IDEA PIN';
 
-      // Aspect ratio classification (2:3, 1:1, 9:16, 3:4, 16:9)
+      // Aspect ratio classification (1:2, 2:3, 1:1, 9:16, 3:4, 16:9)
       const origW = Number(item.images?.['736x']?.width || item.images?.orig?.width || 236);
       const origH = Number(item.images?.['736x']?.height || item.images?.orig?.height || 354);
       let aspectRatio = '2:3';
+      let aspectRatioTier = '2:3 Standard';
       if (origW > 0 && origH > 0) {
         const ratio = origW / origH;
-        if (ratio > 0.92 && ratio < 1.08) aspectRatio = '1:1';
-        else if (ratio <= 0.6) aspectRatio = '9:16';
-        else if (ratio > 0.6 && ratio <= 0.74) aspectRatio = '2:3';
-        else if (ratio > 0.74 && ratio <= 0.92) aspectRatio = '3:4';
-        else if (ratio >= 1.08) aspectRatio = '16:9';
+        if (ratio <= 0.55) {
+          aspectRatio = '1:2';
+          aspectRatioTier = '1:2 Extra Tall';
+        } else if (ratio <= 0.6) {
+          aspectRatio = '9:16';
+          aspectRatioTier = '9:16 Story';
+        } else if (ratio > 0.6 && ratio <= 0.74) {
+          aspectRatio = '2:3';
+          aspectRatioTier = '2:3 Standard';
+        } else if (ratio > 0.74 && ratio <= 0.92) {
+          aspectRatio = '3:4';
+          aspectRatioTier = '3:4 Medium';
+        } else if (ratio > 0.92 && ratio < 1.08) {
+          aspectRatio = '1:1';
+          aspectRatioTier = '1:1 Square';
+        } else if (ratio >= 1.08) {
+          aspectRatio = '16:9';
+          aspectRatioTier = '16:9 Landscape';
+        }
       }
 
       let velocityTier = 'stagnant';
       if (velocity >= 50) velocityTier = 'explosive';
       else if (velocity >= 10) velocityTier = 'trending';
       else if (velocity > 0) velocityTier = 'steady';
+
+      // Enriched Pinterest SERP intelligence attributes
+      const pinner = item.pinner ? {
+        username: item.pinner.username || '',
+        full_name: item.pinner.full_name || '',
+        follower_count: Number(item.pinner.follower_count || 0),
+        image_small_url: item.pinner.image_small_url || ''
+      } : null;
+
+      const reactions = Number(item.reaction_counts?.['1'] || item.reaction_counts?.['like'] || 0);
+      const comments = Number(item.comment_count || 0);
+
+      const createdAt = item.created_at || null;
+      let pinAgeDays = null;
+      if (createdAt) {
+        const createdMs = new Date(createdAt).getTime();
+        if (!isNaN(createdMs)) {
+          pinAgeDays = Math.max(0, Math.floor((Date.now() - createdMs) / (1000 * 60 * 60 * 24)));
+        }
+      }
+
+      const visualAnnotations = Array.isArray(item.pin_join?.visual_annotation)
+        ? item.pin_join.visual_annotation.filter(Boolean)
+        : [];
 
       preparedPins.push({
         pin_id: pinId,
@@ -729,7 +768,7 @@ export async function crawlKeywordSERP(sql, keywordId, cookie = (typeof process 
         image_url: imageUrl,
         save_count: saves,
         repin_count: Number(item.repin_count || 0),
-        comment_count: Number(item.comment_count || 0),
+        comment_count: comments,
         daily_save_velocity: velocity,
         metadata: {
           title,
@@ -742,8 +781,14 @@ export async function crawlKeywordSERP(sql, keywordId, cookie = (typeof process 
           prev_save_count: baselineMap.get(pinId) ?? (immediateData ? immediateData.saves : saves),
           format,
           aspect_ratio: aspectRatio,
+          aspect_ratio_tier: aspectRatioTier,
           velocity_tier: velocityTier,
-          crawled_at: new Date().toISOString()
+          crawled_at: new Date().toISOString(),
+          created_at: createdAt,
+          pin_age_days: pinAgeDays,
+          pinner,
+          reactions,
+          visual_annotations: visualAnnotations
         }
       });
 
@@ -1114,6 +1159,9 @@ export async function getKeywordSERPComparison(sql, keywordId) {
   // Fetch guided search capsules
   const guides = await getKeywordGuides(sql, kid);
 
+  // Algorithmic StaticRank & Semantic Vacuum SERP Intelligence
+  const intelligence = calculateKeywordIntelligenceSummary(currentPins);
+
   return {
     status: 'active',
     keyword,
@@ -1122,6 +1170,7 @@ export async function getKeywordSERPComparison(sql, keywordId) {
     current_pins: currentPins,
     dropped_out_pins: droppedOutPins,
     guides,
+    intelligence,
     velocity_chart: {
       points: sparklinePoints,
       explosive: explosiveCount,
@@ -1137,5 +1186,281 @@ export async function getKeywordSERPComparison(sql, keywordId) {
       new_entries: newEntries,
       dropped_out: droppedOutPins.length
     }
+  };
+}
+
+/**
+ * Helper to calculate numeric median of an array
+ */
+function calculateMedian(arr) {
+  if (!arr || arr.length === 0) return 0;
+  const sorted = [...arr].filter(n => typeof n === 'number' && !isNaN(n)).sort((a, b) => a - b);
+  if (sorted.length === 0) return 0;
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 !== 0 ? sorted[mid] : Math.round((sorted[mid - 1] + sorted[mid]) / 2);
+}
+
+/**
+ * Algorithmic Opportunity & SERP Intelligence Calculation:
+ * Evaluates the Top 12 pins (official SERP ranking threshold) to determine:
+ * 1. Opportunity Verdict: "Can a new Pin rank here?"
+ *    - New Pins Rank: % of top 12 posted within 90 days (>= 33% -> PASS)
+ *    - Small Accounts Rank: % of top 12 from accounts with < 1,000 followers (>= 50% -> PASS)
+ *    - Saves Don't Decide Rank: Pins in top 10 with < 100 saves (>= 2 pins -> PASS)
+ *    - Overall: 3 PASS -> "Wide Open" (green), 2 PASS -> "Competitive" (yellow), <2 PASS -> "Locked / Difficult" (red)
+ * 2. SERP Benchmarks (Medians for saves, age, followers, daily velocity)
+ * 3. Winning Formats & Dimensions (% organic, % video, % idea, % 1:2 Extra Tall, % 2:3 Standard)
+ * 4. Copywriting Patterns (Average title length, numbers in titles, destination links)
+ * 5. Semantic Visual Annotations Cloud (Top co-occurring computer-vision tags across top pins)
+ */
+export function calculateKeywordIntelligenceSummary(pins = []) {
+  if (!pins || pins.length === 0) {
+    return {
+      opportunity: {
+        verdict: 'UNKNOWN',
+        badge: '⚪ No Data',
+        score: 0,
+        summary: 'No snapshot pins indexed yet. Run a SERP crawl to analyze.',
+        criteria: []
+      },
+      benchmarks: {
+        median_saves: 0,
+        median_age_days: 0,
+        median_followers: 0,
+        median_velocity: 0
+      },
+      formats: { organic_pct: 0, video_pct: 0, idea_pct: 0, product_pct: 0 },
+      aspect_ratios: { standard_pct: 0, extra_tall_pct: 0, square_wide_pct: 0 },
+      copywriting: {
+        avg_title_words: 0,
+        avg_title_chars: 0,
+        numbers_in_title_pct: 0,
+        has_destination_pct: 0
+      },
+      visual_annotations: []
+    };
+  }
+
+  // Sort strictly by rank_position ascending
+  const sortedPins = [...pins].sort((a, b) => Number(a.rank_position || 0) - Number(b.rank_position || 0));
+  const top12 = sortedPins.slice(0, 12);
+  const top10 = sortedPins.slice(0, 10);
+  const total = sortedPins.length;
+
+  // Criteria 1: New Pins Rank (% of top 12 posted within 90 days)
+  let newPinsCount = 0;
+  let newPinsEvaluated = 0;
+  for (const p of top12) {
+    const age = p.metadata?.pin_age_days;
+    if (age !== null && age !== undefined && !isNaN(Number(age))) {
+      newPinsEvaluated++;
+      if (Number(age) <= 90) newPinsCount++;
+    }
+  }
+  const newPinsPct = newPinsEvaluated > 0 ? Math.round((newPinsCount / newPinsEvaluated) * 100) : 0;
+  const newPinsPass = newPinsCount >= 4 || newPinsPct >= 33;
+
+  // Criteria 2: Small Accounts Rank (% of top 12 with < 1,000 followers)
+  let smallAccountsCount = 0;
+  let smallAccountsEvaluated = 0;
+  for (const p of top12) {
+    const followers = p.metadata?.pinner?.follower_count;
+    if (followers !== null && followers !== undefined && !isNaN(Number(followers))) {
+      smallAccountsEvaluated++;
+      if (Number(followers) < 1000) smallAccountsCount++;
+    }
+  }
+  const smallAccountsPct = smallAccountsEvaluated > 0 ? Math.round((smallAccountsCount / smallAccountsEvaluated) * 100) : 0;
+  const smallAccountsPass = smallAccountsCount >= 6 || smallAccountsPct >= 50;
+
+  // Criteria 3: Saves Don't Decide Rank (Pins in top 10 with < 100 saves >= 2)
+  let lowSaveCount = 0;
+  for (const p of top10) {
+    const saves = Number(p.save_count || 0);
+    if (saves < 100) lowSaveCount++;
+  }
+  const lowSavesPass = lowSaveCount >= 2;
+
+  // Overall Opportunity Score & Verdict
+  let criteriaScore = 0;
+  if (newPinsPass) criteriaScore++;
+  if (smallAccountsPass) criteriaScore++;
+  if (lowSavesPass) criteriaScore++;
+
+  let verdict = 'LOCKED';
+  let badge = '🔴 Locked / Difficult';
+  let summary = 'Dominated by legacy authority accounts and high-save pins. High barrier for fresh pins.';
+  if (criteriaScore === 3) {
+    verdict = 'WIDE_OPEN';
+    badge = '🟢 Wide Open';
+    summary = 'Prime Arbitrage Target! Fresh pins and low-follower creators rank easily in the top 12.';
+  } else if (criteriaScore === 2) {
+    verdict = 'COMPETITIVE';
+    badge = '🟡 Moderate / Competitive';
+    summary = 'Healthy opportunity: balanced mix of authority content and fresh ranking breakthroughs.';
+  }
+
+  const criteriaList = [
+    {
+      id: 'new_pins_rank',
+      name: 'New Pins Rank (Freshness Weight)',
+      pass: newPinsPass,
+      metric: `${newPinsCount}/${newPinsEvaluated || top12.length} pins (${newPinsPct}%) posted <90 days`,
+      benchmark: '>= 33% of top 12',
+      description: 'Pinterest search algorithm actively ranks fresh content rather than decaying legacy pins.'
+    },
+    {
+      id: 'small_accounts_rank',
+      name: 'Small Accounts Rank (Democratized Distribution)',
+      pass: smallAccountsPass,
+      metric: `${smallAccountsCount}/${smallAccountsEvaluated || top12.length} accounts (${smallAccountsPct}%) <1,000 followers`,
+      benchmark: '>= 50% of top 12',
+      description: 'Account follower count is NOT a ranking barrier; content relevance drives position.'
+    },
+    {
+      id: 'saves_dont_decide',
+      name: 'Saves Don\'t Decide Rank (SERP Fluidity)',
+      pass: lowSavesPass,
+      metric: `${lowSaveCount} pins in top 10 with <100 saves`,
+      benchmark: '>= 2 pins in top 10',
+      description: 'Pins without massive accumulated historical saves can capture top 10 spots.'
+    }
+  ];
+
+  // SERP Benchmarks (Medians across all pins)
+  const savesArr = sortedPins.map(p => Number(p.save_count || 0));
+  const ageArr = sortedPins
+    .map(p => p.metadata?.pin_age_days)
+    .filter(a => a !== null && a !== undefined && !isNaN(Number(a)))
+    .map(Number);
+  const followersArr = sortedPins
+    .map(p => p.metadata?.pinner?.follower_count)
+    .filter(f => f !== null && f !== undefined && !isNaN(Number(f)))
+    .map(Number);
+  const velocityArr = sortedPins.map(p => Number(p.daily_save_velocity || 0));
+
+  const medianSaves = calculateMedian(savesArr);
+  const medianAge = ageArr.length > 0 ? calculateMedian(ageArr) : 0;
+  const medianFollowers = followersArr.length > 0 ? calculateMedian(followersArr) : 0;
+  const medianVelocity = calculateMedian(velocityArr);
+
+  // Formats Breakdown
+  let organicCount = 0;
+  let videoCount = 0;
+  let ideaCount = 0;
+  let productCount = 0;
+  for (const p of sortedPins) {
+    const fmt = p.metadata?.format || 'ORGANIC PIN';
+    if (fmt === 'VIDEO PIN') videoCount++;
+    else if (fmt === 'IDEA PIN') ideaCount++;
+    else if (fmt === 'PRODUCT CARD') productCount++;
+    else organicCount++;
+  }
+
+  // Aspect Ratios Breakdown
+  let standardCount = 0;
+  let extraTallCount = 0;
+  let squareWideCount = 0;
+  for (const p of sortedPins) {
+    const tier = p.metadata?.aspect_ratio_tier || '';
+    if (tier.includes('1:2 Extra Tall') || p.metadata?.aspect_ratio === '1:2') extraTallCount++;
+    else if (tier.includes('2:3 Standard') || p.metadata?.aspect_ratio === '2:3') standardCount++;
+    else squareWideCount++;
+  }
+
+  // Copywriting Patterns
+  let totalWords = 0;
+  let totalChars = 0;
+  let withNumbers = 0;
+  let withDest = 0;
+  for (const p of sortedPins) {
+    const title = String(p.title || '').trim();
+    const words = title ? title.split(/\s+/).filter(Boolean).length : 0;
+    totalWords += words;
+    totalChars += title.length;
+    if (/\d+/.test(title)) withNumbers++;
+    if (p.destination_url || p.domain) withDest++;
+  }
+
+  // Semantic Computer Vision Annotations (pin_join tags)
+  const tagCounts = new Map();
+  for (const p of sortedPins.slice(0, 30)) {
+    const tags = p.metadata?.visual_annotations || [];
+    if (Array.isArray(tags)) {
+      for (const t of tags) {
+        const cleanTag = String(t).trim();
+        if (cleanTag) {
+          tagCounts.set(cleanTag, (tagCounts.get(cleanTag) || 0) + 1);
+        }
+      }
+    }
+  }
+
+  const sortedAnnotations = Array.from(tagCounts.entries())
+    .map(([tag, count]) => ({
+      tag,
+      count,
+      pct: Math.round((count / Math.min(30, total)) * 100)
+    }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 25);
+
+  return {
+    opportunity: {
+      verdict,
+      badge,
+      score: criteriaScore,
+      summary,
+      criteria: criteriaList
+    },
+    benchmarks: {
+      median_saves: medianSaves,
+      median_age_days: medianAge,
+      median_followers: medianFollowers,
+      median_velocity: medianVelocity
+    },
+    formats: {
+      organic_pct: total > 0 ? Math.round((organicCount / total) * 100) : 0,
+      video_pct: total > 0 ? Math.round((videoCount / total) * 100) : 0,
+      idea_pct: total > 0 ? Math.round((ideaCount / total) * 100) : 0,
+      product_pct: total > 0 ? Math.round((productCount / total) * 100) : 0
+    },
+    aspect_ratios: {
+      standard_pct: total > 0 ? Math.round((standardCount / total) * 100) : 0,
+      extra_tall_pct: total > 0 ? Math.round((extraTallCount / total) * 100) : 0,
+      square_wide_pct: total > 0 ? Math.round((squareWideCount / total) * 100) : 0
+    },
+    copywriting: {
+      avg_title_words: total > 0 ? Number((totalWords / total).toFixed(1)) : 0,
+      avg_title_chars: total > 0 ? Math.round(totalChars / total) : 0,
+      numbers_in_title_pct: total > 0 ? Math.round((withNumbers / total) * 100) : 0,
+      has_destination_pct: total > 0 ? Math.round((withDest / total) * 100) : 0
+    },
+    visual_annotations: sortedAnnotations
+  };
+}
+
+/**
+ * Retrieve standalone Algorithmic Intelligence Summary for a keyword
+ */
+export async function getKeywordIntelligence(sql, keywordId) {
+  const kid = Number(keywordId);
+  if (!kid) throw new Error('Valid keyword ID is required');
+
+  const [keyword] = await sql`
+    SELECT * FROM tracked_keywords WHERE id = ${kid};
+  `;
+  if (!keyword) throw new Error(`Keyword ID ${kid} not found`);
+
+  const pins = await getKeywordPins(sql, kid);
+  const intelligence = calculateKeywordIntelligenceSummary(pins);
+
+  return {
+    success: true,
+    keyword_id: kid,
+    keyword: keyword.keyword,
+    category: keyword.category,
+    pins_analyzed: pins.length,
+    ...intelligence
   };
 }
