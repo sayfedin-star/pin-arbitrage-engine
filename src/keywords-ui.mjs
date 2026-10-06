@@ -881,7 +881,7 @@ export function getKeywordsPageHtml() {
             const qParam = urlParams.get('q') || urlParams.get('pin_id');
             if (qParam) {
               const cleanQ = qParam.trim();
-              if (/^\d+$/.test(cleanQ)) {
+              if (/^[0-9]+$/.test(cleanQ)) {
                 // Direct numeric Pin ID: open Visual Similarity Lens directly
                 this.openVisualLens({ pin_id: cleanQ, title: 'Pin #' + cleanQ });
               } else {

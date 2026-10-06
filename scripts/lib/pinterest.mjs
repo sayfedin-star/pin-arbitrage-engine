@@ -340,7 +340,17 @@ export function formatPin(pin) {
 
   return {
     pin_id: pinId,
-    title: safeString(pin.grid_title || pin.title || pin.headline || pin.grid_description),
+    title: safeString(
+      pin.grid_title ||
+      pin.title ||
+      pin.headline ||
+      pin.grid_description ||
+      pin.rich_summary?.display_name ||
+      pin.rich_metadata?.title ||
+      seoTitle ||
+      altText ||
+      ''
+    ),
     description: safeString(pin.description || pin.articleBody || pin.unauth_on_page_description),
     alt_text: altText,
     seo_title: seoTitle,

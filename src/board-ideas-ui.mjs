@@ -633,7 +633,7 @@ export function getBoardIdeasPageHtml(initialData = {}) {
             const res = await fetch('/api/board-ideas/sync', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ board_id: this.activeBoardId, max_pages: 1 })
+              body: JSON.stringify({ board_id: this.activeBoardId, max_pages: 3 })
             });
 
             if (!res.ok) {

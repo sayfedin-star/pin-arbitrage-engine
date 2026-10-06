@@ -20,6 +20,7 @@ import {
   parseCleanMetric,
   parseRetryAfterSeconds,
   formatPin,
+  extractPinData,
   fetchBoardDetailUnauth,
   getPinterestXhrHeaders,
   PINTEREST_PAGE_HEADERS,
@@ -322,14 +323,94 @@ async function fetchMoreIdeasFromXhr(username, slug, boardId, bookmark = null, c
 }
 
 /**
- * Fetches deep board recommendations combining unauthenticated SSR and XHR pagination.
+ * Fetches high-performing ideas for a board's topic from Pinterest SERP.
  */
-export async function fetchBoardRecommendations(username, slug, boardId, cookie = '', maxPages = 1) {
+async function fetchBoardTopicSearchIdeas(boardName, cookie = '', limit = 50) {
+  const cleanQuery = String(boardName || '').trim();
+  if (!cleanQuery) return [];
+
+  const searchQuery = encodeURIComponent(cleanQuery);
+  const url = `https://www.pinterest.com/resource/BaseSearchResource/get/?source_url=%2Fsearch%2Fpins%2F%3Fq%3D${searchQuery}&data=%7B%22options%22%3A%7B%22query%22%3A%22${searchQuery}%22%2C%22scope%22%3A%22pins%22%2C%22page_size%22%3A${limit}%7D%2C%22context%22%3A%7B%7D%7D`;
+
+  const headers = {
+    'Accept': 'application/json, text/javascript, */*, q=0.01',
+    'X-Requested-With': 'XMLHttpRequest',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+    'x-pinterest-pws-handler': 'www/search/pins.js',
+    'referer': `https://www.pinterest.com/search/pins/?q=${searchQuery}`
+  };
+  if (cookie) headers['Cookie'] = cookie;
+
+  try {
+    const res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
+    if (!res.ok) {
+      if (res.body) await res.body.cancel().catch(() => {});
+      return [];
+    }
+    const json = await res.json();
+    const results = json?.resource_response?.data?.results || [];
+    const pins = [];
+    for (const r of results) {
+      const f = formatPin(r);
+      if (f?.pin_id) pins.push(f);
+    }
+    return pins;
+  } catch (err) {
+    console.warn(`[fetchBoardTopicSearchIdeas] Error for "${cleanQuery}":`, err.message);
+    return [];
+  }
+}
+
+/**
+ * Enriches pins that have empty titles or saves by extracting authentic data from public pin HTML.
+ * Executes in bounded concurrency of 5 with 5000ms timeouts.
+ */
+async function enrichBarePins(pins, limit = 25) {
+  const barePins = pins.filter(p => !p.title || p.saves === 0).slice(0, limit);
+  if (barePins.length === 0) return;
+
+  const BATCH_SIZE = 5;
+  for (let i = 0; i < barePins.length; i += BATCH_SIZE) {
+    const batch = barePins.slice(i, i + BATCH_SIZE);
+    await Promise.all(batch.map(async (pin) => {
+      try {
+        const url = `https://www.pinterest.com/pin/${pin.pin_id}/`;
+        const res = await fetch(url, { headers: PINTEREST_PAGE_HEADERS, signal: AbortSignal.timeout(5000) });
+        if (res.ok) {
+          const html = await res.text();
+          const ext = extractPinData(html, pin.pin_id);
+          if (ext) {
+            const candidateTitle = ext.title || ext.seo_title || ext.alt_text || '';
+            if (candidateTitle && !pin.title) pin.title = candidateTitle;
+            if (ext.saves > 0 && (!pin.saves || pin.saves === 0)) {
+              pin.saves = ext.saves;
+              pin.save_count = ext.saves;
+            }
+            if (ext.repins > 0 && (!pin.repins || pin.repins === 0)) {
+              pin.repins = ext.repins;
+              pin.repin_count = ext.repins;
+            }
+            if (ext.domain && !pin.domain) pin.domain = ext.domain;
+            if (ext.velocity > 0 && (!pin.velocity || pin.velocity === 0)) pin.velocity = ext.velocity;
+          }
+        } else if (res.body) {
+          await res.body.cancel().catch(() => {});
+        }
+      } catch (_) {}
+    }));
+  }
+}
+
+/**
+ * Fetches deep board recommendations combining unauthenticated SSR, XHR pagination,
+ * bare pin enrichment, and niche topic search ideas expansion.
+ */
+export async function fetchBoardRecommendations(username, slug, boardId, cookie = '', maxPages = 3, boardName = '') {
   const allPins = [];
   const seenPinIds = new Set();
   const pagesToFetch = Math.max(1, Math.min(Number(maxPages) || 1, 5));
 
-  // Page 1: Try fast unauthenticated SSR document
+  // 1. Page 1: Try fast unauthenticated SSR document
   const ssrRes = await fetchMoreIdeasFromSsr(username, slug);
   let currentBookmark = null;
 
@@ -343,7 +424,7 @@ export async function fetchBoardRecommendations(username, slug, boardId, cookie 
     currentBookmark = ssrRes.nextBookmark;
   }
 
-  // If SSR failed or yielded 0 pins, fallback to page 1 XHR
+  // If SSR yielded 0 pins, fallback to page 1 XHR
   if (allPins.length === 0) {
     const xhrRes = await fetchMoreIdeasFromXhr(username, slug, boardId, null, cookie);
     if (xhrRes.ok && xhrRes.pins?.length > 0) {
@@ -357,9 +438,9 @@ export async function fetchBoardRecommendations(username, slug, boardId, cookie 
     }
   }
 
-  // Fetch subsequent pages if requested and bookmark available
+  // Fetch subsequent recommendation pages if requested and bookmark available
   for (let page = 2; page <= pagesToFetch && currentBookmark; page++) {
-    await sleep(randomJitterMs(1500, 2500));
+    await sleep(randomJitterMs(1200, 2000));
     const nextRes = await fetchMoreIdeasFromXhr(username, slug, boardId, currentBookmark, cookie);
     if (!nextRes.ok || nextRes.pins?.length === 0) break;
 
@@ -372,6 +453,21 @@ export async function fetchBoardRecommendations(username, slug, boardId, cookie 
 
     if (!nextRes.nextBookmark || nextRes.nextBookmark === currentBookmark) break;
     currentBookmark = nextRes.nextBookmark;
+  }
+
+  // 2. Enrich bare recommendation pins with authentic titles, saves & domains
+  await enrichBarePins(allPins, 25);
+
+  // 3. Multi-Source Topic Expansion: Ingest organic top-performing ideas for this board topic
+  const topicQuery = boardName || (slug ? slug.replace(/-/g, ' ') : '');
+  if (topicQuery && topicQuery.length >= 3) {
+    const searchPins = await fetchBoardTopicSearchIdeas(topicQuery, cookie, 50);
+    for (const p of searchPins) {
+      if (!seenPinIds.has(p.pin_id)) {
+        seenPinIds.add(p.pin_id);
+        allPins.push(p);
+      }
+    }
   }
 
   return { ok: true, pins: allPins, total: allPins.length };
@@ -431,8 +527,8 @@ export async function syncBoardIdeas(sql, boardId, cookie = '', maxPages = 1) {
 
   const { username, slug } = parseBoardUrl(tracked.url);
 
-  // 1. Fetch live recommendation feed
-  const recRes = await fetchBoardRecommendations(username, slug, cleanId, cookie, maxPages);
+  // 1. Fetch live recommendation feed with topic expansion
+  const recRes = await fetchBoardRecommendations(username, slug, cleanId, cookie, maxPages, tracked.name);
   const rawPins = recRes.pins || [];
 
   if (rawPins.length === 0) {
