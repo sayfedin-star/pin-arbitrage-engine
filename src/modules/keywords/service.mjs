@@ -18,6 +18,7 @@
 
 import { formatPinterestCookie } from '../../utils.mjs';
 import { getCachedVisualSearchMatches, setCachedVisualSearchMatches } from './visual-lens-cache.mjs';
+import { extractPinData, PINTEREST_PAGE_HEADERS } from '../../../scripts/lib/pinterest.mjs';
 
 // In-Memory Mutex for process-local fast-fail
 const activeKeywordCrawls = new Set();
@@ -339,27 +340,27 @@ export async function fetchVisualSearchLens(sql, pinId, cookie = (typeof process
       } catch (_) {}
     }
 
-    // Fallback if pin not yet crawled in snapshots
+    // Fallback if pin not yet crawled in snapshots: fetch public pin HTML
     if (!pinRow?.title) {
       let pinRes;
       try {
-        const pinDetailUrl = `https://www.pinterest.com/resource/PinResource/get/?source_url=%2Fpin%2F${cleanPin}%2F&data=${encodeURIComponent(JSON.stringify({ options: { id: cleanPin, field_set_key: 'detailed' }, context: {} }))}`;
-        pinRes = await fetch(pinDetailUrl, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(6000) });
+        const pinPageUrl = `https://www.pinterest.com/pin/${cleanPin}/`;
+        pinRes = await fetch(pinPageUrl, { headers: PINTEREST_PAGE_HEADERS, signal: AbortSignal.timeout(6000) });
         if (pinRes.ok) {
-          const pJson = await pinRes.json();
-          const pData = pJson?.resource_response?.data;
-          if (pData) {
+          const html = await pinRes.text();
+          const ext = extractPinData(html, cleanPin);
+          if (ext) {
             pinRow = {
               pin_id: cleanPin,
-              title: pData.title || pData.grid_title || cleanPin,
-              domain: pData.domain || '',
-              image_url: pData.images?.['736x']?.url || pData.images?.orig?.url || null,
-              save_count: Number(pData.repin_count || pData.save_count || 0)
+              title: ext.title || ext.seo_title || ext.alt_text || '',
+              domain: ext.domain || '',
+              image_url: ext.image_url || null,
+              save_count: Number(ext.saves || 0)
             };
           }
         }
       } catch (err) {
-        console.warn(`[fetchVisualSearchLens] Fallback pin detail fetch warning for pin ${cleanPin}:`, err.message);
+        console.warn(`[fetchVisualSearchLens] Fallback pin HTML fetch warning for pin ${cleanPin}:`, err.message);
       } finally {
         if (pinRes?.body && !pinRes.bodyUsed) {
           await pinRes.body.cancel().catch(() => {});
@@ -367,7 +368,16 @@ export async function fetchVisualSearchLens(sql, pinId, cookie = (typeof process
       }
     }
 
-    const searchQuery = encodeURIComponent(pinRow?.title || cleanPin);
+    // Determine high-relevance search query. NEVER query raw numeric pin ID as text.
+    let searchQueryStr = (pinRow?.title && !/^\d+$/.test(pinRow.title.trim())) ? pinRow.title.trim() : '';
+    if (!searchQueryStr && pinRow?.domain) {
+      searchQueryStr = pinRow.domain;
+    }
+    if (!searchQueryStr) {
+      return { success: true, pin_id: cleanPin, seed_pin: pinRow, matches: [] };
+    }
+
+    const searchQuery = encodeURIComponent(searchQueryStr);
     const url = `https://www.pinterest.com/resource/BaseSearchResource/get/?source_url=%2Fsearch%2Fpins%2F%3Fq%3D${searchQuery}&data=%7B%22options%22%3A%7B%22query%22%3A%22${searchQuery}%22%2C%22scope%22%3A%22pins%22%2C%22page_size%22%3A20%7D%2C%22context%22%3A%7B%7D%7D`;
 
     const headers = {
@@ -395,13 +405,15 @@ export async function fetchVisualSearchLens(sql, pinId, cookie = (typeof process
       const seedWords = (pinRow?.title || '').toLowerCase().split(/\s+/).filter(w => w.length > 3);
 
       for (const item of rawResults) {
-        if (!item || !item.id) continue;
+        if (!item || !item.id || item.type !== 'pin' || item.format === 'Related Interests') continue;
         const id = String(item.id).trim();
         if (seen.has(id)) continue;
         seen.add(id);
 
         const title = extractPinTitle(item);
+        if (title === 'Explore featured boards') continue;
         const img = item.images?.['736x']?.url || item.images?.orig?.url || item.images?.['474x']?.url || item.images?.['236x']?.url || null;
+        if (!img) continue;
         let domain = item.domain || '';
         if (!domain && item.link) {
           try { domain = new URL(item.link).hostname; } catch (_) {}
