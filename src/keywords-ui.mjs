@@ -104,6 +104,11 @@ export function getKeywordsPageHtml() {
           <span class="hidden sm:inline">Run GitHub Crawler</span>
         </button>
 
+        <a href="/board-ideas" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 transition flex items-center space-x-1.5 shadow-sm">
+          <i data-lucide="radar" class="w-3.5 h-3.5 text-purple-500"></i>
+          <span class="hidden sm:inline">Board Ideas</span>
+        </a>
+
         <a href="/" class="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition flex items-center space-x-1.5 shadow-sm shadow-emerald-950/20 active:scale-95">
           <i data-lucide="arrow-left" class="w-3.5 h-3.5"></i>
           <span>Main Dashboard</span>

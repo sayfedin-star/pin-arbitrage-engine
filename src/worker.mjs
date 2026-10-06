@@ -8,6 +8,14 @@
 import { neon } from '@neondatabase/serverless';
 import { getDashboardHtml } from './dashboard-ui.mjs';
 import { getKeywordsPageHtml } from './keywords-ui.mjs';
+import { getBoardIdeasPageHtml } from './board-ideas-ui.mjs';
+import {
+  resolveBoardIdentity,
+  syncBoardIdeas,
+  getBoardIdeasComparison,
+  listAvailableBoards,
+  deleteTrackedBoard
+} from './modules/boards/service.mjs';
 import {
   getCompetitorsOverview,
   listCompetitors,
@@ -130,8 +138,27 @@ function formatAge(days) {
   return `${(d / 365).toFixed(1)}y ago`;
 }
 
-// Shard database connection cache to prevent connection/memory leaks in Workers
+// Bounded database connection cache to prevent connection/memory leaks in Workers (max 128)
 const shardSqlCache = new Map();
+function setCachedShardSql(key, client) {
+  if (!key || !client) return;
+  if (shardSqlCache.has(key)) {
+    shardSqlCache.set(key, client);
+    return;
+  }
+  if (shardSqlCache.size >= 128) {
+    const oldestKey = shardSqlCache.keys().next().value;
+    if (oldestKey) shardSqlCache.delete(oldestKey);
+  }
+  shardSqlCache.set(key, client);
+}
+
+function getCachedShardSql(key, factory) {
+  if (shardSqlCache.has(key)) return shardSqlCache.get(key);
+  const client = factory();
+  setCachedShardSql(key, client);
+  return client;
+}
 
 export default {
   async fetch(request, env, ctx) {
@@ -146,6 +173,17 @@ export default {
     // Serve Dedicated Keywords Studio HTML
     if (pathname === '/keywords') {
       return new Response(getKeywordsPageHtml(), {
+        status: 200,
+        headers: {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'no-cache'
+        }
+      });
+    }
+
+    // Serve Dedicated Board Ideas Radar Studio HTML
+    if (pathname === '/board-ideas') {
+      return new Response(getBoardIdeasPageHtml(), {
         status: 200,
         headers: {
           'Content-Type': 'text/html; charset=utf-8',
@@ -203,23 +241,28 @@ export default {
       }, 500);
     }
 
-    const sql = neon(dbUrl);
+    const sql = getCachedShardSql(dbUrl, () => neon(dbUrl));
     let targetSql = sql;
     const reqProjectId = searchParams.get('project_id') || searchParams.get('shard') || request.headers.get('x-target-project');
     if (reqProjectId && reqProjectId !== 'all' && reqProjectId !== 'hub') {
-      try {
-        const [proj] = await sql`
-          SELECT database_url FROM neon_projects_registry 
-          WHERE (project_id = ${reqProjectId} OR project_name = ${reqProjectId}) AND status = 'active' 
-          LIMIT 1;
-        `;
-        if (proj && proj.database_url) {
-          if (!shardSqlCache.has(proj.database_url)) {
-            shardSqlCache.set(proj.database_url, neon(proj.database_url));
+      const cleanKey = String(reqProjectId).trim();
+      if (shardSqlCache.has(cleanKey)) {
+        targetSql = shardSqlCache.get(cleanKey);
+      } else {
+        try {
+          const [proj] = await sql`
+            SELECT project_id, project_name, database_url FROM neon_projects_registry 
+            WHERE (project_id = ${cleanKey} OR project_name = ${cleanKey}) AND status = 'active' 
+            LIMIT 1;
+          `;
+          if (proj && proj.database_url) {
+            targetSql = getCachedShardSql(proj.database_url, () => neon(proj.database_url));
+            setCachedShardSql(cleanKey, targetSql);
+            if (proj.project_id) setCachedShardSql(proj.project_id, targetSql);
+            if (proj.project_name) setCachedShardSql(proj.project_name, targetSql);
           }
-          targetSql = shardSqlCache.get(proj.database_url);
-        }
-      } catch (_) {}
+        } catch (_) {}
+      }
     }
 
     try {
@@ -1960,6 +2003,71 @@ export default {
           return jsonResponse({ success: false, error: 'Staged pin not found or already dispatched/cancelled', ...result }, 404);
         }
         return jsonResponse({ success: true, ...result });
+      }
+
+      // Board Ideas Radar API
+      if (method === 'GET' && pathname === '/api/board-ideas/boards') {
+        try {
+          const data = await listAvailableBoards(targetSql);
+          return jsonResponse({ success: true, ...data });
+        } catch (err) {
+          return jsonResponse({ success: false, error: err.message }, 500);
+        }
+      }
+
+      if (method === 'POST' && pathname === '/api/board-ideas/resolve') {
+        try {
+          const body = await request.json().catch(() => ({}));
+          const url = body.url || body.board_url || '';
+          if (!url) return jsonResponse({ error: 'url is required' }, 400);
+          const cookie = env.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env.PINTEREST_COOKIE : null) || '';
+          const board = await resolveBoardIdentity(targetSql, url, cookie);
+          return jsonResponse({ success: true, board });
+        } catch (err) {
+          return jsonResponse({ success: false, error: err.message }, 400);
+        }
+      }
+
+      if (method === 'POST' && pathname === '/api/board-ideas/sync') {
+        try {
+          const body = await request.json().catch(() => ({}));
+          const boardId = body.board_id;
+          if (!boardId) return jsonResponse({ error: 'board_id is required' }, 400);
+          const maxPages = Number(body.max_pages || 1);
+          const cookie = env.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env.PINTEREST_COOKIE : null) || '';
+          const result = await syncBoardIdeas(targetSql, boardId, cookie, maxPages);
+          return jsonResponse({ success: true, ...result });
+        } catch (err) {
+          return jsonResponse({ success: false, error: err.message }, 500);
+        }
+      }
+
+      if (method === 'GET' && pathname === '/api/board-ideas/details') {
+        try {
+          const boardId = searchParams.get('board_id') || searchParams.get('id');
+          if (!boardId) return jsonResponse({ error: 'board_id is required' }, 400);
+          const details = await getBoardIdeasComparison(targetSql, boardId);
+          return jsonResponse({ success: true, ...details });
+        } catch (err) {
+          return jsonResponse({ success: false, error: err.message }, 500);
+        }
+      }
+
+      if (method === 'DELETE' && pathname === '/api/board-ideas') {
+        try {
+          let boardId = searchParams.get('board_id') || searchParams.get('id');
+          if (!boardId) {
+            try {
+              const body = await request.json().catch(() => ({}));
+              boardId = body.board_id || body.id;
+            } catch (_) {}
+          }
+          if (!boardId) return jsonResponse({ error: 'board_id is required' }, 400);
+          const result = await deleteTrackedBoard(targetSql, boardId);
+          return jsonResponse({ success: true, ...result });
+        } catch (err) {
+          return jsonResponse({ success: false, error: err.message }, 500);
+        }
       }
 
       // Default 404

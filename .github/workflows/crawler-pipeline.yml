@@ -12,7 +12,7 @@ on:
         type: string
         default: ''
       crawl_mode:
-        description: 'Crawl Mode: sharded_boards (20-shard parallel board matrix - RECOMMENDED for 100% full catalog), discovery (profile created feed), or refresh (early-stop: 3 pages)'
+        description: 'Crawl Mode: sharded_boards (99-shard dynamic fleet matrix - RECOMMENDED for 100% full catalog), discovery (profile created feed), or refresh (early-stop: 3 pages)'
         required: true
         type: choice
         options:
@@ -42,12 +42,49 @@ concurrency:
 
 jobs:
   # ============================================================================
+  # STAGE 0: Intelligent Dynamic Fleet Dispatcher (~15s)
+  # Queries Central Hub to find which of the 99 shards actually hold active
+  # competitors or pending queue work. Emits active_shards JSON array.
+  # Eliminates up to 90+ empty runners, saving queue latency and compute.
+  # ============================================================================
+  dispatch-fleet:
+    name: Stage 0 - Fleet Orchestrator & Dispatcher
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      active_shards: ${{ steps.dispatcher.outputs.active_shards }}
+      active_count: ${{ steps.dispatcher.outputs.active_count }}
+    steps:
+      - name: 1. Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: 2. Setup Node.js 22 runtime with npm cache
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: 3. Install dependencies
+        run: npm ci
+
+      - name: 4. Resolve Active Shard Matrix
+        id: dispatcher
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          TARGET_ACCOUNT: ${{ inputs.target_account }}
+          SHARD_TOTAL: 99
+        run: node scripts/fleet-dispatcher.mjs
+
+  # ============================================================================
   # STAGE 1: Discovery Job (Single runner, 100% pin ID ingestion)
   # Discovers all boards & feeds, inserting pin IDs into competitor_pins as 'pending'.
   # Only executes when a specific target_account is provided.
   # ============================================================================
   discovery:
     name: Stage 1 - Ingest & Discover Account
+    needs: [dispatch-fleet]
     if: "${{ inputs.target_account != '' }}"
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -82,25 +119,26 @@ jobs:
           MAX_PAGES: ${{ inputs.max_pages || '1000' }}
           PERSONAL_BOARDS_ONLY: ${{ inputs.personal_boards_only != '' && inputs.personal_boards_only || 'true' }}
           SHARD_NUMBER: 1
-          SHARD_TOTAL: 1
+          SHARD_TOTAL: 99
         run: node scripts/crawler-engine.mjs
 
   # ============================================================================
-  # STAGE 2: 20-Shard Parallel Matrix
-  # - If target_account is set: runs AFTER discovery to consume Postgres Queue (SKIP LOCKED)
+  # STAGE 2: Dynamic Active-Shard Parallel Matrix
+  # Executes ONLY on shards that have real work assigned (0% empty runners).
+  # - If target_account is set: runs AFTER discovery to consume Postgres Queue
   # - If target_account is empty (cron): runs daily scheduled pulse across active competitors
   # ============================================================================
   crawl-shards:
-    name: Crawl Shard ${{ matrix.shard }}/20
-    needs: [discovery]
-    if: "${{ always() && (needs.discovery.result == 'success' || needs.discovery.result == 'skipped') }}"
+    name: Crawl Shard ${{ matrix.shard }}/99
+    needs: [dispatch-fleet, discovery]
+    if: "${{ always() && (needs.dispatch-fleet.result == 'success') && (needs.discovery.result == 'success' || needs.discovery.result == 'skipped') }}"
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
-      fail-fast: false       # If one shard encounters an anomaly, the other 19 continue
-      max-parallel: 20       # Run all 20 worker nodes in full parallel execution
+      fail-fast: false       # If one shard encounters an anomaly, other shards continue
+      max-parallel: 15       # Bounded parallel workers to prevent Neon Hub saturation
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+        shard: ${{ fromJson(needs.dispatch-fleet.outputs.active_shards) }}
 
     steps:
       - name: 1. Checkout repository code (Shallow fetch for speed)
@@ -116,7 +154,7 @@ jobs:
 
       - name: 3. Shard Egress IP Diagnostics
         run: |
-          echo "=== Shard ${{ matrix.shard }}/20 Egress IP ==="
+          echo "=== Shard ${{ matrix.shard }}/99 Egress IP ==="
           curl -s https://api.ipify.org && echo ""
           echo "=============================================="
 
@@ -133,5 +171,38 @@ jobs:
           MAX_PAGES: ${{ inputs.max_pages || '1000' }}
           PERSONAL_BOARDS_ONLY: ${{ inputs.personal_boards_only != '' && inputs.personal_boards_only || 'true' }}
           SHARD_NUMBER: ${{ matrix.shard }}
-          SHARD_TOTAL: 20
+          SHARD_TOTAL: 99
         run: node scripts/crawler-engine.mjs
+
+  # ============================================================================
+  # STAGE 3: Fleet Rollup & Step Summary
+  # Publishes an execution summary to the GitHub Actions workflow tab
+  # ============================================================================
+  fleet-summary:
+    name: Stage 3 - Fleet Telemetry Rollup
+    needs: [dispatch-fleet, crawl-shards]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish Workflow Run Summary
+        run: |
+          ACTIVE_SHARDS='${{ needs.dispatch-fleet.outputs.active_shards }}'
+          ACTIVE_COUNT='${{ needs.dispatch-fleet.outputs.active_count || "0" }}'
+          CRAWL_STATUS='${{ needs.crawl-shards.result }}'
+
+          COUNT="${ACTIVE_COUNT:-0}"
+          if ! [[ "$COUNT" =~ ^[0-9]+$ ]]; then COUNT=0; fi
+          REMAINING=$(( 99 - COUNT ))
+          if [ "$REMAINING" -lt 0 ]; then REMAINING=0; fi
+
+          echo "## 🚀 99-Shard Distributed Fleet Execution Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "| :--- | :--- |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Fleet Total Shards** | 99 Shards |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Active Shards Dispatched** | ${COUNT} Shards |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Active Shard Set** | \`${ACTIVE_SHARDS:-"[]"}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Empty Runners Avoided** | ${REMAINING} Runners Saved |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Crawl Matrix Result** | **${CRAWL_STATUS}** |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✨ *Zero empty runner waste. 100% Neon shard isolation.*" >> $GITHUB_STEP_SUMMARY

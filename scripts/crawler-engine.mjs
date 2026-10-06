@@ -29,11 +29,15 @@ import {
   syncCompetitorBoardPins,
   syncCompetitorBoards,
   syncCompetitorProfile,
-  getCompetitorBoards
+  getCompetitorBoards,
+  resolveLocalCompetitorId
 } from '../src/modules/competitors/service.mjs';
 import { syncCompetitorAcrossFleet } from '../src/modules/fleet/service.mjs';
 import { getQualificationRules, isPinQualified } from '../src/modules/pinarchive/service.mjs';
 import { fetchBoardsResource, fetchPinFromPinterest, sleep, randomJitterMs } from './lib/pinterest.mjs';
+import { getShardNumberForEntity } from '../src/modules/fleet/sharding.mjs';
+import { assertShardSchemaParity } from '../src/modules/fleet/guardrails.mjs';
+import { syncBoardIdeas } from '../src/modules/boards/service.mjs';
 
 // Auto-load .env in local execution environments
 if (typeof process.loadEnvFile === 'function') {
@@ -56,14 +60,15 @@ let sqlClientForCleanup = null;
 if (!globalThis.__crawlerSignalHandlersInstalled) {
   globalThis.__crawlerSignalHandlersInstalled = true;
 
-  const handleGracefulExit = async (signal) => {
+  const handleGracefulExit = async (signal, exitCode = null) => {
     console.log(`\n[!] Received ${signal}. Releasing in-flight claimed pins...`);
     if (activeBatchToRelease && activeBatchToRelease.length > 0 && sqlClientForCleanup) {
       try {
         const ids = activeBatchToRelease.map(c => c.id);
         const tokens = activeBatchToRelease.map(c => c.claim_token).filter(Boolean);
         if (ids.length > 0 && tokens.length > 0) {
-          await sqlClientForCleanup`
+          // Wrapped in a 4,000ms race timeout to prevent exit hangs on network stalls
+          const cleanupPromise = sqlClientForCleanup`
             UPDATE competitor_pins
             SET enrichment_status = 'pending',
                 claim_token = NULL,
@@ -72,18 +77,32 @@ if (!globalThis.__crawlerSignalHandlersInstalled) {
               AND claim_token = ANY(${tokens})
               AND enrichment_status = 'processing';
           `;
+          const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Cleanup timed out')), 4000));
+          await Promise.race([cleanupPromise, timeoutPromise]);
           console.log(`[✓] Released ${ids.length} in-flight pins back to 'pending'.`);
         }
       } catch (e) {
         console.error('[-] Failed to release in-flight pins on exit:', e.message);
       }
     }
-    process.exit(signal === 'SIGINT' ? 130 : 143);
+    const finalCode = exitCode !== null ? exitCode : (signal === 'SIGINT' ? 130 : signal === 'SIGTERM' ? 143 : 1);
+    process.exit(finalCode);
   };
 
   process.once('SIGINT', () => handleGracefulExit('SIGINT'));
   process.once('SIGTERM', () => handleGracefulExit('SIGTERM'));
+  process.on('uncaughtException', (err) => {
+    console.error('[-] FATAL Uncaught Exception:', err);
+    handleGracefulExit('uncaughtException', 1);
+  });
+  process.on('unhandledRejection', (reason) => {
+    console.error('[-] FATAL Unhandled Rejection:', reason);
+    handleGracefulExit('unhandledRejection', 1);
+  });
 }
+
+import { sanitizeForJsonb } from '../src/utils.mjs';
+export { sanitizeForJsonb };
 
 const BATCH_SIZE = 15;
 
@@ -91,7 +110,7 @@ const BATCH_SIZE = 15;
  * True Atomic Bulk Upsert into pa_pins via jsonb_to_recordset
  * Enforces monotonic ORDER BY pin_id ASC to eliminate lock contention & deadlocks
  */
-async function bulkUpsertPaPins(sqlClient, pins) {
+export async function bulkUpsertPaPins(sqlClient, pins) {
   if (!Array.isArray(pins) || pins.length === 0) return 0;
 
   // Deduplicate and enforce monotonic ORDER BY pin_id ASC
@@ -103,6 +122,8 @@ async function bulkUpsertPaPins(sqlClient, pins) {
   }
   const sortedPins = Array.from(uniquePinsMap.values()).sort((a, b) => String(a.pin_id).localeCompare(String(b.pin_id)));
   if (sortedPins.length === 0) return 0;
+
+  const cleanPins = sanitizeForJsonb(sortedPins);
 
   try {
     await sqlClient`
@@ -117,7 +138,7 @@ async function bulkUpsertPaPins(sqlClient, pins) {
         board_name, image_url, dominant_color, saves, repins, comments,
         share_count, reactions, velocity, annotations, is_video, is_product,
         alt_text, created_at_pinterest, NOW(), NOW()
-      FROM jsonb_to_recordset(${JSON.stringify(sortedPins)}::jsonb) AS x(
+      FROM jsonb_to_recordset(${JSON.stringify(cleanPins)}::jsonb) AS x(
         pin_id VARCHAR(64), account_username VARCHAR(128), title TEXT, description TEXT,
         link TEXT, domain VARCHAR(255), board_name VARCHAR(255), image_url TEXT,
         dominant_color VARCHAR(32), saves BIGINT, repins BIGINT, comments INT,
@@ -145,10 +166,10 @@ async function bulkUpsertPaPins(sqlClient, pins) {
         is_product = (pa_pins.is_product OR EXCLUDED.is_product),
         last_updated_at = NOW();
     `;
-    return sortedPins.length;
+    return cleanPins.length;
   } catch (err) {
-    console.warn(`[bulkUpsertPaPins] Warning:`, err.message);
-    return 0;
+    console.error(`[bulkUpsertPaPins] Database error during atomic upsert:`, err.message);
+    throw err;
   }
 }
 
@@ -168,11 +189,13 @@ async function bulkInsertMetrics(sqlClient, metrics) {
   const sortedMetrics = Array.from(uniqueMetricsMap.values()).sort((a, b) => String(a.pin_id).localeCompare(String(b.pin_id)));
   if (sortedMetrics.length === 0) return 0;
 
+  const cleanMetrics = sanitizeForJsonb(sortedMetrics);
+
   try {
     await sqlClient`
       INSERT INTO pa_pin_metrics (pin_id, recorded_at, saves, repins, comments)
       SELECT pin_id, date_trunc('hour', NOW()), saves, repins, comments
-      FROM jsonb_to_recordset(${JSON.stringify(sortedMetrics)}::jsonb) AS x(
+      FROM jsonb_to_recordset(${JSON.stringify(cleanMetrics)}::jsonb) AS x(
         pin_id VARCHAR(64), saves BIGINT, repins BIGINT, comments INT
       )
       ORDER BY pin_id ASC
@@ -181,7 +204,7 @@ async function bulkInsertMetrics(sqlClient, metrics) {
         repins = GREATEST(pa_pin_metrics.repins, EXCLUDED.repins),
         comments = GREATEST(pa_pin_metrics.comments, EXCLUDED.comments);
     `;
-    return sortedMetrics.length;
+    return cleanMetrics.length;
   } catch (err) {
     console.warn(`[bulkInsertMetrics] Warning:`, err.message);
     return 0;
@@ -192,15 +215,16 @@ async function bulkInsertMetrics(sqlClient, metrics) {
  * True Atomic Bulk Update on competitor_pins via jsonb_to_recordset
  * Deduplicates and enforces monotonic ORDER BY id ASC in JavaScript and SQL
  */
-async function bulkUpdateCompetitorPins(sqlClient, updates) {
+export async function bulkUpdateCompetitorPins(sqlClient, updates) {
   if (!Array.isArray(updates) || updates.length === 0) return 0;
 
-  // Deduplicate and enforce monotonic ORDER BY id ASC
+  // Deduplicate and enforce STRICT UUID fencing & monotonic ORDER BY id ASC
   const uniqueUpdatesMap = new Map();
   for (const u of updates) {
     if (u && u.id) {
       if (!u.claim_token || typeof u.claim_token !== 'string' || !/^[0-9a-f-]{36}$/i.test(u.claim_token)) {
-        u.claim_token = null;
+        console.warn(`[bulkUpdateCompetitorPins] Rejecting unfenced update for pin record ${u.id}: missing or invalid claim_token.`);
+        continue;
       }
       uniqueUpdatesMap.set(String(u.id), u);
     }
@@ -227,7 +251,7 @@ async function bulkUpdateCompetitorPins(sqlClient, updates) {
           last_seen_at = NOW(),
           updated_at = NOW()
       FROM (
-        SELECT * FROM jsonb_to_recordset(${JSON.stringify(sortedUpdates)}::jsonb) AS u(
+        SELECT * FROM jsonb_to_recordset(${JSON.stringify(sanitizeForJsonb(sortedUpdates))}::jsonb) AS u(
           id BIGINT, status VARCHAR(32), enrich_attempts INT, saves INT, repins INT, comments INT, alt_text TEXT,
           is_product BOOLEAN, destination_url TEXT, link_domain VARCHAR(255), title TEXT, description TEXT, image_url TEXT,
           claim_token UUID
@@ -236,7 +260,7 @@ async function bulkUpdateCompetitorPins(sqlClient, updates) {
       ) AS x
       WHERE cp.id = x.id
         AND cp.enrichment_status = 'processing'
-        AND (x.claim_token IS NULL OR cp.claim_token = x.claim_token)
+        AND cp.claim_token = x.claim_token
       RETURNING cp.id;
     `;
     return res.length;
@@ -251,20 +275,30 @@ async function bulkUpdateCompetitorPins(sqlClient, updates) {
  * Clears claim_token and resets status to 'pending' WITHOUT double-incrementing enrich_attempts.
  * Permanently marks jobs with >= 4 attempts as 'failed'.
  */
-async function reclaimStaleJobs(sqlClient, compId = null) {
+export async function reclaimStaleJobs(sqlClient, compId = null) {
   try {
     const res = await sqlClient`
-      UPDATE competitor_pins
-      SET enrichment_status = CASE WHEN COALESCE(enrich_attempts, 0) >= 4 THEN 'failed' ELSE 'pending' END,
+      WITH stale_batch AS (
+        SELECT id
+        FROM competitor_pins
+        WHERE (${compId}::int IS NULL OR competitor_id = ${compId}::int)
+          AND enrichment_status = 'processing'
+          AND (updated_at IS NULL OR updated_at < NOW() - INTERVAL '5 minutes')
+        ORDER BY id ASC
+        LIMIT 200
+        FOR UPDATE SKIP LOCKED
+      )
+      UPDATE competitor_pins cp
+      SET enrichment_status = CASE WHEN COALESCE(cp.enrich_attempts, 0) >= 4 THEN 'failed' ELSE 'pending' END,
           claim_token = NULL,
           updated_at = NOW()
-      WHERE (${compId}::int IS NULL OR competitor_id = ${compId}::int)
-        AND enrichment_status = 'processing'
-        AND (updated_at IS NULL OR updated_at < NOW() - INTERVAL '5 minutes')
-      RETURNING id;
+      FROM stale_batch sb
+      WHERE cp.id = sb.id
+      RETURNING cp.id;
     `;
     return res.length || 0;
-  } catch (_) {
+  } catch (err) {
+    console.warn(`[reclaimStaleJobs] Warning during stale job recovery:`, err.message);
     return 0;
   }
 }
@@ -365,10 +399,13 @@ export async function getAccountsAssignedToShard(sqlClient, shardNumber, shardTo
 
   const sNum = parseInt(shardNumber, 10);
   const sTot = parseInt(shardTotal, 10);
-  const shardIndex = sNum - 1;
 
-  const assigned = allAccounts.filter((_, idx) => (idx % sTot) === shardIndex);
-  console.log(`[Matrix Partitioning] Shard ${sNum}/${sTot}: Assigned ${assigned.length} of ${allAccounts.length} active accounts.`);
+  // Deterministic Mathematical Sharding (Zero Historical Drift Invariant)
+  const assigned = allAccounts.filter(acc => {
+    const targetShard = getShardNumberForEntity(acc.username, sTot);
+    return targetShard === sNum;
+  });
+  console.log(`[Deterministic CRC32 Sharding] Shard ${sNum}/${sTot}: Assigned ${assigned.length} of ${allAccounts.length} active accounts.`);
   return assigned;
 }
 
@@ -469,8 +506,7 @@ async function runDiscoveryJob(sqlClient, shardSql, cleanUser, maxPages, cookie,
 
   let compId = compProfile?.id;
   if (!compId) {
-    const [row] = await sqlClient`SELECT id FROM competitor_profiles WHERE LOWER(username) = ${cleanUser} LIMIT 1;`;
-    compId = row?.id;
+    compId = await resolveLocalCompetitorId(sqlClient, cleanUser);
   }
 
   if (!compId) {
@@ -656,12 +692,11 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
   if (cleanUser) {
     for (let attempt = 1; attempt <= 15; attempt++) {
       try {
-        const [row] = await sqlClient`SELECT id FROM competitor_profiles WHERE LOWER(username) = ${cleanUser} LIMIT 1;`;
-        if (row?.id) {
-          compId = row.id;
-          break;
-        }
-      } catch (_) {}
+        compId = await resolveLocalCompetitorId(sqlClient, cleanUser);
+        if (compId) break;
+      } catch (err) {
+        console.warn(`[!] [Attempt ${attempt}] Profile lookup error for @${cleanUser}:`, err.message);
+      }
 
       // Resilient auto-provision fallback on attempt 3 to eliminate boot race condition
       if (attempt === 3) {
@@ -676,7 +711,9 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
             compId = prov.id;
             break;
           }
-        } catch (_) {}
+        } catch (provErr) {
+          console.warn(`[!] Profile auto-provision warning for @${cleanUser}:`, provErr.message);
+        }
       }
 
       if (attempt < 15) {
@@ -806,12 +843,16 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
     }
   }
 
-  // Stagger worker boot by tiny micro-jitter (50ms - 250ms) to prevent thundering herds
-  await sleep(Math.floor(Math.random() * 200) + 50);
-
-  // Stale Job Reclamation: strictly restricted to Shard 1 to eliminate startup lock contention & thundering herds
-  if (sNum === 1) {
-    await reclaimStaleJobs(sqlClient, compId);
+  // Decentralized, Self-Healing Stale Job Reaper (Active on EVERY Shard)
+  // Stagger startup check with randomized micro-jitter (100ms - 400ms) to eliminate concurrent lock contention
+  await sleep(randomJitterMs(100, 400));
+  try {
+    const startupReclaimed = await reclaimStaleJobs(sqlClient, compId);
+    if (startupReclaimed > 0) {
+      console.log(`[*] [Shard ${sNum}] Startup Reaper: Reclaimed ${startupReclaimed} stale zombie jobs (>5m) back to pending.`);
+    }
+  } catch (reapErr) {
+    console.warn(`[!] [Shard ${sNum}] Startup reaper warning:`, reapErr.message);
   }
 
   let totalEnriched = 0;
@@ -825,9 +866,16 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
   while (true) {
     batchCounter++;
     // Periodic Stale Job Reclamation during active processing:
-    // Restrict to Shard 1 every 25 batches (~2.5 minutes) to avoid 20 concurrent update queries
-    if (sNum === 1 && batchCounter % 25 === 0) {
-      await reclaimStaleJobs(sqlClient, compId);
+    // Throttled per shard every 30 batches with randomized jitter to prevent lock storms
+    if (batchCounter % 30 === 0) {
+      try {
+        const midReclaimed = await reclaimStaleJobs(sqlClient, compId);
+        if (midReclaimed > 0) {
+          console.log(`[*] [Shard ${sNum}] Active Reaper: Reclaimed ${midReclaimed} stale zombie jobs (>5m) back to pending.`);
+        }
+      } catch (reapErr) {
+        console.warn(`[!] [Shard ${sNum}] Active reaper warning:`, reapErr.message);
+      }
     }
 
     // 1. Deadlock-free atomic claim with CTE join for guaranteed account_username
@@ -860,13 +908,17 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
 
     // Grace Polling on Empty Queue (Zero-Leak & Zero-Race)
     if (!claimed || claimed.length === 0) {
-      // A. Reclaim any jobs from crashed/timed-out runners (strictly restricted to Shard 1, throttled every 5 polls)
-      if (sNum === 1 && emptyPolls % 5 === 0) {
-        const reclaimed = await reclaimStaleJobs(sqlClient, compId);
-        if (reclaimed > 0) {
-          console.log(`[*] [Shard ${shardNumber}] Reclaimed ${reclaimed} stale jobs from slow/crashed runners. Resuming...`);
-          emptyPolls = 0;
-          continue;
+      // A. Reclaim any jobs from crashed/timed-out runners across ANY active shard (throttled every 10 polls per shard)
+      if (emptyPolls % 10 === 0) {
+        try {
+          const reclaimed = await reclaimStaleJobs(sqlClient, compId);
+          if (reclaimed > 0) {
+            console.log(`[*] [Shard ${sNum}] Self-Healing: Reclaimed ${reclaimed} stale jobs from slow/crashed runners. Resuming...`);
+            emptyPolls = 0;
+            continue;
+          }
+        } catch (reapErr) {
+          console.warn(`[!] [Shard ${sNum}] Empty poll reaper warning:`, reapErr.message);
         }
       }
 
@@ -1179,11 +1231,25 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
 
       // 3. Atomically commit the batch using single bulk SQL operations (<50ms total)
       if (enrichedPins.length > 0) {
-        await bulkUpsertPaPins(sqlClient, enrichedPins);
-        await bulkInsertMetrics(sqlClient, metricSnapshots);
+        try {
+          await bulkUpsertPaPins(sqlClient, enrichedPins);
+          await bulkInsertMetrics(sqlClient, metricSnapshots);
 
-        if (shardSql) {
-          await bulkUpsertPaPins(shardSql, enrichedPins).catch(() => {});
+          if (shardSql) {
+            await bulkUpsertPaPins(shardSql, enrichedPins).catch((sErr) => {
+              console.warn(`[!] Shard pa_pins sync warning:`, sErr.message);
+            });
+          }
+        } catch (upsertErr) {
+          console.error(`[-] [Shard ${shardNumber}] FATAL: bulkUpsertPaPins failed! Reverting batch pins to pending to prevent silent data drop:`, upsertErr.message);
+          // Safety: Revert statusUpdates for enriched pins to 'pending' so they are retried safely!
+          const enrichedPinIdSet = new Set(enrichedPins.map(p => String(p.pin_id)));
+          for (const s of statusUpdates) {
+            const itemMatch = claimed.find(c => c.id === s.id);
+            if (itemMatch && enrichedPinIdSet.has(String(itemMatch.pin_id))) {
+              s.status = 'pending';
+            }
+          }
         }
       }
 
@@ -1389,19 +1455,77 @@ async function runDailyScheduledMode(sqlClient, shardSql, shardNumber, shardTota
   }
   }
 
+  // 5. Tracked Boards Daily Recommendations Sync (Board Ideas Radar)
+  try {
+    const isPrimaryShard = (parseInt(shardNumber, 10) === 1);
+    const assignedBoards = await sqlClient`
+      SELECT board_id, name, url, assigned_shard_id
+      FROM tracked_boards
+      WHERE is_active = TRUE
+        AND track_daily = TRUE
+        AND (
+          assigned_shard_id = ${shardNumber}
+          OR (${isPrimaryShard} AND assigned_shard_id IS NULL)
+        )
+        AND (last_scanned_at IS NULL OR last_scanned_at < NOW() - INTERVAL '20 hours')
+      ORDER BY last_scanned_at ASC NULLS FIRST
+      LIMIT 10;
+    `;
+    if (assignedBoards.length > 0) {
+      console.log(`\n[*] [Shard ${shardNumber}] Found ${assignedBoards.length} assigned tracked boards due for daily sync...`);
+      for (const b of assignedBoards) {
+        try {
+          // Immediately backfill unassigned boards to eliminate future multi-shard contention
+          if (b.assigned_shard_id === null || b.assigned_shard_id === undefined) {
+            const trueAssigned = getShardNumberForEntity(b.board_id, shardTotal || 99);
+            await sqlClient`
+              UPDATE tracked_boards
+              SET assigned_shard_id = ${trueAssigned},
+                  updated_at = NOW()
+              WHERE board_id = ${b.board_id};
+            `.catch(() => {});
+          }
+
+          console.log(`    -> Syncing Board Ideas for "${b.name}" (${b.board_id})...`);
+          const syncRes = await syncBoardIdeas(sqlClient, b.board_id, cookie, 1);
+          if (shardSql) {
+            await syncBoardIdeas(shardSql, b.board_id, cookie, 1).catch(() => {});
+          }
+          console.log(`       [✓] Synced ${syncRes.total_synced || 0} recommendations.`);
+        } catch (bErr) {
+          console.warn(`       [!] Board sync warning:`, bErr.message);
+        }
+        await sleep(randomJitterMs(2000, 3500));
+      }
+    }
+  } catch (boardsErr) {
+    console.warn(`[!] Tracked boards sweep warning:`, boardsErr.message);
+  }
+
   // Also consume any pending items in queue
   console.log(`[*] Checking for pending items in queue...`);
   await runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, '', cookie);
 }
 
+function getCliArg(flag) {
+  const eq = process.argv.find(a => a.startsWith(`${flag}=`));
+  if (eq) return eq.split('=')[1];
+  const idx = process.argv.indexOf(flag);
+  if (idx !== -1 && idx < process.argv.length - 1) return process.argv[idx + 1];
+  return '';
+}
+
 async function main() {
-  const shardNumber = process.env.SHARD_NUMBER ? parseInt(process.env.SHARD_NUMBER, 10) : 1;
-  const shardTotal = process.env.SHARD_TOTAL ? parseInt(process.env.SHARD_TOTAL, 10) : 1;
-  const targetAccount = (process.env.TARGET_ACCOUNT || '').replace(/^@+/, '').trim();
-  const targetBoardsRaw = (process.env.TARGET_BOARDS || '').trim();
-  const crawlMode = (process.env.CRAWL_MODE || 'discovery').toLowerCase();
-  const crawlPhase = (process.env.CRAWL_PHASE || '').toLowerCase();
-  const maxPagesInput = process.env.MAX_PAGES ? parseInt(process.env.MAX_PAGES, 10) : null;
+  const rawShardNum = getCliArg('--shard-number') || process.env.SHARD_NUMBER;
+  const rawShardTot = getCliArg('--shard-total') || process.env.SHARD_TOTAL;
+  const shardNumber = rawShardNum ? parseInt(rawShardNum, 10) : 1;
+  const shardTotal = rawShardTot ? parseInt(rawShardTot, 10) : 99;
+  const targetAccount = (getCliArg('--account') || process.env.TARGET_ACCOUNT || '').replace(/^@+/, '').trim();
+  const targetBoardsRaw = (getCliArg('--boards') || process.env.TARGET_BOARDS || '').trim();
+  const crawlMode = (getCliArg('--mode') || process.env.CRAWL_MODE || 'discovery').toLowerCase();
+  const crawlPhase = (getCliArg('--phase') || process.env.CRAWL_PHASE || '').toLowerCase();
+  const rawPages = getCliArg('--pages') || process.env.MAX_PAGES;
+  const maxPagesInput = rawPages ? parseInt(rawPages, 10) : null;
   const cookie = process.env.PINTEREST_COOKIE || '';
 
   let maxPages = maxPagesInput;
@@ -1422,13 +1546,26 @@ async function main() {
   console.log(`🌐 [Runner Network Diagnostic] Public Egress IP: ${egressIp} (Shard ${shardNumber}/${shardTotal})`);
 
   // Look up dedicated shard database in Neon registry if configured
-  const shardName = `pin-arbitrage-shard-${String(shardNumber).padStart(2, '0')}`;
+  // In targeted account mode, all swarm runners replicate to the account's canonical assigned shard
+  // In scheduled fleet mode, runners connect to their assigned matrix shard
+  const effectiveShardNumber = targetAccount
+    ? getShardNumberForEntity(targetAccount, shardTotal)
+    : shardNumber;
+  const shardName = `pin-arbitrage-shard-${String(effectiveShardNumber).padStart(2, '0')}`;
   let shardSql = null;
   try {
     const [sRow] = await sql`SELECT database_url FROM neon_projects_registry WHERE project_name = ${shardName} LIMIT 1;`;
     if (sRow?.database_url) {
       shardSql = neon(sRow.database_url);
-      console.log(`[*] [Fleet Shard] Connected to dedicated shard DB: ${shardName}`);
+      console.log(`[*] [Fleet Shard] Connected to dedicated shard DB: ${shardName}${targetAccount ? ` (Canonical Shard for @${targetAccount})` : ''}`);
+      
+      // Continuous Schema Drift Guardrail: Fail-fast if shard lacks parity
+      try {
+        await assertShardSchemaParity(shardSql, '011', shardName);
+        console.log(`[✓] [Fleet Guardrail] ${shardName} verified at 100% schema parity (v011).`);
+      } catch (guardErr) {
+        console.warn(`[!] [Fleet Guardrail Warning] ${guardErr.message}`);
+      }
     }
   } catch (_) {}
 

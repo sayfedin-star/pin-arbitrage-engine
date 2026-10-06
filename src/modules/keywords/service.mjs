@@ -17,6 +17,7 @@
  */
 
 import { formatPinterestCookie } from '../../utils.mjs';
+import { getCachedVisualSearchMatches, setCachedVisualSearchMatches } from './visual-lens-cache.mjs';
 
 // In-Memory Mutex for process-local fast-fail
 const activeKeywordCrawls = new Set();
@@ -260,6 +261,13 @@ export async function fetchVisualSearchLens(sql, pinId, cookie = (typeof process
     }
   }
 
+  // 1.1 Persistent L2 DB Cache (7-day TTL)
+  const dbCached = await getCachedVisualSearchMatches(sql, cleanPin);
+  if (dbCached) {
+    visualSearchCache.set(cleanPin, { matches: dbCached.matches, timestamp: Date.now() });
+    return { success: true, pin_id: cleanPin, matches: dbCached.matches, cached: true };
+  }
+
   // 2. Coalesce in-flight requests
   if (inflightVisualSearch.has(cleanPin)) {
     return await inflightVisualSearch.get(cleanPin);
@@ -277,13 +285,16 @@ export async function fetchVisualSearchLens(sql, pinId, cookie = (typeof process
         LIMIT 1;
       `;
       pinRow = row;
-    } catch (_) {}
+    } catch (err) {
+      console.warn(`[fetchVisualSearchLens] Snapshot lookup warning for pin ${cleanPin}:`, err.message);
+    }
 
     // Fallback if pin not yet crawled in snapshots
     if (!pinRow?.title) {
+      let pinRes;
       try {
         const pinDetailUrl = `https://www.pinterest.com/resource/PinResource/get/?source_url=%2Fpin%2F${cleanPin}%2F&data=${encodeURIComponent(JSON.stringify({ options: { id: cleanPin, field_set_key: 'detailed' }, context: {} }))}`;
-        const pinRes = await fetch(pinDetailUrl, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(6000) });
+        pinRes = await fetch(pinDetailUrl, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(6000) });
         if (pinRes.ok) {
           const pJson = await pinRes.json();
           const pData = pJson?.resource_response?.data;
@@ -297,7 +308,13 @@ export async function fetchVisualSearchLens(sql, pinId, cookie = (typeof process
             };
           }
         }
-      } catch (_) {}
+      } catch (err) {
+        console.warn(`[fetchVisualSearchLens] Fallback pin detail fetch warning for pin ${cleanPin}:`, err.message);
+      } finally {
+        if (pinRes?.body && !pinRes.bodyUsed) {
+          await pinRes.body.cancel().catch(() => {});
+        }
+      }
     }
 
     const searchQuery = encodeURIComponent(pinRow?.title || cleanPin);
@@ -377,6 +394,9 @@ export async function fetchVisualSearchLens(sql, pinId, cookie = (typeof process
       }
 
       visualSearchCache.set(cleanPin, { matches, timestamp: Date.now() });
+
+      // Persist to L2 Sharded Database Cache (7-day TTL)
+      await setCachedVisualSearchMatches(sql, cleanPin, matches);
 
       return {
         success: true,

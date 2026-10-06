@@ -61,24 +61,48 @@ export function sleep(ms) {
 }
 
 /**
+ * Parses Retry-After header (seconds or HTTP date), guaranteeing bounded integer output.
+ */
+export function parseRetryAfterSeconds(headerValue, defaultSec = 3) {
+  if (!headerValue) return defaultSec;
+  const num = parseInt(headerValue, 10);
+  if (!isNaN(num) && num > 0) return num;
+  const d = new Date(headerValue);
+  if (!isNaN(d.getTime())) {
+    const diffSec = Math.ceil((d.getTime() - Date.now()) / 1000);
+    return Math.max(1, diffSec);
+  }
+  return defaultSec;
+}
+
+/**
  * Robust metric parser: safely converts numbers, formatted strings ('1.2k', '1.5M', '1,250')
  * into clean integers, guaranteeing no NaN is emitted to PostgreSQL.
  */
 export function parseCleanMetric(val, fallback = 0) {
   if (val === null || val === undefined) return fallback;
-  if (typeof val === 'number') return isNaN(val) ? fallback : Math.round(val);
+  if (Array.isArray(val) || typeof val === 'boolean') return fallback;
+  if (typeof val === 'number') {
+    if (isNaN(val) || !isFinite(val)) return fallback;
+    return Math.max(0, Math.round(val));
+  }
+  if (typeof val === 'object') {
+    if (typeof val.count === 'number' || typeof val.count === 'string') return parseCleanMetric(val.count, fallback);
+    if (typeof val.value === 'number' || typeof val.value === 'string') return parseCleanMetric(val.value, fallback);
+    return fallback;
+  }
   const s = String(val).replace(/,/g, '').trim().toLowerCase();
-  if (!s) return fallback;
+  if (!s || s === 'nan' || s === 'infinity' || s === '-infinity') return fallback;
   if (s.endsWith('m')) {
     const num = parseFloat(s.slice(0, -1));
-    return isNaN(num) ? fallback : Math.round(num * 1000000);
+    return isNaN(num) || !isFinite(num) ? fallback : Math.max(0, Math.round(num * 1000000));
   }
   if (s.endsWith('k')) {
     const num = parseFloat(s.slice(0, -1));
-    return isNaN(num) ? fallback : Math.round(num * 1000);
+    return isNaN(num) || !isFinite(num) ? fallback : Math.max(0, Math.round(num * 1000));
   }
   const num = Number(s);
-  return isNaN(num) ? fallback : Math.round(num);
+  return isNaN(num) || !isFinite(num) ? fallback : Math.max(0, Math.round(num));
 }
 
 /**
@@ -102,19 +126,23 @@ export function findPinInTree(obj, pinId, depth = 0) {
 }
 
 /**
- * Robust string extractor: handles string, object ({text: string}), or numbers cleanly without throwing .trim() errors
+ * Robust string extractor: handles string, object ({text: string}), or numbers cleanly without throwing .trim() errors.
+ * Strips null bytes and unprintable control characters.
  */
 export function safeString(val) {
   if (val === null || val === undefined) return '';
-  if (typeof val === 'string') return val.trim();
-  if (typeof val === 'object') {
-    if (typeof val.text === 'string') return val.text.trim();
-    if (typeof val.title === 'string') return val.title.trim();
-    if (typeof val.headline === 'string') return val.headline.trim();
-    if (typeof val.name === 'string') return val.name.trim();
-    if (typeof val.description === 'string') return val.description.trim();
+  let str = '';
+  if (typeof val === 'string') str = val;
+  else if (typeof val === 'number' || typeof val === 'bigint') str = String(val);
+  else if (typeof val === 'object' && !Array.isArray(val)) {
+    if (typeof val.text === 'string') str = val.text;
+    else if (typeof val.title === 'string') str = val.title;
+    else if (typeof val.headline === 'string') str = val.headline;
+    else if (typeof val.name === 'string') str = val.name;
+    else if (typeof val.description === 'string') str = val.description;
   }
-  return '';
+  if (!str) return '';
+  return str.replace(/[\u0000\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '').trim();
 }
 
 /**
@@ -267,7 +295,7 @@ export function formatPin(pin) {
   }
 
   // Image URL
-  const imageUrl =
+  let rawImageUrl =
     pin.images?.orig?.url ||
     pin.images_orig?.url ||
     pin.images?.['736x']?.url ||
@@ -279,6 +307,14 @@ export function formatPin(pin) {
     pin.image_url ||
     pin.image ||
     '';
+
+  let imageUrl = '';
+  if (typeof rawImageUrl === 'string') {
+    imageUrl = rawImageUrl.replace(/[\u0000\x00-\x1F\x7F]/g, '').trim();
+    if (imageUrl.startsWith('//')) {
+      imageUrl = `https:${imageUrl}`;
+    }
+  }
 
   // Dominant color
   const dominantColor = pin.dominant_color || pin.dominantColor || '#888888';
@@ -489,17 +525,23 @@ export function extractPinData(html, pinId) {
           if (s?.interactionType?.includes('LikeAction')) saves = Number(s.userInteractionCount || 0);
           if (s?.interactionType?.includes('CommentAction')) comments = Number(s.userInteractionCount || 0);
         }
-        return formatPin({
-          id: pinId,
-          title: ld.headline || ld.name || '',
-          description: ld.articleBody || ld.description || '',
-          link: ld.url || '',
-          image_url: Array.isArray(ld.image) ? ld.image[0] : (typeof ld.image === 'string' ? ld.image : ld.image?.url || ''),
-          created_at: ld.datePublished || null,
-          saves,
-          repins: saves,
-          comments,
-        });
+        const rawImg = Array.isArray(ld.image) ? ld.image[0] : (typeof ld.image === 'string' ? ld.image : ld.image?.url || '');
+        const hasValidContent = Boolean(
+          ld.headline || ld.name || ld.articleBody || ld.description || rawImg || ld.url || saves > 0 || comments > 0
+        );
+        if (hasValidContent) {
+          return formatPin({
+            id: pinId,
+            title: ld.headline || ld.name || '',
+            description: ld.articleBody || ld.description || '',
+            link: ld.url || '',
+            image_url: rawImg,
+            created_at: ld.datePublished || null,
+            saves,
+            repins: saves,
+            comments,
+          });
+        }
       }
     } catch (_) {}
   }
@@ -544,16 +586,24 @@ export async function fetchPinFromPinterest(pinId) {
       signal: AbortSignal.timeout(8000),
     });
 
-    if (res.status === 401 || res.status === 403 || res.status === 429) {
+    if (res.status === 401 || res.status === 403 || res.status === 429 || res.status === 502 || res.status === 503 || res.status === 504) {
       if (res.body) await res.body.cancel().catch(() => {});
-      // Rule 6: Jitter delay (2500ms-4000ms) before anonymous retry
-      await sleep(randomJitterMs(2500, 4000));
+      let retryDelay = randomJitterMs(2500, 4000);
+      if (res.status === 429) {
+        const retrySec = parseRetryAfterSeconds(res.headers.get('retry-after'), 3);
+        if (retrySec > 30) {
+          return { ok: false, status: 429, retryAfter: retrySec };
+        }
+        retryDelay = Math.max(retryDelay, retrySec * 1000);
+      }
+      await sleep(retryDelay);
       res = await fetch(url, { headers: PINTEREST_PAGE_HEADERS, redirect: 'follow', signal: AbortSignal.timeout(8000) });
     }
 
     if (!res.ok) {
       if (res.body) await res.body.cancel().catch(() => {});
-      return { ok: false, status: res.status };
+      const resRetryAfter = res.status === 429 ? parseRetryAfterSeconds(res.headers.get('retry-after'), 15) : undefined;
+      return { ok: false, status: res.status, retryAfter: resRetryAfter };
     }
     const html = await res.text();
     const parsed = extractPinData(html, pinId);

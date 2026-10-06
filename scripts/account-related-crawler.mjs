@@ -9,6 +9,7 @@
 
 import { neon } from '@neondatabase/serverless';
 import fs from 'fs';
+import { sanitizeForJsonb } from './crawler-engine.mjs';
 
 // Load environment variables safely
 if (typeof process.loadEnvFile === 'function') {
@@ -204,7 +205,7 @@ async function crawlSeedPin(competitorId, seedPinId, targetUsername) {
           x.dominant_color, x.saves, x.repins, x.domain, x.destination_url,
           x.is_product, x.is_same_account, x.creator_username, x.creator_name,
           x.provenance_engine, NOW()
-        FROM jsonb_to_recordset(${JSON.stringify(candidateRows)}::jsonb) AS x(
+        FROM jsonb_to_recordset(${JSON.stringify(sanitizeForJsonb(candidateRows))}::jsonb) AS x(
           competitor_id int, seed_pin_id varchar, candidate_pin_id varchar, title text, image_url text,
           dominant_color varchar, saves int, repins int, domain text, destination_url text,
           is_product boolean, is_same_account boolean, creator_username varchar, creator_name varchar,
@@ -333,10 +334,12 @@ async function main() {
       };
     });
 
+    seedRecords.sort((a, b) => a.pin_id.localeCompare(b.pin_id));
+
     await sql`
       INSERT INTO competitor_seed_pins (competitor_id, pin_id, title, image_url, board_name, save_count)
       SELECT x.competitor_id, x.pin_id, x.title, x.image_url, x.board_name, x.save_count
-      FROM jsonb_to_recordset(${JSON.stringify(seedRecords)}::jsonb) AS x(
+      FROM jsonb_to_recordset(${JSON.stringify(sanitizeForJsonb(seedRecords))}::jsonb) AS x(
         competitor_id int, pin_id varchar, title text, image_url text, board_name varchar, save_count bigint
       )
       ON CONFLICT (competitor_id, pin_id) DO UPDATE SET

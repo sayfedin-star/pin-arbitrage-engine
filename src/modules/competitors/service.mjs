@@ -4,9 +4,20 @@
  * and pin catalog ingestion.
  */
 
-import { formatPinterestCookie } from '../../utils.mjs';
+import { formatPinterestCookie, sanitizeForJsonb } from '../../utils.mjs';
 import { fetchUserResource, fetchBoardsResource, fetchBoardDetailUnauth, fetchUserActivityPinsResource, fetchBoardFeedResource, sleep, randomJitterMs } from '../../../scripts/lib/pinterest.mjs';
+import crypto from 'node:crypto';
 import { ingestPinsBatch, getQualificationRules } from '../pinarchive/service.mjs';
+
+/**
+ * Deterministic Synthetic Board ID Generator
+ * Generates an immutable, idempotent MD5 hash matching Migration 011 SQL schema standards.
+ */
+export function generateSyntheticBoardId(competitorId, boardName) {
+  const norm = String(boardName || 'General').trim().toLowerCase();
+  const hash = crypto.createHash('md5').update(`${competitorId}:${norm}`).digest('hex').slice(0, 16);
+  return `cb-${hash}`;
+}
 
 /**
  * Format large numbers with commas or abbreviation (e.g. 10.5M, 42.8K)
@@ -374,25 +385,8 @@ export async function getCompetitorBoards(sql, competitorId, { username = '' } =
     cleanUser = normalizePinterestUsername(competitorId);
   }
 
-  // Always resolve local shard numeric ID by canonical username first:
-  if (cleanUser) {
-    try {
-      const [c] = await sql`SELECT id, username FROM competitor_profiles WHERE LOWER(username) = ${cleanUser} LIMIT 1;`;
-      if (c?.id) {
-        numericId = c.id;
-        cleanUser = c.username;
-      }
-    } catch (_) {}
-  } else if (!isNaN(numericId)) {
-    try {
-      const [c] = await sql`SELECT id, username FROM competitor_profiles WHERE id = ${numericId} LIMIT 1;`;
-      if (c?.username) {
-        cleanUser = c.username;
-      } else {
-        numericId = null;
-      }
-    } catch (_) {}
-  }
+  // Resolve local shard numeric ID prioritizing canonical username:
+  numericId = await resolveLocalCompetitorId(sql, cleanUser || competitorId, { expectedUsername: cleanUser });
   if (!numericId || isNaN(numericId)) return [];
 
   let boards = [];
@@ -411,7 +405,9 @@ export async function getCompetitorBoards(sql, competitorId, { username = '' } =
       SELECT * FROM deduped
       ORDER BY pin_count DESC;
     `;
-  } catch (_) {}
+  } catch (err) {
+    console.warn(`[getCompetitorBoards] Boards query error for ID ${numericId}:`, err.message);
+  }
 
   // Discover & merge any additional boards from competitor_pins
   try {
@@ -435,7 +431,7 @@ export async function getCompetitorBoards(sql, competitorId, { username = '' } =
         boards.push({
           id: boards.length + 1,
           competitor_id: numericId,
-          board_id: 'cb-' + (boards.length + 1),
+          board_id: generateSyntheticBoardId(numericId, b.name),
           name: b.name,
           url: `https://www.pinterest.com/${cleanUser || 'pin'}/${encodeURIComponent(b.name.toLowerCase().replace(/\s+/g, '-'))}/`,
           pin_count: b.pin_count,
@@ -446,7 +442,9 @@ export async function getCompetitorBoards(sql, competitorId, { username = '' } =
         });
       }
     }
-  } catch (_) {}
+  } catch (err) {
+    console.warn(`[getCompetitorBoards] Pin board discovery aggregation error for ID ${numericId}:`, err.message);
+  }
 
   // Invariant guarantee: strictly one entry per unique normalized board name, prioritizing authentic boards
   const uniqueBoardMap = new Map();
@@ -2385,17 +2383,58 @@ export async function reEvaluateCompetitorPins(sql, competitorId) {
   };
 }
 
-export async function resolveNumericCompetitorId(sql, competitorId) {
-  let numericId = parseInt(competitorId, 10);
-  if (isNaN(numericId) || !numericId) {
-    const cleanUser = String(competitorId).replace(/^@+/, '').trim().toLowerCase();
+/**
+ * Hardened Natural-Key Shard ID Resolver
+ * Resolves local database surrogate ID from canonical immutable username or validates local numeric ID.
+ * Guarantees zero cross-shard surrogate key mismatch.
+ */
+export async function resolveLocalCompetitorId(sql, competitorIdentifier, { expectedUsername = '' } = {}) {
+  if (!competitorIdentifier || !sql) return null;
+  if (typeof competitorIdentifier !== 'string' && typeof competitorIdentifier !== 'number') return null;
+  if (expectedUsername && typeof expectedUsername !== 'string') return null;
+  const raw = String(competitorIdentifier).trim();
+  const isNumeric = /^\d+$/.test(raw);
+
+  // If canonical username is known, ALWAYS prioritize resolving local surrogate ID by username
+  const cleanExpected = expectedUsername ? normalizePinterestUsername(expectedUsername) : null;
+  if (cleanExpected) {
     try {
-      const [c] = await sql`SELECT id, username FROM competitor_profiles WHERE LOWER(username) = ${cleanUser} LIMIT 1;`;
-      if (c?.id) numericId = c.id;
-    } catch (_) {}
+      const [c] = await sql`SELECT id FROM competitor_profiles WHERE LOWER(username) = ${cleanExpected} LIMIT 1;`;
+      if (c?.id) return c.id;
+    } catch (err) {
+      console.warn(`[resolveLocalCompetitorId] Failed to resolve ID for expected @${cleanExpected}:`, err.message);
+    }
   }
-  return numericId;
+
+  if (!isNumeric) {
+    const cleanUser = normalizePinterestUsername(raw);
+    if (!cleanUser) return null;
+    try {
+      const [row] = await sql`
+        SELECT id FROM competitor_profiles WHERE LOWER(username) = ${cleanUser} LIMIT 1;
+      `;
+      return row?.id || null;
+    } catch (err) {
+      console.warn(`[resolveLocalCompetitorId] Query error for @${cleanUser}:`, err.message);
+      return null;
+    }
+  }
+
+  // If numeric ID was passed, verify it exists in this specific database instance
+  const numId = parseInt(raw, 10);
+  if (isNaN(numId)) return null;
+  try {
+    const [verified] = await sql`
+      SELECT id FROM competitor_profiles WHERE id = ${numId} LIMIT 1;
+    `;
+    return verified?.id || null;
+  } catch (err) {
+    console.warn(`[resolveLocalCompetitorId] Numeric check failed for ID ${numId}:`, err.message);
+    return null;
+  }
 }
+
+export const resolveNumericCompetitorId = resolveLocalCompetitorId;
 
 /**
  * Get registered seed pins for an account along with discovered related candidate counts.
@@ -2758,6 +2797,8 @@ export async function harvestSinglePinRelatedLive(sql, competitorId, pinId) {
     // Monotonic sort to eliminate PostgreSQL unique index locking deadlocks
     candidateRows.sort((a, b) => a.candidate_pin_id.localeCompare(b.candidate_pin_id));
 
+    const cleanCandidates = sanitizeForJsonb(candidateRows);
+
     await sql`
       INSERT INTO competitor_related_nodes (
         competitor_id, seed_pin_id, candidate_pin_id, title, image_url,
@@ -2770,7 +2811,7 @@ export async function harvestSinglePinRelatedLive(sql, competitorId, pinId) {
         x.dominant_color, x.saves, x.repins, x.domain, x.destination_url,
         x.is_product, x.is_same_account, x.creator_username, x.creator_name,
         x.provenance_engine, NOW()
-      FROM jsonb_to_recordset(${JSON.stringify(candidateRows)}::jsonb) AS x(
+      FROM jsonb_to_recordset(${JSON.stringify(cleanCandidates)}::jsonb) AS x(
         competitor_id int, seed_pin_id varchar, candidate_pin_id varchar, title text, image_url text,
         dominant_color varchar, saves int, repins int, domain text, destination_url text,
         is_product boolean, is_same_account boolean, creator_username varchar, creator_name varchar,

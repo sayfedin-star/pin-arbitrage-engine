@@ -2,6 +2,7 @@ import fs from 'fs';
 import vm from 'node:vm';
 import { getDashboardHtml } from '../src/dashboard-ui.mjs';
 import { getKeywordsPageHtml } from '../src/keywords-ui.mjs';
+import { getBoardIdeasPageHtml } from '../src/board-ideas-ui.mjs';
 
 function validateHtml(name, html) {
   const scriptMatches = html.match(/<script[\s\S]*?<\/script>/gi) || [];
@@ -34,9 +35,10 @@ function validateHtml(name, html) {
 
 const ok1 = validateHtml('getDashboardHtml', getDashboardHtml());
 const ok2 = validateHtml('getKeywordsPageHtml', getKeywordsPageHtml());
+const ok3 = validateHtml('getBoardIdeasPageHtml', getBoardIdeasPageHtml());
 
-if (ok1 && ok2) {
-  console.log('[+] ALL inline scripts in both dashboards have 100% valid JavaScript syntax!');
+if (ok1 && ok2 && ok3) {
+  console.log('[+] ALL inline scripts in all 3 dashboards have 100% valid JavaScript syntax!');
 } else {
   process.exit(1);
 }

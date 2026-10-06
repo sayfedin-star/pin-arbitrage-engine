@@ -17,6 +17,14 @@ import { neon } from '@neondatabase/serverless';
 import { parsePinCandidate, formatPinterestCookie } from './cluster-intelligence.mjs';
 import { getDashboardHtml } from '../src/dashboard-ui.mjs';
 import { getKeywordsPageHtml } from '../src/keywords-ui.mjs';
+import { getBoardIdeasPageHtml } from '../src/board-ideas-ui.mjs';
+import {
+  resolveBoardIdentity,
+  syncBoardIdeas,
+  getBoardIdeasComparison,
+  listAvailableBoards,
+  deleteTrackedBoard
+} from '../src/modules/boards/service.mjs';
 import {
   getCompetitorsOverview,
   listCompetitors,
@@ -367,26 +375,42 @@ function sendJson(res, statusCode, data) {
   res.end(JSON.stringify(data));
 }
 
-// Parse request body for POST
+// Parse request body for POST with robust multibyte UTF-8 stream handling and 10MB limit
 function parseRequestBody(req) {
   return new Promise((resolve, reject) => {
-    let body = '';
-    req.on('data', (chunk) => {
-      body += chunk;
-      if (body.length > 1e6) {
+    const chunks = [];
+    let totalLength = 0;
+    let settled = false;
+
+    const onData = (chunk) => {
+      totalLength += chunk.length;
+      if (totalLength > 10 * 1024 * 1024) { // 10MB safety cap
+        settled = true;
+        req.removeListener('data', onData);
         req.socket.destroy();
         reject(new Error('Payload too large'));
+      } else {
+        chunks.push(chunk);
       }
-    });
-    req.on('end', () => {
+    };
+
+    req.on('data', onData);
+    req.once('end', () => {
+      if (settled) return;
+      settled = true;
       try {
-        const parsed = body ? JSON.parse(body) : {};
+        const raw = Buffer.concat(chunks).toString('utf-8');
+        const parsed = raw ? JSON.parse(raw) : {};
         resolve(parsed);
       } catch (err) {
         reject(err);
       }
     });
-    req.on('error', reject);
+    req.once('error', (err) => {
+      if (settled) return;
+      settled = true;
+      reject(err);
+    });
   });
 }
 
@@ -395,8 +419,27 @@ const parseJsonBody = parseRequestBody;
 
 // getDashboardHtml is imported from ../src/dashboard-ui.mjs
 
-// Cache Neon SQL instances per shard to prevent connection/memory leaks
+// Bounded cache of Neon SQL instances per shard to prevent redundant DB roundtrips and memory leaks (max 128)
 const shardSqlCache = new Map();
+function setCachedShardSql(key, client) {
+  if (!key || !client) return;
+  if (shardSqlCache.has(key)) {
+    shardSqlCache.set(key, client);
+    return;
+  }
+  if (shardSqlCache.size >= 128) {
+    const oldestKey = shardSqlCache.keys().next().value;
+    if (oldestKey) shardSqlCache.delete(oldestKey);
+  }
+  shardSqlCache.set(key, client);
+}
+
+function getCachedShardSql(key, factory) {
+  if (shardSqlCache.has(key)) return shardSqlCache.get(key);
+  const client = factory();
+  setCachedShardSql(key, client);
+  return client;
+}
 
 // HTTP Server
 const server = http.createServer(async (req, res) => {
@@ -418,19 +461,24 @@ const server = http.createServer(async (req, res) => {
     let targetSql = sql;
     const reqProjectId = parsedUrl.searchParams.get('project_id') || parsedUrl.searchParams.get('shard') || req.headers['x-target-project'];
     if (reqProjectId && reqProjectId !== 'all' && reqProjectId !== 'hub') {
-      try {
-        const [proj] = await sql`
-          SELECT database_url FROM neon_projects_registry 
-          WHERE (project_id = ${reqProjectId} OR project_name = ${reqProjectId}) AND status = 'active' 
-          LIMIT 1;
-        `;
-        if (proj && proj.database_url) {
-          if (!shardSqlCache.has(proj.database_url)) {
-            shardSqlCache.set(proj.database_url, neon(proj.database_url));
+      const cleanKey = String(reqProjectId).trim();
+      if (shardSqlCache.has(cleanKey)) {
+        targetSql = shardSqlCache.get(cleanKey);
+      } else {
+        try {
+          const [proj] = await sql`
+            SELECT project_id, project_name, database_url FROM neon_projects_registry 
+            WHERE (project_id = ${cleanKey} OR project_name = ${cleanKey}) AND status = 'active' 
+            LIMIT 1;
+          `;
+          if (proj && proj.database_url) {
+            targetSql = getCachedShardSql(proj.database_url, () => neon(proj.database_url));
+            setCachedShardSql(cleanKey, targetSql);
+            if (proj.project_id) setCachedShardSql(proj.project_id, targetSql);
+            if (proj.project_name) setCachedShardSql(proj.project_name, targetSql);
           }
-          targetSql = shardSqlCache.get(proj.database_url);
-        }
-      } catch (_) {}
+        } catch (_) {}
+      }
     }
 
     // 1. POST /api/crawl
@@ -2141,9 +2189,86 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { success: true, ...result });
     }
 
+    // Board Ideas Radar API
+    if (method === 'GET' && pathname === '/api/board-ideas/boards') {
+      try {
+        const data = await listAvailableBoards(targetSql);
+        return sendJson(res, 200, { success: true, ...data });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, error: err.message });
+      }
+    }
+
+    if (method === 'POST' && pathname === '/api/board-ideas/resolve') {
+      try {
+        const body = await parseJsonBody(req);
+        const url = body.url || body.board_url || '';
+        if (!url) return sendJson(res, 400, { error: 'url is required' });
+        const cookie = process.env.PINTEREST_COOKIE || '';
+        const board = await resolveBoardIdentity(targetSql, url, cookie);
+        return sendJson(res, 200, { success: true, board });
+      } catch (err) {
+        return sendJson(res, 400, { success: false, error: err.message });
+      }
+    }
+
+    if (method === 'POST' && pathname === '/api/board-ideas/sync') {
+      try {
+        const body = await parseJsonBody(req);
+        const boardId = body.board_id;
+        if (!boardId) return sendJson(res, 400, { error: 'board_id is required' });
+        const maxPages = Number(body.max_pages || 1);
+        const cookie = process.env.PINTEREST_COOKIE || '';
+        const result = await syncBoardIdeas(targetSql, boardId, cookie, maxPages);
+        return sendJson(res, 200, { success: true, ...result });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, error: err.message });
+      }
+    }
+
+    if (method === 'GET' && pathname === '/api/board-ideas/details') {
+      try {
+        const boardId = searchParams.get('board_id') || searchParams.get('id');
+        if (!boardId) return sendJson(res, 400, { error: 'board_id is required' });
+        const details = await getBoardIdeasComparison(targetSql, boardId);
+        return sendJson(res, 200, { success: true, ...details });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, error: err.message });
+      }
+    }
+
+    if (method === 'DELETE' && pathname === '/api/board-ideas') {
+      try {
+        let boardId = searchParams.get('board_id') || searchParams.get('id');
+        if (!boardId) {
+          try {
+            const body = await parseJsonBody(req);
+            boardId = body.board_id || body.id;
+          } catch (_) {}
+        }
+        if (!boardId) return sendJson(res, 400, { error: 'board_id is required' });
+        const result = await deleteTrackedBoard(targetSql, boardId);
+        return sendJson(res, 200, { success: true, ...result });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, error: err.message });
+      }
+    }
+
     // 9. GET or HEAD /keywords -> Dedicated Keywords Studio
     if ((method === 'GET' || method === 'HEAD') && pathname === '/keywords') {
       const html = getKeywordsPageHtml();
+      res.writeHead(200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-cache',
+        'Content-Length': Buffer.byteLength(html)
+      });
+      if (method === 'HEAD') return res.end();
+      return res.end(html);
+    }
+
+    // GET or HEAD /board-ideas -> Dedicated Board Ideas Radar Studio
+    if ((method === 'GET' || method === 'HEAD') && pathname === '/board-ideas') {
+      const html = getBoardIdeasPageHtml();
       res.writeHead(200, {
         'Content-Type': 'text/html; charset=utf-8',
         'Cache-Control': 'no-cache',
