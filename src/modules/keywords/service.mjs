@@ -38,21 +38,81 @@ const VISUAL_TTL_MS = 15 * 60 * 1000;
 /**
  * Safely extracts clean string title from raw Pinterest items,
  * preventing JSON format objects (e.g. {"args":[],"format":"..."}) from corrupting pin titles.
+ * Traverses all Pinterest title variants, descriptions, link slugs, and visual annotations.
  */
 export function extractPinTitle(item) {
   if (!item) return 'Untitled Pin';
-  let t = item.title ?? item.grid_title ?? item.closeup_unified_description ?? '';
-  if (typeof t === 'object' && t !== null) {
-    t = t.text || t.format || t.title || '';
+  
+  const candidates = [
+    item.title,
+    item.grid_title,
+    item.headline,
+    item.rich_metadata?.title,
+    item.rich_summary?.display_name,
+    item.rich_summary?.products?.[0]?.name,
+    item.story_pin_data?.metadata?.root?.title,
+    item.pin_join?.story_pin_data?.metadata?.root?.title,
+    item.seo_title,
+    item.seoTitle,
+    item.seoAltText,
+    item.alt_text,
+    item.closeup_unified_description,
+    item.grid_description,
+    item.description
+  ];
+
+  for (let c of candidates) {
+    if (!c) continue;
+    if (typeof c === 'object') {
+      c = c.text || c.title || c.headline || c.format || c.name || '';
+    }
+    let str = String(c || '').trim();
+    if (str.startsWith('{') && str.endsWith('}')) {
+      try {
+        const parsed = JSON.parse(str);
+        str = String(parsed.text || parsed.title || parsed.format || str).trim();
+      } catch (_) {}
+    }
+    if (!str || str === 'Explore featured boards' || str === 'Untitled Pin' || str === '{}' || str === 'Related Interests') {
+      continue;
+    }
+    if (str.length > 120 && str.includes('\n')) {
+      str = str.split('\n')[0].trim();
+    }
+    return str.slice(0, 300);
   }
-  const clean = String(t || '').trim();
-  if (clean.startsWith('{') && clean.endsWith('}')) {
+
+  // Fallback 1: Derive clean title from destination link slug
+  if (item.link || item.url) {
     try {
-      const parsed = JSON.parse(clean);
-      return String(parsed.text || parsed.format || parsed.title || clean).trim();
+      const u = new URL(item.link || item.url);
+      const pathParts = u.pathname.split('/').filter(Boolean);
+      const lastSlug = pathParts[pathParts.length - 1];
+      if (lastSlug && lastSlug.length > 3 && !/^\d+$/.test(lastSlug)) {
+        const readable = lastSlug
+          .replace(/[-_]+/g, ' ')
+          .replace(/\.html?$/i, '')
+          .replace(/\b\w/g, ch => ch.toUpperCase())
+          .trim();
+        if (readable.length > 5) return readable.slice(0, 150);
+      }
     } catch (_) {}
   }
-  return clean || 'Untitled Pin';
+
+  // Fallback 2: Pinterest Visual Annotation
+  const firstAnnotation = Array.isArray(item.pin_join?.visual_annotation)
+    ? item.pin_join.visual_annotation[0]
+    : null;
+  if (firstAnnotation && typeof firstAnnotation === 'string' && firstAnnotation.trim()) {
+    return firstAnnotation.trim();
+  }
+
+  // Fallback 3: Board Name
+  if (item.board?.name && typeof item.board.name === 'string' && item.board.name.trim()) {
+    return `${item.board.name.trim()} Pin`;
+  }
+
+  return 'Untitled Pin';
 }
 
 /**
@@ -107,7 +167,7 @@ export async function listKeywords(sql, { search = '', limit = 50, offset = 0 } 
 /**
  * Add a new keyword to track
  */
-export async function addKeyword(sql, { keyword, category = 'General', target_pin_count = 50 }) {
+export async function addKeyword(sql, { keyword, category = 'General', target_pin_count = 100 }) {
   const cleanKeyword = keyword.trim().toLowerCase();
   if (!cleanKeyword) throw new Error('Keyword is required.');
 
@@ -541,8 +601,7 @@ export async function crawlKeywordSERP(sql, keywordId, cookie = (typeof process 
     if (!keywordRow) throw new Error(`Keyword ID ${kid} not found.`);
 
     const query = encodeURIComponent(keywordRow.keyword);
-    const targetCount = Math.max(20, Math.min(keywordRow.target_pin_count || 50, 100));
-    const url = `https://www.pinterest.com/resource/BaseSearchResource/get/?source_url=%2Fsearch%2Fpins%2F%3Fq%3D${query}&data=%7B%22options%22%3A%7B%22query%22%3A%22${query}%22%2C%22scope%22%3A%22pins%22%2C%22page_size%22%3A${targetCount}%7D%2C%22context%22%3A%7B%7D%7D`;
+    const targetCount = Math.max(50, Math.min(keywordRow.target_pin_count || 100, 100));
 
     const headers = {
       'Accept': 'application/json, text/javascript, */*, q=0.01',
@@ -552,34 +611,73 @@ export async function crawlKeywordSERP(sql, keywordId, cookie = (typeof process 
       'referer': `https://www.pinterest.com/search/pins/?q=${query}`
     };
 
-    let res;
-    let data;
-    try {
-      // Anonymous request yields unpersonalized SERP rankings and full pin_join.visual_annotation computer-vision taxonomy
-      res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
-      if (res.status === 401 || res.status === 403 || res.status === 429) {
-        if (res?.body && !res.bodyUsed) await res.body.cancel().catch(() => {});
-        const jitter = 2500 + Math.floor(Math.random() * 1500);
-        await new Promise(r => setTimeout(r, jitter));
-        const authHeaders = { ...headers };
-        if (cookie && String(cookie).trim()) {
-          authHeaders['Cookie'] = formatPinterestCookie(cookie);
+    let rawResults = [];
+    let bookmark = null;
+    let page = 1;
+    let rawGuides = [];
+
+    while (rawResults.length < targetCount && page <= 3) {
+      const optionsObj = {
+        query: decodeURIComponent(query),
+        scope: 'pins',
+        page_size: 50
+      };
+      if (bookmark) {
+        optionsObj.bookmarks = [bookmark];
+      }
+      const dataParam = encodeURIComponent(JSON.stringify({
+        options: optionsObj,
+        context: {}
+      }));
+      const url = `https://www.pinterest.com/resource/BaseSearchResource/get/?source_url=%2Fsearch%2Fpins%2F%3Fq%3D${query}&data=${dataParam}`;
+
+      let res;
+      try {
+        // Anonymous request yields unpersonalized SERP rankings and full pin_join.visual_annotation computer-vision taxonomy
+        res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
+        if (res.status === 401 || res.status === 403 || res.status === 429) {
+          if (res?.body && !res.bodyUsed) await res.body.cancel().catch(() => {});
+          const jitter = 2500 + Math.floor(Math.random() * 1500);
+          await new Promise(r => setTimeout(r, jitter));
+          const authHeaders = { ...headers };
+          if (cookie && String(cookie).trim()) {
+            authHeaders['Cookie'] = formatPinterestCookie(cookie);
+          }
+          res = await fetch(url, { headers: authHeaders, signal: AbortSignal.timeout(8000) });
         }
-        res = await fetch(url, { headers: authHeaders, signal: AbortSignal.timeout(8000) });
-      }
 
-      if (!res.ok) {
-        throw new Error(`Pinterest Search API returned HTTP ${res.status}`);
-      }
+        if (!res.ok) {
+          if (page === 1) {
+            throw new Error(`Pinterest Search API returned HTTP ${res.status}`);
+          }
+          break;
+        }
 
-      data = await res.json();
-    } finally {
-      if (res?.body && !res.bodyUsed) {
-        await res.body.cancel().catch(() => {});
+        const data = await res.json();
+        if (page === 1) {
+          rawGuides = data?.resource_response?.data?.rankedGuides || [];
+        }
+
+        const pageItems = data?.resource_response?.data?.results || [];
+        if (pageItems.length === 0) break;
+        rawResults = rawResults.concat(pageItems);
+
+        const nextBookmark = data?.resource_response?.bookmark;
+        if (!nextBookmark || nextBookmark === '-end-' || nextBookmark === bookmark) {
+          break;
+        }
+        bookmark = nextBookmark;
+        page++;
+
+        if (rawResults.length < targetCount) {
+          await new Promise(r => setTimeout(r, 600 + Math.floor(Math.random() * 400)));
+        }
+      } finally {
+        if (res?.body && !res.bodyUsed) {
+          await res.body.cancel().catch(() => {});
+        }
       }
     }
-
-    const rawResults = data?.resource_response?.data?.results || [];
 
     // Pre-query historical records:
     // A) Immediate prior crawl (for rank shifts, title/image preservation, and new entry detection)
@@ -638,6 +736,7 @@ export async function crawlKeywordSERP(sql, keywordId, cookie = (typeof process 
       if (!item || !item.id || item.type !== 'pin' || item.format === 'Related Interests' || item.format === 'board') continue;
       const pinId = String(item.id).trim().slice(0, 255);
       if (!pinId || seenPinIds.has(pinId)) continue;
+      if (preparedPins.length >= targetCount) break;
       seenPinIds.add(pinId);
 
       const title = extractPinTitle(item);
@@ -654,12 +753,22 @@ export async function crawlKeywordSERP(sql, keywordId, cookie = (typeof process 
       const destinationUrl = item.link || '';
       const imageUrl = item.images?.['736x']?.url || item.images?.orig?.url || item.images?.['474x']?.url || item.images?.['236x']?.url || null;
       
-      const saves = Number(
+      const rawSaves = Number(
         item.repin_count ?? 
         item.save_count ?? 
         item.aggregated_pin_data?.aggregated_stats?.saves ?? 
         0
       );
+      const reactions = Number(
+        item.reaction_counts?.['1'] || 
+        item.reaction_counts?.['like'] || 
+        item.reaction_counts?.['heart'] || 
+        item.reaction_counts?.['total'] || 
+        0
+      );
+      // In modern Pinterest search results, public saves are frequently hidden while reactions are exposed.
+      // Prioritize raw saves; fallback cleanly to reactions to prevent misleading 0 saves.
+      const saves = rawSaves > 0 ? rawSaves : reactions;
 
       if (!topPin && imageUrl) {
         topPin = { pinId, title, imageUrl };
@@ -743,7 +852,6 @@ export async function crawlKeywordSERP(sql, keywordId, cookie = (typeof process 
         image_small_url: item.pinner.image_small_url || ''
       } : null;
 
-      const reactions = Number(item.reaction_counts?.['1'] || item.reaction_counts?.['like'] || 0);
       const comments = Number(item.comment_count || 0);
 
       const createdAt = item.created_at || null;
@@ -787,6 +895,7 @@ export async function crawlKeywordSERP(sql, keywordId, cookie = (typeof process 
           created_at: createdAt,
           pin_age_days: pinAgeDays,
           pinner,
+          raw_saves: rawSaves,
           reactions,
           visual_annotations: visualAnnotations
         }
@@ -818,7 +927,6 @@ export async function crawlKeywordSERP(sql, keywordId, cookie = (typeof process 
     preparedPins.sort((a, b) => a.pin_id.localeCompare(b.pin_id));
 
     // Extract and store semantic guided search capsules (rankedGuides)
-    const rawGuides = data?.resource_response?.data?.rankedGuides || [];
     let savedGuidesCount = 0;
     const seenGuideTerms = new Set();
     const preparedGuides = [];

@@ -317,7 +317,7 @@ export function getKeywordsPageHtml() {
               <i data-lucide="mouse-pointer-click" class="w-6 h-6"></i>
             </div>
             <h3 class="text-base font-bold text-slate-900 dark:text-white">Select a Tracked Keyword</h3>
-            <p class="text-xs text-slate-500 max-w-sm mx-auto">Click any keyword from the list on the left to inspect its live #1-#50 organic SERP rankings, save velocities, and movement deltas.</p>
+            <p class="text-xs text-slate-500 max-w-sm mx-auto">Click any keyword from the list on the left to inspect its live #1-#100 organic SERP rankings, save velocities, and movement deltas.</p>
           </div>
         </template>
 
@@ -325,30 +325,34 @@ export function getKeywordsPageHtml() {
         <template x-if="selectedKeyword">
           <div class="space-y-4">
 
-            <!-- Deep SERP Header Bar -->
-            <div class="p-5 rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-4">
+            <!-- STREAMLINED STUDIO TOOLBAR -->
+            <div class="p-4 rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-3">
               <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div class="flex items-center space-x-3">
+                <div class="flex items-center space-x-3 min-w-0">
                   <div class="w-10 h-10 rounded-2xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center shrink-0">
                     <i data-lucide="search" class="w-5 h-5"></i>
                   </div>
-                  <div>
+                  <div class="min-w-0">
                     <div class="flex items-center space-x-2">
-                      <h2 class="text-lg font-black text-slate-900 dark:text-white" x-text="selectedKeyword.keyword"></h2>
-                      <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400" x-text="selectedKeyword.category || 'General'"></span>
+                      <h2 class="text-base sm:text-lg font-black text-slate-900 dark:text-white truncate" x-text="selectedKeyword.keyword"></h2>
+                      <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 shrink-0" x-text="selectedKeyword.category || 'General'"></span>
+                      <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 shrink-0">100 Pins Target</span>
                     </div>
-                    <p class="text-[11px] text-slate-500 font-mono">
+                    <p class="text-[11px] text-slate-500 font-mono truncate">
                       Last Crawled: <span x-text="formatDate(selectedKeyword.last_crawled_at)"></span>
                     </p>
                   </div>
                 </div>
 
-                <!-- Action Button: Live Re-Crawl 50 Pins -->
-                <div class="flex items-center space-x-2">
+                <!-- Action Controls -->
+                <div class="flex items-center space-x-2 shrink-0">
                   <button @click="rescanKeyword(selectedKeyword.id)" :disabled="isDetailsLoading || syncingKeywordId === selectedKeyword.id"
-                          class="px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition flex items-center space-x-1.5 shadow-sm active:scale-95 disabled:opacity-50">
+                          class="px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition flex items-center space-x-1.5 shadow-sm active:scale-95 disabled:opacity-50 cursor-pointer">
                     <i data-lucide="refresh-cw" class="w-3.5 h-3.5" :class="(isDetailsLoading || syncingKeywordId === selectedKeyword.id) ? 'animate-spin' : ''"></i>
-                    <span>Re-Crawl 50 Pins Now</span>
+                    <span>Re-Crawl 100 Pins Now</span>
+                  </button>
+                  <button @click="copySEOFormula()" class="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition cursor-pointer" title="Copy SEO Formula">
+                    <i data-lucide="copy" class="w-4 h-4"></i>
                   </button>
                   <a :href="'https://www.pinterest.com/search/pins/?q=' + encodeURIComponent(selectedKeyword.keyword)" target="_blank"
                      class="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition" title="Open on Pinterest">
@@ -357,107 +361,52 @@ export function getKeywordsPageHtml() {
                 </div>
               </div>
 
-              <!-- Rank Movement Volatility Summary Counters -->
-              <div class="grid grid-cols-2 sm:grid-cols-5 gap-2 pt-2 border-t border-slate-100 dark:border-slate-800/80">
-                <div class="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-center">
+              <!-- Compact 1-Row Volatility & Velocity Stats Strip -->
+              <div class="grid grid-cols-2 sm:grid-cols-6 gap-2 pt-2 border-t border-slate-100 dark:border-slate-800/80">
+                <div class="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-center">
                   <span class="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 block">▲ Climbed</span>
                   <span class="text-sm font-black text-emerald-700 dark:text-emerald-300 font-mono" x-text="selectedKeywordDetails?.stats?.climbed || 0"></span>
                 </div>
-                <div class="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-center">
+                <div class="p-2 rounded-xl bg-rose-500/10 border border-rose-500/20 text-center">
                   <span class="text-[10px] font-bold text-rose-600 dark:text-rose-400 block">▼ Dropped</span>
                   <span class="text-sm font-black text-rose-700 dark:text-rose-300 font-mono" x-text="selectedKeywordDetails?.stats?.dropped || 0"></span>
                 </div>
-                <div class="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-center">
+                <div class="p-2 rounded-xl bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-center">
                   <span class="text-[10px] font-bold text-slate-600 dark:text-slate-400 block">= Stable</span>
                   <span class="text-sm font-black text-slate-700 dark:text-slate-300 font-mono" x-text="selectedKeywordDetails?.stats?.stable || 0"></span>
                 </div>
-                <div class="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-center">
-                  <span class="text-[10px] font-bold text-amber-600 dark:text-amber-400 block">★ New Entry</span>
+                <div class="p-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-center">
+                  <span class="text-[10px] font-bold text-amber-600 dark:text-amber-400 block">★ New</span>
                   <span class="text-sm font-black text-amber-700 dark:text-amber-300 font-mono" x-text="selectedKeywordDetails?.stats?.new_entries || 0"></span>
                 </div>
-                <div class="p-2.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-center col-span-2 sm:col-span-1">
+                <div class="p-2 rounded-xl bg-purple-500/10 border border-purple-500/20 text-center">
                   <span class="text-[10px] font-bold text-purple-600 dark:text-purple-400 block">❌ Fell Out</span>
                   <span class="text-sm font-black text-purple-700 dark:text-purple-300 font-mono" x-text="selectedKeywordDetails?.stats?.dropped_out || 0"></span>
                 </div>
-              </div>
-
-              <!-- Interactive Save Velocity Distribution Chart (رسم بياني لسرعة الحفظ) -->
-              <div class="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200/80 dark:border-slate-800/80 space-y-3">
-                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <div class="flex items-center space-x-2">
-                    <i data-lucide="trending-up" class="w-4 h-4 text-emerald-500"></i>
-                    <span class="text-xs font-bold text-slate-900 dark:text-white">SERP Save Velocity Distribution & Progression (Top 50 Pins)</span>
-                  </div>
-                  <!-- 4-Tier Interactive Breakdown -->
-                  <div class="flex flex-wrap items-center gap-1.5 text-[10px] font-mono font-bold">
-                    <span class="px-2 py-0.5 rounded bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30">🔥 Explosive: <strong x-text="selectedKeywordDetails?.velocity_chart?.explosive || 0"></strong></span>
-                    <span class="px-2 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">⚡ Trending: <strong x-text="selectedKeywordDetails?.velocity_chart?.trending || 0"></strong></span>
-                    <span class="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">📈 Steady: <strong x-text="selectedKeywordDetails?.velocity_chart?.steady || 0"></strong></span>
-                    <span class="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-300 dark:border-slate-700">⏸️ Stagnant: <strong x-text="selectedKeywordDetails?.velocity_chart?.stagnant || 0"></strong></span>
-                  </div>
-                </div>
-
-                <!-- SVG Velocity Wave Chart -->
-                <div class="h-20 w-full relative">
-                  <template x-if="selectedKeywordDetails?.velocity_chart?.points?.length > 1">
-                    <svg class="w-full h-full" preserveAspectRatio="none" viewBox="0 0 500 75">
-                      <defs>
-                        <linearGradient id="velocityChartGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stop-color="#10b981" stop-opacity="0.35"/>
-                          <stop offset="100%" stop-color="#10b981" stop-opacity="0.0"/>
-                        </linearGradient>
-                      </defs>
-                      <path :d="getVelocityAreaPath(selectedKeywordDetails.velocity_chart.points, 500, 75).area" fill="url(#velocityChartGrad)" />
-                      <path :d="getVelocityAreaPath(selectedKeywordDetails.velocity_chart.points, 500, 75).line" fill="none" stroke="#10b981" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
-                    </svg>
-                  </template>
-                  <template x-if="!selectedKeywordDetails?.velocity_chart?.points || selectedKeywordDetails.velocity_chart.points.length <= 1">
-                    <div class="h-full flex items-center justify-center text-xs text-slate-400 font-mono">
-                      Crawl pins to visualize the 50-pin velocity curve
-                    </div>
-                  </template>
+                <div class="p-2 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-center">
+                  <span class="text-[10px] font-bold text-cyan-600 dark:text-cyan-400 block">⚡ Velocity</span>
+                  <span class="text-sm font-black text-cyan-700 dark:text-cyan-300 font-mono" x-text="'+' + (selectedKeywordDetails?.avg_velocity ?? selectedKeyword?.avg_daily_velocity ?? 0) + '/d'"></span>
                 </div>
               </div>
             </div>
 
-            <!-- SEMANTIC GUIDED SEARCH CAPSULES CLOUD (v3_guided_search) -->
-            <div x-show="selectedKeywordDetails?.guides?.length > 0" class="p-4 rounded-2xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 space-y-2.5 shadow-xs">
-              <div class="flex items-center justify-between">
-                <div class="flex items-center space-x-2">
-                  <i data-lucide="compass" class="w-4 h-4 text-emerald-500"></i>
-                  <span class="text-xs font-bold text-slate-900 dark:text-white">Semantic Guided Search Capsules (rankedGuides)</span>
-                </div>
-                <button @click="copySEOFormula()" class="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center space-x-1">
-                  <i data-lucide="copy" class="w-3 h-3"></i>
-                  <span>Copy SEO Title Formula</span>
-                </button>
-              </div>
-
-              <!-- Badges Strip -->
-              <div class="flex flex-wrap gap-2 pt-1">
-                <template x-for="g in selectedKeywordDetails?.guides || []" :key="g.id">
-                  <span class="px-2.5 py-1 rounded-full text-xs font-semibold border flex items-center space-x-1.5 transition hover:scale-105 cursor-pointer"
-                        :style="'background-color: ' + (g.dominant_color ? g.dominant_color + '15' : '#10b98115') + '; border-color: ' + (g.dominant_color ? g.dominant_color + '40' : '#10b98140') + '; color: ' + (g.dominant_color || '#10b981')"
-                        @click="copyToClipboard(g.term, 'Copied modifier: ' + g.term)">
-                    <span x-text="g.display_label || g.term"></span>
-                    <span class="text-[10px] opacity-75 font-mono" x-text="'(' + Number(g.score || 0).toFixed(1) + ')'"></span>
-                  </span>
-                </template>
-              </div>
-            </div>
-
-            <!-- TABS: 1. Current SERP Pins (#1-#50) | 2. Pin Intelligence & Opportunity | 3. Fell Out of Top 50 Pins -->
-            <div class="p-4 rounded-2xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 space-y-4 shadow-xs">
+            <!-- TABBED WORKSPACE CONTAINER -->
+            <div class="p-4 sm:p-5 rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 space-y-4 shadow-xs">
+              
+              <!-- Tab Navigation Bar -->
               <div class="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-100 dark:border-slate-800/80 pb-3 gap-3">
-                <div class="flex flex-wrap items-center gap-2">
+                <div class="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                  <!-- Tab 1: SERP Rankings -->
                   <button @click="activeTab = 'serp'"
-                          class="px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1.5"
+                          class="px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer"
                           :class="activeTab === 'serp' ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30' : 'text-slate-500 hover:text-slate-800 dark:hover:text-white'">
                     <i data-lucide="list-ordered" class="w-3.5 h-3.5"></i>
-                    <span x-text="'SERP Rankings (#' + (selectedKeywordDetails?.current_pins?.length || 0) + ')'"></span>
+                    <span x-text="'SERP Rankings (#' + (filteredPins.length || 0) + ')'"></span>
                   </button>
+
+                  <!-- Tab 2: Pin Intelligence -->
                   <button @click="activeTab = 'intelligence'"
-                          class="px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1.5"
+                          class="px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer"
                           :class="activeTab === 'intelligence' ? 'bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30' : 'text-slate-500 hover:text-slate-800 dark:hover:text-white'">
                     <i data-lucide="sparkles" class="w-3.5 h-3.5 text-purple-500"></i>
                     <span>Pin Intelligence</span>
@@ -467,199 +416,255 @@ export function getKeywordsPageHtml() {
                             x-text="selectedKeywordDetails.intelligence.opportunity.verdict === 'WIDE_OPEN' ? '🟢 Wide Open' : (selectedKeywordDetails.intelligence.opportunity.verdict === 'COMPETITIVE' ? '🟡 Moderate' : '🔴 Locked')"></span>
                     </template>
                   </button>
+
+                  <!-- Tab 3: Semantic Guided Capsules -->
+                  <button @click="activeTab = 'guides'"
+                          class="px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer"
+                          :class="activeTab === 'guides' ? 'bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 border border-cyan-500/30' : 'text-slate-500 hover:text-slate-800 dark:hover:text-white'">
+                    <i data-lucide="compass" class="w-3.5 h-3.5 text-cyan-500"></i>
+                    <span>Guided Capsules</span>
+                    <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-cyan-500/20 text-cyan-600 font-bold" x-text="selectedKeywordDetails?.guides?.length || 0"></span>
+                  </button>
+
+                  <!-- Tab 4: Velocity Wave Chart -->
+                  <button @click="activeTab = 'velocity_curve'"
+                          class="px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer"
+                          :class="activeTab === 'velocity_curve' ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30' : 'text-slate-500 hover:text-slate-800 dark:hover:text-white'">
+                    <i data-lucide="activity" class="w-3.5 h-3.5 text-amber-500"></i>
+                    <span>Velocity Wave</span>
+                  </button>
+
+                  <!-- Tab 5: Fell Out Pins -->
                   <button @click="activeTab = 'dropped'"
-                          class="px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1.5"
+                          class="px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer"
                           :class="activeTab === 'dropped' ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30' : 'text-slate-500 hover:text-slate-800 dark:hover:text-white'">
                     <i data-lucide="arrow-down-left" class="w-3.5 h-3.5"></i>
-                    <span>Fell Out of Top 50</span>
+                    <span>Fell Out</span>
                     <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-rose-500/20 text-rose-600" x-text="selectedKeywordDetails?.dropped_out_pins?.length || 0"></span>
                   </button>
                 </div>
-                <span class="text-[11px] text-slate-400 font-mono" x-text="(selectedKeywordDetails?.current_pins?.length || 0) + ' Organic Pins Indexed'"></span>
+
+                <span class="text-[11px] text-slate-400 font-mono" x-text="(selectedKeywordDetails?.current_pins?.length || 0) + ' Organic Pins Indexed (Target: 100)'"></span>
               </div>
 
               <!-- TAB 1: CURRENT SERP MATRIX TABLE -->
-              <div x-show="activeTab === 'serp'" class="overflow-x-auto">
-                <table class="w-full text-left text-xs">
-                  <thead>
-                    <tr class="border-b border-slate-200 dark:border-slate-800 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                      <th class="py-2.5 px-3 w-14 text-center">Rank</th>
-                      <th class="py-2.5 px-3 w-20 text-center">Shift</th>
-                      <th class="py-2.5 px-3">Pin Details & Computer-Vision Tags</th>
-                      <th class="py-2.5 px-3">Pinner</th>
-                      <th class="py-2.5 px-3 text-center">Saves & Velocity</th>
-                      <th class="py-2.5 px-3 text-center">Engage</th>
-                      <th class="py-2.5 px-3 text-center">Age</th>
-                      <th class="py-2.5 px-3">Domain</th>
-                      <th class="py-2.5 px-3 text-center">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-sans">
-                    <template x-for="pin in selectedKeywordDetails?.current_pins || []" :key="pin.id">
-                      <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition">
-                        
-                        <!-- Rank Position -->
-                        <td class="py-3 px-3 text-center">
-                          <span class="w-7 h-7 rounded-xl flex items-center justify-center mx-auto text-xs font-black font-mono"
-                                :class="pin.rank_position <= 3 ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/40' : (pin.rank_position <= 10 ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400')"
-                                x-text="'#' + pin.rank_position"></span>
-                        </td>
+              <div x-show="activeTab === 'serp'" class="space-y-3">
 
-                        <!-- Rank Shift Delta Badge -->
-                        <td class="py-3 px-3 text-center font-mono">
-                          <template x-if="pin.metadata?.is_new">
-                            <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">★ NEW</span>
-                          </template>
-                          <template x-if="!pin.metadata?.is_new && Number(pin.metadata?.rank_delta || 0) > 0">
-                            <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30"
-                                  x-text="'▲ +' + pin.metadata.rank_delta"></span>
-                          </template>
-                          <template x-if="!pin.metadata?.is_new && Number(pin.metadata?.rank_delta || 0) < 0">
-                            <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30"
-                                  x-text="'▼ ' + pin.metadata.rank_delta"></span>
-                          </template>
-                          <template x-if="!pin.metadata?.is_new && Number(pin.metadata?.rank_delta || 0) === 0">
-                            <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-400">= 0</span>
-                          </template>
-                        </td>
+                <!-- Table Controls Toolbar: Search within pins, format filter, sort by -->
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-1">
+                  <!-- Search within 100 pins -->
+                  <div class="relative flex-1 max-w-sm">
+                    <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
+                    <input type="text" x-model="pinSearch" placeholder="Filter pins by title, creator, domain, tag..."
+                           class="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/40">
+                  </div>
 
-                        <!-- Pin Details (Image, Badges, Title, Visual Keywords Chips) -->
-                        <td class="py-3 px-3">
-                          <div class="flex items-start space-x-3">
-                            <template x-if="pin.image_url">
-                              <img :src="pin.image_url" class="w-10 h-14 rounded-lg object-cover border border-slate-200 dark:border-slate-700 shrink-0 shadow-xs hover:scale-105 transition cursor-pointer" @click="openVisualLens(pin)" title="Click to open Visual Lens">
-                            </template>
-                            <div class="min-w-0 space-y-1">
-                              <!-- Badges Strip: Format & Aspect Ratio Tier -->
-                              <div class="flex items-center space-x-1.5 flex-wrap">
-                                <span class="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider"
-                                      :class="pin.metadata?.format === 'VIDEO PIN' ? 'bg-purple-500/20 text-purple-600 dark:text-purple-400 border border-purple-500/30' : (pin.metadata?.format === 'PRODUCT CARD' ? 'bg-cyan-500/20 text-cyan-600 dark:text-cyan-400 border border-cyan-500/30' : (pin.metadata?.format === 'IDEA PIN' ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30' : 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'))"
-                                      x-text="pin.metadata?.format || 'ORGANIC PIN'"></span>
-                                <span class="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700"
-                                      x-text="pin.metadata?.aspect_ratio_tier || pin.metadata?.aspect_ratio || '2:3'"></span>
-                              </div>
-                              <a :href="'https://www.pinterest.com/pin/' + pin.pin_id + '/'" target="_blank"
-                                 class="text-xs font-semibold text-slate-900 dark:text-white hover:text-emerald-500 line-clamp-2 block"
-                                 x-text="pin.title || 'Untitled Pin'"></a>
-                              
-                              <!-- Visual Annotations (Pinterest Computer-Vision Tags) Chips -->
-                              <template x-if="pin.metadata?.visual_annotations && pin.metadata.visual_annotations.length > 0">
-                                <div class="flex items-center space-x-1 flex-wrap pt-0.5">
-                                  <template x-for="tag in pin.metadata.visual_annotations.slice(0, 2)" :key="tag">
-                                    <span class="px-1.5 py-0.2 rounded text-[9px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700"
-                                          x-text="tag"></span>
-                                  </template>
-                                  <button @click="openPinKeywordsModal(pin)"
-                                          class="px-1.5 py-0.2 rounded text-[9px] font-bold bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30 hover:bg-purple-500/25 transition"
-                                          x-text="'+' + (pin.metadata.visual_annotations.length - 2) + ' tags'"></button>
-                                </div>
-                              </template>
-                            </div>
-                          </div>
-                        </td>
+                  <!-- Format & Sort Controls -->
+                  <div class="flex items-center space-x-2">
+                    <select x-model="formatFilter" class="px-2.5 py-1.5 text-xs rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 font-semibold focus:outline-none cursor-pointer">
+                      <option value="ALL">All Formats</option>
+                      <option value="ORGANIC PIN">Organic Pins</option>
+                      <option value="VIDEO PIN">Video Pins</option>
+                      <option value="PRODUCT CARD">Product Cards</option>
+                      <option value="IDEA PIN">Idea Pins</option>
+                    </select>
 
-                        <!-- Pinner / Creator -->
-                        <td class="py-3 px-3">
-                          <template x-if="pin.metadata?.pinner">
-                            <div class="flex items-center space-x-2">
-                              <template x-if="pin.metadata.pinner.image_small_url">
-                                <img :src="pin.metadata.pinner.image_small_url" class="w-6 h-6 rounded-full border border-slate-200 dark:border-slate-700 shrink-0">
-                              </template>
-                              <template x-if="!pin.metadata.pinner.image_small_url">
-                                <div class="w-6 h-6 rounded-full bg-slate-200 dark:bg-slate-800 flex items-center justify-center text-[10px] font-bold text-slate-600 dark:text-slate-300 shrink-0">
-                                  <span x-text="(pin.metadata.pinner.username || 'P').charAt(0).toUpperCase()"></span>
-                                </div>
-                              </template>
-                              <div class="min-w-0">
-                                <a :href="'https://www.pinterest.com/' + pin.metadata.pinner.username + '/'" target="_blank"
-                                   class="text-xs font-semibold text-slate-800 dark:text-slate-200 hover:text-emerald-500 block truncate max-w-[120px]"
-                                   x-text="pin.metadata.pinner.full_name || pin.metadata.pinner.username || 'Creator'"></a>
-                                <span class="text-[10px] text-slate-400 font-mono block" x-text="formatNumber(pin.metadata.pinner.follower_count) + ' flwrs'"></span>
-                              </div>
-                            </div>
-                          </template>
-                          <template x-if="!pin.metadata?.pinner">
-                            <span class="text-xs text-slate-400 italic">Unknown</span>
-                          </template>
-                        </td>
+                    <select x-model="pinSort" class="px-2.5 py-1.5 text-xs rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 font-semibold focus:outline-none cursor-pointer">
+                      <option value="rank">Sort: Rank (#1-#100)</option>
+                      <option value="velocity">Sort: Highest Velocity</option>
+                      <option value="saves">Sort: Most Saves & Likes</option>
+                      <option value="age">Sort: Newest Pin</option>
+                    </select>
 
-                        <!-- Saves & Daily Velocity -->
-                        <td class="py-3 px-3 text-center font-mono">
-                          <div class="space-y-1">
-                            <span class="text-xs font-bold text-slate-900 dark:text-white block" x-text="formatNumber(pin.save_count) + ' saves'"></span>
-                            <div class="flex items-center justify-center space-x-1">
-                              <span class="px-2 py-0.5 rounded text-[10px] font-bold inline-block"
-                                    :class="Number(pin.daily_save_velocity || 0) >= 10 ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/40' : (Number(pin.daily_save_velocity || 0) > 0 ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-400')"
-                                    x-text="(Number(pin.daily_save_velocity || 0) > 0 ? '+' : '') + Number(pin.daily_save_velocity || 0) + '/day'"></span>
-                              <span class="px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase"
-                                    :class="pin.metadata?.velocity_tier === 'explosive' ? 'bg-rose-500/20 text-rose-600 dark:text-rose-400' : (pin.metadata?.velocity_tier === 'trending' ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400' : (pin.metadata?.velocity_tier === 'steady' ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400' : 'bg-slate-200 dark:bg-slate-800 text-slate-500'))"
-                                    x-text="pin.metadata?.velocity_tier === 'explosive' ? '🔥 EXPLOSIVE' : (pin.metadata?.velocity_tier === 'trending' ? '⚡ TRENDING' : (pin.metadata?.velocity_tier === 'steady' ? '📈 STEADY' : '⏸️ STAGNANT'))"></span>
-                            </div>
-                            <span class="text-[10px] text-slate-400 font-mono block" x-text="formatNumber(pin.repin_count) + ' repins'"></span>
-                          </div>
-                        </td>
-
-                        <!-- Engagement (Reactions ❤️ & Comments 💬) -->
-                        <td class="py-3 px-3 text-center font-mono">
-                          <div class="space-y-0.5">
-                            <div class="flex items-center justify-center space-x-1 text-xs font-semibold text-rose-500" title="Reactions / Likes">
-                              <span>❤️</span>
-                              <span x-text="formatNumber(pin.metadata?.reactions || 0)"></span>
-                            </div>
-                            <div class="flex items-center justify-center space-x-1 text-[11px] text-slate-400" title="Comments">
-                              <span>💬</span>
-                              <span x-text="formatNumber(pin.comment_count || 0)"></span>
-                            </div>
-                          </div>
-                        </td>
-
-                        <!-- Age -->
-                        <td class="py-3 px-3 text-center font-mono text-xs text-slate-500 dark:text-slate-400">
-                          <span x-text="formatAge(pin.metadata?.pin_age_days)"></span>
-                        </td>
-
-                        <!-- Destination Domain -->
-                        <td class="py-3 px-3">
-                          <template x-if="pin.domain">
-                            <a :href="pin.destination_url || '#'" target="_blank"
-                               class="text-xs font-mono font-medium text-slate-600 dark:text-slate-300 hover:text-emerald-500 flex items-center space-x-1 truncate max-w-[130px]">
-                              <i data-lucide="globe" class="w-3 h-3 shrink-0 text-slate-400"></i>
-                              <span x-text="pin.domain"></span>
-                            </a>
-                          </template>
-                          <template x-if="!pin.domain">
-                            <span class="text-xs text-slate-400 italic">No external link</span>
-                          </template>
-                        </td>
-
-                        <!-- Actions -->
-                        <td class="py-3 px-3 text-center">
-                          <div class="flex items-center justify-center space-x-1">
-                            <button @click="openVisualLens(pin)"
-                                    class="p-1.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 transition shadow-xs active:scale-95"
-                                    title="Open Visual Similarity Lens">
-                              <i data-lucide="scan" class="w-3.5 h-3.5"></i>
-                            </button>
-                            <button @click="openPinKeywordsModal(pin)"
-                                    class="p-1.5 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 border border-purple-500/30 transition shadow-xs active:scale-95"
-                                    title="Inspect Pinterest Computer-Vision Keywords">
-                              <i data-lucide="tag" class="w-3.5 h-3.5"></i>
-                            </button>
-                            <a :href="'https://www.pinterest.com/pin/' + pin.pin_id + '/'" target="_blank"
-                               class="p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition" title="Open on Pinterest">
-                              <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
-                            </a>
-                            <button @click="copyToClipboard(pin.pin_id, 'Copied Pin ID')"
-                                    class="p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition" title="Copy Pin ID">
-                              <i data-lucide="copy" class="w-3.5 h-3.5"></i>
-                            </button>
-                          </div>
-                        </td>
-
-                      </tr>
+                    <template x-if="pinSearch || formatFilter !== 'ALL' || pinSort !== 'rank'">
+                      <button @click="pinSearch = ''; formatFilter = 'ALL'; pinSort = 'rank';"
+                              class="px-2 py-1.5 text-xs text-rose-500 hover:text-rose-600 font-semibold transition cursor-pointer" title="Reset Filters">
+                        Reset
+                      </button>
                     </template>
-                  </tbody>
-                </table>
+                  </div>
+                </div>
+
+                <!-- Table Content -->
+                <div class="overflow-x-auto">
+                  <table class="w-full text-left text-xs">
+                    <thead>
+                      <tr class="border-b border-slate-200 dark:border-slate-800 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                        <th class="py-2.5 px-3 w-14 text-center">Rank</th>
+                        <th class="py-2.5 px-3 w-14 text-center">Shift</th>
+                        <th class="py-2.5 px-3">Pin Details & Computer-Vision Tags</th>
+                        <th class="py-2.5 px-3">Pinner</th>
+                        <th class="py-2.5 px-3 text-center">Saves & Velocity</th>
+                        <th class="py-2.5 px-3 text-center">Age</th>
+                        <th class="py-2.5 px-3">Domain</th>
+                        <th class="py-2.5 px-3 text-center">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-sans">
+                      <template x-for="pin in filteredPins" :key="pin.id">
+                        <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition">
+                          
+                          <!-- Rank Position -->
+                          <td class="py-3 px-3 text-center">
+                            <span class="w-7 h-7 rounded-xl flex items-center justify-center mx-auto text-xs font-black font-mono"
+                                  :class="pin.rank_position <= 3 ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/40' : (pin.rank_position <= 10 ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400')"
+                                  x-text="'#' + pin.rank_position"></span>
+                          </td>
+
+                          <!-- Rank Shift Delta Badge -->
+                          <td class="py-3 px-3 text-center font-mono">
+                            <template x-if="pin.metadata?.is_new">
+                              <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">★ NEW</span>
+                            </template>
+                            <template x-if="!pin.metadata?.is_new && Number(pin.metadata?.rank_delta || 0) > 0">
+                              <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30"
+                                    x-text="'▲ +' + pin.metadata.rank_delta"></span>
+                            </template>
+                            <template x-if="!pin.metadata?.is_new && Number(pin.metadata?.rank_delta || 0) < 0">
+                              <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30"
+                                    x-text="'▼ ' + pin.metadata.rank_delta"></span>
+                            </template>
+                            <template x-if="!pin.metadata?.is_new && Number(pin.metadata?.rank_delta || 0) === 0">
+                              <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-400">= 0</span>
+                            </template>
+                          </td>
+
+                          <!-- Pin Details (Image, Badges, Title, Visual Keywords Chips) -->
+                          <td class="py-3 px-3">
+                            <div class="flex items-start space-x-3">
+                              <template x-if="pin.image_url">
+                                <img :src="pin.image_url" class="w-10 h-14 rounded-lg object-cover border border-slate-200 dark:border-slate-700 shrink-0 shadow-xs hover:scale-105 transition cursor-pointer" @click.stop="openVisualLens(pin)" title="Click to open Visual Lens">
+                              </template>
+                              <div class="min-w-0 space-y-1">
+                                <!-- Badges Strip: Format & Aspect Ratio Tier -->
+                                <div class="flex items-center space-x-1.5 flex-wrap">
+                                  <span class="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider"
+                                        :class="pin.metadata?.format === 'VIDEO PIN' ? 'bg-purple-500/20 text-purple-600 dark:text-purple-400 border border-purple-500/30' : (pin.metadata?.format === 'PRODUCT CARD' ? 'bg-cyan-500/20 text-cyan-600 dark:text-cyan-400 border border-cyan-500/30' : (pin.metadata?.format === 'IDEA PIN' ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30' : 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'))"
+                                        x-text="pin.metadata?.format || 'ORGANIC PIN'"></span>
+                                  <span class="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700"
+                                        x-text="pin.metadata?.aspect_ratio_tier || pin.metadata?.aspect_ratio || '2:3'"></span>
+                                </div>
+                                <a :href="'https://www.pinterest.com/pin/' + pin.pin_id + '/'" target="_blank"
+                                   class="text-xs font-semibold text-slate-900 dark:text-white hover:text-emerald-500 line-clamp-2 block"
+                                   x-text="pin.title || ('Pin #' + pin.pin_id)"></a>
+                                
+                                <!-- Visual Annotations (Pinterest Computer-Vision Tags) Chips -->
+                                <template x-if="pin.metadata?.visual_annotations && pin.metadata.visual_annotations.length > 0">
+                                  <div class="flex items-center space-x-1 flex-wrap pt-0.5">
+                                    <template x-for="tag in pin.metadata.visual_annotations.slice(0, 2)" :key="tag">
+                                      <span class="px-1.5 py-0.5 rounded text-[9px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700"
+                                            x-text="tag"></span>
+                                    </template>
+                                    <button @click.stop="openPinKeywordsModal(pin)"
+                                            class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30 hover:bg-purple-500/25 transition cursor-pointer"
+                                            x-text="'+' + (pin.metadata.visual_annotations.length - 2) + ' tags'"></button>
+                                  </div>
+                                </template>
+                              </div>
+                            </div>
+                          </td>
+
+                          <!-- Pinner / Creator -->
+                          <td class="py-3 px-3">
+                            <template x-if="pin.metadata?.pinner">
+                              <div class="flex items-center space-x-2">
+                                <template x-if="pin.metadata.pinner.image_small_url">
+                                  <img :src="pin.metadata.pinner.image_small_url" class="w-6 h-6 rounded-full border border-slate-200 dark:border-slate-700 shrink-0">
+                                </template>
+                                <template x-if="!pin.metadata.pinner.image_small_url">
+                                  <div class="w-6 h-6 rounded-full bg-slate-200 dark:bg-slate-800 flex items-center justify-center text-[10px] font-bold text-slate-600 dark:text-slate-300 shrink-0">
+                                    <span x-text="(pin.metadata.pinner.username || 'P').charAt(0).toUpperCase()"></span>
+                                  </div>
+                                </template>
+                                <div class="min-w-0">
+                                  <a :href="'https://www.pinterest.com/' + pin.metadata.pinner.username + '/'" target="_blank"
+                                     class="text-xs font-semibold text-slate-800 dark:text-slate-200 hover:text-emerald-500 block truncate max-w-[120px]"
+                                     x-text="pin.metadata.pinner.full_name || pin.metadata.pinner.username || 'Creator'"></a>
+                                  <span class="text-[10px] text-slate-400 font-mono block" x-text="formatNumber(pin.metadata.pinner.follower_count) + ' flwrs'"></span>
+                                </div>
+                              </div>
+                            </template>
+                            <template x-if="!pin.metadata?.pinner">
+                              <span class="text-xs text-slate-400 italic">Unknown</span>
+                            </template>
+                          </td>
+
+                          <!-- Saves & Engagement -->
+                          <td class="py-3 px-3 text-center font-mono">
+                            <div class="space-y-1">
+                              <div class="flex items-center justify-center space-x-1.5 flex-wrap">
+                                <template x-if="Number(pin.metadata?.raw_saves || pin.save_count || 0) > 0">
+                                  <span class="text-xs font-bold text-slate-900 dark:text-white" x-text="formatNumber(pin.metadata?.raw_saves || pin.save_count) + ' saves'"></span>
+                                </template>
+                                <template x-if="Number(pin.metadata?.reactions || 0) > 0">
+                                  <span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 flex items-center space-x-0.5" title="Reactions / Likes">
+                                    <span>❤️</span>
+                                    <span x-text="formatNumber(pin.metadata.reactions)"></span>
+                                  </span>
+                                </template>
+                                <template x-if="Number(pin.metadata?.raw_saves || pin.save_count || 0) === 0 && Number(pin.metadata?.reactions || 0) === 0">
+                                  <span class="text-xs text-slate-400 font-medium">0 saves</span>
+                                </template>
+                              </div>
+                              <div class="flex items-center justify-center space-x-1">
+                                <span class="px-1.5 py-0.5 rounded text-[10px] font-bold inline-block"
+                                      :class="Number(pin.daily_save_velocity || 0) >= 10 ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/40' : (Number(pin.daily_save_velocity || 0) > 0 ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-400')"
+                                      x-text="(Number(pin.daily_save_velocity || 0) > 0 ? '+' : '') + Number(pin.daily_save_velocity || 0) + '/day'"></span>
+                                <span class="px-1 py-0.5 rounded text-[9px] font-extrabold uppercase"
+                                      :class="pin.metadata?.velocity_tier === 'explosive' ? 'bg-rose-500/20 text-rose-600 dark:text-rose-400' : (pin.metadata?.velocity_tier === 'trending' ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400' : (pin.metadata?.velocity_tier === 'steady' ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400' : 'bg-slate-200 dark:bg-slate-800 text-slate-500'))"
+                                      x-text="pin.metadata?.velocity_tier === 'explosive' ? '🔥 EXPLOSIVE' : (pin.metadata?.velocity_tier === 'trending' ? '⚡ TRENDING' : (pin.metadata?.velocity_tier === 'steady' ? '📈 STEADY' : '⏸️ STAGNANT'))"></span>
+                              </div>
+                            </div>
+                          </td>
+
+                          <!-- Age -->
+                          <td class="py-3 px-3 text-center font-mono text-xs text-slate-500 dark:text-slate-400">
+                            <span x-text="formatAge(pin.metadata?.pin_age_days)"></span>
+                          </td>
+
+                          <!-- Destination Domain -->
+                          <td class="py-3 px-3">
+                            <template x-if="pin.domain">
+                              <a :href="pin.destination_url || '#'" target="_blank"
+                                 class="text-xs font-mono font-medium text-slate-600 dark:text-slate-300 hover:text-emerald-500 flex items-center space-x-1 truncate max-w-[130px]">
+                                <i data-lucide="globe" class="w-3 h-3 shrink-0 text-slate-400"></i>
+                                <span x-text="pin.domain"></span>
+                              </a>
+                            </template>
+                            <template x-if="!pin.domain">
+                              <span class="text-xs text-slate-400 italic">No link</span>
+                            </template>
+                          </td>
+
+                          <!-- Actions -->
+                          <td class="py-3 px-3 text-center">
+                            <div class="flex items-center justify-center space-x-1">
+                              <button @click.stop="openVisualLens(pin)"
+                                      class="p-1.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 transition shadow-xs active:scale-95 cursor-pointer"
+                                      title="Open Visual Similarity Lens">
+                                <i data-lucide="scan" class="w-3.5 h-3.5"></i>
+                              </button>
+                              <button @click.stop="openPinKeywordsModal(pin)"
+                                      class="p-1.5 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 border border-purple-500/30 transition shadow-xs active:scale-95 cursor-pointer"
+                                      title="Inspect Pinterest Computer-Vision Keywords">
+                                <i data-lucide="tag" class="w-3.5 h-3.5"></i>
+                              </button>
+                              <a :href="'https://www.pinterest.com/pin/' + pin.pin_id + '/'" target="_blank"
+                                 class="p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition" title="Open on Pinterest">
+                                <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+                              </a>
+                              <button @click="copyToClipboard(pin.pin_id, 'Copied Pin ID')"
+                                      class="p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition cursor-pointer" title="Copy Pin ID">
+                                <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                              </button>
+                            </div>
+                          </td>
+
+                        </tr>
+                      </template>
+                    </tbody>
+                  </table>
+                </div>
               </div>
 
               <!-- TAB 2: PIN INTELLIGENCE & SERP OPPORTUNITY (STATICRANK & SEMANTIC VACUUM) -->
@@ -893,11 +898,85 @@ export function getKeywordsPageHtml() {
 
               </div>
 
-              <!-- TAB 3: FELL OUT OF TOP 50 MATRIX TABLE -->
+              <!-- TAB 3: SEMANTIC GUIDED SEARCH CAPSULES (rankedGuides) -->
+              <div x-show="activeTab === 'guides'" class="space-y-4">
+                <div class="p-4 rounded-2xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 space-y-3 shadow-xs">
+                  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div class="flex items-center space-x-2">
+                      <i data-lucide="compass" class="w-4 h-4 text-cyan-500"></i>
+                      <h4 class="text-xs font-bold text-slate-900 dark:text-white">Pinterest Official Semantic Guided Modifiers (rankedGuides)</h4>
+                    </div>
+                    <button @click="copySEOFormula()" class="px-3 py-1 rounded-xl text-xs font-bold bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-600 dark:text-cyan-400 border border-cyan-500/30 transition flex items-center space-x-1 cursor-pointer">
+                      <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                      <span>Copy 1-Click SEO Title Formula</span>
+                    </button>
+                  </div>
+                  <p class="text-[11px] text-slate-500">Official ranking modifiers extracted directly from Pinterest's search engine capsule pills. Click any modifier to copy it.</p>
+                  
+                  <template x-if="!selectedKeywordDetails?.guides || selectedKeywordDetails.guides.length === 0">
+                    <div class="py-8 text-center text-xs text-slate-400 font-mono italic">
+                      No semantic modifiers discovered for this keyword. Run a re-crawl to populate.
+                    </div>
+                  </template>
+
+                  <div class="flex flex-wrap gap-2 pt-1" x-show="selectedKeywordDetails?.guides?.length > 0">
+                    <template x-for="g in selectedKeywordDetails?.guides || []" :key="g.id">
+                      <span class="px-3 py-1.5 rounded-full text-xs font-semibold border flex items-center space-x-1.5 transition hover:scale-105 cursor-pointer shadow-2xs"
+                            :style="'background-color: ' + (g.dominant_color ? g.dominant_color + '15' : '#10b98115') + '; border-color: ' + (g.dominant_color ? g.dominant_color + '40' : '#10b98140') + '; color: ' + (g.dominant_color || '#10b981')"
+                            @click="copyToClipboard(g.term, 'Copied modifier: ' + g.term)">
+                        <span x-text="g.display_label || g.term"></span>
+                        <span class="text-[10px] opacity-75 font-mono" x-text="'(' + Number(g.score || 0).toFixed(1) + ')'"></span>
+                      </span>
+                    </template>
+                  </div>
+                </div>
+              </div>
+
+              <!-- TAB 4: VELOCITY WAVE CHART & DISTRIBUTION -->
+              <div x-show="activeTab === 'velocity_curve'" class="space-y-4">
+                <div class="p-5 rounded-2xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 space-y-4 shadow-xs">
+                  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div class="flex items-center space-x-2">
+                      <i data-lucide="activity" class="w-4 h-4 text-amber-500"></i>
+                      <h4 class="text-xs font-bold text-slate-900 dark:text-white">SERP Save Velocity Distribution & Progression (100 Pins)</h4>
+                    </div>
+                    <!-- 4-Tier Interactive Breakdown -->
+                    <div class="flex flex-wrap items-center gap-1.5 text-[10px] font-mono font-bold">
+                      <span class="px-2 py-0.5 rounded bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30">🔥 Explosive: <strong x-text="selectedKeywordDetails?.velocity_chart?.explosive || 0"></strong></span>
+                      <span class="px-2 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">⚡ Trending: <strong x-text="selectedKeywordDetails?.velocity_chart?.trending || 0"></strong></span>
+                      <span class="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">📈 Steady: <strong x-text="selectedKeywordDetails?.velocity_chart?.steady || 0"></strong></span>
+                      <span class="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-300 dark:border-slate-700">⏸️ Stagnant: <strong x-text="selectedKeywordDetails?.velocity_chart?.stagnant || 0"></strong></span>
+                    </div>
+                  </div>
+
+                  <!-- SVG Velocity Wave Chart -->
+                  <div class="h-44 w-full relative pt-2">
+                    <template x-if="selectedKeywordDetails?.velocity_chart?.points?.length > 1">
+                      <svg class="w-full h-full" preserveAspectRatio="none" viewBox="0 0 500 75">
+                        <defs>
+                          <linearGradient id="velocityChartGradTab" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stop-color="#10b981" stop-opacity="0.35"/>
+                            <stop offset="100%" stop-color="#10b981" stop-opacity="0.0"/>
+                          </linearGradient>
+                        </defs>
+                        <path :d="getVelocityAreaPath(selectedKeywordDetails.velocity_chart.points, 500, 75).area" fill="url(#velocityChartGradTab)" />
+                        <path :d="getVelocityAreaPath(selectedKeywordDetails.velocity_chart.points, 500, 75).line" fill="none" stroke="#10b981" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+                      </svg>
+                    </template>
+                    <template x-if="!selectedKeywordDetails?.velocity_chart?.points || selectedKeywordDetails.velocity_chart.points.length <= 1">
+                      <div class="h-full flex items-center justify-center text-xs text-slate-400 font-mono">
+                        Crawl pins to visualize the 100-pin velocity progression curve
+                      </div>
+                    </template>
+                  </div>
+                </div>
+              </div>
+
+              <!-- TAB 5: FELL OUT OF TOP 100 MATRIX TABLE -->
               <div x-show="activeTab === 'dropped'" class="overflow-x-auto">
                 <template x-if="!selectedKeywordDetails?.dropped_out_pins || selectedKeywordDetails.dropped_out_pins.length === 0">
                   <div class="p-8 text-center text-xs text-slate-400 italic">
-                    No pins dropped out of the top 50 in the recent crawls. Rankings are solid.
+                    No pins dropped out of the top 100 in the recent crawls. Rankings are solid.
                   </div>
                 </template>
                 <template x-if="selectedKeywordDetails?.dropped_out_pins?.length > 0">
@@ -1130,6 +1209,9 @@ export function getKeywordsPageHtml() {
         </button>
       </div>
 
+    </div>
+  </div>
+
   <!-- VISUAL KEYWORDS & COMPUTER-VISION TAGS MODAL -->
   <div x-show="isKeywordsModalOpen" x-cloak
        x-transition:enter="transition ease-out duration-300"
@@ -1265,6 +1347,40 @@ export function getKeywordsPageHtml() {
         fleetProjects: [],
         darkMode: true,
         toast: { show: false, message: '', type: 'info' },
+
+        // Pin Table Filter & Sort Controls
+        pinSearch: '',
+        formatFilter: 'ALL',
+        pinSort: 'rank',
+
+        get filteredPins() {
+          let list = this.selectedKeywordDetails?.current_pins || [];
+          if (this.formatFilter && this.formatFilter !== 'ALL') {
+            list = list.filter(p => (p.metadata?.format || 'ORGANIC PIN') === this.formatFilter);
+          }
+          if (this.pinSearch && this.pinSearch.trim()) {
+            const q = this.pinSearch.toLowerCase().trim();
+            list = list.filter(p => 
+              (p.title || '').toLowerCase().includes(q) ||
+              (p.domain || '').toLowerCase().includes(q) ||
+              (p.metadata?.pinner?.username || '').toLowerCase().includes(q) ||
+              (p.metadata?.pinner?.full_name || '').toLowerCase().includes(q) ||
+              (p.metadata?.visual_annotations || []).some(t => t.toLowerCase().includes(q))
+            );
+          }
+          if (this.pinSort === 'velocity') {
+            return [...list].sort((a, b) => Number(b.daily_save_velocity || 0) - Number(a.daily_save_velocity || 0));
+          } else if (this.pinSort === 'saves') {
+            return [...list].sort((a, b) => {
+              const aEngage = Number(a.metadata?.raw_saves || a.save_count || a.metadata?.reactions || 0);
+              const bEngage = Number(b.metadata?.raw_saves || b.save_count || b.metadata?.reactions || 0);
+              return bEngage - aEngage;
+            });
+          } else if (this.pinSort === 'age') {
+            return [...list].sort((a, b) => Number(a.metadata?.pin_age_days || 9999) - Number(b.metadata?.pin_age_days || 9999));
+          }
+          return [...list].sort((a, b) => Number(a.rank_position || 0) - Number(b.rank_position || 0));
+        },
 
         get totalPinsCount() {
           return this.keywords.reduce((acc, k) => acc + Number(k.snapshots_count || 0), 0);
@@ -1415,7 +1531,7 @@ export function getKeywordsPageHtml() {
               body: JSON.stringify({
                 keyword: clean,
                 category: this.newKeywordCategory || 'General',
-                target_pin_count: 50
+                target_pin_count: 100
               })
             });
 
@@ -1469,7 +1585,7 @@ export function getKeywordsPageHtml() {
 
             if (!res.ok) throw new Error('HTTP ' + res.status);
             const data = await res.json();
-            this.showToast('SERP updated: ' + (data.result?.crawled_pins || 50) + ' pins indexed!', 'success');
+            this.showToast('SERP updated: ' + (data.result?.crawled_pins || 100) + ' pins indexed!', 'success');
 
             // Refresh keywords summaries and current details
             await this.fetchKeywords();

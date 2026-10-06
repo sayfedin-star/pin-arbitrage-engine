@@ -12,10 +12,10 @@ on:
         type: string
         default: ''
       max_pins:
-        description: 'Target pins count to harvest per keyword (default: 50)'
+        description: 'Target pins count to harvest per keyword (default: 100)'
         required: false
         type: string
-        default: '50'
+        default: '100'
 
 concurrency:
   group: keyword-intelligence-${{ github.workflow }}-${{ github.ref }}
@@ -52,5 +52,5 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           PINTEREST_COOKIE: ${{ secrets.PINTEREST_COOKIE }}
           TARGET_KEYWORD: ${{ inputs.target_keyword }}
-          MAX_PINS: ${{ inputs.max_pins || '50' }}
+          MAX_PINS: ${{ inputs.max_pins || '100' }}
         run: node scripts/keyword-velocity-crawler.mjs

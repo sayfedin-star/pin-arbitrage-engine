@@ -42,7 +42,7 @@ async function run() {
       console.log(`[!] Keyword "${targetKeyword}" not found in database. Auto-registering...`);
       const [newRow] = await sql`
         INSERT INTO tracked_keywords (keyword, category, target_pin_count, is_active)
-        VALUES (${targetKeyword}, 'General', 50, TRUE)
+        VALUES (${targetKeyword}, 'General', 100, TRUE)
         RETURNING *;
       `;
       keywordsToProcess = [newRow];
