@@ -187,7 +187,7 @@ jobs:
       - name: Publish Workflow Run Summary
         run: |
           ACTIVE_SHARDS='${{ needs.dispatch-fleet.outputs.active_shards }}'
-          ACTIVE_COUNT='${{ needs.dispatch-fleet.outputs.active_count || "0" }}'
+          ACTIVE_COUNT='${{ needs.dispatch-fleet.outputs.active_count }}'
           CRAWL_STATUS='${{ needs.crawl-shards.result }}'
 
           COUNT="${ACTIVE_COUNT:-0}"

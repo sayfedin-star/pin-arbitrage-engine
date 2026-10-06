@@ -505,7 +505,13 @@ export function getBoardIdeasPageHtml(initialData = {}) {
       <div class="flex items-center justify-between text-xs font-mono text-slate-400">
         <span>Saves: <strong class="text-white" x-text="formatNumber(lightboxPin?.save_count)"></strong></span>
         <span>Velocity: <strong class="text-purple-400" x-text="'+' + lightboxPin?.daily_save_velocity + '/d'"></strong></span>
-        <a :href="'https://www.pinterest.com/pin/' + lightboxPin?.pin_id + '/'" target="_blank" rel="noopener" class="text-purple-400 underline">View on Pinterest</a>
+        <div class="flex items-center space-x-3">
+          <button @click="openVisualLens(lightboxPin)" class="px-2.5 py-1 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-sans text-xs font-medium flex items-center space-x-1.5 transition">
+            <i data-lucide="scan" class="w-3.5 h-3.5"></i>
+            <span>Run Visual</span>
+          </button>
+          <a :href="'https://www.pinterest.com/pin/' + lightboxPin?.pin_id + '/'" target="_blank" rel="noopener" class="text-purple-400 hover:text-purple-300 underline">View on Pinterest</a>
+        </div>
       </div>
     </div>
   </div>
@@ -661,8 +667,8 @@ export function getBoardIdeasPageHtml(initialData = {}) {
 
         openVisualLens(pin) {
           if (!pin) return;
-          // Redirect or open visual lens search with query
-          const targetUrl = '/keywords?q=' + encodeURIComponent(pin.title || pin.domain || pin.pin_id);
+          const pinId = String(pin.pin_id || '').trim();
+          const targetUrl = '/keywords?q=' + encodeURIComponent(pinId || pin.title || '');
           window.open(targetUrl, '_blank');
         },
 

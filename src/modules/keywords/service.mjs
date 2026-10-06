@@ -255,7 +255,7 @@ export async function fetchVisualSearchLens(sql, pinId, cookie = (typeof process
     if (now - cached.timestamp < VISUAL_TTL_MS) {
       visualSearchCache.delete(cleanPin);
       visualSearchCache.set(cleanPin, cached);
-      return { success: true, pin_id: cleanPin, matches: cached.matches, cached: true };
+      return { success: true, pin_id: cleanPin, matches: cached.matches, seed_pin: cached.seed_pin || null, cached: true };
     } else {
       visualSearchCache.delete(cleanPin);
     }
@@ -264,8 +264,31 @@ export async function fetchVisualSearchLens(sql, pinId, cookie = (typeof process
   // 1.1 Persistent L2 DB Cache (7-day TTL)
   const dbCached = await getCachedVisualSearchMatches(sql, cleanPin);
   if (dbCached) {
-    visualSearchCache.set(cleanPin, { matches: dbCached.matches, timestamp: Date.now() });
-    return { success: true, pin_id: cleanPin, matches: dbCached.matches, cached: true };
+    let seedPin = null;
+    try {
+      const [row] = await sql`
+        SELECT pin_id, title, image_url, domain, save_count
+        FROM board_idea_snapshots
+        WHERE pin_id = ${cleanPin}
+        ORDER BY snapshot_date DESC
+        LIMIT 1;
+      `;
+      seedPin = row;
+    } catch (_) {}
+    if (!seedPin) {
+      try {
+        const [row] = await sql`
+          SELECT pin_id, title, image_url, domain, save_count
+          FROM keyword_pins_snapshots
+          WHERE pin_id = ${cleanPin}
+          ORDER BY created_at DESC
+          LIMIT 1;
+        `;
+        seedPin = row;
+      } catch (_) {}
+    }
+    visualSearchCache.set(cleanPin, { matches: dbCached.matches, seed_pin: seedPin, timestamp: Date.now() });
+    return { success: true, pin_id: cleanPin, matches: dbCached.matches, seed_pin: seedPin, cached: true };
   }
 
   // 2. Coalesce in-flight requests
@@ -287,6 +310,33 @@ export async function fetchVisualSearchLens(sql, pinId, cookie = (typeof process
       pinRow = row;
     } catch (err) {
       console.warn(`[fetchVisualSearchLens] Snapshot lookup warning for pin ${cleanPin}:`, err.message);
+    }
+
+    if (!pinRow) {
+      try {
+        const [boardRow] = await sql`
+          SELECT pin_id, title, image_url, domain, save_count
+          FROM board_idea_snapshots
+          WHERE pin_id = ${cleanPin}
+          ORDER BY snapshot_date DESC
+          LIMIT 1;
+        `;
+        if (boardRow) pinRow = boardRow;
+      } catch (err) {
+        console.warn(`[fetchVisualSearchLens] board_idea_snapshots lookup warning for pin ${cleanPin}:`, err.message);
+      }
+    }
+
+    if (!pinRow) {
+      try {
+        const [paRow] = await sql`
+          SELECT pin_id, title, image_url, domain, save_count
+          FROM pa_pins
+          WHERE pin_id = ${cleanPin}
+          LIMIT 1;
+        `;
+        if (paRow) pinRow = paRow;
+      } catch (_) {}
     }
 
     // Fallback if pin not yet crawled in snapshots
@@ -393,7 +443,7 @@ export async function fetchVisualSearchLens(sql, pinId, cookie = (typeof process
         visualSearchCache.delete(oldestKey);
       }
 
-      visualSearchCache.set(cleanPin, { matches, timestamp: Date.now() });
+      visualSearchCache.set(cleanPin, { matches, seed_pin: pinRow, timestamp: Date.now() });
 
       // Persist to L2 Sharded Database Cache (7-day TTL)
       await setCachedVisualSearchMatches(sql, cleanPin, matches);

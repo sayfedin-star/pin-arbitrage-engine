@@ -691,13 +691,20 @@ export function getKeywordsPageHtml() {
       <template x-if="visualLensPin">
         <div class="p-4 bg-emerald-500/5 border-b border-slate-200 dark:border-slate-800/80 flex items-center justify-between gap-4">
           <div class="flex items-center space-x-3 min-w-0">
-            <img :src="visualLensPin.image_url" class="w-12 h-16 rounded-xl object-cover border border-emerald-500/30 shrink-0 shadow-sm">
+            <template x-if="visualLensPin.image_url">
+              <img :src="visualLensPin.image_url" class="w-12 h-16 rounded-xl object-cover border border-emerald-500/30 shrink-0 shadow-sm">
+            </template>
+            <template x-if="!visualLensPin.image_url">
+              <div class="w-12 h-16 rounded-xl bg-slate-200 dark:bg-slate-800 flex items-center justify-center border border-emerald-500/30 shrink-0">
+                <i data-lucide="scan" class="w-5 h-5 text-emerald-500"></i>
+              </div>
+            </template>
             <div class="min-w-0">
               <div class="flex items-center space-x-2">
                 <span class="text-[10px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 font-mono">Seed Pin</span>
                 <span class="text-[10px] text-slate-400 font-mono" x-text="'ID: ' + visualLensPin.pin_id"></span>
               </div>
-              <h4 class="text-xs font-bold text-slate-900 dark:text-white truncate" x-text="visualLensPin.title || 'Untitled Pin'"></h4>
+              <h4 class="text-xs font-bold text-slate-900 dark:text-white truncate" x-text="visualLensPin.title || ('Pin #' + visualLensPin.pin_id)"></h4>
               <p class="text-[11px] text-slate-500 font-mono" x-text="(visualLensPin.domain ? 'Domain: ' + visualLensPin.domain + ' • ' : '') + formatNumber(visualLensPin.save_count) + ' saves'"></p>
             </div>
           </div>
@@ -867,6 +874,22 @@ export function getKeywordsPageHtml() {
           this.applyTheme();
           this.fetchFleetProjects();
           this.fetchKeywords();
+
+          // Read URL query parameters for direct deep-linking (?q= or ?pin_id=)
+          try {
+            const urlParams = new URLSearchParams(window.location.search);
+            const qParam = urlParams.get('q') || urlParams.get('pin_id');
+            if (qParam) {
+              const cleanQ = qParam.trim();
+              if (/^\d+$/.test(cleanQ)) {
+                // Direct numeric Pin ID: open Visual Similarity Lens directly
+                this.openVisualLens({ pin_id: cleanQ, title: 'Pin #' + cleanQ });
+              } else {
+                // Search query text
+                this.keywordSearch = cleanQ;
+              }
+            }
+          } catch (_) {}
 
           this.$watch('keywordSearch', () => this.filterKeywords());
           this.$nextTick(() => { lucide.createIcons(); });
@@ -1126,7 +1149,7 @@ export function getKeywordsPageHtml() {
         },
 
         async openVisualLens(pin) {
-          this.visualLensPin = pin;
+          this.visualLensPin = { ...pin };
           this.isVisualLensModalOpen = true;
           this.isVisualLensLoading = true;
           this.visualLensResults = [];
@@ -1137,6 +1160,16 @@ export function getKeywordsPageHtml() {
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || 'Failed to fetch visual search matches');
             this.visualLensResults = data.matches || [];
+            const seedData = data.seed_pin || data.seed;
+            if (seedData) {
+              this.visualLensPin = {
+                ...this.visualLensPin,
+                title: (this.visualLensPin.title && !this.visualLensPin.title.startsWith('Pin #')) ? this.visualLensPin.title : (seedData.title || this.visualLensPin.title),
+                image_url: this.visualLensPin.image_url || seedData.image_url,
+                domain: this.visualLensPin.domain || seedData.domain,
+                save_count: this.visualLensPin.save_count || seedData.save_count
+              };
+            }
           } catch (err) {
             this.visualLensError = err.message;
           } finally {
