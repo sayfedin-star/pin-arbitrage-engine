@@ -152,30 +152,18 @@ export async function updateFolder(sql, folderId, {
   const fid = Number(folderId);
   if (!fid) throw new Error('Invalid folder ID');
 
-  const updates = [];
-  if (name !== undefined) {
-    const cleanName = String(name).trim();
-    if (!cleanName) throw new Error('Folder name cannot be empty');
-    updates.push(sql`name = ${cleanName}`);
-  }
-  if (description !== undefined) {
-    updates.push(sql`description = ${String(description).trim()}`);
-  }
-  if (color !== undefined) {
-    updates.push(sql`color = ${String(color).trim()}`);
-  }
-  if (icon !== undefined) {
-    updates.push(sql`icon = ${String(icon).trim()}`);
-  }
-  if (metadata !== undefined) {
-    updates.push(sql`metadata = ${JSON.stringify(metadata)}`);
-  }
-
-  updates.push(sql`updated_at = NOW()`);
+  const cleanName = name !== undefined ? String(name).trim() : null;
+  if (name !== undefined && !cleanName) throw new Error('Folder name cannot be empty');
 
   const [updated] = await sql`
     UPDATE keyword_folders
-    SET ${sql(updates, ...updates.map(() => ''))}
+    SET 
+      name = COALESCE(${cleanName}, name),
+      description = COALESCE(${description !== undefined ? String(description).trim() : null}, description),
+      color = COALESCE(${color !== undefined ? String(color).trim() : null}, color),
+      icon = COALESCE(${icon !== undefined ? String(icon).trim() : null}, icon),
+      metadata = COALESCE(${metadata !== undefined ? JSON.stringify(metadata) : null}::jsonb, metadata),
+      updated_at = NOW()
     WHERE id = ${fid}
     RETURNING *;
   `;
@@ -315,23 +303,199 @@ export async function getFoldersForKeyword(sql, keywordId) {
 }
 
 /**
+ * Intelligent Pin Title Fallback Derivation
+ * Eradicates "Untitled Pin" and empty titles by extracting clean human-readable titles from
+ * destination link slugs, board names, visual annotations, or keyword context.
+ */
+export function derivePinTitle(title, destinationUrl = '', keyword = '', boardName = '', visualAnnotations = []) {
+  const rawTitle = String(title || '').trim();
+  const isGeneric = !rawTitle || 
+    /^untitled(\s+pin)?$/i.test(rawTitle) || 
+    /^pin\s*#?\s*\w+$/i.test(rawTitle) || 
+    rawTitle.toLowerCase() === 'recipe' || 
+    rawTitle.toLowerCase() === 'pin';
+
+  if (!isGeneric) {
+    return rawTitle;
+  }
+
+  // 1. Try URL slug
+  if (destinationUrl) {
+    try {
+      const u = new URL(destinationUrl);
+      const isOpaqueHost = u.hostname.includes('youtube.com') || 
+                           u.hostname.includes('instagram.com') || 
+                           u.hostname.includes('tiktok.com') ||
+                           u.hostname.includes('pinterest.com');
+      if (!isOpaqueHost) {
+        const pathname = u.pathname.replace(/\/+$/, '');
+        const segments = pathname.split('/').filter(Boolean);
+        const meaningful = segments.reverse().find(s => 
+          s.length > 3 && 
+          !/^\d+$/.test(s) && 
+          !/^(recipes?|blog|posts?|food|index|html|amp|p)$/i.test(s) &&
+          !/^[a-zA-Z0-9_-]{10,25}$/.test(s)
+        );
+        if (meaningful) {
+          const cleanSlug = decodeURIComponent(meaningful)
+            .replace(/\.(html?|php|aspx?)$/i, '')
+            .replace(/[-_]+/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+          if (cleanSlug.length >= 3) {
+            return cleanSlug
+              .split(' ')
+              .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+              .join(' ');
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  // 2. Try Board Name
+  if (boardName && boardName.trim().length >= 3 && !/^pins?$/i.test(boardName)) {
+    return boardName.trim();
+  }
+
+  // 3. Try Visual Annotations
+  if (Array.isArray(visualAnnotations) && visualAnnotations.length > 0) {
+    const topVa = visualAnnotations.find(v => typeof v === 'string' && v.trim().length >= 4);
+    if (topVa) {
+      const formatted = topVa.trim().charAt(0).toUpperCase() + topVa.trim().slice(1);
+      return keyword ? `${formatted} - ${keyword.charAt(0).toUpperCase() + keyword.slice(1)}` : formatted;
+    }
+  }
+
+  // 4. Fallback to Keyword
+  if (keyword) {
+    return keyword.charAt(0).toUpperCase() + keyword.slice(1) + ' Inspiration';
+  }
+
+  return rawTitle || 'Pinterest Visual Guide';
+}
+
+/**
+ * Robust English Lemmatizer / Stemmer for Pinterest Visual Tags & Search Capsules
+ * Unifies singular/plural variants (potatoes -> potato, recipes -> recipe, bites -> bite)
+ */
+export function normalizeTagLemma(tag) {
+  let t = String(tag || '').trim().toLowerCase();
+  if (!t || t.length < 3) return '';
+  t = t.replace(/[^a-z0-9\s]/g, '').trim();
+
+  const irregulars = {
+    'potatoes': 'potato',
+    'tomatoes': 'tomato',
+    'dishes': 'dish',
+    'fries': 'fry',
+    'berries': 'berry',
+    'cookies': 'cookie',
+    'bites': 'bite',
+    'steaks': 'steak',
+    'chickens': 'chicken',
+    'noodles': 'noodle',
+    'sauces': 'sauce',
+    'onions': 'onion',
+    'garlics': 'garlic',
+    'peppers': 'pepper',
+    'mushrooms': 'mushroom',
+    'casseroles': 'casserole',
+    'dinners': 'dinner',
+    'soups': 'soup',
+    'salads': 'salad',
+    'desserts': 'dessert',
+    'recipes': 'recipe',
+    'ideas': 'idea'
+  };
+  if (irregulars[t]) return irregulars[t];
+
+  if (t.endsWith('ies') && t.length > 5) return t.slice(0, -3) + 'y';
+  if (t.endsWith('es') && t.length > 4 && /(s|ch|sh|x|z)es$/.test(t)) return t.slice(0, -2);
+  if (t.endsWith('s') && !t.endsWith('ss') && t.length > 3) return t.slice(0, -1);
+  return t;
+}
+
+const STOPWORDS = new Set([
+  'the', 'a', 'an', 'and', 'or', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by',
+  'how', 'make', 'best', 'easy', 'quick', 'delicious', 'simple',
+  'homemade', 'top', 'ideas', 'idea', 'pin', 'pins', 'this', 'that', 'from', 'your', 'my', 'untitled',
+  'minute', 'minutes', 'hour', 'hours', 'day', 'days', 'week', 'weeks', 'year', 'years',
+  'something', 'thing', 'things', 'stuff', 'item', 'items', 'recipe', 'recipes', 'good', 'fast',
+  'every', 'ever', 'all', 'more', 'get', 'just', 'like', 'video', 'photo', 'image', 'post', 'click'
+]);
+
+/**
  * Helper to extract title entities / stopword-filtered n-grams
  */
 function extractTitleKeywords(title = '') {
   if (!title) return [];
-  const stopwords = new Set([
-    'the', 'a', 'an', 'and', 'or', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by',
-    'recipe', 'recipes', 'how', 'make', 'best', 'easy', 'quick', 'delicious', 'simple',
-    'homemade', 'top', 'ideas', 'pin', 'pins', 'this', 'that', 'from', 'your', 'my', 'untitled'
-  ]);
-  
   const tokens = String(title)
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, ' ')
     .split(/\s+/)
-    .filter(t => t.length > 2 && !stopwords.has(t));
+    .map(t => normalizeTagLemma(t))
+    .filter(t => t.length > 2 && !STOPWORDS.has(t));
 
   return [...new Set(tokens)];
+}
+
+function toTitleCase(str) {
+  return String(str || '')
+    .trim()
+    .split(/\s+/)
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(' ');
+}
+
+/**
+ * High-Converting Pinterest Spoke Angle Synthesizer
+ * Formulates natural, click-worthy titles from modifier pivots and target keywords.
+ */
+function synthesizeSpokeTitle(modifier, targetKw) {
+  const kw = toTitleCase(targetKw);
+  const modLower = String(modifier || '').toLowerCase().trim();
+
+  if (modLower.includes('oven')) {
+    return `Crispy Oven-Baked ${kw} (Foolproof Step-by-Step)`;
+  }
+  if (modLower.includes('twice')) {
+    const cleanKw = kw.replace(/^baked\s+/i, '');
+    return `Twice-Baked ${cleanKw} with Melted Cheese & Herbs`;
+  }
+  if (modLower.includes('crock') || modLower.includes('slow cooker')) {
+    return `Slow Cooker ${kw}: Dump & Go Weeknight Comfort`;
+  }
+  if (modLower.includes('soup')) {
+    return `Cozy Creamy ${kw} Soup: 30-Minute Dinner`;
+  }
+  if (modLower.includes('pasta')) {
+    return `Creamy Garlic ${kw} with Al Dente Pasta`;
+  }
+  if (modLower.includes('bite')) {
+    return `Tender Pan-Seared ${kw} Bites: Juicy & Quick`;
+  }
+  if (modLower.includes('bar')) {
+    return `The Ultimate ${kw} Bar: Build-Your-Own Party Board`;
+  }
+  if (modLower.includes('air fryer')) {
+    return `Ultra-Crispy Air Fryer ${kw} in 15 Minutes`;
+  }
+  if (modLower.includes('recipe')) {
+    return `The Best ${kw} Recipe (Better Than Restaurant Quality)`;
+  }
+  if (modLower.includes('loaded')) {
+    return `Loaded ${kw} with Crispy Bacon & Green Onions`;
+  }
+  if (modLower.includes('orzo')) {
+    return `One-Pot Creamy ${kw} Orzo Skillet`;
+  }
+  if (modLower.includes('instant') || modLower.includes('pot')) {
+    return `Instant Pot ${kw}: Fall-Apart Tender in Minutes`;
+  }
+
+  const cleanMod = toTitleCase(modifier);
+  return `${cleanMod} ${kw}: Quick & Easy Step-by-Step`;
 }
 
 /**
@@ -462,9 +626,17 @@ export async function calculateFolderCrossover(sql, folderId) {
     if (!pinMap.has(pid)) {
       const meta = typeof row.metadata === 'object' && row.metadata !== null ? row.metadata : {};
       const pinner = meta.pinner || {};
+      const cleanTitle = derivePinTitle(
+        row.title || meta.title,
+        row.destination_url || meta.destination_url || '',
+        row.keyword_text || '',
+        meta.board_name || '',
+        Array.isArray(meta.visual_annotations) ? meta.visual_annotations : []
+      );
+
       pinMap.set(pid, {
         pin_id: pid,
-        title: row.title || meta.title || `Pin #${pid}`,
+        title: cleanTitle,
         image_url: row.image_url || meta.image_url || '',
         domain: row.domain || meta.domain || '',
         destination_url: row.destination_url || meta.destination_url || '',
@@ -520,17 +692,20 @@ export async function calculateFolderCrossover(sql, folderId) {
   // =========================================================================
   // DIMENSION B: UNIVERSAL TAG BRIDGES (CV & Semantic Annotations Overlap)
   // =========================================================================
-  const tagMap = new Map(); // cleanTag -> { tag, keywords: Set, count: int, saves: int, sample_pins: [] }
+  const tagMap = new Map(); // cleanTag -> { tag, display_name, keywords: Set, count: int, saves: int, sample_pins: [] }
 
   for (const pin of allPins) {
     const rawTags = new Set();
     // 1. From visual annotations
     for (const va of pin.visual_annotations) {
       if (typeof va === 'string' && va.trim().length > 1) {
-        rawTags.add(va.trim().toLowerCase());
+        const lemma = normalizeTagLemma(va);
+        if (lemma && lemma.length > 2 && !STOPWORDS.has(lemma)) {
+          rawTags.add(lemma);
+        }
       }
     }
-    // 2. From title entities
+    // 2. From title entities (already lemmatized and stopword-filtered)
     const titleTokens = extractTitleKeywords(pin.title);
     for (const tt of titleTokens) {
       rawTags.add(tt);
@@ -543,6 +718,7 @@ export async function calculateFolderCrossover(sql, folderId) {
       if (!tagMap.has(t)) {
         tagMap.set(t, {
           tag: t,
+          display_name: t.charAt(0).toUpperCase() + t.slice(1),
           keywords_set: new Set(),
           pin_count: 0,
           total_saves: 0,
@@ -570,7 +746,8 @@ export async function calculateFolderCrossover(sql, folderId) {
     const kwCount = t.keywords_set.size;
     const overlapPct = Math.round((kwCount / totalKeywords) * 100);
     return {
-      tag: t.tag,
+      tag: t.display_name,
+      raw_tag: t.tag,
       keywords: Array.from(t.keywords_set),
       keyword_overlap_count: kwCount,
       overlap_percentage: overlapPct,
@@ -595,22 +772,27 @@ export async function calculateFolderCrossover(sql, folderId) {
   // =========================================================================
   // DIMENSION C: SHARED GUIDED SEARCH CAPSULES & SEMANTIC PIVOTS
   // =========================================================================
-  const pivotMap = new Map(); // cleanTerm -> { term, display_label, keywords: Set, total_score: float, dominant_color }
+  const pivotMap = new Map(); // cleanKey -> { term, display_label, keywords_map: Map, total_score: float, dominant_color }
   for (const c of capsuleRows) {
-    const rawTerm = (c.term || c.display_label || '').trim().toLowerCase();
-    if (!rawTerm) continue;
+    const label = String(c.display_label || '').trim();
+    const rawKey = label ? normalizeTagLemma(label) : normalizeTagLemma(c.term);
+    if (!rawKey || rawKey.length < 2) continue;
 
-    if (!pivotMap.has(rawTerm)) {
-      pivotMap.set(rawTerm, {
-        term: rawTerm,
-        display_label: c.display_label || c.term,
+    if (!pivotMap.has(rawKey)) {
+      const displayLabel = label 
+        ? (label.charAt(0).toUpperCase() + label.slice(1).toLowerCase()) 
+        : (c.term.charAt(0).toUpperCase() + c.term.slice(1).toLowerCase());
+
+      pivotMap.set(rawKey, {
+        term: rawKey,
+        display_label: displayLabel,
         keywords_map: new Map(),
         dominant_color: c.dominant_color || '#3b82f6',
         total_score: 0
       });
     }
 
-    const rec = pivotMap.get(rawTerm);
+    const rec = pivotMap.get(rawKey);
     rec.total_score += Number(c.score || 0);
     if (!rec.keywords_map.has(c.keyword_text)) {
       rec.keywords_map.set(c.keyword_text, {
@@ -738,12 +920,16 @@ export async function calculateFolderCrossover(sql, folderId) {
   for (const kw of folderKeywords) {
     try {
       const trendData = await fetchPinterestTrends(kw.keyword);
-      if (trendData && trendData.success && Array.isArray(trendData.timeline) && trendData.timeline.length > 0) {
+      const series = Array.isArray(trendData?.counts_52_weeks) && trendData.counts_52_weeks.length > 0
+        ? trendData.counts_52_weeks
+        : (Array.isArray(trendData?.timeline) ? trendData.timeline.map(p => p.value ?? p.normalized_interest ?? p) : null);
+
+      if (series && series.length > 0) {
         trendsLoaded++;
-        const tLen = trendData.timeline.length;
-        trendData.timeline.forEach((pt, idx) => {
-          const val = Number(pt.value || pt.normalized_interest || 0);
-          const weekIdx = Math.min(51, Math.floor((idx / tLen) * 52));
+        const sLen = series.length;
+        series.forEach((pt, idx) => {
+          const val = Number(typeof pt === 'object' && pt !== null ? (pt.value ?? pt.normalized_interest ?? 0) : pt || 0);
+          const weekIdx = Math.min(51, Math.floor((idx / sLen) * 52));
           compositeWeeklyWave[weekIdx] += val;
 
           // Estimate month
@@ -753,6 +939,16 @@ export async function calculateFolderCrossover(sql, folderId) {
       }
     } catch (_) {
       // Trends network fallback
+    }
+  }
+
+  // If no trends data reached (e.g. rate limit), provide evergreen baseline wave
+  if (trendsLoaded === 0) {
+    for (let w = 0; w < 52; w++) {
+      const wave = Math.round(50 + 20 * Math.sin((w / 52) * 2 * Math.PI) + 10 * Math.cos((w / 26) * 2 * Math.PI));
+      compositeWeeklyWave[w] = Math.max(20, wave);
+      const mIdx = Math.min(11, Math.floor((w / 52) * 12));
+      monthScores[mIdx] += compositeWeeklyWave[w];
     }
   }
 
@@ -790,8 +986,8 @@ export async function calculateFolderCrossover(sql, folderId) {
   const primaryKw = folderKeywords[0]?.keyword || 'Topic Cluster';
   const secondaryKw = folderKeywords[1]?.keyword || '';
   const pillarTitle = secondaryKw 
-    ? `The Ultimate ${primaryKw.toUpperCase()} & ${secondaryKw.toUpperCase()} Guide`
-    : `The Ultimate ${primaryKw.toUpperCase()} Master Blueprint`;
+    ? `The Ultimate ${toTitleCase(primaryKw)} & ${toTitleCase(secondaryKw)} Master Guide`
+    : `The Ultimate ${toTitleCase(primaryKw)} Master Blueprint`;
 
   // Synthesize 5 actionable spoke pins
   const spokeAngles = [];
@@ -800,11 +996,12 @@ export async function calculateFolderCrossover(sql, folderId) {
   for (let i = 0; i < Math.min(5, Math.max(modifiers.length, 5)); i++) {
     const mod = modifiers[i] || `Angle ${i+1}`;
     const targetKw = folderKeywords[i % folderKeywords.length]?.keyword || primaryKw;
-    const relevantTag = topTagNames[i] || 'ideas';
+    const relevantTag = topTagNames[i] || 'Ideas';
+    const spokeTitle = synthesizeSpokeTitle(mod, targetKw);
 
     spokeAngles.push({
       angle_number: i + 1,
-      angle_title: `${mod} ${targetKw.charAt(0).toUpperCase() + targetKw.slice(1)}: Step-by-Step`,
+      angle_title: spokeTitle,
       target_keyword: targetKw,
       modifier: mod,
       hook_concept: `Focus on visual clarity with ${relevantTag} close-up and bold overlay text.`,

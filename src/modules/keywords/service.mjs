@@ -19,6 +19,7 @@
 import { formatPinterestCookie } from '../../utils.mjs';
 import { getCachedVisualSearchMatches, setCachedVisualSearchMatches } from './visual-lens-cache.mjs';
 import { extractPinData, PINTEREST_PAGE_HEADERS } from '../../../scripts/lib/pinterest.mjs';
+import { derivePinTitle } from './folders-service.mjs';
 
 // In-Memory Mutex for process-local fast-fail
 const activeKeywordCrawls = new Set();
@@ -972,10 +973,12 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
       const description = (item.grid_description || item.closeup_unified_description || item.description || '').slice(0, 500);
       const boardName = item.board?.name || null;
 
+      const finalTitle = derivePinTitle(title, destinationUrl, keywordRow.keyword, boardName, visualAnnotations);
+
       preparedPins.push({
         pin_id: pinId,
         rank_position: rank,
-        title,
+        title: finalTitle,
         domain,
         destination_url: destinationUrl,
         image_url: imageUrl,
@@ -1350,6 +1353,7 @@ export async function getKeywordSERPComparison(sql, keywordId) {
 
   for (const p of currentPins) {
     const meta = p.metadata || {};
+    p.title = derivePinTitle(p.title, p.destination_url, keyword.keyword, meta.board_name, meta.visual_annotations);
     const delta = Number(meta.rank_delta || 0);
     const vel = Number(p.daily_save_velocity || 0);
 
@@ -1369,6 +1373,11 @@ export async function getKeywordSERPComparison(sql, keywordId) {
     } else {
       stable++;
     }
+  }
+
+  for (const p of droppedOutPins) {
+    const meta = p.metadata || {};
+    p.title = derivePinTitle(p.title, p.destination_url, keyword.keyword, meta.board_name, meta.visual_annotations);
   }
 
   // Fetch guided search capsules

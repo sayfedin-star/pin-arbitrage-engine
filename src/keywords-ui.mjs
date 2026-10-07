@@ -796,23 +796,23 @@ export function getKeywordsPageHtml(initialSlug = '') {
                             x-text="pin.metadata?.velocity_tier || 'stagnant'"></span>
                     </td>
 
-                    <!-- Annotated Interests (Tags) with 1-Click Expand -->
+                    <!-- Annotated Interests (Tags) with 1-Click Instant Reactive Expand -->
                     <td class="py-3.5 px-4 min-w-[200px]">
                       <template x-if="pin.metadata?.visual_annotations && pin.metadata.visual_annotations.length > 0">
                         <div class="flex flex-wrap items-center gap-1">
-                          <template x-for="tag in (pin._showAllTags ? pin.metadata.visual_annotations : pin.metadata.visual_annotations.slice(0, 3))" :key="tag">
+                          <template x-for="tag in (isPinTagsExpanded(pin.pin_id) ? pin.metadata.visual_annotations : pin.metadata.visual_annotations.slice(0, 3))" :key="tag">
                             <span @click.stop="copyToClipboard(tag, 'Copied keyword: ' + tag)"
                                   class="px-2 py-0.5 rounded-lg text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium hover:text-emerald-500 cursor-pointer transition shadow-2xs"
                                   x-text="tag" title="Click to copy"></span>
                           </template>
-                          <template x-if="pin.metadata.visual_annotations.length > 3 && !pin._showAllTags">
-                            <button @click.stop="pin._showAllTags = true"
+                          <template x-if="pin.metadata.visual_annotations.length > 3 && !isPinTagsExpanded(pin.pin_id)">
+                            <button @click.stop="togglePinTags(pin.pin_id)"
                                     class="px-2 py-0.5 rounded-lg text-[10px] bg-purple-500/15 hover:bg-purple-500/25 text-purple-600 dark:text-purple-400 font-bold transition cursor-pointer"
                                     x-text="'+' + (pin.metadata.visual_annotations.length - 3) + ' tags'"
                                     title="Click to view all tags"></button>
                           </template>
-                          <template x-if="pin._showAllTags">
-                            <button @click.stop="pin._showAllTags = false"
+                          <template x-if="isPinTagsExpanded(pin.pin_id)">
+                            <button @click.stop="togglePinTags(pin.pin_id)"
                                     class="px-2 py-0.5 rounded-lg text-[10px] bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-300 font-bold transition cursor-pointer"
                                     title="Collapse tags">Show less</button>
                           </template>
@@ -1447,10 +1447,12 @@ export function getKeywordsPageHtml(initialSlug = '') {
 
                     <div class="flex flex-wrap gap-2 max-h-72 overflow-y-auto">
                       <template x-for="pivot in crossoverData.guided_pivots" :key="pivot.term">
-                        <div class="px-3 py-1.5 rounded-xl border flex items-center space-x-2 text-xs"
-                             :class="pivot.shared_count >= 2 ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-600 dark:text-cyan-400' : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300'">
+                        <div class="px-3 py-1.5 rounded-xl border flex items-center space-x-2 text-xs transition hover:scale-105 cursor-pointer"
+                             :title="'Shared by ' + pivot.shared_count + ' keywords: ' + (pivot.shared_keywords?.map(k => k.keyword || k)?.join(', ') || '')"
+                             :class="pivot.shared_count >= 2 ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-600 dark:text-cyan-400 font-bold' : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300'">
                           <span class="font-bold" x-text="pivot.display_label"></span>
-                          <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-cyan-500/20 text-cyan-700 dark:text-cyan-300"
+                          <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono"
+                                :class="pivot.shared_count >= 2 ? 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 font-bold' : 'bg-slate-200 dark:bg-slate-800 text-slate-500'"
                                 x-text="pivot.shared_count + ' kw'"></span>
                         </div>
                       </template>
@@ -1511,7 +1513,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
                   </div>
 
                   <!-- Wave Chart -->
-                  <div class="p-4 rounded-2xl bg-slate-900/60 border border-slate-800">
+                  <div class="p-4 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-3">
                     <svg class="w-full h-36 overflow-visible" viewBox="0 0 800 180" preserveAspectRatio="none">
                       <defs>
                         <linearGradient id="crossoverGrad" x1="0" y1="0" x2="0" y2="1">
@@ -1522,6 +1524,13 @@ export function getKeywordsPageHtml(initialSlug = '') {
                       <path :d="getTrendsAreaPath(crossoverData.seasonality?.composite_wave?.map(w => w.score) || []).area" fill="url(#crossoverGrad)" />
                       <path :d="getTrendsAreaPath(crossoverData.seasonality?.composite_wave?.map(w => w.score) || []).line" fill="none" stroke="#3b82f6" stroke-width="2.5" stroke-linecap="round"/>
                     </svg>
+
+                    <!-- 12-Month Timeline Axis (Jan - Dec) with Dynamic Peak Highlights -->
+                    <div class="grid grid-cols-12 text-center text-[10px] font-mono pt-2 border-t border-slate-800/80">
+                      <template x-for="m in ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']" :key="m">
+                        <span :class="crossoverData.seasonality?.peak_months?.includes(m) ? 'text-blue-400 font-bold bg-blue-500/15 rounded py-0.5 border border-blue-500/30' : 'text-slate-500'" x-text="m"></span>
+                      </template>
+                    </div>
                   </div>
                 </div>
 
@@ -2272,6 +2281,19 @@ export function getKeywordsPageHtml(initialSlug = '') {
         pinSearch: '',
         formatFilter: 'ALL',
         pinSort: 'rank',
+        expandedPinTags: {},
+
+        togglePinTags(pinId) {
+          this.expandedPinTags = {
+            ...this.expandedPinTags,
+            [pinId]: !this.expandedPinTags[pinId]
+          };
+          this.$nextTick(() => { lucide.createIcons(); });
+        },
+
+        isPinTagsExpanded(pinId) {
+          return Boolean(this.expandedPinTags[pinId]);
+        },
 
         get activeSlug() {
           const raw = this.selectedKeyword?.keyword || this.activeKeywordQuery || '';
