@@ -1037,24 +1037,33 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
       rank++;
     }
 
-    // Identify pins that just dropped out of the top rankings during this crawl
+    // SHADOW-BAN & EMPTY CRAWL CIRCUIT BREAKER:
+    // If Pinterest returned an abnormally low pin count (< 5) while this keyword historically had active rankings (immediateSnapshots >= 10),
+    // suspect a shadow-ban, challenge page, or empty response.
+    // NEVER falsely evict healthy active pins into the Displaced Vault under an aborted or blocked crawl!
     const droppedOutList = [];
-    for (const s of immediateSnapshots) {
-      const pid = String(s.pin_id);
-      if (!seenPinIds.has(pid)) {
-        droppedOutList.push({
-          pin_id: pid,
-          rank_position: Number(s.rank_position || 1),
-          save_count: Number(s.save_count || 0),
-          repin_count: Number(s.repin_count || 0),
-          comment_count: Number(s.comment_count || 0),
-          title: s.title || '',
-          image_url: s.image_url || null,
-          domain: s.domain || '',
-          destination_url: s.destination_url || '',
-          format: s.metadata?.format || 'ORGANIC PIN',
-          dropped_at: new Date().toISOString()
-        });
+    const isSuspectedShadowBan = preparedPins.length < 5 && immediateSnapshots.length >= 10;
+
+    if (isSuspectedShadowBan) {
+      console.warn(`[Circuit Breaker] Suspected shadow-ban or empty SERP response for keyword "${keywordRow.keyword}" (got ${preparedPins.length} pins vs ${immediateSnapshots.length} prior). Preserving rankings, skipping eviction.`);
+    } else {
+      for (const s of immediateSnapshots) {
+        const pid = String(s.pin_id);
+        if (!seenPinIds.has(pid)) {
+          droppedOutList.push({
+            pin_id: pid,
+            rank_position: Number(s.rank_position || 1),
+            save_count: Number(s.save_count || 0),
+            repin_count: Number(s.repin_count || 0),
+            comment_count: Number(s.comment_count || 0),
+            title: s.title || '',
+            image_url: s.image_url || null,
+            domain: s.domain || '',
+            destination_url: s.destination_url || '',
+            format: s.metadata?.format || 'ORGANIC PIN',
+            dropped_at: new Date().toISOString()
+          });
+        }
       }
     }
 
@@ -1871,9 +1880,8 @@ export async function getPinPerformanceTrajectory(sql, keywordId, pinId, range =
     if (intervalDays) {
       snapshots = await sql`
         SELECT 
-          id, keyword_id, pin_id, rank_position, title, domain, destination_url, image_url,
-          save_count, repin_count, comment_count, share_count, reaction_count,
-          daily_save_velocity, snapshot_date, is_displaced, metadata, created_at
+          pin_id, rank_position, save_count, repin_count, comment_count, share_count, reaction_count,
+          daily_save_velocity, snapshot_date
         FROM keyword_pins_snapshots
         WHERE keyword_id = ${kid} AND pin_id = ${cleanPin} AND snapshot_date >= CURRENT_DATE - (${intervalDays} || ' days')::interval
         ORDER BY snapshot_date ASC;
@@ -1881,9 +1889,8 @@ export async function getPinPerformanceTrajectory(sql, keywordId, pinId, range =
     } else {
       snapshots = await sql`
         SELECT 
-          id, keyword_id, pin_id, rank_position, title, domain, destination_url, image_url,
-          save_count, repin_count, comment_count, share_count, reaction_count,
-          daily_save_velocity, snapshot_date, is_displaced, metadata, created_at
+          pin_id, rank_position, save_count, repin_count, comment_count, share_count, reaction_count,
+          daily_save_velocity, snapshot_date
         FROM keyword_pins_snapshots
         WHERE keyword_id = ${kid} AND pin_id = ${cleanPin}
         ORDER BY snapshot_date ASC;
@@ -1893,9 +1900,8 @@ export async function getPinPerformanceTrajectory(sql, keywordId, pinId, range =
     if (intervalDays) {
       snapshots = await sql`
         SELECT DISTINCT ON (snapshot_date)
-          id, keyword_id, pin_id, rank_position, title, domain, destination_url, image_url,
-          save_count, repin_count, comment_count, share_count, reaction_count,
-          daily_save_velocity, snapshot_date, is_displaced, metadata, created_at
+          pin_id, rank_position, save_count, repin_count, comment_count, share_count, reaction_count,
+          daily_save_velocity, snapshot_date
         FROM keyword_pins_snapshots
         WHERE pin_id = ${cleanPin} AND snapshot_date >= CURRENT_DATE - (${intervalDays} || ' days')::interval
         ORDER BY snapshot_date ASC, created_at DESC;
@@ -1903,9 +1909,8 @@ export async function getPinPerformanceTrajectory(sql, keywordId, pinId, range =
     } else {
       snapshots = await sql`
         SELECT DISTINCT ON (snapshot_date)
-          id, keyword_id, pin_id, rank_position, title, domain, destination_url, image_url,
-          save_count, repin_count, comment_count, share_count, reaction_count,
-          daily_save_velocity, snapshot_date, is_displaced, metadata, created_at
+          pin_id, rank_position, save_count, repin_count, comment_count, share_count, reaction_count,
+          daily_save_velocity, snapshot_date
         FROM keyword_pins_snapshots
         WHERE pin_id = ${cleanPin}
         ORDER BY snapshot_date ASC, created_at DESC;

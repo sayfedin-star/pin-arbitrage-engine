@@ -279,18 +279,32 @@ export default {
             setCachedShardSql(cleanKey, targetSql);
             if (proj.project_id) setCachedShardSql(proj.project_id, targetSql);
             if (proj.project_name) setCachedShardSql(proj.project_name, targetSql);
+          } else if (method !== 'GET') {
+            return jsonResponse({
+              error: 'Target shard not found or inactive',
+              message: `Shard '${cleanKey}' is not active in neon_projects_registry. Write mutation rejected to protect Hub integrity.`
+            }, 404);
           }
         } catch (_) {}
       }
 
-      // Resilient Shard Fallback: If shard connection drops or errors, seamlessly execute on Hub
+      // Resilient Shard Fallback:
+      // Reads (GET): Safe Read Degradation to Hub if shard connection fails.
+      // Writes (POST/PUT/DELETE): STRICT QUARANTINE - Rejects mutation to prevent split-brain desynchronization.
       if (targetSql !== sql) {
         const shardInstance = targetSql;
+        const isReadOperation = method === 'GET';
         targetSql = new Proxy(shardInstance, {
           apply(target, thisArg, argArray) {
             return Reflect.apply(target, thisArg, argArray).catch(err => {
-              console.warn(`[Shard Resilience Fallback] Shard execution failed (${err.message}). Seamlessly failing over to Hub database.`);
-              return Reflect.apply(sql, thisArg, argArray);
+              if (isReadOperation) {
+                console.warn(`[Shard Read Fallback] Shard read query failed (${err.message}). Safely degrading to Hub database.`);
+                return Reflect.apply(sql, thisArg, argArray);
+              }
+              console.error(`[Split-Brain Guard] Write mutation rejected because shard is unreachable (${err.message}).`);
+              const splitBrainError = new Error(`Shard database '${cleanKey}' is temporarily unreachable. Write mutation rejected to prevent split-brain desynchronization.`);
+              splitBrainError.status = 503;
+              throw splitBrainError;
             });
           }
         });
@@ -2270,7 +2284,8 @@ export default {
       // Default 404
       return jsonResponse({ error: 'Endpoint not found', path: pathname }, 404);
     } catch (err) {
-      return jsonResponse({ error: 'Internal Server Error', message: err.message }, 500);
+      const status = err.status || 500;
+      return jsonResponse({ error: status === 503 ? 'Service Unavailable' : 'Internal Server Error', message: err.message }, status);
     }
   },
 

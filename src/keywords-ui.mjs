@@ -3512,11 +3512,23 @@ export function getKeywordsPageHtml(initialSlug = '') {
           }
         },
 
+        cleanControlChars(str) {
+          if (!str) return '';
+          return String(str)
+            .replace(/[\x00-\x1F\x7F-\x9F\u200B-\u200F\u202A-\u202E]/g, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+        },
+
         copySEOFormula() {
-          const kw = this.selectedKeyword?.keyword || this.activeKeywordQuery || '';
+          const kw = this.cleanControlChars(this.selectedKeyword?.keyword || this.activeKeywordQuery || '');
           if (!kw) return;
           const guides = this.selectedKeywordDetails?.guides || [];
-          const topModifiers = guides.slice(0, 3).map(g => g.display_label || g.term).join(' ');
+          const topModifiers = guides
+            .slice(0, 3)
+            .map(g => this.cleanControlChars(g.display_label || g.term))
+            .filter(Boolean)
+            .join(' ');
           const formula = kw.charAt(0).toUpperCase() + kw.slice(1) + (topModifiers ? ' - ' + topModifiers : '');
           this.copyToClipboard(formula, 'Copied SEO Title Formula: "' + formula + '"');
         },
