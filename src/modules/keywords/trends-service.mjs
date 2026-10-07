@@ -9,6 +9,62 @@ const inflightTrends = new Map();
 const TRENDS_CACHE_MAX = 300;
 const TRENDS_TTL_MS = 60 * 60 * 1000; // 1 Hour TTL
 
+/**
+ * Fetch official Pinterest Interest / Annotation metrics (Exact search count, category tree, related taxonomy)
+ * Direct access to Pinterest's InterestResource via slug or ID.
+ */
+export async function fetchPinterestInterestVolume(term) {
+  const cleanTerm = String(term || '').trim().toLowerCase();
+  if (!cleanTerm) return null;
+  const slug = cleanTerm.replace(/[\s_]+/g, '-');
+  
+  const headers = {
+    'Accept': 'application/json, text/javascript, */*, q=0.01',
+    'x-requested-with': 'XMLHttpRequest',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+    'x-pinterest-pws-handler': 'www/ideas/[interest_url_name]/[interest_id].js',
+    'referer': `https://www.pinterest.com/ideas/${slug}/`
+  };
+
+  const dataParam = encodeURIComponent(JSON.stringify({
+    options: { interest: slug, field_set_key: 'ideas_hub' },
+    context: {}
+  }));
+  const url = `https://www.pinterest.com/resource/InterestResource/get/?source_url=%2Fideas%2F${slug}%2F&data=${dataParam}`;
+
+  try {
+    const res = await fetch(url, { headers, signal: AbortSignal.timeout(6000) });
+    if (!res.ok) return null;
+    const json = await res.json();
+    const data = json?.resource_response?.data;
+    if (!data) return null;
+
+    return {
+      success: true,
+      id: data.id,
+      key: data.key,
+      url_name: data.url_name,
+      internal_search_count: Number(data.internal_search_count || 0),
+      feed_update_time: data.feed_update_time || null,
+      seo_breadcrumbs: Array.isArray(data.seo_breadcrumbs)
+        ? data.seo_breadcrumbs.map(b => b.name)
+        : [],
+      seo_related_interests: Array.isArray(data.seo_related_interests)
+        ? data.seo_related_interests.slice(0, 10).map(r => r.name || r.key)
+        : [],
+      ideas_pivots: Array.isArray(data.ideas_klp_pivots)
+        ? data.ideas_klp_pivots.map(p => ({
+            label: p.pivot_display_text,
+            full_name: p.pivot_full_name,
+            url: p.pivot_url
+          }))
+        : []
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
 export async function fetchPinterestTrends(term, country = 'US') {
   const cleanTerm = String(term || '').trim().toLowerCase();
   if (!cleanTerm || cleanTerm.length < 2) {
@@ -46,9 +102,11 @@ export async function fetchPinterestTrends(term, country = 'US') {
       // 2. Fetch related terms for comparison and related sparklines
       const relatedUrl = `https://trends.pinterest.com/related_terms/?requestTerm=${encodeURIComponent(cleanTerm)}&country=${country}`;
 
-      const [prefixRes, relatedRes] = await Promise.allSettled([
+      // Concurrent fetch: Trends curve + Related terms + Official Pinterest Interest/Annotation Volume
+      const [prefixRes, relatedRes, interestData] = await Promise.allSettled([
         fetch(prefixUrl, { headers, signal: AbortSignal.timeout(7000) }),
-        fetch(relatedUrl, { headers, signal: AbortSignal.timeout(7000) })
+        fetch(relatedUrl, { headers, signal: AbortSignal.timeout(7000) }),
+        fetchPinterestInterestVolume(cleanTerm)
       ]);
 
       let primaryCounts = [];
@@ -110,9 +168,14 @@ export async function fetchPinterestTrends(term, country = 'US') {
       const prevCount = primaryCounts[primaryCounts.length - 2] || latestCount;
       const momentumDelta = latestCount - prevCount;
 
-      // Estimate monthly search volume based on relative index and Pinterest benchmark scales
-      // High-volume Pinterest queries scale between 50k and 1.5M monthly searches
-      let estimatedMonthlyVolume = Math.round(avgCount * 3650 + (peakVal * 1200));
+      // Extract official Pinterest Interest Annotation data if available
+      const interestInfo = interestData.status === 'fulfilled' ? interestData.value : null;
+      const exactSearchCount = interestInfo?.internal_search_count || 0;
+
+      // Prioritize official Pinterest Internal Search Count (Exact parity with Image 1 & 2: 514,940)
+      let estimatedMonthlyVolume = exactSearchCount > 0
+        ? exactSearchCount
+        : Math.round(avgCount * 3650 + (peakVal * 1200));
       if (estimatedMonthlyVolume < 10000) estimatedMonthlyVolume = 12500;
 
       // Standard Pinterest Demographics Model (Official Trends Benchmark for Lifestyle/Recipes)
@@ -143,6 +206,12 @@ export async function fetchPinterestTrends(term, country = 'US') {
         average_index: avgCount,
         momentum_delta: momentumDelta,
         estimated_volume: estimatedMonthlyVolume,
+        exact_volume: exactSearchCount || null,
+        annotation_id: interestInfo?.id || null,
+        category_tree: interestInfo?.seo_breadcrumbs || [],
+        related_interests: interestInfo?.seo_related_interests || [],
+        ideas_pivots: interestInfo?.ideas_pivots || [],
+        feed_update_time: interestInfo?.feed_update_time || null,
         related_trends: relatedTrends,
         demographics
       };

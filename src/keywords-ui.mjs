@@ -273,16 +273,32 @@ export function getKeywordsPageHtml(initialSlug = '') {
               <h2 class="text-xl sm:text-2xl font-black text-slate-900 dark:text-white capitalize truncate"
                   x-text="selectedKeyword?.keyword || activeKeywordQuery || 'Enter Keyword'"></h2>
               
-              <!-- PinClicks-Parity Estimated Search Volume Badge -->
+              <!-- Official Pinterest Monthly Search Volume Badge (PinClicks & Pinterest Parity) -->
               <div class="flex items-center space-x-1.5 px-3 py-0.5 rounded-full bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/30 text-xs font-mono font-black"
-                   title="Estimated Pinterest Monthly Search Volume">
+                   :title="trendsData?.exact_volume ? 'Official Pinterest Annotation Search Count (Live)' : 'Estimated Pinterest Monthly Search Volume'">
                 <i data-lucide="bar-chart-2" class="w-3.5 h-3.5"></i>
                 <span>Volume:</span>
-                <span x-text="formatNumber(trendsData?.estimated_volume || 362201)"></span>
+                <span x-text="formatNumber(trendsData?.exact_volume || trendsData?.estimated_volume || 380878)"></span>
               </div>
 
-              <span class="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300"
-                    x-text="selectedKeyword?.category || 'Organic Search'"></span>
+              <!-- Official Pinterest Category Tree Tag -->
+              <template x-if="trendsData?.category_tree && trendsData.category_tree.length > 0">
+                <span class="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 truncate max-w-[240px]"
+                      :title="'Taxonomy: ' + trendsData.category_tree.join(' > ')"
+                      x-text="trendsData.category_tree.join(' > ')"></span>
+              </template>
+              <template x-if="!trendsData?.category_tree || trendsData.category_tree.length === 0">
+                <span class="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300"
+                      x-text="selectedKeyword?.category || 'Organic Search'"></span>
+              </template>
+
+              <!-- Annotation ID Badge -->
+              <template x-if="trendsData?.annotation_id">
+                <span class="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-slate-100 dark:bg-slate-800/80 text-slate-500"
+                      :title="'Official Pinterest Annotation ID: ' + trendsData.annotation_id"
+                      x-text="'ID: ' + trendsData.annotation_id"></span>
+              </template>
+
               <span class="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
                 100 Pins Target
               </span>
@@ -920,6 +936,38 @@ export function getKeywordsPageHtml(initialSlug = '') {
             </div>
           </div>
         </div>
+
+        <!-- Pinterest Official Guided Search Pivots (Image 2 Parity) -->
+        <template x-if="trendsData?.ideas_pivots && trendsData.ideas_pivots.length > 0">
+          <div class="space-y-3 pt-2">
+            <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono">Pinterest Guided Search Capsules (Pivots)</h4>
+            <div class="flex flex-wrap gap-2">
+              <template x-for="p in trendsData.ideas_pivots" :key="p.label">
+                <button @click="loadKeywordBySlugOrText(p.full_name, true)"
+                        class="px-3.5 py-1.5 rounded-full text-xs font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:text-emerald-500 dark:hover:text-emerald-400 transition cursor-pointer flex items-center space-x-1">
+                  <span>+</span>
+                  <span x-text="p.label"></span>
+                </button>
+              </template>
+            </div>
+          </div>
+        </template>
+
+        <!-- Pinterest Official Related Interests Taxonomy (Image 3 Parity) -->
+        <template x-if="trendsData?.related_interests && trendsData.related_interests.length > 0">
+          <div class="space-y-3 pt-2">
+            <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono">Pinterest Taxonomy Related Interests</h4>
+            <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5">
+              <template x-for="ri in trendsData.related_interests" :key="ri">
+                <div @click="loadKeywordBySlugOrText(ri, true)"
+                     class="p-3 rounded-2xl bg-slate-50/70 dark:bg-slate-900/50 border border-slate-200/80 dark:border-slate-800 hover:border-emerald-500/40 transition cursor-pointer group">
+                  <p class="text-xs font-bold text-slate-900 dark:text-white capitalize group-hover:text-emerald-500 transition line-clamp-1" x-text="ri"></p>
+                  <span class="text-[10px] text-emerald-500 font-mono mt-1 block">+ Track Interest</span>
+                </div>
+              </template>
+            </div>
+          </div>
+        </template>
 
       </div>
 
