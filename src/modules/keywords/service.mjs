@@ -782,12 +782,12 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
       SELECT pin_id, rank_position, save_count, repin_count, comment_count, title, image_url, domain, destination_url, metadata, snapshot_date
       FROM keyword_pins_snapshots
       WHERE keyword_id = ${kid}
-        AND (is_displaced IS FALSE OR is_displaced IS NULL)
+        AND is_displaced = FALSE
         AND snapshot_date = (
           SELECT MAX(snapshot_date) 
           FROM keyword_pins_snapshots 
           WHERE keyword_id = ${kid}
-            AND (is_displaced IS FALSE OR is_displaced IS NULL)
+            AND is_displaced = FALSE
         );
     `;
     const immediateMap = new Map();
@@ -811,13 +811,13 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
       SELECT pin_id, save_count
       FROM keyword_pins_snapshots
       WHERE keyword_id = ${kid}
-        AND (is_displaced IS FALSE OR is_displaced IS NULL)
+        AND is_displaced = FALSE
         AND snapshot_date = (
           SELECT MAX(snapshot_date) 
           FROM keyword_pins_snapshots 
           WHERE keyword_id = ${kid} 
             AND snapshot_date < CURRENT_DATE
-            AND (is_displaced IS FALSE OR is_displaced IS NULL)
+            AND is_displaced = FALSE
         );
     `;
     const baselineMap = new Map();
@@ -1193,7 +1193,7 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
           DELETE FROM keyword_pins_snapshots
           WHERE keyword_id = ${kid}
             AND snapshot_date = CURRENT_DATE
-            AND (is_displaced IS FALSE OR is_displaced IS NULL)
+            AND is_displaced = FALSE
             AND NOT (pin_id = ANY(${pinIds}));
         `);
       }
@@ -1322,12 +1322,12 @@ export async function getKeywordPins(sql, keywordId) {
     SELECT *
     FROM keyword_pins_snapshots
     WHERE keyword_id = ${kid}
-      AND (is_displaced IS FALSE OR is_displaced IS NULL)
+      AND is_displaced = FALSE
       AND snapshot_date = (
         SELECT MAX(snapshot_date)
         FROM keyword_pins_snapshots
         WHERE keyword_id = ${kid}
-          AND (is_displaced IS FALSE OR is_displaced IS NULL)
+          AND is_displaced = FALSE
       )
     ORDER BY rank_position ASC;
   `;
@@ -1397,7 +1397,7 @@ export async function getKeywordSERPComparison(sql, keywordId) {
     FROM keyword_pins_snapshots
     WHERE keyword_id = ${kid}
       AND snapshot_date = ${latestDate}
-      AND (is_displaced IS FALSE OR is_displaced IS NULL)
+      AND is_displaced = FALSE
     ORDER BY rank_position ASC;
   `;
 
@@ -1422,13 +1422,13 @@ export async function getKeywordSERPComparison(sql, keywordId) {
       FROM keyword_pins_snapshots
       WHERE keyword_id = ${kid}
         AND snapshot_date = ${prevDate}
-        AND (is_displaced IS FALSE OR is_displaced IS NULL)
+        AND is_displaced = FALSE
         AND pin_id NOT IN (
           SELECT pin_id
           FROM keyword_pins_snapshots
           WHERE keyword_id = ${kid}
             AND snapshot_date = ${latestDate}
-            AND (is_displaced IS FALSE OR is_displaced IS NULL)
+            AND is_displaced = FALSE
         )
       ORDER BY rank_position ASC;
     `.catch(() => []);
@@ -1879,21 +1879,21 @@ export async function getPinPerformanceTrajectory(sql, keywordId, pinId, range =
   if (kid) {
     if (intervalDays) {
       snapshots = await sql`
-        SELECT 
+        SELECT DISTINCT ON (snapshot_date)
           pin_id, rank_position, save_count, repin_count, comment_count, share_count, reaction_count,
           daily_save_velocity, snapshot_date
         FROM keyword_pins_snapshots
         WHERE keyword_id = ${kid} AND pin_id = ${cleanPin} AND snapshot_date >= CURRENT_DATE - (${intervalDays} || ' days')::interval
-        ORDER BY snapshot_date ASC;
+        ORDER BY snapshot_date ASC, created_at DESC;
       `;
     } else {
       snapshots = await sql`
-        SELECT 
+        SELECT DISTINCT ON (snapshot_date)
           pin_id, rank_position, save_count, repin_count, comment_count, share_count, reaction_count,
           daily_save_velocity, snapshot_date
         FROM keyword_pins_snapshots
         WHERE keyword_id = ${kid} AND pin_id = ${cleanPin}
-        ORDER BY snapshot_date ASC;
+        ORDER BY snapshot_date ASC, created_at DESC;
       `;
     }
   } else {

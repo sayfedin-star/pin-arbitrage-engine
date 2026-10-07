@@ -87,7 +87,14 @@ async function main() {
     'keyword_displaced_pins',
     'competitor_pins',
     'pa_pins',
-    'tracked_keywords'
+    'tracked_keywords',
+    'tracked_boards',
+    'competitor_profiles',
+    'competitor_history_snapshots',
+    'competitor_seed_pins',
+    'keyword_folders',
+    'keyword_folder_items',
+    'schema_migrations'
   ];
 
   for (const tbl of targetTables) {
