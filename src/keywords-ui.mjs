@@ -611,13 +611,13 @@ export function getKeywordsPageHtml(initialSlug = '') {
           </button>
 
           <!-- Campaign Crossover Matrix Tab -->
-          <button @click="activeTab = 'crossover'; if(!activeFolder && folders.length > 0) selectFolder(folders[0])"
-                  class="px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center space-x-2 cursor-pointer"
+          <button @click="openCrossoverTab()"
+                  class="px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center space-x-2 cursor-pointer shrink-0"
                   :class="activeTab === 'crossover' ? 'bg-pink-500/15 text-pink-600 dark:text-pink-400 border border-pink-500/30 shadow-xs' : 'text-slate-500 hover:text-slate-800 dark:hover:text-white'">
             <i data-lucide="network" class="w-4 h-4 text-pink-500"></i>
             <span>🧬 Crossover Matrix</span>
             <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold bg-pink-500/20 text-pink-500"
-                  x-text="activeFolder ? activeFolder.name : (folders.length + ' Folders')"></span>
+                  x-text="(folders.length || 0) + ' Clusters'"></span>
           </button>
         </div>
 
@@ -1156,6 +1156,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
               </div>
             </div>
           </template>
+        </div>
       </div>
 
       <!-- TAB 7: 🧬 CROSSOVER MATRIX & TOPIC CLUSTER INTELLIGENCE -->
@@ -1307,6 +1308,22 @@ export function getKeywordsPageHtml(initialSlug = '') {
                 </div>
                 <p class="text-sm font-bold text-slate-700 dark:text-slate-300">Computing Multi-Dimensional Crossover Matrix...</p>
                 <p class="text-xs text-slate-400 font-mono">Analyzing super-pins overlap, universal tag bridges, domain monopoly & seasonality wave</p>
+              </div>
+            </template>
+
+            <!-- Fallback Empty State if not loading and no data -->
+            <template x-if="!isCrossoverLoading && !crossoverData">
+              <div class="py-16 text-center space-y-4 bg-white dark:bg-[#0c1322] rounded-3xl border border-slate-200 dark:border-slate-800">
+                <div class="w-12 h-12 rounded-2xl bg-pink-500/10 text-pink-500 mx-auto flex items-center justify-center">
+                  <i data-lucide="network" class="w-6 h-6"></i>
+                </div>
+                <div>
+                  <h3 class="text-sm font-bold text-slate-900 dark:text-white" x-text="'No Crossover Data Loaded for ' + activeFolder.name"></h3>
+                  <p class="text-xs text-slate-500 mt-1">Click below to compute the multi-dimensional crossover matrix.</p>
+                </div>
+                <button @click="fetchFolderCrossover(activeFolder.id)" class="px-5 py-2.5 rounded-xl text-xs font-bold bg-pink-600 text-white hover:bg-pink-500 transition cursor-pointer">
+                  Compute Crossover Matrix
+                </button>
               </div>
             </template>
 
@@ -2837,7 +2854,19 @@ export function getKeywordsPageHtml(initialSlug = '') {
         async selectFolder(folder) {
           if (!folder) return;
           this.activeFolder = folder;
+          this.activeTab = 'crossover';
           await this.fetchFolderCrossover(folder.id);
+        },
+
+        openCrossoverTab() {
+          this.activeTab = 'crossover';
+          if (this.activeFolder) {
+            if (!this.crossoverData || this.crossoverData.folder?.id !== this.activeFolder.id) {
+              this.fetchFolderCrossover(this.activeFolder.id);
+            }
+          } else if (this.folders.length > 0) {
+            this.selectFolder(this.folders[0]);
+          }
         },
 
         async fetchFolderCrossover(folderId) {
