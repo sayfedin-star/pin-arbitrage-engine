@@ -60,6 +60,18 @@ import {
   getKeywordIntelligence
 } from '../src/modules/keywords/service.mjs';
 import { fetchPinterestTrends } from '../src/modules/keywords/trends-service.mjs';
+import {
+  listFolders,
+  getFolder,
+  createFolder,
+  updateFolder,
+  deleteFolder,
+  addKeywordToFolder,
+  batchAddKeywordsToFolder,
+  removeKeywordFromFolder,
+  getFoldersForKeyword,
+  calculateFolderCrossover
+} from '../src/modules/keywords/folders-service.mjs';
 import { getFleetProjects, registerNewProject, getFleetCompetitors, syncProjectCompetitorStats, syncFleetDatabases, syncCompetitorAcrossFleet, pingFleetProject, getFleetProjectUrl } from '../src/modules/fleet/service.mjs';
 import {
   getPinArchiveOverview,
@@ -2084,6 +2096,92 @@ const server = http.createServer(async (req, res) => {
           await dispatchRes.body.cancel().catch(() => {});
         }
       }
+    }
+
+    // Keyword Folders & Algorithmic Crossover Matrix API
+    if (method === 'GET' && pathname === '/api/keywords/folders') {
+      const folderId = searchParams.get('id') || searchParams.get('folder_id');
+      if (folderId) {
+        const folder = await getFolder(targetSql, folderId);
+        if (!folder) return sendJson(res, 404, { error: 'Folder not found' });
+        return sendJson(res, 200, { success: true, folder });
+      }
+      const folders = await listFolders(targetSql, {
+        projectId: searchParams.get('project_id') || 'default'
+      });
+      return sendJson(res, 200, { success: true, folders });
+    }
+
+    if (method === 'POST' && pathname === '/api/keywords/folders') {
+      const body = await parseJsonBody(req);
+      const created = await createFolder(targetSql, body);
+      return sendJson(res, 200, { success: true, folder: created });
+    }
+
+    if ((method === 'PUT' || method === 'PATCH') && pathname === '/api/keywords/folders') {
+      const body = await parseJsonBody(req);
+      const folderId = body.id || searchParams.get('id');
+      if (!folderId) return sendJson(res, 400, { error: 'Folder id is required' });
+      const updated = await updateFolder(targetSql, folderId, body);
+      return sendJson(res, 200, { success: true, folder: updated });
+    }
+
+    if (method === 'DELETE' && pathname === '/api/keywords/folders') {
+      let folderId = searchParams.get('id') || searchParams.get('folder_id');
+      if (!folderId) {
+        try {
+          const body = await parseJsonBody(req);
+          folderId = body.id || body.folder_id;
+        } catch (_) {}
+      }
+      if (!folderId) return sendJson(res, 400, { error: 'Folder id is required' });
+      const deleted = await deleteFolder(targetSql, folderId);
+      return sendJson(res, 200, { success: true, deleted });
+    }
+
+    if (method === 'POST' && pathname === '/api/keywords/folders/items') {
+      const body = await parseJsonBody(req);
+      const folderId = body.folder_id || searchParams.get('folder_id');
+      if (!folderId) return sendJson(res, 400, { error: 'folder_id is required' });
+
+      if (Array.isArray(body.keyword_ids)) {
+        const result = await batchAddKeywordsToFolder(targetSql, folderId, body.keyword_ids);
+        return sendJson(res, 200, { success: true, ...result });
+      }
+
+      const keywordId = body.keyword_id || searchParams.get('keyword_id');
+      if (!keywordId) return sendJson(res, 400, { error: 'keyword_id or keyword_ids is required' });
+      const item = await addKeywordToFolder(targetSql, folderId, keywordId, body.notes || '');
+      return sendJson(res, 200, { success: true, item });
+    }
+
+    if (method === 'DELETE' && pathname === '/api/keywords/folders/items') {
+      let folderId = searchParams.get('folder_id');
+      let keywordId = searchParams.get('keyword_id');
+      if (!folderId || !keywordId) {
+        try {
+          const body = await parseJsonBody(req);
+          folderId = folderId || body.folder_id;
+          keywordId = keywordId || body.keyword_id;
+        } catch (_) {}
+      }
+      if (!folderId || !keywordId) return sendJson(res, 400, { error: 'folder_id and keyword_id are required' });
+      const deleted = await removeKeywordFromFolder(targetSql, folderId, keywordId);
+      return sendJson(res, 200, { success: true, deleted });
+    }
+
+    if (method === 'GET' && pathname === '/api/keywords/folders/by-keyword') {
+      const keywordId = searchParams.get('keyword_id');
+      if (!keywordId) return sendJson(res, 400, { error: 'keyword_id is required' });
+      const folders = await getFoldersForKeyword(targetSql, keywordId);
+      return sendJson(res, 200, { success: true, folders });
+    }
+
+    if (method === 'GET' && pathname === '/api/keywords/folders/crossover') {
+      const folderId = searchParams.get('folder_id') || searchParams.get('id');
+      if (!folderId) return sendJson(res, 400, { error: 'folder_id is required' });
+      const crossover = await calculateFolderCrossover(targetSql, folderId);
+      return sendJson(res, 200, { success: true, crossover });
     }
 
     // Neon Multi-Project Fleet API

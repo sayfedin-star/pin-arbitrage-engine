@@ -52,6 +52,18 @@ import {
   getKeywordIntelligence
 } from './modules/keywords/service.mjs';
 import { fetchPinterestTrends } from './modules/keywords/trends-service.mjs';
+import {
+  listFolders,
+  getFolder,
+  createFolder,
+  updateFolder,
+  deleteFolder,
+  addKeywordToFolder,
+  batchAddKeywordsToFolder,
+  removeKeywordFromFolder,
+  getFoldersForKeyword,
+  calculateFolderCrossover
+} from './modules/keywords/folders-service.mjs';
 import { getFleetProjects, registerNewProject, syncFleetDatabases, syncCompetitorAcrossFleet, pingFleetProject, getFleetProjectUrl } from './modules/fleet/service.mjs';
 import {
   getPinArchiveOverview,
@@ -1900,6 +1912,92 @@ export default {
             await dispatchRes.body.cancel().catch(() => {});
           }
         }
+      }
+
+      // 16.5 Keyword Folders & Algorithmic Crossover Matrix API
+      if (method === 'GET' && pathname === '/api/keywords/folders') {
+        const folderId = searchParams.get('id') || searchParams.get('folder_id');
+        if (folderId) {
+          const folder = await getFolder(targetSql, folderId);
+          if (!folder) return jsonResponse({ error: 'Folder not found' }, 404);
+          return jsonResponse({ success: true, folder });
+        }
+        const folders = await listFolders(targetSql, {
+          projectId: searchParams.get('project_id') || 'default'
+        });
+        return jsonResponse({ success: true, folders });
+      }
+
+      if (method === 'POST' && pathname === '/api/keywords/folders') {
+        const body = await request.json().catch(() => ({}));
+        const created = await createFolder(targetSql, body);
+        return jsonResponse({ success: true, folder: created });
+      }
+
+      if ((method === 'PUT' || method === 'PATCH') && pathname === '/api/keywords/folders') {
+        const body = await request.json().catch(() => ({}));
+        const folderId = body.id || searchParams.get('id');
+        if (!folderId) return jsonResponse({ error: 'Folder id is required' }, 400);
+        const updated = await updateFolder(targetSql, folderId, body);
+        return jsonResponse({ success: true, folder: updated });
+      }
+
+      if (method === 'DELETE' && pathname === '/api/keywords/folders') {
+        let folderId = searchParams.get('id') || searchParams.get('folder_id');
+        if (!folderId) {
+          try {
+            const body = await request.json();
+            folderId = body.id || body.folder_id;
+          } catch (_) {}
+        }
+        if (!folderId) return jsonResponse({ error: 'Folder id is required' }, 400);
+        const deleted = await deleteFolder(targetSql, folderId);
+        return jsonResponse({ success: true, deleted });
+      }
+
+      if (method === 'POST' && pathname === '/api/keywords/folders/items') {
+        const body = await request.json().catch(() => ({}));
+        const folderId = body.folder_id || searchParams.get('folder_id');
+        if (!folderId) return jsonResponse({ error: 'folder_id is required' }, 400);
+        
+        if (Array.isArray(body.keyword_ids)) {
+          const result = await batchAddKeywordsToFolder(targetSql, folderId, body.keyword_ids);
+          return jsonResponse({ success: true, ...result });
+        }
+        
+        const keywordId = body.keyword_id || searchParams.get('keyword_id');
+        if (!keywordId) return jsonResponse({ error: 'keyword_id or keyword_ids is required' }, 400);
+        const item = await addKeywordToFolder(targetSql, folderId, keywordId, body.notes || '');
+        return jsonResponse({ success: true, item });
+      }
+
+      if (method === 'DELETE' && pathname === '/api/keywords/folders/items') {
+        let folderId = searchParams.get('folder_id');
+        let keywordId = searchParams.get('keyword_id');
+        if (!folderId || !keywordId) {
+          try {
+            const body = await request.json();
+            folderId = folderId || body.folder_id;
+            keywordId = keywordId || body.keyword_id;
+          } catch (_) {}
+        }
+        if (!folderId || !keywordId) return jsonResponse({ error: 'folder_id and keyword_id are required' }, 400);
+        const deleted = await removeKeywordFromFolder(targetSql, folderId, keywordId);
+        return jsonResponse({ success: true, deleted });
+      }
+
+      if (method === 'GET' && pathname === '/api/keywords/folders/by-keyword') {
+        const keywordId = searchParams.get('keyword_id');
+        if (!keywordId) return jsonResponse({ error: 'keyword_id is required' }, 400);
+        const folders = await getFoldersForKeyword(targetSql, keywordId);
+        return jsonResponse({ success: true, folders });
+      }
+
+      if (method === 'GET' && pathname === '/api/keywords/folders/crossover') {
+        const folderId = searchParams.get('folder_id') || searchParams.get('id');
+        if (!folderId) return jsonResponse({ error: 'folder_id is required' }, 400);
+        const crossover = await calculateFolderCrossover(targetSql, folderId);
+        return jsonResponse({ success: true, crossover });
       }
 
       // 17. Neon Multi-Project Fleet API
