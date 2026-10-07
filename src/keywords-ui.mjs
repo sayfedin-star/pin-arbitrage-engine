@@ -3514,9 +3514,16 @@ export function getKeywordsPageHtml(initialSlug = '') {
 
         cleanControlChars(str) {
           if (!str) return '';
-          return String(str)
-            .replace(/[\x00-\x1F\x7F-\x9F\u200B-\u200F\u202A-\u202E]/g, '')
-            .replace(/\s+/g, ' ')
+          return Array.from(String(str))
+            .filter(ch => {
+              const code = ch.charCodeAt(0);
+              if (code < 32 || (code >= 127 && code <= 159)) return false;
+              if (code >= 0x200B && code <= 0x200F) return false;
+              if (code >= 0x202A && code <= 0x202E) return false;
+              return true;
+            })
+            .join('')
+            .replace(/\\s+/g, ' ')
             .trim();
         },
 
