@@ -299,7 +299,7 @@ export async function fetchPinterestTrends(term, country = 'US', force = false) 
 
 /**
  * Fetch official Pinterest Trends popular pins collage images (9 images)
- * Queries https://trends.pinterest.com/term_images/ with 474x resolution
+ * Queries https://trends.pinterest.com/term_images/ with 236x resolution
  */
 export async function fetchPinterestTrendsCollage(term, country = 'US') {
   const cleanTerm = String(term || '').trim().toLowerCase();
@@ -321,7 +321,7 @@ export async function fetchPinterestTrendsCollage(term, country = 'US') {
     cacheTtlInSeconds: 86400,
     limit: 9,
     batchSize: 20,
-    requestImageSize: '474x'
+    requestImageSize: '236x'
   };
 
   try {

@@ -1536,7 +1536,23 @@ async function main() {
 
   for (const seed of seedsToProcess) {
     try {
-      await crawlSeed(seed);
+      const lockKey = `cluster_seed_${seed.pin_id}`;
+      const [lockRes] = await sqlWithRetry(() => sql`
+        SELECT pg_try_advisory_lock(hashtext(${lockKey})) AS acquired;
+      `).catch(() => [{ acquired: true }]);
+
+      if (!lockRes?.acquired) {
+        console.log(`[AdvisoryLock] Seed pin ${seed.pin_id} is actively being crawled by a peer worker. Non-blocking skip ✅`);
+        continue;
+      }
+
+      try {
+        await crawlSeed(seed);
+      } finally {
+        await sqlWithRetry(() => sql`
+          SELECT pg_advisory_unlock(hashtext(${lockKey}));
+        `).catch(() => {});
+      }
     } catch (err) {
       console.error(`[-] Error crawling seed ${seed.pin_id}:`, err);
     }

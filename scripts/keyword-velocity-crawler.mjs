@@ -71,6 +71,20 @@ async function run() {
     const kw = keywordsToProcess[i];
     console.log(`\n[${i + 1}/${keywordsToProcess.length}] Crawling SERP for keyword: "${kw.keyword}" (ID: ${kw.id})...`);
     
+    // Non-blocking Postgres Advisory Lock to coordinate concurrent runners without Redis
+    const lockKey = `kw_serp_${kw.id}`;
+    let lockAcquired = true;
+    try {
+      const [lRes] = await sql`SELECT pg_try_advisory_lock(hashtext(${lockKey})) AS acquired;`;
+      lockAcquired = Boolean(lRes?.acquired);
+    } catch (_) {}
+
+    if (!lockAcquired) {
+      console.log(`  [AdvisoryLock] Keyword "${kw.keyword}" (ID: ${kw.id}) is actively locked by a peer crawler. Non-blocking skip ✅`);
+      results.push({ id: kw.id, keyword: kw.keyword, status: 'skipped', error: 'locked_by_peer' });
+      continue;
+    }
+
     try {
       const crawlRes = await crawlKeywordSERP(sql, kw.id, cookie);
       if (crawlRes.success) {
@@ -95,6 +109,8 @@ async function run() {
     } catch (err) {
       console.error(`  [-] Error crawling "${kw.keyword}":`, err.message);
       results.push({ id: kw.id, keyword: kw.keyword, status: 'error', error: err.message });
+    } finally {
+      await sql`SELECT pg_advisory_unlock(hashtext(${lockKey}));`.catch(() => {});
     }
 
     // Jitter delay between requests to preserve Pinterest rate limits cleanly
