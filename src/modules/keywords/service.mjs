@@ -694,7 +694,7 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
     if (!keywordRow) throw new Error(`Keyword ID ${kid} not found.`);
 
     const query = encodeURIComponent(keywordRow.keyword);
-    const targetCount = Math.max(50, Math.min(keywordRow.target_pin_count || 100, 100));
+    const targetCount = Math.max(100, Math.min(keywordRow.target_pin_count || 100, 100));
 
     const headers = {
       'Accept': 'application/json, text/javascript, */*, q=0.01',
