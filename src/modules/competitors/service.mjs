@@ -232,6 +232,23 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
   if (res.video_pin_count !== undefined) metaUpdate.video_pin_count = res.video_pin_count;
   if (res.story_pin_count !== undefined) metaUpdate.story_pin_count = res.story_pin_count;
 
+  let activityStatus = 'just now';
+  const lastActivityTime = res.last_pin_save_time;
+  if (lastActivityTime) {
+    const diffMs = Date.now() - new Date(lastActivityTime).getTime();
+    if (!isNaN(diffMs) && diffMs > 0) {
+      const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+      const diffDays = Math.floor(diffHours / 24);
+      if (diffDays >= 1) {
+        activityStatus = `${diffDays}d ago`;
+      } else if (diffHours >= 1) {
+        activityStatus = `${diffHours}h ago`;
+      } else {
+        activityStatus = 'just now';
+      }
+    }
+  }
+
   // Atomic Upsert: ensures profile is created even if sync is called before tracking
   const [updated] = await sql`
     INSERT INTO competitor_profiles (
@@ -263,7 +280,7 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
       ${totalPins},
       ${totalBoards},
       ${followers},
-      '1d ago',
+      ${activityStatus},
       'competitor',
       NOW(),
       TRUE,
@@ -281,7 +298,7 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
       total_pins = GREATEST(competitor_profiles.total_pins, EXCLUDED.total_pins),
       total_boards = GREATEST(competitor_profiles.total_boards, EXCLUDED.total_boards),
       follower_count = CASE WHEN EXCLUDED.follower_count > 0 THEN EXCLUDED.follower_count ELSE competitor_profiles.follower_count END,
-      activity_status = '1d ago',
+      activity_status = ${activityStatus},
       metadata = COALESCE(competitor_profiles.metadata, '{}'::jsonb) || ${JSON.stringify(metaUpdate)}::jsonb,
       last_synced_at = NOW(),
       updated_at = NOW()

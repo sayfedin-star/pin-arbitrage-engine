@@ -1036,6 +1036,7 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
 
     let completedCount = 0;
     let rateLimitHit = false;
+    let winningPinsArchivedCount = 0;
 
     try {
       const enrichedPins = [];
@@ -1256,6 +1257,7 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
       if (statusUpdates.length > 0) {
         await bulkUpdateCompetitorPins(sqlClient, statusUpdates);
         completedCount = statusUpdates.filter(s => s.status === 'completed').length;
+        winningPinsArchivedCount = enrichedPins.length;
         const failedCount = statusUpdates.filter(s => s.status === 'failed').length;
         totalEnriched += completedCount;
         totalFailed += failedCount;
@@ -1266,7 +1268,7 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
       activeBatchToRelease = null;
     }
 
-    console.log(`    [✓] [Shard ${sNum}] Committed batch: ${completedCount} pins enriched in catalog, ${enrichedPins.length} winning pins archived into pa_pins.`);
+    console.log(`    [✓] [Shard ${sNum}] Committed batch: ${completedCount} pins enriched in catalog, ${winningPinsArchivedCount} winning pins archived into pa_pins.`);
 
     // Update enriched heartbeat counter
     if (compId) {
