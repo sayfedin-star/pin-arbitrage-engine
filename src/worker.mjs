@@ -49,9 +49,12 @@ import {
   fetchVisualSearchLens,
   getKeywordGuides,
   getKeywordSERPComparison,
-  getKeywordIntelligence
+  getKeywordIntelligence,
+  getKeywordDisplacedPins,
+  getPinPerformanceTrajectory,
+  getPinDeepDossier
 } from './modules/keywords/service.mjs';
-import { fetchPinterestTrends } from './modules/keywords/trends-service.mjs';
+import { fetchPinterestTrends, fetchPinterestTrendsPopularPins } from './modules/keywords/trends-service.mjs';
 import {
   listFolders,
   getFolder,
@@ -1873,6 +1876,41 @@ export default {
         const term = searchParams.get('term') || searchParams.get('q') || searchParams.get('keyword') || '';
         const country = searchParams.get('country') || 'US';
         const result = await fetchPinterestTrends(term, country);
+        return jsonResponse(result, result.success ? 200 : 400);
+      }
+
+      if (method === 'GET' && pathname === '/api/keywords/displaced') {
+        const keywordId = Number(searchParams.get('keyword_id'));
+        if (!keywordId) return jsonResponse({ error: 'keyword_id is required' }, 400);
+        const status = searchParams.get('status') || 'ALL';
+        const limit = Number(searchParams.get('limit') || 100);
+        const offset = Number(searchParams.get('offset') || 0);
+        const result = await getKeywordDisplacedPins(targetSql, keywordId, { status, limit, offset });
+        return jsonResponse(result);
+      }
+
+      if (method === 'GET' && pathname === '/api/keywords/pins/trajectory') {
+        const pinId = searchParams.get('pin_id');
+        if (!pinId) return jsonResponse({ error: 'pin_id is required' }, 400);
+        const keywordId = Number(searchParams.get('keyword_id') || 0) || null;
+        const range = searchParams.get('range') || 'all';
+        const result = await getPinPerformanceTrajectory(targetSql, keywordId, pinId, range);
+        return jsonResponse(result);
+      }
+
+      if (method === 'GET' && pathname === '/api/keywords/pins/dossier') {
+        const pinId = searchParams.get('pin_id');
+        if (!pinId) return jsonResponse({ error: 'pin_id is required' }, 400);
+        const keywordId = Number(searchParams.get('keyword_id') || 0) || null;
+        const result = await getPinDeepDossier(targetSql, pinId, keywordId);
+        return jsonResponse(result);
+      }
+
+      if (method === 'GET' && pathname === '/api/keywords/trends/popular-pins') {
+        const term = searchParams.get('term') || searchParams.get('q') || searchParams.get('keyword') || '';
+        const country = searchParams.get('country') || 'US';
+        if (!term) return jsonResponse({ error: 'term is required' }, 400);
+        const result = await fetchPinterestTrendsPopularPins(targetSql, term, country);
         return jsonResponse(result, result.success ? 200 : 400);
       }
 

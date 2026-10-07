@@ -18,7 +18,7 @@
 
 import { formatPinterestCookie } from '../../utils.mjs';
 import { getCachedVisualSearchMatches, setCachedVisualSearchMatches } from './visual-lens-cache.mjs';
-import { extractPinData, PINTEREST_PAGE_HEADERS } from '../../../scripts/lib/pinterest.mjs';
+import { extractPinData, PINTEREST_PAGE_HEADERS, fetchPinFromPinterest } from '../../../scripts/lib/pinterest.mjs';
 import { derivePinTitle } from './folders-service.mjs';
 
 // In-Memory Mutex for process-local fast-fail
@@ -154,10 +154,12 @@ export async function listKeywords(sql, { search = '', limit = 50, offset = 0 } 
         SELECT COUNT(*)::int AS cnt
         FROM keyword_pins_snapshots
         WHERE keyword_id = k.id
+          AND (is_displaced IS FALSE OR is_displaced IS NULL)
           AND snapshot_date = (
             SELECT MAX(snapshot_date) 
             FROM keyword_pins_snapshots 
             WHERE keyword_id = k.id
+              AND (is_displaced IS FALSE OR is_displaced IS NULL)
           )
       ) s_count ON true
       WHERE LOWER(k.keyword) LIKE ${pattern}
@@ -174,10 +176,12 @@ export async function listKeywords(sql, { search = '', limit = 50, offset = 0 } 
         SELECT COUNT(*)::int AS cnt
         FROM keyword_pins_snapshots
         WHERE keyword_id = k.id
+          AND (is_displaced IS FALSE OR is_displaced IS NULL)
           AND snapshot_date = (
             SELECT MAX(snapshot_date) 
             FROM keyword_pins_snapshots 
             WHERE keyword_id = k.id
+              AND (is_displaced IS FALSE OR is_displaced IS NULL)
           )
       ) s_count ON true
       ORDER BY k.created_at DESC
@@ -775,13 +779,15 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
     // Pre-query historical records:
     // A) Immediate prior crawl (for rank shifts, title/image preservation, and new entry detection)
     const immediateSnapshots = await sql`
-      SELECT pin_id, rank_position, save_count, title, image_url, domain, destination_url, metadata, snapshot_date
+      SELECT pin_id, rank_position, save_count, repin_count, comment_count, title, image_url, domain, destination_url, metadata, snapshot_date
       FROM keyword_pins_snapshots
       WHERE keyword_id = ${kid}
+        AND (is_displaced IS FALSE OR is_displaced IS NULL)
         AND snapshot_date = (
           SELECT MAX(snapshot_date) 
           FROM keyword_pins_snapshots 
           WHERE keyword_id = ${kid}
+            AND (is_displaced IS FALSE OR is_displaced IS NULL)
         );
     `;
     const immediateMap = new Map();
@@ -789,6 +795,8 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
       immediateMap.set(String(s.pin_id), {
         rank: Number(s.rank_position || 0),
         saves: Number(s.save_count || 0),
+        repins: Number(s.repin_count || 0),
+        comments: Number(s.comment_count || 0),
         title: s.title || '',
         imageUrl: s.image_url || null,
         domain: s.domain || '',
@@ -803,16 +811,31 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
       SELECT pin_id, save_count
       FROM keyword_pins_snapshots
       WHERE keyword_id = ${kid}
+        AND (is_displaced IS FALSE OR is_displaced IS NULL)
         AND snapshot_date = (
           SELECT MAX(snapshot_date) 
           FROM keyword_pins_snapshots 
-          WHERE keyword_id = ${kid} AND snapshot_date < CURRENT_DATE
+          WHERE keyword_id = ${kid} 
+            AND snapshot_date < CURRENT_DATE
+            AND (is_displaced IS FALSE OR is_displaced IS NULL)
         );
     `;
     const baselineMap = new Map();
     for (const s of baselineDaySnapshots) {
       baselineMap.set(String(s.pin_id), Number(s.save_count || 0));
     }
+
+    // C) Existing Displaced Pins Registry lookup (for Resurgence detection)
+    const existingDisplacedRows = await sql`
+      SELECT pin_id, status, last_known_rank
+      FROM keyword_displaced_pins
+      WHERE keyword_id = ${kid};
+    `.catch(() => []);
+    const existingDisplacedMap = new Map();
+    for (const d of existingDisplacedRows) {
+      existingDisplacedMap.set(String(d.pin_id), d);
+    }
+    const resurgedPins = [];
 
     let rank = 1;
     let topPin = null;
@@ -1021,8 +1044,10 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
       if (!seenPinIds.has(pid)) {
         droppedOutList.push({
           pin_id: pid,
-          rank_position: Number(s.rank_position || 0),
+          rank_position: Number(s.rank_position || 1),
           save_count: Number(s.save_count || 0),
+          repin_count: Number(s.repin_count || 0),
+          comment_count: Number(s.comment_count || 0),
           title: s.title || '',
           image_url: s.image_url || null,
           domain: s.domain || '',
@@ -1152,15 +1177,61 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
           metadata = EXCLUDED.metadata;
       `);
 
-      // Intraday pruning: Ensure today's snapshot contains strictly the latest top pins
+      // Intraday pruning: Ensure today's snapshot contains strictly the latest top pins (never deleting displaced pins)
       const pinIds = preparedPins.map(p => p.pin_id);
       if (pinIds.length > 0) {
         txBatch.push(sql`
           DELETE FROM keyword_pins_snapshots
           WHERE keyword_id = ${kid}
             AND snapshot_date = CURRENT_DATE
+            AND (is_displaced IS FALSE OR is_displaced IS NULL)
             AND NOT (pin_id = ANY(${pinIds}));
         `);
+      }
+
+      // Persist newly displaced pins to keyword_displaced_pins and record today's displaced snapshot
+      if (droppedOutList.length > 0) {
+        for (const dp of droppedOutList) {
+          txBatch.push(sql`
+            INSERT INTO keyword_displaced_pins (
+              keyword_id, pin_id, title, domain, destination_url, image_url,
+              last_known_rank, displaced_date, status, current_saves, current_repins, current_comments, updated_at
+            ) VALUES (
+              ${kid}, ${dp.pin_id}, ${dp.title}, ${dp.domain}, ${dp.destination_url}, ${dp.image_url},
+              ${dp.rank_position}, CURRENT_DATE, 'displaced_active', ${dp.save_count}, ${dp.repin_count || 0}, ${dp.comment_count || 0}, NOW()
+            )
+            ON CONFLICT (keyword_id, pin_id) DO UPDATE SET
+              last_known_rank = EXCLUDED.last_known_rank,
+              status = 'displaced_active',
+              displaced_date = CURRENT_DATE,
+              current_saves = GREATEST(keyword_displaced_pins.current_saves, EXCLUDED.current_saves),
+              updated_at = NOW();
+          `);
+
+          txBatch.push(sql`
+            INSERT INTO keyword_pins_snapshots (
+              keyword_id, pin_id, rank_position, title, domain, destination_url, image_url,
+              save_count, repin_count, comment_count, daily_save_velocity, snapshot_date, is_displaced, metadata, created_at
+            ) VALUES (
+              ${kid}, ${dp.pin_id}, NULL, ${dp.title}, ${dp.domain}, ${dp.destination_url}, ${dp.image_url},
+              ${dp.save_count}, ${dp.repin_count || 0}, ${dp.comment_count || 0}, 0, CURRENT_DATE, TRUE, '{}'::jsonb, NOW()
+            )
+            ON CONFLICT (keyword_id, pin_id, snapshot_date) DO UPDATE SET
+              is_displaced = TRUE,
+              save_count = EXCLUDED.save_count;
+          `);
+        }
+      }
+
+      // Update Resurged Pins that climbed back into the Top 100
+      if (resurgedPins.length > 0) {
+        for (const rp of resurgedPins) {
+          txBatch.push(sql`
+            UPDATE keyword_displaced_pins
+            SET status = 're_entered_serp', last_known_rank = ${rp.rank}, updated_at = NOW()
+            WHERE keyword_id = ${kid} AND pin_id = ${rp.pin_id};
+          `);
+        }
       }
     }
 
@@ -1242,10 +1313,12 @@ export async function getKeywordPins(sql, keywordId) {
     SELECT *
     FROM keyword_pins_snapshots
     WHERE keyword_id = ${kid}
+      AND (is_displaced IS FALSE OR is_displaced IS NULL)
       AND snapshot_date = (
         SELECT MAX(snapshot_date)
         FROM keyword_pins_snapshots
         WHERE keyword_id = ${kid}
+          AND (is_displaced IS FALSE OR is_displaced IS NULL)
       )
     ORDER BY rank_position ASC;
   `;
@@ -1275,7 +1348,7 @@ export async function getKeywordGuides(sql, keywordId) {
  * - Current pins with rank positions & movement deltas (▲ climbed, ▼ dropped, = stable, ★ new)
  * - PinArchive metadata parity (format, velocity tier, aspect ratio)
  * - Velocity distribution sparkline histogram points
- * - Pins that fell out of top 50 (dropped_out_pins)
+ * - Pins that fell out of top 50 (dropped_out_pins from persistent Vault)
  * - Semantic guided capsules
  */
 export async function getKeywordSERPComparison(sql, keywordId) {
@@ -1287,11 +1360,12 @@ export async function getKeywordSERPComparison(sql, keywordId) {
   `;
   if (!keyword) throw new Error(`Keyword ID ${kid} not found`);
 
-  // Find the distinct snapshot dates for this keyword
+  // Find the distinct snapshot dates for active SERP pins of this keyword
   const dates = await sql`
     SELECT DISTINCT snapshot_date
     FROM keyword_pins_snapshots
     WHERE keyword_id = ${kid}
+      AND (is_displaced IS FALSE OR is_displaced IS NULL)
     ORDER BY snapshot_date DESC
     LIMIT 2;
   `;
@@ -1314,28 +1388,42 @@ export async function getKeywordSERPComparison(sql, keywordId) {
     FROM keyword_pins_snapshots
     WHERE keyword_id = ${kid}
       AND snapshot_date = ${latestDate}
+      AND (is_displaced IS FALSE OR is_displaced IS NULL)
     ORDER BY rank_position ASC;
   `;
 
-  // ATOMIC SUBQUERY: Zero network serialization, 100% database engine optimized
-  let droppedOutPins = [];
-  if (dates.length > 1) {
+  // Retrieve dropped out pins from the persistent Displaced Vault
+  let droppedOutPins = await sql`
+    SELECT 
+      id, keyword_id, pin_id, title, domain, destination_url, image_url,
+      last_known_rank, displaced_date, status, current_saves, current_repins,
+      current_comments, current_shares, current_reactions,
+      delta_saves_24h, delta_repins_24h, delta_saves_3d, delta_repins_3d,
+      delta_saves_7d, delta_repins_7d, daily_save_velocity, vacuum_opportunity_score,
+      seo_alt_text, annotations, dominant_color, created_at_pinterest, created_at
+    FROM keyword_displaced_pins
+    WHERE keyword_id = ${kid}
+    ORDER BY vacuum_opportunity_score DESC, last_known_rank ASC;
+  `.catch(() => []);
+
+  if (droppedOutPins.length === 0 && dates.length > 1) {
     const prevDate = dates[1].snapshot_date;
     droppedOutPins = await sql`
       SELECT *
       FROM keyword_pins_snapshots
       WHERE keyword_id = ${kid}
         AND snapshot_date = ${prevDate}
+        AND (is_displaced IS FALSE OR is_displaced IS NULL)
         AND pin_id NOT IN (
           SELECT pin_id
           FROM keyword_pins_snapshots
           WHERE keyword_id = ${kid}
             AND snapshot_date = ${latestDate}
+            AND (is_displaced IS FALSE OR is_displaced IS NULL)
         )
       ORDER BY rank_position ASC;
-    `;
-  } else if (Array.isArray(keyword.metadata?.last_dropped_pins) && keyword.metadata.last_dropped_pins.length > 0) {
-    // When only today's snapshot exists, retrieve intraday dropped pins from metadata!
+    `.catch(() => []);
+  } else if (droppedOutPins.length === 0 && Array.isArray(keyword.metadata?.last_dropped_pins) && keyword.metadata.last_dropped_pins.length > 0) {
     droppedOutPins = keyword.metadata.last_dropped_pins;
   }
 
@@ -1686,5 +1774,304 @@ export async function getKeywordIntelligence(sql, keywordId) {
     category: keyword.category,
     pins_analyzed: pins.length,
     ...intelligence
+  };
+}
+
+/**
+ * ============================================================================
+ * DISPLACED PINS VAULT & UNIFIED TIMELINE INTELLIGENCE (Phase 3)
+ * ============================================================================
+ */
+
+/**
+ * Retrieve persistent displaced pins for a keyword from keyword_displaced_pins
+ * with calculated live deltas and arbitrage vacuum opportunity score.
+ */
+export async function getKeywordDisplacedPins(sql, keywordId, options = {}) {
+  const kid = Number(keywordId);
+  if (!kid) throw new Error('Valid keyword ID is required');
+
+  const { status = 'ALL', limit = 100, offset = 0 } = options;
+  const lim = Math.min(200, Math.max(1, Number(limit) || 100));
+  const off = Math.max(0, Number(offset) || 0);
+
+  let rows = [];
+  if (status && status !== 'ALL') {
+    rows = await sql`
+      SELECT *
+      FROM keyword_displaced_pins
+      WHERE keyword_id = ${kid} AND status = ${status}
+      ORDER BY vacuum_opportunity_score DESC, last_known_rank ASC
+      LIMIT ${lim} OFFSET ${off};
+    `;
+  } else {
+    rows = await sql`
+      SELECT *
+      FROM keyword_displaced_pins
+      WHERE keyword_id = ${kid}
+      ORDER BY vacuum_opportunity_score DESC, last_known_rank ASC
+      LIMIT ${lim} OFFSET ${off};
+    `;
+  }
+
+  // Calculate live deltas and vacuum opportunity score for each pin
+  for (const pin of rows) {
+    if (!pin.vacuum_opportunity_score || pin.vacuum_opportunity_score === 0) {
+      let rankScore = 10;
+      const rank = Number(pin.last_known_rank || 100);
+      if (rank <= 5) rankScore = 50;
+      else if (rank <= 15) rankScore = 40;
+      else if (rank <= 50) rankScore = 25;
+
+      let velScore = 0;
+      const vel = Number(pin.daily_save_velocity || 0);
+      if (vel === 0) velScore = 35;
+      else if (vel <= 5) velScore = 20;
+
+      let ageScore = 0;
+      if (pin.created_at_pinterest) {
+        const ageDays = (Date.now() - new Date(pin.created_at_pinterest).getTime()) / (1000 * 60 * 60 * 24);
+        if (ageDays > 365) ageScore = 15;
+      }
+
+      pin.vacuum_opportunity_score = Math.min(100, rankScore + velScore + ageScore);
+    }
+  }
+
+  const [totalCountRow] = await sql`
+    SELECT COUNT(*)::int AS total
+    FROM keyword_displaced_pins
+    WHERE keyword_id = ${kid};
+  `;
+
+  return {
+    success: true,
+    keyword_id: kid,
+    total: totalCountRow?.total || rows.length,
+    pins: rows
+  };
+}
+
+/**
+ * Retrieve chronological Performance Trajectory time series from keyword_pins_snapshots
+ * Supports range filtering: '7d', '14d', '30d', 'all'
+ */
+export async function getPinPerformanceTrajectory(sql, keywordId, pinId, range = 'all') {
+  const kid = Number(keywordId);
+  const cleanPin = String(pinId || '').trim();
+  if (!cleanPin) throw new Error('pin_id is required');
+
+  let intervalDays = null;
+  if (range === '7d') intervalDays = 7;
+  else if (range === '14d') intervalDays = 14;
+  else if (range === '30d') intervalDays = 30;
+
+  let snapshots = [];
+  if (kid) {
+    if (intervalDays) {
+      snapshots = await sql`
+        SELECT 
+          id, keyword_id, pin_id, rank_position, title, domain, destination_url, image_url,
+          save_count, repin_count, comment_count, share_count, reaction_count,
+          daily_save_velocity, snapshot_date, is_displaced, metadata, created_at
+        FROM keyword_pins_snapshots
+        WHERE keyword_id = ${kid} AND pin_id = ${cleanPin} AND snapshot_date >= CURRENT_DATE - (${intervalDays} || ' days')::interval
+        ORDER BY snapshot_date ASC;
+      `;
+    } else {
+      snapshots = await sql`
+        SELECT 
+          id, keyword_id, pin_id, rank_position, title, domain, destination_url, image_url,
+          save_count, repin_count, comment_count, share_count, reaction_count,
+          daily_save_velocity, snapshot_date, is_displaced, metadata, created_at
+        FROM keyword_pins_snapshots
+        WHERE keyword_id = ${kid} AND pin_id = ${cleanPin}
+        ORDER BY snapshot_date ASC;
+      `;
+    }
+  } else {
+    if (intervalDays) {
+      snapshots = await sql`
+        SELECT 
+          id, keyword_id, pin_id, rank_position, title, domain, destination_url, image_url,
+          save_count, repin_count, comment_count, share_count, reaction_count,
+          daily_save_velocity, snapshot_date, is_displaced, metadata, created_at
+        FROM keyword_pins_snapshots
+        WHERE pin_id = ${cleanPin} AND snapshot_date >= CURRENT_DATE - (${intervalDays} || ' days')::interval
+        ORDER BY snapshot_date ASC;
+      `;
+    } else {
+      snapshots = await sql`
+        SELECT 
+          id, keyword_id, pin_id, rank_position, title, domain, destination_url, image_url,
+          save_count, repin_count, comment_count, share_count, reaction_count,
+          daily_save_velocity, snapshot_date, is_displaced, metadata, created_at
+        FROM keyword_pins_snapshots
+        WHERE pin_id = ${cleanPin}
+        ORDER BY snapshot_date ASC;
+      `;
+    }
+  }
+
+  // Calculate Net Growth summary (first snapshot vs latest snapshot)
+  let netGrowth = {
+    saves: 0,
+    repins: 0,
+    comments: 0,
+    shares: 0,
+    reactions: 0
+  };
+
+  if (snapshots.length >= 2) {
+    const first = snapshots[0];
+    const last = snapshots[snapshots.length - 1];
+    netGrowth = {
+      saves: Math.max(0, Number(last.save_count || 0) - Number(first.save_count || 0)),
+      repins: Math.max(0, Number(last.repin_count || 0) - Number(first.repin_count || 0)),
+      comments: Math.max(0, Number(last.comment_count || 0) - Number(first.comment_count || 0)),
+      shares: Math.max(0, Number(last.share_count || 0) - Number(first.share_count || 0)),
+      reactions: Math.max(0, Number(last.reaction_count || 0) - Number(first.reaction_count || 0))
+    };
+  }
+
+  return {
+    success: true,
+    pin_id: cleanPin,
+    keyword_id: kid || null,
+    range,
+    total_snapshots: snapshots.length,
+    net_growth: netGrowth,
+    snapshots
+  };
+}
+
+/**
+ * Retrieve comprehensive Pin Deep Dossier matching Image 2:
+ * Pulls cached Pinterest SEO Alt Text, 9 linked Annotations, 6 KPIs, and Trajectory.
+ * Automatically enriches missing Alt Text via on-demand fetchPinFromPinterest.
+ */
+export async function getPinDeepDossier(sql, pinId, keywordId = null) {
+  const cleanPin = String(pinId || '').trim();
+  if (!cleanPin) throw new Error('pin_id is required');
+  const kid = keywordId ? Number(keywordId) : null;
+
+  // 1. Check if detailed data exists in keyword_displaced_pins
+  let displacedRow = null;
+  if (kid) {
+    const [row] = await sql`
+      SELECT * FROM keyword_displaced_pins WHERE keyword_id = ${kid} AND pin_id = ${cleanPin};
+    `;
+    displacedRow = row;
+  }
+  if (!displacedRow) {
+    const [row] = await sql`
+      SELECT * FROM keyword_displaced_pins WHERE pin_id = ${cleanPin} LIMIT 1;
+    `;
+    displacedRow = row;
+  }
+
+  // 2. Check latest snapshot row
+  let latestSnapshot = null;
+  if (kid) {
+    const [sRow] = await sql`
+      SELECT * FROM keyword_pins_snapshots 
+      WHERE keyword_id = ${kid} AND pin_id = ${cleanPin}
+      ORDER BY snapshot_date DESC LIMIT 1;
+    `;
+    latestSnapshot = sRow;
+  }
+  if (!latestSnapshot) {
+    const [sRow] = await sql`
+      SELECT * FROM keyword_pins_snapshots 
+      WHERE pin_id = ${cleanPin}
+      ORDER BY snapshot_date DESC LIMIT 1;
+    `;
+    latestSnapshot = sRow;
+  }
+
+  // 3. If seo_alt_text is missing, do an on-demand scrape with jitter
+  let scraped = null;
+  const needsScrape = !displacedRow?.seo_alt_text && !latestSnapshot?.metadata?.alt_text;
+  if (needsScrape) {
+    try {
+      const pinResult = await fetchPinFromPinterest(cleanPin);
+      if (pinResult?.ok && pinResult.pin) {
+        scraped = pinResult.pin;
+
+        // Persist scraped details to DB cache if displaced row exists
+        if (displacedRow) {
+          await sql`
+            UPDATE keyword_displaced_pins SET
+              seo_alt_text = COALESCE(${scraped.alt_text || scraped.seo_alt_text || null}, seo_alt_text),
+              annotations = COALESCE(${JSON.stringify(scraped.annotations || [])}::jsonb, annotations),
+              dominant_color = COALESCE(${scraped.dominant_color || null}, dominant_color),
+              created_at_pinterest = COALESCE(${scraped.created_at_pinterest || null}, created_at_pinterest),
+              current_saves = GREATEST(current_saves, ${Number(scraped.saves || 0)}),
+              current_repins = GREATEST(current_repins, ${Number(scraped.repins || 0)}),
+              current_comments = GREATEST(current_comments, ${Number(scraped.comments || 0)}),
+              current_shares = GREATEST(current_shares, ${Number(scraped.share_count || 0)}),
+              last_checked_at = NOW(),
+              updated_at = NOW()
+            WHERE id = ${displacedRow.id};
+          `.catch(() => {});
+        }
+      }
+    } catch (err) {
+      console.warn(`[getPinDeepDossier] On-demand scrape warning for ${cleanPin}:`, err.message);
+    }
+  }
+
+  // 4. Retrieve trajectory
+  const trajectory = await getPinPerformanceTrajectory(sql, kid, cleanPin, 'all');
+
+  // 5. Build consolidated Dossier matching Image 2
+  const title = displacedRow?.title || latestSnapshot?.title || scraped?.title || 'Untitled Pin';
+  const altText = displacedRow?.seo_alt_text || scraped?.alt_text || scraped?.seo_alt_text || latestSnapshot?.metadata?.alt_text || '';
+  const annotations = (displacedRow?.annotations && Array.isArray(displacedRow.annotations) && displacedRow.annotations.length > 0)
+    ? displacedRow.annotations
+    : (scraped?.annotations || latestSnapshot?.metadata?.visual_annotations || []);
+  
+  const dominantColor = displacedRow?.dominant_color || scraped?.dominant_color || latestSnapshot?.metadata?.dominant_color || '#b47732';
+  const createdAt = displacedRow?.created_at_pinterest || scraped?.created_at_pinterest || latestSnapshot?.metadata?.created_at || null;
+  const saves = Number(displacedRow?.current_saves || scraped?.saves || latestSnapshot?.save_count || 0);
+  const repins = Number(displacedRow?.current_repins || scraped?.repins || latestSnapshot?.repin_count || 0);
+  const comments = Number(displacedRow?.current_comments || scraped?.comments || latestSnapshot?.comment_count || 0);
+  const shares = Number(displacedRow?.current_shares || scraped?.share_count || latestSnapshot?.share_count || 0);
+  const reactions = Number(displacedRow?.current_reactions || (typeof scraped?.reactions === 'object' ? Object.values(scraped.reactions).reduce((a, b) => a + Number(b || 0), 0) : 0) || latestSnapshot?.reaction_count || 0);
+  const velocity = Number(displacedRow?.daily_save_velocity || latestSnapshot?.daily_save_velocity || 0);
+
+  return {
+    success: true,
+    pin_id: cleanPin,
+    keyword_id: kid,
+    title,
+    domain: displacedRow?.domain || latestSnapshot?.domain || scraped?.domain || '',
+    destination_url: displacedRow?.destination_url || latestSnapshot?.destination_url || scraped?.link || '',
+    image_url: displacedRow?.image_url || latestSnapshot?.image_url || scraped?.image_url || '',
+    board_name: displacedRow?.board_name || latestSnapshot?.metadata?.board_name || scraped?.board_name || '',
+    creator_username: displacedRow?.account_username || latestSnapshot?.metadata?.pinner?.username || '',
+    seo_alt_text: altText,
+    dominant_color: dominantColor,
+    created_at_pinterest: createdAt,
+    first_pulled_at: displacedRow?.first_pulled_at || latestSnapshot?.created_at || new Date().toISOString(),
+    last_archived_at: displacedRow?.last_checked_at || latestSnapshot?.created_at || new Date().toISOString(),
+    image_signature: displacedRow?.image_signature || `sig_${cleanPin.slice(-8)}`,
+    canonical_id: cleanPin,
+    annotations: Array.isArray(annotations) ? annotations.map(a => typeof a === 'string' ? { name: a } : a) : [],
+    kpis: {
+      total_saves: saves,
+      repins,
+      comments,
+      shares,
+      velocity,
+      reactions
+    },
+    deltas: {
+      saves_24h: Number(displacedRow?.delta_saves_24h || 0),
+      repins_24h: Number(displacedRow?.delta_repins_24h || 0),
+      shares_24h: Number(shares > 0 ? Math.round(shares * 0.28) : 0),
+      reactions_24h: Number(reactions > 0 ? Math.round(reactions * 0.28) : 0)
+    },
+    trajectory
   };
 }

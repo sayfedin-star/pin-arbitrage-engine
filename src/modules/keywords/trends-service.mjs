@@ -237,3 +237,85 @@ export async function fetchPinterestTrends(term, country = 'US') {
     inflightTrends.delete(cacheKey);
   }
 }
+
+/**
+ * Fetch Popular Pins associated with a Pinterest Trend / Keyword
+ * Queries Pinterest unauthenticated search resource and caches results into tracked_keywords.popular_pins
+ */
+export async function fetchPinterestTrendsPopularPins(sql, term, country = 'US') {
+  const cleanTerm = String(term || '').trim().toLowerCase();
+  if (!cleanTerm) return { success: false, error: 'Term is required' };
+
+  // 1. Check if cached in tracked_keywords.popular_pins
+  if (sql) {
+    try {
+      const [kw] = await sql`
+        SELECT id, popular_pins
+        FROM tracked_keywords
+        WHERE LOWER(keyword) = ${cleanTerm}
+        LIMIT 1;
+      `;
+      if (kw && Array.isArray(kw.popular_pins) && kw.popular_pins.length > 0) {
+        return { success: true, term: cleanTerm, popular_pins: kw.popular_pins, cached: true };
+      }
+    } catch (_) {}
+  }
+
+  // 2. Fetch popular pins via BaseSearchResource
+  const searchQuery = encodeURIComponent(cleanTerm);
+  const url = `https://www.pinterest.com/resource/BaseSearchResource/get/?source_url=%2Fsearch%2Fpins%2F%3Fq%3D${searchQuery}&data=%7B%22options%22%3A%7B%22query%22%3A%22${searchQuery}%22%2C%22scope%22%3A%22pins%22%2C%22page_size%22%3A12%7D%2C%22context%22%3A%7B%7D%7D`;
+  const headers = {
+    'Accept': 'application/json, text/javascript, */*, q=0.01',
+    'X-Requested-With': 'XMLHttpRequest',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+    'x-pinterest-pws-handler': 'www/search/pins.js',
+    'referer': `https://www.pinterest.com/search/pins/?q=${searchQuery}`
+  };
+
+  try {
+    const res = await fetch(url, { headers, signal: AbortSignal.timeout(7000) });
+    if (!res.ok) return { success: false, error: `Pinterest returned HTTP ${res.status}` };
+    const data = await res.json();
+    const rawResults = data?.resource_response?.data?.results || [];
+
+    const popularPins = [];
+    for (const item of rawResults) {
+      if (!item || !item.id || item.type !== 'pin' || item.format === 'Related Interests') continue;
+      const id = String(item.id).trim();
+      const img = item.images?.['736x']?.url || item.images?.orig?.url || item.images?.['474x']?.url || item.images?.['236x']?.url || null;
+      if (!img) continue;
+
+      let title = item.title || item.grid_title || '';
+      if (!title && item.link) {
+        const slug = item.link.split('/').filter(Boolean).pop() || '';
+        title = slug.replace(/[-_]+/g, ' ').replace(/\.[a-z]+$/i, '').trim();
+      }
+      if (!title) title = `${cleanTerm} Pin`;
+
+      popularPins.push({
+        pin_id: id,
+        title,
+        image_url: img,
+        link: item.link || `https://www.pinterest.com/pin/${id}/`,
+        domain: item.domain || '',
+        saves: Number(item.aggregated_pin_data?.aggregated_stats?.saves || item.save_count || 0)
+      });
+      if (popularPins.length >= 8) break;
+    }
+
+    // Persist to tracked_keywords if sql provided
+    if (sql && popularPins.length > 0) {
+      try {
+        await sql`
+          UPDATE tracked_keywords
+          SET popular_pins = ${JSON.stringify(popularPins)}::jsonb, updated_at = NOW()
+          WHERE LOWER(keyword) = ${cleanTerm};
+        `;
+      } catch (_) {}
+    }
+
+    return { success: true, term: cleanTerm, popular_pins: popularPins, cached: false };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}

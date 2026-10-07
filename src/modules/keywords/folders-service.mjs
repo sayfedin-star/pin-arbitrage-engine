@@ -911,8 +911,12 @@ export async function calculateFolderCrossover(sql, folderId) {
   // =========================================================================
   // DIMENSION E: COMPOSITE 52-WEEK SEASONALITY WAVE & OPTIMAL LAUNCH CALENDAR
   // =========================================================================
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  // =========================================================================
+  // DIMENSION E: COMPOSITE 52-WEEK SEASONALITY WAVE & OPTIMAL LAUNCH CALENDAR
+  // =========================================================================
+  const allMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const monthScores = new Array(12).fill(0);
+  const monthWeeksCount = new Array(12).fill(0);
   const compositeWeeklyWave = new Array(52).fill(0);
   let trendsLoaded = 0;
 
@@ -927,15 +931,28 @@ export async function calculateFolderCrossover(sql, folderId) {
       if (series && series.length > 0) {
         trendsLoaded++;
         const sLen = series.length;
-        series.forEach((pt, idx) => {
-          const val = Number(typeof pt === 'object' && pt !== null ? (pt.value ?? pt.normalized_interest ?? 0) : pt || 0);
-          const weekIdx = Math.min(51, Math.floor((idx / sLen) * 52));
-          compositeWeeklyWave[weekIdx] += val;
 
-          // Estimate month
-          const monthIdx = Math.min(11, Math.floor((weekIdx / 52) * 12));
-          monthScores[monthIdx] += val;
-        });
+        // Safe Binning: Exact 1-to-1 mapping when sLen === 52 to prevent IEEE 754 precision loss
+        if (sLen === 52) {
+          for (let i = 0; i < 52; i++) {
+            const pt = series[i];
+            const val = Number(typeof pt === 'object' && pt !== null ? (pt.value ?? pt.normalized_interest ?? 0) : pt || 0);
+            compositeWeeklyWave[i] += val;
+          }
+        } else {
+          // Linear Interpolation for arbitrary series lengths
+          for (let w = 0; w < 52; w++) {
+            const srcIdx = (w / 51) * (sLen - 1);
+            const i0 = Math.floor(srcIdx);
+            const i1 = Math.min(sLen - 1, Math.ceil(srcIdx));
+            const frac = srcIdx - i0;
+            const pt0 = series[i0];
+            const pt1 = series[i1];
+            const v0 = Number(typeof pt0 === 'object' && pt0 !== null ? (pt0.value ?? pt0.normalized_interest ?? 0) : pt0 || 0);
+            const v1 = Number(typeof pt1 === 'object' && pt1 !== null ? (pt1.value ?? pt1.normalized_interest ?? 0) : pt1 || 0);
+            compositeWeeklyWave[w] += Math.round(v0 * (1 - frac) + v1 * frac);
+          }
+        }
       }
     } catch (_) {
       // Trends network fallback
@@ -947,33 +964,60 @@ export async function calculateFolderCrossover(sql, folderId) {
     for (let w = 0; w < 52; w++) {
       const wave = Math.round(50 + 20 * Math.sin((w / 52) * 2 * Math.PI) + 10 * Math.cos((w / 26) * 2 * Math.PI));
       compositeWeeklyWave[w] = Math.max(20, wave);
-      const mIdx = Math.min(11, Math.floor((w / 52) * 12));
-      monthScores[mIdx] += compositeWeeklyWave[w];
     }
   }
 
-  // Normalize composite wave to 0-100 scale
+  // Derive Rolling 52-Week Calendar & Accurate Monthly Scores
+  const now = new Date();
+  const msPerWeek = 7 * 24 * 60 * 60 * 1000;
   const maxWeekly = Math.max(...compositeWeeklyWave, 1);
-  const normalizedWeeklyWave = compositeWeeklyWave.map((v, i) => ({
-    week: i + 1,
-    score: Math.round((v / maxWeekly) * 100)
-  }));
+  const normalizedWeeklyWave = [];
 
-  // Identify peak months
-  const maxMonthVal = Math.max(...monthScores, 1);
-  const peakMonthIndices = monthScores
-    .map((val, idx) => ({ month: months[idx], idx, score: Math.round((val / maxMonthVal) * 100) }))
+  for (let w = 0; w < 52; w++) {
+    const weekEndDate = new Date(now.getTime() - (51 - w) * msPerWeek);
+    const weekStartDate = new Date(weekEndDate.getTime() - 6 * 24 * 60 * 60 * 1000);
+    const actualMonthIdx = weekEndDate.getMonth(); // 0 = Jan .. 11 = Dec
+
+    monthScores[actualMonthIdx] += compositeWeeklyWave[w];
+    monthWeeksCount[actualMonthIdx] += 1;
+
+    normalizedWeeklyWave.push({
+      week: w + 1,
+      score: Math.round((compositeWeeklyWave[w] / maxWeekly) * 100),
+      month: allMonths[actualMonthIdx],
+      start_date: weekStartDate.toISOString().slice(0, 10),
+      end_date: weekEndDate.toISOString().slice(0, 10)
+    });
+  }
+
+  // Chronological 12-Month Array for Rolling Timeline Display (Past 11 months -> Current month)
+  const rollingMonths = [];
+  const currentMonthIdx = now.getMonth();
+  for (let i = 11; i >= 0; i--) {
+    const m = (currentMonthIdx - i + 12) % 12;
+    rollingMonths.push(allMonths[m]);
+  }
+
+  // Identify Peak Months based on Average Weekly Score per Month (Eliminating Month-Length Bias)
+  const avgMonthlyScores = monthScores.map((score, idx) => {
+    const weeksInMonth = Math.max(1, monthWeeksCount[idx]);
+    return score / weeksInMonth;
+  });
+  const maxAvgMonthVal = Math.max(...avgMonthlyScores, 1);
+
+  const peakMonthIndices = avgMonthlyScores
+    .map((val, idx) => ({ month: allMonths[idx], idx, score: Math.round((val / maxAvgMonthVal) * 100) }))
     .filter(m => m.score >= 70)
     .sort((a, b) => b.score - a.score);
 
   const peakMonths = peakMonthIndices.map(m => m.month);
-  
-  // Calculate recommended launch window (45-60 days / ~2 months prior to highest peak)
+
+  // Calculate Recommended Launch Window (45-60 days / ~2 months prior to highest peak)
   let recommendedLaunchWindow = 'Year-Round Evergreen';
   if (peakMonthIndices.length > 0) {
     const highestPeakIdx = peakMonthIndices[0].idx;
     const launchMonthIdx = (highestPeakIdx - 2 + 12) % 12;
-    recommendedLaunchWindow = `${months[launchMonthIdx]} (Deploy pins 45-60 days before ${months[highestPeakIdx]} peak)`;
+    recommendedLaunchWindow = `${allMonths[launchMonthIdx]} (Deploy pins 45-60 days before ${allMonths[highestPeakIdx]} peak)`;
   }
 
   // =========================================================================
@@ -1053,6 +1097,7 @@ export async function calculateFolderCrossover(sql, folderId) {
     creator_monopoly: creatorMonopoly,
     seasonality: {
       composite_wave: normalizedWeeklyWave,
+      rolling_months: rollingMonths,
       peak_months: peakMonths.length > 0 ? peakMonths : ['Year-round'],
       recommended_launch_window: recommendedLaunchWindow,
       trends_loaded_count: trendsLoaded
