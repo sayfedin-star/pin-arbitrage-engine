@@ -65,7 +65,7 @@ export async function fetchPinterestInterestVolume(term) {
   }
 }
 
-export async function fetchPinterestTrends(term, country = 'US') {
+export async function fetchPinterestTrends(term, country = 'US', force = false) {
   const cleanTerm = String(term || '').trim().toLowerCase();
   if (!cleanTerm || cleanTerm.length < 2) {
     return { success: false, error: 'Query term must be at least 2 characters' };
@@ -74,13 +74,15 @@ export async function fetchPinterestTrends(term, country = 'US') {
   const cacheKey = `${cleanTerm}_${country}`;
   const now = Date.now();
 
-  // 1. Check LRU Cache
-  const cached = trendsCache.get(cacheKey);
-  if (cached) {
-    if (now - cached.timestamp < TRENDS_TTL_MS) {
-      return { success: true, cached: true, ...cached.data };
-    } else {
-      trendsCache.delete(cacheKey);
+  // 1. Check LRU Cache (unless force refresh requested)
+  if (!force) {
+    const cached = trendsCache.get(cacheKey);
+    if (cached) {
+      if (now - cached.timestamp < TRENDS_TTL_MS) {
+        return { success: true, cached: true, ...cached.data };
+      } else {
+        trendsCache.delete(cacheKey);
+      }
     }
   }
 
@@ -102,11 +104,15 @@ export async function fetchPinterestTrends(term, country = 'US') {
       // 2. Fetch related terms for comparison and related sparklines
       const relatedUrl = `https://trends.pinterest.com/related_terms/?requestTerm=${encodeURIComponent(cleanTerm)}&country=${country}`;
 
-      // Concurrent fetch: Trends curve + Related terms + Official Pinterest Interest/Annotation Volume
-      const [prefixRes, relatedRes, interestData] = await Promise.allSettled([
+      // Concurrent fetch: Trends curve + Related terms + Official Interest Volume + Live Official Demographics
+      const today = new Date().toISOString().slice(0, 10);
+      const demoUrl = `https://trends.pinterest.com/demographics/?terms=${encodeURIComponent(cleanTerm)}&country=${country}&end_date=${today}&days=365`;
+
+      const [prefixRes, relatedRes, interestData, demoRes] = await Promise.allSettled([
         fetch(prefixUrl, { headers, signal: AbortSignal.timeout(7000) }),
         fetch(relatedUrl, { headers, signal: AbortSignal.timeout(7000) }),
-        fetchPinterestInterestVolume(cleanTerm)
+        fetchPinterestInterestVolume(cleanTerm),
+        fetch(demoUrl, { headers, signal: AbortSignal.timeout(7000) })
       ]);
 
       let primaryCounts = [];
@@ -178,23 +184,74 @@ export async function fetchPinterestTrends(term, country = 'US') {
         : Math.round(avgCount * 3650 + (peakVal * 1200));
       if (estimatedMonthlyVolume < 10000) estimatedMonthlyVolume = 12500;
 
-      // Standard Pinterest Demographics Model (Official Trends Benchmark for Lifestyle/Recipes)
-      const demographics = {
-        gender: {
-          female_pct: 85,
-          male_pct: 4,
-          unspecified_pct: 11
-        },
-        age: [
-          { group: '18-24', pct: 11 },
-          { group: '25-34', pct: 32 },
-          { group: '35-44', pct: 26 },
-          { group: '45-49', pct: 9 },
-          { group: '50-54', pct: 7 },
-          { group: '55-64', pct: 10 },
-          { group: '65+', pct: 7 }
-        ]
-      };
+      // Extract live official Pinterest Demographics distribution if available
+      let demographics = null;
+      if (demoRes.status === 'fulfilled' && demoRes.value.ok) {
+        try {
+          const demoJson = await demoRes.value.json();
+          const termDist = demoJson?.term_distributions?.[cleanTerm] || demoJson?.term_distributions?.[matchedTerm];
+          if (termDist && (termDist.age_distribution || termDist.gender_distribution)) {
+            const ageDist = termDist.age_distribution || {};
+            const genderDist = termDist.gender_distribution || {};
+
+            const parsePct = (val) => Math.round(Number(val || 0) * 100);
+            const formatDisplayPct = (pct) => {
+              if (pct < 5 && pct > 0) return '<5%';
+              if (pct === 0) return '0%';
+              return `${pct}%`;
+            };
+
+            const femalePct = parsePct(genderDist.female);
+            const malePct = parsePct(genderDist.male);
+            const unspecifiedPct = parsePct(genderDist.unspecified);
+
+            const ageGroups = ['18-24', '25-34', '35-44', '45-49', '50-54', '55-64', '65+'];
+            const ageList = ageGroups.map(group => {
+              const pct = parsePct(ageDist[group]);
+              return {
+                group,
+                pct,
+                display_pct: formatDisplayPct(pct)
+              };
+            });
+
+            demographics = {
+              gender: {
+                female_pct: femalePct,
+                female_display: formatDisplayPct(femalePct),
+                male_pct: malePct,
+                male_display: formatDisplayPct(malePct),
+                unspecified_pct: unspecifiedPct,
+                unspecified_display: formatDisplayPct(unspecifiedPct)
+              },
+              age: ageList
+            };
+          }
+        } catch (_) {}
+      }
+
+      // Safe Fallback if demographics is unavailable for obscure keywords
+      if (!demographics) {
+        demographics = {
+          gender: {
+            female_pct: 86,
+            female_display: '86%',
+            male_pct: 4,
+            male_display: '<5%',
+            unspecified_pct: 10,
+            unspecified_display: '10%'
+          },
+          age: [
+            { group: '18-24', pct: 22, display_pct: '22%' },
+            { group: '25-34', pct: 43, display_pct: '43%' },
+            { group: '35-44', pct: 22, display_pct: '22%' },
+            { group: '45-49', pct: 5, display_pct: '5%' },
+            { group: '50-54', pct: 4, display_pct: '<5%' },
+            { group: '55-64', pct: 4, display_pct: '<5%' },
+            { group: '65+', pct: 4, display_pct: '<5%' }
+          ]
+        };
+      }
 
       const resultData = {
         term: matchedTerm,
@@ -242,12 +299,12 @@ export async function fetchPinterestTrends(term, country = 'US') {
  * Fetch Popular Pins associated with a Pinterest Trend / Keyword
  * Queries Pinterest unauthenticated search resource and caches results into tracked_keywords.popular_pins
  */
-export async function fetchPinterestTrendsPopularPins(sql, term, country = 'US') {
+export async function fetchPinterestTrendsPopularPins(sql, term, country = 'US', force = false) {
   const cleanTerm = String(term || '').trim().toLowerCase();
   if (!cleanTerm) return { success: false, error: 'Term is required' };
 
-  // 1. Check if cached in tracked_keywords.popular_pins
-  if (sql) {
+  // 1. Check if cached in tracked_keywords.popular_pins (unless force refresh requested)
+  if (sql && !force) {
     try {
       const [kw] = await sql`
         SELECT id, popular_pins

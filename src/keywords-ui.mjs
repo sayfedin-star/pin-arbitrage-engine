@@ -1041,10 +1041,10 @@ export function getKeywordsPageHtml(initialSlug = '') {
                 <div class="space-y-1">
                   <div class="flex items-center justify-between text-xs font-mono">
                     <span class="text-slate-500" x-text="a.group"></span>
-                    <span class="font-bold text-slate-900 dark:text-white" x-text="a.pct + '%'"></span>
+                    <span class="font-bold text-slate-900 dark:text-white" x-text="a.display_pct || (a.pct + '%')"></span>
                   </div>
                   <div class="w-full h-2 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
-                    <div class="h-full bg-blue-500 rounded-full" :style="'width: ' + a.pct + '%'"></div>
+                    <div class="h-full bg-blue-500 rounded-full" :style="'width: ' + (a.pct > 0 ? Math.max(a.pct, 3) : 0) + '%'"></div>
                   </div>
                 </div>
               </template>
@@ -1058,30 +1058,30 @@ export function getKeywordsPageHtml(initialSlug = '') {
               <div class="space-y-1">
                 <div class="flex items-center justify-between text-xs font-mono">
                   <span class="text-slate-500">Female</span>
-                  <span class="font-bold text-rose-500" x-text="(trendsData?.demographics?.gender?.female_pct || 85) + '%'"></span>
+                  <span class="font-bold text-rose-500" x-text="trendsData?.demographics?.gender?.female_display || ((trendsData?.demographics?.gender?.female_pct || 86) + '%')"></span>
                 </div>
                 <div class="w-full h-3 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
-                  <div class="h-full bg-rose-500 rounded-full" :style="'width: ' + (trendsData?.demographics?.gender?.female_pct || 85) + '%'"></div>
+                  <div class="h-full bg-rose-500 rounded-full" :style="'width: ' + (trendsData?.demographics?.gender?.female_pct || 86) + '%'"></div>
                 </div>
               </div>
 
               <div class="space-y-1">
                 <div class="flex items-center justify-between text-xs font-mono">
                   <span class="text-slate-500">Male</span>
-                  <span class="font-bold text-cyan-500" x-text="(trendsData?.demographics?.gender?.male_pct || 4) + '%'"></span>
+                  <span class="font-bold text-cyan-500" x-text="trendsData?.demographics?.gender?.male_display || ((trendsData?.demographics?.gender?.male_pct || 4) + '%')"></span>
                 </div>
                 <div class="w-full h-3 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
-                  <div class="h-full bg-cyan-500 rounded-full" :style="'width: ' + (trendsData?.demographics?.gender?.male_pct || 4) + '%'"></div>
+                  <div class="h-full bg-cyan-500 rounded-full" :style="'width: ' + Math.max(trendsData?.demographics?.gender?.male_pct || 4, 3) + '%'"></div>
                 </div>
               </div>
 
               <div class="space-y-1">
                 <div class="flex items-center justify-between text-xs font-mono">
                   <span class="text-slate-500">Unspecified / Custom</span>
-                  <span class="font-bold text-slate-400" x-text="(trendsData?.demographics?.gender?.unspecified_pct || 11) + '%'"></span>
+                  <span class="font-bold text-slate-400" x-text="trendsData?.demographics?.gender?.unspecified_display || ((trendsData?.demographics?.gender?.unspecified_pct || 10) + '%')"></span>
                 </div>
                 <div class="w-full h-3 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
-                  <div class="h-full bg-slate-500 rounded-full" :style="'width: ' + (trendsData?.demographics?.gender?.unspecified_pct || 11) + '%'"></div>
+                  <div class="h-full bg-slate-500 rounded-full" :style="'width: ' + (trendsData?.demographics?.gender?.unspecified_pct || 10) + '%'"></div>
                 </div>
               </div>
             </div>
@@ -1131,7 +1131,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
               </div>
               <p class="text-xs text-slate-500">Top-ranking organic pins driving current viral velocity for this query</p>
             </div>
-            <button @click="fetchTrends(selectedKeyword?.keyword || activeKeywordQuery)"
+            <button @click="fetchTrends(selectedKeyword?.keyword || activeKeywordQuery, true)"
                     class="px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition flex items-center space-x-1.5 cursor-pointer">
               <i data-lucide="refresh-cw" class="w-3 h-3" :class="isTrendsLoading ? 'animate-spin' : ''"></i>
               <span>Refresh Trends</span>
@@ -3142,13 +3142,14 @@ export function getKeywordsPageHtml(initialSlug = '') {
           }
         },
 
-        async fetchTrends(term) {
+        async fetchTrends(term, force = false) {
           if (!term) return;
           this.isTrendsLoading = true;
           try {
+            const forceParam = force ? '&force=true' : '';
             const [trendsRes, popularRes] = await Promise.allSettled([
-              fetch(this.getApiUrl('/api/keywords/trends?term=' + encodeURIComponent(term))),
-              fetch(this.getApiUrl('/api/keywords/trends/popular-pins?term=' + encodeURIComponent(term)))
+              fetch(this.getApiUrl('/api/keywords/trends?term=' + encodeURIComponent(term) + forceParam)),
+              fetch(this.getApiUrl('/api/keywords/trends/popular-pins?term=' + encodeURIComponent(term) + forceParam))
             ]);
 
             let merged = {};

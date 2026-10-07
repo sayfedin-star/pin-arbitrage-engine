@@ -1902,15 +1902,21 @@ export default {
       if (method === 'GET' && pathname === '/api/keywords/trends') {
         const term = searchParams.get('term') || searchParams.get('q') || searchParams.get('keyword') || '';
         const country = searchParams.get('country') || 'US';
-        const result = await fetchPinterestTrends(term, country);
+        const force = searchParams.get('force') === 'true' || searchParams.get('refresh') === 'true';
+        const result = await fetchPinterestTrends(term, country, force);
         if (result && result.success && targetSql && term) {
           try {
             const clean = term.trim().toLowerCase();
             const [kw] = await targetSql`
               SELECT popular_pins FROM tracked_keywords WHERE LOWER(keyword) = ${clean} LIMIT 1;
             `;
-            if (kw && Array.isArray(kw.popular_pins) && kw.popular_pins.length > 0) {
+            if (!force && kw && Array.isArray(kw.popular_pins) && kw.popular_pins.length > 0) {
               result.popular_pins = kw.popular_pins;
+            } else if (force || !kw?.popular_pins || kw.popular_pins.length === 0) {
+              const popResult = await fetchPinterestTrendsPopularPins(targetSql, term, country, force);
+              if (popResult?.success && popResult?.popular_pins) {
+                result.popular_pins = popResult.popular_pins;
+              }
             }
           } catch (_) {}
         }
@@ -1947,8 +1953,9 @@ export default {
       if (method === 'GET' && pathname === '/api/keywords/trends/popular-pins') {
         const term = searchParams.get('term') || searchParams.get('q') || searchParams.get('keyword') || '';
         const country = searchParams.get('country') || 'US';
+        const force = searchParams.get('force') === 'true' || searchParams.get('refresh') === 'true';
         if (!term) return jsonResponse({ error: 'term is required' }, 400);
-        const result = await fetchPinterestTrendsPopularPins(targetSql, term, country);
+        const result = await fetchPinterestTrendsPopularPins(targetSql, term, country, force);
         return jsonResponse(result, result.success ? 200 : 400);
       }
 
