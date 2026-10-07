@@ -1169,25 +1169,25 @@ export function getKeywordsPageHtml(initialSlug = '') {
                            class="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition duration-300" loading="lazy">
                     </div>
 
-                    <!-- Column 2: Stacked A[5] (Top 40%) & A[7] (Bottom 60%) -->
+                    <!-- Column 2: Stacked A[7] (Top 40%) & A[8] (Bottom 60%) -->
                     <div class="h-full w-full flex flex-col gap-[3px]">
                       <div class="relative min-h-0 w-full overflow-hidden bg-slate-300 dark:bg-slate-700" style="flex: 4 1 0%;">
-                        <img :src="trendsData.collage_images[5] || trendsData.collage_images[1]"
-                             :srcset="(trendsData.collage_images[5] || trendsData.collage_images[1]) + ' 1x, ' + ((trendsData.collage_images[5] || trendsData.collage_images[1])?.replace('/236x/', '/474x/') || '') + ' 2x'"
+                        <img :src="trendsData.collage_images[7] || trendsData.collage_images[1]"
+                             :srcset="(trendsData.collage_images[7] || trendsData.collage_images[1]) + ' 1x, ' + ((trendsData.collage_images[7] || trendsData.collage_images[1])?.replace('/236x/', '/474x/') || '') + ' 2x'"
                              class="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition duration-300" loading="lazy">
                       </div>
                       <div class="relative min-h-0 w-full overflow-hidden bg-slate-300 dark:bg-slate-700" style="flex: 6 1 0%;">
-                        <img :src="trendsData.collage_images[7] || trendsData.collage_images[2]"
-                             :srcset="(trendsData.collage_images[7] || trendsData.collage_images[2]) + ' 1x, ' + ((trendsData.collage_images[7] || trendsData.collage_images[2])?.replace('/236x/', '/474x/') || '') + ' 2x'"
+                        <img :src="trendsData.collage_images[8] || trendsData.collage_images[2]"
+                             :srcset="(trendsData.collage_images[8] || trendsData.collage_images[2]) + ' 1x, ' + ((trendsData.collage_images[8] || trendsData.collage_images[2])?.replace('/236x/', '/474x/') || '') + ' 2x'"
                              class="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition duration-300" loading="lazy">
                       </div>
                     </div>
 
-                    <!-- Column 3: Stacked A[8] (Top 40%) & A[6] (Bottom 60%) -->
+                    <!-- Column 3: Stacked A[5] (Top 40%) & A[6] (Bottom 60%) -->
                     <div class="h-full w-full flex flex-col gap-[3px]">
                       <div class="relative min-h-0 w-full overflow-hidden bg-slate-300 dark:bg-slate-700" style="flex: 4 1 0%;">
-                        <img :src="trendsData.collage_images[8] || trendsData.collage_images[3]"
-                             :srcset="(trendsData.collage_images[8] || trendsData.collage_images[3]) + ' 1x, ' + ((trendsData.collage_images[8] || trendsData.collage_images[3])?.replace('/236x/', '/474x/') || '') + ' 2x'"
+                        <img :src="trendsData.collage_images[5] || trendsData.collage_images[3]"
+                             :srcset="(trendsData.collage_images[5] || trendsData.collage_images[3]) + ' 1x, ' + ((trendsData.collage_images[5] || trendsData.collage_images[3])?.replace('/236x/', '/474x/') || '') + ' 2x'"
                              class="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition duration-300" loading="lazy">
                       </div>
                       <div class="relative min-h-0 w-full overflow-hidden bg-slate-300 dark:bg-slate-700" style="flex: 6 1 0%;">
