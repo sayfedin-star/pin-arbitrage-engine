@@ -333,7 +333,8 @@ export async function fetchPinterestTrendsCollage(term, country = 'US') {
     });
     if (!res.ok) return [];
     const json = await res.json();
-    return Array.isArray(json[cleanTerm]) ? json[cleanTerm] : [];
+    const rawList = Array.isArray(json[cleanTerm]) ? json[cleanTerm] : [];
+    return rawList.map(u => typeof u === 'string' ? u.replace('/236x/', '/736x/') : u);
   } catch (err) {
     console.warn(`[fetchPinterestTrendsCollage] Failed for "${cleanTerm}":`, err.message);
     return [];

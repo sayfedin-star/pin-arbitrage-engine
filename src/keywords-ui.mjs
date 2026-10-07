@@ -1124,23 +1124,35 @@ export function getKeywordsPageHtml(initialSlug = '') {
         <div class="space-y-4 pt-4 border-t border-slate-100 dark:border-slate-800/80">
           <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div class="space-y-0.5">
-              <h4 class="text-sm font-bold text-slate-900 dark:text-white font-sans tracking-tight">Popular Pins</h4>
-              <p class="text-xs text-slate-500">Browse popular Pins based on your keywords</p>
+              <div class="flex items-center space-x-2">
+                <h4 class="text-sm font-bold text-slate-900 dark:text-white font-sans tracking-tight">Popular Pins</h4>
+                <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-blue-500/15 text-blue-600 dark:text-blue-400 border border-blue-500/30">736x HD</span>
+              </div>
+              <p class="text-xs text-slate-500">Browse official popular Pins based on your keywords in high definition</p>
             </div>
             
             <div class="flex items-center space-x-2">
-              <!-- View Switcher: Official Collage vs Interactive Grid -->
+              <!-- View Switcher: Full Pins (736x) vs Official Collage vs Interactive Cards -->
               <div class="inline-flex rounded-xl bg-slate-100 dark:bg-slate-800/90 p-1 border border-slate-200/80 dark:border-slate-700/60 text-xs">
+                <button @click="popularPinsView = 'full'; $nextTick(() => lucide.createIcons())"
+                        :class="popularPinsView === 'full' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 font-medium'"
+                        class="px-2.5 py-1 rounded-lg transition flex items-center space-x-1 cursor-pointer"
+                        title="عرض كافة الدبابيس كاملة بدقة 736x">
+                  <i data-lucide="layout-grid" class="w-3.5 h-3.5"></i>
+                  <span>Full Pins (الصور كاملة)</span>
+                </button>
                 <button @click="popularPinsView = 'collage'; $nextTick(() => lucide.createIcons())"
                         :class="popularPinsView === 'collage' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 font-medium'"
-                        class="px-2.5 py-1 rounded-lg transition flex items-center space-x-1 cursor-pointer">
+                        class="px-2.5 py-1 rounded-lg transition flex items-center space-x-1 cursor-pointer"
+                        title="بانر الكولاج الرسمي">
                   <i data-lucide="columns-3" class="w-3.5 h-3.5"></i>
                   <span>Official Collage</span>
                 </button>
                 <button @click="popularPinsView = 'grid'; $nextTick(() => lucide.createIcons())"
                         :class="popularPinsView === 'grid' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 font-medium'"
-                        class="px-2.5 py-1 rounded-lg transition flex items-center space-x-1 cursor-pointer">
-                  <i data-lucide="layout-grid" class="w-3.5 h-3.5"></i>
+                        class="px-2.5 py-1 rounded-lg transition flex items-center space-x-1 cursor-pointer"
+                        title="بطاقات التحليل والتتبع">
+                  <i data-lucide="bar-chart-2" class="w-3.5 h-3.5"></i>
                   <span>Interactive Cards</span>
                 </button>
               </div>
@@ -1153,19 +1165,89 @@ export function getKeywordsPageHtml(initialSlug = '') {
             </div>
           </div>
 
-          <!-- VIEW 1: OFFICIAL PINTEREST TRENDS COLLAGE (100% PARITY WITH IMAGE 2) -->
+          <!-- VIEW 1: FULL 9 PINS GALLERY (COMPLETE UNROPPED IMAGES AT 736x RESOLUTION) -->
+          <div x-show="popularPinsView === 'full'" class="space-y-4">
+            <template x-if="trendsData?.collage_images && trendsData.collage_images.length > 0">
+              <div class="space-y-3">
+                <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-3 gap-4">
+                  <template x-for="(imgUrl, idx) in trendsData.collage_images" :key="idx">
+                    <div class="group relative rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 hover:border-blue-500/50 shadow-xs hover:shadow-md transition duration-300 overflow-hidden flex flex-col justify-between cursor-pointer"
+                         @click="window.open(imgUrl, '_blank')">
+                      
+                      <!-- Full Pin Image Container -->
+                      <div class="relative w-full bg-slate-100 dark:bg-slate-950/80 flex items-center justify-center overflow-hidden p-2">
+                        <img :src="imgUrl"
+                             :alt="'Pin #' + (idx + 1)"
+                             class="w-full h-auto max-h-[500px] object-contain rounded-xl group-hover:scale-[1.02] transition duration-300"
+                             loading="lazy">
+                        
+                        <!-- Rank Badge -->
+                        <div class="absolute top-4 left-4 px-2.5 py-1 rounded-lg bg-slate-950/80 text-white font-mono font-black text-xs backdrop-blur-xs shadow-md">
+                          <span x-text="'#' + (idx + 1)"></span>
+                        </div>
+
+                        <!-- 736x HD Badge -->
+                        <div class="absolute top-4 right-4 px-2 py-0.5 rounded-md bg-blue-600 text-white font-mono font-bold text-[10px] backdrop-blur-xs shadow-md uppercase tracking-wider">
+                          736x HD
+                        </div>
+
+                        <!-- Hover Overlay -->
+                        <div class="absolute inset-0 bg-slate-950/40 opacity-0 group-hover:opacity-100 transition duration-200 flex items-center justify-center gap-2 backdrop-blur-[2px]">
+                          <span class="px-3.5 py-2 rounded-xl bg-white text-slate-900 text-xs font-bold hover:bg-slate-100 shadow-md flex items-center space-x-1.5 transition">
+                            <i data-lucide="maximize-2" class="w-3.5 h-3.5 text-blue-600"></i>
+                            <span>Open 736x Full Image</span>
+                          </span>
+                        </div>
+                      </div>
+
+                      <!-- Card Details Bottom Strip -->
+                      <div class="p-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-xs" @click.stop>
+                        <div class="flex items-center space-x-2 min-w-0 pr-2">
+                          <span class="w-2 h-2 rounded-full bg-blue-500 shrink-0"></span>
+                          <span class="font-bold text-slate-800 dark:text-slate-200 truncate capitalize"
+                                x-text="(trendsData?.term || selectedKeyword?.keyword || activeKeywordQuery) + ' Pin ' + (idx + 1)"></span>
+                        </div>
+                        <a :href="'https://www.pinterest.com/search/pins/?q=' + encodeURIComponent(trendsData?.term || selectedKeyword?.keyword || activeKeywordQuery)" target="_blank"
+                           class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 font-medium text-[11px] transition flex items-center space-x-1 shrink-0">
+                          <i data-lucide="external-link" class="w-3 h-3 text-red-500"></i>
+                          <span>Pinterest</span>
+                        </a>
+                      </div>
+
+                    </div>
+                  </template>
+                </div>
+
+                <!-- Footer Pill -->
+                <div class="flex items-center space-x-2 pt-2 px-1">
+                  <span class="w-2.5 h-2.5 rounded-full bg-blue-600 dark:bg-blue-500 inline-block"></span>
+                  <span class="text-xs font-bold text-slate-900 dark:text-slate-100 font-sans"
+                        x-text="(trendsData?.term || selectedKeyword?.keyword || activeKeywordQuery) + ' — All 9 Official Viral Pins in Full HD (736x)'"></span>
+                </div>
+              </div>
+            </template>
+
+            <!-- Loading or Empty state -->
+            <template x-if="!trendsData?.collage_images || trendsData.collage_images.length === 0">
+              <div class="py-12 text-center text-xs text-slate-400 italic rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30">
+                <i data-lucide="image" class="w-8 h-8 text-slate-300 dark:text-slate-600 mx-auto mb-2"></i>
+                <p>Loading full 736x popular pins...</p>
+              </div>
+            </template>
+          </div>
+
+          <!-- VIEW 2: OFFICIAL PINTEREST TRENDS COLLAGE BANNER (736x RESOLUTION) -->
           <div x-show="popularPinsView === 'collage'" class="space-y-3">
             <template x-if="trendsData?.collage_images && trendsData.collage_images.length >= 5">
               <div class="space-y-2">
                 <!-- The 5-Column Collage Card -->
                 <div @click="window.open('https://www.pinterest.com/search/pins/?q=' + encodeURIComponent(trendsData?.term || selectedKeyword?.keyword || activeKeywordQuery), '_blank')"
-                     class="group relative h-[360px] sm:h-[400px] w-full rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900/60 cursor-pointer shadow-sm hover:shadow-md transition">
+                     class="group relative h-[440px] sm:h-[480px] md:h-[520px] w-full rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900/60 cursor-pointer shadow-sm hover:shadow-md transition">
                   
                   <div class="grid grid-cols-5 h-full w-full gap-[3px] bg-slate-200 dark:bg-slate-800">
                     <!-- Column 1: Full Height Image A[0] -->
                     <div class="relative h-full w-full overflow-hidden bg-slate-300 dark:bg-slate-700">
                       <img :src="trendsData.collage_images[0]"
-                           :srcset="trendsData.collage_images[0] + ' 1x, ' + (trendsData.collage_images[0]?.replace('/236x/', '/474x/') || '') + ' 2x'"
                            class="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition duration-300" loading="lazy">
                     </div>
 
@@ -1173,12 +1255,10 @@ export function getKeywordsPageHtml(initialSlug = '') {
                     <div class="h-full w-full flex flex-col gap-[3px]">
                       <div class="relative min-h-0 w-full overflow-hidden bg-slate-300 dark:bg-slate-700" style="flex: 4 1 0%;">
                         <img :src="trendsData.collage_images[7] || trendsData.collage_images[1]"
-                             :srcset="(trendsData.collage_images[7] || trendsData.collage_images[1]) + ' 1x, ' + ((trendsData.collage_images[7] || trendsData.collage_images[1])?.replace('/236x/', '/474x/') || '') + ' 2x'"
                              class="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition duration-300" loading="lazy">
                       </div>
                       <div class="relative min-h-0 w-full overflow-hidden bg-slate-300 dark:bg-slate-700" style="flex: 6 1 0%;">
                         <img :src="trendsData.collage_images[8] || trendsData.collage_images[2]"
-                             :srcset="(trendsData.collage_images[8] || trendsData.collage_images[2]) + ' 1x, ' + ((trendsData.collage_images[8] || trendsData.collage_images[2])?.replace('/236x/', '/474x/') || '') + ' 2x'"
                              class="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition duration-300" loading="lazy">
                       </div>
                     </div>
@@ -1187,12 +1267,10 @@ export function getKeywordsPageHtml(initialSlug = '') {
                     <div class="h-full w-full flex flex-col gap-[3px]">
                       <div class="relative min-h-0 w-full overflow-hidden bg-slate-300 dark:bg-slate-700" style="flex: 4 1 0%;">
                         <img :src="trendsData.collage_images[5] || trendsData.collage_images[3]"
-                             :srcset="(trendsData.collage_images[5] || trendsData.collage_images[3]) + ' 1x, ' + ((trendsData.collage_images[5] || trendsData.collage_images[3])?.replace('/236x/', '/474x/') || '') + ' 2x'"
                              class="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition duration-300" loading="lazy">
                       </div>
                       <div class="relative min-h-0 w-full overflow-hidden bg-slate-300 dark:bg-slate-700" style="flex: 6 1 0%;">
                         <img :src="trendsData.collage_images[6] || trendsData.collage_images[4]"
-                             :srcset="(trendsData.collage_images[6] || trendsData.collage_images[4]) + ' 1x, ' + ((trendsData.collage_images[6] || trendsData.collage_images[4])?.replace('/236x/', '/474x/') || '') + ' 2x'"
                              class="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition duration-300" loading="lazy">
                       </div>
                     </div>
@@ -1201,12 +1279,10 @@ export function getKeywordsPageHtml(initialSlug = '') {
                     <div class="h-full w-full flex flex-col gap-[3px]">
                       <div class="relative min-h-0 w-full overflow-hidden bg-slate-300 dark:bg-slate-700" style="flex: 6 1 0%;">
                         <img :src="trendsData.collage_images[3] || trendsData.collage_images[1]"
-                             :srcset="(trendsData.collage_images[3] || trendsData.collage_images[1]) + ' 1x, ' + ((trendsData.collage_images[3] || trendsData.collage_images[1])?.replace('/236x/', '/474x/') || '') + ' 2x'"
                              class="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition duration-300" loading="lazy">
                       </div>
                       <div class="relative min-h-0 w-full overflow-hidden bg-slate-300 dark:bg-slate-700" style="flex: 4 1 0%;">
                         <img :src="trendsData.collage_images[4] || trendsData.collage_images[2]"
-                             :srcset="(trendsData.collage_images[4] || trendsData.collage_images[2]) + ' 1x, ' + ((trendsData.collage_images[4] || trendsData.collage_images[2])?.replace('/236x/', '/474x/') || '') + ' 2x'"
                              class="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition duration-300" loading="lazy">
                       </div>
                     </div>
@@ -1215,12 +1291,10 @@ export function getKeywordsPageHtml(initialSlug = '') {
                     <div class="h-full w-full flex flex-col gap-[3px]">
                       <div class="relative min-h-0 w-full overflow-hidden bg-slate-300 dark:bg-slate-700" style="flex: 4 1 0%;">
                         <img :src="trendsData.collage_images[1] || trendsData.collage_images[0]"
-                             :srcset="(trendsData.collage_images[1] || trendsData.collage_images[0]) + ' 1x, ' + ((trendsData.collage_images[1] || trendsData.collage_images[0])?.replace('/236x/', '/474x/') || '') + ' 2x'"
                              class="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition duration-300" loading="lazy">
                       </div>
                       <div class="relative min-h-0 w-full overflow-hidden bg-slate-300 dark:bg-slate-700" style="flex: 6 1 0%;">
                         <img :src="trendsData.collage_images[2] || trendsData.collage_images[0]"
-                             :srcset="(trendsData.collage_images[2] || trendsData.collage_images[0]) + ' 1x, ' + ((trendsData.collage_images[2] || trendsData.collage_images[0])?.replace('/236x/', '/474x/') || '') + ' 2x'"
                              class="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition duration-300" loading="lazy">
                       </div>
                     </div>
@@ -1235,7 +1309,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
                   </div>
                 </div>
 
-                <!-- Bottom Indicator Dot Pill (Matching Image 2 Parity) -->
+                <!-- Bottom Indicator Dot Pill -->
                 <div class="flex items-center space-x-2 pt-1 px-1">
                   <span class="w-2.5 h-2.5 rounded-full bg-blue-600 dark:bg-blue-500 inline-block"></span>
                   <span class="text-xs font-bold text-slate-900 dark:text-slate-100 font-sans"
@@ -2948,7 +3022,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
 
         // UI Tabs & State
         activeTab: 'serp',
-        popularPinsView: 'collage',
+        popularPinsView: 'full',
         selectedProjectId: '',
         fleetProjects: [],
         darkMode: true,
