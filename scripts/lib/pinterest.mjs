@@ -56,6 +56,63 @@ export function randomJitterMs(min = 2500, max = 4000) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
+/**
+ * Standard Exponential Backoff with Full Jitter
+ * Decorrelates retry stamps across shards to prevent synchronized thundering herds on Pinterest edge
+ */
+export function exponentialBackoffWithFullJitter(attempt = 1, baseMs = 1500, capMs = 15000) {
+  const temp = Math.min(capMs, baseMs * Math.pow(2, attempt));
+  return Math.floor(Math.random() * temp);
+}
+
+/**
+ * Sanitizes destination URLs by stripping tracking parameters (utm_*, fbclid, ref, epik, etc.)
+ * Prevents URL parameter bloat and protects competitive analytics privacy.
+ */
+export function sanitizeDestinationUrl(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== 'string') return '';
+  let trimmed = rawUrl.trim();
+  if (!trimmed) return '';
+  if (!/^https?:\/\//i.test(trimmed) && !trimmed.startsWith('/')) {
+    trimmed = `https://${trimmed}`;
+  }
+  try {
+    const parsed = new URL(trimmed);
+    const trackingKeys = [
+      'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content',
+      'ref', 'fbclid', 'gclid', 'pin_tracking_params', 'epik', 'srsltid',
+      'source', 'source_url', 'mc_cid', 'mc_eid', 'igshid', '_ga'
+    ];
+    for (const p of trackingKeys) parsed.searchParams.delete(p);
+    for (const k of Array.from(parsed.searchParams.keys())) {
+      if (k.startsWith('utm_') || k.startsWith('fb_')) parsed.searchParams.delete(k);
+    }
+    let clean = parsed.toString();
+    if (clean.endsWith('?')) clean = clean.slice(0, -1);
+    return clean;
+  } catch (_) {
+    return trimmed;
+  }
+}
+
+/**
+ * Normalizes host domains (strips 'www.', converts to lowercase, handles protocol-less input)
+ */
+export function normalizeDomain(rawDomain, rawUrl = '') {
+  if (rawDomain && typeof rawDomain === 'string') {
+    return rawDomain.trim().toLowerCase().replace(/^www\./, '');
+  }
+  if (rawUrl) {
+    try {
+      const u = new URL(rawUrl.startsWith('http') ? rawUrl : `https://${rawUrl}`);
+      return u.hostname.toLowerCase().replace(/^www\./, '');
+    } catch (_) {
+      return '';
+    }
+  }
+  return '';
+}
+
 export function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -280,19 +337,13 @@ export function formatPin(pin) {
     ? Math.round((saves / ageDays) * 100) / 100
     : 0;
 
-  // Domain extraction (safely handling relative, protocol-less, or malformed URLs)
+  // Domain extraction & URL sanitization (stripping tracking parameters utm_*, fbclid, etc.)
   let rawLink = String(pin.link || pin.url || '').trim();
   if (rawLink && !/^https?:\/\//i.test(rawLink) && !rawLink.startsWith('/')) {
     rawLink = `https://${rawLink}`;
   }
-  let domain = pin.domain || '';
-  if (!domain && rawLink && !rawLink.startsWith('/')) {
-    try {
-      domain = new URL(rawLink).hostname;
-    } catch (_) {
-      domain = '';
-    }
-  }
+  const cleanLink = sanitizeDestinationUrl(rawLink);
+  const domain = normalizeDomain(pin.domain, cleanLink || rawLink);
 
   // Image URL
   let rawImageUrl =
@@ -355,7 +406,7 @@ export function formatPin(pin) {
     alt_text: altText,
     seo_title: seoTitle,
     seo_description: seoDescription,
-    link: safeString(rawLink || pin.link || pin.url),
+    link: safeString(cleanLink || rawLink || pin.link || pin.url),
     domain,
     board_id: pin.board?.id || pin.board_id || null,
     board_name: safeString(pin.board?.name || pin.board_name),
@@ -598,7 +649,7 @@ export async function fetchPinFromPinterest(pinId) {
 
     if (res.status === 401 || res.status === 403 || res.status === 429 || res.status === 502 || res.status === 503 || res.status === 504) {
       if (res.body) await res.body.cancel().catch(() => {});
-      let retryDelay = randomJitterMs(2500, 4000);
+      let retryDelay = exponentialBackoffWithFullJitter(1, 2500, 8000);
       if (res.status === 429) {
         const retrySec = parseRetryAfterSeconds(res.headers.get('retry-after'), 3);
         if (retrySec > 30) {
@@ -768,7 +819,7 @@ export async function fetchUserResource(username, activeCookie = '') {
     let res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
     if (res.status === 401 || res.status === 403 || res.status === 429) {
       if (res.body) await res.body.cancel().catch(() => {});
-      await sleep(randomJitterMs(2500, 4000));
+      await sleep(exponentialBackoffWithFullJitter(1, 2000, 6000));
       const anonHeaders = getPinterestXhrHeaders(cleanUser, '');
       res = await fetch(url, { headers: anonHeaders, signal: AbortSignal.timeout(8000) });
     }

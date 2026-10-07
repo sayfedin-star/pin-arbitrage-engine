@@ -1234,7 +1234,9 @@ async function crawlSeed(seed) {
 
   // Persistence to Neon Serverless Postgres via Parallel Batch Upserts with sqlWithRetry
   if (allCandidates.length > 0) {
-    console.log(`[*] Upserting ${allCandidates.length} candidate graph nodes into Neon (parallel resilient batch mode)...`);
+    // Enforce strictly deterministic sort by candidate_pin_id ASC to eliminate row-level lock contention and deadlocks
+    allCandidates.sort((a, b) => String(a.candidate_pin_id).localeCompare(String(b.candidate_pin_id)));
+    console.log(`[*] Upserting ${allCandidates.length} candidate graph nodes into Neon (parallel resilient batch mode, deterministically sorted)...`);
 
     // Batch upsert in concurrent chunks of 25 to respect pool limits
     const chunkSize = 25;
@@ -1368,6 +1370,23 @@ async function main() {
   console.log(`=============================================================`);
   console.log(`  Pinterest Algorithmic Arbitrage Engine (P2P Cluster Core)  `);
   console.log(`=============================================================`);
+
+  // Watchdog: Sweep stale crawler heartbeats (>15m) to timed_out to prevent zombie queues
+  try {
+    const reaped = await sqlWithRetry(() => sql`
+      UPDATE crawler_shard_heartbeats
+      SET status = 'timed_out',
+          updated_at = NOW()
+      WHERE status IN ('booting', 'running', 'processing', 'crawling_boards')
+        AND updated_at < NOW() - INTERVAL '15 minutes'
+      RETURNING competitor_id, shard_number;
+    `);
+    if (reaped && reaped.length > 0) {
+      console.log(`[Watchdog] Swept ${reaped.length} stale crawler shard heartbeats (>15m) -> timed_out.`);
+    }
+  } catch (reapErr) {
+    // Non-fatal if table doesn't exist or concurrent lock
+  }
 
   let targetPinArg = null;
   const seedIdx = process.argv.indexOf('--seed');

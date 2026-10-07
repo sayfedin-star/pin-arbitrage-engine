@@ -1120,60 +1120,160 @@ export function getKeywordsPageHtml(initialSlug = '') {
           </div>
         </template>
 
-        <!-- Pinterest Official Popular Pins from Trends Feed (Image 4 Parity) -->
+        <!-- Pinterest Official Popular Pins (Image 2 Parity) -->
         <div class="space-y-4 pt-4 border-t border-slate-100 dark:border-slate-800/80">
-          <div class="flex items-center justify-between">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div class="space-y-0.5">
-              <div class="flex items-center space-x-2">
-                <i data-lucide="flame" class="w-4 h-4 text-rose-500"></i>
-                <h4 class="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-white font-mono">Popular Pins from Trends Feed</h4>
-                <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-rose-500/15 text-rose-600 dark:text-rose-400">Trending Visual Content</span>
-              </div>
-              <p class="text-xs text-slate-500">Top-ranking organic pins driving current viral velocity for this query</p>
+              <h4 class="text-sm font-bold text-slate-900 dark:text-white font-sans tracking-tight">Popular Pins</h4>
+              <p class="text-xs text-slate-500">Browse popular Pins based on your keywords</p>
             </div>
-            <button @click="fetchTrends(selectedKeyword?.keyword || activeKeywordQuery, true)"
-                    class="px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition flex items-center space-x-1.5 cursor-pointer">
-              <i data-lucide="refresh-cw" class="w-3 h-3" :class="isTrendsLoading ? 'animate-spin' : ''"></i>
-              <span>Refresh Trends</span>
-            </button>
+            
+            <div class="flex items-center space-x-2">
+              <!-- View Switcher: Official Collage vs Interactive Grid -->
+              <div class="inline-flex rounded-xl bg-slate-100 dark:bg-slate-800/90 p-1 border border-slate-200/80 dark:border-slate-700/60 text-xs">
+                <button @click="popularPinsView = 'collage'; $nextTick(() => lucide.createIcons())"
+                        :class="popularPinsView === 'collage' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 font-medium'"
+                        class="px-2.5 py-1 rounded-lg transition flex items-center space-x-1 cursor-pointer">
+                  <i data-lucide="columns-3" class="w-3.5 h-3.5"></i>
+                  <span>Official Collage</span>
+                </button>
+                <button @click="popularPinsView = 'grid'; $nextTick(() => lucide.createIcons())"
+                        :class="popularPinsView === 'grid' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 font-medium'"
+                        class="px-2.5 py-1 rounded-lg transition flex items-center space-x-1 cursor-pointer">
+                  <i data-lucide="layout-grid" class="w-3.5 h-3.5"></i>
+                  <span>Interactive Cards</span>
+                </button>
+              </div>
+
+              <button @click="fetchTrends(selectedKeyword?.keyword || activeKeywordQuery, true)"
+                      class="px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition flex items-center space-x-1.5 cursor-pointer">
+                <i data-lucide="refresh-cw" class="w-3 h-3" :class="isTrendsLoading ? 'animate-spin' : ''"></i>
+                <span>Refresh Trends</span>
+              </button>
+            </div>
           </div>
 
-          <template x-if="!trendsData?.popular_pins || trendsData.popular_pins.length === 0">
-            <div class="py-12 text-center text-xs text-slate-400 italic">
-              No popular pins extracted yet for this trend. Crawl keyword or click refresh.
-            </div>
-          </template>
+          <!-- VIEW 1: OFFICIAL PINTEREST TRENDS COLLAGE (100% PARITY WITH IMAGE 2) -->
+          <div x-show="popularPinsView === 'collage'" class="space-y-3">
+            <template x-if="trendsData?.collage_images && trendsData.collage_images.length >= 5">
+              <div class="space-y-2">
+                <!-- The 5-Column Collage Card -->
+                <div @click="window.open('https://www.pinterest.com/search/pins/?q=' + encodeURIComponent(trendsData?.term || selectedKeyword?.keyword || activeKeywordQuery), '_blank')"
+                     class="group relative h-[360px] sm:h-[400px] w-full rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900/60 cursor-pointer shadow-sm hover:shadow-md transition">
+                  
+                  <div class="grid grid-cols-5 h-full w-full gap-[3px] bg-slate-200 dark:bg-slate-800">
+                    <!-- Column 1: Full Height Image A[0] -->
+                    <div class="h-full w-full overflow-hidden bg-slate-300 dark:bg-slate-700">
+                      <img :src="trendsData.collage_images[0]" class="h-full w-full object-cover group-hover:scale-[1.02] transition duration-300" loading="lazy">
+                    </div>
 
-          <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3.5">
-            <template x-for="p in (trendsData?.popular_pins || [])" :key="p.pin_id || p.id">
-              <div @click="openPinInspector({ pin_id: p.pin_id || p.id, title: p.title, image_url: p.image_url, domain: p.domain, save_count: p.save_count, repin_count: p.repin_count })"
-                   class="group rounded-2xl bg-slate-50/80 dark:bg-slate-900/50 border border-slate-200/80 dark:border-slate-800 hover:border-blue-500/50 overflow-hidden transition cursor-pointer flex flex-col justify-between">
-                
-                <div class="relative aspect-[2/3] bg-slate-200 dark:bg-slate-800 overflow-hidden">
-                  <template x-if="p.image_url">
-                    <img :src="p.image_url" class="w-full h-full object-cover group-hover:scale-105 transition duration-300">
-                  </template>
-                  <div class="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition flex items-end p-2.5">
-                    <span class="text-[10px] font-bold text-white flex items-center space-x-1">
-                      <i data-lucide="eye" class="w-3 h-3"></i>
-                      <span>Inspect Dossier</span>
+                    <!-- Column 2: Stacked A[3] (60%) & A[4] (40%) -->
+                    <div class="h-full w-full flex flex-col gap-[3px]">
+                      <div class="h-[60%] w-full overflow-hidden bg-slate-300 dark:bg-slate-700">
+                        <img :src="trendsData.collage_images[3] || trendsData.collage_images[1]" class="h-full w-full object-cover group-hover:scale-[1.02] transition duration-300" loading="lazy">
+                      </div>
+                      <div class="h-[40%] w-full overflow-hidden bg-slate-300 dark:bg-slate-700">
+                        <img :src="trendsData.collage_images[4] || trendsData.collage_images[2]" class="h-full w-full object-cover group-hover:scale-[1.02] transition duration-300" loading="lazy">
+                      </div>
+                    </div>
+
+                    <!-- Column 3: Stacked A[5] (40%) & A[6] (60%) -->
+                    <div class="h-full w-full flex flex-col gap-[3px]">
+                      <div class="h-[40%] w-full overflow-hidden bg-slate-300 dark:bg-slate-700">
+                        <img :src="trendsData.collage_images[5] || trendsData.collage_images[3]" class="h-full w-full object-cover group-hover:scale-[1.02] transition duration-300" loading="lazy">
+                      </div>
+                      <div class="h-[60%] w-full overflow-hidden bg-slate-300 dark:bg-slate-700">
+                        <img :src="trendsData.collage_images[6] || trendsData.collage_images[4]" class="h-full w-full object-cover group-hover:scale-[1.02] transition duration-300" loading="lazy">
+                      </div>
+                    </div>
+
+                    <!-- Column 4: Stacked A[7] (60%) & A[8] (40%) -->
+                    <div class="h-full w-full flex flex-col gap-[3px]">
+                      <div class="h-[60%] w-full overflow-hidden bg-slate-300 dark:bg-slate-700">
+                        <img :src="trendsData.collage_images[7] || trendsData.collage_images[5]" class="h-full w-full object-cover group-hover:scale-[1.02] transition duration-300" loading="lazy">
+                      </div>
+                      <div class="h-[40%] w-full overflow-hidden bg-slate-300 dark:bg-slate-700">
+                        <img :src="trendsData.collage_images[8] || trendsData.collage_images[6]" class="h-full w-full object-cover group-hover:scale-[1.02] transition duration-300" loading="lazy">
+                      </div>
+                    </div>
+
+                    <!-- Column 5: Stacked A[1] (40%) & A[2] (60%) -->
+                    <div class="h-full w-full flex flex-col gap-[3px]">
+                      <div class="h-[40%] w-full overflow-hidden bg-slate-300 dark:bg-slate-700">
+                        <img :src="trendsData.collage_images[1] || trendsData.collage_images[7]" class="h-full w-full object-cover group-hover:scale-[1.02] transition duration-300" loading="lazy">
+                      </div>
+                      <div class="h-[60%] w-full overflow-hidden bg-slate-300 dark:bg-slate-700">
+                        <img :src="trendsData.collage_images[2] || trendsData.collage_images[8]" class="h-full w-full object-cover group-hover:scale-[1.02] transition duration-300" loading="lazy">
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Hover Overlay -->
+                  <div class="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition flex items-center justify-center pointer-events-none">
+                    <span class="px-4 py-2 rounded-full bg-white/90 dark:bg-slate-900/90 text-xs font-bold text-slate-900 dark:text-white shadow-lg flex items-center space-x-1.5 backdrop-blur-sm">
+                      <i data-lucide="external-link" class="w-3.5 h-3.5 text-blue-500"></i>
+                      <span>Browse Related Pins on Pinterest</span>
                     </span>
                   </div>
                 </div>
 
-                <div class="p-2.5 space-y-1">
-                  <h5 class="text-xs font-bold text-slate-900 dark:text-white line-clamp-2 leading-tight group-hover:text-blue-500 transition"
-                      x-text="p.title || 'Popular Pin'"></h5>
-                  <div class="flex items-center justify-between text-[10px] text-slate-400 font-mono">
-                    <span class="truncate max-w-[80px]" x-text="p.pinner?.full_name || p.domain || 'Pinterest'"></span>
-                    <a :href="'https://www.pinterest.com/pin/' + (p.pin_id || p.id) + '/'" target="_blank" @click.stop class="text-blue-500 hover:underline">
-                      <i data-lucide="external-link" class="w-3 h-3"></i>
-                    </a>
-                  </div>
+                <!-- Bottom Indicator Dot Pill (Matching Image 2 Parity) -->
+                <div class="flex items-center space-x-2 pt-1 px-1">
+                  <span class="w-2.5 h-2.5 rounded-full bg-blue-600 dark:bg-blue-500 inline-block"></span>
+                  <span class="text-xs font-bold text-slate-900 dark:text-slate-100 font-sans"
+                        x-text="trendsData?.term || selectedKeyword?.keyword || activeKeywordQuery"></span>
                 </div>
-
               </div>
             </template>
+
+            <!-- Loading or Empty state for collage -->
+            <template x-if="!trendsData?.collage_images || trendsData.collage_images.length < 5">
+              <div class="py-12 text-center text-xs text-slate-400 italic rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30">
+                <i data-lucide="image" class="w-8 h-8 text-slate-300 dark:text-slate-600 mx-auto mb-2"></i>
+                <p>Loading official Pinterest Trends collage...</p>
+              </div>
+            </template>
+          </div>
+
+          <!-- VIEW 2: INTERACTIVE PIN CARDS (DOSSIER & VELOCITY) -->
+          <div x-show="popularPinsView === 'grid'" class="space-y-4">
+            <template x-if="!trendsData?.popular_pins || trendsData.popular_pins.length === 0">
+              <div class="py-12 text-center text-xs text-slate-400 italic">
+                No popular pins extracted yet for this trend. Crawl keyword or click refresh.
+              </div>
+            </template>
+
+            <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3.5">
+              <template x-for="p in (trendsData?.popular_pins || [])" :key="p.pin_id || p.id">
+                <div @click="openPinInspector({ pin_id: p.pin_id || p.id, title: p.title, image_url: p.image_url, domain: p.domain, save_count: p.save_count, repin_count: p.repin_count })"
+                     class="group rounded-2xl bg-slate-50/80 dark:bg-slate-900/50 border border-slate-200/80 dark:border-slate-800 hover:border-blue-500/50 overflow-hidden transition cursor-pointer flex flex-col justify-between">
+                  
+                  <div class="relative aspect-[2/3] bg-slate-200 dark:bg-slate-800 overflow-hidden">
+                    <template x-if="p.image_url">
+                      <img :src="p.image_url" class="w-full h-full object-cover group-hover:scale-105 transition duration-300">
+                    </template>
+                    <div class="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition flex items-end p-2.5">
+                      <span class="text-[10px] font-bold text-white flex items-center space-x-1">
+                        <i data-lucide="eye" class="w-3 h-3"></i>
+                        <span>Inspect Dossier</span>
+                      </span>
+                    </div>
+                  </div>
+
+                  <div class="p-2.5 space-y-1">
+                    <h5 class="text-xs font-bold text-slate-900 dark:text-white line-clamp-2 leading-tight group-hover:text-blue-500 transition"
+                        x-text="p.title || 'Popular Pin'"></h5>
+                    <div class="flex items-center justify-between text-[10px] text-slate-400 font-mono">
+                      <span class="truncate max-w-[80px]" x-text="p.pinner?.full_name || p.domain || 'Pinterest'"></span>
+                      <a :href="'https://www.pinterest.com/pin/' + (p.pin_id || p.id) + '/'" target="_blank" @click.stop class="text-blue-500 hover:underline">
+                        <i data-lucide="external-link" class="w-3 h-3"></i>
+                      </a>
+                    </div>
+                  </div>
+
+                </div>
+              </template>
+            </div>
           </div>
         </div>
 
@@ -2830,6 +2930,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
 
         // UI Tabs & State
         activeTab: 'serp',
+        popularPinsView: 'collage',
         selectedProjectId: '',
         fleetProjects: [],
         darkMode: true,

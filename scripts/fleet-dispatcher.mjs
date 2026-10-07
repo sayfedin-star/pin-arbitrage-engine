@@ -19,7 +19,7 @@
 
 import { neon } from '@neondatabase/serverless';
 import fs from 'node:fs';
-import { getShardNumberForEntity } from '../src/modules/fleet/sharding.mjs';
+import { getShardNumberForEntity, getResilientShardNumberForEntity } from '../src/modules/fleet/sharding.mjs';
 import { normalizePinterestUsername } from '../src/modules/competitors/service.mjs';
 
 // Auto-load .env in local environments
@@ -59,15 +59,32 @@ async function main() {
 
   let activeShards = [];
 
+  // Identify quarantined / inactive shards from registry to apply dynamic fallback
+  const quarantinedShards = new Set();
+  try {
+    const inactiveRows = await sql`
+      SELECT project_name
+      FROM neon_projects_registry
+      WHERE status IN ('inactive', 'suspended', 'quarantined', 'degraded');
+    `;
+    for (const row of inactiveRows) {
+      const match = row.project_name?.match(/shard-(\d+)/i);
+      if (match) quarantinedShards.add(parseInt(match[1], 10));
+    }
+    if (quarantinedShards.size > 0) {
+      log(`[Quarantine Watchdog] Identified ${quarantinedShards.size} degraded shards in registry: [${Array.from(quarantinedShards).join(', ')}]. Fallback routing active.`);
+    }
+  } catch (_) {}
+
   if (targetAccount) {
     // Mode A: High-Throughput Multi-IP Swarm for Targeted Account
     // Deploys 15 parallel GitHub Actions runner VMs with 15 distinct Egress IPs
     // pulling concurrently from the Hub queue via FOR UPDATE SKIP LOCKED
-    const canonicalShard = getShardNumberForEntity(targetAccount, shardTotal);
+    const canonicalShard = getResilientShardNumberForEntity(targetAccount, shardTotal, quarantinedShards);
     const SWARM_SIZE = 15;
-    activeShards = Array.from({ length: SWARM_SIZE }, (_, i) => i + 1);
+    activeShards = Array.from({ length: SWARM_SIZE }, (_, i) => i + 1).filter(s => !quarantinedShards.has(s));
     log(`[*] Target account @${targetAccount} mapped to Canonical Shard ${canonicalShard}/${shardTotal}`);
-    log(`[*] Mobilizing ${SWARM_SIZE}-Runner Multi-IP Swarm: [${activeShards.join(', ')}] for maximum ingestion velocity.`);
+    log(`[*] Mobilizing ${activeShards.length}-Runner Multi-IP Swarm: [${activeShards.join(', ')}] for maximum ingestion velocity.`);
   } else {
     // Mode B: Scheduled Fleet Sweep
     let accounts = [];
@@ -97,7 +114,7 @@ async function main() {
     for (const acc of accounts) {
       if (!acc || !acc.username) continue;
       const cleanUser = acc.username.replace(/^@+/, '').trim().toLowerCase();
-      const sNum = getShardNumberForEntity(cleanUser, shardTotal);
+      const sNum = getResilientShardNumberForEntity(cleanUser, shardTotal, quarantinedShards);
       if (!shardDistribution.has(sNum)) {
         shardDistribution.set(sNum, []);
       }
@@ -116,7 +133,7 @@ async function main() {
       for (const p of pendingAccounts) {
         if (!p || !p.username) continue;
         const cleanUser = p.username.replace(/^@+/, '').trim().toLowerCase();
-        const sNum = getShardNumberForEntity(cleanUser, shardTotal);
+        const sNum = getResilientShardNumberForEntity(cleanUser, shardTotal, quarantinedShards);
         if (!shardDistribution.has(sNum)) {
           shardDistribution.set(sNum, []);
           shardDistribution.get(sNum).push(cleanUser);
@@ -135,7 +152,7 @@ async function main() {
       `;
       for (const b of activeBoards) {
         if (!b) continue;
-        const sNum = b.assigned_shard_id || (b.board_id ? getShardNumberForEntity(b.board_id, shardTotal) : 1);
+        const sNum = b.assigned_shard_id || (b.board_id ? getResilientShardNumberForEntity(b.board_id, shardTotal, quarantinedShards) : 1);
         if (!shardDistribution.has(sNum)) {
           shardDistribution.set(sNum, []);
         }
@@ -145,7 +162,9 @@ async function main() {
       console.warn('[-] [fleet-dispatcher] Tracked boards check warning:', err.message);
     }
 
-    activeShards = Array.from(shardDistribution.keys()).sort((a, b) => a - b);
+    activeShards = Array.from(shardDistribution.keys())
+      .filter(s => !quarantinedShards.has(s))
+      .sort((a, b) => a - b);
 
     log(`\n[Fleet Analysis] Found ${accounts.length} active competitor accounts.`);
     log(`[Fleet Analysis] Required active shards: ${activeShards.length} of ${shardTotal}`);

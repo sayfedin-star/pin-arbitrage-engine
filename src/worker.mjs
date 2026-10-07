@@ -178,6 +178,85 @@ function getCachedShardSql(key, factory) {
   return client;
 }
 
+// Edge Data Cache & Single-Flight Request Coalescing (Anti-Thundering Herd & SWR)
+export const edgeCache = new Map();
+export const inflightPromises = new Map();
+const MAX_CACHE_ENTRIES = 512;
+
+export function buildCanonicalCacheKey(prefix, params = {}) {
+  const sortedEntries = Object.entries(params)
+    .filter(([_, v]) => v !== undefined && v !== null && v !== '')
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v).trim().toLowerCase())}`);
+  return `${prefix}?${sortedEntries.join('&')}`;
+}
+
+export async function getCachedOrFetch(key, fetcher, ttlMs = 15000, staleMs = 60000) {
+  const now = Date.now();
+  const cached = edgeCache.get(key);
+
+  if (cached) {
+    if (now < cached.expiresAt) {
+      return cached.data;
+    }
+    // Stale-While-Revalidate: return stale data immediately, revalidate in background
+    if (now < cached.staleUntil) {
+      if (!inflightPromises.has(key)) {
+        const revalPromise = (async () => {
+          try {
+            const fresh = await fetcher();
+            edgeCache.set(key, {
+              data: fresh,
+              expiresAt: Date.now() + ttlMs,
+              staleUntil: Date.now() + ttlMs + staleMs
+            });
+          } catch (_) {} finally {
+            inflightPromises.delete(key);
+          }
+        })();
+        inflightPromises.set(key, revalPromise);
+      }
+      return cached.data;
+    }
+  }
+
+  // Cache miss or expired beyond stale window: Single-flight coalescing
+  if (inflightPromises.has(key)) {
+    return await inflightPromises.get(key);
+  }
+
+  const promise = (async () => {
+    try {
+      const fresh = await fetcher();
+      if (edgeCache.size >= MAX_CACHE_ENTRIES) {
+        const oldestKey = edgeCache.keys().next().value;
+        if (oldestKey) edgeCache.delete(oldestKey);
+      }
+      edgeCache.set(key, {
+        data: fresh,
+        expiresAt: Date.now() + ttlMs,
+        staleUntil: Date.now() + ttlMs + staleMs
+      });
+      return fresh;
+    } finally {
+      inflightPromises.delete(key);
+    }
+  })();
+
+  inflightPromises.set(key, promise);
+  return await promise;
+}
+
+export function invalidateEdgeCache(prefix = '') {
+  if (!prefix) {
+    edgeCache.clear();
+    return;
+  }
+  for (const k of edgeCache.keys()) {
+    if (k.startsWith(prefix)) edgeCache.delete(k);
+  }
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -648,115 +727,126 @@ export default {
         const offset = Number(searchParams.get('offset')) || 0;
         const query = (searchParams.get('q') || '').trim();
         const sort = (searchParams.get('sort') || 'saves').toLowerCase();
+        const shardKey = reqProjectId || 'hub';
 
-        let rows;
-        if (seedPinId && query) {
-          const qPattern = `%${query.toLowerCase()}%`;
-          rows = sort === 'velocity' ? await targetSql`
-            SELECT * FROM candidate_graph_nodes
-            WHERE seed_pin_id = ${seedPinId}
-              AND (LOWER(title) LIKE ${qPattern} OR LOWER(domain) LIKE ${qPattern} OR LOWER(COALESCE(ocr_text, '')) LIKE ${qPattern} OR candidate_pin_id LIKE ${qPattern})
-            ORDER BY daily_velocity DESC NULLS LAST, saves DESC
-            LIMIT ${limit} OFFSET ${offset};
-          ` : await targetSql`
-            SELECT * FROM candidate_graph_nodes
-            WHERE seed_pin_id = ${seedPinId}
-              AND (LOWER(title) LIKE ${qPattern} OR LOWER(domain) LIKE ${qPattern} OR LOWER(COALESCE(ocr_text, '')) LIKE ${qPattern} OR candidate_pin_id LIKE ${qPattern})
-            ORDER BY saves DESC NULLS LAST, daily_velocity DESC
-            LIMIT ${limit} OFFSET ${offset};
-          `;
-        } else if (seedPinId) {
-          rows = sort === 'velocity' ? await targetSql`
-            SELECT * FROM candidate_graph_nodes
-            WHERE seed_pin_id = ${seedPinId}
-            ORDER BY daily_velocity DESC NULLS LAST, saves DESC
-            LIMIT ${limit} OFFSET ${offset};
-          ` : await targetSql`
-            SELECT * FROM candidate_graph_nodes
-            WHERE seed_pin_id = ${seedPinId}
-            ORDER BY saves DESC NULLS LAST, daily_velocity DESC
-            LIMIT ${limit} OFFSET ${offset};
-          `;
-        } else if (query) {
-          const qPattern = `%${query.toLowerCase()}%`;
-          rows = sort === 'velocity' ? await targetSql`
-            SELECT * FROM candidate_graph_nodes
-            WHERE LOWER(title) LIKE ${qPattern} OR LOWER(domain) LIKE ${qPattern} OR LOWER(COALESCE(ocr_text, '')) LIKE ${qPattern} OR candidate_pin_id LIKE ${qPattern}
-            ORDER BY daily_velocity DESC NULLS LAST, saves DESC
-            LIMIT ${limit} OFFSET ${offset};
-          ` : await targetSql`
-            SELECT * FROM candidate_graph_nodes
-            WHERE LOWER(title) LIKE ${qPattern} OR LOWER(domain) LIKE ${qPattern} OR LOWER(COALESCE(ocr_text, '')) LIKE ${qPattern} OR candidate_pin_id LIKE ${qPattern}
-            ORDER BY saves DESC NULLS LAST, daily_velocity DESC
-            LIMIT ${limit} OFFSET ${offset};
-          `;
-        } else {
-          rows = sort === 'velocity' ? await targetSql`
-            SELECT * FROM candidate_graph_nodes
-            ORDER BY daily_velocity DESC NULLS LAST, saves DESC
-            LIMIT ${limit} OFFSET ${offset};
-          ` : await targetSql`
-            SELECT * FROM candidate_graph_nodes
-            ORDER BY saves DESC NULLS LAST, daily_velocity DESC
-            LIMIT ${limit} OFFSET ${offset};
-          `;
-        }
-
-        const enriched = rows.map((r) => {
-          const saves = Number(r.saves || 0);
-          const ar = Number(r.aspect_ratio || 0.56);
-          let format = 'ORGANIC PIN';
-          if (r.is_product) format = 'PRODUCT CARD';
-          else if (r.is_video) format = 'VIDEO PIN';
-          else if (ar > 1.3) format = 'IDEA PIN';
-
-          let engine = r.provenance_engine;
-          if (!engine) {
-            const age = Number(r.age_days || 180);
-            const role = r.sequence_role || '';
-            const vel = Number(r.daily_velocity || 0);
-            if (r.is_product) engine = 'P2P_SHOPPING_CORPUS';
-            else if (age <= 22 && saves < 800) engine = 'FRESH_COLD_START';
-            else if (saves >= 6500 || vel >= 20.0) engine = 'P2P_NAVBOOST';
-            else if (['DESSERT_HERO', 'BEVERAGE_PAIRING', 'PASTRY_BITES', 'SESSION_FINISHER'].includes(role) && saves >= 350) engine = 'P2P_RECGPT';
-            else if (saves >= 1200) engine = 'P2P_RANDOMWALK';
-            else engine = 'P2P_TWO_TOWER';
-          }
-
-          const velocity = Number(r.daily_velocity || 0);
-          let velocityTier = 'stagnant';
-          if (velocity >= 50) velocityTier = 'explosive';
-          else if (velocity >= 10) velocityTier = 'trending';
-
-          const prodScore = Number(r.individual_prod_score != null ? r.individual_prod_score : (r.is_product ? 203.29 : -17.58));
-          const prodSpread = Number((203.29 - prodScore).toFixed(1));
-
-          return {
-            ...r,
-            total_saves: saves,
-            total_repins: Number(r.repins || 0),
-            avg_save_rate: Number(r.save_rate || 0),
-            daily_velocity: velocity,
-            age_days: Number(r.age_days || 1),
-            age_display: formatAge(r.age_days),
-            velocity_tier: velocityTier,
-            individual_prod_score: prodScore,
-            prod_spread: prodSpread,
-            sequence_role: r.sequence_role || 'DIRECT_MATCH',
-            recgpt_transition_score: Number(r.recgpt_transition_score || 0),
-            is_recgpt_candidate: Boolean(r.is_recgpt_candidate),
-            culinary_color_name: getCulinaryColorName(r.dominant_color),
-            winning_color: r.dominant_color || '#888888',
-            format_type: format,
-            is_vacuum_target: !r.is_product && saves >= 5000,
-            engine_source: engine,
-            image_url: r.image_url || '',
-            is_video: Boolean(r.is_video),
-            ingestion_method: r.ingestion_method || 'uploaded'
-          };
+        const cacheKey = buildCanonicalCacheKey(`candidates:${shardKey}`, {
+          seed_pin_id: seedPinId,
+          limit,
+          offset,
+          q: query,
+          sort
         });
 
-        return jsonResponse(enriched);
+        const enriched = await getCachedOrFetch(cacheKey, async () => {
+          let rows;
+          if (seedPinId && query) {
+            const qPattern = `%${query.toLowerCase()}%`;
+            rows = sort === 'velocity' ? await targetSql`
+              SELECT * FROM candidate_graph_nodes
+              WHERE seed_pin_id = ${seedPinId}
+                AND (LOWER(title) LIKE ${qPattern} OR LOWER(domain) LIKE ${qPattern} OR LOWER(COALESCE(ocr_text, '')) LIKE ${qPattern} OR candidate_pin_id LIKE ${qPattern})
+              ORDER BY daily_velocity DESC NULLS LAST, saves DESC
+              LIMIT ${limit} OFFSET ${offset};
+            ` : await targetSql`
+              SELECT * FROM candidate_graph_nodes
+              WHERE seed_pin_id = ${seedPinId}
+                AND (LOWER(title) LIKE ${qPattern} OR LOWER(domain) LIKE ${qPattern} OR LOWER(COALESCE(ocr_text, '')) LIKE ${qPattern} OR candidate_pin_id LIKE ${qPattern})
+              ORDER BY saves DESC NULLS LAST, daily_velocity DESC
+              LIMIT ${limit} OFFSET ${offset};
+            `;
+          } else if (seedPinId) {
+            rows = sort === 'velocity' ? await targetSql`
+              SELECT * FROM candidate_graph_nodes
+              WHERE seed_pin_id = ${seedPinId}
+              ORDER BY daily_velocity DESC NULLS LAST, saves DESC
+              LIMIT ${limit} OFFSET ${offset};
+            ` : await targetSql`
+              SELECT * FROM candidate_graph_nodes
+              WHERE seed_pin_id = ${seedPinId}
+              ORDER BY saves DESC NULLS LAST, daily_velocity DESC
+              LIMIT ${limit} OFFSET ${offset};
+            `;
+          } else if (query) {
+            const qPattern = `%${query.toLowerCase()}%`;
+            rows = sort === 'velocity' ? await targetSql`
+              SELECT * FROM candidate_graph_nodes
+              WHERE LOWER(title) LIKE ${qPattern} OR LOWER(domain) LIKE ${qPattern} OR LOWER(COALESCE(ocr_text, '')) LIKE ${qPattern} OR candidate_pin_id LIKE ${qPattern}
+              ORDER BY daily_velocity DESC NULLS LAST, saves DESC
+              LIMIT ${limit} OFFSET ${offset};
+            ` : await targetSql`
+              SELECT * FROM candidate_graph_nodes
+              WHERE LOWER(title) LIKE ${qPattern} OR LOWER(domain) LIKE ${qPattern} OR LOWER(COALESCE(ocr_text, '')) LIKE ${qPattern} OR candidate_pin_id LIKE ${qPattern}
+              ORDER BY saves DESC NULLS LAST, daily_velocity DESC
+              LIMIT ${limit} OFFSET ${offset};
+            `;
+          } else {
+            rows = sort === 'velocity' ? await targetSql`
+              SELECT * FROM candidate_graph_nodes
+              ORDER BY daily_velocity DESC NULLS LAST, saves DESC
+              LIMIT ${limit} OFFSET ${offset};
+            ` : await targetSql`
+              SELECT * FROM candidate_graph_nodes
+              ORDER BY saves DESC NULLS LAST, daily_velocity DESC
+              LIMIT ${limit} OFFSET ${offset};
+            `;
+          }
+
+          return rows.map((r) => {
+            const saves = Number(r.saves || 0);
+            const ar = Number(r.aspect_ratio || 0.56);
+            let format = 'ORGANIC PIN';
+            if (r.is_product) format = 'PRODUCT CARD';
+            else if (r.is_video) format = 'VIDEO PIN';
+            else if (ar > 1.3) format = 'IDEA PIN';
+
+            let engine = r.provenance_engine;
+            if (!engine) {
+              const age = Number(r.age_days || 180);
+              const role = r.sequence_role || '';
+              const vel = Number(r.daily_velocity || 0);
+              if (r.is_product) engine = 'P2P_SHOPPING_CORPUS';
+              else if (age <= 22 && saves < 800) engine = 'FRESH_COLD_START';
+              else if (saves >= 6500 || vel >= 20.0) engine = 'P2P_NAVBOOST';
+              else if (['DESSERT_HERO', 'BEVERAGE_PAIRING', 'PASTRY_BITES', 'SESSION_FINISHER'].includes(role) && saves >= 350) engine = 'P2P_RECGPT';
+              else if (saves >= 1200) engine = 'P2P_RANDOMWALK';
+              else engine = 'P2P_TWO_TOWER';
+            }
+
+            const velocity = Number(r.daily_velocity || 0);
+            let velocityTier = 'stagnant';
+            if (velocity >= 50) velocityTier = 'explosive';
+            else if (velocity >= 10) velocityTier = 'trending';
+
+            const prodScore = Number(r.individual_prod_score != null ? r.individual_prod_score : (r.is_product ? 203.29 : -17.58));
+            const prodSpread = Number((203.29 - prodScore).toFixed(1));
+
+            return {
+              ...r,
+              total_saves: saves,
+              total_repins: Number(r.repins || 0),
+              avg_save_rate: Number(r.save_rate || 0),
+              daily_velocity: velocity,
+              age_days: Number(r.age_days || 1),
+              age_display: formatAge(r.age_days),
+              velocity_tier: velocityTier,
+              individual_prod_score: prodScore,
+              prod_spread: prodSpread,
+              sequence_role: r.sequence_role || 'DIRECT_MATCH',
+              recgpt_transition_score: Number(r.recgpt_transition_score || 0),
+              is_recgpt_candidate: Boolean(r.is_recgpt_candidate),
+              culinary_color_name: getCulinaryColorName(r.dominant_color),
+              winning_color: r.dominant_color || '#888888',
+              format_type: format,
+              is_vacuum_target: !r.is_product && saves >= 5000,
+              engine_source: engine,
+              image_url: r.image_url || '',
+              is_video: Boolean(r.is_video),
+              ingestion_method: r.ingestion_method || 'uploaded'
+            };
+          });
+        }, 8000, 30000);
+
+        return jsonResponse(enriched, 200, 8);
       }
 
       // 6. GET /api/recgpt-playbook
@@ -1405,17 +1495,35 @@ export default {
 
       // 15. Competitor Intelligence API
       if (method === 'GET' && pathname === '/api/competitors') {
-        const overview = await getCompetitorsOverview(targetSql);
-        const competitors = await listCompetitors(targetSql, {
-          account_type: searchParams.get('account_type') || 'all',
-          search: searchParams.get('search') || '',
-          limit: Number(searchParams.get('limit') || 50),
-          offset: Number(searchParams.get('offset') || 0)
+        const shardKey = reqProjectId || 'hub';
+        const account_type = searchParams.get('account_type') || 'all';
+        const search = searchParams.get('search') || '';
+        const limit = Number(searchParams.get('limit') || 50);
+        const offset = Number(searchParams.get('offset') || 0);
+
+        const cacheKey = buildCanonicalCacheKey(`competitors:${shardKey}`, {
+          account_type,
+          search,
+          limit,
+          offset
         });
-        return jsonResponse({ success: true, overview, competitors });
+
+        const data = await getCachedOrFetch(cacheKey, async () => {
+          const overview = await getCompetitorsOverview(targetSql);
+          const competitors = await listCompetitors(targetSql, {
+            account_type,
+            search,
+            limit,
+            offset
+          });
+          return { overview, competitors };
+        }, 8000, 30000);
+
+        return jsonResponse({ success: true, ...data }, 200, 8);
       }
 
       if (method === 'POST' && pathname === '/api/competitors') {
+        invalidateEdgeCache('competitors');
         const body = await request.json().catch(() => ({}));
         const row = await trackCompetitor(targetSql, body);
         if (row?.username) {
@@ -1437,6 +1545,7 @@ export default {
       }
 
       if (method === 'DELETE' && pathname === '/api/competitors') {
+        invalidateEdgeCache('competitors');
         let id = searchParams.get('id');
         let username = searchParams.get('username');
         if (!id && !username) {
@@ -1783,15 +1892,30 @@ export default {
 
       // 16. Keyword Velocity Tracker API
       if (method === 'GET' && pathname === '/api/keywords') {
-        const keywords = await listKeywords(targetSql, {
-          search: searchParams.get('search') || '',
-          limit: Number(searchParams.get('limit') || 50),
-          offset: Number(searchParams.get('offset') || 0)
+        const shardKey = reqProjectId || 'hub';
+        const search = searchParams.get('search') || '';
+        const limit = Number(searchParams.get('limit') || 50);
+        const offset = Number(searchParams.get('offset') || 0);
+
+        const cacheKey = buildCanonicalCacheKey(`keywords:${shardKey}`, {
+          search,
+          limit,
+          offset
         });
-        return jsonResponse({ success: true, keywords });
+
+        const keywords = await getCachedOrFetch(cacheKey, async () => {
+          return await listKeywords(targetSql, {
+            search,
+            limit,
+            offset
+          });
+        }, 8000, 30000);
+
+        return jsonResponse({ success: true, keywords }, 200, 8);
       }
 
       if (method === 'POST' && pathname === '/api/keywords') {
+        invalidateEdgeCache('keywords');
         const body = await request.json().catch(() => ({}));
         const row = await addKeyword(targetSql, body);
         return jsonResponse({ success: true, keyword: row });
@@ -1807,6 +1931,7 @@ export default {
       }
 
       if (method === 'POST' && pathname === '/api/keywords/sync') {
+        invalidateEdgeCache('keywords');
         const body = await request.json().catch(() => ({}));
         let keywordId = Number(body.keyword_id);
         const slug = body.slug || body.keyword;
@@ -1822,6 +1947,7 @@ export default {
       }
 
       if (method === 'DELETE' && pathname === '/api/keywords') {
+        invalidateEdgeCache('keywords');
         let id = searchParams.get('id');
         let keyword = searchParams.get('keyword');
         if (!id && !keyword) {
@@ -2085,17 +2211,20 @@ export default {
 
       // 17. Neon Multi-Project Fleet API
       if (method === 'GET' && pathname === '/api/fleet/projects') {
-        const projects = await getFleetProjects(sql);
-        return jsonResponse({ success: true, projects });
+        const cacheKey = 'fleet_projects';
+        const projects = await getCachedOrFetch(cacheKey, () => getFleetProjects(sql), 10000, 30000);
+        return jsonResponse({ success: true, projects }, 200, 10);
       }
 
       if (method === 'POST' && pathname === '/api/fleet/projects') {
+        invalidateEdgeCache('fleet_projects');
         const body = await request.json().catch(() => ({}));
         const row = await registerNewProject(sql, body);
         return jsonResponse({ success: true, project: row });
       }
 
       if (method === 'POST' && pathname === '/api/fleet/sync') {
+        invalidateEdgeCache('fleet_projects');
         const body = await request.json().catch(() => ({}));
         const targetProj = body?.project_id || searchParams.get('project_id');
         const syncRes = await syncFleetDatabases(sql, { targetProjectId: targetProj });

@@ -104,15 +104,16 @@ export async function fetchPinterestTrends(term, country = 'US', force = false) 
       // 2. Fetch related terms for comparison and related sparklines
       const relatedUrl = `https://trends.pinterest.com/related_terms/?requestTerm=${encodeURIComponent(cleanTerm)}&country=${country}`;
 
-      // Concurrent fetch: Trends curve + Related terms + Official Interest Volume + Live Official Demographics
+      // Concurrent fetch: Trends curve + Related terms + Official Interest Volume + Live Official Demographics + Official Collage Images
       const today = new Date().toISOString().slice(0, 10);
       const demoUrl = `https://trends.pinterest.com/demographics/?terms=${encodeURIComponent(cleanTerm)}&country=${country}&end_date=${today}&days=365`;
 
-      const [prefixRes, relatedRes, interestData, demoRes] = await Promise.allSettled([
+      const [prefixRes, relatedRes, interestData, demoRes, collageList] = await Promise.allSettled([
         fetch(prefixUrl, { headers, signal: AbortSignal.timeout(7000) }),
         fetch(relatedUrl, { headers, signal: AbortSignal.timeout(7000) }),
         fetchPinterestInterestVolume(cleanTerm),
-        fetch(demoUrl, { headers, signal: AbortSignal.timeout(7000) })
+        fetch(demoUrl, { headers, signal: AbortSignal.timeout(7000) }),
+        fetchPinterestTrendsCollage(cleanTerm, country)
       ]);
 
       let primaryCounts = [];
@@ -270,7 +271,8 @@ export async function fetchPinterestTrends(term, country = 'US', force = false) 
         ideas_pivots: interestInfo?.ideas_pivots || [],
         feed_update_time: interestInfo?.feed_update_time || null,
         related_trends: relatedTrends,
-        demographics
+        demographics,
+        collage_images: (collageList.status === 'fulfilled' && Array.isArray(collageList.value)) ? collageList.value : []
       };
 
       // Manage cache size
@@ -296,6 +298,49 @@ export async function fetchPinterestTrends(term, country = 'US', force = false) 
 }
 
 /**
+ * Fetch official Pinterest Trends popular pins collage images (9 images)
+ * Queries https://trends.pinterest.com/term_images/ with 474x resolution
+ */
+export async function fetchPinterestTrendsCollage(term, country = 'US') {
+  const cleanTerm = String(term || '').trim().toLowerCase();
+  if (!cleanTerm) return [];
+
+  const token = 'a68e7fb21890c174dc09e3f509aa3115';
+  const headers = {
+    'content-type': 'application/json',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+    'Referer': 'https://trends.pinterest.com/',
+    'x-new-site': 'true',
+    'x-csrftoken': token,
+    'Cookie': `csrftoken=${token}`
+  };
+
+  const payload = {
+    terms: [cleanTerm],
+    country: country || 'US',
+    cacheTtlInSeconds: 86400,
+    limit: 9,
+    batchSize: 20,
+    requestImageSize: '474x'
+  };
+
+  try {
+    const res = await fetch('https://trends.pinterest.com/term_images/', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(7000)
+    });
+    if (!res.ok) return [];
+    const json = await res.json();
+    return Array.isArray(json[cleanTerm]) ? json[cleanTerm] : [];
+  } catch (err) {
+    console.warn(`[fetchPinterestTrendsCollage] Failed for "${cleanTerm}":`, err.message);
+    return [];
+  }
+}
+
+/**
  * Fetch Popular Pins associated with a Pinterest Trend / Keyword
  * Queries Pinterest unauthenticated search resource and caches results into tracked_keywords.popular_pins
  */
@@ -313,7 +358,8 @@ export async function fetchPinterestTrendsPopularPins(sql, term, country = 'US',
         LIMIT 1;
       `;
       if (kw && Array.isArray(kw.popular_pins) && kw.popular_pins.length > 0) {
-        return { success: true, term: cleanTerm, popular_pins: kw.popular_pins, cached: true };
+        const collageImages = await fetchPinterestTrendsCollage(cleanTerm, country);
+        return { success: true, term: cleanTerm, popular_pins: kw.popular_pins, collage_images: collageImages, cached: true };
       }
     } catch (_) {}
   }
@@ -371,7 +417,8 @@ export async function fetchPinterestTrendsPopularPins(sql, term, country = 'US',
       } catch (_) {}
     }
 
-    return { success: true, term: cleanTerm, popular_pins: popularPins, cached: false };
+    const collageImages = await fetchPinterestTrendsCollage(cleanTerm, country);
+    return { success: true, term: cleanTerm, popular_pins: popularPins, collage_images: collageImages, cached: false };
   } catch (err) {
     return { success: false, error: err.message };
   }
