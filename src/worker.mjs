@@ -1903,6 +1903,17 @@ export default {
         const term = searchParams.get('term') || searchParams.get('q') || searchParams.get('keyword') || '';
         const country = searchParams.get('country') || 'US';
         const result = await fetchPinterestTrends(term, country);
+        if (result && result.success && targetSql && term) {
+          try {
+            const clean = term.trim().toLowerCase();
+            const [kw] = await targetSql`
+              SELECT popular_pins FROM tracked_keywords WHERE LOWER(keyword) = ${clean} LIMIT 1;
+            `;
+            if (kw && Array.isArray(kw.popular_pins) && kw.popular_pins.length > 0) {
+              result.popular_pins = kw.popular_pins;
+            }
+          } catch (_) {}
+        }
         return jsonResponse(result, result.success ? 200 : 400);
       }
 

@@ -2062,7 +2062,9 @@ export async function getPinDeepDossier(sql, pinId, keywordId = null) {
     last_archived_at: displacedRow?.last_checked_at || latestSnapshot?.created_at || new Date().toISOString(),
     image_signature: displacedRow?.image_signature || `sig_${cleanPin.slice(-8)}`,
     canonical_id: cleanPin,
-    annotations: Array.isArray(annotations) ? annotations.map(a => typeof a === 'string' ? { name: a } : a) : [],
+    annotations: Array.isArray(annotations)
+      ? annotations.map(a => typeof a === 'string' ? a : (a?.name || a?.label || a?.display_label || a?.term || a?.title || '')).filter(Boolean)
+      : [],
     kpis: {
       total_saves: saves,
       repins,

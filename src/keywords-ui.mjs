@@ -2166,7 +2166,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
             </div>
 
             <div class="flex flex-wrap gap-1.5">
-              <template x-for="tag in ((dossierData?.annotations && dossierData.annotations.length > 0) ? dossierData.annotations : (activeInspectorPin?.metadata?.visual_annotations || []))" :key="tag">
+              <template x-for="tag in getInspectorAnnotations()" :key="tag">
                 <button @click="copyToClipboard(tag, 'Copied keyword: ' + tag)"
                         class="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-800 dark:text-slate-200 hover:text-purple-500 transition cursor-pointer flex items-center space-x-1"
                         :title="'Click to copy keyword: ' + tag">
@@ -2917,7 +2917,10 @@ export function getKeywordsPageHtml(initialSlug = '') {
               (p.domain || '').toLowerCase().includes(q) ||
               (p.metadata?.pinner?.username || '').toLowerCase().includes(q) ||
               (p.metadata?.pinner?.full_name || '').toLowerCase().includes(q) ||
-              (p.metadata?.visual_annotations || []).some(t => t.toLowerCase().includes(q))
+              (p.metadata?.visual_annotations || []).some(t => {
+                const s = typeof t === 'string' ? t : (t?.name || t?.label || t?.term || '');
+                return s.toLowerCase().includes(q);
+              })
             );
           }
           if (this.pinSort === 'velocity') {
@@ -3143,12 +3146,25 @@ export function getKeywordsPageHtml(initialSlug = '') {
           if (!term) return;
           this.isTrendsLoading = true;
           try {
-            const res = await fetch(this.getApiUrl('/api/keywords/trends?term=' + encodeURIComponent(term)));
-            if (res.ok) {
-              const data = await res.json();
-              if (data.success) {
-                this.trendsData = data;
+            const [trendsRes, popularRes] = await Promise.allSettled([
+              fetch(this.getApiUrl('/api/keywords/trends?term=' + encodeURIComponent(term))),
+              fetch(this.getApiUrl('/api/keywords/trends/popular-pins?term=' + encodeURIComponent(term)))
+            ]);
+
+            let merged = {};
+            if (trendsRes.status === 'fulfilled' && trendsRes.value.ok) {
+              const tData = await trendsRes.value.json();
+              if (tData.success) merged = { ...tData };
+            }
+            if (popularRes.status === 'fulfilled' && popularRes.value.ok) {
+              const pData = await popularRes.value.json();
+              if (pData.success && Array.isArray(pData.popular_pins) && pData.popular_pins.length > 0) {
+                merged.popular_pins = pData.popular_pins;
               }
+            }
+
+            if (Object.keys(merged).length > 0) {
+              this.trendsData = { ...(this.trendsData || {}), ...merged };
             }
           } catch (_) {} finally {
             this.isTrendsLoading = false;
@@ -3361,8 +3377,21 @@ export function getKeywordsPageHtml(initialSlug = '') {
           }
         },
 
+        getInspectorAnnotations() {
+          const raw = (this.dossierData?.annotations && this.dossierData.annotations.length > 0)
+            ? this.dossierData.annotations
+            : (this.activeInspectorPin?.metadata?.visual_annotations || []);
+          return (raw || []).map(t => {
+            if (typeof t === 'string') return t;
+            if (t && typeof t === 'object') {
+              return t.name || t.label || t.display_label || t.term || t.title || '';
+            }
+            return String(t || '');
+          }).filter(Boolean);
+        },
+
         copyAllInspectorTags() {
-          const tags = this.activeInspectorPin?.metadata?.visual_annotations || [];
+          const tags = this.getInspectorAnnotations();
           if (tags.length === 0) return;
           this.copyToClipboard(tags.join(', '), 'Copied ' + tags.length + ' Annotated Interests!');
         },
