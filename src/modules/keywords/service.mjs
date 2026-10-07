@@ -1892,23 +1892,23 @@ export async function getPinPerformanceTrajectory(sql, keywordId, pinId, range =
   } else {
     if (intervalDays) {
       snapshots = await sql`
-        SELECT 
+        SELECT DISTINCT ON (snapshot_date)
           id, keyword_id, pin_id, rank_position, title, domain, destination_url, image_url,
           save_count, repin_count, comment_count, share_count, reaction_count,
           daily_save_velocity, snapshot_date, is_displaced, metadata, created_at
         FROM keyword_pins_snapshots
         WHERE pin_id = ${cleanPin} AND snapshot_date >= CURRENT_DATE - (${intervalDays} || ' days')::interval
-        ORDER BY snapshot_date ASC;
+        ORDER BY snapshot_date ASC, created_at DESC;
       `;
     } else {
       snapshots = await sql`
-        SELECT 
+        SELECT DISTINCT ON (snapshot_date)
           id, keyword_id, pin_id, rank_position, title, domain, destination_url, image_url,
           save_count, repin_count, comment_count, share_count, reaction_count,
           daily_save_velocity, snapshot_date, is_displaced, metadata, created_at
         FROM keyword_pins_snapshots
         WHERE pin_id = ${cleanPin}
-        ORDER BY snapshot_date ASC;
+        ORDER BY snapshot_date ASC, created_at DESC;
       `;
     }
   }
@@ -1926,11 +1926,11 @@ export async function getPinPerformanceTrajectory(sql, keywordId, pinId, range =
     const first = snapshots[0];
     const last = snapshots[snapshots.length - 1];
     netGrowth = {
-      saves: Math.max(0, Number(last.save_count || 0) - Number(first.save_count || 0)),
-      repins: Math.max(0, Number(last.repin_count || 0) - Number(first.repin_count || 0)),
-      comments: Math.max(0, Number(last.comment_count || 0) - Number(first.comment_count || 0)),
-      shares: Math.max(0, Number(last.share_count || 0) - Number(first.share_count || 0)),
-      reactions: Math.max(0, Number(last.reaction_count || 0) - Number(first.reaction_count || 0))
+      saves: Number(last.save_count || 0) - Number(first.save_count || 0),
+      repins: Number(last.repin_count || 0) - Number(first.repin_count || 0),
+      comments: Number(last.comment_count || 0) - Number(first.comment_count || 0),
+      shares: Number(last.share_count || 0) - Number(first.share_count || 0),
+      reactions: Number(last.reaction_count || 0) - Number(first.reaction_count || 0)
     };
   }
 

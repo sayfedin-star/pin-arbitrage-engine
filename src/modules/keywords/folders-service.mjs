@@ -936,7 +936,8 @@ export async function calculateFolderCrossover(sql, folderId) {
         if (sLen === 52) {
           for (let i = 0; i < 52; i++) {
             const pt = series[i];
-            const val = Number(typeof pt === 'object' && pt !== null ? (pt.value ?? pt.normalized_interest ?? 0) : pt || 0);
+            const rawVal = Number(typeof pt === 'object' && pt !== null ? (pt.value ?? pt.normalized_interest ?? 0) : pt || 0);
+            const val = Number.isFinite(rawVal) ? rawVal : 0;
             compositeWeeklyWave[i] += val;
           }
         } else {
@@ -948,8 +949,10 @@ export async function calculateFolderCrossover(sql, folderId) {
             const frac = srcIdx - i0;
             const pt0 = series[i0];
             const pt1 = series[i1];
-            const v0 = Number(typeof pt0 === 'object' && pt0 !== null ? (pt0.value ?? pt0.normalized_interest ?? 0) : pt0 || 0);
-            const v1 = Number(typeof pt1 === 'object' && pt1 !== null ? (pt1.value ?? pt1.normalized_interest ?? 0) : pt1 || 0);
+            const raw0 = Number(typeof pt0 === 'object' && pt0 !== null ? (pt0.value ?? pt0.normalized_interest ?? 0) : pt0 || 0);
+            const raw1 = Number(typeof pt1 === 'object' && pt1 !== null ? (pt1.value ?? pt1.normalized_interest ?? 0) : pt1 || 0);
+            const v0 = Number.isFinite(raw0) ? raw0 : 0;
+            const v1 = Number.isFinite(raw1) ? raw1 : 0;
             compositeWeeklyWave[w] += Math.round(v0 * (1 - frac) + v1 * frac);
           }
         }

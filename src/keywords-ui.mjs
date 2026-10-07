@@ -2340,10 +2340,12 @@ export function getKeywordsPageHtml(initialSlug = '') {
                 <div class="flex items-center justify-between text-xs font-mono">
                   <span class="font-bold text-slate-700 dark:text-slate-300">Σ Total Net Growth:</span>
                   <div class="flex items-center space-x-3 text-[11px]">
-                    <span class="text-rose-500 font-bold" x-text="'+' + formatNumber(trajectoryData.net_growth.saves) + ' Saves'"></span>
-                    <span class="text-blue-500 font-bold" x-text="'+' + formatNumber(trajectoryData.net_growth.repins) + ' Repins'"></span>
-                    <span class="text-slate-400" x-text="'+' + trajectoryData.net_growth.comments + ' Comments'"></span>
-                    <span class="text-slate-400" x-text="'+' + trajectoryData.net_growth.shares + ' Shares'"></span>
+                    <span :class="trajectoryData.net_growth.saves >= 0 ? 'text-rose-500 font-bold' : 'text-rose-400/80 font-bold'"
+                          x-text="(trajectoryData.net_growth.saves >= 0 ? '+' : '-') + formatNumber(Math.abs(trajectoryData.net_growth.saves)) + ' Saves'"></span>
+                    <span :class="trajectoryData.net_growth.repins >= 0 ? 'text-blue-500 font-bold' : 'text-blue-400/80 font-bold'"
+                          x-text="(trajectoryData.net_growth.repins >= 0 ? '+' : '-') + formatNumber(Math.abs(trajectoryData.net_growth.repins)) + ' Repins'"></span>
+                    <span class="text-slate-400" x-text="(trajectoryData.net_growth.comments >= 0 ? '+' : '-') + Math.abs(trajectoryData.net_growth.comments) + ' Comments'"></span>
+                    <span class="text-slate-400" x-text="(trajectoryData.net_growth.shares >= 0 ? '+' : '-') + Math.abs(trajectoryData.net_growth.shares) + ' Shares'"></span>
                   </div>
                 </div>
               </div>
@@ -3266,6 +3268,10 @@ export function getKeywordsPageHtml(initialSlug = '') {
             return { isEmpty: true, isSingle: false, savesLine: '', savesArea: '', repinsLine: '', savesMax: 0, repinsMax: 0, points: [] };
           }
           if (snapshots.length === 1) {
+            const rawS0 = Number(snapshots[0].save_count);
+            const rawR0 = Number(snapshots[0].repin_count);
+            const s0Save = Number.isFinite(rawS0) ? rawS0 : 0;
+            const s0Repin = Number.isFinite(rawR0) ? rawR0 : 0;
             return {
               isEmpty: false,
               isSingle: true,
@@ -3273,20 +3279,26 @@ export function getKeywordsPageHtml(initialSlug = '') {
                 x: (width / 2).toFixed(1), 
                 y: (height / 2).toFixed(1), 
                 date: snapshots[0].snapshot_date, 
-                saves: snapshots[0].save_count, 
-                repins: snapshots[0].repin_count 
+                saves: s0Save, 
+                repins: s0Repin 
               },
               savesLine: '',
               savesArea: '',
               repinsLine: '',
-              savesMax: Number(snapshots[0].save_count || 0),
-              repinsMax: Number(snapshots[0].repin_count || 0),
+              savesMax: s0Save,
+              repinsMax: s0Repin,
               points: []
             };
           }
 
-          const savesVals = snapshots.map(s => Number(s.save_count || 0));
-          const repinsVals = snapshots.map(s => Number(s.repin_count || 0));
+          const savesVals = snapshots.map(s => {
+            const v = Number(s.save_count);
+            return Number.isFinite(v) ? v : 0;
+          });
+          const repinsVals = snapshots.map(s => {
+            const v = Number(s.repin_count);
+            return Number.isFinite(v) ? v : 0;
+          });
           const savesMin = Math.min(...savesVals);
           const savesMax = Math.max(...savesVals, savesMin + 1);
           const savesRange = (savesMax - savesMin) || 1;
@@ -3298,9 +3310,11 @@ export function getKeywordsPageHtml(initialSlug = '') {
           const step = width / (snapshots.length - 1);
           const points = snapshots.map((s, i) => {
             const x = (i * step).toFixed(1);
-            const saveY = (height - 30 - ((Number(s.save_count || 0) - savesMin) / savesRange) * (height - 60)).toFixed(1);
-            const repinY = (height - 30 - ((Number(s.repin_count || 0) - repinsMin) / repinsRange) * (height - 60)).toFixed(1);
-            return { x, saveY, repinY, date: s.snapshot_date, saves: s.save_count, repins: s.repin_count };
+            const sVal = Number.isFinite(Number(s.save_count)) ? Number(s.save_count) : 0;
+            const rVal = Number.isFinite(Number(s.repin_count)) ? Number(s.repin_count) : 0;
+            const saveY = (height - 30 - ((sVal - savesMin) / savesRange) * (height - 60)).toFixed(1);
+            const repinY = (height - 30 - ((rVal - repinsMin) / repinsRange) * (height - 60)).toFixed(1);
+            return { x, saveY, repinY, date: s.snapshot_date, saves: sVal, repins: rVal };
           });
 
           const savesLine = points.map((p, i) => (i === 0 ? 'M' : 'L') + ' ' + p.x + ' ' + p.saveY).join(' ');
@@ -3465,11 +3479,37 @@ export function getKeywordsPageHtml(initialSlug = '') {
         },
 
         copyToClipboard(text, msg = 'Copied to clipboard!') {
-          navigator.clipboard.writeText(text).then(() => {
-            this.showToast(msg, 'success');
-          }).catch(() => {
-            this.showToast('Failed to copy', 'error');
-          });
+          const cleanText = String(text || '').trim();
+          if (!cleanText) return;
+          if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+            navigator.clipboard.writeText(cleanText).then(() => {
+              this.showToast(msg, 'success');
+            }).catch(() => {
+              this.fallbackCopyText(cleanText, msg);
+            });
+          } else {
+            this.fallbackCopyText(cleanText, msg);
+          }
+        },
+
+        fallbackCopyText(text, msg) {
+          try {
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.position = 'fixed';
+            ta.style.opacity = '0';
+            document.body.appendChild(ta);
+            ta.select();
+            const successful = document.execCommand('copy');
+            document.body.removeChild(ta);
+            if (successful) {
+              this.showToast(msg, 'success');
+            } else {
+              this.showToast('Please copy manually', 'warning');
+            }
+          } catch (_) {
+            this.showToast('Copy not supported on this device', 'error');
+          }
         },
 
         copySEOFormula() {

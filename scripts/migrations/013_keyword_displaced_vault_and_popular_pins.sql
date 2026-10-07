@@ -20,6 +20,9 @@ ALTER COLUMN pin_id TYPE VARCHAR(255);
 CREATE INDEX IF NOT EXISTS idx_kps_displaced_lookup 
 ON keyword_pins_snapshots(keyword_id, pin_id, snapshot_date ASC);
 
+CREATE INDEX IF NOT EXISTS idx_kps_displaced 
+ON keyword_pins_snapshots(keyword_id, is_displaced);
+
 CREATE INDEX IF NOT EXISTS idx_kps_active_serp 
 ON keyword_pins_snapshots(keyword_id, snapshot_date DESC) 
 WHERE is_displaced IS FALSE;

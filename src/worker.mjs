@@ -282,6 +282,19 @@ export default {
           }
         } catch (_) {}
       }
+
+      // Resilient Shard Fallback: If shard connection drops or errors, seamlessly execute on Hub
+      if (targetSql !== sql) {
+        const shardInstance = targetSql;
+        targetSql = new Proxy(shardInstance, {
+          apply(target, thisArg, argArray) {
+            return Reflect.apply(target, thisArg, argArray).catch(err => {
+              console.warn(`[Shard Resilience Fallback] Shard execution failed (${err.message}). Seamlessly failing over to Hub database.`);
+              return Reflect.apply(sql, thisArg, argArray);
+            });
+          }
+        });
+      }
     }
 
     try {
