@@ -83,7 +83,57 @@ import {
   deletePinMetricSnapshot
 } from './modules/pinarchive/service.mjs';
 
+// Zero-Trust Security & Credential Redaction Sanitizer
+export function redactSecrets(str) {
+  if (!str || typeof str !== 'string') return '';
+  return str
+    .replace(/(postgres(?:ql)?:\/\/[^:]+:)([^@]+)(@)/gi, '$1[REDACTED_PASSWORD]$3')
+    .replace(/(Bearer\s+)[A-Za-z0-9_.-]{12,}/gi, '$1[REDACTED_TOKEN]')
+    .replace(/(gh[pousr]_[A-Za-z0-9_]{20,})/gi, '[REDACTED_GH_TOKEN]')
+    .replace(/(github_pat_[A-Za-z0-9_]{20,})/gi, '[REDACTED_GH_PAT]')
+    .replace(/([?&](?:password|token|secret|apiKey)=)[^&]+/gi, '$1[REDACTED]');
+}
+
+// Timing-Safe Constant-Time String Comparison (Defends against byte-by-byte timing attacks)
+export function timingSafeEqualStr(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  let mismatch = a.length === b.length ? 0 : 1;
+  const maxLen = Math.max(a.length, b.length);
+  for (let i = 0; i < maxLen; i++) {
+    const charA = i < a.length ? a.charCodeAt(i) : 0;
+    const charB = i < b.length ? b.charCodeAt(i) : 0;
+    mismatch |= (charA ^ charB);
+  }
+  return mismatch === 0;
+}
+
+// Bounded Background Task Execution Guard for Cloudflare Worker Isolate Lifecycle
+export function safeWaitUntil(ctx, promise, taskName = 'bg_task', timeoutMs = 25000) {
+  if (!promise || typeof promise.then !== 'function') return;
+  let timer;
+  const timeoutPromise = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`Background task "${taskName}" timed out after ${timeoutMs}ms`)), timeoutMs);
+  });
+  const guardedPromise = Promise.race([promise, timeoutPromise])
+    .catch(err => {
+      console.error(`[safeWaitUntil] Error in background task "${taskName}":`, redactSecrets(err.message));
+    })
+    .finally(() => {
+      clearTimeout(timer);
+    });
+
+  if (ctx && typeof ctx.waitUntil === 'function') {
+    ctx.waitUntil(guardedPromise);
+  }
+}
+
 function jsonResponse(data, status = 200, cacheSeconds = 0) {
+  // Automatically sanitize any error payloads before sending over the wire
+  if (data && typeof data === 'object') {
+    if (typeof data.error === 'string') data.error = redactSecrets(data.error);
+    if (typeof data.message === 'string') data.message = redactSecrets(data.message);
+  }
+
   const headers = {
     'Content-Type': 'application/json; charset=utf-8',
     'Access-Control-Allow-Origin': '*',
@@ -257,6 +307,10 @@ export function invalidateEdgeCache(prefix = '') {
   }
 }
 
+// Adaptive Bulkhead Isolation for Central Hub Protection (Anti-Cascading Meltdown)
+let activeHubFallbacks = 0;
+const MAX_CONCURRENT_HUB_FALLBACKS = 6;
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -377,10 +431,20 @@ export default {
           apply(target, thisArg, argArray) {
             return Reflect.apply(target, thisArg, argArray).catch(err => {
               if (isReadOperation) {
-                console.warn(`[Shard Read Fallback] Shard read query failed (${err.message}). Safely degrading to Hub database.`);
-                return Reflect.apply(sql, thisArg, argArray);
+                // Adaptive Bulkhead: Shed requests if Hub fallback is saturated to prevent Cascading Hub Meltdown
+                if (activeHubFallbacks >= MAX_CONCURRENT_HUB_FALLBACKS) {
+                  console.warn(`[Bulkhead Protection] Hub fallback saturated (${activeHubFallbacks}/${MAX_CONCURRENT_HUB_FALLBACKS} in-flight). Shedding query with fast 503.`);
+                  const shedError = new Error('Central database fallback is temporarily saturated (Bulkhead Protection). Please retry shortly.');
+                  shedError.status = 503;
+                  throw shedError;
+                }
+                activeHubFallbacks++;
+                console.warn(`[Shard Read Fallback] Shard read query failed (${redactSecrets(err.message)}). Safely degrading to Hub (Bulkhead: ${activeHubFallbacks}/${MAX_CONCURRENT_HUB_FALLBACKS}).`);
+                return Reflect.apply(sql, thisArg, argArray).finally(() => {
+                  activeHubFallbacks--;
+                });
               }
-              console.error(`[Split-Brain Guard] Write mutation rejected because shard is unreachable (${err.message}).`);
+              console.error(`[Split-Brain Guard] Write mutation rejected because shard is unreachable (${redactSecrets(err.message)}).`);
               const splitBrainError = new Error(`Shard database '${cleanKey}' is temporarily unreachable. Write mutation rejected to prevent split-brain desynchronization.`);
               splitBrainError.status = 503;
               throw splitBrainError;
@@ -1527,7 +1591,7 @@ export default {
         const body = await request.json().catch(() => ({}));
         const row = await trackCompetitor(targetSql, body);
         if (row?.username) {
-          syncCompetitorAcrossFleet(sql, row.username).catch(() => {});
+          safeWaitUntil(ctx, syncCompetitorAcrossFleet(sql, row.username), 'syncCompetitorAcrossFleet');
         }
         return jsonResponse({ success: true, competitor: row });
       }
@@ -1539,7 +1603,7 @@ export default {
         const cookie = env.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env.PINTEREST_COOKIE : null);
         const updated = await syncCompetitorProfile(targetSql, username, cookie);
         if (updated?.username) {
-          syncCompetitorAcrossFleet(sql, updated.username).catch(() => {});
+          safeWaitUntil(ctx, syncCompetitorAcrossFleet(sql, updated.username), 'syncCompetitorAcrossFleet');
         }
         return jsonResponse({ success: true, profile: updated });
       }

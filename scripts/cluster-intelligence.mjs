@@ -492,7 +492,10 @@ export function parsePinCandidate(pin, seedPinId, parentEntity = null, utilityWe
     // When Pinterest omits creation date, estimate ~6 months to avoid saves/1 velocity spike
     pinCreatedAt = new Date(Date.now() - (180 * 86400000)).toISOString();
   }
-  const dailyVelocity = Number((saves / ageDays).toFixed(2));
+
+  // Statistical Clamping: limit daily velocity to 1000 saves/day to eliminate artificial bot surges
+  const rawVelocity = Number((saves / ageDays).toFixed(2));
+  const dailyVelocity = Math.min(rawVelocity, 1000.0);
 
   // Authentic media and origin properties from raw Pinterest entity
   const imageUrl = cleanString(

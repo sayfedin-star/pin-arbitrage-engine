@@ -37,6 +37,19 @@ const VISUAL_CACHE_MAX = 500;
 const VISUAL_TTL_MS = 15 * 60 * 1000;
 
 /**
+ * Statistical Winsorization for Outlier Suppression (Bot Spike & Anomaly Protection)
+ * Caps extreme outliers above the upperPercentile (default 95th percentile) to prevent
+ * single-pin bot surges from skewing aggregate velocity and SEO scores.
+ */
+export function winsorize(values, upperPercentile = 0.95) {
+  if (!Array.isArray(values) || values.length === 0) return [];
+  const sorted = [...values].sort((a, b) => a - b);
+  const cutoffIndex = Math.floor(sorted.length * upperPercentile);
+  const cutoffValue = sorted[Math.min(cutoffIndex, sorted.length - 1)];
+  return values.map(v => Math.min(v, cutoffValue));
+}
+
+/**
  * Safely extracts clean string title from raw Pinterest items,
  * preventing JSON format objects (e.g. {"args":[],"format":"..."}) from corrupting pin titles.
  * Traverses all Pinterest title variants, descriptions, link slugs, and visual annotations.
@@ -840,6 +853,7 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
     let rank = 1;
     let topPin = null;
     let totalVelocity = 0;
+    const pinVelocities = [];
     let climbedCount = 0;
     let droppedCount = 0;
     let stableCount = 0;
@@ -926,6 +940,9 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
         velocity = Math.max(0, saves - immediateData.saves);
       }
 
+      // Sanity bound to protect against malicious bot-farm spikes
+      velocity = Math.min(velocity, 25000);
+      pinVelocities.push(velocity);
       totalVelocity += velocity;
 
       // Classify pin format & aspect ratio (PinArchive Parity)
@@ -1097,7 +1114,10 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
     }
 
     const crawledCount = rank - 1;
-    const avgVelocity = crawledCount > 0 ? Number((totalVelocity / crawledCount).toFixed(2)) : 0;
+    // Statistical Winsorization (95th percentile upper clamp) to eliminate bot-farm metric distortion
+    const robustVelocities = winsorize(pinVelocities, 0.95);
+    const robustTotalVelocity = robustVelocities.reduce((acc, v) => acc + v, 0);
+    const avgVelocity = crawledCount > 0 ? Number((robustTotalVelocity / crawledCount).toFixed(2)) : 0;
 
     // Track 14-day historical daily average velocity points for trend sparklines
     const prevHistory = Array.isArray(keywordRow.metadata?.velocity_history) ? [...keywordRow.metadata.velocity_history] : [];

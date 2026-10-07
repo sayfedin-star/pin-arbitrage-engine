@@ -430,8 +430,10 @@ export function formatPin(pin) {
 /**
  * Extract pin data from raw HTML using 8-stage fallback hierarchy.
  */
-export function extractPinData(html, pinId) {
-  if (!html || typeof html !== 'string') return null;
+export function extractPinData(rawHtml, pinId) {
+  if (!rawHtml || typeof rawHtml !== 'string') return null;
+  // Bounded buffer length to eliminate Catastrophic Backtracking (ReDoS) on oversized payloads
+  const html = rawHtml.length > 2000000 ? rawHtml.slice(0, 2000000) : rawHtml;
 
   // 1. Modern Relay Completed Request Calls (__PWS_RELAY_REGISTER_COMPLETED_REQUEST__)
   const relayRegex = /__PWS_RELAY_REGISTER_COMPLETED_REQUEST__\s*\(([^,]+),\s*(\{[\s\S]*?\})\);/g;
