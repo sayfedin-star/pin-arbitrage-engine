@@ -1173,11 +1173,11 @@ export function getKeywordsPageHtml(initialSlug = '') {
                 <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-3 gap-4">
                   <template x-for="(imgUrl, idx) in (trendsData?.collage_images || []).filter(Boolean)" :key="idx">
                     <div class="group relative rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 hover:border-blue-500/50 shadow-xs hover:shadow-md transition duration-300 overflow-hidden flex flex-col justify-between cursor-pointer"
-                         @click="window.open((imgUrl || '').replace(/\/(236|474)x\//, '/736x/'), '_blank')">
+                         @click="window.open((imgUrl || '').replace('/236x/', '/736x/').replace('/474x/', '/736x/'), '_blank')">
                       
                       <!-- Full Pin Image Container with fixed 2:3 aspect ratio -->
                       <div class="relative w-full aspect-[2/3] bg-slate-100 dark:bg-slate-950/80 flex items-center justify-center overflow-hidden p-2">
-                        <img :src="(imgUrl || '').replace(/\/(236|474)x\//, '/736x/')"
+                        <img :src="(imgUrl || '').replace('/236x/', '/736x/').replace('/474x/', '/736x/')"
                              :alt="'Pin #' + (idx + 1)"
                              class="w-full h-full object-contain rounded-xl group-hover:scale-[1.02] transition duration-300"
                              loading="lazy"
@@ -1250,7 +1250,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
                   <div class="grid grid-cols-5 h-full w-full gap-[3px] bg-slate-200 dark:bg-slate-800">
                     <!-- Column 1: Full Height Image A[0] -->
                     <div class="relative h-full w-full overflow-hidden bg-slate-300 dark:bg-slate-700">
-                      <img :src="(trendsData.collage_images[0] || '').replace(/\/(236|474)x\//, '/736x/')"
+                      <img :src="(trendsData.collage_images[0] || '').replace('/236x/', '/736x/').replace('/474x/', '/736x/')"
                            class="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition duration-300"
                            loading="lazy"
                            referrerpolicy="no-referrer"
@@ -1260,14 +1260,14 @@ export function getKeywordsPageHtml(initialSlug = '') {
                     <!-- Column 2: Stacked A[7] (Top 40%) & A[8] (Bottom 60%) -->
                     <div class="h-full w-full flex flex-col gap-[3px]">
                       <div class="relative min-h-0 w-full overflow-hidden bg-slate-300 dark:bg-slate-700" style="flex: 4 1 0%;">
-                        <img :src="(trendsData.collage_images[7] || trendsData.collage_images[1] || '').replace(/\/(236|474)x\//, '/736x/')"
+                        <img :src="(trendsData.collage_images[7] || trendsData.collage_images[1] || '').replace('/236x/', '/736x/').replace('/474x/', '/736x/')"
                              class="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition duration-300"
                              loading="lazy"
                              referrerpolicy="no-referrer"
                              @error="if ($el.src.includes('/736x/')) { $el.src = $el.src.replace('/736x/', '/474x/'); } else if ($el.src.includes('/474x/')) { $el.src = $el.src.replace('/474x/', '/236x/'); }">
                       </div>
                       <div class="relative min-h-0 w-full overflow-hidden bg-slate-300 dark:bg-slate-700" style="flex: 6 1 0%;">
-                        <img :src="(trendsData.collage_images[8] || trendsData.collage_images[2] || '').replace(/\/(236|474)x\//, '/736x/')"
+                        <img :src="(trendsData.collage_images[8] || trendsData.collage_images[2] || '').replace('/236x/', '/736x/').replace('/474x/', '/736x/')"
                              class="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition duration-300"
                              loading="lazy"
                              referrerpolicy="no-referrer"
@@ -1278,14 +1278,14 @@ export function getKeywordsPageHtml(initialSlug = '') {
                     <!-- Column 3: Stacked A[5] (Top 40%) & A[6] (Bottom 60%) -->
                     <div class="h-full w-full flex flex-col gap-[3px]">
                       <div class="relative min-h-0 w-full overflow-hidden bg-slate-300 dark:bg-slate-700" style="flex: 4 1 0%;">
-                        <img :src="(trendsData.collage_images[5] || trendsData.collage_images[3] || '').replace(/\/(236|474)x\//, '/736x/')"
+                        <img :src="(trendsData.collage_images[5] || trendsData.collage_images[3] || '').replace('/236x/', '/736x/').replace('/474x/', '/736x/')"
                              class="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition duration-300"
                              loading="lazy"
                              referrerpolicy="no-referrer"
                              @error="if ($el.src.includes('/736x/')) { $el.src = $el.src.replace('/736x/', '/474x/'); } else if ($el.src.includes('/474x/')) { $el.src = $el.src.replace('/474x/', '/236x/'); }">
                       </div>
                       <div class="relative min-h-0 w-full overflow-hidden bg-slate-300 dark:bg-slate-700" style="flex: 6 1 0%;">
-                        <img :src="(trendsData.collage_images[6] || trendsData.collage_images[4] || '').replace(/\/(236|474)x\//, '/736x/')"
+                        <img :src="(trendsData.collage_images[6] || trendsData.collage_images[4] || '').replace('/236x/', '/736x/').replace('/474x/', '/736x/')"
                              class="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition duration-300"
                              loading="lazy"
                              referrerpolicy="no-referrer"
@@ -1296,14 +1296,14 @@ export function getKeywordsPageHtml(initialSlug = '') {
                     <!-- Column 4: Stacked A[3] (Top 60%) & A[4] (Bottom 40%) -->
                     <div class="h-full w-full flex flex-col gap-[3px]">
                       <div class="relative min-h-0 w-full overflow-hidden bg-slate-300 dark:bg-slate-700" style="flex: 6 1 0%;">
-                        <img :src="(trendsData.collage_images[3] || trendsData.collage_images[1] || '').replace(/\/(236|474)x\//, '/736x/')"
+                        <img :src="(trendsData.collage_images[3] || trendsData.collage_images[1] || '').replace('/236x/', '/736x/').replace('/474x/', '/736x/')"
                              class="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition duration-300"
                              loading="lazy"
                              referrerpolicy="no-referrer"
                              @error="if ($el.src.includes('/736x/')) { $el.src = $el.src.replace('/736x/', '/474x/'); } else if ($el.src.includes('/474x/')) { $el.src = $el.src.replace('/474x/', '/236x/'); }">
                       </div>
                       <div class="relative min-h-0 w-full overflow-hidden bg-slate-300 dark:bg-slate-700" style="flex: 4 1 0%;">
-                        <img :src="(trendsData.collage_images[4] || trendsData.collage_images[2] || '').replace(/\/(236|474)x\//, '/736x/')"
+                        <img :src="(trendsData.collage_images[4] || trendsData.collage_images[2] || '').replace('/236x/', '/736x/').replace('/474x/', '/736x/')"
                              class="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition duration-300"
                              loading="lazy"
                              referrerpolicy="no-referrer"
@@ -1314,14 +1314,14 @@ export function getKeywordsPageHtml(initialSlug = '') {
                     <!-- Column 5: Stacked A[1] (Top 40%) & A[2] (Bottom 60%) -->
                     <div class="h-full w-full flex flex-col gap-[3px]">
                       <div class="relative min-h-0 w-full overflow-hidden bg-slate-300 dark:bg-slate-700" style="flex: 4 1 0%;">
-                        <img :src="(trendsData.collage_images[1] || trendsData.collage_images[0] || '').replace(/\/(236|474)x\//, '/736x/')"
+                        <img :src="(trendsData.collage_images[1] || trendsData.collage_images[0] || '').replace('/236x/', '/736x/').replace('/474x/', '/736x/')"
                              class="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition duration-300"
                              loading="lazy"
                              referrerpolicy="no-referrer"
                              @error="if ($el.src.includes('/736x/')) { $el.src = $el.src.replace('/736x/', '/474x/'); } else if ($el.src.includes('/474x/')) { $el.src = $el.src.replace('/474x/', '/236x/'); }">
                       </div>
                       <div class="relative min-h-0 w-full overflow-hidden bg-slate-300 dark:bg-slate-700" style="flex: 6 1 0%;">
-                        <img :src="(trendsData.collage_images[2] || trendsData.collage_images[0] || '').replace(/\/(236|474)x\//, '/736x/')"
+                        <img :src="(trendsData.collage_images[2] || trendsData.collage_images[0] || '').replace('/236x/', '/736x/').replace('/474x/', '/736x/')"
                              class="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition duration-300"
                              loading="lazy"
                              referrerpolicy="no-referrer"
