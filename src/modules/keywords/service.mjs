@@ -725,8 +725,12 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
     let bookmark = null;
     let page = 1;
     let rawGuides = [];
+    const seenPagingIds = new Set();
+    let organicPinsCollected = 0;
 
-    while (rawResults.length < targetCount && page <= 3) {
+    // Deep pagination: Allow up to 8 pages to guarantee achieving targetCount (100 pins)
+    // even when subsequent pages return fewer results (20-25 items per page)
+    while (organicPinsCollected < targetCount && page <= 8) {
       const optionsObj = {
         query: decodeURIComponent(query),
         scope: 'pins',
@@ -772,14 +776,29 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
         if (pageItems.length === 0) break;
         rawResults = rawResults.concat(pageItems);
 
-        const nextBookmark = data?.resource_response?.bookmark;
+        for (const it of pageItems) {
+          if (it && it.id && it.type === 'pin' && it.format !== 'Related Interests' && it.format !== 'board' && !it.is_promoted) {
+            const pid = String(it.id);
+            if (!seenPagingIds.has(pid)) {
+              seenPagingIds.add(pid);
+              organicPinsCollected++;
+            }
+          }
+        }
+
+        // Robust multi-path bookmark resolution
+        const nextBookmark = data?.resource_response?.bookmark ||
+          (Array.isArray(data?.resource_response?.bookmarks) ? data.resource_response.bookmarks[0] : null) ||
+          data?.resource_response?.data?.bookmark ||
+          null;
+
         if (!nextBookmark || nextBookmark === '-end-' || nextBookmark === bookmark) {
           break;
         }
         bookmark = nextBookmark;
         page++;
 
-        if (rawResults.length < targetCount) {
+        if (organicPinsCollected < targetCount) {
           await new Promise(r => setTimeout(r, 600 + Math.floor(Math.random() * 400)));
         }
       } finally {
@@ -1054,15 +1073,61 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
       rank++;
     }
 
-    // SHADOW-BAN & EMPTY CRAWL CIRCUIT BREAKER:
-    // If Pinterest returned an abnormally low pin count (< 5) while this keyword historically had active rankings (immediateSnapshots >= 10),
-    // suspect a shadow-ban, challenge page, or empty response.
-    // NEVER falsely evict healthy active pins into the Displaced Vault under an aborted or blocked crawl!
-    const droppedOutList = [];
-    const isSuspectedShadowBan = preparedPins.length < 5 && immediateSnapshots.length >= 10;
+    // Enrich top 5 ranking pins with verified live deep metrics via fetchPinFromPinterest
+    const topToEnrich = preparedPins.slice(0, 5);
+    if (topToEnrich.length > 0) {
+      await Promise.allSettled(topToEnrich.map(async (p, idx) => {
+        try {
+          const detail = await fetchPinFromPinterest(p.pin_id, cookie);
+          const scraped = detail?.pin || detail;
+          if (scraped && (scraped.saves || scraped.save_count || scraped.repins || scraped.repin_count)) {
+            const enrichedSaves = Number(scraped.saves ?? scraped.save_count ?? p.save_count);
+            const enrichedRepins = Number(scraped.repins ?? scraped.repin_count ?? p.repin_count);
+            const enrichedComments = Number(scraped.comments ?? scraped.comment_count ?? p.comment_count);
+            const enrichedShares = Number(scraped.shares ?? scraped.share_count ?? 0);
 
-    if (isSuspectedShadowBan) {
-      console.warn(`[Circuit Breaker] Suspected shadow-ban or empty SERP response for keyword "${keywordRow.keyword}" (got ${preparedPins.length} pins vs ${immediateSnapshots.length} prior). Preserving rankings, skipping eviction.`);
+            p.save_count = enrichedSaves;
+            p.repin_count = enrichedRepins;
+            p.comment_count = enrichedComments;
+            if (p.metadata) {
+              p.metadata.raw_saves = enrichedSaves;
+              p.metadata.share_count = enrichedShares;
+              if (scraped.description && (!p.metadata.description || p.metadata.description.length < scraped.description.length)) {
+                p.metadata.description = String(scraped.description).slice(0, 500);
+              }
+              if (scraped.alt_text || scraped.seo_alt_text) {
+                p.metadata.alt_text = scraped.alt_text || scraped.seo_alt_text;
+              }
+            }
+
+            // Recalculate daily save velocity against baseline if saves updated
+            const baseSaves = baselineMap.get(p.pin_id);
+            if (baseSaves !== undefined && baseSaves !== null) {
+              const newVel = Math.min(25000, Math.max(0, enrichedSaves - Number(baseSaves)));
+              p.daily_save_velocity = newVel;
+              pinVelocities[idx] = newVel;
+              if (p.metadata) {
+                p.metadata.prev_save_count = baseSaves;
+                if (newVel >= 50) p.metadata.velocity_tier = 'explosive';
+                else if (newVel >= 10) p.metadata.velocity_tier = 'trending';
+                else if (newVel > 0) p.metadata.velocity_tier = 'steady';
+                else p.metadata.velocity_tier = 'stagnant';
+              }
+            }
+          }
+        } catch (_) {
+          // Fail-safe: keep BaseSearchResource fallback metrics if enrichment fails
+        }
+      }));
+    }
+
+    // CIRCUIT BREAKER: Never falsely evict healthy active pins into Displaced Vault if crawl was incomplete (< 85% of target)
+    const minRequiredForEviction = Math.max(5, Math.floor(targetCount * 0.85));
+    const isSuspectedIncompleteCrawl = preparedPins.length < minRequiredForEviction && immediateSnapshots.length >= 10;
+    const droppedOutList = [];
+
+    if (isSuspectedIncompleteCrawl) {
+      console.warn(`[Circuit Breaker] Suspected incomplete SERP crawl for keyword "${keywordRow.keyword}" (got ${preparedPins.length} pins vs ${immediateSnapshots.length} prior, target ${targetCount}). Preserving rankings, skipping eviction.`);
     } else {
       for (const s of immediateSnapshots) {
         const pid = String(s.pin_id);
@@ -1503,6 +1568,9 @@ export async function getKeywordSERPComparison(sql, keywordId) {
   // Algorithmic StaticRank & Semantic Vacuum SERP Intelligence
   const intelligence = calculateKeywordIntelligenceSummary(currentPins);
 
+  const totalVelocity = sparklinePoints.reduce((acc, v) => acc + (Number(v) || 0), 0);
+  const avgVelocity = sparklinePoints.length > 0 ? Number((totalVelocity / sparklinePoints.length).toFixed(2)) : 0;
+
   return {
     status: 'active',
     keyword,
@@ -1512,6 +1580,7 @@ export async function getKeywordSERPComparison(sql, keywordId) {
     dropped_out_pins: droppedOutPins,
     guides,
     intelligence,
+    avg_velocity: avgVelocity,
     velocity_chart: {
       points: sparklinePoints,
       explosive: explosiveCount,
@@ -1827,24 +1896,62 @@ export async function getKeywordDisplacedPins(sql, keywordId, options = {}) {
   let rows = [];
   if (status && status !== 'ALL') {
     rows = await sql`
-      SELECT *
-      FROM keyword_displaced_pins
-      WHERE keyword_id = ${kid} AND status = ${status}
-      ORDER BY vacuum_opportunity_score DESC, last_known_rank ASC
+      SELECT 
+        dp.*,
+        COALESCE(NULLIF(dp.current_saves, 0), snap.save_count, 0) AS save_count,
+        COALESCE(NULLIF(dp.current_repins, 0), snap.repin_count, 0) AS repin_count,
+        COALESCE(NULLIF(dp.current_comments, 0), snap.comment_count, 0) AS comment_count,
+        COALESCE(NULLIF(dp.current_shares, 0), snap.share_count, 0) AS share_count,
+        COALESCE(NULLIF(dp.daily_save_velocity, 0), snap.daily_save_velocity, 0) AS calculated_velocity
+      FROM keyword_displaced_pins dp
+      LEFT JOIN LATERAL (
+        SELECT save_count, repin_count, comment_count, share_count, daily_save_velocity
+        FROM keyword_pins_snapshots
+        WHERE pin_id = dp.pin_id AND keyword_id = dp.keyword_id AND (save_count > 0 OR repin_count > 0)
+        ORDER BY snapshot_date DESC, created_at DESC
+        LIMIT 1
+      ) snap ON true
+      WHERE dp.keyword_id = ${kid} AND dp.status = ${status}
+      ORDER BY dp.vacuum_opportunity_score DESC, dp.last_known_rank ASC
       LIMIT ${lim} OFFSET ${off};
     `;
   } else {
     rows = await sql`
-      SELECT *
-      FROM keyword_displaced_pins
-      WHERE keyword_id = ${kid}
-      ORDER BY vacuum_opportunity_score DESC, last_known_rank ASC
+      SELECT 
+        dp.*,
+        COALESCE(NULLIF(dp.current_saves, 0), snap.save_count, 0) AS save_count,
+        COALESCE(NULLIF(dp.current_repins, 0), snap.repin_count, 0) AS repin_count,
+        COALESCE(NULLIF(dp.current_comments, 0), snap.comment_count, 0) AS comment_count,
+        COALESCE(NULLIF(dp.current_shares, 0), snap.share_count, 0) AS share_count,
+        COALESCE(NULLIF(dp.daily_save_velocity, 0), snap.daily_save_velocity, 0) AS calculated_velocity
+      FROM keyword_displaced_pins dp
+      LEFT JOIN LATERAL (
+        SELECT save_count, repin_count, comment_count, share_count, daily_save_velocity
+        FROM keyword_pins_snapshots
+        WHERE pin_id = dp.pin_id AND keyword_id = dp.keyword_id AND (save_count > 0 OR repin_count > 0)
+        ORDER BY snapshot_date DESC, created_at DESC
+        LIMIT 1
+      ) snap ON true
+      WHERE dp.keyword_id = ${kid}
+      ORDER BY dp.vacuum_opportunity_score DESC, dp.last_known_rank ASC
       LIMIT ${lim} OFFSET ${off};
     `;
   }
 
   // Calculate live deltas and vacuum opportunity score for each pin
   for (const pin of rows) {
+    pin.save_count = Number(pin.save_count || pin.current_saves || 0);
+    pin.repin_count = Number(pin.repin_count || pin.current_repins || 0);
+    pin.comment_count = Number(pin.comment_count || pin.current_comments || 0);
+    pin.share_count = Number(pin.share_count || pin.current_shares || 0);
+    if (!pin.daily_save_velocity || pin.daily_save_velocity === 0) {
+      pin.daily_save_velocity = Number(pin.calculated_velocity || 0);
+    }
+    pin.current_saves = pin.save_count;
+    pin.current_repins = pin.repin_count;
+    pin.current_comments = pin.comment_count;
+    pin.current_shares = pin.share_count;
+
     if (!pin.vacuum_opportunity_score || pin.vacuum_opportunity_score === 0) {
       let rankScore = 10;
       const rank = Number(pin.last_known_rank || 100);
@@ -2014,9 +2121,10 @@ export async function getPinDeepDossier(sql, pinId, keywordId = null) {
     latestSnapshot = sRow;
   }
 
-  // 3. If seo_alt_text is missing, do an on-demand scrape with jitter
+  // 3. If seo_alt_text or deep metrics are missing, do an on-demand scrape with jitter
   let scraped = null;
-  const needsScrape = !displacedRow?.seo_alt_text && !latestSnapshot?.metadata?.alt_text;
+  const needsScrape = (!displacedRow?.seo_alt_text && !latestSnapshot?.metadata?.alt_text) ||
+                      (Number(displacedRow?.current_saves || 0) === 0 && Number(latestSnapshot?.save_count || 0) <= 5);
   if (needsScrape) {
     try {
       const pinResult = await fetchPinFromPinterest(cleanPin);
@@ -2040,6 +2148,36 @@ export async function getPinDeepDossier(sql, pinId, keywordId = null) {
             WHERE id = ${displacedRow.id};
           `.catch(() => {});
         }
+
+        // Also persist verified metrics to keyword_pins_snapshots so SERP views reflect authentic numbers
+        if (latestSnapshot) {
+          await sql`
+            UPDATE keyword_pins_snapshots SET
+              save_count = GREATEST(save_count, ${Number(scraped.saves || 0)}),
+              repin_count = GREATEST(repin_count, ${Number(scraped.repins || 0)}),
+              comment_count = GREATEST(comment_count, ${Number(scraped.comments || 0)}),
+              metadata = jsonb_set(
+                jsonb_set(metadata, '{alt_text}', ${JSON.stringify(scraped.alt_text || scraped.seo_alt_text || '')}::jsonb, true),
+                '{share_count}', ${JSON.stringify(Number(scraped.share_count || 0))}::jsonb, true
+              )
+            WHERE pin_id = ${cleanPin}
+              ${kid ? sql`AND keyword_id = ${kid}` : sql``};
+          `.catch(() => {});
+        }
+        if (scraped) {
+          if (displacedRow) {
+            displacedRow.current_saves = Math.max(Number(displacedRow.current_saves || 0), Number(scraped.saves || 0));
+            displacedRow.current_repins = Math.max(Number(displacedRow.current_repins || 0), Number(scraped.repins || 0));
+            displacedRow.current_comments = Math.max(Number(displacedRow.current_comments || 0), Number(scraped.comments || 0));
+            displacedRow.current_shares = Math.max(Number(displacedRow.current_shares || 0), Number(scraped.share_count || 0));
+            displacedRow.seo_alt_text = scraped.alt_text || scraped.seo_alt_text || displacedRow.seo_alt_text;
+          }
+          if (latestSnapshot) {
+            latestSnapshot.save_count = Math.max(Number(latestSnapshot.save_count || 0), Number(scraped.saves || 0));
+            latestSnapshot.repin_count = Math.max(Number(latestSnapshot.repin_count || 0), Number(scraped.repins || 0));
+            latestSnapshot.comment_count = Math.max(Number(latestSnapshot.comment_count || 0), Number(scraped.comments || 0));
+          }
+        }
       }
     } catch (err) {
       console.warn(`[getPinDeepDossier] On-demand scrape warning for ${cleanPin}:`, err.message);
@@ -2058,11 +2196,11 @@ export async function getPinDeepDossier(sql, pinId, keywordId = null) {
   
   const dominantColor = displacedRow?.dominant_color || scraped?.dominant_color || latestSnapshot?.metadata?.dominant_color || '#b47732';
   const createdAt = displacedRow?.created_at_pinterest || scraped?.created_at_pinterest || latestSnapshot?.metadata?.created_at || null;
-  const saves = Number(displacedRow?.current_saves || scraped?.saves || latestSnapshot?.save_count || 0);
-  const repins = Number(displacedRow?.current_repins || scraped?.repins || latestSnapshot?.repin_count || 0);
-  const comments = Number(displacedRow?.current_comments || scraped?.comments || latestSnapshot?.comment_count || 0);
-  const shares = Number(displacedRow?.current_shares || scraped?.share_count || latestSnapshot?.share_count || 0);
-  const reactions = Number(displacedRow?.current_reactions || (typeof scraped?.reactions === 'object' ? Object.values(scraped.reactions).reduce((a, b) => a + Number(b || 0), 0) : 0) || latestSnapshot?.reaction_count || 0);
+  const saves = Math.max(Number(scraped?.saves || 0), Number(displacedRow?.current_saves || 0), Number(latestSnapshot?.save_count || 0));
+  const repins = Math.max(Number(scraped?.repins || 0), Number(displacedRow?.current_repins || 0), Number(latestSnapshot?.repin_count || 0));
+  const comments = Math.max(Number(scraped?.comments || 0), Number(displacedRow?.current_comments || 0), Number(latestSnapshot?.comment_count || 0));
+  const shares = Math.max(Number(scraped?.share_count || 0), Number(displacedRow?.current_shares || 0), Number(latestSnapshot?.share_count || 0));
+  const reactions = Math.max(Number(displacedRow?.current_reactions || 0), (typeof scraped?.reactions === 'object' ? Object.values(scraped.reactions).reduce((a, b) => a + Number(b || 0), 0) : 0), Number(latestSnapshot?.reaction_count || 0));
   const velocity = Number(displacedRow?.daily_save_velocity || latestSnapshot?.daily_save_velocity || 0);
 
   return {

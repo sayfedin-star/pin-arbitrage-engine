@@ -1629,7 +1629,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
                     <!-- Saves & Growth Pace Delta -->
                     <td class="py-3.5 px-3 space-y-0.5 font-mono">
                       <div class="font-bold text-slate-900 dark:text-white"
-                           x-text="formatNumber(pin.save_count || 0)"></div>
+                           x-text="formatNumber(pin.save_count ?? pin.current_saves ?? 0)"></div>
                       <template x-if="getPaceDelta(pin, 'saves') && getPaceDelta(pin, 'saves') !== '0'">
                         <span class="text-[10px] font-bold text-emerald-500 block"
                               x-text="getPaceDelta(pin, 'saves')"></span>
@@ -1639,7 +1639,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
                     <!-- Repins & Growth Pace Delta -->
                     <td class="py-3.5 px-3 space-y-0.5 font-mono">
                       <div class="font-bold text-slate-700 dark:text-slate-300"
-                           x-text="formatNumber(pin.repin_count || 0)"></div>
+                           x-text="formatNumber(pin.repin_count ?? pin.current_repins ?? 0)"></div>
                       <template x-if="getPaceDelta(pin, 'repins') && getPaceDelta(pin, 'repins') !== '0'">
                         <span class="text-[10px] font-bold text-emerald-500 block"
                               x-text="getPaceDelta(pin, 'repins')"></span>
@@ -1648,17 +1648,17 @@ export function getKeywordsPageHtml(initialSlug = '') {
 
                     <!-- Comments -->
                     <td class="py-3.5 px-2 font-mono text-slate-600 dark:text-slate-400"
-                        x-text="pin.comment_count || 0"></td>
+                        x-text="pin.comment_count ?? pin.current_comments ?? 0"></td>
 
                     <!-- Shares -->
                     <td class="py-3.5 px-2 font-mono text-slate-600 dark:text-slate-400"
-                        x-text="pin.share_count || 0"></td>
+                        x-text="pin.share_count ?? pin.current_shares ?? 0"></td>
 
                     <!-- Velocity -->
                     <td class="py-3.5 px-3 font-mono">
                       <span class="px-2 py-0.5 rounded-lg text-xs font-black block w-fit"
-                            :class="Number(pin.daily_save_velocity || 0) > 0 ? 'bg-cyan-500/15 text-cyan-600 dark:text-cyan-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'"
-                            x-text="(Number(pin.daily_save_velocity || 0) > 0 ? '+' : '') + Number(pin.daily_save_velocity || 0) + ' /d'"></span>
+                            :class="Number(pin.daily_save_velocity || pin.calculated_velocity || 0) > 0 ? 'bg-cyan-500/15 text-cyan-600 dark:text-cyan-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'"
+                            x-text="(Number(pin.daily_save_velocity || pin.calculated_velocity || 0) > 0 ? '+' : '') + Number(pin.daily_save_velocity || pin.calculated_velocity || 0) + ' /d'"></span>
                     </td>
 
                     <!-- Domain -->
@@ -1728,14 +1728,14 @@ export function getKeywordsPageHtml(initialSlug = '') {
                   <div class="flex items-center justify-between text-xs font-mono">
                     <div>
                       <span class="text-slate-400 text-[10px]">Saves:</span>
-                      <strong class="text-slate-900 dark:text-white" x-text="formatNumber(pin.save_count || 0)"></strong>
+                      <strong class="text-slate-900 dark:text-white" x-text="formatNumber(pin.save_count ?? pin.current_saves ?? 0)"></strong>
                       <template x-if="getPaceDelta(pin, 'saves') && getPaceDelta(pin, 'saves') !== '0'">
                         <span class="text-emerald-500 text-[10px] font-bold" x-text="getPaceDelta(pin, 'saves')"></span>
                       </template>
                     </div>
                     <span class="px-2 py-0.5 rounded text-[10px] font-bold font-mono"
-                          :class="Number(pin.daily_save_velocity || 0) > 0 ? 'bg-cyan-500/15 text-cyan-600 dark:text-cyan-400' : 'bg-slate-200 dark:bg-slate-800 text-slate-500'"
-                          x-text="(Number(pin.daily_save_velocity || 0) > 0 ? '+' : '') + (pin.daily_save_velocity || 0) + ' v/d'"></span>
+                          :class="Number(pin.daily_save_velocity || pin.calculated_velocity || 0) > 0 ? 'bg-cyan-500/15 text-cyan-600 dark:text-cyan-400' : 'bg-slate-200 dark:bg-slate-800 text-slate-500'"
+                          x-text="(Number(pin.daily_save_velocity || pin.calculated_velocity || 0) > 0 ? '+' : '') + (pin.daily_save_velocity || pin.calculated_velocity || 0) + ' v/d'"></span>
                   </div>
 
                   <div class="flex items-center justify-between text-[11px] text-slate-400 pt-1" @click.stop>
