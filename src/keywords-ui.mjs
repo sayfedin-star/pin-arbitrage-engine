@@ -1985,8 +1985,10 @@ export function getKeywordsPageHtml(initialSlug = '') {
                           <span class="text-[9px] font-mono font-bold text-slate-400 uppercase">Ranked Queries:</span>
                           <div class="flex flex-wrap gap-1">
                             <template x-for="r in pin.rankings" :key="r.keyword">
-                              <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/20 truncate max-w-full"
-                                    x-text="r.keyword + ' (#' + r.rank_position + ')'"></span>
+                              <template x-if="r.rank_position != null && r.rank_position >= 1">
+                                <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/20 truncate max-w-full"
+                                      x-text="r.keyword + ' (#' + r.rank_position + ')'"></span>
+                              </template>
                             </template>
                           </div>
                         </div>

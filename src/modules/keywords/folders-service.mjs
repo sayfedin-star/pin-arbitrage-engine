@@ -377,7 +377,8 @@ export function derivePinTitle(title, destinationUrl = '', keyword = '', boardNa
 
 /**
  * Robust English Lemmatizer / Stemmer for Pinterest Visual Tags & Search Capsules
- * Unifies singular/plural variants (potatoes -> potato, recipes -> recipe, bites -> bite)
+ * Robust English Lemmatizer / Stemmer for Pinterest Visual Tags & Search Capsules
+ * Unifies singular/plural variants while strictly protecting non-plural suffixes (-ous, -us, -is, -ss, -ness, -ics)
  */
 export function normalizeTagLemma(tag) {
   let t = String(tag || '').trim().toLowerCase();
@@ -390,7 +391,13 @@ export function normalizeTagLemma(tag) {
     'dishes': 'dish',
     'fries': 'fry',
     'berries': 'berry',
+    'strawberries': 'strawberry',
+    'blueberries': 'blueberry',
+    'raspberries': 'raspberry',
+    'cherries': 'cherry',
     'cookies': 'cookie',
+    'brownies': 'brownie',
+    'smoothies': 'smoothie',
     'bites': 'bite',
     'steaks': 'steak',
     'chickens': 'chicken',
@@ -406,24 +413,137 @@ export function normalizeTagLemma(tag) {
     'salads': 'salad',
     'desserts': 'dessert',
     'recipes': 'recipe',
-    'ideas': 'idea'
+    'ideas': 'idea',
+    'skillets': 'skillet',
+    'crockpots': 'crockpot',
+    'veggies': 'veggie',
+    'vegetables': 'vegetable',
+    'carrots': 'carrot',
+    'beans': 'bean',
+    'cheeses': 'cheese',
+    'pastas': 'pasta',
+    'breads': 'bread',
+    'rolls': 'roll',
+    'pies': 'pie',
+    'cakes': 'cake',
+    'muffins': 'muffin',
+    'ribs': 'rib',
+    'wings': 'wing',
+    'burgers': 'burger',
+    'sandwiches': 'sandwich',
+    'tacos': 'taco',
+    'bowls': 'bowl',
+    'pizzas': 'pizza',
+    'spices': 'spice',
+    'herbs': 'herb',
+    'dips': 'dip',
+    'leaves': 'leaf',
+    'halves': 'half',
+    'loaves': 'loaf',
+    'knives': 'knife'
   };
   if (irregulars[t]) return irregulars[t];
 
+  // Protected non-plural suffixes: do NOT strip 's' (e.g. delicious, hummus, citrus, grass)
+  if (/(ous|us|is|ss|ness|ics)$/.test(t)) {
+    return t;
+  }
+
+  // Safe plural rules
   if (t.endsWith('ies') && t.length > 5) return t.slice(0, -3) + 'y';
+  if (t.endsWith('ves') && t.length > 4) return t.slice(0, -3) + 'f';
   if (t.endsWith('es') && t.length > 4 && /(s|ch|sh|x|z)es$/.test(t)) return t.slice(0, -2);
   if (t.endsWith('s') && !t.endsWith('ss') && t.length > 3) return t.slice(0, -1);
   return t;
 }
 
-const STOPWORDS = new Set([
-  'the', 'a', 'an', 'and', 'or', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by',
-  'how', 'make', 'best', 'easy', 'quick', 'delicious', 'simple',
-  'homemade', 'top', 'ideas', 'idea', 'pin', 'pins', 'this', 'that', 'from', 'your', 'my', 'untitled',
-  'minute', 'minutes', 'hour', 'hours', 'day', 'days', 'week', 'weeks', 'year', 'years',
-  'something', 'thing', 'things', 'stuff', 'item', 'items', 'recipe', 'recipes', 'good', 'fast',
-  'every', 'ever', 'all', 'more', 'get', 'just', 'like', 'video', 'photo', 'image', 'post', 'click'
+/**
+ * Comprehensive NLP Stopwords Dictionary
+ * Excludes pronouns, auxiliaries, numbers, conversational fluff, and generic category headers
+ */
+export const STOPWORDS = new Set([
+  // Grammar, Pronouns & Determiners
+  'the', 'a', 'an', 'and', 'or', 'nor', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from',
+  'into', 'about', 'against', 'between', 'through', 'during', 'before', 'after', 'above', 'below',
+  'under', 'up', 'down', 'out', 'off', 'over', 'then', 'once', 'here', 'there', 'when', 'where',
+  'why', 'how', 'all', 'both', 'half', 'no', 'not', 'only', 'own', 'same', 'so', 'than', 'too',
+  'very', 'can', 'will', 'just', 'should', 'now', 'this', 'that', 'these', 'those', 'such',
+  'i', 'me', 'my', 'myself', 'we', 'our', 'ours', 'ourselves', 'us',
+  'you', 'your', 'yours', 'yourself', 'yourselves',
+  'he', 'him', 'his', 'himself', 'she', 'her', 'hers', 'herself',
+  'it', 'its', 'itself', 'they', 'them', 'their', 'theirs', 'themselves',
+  'what', 'which', 'who', 'whom', 'whose', 'whatever', 'whoever',
+
+  // Numbers & Quantifiers
+  'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten',
+  'first', 'second', 'third', 'single', 'double', 'triple', 'many', 'much', 'some', 'few',
+  'any', 'every', 'each', 'other', 'another', 'several', 'lot', 'lots', 'couple', 'full', 'quarter',
+
+  // Conversational Verbs & Auxiliaries
+  'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'having',
+  'do', 'does', 'did', 'doing', 'would', 'shall', 'could', 'may', 'might', 'must',
+  'make', 'makes', 'making', 'made', 'cook', 'cooks', 'cooking', 'cooked',
+  'eat', 'eats', 'eating', 'ate', 'try', 'tries', 'trying', 'tried',
+  'want', 'wants', 'need', 'needs', 'get', 'gets', 'getting', 'got',
+  'like', 'likes', 'liked', 'love', 'loves', 'loving', 'loved',
+  'see', 'look', 'watch', 'show', 'shows', 'enjoy', 'serve', 'serves',
+  'prep', 'prepare', 'use', 'uses', 'using', 'used', 'let', 'keep', 'start',
+
+  // Subjective / Evaluative / Clickbait Adjectives
+  'delicious', 'deliciou', 'delish', 'yummy', 'amazing', 'awesome', 'incredible', 'fantastic',
+  'great', 'good', 'best', 'better', 'easy', 'simple', 'quick', 'fast', 'slow', 'super',
+  'real', 'true', 'ultimate', 'perfect', 'favorite', 'favourite', 'popular', 'crazy', 'insane',
+  'tasty', 'fresh', 'hot', 'cold', 'warm', 'new', 'clean', 'budget', 'cheap', 'top', 'busy',
+  'homemade', 'special', 'secret', 'classic', 'must', 'ever',
+
+  // Generic Media, Publishing & Pinterest Metadata
+  'pin', 'pins', 'click', 'link', 'bio', 'website', 'post', 'posts', 'video', 'videos',
+  'photo', 'photos', 'image', 'images', 'pic', 'pics', 'picture', 'pictures', 'untitled',
+  'board', 'boards', 'guide', 'guides', 'blueprint', 'blueprints', 'idea', 'ideas',
+  'step', 'steps', 'way', 'ways', 'hack', 'hacks', 'tip', 'tips', 'thing', 'things',
+  'item', 'items', 'stuff', 'something', 'recipe', 'recipes',
+
+  // Time & Frequency
+  'minute', 'minutes', 'hour', 'hours', 'day', 'days', 'week', 'weeks', 'month', 'months',
+  'year', 'years', 'night', 'nights', 'morning', 'mornings', 'tonight', 'today', 'tomorrow',
+  'time', 'times', 'season', 'seasons', 'weeknight', 'weeknights',
+
+  // Broad Umbrella Containers (Non-Specific Culinary Fillers)
+  'food', 'meal', 'meals', 'dish', 'dishes', 'dinner', 'dinners', 'lunch', 'lunches',
+  'breakfast', 'friend', 'friends', 'family', 'kid', 'kids', 'crowd', 'potluck'
 ]);
+
+/**
+ * Commercial Domain Sanitizer
+ * Strips internal, placeholder, and non-external domains (e.g. 'uploaded by user', 'pinterest.com')
+ */
+const INVALID_DOMAINS = new Set([
+  'uploaded by user', 'uploaded by pinner', 'pinterest.com', 'i.pinimg.com', 
+  'pinimg.com', 'pinterest', 'null', 'undefined', 'unknown', 'none', '', 'localhost', 'direct'
+]);
+
+export function cleanExternalDomain(domainStr) {
+  if (!domainStr || typeof domainStr !== 'string') return '';
+  let d = domainStr.trim().toLowerCase();
+  
+  try {
+    if (d.startsWith('http://') || d.startsWith('https://')) {
+      d = new URL(d).hostname.toLowerCase();
+    }
+  } catch (_) {}
+
+  d = d.replace(/^www\./, '').replace(/\/.*$/, '').trim();
+
+  if (INVALID_DOMAINS.has(d)) return '';
+  if (d.includes('pinterest.') || d.includes('pinimg.') || d.includes('uploaded by')) return '';
+  
+  // Must be a valid domain: must contain a dot, no spaces, valid FQDN
+  if (!d.includes('.') || /\s/.test(d) || !/^[a-z0-9.-]+\.[a-z]{2,}$/.test(d)) {
+    return '';
+  }
+
+  return d;
+}
 
 /**
  * Helper to extract title entities / stopword-filtered n-grams
@@ -434,8 +554,9 @@ function extractTitleKeywords(title = '') {
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, ' ')
     .split(/\s+/)
+    .filter(t => t.length >= 3 && !STOPWORDS.has(t))
     .map(t => normalizeTagLemma(t))
-    .filter(t => t.length > 2 && !STOPWORDS.has(t));
+    .filter(t => t.length >= 3 && !STOPWORDS.has(t));
 
   return [...new Set(tokens)];
 }
@@ -591,6 +712,9 @@ export async function calculateFolderCrossover(sql, folderId) {
       FROM keyword_pins_snapshots s
       JOIN tracked_keywords tk ON tk.id = s.keyword_id
       WHERE s.keyword_id = ANY(${keywordIds})
+        AND s.rank_position IS NOT NULL
+        AND s.rank_position >= 1
+        AND (s.is_displaced IS FALSE OR s.is_displaced IS NULL)
     )
     SELECT *
     FROM ranked_snaps
@@ -622,6 +746,11 @@ export async function calculateFolderCrossover(sql, folderId) {
   for (const row of pinRows) {
     const pid = String(row.pin_id).trim();
     if (!pid) continue;
+
+    const rankNum = Number(row.rank_position);
+    if (!Number.isFinite(rankNum) || rankNum < 1 || row.is_displaced === true) {
+      continue;
+    }
 
     if (!pinMap.has(pid)) {
       const meta = typeof row.metadata === 'object' && row.metadata !== null ? row.metadata : {};
@@ -657,8 +786,8 @@ export async function calculateFolderCrossover(sql, folderId) {
     pinRecord.rankings.push({
       keyword_id: row.keyword_id,
       keyword: row.keyword_text,
-      rank_position: row.rank_position,
-      daily_save_velocity: row.daily_save_velocity,
+      rank_position: rankNum,
+      daily_save_velocity: Number(row.daily_save_velocity || 0),
       snapshot_date: row.snapshot_date
     });
   }
@@ -667,16 +796,16 @@ export async function calculateFolderCrossover(sql, folderId) {
   for (const p of allPins) {
     p.overlap_count = p.rankings.length;
     p.overlap_percentage = Math.round((p.overlap_count / totalKeywords) * 100);
-    p.is_super_pin = p.overlap_count >= 2;
-    p.min_rank = Math.min(...p.rankings.map(r => r.rank_position));
-    p.avg_rank = Number((p.rankings.reduce((sum, r) => sum + r.rank_position, 0) / p.rankings.length).toFixed(1));
+    p.is_super_pin = p.overlap_count >= 2 && p.rankings.every(r => Number.isFinite(r.rank_position) && r.rank_position >= 1);
+    p.min_rank = p.rankings.length > 0 ? Math.min(...p.rankings.map(r => r.rank_position)) : 1;
+    p.avg_rank = p.rankings.length > 0 ? Number((p.rankings.reduce((sum, r) => sum + r.rank_position, 0) / p.rankings.length).toFixed(1)) : 1;
     // Sort rankings by rank position ASC
     p.rankings.sort((a, b) => a.rank_position - b.rank_position);
   }
 
-  // Super Pins: multi-ranking first, sorted by overlap_count DESC, save_count DESC
+  // Super Pins: Strictly confirmed multi-ranking pins (rank >= 1 across >= 2 keywords)
   const superPins = allPins
-    .filter(p => p.overlap_count >= (totalKeywords > 1 ? 2 : 1))
+    .filter(p => p.overlap_count >= (totalKeywords > 1 ? 2 : 1) && p.rankings.length >= (totalKeywords > 1 ? 2 : 1) && p.rankings.every(r => r.rank_position >= 1))
     .sort((a, b) => {
       if (b.overlap_count !== a.overlap_count) {
         return b.overlap_count - a.overlap_count;
@@ -696,11 +825,13 @@ export async function calculateFolderCrossover(sql, folderId) {
 
   for (const pin of allPins) {
     const rawTags = new Set();
-    // 1. From visual annotations
+    // 1. From visual annotations (Pinterest Computer Vision labels)
     for (const va of pin.visual_annotations) {
-      if (typeof va === 'string' && va.trim().length > 1) {
-        const lemma = normalizeTagLemma(va);
-        if (lemma && lemma.length > 2 && !STOPWORDS.has(lemma)) {
+      if (typeof va === 'string' && va.trim().length >= 3) {
+        const cleanVa = va.trim().toLowerCase();
+        if (STOPWORDS.has(cleanVa)) continue;
+        const lemma = normalizeTagLemma(cleanVa);
+        if (lemma && lemma.length >= 3 && !STOPWORDS.has(lemma)) {
           rawTags.add(lemma);
         }
       }
@@ -708,13 +839,15 @@ export async function calculateFolderCrossover(sql, folderId) {
     // 2. From title entities (already lemmatized and stopword-filtered)
     const titleTokens = extractTitleKeywords(pin.title);
     for (const tt of titleTokens) {
-      rawTags.add(tt);
+      if (tt && tt.length >= 3 && !STOPWORDS.has(tt.toLowerCase())) {
+        rawTags.add(tt);
+      }
     }
 
     const pinKeywords = pin.rankings.map(r => r.keyword);
 
     for (const t of rawTags) {
-      if (!t || t.length < 3) continue;
+      if (!t || t.length < 3 || STOPWORDS.has(t.toLowerCase())) continue;
       if (!tagMap.has(t)) {
         tagMap.set(t, {
           tag: t,
@@ -833,9 +966,9 @@ export async function calculateFolderCrossover(sql, folderId) {
   const creatorMap = new Map();
 
   for (const pin of allPins) {
-    // 1. Domain
-    const dom = (pin.domain || '').trim().toLowerCase();
-    if (dom && !dom.includes('pinterest.com')) {
+    // 1. External Commercial Domain Only (Strips 'uploaded by user', 'pinterest.com', etc.)
+    const dom = cleanExternalDomain(pin.domain);
+    if (dom) {
       if (!domainMap.has(dom)) {
         domainMap.set(dom, {
           domain: dom,
@@ -1010,11 +1143,36 @@ export async function calculateFolderCrossover(sql, folderId) {
   });
   const maxAvgMonthVal = Math.max(...avgMonthlyScores, 1);
 
-  const peakMonthIndices = avgMonthlyScores
-    .map((val, idx) => ({ month: allMonths[idx], idx, score: Math.round((val / maxAvgMonthVal) * 100) }))
-    .filter(m => m.score >= 70)
+  // Calibrate Seasonal Surge using Z-Scores (Standard Deviations above Cluster Mean)
+  const meanMonthlyScore = avgMonthlyScores.reduce((sum, s) => sum + s, 0) / 12;
+  const variance = avgMonthlyScores.reduce((sum, s) => sum + Math.pow(s - meanMonthlyScore, 2), 0) / 12;
+  const stdDev = Math.sqrt(variance);
+
+  const monthCandidates = avgMonthlyScores
+    .map((val, idx) => {
+      const zScore = stdDev > 0 ? (val - meanMonthlyScore) / stdDev : 0;
+      const normalizedScore = Math.round((val / maxAvgMonthVal) * 100);
+      return {
+        month: allMonths[idx],
+        idx,
+        val,
+        score: normalizedScore,
+        zScore: Number(zScore.toFixed(2))
+      };
+    })
     .sort((a, b) => b.score - a.score);
 
+  // Algorithmic Peak Filtering:
+  // 1. Primary: Months with Z-score >= 1.25 (statistically elevated above cluster baseline)
+  // 2. Bound constraints: Strictly between 2 and 4 peak months maximum
+  let selectedPeaks = monthCandidates.filter(m => m.zScore >= 1.25);
+  if (selectedPeaks.length < 2) {
+    selectedPeaks = monthCandidates.slice(0, 2);
+  } else if (selectedPeaks.length > 4) {
+    selectedPeaks = selectedPeaks.slice(0, 4);
+  }
+
+  const peakMonthIndices = selectedPeaks;
   const peakMonths = peakMonthIndices.map(m => m.month);
 
   // Calculate Recommended Launch Window (45-60 days / ~2 months prior to highest peak)
@@ -1028,15 +1186,37 @@ export async function calculateFolderCrossover(sql, folderId) {
   // =========================================================================
   // DIMENSION F: 1-CLICK TOPIC CLUSTER BLUEPRINT & CONTENT GENERATOR
   // =========================================================================
-  const topTagNames = tagBridges.slice(0, 12).map(t => t.tag);
+  // Pure, concrete tags only (strictly exclude stopwords and generic wrappers)
+  const topTagNames = tagBridges
+    .map(t => t.tag)
+    .filter(t => t && t.length >= 3 && !STOPWORDS.has(t.toLowerCase()))
+    .slice(0, 12);
   const topPivotTerms = guidedPivots.slice(0, 8).map(p => p.display_label || p.term);
 
-  // Synthesize Pillar title and concept
+  // Synthesize Pillar title and concept with Co-occurrence Matrix Guard:
+  // Do NOT blindly concatenate two keywords with '&' unless a verified Super-Pin ranks for both!
   const primaryKw = folderKeywords[0]?.keyword || 'Topic Cluster';
   const secondaryKw = folderKeywords[1]?.keyword || '';
-  const pillarTitle = secondaryKw 
-    ? `The Ultimate ${toTitleCase(primaryKw)} & ${toTitleCase(secondaryKw)} Master Guide`
-    : `The Ultimate ${toTitleCase(primaryKw)} Master Blueprint`;
+  const cleanFolderName = folder.name?.replace(/\s*\([^)]*\)/g, '').trim() || '';
+
+  let pillarTitle = '';
+
+  const hasCooccurringPin = Boolean(
+    secondaryKw && superPins.some(p => {
+      const kwNames = new Set(p.rankings.map(r => r.keyword.toLowerCase()));
+      return kwNames.has(primaryKw.toLowerCase()) && kwNames.has(secondaryKw.toLowerCase());
+    })
+  );
+
+  if (hasCooccurringPin) {
+    // Natural co-occurrence confirmed by actual Pinterest SERP overlap
+    pillarTitle = `The Ultimate ${toTitleCase(primaryKw)} & ${toTitleCase(secondaryKw)} Master Guide`;
+  } else if (cleanFolderName && cleanFolderName.toLowerCase() !== 'all' && cleanFolderName.length > 3) {
+    // Co-occurrence not verified: anchor to overarching Umbrella Folder Concept
+    pillarTitle = `The Complete ${toTitleCase(cleanFolderName)} Master Guide`;
+  } else {
+    pillarTitle = `The Ultimate ${toTitleCase(primaryKw)} Master Blueprint`;
+  }
 
   // Synthesize 5 actionable spoke pins
   const spokeAngles = [];
