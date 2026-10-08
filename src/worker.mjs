@@ -2107,6 +2107,9 @@ export default {
               if (popResult?.success && popResult?.popular_pins) {
                 result.popular_pins = popResult.popular_pins;
               }
+              if ((!result.collage_images || result.collage_images.length === 0) && popResult?.collage_images?.length > 0) {
+                result.collage_images = popResult.collage_images;
+              }
             }
           } catch (_) {}
         }
