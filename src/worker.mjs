@@ -254,7 +254,10 @@ export async function getCachedOrFetch(key, fetcher, ttlMs = 15000, staleMs = 60
       if (!inflightPromises.has(key)) {
         const revalPromise = (async () => {
           try {
-            const fresh = await fetcher();
+            const fresh = await Promise.race([
+              fetcher(),
+              new Promise((_, reject) => setTimeout(() => reject(new Error(`Timeout revalidating ${key}`)), 7500))
+            ]);
             edgeCache.set(key, {
               data: fresh,
               expiresAt: Date.now() + ttlMs,
@@ -277,7 +280,10 @@ export async function getCachedOrFetch(key, fetcher, ttlMs = 15000, staleMs = 60
 
   const promise = (async () => {
     try {
-      const fresh = await fetcher();
+      const fresh = await Promise.race([
+        fetcher(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error(`Timeout fetching ${key}`)), 7500))
+      ]);
       if (edgeCache.size >= MAX_CACHE_ENTRIES) {
         const oldestKey = edgeCache.keys().next().value;
         if (oldestKey) edgeCache.delete(oldestKey);

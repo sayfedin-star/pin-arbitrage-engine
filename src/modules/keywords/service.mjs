@@ -167,12 +167,12 @@ export async function listKeywords(sql, { search = '', limit = 50, offset = 0 } 
         SELECT COUNT(*)::int AS cnt
         FROM keyword_pins_snapshots
         WHERE keyword_id = k.id
-          AND (is_displaced IS FALSE OR is_displaced IS NULL)
+          AND is_displaced IS NOT TRUE
           AND snapshot_date = (
             SELECT MAX(snapshot_date) 
             FROM keyword_pins_snapshots 
             WHERE keyword_id = k.id
-              AND (is_displaced IS FALSE OR is_displaced IS NULL)
+              AND is_displaced IS NOT TRUE
           )
       ) s_count ON true
       WHERE LOWER(k.keyword) LIKE ${pattern}
@@ -189,12 +189,12 @@ export async function listKeywords(sql, { search = '', limit = 50, offset = 0 } 
         SELECT COUNT(*)::int AS cnt
         FROM keyword_pins_snapshots
         WHERE keyword_id = k.id
-          AND (is_displaced IS FALSE OR is_displaced IS NULL)
+          AND is_displaced IS NOT TRUE
           AND snapshot_date = (
             SELECT MAX(snapshot_date) 
             FROM keyword_pins_snapshots 
             WHERE keyword_id = k.id
-              AND (is_displaced IS FALSE OR is_displaced IS NULL)
+              AND is_displaced IS NOT TRUE
           )
       ) s_count ON true
       ORDER BY k.created_at DESC

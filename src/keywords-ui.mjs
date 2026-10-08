@@ -20,6 +20,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="referrer" content="no-referrer">
   <title>Keyword Intelligence & Velocity | Pinterest SERP Radar Studio</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1179,7 +1180,9 @@ export function getKeywordsPageHtml(initialSlug = '') {
                         <img :src="(imgUrl || '').replace(/\/(236|474)x\//, '/736x/')"
                              :alt="'Pin #' + (idx + 1)"
                              class="w-full h-full object-contain rounded-xl group-hover:scale-[1.02] transition duration-300"
-                             loading="lazy">
+                             loading="lazy"
+                             referrerpolicy="no-referrer"
+                             @error="if ($el.src.includes('/736x/')) { $el.src = $el.src.replace('/736x/', '/474x/'); } else if ($el.src.includes('/474x/')) { $el.src = $el.src.replace('/474x/', '/236x/'); }">
                         
                         <!-- Rank Badge -->
                         <div class="absolute top-4 left-4 px-2.5 py-1 rounded-lg bg-slate-950/80 text-white font-mono font-black text-xs backdrop-blur-xs shadow-md">
@@ -1248,18 +1251,27 @@ export function getKeywordsPageHtml(initialSlug = '') {
                     <!-- Column 1: Full Height Image A[0] -->
                     <div class="relative h-full w-full overflow-hidden bg-slate-300 dark:bg-slate-700">
                       <img :src="(trendsData.collage_images[0] || '').replace(/\/(236|474)x\//, '/736x/')"
-                           class="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition duration-300" loading="lazy">
+                           class="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition duration-300"
+                           loading="lazy"
+                           referrerpolicy="no-referrer"
+                           @error="if ($el.src.includes('/736x/')) { $el.src = $el.src.replace('/736x/', '/474x/'); } else if ($el.src.includes('/474x/')) { $el.src = $el.src.replace('/474x/', '/236x/'); }">
                     </div>
 
                     <!-- Column 2: Stacked A[7] (Top 40%) & A[8] (Bottom 60%) -->
                     <div class="h-full w-full flex flex-col gap-[3px]">
                       <div class="relative min-h-0 w-full overflow-hidden bg-slate-300 dark:bg-slate-700" style="flex: 4 1 0%;">
                         <img :src="(trendsData.collage_images[7] || trendsData.collage_images[1] || '').replace(/\/(236|474)x\//, '/736x/')"
-                             class="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition duration-300" loading="lazy">
+                             class="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition duration-300"
+                             loading="lazy"
+                             referrerpolicy="no-referrer"
+                             @error="if ($el.src.includes('/736x/')) { $el.src = $el.src.replace('/736x/', '/474x/'); } else if ($el.src.includes('/474x/')) { $el.src = $el.src.replace('/474x/', '/236x/'); }">
                       </div>
                       <div class="relative min-h-0 w-full overflow-hidden bg-slate-300 dark:bg-slate-700" style="flex: 6 1 0%;">
                         <img :src="(trendsData.collage_images[8] || trendsData.collage_images[2] || '').replace(/\/(236|474)x\//, '/736x/')"
-                             class="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition duration-300" loading="lazy">
+                             class="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition duration-300"
+                             loading="lazy"
+                             referrerpolicy="no-referrer"
+                             @error="if ($el.src.includes('/736x/')) { $el.src = $el.src.replace('/736x/', '/474x/'); } else if ($el.src.includes('/474x/')) { $el.src = $el.src.replace('/474x/', '/236x/'); }">
                       </div>
                     </div>
 
@@ -1267,11 +1279,17 @@ export function getKeywordsPageHtml(initialSlug = '') {
                     <div class="h-full w-full flex flex-col gap-[3px]">
                       <div class="relative min-h-0 w-full overflow-hidden bg-slate-300 dark:bg-slate-700" style="flex: 4 1 0%;">
                         <img :src="(trendsData.collage_images[5] || trendsData.collage_images[3] || '').replace(/\/(236|474)x\//, '/736x/')"
-                             class="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition duration-300" loading="lazy">
+                             class="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition duration-300"
+                             loading="lazy"
+                             referrerpolicy="no-referrer"
+                             @error="if ($el.src.includes('/736x/')) { $el.src = $el.src.replace('/736x/', '/474x/'); } else if ($el.src.includes('/474x/')) { $el.src = $el.src.replace('/474x/', '/236x/'); }">
                       </div>
                       <div class="relative min-h-0 w-full overflow-hidden bg-slate-300 dark:bg-slate-700" style="flex: 6 1 0%;">
                         <img :src="(trendsData.collage_images[6] || trendsData.collage_images[4] || '').replace(/\/(236|474)x\//, '/736x/')"
-                             class="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition duration-300" loading="lazy">
+                             class="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition duration-300"
+                             loading="lazy"
+                             referrerpolicy="no-referrer"
+                             @error="if ($el.src.includes('/736x/')) { $el.src = $el.src.replace('/736x/', '/474x/'); } else if ($el.src.includes('/474x/')) { $el.src = $el.src.replace('/474x/', '/236x/'); }">
                       </div>
                     </div>
 
@@ -1279,11 +1297,17 @@ export function getKeywordsPageHtml(initialSlug = '') {
                     <div class="h-full w-full flex flex-col gap-[3px]">
                       <div class="relative min-h-0 w-full overflow-hidden bg-slate-300 dark:bg-slate-700" style="flex: 6 1 0%;">
                         <img :src="(trendsData.collage_images[3] || trendsData.collage_images[1] || '').replace(/\/(236|474)x\//, '/736x/')"
-                             class="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition duration-300" loading="lazy">
+                             class="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition duration-300"
+                             loading="lazy"
+                             referrerpolicy="no-referrer"
+                             @error="if ($el.src.includes('/736x/')) { $el.src = $el.src.replace('/736x/', '/474x/'); } else if ($el.src.includes('/474x/')) { $el.src = $el.src.replace('/474x/', '/236x/'); }">
                       </div>
                       <div class="relative min-h-0 w-full overflow-hidden bg-slate-300 dark:bg-slate-700" style="flex: 4 1 0%;">
                         <img :src="(trendsData.collage_images[4] || trendsData.collage_images[2] || '').replace(/\/(236|474)x\//, '/736x/')"
-                             class="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition duration-300" loading="lazy">
+                             class="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition duration-300"
+                             loading="lazy"
+                             referrerpolicy="no-referrer"
+                             @error="if ($el.src.includes('/736x/')) { $el.src = $el.src.replace('/736x/', '/474x/'); } else if ($el.src.includes('/474x/')) { $el.src = $el.src.replace('/474x/', '/236x/'); }">
                       </div>
                     </div>
 
@@ -1291,11 +1315,17 @@ export function getKeywordsPageHtml(initialSlug = '') {
                     <div class="h-full w-full flex flex-col gap-[3px]">
                       <div class="relative min-h-0 w-full overflow-hidden bg-slate-300 dark:bg-slate-700" style="flex: 4 1 0%;">
                         <img :src="(trendsData.collage_images[1] || trendsData.collage_images[0] || '').replace(/\/(236|474)x\//, '/736x/')"
-                             class="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition duration-300" loading="lazy">
+                             class="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition duration-300"
+                             loading="lazy"
+                             referrerpolicy="no-referrer"
+                             @error="if ($el.src.includes('/736x/')) { $el.src = $el.src.replace('/736x/', '/474x/'); } else if ($el.src.includes('/474x/')) { $el.src = $el.src.replace('/474x/', '/236x/'); }">
                       </div>
                       <div class="relative min-h-0 w-full overflow-hidden bg-slate-300 dark:bg-slate-700" style="flex: 6 1 0%;">
                         <img :src="(trendsData.collage_images[2] || trendsData.collage_images[0] || '').replace(/\/(236|474)x\//, '/736x/')"
-                             class="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition duration-300" loading="lazy">
+                             class="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition duration-300"
+                             loading="lazy"
+                             referrerpolicy="no-referrer"
+                             @error="if ($el.src.includes('/736x/')) { $el.src = $el.src.replace('/736x/', '/474x/'); } else if ($el.src.includes('/474x/')) { $el.src = $el.src.replace('/474x/', '/236x/'); }">
                       </div>
                     </div>
                   </div>
@@ -1342,7 +1372,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
                   
                   <div class="relative aspect-[2/3] bg-slate-200 dark:bg-slate-800 overflow-hidden">
                     <template x-if="p.image_url">
-                      <img :src="p.image_url" class="w-full h-full object-cover group-hover:scale-105 transition duration-300">
+                      <img :src="p.image_url" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" loading="lazy" referrerpolicy="no-referrer">
                     </template>
                     <div class="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition flex items-end p-2.5">
                       <span class="text-[10px] font-bold text-white flex items-center space-x-1">
@@ -3145,10 +3175,12 @@ export function getKeywordsPageHtml(initialSlug = '') {
 
           const urlSlug = this.extractSlugFromUrl() || window.__INITIAL_KEYWORD_SLUG__ || '';
           
+          if (urlSlug) {
+            this.loadKeywordBySlugOrText(urlSlug, false);
+          }
+
           this.fetchKeywords().then(() => {
-            if (urlSlug) {
-              this.loadKeywordBySlugOrText(urlSlug, false);
-            } else if (this.keywords.length > 0 && !this.selectedKeyword) {
+            if (!urlSlug && this.keywords.length > 0 && !this.selectedKeyword) {
               this.selectKeyword(this.keywords[0]);
             }
           });
@@ -3354,6 +3386,9 @@ export function getKeywordsPageHtml(initialSlug = '') {
               const pData = await popularRes.value.json();
               if (pData.success && Array.isArray(pData.popular_pins) && pData.popular_pins.length > 0) {
                 merged.popular_pins = pData.popular_pins;
+              }
+              if (pData.success && Array.isArray(pData.collage_images) && pData.collage_images.length > 0 && (!merged.collage_images || merged.collage_images.length === 0)) {
+                merged.collage_images = pData.collage_images;
               }
             }
 
