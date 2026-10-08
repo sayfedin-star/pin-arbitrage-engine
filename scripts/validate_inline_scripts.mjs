@@ -3,6 +3,9 @@ import vm from 'node:vm';
 import { getDashboardHtml } from '../src/dashboard-ui.mjs';
 import { getKeywordsPageHtml } from '../src/keywords-ui.mjs';
 import { getBoardIdeasPageHtml } from '../src/board-ideas-ui.mjs';
+import { getDiscoveryPageHtml } from '../src/discovery-ui.mjs';
+import { getPinDetailPageHtml } from '../src/pin-details-ui.mjs';
+import { getCampaignFoldersPageHtml } from '../src/campaign-folders-ui.mjs';
 
 function validateHtml(name, html) {
   const scriptMatches = html.match(/<script[\s\S]*?<\/script>/gi) || [];
@@ -36,9 +39,13 @@ function validateHtml(name, html) {
 const ok1 = validateHtml('getDashboardHtml', getDashboardHtml());
 const ok2 = validateHtml('getKeywordsPageHtml', getKeywordsPageHtml());
 const ok3 = validateHtml('getBoardIdeasPageHtml', getBoardIdeasPageHtml());
+const ok4 = validateHtml('getDiscoveryPageHtml', getDiscoveryPageHtml());
+const ok5 = validateHtml('getPinDetailPageHtml', getPinDetailPageHtml('1098245059167667976'));
+const ok6 = validateHtml('getCampaignFoldersPageHtml', getCampaignFoldersPageHtml());
 
-if (ok1 && ok2 && ok3) {
-  console.log('[+] ALL inline scripts in all 3 dashboards have 100% valid JavaScript syntax!');
+if (ok1 && ok2 && ok3 && ok4 && ok5 && ok6) {
+  console.log('[+] ALL inline scripts in all 6 suites have 100% valid JavaScript syntax!');
 } else {
   process.exit(1);
 }
+

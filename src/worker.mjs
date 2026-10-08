@@ -9,6 +9,19 @@ import { neon } from '@neondatabase/serverless';
 import { getDashboardHtml } from './dashboard-ui.mjs';
 import { getKeywordsPageHtml } from './keywords-ui.mjs';
 import { getBoardIdeasPageHtml } from './board-ideas-ui.mjs';
+import { getDiscoveryPageHtml } from './discovery-ui.mjs';
+import { getPinDetailPageHtml } from './pin-details-ui.mjs';
+import { getCampaignFoldersPageHtml } from './campaign-folders-ui.mjs';
+import {
+  fetchUniversalPinDossier,
+  getPinShardId,
+  resolveShardConnection
+} from './modules/sharding/fleet-router.mjs';
+
+// Reserved Keyword Slugs (Defends against route swallowing on /keywords/:slug)
+export const RESERVED_KEYWORD_SLUGS = new Set([
+  'discovery', 'folders', 'export', 'sync', 'batch', 'api', 'add', 'manage', 'import'
+]);
 import {
   resolveBoardIdentity,
   syncBoardIdeas,
@@ -87,11 +100,37 @@ import {
 export function redactSecrets(str) {
   if (!str || typeof str !== 'string') return '';
   return str
-    .replace(/(postgres(?:ql)?:\/\/[^:]+:)([^@]+)(@)/gi, '$1[REDACTED_PASSWORD]$3')
+    .replace(/postgres(?:ql)?:\/\/[^\s"'<>]+/gi, '[REDACTED_DATABASE_URL]')
     .replace(/(Bearer\s+)[A-Za-z0-9_.-]{12,}/gi, '$1[REDACTED_TOKEN]')
     .replace(/(gh[pousr]_[A-Za-z0-9_]{20,})/gi, '[REDACTED_GH_TOKEN]')
     .replace(/(github_pat_[A-Za-z0-9_]{20,})/gi, '[REDACTED_GH_PAT]')
-    .replace(/([?&](?:password|token|secret|apiKey)=)[^&]+/gi, '$1[REDACTED]');
+    .replace(/([?&](?:password|token|secret|apiKey)=)[^&]+/gi, '$1[REDACTED]')
+    .replace(/ep-[a-z0-9-]+(?:\.[a-z0-9-]+)*\.aws\.neon\.tech/gi, '[REDACTED_NEON_HOST]');
+}
+
+// Normalized Path Resolver (Resolves traversal %2e%2e, removes duplicate/trailing slashes)
+export function normalizePath(rawPathname) {
+  if (!rawPathname) return '/';
+  let decoded = rawPathname;
+  try {
+    decoded = decodeURIComponent(rawPathname);
+  } catch (_) {
+    try {
+      decoded = decodeURI(rawPathname);
+    } catch (_) {}
+  }
+  
+  const parts = decoded.split('/');
+  const stack = [];
+  for (const p of parts) {
+    if (p === '' || p === '.') continue;
+    if (p === '..') {
+      if (stack.length > 0) stack.pop();
+    } else {
+      stack.push(p);
+    }
+  }
+  return '/' + stack.join('/');
 }
 
 // Timing-Safe Constant-Time String Comparison (Defends against byte-by-byte timing attacks)
@@ -127,36 +166,79 @@ export function safeWaitUntil(ctx, promise, taskName = 'bg_task', timeoutMs = 25
   }
 }
 
-function jsonResponse(data, status = 200, cacheSeconds = 0) {
+export function jsonResponse(data, status = 200, cacheSeconds = 0) {
+  let responsePayload = data;
+  
+  // Enforce uniform JSON error schema for HTTP 4xx and 5xx
+  if (status >= 400 && responsePayload && typeof responsePayload === 'object') {
+    if (responsePayload.success === undefined) {
+      responsePayload.success = false;
+    }
+    if (!responsePayload.error) {
+      responsePayload.error = status === 400 ? 'BAD_REQUEST' 
+        : status === 404 ? 'NOT_FOUND' 
+        : status === 405 ? 'METHOD_NOT_ALLOWED' 
+        : status === 413 ? 'PAYLOAD_TOO_LARGE' 
+        : status === 503 ? 'SERVICE_UNAVAILABLE' 
+        : 'INTERNAL_SERVER_ERROR';
+    }
+  }
+
   // Automatically sanitize any error payloads before sending over the wire
-  if (data && typeof data === 'object') {
-    if (typeof data.error === 'string') data.error = redactSecrets(data.error);
-    if (typeof data.message === 'string') data.message = redactSecrets(data.message);
+  if (responsePayload && typeof responsePayload === 'object') {
+    if (typeof responsePayload.error === 'string') responsePayload.error = redactSecrets(responsePayload.error);
+    if (typeof responsePayload.message === 'string') responsePayload.message = redactSecrets(responsePayload.message);
   }
 
   const headers = {
     'Content-Type': 'application/json; charset=utf-8',
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-target-project',
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Referrer-Policy': 'strict-origin-when-cross-origin'
   };
   if (cacheSeconds > 0) {
     headers['Cache-Control'] = `public, max-age=${cacheSeconds}, stale-while-revalidate=${cacheSeconds * 3}`;
   }
-  return new Response(JSON.stringify(data), {
+  return new Response(JSON.stringify(responsePayload), {
     status,
     headers
   });
 }
 
-function corsOptionsResponse() {
+export function methodNotAllowedResponse(allow) {
+  return new Response(JSON.stringify({
+    success: false,
+    error: 'METHOD_NOT_ALLOWED',
+    message: `HTTP method not allowed. Allowed methods: ${allow}`
+  }), {
+    status: 405,
+    headers: {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Allow': allow,
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': allow,
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-target-project',
+      'X-Content-Type-Options': 'nosniff',
+      'X-Frame-Options': 'DENY',
+      'Referrer-Policy': 'strict-origin-when-cross-origin'
+    }
+  });
+}
+
+export function corsOptionsResponse(allow = 'GET, POST, DELETE, OPTIONS') {
   return new Response(null, {
     status: 204,
     headers: {
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-      'Access-Control-Max-Age': '86400'
+      'Access-Control-Allow-Methods': allow,
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-target-project',
+      'Access-Control-Max-Age': '86400',
+      'X-Content-Type-Options': 'nosniff',
+      'X-Frame-Options': 'DENY',
+      'Referrer-Policy': 'strict-origin-when-cross-origin'
     }
   });
 }
@@ -320,43 +402,158 @@ const MAX_CONCURRENT_HUB_FALLBACKS = 6;
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
-    const { pathname, searchParams } = url;
+    const normalizedPath = normalizePath(url.pathname);
+    const pathLower = normalizedPath.toLowerCase();
+    const pathname = normalizedPath;
+    const { searchParams } = url;
     const method = request.method.toUpperCase();
 
     if (method === 'OPTIONS') {
       return corsOptionsResponse();
     }
 
-    // Serve Dedicated Keywords Studio HTML (supports /keywords, /keywords/:slug, /keywords/:keyword)
-    if (pathname === '/keywords' || pathname.startsWith('/keywords/')) {
-      const slug = pathname.startsWith('/keywords/') ? decodeURIComponent(pathname.slice('/keywords/'.length)) : '';
-      return new Response(getKeywordsPageHtml(slug), {
+    // 1. Level 1B: Keyword Discovery & Autocomplete Hub
+    if (pathLower === '/keywords/discovery' || pathLower === '/discovery' || pathLower.startsWith('/keywords/discovery/') || pathLower.startsWith('/discovery/')) {
+      if (method !== 'GET') {
+        return methodNotAllowedResponse('GET, OPTIONS');
+      }
+      return new Response(getDiscoveryPageHtml(), {
         status: 200,
         headers: {
           'Content-Type': 'text/html; charset=utf-8',
-          'Cache-Control': 'no-cache'
+          'Cache-Control': 'no-cache',
+          'X-Content-Type-Options': 'nosniff',
+          'X-Frame-Options': 'DENY',
+          'Referrer-Policy': 'strict-origin-when-cross-origin'
         }
       });
     }
 
-    // Serve Dedicated Board Ideas Radar Studio HTML
-    if (pathname === '/board-ideas') {
+    // 2. Level 3: Dedicated Pin Intelligence Page (/pins/:pin_id or /pin/:pin_id)
+    if (pathLower.startsWith('/pins/') || pathLower.startsWith('/pin/')) {
+      if (method !== 'GET') {
+        return methodNotAllowedResponse('GET, OPTIONS');
+      }
+      const segments = normalizedPath.split('/').filter(Boolean);
+      const pinId = segments[1] || '';
+      return new Response(getPinDetailPageHtml(decodeURIComponent(pinId)), {
+        status: 200,
+        headers: {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'no-cache',
+          'X-Content-Type-Options': 'nosniff',
+          'X-Frame-Options': 'DENY',
+          'Referrer-Policy': 'strict-origin-when-cross-origin'
+        }
+      });
+    }
+
+    // 3. Level 4: Dedicated Campaign Folders & Crossover Studio (/folders and /folders/:id)
+    if (pathLower === '/folders' || pathLower.startsWith('/folders/')) {
+      if (method !== 'GET') {
+        return methodNotAllowedResponse('GET, OPTIONS');
+      }
+      const segments = normalizedPath.split('/').filter(Boolean);
+      const folderId = segments[1] || '';
+      return new Response(getCampaignFoldersPageHtml(decodeURIComponent(folderId)), {
+        status: 200,
+        headers: {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'no-cache',
+          'X-Content-Type-Options': 'nosniff',
+          'X-Frame-Options': 'DENY',
+          'Referrer-Policy': 'strict-origin-when-cross-origin'
+        }
+      });
+    }
+
+    // 4. Level 1A & Level 2: Keywords Dashboard (/keywords) & SERP Radar (/keywords/:slug)
+    if (pathLower === '/keywords' || pathLower.startsWith('/keywords/')) {
+      if (method !== 'GET') {
+        return methodNotAllowedResponse('GET, OPTIONS');
+      }
+      const segments = normalizedPath.split('/').filter(Boolean);
+      const rawSlug = segments[1] || '';
+      const slugLower = rawSlug.toLowerCase();
+      
+      // Defend against reserved slugs
+      if (rawSlug && RESERVED_KEYWORD_SLUGS.has(slugLower)) {
+        if (slugLower === 'discovery') {
+          return new Response(getDiscoveryPageHtml(), {
+            status: 200,
+            headers: {
+              'Content-Type': 'text/html; charset=utf-8',
+              'Cache-Control': 'no-cache',
+              'X-Content-Type-Options': 'nosniff',
+              'X-Frame-Options': 'DENY',
+              'Referrer-Policy': 'strict-origin-when-cross-origin'
+            }
+          });
+        }
+        if (slugLower === 'folders') {
+          const folderId = segments[2] || '';
+          return new Response(getCampaignFoldersPageHtml(decodeURIComponent(folderId)), {
+            status: 200,
+            headers: {
+              'Content-Type': 'text/html; charset=utf-8',
+              'Cache-Control': 'no-cache',
+              'X-Content-Type-Options': 'nosniff',
+              'X-Frame-Options': 'DENY',
+              'Referrer-Policy': 'strict-origin-when-cross-origin'
+            }
+          });
+        }
+      }
+
+      // Query parameter fallback (?q=... or ?keyword=...)
+      let slug = rawSlug;
+      const queryParam = searchParams.get('q') || searchParams.get('keyword') || searchParams.get('slug');
+      if (!slug && queryParam) {
+        slug = queryParam.trim();
+      }
+
+      return new Response(getKeywordsPageHtml(slug), {
+        status: 200,
+        headers: {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'no-cache',
+          'X-Content-Type-Options': 'nosniff',
+          'X-Frame-Options': 'DENY',
+          'Referrer-Policy': 'strict-origin-when-cross-origin'
+        }
+      });
+    }
+
+    // 5. Level 4B: Dedicated Board Ideas Radar Studio HTML
+    if (pathLower === '/board-ideas' || pathLower.startsWith('/board-ideas/')) {
+      if (method !== 'GET') {
+        return methodNotAllowedResponse('GET, OPTIONS');
+      }
       return new Response(getBoardIdeasPageHtml(), {
         status: 200,
         headers: {
           'Content-Type': 'text/html; charset=utf-8',
-          'Cache-Control': 'no-cache'
+          'Cache-Control': 'no-cache',
+          'X-Content-Type-Options': 'nosniff',
+          'X-Frame-Options': 'DENY',
+          'Referrer-Policy': 'strict-origin-when-cross-origin'
         }
       });
     }
 
     // Serve Frontend Dashboard HTML for root or any creator handle route (e.g. /wifesrecipesbyme)
-    if (!pathname.startsWith('/api/')) {
+    if (!pathLower.startsWith('/api/')) {
+      if (method !== 'GET') {
+        return methodNotAllowedResponse('GET, OPTIONS');
+      }
       return new Response(getDashboardHtml(), {
         status: 200,
         headers: {
           'Content-Type': 'text/html; charset=utf-8',
-          'Cache-Control': 'no-cache'
+          'Cache-Control': 'no-cache',
+          'X-Content-Type-Options': 'nosniff',
+          'X-Frame-Options': 'DENY',
+          'Referrer-Policy': 'strict-origin-when-cross-origin'
         }
       });
     }
@@ -399,7 +596,7 @@ export default {
       }, 500);
     }
 
-    const sql = getCachedShardSql(dbUrl, () => neon(dbUrl));
+    const sql = env.SQL_CLIENT || getCachedShardSql(dbUrl, () => neon(dbUrl));
     let targetSql = sql;
     const reqProjectId = searchParams.get('project_id') || searchParams.get('shard') || request.headers.get('x-target-project');
     if (reqProjectId && reqProjectId !== 'all' && reqProjectId !== 'hub') {
@@ -2016,17 +2213,68 @@ export default {
         return jsonResponse({ success: true, result: res });
       }
 
+      if (method === 'POST' && (pathname === '/api/keywords/status' || pathname === '/api/keywords/toggle')) {
+        invalidateEdgeCache('keywords');
+        const body = await request.json().catch(() => ({}));
+        const id = Number(body.id || body.keyword_id);
+        const ids = Array.isArray(body.ids) ? body.ids.map(Number).filter(Boolean) : [];
+        const isActive = body.is_active !== undefined ? Boolean(body.is_active) : undefined;
+
+        if (ids.length > 0) {
+          if (isActive !== undefined) {
+            await targetSql`
+              UPDATE tracked_keywords 
+              SET is_active = ${isActive}, updated_at = NOW() 
+              WHERE id = ANY(${ids});
+            `;
+          } else {
+            await targetSql`
+              UPDATE tracked_keywords 
+              SET is_active = NOT COALESCE(is_active, TRUE), updated_at = NOW() 
+              WHERE id = ANY(${ids});
+            `;
+          }
+          return jsonResponse({ success: true, updated_ids: ids, is_active: isActive });
+        }
+
+        if (!id) return jsonResponse({ error: 'id, keyword_id, or ids array is required' }, 400);
+
+        let row;
+        if (isActive !== undefined) {
+          [row] = await targetSql`
+            UPDATE tracked_keywords 
+            SET is_active = ${isActive}, updated_at = NOW() 
+            WHERE id = ${id} 
+            RETURNING *;
+          `;
+        } else {
+          [row] = await targetSql`
+            UPDATE tracked_keywords 
+            SET is_active = NOT COALESCE(is_active, TRUE), updated_at = NOW() 
+            WHERE id = ${id} 
+            RETURNING *;
+          `;
+        }
+        return jsonResponse({ success: true, keyword: row });
+      }
+
       if (method === 'DELETE' && pathname === '/api/keywords') {
         invalidateEdgeCache('keywords');
         let id = searchParams.get('id');
         let keyword = searchParams.get('keyword');
-        if (!id && !keyword) {
-          try {
-            const body = await request.json();
-            id = body.id || body.keyword_id;
-            keyword = body.keyword;
-          } catch (_) {}
+        let body = {};
+        try {
+          body = await request.json();
+          id = id || body.id || body.keyword_id;
+          keyword = keyword || body.keyword;
+        } catch (_) {}
+
+        const ids = Array.isArray(body.ids) ? body.ids.map(Number).filter(Boolean) : [];
+        if (ids.length > 0) {
+          await targetSql`DELETE FROM tracked_keywords WHERE id = ANY(${ids});`;
+          return jsonResponse({ success: true, deleted_ids: ids });
         }
+
         if (id && !isNaN(Number(id))) {
           await targetSql`DELETE FROM tracked_keywords WHERE id = ${Number(id)};`;
           return jsonResponse({ success: true, deleted_id: Number(id) });
@@ -2035,7 +2283,7 @@ export default {
           await targetSql`DELETE FROM tracked_keywords WHERE LOWER(keyword) = ${cleanKeyword};`;
           return jsonResponse({ success: true, deleted_keyword: cleanKeyword });
         }
-        return jsonResponse({ error: 'id or keyword is required to delete tracked keyword' }, 400);
+        return jsonResponse({ error: 'id, keyword, or ids array is required to delete tracked keyword' }, 400);
       }
 
       if (method === 'GET' && pathname === '/api/keywords/pins') {
@@ -2147,6 +2395,252 @@ export default {
         const keywordId = Number(searchParams.get('keyword_id') || 0) || null;
         const result = await getPinDeepDossier(targetSql, pinId, keywordId);
         return jsonResponse(result);
+      }
+
+      // Universal Pin Intelligence API (/api/pins/:pin_id & /api/pins/:pin_id/snapshots/:snapshot_id)
+      if (pathname.startsWith('/api/pins/')) {
+        const parts = pathname.slice('/api/pins/'.length).split('/').filter(Boolean);
+        const pinId = parts[0];
+
+        // 1. DELETE /api/pins/:pin_id/snapshots/:snapshot_id
+        if (parts[1] === 'snapshots') {
+          if (method !== 'DELETE') {
+            return methodNotAllowedResponse('DELETE, OPTIONS');
+          }
+          const snapshotId = Number(parts[2]);
+          if (!snapshotId || isNaN(snapshotId)) {
+            return jsonResponse({
+              success: false,
+              error: 'BAD_REQUEST',
+              message: 'Valid numeric snapshot_id is required'
+            }, 400);
+          }
+          if (!pinId || !/^\d{10,30}$/.test(pinId)) {
+            return jsonResponse({
+              success: false,
+              error: 'INVALID_PIN_ID',
+              message: 'Pin ID must be a valid numeric Snowflake identifier (10-30 digits)'
+            }, 400);
+          }
+          const shardId = getPinShardId(pinId, 99);
+          const shardSql = await resolveShardConnection({ hubSql: sql, shardId }).catch(() => targetSql);
+          await shardSql`DELETE FROM pins_daily_snapshots WHERE id = ${snapshotId};`.catch(() => {});
+          await shardSql`DELETE FROM keyword_pins_snapshots WHERE id = ${snapshotId};`.catch(() => {});
+          return jsonResponse({ success: true, deleted_snapshot_id: snapshotId, pin_id: pinId });
+        }
+
+        // 2. GET /api/pins/:pin_id (Universal 4-Pillar Dossier via fleet-router)
+        if (parts.length === 1) {
+          if (method !== 'GET') {
+            return methodNotAllowedResponse('GET, OPTIONS');
+          }
+          if (!pinId || !/^\d{10,30}$/.test(pinId)) {
+            return jsonResponse({
+              success: false,
+              error: 'INVALID_PIN_ID',
+              message: 'Pin ID must be a valid numeric Snowflake identifier (10-30 digits)'
+            }, 400);
+          }
+          try {
+            const dossier = await fetchUniversalPinDossier({ hubSql: sql, pinId });
+            if (!dossier || !dossier.pin_id || !dossier.success) {
+              return jsonResponse({
+                success: false,
+                error: 'NOT_FOUND',
+                message: dossier?.message || `Pin dossier not found for pin_id: ${pinId}`
+              }, 404);
+            }
+            return jsonResponse(dossier, 200, 15);
+          } catch (err) {
+            return jsonResponse({
+              success: false,
+              error: 'INTERNAL_ERROR',
+              message: redactSecrets(err.message),
+              pin_id: pinId
+            }, 500);
+          }
+        }
+      }
+
+      // Level 1B: Discovery Typeahead API
+      if (pathname === '/api/discovery/typeahead') {
+        if (method !== 'GET') {
+          return methodNotAllowedResponse('GET, OPTIONS');
+        }
+        const q = searchParams.get('q') || searchParams.get('term') || searchParams.get('query') || '';
+        const result = await fetchKeywordTypeahead(q);
+        return jsonResponse(result);
+      }
+
+      // Level 1B: Bulk Keywords Importer API
+      if (pathname === '/api/keywords/bulk-import') {
+        if (method !== 'POST') {
+          return methodNotAllowedResponse('POST, OPTIONS');
+        }
+
+        // Payload Flooding Ceiling: Reject payloads > 512KB
+        const contentLength = request.headers.get('content-length');
+        if (contentLength && parseInt(contentLength, 10) > 512 * 1024) {
+          return jsonResponse({
+            success: false,
+            error: 'PAYLOAD_TOO_LARGE',
+            message: 'Payload size exceeds the 512KB limit'
+          }, 413);
+        }
+
+        let body;
+        try {
+          const rawText = await request.text();
+          if (rawText.length > 512 * 1024) {
+            return jsonResponse({
+              success: false,
+              error: 'PAYLOAD_TOO_LARGE',
+              message: 'Payload size exceeds the 512KB limit'
+            }, 413);
+          }
+          body = JSON.parse(rawText);
+        } catch (parseErr) {
+          return jsonResponse({
+            success: false,
+            error: 'BAD_REQUEST',
+            message: 'Malformed JSON payload: ' + parseErr.message
+          }, 400);
+        }
+
+        if (!body || typeof body !== 'object') {
+          return jsonResponse({
+            success: false,
+            error: 'BAD_REQUEST',
+            message: 'Request body must be a valid JSON object'
+          }, 400);
+        }
+
+        let rawCandidates = [];
+        if (Array.isArray(body.keywords)) {
+          rawCandidates = body.keywords;
+        } else if (typeof body.keywords === 'string') {
+          rawCandidates = body.keywords.split('\n');
+        } else {
+          return jsonResponse({
+            success: false,
+            error: 'BAD_REQUEST',
+            message: 'keywords field must be an array or multiline string'
+          }, 400);
+        }
+
+        // Batch Volume Ceiling: Max 1,000 items
+        if (rawCandidates.length > 1000) {
+          return jsonResponse({
+            success: false,
+            error: 'PAYLOAD_TOO_LARGE',
+            message: `Batch contains ${rawCandidates.length} items. Maximum allowed is 1,000 keywords per request.`
+          }, 413);
+        }
+
+        // Type poisoning, malicious HTML, script tags & control chars filtering
+        const validKeywords = [];
+        for (const item of rawCandidates) {
+          if (typeof item !== 'string' && typeof item !== 'number') continue;
+          const str = String(item).trim();
+          if (str.length < 2 || str.length > 100) continue;
+          if (/<[a-z][\s\S]*>/i.test(str)) continue; // Reject HTML/script tags
+          if (/[\x00-\x1F\x7F]/.test(str)) continue; // Reject control characters
+          validKeywords.push(str.toLowerCase());
+        }
+
+        if (validKeywords.length === 0) {
+          return jsonResponse({
+            success: false,
+            error: 'BAD_REQUEST',
+            message: 'No valid keywords provided. Each keyword must be a string between 2 and 100 characters.'
+          }, 400);
+        }
+
+        invalidateEdgeCache('keywords');
+        const folderId = body.folder_id ? Number(body.folder_id) : null;
+        const category = body.category || 'General';
+        const imported = [];
+
+        for (const cleanKw of validKeywords) {
+          try {
+            const [row] = await targetSql`
+              INSERT INTO tracked_keywords (
+                keyword, category, is_active, updated_at
+              ) VALUES (
+                ${cleanKw}, ${category}, TRUE, NOW()
+              )
+              ON CONFLICT (keyword) DO UPDATE SET
+                updated_at = NOW(),
+                is_active = TRUE
+              RETURNING id, keyword, category;
+            `;
+            if (row) {
+              imported.push(row);
+              if (folderId) {
+                await addKeywordToFolder(targetSql, folderId, row.id).catch(() => {});
+              }
+            }
+          } catch (_) {}
+        }
+
+        return jsonResponse({
+          success: true,
+          added: imported.length,
+          count: imported.length,
+          total_submitted: rawCandidates.length,
+          folder_id: folderId,
+          keywords: imported
+        });
+      }
+
+      // Level 4: Raw Visual Annotations Crossover API (/api/folders/:id/raw-visual-crossover)
+      if (
+        (pathname.startsWith('/api/folders/') && (pathname.endsWith('/raw-visual-crossover') || pathname.endsWith('/crossover'))) ||
+        (pathname.startsWith('/api/keywords/folders/') && (pathname.endsWith('/raw-visual-crossover') || pathname.endsWith('/crossover')))
+      ) {
+        if (method !== 'GET') {
+          return methodNotAllowedResponse('GET, OPTIONS');
+        }
+        const parts = pathname.split('/').filter(Boolean);
+        const folderId = parts[2] === 'folders' ? parts[3] : parts[2];
+        if (!folderId || isNaN(Number(folderId))) {
+          return jsonResponse({
+            success: false,
+            error: 'BAD_REQUEST',
+            message: 'Valid numeric folder_id is required'
+          }, 400);
+        }
+        const crossover = await calculateFolderCrossover(targetSql, Number(folderId));
+        return jsonResponse({ success: true, crossover });
+      }
+
+      // Aliased Campaign Folders CRUD API (/api/folders)
+      if ((pathname === '/api/folders' || pathname.startsWith('/api/folders/')) && !pathname.includes('crossover')) {
+        const parts = pathname.slice('/api/folders'.length).split('/').filter(Boolean);
+        const folderId = parts[0] ? Number(parts[0]) : (searchParams.get('id') || searchParams.get('folder_id'));
+
+        if (method === 'GET') {
+          if (folderId) {
+            const folder = await getFolder(targetSql, folderId);
+            if (!folder) return jsonResponse({ error: 'Folder not found' }, 404);
+            return jsonResponse({ success: true, folder });
+          }
+          const folders = await listFolders(targetSql, {
+            projectId: searchParams.get('project_id') || 'default'
+          });
+          return jsonResponse({ success: true, folders });
+        }
+
+        if (method === 'POST') {
+          const body = await request.json().catch(() => ({}));
+          const created = await createFolder(targetSql, body);
+          return jsonResponse({ success: true, folder: created });
+        }
+
+        if (method === 'DELETE' && folderId) {
+          const deleted = await deleteFolder(targetSql, folderId);
+          return jsonResponse({ success: true, deleted });
+        }
       }
 
       if (method === 'GET' && pathname === '/api/keywords/trends/popular-pins') {
@@ -2502,10 +2996,24 @@ export default {
       }
 
       // Default 404
-      return jsonResponse({ error: 'Endpoint not found', path: pathname }, 404);
+      return jsonResponse({
+        success: false,
+        error: 'NOT_FOUND',
+        message: `Endpoint '${pathname}' not found on pin-arbitrage-engine API.`
+      }, 404);
     } catch (err) {
-      const status = err.status || 500;
-      return jsonResponse({ error: status === 503 ? 'Service Unavailable' : 'Internal Server Error', message: err.message }, status);
+      const isSyntaxError = err instanceof SyntaxError || err.name === 'SyntaxError';
+      const status = isSyntaxError ? 400 : (err.status || 500);
+      return jsonResponse({
+        success: false,
+        error: status === 400 ? 'BAD_REQUEST' 
+          : status === 404 ? 'NOT_FOUND' 
+          : status === 405 ? 'METHOD_NOT_ALLOWED' 
+          : status === 413 ? 'PAYLOAD_TOO_LARGE' 
+          : status === 503 ? 'SERVICE_UNAVAILABLE' 
+          : 'INTERNAL_SERVER_ERROR',
+        message: redactSecrets(err.message || 'An unexpected internal error occurred')
+      }, status);
     }
   },
 

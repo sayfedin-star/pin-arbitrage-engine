@@ -101,11 +101,15 @@ export function getKeywordsPageHtml(initialSlug = '') {
 
         <span class="text-slate-300 dark:text-slate-700 hidden md:inline">/</span>
 
-        <!-- Active Keyword Breadcrumb -->
+        <!-- Active Keyword Breadcrumb & Navigation -->
         <div class="hidden md:flex items-center space-x-2 text-xs">
-          <span class="text-slate-400">Keywords</span>
-          <span class="text-slate-300 dark:text-slate-700">/</span>
-          <span class="font-bold text-emerald-600 dark:text-emerald-400 font-mono capitalize" x-text="selectedKeyword?.keyword || activeKeywordQuery || 'Overview'"></span>
+          <a href="/keywords" @click.prevent="switchToDashboard()" class="text-slate-400 hover:text-emerald-500 transition font-medium cursor-pointer">Keywords</a>
+          <template x-if="viewModeLevel === 'serp_studio'">
+            <div class="flex items-center space-x-2">
+              <span class="text-slate-300 dark:text-slate-700">/</span>
+              <span class="font-bold text-emerald-600 dark:text-emerald-400 font-mono capitalize" x-text="selectedKeyword?.keyword || activeKeywordQuery || 'Overview'"></span>
+            </div>
+          </template>
         </div>
       </div>
 
@@ -123,18 +127,26 @@ export function getKeywordsPageHtml(initialSlug = '') {
 
       <!-- Right Header Actions -->
       <div class="flex items-center space-x-2 sm:space-x-3">
-        <!-- Campaign Folders Fleet Button -->
-        <button @click="isFolderManagerOpen = true"
-                class="px-3 py-1.5 rounded-xl text-xs font-bold bg-pink-500/10 hover:bg-pink-500/20 dark:bg-pink-950/30 dark:hover:bg-pink-900/40 border border-pink-500/30 text-pink-600 dark:text-pink-400 transition flex items-center space-x-1.5 cursor-pointer">
+        <!-- Keyword Discovery Hub Link (Level 1B) -->
+        <a href="/keywords/discovery"
+           class="px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-500/10 hover:bg-emerald-500/20 dark:bg-emerald-950/30 dark:hover:bg-emerald-900/40 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 transition flex items-center space-x-1.5 cursor-pointer">
+          <i data-lucide="compass" class="w-3.5 h-3.5 text-emerald-500"></i>
+          <span class="hidden sm:inline">Keyword Discovery</span>
+          <span class="sm:hidden">Discovery</span>
+        </a>
+
+        <!-- Campaign Folders Fleet Link (Level 4) -->
+        <a href="/folders"
+           class="px-3 py-1.5 rounded-xl text-xs font-bold bg-pink-500/10 hover:bg-pink-500/20 dark:bg-pink-950/30 dark:hover:bg-pink-900/40 border border-pink-500/30 text-pink-600 dark:text-pink-400 transition flex items-center space-x-1.5 cursor-pointer">
           <i data-lucide="folder-kanban" class="w-3.5 h-3.5 text-pink-500"></i>
           <span class="hidden sm:inline">Campaign Folders</span>
           <span class="sm:hidden">Folders</span>
           <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-pink-500/20 text-pink-600 dark:text-pink-300 font-mono" x-text="folders.length"></span>
-        </button>
+        </a>
 
         <!-- Button to open All Keywords Slide-Over Drawer -->
         <button @click="isDrawerOpen = true"
-                class="px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 transition flex items-center space-x-1.5">
+                class="px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 transition flex items-center space-x-1.5 cursor-pointer">
           <i data-lucide="layers" class="w-3.5 h-3.5 text-emerald-500"></i>
           <span>Tracked Keywords</span>
           <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-mono" x-text="keywords.length"></span>
@@ -268,6 +280,307 @@ export function getKeywordsPageHtml(initialSlug = '') {
 
   <!-- Main Full-Width Executive Container -->
   <main class="w-full max-w-[1920px] mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
+
+    <!-- ========================================================================= -->
+    <!-- LEVEL 1A: EXECUTIVE KEYWORDS DASHBOARD (viewModeLevel === 'dashboard')   -->
+    <!-- ========================================================================= -->
+    <div x-show="viewModeLevel === 'dashboard'" x-cloak class="space-y-6">
+      
+      <!-- HERO & STRATEGIC ACTIONS HEADER -->
+      <section class="p-6 rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div class="flex items-center space-x-3.5">
+          <div class="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-500 text-white flex items-center justify-center shadow-lg shadow-emerald-600/20 shrink-0">
+            <i data-lucide="layers" class="w-6 h-6"></i>
+          </div>
+          <div>
+            <div class="flex items-center space-x-2">
+              <h2 class="text-xl font-black text-slate-900 dark:text-white">Keywords Fleet Dashboard</h2>
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">Level 1A</span>
+            </div>
+            <p class="text-xs text-slate-400 mt-0.5">Multi-Cluster Organic SERP Monitoring • Velocity Tracking & Fleet Telemetry</p>
+          </div>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+          <a href="/keywords/discovery"
+             class="px-4 py-2 rounded-2xl text-xs font-black uppercase tracking-wider bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 transition flex items-center space-x-1.5 shadow-xs cursor-pointer">
+            <i data-lucide="compass" class="w-3.5 h-3.5"></i>
+            <span>+ Discover Keywords</span>
+          </a>
+          <a href="/folders"
+             class="px-4 py-2 rounded-2xl text-xs font-black uppercase tracking-wider bg-pink-500/15 hover:bg-pink-500/25 text-pink-600 dark:text-pink-400 border border-pink-500/30 transition flex items-center space-x-1.5 shadow-xs cursor-pointer">
+            <i data-lucide="folder-kanban" class="w-3.5 h-3.5"></i>
+            <span>Campaign Folders</span>
+          </a>
+          <button @click="triggerWorkflow()" :disabled="isWorkflowDispatching"
+                  class="px-4 py-2 rounded-2xl text-xs font-black uppercase tracking-wider bg-slate-900 hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white transition flex items-center space-x-1.5 shadow-xs disabled:opacity-50 cursor-pointer">
+            <i data-lucide="play" class="w-3.5 h-3.5 text-emerald-400" :class="isWorkflowDispatching ? 'animate-spin' : ''"></i>
+            <span>Trigger Fleet Crawl</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- 4 TOP KPI CARDS: FLEET TELEMETRY RIBBON -->
+      <section class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <!-- KPI 1: Tracked Queries Fleet -->
+        <div class="p-5 rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 space-y-3 shadow-xs">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-slate-500 dark:text-slate-400">Tracked Queries Fleet</span>
+            <span class="p-1.5 rounded-xl bg-emerald-500/10 text-emerald-500">
+              <i data-lucide="tags" class="w-4 h-4"></i>
+            </span>
+          </div>
+          <div class="flex items-baseline space-x-2">
+            <span class="text-2xl font-black text-slate-900 dark:text-white font-mono" x-text="keywords.length"></span>
+            <span class="text-xs text-slate-400 font-mono">Monitored</span>
+          </div>
+          <div class="flex items-center justify-between text-[11px] pt-1 border-t border-slate-100 dark:border-slate-800/80 font-mono">
+            <span class="text-emerald-500 font-bold" x-text="activeKeywordsCount + ' Active'"></span>
+            <span class="text-amber-500 font-bold" x-text="pausedKeywordsCount + ' Paused'"></span>
+          </div>
+        </div>
+
+        <!-- KPI 2: Total Monitored Organic Pins -->
+        <div class="p-5 rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 space-y-3 shadow-xs">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-slate-500 dark:text-slate-400">Monitored Organic Pins</span>
+            <span class="p-1.5 rounded-xl bg-blue-500/10 text-blue-500">
+              <i data-lucide="database" class="w-4 h-4"></i>
+            </span>
+          </div>
+          <div class="flex items-baseline space-x-2">
+            <span class="text-2xl font-black text-slate-900 dark:text-white font-mono" x-text="formatNumber(totalMonitoredPins)"></span>
+            <span class="text-xs text-slate-400 font-mono">Pins</span>
+          </div>
+          <div class="flex items-center justify-between text-[11px] pt-1 border-t border-slate-100 dark:border-slate-800/80 text-slate-400 font-mono">
+            <span>Quota Depth:</span>
+            <span class="font-bold text-blue-500">~100 Pins / Query</span>
+          </div>
+        </div>
+
+        <!-- KPI 3: Fleet Save Velocity Pulse -->
+        <div class="p-5 rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 space-y-3 shadow-xs">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-slate-500 dark:text-slate-400">Fleet Velocity Pulse</span>
+            <span class="p-1.5 rounded-xl bg-cyan-500/10 text-cyan-500">
+              <i data-lucide="zap" class="w-4 h-4"></i>
+            </span>
+          </div>
+          <div class="flex items-baseline space-x-2">
+            <span class="text-2xl font-black text-emerald-600 dark:text-emerald-400 font-mono" x-text="'+' + averageFleetVelocity + ' v/d'"></span>
+            <span class="text-xs text-slate-400 font-mono">Average</span>
+          </div>
+          <div class="flex items-center justify-between text-[11px] pt-1 border-t border-slate-100 dark:border-slate-800/80 text-slate-400 font-mono">
+            <span>Fleet Momentum:</span>
+            <span class="font-bold text-emerald-500">Kinetic Growth</span>
+          </div>
+        </div>
+
+        <!-- KPI 4: Nightly Crawler Fleet Status -->
+        <div class="p-5 rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 space-y-3 shadow-xs">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-slate-500 dark:text-slate-400">Nightly Crawler Fleet</span>
+            <span class="p-1.5 rounded-xl bg-purple-500/10 text-purple-500">
+              <i data-lucide="clock" class="w-4 h-4"></i>
+            </span>
+          </div>
+          <div class="flex items-center space-x-2">
+            <span class="px-2.5 py-1 rounded-xl text-xs font-black font-mono bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+              ● OPERATIONAL
+            </span>
+          </div>
+          <div class="flex items-center justify-between text-[11px] pt-1 border-t border-slate-100 dark:border-slate-800/80 text-slate-400 font-mono truncate">
+            <span class="truncate" x-text="nightlySyncCountdown"></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- FILTER & SORT CONTROLS STRIP -->
+      <section class="p-4 rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div class="flex flex-wrap items-center gap-2 flex-1">
+          <!-- Search input -->
+          <div class="relative flex-1 min-w-[200px] max-w-md">
+            <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
+            <input type="text" x-model="dashboardSearch" placeholder="Search keywords or categories..."
+                   class="w-full pl-9 pr-3 py-2 text-xs rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/40">
+          </div>
+
+          <!-- Category filter -->
+          <select x-model="dashboardCategoryFilter" class="px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 focus:outline-none cursor-pointer">
+            <option value="ALL">All Categories</option>
+            <template x-for="cat in uniqueCategories" :key="cat">
+              <option :value="cat" x-text="cat"></option>
+            </template>
+          </select>
+
+          <!-- Status filter -->
+          <select x-model="dashboardStatusFilter" class="px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 focus:outline-none cursor-pointer">
+            <option value="ALL">All Statuses</option>
+            <option value="ACTIVE">Active Tracking Only</option>
+            <option value="PAUSED">Paused Only</option>
+          </select>
+
+          <!-- Sort filter -->
+          <select x-model="dashboardSort" class="px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 focus:outline-none cursor-pointer">
+            <option value="velocity">Sort: Daily Velocity (Highest)</option>
+            <option value="saves_delta">Sort: 24h Saves Δ (Highest)</option>
+            <option value="repins_delta">Sort: 24h Repins Δ (Highest)</option>
+            <option value="name">Sort: Alphabetical (A-Z)</option>
+            <option value="crawled">Sort: Recently Crawled</option>
+          </select>
+        </div>
+
+        <div class="flex items-center space-x-2 text-xs font-mono text-slate-400 shrink-0">
+          <span x-text="filteredDashboardKeywords.length + ' of ' + keywords.length + ' Queries Shown'"></span>
+        </div>
+      </section>
+
+      <!-- HIGH-DENSITY TRACKED KEYWORDS TABLE -->
+      <section class="rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 shadow-xs overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full text-left border-collapse">
+            <thead>
+              <tr class="table-sticky-header bg-slate-100/90 dark:bg-[#080d19]/90 border-b border-slate-200 dark:border-slate-800 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 font-mono">
+                <th class="py-3.5 px-4 w-12 text-center">
+                  <input type="checkbox" @click="toggleSelectAllDashboardKeywords()"
+                         :checked="selectedKeywordIds.length === filteredDashboardKeywords.length && filteredDashboardKeywords.length > 0"
+                         class="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300 dark:border-slate-700">
+                </th>
+                <th class="py-3.5 px-3 w-14">Preview</th>
+                <th class="py-3.5 px-4 min-w-[220px]">Keyword & Category</th>
+                <th class="py-3.5 px-3 w-28">24h Saves Δ</th>
+                <th class="py-3.5 px-3 w-28">24h Repins Δ</th>
+                <th class="py-3.5 px-3 w-32">Daily Velocity</th>
+                <th class="py-3.5 px-3 w-24">Pins Quota</th>
+                <th class="py-3.5 px-3 w-28 text-center">Status</th>
+                <th class="py-3.5 px-3 w-36">Last Crawled</th>
+                <th class="py-3.5 px-4 w-36 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100 dark:divide-slate-800/80 text-xs">
+              <template x-for="kw in filteredDashboardKeywords" :key="kw.id">
+                <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition group cursor-pointer"
+                    @click="switchToSerpStudio(kw)">
+                  
+                  <!-- Checkbox -->
+                  <td class="py-3.5 px-4 text-center" @click.stop>
+                    <input type="checkbox" :checked="isDashboardKeywordSelected(kw.id)" @click="toggleDashboardKeywordSelection(kw.id)"
+                           class="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300 dark:border-slate-700">
+                  </td>
+
+                  <!-- Thumbnail -->
+                  <td class="py-3.5 px-3">
+                    <template x-if="kw.top_pin_image">
+                      <img :src="kw.top_pin_image" class="w-10 h-13 rounded-lg object-cover border border-slate-200 dark:border-slate-700 shadow-xs">
+                    </template>
+                    <template x-if="!kw.top_pin_image">
+                      <div class="w-10 h-13 rounded-lg bg-slate-200 dark:bg-slate-800 flex items-center justify-center">
+                        <i data-lucide="image" class="w-3.5 h-3.5 text-slate-400"></i>
+                      </div>
+                    </template>
+                  </td>
+
+                  <!-- Keyword & Category -->
+                  <td class="py-3.5 px-4 min-w-[220px]">
+                    <div class="space-y-1">
+                      <span class="font-bold text-slate-900 dark:text-white group-hover:text-emerald-500 text-sm capitalize block transition"
+                            x-text="kw.keyword"></span>
+                      <div class="flex items-center space-x-2">
+                        <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300"
+                              x-text="kw.category || 'General'"></span>
+                        <template x-if="kw.annotation_id">
+                          <span class="text-[10px] font-mono text-slate-400" x-text="'ID: ' + kw.annotation_id"></span>
+                        </template>
+                      </div>
+                    </div>
+                  </td>
+
+                  <!-- 24h Saves Delta Pill Badge -->
+                  <td class="py-3.5 px-3 font-mono">
+                    <span class="px-2.5 py-1 rounded-full text-xs font-bold inline-block"
+                          :class="getKeywordSaveDelta(kw) > 0 ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30' : (getKeywordSaveDelta(kw) < 0 ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30' : 'bg-slate-100 dark:bg-slate-800 text-slate-500')"
+                          x-text="(getKeywordSaveDelta(kw) > 0 ? '+' : '') + formatNumber(getKeywordSaveDelta(kw))"></span>
+                  </td>
+
+                  <!-- 24h Repins Delta Pill Badge -->
+                  <td class="py-3.5 px-3 font-mono">
+                    <span class="px-2.5 py-1 rounded-full text-xs font-bold inline-block"
+                          :class="getKeywordRepinDelta(kw) > 0 ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30' : (getKeywordRepinDelta(kw) < 0 ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30' : 'bg-slate-100 dark:bg-slate-800 text-slate-500')"
+                          x-text="(getKeywordRepinDelta(kw) > 0 ? '+' : '') + formatNumber(getKeywordRepinDelta(kw))"></span>
+                  </td>
+
+                  <!-- Daily Velocity -->
+                  <td class="py-3.5 px-3 font-mono">
+                    <span class="px-2.5 py-1 rounded-lg text-xs font-black inline-block"
+                          :class="Number(kw.avg_daily_velocity || 0) > 0 ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'"
+                          x-text="(Number(kw.avg_daily_velocity || 0) > 0 ? '+' : '') + Number(kw.avg_daily_velocity || 0) + ' v/d'"></span>
+                  </td>
+
+                  <!-- Pins Quota -->
+                  <td class="py-3.5 px-3 font-mono text-slate-500 dark:text-slate-400">
+                    <span x-text="(kw.snapshots_count || 100) + ' / 100'"></span>
+                  </td>
+
+                  <!-- Active / Paused Status Toggle -->
+                  <td class="py-3.5 px-3 text-center" @click.stop>
+                    <button @click="toggleKeywordStatus(kw)"
+                            class="px-2.5 py-1 rounded-full text-[10px] font-mono font-bold transition inline-flex items-center space-x-1 cursor-pointer"
+                            :class="kw.is_active !== false ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25' : 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 hover:bg-amber-500/25'"
+                            :title="kw.is_active !== false ? 'Click to Pause Tracking' : 'Click to Resume Tracking'">
+                      <span class="w-1.5 h-1.5 rounded-full" :class="kw.is_active !== false ? 'bg-emerald-500' : 'bg-amber-500'"></span>
+                      <span x-text="kw.is_active !== false ? 'Active' : 'Paused'"></span>
+                    </button>
+                  </td>
+
+                  <!-- Last Crawled -->
+                  <td class="py-3.5 px-3 font-mono text-slate-500 dark:text-slate-400 text-[11px] truncate"
+                      x-text="formatDate(kw.last_crawled_at)"></td>
+
+                  <!-- Actions -->
+                  <td class="py-3.5 px-4 text-right" @click.stop>
+                    <div class="flex items-center justify-end space-x-1.5">
+                      <button @click="switchToSerpStudio(kw)"
+                              class="px-2.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition flex items-center space-x-1 cursor-pointer"
+                              title="Open Level 2 SERP Studio">
+                        <span>Studio</span>
+                        <i data-lucide="arrow-right" class="w-3.5 h-3.5"></i>
+                      </button>
+                      <button @click="rescanKeyword(kw.id, true)" :disabled="syncingKeywordId === kw.id"
+                              class="p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 hover:text-emerald-500 transition cursor-pointer"
+                              title="Re-Crawl 100 pins">
+                        <i data-lucide="refresh-cw" class="w-3.5 h-3.5" :class="syncingKeywordId === kw.id ? 'animate-spin text-emerald-500' : ''"></i>
+                      </button>
+                      <button @click="deleteKeyword(kw.id)"
+                              class="p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 hover:text-rose-500 transition cursor-pointer"
+                              title="Delete Keyword">
+                        <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                      </button>
+                    </div>
+                  </td>
+
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+    </div>
+
+    <!-- ========================================================================= -->
+    <!-- LEVEL 2: SERP RADAR STUDIO (viewModeLevel === 'serp_studio')             -->
+    <!-- ========================================================================= -->
+    <div x-show="viewModeLevel === 'serp_studio'" x-cloak class="space-y-6">
+
+      <!-- Studio Return Button -->
+      <div class="flex items-center justify-between">
+        <button @click="switchToDashboard()"
+                class="px-4 py-2 rounded-2xl text-xs font-bold bg-white dark:bg-[#0b1120] hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200/80 dark:border-slate-800 text-slate-700 dark:text-slate-300 transition flex items-center space-x-2 shadow-xs cursor-pointer">
+          <i data-lucide="arrow-left" class="w-4 h-4 text-emerald-500"></i>
+          <span>← Back to Keywords Dashboard</span>
+        </button>
+        <span class="text-xs font-mono text-slate-400">Level 2: SERP Radar Studio</span>
+      </div>
 
     <!-- EXECUTIVE CONTROL BAR: KEYWORD OMNIBAR & DIRECT ACTIONS -->
     <section class="p-4 sm:p-6 rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-4">
@@ -662,6 +975,23 @@ export function getKeywordsPageHtml(initialSlug = '') {
               </div>
             </div>
 
+            <!-- Dual-Scope Switcher: Active SERP Top 100 vs All Vault Pins -->
+            <div class="flex items-center space-x-2">
+              <span class="text-[11px] font-bold text-slate-400 font-mono uppercase tracking-wider shrink-0">Scope:</span>
+              <div class="flex items-center p-1 rounded-2xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 gap-1">
+                <button @click="serpScope = 'active'"
+                        class="px-2.5 py-1 rounded-xl text-xs font-bold transition cursor-pointer"
+                        :class="serpScope === 'active' ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/40 shadow-xs' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'">
+                  Active Top 100
+                </button>
+                <button @click="serpScope = 'vault'; if(selectedKeyword) fetchDisplacedPins()"
+                        class="px-2.5 py-1 rounded-xl text-xs font-bold transition cursor-pointer"
+                        :class="serpScope === 'vault' ? 'bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/40 shadow-xs' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'">
+                  All Vault Pins
+                </button>
+              </div>
+            </div>
+
             <!-- View Mode (Cards vs Table) & Filters -->
             <div class="flex flex-wrap items-center gap-2">
               
@@ -710,6 +1040,57 @@ export function getKeywordsPageHtml(initialSlug = '') {
 
       <!-- TAB 1: EXECUTIVE FULL-WIDTH SERP MATRIX -->
       <div x-show="activeTab === 'serp'" class="space-y-0">
+        
+        <!-- VISUAL INTELLIGENCE SUB-PANEL: CO-OCCURRING POWER PAIRS -->
+        <template x-if="!isDetailsLoading && filteredPins && filteredPins.length > 0">
+          <div class="p-4 sm:p-5 m-4 sm:m-6 rounded-3xl bg-slate-50/70 dark:bg-slate-900/40 border border-slate-200/80 dark:border-slate-800 space-y-3.5">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div class="flex items-center space-x-2.5">
+                <div class="w-7 h-7 rounded-xl bg-purple-500/10 text-purple-500 flex items-center justify-center">
+                  <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+                </div>
+                <div>
+                  <h4 class="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-white">Visual Intelligence: Co-Occurring Power Pairs</h4>
+                  <p class="text-[10px] text-slate-400 font-mono">Algorithmic Lift & High-Impact Combinations (k ≤ 15 tags/pin guardrail)</p>
+                </div>
+              </div>
+              <span class="text-[10px] font-mono text-purple-400 bg-purple-500/10 px-2.5 py-0.5 rounded-full border border-purple-500/20"
+                    x-text="computeSerpPowerPairs().length + ' Power Pairs Computed'"></span>
+            </div>
+
+            <template x-if="computeSerpPowerPairs().length > 0">
+              <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+                <template x-for="(pair, idx) in computeSerpPowerPairs()" :key="idx">
+                  <div class="p-3 rounded-2xl bg-white dark:bg-[#0c1322] border border-slate-200 dark:border-slate-800 flex flex-col justify-between space-y-2 hover:border-purple-500/40 transition group">
+                    <div class="space-y-1.5">
+                      <div class="flex items-center justify-between">
+                        <span class="px-2 py-0.5 rounded-md text-[9px] font-mono font-bold bg-purple-500/15 text-purple-400 border border-purple-500/30"
+                              x-text="pair.lift + 'x Lift'"></span>
+                        <span class="text-[9px] font-mono text-slate-400" x-text="pair.count + ' Pins (' + pair.supportPct + '%)'"></span>
+                      </div>
+                      <div class="flex items-center space-x-1.5 text-xs font-bold text-slate-900 dark:text-white truncate">
+                        <span class="capitalize text-emerald-500 truncate" x-text="pair.tagA"></span>
+                        <span class="text-slate-400">+</span>
+                        <span class="capitalize text-purple-400 truncate" x-text="pair.tagB"></span>
+                      </div>
+                    </div>
+                    <button @click="copySerpVisualBlueprint(pair)"
+                            class="w-full py-1.5 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 text-[10px] font-bold font-mono transition flex items-center justify-center space-x-1 cursor-pointer">
+                      <i data-lucide="copy" class="w-3 h-3"></i>
+                      <span>📋 Copy Visual Blueprint</span>
+                    </button>
+                  </div>
+                </template>
+              </div>
+            </template>
+
+            <template x-if="computeSerpPowerPairs().length === 0">
+              <div class="py-4 text-center text-xs text-slate-400 font-mono">
+                Indexing visual tags... Co-occurring power pairs require at least 2 pins with shared visual annotations.
+              </div>
+            </template>
+          </div>
+        </template>
         
         <template x-if="isDetailsLoading">
           <div class="py-20 text-center space-y-3">
@@ -773,7 +1154,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
 
                     <!-- Preview Thumbnail -->
                     <td class="py-3.5 px-3">
-                      <div class="relative group/img shrink-0">
+                      <a :href="'/pins/' + pin.pin_id" @click.stop class="relative group/img shrink-0 block" title="Open Dedicated Pin Intelligence (/pins/:pin_id)">
                         <template x-if="pin.image_url">
                           <img :src="pin.image_url" class="w-10 h-14 rounded-lg object-cover border border-slate-200 dark:border-slate-700 shadow-xs group-hover/img:scale-105 transition">
                         </template>
@@ -782,16 +1163,21 @@ export function getKeywordsPageHtml(initialSlug = '') {
                             <i data-lucide="image" class="w-3.5 h-3.5 text-slate-400"></i>
                           </div>
                         </template>
-                      </div>
+                      </a>
                     </td>
 
                     <!-- Pin Title, ID & Creator -->
                     <td class="py-3.5 px-4 min-w-[260px]">
                       <div class="space-y-1">
-                        <span class="font-bold text-slate-900 dark:text-white group-hover:text-emerald-500 line-clamp-2 block transition"
-                              x-text="pin.title || 'Untitled Pin'"></span>
+                        <a :href="'/pins/' + pin.pin_id" @click.stop
+                           class="font-bold text-slate-900 dark:text-white hover:text-emerald-500 line-clamp-2 block transition"
+                           title="Open Dedicated Pin Intelligence (/pins/:pin_id)"
+                           x-text="pin.title || 'Untitled Pin'"></a>
                         <div class="flex items-center space-x-2 text-[10px] text-slate-400 font-mono">
-                          <span class="text-slate-500 dark:text-slate-400 truncate font-mono" x-text="'ID: ' + pin.pin_id"></span>
+                          <a :href="'/pins/' + pin.pin_id" @click.stop
+                             class="text-slate-500 dark:text-slate-400 hover:text-emerald-500 truncate font-mono"
+                             title="Open Dedicated Pin Intelligence"
+                             x-text="'ID: ' + pin.pin_id"></a>
                           <template x-if="pin.metadata?.pinner">
                             <span class="flex items-center space-x-1 truncate max-w-[130px]">
                               <template x-if="pin.metadata.pinner.image_small_url">
@@ -874,6 +1260,11 @@ export function getKeywordsPageHtml(initialSlug = '') {
                     <!-- Actions -->
                     <td class="py-3.5 px-3 text-right">
                       <div class="flex items-center justify-end space-x-1" @click.stop>
+                        <a :href="'/pins/' + pin.pin_id"
+                           class="p-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 transition cursor-pointer"
+                           title="Open Dedicated Pin Intelligence (/pins/:pin_id)">
+                          <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+                        </a>
                         <button @click="openPinInspector(pin)"
                                 class="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition cursor-pointer"
                                 title="Open Pin Deep Dossier">
@@ -887,7 +1278,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
                         <a :href="'https://www.pinterest.com/pin/' + pin.pin_id + '/'" target="_blank"
                            class="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-400 hover:text-slate-600 dark:hover:text-white transition"
                            title="Open Pin on Pinterest">
-                          <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+                          <i data-lucide="arrow-up-right" class="w-3.5 h-3.5"></i>
                         </a>
                       </div>
                     </td>
@@ -908,7 +1299,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
                 
                 <div class="space-y-3">
                   <!-- Thumbnail with Rank & Format overlays -->
-                  <div class="relative rounded-2xl overflow-hidden aspect-[2/3] max-h-56 bg-slate-200 dark:bg-slate-800">
+                  <a :href="'/pins/' + pin.pin_id" @click.stop class="block relative rounded-2xl overflow-hidden aspect-[2/3] max-h-56 bg-slate-200 dark:bg-slate-800" title="Open Dedicated Pin Intelligence (/pins/:pin_id)">
                     <template x-if="pin.image_url">
                       <img :src="pin.image_url" class="w-full h-full object-cover group-hover:scale-105 transition duration-300">
                     </template>
@@ -916,13 +1307,17 @@ export function getKeywordsPageHtml(initialSlug = '') {
                          x-text="'#' + pin.rank_position"></div>
                     <div class="absolute top-2.5 right-2.5 px-2 py-0.5 rounded-md bg-slate-950/70 text-[10px] font-mono text-slate-200 backdrop-blur-xs uppercase"
                          x-text="pin.metadata?.format || 'ORGANIC'"></div>
-                  </div>
+                  </a>
 
                   <!-- Title & ID -->
                   <div class="space-y-1">
-                    <h4 class="text-xs font-bold text-slate-900 dark:text-white group-hover:text-emerald-500 line-clamp-2 leading-snug transition"
-                        x-text="pin.title || 'Untitled Pin'"></h4>
-                    <p class="text-[10px] font-mono text-slate-400 truncate" x-text="pin.metadata?.board_name || ('ID: ' + pin.pin_id)"></p>
+                    <a :href="'/pins/' + pin.pin_id" @click.stop
+                       class="text-xs font-bold text-slate-900 dark:text-white hover:text-emerald-500 line-clamp-2 leading-snug transition block"
+                       title="Open Dedicated Pin Intelligence (/pins/:pin_id)"
+                       x-text="pin.title || 'Untitled Pin'"></a>
+                    <a :href="'/pins/' + pin.pin_id" @click.stop
+                       class="text-[10px] font-mono text-slate-400 hover:text-emerald-500 truncate block"
+                       x-text="pin.metadata?.board_name || ('ID: ' + pin.pin_id)"></a>
                   </div>
                 </div>
 
@@ -944,6 +1339,9 @@ export function getKeywordsPageHtml(initialSlug = '') {
                   <div class="flex items-center justify-between text-[11px] text-slate-400 pt-1" @click.stop>
                     <span class="truncate max-w-[120px] font-mono text-[10px]" x-text="pin.domain || 'Pinterest'"></span>
                     <div class="flex items-center space-x-1">
+                      <a :href="'/pins/' + pin.pin_id" class="p-1 rounded bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20" title="Open Dossier (/pins/:pin_id)">
+                        <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+                      </a>
                       <button @click="openPinInspector(pin)" class="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-400 hover:text-slate-200" title="Dossier">
                         <i data-lucide="eye" class="w-3.5 h-3.5"></i>
                       </button>
@@ -951,7 +1349,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
                         <i data-lucide="camera" class="w-3.5 h-3.5"></i>
                       </button>
                       <a :href="'https://www.pinterest.com/pin/' + pin.pin_id + '/'" target="_blank" class="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-400 hover:text-white" title="Pinterest">
-                        <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+                        <i data-lucide="arrow-up-right" class="w-3.5 h-3.5"></i>
                       </a>
                     </div>
                   </div>
@@ -2218,7 +2616,120 @@ export function getKeywordsPageHtml(initialSlug = '') {
 
     </section>
 
+    </div>
+
   </main>
+
+  <!-- ELEVATED FLOATING BULK ACTION BAR (LEVEL 1A DASHBOARD) -->
+  <div x-show="viewModeLevel === 'dashboard' && selectedKeywordIds.length > 0" x-cloak
+       x-transition:enter="transition ease-out duration-300"
+       x-transition:enter-start="opacity-0 translate-y-8"
+       x-transition:enter-end="opacity-100 translate-y-0"
+       x-transition:leave="transition ease-in duration-200"
+       x-transition:leave-start="opacity-100 translate-y-0"
+       x-transition:leave-end="opacity-0 translate-y-8"
+       class="fixed bottom-6 inset-x-0 mx-auto w-fit z-50 bg-slate-900/95 dark:bg-[#0c1322]/95 border border-slate-700 shadow-2xl backdrop-blur-xl px-4 sm:px-6 py-3 rounded-2xl flex flex-wrap items-center gap-2 sm:gap-3 text-xs">
+    <div class="flex items-center space-x-2">
+      <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+      <span class="px-2.5 py-1 rounded-xl bg-emerald-500/20 text-emerald-400 font-mono font-bold" x-text="selectedKeywordIds.length + ' Keywords Selected'"></span>
+    </div>
+
+    <div class="h-4 w-px bg-slate-700 hidden sm:block"></div>
+
+    <button @click="bulkSyncKeywords()" :disabled="isBulkLoading"
+            class="px-3.5 py-1.5 rounded-xl font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition flex items-center space-x-1.5 cursor-pointer disabled:opacity-50">
+      <i data-lucide="zap" class="w-3.5 h-3.5" :class="isBulkLoading ? 'animate-spin' : ''"></i>
+      <span>⚡ Fast Refresh Now</span>
+    </button>
+
+    <button @click="openBulkFolderModal()" :disabled="isBulkLoading"
+            class="px-3.5 py-1.5 rounded-xl font-bold bg-pink-500/20 hover:bg-pink-500/30 text-pink-400 border border-pink-500/40 transition flex items-center space-x-1.5 cursor-pointer disabled:opacity-50">
+      <i data-lucide="folder-plus" class="w-3.5 h-3.5"></i>
+      <span>📁 Add to Campaign Folder</span>
+    </button>
+
+    <button @click="bulkToggleKeywordStatus(false)" :disabled="isBulkLoading"
+            class="px-3.5 py-1.5 rounded-xl font-bold bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 border border-amber-500/40 transition flex items-center space-x-1.5 cursor-pointer disabled:opacity-50">
+      <i data-lucide="pause-circle" class="w-3.5 h-3.5"></i>
+      <span>⏸ Pause Tracking</span>
+    </button>
+
+    <button @click="bulkToggleKeywordStatus(true)" :disabled="isBulkLoading"
+            class="px-3.5 py-1.5 rounded-xl font-bold bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 border border-blue-500/40 transition flex items-center space-x-1.5 cursor-pointer disabled:opacity-50">
+      <i data-lucide="play-circle" class="w-3.5 h-3.5"></i>
+      <span>▶ Resume Tracking</span>
+    </button>
+
+    <button @click="bulkDeleteKeywords()" :disabled="isBulkLoading"
+            class="px-3.5 py-1.5 rounded-xl font-bold bg-rose-500/20 hover:bg-rose-500/30 text-rose-400 border border-rose-500/40 transition flex items-center space-x-1.5 cursor-pointer disabled:opacity-50">
+      <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+      <span>🗑 Delete Selected</span>
+    </button>
+
+    <button @click="clearSelectedKeywords()" class="p-1.5 rounded-xl hover:bg-slate-800 text-slate-400 hover:text-white transition cursor-pointer" title="Clear Selection">
+      <i data-lucide="x" class="w-4 h-4"></i>
+    </button>
+  </div>
+
+  <!-- MODAL: BULK ADD KEYWORDS TO CAMPAIGN FOLDER -->
+  <div x-show="isBulkFolderModalOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div x-show="isBulkFolderModalOpen"
+         x-transition:enter="transition-opacity ease-linear duration-300"
+         x-transition:enter-start="opacity-0"
+         x-transition:enter-end="opacity-100"
+         x-transition:leave="transition-opacity ease-linear duration-300"
+         x-transition:leave-start="opacity-100"
+         x-transition:leave-end="opacity-0"
+         @click="isBulkFolderModalOpen = false"
+         class="fixed inset-0 bg-slate-950/70 backdrop-blur-xs"></div>
+
+    <div x-show="isBulkFolderModalOpen"
+         x-transition:enter="transform transition ease-out duration-300"
+         x-transition:enter-start="opacity-0 scale-95"
+         x-transition:enter-end="opacity-100 scale-100"
+         x-transition:leave="transform transition ease-in duration-200"
+         x-transition:leave-start="opacity-100 scale-100"
+         x-transition:leave-end="opacity-0 scale-95"
+         class="relative w-full max-w-md bg-white dark:bg-[#0c1322] border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl p-6 space-y-4 z-10">
+      
+      <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+        <div class="flex items-center space-x-2.5">
+          <div class="w-8 h-8 rounded-xl bg-pink-500/10 text-pink-500 flex items-center justify-center">
+            <i data-lucide="folder-plus" class="w-4 h-4"></i>
+          </div>
+          <div>
+            <h3 class="text-sm font-black text-slate-900 dark:text-white">Add to Campaign Folder</h3>
+            <p class="text-[11px] text-slate-400 font-mono" x-text="selectedKeywordIds.length + ' Keywords will be added'"></p>
+          </div>
+        </div>
+        <button @click="isBulkFolderModalOpen = false" class="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-white">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <div class="space-y-3">
+        <label class="block text-xs font-bold text-slate-700 dark:text-slate-300">Select Target Campaign Folder</label>
+        <select x-model="bulkTargetFolderId" class="w-full px-3 py-2 rounded-xl text-xs bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-pink-500/40">
+          <template x-for="f in folders" :key="f.id">
+            <option :value="f.id" x-text="f.name + ' (' + (f.keyword_count || 0) + ' keywords)'"></option>
+          </template>
+        </select>
+        <template x-if="folders.length === 0">
+          <p class="text-xs text-rose-500">No folders available. Please create a campaign folder first.</p>
+        </template>
+      </div>
+
+      <div class="flex items-center justify-end space-x-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+        <button @click="isBulkFolderModalOpen = false" class="px-4 py-2 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+          Cancel
+        </button>
+        <button @click="commitBulkFolder()" :disabled="!bulkTargetFolderId || folders.length === 0 || isBulkLoading"
+                class="px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider bg-pink-600 hover:bg-pink-500 text-white transition disabled:opacity-50 cursor-pointer shadow-sm">
+          Add Keywords
+        </button>
+      </div>
+    </div>
+  </div>
 
   <!-- PIN DETAIL SLIDE-OVER INSPECTOR DRAWER (PinClicks Parity - Image 5) -->
   <!-- PIN DEEP DOSSIER SLIDE-OVER INSPECTOR (Image 2 Parity) -->
@@ -2260,6 +2771,14 @@ export function getKeywordsPageHtml(initialSlug = '') {
 
           <!-- Quick-Copy Buttons Bar (Image 2 Parity) -->
           <div class="flex flex-wrap items-center gap-1.5">
+            <!-- Open Full Dossier Page (Level 3) -->
+            <a :href="'/pins/' + activeInspectorPin?.pin_id"
+               class="px-2.5 py-1 rounded-xl text-[11px] font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25 transition flex items-center space-x-1"
+               title="Open Dedicated Full Dossier Page (/pins/:pin_id)">
+              <i data-lucide="external-link" class="w-3 h-3 text-emerald-500"></i>
+              <span>Full Dossier</span>
+            </a>
+
             <button @click="copyToClipboard(activeInspectorPin?.pin_id, 'Copied Pin ID: ' + activeInspectorPin?.pin_id)"
                     class="px-2.5 py-1 rounded-xl text-[11px] font-bold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition flex items-center space-x-1 cursor-pointer"
                     title="Copy Pin ID">
@@ -2287,6 +2806,13 @@ export function getKeywordsPageHtml(initialSlug = '') {
               <i data-lucide="file-text" class="w-3 h-3 text-amber-500"></i>
               <span>Alt Text</span>
             </button>
+
+            <a :href="'/pins/' + activeInspectorPin?.pin_id" target="_blank"
+               class="px-2.5 py-1 rounded-xl text-[11px] font-bold bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 border border-purple-500/20 transition flex items-center space-x-1 cursor-pointer"
+               title="Open Universal Pin Dossier (Level 3)">
+              <i data-lucide="sparkles" class="w-3 h-3"></i>
+              <span>Full Dossier</span>
+            </a>
 
             <div class="flex items-center space-x-1 border-l border-slate-200 dark:border-slate-800 pl-1.5 ml-1">
               <button @click="prevInspectorPin()" :disabled="activeInspectorPinIndex <= 0"
@@ -2997,6 +3523,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
   <script>
     function keywordStudio() {
       return {
+        viewModeLevel: (window.__INITIAL_KEYWORD_SLUG__ && window.__INITIAL_KEYWORD_SLUG__.trim()) ? 'serp_studio' : 'dashboard',
         keywords: [],
         filteredKeywords: [],
         keywordSearch: '',
@@ -3007,6 +3534,19 @@ export function getKeywordsPageHtml(initialSlug = '') {
         isWorkflowDispatching: false,
         syncingKeywordId: null,
         isDrawerOpen: false,
+
+        // Level 1A Dashboard State & Bulk Selection
+        selectedKeywordIds: [],
+        dashboardSearch: '',
+        dashboardCategoryFilter: 'ALL',
+        dashboardStatusFilter: 'ALL',
+        dashboardSort: 'velocity',
+        isBulkFolderModalOpen: false,
+        bulkTargetFolderId: '',
+        isBulkLoading: false,
+
+        // Dual-Scope Switcher State (Active SERP Top 100 vs All Vault Pins)
+        serpScope: 'active', // 'active' | 'vault'
 
         // Pin Detail Slide-Over Inspector State (PinClicks Parity)
         isPinDrawerOpen: false,
@@ -3035,9 +3575,11 @@ export function getKeywordsPageHtml(initialSlug = '') {
         trendsData: null,
         isTrendsLoading: false,
 
-        // Concurrency & Race-Condition Hardening
+        // Concurrency & Race-Condition Hardening (Inspector & Details)
         detailRequestId: 0,
         detailAbortController: null,
+        activePinRequestId: 0,
+        pinInspectorAbortController: null,
 
         // Omnibar State
         omnibarQuery: '',
@@ -3108,6 +3650,90 @@ export function getKeywordsPageHtml(initialSlug = '') {
           return this.keywords.filter(k => (k.keyword || '').toLowerCase().includes(q) || (k.category || '').toLowerCase().includes(q));
         },
 
+        get filteredDashboardKeywords() {
+          let list = this.keywords || [];
+          if (this.dashboardStatusFilter === 'ACTIVE') {
+            list = list.filter(k => k.is_active !== false);
+          } else if (this.dashboardStatusFilter === 'PAUSED') {
+            list = list.filter(k => k.is_active === false);
+          }
+          if (this.dashboardCategoryFilter && this.dashboardCategoryFilter !== 'ALL') {
+            list = list.filter(k => (k.category || 'General').toLowerCase() === this.dashboardCategoryFilter.toLowerCase());
+          }
+          if (this.dashboardSearch && this.dashboardSearch.trim()) {
+            const q = this.dashboardSearch.toLowerCase().trim();
+            list = list.filter(k => 
+              (k.keyword || '').toLowerCase().includes(q) ||
+              (k.category || '').toLowerCase().includes(q)
+            );
+          }
+          if (this.dashboardSort === 'velocity') {
+            return [...list].sort((a, b) => Number(b.avg_daily_velocity || 0) - Number(a.avg_daily_velocity || 0));
+          } else if (this.dashboardSort === 'saves_delta') {
+            return [...list].sort((a, b) => this.getKeywordSaveDelta(b) - this.getKeywordSaveDelta(a));
+          } else if (this.dashboardSort === 'repins_delta') {
+            return [...list].sort((a, b) => this.getKeywordRepinDelta(b) - this.getKeywordRepinDelta(a));
+          } else if (this.dashboardSort === 'name') {
+            return [...list].sort((a, b) => (a.keyword || '').localeCompare(b.keyword || ''));
+          } else if (this.dashboardSort === 'crawled') {
+            return [...list].sort((a, b) => new Date(b.last_crawled_at || 0) - new Date(a.last_crawled_at || 0));
+          }
+          return list;
+        },
+
+        get activeKeywordsCount() {
+          return (this.keywords || []).filter(k => k.is_active !== false).length;
+        },
+
+        get pausedKeywordsCount() {
+          return (this.keywords || []).filter(k => k.is_active === false).length;
+        },
+
+        get totalMonitoredPins() {
+          return (this.keywords || []).reduce((acc, k) => acc + (Number(k.snapshots_count) || 100), 0);
+        },
+
+        get averageFleetVelocity() {
+          const active = (this.keywords || []).filter(k => k.is_active !== false);
+          if (active.length === 0) return 0;
+          const total = active.reduce((acc, k) => acc + Number(k.avg_daily_velocity || 0), 0);
+          return Number((total / active.length).toFixed(1));
+        },
+
+        get uniqueCategories() {
+          const cats = new Set((this.keywords || []).map(k => k.category || 'General').filter(Boolean));
+          return Array.from(cats).sort();
+        },
+
+        get nightlySyncCountdown() {
+          const now = new Date();
+          const next = new Date(now);
+          next.setUTCHours(2, 0, 0, 0);
+          if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
+          const diffMs = next.getTime() - now.getTime();
+          const hours = Math.floor(diffMs / 3600000);
+          const mins = Math.floor((diffMs % 3600000) / 60000);
+          return 'Next Batch at 02:00 UTC (~' + hours + 'h ' + mins + 'm)';
+        },
+
+        getKeywordSaveDelta(kw) {
+          if (!kw) return 0;
+          let val = 0;
+          if (kw.saves_delta_24h !== undefined && kw.saves_delta_24h !== null) val = Number(kw.saves_delta_24h);
+          else if (kw.metadata?.deltas?.saves_24h !== undefined) val = Number(kw.metadata.deltas.saves_24h);
+          else val = Number(kw.avg_daily_velocity || 0);
+          return Number.isFinite(val) ? val : 0;
+        },
+
+        getKeywordRepinDelta(kw) {
+          if (!kw) return 0;
+          let val = 0;
+          if (kw.repins_delta_24h !== undefined && kw.repins_delta_24h !== null) val = Number(kw.repins_delta_24h);
+          else if (kw.metadata?.deltas?.repins_24h !== undefined) val = Number(kw.metadata.deltas.repins_24h);
+          else val = Math.round(Number(kw.avg_daily_velocity || 0) * 0.15);
+          return Number.isFinite(val) ? val : 0;
+        },
+
         get filteredDisplacedPins() {
           let list = this.displacedPins || [];
           if (this.displacedStatusFilter && this.displacedStatusFilter !== 'ALL') {
@@ -3132,6 +3758,11 @@ export function getKeywordsPageHtml(initialSlug = '') {
 
         get filteredPins() {
           let list = this.selectedKeywordDetails?.current_pins || [];
+          if (this.serpScope === 'vault') {
+            const currentPinIds = new Set(list.map(p => p.pin_id));
+            const vaultPins = (this.displacedPins || []).filter(p => !currentPinIds.has(p.pin_id));
+            list = [...list, ...vaultPins];
+          }
           if (this.formatFilter && this.formatFilter !== 'ALL') {
             list = list.filter(p => (p.metadata?.format || 'ORGANIC PIN') === this.formatFilter);
           }
@@ -3169,28 +3800,247 @@ export function getKeywordsPageHtml(initialSlug = '') {
           this.fetchFleetProjects();
 
           window.addEventListener('popstate', (e) => {
-            const pathSlug = this.extractSlugFromUrl();
-            if (pathSlug) {
-              this.loadKeywordBySlugOrText(pathSlug, false);
+            const path = window.location.pathname || '';
+            if (path === '/keywords' || path === '/keywords/') {
+              this.viewModeLevel = 'dashboard';
+              this.$nextTick(() => { lucide.createIcons(); });
+            } else {
+              const pathSlug = this.extractSlugFromUrl();
+              if (pathSlug) {
+                this.viewModeLevel = 'serp_studio';
+                this.loadKeywordBySlugOrText(pathSlug, false);
+              }
             }
           });
 
           const urlSlug = this.extractSlugFromUrl() || window.__INITIAL_KEYWORD_SLUG__ || '';
           
           if (urlSlug) {
+            this.viewModeLevel = 'serp_studio';
             this.loadKeywordBySlugOrText(urlSlug, false);
+          } else {
+            this.viewModeLevel = 'dashboard';
           }
 
-          this.fetchKeywords().then(() => {
-            if (!urlSlug && this.keywords.length > 0 && !this.selectedKeyword) {
-              this.selectKeyword(this.keywords[0]);
-            }
-          });
-
+          this.fetchKeywords();
           this.fetchFolders();
 
           this.$watch('keywordSearch', () => this.filterKeywords());
           this.$nextTick(() => { lucide.createIcons(); });
+        },
+
+        switchToDashboard() {
+          this.viewModeLevel = 'dashboard';
+          window.history.pushState(null, '', '/keywords');
+          this.$nextTick(() => { lucide.createIcons(); });
+        },
+
+        switchToSerpStudio(kw) {
+          this.viewModeLevel = 'serp_studio';
+          if (kw) {
+            this.selectKeyword(kw, true);
+          }
+          this.$nextTick(() => { lucide.createIcons(); });
+        },
+
+        toggleDashboardKeywordSelection(kwId) {
+          if (this.selectedKeywordIds.includes(kwId)) {
+            this.selectedKeywordIds = this.selectedKeywordIds.filter(id => id !== kwId);
+          } else {
+            this.selectedKeywordIds.push(kwId);
+          }
+        },
+
+        toggleSelectAllDashboardKeywords() {
+          const list = this.filteredDashboardKeywords;
+          if (this.selectedKeywordIds.length === list.length && list.length > 0) {
+            this.selectedKeywordIds = [];
+          } else {
+            this.selectedKeywordIds = list.map(k => k.id);
+          }
+        },
+
+        isDashboardKeywordSelected(kwId) {
+          return this.selectedKeywordIds.includes(kwId);
+        },
+
+        clearSelectedKeywords() {
+          this.selectedKeywordIds = [];
+        },
+
+        async bulkSyncKeywords() {
+          if (this.selectedKeywordIds.length === 0) return;
+          this.isBulkLoading = true;
+          this.showToast('Initiating refresh for ' + this.selectedKeywordIds.length + ' keywords...', 'info');
+          try {
+            await Promise.allSettled(this.selectedKeywordIds.map(id => 
+              fetch(this.getApiUrl('/api/keywords/sync'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ keyword_id: id, force: true })
+              })
+            ));
+            this.showToast('Refreshed ' + this.selectedKeywordIds.length + ' keywords!', 'success');
+            await this.fetchKeywords();
+          } catch (err) {
+            this.showToast('Bulk refresh error: ' + err.message, 'error');
+          } finally {
+            this.isBulkLoading = false;
+            this.selectedKeywordIds = [];
+          }
+        },
+
+        async bulkToggleKeywordStatus(targetStatus) {
+          if (this.selectedKeywordIds.length === 0) return;
+          this.isBulkLoading = true;
+          try {
+            const res = await fetch(this.getApiUrl('/api/keywords/status'), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ids: this.selectedKeywordIds, is_active: targetStatus })
+            });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            this.showToast('Updated status for ' + this.selectedKeywordIds.length + ' keywords.', 'success');
+            await this.fetchKeywords();
+          } catch (err) {
+            this.showToast('Bulk status update error: ' + err.message, 'error');
+          } finally {
+            this.isBulkLoading = false;
+            this.selectedKeywordIds = [];
+          }
+        },
+
+        async bulkDeleteKeywords() {
+          if (this.selectedKeywordIds.length === 0) return;
+          if (!confirm('Are you sure you want to delete ' + this.selectedKeywordIds.length + ' tracked keywords?')) return;
+          this.isBulkLoading = true;
+          try {
+            const res = await fetch(this.getApiUrl('/api/keywords'), {
+              method: 'DELETE',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ids: this.selectedKeywordIds })
+            });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            this.showToast('Deleted ' + this.selectedKeywordIds.length + ' keywords.', 'info');
+            await this.fetchKeywords();
+          } catch (err) {
+            this.showToast('Bulk delete error: ' + err.message, 'error');
+          } finally {
+            this.isBulkLoading = false;
+            this.selectedKeywordIds = [];
+          }
+        },
+
+        openBulkFolderModal() {
+          if (this.selectedKeywordIds.length === 0) return;
+          this.bulkTargetFolderId = this.folders[0]?.id || '';
+          this.isBulkFolderModalOpen = true;
+        },
+
+        async commitBulkFolder() {
+          if (!this.bulkTargetFolderId || this.selectedKeywordIds.length === 0) return;
+          this.isBulkLoading = true;
+          try {
+            const res = await fetch(this.getApiUrl('/api/keywords/folders/items'), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                folder_id: this.bulkTargetFolderId,
+                keyword_ids: this.selectedKeywordIds
+              })
+            });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            this.showToast('Added ' + this.selectedKeywordIds.length + ' keywords to campaign folder!', 'success');
+            this.isBulkFolderModalOpen = false;
+            await this.fetchFolders();
+          } catch (err) {
+            this.showToast('Bulk folder error: ' + err.message, 'error');
+          } finally {
+            this.isBulkLoading = false;
+            this.selectedKeywordIds = [];
+          }
+        },
+
+        async toggleKeywordStatus(kw) {
+          if (!kw?.id) return;
+          const newStatus = !(kw.is_active !== false);
+          try {
+            const res = await fetch(this.getApiUrl('/api/keywords/status'), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: kw.id, is_active: newStatus })
+            });
+            if (res.ok) {
+              kw.is_active = newStatus;
+              this.showToast('Keyword "' + kw.keyword + '" is now ' + (newStatus ? 'Active' : 'Paused') + '.', 'info');
+            }
+          } catch (err) {
+            this.showToast('Failed to update status: ' + err.message, 'error');
+          }
+        },
+
+        computeSerpPowerPairs() {
+          const pins = this.filteredPins || [];
+          if (pins.length === 0) return [];
+          
+          const tagCounts = new Map();
+          const pairCounts = new Map();
+          let validPinCount = 0;
+
+          for (const pin of pins) {
+            const rawTags = (pin.metadata?.visual_annotations || []).map(t => {
+              const s = typeof t === 'string' ? t : (t?.name || t?.label || t?.term || '');
+              return s.trim().toLowerCase();
+            }).filter(s => s && s.length > 2);
+
+            const uniqueTags = Array.from(new Set(rawTags));
+            // Combinatorial guardrail: strictly cap at k <= 15 tags per pin
+            const boundedTags = uniqueTags.slice(0, 15);
+            if (boundedTags.length < 2) continue;
+            validPinCount++;
+
+            for (const tag of boundedTags) {
+              tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1);
+            }
+
+            for (let i = 0; i < boundedTags.length; i++) {
+              for (let j = i + 1; j < boundedTags.length; j++) {
+                const t1 = boundedTags[i] < boundedTags[j] ? boundedTags[i] : boundedTags[j];
+                const t2 = boundedTags[i] < boundedTags[j] ? boundedTags[j] : boundedTags[i];
+                const key = t1 + '|||' + t2;
+                pairCounts.set(key, (pairCounts.get(key) || 0) + 1);
+              }
+            }
+          }
+
+          if (validPinCount === 0 || pairCounts.size === 0) return [];
+
+          const results = [];
+          const N = validPinCount;
+
+          for (const [key, count] of pairCounts.entries()) {
+            if (count < 2) continue;
+            const [tagA, tagB] = key.split('|||');
+            const countA = tagCounts.get(tagA) || 1;
+            const countB = tagCounts.get(tagB) || 1;
+            const lift = Number(((count * N) / (countA * countB)).toFixed(2));
+            results.push({
+              tagA,
+              tagB,
+              count,
+              lift,
+              supportPct: Number(((count / N) * 100).toFixed(1))
+            });
+          }
+
+          return results.sort((a, b) => b.lift - a.lift).slice(0, 8);
+        },
+
+        copySerpVisualBlueprint(pair) {
+          if (!pair) return;
+          const kw = this.selectedKeyword?.keyword || this.activeKeywordQuery || '';
+          const prompt = 'Hyper-detailed Pinterest viral pin aesthetic, combining "' + pair.tagA + '" with "' + pair.tagB + '" for organic search query "' + kw + '". Ultra-high CTR commercial composition, vibrant focal lighting, clean negative space for typography overlay, editorial photography --ar 2:3 --stylize 250';
+          this.copyToClipboard(prompt, 'Copied Visual Blueprint Prompt for ' + pair.tagA + ' + ' + pair.tagB + '!');
         },
 
         extractSlugFromUrl() {
@@ -3414,62 +4264,95 @@ export function getKeywordsPageHtml(initialSlug = '') {
           this.isPinDrawerOpen = true;
           this.$nextTick(() => { lucide.createIcons(); });
 
-          await Promise.all([
-            this.fetchPinDossier(pin.pin_id, this.selectedKeyword?.id),
-            this.fetchPinTrajectory(pin.pin_id, this.selectedKeyword?.id, this.trajectoryRange)
+          if (this.pinInspectorAbortController) {
+            this.pinInspectorAbortController.abort();
+          }
+          this.pinInspectorAbortController = new AbortController();
+          const currentReqId = ++this.activePinRequestId;
+
+          await Promise.allSettled([
+            this.fetchPinDossier(pin.pin_id, this.selectedKeyword?.id, currentReqId, this.pinInspectorAbortController.signal),
+            this.fetchPinTrajectory(pin.pin_id, this.selectedKeyword?.id, this.trajectoryRange, currentReqId, this.pinInspectorAbortController.signal)
           ]);
         },
 
         closePinInspector() {
+          if (this.pinInspectorAbortController) {
+            this.pinInspectorAbortController.abort();
+            this.pinInspectorAbortController = null;
+          }
+          this.activePinRequestId++;
           this.isPinDrawerOpen = false;
           this.activeInspectorPin = null;
           this.dossierData = null;
           this.trajectoryData = null;
         },
 
-        async fetchPinDossier(pinId, keywordId) {
+        async fetchPinDossier(pinId, keywordId, reqId, signal) {
           const cleanPin = String(pinId || '').trim();
           if (!cleanPin) return;
+          const currentReqId = reqId || this.activePinRequestId;
+          const abortSignal = signal || this.pinInspectorAbortController?.signal;
+          if (currentReqId !== this.activePinRequestId) return;
           this.isDossierLoading = true;
           try {
             const kid = keywordId || this.selectedKeyword?.id || '';
-            const res = await fetch(this.getApiUrl('/api/keywords/pins/dossier?pin_id=' + encodeURIComponent(cleanPin) + (kid ? '&keyword_id=' + kid : '')));
+            const res = await fetch(this.getApiUrl('/api/keywords/pins/dossier?pin_id=' + encodeURIComponent(cleanPin) + (kid ? '&keyword_id=' + kid : '')), {
+              signal: abortSignal
+            });
+            if (currentReqId !== this.activePinRequestId) return;
             if (res.ok) {
               const data = await res.json();
+              if (currentReqId !== this.activePinRequestId) return;
               if (data.success) {
                 this.dossierData = data.dossier || data;
               }
             }
-          } catch (_) {} finally {
-            this.isDossierLoading = false;
-            this.$nextTick(() => { lucide.createIcons(); });
+          } catch (err) {
+            if (err.name === 'AbortError') return;
+          } finally {
+            if (currentReqId === this.activePinRequestId) {
+              this.isDossierLoading = false;
+              this.$nextTick(() => { lucide.createIcons(); });
+            }
           }
         },
 
-        async fetchPinTrajectory(pinId, keywordId, range) {
+        async fetchPinTrajectory(pinId, keywordId, range, reqId, signal) {
           const cleanPin = String(pinId || '').trim();
           if (!cleanPin) return;
+          const currentReqId = reqId || this.activePinRequestId;
+          const abortSignal = signal || this.pinInspectorAbortController?.signal;
+          if (currentReqId !== this.activePinRequestId) return;
           this.isTrajectoryLoading = true;
           const r = range || this.trajectoryRange || '30d';
           try {
             const kid = keywordId || this.selectedKeyword?.id || '';
-            const res = await fetch(this.getApiUrl('/api/keywords/pins/trajectory?pin_id=' + encodeURIComponent(cleanPin) + '&range=' + r + (kid ? '&keyword_id=' + kid : '')));
+            const res = await fetch(this.getApiUrl('/api/keywords/pins/trajectory?pin_id=' + encodeURIComponent(cleanPin) + '&range=' + r + (kid ? '&keyword_id=' + kid : '')), {
+              signal: abortSignal
+            });
+            if (currentReqId !== this.activePinRequestId) return;
             if (res.ok) {
               const data = await res.json();
+              if (currentReqId !== this.activePinRequestId) return;
               if (data.success) {
                 this.trajectoryData = data;
               }
             }
-          } catch (_) {} finally {
-            this.isTrajectoryLoading = false;
-            this.$nextTick(() => { lucide.createIcons(); });
+          } catch (err) {
+            if (err.name === 'AbortError') return;
+          } finally {
+            if (currentReqId === this.activePinRequestId) {
+              this.isTrajectoryLoading = false;
+              this.$nextTick(() => { lucide.createIcons(); });
+            }
           }
         },
 
         changeTrajectoryRange(range) {
           this.trajectoryRange = range;
           if (this.activeInspectorPin?.pin_id) {
-            this.fetchPinTrajectory(this.activeInspectorPin.pin_id, this.selectedKeyword?.id, range);
+            this.fetchPinTrajectory(this.activeInspectorPin.pin_id, this.selectedKeyword?.id, range, this.activePinRequestId, this.pinInspectorAbortController?.signal);
           }
         },
 
