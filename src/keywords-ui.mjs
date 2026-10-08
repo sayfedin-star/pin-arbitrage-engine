@@ -1170,15 +1170,15 @@ export function getKeywordsPageHtml(initialSlug = '') {
             <template x-if="trendsData?.collage_images && trendsData.collage_images.length > 0">
               <div class="space-y-3">
                 <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-3 gap-4">
-                  <template x-for="(imgUrl, idx) in trendsData.collage_images" :key="idx">
+                  <template x-for="(imgUrl, idx) in (trendsData?.collage_images || []).filter(Boolean)" :key="idx">
                     <div class="group relative rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 hover:border-blue-500/50 shadow-xs hover:shadow-md transition duration-300 overflow-hidden flex flex-col justify-between cursor-pointer"
-                         @click="window.open(imgUrl, '_blank')">
+                         @click="window.open((imgUrl || '').replace(/\/(236|474)x\//, '/736x/'), '_blank')">
                       
-                      <!-- Full Pin Image Container -->
-                      <div class="relative w-full bg-slate-100 dark:bg-slate-950/80 flex items-center justify-center overflow-hidden p-2">
-                        <img :src="imgUrl"
+                      <!-- Full Pin Image Container with fixed 2:3 aspect ratio -->
+                      <div class="relative w-full aspect-[2/3] bg-slate-100 dark:bg-slate-950/80 flex items-center justify-center overflow-hidden p-2">
+                        <img :src="(imgUrl || '').replace(/\/(236|474)x\//, '/736x/')"
                              :alt="'Pin #' + (idx + 1)"
-                             class="w-full h-auto max-h-[500px] object-contain rounded-xl group-hover:scale-[1.02] transition duration-300"
+                             class="w-full h-full object-contain rounded-xl group-hover:scale-[1.02] transition duration-300"
                              loading="lazy">
                         
                         <!-- Rank Badge -->
@@ -1205,9 +1205,9 @@ export function getKeywordsPageHtml(initialSlug = '') {
                         <div class="flex items-center space-x-2 min-w-0 pr-2">
                           <span class="w-2 h-2 rounded-full bg-blue-500 shrink-0"></span>
                           <span class="font-bold text-slate-800 dark:text-slate-200 truncate capitalize"
-                                x-text="(trendsData?.term || selectedKeyword?.keyword || activeKeywordQuery) + ' Pin ' + (idx + 1)"></span>
+                                x-text="(trendsData?.term || selectedKeyword?.keyword || activeKeywordQuery || 'Popular') + ' Pin ' + (idx + 1)"></span>
                         </div>
-                        <a :href="'https://www.pinterest.com/search/pins/?q=' + encodeURIComponent(trendsData?.term || selectedKeyword?.keyword || activeKeywordQuery)" target="_blank"
+                        <a :href="'https://www.pinterest.com/search/pins/?q=' + encodeURIComponent(trendsData?.term || selectedKeyword?.keyword || activeKeywordQuery || '')" target="_blank"
                            class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 font-medium text-[11px] transition flex items-center space-x-1 shrink-0">
                           <i data-lucide="external-link" class="w-3 h-3 text-red-500"></i>
                           <span>Pinterest</span>
@@ -1222,7 +1222,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
                 <div class="flex items-center space-x-2 pt-2 px-1">
                   <span class="w-2.5 h-2.5 rounded-full bg-blue-600 dark:bg-blue-500 inline-block"></span>
                   <span class="text-xs font-bold text-slate-900 dark:text-slate-100 font-sans"
-                        x-text="(trendsData?.term || selectedKeyword?.keyword || activeKeywordQuery) + ' — All 9 Official Viral Pins in Full HD (736x)'"></span>
+                        x-text="(trendsData?.term || selectedKeyword?.keyword || activeKeywordQuery || 'Popular') + ' — All 9 Official Viral Pins in Full HD (736x)'"></span>
                 </div>
               </div>
             </template>
@@ -1241,24 +1241,24 @@ export function getKeywordsPageHtml(initialSlug = '') {
             <template x-if="trendsData?.collage_images && trendsData.collage_images.length >= 5">
               <div class="space-y-2">
                 <!-- The 5-Column Collage Card -->
-                <div @click="window.open('https://www.pinterest.com/search/pins/?q=' + encodeURIComponent(trendsData?.term || selectedKeyword?.keyword || activeKeywordQuery), '_blank')"
+                <div @click="window.open('https://www.pinterest.com/search/pins/?q=' + encodeURIComponent(trendsData?.term || selectedKeyword?.keyword || activeKeywordQuery || ''), '_blank')"
                      class="group relative h-[440px] sm:h-[480px] md:h-[520px] w-full rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900/60 cursor-pointer shadow-sm hover:shadow-md transition">
                   
                   <div class="grid grid-cols-5 h-full w-full gap-[3px] bg-slate-200 dark:bg-slate-800">
                     <!-- Column 1: Full Height Image A[0] -->
                     <div class="relative h-full w-full overflow-hidden bg-slate-300 dark:bg-slate-700">
-                      <img :src="trendsData.collage_images[0]"
+                      <img :src="(trendsData.collage_images[0] || '').replace(/\/(236|474)x\//, '/736x/')"
                            class="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition duration-300" loading="lazy">
                     </div>
 
                     <!-- Column 2: Stacked A[7] (Top 40%) & A[8] (Bottom 60%) -->
                     <div class="h-full w-full flex flex-col gap-[3px]">
                       <div class="relative min-h-0 w-full overflow-hidden bg-slate-300 dark:bg-slate-700" style="flex: 4 1 0%;">
-                        <img :src="trendsData.collage_images[7] || trendsData.collage_images[1]"
+                        <img :src="(trendsData.collage_images[7] || trendsData.collage_images[1] || '').replace(/\/(236|474)x\//, '/736x/')"
                              class="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition duration-300" loading="lazy">
                       </div>
                       <div class="relative min-h-0 w-full overflow-hidden bg-slate-300 dark:bg-slate-700" style="flex: 6 1 0%;">
-                        <img :src="trendsData.collage_images[8] || trendsData.collage_images[2]"
+                        <img :src="(trendsData.collage_images[8] || trendsData.collage_images[2] || '').replace(/\/(236|474)x\//, '/736x/')"
                              class="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition duration-300" loading="lazy">
                       </div>
                     </div>
@@ -1266,11 +1266,11 @@ export function getKeywordsPageHtml(initialSlug = '') {
                     <!-- Column 3: Stacked A[5] (Top 40%) & A[6] (Bottom 60%) -->
                     <div class="h-full w-full flex flex-col gap-[3px]">
                       <div class="relative min-h-0 w-full overflow-hidden bg-slate-300 dark:bg-slate-700" style="flex: 4 1 0%;">
-                        <img :src="trendsData.collage_images[5] || trendsData.collage_images[3]"
+                        <img :src="(trendsData.collage_images[5] || trendsData.collage_images[3] || '').replace(/\/(236|474)x\//, '/736x/')"
                              class="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition duration-300" loading="lazy">
                       </div>
                       <div class="relative min-h-0 w-full overflow-hidden bg-slate-300 dark:bg-slate-700" style="flex: 6 1 0%;">
-                        <img :src="trendsData.collage_images[6] || trendsData.collage_images[4]"
+                        <img :src="(trendsData.collage_images[6] || trendsData.collage_images[4] || '').replace(/\/(236|474)x\//, '/736x/')"
                              class="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition duration-300" loading="lazy">
                       </div>
                     </div>
@@ -1278,11 +1278,11 @@ export function getKeywordsPageHtml(initialSlug = '') {
                     <!-- Column 4: Stacked A[3] (Top 60%) & A[4] (Bottom 40%) -->
                     <div class="h-full w-full flex flex-col gap-[3px]">
                       <div class="relative min-h-0 w-full overflow-hidden bg-slate-300 dark:bg-slate-700" style="flex: 6 1 0%;">
-                        <img :src="trendsData.collage_images[3] || trendsData.collage_images[1]"
+                        <img :src="(trendsData.collage_images[3] || trendsData.collage_images[1] || '').replace(/\/(236|474)x\//, '/736x/')"
                              class="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition duration-300" loading="lazy">
                       </div>
                       <div class="relative min-h-0 w-full overflow-hidden bg-slate-300 dark:bg-slate-700" style="flex: 4 1 0%;">
-                        <img :src="trendsData.collage_images[4] || trendsData.collage_images[2]"
+                        <img :src="(trendsData.collage_images[4] || trendsData.collage_images[2] || '').replace(/\/(236|474)x\//, '/736x/')"
                              class="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition duration-300" loading="lazy">
                       </div>
                     </div>
@@ -1290,11 +1290,11 @@ export function getKeywordsPageHtml(initialSlug = '') {
                     <!-- Column 5: Stacked A[1] (Top 40%) & A[2] (Bottom 60%) -->
                     <div class="h-full w-full flex flex-col gap-[3px]">
                       <div class="relative min-h-0 w-full overflow-hidden bg-slate-300 dark:bg-slate-700" style="flex: 4 1 0%;">
-                        <img :src="trendsData.collage_images[1] || trendsData.collage_images[0]"
+                        <img :src="(trendsData.collage_images[1] || trendsData.collage_images[0] || '').replace(/\/(236|474)x\//, '/736x/')"
                              class="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition duration-300" loading="lazy">
                       </div>
                       <div class="relative min-h-0 w-full overflow-hidden bg-slate-300 dark:bg-slate-700" style="flex: 6 1 0%;">
-                        <img :src="trendsData.collage_images[2] || trendsData.collage_images[0]"
+                        <img :src="(trendsData.collage_images[2] || trendsData.collage_images[0] || '').replace(/\/(236|474)x\//, '/736x/')"
                              class="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.02] transition duration-300" loading="lazy">
                       </div>
                     </div>
