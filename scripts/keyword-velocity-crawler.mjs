@@ -150,30 +150,43 @@ async function run() {
           const annotations = Array.isArray(rawAnnotations) ? rawAnnotations : [];
 
           // 1. Update Central Hub keyword_serp_current
-          await sql`
-            UPDATE keyword_serp_current
-            SET 
-              save_count = GREATEST(save_count, ${authenticSaves}),
-              repin_count = GREATEST(repin_count, ${authenticRepins}),
-              creator_username = COALESCE(NULLIF(${creator}, ''), creator_username),
-              board_name = COALESCE(NULLIF(${board}, ''), board_name),
-              dominant_color = COALESCE(NULLIF(${dominantColor}, ''), dominant_color),
-              visual_annotations = CASE WHEN jsonb_array_length(${JSON.stringify(annotations)}::jsonb) > 0 THEN ${JSON.stringify(annotations)}::jsonb ELSE visual_annotations END
-            WHERE keyword_id = ${kw.id} AND pin_id = ${pin.pin_id};
-          `;
+          if (annotations.length > 0) {
+            await sql`
+              UPDATE keyword_serp_current
+              SET 
+                save_count = GREATEST(save_count, ${authenticSaves}::bigint),
+                repin_count = GREATEST(repin_count, ${authenticRepins}::int),
+                creator_username = CASE WHEN ${creator}::text <> '' THEN ${creator}::text ELSE creator_username END,
+                board_name = CASE WHEN ${board}::text <> '' THEN ${board}::text ELSE board_name END,
+                dominant_color = CASE WHEN ${dominantColor}::text <> '' THEN ${dominantColor}::text ELSE dominant_color END,
+                visual_annotations = ${JSON.stringify(annotations)}::jsonb
+              WHERE keyword_id = ${kw.id} AND pin_id = ${pin.pin_id};
+            `;
+          } else {
+            await sql`
+              UPDATE keyword_serp_current
+              SET 
+                save_count = GREATEST(save_count, ${authenticSaves}::bigint),
+                repin_count = GREATEST(repin_count, ${authenticRepins}::int),
+                creator_username = CASE WHEN ${creator}::text <> '' THEN ${creator}::text ELSE creator_username END,
+                board_name = CASE WHEN ${board}::text <> '' THEN ${board}::text ELSE board_name END,
+                dominant_color = CASE WHEN ${dominantColor}::text <> '' THEN ${dominantColor}::text ELSE dominant_color END
+              WHERE keyword_id = ${kw.id} AND pin_id = ${pin.pin_id};
+            `;
+          }
 
           // 2. Update Central Hub keyword_pins_snapshots
           await sql`
             UPDATE keyword_pins_snapshots
             SET
-              save_count = GREATEST(save_count, ${authenticSaves}),
-              repin_count = GREATEST(repin_count, ${authenticRepins}),
-              comment_count = GREATEST(comment_count, ${authenticComments}),
+              save_count = GREATEST(save_count, ${authenticSaves}::bigint),
+              repin_count = GREATEST(repin_count, ${authenticRepins}::int),
+              comment_count = GREATEST(comment_count, ${authenticComments}::int),
               metadata = metadata || jsonb_build_object(
-                'description', ${description},
-                'alt_text', ${altText},
-                'share_count', ${authenticShares},
-                'dominant_color', ${dominantColor},
+                'description', ${description}::text,
+                'alt_text', ${altText}::text,
+                'share_count', ${authenticShares}::int,
+                'dominant_color', ${dominantColor}::text,
                 'visual_annotations', ${JSON.stringify(annotations)}::jsonb
               )
             WHERE keyword_id = ${kw.id} AND pin_id = ${pin.pin_id} AND snapshot_date = CURRENT_DATE;
