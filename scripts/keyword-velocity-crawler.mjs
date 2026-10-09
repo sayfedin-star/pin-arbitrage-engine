@@ -369,7 +369,9 @@ async function run() {
 
 }
 
-run().catch(err => {
+run().then(() => {
+  process.exit(0);
+}).catch(err => {
   console.error('[-] Fatal pipeline error:', err);
   process.exit(1);
 });
