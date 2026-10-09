@@ -1080,7 +1080,18 @@ export function getKeywordsPageHtml(initialSlug = '') {
                 <div class="flex items-center space-x-1.5 px-3 py-1 rounded-xl bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30 text-xs">
                   <i data-lucide="tag" class="w-3.5 h-3.5"></i>
                   <span class="font-bold" x-text="'Tag: #' + activeVisualTagFilter"></span>
-                  <button @click="activeVisualTagFilter = ''" class="hover:text-purple-800 dark:hover:text-white transition ml-1" title="Clear visual tag filter">
+                  <button @click="activeVisualTagFilter = ''" class="hover:text-purple-800 dark:hover:text-white transition ml-1 cursor-pointer" title="Clear visual tag filter">
+                    <i data-lucide="x" class="w-3 h-3"></i>
+                  </button>
+                </div>
+              </template>
+
+              <!-- Active Domain Filter Badge -->
+              <template x-if="activeDomainFilter">
+                <div class="flex items-center space-x-1.5 px-3 py-1 rounded-xl bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 border border-cyan-500/30 text-xs">
+                  <i data-lucide="globe" class="w-3.5 h-3.5"></i>
+                  <span class="font-bold font-mono" x-text="'Domain: ' + activeDomainFilter"></span>
+                  <button @click="activeDomainFilter = ''" class="hover:text-cyan-800 dark:hover:text-white transition ml-1 cursor-pointer" title="Clear domain filter">
                     <i data-lucide="x" class="w-3 h-3"></i>
                   </button>
                 </div>
@@ -1135,57 +1146,6 @@ export function getKeywordsPageHtml(initialSlug = '') {
 
       <!-- TAB 1: EXECUTIVE FULL-WIDTH SERP MATRIX -->
       <div x-show="activeTab === 'serp'" class="space-y-0">
-        
-        <!-- VISUAL INTELLIGENCE SUB-PANEL: CO-OCCURRING POWER PAIRS -->
-        <template x-if="!isDetailsLoading && filteredPins && filteredPins.length > 0">
-          <div class="p-4 sm:p-5 m-4 sm:m-6 rounded-3xl bg-slate-50/70 dark:bg-slate-900/40 border border-slate-200/80 dark:border-slate-800 space-y-3.5">
-            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <div class="flex items-center space-x-2.5">
-                <div class="w-7 h-7 rounded-xl bg-purple-500/10 text-purple-500 flex items-center justify-center">
-                  <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
-                </div>
-                <div>
-                  <h4 class="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-white">Visual Intelligence: Co-Occurring Power Pairs</h4>
-                  <p class="text-[10px] text-slate-400 font-mono">Algorithmic Lift & High-Impact Combinations (k ≤ 15 tags/pin guardrail)</p>
-                </div>
-              </div>
-              <span class="text-[10px] font-mono text-purple-400 bg-purple-500/10 px-2.5 py-0.5 rounded-full border border-purple-500/20"
-                    x-text="computeSerpPowerPairs().length + ' Power Pairs Computed'"></span>
-            </div>
-
-            <template x-if="computeSerpPowerPairs().length > 0">
-              <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
-                <template x-for="(pair, idx) in computeSerpPowerPairs()" :key="idx">
-                  <div class="p-3 rounded-2xl bg-white dark:bg-[#0c1322] border border-slate-200 dark:border-slate-800 flex flex-col justify-between space-y-2 hover:border-purple-500/40 transition group">
-                    <div class="space-y-1.5">
-                      <div class="flex items-center justify-between">
-                        <span class="px-2 py-0.5 rounded-md text-[9px] font-mono font-bold bg-purple-500/15 text-purple-400 border border-purple-500/30"
-                              x-text="pair.lift + 'x Lift'"></span>
-                        <span class="text-[9px] font-mono text-slate-400" x-text="pair.count + ' Pins (' + pair.supportPct + '%)'"></span>
-                      </div>
-                      <div class="flex items-center space-x-1.5 text-xs font-bold text-slate-900 dark:text-white truncate">
-                        <span class="capitalize text-emerald-500 truncate" x-text="pair.tagA"></span>
-                        <span class="text-slate-400">+</span>
-                        <span class="capitalize text-purple-400 truncate" x-text="pair.tagB"></span>
-                      </div>
-                    </div>
-                    <button @click="copySerpVisualBlueprint(pair)"
-                            class="w-full py-1.5 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 text-[10px] font-bold font-mono transition flex items-center justify-center space-x-1 cursor-pointer">
-                      <i data-lucide="copy" class="w-3 h-3"></i>
-                      <span>📋 Copy Visual Blueprint</span>
-                    </button>
-                  </div>
-                </template>
-              </div>
-            </template>
-
-            <template x-if="computeSerpPowerPairs().length === 0">
-              <div class="py-4 text-center text-xs text-slate-400 font-mono">
-                Indexing visual tags... Co-occurring power pairs require at least 2 pins with shared visual annotations.
-              </div>
-            </template>
-          </div>
-        </template>
         
         <template x-if="isDetailsLoading">
           <div class="py-20 text-center space-y-3">
@@ -1961,54 +1921,316 @@ export function getKeywordsPageHtml(initialSlug = '') {
       </div>
 
       <!-- TAB 4: PINCLICKS INTELLIGENCE & ARBITRAGE BREAKDOWN -->
-      <div x-show="activeTab === 'intelligence'" class="p-6 space-y-6">
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div class="p-5 rounded-2xl bg-slate-50/70 dark:bg-slate-900/50 border border-slate-200/80 dark:border-slate-800 space-y-3">
-            <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono">StaticRank Distribution</h4>
+      <div x-show="activeTab === 'intelligence'" class="p-4 sm:p-6 space-y-6">
+
+        <!-- Top 4-Metric Grid -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <!-- 1: StaticRank & Saves Baseline -->
+          <div class="p-5 rounded-3xl bg-slate-50/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800/80 space-y-3">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono">SERP Engagement</span>
+              <div class="w-7 h-7 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center">
+                <i data-lucide="bookmark" class="w-3.5 h-3.5"></i>
+              </div>
+            </div>
             <div class="space-y-2">
               <div class="flex items-center justify-between text-xs">
                 <span class="text-slate-500">Total Analyzed Pins</span>
                 <span class="font-mono font-bold text-slate-900 dark:text-white" x-text="selectedKeywordDetails?.current_pins?.length || 0"></span>
               </div>
               <div class="flex items-center justify-between text-xs">
-                <span class="text-slate-500">Avg Saves Per Pin</span>
+                <span class="text-slate-500">Avg Saves / Pin</span>
                 <span class="font-mono font-bold text-emerald-500" x-text="formatNumber(selectedKeywordDetails?.intelligence?.avg_saves || 0)"></span>
               </div>
               <div class="flex items-center justify-between text-xs">
                 <span class="text-slate-500">Median Saves</span>
-                <span class="font-mono font-bold text-slate-700 dark:text-slate-300" x-text="formatNumber(selectedKeywordDetails?.intelligence?.median_saves || 0)"></span>
+                <span class="font-mono font-bold text-slate-700 dark:text-slate-300" x-text="formatNumber(selectedKeywordDetails?.intelligence?.benchmarks?.median_saves ?? selectedKeywordDetails?.intelligence?.median_saves ?? 0)"></span>
               </div>
             </div>
           </div>
 
-          <div class="p-5 rounded-2xl bg-slate-50/70 dark:bg-slate-900/50 border border-slate-200/80 dark:border-slate-800 space-y-3">
-            <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono">Domain Concentration</h4>
+          <!-- 2: Domain Concentration & Repeat Frequency -->
+          <div class="p-5 rounded-3xl bg-slate-50/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800/80 space-y-3">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono">Domain Authority</span>
+              <div class="w-7 h-7 rounded-xl bg-cyan-500/10 text-cyan-500 flex items-center justify-center">
+                <i data-lucide="globe" class="w-3.5 h-3.5"></i>
+              </div>
+            </div>
             <div class="space-y-2">
               <div class="flex items-center justify-between text-xs">
-                <span class="text-slate-500">Top Ranked Domain</span>
-                <span class="font-mono font-bold text-slate-900 dark:text-white truncate max-w-[130px]" x-text="selectedKeywordDetails?.intelligence?.top_domain || 'N/A'"></span>
+                <span class="text-slate-500">Unique Domains</span>
+                <span class="font-mono font-bold text-slate-900 dark:text-white" x-text="uniqueDomainsCount"></span>
               </div>
               <div class="flex items-center justify-between text-xs">
-                <span class="text-slate-500">Domain Share</span>
-                <span class="font-mono font-bold text-purple-500" x-text="(selectedKeywordDetails?.intelligence?.top_domain_share || 0) + '%'"></span>
+                <span class="text-slate-500">Repeated Domains (>1 Pin)</span>
+                <span class="font-mono font-bold text-amber-500" x-text="repeatedDomainsCount"></span>
+              </div>
+              <div class="flex items-center justify-between text-xs">
+                <span class="text-slate-500">Top Ranked Domain</span>
+                <span class="font-mono font-bold text-purple-400 truncate max-w-[120px]" x-text="selectedKeywordDetails?.intelligence?.top_domain || domainBreakdownList[0]?.domain || 'N/A'"></span>
               </div>
             </div>
           </div>
 
-          <div class="p-5 rounded-2xl bg-slate-50/70 dark:bg-slate-900/50 border border-slate-200/80 dark:border-slate-800 space-y-3">
-            <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono">Creative Formats</h4>
+          <!-- 3: Creative Formats & Canvas Aspect Ratios -->
+          <div class="p-5 rounded-3xl bg-slate-50/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800/80 space-y-3">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono">Visual Formats</span>
+              <div class="w-7 h-7 rounded-xl bg-purple-500/10 text-purple-500 flex items-center justify-center">
+                <i data-lucide="image" class="w-3.5 h-3.5"></i>
+              </div>
+            </div>
             <div class="space-y-2">
               <div class="flex items-center justify-between text-xs">
                 <span class="text-slate-500">Standard Static (2:3)</span>
-                <span class="font-mono font-bold text-emerald-500" x-text="(selectedKeywordDetails?.intelligence?.static_ratio || 80) + '%'"></span>
+                <span class="font-mono font-bold text-emerald-500" x-text="(selectedKeywordDetails?.intelligence?.aspect_ratios?.standard_pct ?? selectedKeywordDetails?.intelligence?.static_ratio ?? 80) + '%'"></span>
+              </div>
+              <div class="flex items-center justify-between text-xs">
+                <span class="text-slate-500">Extra Tall (1:2)</span>
+                <span class="font-mono font-bold text-amber-400" x-text="(selectedKeywordDetails?.intelligence?.aspect_ratios?.extra_tall_pct || 0) + '%'"></span>
               </div>
               <div class="flex items-center justify-between text-xs">
                 <span class="text-slate-500">Video & Idea Pins</span>
-                <span class="font-mono font-bold text-cyan-500" x-text="(selectedKeywordDetails?.intelligence?.video_ratio || 20) + '%'"></span>
+                <span class="font-mono font-bold text-cyan-500" x-text="((selectedKeywordDetails?.intelligence?.formats?.video_pct || 0) + (selectedKeywordDetails?.intelligence?.formats?.idea_pct || 0)) + '%'"></span>
               </div>
             </div>
           </div>
+
+          <!-- 4: Opportunity Verdict -->
+          <div class="p-5 rounded-3xl bg-slate-50/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800/80 space-y-3">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono">Opportunity Verdict</span>
+              <div class="w-7 h-7 rounded-xl bg-pink-500/10 text-pink-500 flex items-center justify-center">
+                <i data-lucide="trending-up" class="w-3.5 h-3.5"></i>
+              </div>
+            </div>
+            <div class="space-y-1.5">
+              <div class="text-xs font-black truncate" x-text="selectedKeywordDetails?.intelligence?.opportunity?.badge || '🟢 Wide Open'"></div>
+              <p class="text-[11px] text-slate-500 leading-snug line-clamp-2" x-text="selectedKeywordDetails?.intelligence?.opportunity?.summary || 'Algorithmic Arbitrage target.'"></p>
+            </div>
+          </div>
         </div>
+
+        <!-- SECTION 1: DOMAIN AUTHORITY & REPEAT FREQUENCY BREAKDOWN -->
+        <div class="p-5 rounded-3xl bg-slate-50/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800/80 space-y-4">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200/80 dark:border-slate-800">
+            <div class="flex items-center space-x-3">
+              <div class="w-8 h-8 rounded-xl bg-cyan-500/10 text-cyan-500 flex items-center justify-center">
+                <i data-lucide="globe" class="w-4 h-4"></i>
+              </div>
+              <div>
+                <div class="flex items-center space-x-2">
+                  <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">Domain Authority & Repeat Frequency Breakdown</h3>
+                  <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-500/15 text-amber-500 border border-amber-500/30"
+                        x-text="repeatedDomainsCount + ' Repeated Domains'"></span>
+                </div>
+                <p class="text-xs text-slate-500 mt-0.5">Footprint analysis of websites ranking in organic SERP. Multi-pin presence indicates authority concentration or programmatic scale.</p>
+              </div>
+            </div>
+
+            <div class="flex items-center space-x-2">
+              <span class="text-xs text-slate-500 font-mono" x-text="uniqueDomainsCount + ' Total Unique Domains'"></span>
+              <template x-if="activeDomainFilter">
+                <button @click="activeDomainFilter = ''" class="px-2 py-1 rounded-xl text-[11px] font-bold bg-rose-500/15 text-rose-500 hover:bg-rose-500/25 transition flex items-center space-x-1 cursor-pointer">
+                  <i data-lucide="x" class="w-3 h-3"></i>
+                  <span>Clear Filter</span>
+                </button>
+              </template>
+            </div>
+          </div>
+
+          <!-- Domain Table -->
+          <div class="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
+            <table class="w-full text-left text-xs">
+              <thead class="bg-slate-100/70 dark:bg-slate-900/80 text-slate-500 uppercase font-mono text-[10px] tracking-wider border-b border-slate-200 dark:border-slate-800">
+                <tr>
+                  <th class="py-3 px-3 w-12 text-center">#</th>
+                  <th class="py-3 px-4">Domain Name</th>
+                  <th class="py-3 px-3 text-center">Ranking Pins</th>
+                  <th class="py-3 px-4">SERP Share</th>
+                  <th class="py-3 px-3 text-right">Total Saves</th>
+                  <th class="py-3 px-3 text-center">Best Rank</th>
+                  <th class="py-3 px-3 text-center w-28">Action</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-200/80 dark:divide-slate-800/80 bg-white dark:bg-[#0c1322]">
+                <template x-for="(dom, idx) in domainBreakdownList" :key="dom.domain">
+                  <tr class="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition">
+                    <td class="py-3 px-3 text-center font-mono text-slate-400 font-bold" x-text="idx + 1"></td>
+                    <td class="py-3 px-4">
+                      <div class="flex items-center space-x-2">
+                        <a :href="'https://' + dom.domain" target="_blank" rel="noopener noreferrer"
+                           class="font-mono font-bold text-slate-900 dark:text-white hover:text-cyan-500 dark:hover:text-cyan-400 transition flex items-center space-x-1.5 group">
+                          <span x-text="dom.domain"></span>
+                          <i data-lucide="external-link" class="w-3 h-3 text-slate-400 group-hover:text-cyan-400 transition"></i>
+                        </a>
+                        <template x-if="dom.pin_count > 1">
+                          <span class="px-2 py-0.5 rounded-full text-[9px] font-mono font-black bg-amber-500/15 text-amber-500 border border-amber-500/30"
+                                x-text="'🔥 ' + dom.pin_count + ' Pins'"></span>
+                        </template>
+                      </div>
+                    </td>
+                    <td class="py-3 px-3 text-center">
+                      <span class="px-2 py-0.5 rounded-lg text-xs font-mono font-bold"
+                            :class="dom.pin_count > 1 ? 'bg-amber-500/15 text-amber-500 font-black' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'"
+                            x-text="dom.pin_count"></span>
+                    </td>
+                    <td class="py-3 px-4">
+                      <div class="space-y-1 max-w-[140px]">
+                        <div class="flex items-center justify-between text-[11px] font-mono font-bold">
+                          <span class="text-purple-400" x-text="dom.share_pct + '%'"></span>
+                        </div>
+                        <div class="h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                          <div class="h-full bg-gradient-to-r from-purple-500 to-indigo-500 rounded-full transition-all duration-300"
+                               :style="'width: ' + Math.min(100, dom.share_pct * 2.5) + '%'"></div>
+                        </div>
+                      </div>
+                    </td>
+                    <td class="py-3 px-3 text-right font-mono font-bold text-emerald-500" x-text="formatNumber(dom.total_saves)"></td>
+                    <td class="py-3 px-3 text-center">
+                      <span class="px-2 py-0.5 rounded-lg text-[11px] font-mono font-bold"
+                            :class="dom.best_rank <= 5 ? 'bg-emerald-500/15 text-emerald-500 border border-emerald-500/30' : (dom.best_rank <= 20 ? 'bg-cyan-500/15 text-cyan-500' : 'bg-slate-100 dark:bg-slate-800 text-slate-400')"
+                            x-text="'#' + dom.best_rank"></span>
+                    </td>
+                    <td class="py-3 px-3 text-center">
+                      <button @click="filterByDomain(dom.domain)"
+                              class="px-2.5 py-1 rounded-xl text-[11px] font-bold font-mono transition flex items-center justify-center space-x-1 w-full cursor-pointer"
+                              :class="activeDomainFilter === dom.domain.toLowerCase() ? 'bg-cyan-600 text-white shadow-xs' : 'bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-600 dark:text-cyan-400 border border-cyan-500/25'">
+                        <i data-lucide="filter" class="w-3 h-3"></i>
+                        <span x-text="activeDomainFilter === dom.domain.toLowerCase() ? 'Filtered' : 'Filter Pins'"></span>
+                      </button>
+                    </td>
+                  </tr>
+                </template>
+
+                <template x-if="domainBreakdownList.length === 0">
+                  <tr>
+                    <td colspan="7" class="py-8 text-center text-xs text-slate-400 font-mono">
+                      No domain data available for this keyword snapshot.
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- SECTION 2: VISUAL ANNOTATIONS CROSSOVER HUB & CO-OCCURRING POWER PAIRS -->
+        <div class="p-5 rounded-3xl bg-slate-50/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800/80 space-y-5">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200/80 dark:border-slate-800">
+            <div class="flex items-center space-x-3">
+              <div class="w-8 h-8 rounded-xl bg-purple-500/10 text-purple-500 flex items-center justify-center">
+                <i data-lucide="sparkles" class="w-4 h-4"></i>
+              </div>
+              <div>
+                <div class="flex items-center space-x-2">
+                  <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">Visual Annotations Crossover Hub</h3>
+                  <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-purple-500/15 text-purple-400 border border-purple-500/30"
+                        x-text="computeSerpPowerPairs().length + ' Power Pairs Computed'"></span>
+                </div>
+                <p class="text-xs text-slate-500 mt-0.5">Computer-vision tag co-occurrences, intra-SERP algorithmic lift, and visual prompt blueprint combinations.</p>
+              </div>
+            </div>
+
+            <template x-if="activeVisualTagFilter">
+              <button @click="activeVisualTagFilter = ''" class="px-2.5 py-1 rounded-xl text-[11px] font-bold bg-rose-500/15 text-rose-500 hover:bg-rose-500/25 transition flex items-center space-x-1 cursor-pointer">
+                <i data-lucide="x" class="w-3 h-3"></i>
+                <span x-text="'Clear Tag #' + activeVisualTagFilter"></span>
+              </button>
+            </template>
+          </div>
+
+          <!-- Subsection A: Co-Occurring Power Pairs Grid -->
+          <div class="space-y-3">
+            <div class="flex items-center justify-between">
+              <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono">Co-Occurring Visual Power Pairs (Algorithmic Lift)</h4>
+              <span class="text-[10px] text-slate-400 font-mono">Top combinations with high intra-SERP affinity</span>
+            </div>
+
+            <template x-if="computeSerpPowerPairs().length > 0">
+              <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                <template x-for="(pair, idx) in computeSerpPowerPairs()" :key="idx">
+                  <div class="p-3.5 rounded-2xl bg-white dark:bg-[#0c1322] border border-slate-200 dark:border-slate-800 flex flex-col justify-between space-y-2.5 hover:border-purple-500/40 transition group">
+                    <div class="space-y-2">
+                      <div class="flex items-center justify-between">
+                        <span class="px-2 py-0.5 rounded-md text-[9px] font-mono font-black bg-purple-500/15 text-purple-400 border border-purple-500/30"
+                              x-text="pair.lift + 'x Lift'"></span>
+                        <span class="text-[9px] font-mono text-slate-400" x-text="pair.count + ' Pins (' + pair.supportPct + '%)'"></span>
+                      </div>
+                      <div class="flex items-center space-x-1.5 text-xs font-bold text-slate-900 dark:text-white truncate">
+                        <button @click="filterByVisualTag(pair.tagA)" class="capitalize text-emerald-500 hover:underline truncate cursor-pointer" :title="'Filter SERP: #' + pair.tagA" x-text="pair.tagA"></button>
+                        <span class="text-slate-400">+</span>
+                        <button @click="filterByVisualTag(pair.tagB)" class="capitalize text-purple-400 hover:underline truncate cursor-pointer" :title="'Filter SERP: #' + pair.tagB" x-text="pair.tagB"></button>
+                      </div>
+                    </div>
+                    <button @click="copySerpVisualBlueprint(pair)"
+                            class="w-full py-1.5 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 text-[10px] font-bold font-mono transition flex items-center justify-center space-x-1 cursor-pointer">
+                      <i data-lucide="copy" class="w-3 h-3"></i>
+                      <span>📋 Copy Visual Blueprint</span>
+                    </button>
+                  </div>
+                </template>
+              </div>
+            </template>
+
+            <template x-if="computeSerpPowerPairs().length === 0">
+              <div class="py-6 text-center text-xs text-slate-400 font-mono rounded-2xl bg-white dark:bg-[#0c1322] border border-slate-200 dark:border-slate-800">
+                Indexing visual tags... Co-occurring power pairs require at least 2 pins with shared visual annotations.
+              </div>
+            </template>
+          </div>
+
+          <!-- Subsection B: Core Visual Anchors Matrix -->
+          <div class="space-y-3 pt-2">
+            <div class="flex items-center justify-between">
+              <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono">Core Visual Anchors (Frequency Across Ranking Pins)</h4>
+              <span class="text-[10px] text-slate-400 font-mono" x-text="coreAnchorsList.length + ' Anchors Detected'"></span>
+            </div>
+
+            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
+              <template x-for="(anchor, idx) in coreAnchorsList" :key="anchor.tag">
+                <button @click="filterByVisualTag(anchor.tag)"
+                        class="p-2.5 rounded-2xl bg-white dark:bg-[#0c1322] border border-slate-200 dark:border-slate-800 text-left hover:border-purple-500/40 transition cursor-pointer flex flex-col justify-between group"
+                        :class="activeVisualTagFilter === anchor.tag.toLowerCase() ? 'border-purple-500 ring-2 ring-purple-500/20' : ''">
+                  <div class="flex items-center justify-between text-[10px] font-mono text-slate-400 mb-1">
+                    <span x-text="'#' + (idx + 1)"></span>
+                    <span class="font-bold text-purple-400" x-text="anchor.count + ' Pins'"></span>
+                  </div>
+                  <div class="text-xs font-bold text-slate-900 dark:text-white capitalize truncate group-hover:text-purple-400 transition" x-text="anchor.tag"></div>
+                </button>
+              </template>
+
+              <template x-if="coreAnchorsList.length === 0">
+                <div class="col-span-full py-4 text-center text-xs text-slate-400 font-mono">
+                  No visual anchors with >= 2 pins found yet.
+                </div>
+              </template>
+            </div>
+          </div>
+
+          <!-- Subsection C: Semantic Visual Annotations Cloud -->
+          <template x-if="selectedKeywordDetails?.intelligence?.visual_annotations && selectedKeywordDetails.intelligence.visual_annotations.length > 0">
+            <div class="space-y-3 pt-2">
+              <div class="flex items-center justify-between">
+                <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono">Visual Semantic Cloud (Top Computer Vision Signals)</h4>
+                <span class="text-[10px] text-slate-400 font-mono">Click any tag to filter SERP</span>
+              </div>
+              <div class="flex flex-wrap gap-1.5 p-3.5 rounded-2xl bg-white dark:bg-[#0c1322] border border-slate-200 dark:border-slate-800">
+                <template x-for="ann in selectedKeywordDetails.intelligence.visual_annotations" :key="ann.tag">
+                  <button @click="filterByVisualTag(ann.tag)"
+                          class="px-2.5 py-1 rounded-xl text-xs font-mono transition flex items-center space-x-1.5 cursor-pointer"
+                          :class="activeVisualTagFilter === ann.tag.toLowerCase() ? 'bg-purple-600 text-white font-bold' : 'bg-purple-500/10 text-purple-600 dark:text-purple-400 hover:bg-purple-500/20 border border-purple-500/20'">
+                    <span x-text="'#' + ann.tag"></span>
+                    <span class="text-[10px] opacity-75" x-text="'(' + ann.count + ')'"></span>
+                  </button>
+                </template>
+              </div>
+            </div>
+          </template>
+
+        </div>
+
       </div>
 
       <!-- DEPRECATED DISPLACED TAB - INTEGRATED INTO SERP MATRIX -->
@@ -3783,6 +4005,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
         // Pin Table Filter & Sort Controls
         serpScope: 'all',
         activeVisualTagFilter: '',
+        activeDomainFilter: '',
         cachedTagFreqMap: null,
         cachedCoreAnchorsSet: null,
         cachedCombinedPins: null,
@@ -4050,8 +4273,78 @@ export function getKeywordsPageHtml(initialSlug = '') {
           } else {
             this.activeVisualTagFilter = clean;
             this.serpScope = 'all';
+            this.activeTab = 'serp';
           }
           this.$nextTick(() => { lucide.createIcons(); });
+        },
+
+        filterByDomain(domain) {
+          if (!domain) return;
+          const clean = String(domain).trim().toLowerCase();
+          if (this.activeDomainFilter === clean) {
+            this.activeDomainFilter = '';
+          } else {
+            this.activeDomainFilter = clean;
+            this.serpScope = 'all';
+            this.activeTab = 'serp';
+          }
+          this.$nextTick(() => { lucide.createIcons(); });
+        },
+
+        get domainBreakdownList() {
+          const backendList = this.selectedKeywordDetails?.intelligence?.domain_breakdown;
+          if (Array.isArray(backendList) && backendList.length > 0) {
+            return backendList;
+          }
+          const pins = this.selectedKeywordDetails?.current_pins || this.allCombinedPins || [];
+          if (pins.length === 0) return [];
+          const map = new Map();
+          for (const p of pins) {
+            let d = (p.domain || '').trim().toLowerCase();
+            if (!d && p.destination_url) {
+              try { d = new URL(p.destination_url).hostname.replace(/^www\./, '').toLowerCase(); } catch (_) {}
+            }
+            if (!d || d === 'unknown' || d === 'uploaded by user' || d === 'null' || d === 'undefined') continue;
+            if (!map.has(d)) {
+              map.set(d, { domain: d, pin_count: 0, total_saves: 0, best_rank: Number(p.rank_position || 999) });
+            }
+            const entry = map.get(d);
+            entry.pin_count++;
+            entry.total_saves += Number(p.save_count || 0);
+            entry.best_rank = Math.min(entry.best_rank, Number(p.rank_position || 999));
+          }
+          return Array.from(map.values())
+            .map(entry => ({
+              ...entry,
+              share_pct: Number(((entry.pin_count / pins.length) * 100).toFixed(1))
+            }))
+            .sort((a, b) => b.pin_count - a.pin_count || b.total_saves - a.total_saves);
+        },
+
+        get repeatedDomainsCount() {
+          const count = this.selectedKeywordDetails?.intelligence?.repeated_domains_count;
+          if (count !== undefined && count !== null) return count;
+          return this.domainBreakdownList.filter(d => d.pin_count > 1).length;
+        },
+
+        get uniqueDomainsCount() {
+          const count = this.selectedKeywordDetails?.intelligence?.unique_domains_count;
+          if (count !== undefined && count !== null) return count;
+          return this.domainBreakdownList.length;
+        },
+
+        get coreAnchorsList() {
+          if (Array.isArray(this.selectedKeywordDetails?.core_anchors) && this.selectedKeywordDetails.core_anchors.length > 0) {
+            return this.selectedKeywordDetails.core_anchors;
+          }
+          const freqMap = this.tagFrequencyMap;
+          const list = [];
+          for (const [tag, count] of freqMap.entries()) {
+            if (count >= 2) {
+              list.push({ tag, count });
+            }
+          }
+          return list.sort((a, b) => b.count - a.count).slice(0, 18);
         },
 
         get tagFrequencyMap() {
@@ -4094,6 +4387,17 @@ export function getKeywordsPageHtml(initialSlug = '') {
             list = list.filter(p => {
               const tags = p._cachedVisualTagsLower || this.getPinVisualTags(p).map(t => t.toLowerCase());
               return tags.includes(vtag);
+            });
+          }
+
+          if (this.activeDomainFilter) {
+            const dom = this.activeDomainFilter.toLowerCase().trim();
+            list = list.filter(p => {
+              let d = (p.domain || '').toLowerCase().trim();
+              if (!d && p.destination_url) {
+                try { d = new URL(p.destination_url).hostname.replace(/^www\./, '').toLowerCase(); } catch (_) {}
+              }
+              return d === dom;
             });
           }
 

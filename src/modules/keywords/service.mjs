@@ -1740,6 +1740,14 @@ function calculateMedian(arr) {
 export function calculateKeywordIntelligenceSummary(pins = []) {
   if (!pins || pins.length === 0) {
     return {
+      avg_saves: 0,
+      median_saves: 0,
+      unique_domains_count: 0,
+      repeated_domains_count: 0,
+      top_domain: 'N/A',
+      top_domain_share: 0,
+      domain_breakdown: [],
+      repeated_domains: [],
       opportunity: {
         verdict: 'UNKNOWN',
         badge: '⚪ No Data',
@@ -1749,6 +1757,7 @@ export function calculateKeywordIntelligenceSummary(pins = []) {
       },
       benchmarks: {
         median_saves: 0,
+        avg_saves: 0,
         median_age_days: 0,
         median_followers: 0,
         median_velocity: 0
@@ -1929,7 +1938,59 @@ export function calculateKeywordIntelligenceSummary(pins = []) {
     .sort((a, b) => b.count - a.count)
     .slice(0, 25);
 
+  // Domain Concentration, Authority & Repeat Frequency Breakdown
+  const domainMap = new Map();
+  let totalSavesAll = 0;
+
+  for (const p of sortedPins) {
+    totalSavesAll += Number(p.save_count || 0);
+    let d = (p.domain || '').trim().toLowerCase();
+    if (!d && p.destination_url) {
+      try {
+        d = new URL(p.destination_url).hostname.replace(/^www\./, '').toLowerCase();
+      } catch (_) {}
+    }
+    // Filter out unknown / user uploads / empty
+    if (!d || d === 'unknown' || d === 'uploaded by user' || d === 'null' || d === 'undefined') {
+      continue;
+    }
+    if (!domainMap.has(d)) {
+      domainMap.set(d, {
+        domain: d,
+        pin_count: 0,
+        total_saves: 0,
+        best_rank: Number(p.rank_position || 999)
+      });
+    }
+    const entry = domainMap.get(d);
+    entry.pin_count++;
+    entry.total_saves += Number(p.save_count || 0);
+    entry.best_rank = Math.min(entry.best_rank, Number(p.rank_position || 999));
+  }
+
+  const allDomains = Array.from(domainMap.values())
+    .map(entry => ({
+      ...entry,
+      share_pct: total > 0 ? Number(((entry.pin_count / total) * 100).toFixed(1)) : 0
+    }))
+    .sort((a, b) => b.pin_count - a.pin_count || b.total_saves - a.total_saves);
+
+  const repeatedDomains = allDomains.filter(d => d.pin_count > 1);
+  const uniqueDomainsCount = allDomains.length;
+  const repeatedDomainsCount = repeatedDomains.length;
+  const topDomain = allDomains[0] ? allDomains[0].domain : 'N/A';
+  const topDomainShare = allDomains[0] ? allDomains[0].share_pct : 0;
+  const avgSaves = total > 0 ? Math.round(totalSavesAll / total) : 0;
+
   return {
+    avg_saves: avgSaves,
+    median_saves: medianSaves,
+    unique_domains_count: uniqueDomainsCount,
+    repeated_domains_count: repeatedDomainsCount,
+    top_domain: topDomain,
+    top_domain_share: topDomainShare,
+    domain_breakdown: allDomains,
+    repeated_domains: repeatedDomains,
     opportunity: {
       verdict,
       badge,
@@ -1939,6 +2000,7 @@ export function calculateKeywordIntelligenceSummary(pins = []) {
     },
     benchmarks: {
       median_saves: medianSaves,
+      avg_saves: avgSaves,
       median_age_days: medianAge,
       median_followers: medianFollowers,
       median_velocity: medianVelocity
