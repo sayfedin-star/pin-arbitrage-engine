@@ -2201,14 +2201,48 @@ export default {
         const body = await request.json().catch(() => ({}));
         let keywordId = Number(body.keyword_id);
         const slug = body.slug || body.keyword;
+        let resolvedKw = null;
         if (!keywordId && slug) {
-          const resolved = await resolveKeywordBySlug(sql, slug, true);
-          if (resolved) keywordId = resolved.id;
+          resolvedKw = await resolveKeywordBySlug(sql, slug, true);
+          if (resolvedKw) keywordId = resolvedKw.id;
         }
         if (!keywordId) return jsonResponse({ error: 'keyword_id or slug is required' }, 400);
         const force = Boolean(body.force);
         const cookie = env.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env.PINTEREST_COOKIE : null);
         const res = await crawlKeywordSERP(sql, keywordId, { cookie, force });
+
+        // Trigger Stage 2 Deep Crawler in GitHub Actions asynchronously (< 3s edge response preserved)
+        const autoDispatch = body.dispatch_workflow !== false;
+        const token = (typeof env !== 'undefined' && (env?.GITHUB_TOKEN || env?.GITHUB_PAT)) || (typeof process !== 'undefined' ? (process.env?.GITHUB_TOKEN || process.env?.GITHUB_PAT || process.env?.GH_TOKEN) : null);
+        if (autoDispatch && token && res?.success) {
+          const repo = (typeof env !== 'undefined' && env?.GITHUB_REPOSITORY) || (typeof process !== 'undefined' ? process.env?.GITHUB_REPOSITORY : null) || 'sayfedin-star/pin-arbitrage-engine';
+          const targetKw = res.keyword || body.keyword || resolvedKw?.keyword || '';
+          const maxPinsInput = String(body.max_pins || '100');
+          const dispatchPromise = (async () => {
+            try {
+              const dRes = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/keyword-intelligence-velocity.yml/dispatches`, {
+                method: 'POST',
+                headers: {
+                  'Accept': 'application/vnd.github.v3+json',
+                  'Authorization': `Bearer ${token}`,
+                  'User-Agent': 'Pin-Arbitrage-Engine'
+                },
+                body: JSON.stringify({
+                  ref: 'main',
+                  inputs: {
+                    target_keyword: targetKw,
+                    max_pins: maxPinsInput
+                  }
+                })
+              });
+              if (dRes?.body && !dRes.bodyUsed) await dRes.body.cancel().catch(() => {});
+            } catch (_) {}
+          })();
+          if (ctx && typeof ctx.waitUntil === 'function') {
+            ctx.waitUntil(dispatchPromise);
+          }
+        }
+
         return jsonResponse({ success: true, result: res });
       }
 

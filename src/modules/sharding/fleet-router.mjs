@@ -467,55 +467,149 @@ export async function fetchUniversalPinDossier({ hubSql, pinId }) {
     shardSql = hubSql; // Graceful degradation to Hub
   }
 
-  // 1. Fetch Master Creative Record from target shard (with Hub fallback)
-  const masterRecord = await executeShardQueryWithCircuitBreaker({
-    shardId,
-    shardSql,
-    queryFn: async (sqlClient) => {
-      const [row] = await sqlClient`
-        SELECT *
-        FROM universal_master_pins
-        WHERE pin_id = ${cleanPinId}
-        LIMIT 1;
-      `;
-      return row;
-    },
-    fallbackFn: async () => {
-      // Fallback: Check Hub's live SERP cache
-      const [serpRow] = await hubSql`
+  // 1 & 2. Fetch Master Creative Record and Historical Snapshots concurrently from target shard
+  const [initialMaster, initialSnapshots] = await Promise.all([
+    executeShardQueryWithCircuitBreaker({
+      shardId,
+      shardSql,
+      queryFn: async (sqlClient) => {
+        const [row] = await sqlClient`
+          SELECT *
+          FROM universal_master_pins
+          WHERE pin_id = ${cleanPinId}
+          LIMIT 1;
+        `;
+        return row || null;
+      },
+      fallbackFn: async () => null,
+      timeoutMs: 2500
+    }),
+    executeShardQueryWithCircuitBreaker({
+      shardId,
+      shardSql,
+      queryFn: async (sqlClient) => {
+        const rows = await sqlClient`
+          SELECT 
+            id, snapshot_date, rank_position, save_count, repin_count,
+            comment_count, share_count, reaction_count, daily_save_velocity,
+            keyword_id, competitor_id, created_at
+          FROM pins_daily_snapshots
+          WHERE pin_id = ${cleanPinId}
+          ORDER BY snapshot_date DESC, created_at DESC
+          LIMIT 90;
+        `;
+        return rows;
+      },
+      fallbackFn: async () => [],
+      timeoutMs: 2000
+    })
+  ]);
+
+  let masterRecord = initialMaster;
+  let snapshots = initialSnapshots;
+
+  // Hub Fallback & Auto-Backfill to Shard:
+  // If masterRecord is missing on Shard N, fallback to Central Hub
+  if (!masterRecord) {
+    // 1. Check Central Hub active SERP cache
+    let [hubRecord] = await hubSql`
+      SELECT 
+        pin_id, title, domain, destination_url, image_url,
+        creator_username, board_name, save_count, repin_count,
+        daily_save_velocity, dominant_color, visual_annotations
+      FROM keyword_serp_current
+      WHERE pin_id = ${cleanPinId}
+      LIMIT 1;
+    `;
+
+    // 2. If not in active SERP cache, check historical snapshots on Hub
+    if (!hubRecord) {
+      const [snapRecord] = await hubSql`
         SELECT 
           pin_id, title, domain, destination_url, image_url,
-          creator_username, board_name, save_count, repin_count,
-          daily_save_velocity, dominant_color, visual_annotations
-        FROM keyword_serp_current
+          save_count, repin_count, daily_save_velocity, metadata
+        FROM keyword_pins_snapshots
         WHERE pin_id = ${cleanPinId}
+        ORDER BY created_at DESC
         LIMIT 1;
       `;
-      return serpRow || null;
-    },
-    timeoutMs: 2500
-  });
+      if (snapRecord) {
+        hubRecord = {
+          pin_id: snapRecord.pin_id,
+          title: snapRecord.title,
+          domain: snapRecord.domain,
+          destination_url: snapRecord.destination_url,
+          image_url: snapRecord.image_url,
+          creator_username: snapRecord.metadata?.pinner?.username || '',
+          board_name: snapRecord.metadata?.board_name || '',
+          save_count: snapRecord.save_count,
+          repin_count: snapRecord.repin_count,
+          daily_save_velocity: snapRecord.daily_save_velocity,
+          dominant_color: snapRecord.metadata?.dominant_color || '#888888',
+          visual_annotations: snapRecord.metadata?.visual_annotations || []
+        };
+      }
+    }
 
-  // 2. Fetch Historical Snapshots from target shard
-  const snapshots = await executeShardQueryWithCircuitBreaker({
-    shardId,
-    shardSql,
-    queryFn: async (sqlClient) => {
-      const rows = await sqlClient`
-        SELECT 
-          id, snapshot_date, rank_position, save_count, repin_count,
-          comment_count, share_count, reaction_count, daily_save_velocity,
-          keyword_id, competitor_id, created_at
-        FROM pins_daily_snapshots
-        WHERE pin_id = ${cleanPinId}
-        ORDER BY snapshot_date DESC, created_at DESC
-        LIMIT 90;
-      `;
-      return rows;
-    },
-    fallbackFn: async () => [],
-    timeoutMs: 2000
-  });
+    if (hubRecord) {
+      masterRecord = hubRecord;
+
+      // Asynchronous non-blocking auto-backfill into target shard to restore O(1) direct resolution
+      if (shardSql && shardSql !== hubSql) {
+        (async () => {
+          try {
+            const rawAnnotations = Array.isArray(hubRecord.visual_annotations)
+              ? hubRecord.visual_annotations
+              : (typeof hubRecord.visual_annotations === 'string' ? JSON.parse(hubRecord.visual_annotations || '[]') : []);
+            await shardSql`
+              INSERT INTO universal_master_pins (
+                pin_id, creator_username, board_name, title, domain, destination_url,
+                image_url, dominant_color, visual_annotations, first_discovered_pillar,
+                first_discovered_at, updated_at
+              ) VALUES (
+                ${cleanPinId},
+                ${hubRecord.creator_username || ''},
+                ${hubRecord.board_name || ''},
+                ${hubRecord.title || ''},
+                ${hubRecord.domain || ''},
+                ${hubRecord.destination_url || ''},
+                ${hubRecord.image_url || ''},
+                ${hubRecord.dominant_color || '#888888'},
+                ${JSON.stringify(rawAnnotations)}::jsonb,
+                'keyword',
+                NOW(),
+                NOW()
+              )
+              ON CONFLICT (pin_id) DO UPDATE SET
+                title = COALESCE(universal_master_pins.title, EXCLUDED.title),
+                image_url = COALESCE(universal_master_pins.image_url, EXCLUDED.image_url),
+                dominant_color = COALESCE(universal_master_pins.dominant_color, EXCLUDED.dominant_color),
+                updated_at = NOW();
+            `;
+          } catch (backfillErr) {
+            console.warn(`[Auto-Backfill] Shard ${shardId} pin ${cleanPinId} backfill deferred:`, backfillErr.message);
+          }
+        })();
+      }
+    }
+  }
+
+  // Hub Fallback: If shard has no snapshots recorded yet, query Hub's keyword_pins_snapshots
+  if (!snapshots || snapshots.length === 0) {
+    const hubSnapshots = await hubSql`
+      SELECT 
+        id, snapshot_date, rank_position, save_count, repin_count,
+        comment_count, 0 as share_count, 0 as reaction_count, daily_save_velocity,
+        keyword_id, NULL as competitor_id, created_at
+      FROM keyword_pins_snapshots
+      WHERE pin_id = ${cleanPinId}
+      ORDER BY snapshot_date DESC, created_at DESC
+      LIMIT 90;
+    `;
+    if (hubSnapshots && hubSnapshots.length > 0) {
+      snapshots = hubSnapshots;
+    }
+  }
 
   // 3. Query Central Hub for Relational Cross-Pillar Context
   const [hubContext] = await hubSql`
