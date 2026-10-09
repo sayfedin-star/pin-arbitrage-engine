@@ -26,7 +26,7 @@ on:
         default: '100'
 
 concurrency:
-  group: keyword-intelligence-${{ github.workflow }}-${{ github.ref }}-${{ inputs.target_keyword != '' && format('kw-{0}', inputs.target_keyword) || 'all' }}
+  group: keyword-intelligence-${{ github.workflow }}-${{ github.ref }}-${{ inputs.target_keyword || 'all' }}
   cancel-in-progress: false
 
 jobs:
@@ -74,7 +74,7 @@ jobs:
   # Executes simultaneously across up to 20 isolated Azure runner VMs with distinct IPs
   # ============================================================================
   crawl-fleet:
-    name: ${{ matrix.task.mode == 'pin_partition' && format('Slice {0}/{1} ({2})', matrix.task.worker_index + 1, matrix.task.worker_total, matrix.task.keyword) || format('Keyword ({0})', matrix.task.keyword) }}
+    name: ${{ matrix.task.mode == 'pin_partition' && format('Slice {0}/{1} ({2})', matrix.task.worker_slot, matrix.task.worker_total, matrix.task.keyword) || format('Keyword ({0})', matrix.task.keyword) }}
     needs: [dispatch]
     if: ${{ needs.dispatch.outputs.task_count != '0' && needs.dispatch.outputs.matrix_tasks != '[]' }}
     runs-on: ubuntu-latest

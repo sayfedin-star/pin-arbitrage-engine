@@ -111,6 +111,7 @@ async function main() {
         keyword_id: row.id,
         category: row.category || 'General',
         worker_index: idx,
+        worker_slot: idx + 1,
         worker_total: targetRows.length,
         max_pins: maxPinsInput,
         crawl_scope: crawlScope
@@ -199,6 +200,7 @@ async function main() {
         keyword: kwRow.keyword,
         keyword_id: kwRow.id,
         worker_index: 0,
+        worker_slot: 1,
         worker_total: 1,
         total_pins: 0,
         crawl_scope: crawlScope,
@@ -214,6 +216,7 @@ async function main() {
         keyword: kwRow.keyword,
         keyword_id: kwRow.id,
         worker_index: idx,
+        worker_slot: idx + 1,
         worker_total: numWorkers,
         total_pins: totalPinsFound,
         crawl_scope: crawlScope,
