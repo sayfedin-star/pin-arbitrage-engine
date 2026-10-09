@@ -273,30 +273,30 @@ export function getPinDetailPageHtml(pinId = '') {
       <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between shadow-lg">
         <div class="text-[11px] font-mono text-slate-400 flex items-center justify-between">
           <span>Total Saves</span>
-          <span class="text-emerald-400 text-[10px]" x-text="computeDelta(0, 'save_count') > 0 ? '+' + computeDelta(0, 'save_count') + ' 24h' : ''"></span>
+          <span class="text-emerald-400 text-[10px]" x-text="computeDeltaUnified(0, 'save_count') > 0 ? '+' + computeDeltaUnified(0, 'save_count') + ' 24h' : ''"></span>
         </div>
-        <div class="text-2xl font-bold font-mono text-emerald-400 mt-2" x-text="formatNumber(latestSnapshot()?.save_count || 0)"></div>
-        <div class="text-[10px] text-slate-500 font-mono mt-1">Cumulative Board Saves</div>
+        <div class="text-2xl font-bold font-mono text-emerald-400 mt-2" x-text="formatNumber(peakSaves())"></div>
+        <div class="text-[10px] text-slate-500 font-mono mt-1">Peak Authentic Saves</div>
       </div>
 
       <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between shadow-lg">
         <div class="text-[11px] font-mono text-slate-400 flex items-center justify-between">
           <span>Total Repins</span>
-          <span class="text-pink-400 text-[10px]" x-text="computeDelta(0, 'repin_count') > 0 ? '+' + computeDelta(0, 'repin_count') + ' 24h' : ''"></span>
+          <span class="text-pink-400 text-[10px]" x-text="computeDeltaUnified(0, 'repin_count') > 0 ? '+' + computeDeltaUnified(0, 'repin_count') + ' 24h' : ''"></span>
         </div>
-        <div class="text-2xl font-bold font-mono text-pink-400 mt-2" x-text="formatNumber(latestSnapshot()?.repin_count || 0)"></div>
+        <div class="text-2xl font-bold font-mono text-pink-400 mt-2" x-text="formatNumber(peakRepins())"></div>
         <div class="text-[10px] text-slate-500 font-mono mt-1">Direct Viral Shares</div>
       </div>
 
       <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between shadow-lg">
         <div class="text-[11px] font-mono text-slate-400">Daily Velocity</div>
-        <div class="text-2xl font-bold font-mono text-amber-400 mt-2" x-text="'+' + (latestSnapshot()?.daily_save_velocity || 0) + '/d'"></div>
+        <div class="text-2xl font-bold font-mono text-amber-400 mt-2" x-text="'+' + peakVelocity() + '/d'"></div>
         <div class="text-[10px] text-slate-500 font-mono mt-1">Net Saves Acceleration</div>
       </div>
 
       <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between shadow-lg">
         <div class="text-[11px] font-mono text-slate-400">Best Rank</div>
-        <div class="text-2xl font-bold font-mono text-cyan-400 mt-2" x-text="dossier?.pillar_2_keywords_context?.highest_rank !== 999 ? '#' + dossier?.pillar_2_keywords_context?.highest_rank : 'Top 50'"></div>
+        <div class="text-2xl font-bold font-mono text-cyan-400 mt-2" x-text="peakRank()"></div>
         <div class="text-[10px] text-slate-500 font-mono mt-1">Peak SERP Position</div>
       </div>
 
@@ -417,12 +417,15 @@ export function getPinDetailPageHtml(pinId = '') {
       </div>
     </div>
 
-    <!-- 4. Interactive SVG Trajectory Chart (Zero Heavy Dependencies) -->
+    <!-- 4. Interactive SVG Trajectory Chart (Smooth Monotonic Daily Growth) -->
     <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col gap-4">
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-2">
           <span class="text-base">📈</span>
-          <h3 class="text-sm font-semibold text-white">Interactive Save Velocity Trajectory Chart</h3>
+          <div>
+            <h3 class="text-sm font-semibold text-white">Interactive Save Velocity Trajectory Chart</h3>
+            <p class="text-[11px] text-slate-400 font-mono">Unified daily trajectory with non-decreasing monotonic baseline</p>
+          </div>
         </div>
         <div class="flex items-center gap-4 text-xs font-mono text-slate-400">
           <span class="flex items-center gap-1.5">
@@ -431,13 +434,13 @@ export function getPinDetailPageHtml(pinId = '') {
           <span class="flex items-center gap-1.5">
             <span class="w-2.5 h-2.5 rounded-full bg-amber-400"></span> Daily Velocity
           </span>
-          <span class="text-slate-500" x-text="chronologicalSnapshots().length + ' data points'"></span>
+          <span class="text-slate-500" x-text="trajectoryData().length + ' daily points'"></span>
         </div>
       </div>
 
       <!-- Chart Canvas Container -->
       <div class="relative w-full h-56 bg-slate-950 rounded-xl p-4 border border-slate-800/80 overflow-hidden">
-        <template x-if="chronologicalSnapshots().length >= 2">
+        <template x-if="trajectoryData().length >= 2">
           <svg class="w-full h-full overflow-visible" viewBox="0 0 800 180" preserveAspectRatio="none">
             <defs>
               <linearGradient id="emeraldGradient" x1="0%" y1="0%" x2="0%" y2="100%">
@@ -472,14 +475,14 @@ export function getPinDetailPageHtml(pinId = '') {
           :style="'left: ' + (hoveredPoint ? (hoveredPoint.x * 0.95) : 0) + 'px; top: 20px;'"
           x-cloak
         >
-          <div class="text-[10px] text-slate-400 font-bold" x-text="hoveredPoint?.snapshot?.snapshot_date"></div>
-          <div class="text-emerald-400 font-bold" x-text="'Saves: ' + formatNumber(hoveredPoint?.snapshot?.save_count)"></div>
-          <div class="text-amber-400 text-[11px]" x-text="'Velocity: +' + (hoveredPoint?.snapshot?.daily_save_velocity || 0) + '/d'"></div>
-          <div class="text-pink-400 text-[10px]" x-text="'Rank: #' + (hoveredPoint?.snapshot?.rank_position || 'N/A')"></div>
+          <div class="text-[10px] text-slate-400 font-bold" x-text="hoveredPoint?.point?.snapshot_date"></div>
+          <div class="text-emerald-400 font-bold" x-text="'Saves: ' + formatNumber(hoveredPoint?.point?.save_count)"></div>
+          <div class="text-amber-400 text-[11px]" x-text="'Velocity: +' + (hoveredPoint?.point?.daily_save_velocity || 0) + '/d'"></div>
+          <div class="text-cyan-400 text-[10px]" x-text="'Peak Rank: #' + (hoveredPoint?.point?.best_rank !== 999 ? (hoveredPoint?.point?.best_rank || hoveredPoint?.point?.rank_position || 'N/A') : (hoveredPoint?.point?.rank_position || 'N/A'))"></div>
         </div>
 
         <!-- Single or Zero Data Point State -->
-        <div x-show="chronologicalSnapshots().length < 2" class="w-full h-full flex items-center justify-center text-center p-6 text-slate-500 font-mono text-xs">
+        <div x-show="trajectoryData().length < 2" class="w-full h-full flex items-center justify-center text-center p-6 text-slate-500 font-mono text-xs">
           <div>
             <div class="text-xl mb-1">📊</div>
             <div>Insufficient time-series data points for dynamic trajectory curve.</div>
@@ -489,51 +492,161 @@ export function getPinDetailPageHtml(pinId = '') {
       </div>
     </div>
 
-    <!-- 5. Daily Snapshots Time-Series Audit Table (Dynamic LAG Deltas) -->
+    <!-- 5. Time-Series Audit Log & Multi-SERP Trajectory -->
     <div class="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl flex flex-col">
-      <div class="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/50">
+      <div class="p-4 border-b border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-slate-900/50">
         <div class="flex items-center gap-2">
           <span class="text-base">📅</span>
-          <h3 class="text-sm font-semibold text-white">Daily Snapshots Time-Series Audit Log</h3>
+          <div>
+            <h3 class="text-sm font-semibold text-white">Daily Snapshots & SERP Trajectory Audit</h3>
+            <p class="text-[11px] text-slate-400 font-mono">Deterministic multi-keyword rank history with zero cross-keyword collision</p>
+          </div>
         </div>
-        <span class="text-xs font-mono text-slate-400" x-text="(dossier?.snapshots?.length || 0) + ' records on shard'"></span>
+
+        <!-- View Mode Switcher -->
+        <div class="flex items-center gap-2 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs font-mono">
+          <button 
+            @click="viewMode = 'unified'" 
+            :class="viewMode === 'unified' ? 'bg-pink-600 text-white font-semibold' : 'text-slate-400 hover:text-white'"
+            class="px-3 py-1 rounded-lg transition-colors flex items-center gap-1.5"
+          >
+            <span>📅</span> Daily Unified (<span x-text="dossier?.daily_trajectory?.length || 0"></span>d)
+          </button>
+          <button 
+            @click="viewMode = 'per_serp'" 
+            :class="viewMode === 'per_serp' ? 'bg-pink-600 text-white font-semibold' : 'text-slate-400 hover:text-white'"
+            class="px-3 py-1 rounded-lg transition-colors flex items-center gap-1.5"
+          >
+            <span>🔍</span> Per-Keyword SERPs (<span x-text="dossier?.snapshots?.length || 0"></span>)
+          </button>
+        </div>
       </div>
 
-      <div class="overflow-x-auto">
+      <!-- Keyword Filter Pills (Visible when in per_serp view mode) -->
+      <div x-show="viewMode === 'per_serp' && uniqueKeywords().length > 1" class="px-4 py-2.5 bg-slate-950/80 border-b border-slate-800 flex items-center gap-2 overflow-x-auto text-xs font-mono">
+        <span class="text-slate-500 text-[11px] whitespace-nowrap">Filter SERP:</span>
+        <button 
+          @click="selectedKeywordFilter = 'ALL'" 
+          :class="selectedKeywordFilter === 'ALL' ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200'"
+          class="px-2.5 py-1 rounded-lg border transition-colors whitespace-nowrap text-[11px]"
+        >
+          All SERPs (<span x-text="dossier?.snapshots?.length || 0"></span>)
+        </button>
+        <template x-for="kw in uniqueKeywords()" :key="kw.name">
+          <button 
+            @click="selectedKeywordFilter = kw.name" 
+            :class="selectedKeywordFilter === kw.name ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200'"
+            class="px-2.5 py-1 rounded-lg border transition-colors whitespace-nowrap text-[11px] flex items-center gap-1"
+          >
+            <span class="text-emerald-400 font-bold">🎯</span>
+            <span x-text="kw.name"></span>
+            <span class="text-[10px] text-slate-500" x-text="'(' + kw.count + ')'"></span>
+          </button>
+        </template>
+      </div>
+
+      <!-- 5A. Unified Daily View Table (1 row per calendar day) -->
+      <div x-show="viewMode === 'unified'" class="overflow-x-auto">
+        <table class="w-full text-left text-xs font-mono">
+          <thead class="bg-slate-950/60 border-b border-slate-800 text-slate-400 uppercase text-[10px]">
+            <tr>
+              <th class="p-3.5">Calendar Day</th>
+              <th class="p-3.5">Peak Cumulative Saves</th>
+              <th class="p-3.5">24h Net Δ</th>
+              <th class="p-3.5">Daily Velocity</th>
+              <th class="p-3.5">Peak SERP Rank</th>
+              <th class="p-3.5">Active Ranking SERPs</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-800/60 text-slate-300">
+            <template x-for="(d, idx) in dossier?.daily_trajectory || []" :key="d.snapshot_date">
+              <tr class="hover:bg-slate-800/40 transition-colors">
+                <td class="p-3.5 font-semibold text-white flex items-center gap-1.5">
+                  <span>📅</span>
+                  <span x-text="d.snapshot_date"></span>
+                </td>
+                <td class="p-3.5 text-emerald-400 font-bold" x-text="formatNumber(d.save_count)"></td>
+                <td class="p-3.5">
+                  <span 
+                    :class="computeDeltaUnified(idx, 'save_count') > 0 ? 'text-emerald-400 font-semibold' : (computeDeltaUnified(idx, 'save_count') < 0 ? 'text-red-400' : 'text-slate-500')" 
+                    x-text="computeDeltaUnified(idx, 'save_count') > 0 ? '+' + computeDeltaUnified(idx, 'save_count') : (computeDeltaUnified(idx, 'save_count') < 0 ? computeDeltaUnified(idx, 'save_count') : '0')"
+                  ></span>
+                </td>
+                <td class="p-3.5 text-amber-400" x-text="'+' + (d.daily_save_velocity || 0) + '/d'"></td>
+                <td class="p-3.5">
+                  <span class="px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 font-bold" x-text="d.best_rank !== 999 ? '#' + d.best_rank : 'SERP Listed'"></span>
+                </td>
+                <td class="p-3.5">
+                  <div class="flex items-center gap-1.5 flex-wrap">
+                    <template x-for="kw in d.ranking_keywords || []" :key="kw.keyword">
+                      <a 
+                        :href="'/keywords/' + encodeURIComponent(kw.keyword)" 
+                        target="_blank" 
+                        class="px-2 py-0.5 rounded bg-slate-950 border border-slate-800 text-[11px] text-slate-300 hover:text-emerald-400 hover:border-emerald-500/40 transition-colors flex items-center gap-1"
+                      >
+                        <span x-text="kw.keyword"></span>
+                        <span class="text-emerald-400 font-bold" x-text="'#' + kw.rank"></span>
+                      </a>
+                    </template>
+                    <span x-show="!d.ranking_keywords?.length" class="text-slate-500 text-[11px] italic">Universal metrics recorded</span>
+                  </div>
+                </td>
+              </tr>
+            </template>
+            <tr x-show="!dossier?.daily_trajectory?.length">
+              <td colspan="6" class="p-8 text-center text-slate-500 font-mono text-xs">
+                No daily trajectory snapshots recorded yet.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 5B. Per-Keyword SERP Audit Table -->
+      <div x-show="viewMode === 'per_serp'" class="overflow-x-auto">
         <table class="w-full text-left text-xs font-mono">
           <thead class="bg-slate-950/60 border-b border-slate-800 text-slate-400 uppercase text-[10px]">
             <tr>
               <th class="p-3.5">Snapshot Date</th>
+              <th class="p-3.5">Keyword SERP</th>
               <th class="p-3.5">Rank Position</th>
               <th class="p-3.5">Total Saves</th>
               <th class="p-3.5">24h Saves Δ</th>
               <th class="p-3.5">Total Repins</th>
-              <th class="p-3.5">24h Repins Δ</th>
               <th class="p-3.5">Daily Velocity</th>
               <th class="p-3.5 text-right">Actions</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-800/60 text-slate-300">
-            <template x-for="(s, idx) in dossier?.snapshots || []" :key="s.id">
+            <template x-for="(s, idx) in filteredSnapshots()" :key="s.id">
               <tr class="hover:bg-slate-800/40 transition-colors">
                 <td class="p-3.5 font-semibold text-white" x-text="s.snapshot_date"></td>
+                <td class="p-3.5">
+                  <template x-if="s.keyword_name">
+                    <a 
+                      :href="'/keywords/' + encodeURIComponent(s.keyword_name)" 
+                      target="_blank" 
+                      class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:border-emerald-500/40 text-[11px] transition-colors inline-flex items-center gap-1"
+                    >
+                      <span>🎯</span>
+                      <span x-text="s.keyword_name"></span>
+                    </a>
+                  </template>
+                  <template x-if="!s.keyword_name">
+                    <span class="text-slate-500 italic text-[11px]">Universal Shard</span>
+                  </template>
+                </td>
                 <td class="p-3.5">
                   <span class="px-2 py-0.5 rounded bg-slate-800 text-slate-200 border border-slate-700" x-text="'#' + (s.rank_position || 'N/A')"></span>
                 </td>
                 <td class="p-3.5 text-emerald-400 font-bold" x-text="formatNumber(s.save_count)"></td>
                 <td class="p-3.5">
                   <span 
-                    :class="computeDelta(idx, 'save_count') > 0 ? 'text-emerald-400 font-semibold' : (computeDelta(idx, 'save_count') < 0 ? 'text-red-400' : 'text-slate-500')" 
-                    x-text="computeDelta(idx, 'save_count') > 0 ? '+' + computeDelta(idx, 'save_count') : (computeDelta(idx, 'save_count') < 0 ? computeDelta(idx, 'save_count') : '0')"
+                    :class="computeDeltaPerSerp(idx, 'save_count') > 0 ? 'text-emerald-400 font-semibold' : (computeDeltaPerSerp(idx, 'save_count') < 0 ? 'text-red-400' : 'text-slate-500')" 
+                    x-text="computeDeltaPerSerp(idx, 'save_count') > 0 ? '+' + computeDeltaPerSerp(idx, 'save_count') : (computeDeltaPerSerp(idx, 'save_count') < 0 ? computeDeltaPerSerp(idx, 'save_count') : '0')"
                   ></span>
                 </td>
                 <td class="p-3.5 text-pink-400 font-bold" x-text="formatNumber(s.repin_count)"></td>
-                <td class="p-3.5">
-                  <span 
-                    :class="computeDelta(idx, 'repin_count') > 0 ? 'text-pink-400 font-semibold' : 'text-slate-500'" 
-                    x-text="computeDelta(idx, 'repin_count') > 0 ? '+' + computeDelta(idx, 'repin_count') : '0'"
-                  ></span>
-                </td>
                 <td class="p-3.5 text-amber-400" x-text="'+' + (s.daily_save_velocity || 0) + '/d'"></td>
                 <td class="p-3.5 text-right">
                   <button 
@@ -546,9 +659,9 @@ export function getPinDetailPageHtml(pinId = '') {
                 </td>
               </tr>
             </template>
-            <tr x-show="!dossier?.snapshots?.length">
+            <tr x-show="!filteredSnapshots().length">
               <td colspan="8" class="p-8 text-center text-slate-500 font-mono text-xs">
-                No time-series snapshots recorded yet on this storage shard.
+                No snapshots match the selected SERP filter.
               </td>
             </tr>
           </tbody>
@@ -590,6 +703,8 @@ export function getPinDetailPageHtml(pinId = '') {
         deleteModalOpen: false,
         snapshotToDelete: null,
         isDeleting: false,
+        viewMode: 'unified', // 'unified' | 'per_serp'
+        selectedKeywordFilter: 'ALL',
         toast: {
           show: false,
           message: '',
@@ -651,16 +766,88 @@ export function getPinDetailPageHtml(pinId = '') {
           return this.dossier?.snapshots?.[0] || null;
         },
 
-        chronologicalSnapshots() {
-          return [...(this.dossier?.snapshots || [])].reverse();
+        peakSaves() {
+          if (this.dossier?.daily_trajectory?.[0]?.save_count != null) {
+            return this.dossier.daily_trajectory[0].save_count;
+          }
+          return this.latestSnapshot()?.save_count || this.dossier?.creative?.save_count || 0;
         },
 
-        computeDelta(currentIdx, field) {
+        peakRepins() {
+          if (this.dossier?.daily_trajectory?.[0]?.repin_count != null) {
+            return this.dossier.daily_trajectory[0].repin_count;
+          }
+          return this.latestSnapshot()?.repin_count || 0;
+        },
+
+        peakVelocity() {
+          if (this.dossier?.daily_trajectory?.[0]?.daily_save_velocity != null) {
+            return this.dossier.daily_trajectory[0].daily_save_velocity;
+          }
+          return this.latestSnapshot()?.daily_save_velocity || 0;
+        },
+
+        peakRank() {
+          const trRank = this.dossier?.daily_trajectory?.[0]?.best_rank;
+          if (trRank && trRank !== 999) return '#' + trRank;
+          const kwRank = this.dossier?.pillar_2_keywords_context?.highest_rank;
+          if (kwRank && kwRank !== 999) return '#' + kwRank;
+          return 'Top 50';
+        },
+
+        trajectoryData() {
+          if (this.dossier?.daily_trajectory && this.dossier.daily_trajectory.length >= 2) {
+            return [...this.dossier.daily_trajectory].reverse();
+          }
+          const seenDates = new Set();
+          const deduped = [];
+          const rev = [...(this.dossier?.snapshots || [])].reverse();
+          for (const s of rev) {
+            if (!seenDates.has(s.snapshot_date)) {
+              seenDates.add(s.snapshot_date);
+              deduped.push(s);
+            }
+          }
+          return deduped;
+        },
+
+        uniqueKeywords() {
           const snaps = this.dossier?.snapshots || [];
-          if (currentIdx >= snaps.length - 1) return 0;
-          const current = isFinite(Number(snaps[currentIdx]?.[field])) ? Number(snaps[currentIdx][field]) : 0;
-          const previous = isFinite(Number(snaps[currentIdx + 1]?.[field])) ? Number(snaps[currentIdx + 1][field]) : 0;
+          const counts = new Map();
+          for (const s of snaps) {
+            if (s.keyword_name) {
+              counts.set(s.keyword_name, (counts.get(s.keyword_name) || 0) + 1);
+            }
+          }
+          return Array.from(counts.entries()).map(([name, count]) => ({ name, count }));
+        },
+
+        filteredSnapshots() {
+          const snaps = this.dossier?.snapshots || [];
+          if (this.selectedKeywordFilter === 'ALL') return snaps;
+          return snaps.filter(s => s.keyword_name === this.selectedKeywordFilter);
+        },
+
+        computeDeltaUnified(currentIdx, field) {
+          const traj = this.dossier?.daily_trajectory || [];
+          if (currentIdx >= traj.length - 1) return 0;
+          const current = Number(traj[currentIdx]?.[field]) || 0;
+          const previous = Number(traj[currentIdx + 1]?.[field]) || 0;
           return current - previous;
+        },
+
+        computeDeltaPerSerp(currentIdx, field) {
+          const list = this.filteredSnapshots();
+          if (currentIdx >= list.length - 1) return 0;
+          const current = list[currentIdx];
+          for (let i = currentIdx + 1; i < list.length; i++) {
+            if (list[i].keyword_id === current.keyword_id || this.selectedKeywordFilter !== 'ALL') {
+              const prevVal = Number(list[i]?.[field]) || 0;
+              const currVal = Number(current?.[field]) || 0;
+              return currVal - prevVal;
+            }
+          }
+          return 0;
         },
 
         totalEngagementScore() {
@@ -673,10 +860,10 @@ export function getPinDetailPageHtml(pinId = '') {
         },
 
         computeChartPoints() {
-          const snaps = this.chronologicalSnapshots();
-          if (snaps.length < 2) return [];
+          const points = this.trajectoryData();
+          if (points.length < 2) return [];
 
-          const values = snaps.map(s => (isFinite(Number(s.save_count)) ? Math.max(0, Number(s.save_count)) : 0));
+          const values = points.map(s => (isFinite(Number(s.save_count)) ? Math.max(0, Number(s.save_count)) : 0));
           const minY = Math.min(...values);
           const maxY = Math.max(...values);
           const rangeY = (maxY - minY) || 1;
@@ -686,13 +873,13 @@ export function getPinDetailPageHtml(pinId = '') {
           const padX = 40;
           const padY = 30;
 
-          return snaps.map((s, i) => {
-            const x = padX + (i / (snaps.length - 1)) * (width - 2 * padX);
+          return points.map((s, i) => {
+            const x = padX + (i / (points.length - 1)) * (width - 2 * padX);
             const val = isFinite(Number(s.save_count)) ? Math.max(0, Number(s.save_count)) : 0;
             const y = (maxY === minY)
               ? (height / 2)
               : ((height - padY) - ((val - minY) / rangeY) * (height - 2 * padY));
-            return { x, y, snapshot: s };
+            return { x, y, point: s };
           });
         },
 

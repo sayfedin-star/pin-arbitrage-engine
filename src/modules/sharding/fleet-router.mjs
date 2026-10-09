@@ -508,90 +508,158 @@ export async function fetchUniversalPinDossier({ hubSql, pinId }) {
   let masterRecord = initialMaster;
   let snapshots = initialSnapshots;
 
-  // Hub Fallback & Auto-Backfill to Shard:
-  // If masterRecord is missing on Shard N, fallback to Central Hub
-  if (!masterRecord) {
-    // 1. Check Central Hub active SERP cache
-    let [hubRecord] = await hubSql`
+  // Helper to safely parse visual annotations
+  function normalizeVisualAnnotations(raw) {
+    if (!raw) return [];
+    if (Array.isArray(raw)) return raw;
+    if (typeof raw === 'string') {
+      try {
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (_) {
+        return [];
+      }
+    }
+    return [];
+  }
+
+  // 2. Fetch all SERP occurrences for this pin across all keywords from Central Hub
+  const hubSerpRows = await hubSql`
+    SELECT 
+      pin_id, title, domain, destination_url, image_url,
+      creator_username, board_name, save_count, repin_count,
+      daily_save_velocity, dominant_color, visual_annotations
+    FROM keyword_serp_current
+    WHERE pin_id = ${cleanPinId}
+    ORDER BY save_count DESC;
+  `.catch(() => []);
+
+  // Compute Mathematical Set Union of Visual Annotations across all sources
+  const unionSet = new Set();
+  for (const tag of normalizeVisualAnnotations(masterRecord?.visual_annotations)) {
+    if (tag && typeof tag === 'string' && tag.trim()) unionSet.add(tag.trim());
+  }
+  for (const row of hubSerpRows) {
+    for (const tag of normalizeVisualAnnotations(row.visual_annotations)) {
+      if (tag && typeof tag === 'string' && tag.trim()) unionSet.add(tag.trim());
+    }
+  }
+
+  // Historical snapshot recovery for alt_text, description, or further annotations
+  let hubHistoricalSnap = null;
+  if (!masterRecord || !masterRecord.alt_text || unionSet.size === 0) {
+    const snapRows = await hubSql`
       SELECT 
         pin_id, title, domain, destination_url, image_url,
-        creator_username, board_name, save_count, repin_count,
-        daily_save_velocity, dominant_color, visual_annotations
-      FROM keyword_serp_current
+        save_count, repin_count, daily_save_velocity, metadata
+      FROM keyword_pins_snapshots
       WHERE pin_id = ${cleanPinId}
-      LIMIT 1;
-    `;
-
-    // 2. If not in active SERP cache, check historical snapshots on Hub
-    if (!hubRecord) {
-      const [snapRecord] = await hubSql`
-        SELECT 
-          pin_id, title, domain, destination_url, image_url,
-          save_count, repin_count, daily_save_velocity, metadata
-        FROM keyword_pins_snapshots
-        WHERE pin_id = ${cleanPinId}
-        ORDER BY created_at DESC
-        LIMIT 1;
-      `;
-      if (snapRecord) {
-        hubRecord = {
-          pin_id: snapRecord.pin_id,
-          title: snapRecord.title,
-          domain: snapRecord.domain,
-          destination_url: snapRecord.destination_url,
-          image_url: snapRecord.image_url,
-          creator_username: snapRecord.metadata?.pinner?.username || '',
-          board_name: snapRecord.metadata?.board_name || '',
-          save_count: snapRecord.save_count,
-          repin_count: snapRecord.repin_count,
-          daily_save_velocity: snapRecord.daily_save_velocity,
-          dominant_color: snapRecord.metadata?.dominant_color || '#888888',
-          visual_annotations: snapRecord.metadata?.visual_annotations || []
-        };
+      ORDER BY save_count DESC, created_at DESC
+      LIMIT 10;
+    `.catch(() => []);
+    if (snapRows && snapRows.length > 0) {
+      hubHistoricalSnap = snapRows[0];
+      for (const sRow of snapRows) {
+        for (const tag of normalizeVisualAnnotations(sRow.metadata?.visual_annotations)) {
+          if (tag && typeof tag === 'string' && tag.trim()) unionSet.add(tag.trim());
+        }
       }
     }
+  }
 
-    if (hubRecord) {
-      masterRecord = hubRecord;
-
-      // Asynchronous non-blocking auto-backfill into target shard to restore O(1) direct resolution
-      if (shardSql && shardSql !== hubSql) {
-        (async () => {
-          try {
-            const rawAnnotations = Array.isArray(hubRecord.visual_annotations)
-              ? hubRecord.visual_annotations
-              : (typeof hubRecord.visual_annotations === 'string' ? JSON.parse(hubRecord.visual_annotations || '[]') : []);
-            await shardSql`
-              INSERT INTO universal_master_pins (
-                pin_id, creator_username, board_name, title, domain, destination_url,
-                image_url, dominant_color, visual_annotations, first_discovered_pillar,
-                first_discovered_at, updated_at
-              ) VALUES (
-                ${cleanPinId},
-                ${hubRecord.creator_username || ''},
-                ${hubRecord.board_name || ''},
-                ${hubRecord.title || ''},
-                ${hubRecord.domain || ''},
-                ${hubRecord.destination_url || ''},
-                ${hubRecord.image_url || ''},
-                ${hubRecord.dominant_color || '#888888'},
-                ${JSON.stringify(rawAnnotations)}::jsonb,
-                'keyword',
-                NOW(),
-                NOW()
-              )
-              ON CONFLICT (pin_id) DO UPDATE SET
-                title = COALESCE(universal_master_pins.title, EXCLUDED.title),
-                image_url = COALESCE(universal_master_pins.image_url, EXCLUDED.image_url),
-                dominant_color = COALESCE(universal_master_pins.dominant_color, EXCLUDED.dominant_color),
-                updated_at = NOW();
-            `;
-          } catch (backfillErr) {
-            console.warn(`[Auto-Backfill] Shard ${shardId} pin ${cleanPinId} backfill deferred:`, backfillErr.message);
-          }
-        })();
-      }
+  // Hub Fallback & Synthesis: If masterRecord is missing on Shard N, synthesize from Hub SERP/Snapshots
+  if (!masterRecord) {
+    if (hubSerpRows.length > 0) {
+      const topRow = hubSerpRows[0];
+      masterRecord = {
+        pin_id: topRow.pin_id,
+        title: topRow.title,
+        domain: topRow.domain,
+        destination_url: topRow.destination_url,
+        image_url: topRow.image_url,
+        creator_username: topRow.creator_username || '',
+        board_name: topRow.board_name || '',
+        save_count: topRow.save_count,
+        repin_count: topRow.repin_count,
+        daily_save_velocity: topRow.daily_save_velocity,
+        dominant_color: topRow.dominant_color || '#888888',
+        alt_text: hubHistoricalSnap?.metadata?.alt_text || '',
+        description: hubHistoricalSnap?.metadata?.description || '',
+        visual_annotations: Array.from(unionSet)
+      };
+    } else if (hubHistoricalSnap) {
+      masterRecord = {
+        pin_id: hubHistoricalSnap.pin_id,
+        title: hubHistoricalSnap.title,
+        domain: hubHistoricalSnap.domain,
+        destination_url: hubHistoricalSnap.destination_url,
+        image_url: hubHistoricalSnap.image_url,
+        creator_username: hubHistoricalSnap.metadata?.pinner?.username || '',
+        board_name: hubHistoricalSnap.metadata?.board_name || '',
+        save_count: hubHistoricalSnap.save_count,
+        repin_count: hubHistoricalSnap.repin_count,
+        daily_save_velocity: hubHistoricalSnap.daily_save_velocity,
+        dominant_color: hubHistoricalSnap.metadata?.dominant_color || '#888888',
+        alt_text: hubHistoricalSnap.metadata?.alt_text || '',
+        description: hubHistoricalSnap.metadata?.description || '',
+        visual_annotations: Array.from(unionSet)
+      };
     }
+  } else {
+    // Shard record exists: enrich missing alt_text or description if recovered from Hub
+    if (!masterRecord.alt_text && hubHistoricalSnap?.metadata?.alt_text) {
+      masterRecord.alt_text = hubHistoricalSnap.metadata.alt_text;
+    }
+    if (!masterRecord.description && hubHistoricalSnap?.metadata?.description) {
+      masterRecord.description = hubHistoricalSnap.metadata.description;
+    }
+  }
+
+  const finalVisualAnnotations = Array.from(unionSet);
+
+  // Auto-Backfill or Update target shard with complete metadata & Set Union annotations
+  if (shardSql && shardSql !== hubSql && masterRecord) {
+    (async () => {
+      try {
+        await shardSql`
+          INSERT INTO universal_master_pins (
+            pin_id, creator_username, board_name, title, domain, destination_url,
+            image_url, description, alt_text, dominant_color, visual_annotations,
+            first_discovered_pillar, first_discovered_at, updated_at
+          ) VALUES (
+            ${cleanPinId},
+            ${masterRecord.creator_username || ''},
+            ${masterRecord.board_name || ''},
+            ${masterRecord.title || ''},
+            ${masterRecord.domain || ''},
+            ${masterRecord.destination_url || ''},
+            ${masterRecord.image_url || ''},
+            ${masterRecord.description || ''},
+            ${masterRecord.alt_text || ''},
+            ${masterRecord.dominant_color || '#888888'},
+            ${JSON.stringify(finalVisualAnnotations)}::jsonb,
+            'keyword',
+            NOW(),
+            NOW()
+          )
+          ON CONFLICT (pin_id) DO UPDATE SET
+            creator_username = COALESCE(NULLIF(EXCLUDED.creator_username, ''), universal_master_pins.creator_username),
+            board_name = COALESCE(NULLIF(EXCLUDED.board_name, ''), universal_master_pins.board_name),
+            title = COALESCE(NULLIF(EXCLUDED.title, ''), universal_master_pins.title),
+            image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), universal_master_pins.image_url),
+            description = COALESCE(NULLIF(EXCLUDED.description, ''), universal_master_pins.description),
+            alt_text = COALESCE(NULLIF(EXCLUDED.alt_text, ''), universal_master_pins.alt_text),
+            dominant_color = COALESCE(NULLIF(EXCLUDED.dominant_color, ''), universal_master_pins.dominant_color),
+            visual_annotations = CASE 
+              WHEN jsonb_array_length(EXCLUDED.visual_annotations) > 0 THEN EXCLUDED.visual_annotations 
+              ELSE universal_master_pins.visual_annotations 
+            END,
+            updated_at = NOW();
+        `;
+      } catch (backfillErr) {
+        console.warn(`[Auto-Backfill] Shard ${shardId} pin ${cleanPinId} backfill deferred:`, backfillErr.message);
+      }
+    })();
   }
 
   // Hub Fallback: If shard has no snapshots recorded yet, query Hub's keyword_pins_snapshots
@@ -605,9 +673,96 @@ export async function fetchUniversalPinDossier({ hubSql, pinId }) {
       WHERE pin_id = ${cleanPinId}
       ORDER BY snapshot_date DESC, created_at DESC
       LIMIT 90;
-    `;
+    `.catch(() => []);
     if (hubSnapshots && hubSnapshots.length > 0) {
       snapshots = hubSnapshots;
+    }
+  }
+
+  // Resolve Keyword Names for all snapshot keyword_ids to eliminate multi-SERP ambiguity
+  const rawSnapshots = snapshots || [];
+  const kwIds = [...new Set(rawSnapshots.map(s => s.keyword_id).filter(id => id != null && !isNaN(Number(id))))];
+  const kwMap = new Map();
+  if (kwIds.length > 0) {
+    try {
+      const kwRows = await hubSql`
+        SELECT id, keyword
+        FROM tracked_keywords
+        WHERE id = ANY(${kwIds});
+      `.catch(() => []);
+      for (const r of kwRows) {
+        if (r && r.id != null) {
+          kwMap.set(Number(r.id), r.keyword);
+        }
+      }
+    } catch (_) {}
+  }
+
+  const enrichedSnapshots = rawSnapshots.map(s => {
+    const sDate = s.snapshot_date instanceof Date
+      ? s.snapshot_date.toISOString().slice(0, 10)
+      : String(s.snapshot_date || '').slice(0, 10);
+    const kid = s.keyword_id != null ? Number(s.keyword_id) : null;
+    return {
+      ...s,
+      snapshot_date: sDate,
+      keyword_name: kid ? (kwMap.get(kid) || `Keyword #${kid}`) : null
+    };
+  });
+
+  // Compute Unified, Non-Decreasing Monotonic Daily Trajectory (1 entry per calendar day)
+  const dailyMap = new Map();
+  for (const s of enrichedSnapshots) {
+    const dateKey = s.snapshot_date;
+    if (!dateKey) continue;
+    if (!dailyMap.has(dateKey)) {
+      dailyMap.set(dateKey, {
+        snapshot_date: dateKey,
+        save_count: Number(s.save_count) || 0,
+        repin_count: Number(s.repin_count) || 0,
+        comment_count: Number(s.comment_count) || 0,
+        share_count: Number(s.share_count) || 0,
+        reaction_count: Number(s.reaction_count) || 0,
+        daily_save_velocity: Number(s.daily_save_velocity) || 0,
+        best_rank: (s.rank_position && s.rank_position > 0) ? s.rank_position : 999,
+        ranking_keywords: []
+      });
+    }
+    const day = dailyMap.get(dateKey);
+    day.save_count = Math.max(day.save_count, Number(s.save_count) || 0);
+    day.repin_count = Math.max(day.repin_count, Number(s.repin_count) || 0);
+    day.comment_count = Math.max(day.comment_count, Number(s.comment_count) || 0);
+    day.share_count = Math.max(day.share_count, Number(s.share_count) || 0);
+    day.reaction_count = Math.max(day.reaction_count, Number(s.reaction_count) || 0);
+    day.daily_save_velocity = Math.max(day.daily_save_velocity, Number(s.daily_save_velocity) || 0);
+    if (s.rank_position && s.rank_position > 0) {
+      day.best_rank = Math.min(day.best_rank, s.rank_position);
+    }
+    if (s.keyword_name) {
+      day.ranking_keywords.push({
+        keyword_id: s.keyword_id,
+        keyword: s.keyword_name,
+        rank: s.rank_position,
+        saves: Number(s.save_count) || 0
+      });
+    }
+  }
+
+  // Chronologically sort and enforce non-decreasing monotonic saves (prevents sawtooth jumps)
+  const dailyTrajectory = Array.from(dailyMap.values()).sort((a, b) => b.snapshot_date.localeCompare(a.snapshot_date));
+  const chronoDays = [...dailyTrajectory].reverse();
+  let runningMaxSaves = 0;
+  for (const d of chronoDays) {
+    if (d.save_count < runningMaxSaves) {
+      d.save_count = runningMaxSaves;
+    } else {
+      runningMaxSaves = d.save_count;
+    }
+  }
+  for (let i = 1; i < chronoDays.length; i++) {
+    const diff = chronoDays[i].save_count - chronoDays[i - 1].save_count;
+    if (diff >= 0) {
+      chronoDays[i].daily_save_velocity = diff;
     }
   }
 
@@ -638,7 +793,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId }) {
     SELECT 
       COALESCE((SELECT ranking_keywords FROM kw_context), '[]'::json) as ranking_keywords,
       (SELECT to_json(comp_context.*) FROM comp_context) as competitor_info;
-  `;
+  `.catch(() => [{ ranking_keywords: [], competitor_info: null }]);
 
   if (!masterRecord && snapshots.length === 0 && (!hubContext?.ranking_keywords || hubContext.ranking_keywords.length === 0)) {
     return {
@@ -664,9 +819,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId }) {
       domain: masterRecord?.domain || 'pinterest.com',
       image_url: masterRecord?.image_url || '',
       dominant_color: masterRecord?.dominant_color || '#888888',
-      visual_annotations: Array.isArray(masterRecord?.visual_annotations) 
-        ? masterRecord.visual_annotations 
-        : (typeof masterRecord?.visual_annotations === 'string' ? JSON.parse(masterRecord.visual_annotations || '[]') : []),
+      visual_annotations: finalVisualAnnotations,
       created_at_pinterest: masterRecord?.created_at_pinterest || null,
       first_discovered_pillar: masterRecord?.first_discovered_pillar || 'keyword'
     },
@@ -692,7 +845,8 @@ export async function fetchUniversalPinDossier({ hubSql, pinId }) {
       inferred_board_slug: boardSlug,
       board_radar_url: `/board-ideas?board_slug=${encodeURIComponent(boardSlug)}`
     },
-    snapshots: snapshots || []
+    daily_trajectory: dailyTrajectory,
+    snapshots: enrichedSnapshots
   };
 }
 

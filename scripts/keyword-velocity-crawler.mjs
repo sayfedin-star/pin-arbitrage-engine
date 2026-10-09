@@ -252,9 +252,29 @@ async function run() {
                     description = COALESCE(NULLIF(EXCLUDED.description, ''), universal_master_pins.description),
                     alt_text = COALESCE(NULLIF(EXCLUDED.alt_text, ''), universal_master_pins.alt_text),
                     dominant_color = COALESCE(EXCLUDED.dominant_color, universal_master_pins.dominant_color),
-                    visual_annotations = CASE WHEN jsonb_array_length(EXCLUDED.visual_annotations) > 0 THEN EXCLUDED.visual_annotations ELSE universal_master_pins.visual_annotations END,
+                    visual_annotations = CASE 
+                      WHEN jsonb_typeof(EXCLUDED.visual_annotations) = 'array' AND jsonb_array_length(EXCLUDED.visual_annotations) > 0 
+                           AND jsonb_typeof(universal_master_pins.visual_annotations) = 'array' AND jsonb_array_length(universal_master_pins.visual_annotations) > 0 THEN (
+                        SELECT COALESCE(jsonb_agg(DISTINCT tag), '[]'::jsonb)
+                        FROM (
+                          SELECT jsonb_array_elements_text(universal_master_pins.visual_annotations) AS tag
+                          UNION
+                          SELECT jsonb_array_elements_text(EXCLUDED.visual_annotations) AS tag
+                        ) u
+                        WHERE tag IS NOT NULL AND tag <> ''
+                      )
+                      WHEN jsonb_typeof(EXCLUDED.visual_annotations) = 'array' AND jsonb_array_length(EXCLUDED.visual_annotations) > 0 
+                      THEN EXCLUDED.visual_annotations
+                      ELSE universal_master_pins.visual_annotations
+                    END,
                     updated_at = NOW();
                 `;
+
+                // Deduplicate daily snapshot for same pin + keyword on CURRENT_DATE to eliminate multi-run duplication
+                await shardSql`
+                  DELETE FROM pins_daily_snapshots 
+                  WHERE pin_id = ${sp.pin_id} AND keyword_id = ${sp.keyword_id} AND snapshot_date = CURRENT_DATE;
+                `.catch(() => {});
 
                 await shardSql`
                   INSERT INTO pins_daily_snapshots (
@@ -264,8 +284,7 @@ async function run() {
                     ${sp.pin_id}, ${sp.keyword_id}, ${sp.rank_position}, ${sp.save_count},
                     ${sp.repin_count}, ${sp.comment_count}, ${sp.share_count},
                     ${sp.daily_save_velocity}, CURRENT_DATE, NOW()
-                  )
-                  ON CONFLICT DO NOTHING;
+                  );
                 `;
               }
               shardsSynchronized++;
