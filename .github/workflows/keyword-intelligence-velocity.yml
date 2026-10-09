@@ -74,16 +74,16 @@ jobs:
   # Executes simultaneously across up to 20 isolated Azure runner VMs with distinct IPs
   # ============================================================================
   crawl-fleet:
-    name: ${{ matrix.task.mode == 'pin_partition' && format('Slice {0}/{1} ({2})', matrix.task.worker_slot, matrix.task.worker_total, matrix.task.keyword) || format('Keyword ({0})', matrix.task.keyword) }}
+    name: Fleet Worker #${{ matrix.worker_slot }}/${{ matrix.worker_total }} - ${{ matrix.keyword }}
     needs: [dispatch]
-    if: ${{ needs.dispatch.outputs.task_count != '0' && needs.dispatch.outputs.matrix_tasks != '[]' }}
+    if: needs.dispatch.outputs.task_count != '0'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
       fail-fast: false
       max-parallel: 20
       matrix:
-        task: ${{ fromJson(needs.dispatch.outputs.matrix_tasks) }}
+        include: ${{ fromJson(needs.dispatch.outputs.matrix_tasks) }}
 
     steps:
       - name: 1. Checkout repository
@@ -110,13 +110,13 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           PINTEREST_COOKIE: ${{ secrets.PINTEREST_COOKIE }}
-          MODE: ${{ matrix.task.mode }}
-          TARGET_KEYWORD: ${{ matrix.task.keyword }}
-          KEYWORD_ID: ${{ matrix.task.keyword_id }}
-          WORKER_INDEX: ${{ matrix.task.worker_index }}
-          WORKER_TOTAL: ${{ matrix.task.worker_total }}
-          CRAWL_SCOPE: ${{ matrix.task.crawl_scope || 'all_pins' }}
-          MAX_PINS: ${{ matrix.task.max_pins }}
+          MODE: ${{ matrix.mode }}
+          TARGET_KEYWORD: ${{ matrix.keyword }}
+          KEYWORD_ID: ${{ matrix.keyword_id }}
+          WORKER_INDEX: ${{ matrix.worker_index }}
+          WORKER_TOTAL: ${{ matrix.worker_total }}
+          CRAWL_SCOPE: ${{ matrix.crawl_scope || 'all_pins' }}
+          MAX_PINS: ${{ matrix.max_pins }}
         run: node scripts/keyword-velocity-crawler.mjs
 
   # ============================================================================
@@ -126,7 +126,7 @@ jobs:
   consolidate:
     name: Stage 2 - Telemetry & Visual Crossover Consolidation
     needs: [dispatch, crawl-fleet]
-    if: ${{ always() && needs.dispatch.result == 'success' }}
+    if: always() && needs.dispatch.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
