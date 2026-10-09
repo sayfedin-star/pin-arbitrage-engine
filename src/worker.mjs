@@ -2360,13 +2360,23 @@ export default {
       if (method === 'GET' && pathname === '/api/keywords/serp-compare') {
         let keywordId = Number(searchParams.get('keyword_id'));
         const slug = searchParams.get('slug') || searchParams.get('keyword') || searchParams.get('q');
+        let resolved = null;
         if (!keywordId && slug) {
-          const resolved = await resolveKeywordBySlug(sql, slug, true);
+          resolved = await resolveKeywordBySlug(sql, slug, true);
           if (resolved) keywordId = resolved.id;
         }
         if (!keywordId) return jsonResponse({ error: 'keyword_id or valid slug is required' }, 400);
-        const result = await getKeywordSERPComparison(sql, keywordId);
-        return jsonResponse({ success: true, ...result });
+
+        const cacheKey = buildCanonicalCacheKey('keywords:serp-compare', {
+          keyword_id: keywordId,
+          slug: slug || ''
+        });
+
+        const result = await getCachedOrFetch(cacheKey, async () => {
+          return await getKeywordSERPComparison(sql, keywordId, resolved);
+        }, 12000, 45000);
+
+        return jsonResponse({ success: true, ...result }, 200, 10);
       }
 
       if (method === 'GET' && pathname === '/api/keywords/intelligence') {

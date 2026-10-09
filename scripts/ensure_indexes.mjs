@@ -121,6 +121,8 @@ async function optimizeIndexes() {
   await sql`CREATE INDEX IF NOT EXISTS idx_kw_guided_capsules_kw ON keyword_guided_capsules(keyword_id, display_order ASC);`;
   await sql`CREATE INDEX IF NOT EXISTS idx_kw_guided_capsules_score ON keyword_guided_capsules(keyword_id, score DESC);`;
   await sql`CREATE INDEX IF NOT EXISTS idx_kdp_kw_vacuum ON keyword_displaced_pins(keyword_id, status, vacuum_opportunity_score DESC, last_known_rank ASC);`.catch(() => {});
+  await sql`CREATE INDEX IF NOT EXISTS idx_kps_kw_date_displaced ON keyword_pins_snapshots(keyword_id, is_displaced, snapshot_date DESC);`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_kps_kw_date_distinct ON keyword_pins_snapshots(keyword_id, snapshot_date DESC);`;
 
   console.log('[+] All indexes and columns verified and active in Neon Serverless Postgres!');
 }

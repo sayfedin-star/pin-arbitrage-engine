@@ -1283,9 +1283,9 @@ export function getKeywordsPageHtml(initialSlug = '') {
                           </template>
                         </div>
                         <!-- Visual Annotations Tag Pills (Intra-SERP Crossover Engine) -->
-                        <template x-if="getPinVisualTags(pin).length > 0">
+                        <template x-if="pin._hasVisualTags || getPinVisualTags(pin).length > 0">
                           <div class="flex flex-wrap items-center gap-1 mt-1">
-                            <template x-for="vtag in getPinVisualTags(pin).slice(0, 4)" :key="vtag">
+                            <template x-for="vtag in (pin._cachedVisualTagsSlice || getPinVisualTags(pin).slice(0, 4))" :key="vtag">
                               <button @click.stop="filterByVisualTag(vtag)"
                                       class="px-1.5 py-0.5 rounded-md text-[9px] font-mono transition cursor-pointer flex items-center gap-1"
                                       :class="activeVisualTagFilter === vtag.toLowerCase() 
@@ -1307,8 +1307,8 @@ export function getKeywordsPageHtml(initialSlug = '') {
                                 </template>
                               </button>
                             </template>
-                            <template x-if="getPinVisualTags(pin).length > 4">
-                              <span class="text-[9px] text-slate-400 font-mono" x-text="'+' + (getPinVisualTags(pin).length - 4) + ' tags'"></span>
+                            <template x-if="(pin._extraTagsCount !== undefined ? pin._extraTagsCount : Math.max(0, getPinVisualTags(pin).length - 4)) > 0">
+                              <span class="text-[9px] text-slate-400 font-mono" x-text="'+' + (pin._extraTagsCount !== undefined ? pin._extraTagsCount : (getPinVisualTags(pin).length - 4)) + ' tags'"></span>
                             </template>
                           </div>
                         </template>
@@ -1467,9 +1467,9 @@ export function getKeywordsPageHtml(initialSlug = '') {
                        class="text-[10px] font-mono text-slate-400 hover:text-emerald-500 truncate block"
                        x-text="pin.metadata?.board_name || ('ID: ' + pin.pin_id)"></a>
                     <!-- Visual Annotations Tag Pills -->
-                    <template x-if="getPinVisualTags(pin).length > 0">
+                    <template x-if="pin._hasVisualTags || getPinVisualTags(pin).length > 0">
                       <div class="flex flex-wrap items-center gap-1 mt-1">
-                        <template x-for="vtag in getPinVisualTags(pin).slice(0, 3)" :key="vtag">
+                        <template x-for="vtag in (pin._cachedVisualTagsSlice || getPinVisualTags(pin).slice(0, 3))" :key="vtag">
                           <button @click.stop="filterByVisualTag(vtag)"
                                   class="px-1.5 py-0.2 rounded-md text-[9px] font-mono transition cursor-pointer"
                                   :class="activeVisualTagFilter === vtag.toLowerCase() ? 'bg-purple-600 text-white font-bold' : 'bg-purple-500/10 text-purple-600 dark:text-purple-400 hover:bg-purple-500/20 border border-purple-500/20'"
@@ -3783,6 +3783,10 @@ export function getKeywordsPageHtml(initialSlug = '') {
         // Pin Table Filter & Sort Controls
         serpScope: 'all',
         activeVisualTagFilter: '',
+        cachedTagFreqMap: null,
+        cachedCoreAnchorsSet: null,
+        cachedCombinedPins: null,
+        cachedDisplacedVaultPins: null,
         pinSearch: '',
         formatFilter: 'ALL',
         pinSort: 'rank',
@@ -3943,17 +3947,13 @@ export function getKeywordsPageHtml(initialSlug = '') {
           return [...list].sort((a, b) => Number(b.vacuum_opportunity_score || 0) - Number(a.vacuum_opportunity_score || 0));
         },
 
-        get allCombinedPins() {
+        rebuildPinCaches() {
           const currentPins = (this.selectedKeywordDetails?.current_pins || []).map(p => ({
             ...p,
             is_displaced: false
           }));
           const currentPinIds = new Set(currentPins.map(p => p.pin_id));
-          const vaultPins = (this.displacedVaultPins || []).filter(p => !currentPinIds.has(p.pin_id));
-          return [...currentPins, ...vaultPins];
-        },
 
-        get displacedVaultPins() {
           const droppedFromDetails = (this.selectedKeywordDetails?.dropped_out_pins || []).map(p => ({
             ...p,
             is_displaced: true,
@@ -3970,17 +3970,70 @@ export function getKeywordsPageHtml(initialSlug = '') {
             repin_count: p.current_repins ?? p.repin_count ?? 0,
             comment_count: p.current_comments ?? p.comment_count ?? 0
           }));
-          const map = new Map();
+          const vaultMap = new Map();
           for (const p of [...droppedFromDetails, ...fetchedDisplaced]) {
-            if (p && p.pin_id && !map.has(p.pin_id)) {
-              map.set(p.pin_id, p);
+            if (p && p.pin_id && !currentPinIds.has(p.pin_id) && !vaultMap.has(p.pin_id)) {
+              vaultMap.set(p.pin_id, p);
             }
           }
-          return Array.from(map.values());
+          const vaultPins = Array.from(vaultMap.values());
+          this.cachedDisplacedVaultPins = vaultPins;
+
+          const combined = [...currentPins, ...vaultPins];
+
+          // Initialize tag frequency map: check if server provided precomputed tag_frequencies
+          const freqMap = new Map();
+          if (this.selectedKeywordDetails?.tag_frequencies && typeof this.selectedKeywordDetails.tag_frequencies === 'object') {
+            for (const [k, v] of Object.entries(this.selectedKeywordDetails.tag_frequencies)) {
+              freqMap.set(k.toLowerCase().trim(), Number(v) || 0);
+            }
+          }
+
+          const coreSet = new Set();
+          const shouldComputeClientFreq = freqMap.size === 0;
+
+          // Pre-process and memoize visual tags on each pin object once
+          for (const p of combined) {
+            const rawTags = this.getPinVisualTags(p);
+            p._cachedVisualTags = rawTags;
+            p._cachedVisualTagsSlice = rawTags.slice(0, 4);
+            p._hasVisualTags = rawTags.length > 0;
+            p._extraTagsCount = Math.max(0, rawTags.length - 4);
+            p._cachedVisualTagsLower = rawTags.map(t => t.toLowerCase());
+
+            if (shouldComputeClientFreq) {
+              for (const t of p._cachedVisualTagsLower) {
+                freqMap.set(t, (freqMap.get(t) || 0) + 1);
+              }
+            }
+          }
+
+          for (const [t, cnt] of freqMap.entries()) {
+            if (cnt >= 3) coreSet.add(t);
+          }
+
+          this.cachedTagFreqMap = freqMap;
+          this.cachedCoreAnchorsSet = coreSet;
+          this.cachedCombinedPins = combined;
+        },
+
+        get allCombinedPins() {
+          if (!this.cachedCombinedPins) {
+            this.rebuildPinCaches();
+          }
+          return this.cachedCombinedPins || [];
+        },
+
+        get displacedVaultPins() {
+          if (!this.cachedDisplacedVaultPins) {
+            this.rebuildPinCaches();
+          }
+          return this.cachedDisplacedVaultPins || [];
         },
 
         getPinVisualTags(pin) {
           if (!pin) return [];
+          if (pin._cachedVisualTags) return pin._cachedVisualTags;
           const raw = pin.metadata?.visual_annotations || pin.annotations || pin.visual_annotations || [];
           return (raw || []).map(t => {
             if (typeof t === 'string') return t.trim();
@@ -4002,25 +4055,26 @@ export function getKeywordsPageHtml(initialSlug = '') {
         },
 
         get tagFrequencyMap() {
-          const map = new Map();
-          const list = this.allCombinedPins || [];
-          for (const p of list) {
-            const tags = this.getPinVisualTags(p);
-            for (const t of tags) {
-              const k = t.toLowerCase().trim();
-              map.set(k, (map.get(k) || 0) + 1);
-            }
+          if (!this.cachedTagFreqMap) {
+            this.rebuildPinCaches();
           }
-          return map;
+          return this.cachedTagFreqMap || new Map();
         },
 
         getTagFrequency(tag) {
           if (!tag) return 0;
-          return this.tagFrequencyMap.get(String(tag).toLowerCase().trim()) || 0;
+          if (!this.cachedTagFreqMap) {
+            this.rebuildPinCaches();
+          }
+          return this.cachedTagFreqMap?.get(String(tag).toLowerCase().trim()) || 0;
         },
 
         isCoreAnchorTag(tag) {
-          return this.getTagFrequency(tag) >= 3;
+          if (!tag) return false;
+          if (!this.cachedCoreAnchorsSet) {
+            this.rebuildPinCaches();
+          }
+          return this.cachedCoreAnchorsSet?.has(String(tag).toLowerCase().trim()) || false;
         },
 
         get filteredPins() {
@@ -4038,7 +4092,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
           if (this.activeVisualTagFilter) {
             const vtag = this.activeVisualTagFilter.toLowerCase().trim();
             list = list.filter(p => {
-              const tags = this.getPinVisualTags(p).map(t => t.toLowerCase());
+              const tags = p._cachedVisualTagsLower || this.getPinVisualTags(p).map(t => t.toLowerCase());
               return tags.includes(vtag);
             });
           }
@@ -4102,12 +4156,16 @@ export function getKeywordsPageHtml(initialSlug = '') {
           if (urlSlug) {
             this.viewModeLevel = 'serp_studio';
             this.loadKeywordBySlugOrText(urlSlug, false);
+            // Defer secondary hub calls so they do not saturate DB connection pool during initial SERP render
+            setTimeout(() => {
+              this.fetchKeywords();
+              this.fetchFolders();
+            }, 600);
           } else {
             this.viewModeLevel = 'dashboard';
+            this.fetchKeywords();
+            this.fetchFolders();
           }
-
-          this.fetchKeywords();
-          this.fetchFolders();
 
           this.$watch('keywordSearch', () => this.filterKeywords());
           this.$nextTick(() => { lucide.createIcons(); });
@@ -4427,6 +4485,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
               if (data.success && data.keyword) {
                 this.selectedKeyword = data.keyword;
                 this.selectedKeywordDetails = data;
+                this.rebuildPinCaches();
                 if (!this.keywords.some(k => k.id === data.keyword.id)) {
                   this.keywords.unshift(data.keyword);
                   this.filterKeywords();
@@ -4482,6 +4541,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
             if (currentReqId !== this.detailRequestId) return;
 
             this.selectedKeywordDetails = data;
+            this.rebuildPinCaches();
 
             if (data.status === 'never_crawled') {
               this.rescanKeyword(kw.id, true);
@@ -4647,6 +4707,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
               const data = await res.json();
               this.displacedPins = data.displaced_pins || data.pins || [];
               this.displacedPinsTotal = data.total || this.displacedPins.length;
+              this.rebuildPinCaches();
             }
           } catch (_) {} finally {
             this.isDisplacedLoading = false;

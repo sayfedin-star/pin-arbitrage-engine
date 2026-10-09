@@ -1530,24 +1530,40 @@ export async function getKeywordGuides(sql, keywordId) {
  * - Pins that fell out of top 50 (dropped_out_pins from persistent Vault)
  * - Semantic guided capsules
  */
-export async function getKeywordSERPComparison(sql, keywordId) {
+export async function getKeywordSERPComparison(sql, keywordId, knownKeyword = null) {
   const kid = Number(keywordId);
   if (!kid) throw new Error('Valid keyword ID is required');
 
-  const [keyword] = await sql`
-    SELECT * FROM tracked_keywords WHERE id = ${kid};
-  `;
+  // Parallel fetch: keyword metadata (if not already known), distinct dates, dropped pins, and guided capsules
+  const [keywordRows, dates, droppedOutPinsRaw, guides] = await Promise.all([
+    knownKeyword ? Promise.resolve([knownKeyword]) : sql`SELECT * FROM tracked_keywords WHERE id = ${kid};`,
+    sql`
+      SELECT DISTINCT snapshot_date
+      FROM keyword_pins_snapshots
+      WHERE keyword_id = ${kid}
+        AND (is_displaced IS FALSE OR is_displaced IS NULL)
+      ORDER BY snapshot_date DESC
+      LIMIT 2;
+    `,
+    sql`
+      SELECT 
+        id, keyword_id, pin_id, title, domain, destination_url, image_url,
+        last_known_rank, displaced_date, status, current_saves, current_repins,
+        current_comments, current_shares, current_reactions,
+        delta_saves_24h, delta_repins_24h, delta_saves_3d, delta_repins_3d,
+        delta_saves_7d, delta_repins_7d, daily_save_velocity, vacuum_opportunity_score,
+        seo_alt_text, annotations, dominant_color, created_at_pinterest, created_at
+      FROM keyword_displaced_pins
+      WHERE keyword_id = ${kid}
+      ORDER BY vacuum_opportunity_score DESC, last_known_rank ASC;
+    `.catch(() => []),
+    getKeywordGuides(sql, kid).catch(() => [])
+  ]);
+
+  const keyword = keywordRows[0];
   if (!keyword) throw new Error(`Keyword ID ${kid} not found`);
 
-  // Find the distinct snapshot dates for active SERP pins of this keyword
-  const dates = await sql`
-    SELECT DISTINCT snapshot_date
-    FROM keyword_pins_snapshots
-    WHERE keyword_id = ${kid}
-      AND (is_displaced IS FALSE OR is_displaced IS NULL)
-    ORDER BY snapshot_date DESC
-    LIMIT 2;
-  `;
+  let droppedOutPins = droppedOutPinsRaw || [];
 
   if (!dates || dates.length === 0) {
     return {
@@ -1555,7 +1571,9 @@ export async function getKeywordSERPComparison(sql, keywordId) {
       keyword,
       current_pins: [],
       dropped_out_pins: [],
-      guides: [],
+      tag_frequencies: {},
+      core_anchors: [],
+      guides: guides || [],
       velocity_chart: { points: [], explosive: 0, trending: 0, steady: 0, stagnant: 0 },
       stats: { total: 0, climbed: 0, dropped: 0, stable: 0, new_entries: 0, dropped_out: 0 }
     };
@@ -1570,20 +1588,6 @@ export async function getKeywordSERPComparison(sql, keywordId) {
       AND is_displaced = FALSE
     ORDER BY rank_position ASC;
   `;
-
-  // Retrieve dropped out pins from the persistent Displaced Vault
-  let droppedOutPins = await sql`
-    SELECT 
-      id, keyword_id, pin_id, title, domain, destination_url, image_url,
-      last_known_rank, displaced_date, status, current_saves, current_repins,
-      current_comments, current_shares, current_reactions,
-      delta_saves_24h, delta_repins_24h, delta_saves_3d, delta_repins_3d,
-      delta_saves_7d, delta_repins_7d, daily_save_velocity, vacuum_opportunity_score,
-      seo_alt_text, annotations, dominant_color, created_at_pinterest, created_at
-    FROM keyword_displaced_pins
-    WHERE keyword_id = ${kid}
-    ORDER BY vacuum_opportunity_score DESC, last_known_rank ASC;
-  `.catch(() => []);
 
   if (droppedOutPins.length === 0 && dates.length > 1) {
     const prevDate = dates[1].snapshot_date;
@@ -1647,8 +1651,31 @@ export async function getKeywordSERPComparison(sql, keywordId) {
     p.title = derivePinTitle(p.title, p.destination_url, keyword.keyword, meta.board_name, meta.visual_annotations);
   }
 
-  // Fetch guided search capsules
-  const guides = await getKeywordGuides(sql, kid);
+  // Pre-calculate visual tag frequency crossover map on the server (sub-millisecond Node/V8)
+  const tagFrequencies = {};
+  const coreAnchors = [];
+  for (const p of [...currentPins, ...droppedOutPins]) {
+    const raw = p.metadata?.visual_annotations || p.annotations || p.visual_annotations || [];
+    if (Array.isArray(raw)) {
+      const seenForPin = new Set();
+      for (const t of raw) {
+        const str = typeof t === 'string' ? t.trim() : (t?.name || t?.label || t?.term || '').trim();
+        if (str && str.length >= 2) {
+          const lower = str.toLowerCase();
+          if (!seenForPin.has(lower)) {
+            seenForPin.add(lower);
+            tagFrequencies[lower] = (tagFrequencies[lower] || 0) + 1;
+          }
+        }
+      }
+    }
+  }
+  for (const [tag, count] of Object.entries(tagFrequencies)) {
+    if (count >= 3) {
+      coreAnchors.push({ tag, count });
+    }
+  }
+  coreAnchors.sort((a, b) => b.count - a.count);
 
   // Algorithmic StaticRank & Semantic Vacuum SERP Intelligence
   const intelligence = calculateKeywordIntelligenceSummary(currentPins);
@@ -1663,6 +1690,8 @@ export async function getKeywordSERPComparison(sql, keywordId) {
     has_history: dates.length > 1 || droppedOutPins.length > 0,
     current_pins: currentPins,
     dropped_out_pins: droppedOutPins,
+    tag_frequencies: tagFrequencies,
+    core_anchors: coreAnchors,
     guides,
     intelligence,
     avg_velocity: avgVelocity,
