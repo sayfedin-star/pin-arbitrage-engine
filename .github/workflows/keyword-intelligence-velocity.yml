@@ -97,7 +97,7 @@ jobs:
           node-version: 22
           cache: 'npm'
 
-      - name: 3. Diagnostics: Runner Egress IP
+      - name: 3. Runner Egress IP Diagnostics
         run: |
           echo "=== Runner Egress IP ==="
           curl -s https://api.ipify.org && echo ""
