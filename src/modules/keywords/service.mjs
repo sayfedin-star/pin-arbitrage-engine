@@ -951,12 +951,29 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
         newEntryCount++;
       }
 
+      // MONOTONIC SAVE RETENTION GUARD (IN-MEMORY):
+      // Lifetime cumulative pin saves can NEVER legitimately drop to 0.
+      // If BaseSearchResource returns 0 or transient reactions, strictly preserve confirmed historical saves.
+      const confirmedSaves = Math.max(
+        saves,
+        Number(immediateData?.saves || 0),
+        Number(baselineMap.get(pinId) || 0)
+      );
+      const confirmedRepins = Math.max(
+        Number(item.repin_count || 0),
+        Number(immediateData?.repins || 0)
+      );
+      const confirmedComments = Math.max(
+        Number(comments || 0),
+        Number(immediateData?.comments || 0)
+      );
+
       // 24h Daily Save Velocity is evaluated against previous day's baseline
       let velocity = 0;
       if (baselineMap.has(pinId)) {
-        velocity = Math.max(0, saves - baselineMap.get(pinId));
+        velocity = Math.max(0, confirmedSaves - baselineMap.get(pinId));
       } else if (immediateData && String(immediateData.snapshotDate).slice(0, 10) < new Date().toISOString().slice(0, 10)) {
-        velocity = Math.max(0, saves - immediateData.saves);
+        velocity = Math.max(0, confirmedSaves - immediateData.saves);
       }
 
       // Sanity bound to protect against malicious bot-farm spikes
@@ -1041,9 +1058,9 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
         domain,
         destination_url: destinationUrl,
         image_url: imageUrl,
-        save_count: saves,
-        repin_count: Number(item.repin_count || 0),
-        comment_count: comments,
+        save_count: confirmedSaves,
+        repin_count: confirmedRepins,
+        comment_count: confirmedComments,
         daily_save_velocity: velocity,
         metadata: {
           title,
@@ -1053,7 +1070,7 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
           prev_rank: prevRank,
           rank_delta: rankDelta,
           is_new: isNew,
-          prev_save_count: baselineMap.get(pinId) ?? (immediateData ? immediateData.saves : saves),
+          prev_save_count: baselineMap.get(pinId) ?? (immediateData ? immediateData.saves : confirmedSaves),
           format,
           aspect_ratio: aspectRatio,
           aspect_ratio_tier: aspectRatioTier,
@@ -1062,7 +1079,7 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
           created_at: createdAt,
           pin_age_days: pinAgeDays,
           pinner,
-          raw_saves: rawSaves,
+          raw_saves: confirmedSaves,
           reactions,
           visual_annotations: visualAnnotations,
           description,
@@ -1086,11 +1103,11 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
             const enrichedComments = Number(scraped.comments ?? scraped.comment_count ?? p.comment_count);
             const enrichedShares = Number(scraped.shares ?? scraped.share_count ?? 0);
 
-            p.save_count = enrichedSaves;
-            p.repin_count = enrichedRepins;
-            p.comment_count = enrichedComments;
+            p.save_count = Math.max(p.save_count, enrichedSaves);
+            p.repin_count = Math.max(p.repin_count, enrichedRepins);
+            p.comment_count = Math.max(p.comment_count, enrichedComments);
             if (p.metadata) {
-              p.metadata.raw_saves = enrichedSaves;
+              p.metadata.raw_saves = p.save_count;
               p.metadata.share_count = enrichedShares;
               if (scraped.description && (!p.metadata.description || p.metadata.description.length < scraped.description.length)) {
                 p.metadata.description = String(scraped.description).slice(0, 500);
@@ -1103,7 +1120,7 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
             // Recalculate daily save velocity against baseline if saves updated
             const baseSaves = baselineMap.get(p.pin_id);
             if (baseSaves !== undefined && baseSaves !== null) {
-              const newVel = Math.min(25000, Math.max(0, enrichedSaves - Number(baseSaves)));
+              const newVel = Math.min(25000, Math.max(0, p.save_count - Number(baseSaves)));
               p.daily_save_velocity = newVel;
               pinVelocities[idx] = newVel;
               if (p.metadata) {
@@ -1264,11 +1281,73 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
           domain = EXCLUDED.domain,
           destination_url = EXCLUDED.destination_url,
           image_url = COALESCE(EXCLUDED.image_url, keyword_pins_snapshots.image_url),
-          save_count = EXCLUDED.save_count,
-          repin_count = EXCLUDED.repin_count,
-          comment_count = EXCLUDED.comment_count,
+          save_count = GREATEST(keyword_pins_snapshots.save_count, EXCLUDED.save_count),
+          repin_count = GREATEST(keyword_pins_snapshots.repin_count, EXCLUDED.repin_count),
+          comment_count = GREATEST(keyword_pins_snapshots.comment_count, EXCLUDED.comment_count),
           daily_save_velocity = EXCLUDED.daily_save_velocity,
           metadata = EXCLUDED.metadata;
+      `);
+
+      // Keep Hub's active SERP cache (keyword_serp_current) synchronized with monotonic retention
+      txBatch.push(sql`
+        INSERT INTO keyword_serp_current (
+          keyword_id,
+          pin_id,
+          rank_position,
+          title,
+          domain,
+          destination_url,
+          image_url,
+          creator_username,
+          board_name,
+          save_count,
+          repin_count,
+          daily_save_velocity,
+          dominant_color,
+          visual_annotations,
+          crawled_at
+        )
+        SELECT
+          ${kid},
+          u.pin_id,
+          u.rank_position,
+          u.title,
+          u.domain,
+          u.destination_url,
+          u.image_url,
+          COALESCE(u.metadata->'pinner'->>'username', ''),
+          COALESCE(u.metadata->>'board_name', ''),
+          u.save_count,
+          u.repin_count,
+          u.daily_save_velocity,
+          '#888888',
+          COALESCE(u.metadata->'visual_annotations', '[]'::jsonb),
+          NOW()
+        FROM jsonb_to_recordset(${JSON.stringify(preparedPins)}::jsonb) AS u(
+          pin_id text,
+          rank_position int,
+          title text,
+          domain text,
+          destination_url text,
+          image_url text,
+          save_count bigint,
+          repin_count int,
+          daily_save_velocity numeric,
+          metadata jsonb
+        )
+        ON CONFLICT (keyword_id, pin_id) DO UPDATE SET
+          rank_position = EXCLUDED.rank_position,
+          title = EXCLUDED.title,
+          domain = EXCLUDED.domain,
+          destination_url = EXCLUDED.destination_url,
+          image_url = COALESCE(EXCLUDED.image_url, keyword_serp_current.image_url),
+          creator_username = EXCLUDED.creator_username,
+          board_name = EXCLUDED.board_name,
+          save_count = GREATEST(keyword_serp_current.save_count, EXCLUDED.save_count),
+          repin_count = GREATEST(keyword_serp_current.repin_count, EXCLUDED.repin_count),
+          daily_save_velocity = EXCLUDED.daily_save_velocity,
+          visual_annotations = EXCLUDED.visual_annotations,
+          crawled_at = NOW();
       `);
 
       // Intraday pruning: Ensure today's snapshot contains strictly the latest top pins (never deleting displaced pins)
@@ -1279,6 +1358,12 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
           WHERE keyword_id = ${kid}
             AND snapshot_date = CURRENT_DATE
             AND is_displaced = FALSE
+            AND NOT (pin_id = ANY(${pinIds}));
+        `);
+
+        txBatch.push(sql`
+          DELETE FROM keyword_serp_current
+          WHERE keyword_id = ${kid}
             AND NOT (pin_id = ANY(${pinIds}));
         `);
       }
@@ -1312,7 +1397,7 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
             )
             ON CONFLICT (keyword_id, pin_id, snapshot_date) DO UPDATE SET
               is_displaced = TRUE,
-              save_count = EXCLUDED.save_count;
+              save_count = GREATEST(keyword_pins_snapshots.save_count, EXCLUDED.save_count);
           `);
         }
       }

@@ -302,6 +302,11 @@ export function getKeywordsPageHtml(initialSlug = '') {
         </div>
 
         <div class="flex flex-wrap items-center gap-2">
+          <button @click="openQuickTrackModal()"
+                  class="px-4 py-2 rounded-2xl text-xs font-black uppercase tracking-wider bg-emerald-600 hover:bg-emerald-500 text-white transition flex items-center space-x-1.5 shadow-md shadow-emerald-950/20 active:scale-95 cursor-pointer">
+            <i data-lucide="plus-circle" class="w-3.5 h-3.5"></i>
+            <span>+ Track Keyword</span>
+          </button>
           <a href="/keywords/discovery"
              class="px-4 py-2 rounded-2xl text-xs font-black uppercase tracking-wider bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 transition flex items-center space-x-1.5 shadow-xs cursor-pointer">
             <i data-lucide="compass" class="w-3.5 h-3.5"></i>
@@ -560,10 +565,80 @@ export function getKeywordsPageHtml(initialSlug = '') {
 
                 </tr>
               </template>
+
+              <!-- Empty State Row -->
+              <template x-if="!isKeywordsLoading && (!filteredDashboardKeywords || filteredDashboardKeywords.length === 0)">
+                <tr>
+                  <td colspan="8" class="py-16 text-center">
+                    <div class="max-w-md mx-auto space-y-4 p-4">
+                      <div class="w-12 h-12 rounded-2xl bg-emerald-500/10 text-emerald-500 mx-auto flex items-center justify-center">
+                        <i data-lucide="search" class="w-6 h-6"></i>
+                      </div>
+                      <h3 class="text-base font-bold text-slate-900 dark:text-white">No Tracked Keywords Found</h3>
+                      <p class="text-xs text-slate-500 dark:text-slate-400">
+                        Monitor 100-pin SERP rankings, save velocity, and visual co-occurrence in real time. Track an evergreen query like <strong class="text-emerald-500 cursor-pointer hover:underline" @click="quickTrackKeyword('breakfast ideas')">"breakfast ideas"</strong> now.
+                      </p>
+                      <div class="flex items-center gap-2 max-w-sm mx-auto">
+                        <input type="text" x-model="quickKeywordInput" @keydown.enter="submitQuickKeyword()"
+                               placeholder="e.g. breakfast ideas, high protein meals..."
+                               class="flex-1 px-3.5 py-2 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/40">
+                        <button @click="submitQuickKeyword()"
+                                class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition flex items-center space-x-1.5 shrink-0 cursor-pointer">
+                          <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+                          <span>Track & Crawl</span>
+                        </button>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              </template>
             </tbody>
           </table>
         </div>
       </section>
+
+      <!-- Quick Track Keyword Modal -->
+      <div x-show="isQuickTrackModalOpen" x-cloak class="relative z-50">
+        <div class="fixed inset-0 bg-slate-950/70 backdrop-blur-xs" @click="isQuickTrackModalOpen = false"></div>
+        <div class="fixed inset-0 flex items-center justify-center p-4">
+          <div class="w-full max-w-md bg-white dark:bg-[#0c1322] border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-2xl space-y-4">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+              <div class="flex items-center space-x-2.5">
+                <div class="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center">
+                  <i data-lucide="plus-circle" class="w-4 h-4"></i>
+                </div>
+                <h3 class="text-sm font-black text-slate-900 dark:text-white">Track New Keyword</h3>
+              </div>
+              <button @click="isQuickTrackModalOpen = false" class="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400">
+                <i data-lucide="x" class="w-4 h-4"></i>
+              </button>
+            </div>
+            <div class="space-y-3">
+              <div>
+                <label class="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase font-mono block mb-1">Search Query / Keyword</label>
+                <input type="text" x-model="quickKeywordInput" @keydown.enter="submitQuickKeyword()"
+                       placeholder="e.g. breakfast ideas, avocado toast..."
+                       class="w-full px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/40">
+              </div>
+              <div>
+                <label class="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase font-mono block mb-1">Category (Optional)</label>
+                <input type="text" x-model="quickKeywordCategory"
+                       placeholder="e.g. Food & Recipes, General..."
+                       class="w-full px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/40">
+              </div>
+            </div>
+            <div class="flex items-center justify-end space-x-2 pt-2">
+              <button @click="isQuickTrackModalOpen = false" class="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                Cancel
+              </button>
+              <button @click="submitQuickKeyword()" class="px-5 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white flex items-center space-x-1.5 shadow-md shadow-emerald-950/20">
+                <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+                <span>Track & Index 100 Pins</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
 
     </div>
 
@@ -924,24 +999,17 @@ export function getKeywordsPageHtml(initialSlug = '') {
             <span>PinClicks Intelligence</span>
           </button>
 
-          <button @click="activeTab = 'dropped'; if(selectedKeyword) fetchDisplacedPins()"
-                  class="px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center space-x-2 cursor-pointer"
-                  :class="activeTab === 'dropped' ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30' : 'text-slate-500 hover:text-slate-800 dark:hover:text-white'">
-            <i data-lucide="archive" class="w-4 h-4 text-rose-500"></i>
-            <span>Displaced Pins Vault</span>
-            <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold bg-rose-500/20 text-rose-600"
-                  x-text="displacedPinsTotal || selectedKeywordDetails?.dropped_out_pins?.length || 0"></span>
-          </button>
-
-          <!-- Campaign Crossover Matrix Tab -->
-          <button @click="openCrossoverTab()"
-                  class="px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center space-x-2 cursor-pointer shrink-0"
-                  :class="activeTab === 'crossover' ? 'bg-pink-500/15 text-pink-600 dark:text-pink-400 border border-pink-500/30 shadow-xs' : 'text-slate-500 hover:text-slate-800 dark:hover:text-white'">
-            <i data-lucide="network" class="w-4 h-4 text-pink-500"></i>
-            <span>🧬 Crossover Matrix</span>
-            <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold bg-pink-500/20 text-pink-500"
-                  x-text="(folders.length || 0) + ' Clusters'"></span>
-          </button>
+          <!-- Direct Link to Campaign Folders & Crossover Studio -->
+          <a :href="currentKeywordFolders.length > 0 ? ('/folders/' + currentKeywordFolders[0].id) : '/folders'"
+             class="px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center space-x-2 cursor-pointer text-pink-600 dark:text-pink-400 hover:bg-pink-500/10 border border-pink-500/30 shrink-0"
+             title="Open Dedicated Campaign Folders & Crossover Studio (/folders/:id)">
+            <i data-lucide="folder-git-2" class="w-4 h-4 text-pink-500"></i>
+            <span>📁 Campaign Folder (Crossover Studio)</span>
+            <template x-if="currentKeywordFolders.length > 0">
+              <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold bg-pink-500/20 text-pink-500"
+                    x-text="currentKeywordFolders[0].name"></span>
+            </template>
+          </a>
         </div>
 
         <!-- Filter & Sorting Controls with GROWTH PACE Ribbon and Cards vs Table Toggle (Image 1 Parity) -->
@@ -975,21 +1043,48 @@ export function getKeywordsPageHtml(initialSlug = '') {
               </div>
             </div>
 
-            <!-- Dual-Scope Switcher: Active SERP Top 100 vs All Vault Pins -->
-            <div class="flex items-center space-x-2">
-              <span class="text-[11px] font-bold text-slate-400 font-mono uppercase tracking-wider shrink-0">Scope:</span>
-              <div class="flex items-center p-1 rounded-2xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 gap-1">
+            <!-- Scope Segment Filter: All Pins vs Active SERP vs Displaced Vault vs High Velocity -->
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="text-[11px] font-bold text-slate-400 font-mono uppercase tracking-wider shrink-0">Filter:</span>
+              <div class="flex flex-wrap items-center p-1 rounded-2xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 gap-1">
+                <button @click="serpScope = 'all'"
+                        class="px-2.5 py-1 rounded-xl text-xs font-bold transition cursor-pointer flex items-center space-x-1"
+                        :class="serpScope === 'all' ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/40 shadow-xs' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'">
+                  <span>🔘 All Pins</span>
+                  <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300"
+                        x-text="allCombinedPins.length"></span>
+                </button>
                 <button @click="serpScope = 'active'"
-                        class="px-2.5 py-1 rounded-xl text-xs font-bold transition cursor-pointer"
+                        class="px-2.5 py-1 rounded-xl text-xs font-bold transition cursor-pointer flex items-center space-x-1"
                         :class="serpScope === 'active' ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/40 shadow-xs' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'">
-                  Active Top 100
+                  <span>🟢 Active SERP</span>
+                  <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold bg-emerald-500/15 text-emerald-500"
+                        x-text="(selectedKeywordDetails?.current_pins || []).length"></span>
                 </button>
                 <button @click="serpScope = 'vault'; if(selectedKeyword) fetchDisplacedPins()"
-                        class="px-2.5 py-1 rounded-xl text-xs font-bold transition cursor-pointer"
+                        class="px-2.5 py-1 rounded-xl text-xs font-bold transition cursor-pointer flex items-center space-x-1"
                         :class="serpScope === 'vault' ? 'bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/40 shadow-xs' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'">
-                  All Vault Pins
+                  <span>🔴 Displaced Vault</span>
+                  <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold bg-rose-500/15 text-rose-500"
+                        x-text="displacedVaultPins.length"></span>
+                </button>
+                <button @click="serpScope = 'velocity'"
+                        class="px-2.5 py-1 rounded-xl text-xs font-bold transition cursor-pointer flex items-center space-x-1"
+                        :class="serpScope === 'velocity' ? 'bg-cyan-500/20 text-cyan-600 dark:text-cyan-400 border border-cyan-500/40 shadow-xs' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'">
+                  <span>⚡ High Velocity</span>
                 </button>
               </div>
+
+              <!-- Active Visual Tag Filter Badge -->
+              <template x-if="activeVisualTagFilter">
+                <div class="flex items-center space-x-1.5 px-3 py-1 rounded-xl bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30 text-xs">
+                  <i data-lucide="tag" class="w-3.5 h-3.5"></i>
+                  <span class="font-bold" x-text="'Tag: #' + activeVisualTagFilter"></span>
+                  <button @click="activeVisualTagFilter = ''" class="hover:text-purple-800 dark:hover:text-white transition ml-1" title="Clear visual tag filter">
+                    <i data-lucide="x" class="w-3 h-3"></i>
+                  </button>
+                </div>
+              </template>
             </div>
 
             <!-- View Mode (Cards vs Table) & Filters -->
@@ -1187,26 +1282,52 @@ export function getKeywordsPageHtml(initialSlug = '') {
                             </span>
                           </template>
                         </div>
+                        <!-- Visual Annotations Tag Pills -->
+                        <template x-if="getPinVisualTags(pin).length > 0">
+                          <div class="flex flex-wrap items-center gap-1 mt-1">
+                            <template x-for="vtag in getPinVisualTags(pin).slice(0, 4)" :key="vtag">
+                              <button @click.stop="filterByVisualTag(vtag)"
+                                      class="px-1.5 py-0.2 rounded-md text-[9px] font-mono transition cursor-pointer"
+                                      :class="activeVisualTagFilter === vtag.toLowerCase() ? 'bg-purple-600 text-white font-bold' : 'bg-purple-500/10 text-purple-600 dark:text-purple-400 hover:bg-purple-500/20 border border-purple-500/20'"
+                                      :title="'Filter by visual tag: #' + vtag">
+                                <span x-text="'#' + vtag"></span>
+                              </button>
+                            </template>
+                            <template x-if="getPinVisualTags(pin).length > 4">
+                              <span class="text-[9px] text-slate-400 font-mono" x-text="'+' + (getPinVisualTags(pin).length - 4) + ' tags'"></span>
+                            </template>
+                          </div>
+                        </template>
                       </div>
                     </td>
 
                     <!-- # Rank & Delta Movement -->
                     <td class="py-3.5 px-3 font-mono font-bold">
-                      <div class="flex items-center space-x-1.5">
-                        <span class="px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300"
-                              :class="Number(pin.rank_position) <= 10 ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30' : ''"
-                              x-text="'#' + pin.rank_position"></span>
-                        
-                        <template x-if="pin.metadata?.is_new">
-                          <span class="px-1.5 py-0.2 rounded text-[9px] bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">★ NEW</span>
-                        </template>
-                        <template x-if="!pin.metadata?.is_new && Number(pin.metadata?.rank_delta || 0) > 0">
-                          <span class="text-[10px] text-emerald-500 font-bold" x-text="'▲ +' + pin.metadata.rank_delta"></span>
-                        </template>
-                        <template x-if="!pin.metadata?.is_new && Number(pin.metadata?.rank_delta || 0) < 0">
-                          <span class="text-[10px] text-rose-500 font-bold" x-text="'▼ ' + pin.metadata.rank_delta"></span>
-                        </template>
-                      </div>
+                      <template x-if="!pin.is_displaced">
+                        <div class="flex items-center space-x-1.5">
+                          <span class="px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300"
+                                :class="Number(pin.rank_position) <= 10 ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30' : ''"
+                                x-text="'#' + pin.rank_position"></span>
+                          
+                          <template x-if="pin.metadata?.is_new">
+                            <span class="px-1.5 py-0.2 rounded text-[9px] bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">★ NEW</span>
+                          </template>
+                          <template x-if="!pin.metadata?.is_new && Number(pin.metadata?.rank_delta || 0) > 0">
+                            <span class="text-[10px] text-emerald-500 font-bold" x-text="'▲ +' + pin.metadata.rank_delta"></span>
+                          </template>
+                          <template x-if="!pin.metadata?.is_new && Number(pin.metadata?.rank_delta || 0) < 0">
+                            <span class="text-[10px] text-rose-500 font-bold" x-text="'▼ ' + pin.metadata.rank_delta"></span>
+                          </template>
+                        </div>
+                      </template>
+                      <template x-if="pin.is_displaced">
+                        <div class="flex flex-col space-y-0.5">
+                          <span class="px-2 py-0.5 rounded-lg bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30 text-[10px] font-black uppercase tracking-wider w-fit">
+                            Was #<span x-text="pin.last_known_rank || pin.rank_position || '?'"></span> | Displaced
+                          </span>
+                          <span class="text-[9px] text-slate-400 font-mono" x-text="'Vault • ' + (pin.status || 'Dropped')"></span>
+                        </div>
+                      </template>
                     </td>
 
                     <!-- Board Name -->
@@ -1303,10 +1424,16 @@ export function getKeywordsPageHtml(initialSlug = '') {
                     <template x-if="pin.image_url">
                       <img :src="pin.image_url" class="w-full h-full object-cover group-hover:scale-105 transition duration-300">
                     </template>
-                    <div class="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-lg bg-slate-950/80 text-white font-mono font-black text-xs backdrop-blur-xs"
-                         x-text="'#' + pin.rank_position"></div>
+                    <template x-if="!pin.is_displaced">
+                      <div class="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-lg bg-slate-950/80 text-white font-mono font-black text-xs backdrop-blur-xs"
+                           x-text="'#' + pin.rank_position"></div>
+                    </template>
+                    <template x-if="pin.is_displaced">
+                      <div class="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-lg bg-rose-950/90 text-rose-300 font-mono font-black text-[10px] backdrop-blur-xs border border-rose-500/40"
+                           x-text="'Was #' + (pin.last_known_rank || pin.rank_position || '?') + ' Displaced'"></div>
+                    </template>
                     <div class="absolute top-2.5 right-2.5 px-2 py-0.5 rounded-md bg-slate-950/70 text-[10px] font-mono text-slate-200 backdrop-blur-xs uppercase"
-                         x-text="pin.metadata?.format || 'ORGANIC'"></div>
+                         x-text="pin.metadata?.format || pin.format || 'ORGANIC'"></div>
                   </a>
 
                   <!-- Title & ID -->
@@ -1318,6 +1445,19 @@ export function getKeywordsPageHtml(initialSlug = '') {
                     <a :href="'/pins/' + pin.pin_id" @click.stop
                        class="text-[10px] font-mono text-slate-400 hover:text-emerald-500 truncate block"
                        x-text="pin.metadata?.board_name || ('ID: ' + pin.pin_id)"></a>
+                    <!-- Visual Annotations Tag Pills -->
+                    <template x-if="getPinVisualTags(pin).length > 0">
+                      <div class="flex flex-wrap items-center gap-1 mt-1">
+                        <template x-for="vtag in getPinVisualTags(pin).slice(0, 3)" :key="vtag">
+                          <button @click.stop="filterByVisualTag(vtag)"
+                                  class="px-1.5 py-0.2 rounded-md text-[9px] font-mono transition cursor-pointer"
+                                  :class="activeVisualTagFilter === vtag.toLowerCase() ? 'bg-purple-600 text-white font-bold' : 'bg-purple-500/10 text-purple-600 dark:text-purple-400 hover:bg-purple-500/20 border border-purple-500/20'"
+                                  :title="'Filter by visual tag: #' + vtag">
+                            <span x-text="'#' + vtag"></span>
+                          </button>
+                        </template>
+                      </div>
+                    </template>
                   </div>
                 </div>
 
@@ -1850,8 +1990,8 @@ export function getKeywordsPageHtml(initialSlug = '') {
         </div>
       </div>
 
-      <!-- TAB 4: DISPLACED PINS VAULT & VACUUM MOMENTUM ENGINE -->
-      <div x-show="activeTab === 'dropped'" class="space-y-0">
+      <!-- DEPRECATED DISPLACED TAB - INTEGRATED INTO SERP MATRIX -->
+      <div x-show="activeTab === 'dropped'" class="hidden">
         
         <!-- Vault Header & Growth Pace Ribbon (Image 1 Parity) -->
         <div class="p-4 sm:p-5 border-b border-slate-200/80 dark:border-slate-800/80 flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-slate-50/50 dark:bg-slate-900/30">
@@ -2159,8 +2299,8 @@ export function getKeywordsPageHtml(initialSlug = '') {
 
       </div>
 
-      <!-- TAB 7: 🧬 CROSSOVER MATRIX & TOPIC CLUSTER INTELLIGENCE -->
-      <div x-show="activeTab === 'crossover'" class="p-4 sm:p-6 lg:p-8 space-y-6">
+      <!-- DEPRECATED CROSSOVER TAB - MIGRATED TO /folders/:id -->
+      <div x-show="activeTab === 'crossover'" class="hidden">
         
         <!-- Folder Switcher & Management Strip -->
         <div class="flex flex-wrap items-center justify-between gap-3 p-4 rounded-2xl bg-slate-100/80 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800">
@@ -3544,6 +3684,10 @@ export function getKeywordsPageHtml(initialSlug = '') {
         isBulkFolderModalOpen: false,
         bulkTargetFolderId: '',
         isBulkLoading: false,
+        isKeywordsLoading: false,
+        isQuickTrackModalOpen: false,
+        quickKeywordInput: '',
+        quickKeywordCategory: 'General',
 
         // Dual-Scope Switcher State (Active SERP Top 100 vs All Vault Pins)
         serpScope: 'active', // 'active' | 'vault'
@@ -3616,6 +3760,8 @@ export function getKeywordsPageHtml(initialSlug = '') {
         selectedFolderKeywordIds: [],
 
         // Pin Table Filter & Sort Controls
+        serpScope: 'all',
+        activeVisualTagFilter: '',
         pinSearch: '',
         formatFilter: 'ALL',
         pinSort: 'rank',
@@ -3631,6 +3777,26 @@ export function getKeywordsPageHtml(initialSlug = '') {
 
         isPinTagsExpanded(pinId) {
           return Boolean(this.expandedPinTags[pinId]);
+        },
+
+        openQuickTrackModal() {
+          this.quickKeywordInput = '';
+          this.quickKeywordCategory = 'General';
+          this.isQuickTrackModalOpen = true;
+          this.$nextTick(() => { lucide.createIcons(); });
+        },
+
+        async quickTrackKeyword(term) {
+          this.quickKeywordInput = term;
+          await this.submitQuickKeyword();
+        },
+
+        async submitQuickKeyword() {
+          const term = (this.quickKeywordInput || '').trim();
+          if (!term) return;
+          this.isQuickTrackModalOpen = false;
+          this.showToast('Loading "' + term + '" into SERP Studio...', 'info');
+          await this.loadKeywordBySlugOrText(term, true);
         },
 
         get activeSlug() {
@@ -3756,16 +3922,88 @@ export function getKeywordsPageHtml(initialSlug = '') {
           return [...list].sort((a, b) => Number(b.vacuum_opportunity_score || 0) - Number(a.vacuum_opportunity_score || 0));
         },
 
+        get allCombinedPins() {
+          const currentPins = (this.selectedKeywordDetails?.current_pins || []).map(p => ({
+            ...p,
+            is_displaced: false
+          }));
+          const currentPinIds = new Set(currentPins.map(p => p.pin_id));
+          const vaultPins = (this.displacedVaultPins || []).filter(p => !currentPinIds.has(p.pin_id));
+          return [...currentPins, ...vaultPins];
+        },
+
+        get displacedVaultPins() {
+          const droppedFromDetails = (this.selectedKeywordDetails?.dropped_out_pins || []).map(p => ({
+            ...p,
+            is_displaced: true,
+            rank_position: p.last_known_rank || p.rank_position || 101,
+            save_count: p.current_saves ?? p.save_count ?? 0,
+            repin_count: p.current_repins ?? p.repin_count ?? 0,
+            comment_count: p.current_comments ?? p.comment_count ?? 0
+          }));
+          const fetchedDisplaced = (this.displacedPins || []).map(p => ({
+            ...p,
+            is_displaced: true,
+            rank_position: p.last_known_rank || p.rank_position || 101,
+            save_count: p.current_saves ?? p.save_count ?? 0,
+            repin_count: p.current_repins ?? p.repin_count ?? 0,
+            comment_count: p.current_comments ?? p.comment_count ?? 0
+          }));
+          const map = new Map();
+          for (const p of [...droppedFromDetails, ...fetchedDisplaced]) {
+            if (p && p.pin_id && !map.has(p.pin_id)) {
+              map.set(p.pin_id, p);
+            }
+          }
+          return Array.from(map.values());
+        },
+
+        getPinVisualTags(pin) {
+          if (!pin) return [];
+          const raw = pin.metadata?.visual_annotations || pin.annotations || pin.visual_annotations || [];
+          return (raw || []).map(t => {
+            if (typeof t === 'string') return t.trim();
+            if (t && typeof t === 'object') return (t.name || t.label || t.term || t.title || '').trim();
+            return String(t || '').trim();
+          }).filter(s => s && s.length >= 2);
+        },
+
+        filterByVisualTag(tag) {
+          if (!tag) return;
+          const clean = (typeof tag === 'string' ? tag : (tag.name || tag.label || tag.term || '')).trim().toLowerCase();
+          if (this.activeVisualTagFilter === clean) {
+            this.activeVisualTagFilter = '';
+          } else {
+            this.activeVisualTagFilter = clean;
+            this.serpScope = 'all';
+          }
+          this.$nextTick(() => { lucide.createIcons(); });
+        },
+
         get filteredPins() {
-          let list = this.selectedKeywordDetails?.current_pins || [];
-          if (this.serpScope === 'vault') {
-            const currentPinIds = new Set(list.map(p => p.pin_id));
-            const vaultPins = (this.displacedPins || []).filter(p => !currentPinIds.has(p.pin_id));
-            list = [...list, ...vaultPins];
+          let list = [];
+          if (this.serpScope === 'active') {
+            list = (this.selectedKeywordDetails?.current_pins || []).map(p => ({ ...p, is_displaced: false }));
+          } else if (this.serpScope === 'vault') {
+            list = this.displacedVaultPins;
+          } else if (this.serpScope === 'velocity') {
+            list = this.allCombinedPins.filter(p => Number(p.daily_save_velocity || 0) > 0);
+          } else {
+            list = this.allCombinedPins;
           }
+
+          if (this.activeVisualTagFilter) {
+            const vtag = this.activeVisualTagFilter.toLowerCase().trim();
+            list = list.filter(p => {
+              const tags = this.getPinVisualTags(p).map(t => t.toLowerCase());
+              return tags.includes(vtag);
+            });
+          }
+
           if (this.formatFilter && this.formatFilter !== 'ALL') {
-            list = list.filter(p => (p.metadata?.format || 'ORGANIC PIN') === this.formatFilter);
+            list = list.filter(p => (p.metadata?.format || p.format || 'ORGANIC PIN') === this.formatFilter);
           }
+
           if (this.pinSearch && this.pinSearch.trim()) {
             const q = this.pinSearch.toLowerCase().trim();
             list = list.filter(p => 
@@ -3773,28 +4011,31 @@ export function getKeywordsPageHtml(initialSlug = '') {
               (p.domain || '').toLowerCase().includes(q) ||
               (p.metadata?.pinner?.username || '').toLowerCase().includes(q) ||
               (p.metadata?.pinner?.full_name || '').toLowerCase().includes(q) ||
-              (p.metadata?.visual_annotations || []).some(t => {
-                const s = typeof t === 'string' ? t : (t?.name || t?.label || t?.term || '');
-                return s.toLowerCase().includes(q);
-              })
+              this.getPinVisualTags(p).some(t => t.toLowerCase().includes(q))
             );
           }
+
           if (this.pinSort === 'velocity') {
             return [...list].sort((a, b) => Number(b.daily_save_velocity || 0) - Number(a.daily_save_velocity || 0));
           } else if (this.pinSort === 'saves') {
             return [...list].sort((a, b) => {
-              const aEngage = Number(a.metadata?.raw_saves || a.save_count || a.metadata?.reactions || 0);
-              const bEngage = Number(b.metadata?.raw_saves || b.save_count || b.metadata?.reactions || 0);
+              const aEngage = Number(a.metadata?.raw_saves || a.save_count || a.current_saves || 0);
+              const bEngage = Number(b.metadata?.raw_saves || b.save_count || b.current_saves || 0);
               return bEngage - aEngage;
             });
           } else if (this.pinSort === 'age') {
             return [...list].sort((a, b) => Number(a.metadata?.pin_age_days || 9999) - Number(b.metadata?.pin_age_days || 9999));
           }
-          return [...list].sort((a, b) => Number(a.rank_position || 0) - Number(b.rank_position || 0));
+
+          return [...list].sort((a, b) => {
+            if (a.is_displaced && !b.is_displaced) return 1;
+            if (!a.is_displaced && b.is_displaced) return -1;
+            return Number(a.rank_position || a.last_known_rank || 999) - Number(b.rank_position || b.last_known_rank || 999);
+          });
         },
 
         init() {
-          this.selectedProjectId = localStorage.getItem('pa_selected_project_id') || '';
+          this.selectedProjectId = ''; // Keywords & SERP studio strictly bind to Central Metadata Hub
           this.darkMode = localStorage.getItem('pa_theme') !== 'light';
           this.applyTheme();
           this.fetchFleetProjects();
@@ -3988,10 +4229,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
           let validPinCount = 0;
 
           for (const pin of pins) {
-            const rawTags = (pin.metadata?.visual_annotations || []).map(t => {
-              const s = typeof t === 'string' ? t : (t?.name || t?.label || t?.term || '');
-              return s.trim().toLowerCase();
-            }).filter(s => s && s.length > 2);
+            const rawTags = this.getPinVisualTags(pin).map(s => s.toLowerCase());
 
             const uniqueTags = Array.from(new Set(rawTags));
             // Combinatorial guardrail: strictly cap at k <= 15 tags per pin
@@ -4075,9 +4313,6 @@ export function getKeywordsPageHtml(initialSlug = '') {
         },
 
         getApiUrl(path) {
-          if (this.selectedProjectId) {
-            return path + (path.includes('?') ? '&' : '?') + 'project_id=' + encodeURIComponent(this.selectedProjectId);
-          }
           return path;
         },
 
@@ -4099,6 +4334,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
         },
 
         async fetchKeywords() {
+          this.isKeywordsLoading = true;
           try {
             const res = await fetch(this.getApiUrl('/api/keywords'));
             if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -4108,6 +4344,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
           } catch (err) {
             this.showToast('Failed to load keywords: ' + err.message, 'error');
           } finally {
+            this.isKeywordsLoading = false;
             this.$nextTick(() => { lucide.createIcons(); });
           }
         },
@@ -4257,7 +4494,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
         async openPinInspector(pin) {
           if (!pin) return;
           this.activeInspectorPin = { ...pin };
-          const list = this.activeTab === 'dropped' ? this.filteredDisplacedPins : this.filteredPins;
+          const list = this.filteredPins;
           this.activeInspectorPinIndex = list.findIndex(p => p.pin_id === pin.pin_id);
           this.dossierData = null;
           this.trajectoryData = null;
@@ -4463,7 +4700,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
         },
 
         toggleSelectAllPins() {
-          const list = this.activeTab === 'dropped' ? this.filteredDisplacedPins : this.filteredPins;
+          const list = this.filteredPins;
           if (this.selectedPinIds.length === list.length) {
             this.selectedPinIds = [];
           } else {
@@ -4476,7 +4713,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
         },
 
         nextInspectorPin() {
-          const list = this.activeTab === 'dropped' ? this.filteredDisplacedPins : this.filteredPins;
+          const list = this.filteredPins;
           if (this.activeInspectorPinIndex < list.length - 1) {
             this.activeInspectorPinIndex++;
             this.openPinInspector(list[this.activeInspectorPinIndex]);
@@ -4484,7 +4721,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
         },
 
         prevInspectorPin() {
-          const list = this.activeTab === 'dropped' ? this.filteredDisplacedPins : this.filteredPins;
+          const list = this.filteredPins;
           if (this.activeInspectorPinIndex > 0) {
             this.activeInspectorPinIndex--;
             this.openPinInspector(list[this.activeInspectorPinIndex]);

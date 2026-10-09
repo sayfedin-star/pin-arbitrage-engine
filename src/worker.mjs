@@ -2157,21 +2157,20 @@ export default {
         return jsonResponse({ success: true, competitor: row });
       }
 
-      // 16. Keyword Velocity Tracker API
+      // 16. Keyword Velocity Tracker API (Central Metadata Hub)
       if (method === 'GET' && pathname === '/api/keywords') {
-        const shardKey = reqProjectId || 'hub';
         const search = searchParams.get('search') || '';
         const limit = Number(searchParams.get('limit') || 50);
         const offset = Number(searchParams.get('offset') || 0);
 
-        const cacheKey = buildCanonicalCacheKey(`keywords:${shardKey}`, {
+        const cacheKey = buildCanonicalCacheKey('keywords:hub', {
           search,
           limit,
           offset
         });
 
         const keywords = await getCachedOrFetch(cacheKey, async () => {
-          return await listKeywords(targetSql, {
+          return await listKeywords(sql, {
             search,
             limit,
             offset
@@ -2184,7 +2183,7 @@ export default {
       if (method === 'POST' && pathname === '/api/keywords') {
         invalidateEdgeCache('keywords');
         const body = await request.json().catch(() => ({}));
-        const row = await addKeyword(targetSql, body);
+        const row = await addKeyword(sql, body);
         return jsonResponse({ success: true, keyword: row });
       }
 
@@ -2192,7 +2191,7 @@ export default {
         const slug = searchParams.get('slug') || searchParams.get('keyword') || searchParams.get('q');
         if (!slug) return jsonResponse({ error: 'slug or keyword query parameter is required' }, 400);
         const autoCreate = searchParams.get('auto_create') !== 'false';
-        const row = await resolveKeywordBySlug(targetSql, slug, autoCreate);
+        const row = await resolveKeywordBySlug(sql, slug, autoCreate);
         if (!row) return jsonResponse({ error: 'Keyword not found and could not be resolved' }, 404);
         return jsonResponse({ success: true, keyword: row });
       }
@@ -2203,13 +2202,13 @@ export default {
         let keywordId = Number(body.keyword_id);
         const slug = body.slug || body.keyword;
         if (!keywordId && slug) {
-          const resolved = await resolveKeywordBySlug(targetSql, slug, true);
+          const resolved = await resolveKeywordBySlug(sql, slug, true);
           if (resolved) keywordId = resolved.id;
         }
         if (!keywordId) return jsonResponse({ error: 'keyword_id or slug is required' }, 400);
         const force = Boolean(body.force);
         const cookie = env.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env.PINTEREST_COOKIE : null);
-        const res = await crawlKeywordSERP(targetSql, keywordId, { cookie, force });
+        const res = await crawlKeywordSERP(sql, keywordId, { cookie, force });
         return jsonResponse({ success: true, result: res });
       }
 
@@ -2222,13 +2221,13 @@ export default {
 
         if (ids.length > 0) {
           if (isActive !== undefined) {
-            await targetSql`
+            await sql`
               UPDATE tracked_keywords 
               SET is_active = ${isActive}, updated_at = NOW() 
               WHERE id = ANY(${ids});
             `;
           } else {
-            await targetSql`
+            await sql`
               UPDATE tracked_keywords 
               SET is_active = NOT COALESCE(is_active, TRUE), updated_at = NOW() 
               WHERE id = ANY(${ids});
@@ -2241,14 +2240,14 @@ export default {
 
         let row;
         if (isActive !== undefined) {
-          [row] = await targetSql`
+          [row] = await sql`
             UPDATE tracked_keywords 
             SET is_active = ${isActive}, updated_at = NOW() 
             WHERE id = ${id} 
             RETURNING *;
           `;
         } else {
-          [row] = await targetSql`
+          [row] = await sql`
             UPDATE tracked_keywords 
             SET is_active = NOT COALESCE(is_active, TRUE), updated_at = NOW() 
             WHERE id = ${id} 
@@ -2271,16 +2270,16 @@ export default {
 
         const ids = Array.isArray(body.ids) ? body.ids.map(Number).filter(Boolean) : [];
         if (ids.length > 0) {
-          await targetSql`DELETE FROM tracked_keywords WHERE id = ANY(${ids});`;
+          await sql`DELETE FROM tracked_keywords WHERE id = ANY(${ids});`;
           return jsonResponse({ success: true, deleted_ids: ids });
         }
 
         if (id && !isNaN(Number(id))) {
-          await targetSql`DELETE FROM tracked_keywords WHERE id = ${Number(id)};`;
+          await sql`DELETE FROM tracked_keywords WHERE id = ${Number(id)};`;
           return jsonResponse({ success: true, deleted_id: Number(id) });
         } else if (keyword) {
           const cleanKeyword = keyword.toLowerCase().trim();
-          await targetSql`DELETE FROM tracked_keywords WHERE LOWER(keyword) = ${cleanKeyword};`;
+          await sql`DELETE FROM tracked_keywords WHERE LOWER(keyword) = ${cleanKeyword};`;
           return jsonResponse({ success: true, deleted_keyword: cleanKeyword });
         }
         return jsonResponse({ error: 'id, keyword, or ids array is required to delete tracked keyword' }, 400);
@@ -2290,11 +2289,11 @@ export default {
         let keywordId = Number(searchParams.get('keyword_id'));
         const slug = searchParams.get('slug') || searchParams.get('keyword');
         if (!keywordId && slug) {
-          const resolved = await resolveKeywordBySlug(targetSql, slug, false);
+          const resolved = await resolveKeywordBySlug(sql, slug, false);
           if (resolved) keywordId = resolved.id;
         }
         if (!keywordId) return jsonResponse({ error: 'keyword_id is required' }, 400);
-        const pins = await getKeywordPins(targetSql, keywordId);
+        const pins = await getKeywordPins(sql, keywordId);
         return jsonResponse({ success: true, pins });
       }
 
@@ -2308,7 +2307,7 @@ export default {
         const pinId = searchParams.get('pin_id');
         if (!pinId) return jsonResponse({ error: 'pin_id is required' }, 400);
         const cookie = env.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env.PINTEREST_COOKIE : null);
-        const result = await fetchVisualSearchLens(targetSql, pinId, cookie);
+        const result = await fetchVisualSearchLens(sql, pinId, cookie);
         return jsonResponse(result, result.success ? 200 : 500);
       }
 
@@ -2316,11 +2315,11 @@ export default {
         let keywordId = Number(searchParams.get('keyword_id'));
         const slug = searchParams.get('slug') || searchParams.get('keyword');
         if (!keywordId && slug) {
-          const resolved = await resolveKeywordBySlug(targetSql, slug, false);
+          const resolved = await resolveKeywordBySlug(sql, slug, false);
           if (resolved) keywordId = resolved.id;
         }
         if (!keywordId) return jsonResponse({ error: 'keyword_id is required' }, 400);
-        const guides = await getKeywordGuides(targetSql, keywordId);
+        const guides = await getKeywordGuides(sql, keywordId);
         return jsonResponse({ success: true, guides });
       }
 
@@ -2328,18 +2327,18 @@ export default {
         let keywordId = Number(searchParams.get('keyword_id'));
         const slug = searchParams.get('slug') || searchParams.get('keyword') || searchParams.get('q');
         if (!keywordId && slug) {
-          const resolved = await resolveKeywordBySlug(targetSql, slug, true);
+          const resolved = await resolveKeywordBySlug(sql, slug, true);
           if (resolved) keywordId = resolved.id;
         }
         if (!keywordId) return jsonResponse({ error: 'keyword_id or valid slug is required' }, 400);
-        const result = await getKeywordSERPComparison(targetSql, keywordId);
+        const result = await getKeywordSERPComparison(sql, keywordId);
         return jsonResponse({ success: true, ...result });
       }
 
       if (method === 'GET' && pathname === '/api/keywords/intelligence') {
         const keywordId = Number(searchParams.get('keyword_id'));
         if (!keywordId) return jsonResponse({ error: 'keyword_id is required' }, 400);
-        const result = await getKeywordIntelligence(targetSql, keywordId);
+        const result = await getKeywordIntelligence(sql, keywordId);
         return jsonResponse(result);
       }
 
@@ -2348,16 +2347,16 @@ export default {
         const country = searchParams.get('country') || 'US';
         const force = searchParams.get('force') === 'true' || searchParams.get('refresh') === 'true';
         const result = await fetchPinterestTrends(term, country, force);
-        if (result && result.success && targetSql && term) {
+        if (result && result.success && sql && term) {
           try {
             const clean = term.trim().toLowerCase();
-            const [kw] = await targetSql`
+            const [kw] = await sql`
               SELECT popular_pins FROM tracked_keywords WHERE LOWER(keyword) = ${clean} LIMIT 1;
             `;
             if (!force && kw && Array.isArray(kw.popular_pins) && kw.popular_pins.length > 0) {
               result.popular_pins = kw.popular_pins;
             } else if (force || !kw?.popular_pins || kw.popular_pins.length === 0) {
-              const popResult = await fetchPinterestTrendsPopularPins(targetSql, term, country, force);
+              const popResult = await fetchPinterestTrendsPopularPins(sql, term, country, force);
               if (popResult?.success && popResult?.popular_pins) {
                 result.popular_pins = popResult.popular_pins;
               }
@@ -2376,7 +2375,7 @@ export default {
         const status = searchParams.get('status') || 'ALL';
         const limit = Number(searchParams.get('limit') || 100);
         const offset = Number(searchParams.get('offset') || 0);
-        const result = await getKeywordDisplacedPins(targetSql, keywordId, { status, limit, offset });
+        const result = await getKeywordDisplacedPins(sql, keywordId, { status, limit, offset });
         return jsonResponse(result);
       }
 
@@ -2385,7 +2384,7 @@ export default {
         if (!pinId) return jsonResponse({ error: 'pin_id is required' }, 400);
         const keywordId = Number(searchParams.get('keyword_id') || 0) || null;
         const range = searchParams.get('range') || 'all';
-        const result = await getPinPerformanceTrajectory(targetSql, keywordId, pinId, range);
+        const result = await getPinPerformanceTrajectory(sql, keywordId, pinId, range);
         return jsonResponse(result);
       }
 
@@ -2393,7 +2392,7 @@ export default {
         const pinId = searchParams.get('pin_id');
         if (!pinId) return jsonResponse({ error: 'pin_id is required' }, 400);
         const keywordId = Number(searchParams.get('keyword_id') || 0) || null;
-        const result = await getPinDeepDossier(targetSql, pinId, keywordId);
+        const result = await getPinDeepDossier(sql, pinId, keywordId);
         return jsonResponse(result);
       }
 
@@ -2563,7 +2562,7 @@ export default {
 
         for (const cleanKw of validKeywords) {
           try {
-            const [row] = await targetSql`
+            const [row] = await sql`
               INSERT INTO tracked_keywords (
                 keyword, category, is_active, updated_at
               ) VALUES (
@@ -2577,7 +2576,7 @@ export default {
             if (row) {
               imported.push(row);
               if (folderId) {
-                await addKeywordToFolder(targetSql, folderId, row.id).catch(() => {});
+                await addKeywordToFolder(sql, folderId, row.id).catch(() => {});
               }
             }
           } catch (_) {}
@@ -2610,7 +2609,7 @@ export default {
             message: 'Valid numeric folder_id is required'
           }, 400);
         }
-        const crossover = await calculateFolderCrossover(targetSql, Number(folderId));
+        const crossover = await calculateFolderCrossover(sql, Number(folderId));
         return jsonResponse({ success: true, crossover });
       }
 
@@ -2621,11 +2620,11 @@ export default {
 
         if (method === 'GET') {
           if (folderId) {
-            const folder = await getFolder(targetSql, folderId);
+            const folder = await getFolder(sql, folderId);
             if (!folder) return jsonResponse({ error: 'Folder not found' }, 404);
             return jsonResponse({ success: true, folder });
           }
-          const folders = await listFolders(targetSql, {
+          const folders = await listFolders(sql, {
             projectId: searchParams.get('project_id') || 'default'
           });
           return jsonResponse({ success: true, folders });
@@ -2633,12 +2632,12 @@ export default {
 
         if (method === 'POST') {
           const body = await request.json().catch(() => ({}));
-          const created = await createFolder(targetSql, body);
+          const created = await createFolder(sql, body);
           return jsonResponse({ success: true, folder: created });
         }
 
         if (method === 'DELETE' && folderId) {
-          const deleted = await deleteFolder(targetSql, folderId);
+          const deleted = await deleteFolder(sql, folderId);
           return jsonResponse({ success: true, deleted });
         }
       }
@@ -2694,11 +2693,11 @@ export default {
       if (method === 'GET' && pathname === '/api/keywords/folders') {
         const folderId = searchParams.get('id') || searchParams.get('folder_id');
         if (folderId) {
-          const folder = await getFolder(targetSql, folderId);
+          const folder = await getFolder(sql, folderId);
           if (!folder) return jsonResponse({ error: 'Folder not found' }, 404);
           return jsonResponse({ success: true, folder });
         }
-        const folders = await listFolders(targetSql, {
+        const folders = await listFolders(sql, {
           projectId: searchParams.get('project_id') || 'default'
         });
         return jsonResponse({ success: true, folders });
@@ -2706,7 +2705,7 @@ export default {
 
       if (method === 'POST' && pathname === '/api/keywords/folders') {
         const body = await request.json().catch(() => ({}));
-        const created = await createFolder(targetSql, body);
+        const created = await createFolder(sql, body);
         return jsonResponse({ success: true, folder: created });
       }
 
@@ -2714,7 +2713,7 @@ export default {
         const body = await request.json().catch(() => ({}));
         const folderId = body.id || searchParams.get('id');
         if (!folderId) return jsonResponse({ error: 'Folder id is required' }, 400);
-        const updated = await updateFolder(targetSql, folderId, body);
+        const updated = await updateFolder(sql, folderId, body);
         return jsonResponse({ success: true, folder: updated });
       }
 
@@ -2727,7 +2726,7 @@ export default {
           } catch (_) {}
         }
         if (!folderId) return jsonResponse({ error: 'Folder id is required' }, 400);
-        const deleted = await deleteFolder(targetSql, folderId);
+        const deleted = await deleteFolder(sql, folderId);
         return jsonResponse({ success: true, deleted });
       }
 
@@ -2737,13 +2736,13 @@ export default {
         if (!folderId) return jsonResponse({ error: 'folder_id is required' }, 400);
         
         if (Array.isArray(body.keyword_ids)) {
-          const result = await batchAddKeywordsToFolder(targetSql, folderId, body.keyword_ids);
+          const result = await batchAddKeywordsToFolder(sql, folderId, body.keyword_ids);
           return jsonResponse({ success: true, ...result });
         }
         
         const keywordId = body.keyword_id || searchParams.get('keyword_id');
         if (!keywordId) return jsonResponse({ error: 'keyword_id or keyword_ids is required' }, 400);
-        const item = await addKeywordToFolder(targetSql, folderId, keywordId, body.notes || '');
+        const item = await addKeywordToFolder(sql, folderId, keywordId, body.notes || '');
         return jsonResponse({ success: true, item });
       }
 
@@ -2758,21 +2757,21 @@ export default {
           } catch (_) {}
         }
         if (!folderId || !keywordId) return jsonResponse({ error: 'folder_id and keyword_id are required' }, 400);
-        const deleted = await removeKeywordFromFolder(targetSql, folderId, keywordId);
+        const deleted = await removeKeywordFromFolder(sql, folderId, keywordId);
         return jsonResponse({ success: true, deleted });
       }
 
       if (method === 'GET' && pathname === '/api/keywords/folders/by-keyword') {
         const keywordId = searchParams.get('keyword_id');
         if (!keywordId) return jsonResponse({ error: 'keyword_id is required' }, 400);
-        const folders = await getFoldersForKeyword(targetSql, keywordId);
+        const folders = await getFoldersForKeyword(sql, keywordId);
         return jsonResponse({ success: true, folders });
       }
 
       if (method === 'GET' && pathname === '/api/keywords/folders/crossover') {
         const folderId = searchParams.get('folder_id') || searchParams.get('id');
         if (!folderId) return jsonResponse({ error: 'folder_id is required' }, 400);
-        const crossover = await calculateFolderCrossover(targetSql, folderId);
+        const crossover = await calculateFolderCrossover(sql, folderId);
         return jsonResponse({ success: true, crossover });
       }
 
