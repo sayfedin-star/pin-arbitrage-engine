@@ -2062,7 +2062,9 @@ const server = http.createServer(async (req, res) => {
 
     if (method === 'POST' && pathname === '/api/keywords/dispatch-workflow') {
       const body = await parseJsonBody(req);
-      const targetKw = body.target_keyword || '';
+      const targetKw = body.target_keyword || body.keyword || '';
+      const maxPinsInput = String(body.max_pins || '100');
+      const crawlScopeInput = String(body.crawl_scope || 'all_pins');
       const repo = process.env.GITHUB_REPOSITORY || 'sayfedin-star/pin-arbitrage-engine';
       const token = process.env.GITHUB_TOKEN || process.env.GITHUB_PAT || process.env.GH_TOKEN;
       if (!token) {
@@ -2082,7 +2084,8 @@ const server = http.createServer(async (req, res) => {
             ref: 'main',
             inputs: {
               target_keyword: targetKw,
-              max_pins: '50'
+              crawl_scope: crawlScopeInput,
+              max_pins: maxPinsInput
             }
           })
         });

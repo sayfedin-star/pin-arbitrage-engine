@@ -337,6 +337,16 @@ export function formatPin(pin) {
     ? Math.round((saves / ageDays) * 100) / 100
     : 0;
 
+  const method = safeString(
+    pin.method ||
+    pin.creation_method ||
+    pin.creationMethod ||
+    pin.attribution?.provider_name ||
+    pin.provider_name ||
+    pin.origin_type ||
+    'pinterest_platform'
+  );
+
   // Domain extraction & URL sanitization (stripping tracking parameters utm_*, fbclid, etc.)
   let rawLink = String(pin.link || pin.url || '').trim();
   if (rawLink && !/^https?:\/\//i.test(rawLink) && !rawLink.startsWith('/')) {
@@ -410,7 +420,14 @@ export function formatPin(pin) {
     domain,
     board_id: pin.board?.id || pin.board_id || null,
     board_name: safeString(pin.board?.name || pin.board_name),
+    creator_username: safeString(pin.pinner?.username || pin.creator?.username || pin.creator_username || pin.origin_pinner?.username || ''),
+    creator_name: safeString(pin.pinner?.full_name || pin.pinner?.fullName || pin.creator?.full_name || pin.creator_name || ''),
+    creator_avatar_url: pin.pinner?.image_url || pin.pinner?.imageMediumUrl || pin.pinner?.imageSmallUrl || pin.creator?.image_url || null,
+    creator_followers: parseCleanMetric(pin.pinner?.follower_count || pin.pinner?.followerCount || pin.creator?.follower_count || 0),
+    created_at: createdAtPinterest,
     created_at_pinterest: createdAtPinterest,
+    method: method || 'pinterest_platform',
+    creation_method: method || 'pinterest_platform',
     age_days: ageDays !== null ? Math.round(ageDays * 10) / 10 : null,
     velocity,
     image_url: imageUrl,
@@ -460,6 +477,19 @@ export function extractPinData(rawHtml, pinId) {
         if (v3.domain) mergedRelayPin.domain = v3.domain;
         if (v3.dominantColor) mergedRelayPin.dominantColor = v3.dominantColor;
         if (v3.createdAt) mergedRelayPin.createdAt = v3.createdAt;
+        if (v3.created_at) mergedRelayPin.created_at = v3.created_at;
+        if (v3.method) mergedRelayPin.method = v3.method;
+        if (v3.creationMethod || v3.creation_method) mergedRelayPin.creation_method = v3.creationMethod || v3.creation_method;
+        if (v3.attribution?.provider_name) mergedRelayPin.provider_name = v3.attribution.provider_name;
+
+        if (v3.pinner && v3.pinner.username) {
+          mergedRelayPin.pinner = {
+            username: v3.pinner.username,
+            full_name: v3.pinner.fullName || v3.pinner.full_name || '',
+            image_url: v3.pinner.imageMediumUrl || v3.pinner.imageSmallUrl || '',
+            follower_count: v3.pinner.followerCount || 0
+          };
+        }
 
         if (v3.board && v3.board.name) {
           mergedRelayPin.board = {

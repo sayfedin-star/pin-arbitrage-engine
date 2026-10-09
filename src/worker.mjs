@@ -2216,8 +2216,9 @@ export default {
         const token = (typeof env !== 'undefined' && (env?.GITHUB_TOKEN || env?.GITHUB_PAT)) || (typeof process !== 'undefined' ? (process.env?.GITHUB_TOKEN || process.env?.GITHUB_PAT || process.env?.GH_TOKEN) : null);
         if (autoDispatch && token && res?.success) {
           const repo = (typeof env !== 'undefined' && env?.GITHUB_REPOSITORY) || (typeof process !== 'undefined' ? process.env?.GITHUB_REPOSITORY : null) || 'sayfedin-star/pin-arbitrage-engine';
-          const targetKw = res.keyword || body.keyword || resolvedKw?.keyword || '';
+          const targetKw = res.keyword || body.target_keyword || body.keyword || resolvedKw?.keyword || '';
           const maxPinsInput = String(body.max_pins || '100');
+          const crawlScopeInput = String(body.crawl_scope || 'all_pins');
           const dispatchPromise = (async () => {
             try {
               const dRes = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/keyword-intelligence-velocity.yml/dispatches`, {
@@ -2231,6 +2232,7 @@ export default {
                   ref: 'main',
                   inputs: {
                     target_keyword: targetKw,
+                    crawl_scope: crawlScopeInput,
                     max_pins: maxPinsInput
                   }
                 })
@@ -2697,7 +2699,9 @@ export default {
 
       if (method === 'POST' && pathname === '/api/keywords/dispatch-workflow') {
         const body = await request.json().catch(() => ({}));
-        const targetKw = body.target_keyword || '';
+        const targetKw = body.target_keyword || body.keyword || '';
+        const maxPinsInput = String(body.max_pins || '100');
+        const crawlScopeInput = String(body.crawl_scope || 'all_pins');
         const repo = (typeof env !== 'undefined' && env?.GITHUB_REPOSITORY) || (typeof process !== 'undefined' ? process.env?.GITHUB_REPOSITORY : null) || 'sayfedin-star/pin-arbitrage-engine';
         const token = (typeof env !== 'undefined' && (env?.GITHUB_TOKEN || env?.GITHUB_PAT)) || (typeof process !== 'undefined' ? (process.env?.GITHUB_TOKEN || process.env?.GITHUB_PAT || process.env?.GH_TOKEN) : null);
         if (!token) {
@@ -2717,7 +2721,8 @@ export default {
               ref: 'main',
               inputs: {
                 target_keyword: targetKw,
-                max_pins: '50'
+                crawl_scope: crawlScopeInput,
+                max_pins: maxPinsInput
               }
             })
           });

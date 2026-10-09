@@ -1228,18 +1228,29 @@ export function getKeywordsPageHtml(initialSlug = '') {
                            class="font-bold text-slate-900 dark:text-white hover:text-emerald-500 line-clamp-2 block transition"
                            title="Open Dedicated Pin Intelligence (/pins/:pin_id)"
                            x-text="pin.title || 'Untitled Pin'"></a>
-                        <div class="flex items-center space-x-2 text-[10px] text-slate-400 font-mono">
+                        <div class="flex items-center flex-wrap gap-1.5 text-[10px] text-slate-400 font-mono">
                           <a :href="'/pins/' + pin.pin_id" @click.stop
                              class="text-slate-500 dark:text-slate-400 hover:text-emerald-500 truncate font-mono"
                              title="Open Dedicated Pin Intelligence"
                              x-text="'ID: ' + pin.pin_id"></a>
-                          <template x-if="pin.metadata?.pinner">
+                          <template x-if="pin.metadata?.pinner || pin.creator_username">
                             <span class="flex items-center space-x-1 truncate max-w-[130px]">
-                              <template x-if="pin.metadata.pinner.image_small_url">
+                              <template x-if="pin.metadata?.pinner?.image_small_url">
                                 <img :src="pin.metadata.pinner.image_small_url" class="w-3 h-3 rounded-full object-cover shrink-0">
                               </template>
-                              <span class="truncate" x-text="pin.metadata.pinner.full_name || ('@' + pin.metadata.pinner.username)"></span>
+                              <span class="truncate" x-text="pin.metadata?.pinner?.full_name || ('@' + (pin.metadata?.pinner?.username || pin.creator_username))"></span>
                             </span>
+                          </template>
+                          <!-- Method Badge -->
+                          <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold border shrink-0"
+                                :class="getPinMethodBadgeClass(pin)"
+                                :title="'Method: ' + formatPinMethodLabel(pin)"
+                                x-text="getPinMethod(pin)"></span>
+                          <!-- Created Timestamp / Age Badge -->
+                          <template x-if="getPinCreatedDate(pin)">
+                            <span class="text-slate-500 dark:text-slate-400 font-mono text-[9px] truncate shrink-0"
+                                  :title="'Created: ' + formatPinCreated(pin)"
+                                  x-text="'📅 ' + (formatPinAge(pin) || formatPinCreated(pin))"></span>
                           </template>
                         </div>
                         <!-- Visual Annotations Tag Pills (Intra-SERP Crossover Engine) -->
@@ -1423,9 +1434,18 @@ export function getKeywordsPageHtml(initialSlug = '') {
                        class="text-xs font-bold text-slate-900 dark:text-white hover:text-emerald-500 line-clamp-2 leading-snug transition block"
                        title="Open Dedicated Pin Intelligence (/pins/:pin_id)"
                        x-text="pin.title || 'Untitled Pin'"></a>
-                    <a :href="'/pins/' + pin.pin_id" @click.stop
-                       class="text-[10px] font-mono text-slate-400 hover:text-emerald-500 truncate block"
-                       x-text="pin.metadata?.board_name || ('ID: ' + pin.pin_id)"></a>
+                    <div class="flex items-center space-x-1.5 text-[10px] font-mono">
+                      <a :href="'/pins/' + pin.pin_id" @click.stop
+                         class="text-slate-400 hover:text-emerald-500 truncate"
+                         x-text="pin.metadata?.board_name || ('ID: ' + pin.pin_id)"></a>
+                      <span class="px-1.5 py-0.2 rounded text-[8px] font-mono font-bold border shrink-0"
+                            :class="getPinMethodBadgeClass(pin)"
+                            :title="'Method: ' + formatPinMethodLabel(pin)"
+                            x-text="getPinMethod(pin)"></span>
+                      <template x-if="formatPinAge(pin)">
+                        <span class="text-slate-400 text-[9px] shrink-0" :title="'Created: ' + formatPinCreated(pin)" x-text="'📅 ' + formatPinAge(pin)"></span>
+                      </template>
+                    </div>
                     <!-- Visual Annotations Tag Pills -->
                     <template x-if="pin._hasVisualTags || getPinVisualTags(pin).length > 0">
                       <div class="flex flex-wrap items-center gap-1 mt-1">
@@ -1923,6 +1943,42 @@ export function getKeywordsPageHtml(initialSlug = '') {
       <!-- TAB 4: PINCLICKS INTELLIGENCE & ARBITRAGE BREAKDOWN -->
       <div x-show="activeTab === 'intelligence'" class="p-4 sm:p-6 space-y-6">
 
+        <!-- Scope Segment Selector: Active SERP (Top 100) vs Full Catalog (All Pins) -->
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl bg-slate-50/90 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800">
+          <div class="flex items-center space-x-3">
+            <div class="w-8 h-8 rounded-xl bg-purple-500/10 text-purple-500 flex items-center justify-center shrink-0">
+              <i data-lucide="layers" class="w-4 h-4"></i>
+            </div>
+            <div>
+              <div class="flex items-center space-x-2">
+                <span class="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-slate-200">Intelligence Scope</span>
+                <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-purple-500/15 text-purple-500"
+                      x-text="intelScope === 'all' ? ('Full Historical Catalog (#' + totalAnalyzedPinsCount + ' Pins)') : ('Active Live SERP (#' + (selectedKeywordDetails?.current_pins?.length || 0) + ' Pins)')"></span>
+              </div>
+              <p class="text-[11px] text-slate-500">Toggle analysis between live ranking Top 100 pins and the full collected catalog (including Displaced Vault pins).</p>
+            </div>
+          </div>
+
+          <div class="flex items-center p-1 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 gap-1 self-start sm:self-auto shrink-0">
+            <button @click="intelScope = 'all'"
+                    class="px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center space-x-1.5"
+                    :class="intelScope === 'all' ? 'bg-purple-500 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'">
+              <span>🔘 Full Catalog</span>
+              <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold"
+                    :class="intelScope === 'all' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'"
+                    x-text="'#' + allCombinedPins.length"></span>
+            </button>
+            <button @click="intelScope = 'active'"
+                    class="px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center space-x-1.5"
+                    :class="intelScope === 'active' ? 'bg-emerald-500 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'">
+              <span>🟢 Active SERP</span>
+              <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold"
+                    :class="intelScope === 'active' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'"
+                    x-text="'#' + (selectedKeywordDetails?.current_pins?.length || 0)"></span>
+            </button>
+          </div>
+        </div>
+
         <!-- Top 4-Metric Grid -->
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <!-- 1: StaticRank & Saves Baseline -->
@@ -1936,15 +1992,15 @@ export function getKeywordsPageHtml(initialSlug = '') {
             <div class="space-y-2">
               <div class="flex items-center justify-between text-xs">
                 <span class="text-slate-500">Total Analyzed Pins</span>
-                <span class="font-mono font-bold text-slate-900 dark:text-white" x-text="selectedKeywordDetails?.current_pins?.length || 0"></span>
+                <span class="font-mono font-bold text-slate-900 dark:text-white" x-text="totalAnalyzedPinsCount"></span>
               </div>
               <div class="flex items-center justify-between text-xs">
                 <span class="text-slate-500">Avg Saves / Pin</span>
-                <span class="font-mono font-bold text-emerald-500" x-text="formatNumber(selectedKeywordDetails?.intelligence?.avg_saves || 0)"></span>
+                <span class="font-mono font-bold text-emerald-500" x-text="formatNumber(analyzedAvgSaves)"></span>
               </div>
               <div class="flex items-center justify-between text-xs">
                 <span class="text-slate-500">Median Saves</span>
-                <span class="font-mono font-bold text-slate-700 dark:text-slate-300" x-text="formatNumber(selectedKeywordDetails?.intelligence?.benchmarks?.median_saves ?? selectedKeywordDetails?.intelligence?.median_saves ?? 0)"></span>
+                <span class="font-mono font-bold text-slate-700 dark:text-slate-300" x-text="formatNumber(analyzedMedianSaves)"></span>
               </div>
             </div>
           </div>
@@ -1984,15 +2040,15 @@ export function getKeywordsPageHtml(initialSlug = '') {
             <div class="space-y-2">
               <div class="flex items-center justify-between text-xs">
                 <span class="text-slate-500">Standard Static (2:3)</span>
-                <span class="font-mono font-bold text-emerald-500" x-text="(selectedKeywordDetails?.intelligence?.aspect_ratios?.standard_pct ?? selectedKeywordDetails?.intelligence?.static_ratio ?? 80) + '%'"></span>
+                <span class="font-mono font-bold text-emerald-500" x-text="analyzedVisualFormats.standard_pct + '%'"></span>
               </div>
               <div class="flex items-center justify-between text-xs">
                 <span class="text-slate-500">Extra Tall (1:2)</span>
-                <span class="font-mono font-bold text-amber-400" x-text="(selectedKeywordDetails?.intelligence?.aspect_ratios?.extra_tall_pct || 0) + '%'"></span>
+                <span class="font-mono font-bold text-amber-400" x-text="analyzedVisualFormats.extra_tall_pct + '%'"></span>
               </div>
               <div class="flex items-center justify-between text-xs">
                 <span class="text-slate-500">Video & Idea Pins</span>
-                <span class="font-mono font-bold text-cyan-500" x-text="((selectedKeywordDetails?.intelligence?.formats?.video_pct || 0) + (selectedKeywordDetails?.intelligence?.formats?.idea_pct || 0)) + '%'"></span>
+                <span class="font-mono font-bold text-cyan-500" x-text="analyzedVisualFormats.video_idea_pct + '%'"></span>
               </div>
             </div>
           </div>
@@ -2378,9 +2434,20 @@ export function getKeywordsPageHtml(initialSlug = '') {
                       <div class="space-y-1">
                         <span class="font-bold text-slate-900 dark:text-white group-hover:text-rose-500 line-clamp-2 block transition"
                               x-text="pin.title || 'Untitled Pin'"></span>
-                        <div class="flex items-center space-x-2 text-[10px] text-slate-400 font-mono">
+                        <div class="flex items-center flex-wrap gap-1.5 text-[10px] text-slate-400 font-mono">
                           <span class="text-slate-500 dark:text-slate-400 truncate font-mono" x-text="'ID: ' + pin.pin_id"></span>
                           <span class="text-slate-400" x-text="'Displaced: ' + formatDate(pin.displaced_date)"></span>
+                          <!-- Method Badge -->
+                          <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold border shrink-0"
+                                :class="getPinMethodBadgeClass(pin)"
+                                :title="'Method: ' + formatPinMethodLabel(pin)"
+                                x-text="getPinMethod(pin)"></span>
+                          <!-- Created Timestamp / Age Badge -->
+                          <template x-if="getPinCreatedDate(pin)">
+                            <span class="text-slate-500 dark:text-slate-400 font-mono text-[9px] truncate shrink-0"
+                                  :title="'Created: ' + formatPinCreated(pin)"
+                                  x-text="'📅 ' + (formatPinAge(pin) || formatPinCreated(pin))"></span>
+                          </template>
                         </div>
                       </div>
                     </td>
@@ -2499,8 +2566,17 @@ export function getKeywordsPageHtml(initialSlug = '') {
                     <h4 class="text-xs font-bold text-slate-900 dark:text-white group-hover:text-rose-500 line-clamp-2 leading-snug transition"
                         x-text="pin.title || 'Untitled Pin'"></h4>
                     <div class="flex items-center justify-between text-[10px] font-mono text-slate-400">
-                      <span x-text="'ID: ' + pin.pin_id"></span>
-                      <span class="text-emerald-500 font-bold" x-text="'Vacuum: ' + (pin.vacuum_opportunity_score || 50) + '/100'"></span>
+                      <div class="flex items-center space-x-1.5 truncate">
+                        <span x-text="'ID: ' + pin.pin_id"></span>
+                        <span class="px-1.5 py-0.2 rounded text-[8px] font-mono font-bold border shrink-0"
+                              :class="getPinMethodBadgeClass(pin)"
+                              :title="'Method: ' + formatPinMethodLabel(pin)"
+                              x-text="getPinMethod(pin)"></span>
+                        <template x-if="formatPinAge(pin)">
+                          <span class="text-slate-400 text-[9px] shrink-0" :title="'Created: ' + formatPinCreated(pin)" x-text="'📅 ' + formatPinAge(pin)"></span>
+                        </template>
+                      </div>
+                      <span class="text-emerald-500 font-bold shrink-0" x-text="'Vacuum: ' + (pin.vacuum_opportunity_score || 50) + '/100'"></span>
                     </div>
                   </div>
                 </div>
@@ -3150,6 +3226,10 @@ export function getKeywordsPageHtml(initialSlug = '') {
                     x-text="'Was #' + activeInspectorPin.last_known_rank"></span>
             </template>
             <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">Pin Deep Dossier</h3>
+            <span class="px-2 py-0.5 rounded-lg text-[10px] font-mono font-bold border"
+                  :class="getPinMethodBadgeClass(activeInspectorPin)"
+                  :title="'Method: ' + formatPinMethodLabel(activeInspectorPin)"
+                  x-text="getPinMethod(activeInspectorPin)"></span>
           </div>
 
           <!-- Quick-Copy Buttons Bar (Image 2 Parity) -->
@@ -3248,9 +3328,9 @@ export function getKeywordsPageHtml(initialSlug = '') {
                   <img :src="activeInspectorPin.metadata.pinner.image_small_url" class="w-5 h-5 rounded-full object-cover">
                 </template>
                 <span class="font-bold text-slate-700 dark:text-slate-300"
-                      x-text="activeInspectorPin?.metadata?.pinner?.full_name || ('@' + (activeInspectorPin?.metadata?.pinner?.username || 'creator'))"></span>
-                <template x-if="activeInspectorPin?.metadata?.board_name">
-                  <span class="text-slate-400" x-text="'in ' + activeInspectorPin.metadata.board_name"></span>
+                      x-text="activeInspectorPin?.metadata?.pinner?.full_name || ('@' + (activeInspectorPin?.metadata?.pinner?.username || activeInspectorPin?.creator_username || 'creator'))"></span>
+                <template x-if="activeInspectorPin?.metadata?.board_name || activeInspectorPin?.board_name">
+                  <span class="text-slate-400" x-text="'in ' + (activeInspectorPin?.metadata?.board_name || activeInspectorPin?.board_name)"></span>
                 </template>
               </div>
 
@@ -3261,6 +3341,29 @@ export function getKeywordsPageHtml(initialSlug = '') {
                   <span x-text="activeInspectorPin.domain"></span>
                 </a>
               </template>
+            </div>
+
+            <!-- Publishing Method & Creation Date Strip (Image 2 Parity) -->
+            <div class="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-200/60 dark:border-slate-800/60 font-mono text-xs">
+              <!-- Method Badge -->
+              <div class="flex items-center space-x-1.5 px-2.5 py-1 rounded-xl border text-[11px] font-bold"
+                   :class="getPinMethodBadgeClass(activeInspectorPin)">
+                <i data-lucide="zap" class="w-3 h-3 shrink-0"></i>
+                <span class="text-slate-400 font-medium">Method:</span>
+                <span class="font-bold" x-text="getPinMethod(activeInspectorPin)"></span>
+                <span class="text-[10px] opacity-75 font-normal" x-text="'(' + formatPinMethodLabel(activeInspectorPin) + ')'"></span>
+              </div>
+
+              <!-- Created Date Badge -->
+              <div class="flex items-center space-x-1.5 px-2.5 py-1 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/60 text-slate-700 dark:text-slate-300 text-[11px]">
+                <i data-lucide="calendar" class="w-3 h-3 text-purple-500 shrink-0"></i>
+                <span class="text-slate-400 font-medium">Created:</span>
+                <span class="font-bold font-mono text-slate-900 dark:text-white" x-text="formatPinCreated(activeInspectorPin)"></span>
+                <template x-if="formatPinAge(activeInspectorPin)">
+                  <span class="px-1.5 py-0.2 rounded text-[10px] bg-purple-500/15 text-purple-600 dark:text-purple-400 font-bold"
+                        x-text="formatPinAge(activeInspectorPin)"></span>
+                </template>
+              </div>
             </div>
           </div>
 
@@ -4004,6 +4107,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
 
         // Pin Table Filter & Sort Controls
         serpScope: 'all',
+        intelScope: 'all',
         activeVisualTagFilter: '',
         activeDomainFilter: '',
         cachedTagFreqMap: null,
@@ -4291,12 +4395,71 @@ export function getKeywordsPageHtml(initialSlug = '') {
           this.$nextTick(() => { lucide.createIcons(); });
         },
 
-        get domainBreakdownList() {
-          const backendList = this.selectedKeywordDetails?.intelligence?.domain_breakdown;
-          if (Array.isArray(backendList) && backendList.length > 0) {
-            return backendList;
+        get analyzedPinsList() {
+          if (this.intelScope === 'active') {
+            return this.selectedKeywordDetails?.current_pins || [];
           }
-          const pins = this.selectedKeywordDetails?.current_pins || this.allCombinedPins || [];
+          return this.allCombinedPins.length > 0 ? this.allCombinedPins : (this.selectedKeywordDetails?.current_pins || []);
+        },
+
+        get totalAnalyzedPinsCount() {
+          return this.analyzedPinsList.length;
+        },
+
+        get analyzedAvgSaves() {
+          const list = this.analyzedPinsList;
+          if (list.length === 0) return this.selectedKeywordDetails?.intelligence?.avg_saves || 0;
+          const total = list.reduce((acc, p) => acc + Number(p.save_count || 0), 0);
+          return Math.round(total / list.length);
+        },
+
+        get analyzedMedianSaves() {
+          const list = this.analyzedPinsList;
+          if (list.length === 0) {
+            return this.selectedKeywordDetails?.intelligence?.benchmarks?.median_saves ?? this.selectedKeywordDetails?.intelligence?.median_saves ?? 0;
+          }
+          const saves = list.map(p => Number(p.save_count || 0)).sort((a, b) => a - b);
+          const mid = Math.floor(saves.length / 2);
+          return saves.length % 2 !== 0 ? saves[mid] : Math.round((saves[mid - 1] + saves[mid]) / 2);
+        },
+
+        get analyzedVisualFormats() {
+          const pins = this.analyzedPinsList;
+          if (pins.length === 0) {
+            const asp = this.selectedKeywordDetails?.intelligence?.aspect_ratios;
+            const fmt = this.selectedKeywordDetails?.intelligence?.formats;
+            return {
+              standard_pct: asp?.standard_pct ?? this.selectedKeywordDetails?.intelligence?.static_ratio ?? 80,
+              extra_tall_pct: asp?.extra_tall_pct ?? 0,
+              video_idea_pct: (fmt?.video_pct || 0) + (fmt?.idea_pct || 0)
+            };
+          }
+          let standard = 0;
+          let extraTall = 0;
+          let videoOrIdea = 0;
+          for (const p of pins) {
+            const fmt = (p.metadata?.format || p.format || 'ORGANIC PIN').toUpperCase();
+            const ratio = p.metadata?.aspect_ratio || p.aspect_ratio || '';
+            if (fmt.includes('VIDEO') || fmt.includes('IDEA')) videoOrIdea++;
+            else if (ratio === '1:2') extraTall++;
+            else standard++;
+          }
+          const len = pins.length;
+          return {
+            standard_pct: Math.round((standard / len) * 100),
+            extra_tall_pct: Math.round((extraTall / len) * 100),
+            video_idea_pct: Math.round((videoOrIdea / len) * 100)
+          };
+        },
+
+        get domainBreakdownList() {
+          if (this.intelScope === 'active') {
+            const backendList = this.selectedKeywordDetails?.intelligence?.domain_breakdown;
+            if (Array.isArray(backendList) && backendList.length > 0) {
+              return backendList;
+            }
+          }
+          const pins = this.analyzedPinsList;
           if (pins.length === 0) return [];
           const map = new Map();
           for (const p of pins) {
@@ -4322,14 +4485,18 @@ export function getKeywordsPageHtml(initialSlug = '') {
         },
 
         get repeatedDomainsCount() {
-          const count = this.selectedKeywordDetails?.intelligence?.repeated_domains_count;
-          if (count !== undefined && count !== null) return count;
+          if (this.intelScope === 'active') {
+            const count = this.selectedKeywordDetails?.intelligence?.repeated_domains_count;
+            if (count !== undefined && count !== null) return count;
+          }
           return this.domainBreakdownList.filter(d => d.pin_count > 1).length;
         },
 
         get uniqueDomainsCount() {
-          const count = this.selectedKeywordDetails?.intelligence?.unique_domains_count;
-          if (count !== undefined && count !== null) return count;
+          if (this.intelScope === 'active') {
+            const count = this.selectedKeywordDetails?.intelligence?.unique_domains_count;
+            if (count !== undefined && count !== null) return count;
+          }
           return this.domainBreakdownList.length;
         },
 
@@ -5251,10 +5418,16 @@ export function getKeywordsPageHtml(initialSlug = '') {
           this.isWorkflowDispatching = true;
           if (notify) this.showToast('Dispatching GitHub Actions autonomous crawler fleet...', 'info');
           try {
+            const targetKw = this.selectedKeyword?.keyword || this.activeKeywordQuery || '';
             const res = await fetch(this.getApiUrl('/api/keywords/dispatch-workflow'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ target_keyword: this.selectedKeyword?.keyword || this.activeKeywordQuery || '' })
+              body: JSON.stringify({
+                target_keyword: targetKw,
+                keyword: targetKw,
+                crawl_scope: 'all_pins',
+                max_pins: '100'
+              })
             });
             const data = await res.json();
             if (data.success) {
@@ -5344,6 +5517,66 @@ export function getKeywordsPageHtml(initialSlug = '') {
             return new Date(d).toLocaleDateString() + ' ' + new Date(d).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
           } catch (_) {
             return String(d);
+          }
+        },
+
+        getPinMethod(pin) {
+          if (!pin) return 'pinterest_platform';
+          const m = pin.creation_method || pin.method || pin.metadata?.method || pin.metadata?.creation_method;
+          return m ? String(m).toLowerCase().trim() : 'pinterest_platform';
+        },
+
+        formatPinMethodLabel(pin) {
+          const m = this.getPinMethod(pin);
+          if (m.includes('schedule') || m.includes('tailwind') || m.includes('buffer')) return 'Pin Scheduling';
+          if (m.includes('extension') || m.includes('button')) return 'Browser Extension';
+          if (m.includes('api') || m.includes('developer')) return 'Pinterest API';
+          if (m.includes('platform') || m.includes('web') || m.includes('mobile')) return 'Pinterest Platform';
+          return m.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        },
+
+        getPinMethodBadgeClass(pin) {
+          const m = this.getPinMethod(pin);
+          if (m.includes('schedule')) {
+            return 'bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30';
+          }
+          if (m.includes('extension')) {
+            return 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30';
+          }
+          return 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30';
+        },
+
+        getPinCreatedDate(pin) {
+          if (!pin) return null;
+          return pin.created_at_pinterest || pin.metadata?.created_at_pinterest || pin.metadata?.created_at || pin.created_at || null;
+        },
+
+        formatPinCreated(pin) {
+          const d = this.getPinCreatedDate(pin);
+          if (!d) return 'Unknown';
+          try {
+            const dt = new Date(d);
+            if (isNaN(dt.getTime())) return String(d);
+            return dt.toUTCString().replace(' GMT', '');
+          } catch (_) {
+            return String(d);
+          }
+        },
+
+        formatPinAge(pin) {
+          const d = this.getPinCreatedDate(pin);
+          if (!d) return '';
+          try {
+            const dt = new Date(d);
+            if (isNaN(dt.getTime())) return '';
+            const days = Math.max(0, Math.floor((Date.now() - dt.getTime()) / 86400000));
+            if (days === 0) return 'Today';
+            if (days === 1) return '1d ago';
+            if (days < 30) return days + 'd ago';
+            if (days < 365) return Math.floor(days / 30) + 'mo ago';
+            return (days / 365).toFixed(1) + 'y ago';
+          } catch (_) {
+            return '';
           }
         },
 

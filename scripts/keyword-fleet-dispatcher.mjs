@@ -185,6 +185,10 @@ async function main() {
           SELECT pin_id, rank_position, is_displaced
           FROM keyword_pins_snapshots
           WHERE keyword_id = ${kwRow.id} AND pin_id ~ '^[0-9]+$'
+          UNION ALL
+          SELECT pin_id, last_known_rank as rank_position, TRUE as is_displaced
+          FROM keyword_displaced_pins
+          WHERE keyword_id = ${kwRow.id} AND pin_id ~ '^[0-9]+$'
         ) combined
         ORDER BY pin_id, rank_position ASC NULLS LAST;
       `;

@@ -91,56 +91,95 @@ async function inspectAndSyncPin(pin, kw) {
   const dominantColor = detail?.dominant_color || detail?.dominantColor || pin.dominant_color || '#888888';
   const creator = detail?.pinner?.username || detail?.creator_username || pin.creator_username || '';
   const board = detail?.board?.name || pin.board_name || '';
+  const method = detail?.method || detail?.creation_method || pin.creation_method || pin.method || pin.metadata?.method || 'pinterest_platform';
+  const createdAtPinterest = detail?.created_at_pinterest || detail?.created_at || pin.created_at_pinterest || pin.created_at || null;
 
-  // Visual Annotations CV Extraction
-  let rawAnnotations = [];
+  // Visual Annotations CV Extraction with Strict "not-given" Guard & In-Memory Set Merge
+  let rawNewAnnotations = [];
   if (detail?.annotations && Array.isArray(detail.annotations) && detail.annotations.length > 0) {
-    rawAnnotations = detail.annotations.map(a => typeof a === 'string' ? a : (a.name || a.label || ''));
+    rawNewAnnotations = detail.annotations.map(a => typeof a === 'string' ? a : (a.name || a.label || ''));
   } else if (detail?.tags && Array.isArray(detail.tags)) {
-    rawAnnotations = detail.tags;
+    rawNewAnnotations = detail.tags;
   } else if (detail?.pinJoin?.visualAnnotation) {
-    rawAnnotations = detail.pinJoin.visualAnnotation;
-  } else if (Array.isArray(pin.visual_annotations)) {
-    rawAnnotations = pin.visual_annotations;
+    rawNewAnnotations = detail.pinJoin.visualAnnotation;
   }
-  const cleanAnnotations = [...new Set(rawAnnotations.map(s => String(s || '').trim()).filter(s => s.length >= 2))];
 
-  // 1. Update Central Hub keyword_serp_current (if active in today's SERP)
-  if (!pin.is_displaced) {
-    if (cleanAnnotations.length > 0) {
-      await sql`
-        UPDATE keyword_serp_current
-        SET 
-          save_count = GREATEST(save_count, ${authenticSaves}::bigint),
-          repin_count = GREATEST(repin_count, ${authenticRepins}::int),
-          creator_username = CASE WHEN ${creator}::text <> '' THEN ${creator}::text ELSE creator_username END,
-          board_name = CASE WHEN ${board}::text <> '' THEN ${board}::text ELSE board_name END,
-          dominant_color = CASE WHEN ${dominantColor}::text <> '' THEN ${dominantColor}::text ELSE dominant_color END,
-          visual_annotations = (
-            SELECT COALESCE(jsonb_agg(DISTINCT tag), '[]'::jsonb)
-            FROM (
-              SELECT jsonb_array_elements_text(COALESCE(keyword_serp_current.visual_annotations, '[]'::jsonb)) AS tag
-              UNION
-              SELECT jsonb_array_elements_text(${JSON.stringify(cleanAnnotations)}::jsonb) AS tag
-            ) u WHERE tag IS NOT NULL AND tag <> ''
-          )
-        WHERE keyword_id = ${kw.id} AND pin_id = ${pin.pin_id};
-      `;
-    } else {
-      await sql`
-        UPDATE keyword_serp_current
-        SET 
-          save_count = GREATEST(save_count, ${authenticSaves}::bigint),
-          repin_count = GREATEST(repin_count, ${authenticRepins}::int),
-          creator_username = CASE WHEN ${creator}::text <> '' THEN ${creator}::text ELSE creator_username END,
-          board_name = CASE WHEN ${board}::text <> '' THEN ${board}::text ELSE board_name END,
-          dominant_color = CASE WHEN ${dominantColor}::text <> '' THEN ${dominantColor}::text ELSE dominant_color END
-        WHERE keyword_id = ${kw.id} AND pin_id = ${pin.pin_id};
-      `;
+  // Filter out 'not-given', empty, or malformed tags
+  const cleanNewAnnotations = rawNewAnnotations
+    .map(s => String(s || '').trim())
+    .filter(s => s.length >= 2 && !s.toLowerCase().includes('not-given') && !s.toLowerCase().includes('not given'));
+
+  // Existing stored tags on pin
+  let rawExistingAnnotations = [];
+  if (Array.isArray(pin.visual_annotations)) {
+    rawExistingAnnotations = pin.visual_annotations;
+  } else if (typeof pin.visual_annotations === 'string' && pin.visual_annotations.trim()) {
+    try {
+      const parsed = JSON.parse(pin.visual_annotations);
+      rawExistingAnnotations = Array.isArray(parsed) ? parsed : [];
+    } catch (_) {
+      rawExistingAnnotations = [];
     }
   }
+  const cleanExistingAnnotations = rawExistingAnnotations
+    .map(s => String(s || '').trim())
+    .filter(s => s.length >= 2 && !s.toLowerCase().includes('not-given') && !s.toLowerCase().includes('not given'));
 
-  // 2. Update Central Hub keyword_pins_snapshots
+  // In-Memory Set Merge: If pin already has complete tags (>= 5 tags), and incoming has none, preserve existing.
+  // Otherwise compute clean Set Union strictly in Node.js memory (max 20 tags) to eliminate TOAST bloat & CPU strain.
+  const mergedTagsSet = new Set();
+  for (const t of cleanExistingAnnotations) mergedTagsSet.add(t);
+  for (const t of cleanNewAnnotations) mergedTagsSet.add(t);
+  const finalAnnotations = Array.from(mergedTagsSet).slice(0, 20);
+
+  // 1. Cross-Keyword Cascade Update on Central Hub keyword_serp_current
+  // Updates ALL active SERP rankings where this pin appears across all keywords
+  await sql`
+    UPDATE keyword_serp_current
+    SET 
+      save_count = GREATEST(save_count, ${authenticSaves}::bigint),
+      repin_count = GREATEST(repin_count, ${authenticRepins}::int),
+      creator_username = CASE WHEN ${creator}::text <> '' THEN ${creator}::text ELSE creator_username END,
+      board_name = CASE WHEN ${board}::text <> '' THEN ${board}::text ELSE board_name END,
+      dominant_color = CASE WHEN ${dominantColor}::text <> '' THEN ${dominantColor}::text ELSE dominant_color END,
+      created_at_pinterest = CASE WHEN ${createdAtPinterest}::timestamptz IS NOT NULL THEN ${createdAtPinterest}::timestamptz ELSE created_at_pinterest END,
+      creation_method = CASE WHEN ${method}::text <> '' THEN ${method}::text ELSE creation_method END,
+      visual_annotations = CASE WHEN jsonb_array_length(${JSON.stringify(finalAnnotations)}::jsonb) > 0 THEN ${JSON.stringify(finalAnnotations)}::jsonb ELSE visual_annotations END,
+      crawled_at = NOW()
+    WHERE pin_id = ${pin.pin_id};
+  `;
+
+  // 2. Cross-Keyword Cascade Update on Central Hub keyword_displaced_pins (Displaced Vault)
+  // Ensures any keyword where this pin was displaced gets authentic metrics & active pace
+  await sql`
+    UPDATE keyword_displaced_pins
+    SET 
+      current_saves = GREATEST(current_saves, ${authenticSaves}::bigint),
+      current_repins = GREATEST(current_repins, ${authenticRepins}::int),
+      current_comments = GREATEST(current_comments, ${authenticComments}::int),
+      current_shares = GREATEST(current_shares, ${authenticShares}::int),
+      created_at_pinterest = CASE WHEN ${createdAtPinterest}::timestamptz IS NOT NULL THEN ${createdAtPinterest}::timestamptz ELSE created_at_pinterest END,
+      creation_method = CASE WHEN ${method}::text <> '' THEN ${method}::text ELSE creation_method END,
+      vacuum_opportunity_score = CASE 
+        WHEN last_known_rank <= 5 THEN 85
+        WHEN last_known_rank <= 15 THEN 75
+        WHEN last_known_rank <= 50 THEN 60
+        ELSE 45
+      END,
+      seo_alt_text = CASE WHEN ${altText}::text <> '' THEN ${altText}::text ELSE seo_alt_text END,
+      dominant_color = CASE WHEN ${dominantColor}::text <> '' THEN ${dominantColor}::text ELSE dominant_color END,
+      annotations = CASE WHEN jsonb_array_length(${JSON.stringify(finalAnnotations)}::jsonb) > 0 THEN ${JSON.stringify(finalAnnotations)}::jsonb ELSE annotations END,
+      metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
+        'method', ${method}::text,
+        'created_at_pinterest', ${createdAtPinterest}::text
+      ),
+      last_checked_at = NOW(),
+      updated_at = NOW()
+    WHERE pin_id = ${pin.pin_id};
+  `;
+
+  // 3. Cross-Keyword Cascade Update on Central Hub keyword_pins_snapshots
+  // Strictly anchored to invariant UTC calendar date: (NOW() AT TIME ZONE 'UTC')::date
   await sql`
     UPDATE keyword_pins_snapshots
     SET
@@ -148,23 +187,20 @@ async function inspectAndSyncPin(pin, kw) {
       repin_count = GREATEST(repin_count, ${authenticRepins}::int),
       comment_count = GREATEST(comment_count, ${authenticComments}::int),
       share_count = GREATEST(COALESCE(share_count, 0), ${authenticShares}::int),
-      metadata = metadata || jsonb_build_object(
+      created_at_pinterest = CASE WHEN ${createdAtPinterest}::timestamptz IS NOT NULL THEN ${createdAtPinterest}::timestamptz ELSE created_at_pinterest END,
+      creation_method = CASE WHEN ${method}::text <> '' THEN ${method}::text ELSE creation_method END,
+      metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
         'description', ${description}::text,
         'alt_text', ${altText}::text,
         'share_count', ${authenticShares}::int,
         'dominant_color', ${dominantColor}::text,
+        'method', ${method}::text,
+        'created_at_pinterest', ${createdAtPinterest}::text,
         'is_deleted', ${isDead}::boolean,
         'status', ${isDead ? 'archived_404' : 'active'}::text,
-        'visual_annotations', (
-          SELECT COALESCE(jsonb_agg(DISTINCT tag), '[]'::jsonb)
-          FROM (
-            SELECT jsonb_array_elements_text(COALESCE(keyword_pins_snapshots.metadata->'visual_annotations', '[]'::jsonb)) AS tag
-            UNION
-            SELECT jsonb_array_elements_text(${JSON.stringify(cleanAnnotations)}::jsonb) AS tag
-          ) u WHERE tag IS NOT NULL AND tag <> ''
-        )
+        'visual_annotations', CASE WHEN jsonb_array_length(${JSON.stringify(finalAnnotations)}::jsonb) > 0 THEN ${JSON.stringify(finalAnnotations)}::jsonb ELSE COALESCE(metadata->'visual_annotations', '[]'::jsonb) END
       )
-    WHERE keyword_id = ${kw.id} AND pin_id = ${pin.pin_id} AND snapshot_date = CURRENT_DATE;
+    WHERE pin_id = ${pin.pin_id} AND snapshot_date = (NOW() AT TIME ZONE 'UTC')::date;
   `;
 
   return {
@@ -179,7 +215,11 @@ async function inspectAndSyncPin(pin, kw) {
     description,
     alt_text: altText,
     dominant_color: dominantColor,
-    visual_annotations: cleanAnnotations,
+    visual_annotations: finalAnnotations,
+    method,
+    creation_method: method,
+    created_at_pinterest: createdAtPinterest,
+    created_at: createdAtPinterest,
     save_count: authenticSaves,
     repin_count: authenticRepins,
     comment_count: authenticComments,
@@ -193,6 +233,7 @@ async function inspectAndSyncPin(pin, kw) {
 
 /**
  * Flush enriched pin records across the 99 Neon Storage Shards
+ * Hardened for Cold-Start Resilience: Strict 3.5s timeout per shard with isolated try/catch.
  */
 async function flushToStorageShards(enrichedPins) {
   if (!enrichedPins || enrichedPins.length === 0) return 0;
@@ -201,68 +242,66 @@ async function flushToStorageShards(enrichedPins) {
 
   for (const [shardId, shardPins] of shardGroups.entries()) {
     try {
-      const shardSql = await resolveShardConnection({ hubSql: sql, shardId });
-      for (const sp of shardPins) {
-        await shardSql`
-          INSERT INTO universal_master_pins (
-            pin_id, creator_username, board_name, board_slug, title, domain, destination_url,
-            image_url, description, alt_text, dominant_color, visual_annotations,
-            first_discovered_pillar, first_discovered_at, updated_at
-          ) VALUES (
-            ${sp.pin_id}, ${sp.creator_username}, ${sp.board_name}, ${sp.board_slug},
-            ${sp.title}, ${sp.domain}, ${sp.destination_url}, ${sp.image_url},
-            ${sp.description}, ${sp.alt_text}, ${sp.dominant_color},
-            ${JSON.stringify(sp.visual_annotations)}::jsonb, 'keyword', NOW(), NOW()
-          )
-          ON CONFLICT (pin_id) DO UPDATE SET
-            creator_username = COALESCE(NULLIF(EXCLUDED.creator_username, ''), universal_master_pins.creator_username),
-            board_name = COALESCE(NULLIF(EXCLUDED.board_name, ''), universal_master_pins.board_name),
-            title = COALESCE(EXCLUDED.title, universal_master_pins.title),
-            domain = COALESCE(EXCLUDED.domain, universal_master_pins.domain),
-            destination_url = COALESCE(EXCLUDED.destination_url, universal_master_pins.destination_url),
-            image_url = COALESCE(EXCLUDED.image_url, universal_master_pins.image_url),
-            description = COALESCE(NULLIF(EXCLUDED.description, ''), universal_master_pins.description),
-            alt_text = COALESCE(NULLIF(EXCLUDED.alt_text, ''), universal_master_pins.alt_text),
-            dominant_color = COALESCE(EXCLUDED.dominant_color, universal_master_pins.dominant_color),
-            visual_annotations = CASE 
-              WHEN jsonb_typeof(EXCLUDED.visual_annotations) = 'array' AND jsonb_array_length(EXCLUDED.visual_annotations) > 0 
-                   AND jsonb_typeof(universal_master_pins.visual_annotations) = 'array' AND jsonb_array_length(universal_master_pins.visual_annotations) > 0 THEN (
-                SELECT COALESCE(jsonb_agg(DISTINCT tag), '[]'::jsonb)
-                FROM (
-                  SELECT jsonb_array_elements_text(universal_master_pins.visual_annotations) AS tag
-                  UNION
-                  SELECT jsonb_array_elements_text(EXCLUDED.visual_annotations) AS tag
-                ) u
-                WHERE tag IS NOT NULL AND tag <> ''
-              )
-              WHEN jsonb_typeof(EXCLUDED.visual_annotations) = 'array' AND jsonb_array_length(EXCLUDED.visual_annotations) > 0 
-              THEN EXCLUDED.visual_annotations
-              ELSE universal_master_pins.visual_annotations
-            END,
-            updated_at = NOW();
-        `;
+      const syncTask = (async () => {
+        const shardSql = await resolveShardConnection({ hubSql: sql, shardId });
+        for (const sp of shardPins) {
+          await shardSql`
+            INSERT INTO universal_master_pins (
+              pin_id, creator_username, board_name, board_slug, title, domain, destination_url,
+              image_url, description, alt_text, dominant_color, visual_annotations,
+              first_discovered_pillar, first_discovered_at, updated_at
+            ) VALUES (
+              ${sp.pin_id}, ${sp.creator_username}, ${sp.board_name}, ${sp.board_slug},
+              ${sp.title}, ${sp.domain}, ${sp.destination_url}, ${sp.image_url},
+              ${sp.description}, ${sp.alt_text}, ${sp.dominant_color},
+              ${JSON.stringify(sp.visual_annotations)}::jsonb, 'keyword', NOW(), NOW()
+            )
+            ON CONFLICT (pin_id) DO UPDATE SET
+              creator_username = COALESCE(NULLIF(EXCLUDED.creator_username, ''), universal_master_pins.creator_username),
+              board_name = COALESCE(NULLIF(EXCLUDED.board_name, ''), universal_master_pins.board_name),
+              title = COALESCE(NULLIF(EXCLUDED.title, ''), universal_master_pins.title),
+              domain = COALESCE(NULLIF(EXCLUDED.domain, ''), universal_master_pins.domain),
+              destination_url = COALESCE(NULLIF(EXCLUDED.destination_url, ''), universal_master_pins.destination_url),
+              image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), universal_master_pins.image_url),
+              description = COALESCE(NULLIF(EXCLUDED.description, ''), universal_master_pins.description),
+              alt_text = COALESCE(NULLIF(EXCLUDED.alt_text, ''), universal_master_pins.alt_text),
+              dominant_color = COALESCE(EXCLUDED.dominant_color, universal_master_pins.dominant_color),
+              visual_annotations = CASE 
+                WHEN jsonb_typeof(EXCLUDED.visual_annotations) = 'array' AND jsonb_array_length(EXCLUDED.visual_annotations) > 0 
+                THEN EXCLUDED.visual_annotations
+                ELSE universal_master_pins.visual_annotations
+              END,
+              updated_at = NOW();
+          `;
 
-        // Deduplicate daily snapshot for same pin + keyword on CURRENT_DATE
-        await shardSql`
-          DELETE FROM pins_daily_snapshots 
-          WHERE pin_id = ${sp.pin_id} AND keyword_id = ${sp.keyword_id} AND snapshot_date = CURRENT_DATE;
-        `.catch(() => {});
+          // Deduplicate daily snapshot for same pin + keyword on UTC date
+          await shardSql`
+            DELETE FROM pins_daily_snapshots 
+            WHERE pin_id = ${sp.pin_id} AND keyword_id = ${sp.keyword_id} AND snapshot_date = (NOW() AT TIME ZONE 'UTC')::date;
+          `.catch(() => {});
 
-        // Insert fresh daily telemetry record (Saves + Repins + Velocity)
-        await shardSql`
-          INSERT INTO pins_daily_snapshots (
-            pin_id, keyword_id, rank_position, save_count, repin_count, comment_count,
-            share_count, daily_save_velocity, snapshot_date, created_at
-          ) VALUES (
-            ${sp.pin_id}, ${sp.keyword_id}, ${sp.rank_position}, ${sp.save_count},
-            ${sp.repin_count}, ${sp.comment_count}, ${sp.share_count},
-            ${sp.daily_save_velocity}, CURRENT_DATE, NOW()
-          );
-        `;
-      }
+          // Insert fresh daily telemetry record (Saves + Repins + Velocity)
+          await shardSql`
+            INSERT INTO pins_daily_snapshots (
+              pin_id, keyword_id, rank_position, save_count, repin_count, comment_count,
+              share_count, daily_save_velocity, snapshot_date, created_at
+            ) VALUES (
+              ${sp.pin_id}, ${sp.keyword_id}, ${sp.rank_position}, ${sp.save_count},
+              ${sp.repin_count}, ${sp.comment_count}, ${sp.share_count},
+              ${sp.daily_save_velocity}, (NOW() AT TIME ZONE 'UTC')::date, NOW()
+            );
+          `;
+        }
+      })();
+
+      const timeoutTask = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error(`Shard #${shardId} cold-start connection timeout (3500ms limit)`)), 3500)
+      );
+
+      await Promise.race([syncTask, timeoutTask]);
       shardsSynchronized++;
     } catch (shardErr) {
-      console.warn(`    [Shard ${shardId} Warning] Shard upsert error:`, shardErr.message);
+      console.warn(`    [Shard ${shardId} Non-Blocking Guard] Shard write deferred: ${shardErr.message}`);
     }
   }
 
@@ -303,7 +342,7 @@ async function run() {
         SELECT 
           pin_id, rank_position, title, domain, destination_url, image_url,
           save_count, repin_count, daily_save_velocity, creator_username,
-          board_name, dominant_color, visual_annotations, FALSE as is_displaced
+          board_name, dominant_color, visual_annotations, created_at_pinterest, creation_method, FALSE as is_displaced
         FROM keyword_serp_current
         WHERE keyword_id = ${kwRow.id} AND pin_id ~ '^[0-9]+$'
         ORDER BY rank_position ASC;
@@ -313,12 +352,12 @@ async function run() {
         SELECT DISTINCT ON (pin_id)
           pin_id, rank_position, title, domain, destination_url, image_url,
           save_count, repin_count, daily_save_velocity, creator_username,
-          board_name, dominant_color, visual_annotations, is_displaced
+          board_name, dominant_color, visual_annotations, created_at_pinterest, creation_method, is_displaced
         FROM (
           SELECT 
             pin_id, rank_position, title, domain, destination_url, image_url,
             save_count, repin_count, daily_save_velocity, creator_username,
-            board_name, dominant_color, visual_annotations, FALSE as is_displaced
+            board_name, dominant_color, visual_annotations, created_at_pinterest, creation_method, FALSE as is_displaced
           FROM keyword_serp_current
           WHERE keyword_id = ${kwRow.id} AND pin_id ~ '^[0-9]+$'
           UNION ALL
@@ -327,8 +366,19 @@ async function run() {
             save_count, repin_count, daily_save_velocity, '' as creator_username,
             '' as board_name, '' as dominant_color, 
             COALESCE(metadata->'visual_annotations', '[]'::jsonb) as visual_annotations,
+            created_at_pinterest, creation_method,
             is_displaced
           FROM keyword_pins_snapshots
+          WHERE keyword_id = ${kwRow.id} AND pin_id ~ '^[0-9]+$'
+          UNION ALL
+          SELECT 
+            pin_id, last_known_rank as rank_position, title, domain, destination_url, image_url,
+            current_saves as save_count, current_repins as repin_count, daily_save_velocity, '' as creator_username,
+            '' as board_name, dominant_color, 
+            COALESCE(annotations, '[]'::jsonb) as visual_annotations,
+            created_at_pinterest, creation_method,
+            TRUE as is_displaced
+          FROM keyword_displaced_pins
           WHERE keyword_id = ${kwRow.id} AND pin_id ~ '^[0-9]+$'
         ) combined
         ORDER BY pin_id, rank_position ASC NULLS LAST;
@@ -345,6 +395,7 @@ async function run() {
 
     // Modulo Disjoint Partition
     const myPins = allPins.filter((_, idx) => (idx % workerTotal) === workerIndex);
+    myPins.sort((a, b) => String(a.pin_id).localeCompare(String(b.pin_id)));
     console.log(`[*] Total Catalog Pins: ${allPins.length} | Worker Slice: ${myPins.length} pins assigned`);
 
     if (myPins.length === 0) {
@@ -440,7 +491,7 @@ async function run() {
           console.log(`  [+] Stage 1 Fast Crawl Success: Crawled ${crawlRes.crawled_pins} pins | Velocity: +${crawlRes.avg_velocity} saves/day`);
 
           // Stage 2: Deep Inspection
-          const serpPins = await sql`
+          let serpPins = await sql`
             SELECT 
               pin_id, rank_position, title, domain, destination_url, image_url,
               save_count, repin_count, daily_save_velocity, creator_username,
@@ -451,6 +502,7 @@ async function run() {
             LIMIT ${maxPins};
           `;
 
+          serpPins.sort((a, b) => String(a.pin_id).localeCompare(String(b.pin_id)));
           const enrichedPins = [];
           for (let pIdx = 0; pIdx < serpPins.length; pIdx++) {
             const pin = serpPins[pIdx];
