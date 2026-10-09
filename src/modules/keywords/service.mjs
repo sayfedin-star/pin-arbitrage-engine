@@ -964,7 +964,7 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
         Number(immediateData?.repins || 0)
       );
       const confirmedComments = Math.max(
-        Number(comments || 0),
+        Number(item.comment_count || 0),
         Number(immediateData?.comments || 0)
       );
 
@@ -1031,7 +1031,7 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
         image_small_url: item.pinner.image_small_url || ''
       } : null;
 
-      const comments = Number(item.comment_count || 0);
+      const comments = confirmedComments;
 
       const createdAt = item.created_at || null;
       let pinAgeDays = null;
