@@ -187,6 +187,12 @@ export function getPinDetailPageHtml(pinId = '') {
           
           <!-- Hierarchy Badges -->
           <div class="flex items-center gap-2 flex-wrap">
+            <template x-if="dossier?.creative?.is_deleted">
+              <span class="px-2.5 py-1 rounded-md text-xs font-bold border bg-rose-500/15 text-rose-400 border-rose-500/30 flex items-center gap-1.5 shadow-sm">
+                <span>🗑️</span>
+                <span>Pin Removed from Pinterest (404 / Suspended)</span>
+              </span>
+            </template>
             <span 
               class="px-2.5 py-1 rounded-md text-xs font-bold border"
               :class="dossier?.pillar_2_keywords_context?.highest_rank <= 10 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-pink-500/10 text-pink-400 border-pink-500/20'"

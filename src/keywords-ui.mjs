@@ -1282,15 +1282,29 @@ export function getKeywordsPageHtml(initialSlug = '') {
                             </span>
                           </template>
                         </div>
-                        <!-- Visual Annotations Tag Pills -->
+                        <!-- Visual Annotations Tag Pills (Intra-SERP Crossover Engine) -->
                         <template x-if="getPinVisualTags(pin).length > 0">
                           <div class="flex flex-wrap items-center gap-1 mt-1">
                             <template x-for="vtag in getPinVisualTags(pin).slice(0, 4)" :key="vtag">
                               <button @click.stop="filterByVisualTag(vtag)"
-                                      class="px-1.5 py-0.2 rounded-md text-[9px] font-mono transition cursor-pointer"
-                                      :class="activeVisualTagFilter === vtag.toLowerCase() ? 'bg-purple-600 text-white font-bold' : 'bg-purple-500/10 text-purple-600 dark:text-purple-400 hover:bg-purple-500/20 border border-purple-500/20'"
-                                      :title="'Filter by visual tag: #' + vtag">
+                                      class="px-1.5 py-0.5 rounded-md text-[9px] font-mono transition cursor-pointer flex items-center gap-1"
+                                      :class="activeVisualTagFilter === vtag.toLowerCase() 
+                                        ? 'bg-purple-600 text-white font-bold shadow-sm' 
+                                        : (isCoreAnchorTag(vtag) 
+                                          ? 'bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 border border-purple-500/40 font-semibold' 
+                                          : 'bg-purple-500/10 text-purple-600 dark:text-purple-400 hover:bg-purple-500/20 border border-purple-500/20')"
+                                      :title="isCoreAnchorTag(vtag) 
+                                        ? 'Core Visual Anchor: #' + vtag + ' is shared across ' + getTagFrequency(vtag) + ' pins in this keyword. Click to filter crossover.' 
+                                        : 'Filter by visual tag: #' + vtag">
+                                <template x-if="isCoreAnchorTag(vtag)">
+                                  <span class="text-[8px] text-purple-400">🔗</span>
+                                </template>
                                 <span x-text="'#' + vtag"></span>
+                                <template x-if="getTagFrequency(vtag) > 1">
+                                  <span class="text-[8px] px-1 py-0.2 rounded font-bold"
+                                        :class="isCoreAnchorTag(vtag) ? 'bg-purple-500/30 text-purple-200' : 'bg-slate-700/60 text-slate-300'"
+                                        x-text="getTagFrequency(vtag) + 'x'"></span>
+                                </template>
                               </button>
                             </template>
                             <template x-if="getPinVisualTags(pin).length > 4">
@@ -1325,7 +1339,14 @@ export function getKeywordsPageHtml(initialSlug = '') {
                           <span class="px-2 py-0.5 rounded-lg bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30 text-[10px] font-black uppercase tracking-wider w-fit">
                             Was #<span x-text="pin.last_known_rank || pin.rank_position || '?'"></span> | Displaced
                           </span>
-                          <span class="text-[9px] text-slate-400 font-mono" x-text="'Vault • ' + (pin.status || 'Dropped')"></span>
+                          <template x-if="pin.is_deleted || pin.metadata?.is_deleted || pin.metadata?.status === 'archived_404'">
+                            <span class="text-[9px] text-rose-400 font-mono font-bold flex items-center gap-1">
+                              <span>🗑️ Removed (404)</span>
+                            </span>
+                          </template>
+                          <template x-if="!(pin.is_deleted || pin.metadata?.is_deleted || pin.metadata?.status === 'archived_404')">
+                            <span class="text-[9px] text-slate-400 font-mono" x-text="'Vault • ' + (pin.status || 'Dropped')"></span>
+                          </template>
                         </div>
                       </template>
                     </td>
@@ -3980,6 +4001,28 @@ export function getKeywordsPageHtml(initialSlug = '') {
           this.$nextTick(() => { lucide.createIcons(); });
         },
 
+        get tagFrequencyMap() {
+          const map = new Map();
+          const list = this.allCombinedPins || [];
+          for (const p of list) {
+            const tags = this.getPinVisualTags(p);
+            for (const t of tags) {
+              const k = t.toLowerCase().trim();
+              map.set(k, (map.get(k) || 0) + 1);
+            }
+          }
+          return map;
+        },
+
+        getTagFrequency(tag) {
+          if (!tag) return 0;
+          return this.tagFrequencyMap.get(String(tag).toLowerCase().trim()) || 0;
+        },
+
+        isCoreAnchorTag(tag) {
+          return this.getTagFrequency(tag) >= 3;
+        },
+
         get filteredPins() {
           let list = [];
           if (this.serpScope === 'active') {
@@ -4810,6 +4853,9 @@ export function getKeywordsPageHtml(initialSlug = '') {
             if (this.selectedKeyword && this.selectedKeyword.id === id) {
               await this.selectKeyword(this.selectedKeyword, false);
             }
+
+            // DOUBLE-TRIGGER: Automatically dispatch GitHub Actions 20-runner Fleet pipeline in background
+            this.triggerWorkflow(false);
           } catch (err) {
             this.showToast('Crawl error: ' + err.message, 'error');
           } finally {
@@ -4836,9 +4882,9 @@ export function getKeywordsPageHtml(initialSlug = '') {
           }
         },
 
-        async triggerWorkflow() {
+        async triggerWorkflow(notify = true) {
           this.isWorkflowDispatching = true;
-          this.showToast('Dispatching GitHub Actions autonomous crawler...', 'info');
+          if (notify) this.showToast('Dispatching GitHub Actions autonomous crawler fleet...', 'info');
           try {
             const res = await fetch(this.getApiUrl('/api/keywords/dispatch-workflow'), {
               method: 'POST',
@@ -4847,12 +4893,12 @@ export function getKeywordsPageHtml(initialSlug = '') {
             });
             const data = await res.json();
             if (data.success) {
-              this.showToast('GitHub Actions workflow triggered successfully!', 'success');
+              if (notify) this.showToast('GitHub Actions fleet workflow dispatched successfully!', 'success');
             } else {
-              this.showToast('Dispatch failed: ' + (data.error || 'Check GitHub token'), 'error');
+              if (notify) this.showToast('Dispatch note: ' + (data.error || 'Check GitHub token'), 'error');
             }
           } catch (err) {
-            this.showToast('Error triggering workflow: ' + err.message, 'error');
+            if (notify) this.showToast('Error triggering workflow: ' + err.message, 'error');
           } finally {
             this.isWorkflowDispatching = false;
           }

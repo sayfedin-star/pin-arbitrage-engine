@@ -11,6 +11,14 @@ on:
         required: false
         type: string
         default: ''
+      crawl_scope:
+        description: 'Crawl Scope: all_pins (Active + Displaced Vault 200+ pins) or active_serp (Top 100)'
+        required: false
+        type: choice
+        options:
+          - all_pins
+          - active_serp
+        default: 'all_pins'
       max_pins:
         description: 'Target pins count to harvest per keyword (default: 100)'
         required: false
@@ -18,14 +26,24 @@ on:
         default: '100'
 
 concurrency:
-  group: keyword-intelligence-${{ github.workflow }}-${{ github.ref }}
+  group: keyword-intelligence-${{ github.workflow }}-${{ github.ref }}-${{ inputs.target_keyword != '' && format('kw-{0}', inputs.target_keyword) || 'all' }}
   cancel-in-progress: false
 
 jobs:
-  sweep-keyword-serp:
-    name: Crawl SERP & Compute 24h Save Velocity
+  # ============================================================================
+  # STAGE 0: Intelligent Dynamic Fleet Dispatcher (~10s)
+  # Determines Mode:
+  # - Mode A (Multi-Keyword Broadcast): Up to 20 active keywords
+  # - Mode B (Single-Keyword Pin-Slice Sharding): 201 pins sliced across 20 runners
+  # ============================================================================
+  dispatch:
+    name: Stage 0 - Fleet Orchestrator & Dispatcher
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 10
+    outputs:
+      matrix_tasks: ${{ steps.dispatcher.outputs.matrix_tasks }}
+      mode: ${{ steps.dispatcher.outputs.mode }}
+      task_count: ${{ steps.dispatcher.outputs.task_count }}
     steps:
       - name: 1. Checkout repository
         uses: actions/checkout@v4
@@ -38,19 +56,97 @@ jobs:
           node-version: 22
           cache: 'npm'
 
-      - name: 3. Check Runner Egress IP
-        run: |
-          echo "=== GitHub Actions Runner Egress IP ==="
-          curl -s https://api.ipify.org && echo ""
-          echo "======================================="
-
-      - name: 4. Install dependencies
+      - name: 3. Install dependencies
         run: npm ci
 
-      - name: 5. Execute Keyword Velocity Autonomous Crawler
+      - name: 4. Execute Fleet Orchestrator & Dispatcher
+        id: dispatcher
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           PINTEREST_COOKIE: ${{ secrets.PINTEREST_COOKIE }}
           TARGET_KEYWORD: ${{ inputs.target_keyword }}
+          CRAWL_SCOPE: ${{ inputs.crawl_scope || 'all_pins' }}
           MAX_PINS: ${{ inputs.max_pins || '100' }}
+        run: node scripts/keyword-fleet-dispatcher.mjs
+
+  # ============================================================================
+  # STAGE 1: 20-Runner Concurrent Distributed Fleet Matrix
+  # Executes simultaneously across up to 20 isolated Azure runner VMs with distinct IPs
+  # ============================================================================
+  crawl-fleet:
+    name: ${{ matrix.task.mode == 'pin_partition' && format('Slice {0}/{1} ({2})', matrix.task.worker_index + 1, matrix.task.worker_total, matrix.task.keyword) || format('Keyword ({0})', matrix.task.keyword) }}
+    needs: [dispatch]
+    if: ${{ needs.dispatch.outputs.task_count != '0' && needs.dispatch.outputs.matrix_tasks != '[]' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        task: ${{ fromJson(needs.dispatch.outputs.matrix_tasks) }}
+
+    steps:
+      - name: 1. Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: 2. Setup Node.js 22 runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: 3. Diagnostics: Runner Egress IP
+        run: |
+          echo "=== Runner Egress IP ==="
+          curl -s https://api.ipify.org && echo ""
+          echo "========================"
+
+      - name: 4. Install dependencies
+        run: npm ci
+
+      - name: 5. Execute Fleet Worker
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PINTEREST_COOKIE: ${{ secrets.PINTEREST_COOKIE }}
+          MODE: ${{ matrix.task.mode }}
+          TARGET_KEYWORD: ${{ matrix.task.keyword }}
+          KEYWORD_ID: ${{ matrix.task.keyword_id }}
+          WORKER_INDEX: ${{ matrix.task.worker_index }}
+          WORKER_TOTAL: ${{ matrix.task.worker_total }}
+          CRAWL_SCOPE: ${{ matrix.task.crawl_scope || 'all_pins' }}
+          MAX_PINS: ${{ matrix.task.max_pins }}
         run: node scripts/keyword-velocity-crawler.mjs
+
+  # ============================================================================
+  # STAGE 2: Fleet Velocity & Report Consolidation Engine (~10s)
+  # Recalculates aggregate velocity, computes Visual Anchors, and renders Step Summary
+  # ============================================================================
+  consolidate:
+    name: Stage 2 - Telemetry & Visual Crossover Consolidation
+    needs: [dispatch, crawl-fleet]
+    if: ${{ always() && needs.dispatch.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: 1. Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: 2. Setup Node.js 22 runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: 3. Install dependencies
+        run: npm ci
+
+      - name: 4. Execute Consolidation & Report Engine
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          MODE: ${{ needs.dispatch.outputs.mode }}
+          TARGET_KEYWORD: ${{ inputs.target_keyword }}
+        run: node scripts/keyword-fleet-consolidator.mjs

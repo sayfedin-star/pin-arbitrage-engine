@@ -821,7 +821,8 @@ export async function fetchUniversalPinDossier({ hubSql, pinId }) {
       dominant_color: masterRecord?.dominant_color || '#888888',
       visual_annotations: finalVisualAnnotations,
       created_at_pinterest: masterRecord?.created_at_pinterest || null,
-      first_discovered_pillar: masterRecord?.first_discovered_pillar || 'keyword'
+      first_discovered_pillar: masterRecord?.first_discovered_pillar || 'keyword',
+      is_deleted: Boolean(masterRecord?.is_deleted || hubHistoricalSnap?.metadata?.is_deleted || (hubHistoricalSnap?.metadata?.status === 'archived_404'))
     },
     pillar_1_creator_context: {
       creator_username: creatorUsername,
