@@ -29,6 +29,9 @@ concurrency:
   group: keyword-intelligence-${{ github.workflow }}-${{ github.ref }}-${{ inputs.target_keyword || 'all' }}
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
   # ============================================================================
   # STAGE 0: Intelligent Dynamic Fleet Dispatcher (~10s)

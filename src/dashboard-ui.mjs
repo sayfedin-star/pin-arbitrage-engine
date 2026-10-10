@@ -1224,7 +1224,7 @@ export function getDashboardHtml() {
                     <div class="flex items-center gap-2 mt-1 text-[10.5px] font-normal font-mono">
                       <span class="text-slate-400" x-text="'ID: ' + (p.pin_id || p.id)"></span>
                       <template x-if="p.destination_url">
-                        <a :href="p.destination_url" target="_blank" rel="noopener noreferrer" class="text-sky-500 hover:underline flex items-center gap-0.5 truncate max-w-[180px]">
+                        <a :href="safeUrl(p.destination_url)" target="_blank" rel="noopener noreferrer" class="text-sky-500 hover:underline flex items-center gap-0.5 truncate max-w-[180px]">
                           <i data-lucide="link" class="w-3 h-3"></i>
                           <span x-text="p.link_domain || p.domain || 'Link'"></span>
                         </a>

@@ -40,6 +40,9 @@ concurrency:
   group: cluster-intelligence-${{ github.workflow }}-${{ github.ref }}-${{ inputs.target_account != '' && format('account-{0}', inputs.target_account) || 'cron' }}
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
   # ============================================================================
   # STAGE 0: Intelligent Dynamic Fleet Dispatcher (~15s)

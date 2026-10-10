@@ -198,9 +198,14 @@ function triggerCrawlProcess(seedPinId = null) {
 
   console.log(`[*] Spawning crawler background job: node ${args.join(' ')}`);
 
+  const childEnv = { ...process.env };
+  delete childEnv.GITHUB_TOKEN;
+  delete childEnv.GH_TOKEN;
+  delete childEnv.CLOUDFLARE_API_TOKEN;
+
   const child = spawn(process.execPath, args, {
     cwd: process.cwd(),
-    env: { ...process.env },
+    env: childEnv,
     stdio: ['ignore', 'pipe', 'pipe']
   });
 

@@ -22,6 +22,9 @@ concurrency:
   group: account-related-${{ inputs.target_account }}
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
   harvest-related-graph:
     name: Harvest Graph & Compute Overlap for @${{ inputs.target_account }}

@@ -21,6 +21,9 @@ concurrency:
   group: cluster-intelligence-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
   crawl-and-synthesize:
     name: Crawl Shard ${{ matrix.shard }}/20
