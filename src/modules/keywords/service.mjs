@@ -1084,7 +1084,10 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
       }
 
       const visualAnnotations = Array.isArray(item.pin_join?.visual_annotation)
-        ? item.pin_join.visual_annotation.filter(Boolean)
+        ? item.pin_join.visual_annotation
+            .map(t => String(t || '').trim())
+            .filter(t => t.length >= 2 && !/^not[\s-_]?given$/i.test(t))
+            .slice(0, 15)
         : [];
 
       const description = (item.grid_description || item.closeup_unified_description || item.description || '').slice(0, 500);

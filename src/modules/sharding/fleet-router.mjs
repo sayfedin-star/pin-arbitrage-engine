@@ -615,7 +615,10 @@ export async function fetchUniversalPinDossier({ hubSql, pinId }) {
     }
   }
 
-  const finalVisualAnnotations = Array.from(unionSet);
+  const finalVisualAnnotations = Array.from(unionSet)
+    .map(t => String(t || '').trim())
+    .filter(t => t.length >= 2 && !/^not[\s-_]?given$/i.test(t))
+    .slice(0, 15);
 
   // Auto-Backfill or Update target shard with complete metadata & Set Union annotations
   if (shardSql && shardSql !== hubSql && masterRecord) {

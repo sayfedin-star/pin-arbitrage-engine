@@ -131,7 +131,7 @@ async function inspectAndSyncPin(pin, kw) {
   const mergedTagsSet = new Set();
   for (const t of cleanExistingAnnotations) mergedTagsSet.add(t);
   for (const t of cleanNewAnnotations) mergedTagsSet.add(t);
-  const finalAnnotations = Array.from(mergedTagsSet).slice(0, 20);
+  const finalAnnotations = Array.from(mergedTagsSet).slice(0, 15);
 
   // 1. Cross-Keyword Cascade Update on Central Hub keyword_serp_current
   // Updates ALL active SERP rankings where this pin appears across all keywords

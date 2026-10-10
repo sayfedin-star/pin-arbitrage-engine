@@ -383,7 +383,11 @@ export function derivePinTitle(title, destinationUrl = '', keyword = '', boardNa
 export function normalizeTagLemma(tag) {
   let t = String(tag || '').trim().toLowerCase();
   if (!t || t.length < 3) return '';
-  t = t.replace(/[^a-z0-9\s]/g, '').trim();
+  // Unicode NFKD normalization decomposes combined characters (e.g. é -> e + ́), then strip combining marks
+  t = t.normalize('NFKD').replace(/[\u0300-\u036f]/g, '');
+  // Retain Unicode letters, numbers, and spaces while stripping punctuation/symbols
+  t = t.replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
+  if (!t || t.length < 3) return '';
 
   const irregulars = {
     'potatoes': 'potato',
@@ -1104,13 +1108,8 @@ export async function calculateFolderCrossover(sql, folderId) {
     }
   }
 
-  // If no trends data reached (e.g. rate limit), provide evergreen baseline wave
-  if (trendsLoaded === 0) {
-    for (let w = 0; w < 52; w++) {
-      const wave = Math.round(50 + 20 * Math.sin((w / 52) * 2 * Math.PI) + 10 * Math.cos((w / 26) * 2 * Math.PI));
-      compositeWeeklyWave[w] = Math.max(20, wave);
-    }
-  }
+  // Strict Zero-Hallucination Policy: Never fabricate artificial sine waves if trends data is missing
+  const hasTrends = trendsLoaded > 0;
 
   // Derive Rolling 52-Week Calendar & Accurate Monthly Scores
   const now = new Date();
@@ -1128,7 +1127,7 @@ export async function calculateFolderCrossover(sql, folderId) {
 
     normalizedWeeklyWave.push({
       week: w + 1,
-      score: Math.round((compositeWeeklyWave[w] / maxWeekly) * 100),
+      score: hasTrends ? Math.round((compositeWeeklyWave[w] / maxWeekly) * 100) : 0,
       month: allMonths[actualMonthIdx],
       start_date: weekStartDate.toISOString().slice(0, 10),
       end_date: weekEndDate.toISOString().slice(0, 10)
@@ -1169,25 +1168,29 @@ export async function calculateFolderCrossover(sql, folderId) {
     })
     .sort((a, b) => b.score - a.score);
 
-  // Algorithmic Peak Filtering:
-  // 1. Primary: Months with Z-score >= 1.25 (statistically elevated above cluster baseline)
-  // 2. Bound constraints: Strictly between 2 and 4 peak months maximum
-  let selectedPeaks = monthCandidates.filter(m => m.zScore >= 1.25);
-  if (selectedPeaks.length < 2) {
-    selectedPeaks = monthCandidates.slice(0, 2);
-  } else if (selectedPeaks.length > 4) {
-    selectedPeaks = selectedPeaks.slice(0, 4);
-  }
+  let peakMonths = [];
+  let recommendedLaunchWindow = 'Insufficient trends data (synchronize keyword trends to derive peak window)';
 
-  const peakMonthIndices = selectedPeaks;
-  const peakMonths = peakMonthIndices.map(m => m.month);
+  if (hasTrends) {
+    // Algorithmic Peak Filtering:
+    // 1. Primary: Months with Z-score >= 1.25 (statistically elevated above cluster baseline)
+    // 2. Bound constraints: Strictly between 2 and 4 peak months maximum
+    let selectedPeaks = monthCandidates.filter(m => m.zScore >= 1.25);
+    if (selectedPeaks.length < 2) {
+      selectedPeaks = monthCandidates.slice(0, 2);
+    } else if (selectedPeaks.length > 4) {
+      selectedPeaks = selectedPeaks.slice(0, 4);
+    }
 
-  // Calculate Recommended Launch Window (45-60 days / ~2 months prior to highest peak)
-  let recommendedLaunchWindow = 'Year-Round Evergreen';
-  if (peakMonthIndices.length > 0) {
-    const highestPeakIdx = peakMonthIndices[0].idx;
-    const launchMonthIdx = (highestPeakIdx - 2 + 12) % 12;
-    recommendedLaunchWindow = `${allMonths[launchMonthIdx]} (Deploy pins 45-60 days before ${allMonths[highestPeakIdx]} peak)`;
+    const peakMonthIndices = selectedPeaks;
+    peakMonths = peakMonthIndices.map(m => m.month);
+
+    // Calculate Recommended Launch Window (45-60 days / ~2 months prior to highest peak)
+    if (peakMonthIndices.length > 0) {
+      const highestPeakIdx = peakMonthIndices[0].idx;
+      const launchMonthIdx = (highestPeakIdx - 2 + 12) % 12;
+      recommendedLaunchWindow = `${allMonths[launchMonthIdx]} (Deploy pins 45-60 days before ${allMonths[highestPeakIdx]} peak)`;
+    }
   }
 
   // =========================================================================
@@ -1288,9 +1291,10 @@ export async function calculateFolderCrossover(sql, folderId) {
     domain_monopoly: domainMonopoly,
     creator_monopoly: creatorMonopoly,
     seasonality: {
+      status: hasTrends ? 'available' : 'insufficient_data',
       composite_wave: normalizedWeeklyWave,
       rolling_months: rollingMonths,
-      peak_months: peakMonths.length > 0 ? peakMonths : ['Year-round'],
+      peak_months: hasTrends && peakMonths.length > 0 ? peakMonths : (hasTrends ? ['Year-round'] : []),
       recommended_launch_window: recommendedLaunchWindow,
       trends_loaded_count: trendsLoaded
     },
