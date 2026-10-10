@@ -127,26 +127,12 @@ export function _setCircuitBreakerState(shardId, stateObj) {
  */
 export function enforceNeonPoolerUrl(url) {
   if (!url || typeof url !== 'string') return url;
-  try {
-    const parsed = new URL(url);
-    if (parsed.hostname.includes('.neon.tech') && !parsed.hostname.includes('-pooler')) {
-      const parts = parsed.hostname.split('.');
-      if (parts[0].startsWith('ep-')) {
-        parts[0] += '-pooler';
-      } else {
-        parts[0] += '-pooler';
-      }
-      parsed.hostname = parts.join('.');
-      return parsed.toString();
-    }
-    return url;
-  } catch (_) {
-    // Fallback regex replacement for non-standard connection strings
-    if (url.includes('.neon.tech') && !url.includes('-pooler')) {
-      return url.replace(/(@ep-[a-z0-9_-]+)(\.[a-z0-9_.-]*neon\.tech)/i, '$1-pooler$2');
-    }
-    return url;
-  }
+  if (!url.includes('.neon.tech') || url.includes('-pooler')) return url;
+
+  return url.replace(/(@|:\/\/)([a-z0-9_-]+)(\.[a-z0-9_.-]*neon\.tech)/i, (match, prefix, endpointId, suffix) => {
+    if (endpointId.endsWith('-pooler')) return match;
+    return `${prefix}${endpointId}-pooler${suffix}`;
+  });
 }
 
 /**
@@ -187,9 +173,9 @@ export async function resolveShardConnection({ hubSql, shardId, dsnTemplate = nu
 
   // 2. Hub Registry Resolution with In-Memory Caching
   const now = Date.now();
-  if (registryCache.has(cleanId) && (now - registryLastFetched < REGISTRY_TTL_MS)) {
+  if (registryCache.has(cleanId)) {
     const cachedEntry = registryCache.get(cleanId);
-    if (cachedEntry?.database_url) {
+    if (cachedEntry?.database_url && (now - (cachedEntry.cachedAt || 0) < REGISTRY_TTL_MS)) {
       const pooledDsn = enforceNeonPoolerUrl(cachedEntry.database_url);
       if (!shardSqlClients.has(pooledDsn)) {
         shardSqlClients.set(pooledDsn, neon(pooledDsn));
@@ -215,7 +201,7 @@ export async function resolveShardConnection({ hubSql, shardId, dsnTemplate = nu
     throw new Error(`Shard database '${shardName}' (ID: ${cleanId}) is not active in neon_projects_registry.`);
   }
 
-  registryCache.set(cleanId, row);
+  registryCache.set(cleanId, { ...row, cachedAt: now });
   registryLastFetched = now;
 
   const pooledDsn = enforceNeonPoolerUrl(row.database_url);
@@ -243,7 +229,11 @@ export async function executeShardQueryWithCircuitBreaker({
   fallbackFn = null,
   timeoutMs = 2500
 }) {
-  const cb = circuitBreakers.get(shardId) || { state: 'CLOSED', failures: 0, nextAttempt: 0 };
+  let cb = circuitBreakers.get(shardId);
+  if (!cb) {
+    cb = { state: 'CLOSED', failures: 0, nextAttempt: 0 };
+    circuitBreakers.set(shardId, cb);
+  }
   const now = Date.now();
 
   // If breaker is OPEN and cooldown has not expired, fast-fail to fallback
@@ -256,6 +246,7 @@ export async function executeShardQueryWithCircuitBreaker({
     }
     // Probe attempt (HALF_OPEN)
     cb.state = 'HALF_OPEN';
+    circuitBreakers.set(shardId, cb);
   }
 
   // Execute with explicit timeout
@@ -354,17 +345,22 @@ export async function prewarmFleetShards({
   for (let i = 0; i < uniqueIds.length; i += concurrency) {
     const chunk = uniqueIds.slice(i, i + concurrency);
     await Promise.all(chunk.map(async (sid) => {
+      let timer = null;
       try {
         const client = await resolveShardConnection({ hubSql, shardId: sid });
         await Promise.race([
           client`SELECT 1 as alive;`,
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Pre-warm timeout')), timeoutMs))
+          new Promise((_, reject) => {
+            timer = setTimeout(() => reject(new Error('Pre-warm timeout')), timeoutMs);
+          })
         ]);
         warmed++;
         details[sid] = 'warm';
       } catch (err) {
         failed++;
         details[sid] = `failed: ${err.message}`;
+      } finally {
+        if (timer) clearTimeout(timer);
       }
     }));
   }
@@ -468,6 +464,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId }) {
   }
 
   // 1 & 2. Fetch Master Creative Record and Historical Snapshots concurrently from target shard
+  let shardErrorReason = null;
   const [initialMaster, initialSnapshots] = await Promise.all([
     executeShardQueryWithCircuitBreaker({
       shardId,
@@ -481,7 +478,10 @@ export async function fetchUniversalPinDossier({ hubSql, pinId }) {
         `;
         return row || null;
       },
-      fallbackFn: async () => null,
+      fallbackFn: async (info) => {
+        shardErrorReason = info?.reason || 'SHARD_UNAVAILABLE';
+        return null;
+      },
       timeoutMs: 2500
     }),
     executeShardQueryWithCircuitBreaker({
@@ -619,7 +619,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId }) {
 
   // Auto-Backfill or Update target shard with complete metadata & Set Union annotations
   if (shardSql && shardSql !== hubSql && masterRecord) {
-    (async () => {
+    const backfillPromise = (async () => {
       try {
         await shardSql`
           INSERT INTO universal_master_pins (
@@ -651,7 +651,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId }) {
             alt_text = COALESCE(NULLIF(EXCLUDED.alt_text, ''), universal_master_pins.alt_text),
             dominant_color = COALESCE(NULLIF(EXCLUDED.dominant_color, ''), universal_master_pins.dominant_color),
             visual_annotations = CASE 
-              WHEN jsonb_array_length(EXCLUDED.visual_annotations) > 0 THEN EXCLUDED.visual_annotations 
+              WHEN jsonb_typeof(EXCLUDED.visual_annotations) = 'array' AND jsonb_array_length(EXCLUDED.visual_annotations) > 0 THEN EXCLUDED.visual_annotations 
               ELSE universal_master_pins.visual_annotations 
             END,
             updated_at = NOW();
@@ -660,6 +660,14 @@ export async function fetchUniversalPinDossier({ hubSql, pinId }) {
         console.warn(`[Auto-Backfill] Shard ${shardId} pin ${cleanPinId} backfill deferred:`, backfillErr.message);
       }
     })();
+
+    // Await backfill with a bounded 1500ms race to avoid unhandled termination in serverless isolate
+    try {
+      await Promise.race([
+        backfillPromise,
+        new Promise(r => setTimeout(r, 1500))
+      ]);
+    } catch (_) {}
   }
 
   // Hub Fallback: If shard has no snapshots recorded yet, query Hub's keyword_pins_snapshots
@@ -796,6 +804,15 @@ export async function fetchUniversalPinDossier({ hubSql, pinId }) {
   `.catch(() => [{ ranking_keywords: [], competitor_info: null }]);
 
   if (!masterRecord && snapshots.length === 0 && (!hubContext?.ranking_keywords || hubContext.ranking_keywords.length === 0)) {
+    if (shardErrorReason) {
+      return {
+        success: false,
+        error: 'SHARD_UNAVAILABLE',
+        reason: shardErrorReason,
+        shard_id: shardId,
+        message: `Shard ${shardId} is currently unreachable (${shardErrorReason}).`
+      };
+    }
     return {
       success: false,
       error: 'NOT_FOUND',

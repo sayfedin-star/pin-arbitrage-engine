@@ -27,7 +27,11 @@ export async function getFleetProjects(sql) {
   `;
 
   return rows.map(r => {
-    const masked = r.database_url ? r.database_url.replace(/:([^:@]+)@/, ':••••••••@') : '';
+    const masked = r.database_url
+      ? (r.database_url.includes('@')
+          ? r.database_url.replace(/(:\/\/[^:]+:)(.*)(@[^@]+$)/, '$1••••••••$3')
+          : r.database_url)
+      : '';
     return {
       id: r.id,
       project_id: r.project_id,
