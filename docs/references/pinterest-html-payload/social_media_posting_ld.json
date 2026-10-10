@@ -1,0 +1,72 @@
+{
+  "@type": "SocialMediaPosting",
+  "author": {
+    "@type": "Person",
+    "name": "Lysa Guertler",
+    "alternateName": "towson09",
+    "url": "https://www.pinterest.com/towson09"
+  },
+  "headline": "Thick Porkchops Dinner Ideas",
+  "articleBody": "Jan 20, 2026 — There are certain dinners that instantly make a house feel warmer the moment they slide into the oven. Parmesan Baked Pork Chops is one of those meals for me. I still remember making these on | Thick porkchops dinner ideas, Dinners with pork chops, Pork recipe ideas",
+  "image": "https://i.pinimg.com/originals/08/92/52/0892528dd65edc951b271ec3b26d3993.webp",
+  "datePublished": "2026-03-01T18:19:34.000Z",
+  "sharedContent": {
+    "@type": "WebPage",
+    "headline": "Thick Porkchops Dinner Ideas",
+    "url": "https://www.nourishyourglow.com/01/parmesan-baked-pork-chops/"
+  },
+  "interactionStatistic": [
+    {
+      "@type": "InteractionCounter",
+      "interactionType": {
+        "@type": "https://schema.org/LikeAction"
+      },
+      "name": "LikeAction",
+      "description": "Saves",
+      "userInteractionCount": 23716
+    }
+  ],
+  "@context": "http://schema.org/",
+  "isRelatedTo": [
+    {
+      "name": "Thick Porkchops Dinner Ideas",
+      "url": "/ideas/thick-porkchops-dinner-ideas/917980612818/"
+    },
+    {
+      "name": "Dinners With Pork Chops",
+      "url": "/ideas/dinners-with-pork-chops/902211182300/"
+    },
+    {
+      "name": "Think Pork Chop Recipes",
+      "url": "/ideas/think-pork-chop-recipes/916840201995/"
+    },
+    {
+      "name": "Home Cooked Dinner Ideas",
+      "url": "/ideas/home-cooked-dinner-ideas/954538937598/"
+    },
+    {
+      "name": "Pork Chips",
+      "url": "/ideas/pork-chips/918324914682/"
+    },
+    {
+      "name": "Pork Recipe Ideas",
+      "url": "/ideas/pork-recipe-ideas/943628193951/"
+    },
+    {
+      "name": "Loin Chops Recipes",
+      "url": "/ideas/loin-chops-recipes/925350636046/"
+    },
+    {
+      "name": "Dinner Ideas No Chicken",
+      "url": "/ideas/dinner-ideas-no-chicken/932669095016/"
+    },
+    {
+      "name": "Fall Dinner Recipes Easy",
+      "url": "/ideas/fall-dinner-recipes-easy/911945167983/"
+    }
+  ],
+  "mainEntityOfPage": {
+    "@type": "WebPage",
+    "@id": "https://www.pinterest.com/pin/crispy-air-fryer-cinnamonchurro-bites--39054721769101397/"
+  }
+}

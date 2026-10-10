@@ -811,7 +811,7 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
     // Pre-query historical records:
     // A) Immediate prior crawl (for rank shifts, title/image preservation, and new entry detection)
     const immediateSnapshots = await sql`
-      SELECT pin_id, rank_position, save_count, repin_count, comment_count, title, image_url, domain, destination_url, metadata, snapshot_date
+      SELECT pin_id, rank_position, save_count, repin_count, comment_count, title, image_url, domain, destination_url, metadata, snapshot_date, created_at_pinterest, creation_method
       FROM keyword_pins_snapshots
       WHERE keyword_id = ${kid}
         AND is_displaced = FALSE
@@ -1224,9 +1224,11 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
             image_url: s.image_url || null,
             domain: s.domain || '',
             destination_url: s.destination_url || '',
+            board_name: s.board_name || s.metadata?.board_name || null,
             format: s.metadata?.format || 'ORGANIC PIN',
             created_at_pinterest: s.created_at_pinterest || s.metadata?.created_at_pinterest || s.metadata?.created_at || null,
             creation_method: s.creation_method || s.metadata?.method || 'pinterest_platform',
+            metadata: s.metadata || {},
             dropped_at: new Date().toISOString()
           });
         }
@@ -1455,21 +1457,32 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
       // Persist newly displaced pins to keyword_displaced_pins and record today's displaced snapshot
       if (droppedOutList.length > 0) {
         for (const dp of droppedOutList) {
+          const dpMeta = {
+            ...(dp.metadata || {}),
+            method: dp.creation_method || 'pinterest_platform',
+            creation_method: dp.creation_method || 'pinterest_platform',
+            created_at_pinterest: dp.created_at_pinterest || '',
+            board_name: dp.board_name || ''
+          };
+
           txBatch.push(sql`
             INSERT INTO keyword_displaced_pins (
               keyword_id, pin_id, title, domain, destination_url, image_url,
-              last_known_rank, displaced_date, status, current_saves, current_repins, current_comments,
+              board_name, last_known_rank, displaced_date, status, current_saves, current_repins, current_comments,
               created_at_pinterest, creation_method, metadata, updated_at
             ) VALUES (
               ${kid}, ${dp.pin_id}, ${dp.title}, ${dp.domain}, ${dp.destination_url}, ${dp.image_url},
-              ${dp.rank_position}, (NOW() AT TIME ZONE 'UTC')::date, 'displaced_active', ${dp.save_count}, ${dp.repin_count || 0}, ${dp.comment_count || 0},
-              ${dp.created_at_pinterest ? dp.created_at_pinterest : null}, ${dp.creation_method || 'pinterest_platform'}, jsonb_build_object('method', ${dp.creation_method || 'pinterest_platform'}::text, 'created_at_pinterest', ${dp.created_at_pinterest || ''}::text), NOW()
+              ${dp.board_name || null}, ${dp.rank_position}, (NOW() AT TIME ZONE 'UTC')::date, 'displaced_active', ${dp.save_count}, ${dp.repin_count || 0}, ${dp.comment_count || 0},
+              ${dp.created_at_pinterest ? dp.created_at_pinterest : null}, ${dp.creation_method || 'pinterest_platform'},
+              ${JSON.stringify(dpMeta)}::jsonb, NOW()
             )
             ON CONFLICT (keyword_id, pin_id) DO UPDATE SET
               last_known_rank = EXCLUDED.last_known_rank,
               status = 'displaced_active',
               displaced_date = (NOW() AT TIME ZONE 'UTC')::date,
               current_saves = GREATEST(keyword_displaced_pins.current_saves, EXCLUDED.current_saves),
+              current_repins = GREATEST(keyword_displaced_pins.current_repins, EXCLUDED.current_repins),
+              board_name = COALESCE(EXCLUDED.board_name, keyword_displaced_pins.board_name),
               created_at_pinterest = COALESCE(EXCLUDED.created_at_pinterest, keyword_displaced_pins.created_at_pinterest),
               creation_method = COALESCE(EXCLUDED.creation_method, keyword_displaced_pins.creation_method),
               metadata = COALESCE(keyword_displaced_pins.metadata, '{}'::jsonb) || EXCLUDED.metadata,
@@ -1484,13 +1497,15 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
               ${kid}, ${dp.pin_id}, NULL, ${dp.title}, ${dp.domain}, ${dp.destination_url}, ${dp.image_url},
               ${dp.save_count}, ${dp.repin_count || 0}, ${dp.comment_count || 0}, 0, (NOW() AT TIME ZONE 'UTC')::date, TRUE,
               ${dp.created_at_pinterest ? dp.created_at_pinterest : null}, ${dp.creation_method || 'pinterest_platform'},
-              jsonb_build_object('method', ${dp.creation_method || 'pinterest_platform'}::text, 'created_at_pinterest', ${dp.created_at_pinterest || ''}::text), NOW()
+              ${JSON.stringify(dpMeta)}::jsonb, NOW()
             )
             ON CONFLICT (keyword_id, pin_id, snapshot_date) DO UPDATE SET
               is_displaced = TRUE,
               save_count = GREATEST(keyword_pins_snapshots.save_count, EXCLUDED.save_count),
+              repin_count = GREATEST(keyword_pins_snapshots.repin_count, EXCLUDED.repin_count),
               created_at_pinterest = COALESCE(EXCLUDED.created_at_pinterest, keyword_pins_snapshots.created_at_pinterest),
-              creation_method = COALESCE(EXCLUDED.creation_method, keyword_pins_snapshots.creation_method);
+              creation_method = COALESCE(EXCLUDED.creation_method, keyword_pins_snapshots.creation_method),
+              metadata = COALESCE(keyword_pins_snapshots.metadata, '{}'::jsonb) || EXCLUDED.metadata;
           `);
         }
       }
@@ -1642,11 +1657,11 @@ export async function getKeywordSERPComparison(sql, keywordId, knownKeyword = nu
     sql`
       SELECT 
         id, keyword_id, pin_id, title, domain, destination_url, image_url,
-        last_known_rank, displaced_date, status, current_saves, current_repins,
+        board_name, last_known_rank, displaced_date, status, current_saves, current_repins,
         current_comments, current_shares, current_reactions,
         delta_saves_24h, delta_repins_24h, delta_saves_3d, delta_repins_3d,
         delta_saves_7d, delta_repins_7d, daily_save_velocity, vacuum_opportunity_score,
-        seo_alt_text, annotations, dominant_color, created_at_pinterest, created_at
+        seo_alt_text, annotations, dominant_color, created_at_pinterest, creation_method, metadata, created_at
       FROM keyword_displaced_pins
       WHERE keyword_id = ${kid}
       ORDER BY vacuum_opportunity_score DESC, last_known_rank ASC;
@@ -1742,7 +1757,10 @@ export async function getKeywordSERPComparison(sql, keywordId, knownKeyword = nu
 
   for (const p of droppedOutPins) {
     const meta = p.metadata || {};
-    p.title = derivePinTitle(p.title, p.destination_url, keyword.keyword, meta.board_name, meta.visual_annotations);
+    p.board_name = p.board_name || meta.board_name || null;
+    p.creation_method = p.creation_method || p.method || meta.creation_method || meta.method || null;
+    p.created_at_pinterest = p.created_at_pinterest || meta.created_at_pinterest || meta.created_at || null;
+    p.title = derivePinTitle(p.title, p.destination_url, keyword.keyword, p.board_name, meta.visual_annotations);
   }
 
   // Pre-calculate visual tag frequency crossover map on the server (sub-millisecond Node/V8)
@@ -2221,6 +2239,9 @@ export async function getKeywordDisplacedPins(sql, keywordId, options = {}) {
     pin.current_repins = pin.repin_count;
     pin.current_comments = pin.comment_count;
     pin.current_shares = pin.share_count;
+    pin.board_name = pin.board_name || pin.metadata?.board_name || null;
+    pin.creation_method = pin.creation_method || pin.metadata?.creation_method || pin.metadata?.method || null;
+    pin.created_at_pinterest = pin.created_at_pinterest || pin.metadata?.created_at_pinterest || pin.metadata?.created_at || null;
 
     if (!pin.vacuum_opportunity_score || pin.vacuum_opportunity_score === 0) {
       let rankScore = 10;

@@ -163,6 +163,7 @@ async function inspectAndSyncPin(pin, kw) {
       current_repins = GREATEST(current_repins, ${authenticRepins}::int),
       current_comments = GREATEST(current_comments, ${authenticComments}::int),
       current_shares = GREATEST(current_shares, ${authenticShares}::int),
+      board_name = CASE WHEN ${board}::text <> '' THEN ${board}::text ELSE board_name END,
       created_at_pinterest = CASE WHEN ${createdAtPinterest}::timestamptz IS NOT NULL THEN ${createdAtPinterest}::timestamptz ELSE created_at_pinterest END,
       creation_method = CASE WHEN ${method}::text <> '' THEN ${method}::text ELSE creation_method END,
       vacuum_opportunity_score = CASE 
@@ -180,6 +181,8 @@ async function inspectAndSyncPin(pin, kw) {
       END,
       metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
         'method', ${method}::text,
+        'creation_method', ${method}::text,
+        'board_name', ${board}::text,
         'created_at_pinterest', ${createdAtPinterest}::text
       ),
       last_checked_at = NOW(),
@@ -203,7 +206,9 @@ async function inspectAndSyncPin(pin, kw) {
         'alt_text', ${altText}::text,
         'share_count', ${authenticShares}::int,
         'dominant_color', ${dominantColor}::text,
+        'board_name', ${board}::text,
         'method', ${method}::text,
+        'creation_method', ${method}::text,
         'created_at_pinterest', ${createdAtPinterest}::text,
         'is_deleted', ${isDead}::boolean,
         'status', ${isDead ? 'archived_404' : 'active'}::text,

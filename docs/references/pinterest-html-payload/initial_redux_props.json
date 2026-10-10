@@ -1,0 +1,369 @@
+{
+  "otaData": {
+    "deltas": {}
+  },
+  "inContextTranslation": false,
+  "initialReduxState": {
+    "adminUser": null,
+    "articles": {},
+    "billing": {
+      "businessInformationForm": {},
+      "billingInformationForm": {},
+      "autoFillQPBillingChecked": true
+    },
+    "boards": {},
+    "boardSectionPinsRefresh": {},
+    "boardsections": {},
+    "businessNux": {
+      "currentStep": {
+        "index": 0,
+        "canProceed": false
+      },
+      "businessGoals": [],
+      "businessName": "",
+      "businessVertical": "",
+      "numberEmployees": "",
+      "hasWebsite": "",
+      "website": "",
+      "country": "",
+      "locale": "",
+      "advertisingIntent": null,
+      "accountType": "",
+      "agencyRole": "",
+      "agencyClients": "",
+      "agencyContent": "",
+      "agencyService": "",
+      "agencyServiceOther": "",
+      "firstName": "",
+      "lastName": "",
+      "fullName": "",
+      "email": "",
+      "countryCode": "",
+      "phoneNumber": "",
+      "worksWithAgency": null,
+      "leadId": "",
+      "whatsAppConsent": false,
+      "calendlyUpsellEligible": false,
+      "shouldShowCalendlyModal": false,
+      "businessSettingsUtmsEnabled": true
+    },
+    "underageConfirmation": {
+      "isUnderageConfirmationModalVisible": false
+    },
+    "changeBoardFromToast": {
+      "shouldOpenModal": false
+    },
+    "contactRequests": {},
+    "currentUserTracker": {
+      "isAuthenticated": 0,
+      "downloadedPinsCount": 0,
+      "downloadLimitReached": false,
+      "visitedUnauthPages": [],
+      "closeupPins": [],
+      "completedSearches": [],
+      "clickthroughPins": [],
+      "savedPins": [],
+      "isQUS": 0,
+      "revisitationState": {
+        "ts": 1791603653698,
+        "sessionTimestamps": [
+          1791603653698
+        ]
+      },
+      "daysSinceLastRevisitation": 0,
+      "country": "",
+      "referrer": "",
+      "unauthId": "",
+      "userAgent": {
+        "browserName": "",
+        "browserType": null,
+        "browserVersion": "",
+        "canUseNativeApp": false,
+        "isTablet": false,
+        "isMobile": false,
+        "platform": "",
+        "platformVersion": [
+          0,
+          0,
+          0
+        ],
+        "osName": null,
+        "raw": ""
+      },
+      "region": "",
+      "channel": "",
+      "iab": "",
+      "deviceType": "desktop",
+      "storageAccessAllowed": 0,
+      "isIAB": false,
+      "landingPage": {
+        "viewType": 202,
+        "objectId": null
+      },
+      "revisitationCount": 0,
+      "currentPageViewType": 202,
+      "dwebPinImageClickCount": 0,
+      "closeupWashClickAttemptCountDweb": 0,
+      "saveAttemptCountDweb": 0,
+      "saveAttemptCountMweb": 0,
+      "searchAttemptCountDweb": 0,
+      "searchAttemptCountMweb": 0,
+      "timedPairCloseups": [],
+      "pinCloseupClicks": [],
+      "visualSearchClicks": [],
+      "relatedInterestClicks": [],
+      "relatedBoardClicks": [],
+      "relatedSearchClicks": [],
+      "upsellSessionStamp": null
+    },
+    "desktopStories": {},
+    "didItData": {},
+    "experiences": {},
+    "experiencesManager": {
+      "phase": {
+        "state": "idle"
+      },
+      "placements": {}
+    },
+    "experiencesMulti": {},
+    "feeds": {},
+    "flashlight": {},
+    "guidance": {
+      "adsNotifications": {
+        "data": [],
+        "error": null,
+        "isLoading": false,
+        "isLoaded": false,
+        "lastCallParams": null
+      }
+    },
+    "homefeedTabUI": {
+      "activeTabBoardId": "",
+      "activeTabIndex": 0
+    },
+    "inbox": {},
+    "invites": {},
+    "marketingPlan": {
+      "canProceed": true,
+      "topBusinessGoal": "",
+      "dailyAdsBudget": "",
+      "weeklyAddToCarts": 0,
+      "weeklyLeads": 0,
+      "weeklyCheckouts": 0,
+      "hasFeed": false,
+      "defaultCatalogId": null,
+      "defaultFeedProfileId": null,
+      "shouldShowGoalsStep": true,
+      "isSurveyOpen": false,
+      "isCalendlyModalOpen": false,
+      "marketingPlanName": "",
+      "marketingPlanSuggestion": [],
+      "showCustomBudgetField": false,
+      "showCustomBudgetFieldError": false
+    },
+    "modules": {},
+    "mostRecentBoard": null,
+    "notifications": {},
+    "pinbuilder": {
+      "assets": [],
+      "batchDraftCreationIds": [],
+      "batchEditModeFields": {
+        "dirtyFields": [],
+        "description": "",
+        "link": "",
+        "title": "",
+        "board": null,
+        "descriptionError": null,
+        "linkError": null,
+        "titleError": null
+      },
+      "createdPinIds": [],
+      "entryPoint": null,
+      "fonts": [],
+      "isBatchEditMode": false,
+      "layoutMode": 0,
+      "pinDraftIds": [],
+      "pinDraftIdUploadStatusMap": {},
+      "pinDrafts": {},
+      "pinEditorPinDraft": null,
+      "pinItems": {},
+      "pinTags": {},
+      "selectedPinDraftIds": [],
+      "showFeedbackModal": false,
+      "storyPinItemBlocks": {},
+      "storyPinItems": {},
+      "taggedObjects": {},
+      "publishedPinIsShoppingRecAllowedByPinId": {}
+    },
+    "pinbuilderMobile": {},
+    "pinNavContext": null,
+    "pins": {},
+    "recentlyViewedPins": [],
+    "resources": {},
+    "scheduledPins": [],
+    "search": {
+      "animated": false,
+      "currentSearch": {
+        "query": "",
+        "scope": "pins"
+      },
+      "queries": {},
+      "productFilters": {},
+      "recentSearches": [],
+      "recentPersonalSearches": [],
+      "recommendedSearches": [],
+      "typeaheadCache": {},
+      "pins": {},
+      "visualSearches": {}
+    },
+    "seeMorePinInjection": {
+      "injectionsByTarget": {},
+      "injectedPinIdByHost": {},
+      "animatedHostIds": {}
+    },
+    "session": {
+      "browser": "Chrome",
+      "browserType": 1,
+      "browserVersion": "122.0.0",
+      "canUseNativeApp": false,
+      "debug": false,
+      "facebookToken": "",
+      "inviteCode": "",
+      "isAuthenticated": false,
+      "isDataSaver": false,
+      "isMobile": false,
+      "isPaidTraffic": false,
+      "isSocialBot": false,
+      "isTablet": false,
+      "origin": "https://www.pinterest.com",
+      "requestIdentifier": "1662357896569169",
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+      "userAgentPlatform": "other",
+      "userId": "",
+      "stage": "prod",
+      "seoDebug": false
+    },
+    "stories": {},
+    "storyPinData": {},
+    "todayarticles": {},
+    "topics": {},
+    "triedits": {},
+    "ui": {
+      "mainComponent": {
+        "current": null,
+        "locationToErrorMap": {}
+      },
+      "nuxSelectedInterestImages": {
+        "images": []
+      },
+      "nuxSelectedPinImages": {
+        "images": []
+      },
+      "nuxProgress": {
+        "step": "welcome"
+      },
+      "postRepinMoreIdeasUpsell": {
+        "recentSaves": [],
+        "recentUpsell": {}
+      }
+    },
+    "users": {
+      "": {
+        "unauth_id": "3bfde221b1534f568dd82decb90658c5",
+        "ip_country": "MA",
+        "ip_region": "CAS",
+        "id": ""
+      }
+    },
+    "verifiedMerchants": {
+      "vmpBannerLastDismissedAt": {},
+      "vmpWelcomeBannerDismissCount": {},
+      "vmpCelebrationBannerDismissed": {}
+    },
+    "upsell": {
+      "latestL1Vertical": null,
+      "pinClickRelatedPinsCount": 0,
+      "upsellReason": "",
+      "pinViewCount": 0,
+      "pinSaveCount": 0,
+      "showBanner": false,
+      "showSaveModal": false,
+      "attributionLabel": "",
+      "pinId": "",
+      "showScrollDownUpsell": true,
+      "showRelatedPinsGradientUpsell": false,
+      "relatedPinsGradientUpsellEverShown": false,
+      "gradientUpsell": {
+        "pageKey": null,
+        "shouldShowGradientUpsell": false
+      },
+      "clickCloseUp": false,
+      "clickContextMenuSaveButton": false,
+      "clickContextMenuDownloadButton": false,
+      "clickFollowButton": false,
+      "followIsIdeaPin": false,
+      "clickCloseUpContextMenuSaveButton": false,
+      "clickFollowingButton": false,
+      "clickFollowersButton": false,
+      "clickCommentComposerUpsell": false,
+      "clickPinLinkUpsell": false,
+      "clickPinLinkCount": 0,
+      "clickRelatedPinOpenLinkUpsell": false,
+      "uniqueNavigationalPagesSeen": [],
+      "navigationalPagesUpsellSeen": false,
+      "navigationalContainerPage": "navigationalContainerPage_unspecified_container",
+      "isGoldenSetBrowsing": false,
+      "modal": {
+        "isShown": false
+      },
+      "dwebOnLandDecisionMade": false,
+      "mwebOnLandDecisionMade": false,
+      "socialPinLandingInviter": null,
+      "socialPinLandingContainerPage": "socialPinLandingContainerPage_unspecified_container",
+      "socialPinLandingModalShown": false,
+      "socialPinLandingModalDismissed": false,
+      "mWeb": {
+        "pinSaveCount": 0,
+        "pinViewCount": 0
+      },
+      "mWebSignupModal": {
+        "modal": {
+          "isShown": false
+        },
+        "scrollControllerHasDisplayed": false,
+        "upsellEligibleNavigationCount": 0,
+        "isUnauthSharingModalsShown": false,
+        "lastShownTime": null,
+        "timesShownForSessionCount": 0,
+        "modalHasShown": false
+      },
+      "upsellDismissCount": 0,
+      "engagementScore": {
+        "PES": 0,
+        "NUS": 0,
+        "conversionIntentLevel": "unknown",
+        "lastCalculated": 0
+      },
+      "appUpsells": {
+        "learningUpsell": {
+          "isShown": false
+        },
+        "floatingUpsell": {
+          "shouldShow": true,
+          "isDismissed": false
+        },
+        "iabAppUpsell": {
+          "isShown": false,
+          "appUpsellType": "other",
+          "isBlocking": false
+        },
+        "appUpsellDismissCount": 0
+      }
+    }
+  },
+  "isAppShell": false,
+  "pwaContext": {
+    "pwaType": "unknown",
+    "twaType": null
+  }
+}

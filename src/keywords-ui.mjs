@@ -1325,8 +1325,8 @@ export function getKeywordsPageHtml(initialSlug = '') {
                     <!-- Board Name -->
                     <td class="py-3.5 px-3">
                       <span class="text-xs text-slate-600 dark:text-slate-300 font-medium truncate max-w-[130px] block"
-                            :title="pin.metadata?.board_name || 'General Board'"
-                            x-text="pin.metadata?.board_name || 'General Board'"></span>
+                            :title="pin.board_name || pin.metadata?.board_name || 'General Board'"
+                            x-text="pin.board_name || pin.metadata?.board_name || 'General Board'"></span>
                     </td>
 
                     <!-- Saves & Growth Pace Delta (Image 1 Parity) -->
@@ -1437,7 +1437,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
                     <div class="flex items-center space-x-1.5 text-[10px] font-mono">
                       <a :href="'/pins/' + pin.pin_id" @click.stop
                          class="text-slate-400 hover:text-emerald-500 truncate"
-                         x-text="pin.metadata?.board_name || ('ID: ' + pin.pin_id)"></a>
+                         x-text="pin.board_name || pin.metadata?.board_name || ('ID: ' + pin.pin_id)"></a>
                       <span class="px-1.5 py-0.2 rounded text-[8px] font-mono font-bold border shrink-0"
                             :class="getPinMethodBadgeClass(pin)"
                             :title="'Method: ' + formatPinMethodLabel(pin)"
@@ -4287,7 +4287,10 @@ export function getKeywordsPageHtml(initialSlug = '') {
             rank_position: p.last_known_rank || p.rank_position || 101,
             save_count: p.current_saves ?? p.save_count ?? 0,
             repin_count: p.current_repins ?? p.repin_count ?? 0,
-            comment_count: p.current_comments ?? p.comment_count ?? 0
+            comment_count: p.current_comments ?? p.comment_count ?? 0,
+            board_name: p.board_name || p.metadata?.board_name || null,
+            creation_method: p.creation_method || p.method || p.metadata?.creation_method || p.metadata?.method || null,
+            created_at_pinterest: p.created_at_pinterest || p.metadata?.created_at_pinterest || p.metadata?.created_at || null
           }));
           const fetchedDisplaced = (this.displacedPins || []).map(p => ({
             ...p,
@@ -4295,7 +4298,10 @@ export function getKeywordsPageHtml(initialSlug = '') {
             rank_position: p.last_known_rank || p.rank_position || 101,
             save_count: p.current_saves ?? p.save_count ?? 0,
             repin_count: p.current_repins ?? p.repin_count ?? 0,
-            comment_count: p.current_comments ?? p.comment_count ?? 0
+            comment_count: p.current_comments ?? p.comment_count ?? 0,
+            board_name: p.board_name || p.metadata?.board_name || null,
+            creation_method: p.creation_method || p.method || p.metadata?.creation_method || p.metadata?.method || null,
+            created_at_pinterest: p.created_at_pinterest || p.metadata?.created_at_pinterest || p.metadata?.created_at || null
           }));
           const vaultMap = new Map();
           for (const p of [...droppedFromDetails, ...fetchedDisplaced]) {
@@ -5549,7 +5555,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
 
         getPinCreatedDate(pin) {
           if (!pin) return null;
-          return pin.created_at_pinterest || pin.metadata?.created_at_pinterest || pin.metadata?.created_at || pin.created_at || null;
+          return pin.created_at_pinterest || pin.metadata?.created_at_pinterest || pin.metadata?.created_at || null;
         },
 
         formatPinCreated(pin) {
@@ -5570,7 +5576,9 @@ export function getKeywordsPageHtml(initialSlug = '') {
           try {
             const dt = new Date(d);
             if (isNaN(dt.getTime())) return '';
-            const days = Math.max(0, Math.floor((Date.now() - dt.getTime()) / 86400000));
+            const diffMs = Date.now() - dt.getTime();
+            if (diffMs < 0) return 'Recent';
+            const days = Math.floor(diffMs / 86400000);
             if (days === 0) return 'Today';
             if (days === 1) return '1d ago';
             if (days < 30) return days + 'd ago';

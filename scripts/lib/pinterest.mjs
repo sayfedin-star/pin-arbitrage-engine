@@ -405,6 +405,9 @@ export function formatPin(pin) {
       pin.grid_title ||
       pin.title ||
       pin.headline ||
+      pin.unauthOnPageTitle ||
+      pin.unauth_on_page_title ||
+      pin.closeupUnifiedTitle ||
       pin.grid_description ||
       pin.rich_summary?.display_name ||
       pin.rich_metadata?.title ||
@@ -441,6 +444,40 @@ export function formatPin(pin) {
     reactions: pin.reaction_counts || pin.reactions || {},
     annotations,
     tags: annotations.map(a => a.name),
+    is_repin: Boolean(pin.is_repin ?? pin.isRepin ?? false),
+    origin_pinner: (pin.originPinner || pin.origin_pinner) ? {
+      username: safeString(pin.originPinner?.username || pin.origin_pinner?.username || ''),
+      full_name: safeString(pin.originPinner?.fullName || pin.origin_pinner?.full_name || ''),
+      follower_count: parseCleanMetric(pin.originPinner?.followerCount || pin.origin_pinner?.follower_count || 0),
+      image_url: pin.originPinner?.imageMediumUrl || pin.origin_pinner?.image_medium_url || pin.originPinner?.imageSmallUrl || null,
+      is_verified_merchant: Boolean(pin.originPinner?.isVerifiedMerchant || pin.origin_pinner?.is_verified_merchant)
+    } : null,
+    domain_official_user: (pin.linkDomain?.officialUser || pin.link_domain?.official_user) ? {
+      username: safeString(pin.linkDomain?.officialUser?.username || pin.link_domain?.official_user?.username || ''),
+      full_name: safeString(pin.linkDomain?.officialUser?.fullName || pin.link_domain?.official_user?.full_name || ''),
+      follower_count: parseCleanMetric(pin.linkDomain?.officialUser?.followerCount || pin.link_domain?.official_user?.follower_count || 0),
+      is_verified_merchant: Boolean(pin.linkDomain?.officialUser?.isVerifiedMerchant || pin.link_domain?.official_user?.is_verified_merchant)
+    } : null,
+    creator_is_verified_merchant: Boolean(pin.pinner?.is_verified_merchant || pin.pinner?.isVerifiedMerchant || pin.creator?.is_verified_merchant || false),
+    board_pin_count: parseCleanMetric(pin.board?.pin_count || pin.board?.pinCount || 0),
+    board_order_modified_at: pin.board?.board_order_modified_at || pin.board?.boardOrderModifiedAt || null,
+    board_url: pin.board?.url || null,
+    image_signature: safeString(pin.imageSignature || pin.image_signature || ''),
+    seo_noindex_reason: pin.seoNoindexReason || pin.seo_noindex_reason || null,
+    is_go_linkless: Boolean(pin.isGoLinkless || pin.is_go_linkless || false),
+    utm_link: safeString(pin.utmLink || pin.utm_link || ''),
+    tracked_link: safeString(pin.trackedLink || pin.tracked_link || ''),
+    category_breadcrumbs: Array.isArray(pin.pinJoin?.seoBreadcrumbs)
+      ? pin.pinJoin.seoBreadcrumbs.map(b => b?.name).filter(Boolean)
+      : (Array.isArray(pin.seo_breadcrumbs) ? pin.seo_breadcrumbs : []),
+    top_interest_id: pin.topInterest ?? pin.top_interest ?? null,
+    unauth_on_page_title: safeString(pin.unauthOnPageTitle || pin.unauth_on_page_title || ''),
+    unauth_on_page_description: safeString(pin.unauthOnPageDescription || pin.unauth_on_page_description || ''),
+    image_dimensions: (pin.images_orig?.width && pin.images_orig?.height) ? {
+      width: Number(pin.images_orig.width),
+      height: Number(pin.images_orig.height),
+      aspect_ratio: Math.round((Number(pin.images_orig.width) / Number(pin.images_orig.height)) * 100) / 100
+    } : null,
   };
 }
 
@@ -450,7 +487,7 @@ export function formatPin(pin) {
 export function extractPinData(rawHtml, pinId) {
   if (!rawHtml || typeof rawHtml !== 'string') return null;
   // Bounded buffer length to eliminate Catastrophic Backtracking (ReDoS) on oversized payloads
-  const html = rawHtml.length > 2000000 ? rawHtml.slice(0, 2000000) : rawHtml;
+  const html = rawHtml.length > 4000000 ? rawHtml.slice(0, 4000000) : rawHtml;
 
   // 1. Modern Relay Completed Request Calls (__PWS_RELAY_REGISTER_COMPLETED_REQUEST__)
   const relayRegex = /__PWS_RELAY_REGISTER_COMPLETED_REQUEST__\s*\(([^,]+),\s*(\{[\s\S]*?\})\);/g;
@@ -482,12 +519,30 @@ export function extractPinData(rawHtml, pinId) {
         if (v3.creationMethod || v3.creation_method) mergedRelayPin.creation_method = v3.creationMethod || v3.creation_method;
         if (v3.attribution?.provider_name) mergedRelayPin.provider_name = v3.attribution.provider_name;
 
+        // Algorithmic, Lineage & Domain Authority signals
+        if (v3.isRepin !== undefined) mergedRelayPin.isRepin = Boolean(v3.isRepin);
+        if (v3.originPinner) mergedRelayPin.originPinner = v3.originPinner;
+        if (v3.nativeCreator) mergedRelayPin.nativeCreator = v3.nativeCreator;
+        if (v3.linkDomain) mergedRelayPin.linkDomain = v3.linkDomain;
+        if (v3.imageSignature) mergedRelayPin.imageSignature = v3.imageSignature;
+        if (v3.seoNoindexReason !== undefined) mergedRelayPin.seoNoindexReason = v3.seoNoindexReason;
+        if (v3.isGoLinkless !== undefined) mergedRelayPin.isGoLinkless = Boolean(v3.isGoLinkless);
+        if (v3.utmLink) mergedRelayPin.utmLink = v3.utmLink;
+        if (v3.trackedLink) mergedRelayPin.trackedLink = v3.trackedLink;
+        if (v3.topInterest !== undefined) mergedRelayPin.topInterest = v3.topInterest;
+        if (v3.unauthOnPageTitle) mergedRelayPin.unauthOnPageTitle = v3.unauthOnPageTitle;
+        if (v3.unauthOnPageDescription) mergedRelayPin.unauthOnPageDescription = v3.unauthOnPageDescription;
+        if (v3.closeupUnifiedTitle) mergedRelayPin.closeupUnifiedTitle = v3.closeupUnifiedTitle;
+        if (v3.closeupUnifiedDescription) mergedRelayPin.closeupUnifiedDescription = v3.closeupUnifiedDescription;
+        if (v3.images_orig) mergedRelayPin.images_orig = v3.images_orig;
+
         if (v3.pinner && v3.pinner.username) {
           mergedRelayPin.pinner = {
             username: v3.pinner.username,
             full_name: v3.pinner.fullName || v3.pinner.full_name || '',
             image_url: v3.pinner.imageMediumUrl || v3.pinner.imageSmallUrl || '',
-            follower_count: v3.pinner.followerCount || 0
+            follower_count: v3.pinner.followerCount || 0,
+            is_verified_merchant: Boolean(v3.pinner.isVerifiedMerchant || v3.pinner.is_verified_merchant)
           };
         }
 
@@ -495,7 +550,10 @@ export function extractPinData(rawHtml, pinId) {
           mergedRelayPin.board = {
             id: v3.board.entityId || v3.board.id,
             name: v3.board.name,
-            url: v3.board.url
+            url: v3.board.url,
+            pin_count: v3.board.pinCount || v3.board.pin_count || 0,
+            section_count: v3.board.sectionCount || v3.board.section_count || 0,
+            board_order_modified_at: v3.board.boardOrderModifiedAt || v3.board.board_order_modified_at || null
           };
         }
 
@@ -557,6 +615,9 @@ export function extractPinData(rawHtml, pinId) {
               ...(mergedRelayPin.pinJoin.seoRelatedInterests || []),
               ...v3.pinJoin.seoRelatedInterests
             ];
+          }
+          if (Array.isArray(v3.pinJoin.seoBreadcrumbs)) {
+            mergedRelayPin.pinJoin.seoBreadcrumbs = v3.pinJoin.seoBreadcrumbs;
           }
         }
       } else {
