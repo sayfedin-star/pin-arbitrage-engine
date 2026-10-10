@@ -81,7 +81,11 @@ export async function setCachedVisualSearchMatches(sql, pinId, matches, ttlDays 
         NOW() + (${ttlDays} || ' days')::interval
       )
       ON CONFLICT (pin_id) DO UPDATE SET
-        matches = EXCLUDED.matches,
+        matches = CASE 
+          WHEN jsonb_typeof(EXCLUDED.matches) = 'array' AND jsonb_array_length(EXCLUDED.matches) > 0 
+          THEN EXCLUDED.matches 
+          ELSE pin_visual_search_cache.matches 
+        END,
         created_at = NOW(),
         expires_at = NOW() + (${ttlDays} || ' days')::interval;
     `;

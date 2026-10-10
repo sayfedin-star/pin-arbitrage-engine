@@ -1421,7 +1421,11 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
           save_count = GREATEST(keyword_serp_current.save_count, EXCLUDED.save_count),
           repin_count = GREATEST(keyword_serp_current.repin_count, EXCLUDED.repin_count),
           daily_save_velocity = EXCLUDED.daily_save_velocity,
-          visual_annotations = EXCLUDED.visual_annotations,
+          visual_annotations = CASE 
+            WHEN jsonb_typeof(EXCLUDED.visual_annotations) = 'array' AND jsonb_array_length(EXCLUDED.visual_annotations) > 0 
+            THEN EXCLUDED.visual_annotations 
+            ELSE COALESCE(keyword_serp_current.visual_annotations, '[]'::jsonb) 
+          END,
           created_at_pinterest = COALESCE(EXCLUDED.created_at_pinterest, keyword_serp_current.created_at_pinterest),
           creation_method = COALESCE(EXCLUDED.creation_method, keyword_serp_current.creation_method),
           crawled_at = NOW();

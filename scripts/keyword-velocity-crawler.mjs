@@ -144,13 +144,17 @@ async function inspectAndSyncPin(pin, kw) {
       dominant_color = CASE WHEN ${dominantColor}::text <> '' THEN ${dominantColor}::text ELSE dominant_color END,
       created_at_pinterest = CASE WHEN ${createdAtPinterest}::timestamptz IS NOT NULL THEN ${createdAtPinterest}::timestamptz ELSE created_at_pinterest END,
       creation_method = CASE WHEN ${method}::text <> '' THEN ${method}::text ELSE creation_method END,
-      visual_annotations = CASE WHEN jsonb_array_length(${JSON.stringify(finalAnnotations)}::jsonb) > 0 THEN ${JSON.stringify(finalAnnotations)}::jsonb ELSE visual_annotations END,
+      visual_annotations = CASE 
+        WHEN jsonb_typeof(${JSON.stringify(finalAnnotations)}::jsonb) = 'array' AND jsonb_array_length(${JSON.stringify(finalAnnotations)}::jsonb) > 0 
+        THEN ${JSON.stringify(finalAnnotations)}::jsonb 
+        ELSE visual_annotations 
+      END,
       crawled_at = NOW()
-    WHERE pin_id = ${pin.pin_id};
+    WHERE pin_id = ${pin.pin_id} AND keyword_id = ${kw.id};
   `;
 
-  // 2. Cross-Keyword Cascade Update on Central Hub keyword_displaced_pins (Displaced Vault)
-  // Ensures any keyword where this pin was displaced gets authentic metrics & active pace
+  // 2. Cascade Update on Central Hub keyword_displaced_pins (Displaced Vault)
+  // Ensures authentic metrics & active pace for this pin under the target keyword
   await sql`
     UPDATE keyword_displaced_pins
     SET 
@@ -168,17 +172,21 @@ async function inspectAndSyncPin(pin, kw) {
       END,
       seo_alt_text = CASE WHEN ${altText}::text <> '' THEN ${altText}::text ELSE seo_alt_text END,
       dominant_color = CASE WHEN ${dominantColor}::text <> '' THEN ${dominantColor}::text ELSE dominant_color END,
-      annotations = CASE WHEN jsonb_array_length(${JSON.stringify(finalAnnotations)}::jsonb) > 0 THEN ${JSON.stringify(finalAnnotations)}::jsonb ELSE annotations END,
+      annotations = CASE 
+        WHEN jsonb_typeof(${JSON.stringify(finalAnnotations)}::jsonb) = 'array' AND jsonb_array_length(${JSON.stringify(finalAnnotations)}::jsonb) > 0 
+        THEN ${JSON.stringify(finalAnnotations)}::jsonb 
+        ELSE annotations 
+      END,
       metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
         'method', ${method}::text,
         'created_at_pinterest', ${createdAtPinterest}::text
       ),
       last_checked_at = NOW(),
       updated_at = NOW()
-    WHERE pin_id = ${pin.pin_id};
+    WHERE pin_id = ${pin.pin_id} AND keyword_id = ${kw.id};
   `;
 
-  // 3. Cross-Keyword Cascade Update on Central Hub keyword_pins_snapshots
+  // 3. Cascade Update on Central Hub keyword_pins_snapshots
   // Strictly anchored to invariant UTC calendar date: (NOW() AT TIME ZONE 'UTC')::date
   await sql`
     UPDATE keyword_pins_snapshots
@@ -198,9 +206,13 @@ async function inspectAndSyncPin(pin, kw) {
         'created_at_pinterest', ${createdAtPinterest}::text,
         'is_deleted', ${isDead}::boolean,
         'status', ${isDead ? 'archived_404' : 'active'}::text,
-        'visual_annotations', CASE WHEN jsonb_array_length(${JSON.stringify(finalAnnotations)}::jsonb) > 0 THEN ${JSON.stringify(finalAnnotations)}::jsonb ELSE COALESCE(metadata->'visual_annotations', '[]'::jsonb) END
+        'visual_annotations', CASE 
+          WHEN jsonb_typeof(${JSON.stringify(finalAnnotations)}::jsonb) = 'array' AND jsonb_array_length(${JSON.stringify(finalAnnotations)}::jsonb) > 0 
+          THEN ${JSON.stringify(finalAnnotations)}::jsonb 
+          ELSE COALESCE(metadata->'visual_annotations', '[]'::jsonb) 
+        END
       )
-    WHERE pin_id = ${pin.pin_id} AND snapshot_date = (NOW() AT TIME ZONE 'UTC')::date;
+    WHERE pin_id = ${pin.pin_id} AND keyword_id = ${kw.id} AND snapshot_date = (NOW() AT TIME ZONE 'UTC')::date;
   `;
 
   return {
