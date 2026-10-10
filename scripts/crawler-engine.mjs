@@ -64,7 +64,7 @@ if (!globalThis.__crawlerSignalHandlersInstalled) {
     console.log(`\n[!] Received ${signal}. Releasing in-flight claimed pins...`);
     if (activeBatchToRelease && activeBatchToRelease.length > 0 && sqlClientForCleanup) {
       try {
-        const ids = activeBatchToRelease.map(c => c.id);
+        const ids = activeBatchToRelease.map(c => Number(c.id)).sort((a, b) => a - b);
         const tokens = activeBatchToRelease.map(c => c.claim_token).filter(Boolean);
         if (ids.length > 0 && tokens.length > 0) {
           // Wrapped in a 4,000ms race timeout to prevent exit hangs on network stalls
@@ -1020,7 +1020,7 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
     // Start 20s lease-touch timer so in-flight pins are never mistaken as stale by peer shards
     const leaseTouchTimer = setInterval(async () => {
       try {
-        const ids = claimed.map(c => c.id);
+        const ids = claimed.map(c => Number(c.id)).sort((a, b) => a - b);
         const tokens = claimed.map(c => c.claim_token).filter(Boolean);
         if (ids.length > 0 && tokens.length > 0) {
           await sqlClient`

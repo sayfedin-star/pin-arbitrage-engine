@@ -1,18 +1,123 @@
 /**
  * scripts/lib/advisory-lock.mjs
  *
- * Postgres Advisory Lock Engine for Distributed Concurrency Coordination
- * Zero Redis required: Uses Postgres engine internal shared-memory 64-bit advisory locks.
+ * Distributed Concurrency Coordination for Neon Serverless Postgres
+ *
+ * ARCHITECTURAL DIRECTIVE (Neon HTTP Driver):
+ * Session-level advisory locks (`pg_try_advisory_lock`) are bound to the specific
+ * backend connection. Under the stateless Neon HTTP driver (`@neondatabase/serverless`),
+ * each query runs in an independent pooled HTTP session, making session advisory locks
+ * unreliable across distributed queries.
+ *
+ * For robust, fail-closed concurrency coordination, use the atomic row lease functions
+ * (`tryAcquireKeywordLease`, `tryAcquireSeedLease`) which leverage `UPDATE ... RETURNING`
+ * with cryptographic lease tokens (`gen_random_uuid()`) and time-bounded expiration.
  */
 
 /**
- * Attempts to acquire a transaction-level advisory lock using 32-bit hashtext.
- * Non-blocking: returns true if acquired, false immediately if another worker holds it.
- * Automatically released when the transaction ends (commit or rollback) or connection terminates.
+ * Attempts to acquire an atomic row lease on a tracked keyword.
+ * Non-blocking: returns UUID token if acquired, null if held by another worker.
  *
  * @param {Function} sql - Neon SQL tagged template instance
- * @param {string|number} lockKey - Unique identifier (e.g. keyword, seed_pin_id, competitor_username)
- * @returns {Promise<boolean>} True if lock acquired, false if held by another worker
+ * @param {number|string} keywordId - Tracked keyword ID
+ * @param {number} leaseMinutes - Expiration in minutes (default 15)
+ * @returns {Promise<string|null>} Lease token UUID or null
+ */
+export async function tryAcquireKeywordLease(sql, keywordId, leaseMinutes = 15) {
+  try {
+    const [res] = await sql`
+      UPDATE tracked_keywords 
+      SET crawl_lease_token = gen_random_uuid(),
+          crawl_lease_until = NOW() + (${leaseMinutes} || ' minutes')::interval
+      WHERE id = ${keywordId} 
+        AND (crawl_lease_until IS NULL OR crawl_lease_until < NOW())
+      RETURNING crawl_lease_token;
+    `;
+    return res?.crawl_lease_token || null;
+  } catch (err) {
+    console.warn(`[RowLease] Warning acquiring lease for keyword ${keywordId}:`, err.message);
+    return null;
+  }
+}
+
+/**
+ * Releases an atomic row lease on a tracked keyword.
+ *
+ * @param {Function} sql - Neon SQL tagged template instance
+ * @param {number|string} keywordId - Tracked keyword ID
+ * @param {string} leaseToken - UUID token received when lease was acquired
+ * @returns {Promise<boolean>}
+ */
+export async function releaseKeywordLease(sql, keywordId, leaseToken) {
+  if (!leaseToken) return false;
+  try {
+    const [res] = await sql`
+      UPDATE tracked_keywords 
+      SET crawl_lease_token = NULL,
+          crawl_lease_until = NOW()
+      WHERE id = ${keywordId} AND crawl_lease_token = ${leaseToken}
+      RETURNING id;
+    `;
+    return Boolean(res);
+  } catch (err) {
+    console.warn(`[RowLease] Warning releasing lease for keyword ${keywordId}:`, err.message);
+    return false;
+  }
+}
+
+/**
+ * Attempts to acquire an atomic row lease on a cluster seed pin.
+ *
+ * @param {Function} sql - Neon SQL tagged template instance
+ * @param {string} seedPinId - Cluster seed pin ID
+ * @param {number} leaseMinutes - Expiration in minutes (default 15)
+ * @returns {Promise<string|null>} Lease token UUID or null
+ */
+export async function tryAcquireSeedLease(sql, seedPinId, leaseMinutes = 15) {
+  try {
+    const [res] = await sql`
+      UPDATE cluster_seeds
+      SET crawl_lease_token = gen_random_uuid(),
+          crawl_lease_until = NOW() + (${leaseMinutes} || ' minutes')::interval
+      WHERE pin_id = ${seedPinId}
+        AND (crawl_lease_until IS NULL OR crawl_lease_until < NOW())
+      RETURNING crawl_lease_token;
+    `;
+    return res?.crawl_lease_token || null;
+  } catch (err) {
+    console.warn(`[RowLease] Warning acquiring lease for seed ${seedPinId}:`, err.message);
+    return null;
+  }
+}
+
+/**
+ * Releases an atomic row lease on a cluster seed pin.
+ *
+ * @param {Function} sql - Neon SQL tagged template instance
+ * @param {string} seedPinId - Cluster seed pin ID
+ * @param {string} leaseToken - UUID token received when lease was acquired
+ * @returns {Promise<boolean>}
+ */
+export async function releaseSeedLease(sql, seedPinId, leaseToken) {
+  if (!leaseToken) return false;
+  try {
+    const [res] = await sql`
+      UPDATE cluster_seeds
+      SET crawl_lease_token = NULL,
+          crawl_lease_until = NOW()
+      WHERE pin_id = ${seedPinId} AND crawl_lease_token = ${leaseToken}
+      RETURNING pin_id;
+    `;
+    return Boolean(res);
+  } catch (err) {
+    console.warn(`[RowLease] Warning releasing lease for seed ${seedPinId}:`, err.message);
+    return false;
+  }
+}
+
+/**
+ * Attempts to acquire a transaction-level advisory lock using 32-bit hashtext.
+ * Note: Only effective within a single interactive transaction block.
  */
 export async function tryAcquireAdvisoryXactLock(sql, lockKey) {
   try {
@@ -27,13 +132,8 @@ export async function tryAcquireAdvisoryXactLock(sql, lockKey) {
 }
 
 /**
- * Attempts to acquire a session-level advisory lock.
- * Non-blocking: returns true if acquired, false if held by another worker.
- * Must be released with releaseAdvisoryLock(sql, lockKey) or connection close.
- *
- * @param {Function} sql - Neon SQL tagged template instance
- * @param {string|number} lockKey - Unique identifier
- * @returns {Promise<boolean>}
+ * Legacy session advisory lock (Retained for backward compatibility).
+ * WARNING: Not recommended over stateless Neon HTTP connections.
  */
 export async function tryAcquireAdvisorySessionLock(sql, lockKey) {
   try {
@@ -48,7 +148,7 @@ export async function tryAcquireAdvisorySessionLock(sql, lockKey) {
 }
 
 /**
- * Releases a previously acquired session-level advisory lock.
+ * Legacy session advisory unlock.
  */
 export async function releaseAdvisorySessionLock(sql, lockKey) {
   try {
@@ -63,13 +163,7 @@ export async function releaseAdvisorySessionLock(sql, lockKey) {
 }
 
 /**
- * Higher-order lock guard: executes workFn only if the advisory lock is successfully acquired.
- * If locked by a peer worker, gracefully skips execution without blocking or queue pileup.
- *
- * @param {Function} sql - Neon SQL tagged template instance
- * @param {string|number} lockKey - Unique identifier
- * @param {Function} workFn - Async function to execute if lock is granted
- * @returns {Promise<{ executed: boolean, skipped: boolean, result?: any, reason?: string }>}
+ * Higher-order lock guard using session advisory locks.
  */
 export async function withAdvisoryLock(sql, lockKey, workFn) {
   const acquired = await tryAcquireAdvisorySessionLock(sql, lockKey);

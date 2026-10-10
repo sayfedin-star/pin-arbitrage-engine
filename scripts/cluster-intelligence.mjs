@@ -1445,11 +1445,16 @@ async function main() {
       last_crawled_at: null
     });
   } else {
+    // Defensively ensure atomic lease columns exist on cluster_seeds
+    await sqlWithRetry(() => sql`ALTER TABLE cluster_seeds ADD COLUMN IF NOT EXISTS crawl_lease_token UUID;`).catch(() => {});
+    await sqlWithRetry(() => sql`ALTER TABLE cluster_seeds ADD COLUMN IF NOT EXISTS crawl_lease_until TIMESTAMPTZ;`).catch(() => {});
+
     console.log(`[*] Querying seeds needing crawl (last_crawled_at IS NULL or > 24h old)...`);
     seedsToProcess = await sqlWithRetry(() => sql`
       SELECT pin_id, label, is_competitor, velocity, last_crawled_at
       FROM cluster_seeds
-      WHERE last_crawled_at IS NULL OR last_crawled_at < NOW() - INTERVAL '24 HOURS'
+      WHERE (last_crawled_at IS NULL OR last_crawled_at < NOW() - INTERVAL '24 HOURS')
+        AND (crawl_lease_until IS NULL OR crawl_lease_until < NOW())
       ORDER BY last_crawled_at ASC NULLS FIRST, pin_id ASC
       LIMIT 100;
     `);
@@ -1538,26 +1543,41 @@ async function main() {
   console.log(`[+] Found ${seedsToProcess.length} seed(s) queued for crawling.`);
 
   for (const seed of seedsToProcess) {
+    // Atomic row lease acquisition with 15-minute expiry & strict Fail-Closed policy [CAP-16]
+    let leaseToken = null;
     try {
-      const lockKey = `cluster_seed_${seed.pin_id}`;
-      const [lockRes] = await sqlWithRetry(() => sql`
-        SELECT pg_try_advisory_lock(hashtext(${lockKey})) AS acquired;
-      `).catch(() => [{ acquired: true }]);
+      const [leaseRow] = await sqlWithRetry(() => sql`
+        UPDATE cluster_seeds
+        SET crawl_lease_token = gen_random_uuid(),
+            crawl_lease_until = NOW() + INTERVAL '15 minutes'
+        WHERE pin_id = ${seed.pin_id}
+          AND (crawl_lease_until IS NULL OR crawl_lease_until < NOW())
+        RETURNING crawl_lease_token;
+      `);
+      leaseToken = leaseRow?.crawl_lease_token || null;
+    } catch (lErr) {
+      console.warn(`[RowLease] Warning acquiring lease for seed ${seed.pin_id}:`, lErr.message);
+      leaseToken = null;
+    }
 
-      if (!lockRes?.acquired) {
-        console.log(`[AdvisoryLock] Seed pin ${seed.pin_id} is actively being crawled by a peer worker. Non-blocking skip ✅`);
-        continue;
-      }
+    if (!leaseToken) {
+      console.log(`[RowLease] Seed pin ${seed.pin_id} is actively being crawled by a peer worker. Non-blocking skip ✅`);
+      continue;
+    }
 
-      try {
-        await crawlSeed(seed);
-      } finally {
-        await sqlWithRetry(() => sql`
-          SELECT pg_advisory_unlock(hashtext(${lockKey}));
-        `).catch(() => {});
-      }
+    try {
+      await crawlSeed(seed);
     } catch (err) {
       console.error(`[-] Error crawling seed ${seed.pin_id}:`, err);
+    } finally {
+      if (leaseToken) {
+        await sqlWithRetry(() => sql`
+          UPDATE cluster_seeds
+          SET crawl_lease_token = NULL,
+              crawl_lease_until = NOW()
+          WHERE pin_id = ${seed.pin_id} AND crawl_lease_token = ${leaseToken};
+        `).catch(() => {});
+      }
     }
   }
 

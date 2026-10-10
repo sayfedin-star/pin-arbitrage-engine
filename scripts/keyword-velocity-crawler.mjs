@@ -458,6 +458,10 @@ async function run() {
     // =========================================================================
     // EXECUTION MODE A: MULTI-KEYWORD BROADCAST
     // =========================================================================
+    // Defensively ensure atomic lease columns exist on tracked_keywords
+    await sql`ALTER TABLE tracked_keywords ADD COLUMN IF NOT EXISTS crawl_lease_token UUID;`.catch(() => {});
+    await sql`ALTER TABLE tracked_keywords ADD COLUMN IF NOT EXISTS crawl_lease_until TIMESTAMPTZ;`.catch(() => {});
+
     let keywordsToProcess = [];
     if (targetKeyword) {
       keywordsToProcess = await sql`
@@ -476,6 +480,7 @@ async function run() {
       keywordsToProcess = await sql`
         SELECT * FROM tracked_keywords 
         WHERE is_active = TRUE
+          AND (crawl_lease_until IS NULL OR crawl_lease_until < NOW())
         ORDER BY last_crawled_at ASC NULLS FIRST
         LIMIT 20;
       `;
@@ -492,16 +497,26 @@ async function run() {
       const kw = keywordsToProcess[i];
       console.log(`\n[${i + 1}/${keywordsToProcess.length}] Crawling SERP for keyword: "${kw.keyword}" (ID: ${kw.id})...`);
 
-      const lockKey = `kw_serp_${kw.id}`;
-      let lockAcquired = true;
+      // Atomic row lease acquisition with 15-minute expiry & strict Fail-Closed policy [CAP-16]
+      let leaseToken = null;
       try {
-        const [lRes] = await sql`SELECT pg_try_advisory_lock(hashtext(${lockKey})) AS acquired;`;
-        lockAcquired = Boolean(lRes?.acquired);
-      } catch (_) {}
+        const [leaseRow] = await sql`
+          UPDATE tracked_keywords 
+          SET crawl_lease_token = gen_random_uuid(),
+              crawl_lease_until = NOW() + INTERVAL '15 minutes'
+          WHERE id = ${kw.id} 
+            AND (crawl_lease_until IS NULL OR crawl_lease_until < NOW())
+          RETURNING crawl_lease_token;
+        `;
+        leaseToken = leaseRow?.crawl_lease_token || null;
+      } catch (lErr) {
+        console.warn(`  [RowLease] Warning acquiring lease for "${kw.keyword}":`, lErr.message);
+        leaseToken = null;
+      }
 
-      if (!lockAcquired) {
-        console.log(`  [AdvisoryLock] Keyword "${kw.keyword}" locked by peer crawler. Non-blocking skip ✅`);
-        results.push({ id: kw.id, keyword: kw.keyword, status: 'skipped', error: 'locked_by_peer' });
+      if (!leaseToken) {
+        console.log(`  [RowLease] Keyword "${kw.keyword}" (ID: ${kw.id}) lease held by peer crawler. Non-blocking skip ✅`);
+        results.push({ id: kw.id, keyword: kw.keyword, status: 'skipped', error: 'lease_held_by_peer' });
         continue;
       }
 
@@ -553,7 +568,14 @@ async function run() {
         console.error(`  [-] Error crawling "${kw.keyword}":`, err.message);
         results.push({ id: kw.id, keyword: kw.keyword, status: 'error', error: err.message });
       } finally {
-        await sql`SELECT pg_advisory_unlock(hashtext(${lockKey}));`.catch(() => {});
+        if (leaseToken) {
+          await sql`
+            UPDATE tracked_keywords
+            SET crawl_lease_token = NULL,
+                crawl_lease_until = NOW()
+            WHERE id = ${kw.id} AND crawl_lease_token = ${leaseToken};
+          `.catch(() => {});
+        }
       }
 
       if (i < keywordsToProcess.length - 1) {
