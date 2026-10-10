@@ -470,6 +470,20 @@ export function formatPin(pin) {
     category_breadcrumbs: Array.isArray(pin.pinJoin?.seoBreadcrumbs)
       ? pin.pinJoin.seoBreadcrumbs.map(b => b?.name).filter(Boolean)
       : (Array.isArray(pin.seo_breadcrumbs) ? pin.seo_breadcrumbs : []),
+    seo_related_interests: Array.isArray(pin.pinJoin?.seoRelatedInterests)
+      ? pin.pinJoin.seoRelatedInterests.map(i => ({ name: safeString(i.name), url: safeString(i.url) })).filter(i => i.name)
+      : (Array.isArray(pin.seo_related_interests) ? pin.seo_related_interests : []),
+    rich_metadata: pin.rich_metadata || (pin.richMetadata ? {
+      site_name: safeString(pin.richMetadata.siteName || ''),
+      title: safeString(pin.richMetadata.title || ''),
+      description: safeString(pin.richMetadata.description || ''),
+      url: safeString(pin.richMetadata.url || '')
+    } : null),
+    seo_canonical_url: safeString(pin.pinJoin?.seoCanonicalUrl || pin.seo_canonical_url || ''),
+    seo_canonical_domain: safeString(pin.pinJoin?.seoCanonicalDomain || pin.seo_canonical_domain || ''),
+    visual_objects: Array.isArray(pin.visualObjects) ? pin.visualObjects : (Array.isArray(pin.visual_objects) ? pin.visual_objects : []),
+    board_cover_url: pin.board?.image_cover_url || pin.board?.imageCoverUrl || pin.board_cover_url || null,
+    board_thumbnail_url: pin.board?.image_thumbnail_url || pin.board?.imageThumbnailUrl || pin.board_thumbnail_url || null,
     top_interest_id: pin.topInterest ?? pin.top_interest ?? null,
     unauth_on_page_title: safeString(pin.unauthOnPageTitle || pin.unauth_on_page_title || ''),
     unauth_on_page_description: safeString(pin.unauthOnPageDescription || pin.unauth_on_page_description || ''),
@@ -546,6 +560,18 @@ export function extractPinData(rawHtml, pinId) {
           };
         }
 
+        if (v3.richMetadata) {
+          mergedRelayPin.rich_metadata = {
+            site_name: v3.richMetadata.siteName || '',
+            title: v3.richMetadata.title || '',
+            description: v3.richMetadata.description || '',
+            url: v3.richMetadata.url || ''
+          };
+        }
+        if (Array.isArray(v3.visualObjects)) {
+          mergedRelayPin.visual_objects = v3.visualObjects;
+        }
+
         if (v3.board && v3.board.name) {
           mergedRelayPin.board = {
             id: v3.board.entityId || v3.board.id,
@@ -553,7 +579,9 @@ export function extractPinData(rawHtml, pinId) {
             url: v3.board.url,
             pin_count: v3.board.pinCount || v3.board.pin_count || 0,
             section_count: v3.board.sectionCount || v3.board.section_count || 0,
-            board_order_modified_at: v3.board.boardOrderModifiedAt || v3.board.board_order_modified_at || null
+            board_order_modified_at: v3.board.boardOrderModifiedAt || v3.board.board_order_modified_at || null,
+            image_cover_url: v3.board.imageCoverUrl || v3.board.coverImageSpec_236x?.url || null,
+            image_thumbnail_url: v3.board.imageThumbnailUrl || null
           };
         }
 
@@ -598,6 +626,8 @@ export function extractPinData(rawHtml, pinId) {
 
         if (!mergedRelayPin.pinJoin) mergedRelayPin.pinJoin = {};
         if (v3.pinJoin) {
+          if (v3.pinJoin.seoCanonicalUrl) mergedRelayPin.seo_canonical_url = v3.pinJoin.seoCanonicalUrl;
+          if (v3.pinJoin.seoCanonicalDomain) mergedRelayPin.seo_canonical_domain = v3.pinJoin.seoCanonicalDomain;
           if (Array.isArray(v3.pinJoin.visualAnnotation)) {
             mergedRelayPin.pinJoin.visualAnnotation = [
               ...(mergedRelayPin.pinJoin.visualAnnotation || []),

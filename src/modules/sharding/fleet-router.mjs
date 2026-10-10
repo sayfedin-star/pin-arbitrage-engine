@@ -833,7 +833,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId }) {
   const creatorUsername = masterRecord?.creator_username || '';
   const boardName = masterRecord?.board_name || '';
   const boardSlug = masterRecord?.board_slug || boardName.toLowerCase().replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-');
-  const snapMeta = hubHistoricalSnap?.metadata || hubSerpRows[0]?.metadata || {};
+  const snapMeta = { ...(hubSerpRows[0]?.metadata || {}), ...(hubHistoricalSnap?.metadata || {}) };
 
   const algorithmicIntelligence = {
     is_repin: Boolean(snapMeta.is_repin ?? false),
@@ -849,12 +849,37 @@ export async function fetchUniversalPinDossier({ hubSql, pinId }) {
     board_metrics: {
       pin_count: Number(snapMeta.board_pin_count || 0),
       order_modified_at: snapMeta.board_order_modified_at || null,
-      board_url: snapMeta.board_url || null
+      board_url: snapMeta.board_url || null,
+      cover_url: snapMeta.board_cover_url || null,
+      thumbnail_url: snapMeta.board_thumbnail_url || null
     },
     image_dimensions: snapMeta.image_dimensions || null,
     creation_method: snapMeta.creation_method || snapMeta.method || hubHistoricalSnap?.creation_method || 'pinterest_platform',
-    share_count: Number(snapMeta.share_count || 0)
+    share_count: Number(snapMeta.share_count || 0),
+    seo_title: snapMeta.seo_title || masterRecord?.title || '',
+    seo_description: snapMeta.seo_description || masterRecord?.description || '',
+    seo_canonical_url: snapMeta.seo_canonical_url || '',
+    seo_canonical_domain: snapMeta.seo_canonical_domain || '',
+    seo_related_interests: Array.isArray(snapMeta.seo_related_interests) ? snapMeta.seo_related_interests : [],
+    rich_metadata: snapMeta.rich_metadata || null,
+    visual_objects: Array.isArray(snapMeta.visual_objects) ? snapMeta.visual_objects : [],
+    reactions: snapMeta.reactions || {},
+    utm_link: snapMeta.utm_link || masterRecord?.destination_url || '',
+    tracked_link: snapMeta.tracked_link || masterRecord?.destination_url || ''
   };
+
+  const latestLiveAnnotations = new Set(
+    normalizeVisualAnnotations(snapMeta.visual_annotations || hubSerpRows[0]?.metadata?.visual_annotations || hubHistoricalSnap?.metadata?.visual_annotations)
+      .map(t => String(t || '').trim())
+      .filter(Boolean)
+  );
+
+  const detailedAnnotations = finalVisualAnnotations.map(tag => ({
+    name: tag,
+    is_live: latestLiveAnnotations.size > 0 ? latestLiveAnnotations.has(tag) : true,
+    status: (latestLiveAnnotations.size > 0 && latestLiveAnnotations.has(tag)) ? 'live' : 'historical',
+    label: (latestLiveAnnotations.size > 0 && latestLiveAnnotations.has(tag)) ? 'Live Active' : 'Historical Crawl'
+  }));
 
   return {
     success: true,
@@ -864,11 +889,13 @@ export async function fetchUniversalPinDossier({ hubSql, pinId }) {
       title: masterRecord?.title || `Pin ${cleanPinId}`,
       description: masterRecord?.description || '',
       alt_text: masterRecord?.alt_text || '',
-      destination_url: masterRecord?.destination_url || '',
+      destination_url: masterRecord?.destination_url || snapMeta.tracked_link || snapMeta.utm_link || '',
+      utm_link: snapMeta.utm_link || masterRecord?.destination_url || '',
       domain: masterRecord?.domain || 'pinterest.com',
       image_url: masterRecord?.image_url || '',
       dominant_color: masterRecord?.dominant_color || '#888888',
       visual_annotations: finalVisualAnnotations,
+      visual_annotations_detailed: detailedAnnotations,
       created_at_pinterest: masterRecord?.created_at_pinterest || hubHistoricalSnap?.created_at_pinterest || snapMeta.created_at_pinterest || snapMeta.created_at || null,
       image_signature: snapMeta.image_signature || '',
       first_discovered_pillar: masterRecord?.first_discovered_pillar || 'keyword',
