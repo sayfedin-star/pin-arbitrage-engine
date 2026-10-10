@@ -833,6 +833,44 @@ export async function fetchUniversalPinDossier({ hubSql, pinId }) {
   const creatorUsername = masterRecord?.creator_username || '';
   const boardName = masterRecord?.board_name || '';
   const boardSlug = masterRecord?.board_slug || boardName.toLowerCase().replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-');
+  // Collect all available metadata objects across historical snapshots & SERP occurrences
+  const allMetas = [
+    ...(snapRows || []).map(s => s.metadata).filter(Boolean),
+    ...(hubSerpRows || []).map(s => s.metadata).filter(Boolean)
+  ];
+  
+  let canonicalPinId = null;
+  let canonicalPinUrl = null;
+  let seoCanonicalUrl = '';
+  let seoRelatedInterests = [];
+  
+  for (const m of allMetas) {
+    if (!canonicalPinId && (m.canonical_pin_id || m.canonical_pin?.entity_id)) {
+      canonicalPinId = String(m.canonical_pin_id || m.canonical_pin?.entity_id);
+    }
+    if (!canonicalPinUrl && m.canonical_pin_url) {
+      canonicalPinUrl = m.canonical_pin_url;
+    }
+    if (!seoCanonicalUrl && m.seo_canonical_url) {
+      seoCanonicalUrl = m.seo_canonical_url;
+    }
+    if (seoRelatedInterests.length === 0 && Array.isArray(m.seo_related_interests) && m.seo_related_interests.length > 0) {
+      seoRelatedInterests = m.seo_related_interests;
+    }
+  }
+
+  if (!canonicalPinId && seoCanonicalUrl) {
+    const m = String(seoCanonicalUrl).match(/\d{10,30}/);
+    if (m) canonicalPinId = m[0];
+  }
+  if (!canonicalPinUrl && canonicalPinId) {
+    canonicalPinUrl = `https://www.pinterest.com/pin/${canonicalPinId}/`;
+  }
+  if (!seoCanonicalUrl && canonicalPinId) {
+    seoCanonicalUrl = `/pin/${canonicalPinId}/`;
+  }
+  const isCanonicalRoot = canonicalPinId ? (String(canonicalPinId) === String(cleanPinId)) : true;
+
   const snapMeta = { ...(hubSerpRows[0]?.metadata || {}), ...(hubHistoricalSnap?.metadata || {}) };
 
   const algorithmicIntelligence = {
@@ -858,9 +896,12 @@ export async function fetchUniversalPinDossier({ hubSql, pinId }) {
     share_count: Number(snapMeta.share_count || 0),
     seo_title: snapMeta.seo_title || masterRecord?.title || '',
     seo_description: snapMeta.seo_description || masterRecord?.description || '',
-    seo_canonical_url: snapMeta.seo_canonical_url || '',
+    seo_canonical_url: seoCanonicalUrl || snapMeta.seo_canonical_url || '',
     seo_canonical_domain: snapMeta.seo_canonical_domain || '',
-    seo_related_interests: Array.isArray(snapMeta.seo_related_interests) ? snapMeta.seo_related_interests : [],
+    canonical_pin_id: canonicalPinId,
+    canonical_pin_url: canonicalPinUrl,
+    is_canonical_root: isCanonicalRoot,
+    seo_related_interests: (seoRelatedInterests.length > 0 ? seoRelatedInterests : (Array.isArray(snapMeta.seo_related_interests) ? snapMeta.seo_related_interests : [])),
     rich_metadata: snapMeta.rich_metadata || null,
     visual_objects: Array.isArray(snapMeta.visual_objects) ? snapMeta.visual_objects : [],
     reactions: snapMeta.reactions || {},
@@ -898,6 +939,9 @@ export async function fetchUniversalPinDossier({ hubSql, pinId }) {
       visual_annotations_detailed: detailedAnnotations,
       created_at_pinterest: masterRecord?.created_at_pinterest || hubHistoricalSnap?.created_at_pinterest || snapMeta.created_at_pinterest || snapMeta.created_at || null,
       image_signature: snapMeta.image_signature || '',
+      canonical_pin_id: canonicalPinId,
+      canonical_pin_url: canonicalPinUrl,
+      is_canonical_root: isCanonicalRoot,
       first_discovered_pillar: masterRecord?.first_discovered_pillar || 'keyword',
       is_deleted: Boolean(masterRecord?.is_deleted || hubHistoricalSnap?.metadata?.is_deleted || (hubHistoricalSnap?.metadata?.status === 'archived_404'))
     },

@@ -527,27 +527,132 @@ export function getPinDetailPageHtml(pinId = '') {
         </div>
       </div>
 
-      <!-- SEO Related Semantic Interests (المحاور والاهتمامات الدلالية المرتبطة) -->
-      <div x-show="dossier?.algorithmic_intelligence?.seo_related_interests?.length" class="p-4 rounded-xl bg-purple-50/60 border border-purple-200 flex flex-col gap-2.5">
-        <div class="flex items-center justify-between">
-          <span class="text-[11px] font-mono uppercase tracking-wider text-purple-900 font-bold flex items-center gap-1.5">
-            <span>🌐</span> Algorithmic Semantic Interests (المحاور والاهتمامات الدلالية المرتبطة بالدبوس في بينترست):
-          </span>
-          <span class="text-[10px] font-mono text-purple-700 font-semibold" x-text="(dossier?.algorithmic_intelligence?.seo_related_interests?.length || 0) + ' clusters'"></span>
+      <!-- 1. CANONICAL CLUSTER & ROOT PIN HIERARCHY (canonicalPin & Canonical Cluster URL) -->
+      <div class="p-4 rounded-xl bg-indigo-50/70 border border-indigo-200 flex flex-col gap-3">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-indigo-200/60 pb-2.5">
+          <div class="flex items-center gap-2">
+            <span class="text-base">👑</span>
+            <span class="text-xs font-mono uppercase tracking-wider text-indigo-950 font-bold">
+              Canonical Cluster Root Pin (canonicalPin) & Hierarchy
+            </span>
+            <span class="text-[11px] text-indigo-700 font-normal hidden sm:inline">(رابط التكتل الجذري للدبوس في خوارزمية بينترست)</span>
+          </div>
+
+          <!-- Cluster Status Badge -->
+          <div class="flex items-center gap-2">
+            <template x-if="dossier?.algorithmic_intelligence?.is_canonical_root">
+              <span class="px-2.5 py-1 rounded-md text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1 font-mono shadow-2xs">
+                <span>🌟</span> Root Authority Node (دبوس جذري أصلي)
+              </span>
+            </template>
+            <template x-if="!dossier?.algorithmic_intelligence?.is_canonical_root && dossier?.algorithmic_intelligence?.canonical_pin_id">
+              <span class="px-2.5 py-1 rounded-md text-xs font-bold bg-amber-100 text-amber-800 border border-amber-300 flex items-center gap-1 font-mono shadow-2xs">
+                <span>🔗</span> Syndicated Cluster Node (متفرع من جذر خوارزمي)
+              </span>
+            </template>
+          </div>
         </div>
-        <div class="flex items-center gap-2 flex-wrap">
-          <template x-for="item in dossier?.algorithmic_intelligence?.seo_related_interests || []" :key="item.name">
-            <a 
-              :href="'https://www.pinterest.com' + (item.url || '')" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              class="px-2.5 py-1 rounded-lg bg-white hover:bg-purple-100 text-purple-800 border border-purple-300 text-xs font-mono transition-colors flex items-center gap-1 shadow-2xs"
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <!-- Root Snowflake & Identification -->
+          <div class="p-3 rounded-lg bg-white border border-indigo-200 flex items-center justify-between gap-3 shadow-2xs">
+            <div class="flex flex-col gap-0.5 overflow-hidden">
+              <span class="text-[10px] font-mono uppercase text-indigo-700 font-bold">Root Canonical Pin Snowflake ID</span>
+              <div class="text-xs font-mono font-bold text-slate-900 truncate flex items-center gap-1.5">
+                <span class="text-indigo-600">#</span>
+                <span x-text="dossier?.algorithmic_intelligence?.canonical_pin_id || pinId"></span>
+                <span x-show="dossier?.algorithmic_intelligence?.canonical_pin_id === pinId" class="text-[10px] font-normal text-slate-500">(Self Root)</span>
+              </div>
+            </div>
+            <template x-if="dossier?.algorithmic_intelligence?.canonical_pin_id && dossier?.algorithmic_intelligence?.canonical_pin_id !== pinId">
+              <a 
+                :href="'/pins/' + dossier?.algorithmic_intelligence?.canonical_pin_id"
+                class="px-2.5 py-1 rounded-md bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-mono font-semibold border border-indigo-200 whitespace-nowrap transition-colors flex items-center gap-1"
+                title="Inspect Canonical Root Dossier"
+              >
+                <span>Dossier ↗</span>
+              </a>
+            </template>
+          </div>
+
+          <!-- Full Canonical Cluster URL & Actions -->
+          <div class="p-3 rounded-lg bg-white border border-indigo-200 flex items-center justify-between gap-3 shadow-2xs">
+            <div class="flex flex-col gap-0.5 overflow-hidden">
+              <span class="text-[10px] font-mono uppercase text-indigo-700 font-bold">Canonical Cluster URL (رابط التكتل الجذري)</span>
+              <div class="text-xs font-mono text-indigo-900 truncate font-medium" :title="dossier?.algorithmic_intelligence?.canonical_pin_url || ('https://www.pinterest.com' + (dossier?.algorithmic_intelligence?.seo_canonical_url || '/pin/' + pinId + '/'))">
+                <span x-text="dossier?.algorithmic_intelligence?.canonical_pin_url || ('https://www.pinterest.com' + (dossier?.algorithmic_intelligence?.seo_canonical_url || '/pin/' + pinId + '/'))"></span>
+              </div>
+            </div>
+            <div class="flex items-center gap-1.5 flex-shrink-0">
+              <button 
+                @click="copyUrl(dossier?.algorithmic_intelligence?.canonical_pin_url || ('https://www.pinterest.com' + (dossier?.algorithmic_intelligence?.seo_canonical_url || '/pin/' + pinId + '/')))"
+                class="px-2 py-1 rounded-md bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-mono border border-slate-200 transition-colors shadow-2xs"
+                title="Copy Canonical URL"
+              >
+                📋
+              </button>
+              <a 
+                :href="dossier?.algorithmic_intelligence?.canonical_pin_url || ('https://www.pinterest.com' + (dossier?.algorithmic_intelligence?.seo_canonical_url || '/pin/' + pinId + '/'))"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="px-2.5 py-1 rounded-md bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-mono font-semibold transition-colors flex items-center gap-1 shadow-2xs"
+                title="Open Canonical Root on Pinterest"
+              >
+                <span>Pinterest ↗</span>
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. SEO RELATED SEMANTIC INTERESTS (المحاور والاهتمامات الدلالية المرتبطة بخوارزمية بينترست) -->
+      <div class="p-4 rounded-xl bg-purple-50/70 border border-purple-200 flex flex-col gap-3">
+        <div class="flex items-center justify-between border-b border-purple-200/60 pb-2">
+          <div class="flex items-center gap-2">
+            <span class="text-base">🌐</span>
+            <span class="text-xs font-mono uppercase tracking-wider text-purple-950 font-bold">
+              Algorithmic Semantic Interests (المحاور والاهتمامات الدلالية المرتبطة بالدبوس في خوارزمية بينترست):
+            </span>
+          </div>
+          <span class="text-xs font-mono text-purple-800 font-bold px-2 py-0.5 rounded-full bg-purple-100 border border-purple-200" x-text="(dossier?.algorithmic_intelligence?.seo_related_interests?.length || 0) + ' Semantic Clusters'"></span>
+        </div>
+
+        <!-- Render All Semantic Topic Clusters -->
+        <template x-if="dossier?.algorithmic_intelligence?.seo_related_interests?.length">
+          <div class="flex items-center gap-2 flex-wrap">
+            <template x-for="item in dossier?.algorithmic_intelligence?.seo_related_interests" :key="item.name">
+              <a 
+                :href="item.url ? (item.url.startsWith('http') ? item.url : 'https://www.pinterest.com' + item.url) : '#'" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                class="px-3 py-1.5 rounded-lg bg-white hover:bg-purple-100 text-purple-900 border border-purple-300 text-xs font-mono transition-colors flex items-center gap-1.5 shadow-2xs group"
+                :title="'Explore Semantic Topic on Pinterest: ' + item.name"
+              >
+                <span class="text-purple-600 group-hover:scale-110 transition-transform">📌</span>
+                <span class="font-semibold" x-text="item.name"></span>
+                <span class="text-purple-400 text-[10px]">↗</span>
+              </a>
+            </template>
+          </div>
+        </template>
+
+        <!-- Fallback if not yet synced -->
+        <template x-if="!dossier?.algorithmic_intelligence?.seo_related_interests?.length">
+          <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between p-3 rounded-lg bg-white border border-dashed border-purple-300 gap-3">
+            <div class="flex items-center gap-2 text-xs text-purple-900 font-mono">
+              <span>⏳</span>
+              <span>10 Algorithmic Semantic Interests await deep telemetry sync from Pinterest.</span>
+            </div>
+            <button 
+              @click="triggerDeepSync()" 
+              :disabled="isSyncing"
+              class="px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-xs font-mono font-semibold shadow-2xs transition-colors flex items-center gap-1 whitespace-nowrap"
             >
-              <span>📌</span>
-              <span x-text="item.name"></span>
-            </a>
-          </template>
-        </div>
+              <span x-show="!isSyncing">⚡ Live Deep Sync Now</span>
+              <span x-show="isSyncing">Syncing Telemetry...</span>
+            </button>
+          </div>
+        </template>
       </div>
 
       <!-- Rich Web Entity & Injected Google SEO Target -->
@@ -566,7 +671,13 @@ export function getPinDetailPageHtml(pinId = '') {
           </div>
           <div class="pt-2 border-t border-slate-200 flex items-center justify-between text-[11px] font-mono">
             <span class="text-slate-500">Canonical Cluster:</span>
-            <span class="text-indigo-700 font-bold truncate max-w-[200px]" x-text="dossier?.algorithmic_intelligence?.seo_canonical_url || 'Cluster Root'"></span>
+            <a 
+              :href="dossier?.algorithmic_intelligence?.canonical_pin_url || ('https://www.pinterest.com' + (dossier?.algorithmic_intelligence?.seo_canonical_url || '/pin/' + pinId + '/'))"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="text-indigo-700 hover:underline font-bold truncate max-w-[200px]" 
+              x-text="dossier?.algorithmic_intelligence?.seo_canonical_url || (dossier?.algorithmic_intelligence?.canonical_pin_id ? '/pin/' + dossier?.algorithmic_intelligence?.canonical_pin_id + '/' : 'Cluster Root')"
+            ></a>
           </div>
         </div>
 

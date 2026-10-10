@@ -2630,6 +2630,8 @@ export default {
               seo_description: pin.seo_description || '',
               seo_canonical_url: pin.seo_canonical_url || '',
               seo_canonical_domain: pin.seo_canonical_domain || '',
+              canonical_pin_id: pin.canonical_pin_id || null,
+              canonical_pin_url: pin.canonical_pin_url || null,
               seo_related_interests: pin.seo_related_interests || [],
               rich_metadata: pin.rich_metadata || null,
               visual_objects: pin.visual_objects || [],
@@ -2825,7 +2827,77 @@ export default {
             }, 400);
           }
           try {
-            const dossier = await fetchUniversalPinDossier({ hubSql: sql, pinId });
+            let dossier = await fetchUniversalPinDossier({ hubSql: sql, pinId });
+
+            // Auto-Enrichment Guard: If dossier exists but lacks deep algorithmic telemetry
+            // (e.g. only shallow SERP snapshot without canonical_pin_id or seo_related_interests)
+            if (dossier?.success && (!dossier?.algorithmic_intelligence?.canonical_pin_id || !dossier?.algorithmic_intelligence?.seo_related_interests?.length)) {
+              try {
+                const liveRes = await Promise.race([
+                  fetchPinFromPinterest(pinId),
+                  new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000))
+                ]);
+                if (liveRes?.ok && liveRes.pin) {
+                  const p = liveRes.pin;
+                  const autoMeta = {
+                    alt_text: p.alt_text || p.seo_title || '',
+                    description: p.description || '',
+                    board_name: p.board_name || '',
+                    creation_method: p.creation_method || p.method || 'pinterest_platform',
+                    created_at_pinterest: p.created_at_pinterest || p.created_at || '',
+                    is_repin: Boolean(p.is_repin),
+                    origin_pinner: p.origin_pinner || null,
+                    domain_official_user: p.domain_official_user || null,
+                    creator_is_verified_merchant: Boolean(p.creator_is_verified_merchant),
+                    board_pin_count: Number(p.board_pin_count || 0),
+                    board_order_modified_at: p.board_order_modified_at || null,
+                    board_url: p.board_url || null,
+                    board_cover_url: p.board_cover_url || null,
+                    board_thumbnail_url: p.board_thumbnail_url || null,
+                    image_signature: p.image_signature || '',
+                    seo_title: p.seo_title || '',
+                    seo_description: p.seo_description || '',
+                    seo_canonical_url: p.seo_canonical_url || '',
+                    seo_canonical_domain: p.seo_canonical_domain || '',
+                    canonical_pin_id: p.canonical_pin_id || null,
+                    canonical_pin_url: p.canonical_pin_url || null,
+                    seo_related_interests: p.seo_related_interests || [],
+                    rich_metadata: p.rich_metadata || null,
+                    visual_objects: p.visual_objects || [],
+                    reactions: p.reactions || {},
+                    seo_noindex_reason: p.seo_noindex_reason || null,
+                    is_go_linkless: Boolean(p.is_go_linkless),
+                    utm_link: p.utm_link || '',
+                    tracked_link: p.tracked_link || '',
+                    category_breadcrumbs: p.category_breadcrumbs || [],
+                    top_interest_id: p.top_interest_id || null,
+                    unauth_on_page_title: p.unauth_on_page_title || '',
+                    unauth_on_page_description: p.unauth_on_page_description || '',
+                    image_dimensions: p.image_dimensions || null,
+                    share_count: Number(p.share_count || 0),
+                    dominant_color: p.dominant_color || '#888888',
+                    visual_annotations: p.annotations?.map(a => a.name) || []
+                  };
+
+                  await sql`
+                    UPDATE keyword_serp_current SET
+                      metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify(autoMeta)}::jsonb,
+                      destination_url = CASE WHEN ${p.link || ''}::text <> '' THEN ${p.link}::text ELSE destination_url END,
+                      updated_at = NOW()
+                    WHERE pin_id = ${pinId};
+                  `.catch(() => {});
+
+                  await sql`
+                    UPDATE keyword_pins_snapshots SET
+                      metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify(autoMeta)}::jsonb
+                    WHERE pin_id = ${pinId};
+                  `.catch(() => {});
+
+                  dossier = await fetchUniversalPinDossier({ hubSql: sql, pinId });
+                }
+              } catch (_) {}
+            }
+
             if (!dossier || !dossier.pin_id || !dossier.success) {
               return jsonResponse({
                 success: false,

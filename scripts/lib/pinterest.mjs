@@ -480,7 +480,11 @@ export function formatPin(pin) {
       url: safeString(pin.richMetadata.url || '')
     } : null),
     seo_canonical_url: safeString(pin.pinJoin?.seoCanonicalUrl || pin.seo_canonical_url || ''),
-    seo_canonical_domain: safeString(pin.pinJoin?.seoCanonicalDomain || pin.seo_canonical_domain || ''),
+    seo_canonical_domain: safeString(pin.pinJoin?.seoCanonicalDomain || pin.seo_canonical_domain || 'www.pinterest.com'),
+    canonical_pin_id: pin.canonical_pin_id || pin.canonical_pin?.entity_id || pin.pinJoin?.canonicalPin?.entityId || (pin.seo_canonical_url ? safeString(pin.seo_canonical_url).replace(/[^0-9]/g, '') : null),
+    canonical_pin_url: (pin.pinJoin?.canonicalPin?.entityId || pin.canonical_pin_id || (pin.seo_canonical_url ? safeString(pin.seo_canonical_url).replace(/[^0-9]/g, '') : null))
+      ? `https://www.pinterest.com/pin/${pin.pinJoin?.canonicalPin?.entityId || pin.canonical_pin_id || safeString(pin.seo_canonical_url).replace(/[^0-9]/g, '')}/`
+      : (pin.seo_canonical_url ? (pin.seo_canonical_url.startsWith('http') ? pin.seo_canonical_url : `https://www.pinterest.com${pin.seo_canonical_url}`) : null),
     visual_objects: Array.isArray(pin.visualObjects) ? pin.visualObjects : (Array.isArray(pin.visual_objects) ? pin.visual_objects : []),
     board_cover_url: pin.board?.image_cover_url || pin.board?.imageCoverUrl || pin.board_cover_url || null,
     board_thumbnail_url: pin.board?.image_thumbnail_url || pin.board?.imageThumbnailUrl || pin.board_thumbnail_url || null,
@@ -572,16 +576,38 @@ export function extractPinData(rawHtml, pinId) {
           mergedRelayPin.visual_objects = v3.visualObjects;
         }
 
-        if (v3.board && v3.board.name) {
+        if (v3.board) {
+          const rawBoardUrl = v3.board.url || '';
+          const urlParts = rawBoardUrl.split('/').filter(Boolean);
+          const inferredUsername = urlParts[0] || '';
+          const inferredBoardName = v3.board.name || (urlParts[1] ? urlParts[1].replace(/[-_]/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) : 'Board');
+
           mergedRelayPin.board = {
-            id: v3.board.entityId || v3.board.id,
-            name: v3.board.name,
-            url: v3.board.url,
+            id: v3.board.entityId || v3.board.id || null,
+            name: v3.board.name || inferredBoardName,
+            url: v3.board.url || null,
             pin_count: v3.board.pinCount || v3.board.pin_count || 0,
             section_count: v3.board.sectionCount || v3.board.section_count || 0,
             board_order_modified_at: v3.board.boardOrderModifiedAt || v3.board.board_order_modified_at || null,
             image_cover_url: v3.board.imageCoverUrl || v3.board.coverImageSpec_236x?.url || null,
             image_thumbnail_url: v3.board.imageThumbnailUrl || null
+          };
+
+          if ((!mergedRelayPin.pinner || !mergedRelayPin.pinner.username) && inferredUsername) {
+            mergedRelayPin.pinner = {
+              username: inferredUsername,
+              full_name: v3.pinner?.fullName || v3.pinner?.full_name || inferredUsername,
+              image_url: v3.pinner?.imageMediumUrl || v3.pinner?.imageSmallUrl || '',
+              follower_count: v3.pinner?.followerCount || 0,
+              is_verified_merchant: Boolean(v3.pinner?.isVerifiedMerchant || v3.pinner?.is_verified_merchant)
+            };
+          }
+        }
+
+        if (v3.closeupAttribution) {
+          mergedRelayPin.closeup_attribution = {
+            full_name: v3.closeupAttribution.fullName || v3.closeupAttribution.firstName || '',
+            id: v3.closeupAttribution.id || ''
           };
         }
 
@@ -628,6 +654,13 @@ export function extractPinData(rawHtml, pinId) {
         if (v3.pinJoin) {
           if (v3.pinJoin.seoCanonicalUrl) mergedRelayPin.seo_canonical_url = v3.pinJoin.seoCanonicalUrl;
           if (v3.pinJoin.seoCanonicalDomain) mergedRelayPin.seo_canonical_domain = v3.pinJoin.seoCanonicalDomain;
+          if (v3.pinJoin.canonicalPin) {
+            mergedRelayPin.canonical_pin = {
+              entity_id: v3.pinJoin.canonicalPin.entityId || null,
+              id: v3.pinJoin.canonicalPin.id || null
+            };
+            mergedRelayPin.canonical_pin_id = v3.pinJoin.canonicalPin.entityId || null;
+          }
           if (Array.isArray(v3.pinJoin.visualAnnotation)) {
             mergedRelayPin.pinJoin.visualAnnotation = [
               ...(mergedRelayPin.pinJoin.visualAnnotation || []),
