@@ -236,13 +236,13 @@ console.log('>>> [Axis 3] Mathematical Accuracy of Co-Occurring Power Pairs & Li
 
   assert.ok(salmonAsparagusPair, 'Must identify salmon + asparagus power pair');
   assert.equal(salmonAsparagusPair.joint_count, 4, 'Joint occurrence count must be exactly 4');
-  assert.equal(salmonAsparagusPair.lift, 1.00, `Calculated Lift must be exactly 1.00 (actual: ${salmonAsparagusPair.lift})`);
+  assert.equal(salmonAsparagusPair.lift, 0.95, `Calculated Laplace-smoothed Lift must be exactly 0.95 (actual: ${salmonAsparagusPair.lift})`);
 
   // Verify pair pruning: pairs with jointCount < 2 must NOT be included
   const singlePairs = app.powerPairs.filter(p => p.joint_count < 2);
   assert.equal(singlePairs.length, 0, 'Pairs with jointCount < 2 must be purged');
 
-  recordTest('Axis 3', 'Mathematical Lift Formula & Pair Pruning', 'PASS', performance.now() - t0, 'Lift calculated exactly as 1.00; non-co-occurring pairs purged.');
+  recordTest('Axis 3', 'Mathematical Lift Formula & Pair Pruning', 'PASS', performance.now() - t0, 'Laplace-smoothed Lift calculated exactly as 0.95; non-co-occurring pairs purged.');
 }
 
 // =============================================================================

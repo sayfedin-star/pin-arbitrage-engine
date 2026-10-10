@@ -506,7 +506,7 @@ export function getPinDetailPageHtml(pinId = '') {
         <div class="flex items-center gap-2">
           <span class="text-base">📅</span>
           <div>
-            <h3 class="text-sm font-semibold text-white">Daily Snapshots & SERP Trajectory Audit</h3>
+            <h3 class="text-sm font-semibold text-white">Daily Snapshots Time-Series Audit Log & SERP Trajectory</h3>
             <p class="text-[11px] text-slate-400 font-mono">Deterministic multi-keyword rank history with zero cross-keyword collision</p>
           </div>
         </div>
@@ -650,8 +650,8 @@ export function getPinDetailPageHtml(pinId = '') {
                 <td class="p-3.5 text-emerald-400 font-bold" x-text="formatNumber(s.save_count)"></td>
                 <td class="p-3.5">
                   <span 
-                    :class="computeDeltaPerSerp(idx, 'save_count') > 0 ? 'text-emerald-400 font-semibold' : (computeDeltaPerSerp(idx, 'save_count') < 0 ? 'text-red-400' : 'text-slate-500')" 
-                    x-text="computeDeltaPerSerp(idx, 'save_count') > 0 ? '+' + computeDeltaPerSerp(idx, 'save_count') : (computeDeltaPerSerp(idx, 'save_count') < 0 ? computeDeltaPerSerp(idx, 'save_count') : '0')"
+                    :class="(computeDelta(idx, 'save_count') || computeDeltaPerSerp(idx, 'save_count')) > 0 ? 'text-emerald-400 font-semibold' : ((computeDelta(idx, 'save_count') || computeDeltaPerSerp(idx, 'save_count')) < 0 ? 'text-red-400' : 'text-slate-500')" 
+                    x-text="(computeDelta(idx, 'save_count') || computeDeltaPerSerp(idx, 'save_count')) > 0 ? '+' + (computeDelta(idx, 'save_count') || computeDeltaPerSerp(idx, 'save_count')) : ((computeDelta(idx, 'save_count') || computeDeltaPerSerp(idx, 'save_count')) < 0 ? (computeDelta(idx, 'save_count') || computeDeltaPerSerp(idx, 'save_count')) : '0')"
                   ></span>
                 </td>
                 <td class="p-3.5 text-pink-400 font-bold" x-text="formatNumber(s.repin_count)"></td>
@@ -856,6 +856,17 @@ export function getPinDetailPageHtml(pinId = '') {
             }
           }
           return 0;
+        },
+
+        computeDelta(currentIdx, field) {
+          if (this.dossier?.daily_trajectory && this.dossier.daily_trajectory.length > 0) {
+            return this.computeDeltaUnified(currentIdx, field);
+          }
+          const snaps = this.dossier?.snapshots || [];
+          if (currentIdx >= snaps.length - 1) return 0;
+          const current = isFinite(Number(snaps[currentIdx]?.[field])) ? Number(snaps[currentIdx][field]) : 0;
+          const previous = isFinite(Number(snaps[currentIdx + 1]?.[field])) ? Number(snaps[currentIdx + 1][field]) : 0;
+          return current - previous;
         },
 
         totalEngagementScore() {

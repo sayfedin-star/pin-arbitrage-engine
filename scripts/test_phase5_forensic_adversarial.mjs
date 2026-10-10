@@ -236,12 +236,12 @@ console.log('>>> [Axis 2] Mathematical Lift & Zero-Division Edge Cases...');
     (p.tag_a.toLowerCase() === 'asparagus' && p.tag_b.toLowerCase() === 'salmon')
   );
   assert.ok(targetPair, 'Must detect salmon + asparagus pair');
-  assert.equal(targetPair.lift, 1.00, `Independent distribution Lift must be 1.00 (got ${targetPair.lift})`);
+  assert.equal(targetPair.lift, 0.95, `Independent distribution Laplace-smoothed Lift must be 0.95 (got ${targetPair.lift})`);
   // Because 'asparagus' < 'salmon' alphabetically, tag_a is Asparagus (N=8) -> Confidence(Asparagus -> Salmon) = 4/8 = 0.5
   assert.equal(targetPair.confidence, 0.5, 'Confidence(Asparagus -> Salmon) must be 4/8 = 0.5');
 
   recordTest('Axis 2', 'Lift Mathematical Accuracy & Edge Cases', 'PASS', performance.now() - t0,
-    'Verified N=0, N=1, duplicate tags, pruning of singletons, and exact 1.00 Lift on independent distribution.');
+    'Verified N=0, N=1, duplicate tags, pruning of singletons, and Laplace-smoothed 0.95 Lift on independent distribution.');
 }
 
 // =============================================================================

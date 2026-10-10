@@ -1061,9 +1061,9 @@ export function getKeywordsPageHtml(initialSlug = '') {
                   <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold bg-emerald-500/15 text-emerald-500"
                         x-text="(selectedKeywordDetails?.current_pins || []).length"></span>
                 </button>
-                <button @click="serpScope = 'vault'; if(selectedKeyword) fetchDisplacedPins()"
+                <button @click="serpScope = 'displaced'; if(selectedKeyword) fetchDisplacedPins()"
                         class="px-2.5 py-1 rounded-xl text-xs font-bold transition cursor-pointer flex items-center space-x-1"
-                        :class="serpScope === 'vault' ? 'bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/40 shadow-xs' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'">
+                        :class="serpScope === 'displaced' ? 'bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/40 shadow-xs' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'">
                   <span>🔴 Displaced Vault</span>
                   <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold bg-rose-500/15 text-rose-500"
                         x-text="displacedVaultPins.length"></span>
@@ -4541,11 +4541,12 @@ export function getKeywordsPageHtml(initialSlug = '') {
           let list = [];
           if (this.serpScope === 'active') {
             list = (this.selectedKeywordDetails?.current_pins || []).map(p => ({ ...p, is_displaced: false }));
-          } else if (this.serpScope === 'vault') {
+          } else if (this.serpScope === 'displaced') {
             list = this.displacedVaultPins;
           } else if (this.serpScope === 'velocity') {
             list = this.allCombinedPins.filter(p => Number(p.daily_save_velocity || 0) > 0);
           } else {
+            // 'all' or 'vault' (All Vault Pins: current + displaced deduplicated)
             list = this.allCombinedPins;
           }
 
