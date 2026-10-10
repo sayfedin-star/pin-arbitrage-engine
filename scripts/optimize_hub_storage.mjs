@@ -49,8 +49,7 @@ async function main() {
       'keyword_displaced_pins', 
       'competitor_pins', 
       'pa_pins', 
-      'tracked_keywords',
-      'keyword_clusters'
+      'tracked_keywords'
     )
     ORDER BY n_dead_tup DESC;
   `;
@@ -70,13 +69,24 @@ async function main() {
 
   // Clean old snapshots older than 30 days ONLY if is_displaced is FALSE or NULL
   if (Number(oldSnapshots[0].eligible_for_cleanup) > 0) {
-    console.log(`[*] Cleaning ${oldSnapshots[0].eligible_for_cleanup} expired SERP snapshots (> 30 days)...`);
-    const cleaned = await sql`
-      DELETE FROM keyword_pins_snapshots
-      WHERE snapshot_date < CURRENT_DATE - INTERVAL '30 days'
-        AND (is_displaced IS FALSE OR is_displaced IS NULL);
-    `;
-    console.log('    Cleanup result:', cleaned);
+    console.log(`[*] Cleaning ${oldSnapshots[0].eligible_for_cleanup} expired SERP snapshots (> 30 days) in batches of 5000...`);
+    let totalDeleted = 0;
+    while (true) {
+      const deletedRows = await sql`
+        DELETE FROM keyword_pins_snapshots
+        WHERE id IN (
+          SELECT id FROM keyword_pins_snapshots
+          WHERE snapshot_date < CURRENT_DATE - INTERVAL '30 days'
+            AND (is_displaced IS FALSE OR is_displaced IS NULL)
+          LIMIT 5000
+        )
+        RETURNING id;
+      `;
+      totalDeleted += deletedRows.length;
+      console.log(`    Chunk deleted: ${deletedRows.length} rows (total: ${totalDeleted})`);
+      if (deletedRows.length < 5000) break;
+    }
+    console.log(`    Cleanup complete: ${totalDeleted} expired snapshots deleted.`);
   } else {
     console.log('    No expired SERP snapshots need cleanup (>30d is clean).');
   }

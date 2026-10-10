@@ -537,12 +537,13 @@ export async function syncFleetDatabases(hubSql, { targetProjectId = null } = {}
         // 2. Map Profile IDs
         const shardProfiles = await sSql`SELECT id, username FROM competitor_profiles;`;
         const userToId = new Map(shardProfiles.map(sp => [sp.username.toLowerCase(), sp.id]));
+        const hubProfileById = new Map(profiles.map(p => [p.id, p]));
 
         // 3. Prepare Boards
         const validBoardItems = [];
         for (const b of boards) {
           if (!b.board_id) continue;
-          const [hubP] = profiles.filter(p => p.id === b.competitor_id);
+          const hubP = hubProfileById.get(b.competitor_id);
           const targetCompId = hubP ? userToId.get(hubP.username.toLowerCase()) : null;
           if (!targetCompId) continue;
           validBoardItems.push({
