@@ -200,9 +200,10 @@ export function getCorsHeaders(requestOrigin = null, env = {}) {
 }
 
 export function verifyApiAuthentication(request, env = {}) {
-  const secretKey = (env && (env.API_SECRET_KEY || env.ADMIN_KEY || env.PIN_ARBITRAGE_SECRET)) || '';
-  // If no secret key is configured in the environment, allow execution
-  if (!secretKey) return { authorized: true };
+  const secretKey = (env && (env.API_SECRET_KEY || env.ADMIN_KEY || env.PIN_ARBITRAGE_SECRET)) ||
+                    (typeof process !== 'undefined' ? (process.env.API_SECRET_KEY || process.env.ADMIN_KEY || process.env.PIN_ARBITRAGE_SECRET) : '') || '';
+  // Fail-Closed Security Policy: Mutating endpoints strictly require configured secret
+  if (!secretKey) return { authorized: false, reason: 'API_SECRET_NOT_CONFIGURED' };
 
   const authHeader = request.headers.get('Authorization') || '';
   const apiKeyHeader = request.headers.get('x-api-key') || '';
@@ -224,21 +225,6 @@ export function verifyApiAuthentication(request, env = {}) {
   if (incomingToken) {
     const isMatch = timingSafeEqualStr(incomingToken, secretKey);
     return { authorized: isMatch, reason: isMatch ? null : 'Invalid authentication token.' };
-  }
-
-  // Same-Origin Browser UI Session Fallback (Allows legitimate web interface buttons to function without lockout)
-  const secFetchSite = request.headers.get('Sec-Fetch-Site') || '';
-  const origin = request.headers.get('Origin') || '';
-  let isSameOrigin = secFetchSite === 'same-origin';
-  if (!isSameOrigin && origin) {
-    try {
-      const originHost = new URL(origin).host;
-      const requestHost = new URL(request.url).host;
-      if (originHost === requestHost) isSameOrigin = true;
-    } catch (_) {}
-  }
-  if (isSameOrigin) {
-    return { authorized: true };
   }
 
   return { authorized: false, reason: 'Missing authentication credentials (Bearer token or x-api-key required).' };
@@ -2394,6 +2380,57 @@ export default {
         return jsonResponse({ error: 'id, keyword, or ids array is required to delete tracked keyword' }, 400);
       }
 
+      // DELETE /api/keywords/:keywordId/pins/:pinId (Manual Pin Catalog Deletion Directive)
+      if (pathname.startsWith('/api/keywords/') && pathname.includes('/pins/')) {
+        const parts = pathname.slice('/api/keywords/'.length).split('/').filter(Boolean);
+        // Expected URL pattern: /api/keywords/:keywordId/pins/:pinId -> parts: [keywordId, 'pins', pinId]
+        if (parts[1] === 'pins' && parts[2]) {
+          if (method !== 'DELETE') {
+            return methodNotAllowedResponse('DELETE, OPTIONS');
+          }
+          const keywordId = Number(parts[0]);
+          const pinId = parts[2];
+          if (!keywordId || isNaN(keywordId)) {
+            return jsonResponse({ success: false, error: 'BAD_REQUEST', message: 'Valid numeric keywordId is required' }, 400);
+          }
+          if (!pinId || !/^\d{10,30}$/.test(pinId)) {
+            return jsonResponse({ success: false, error: 'INVALID_PIN_ID', message: 'Valid numeric pinId is required' }, 400);
+          }
+
+          invalidateEdgeCache('keywords');
+
+          // Phase 2: Tombstone Architecture - Record in keyword_ignored_pins to prevent zombie pin resurrection
+          await sql`
+            INSERT INTO keyword_ignored_pins (keyword_id, pin_id, ignored_reason, ignored_at)
+            VALUES (${keywordId}, ${pinId}, 'manual_user_deletion', NOW())
+            ON CONFLICT (keyword_id, pin_id) DO UPDATE SET
+              ignored_reason = EXCLUDED.ignored_reason,
+              ignored_at = EXCLUDED.ignored_at;
+          `.catch((err) => {
+            console.warn('[Tombstone] Failed to record ignored pin:', err.message);
+          });
+
+          // Manual Deletion Only Directive: remove from unified keyword catalog & keyword snapshots
+          const delRes = await sql`
+            DELETE FROM keyword_serp_current
+            WHERE keyword_id = ${keywordId} AND pin_id = ${pinId}
+            RETURNING pin_id;
+          `;
+          await sql`
+            DELETE FROM keyword_pins_snapshots
+            WHERE keyword_id = ${keywordId} AND pin_id = ${pinId};
+          `.catch(() => {});
+
+          return jsonResponse({
+            success: true,
+            deleted: delRes.length > 0,
+            keyword_id: keywordId,
+            pin_id: pinId,
+            message: `Pin ${pinId} manually removed and tombstoned for keyword #${keywordId}.`
+          }, 200);
+        }
+      }
+
       if (method === 'GET' && pathname === '/api/keywords/pins') {
         let keywordId = Number(searchParams.get('keyword_id'));
         const slug = searchParams.get('slug') || searchParams.get('keyword');
@@ -2637,7 +2674,42 @@ export default {
                 updated_at = NOW();
             `.catch(() => {});
 
-            // B. Hub keyword_pins_snapshots
+            // Phase 4: Concurrency Guard - Prevent State Flapping During Active Crawl
+            const activeCrawlKeywords = await sql`
+              SELECT tk.id, tk.crawl_lease_until
+              FROM tracked_keywords tk
+              WHERE tk.id IN (
+                SELECT DISTINCT keyword_id FROM keyword_serp_current WHERE pin_id = ${pinId}
+              )
+              AND tk.crawl_lease_until > NOW();
+            `.catch(() => []);
+            const isCrawlInProgress = activeCrawlKeywords.length > 0;
+
+            // B1. Hub keyword_serp_current (Unified Operational Catalog)
+            // Telemetry & descriptive metadata update only - never touch is_displaced or rank_position
+            await sql`
+              UPDATE keyword_serp_current SET
+                save_count = GREATEST(save_count, ${Number(pin.saves || 0)}::bigint),
+                repin_count = GREATEST(repin_count, ${Number(pin.repins || 0)}::int),
+                comment_count = GREATEST(COALESCE(comment_count, 0), ${Number(pin.comments || 0)}::int),
+                share_count = GREATEST(COALESCE(share_count, 0), ${Number(pin.share_count || 0)}::int),
+                title = CASE WHEN ${pin.title || ''}::text <> '' THEN ${pin.title}::text ELSE title END,
+                domain = CASE WHEN ${pin.domain || ''}::text <> '' THEN ${pin.domain}::text ELSE domain END,
+                destination_url = CASE WHEN ${pin.link || ''}::text <> '' THEN ${pin.link}::text ELSE destination_url END,
+                image_url = CASE WHEN ${pin.image_url || ''}::text <> '' THEN ${pin.image_url}::text ELSE image_url END,
+                creator_username = CASE WHEN ${pin.pinner?.username || ''}::text <> '' THEN ${pin.pinner.username}::text ELSE creator_username END,
+                board_name = CASE WHEN ${pin.board_name || ''}::text <> '' THEN ${pin.board_name}::text ELSE board_name END,
+                dominant_color = CASE WHEN ${pin.dominant_color || ''}::text <> '' THEN ${pin.dominant_color}::text ELSE dominant_color END,
+                created_at_pinterest = CASE WHEN ${pin.created_at_pinterest}::timestamptz IS NOT NULL THEN ${pin.created_at_pinterest}::timestamptz ELSE created_at_pinterest END,
+                creation_method = CASE WHEN ${pin.creation_method || ''}::text <> '' THEN ${pin.creation_method}::text ELSE creation_method END,
+                metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify(metaToStore)}::jsonb,
+                crawled_at = NOW(),
+                updated_at = NOW()
+              WHERE pin_id = ${pinId};
+            `.catch(() => {});
+
+            // B2. Hub keyword_pins_snapshots
+            // Telemetry metrics update only
             const updateResult = await sql`
               UPDATE keyword_pins_snapshots SET
                 save_count = GREATEST(save_count, ${Number(pin.saves || 0)}),
@@ -2651,26 +2723,43 @@ export default {
               RETURNING id;
             `.catch(() => []);
 
+            // If no snapshot exists today, insert only if no crawl is active, and inherit current catalog status
             if (!updateResult || updateResult.length === 0) {
-              const [kwRow] = await sql`SELECT keyword_id FROM keyword_serp_current WHERE pin_id = ${pinId} LIMIT 1;`.catch(() => []);
-              const targetKid = kwRow?.keyword_id || 1;
-              await sql`
-                INSERT INTO keyword_pins_snapshots (
-                  keyword_id, pin_id, rank_position, title, domain, destination_url, image_url,
-                  save_count, repin_count, comment_count, share_count, daily_save_velocity,
-                  snapshot_date, is_displaced, created_at_pinterest, creation_method, metadata, created_at
-                ) VALUES (
-                  ${targetKid}, ${pinId}, NULL, ${pin.title || ''}, ${pin.domain || ''}, ${pin.link || ''}, ${pin.image_url || ''},
-                  ${Number(pin.saves || 0)}, ${Number(pin.repins || 0)}, ${Number(pin.comments || 0)}, ${Number(pin.share_count || 0)}, 0,
-                  (NOW() AT TIME ZONE 'UTC')::date, FALSE,
-                  ${pin.created_at_pinterest ? pin.created_at_pinterest : null}, ${pin.creation_method || 'pinterest_platform'},
-                  ${JSON.stringify(metaToStore)}::jsonb, NOW()
-                )
-                ON CONFLICT (keyword_id, pin_id, snapshot_date) DO UPDATE SET
-                  save_count = GREATEST(keyword_pins_snapshots.save_count, EXCLUDED.save_count),
-                  repin_count = GREATEST(keyword_pins_snapshots.repin_count, EXCLUDED.repin_count),
-                  metadata = COALESCE(keyword_pins_snapshots.metadata, '{}'::jsonb) || EXCLUDED.metadata;
-              `.catch(() => {});
+              if (!isCrawlInProgress) {
+                const [kwRow] = await sql`
+                  SELECT keyword_id, rank_position, is_displaced 
+                  FROM keyword_serp_current 
+                  WHERE pin_id = ${pinId} 
+                  LIMIT 1;
+                `.catch(() => []);
+                const targetKid = kwRow?.keyword_id || 1;
+                const currentDisplaced = kwRow?.is_displaced ?? false;
+                const currentRank = currentDisplaced ? null : (kwRow?.rank_position ?? null);
+
+                await sql`
+                  INSERT INTO keyword_pins_snapshots (
+                    keyword_id, pin_id, rank_position, title, domain, destination_url, image_url,
+                    save_count, repin_count, comment_count, share_count, daily_save_velocity,
+                    snapshot_date, is_displaced, created_at_pinterest, creation_method, metadata, created_at
+                  )
+                  SELECT
+                    ${targetKid}, ${pinId}, ${currentRank}, ${pin.title || ''}, ${pin.domain || ''}, ${pin.link || ''}, ${pin.image_url || ''},
+                    ${Number(pin.saves || 0)}, ${Number(pin.repins || 0)}, ${Number(pin.comments || 0)}, ${Number(pin.share_count || 0)}, 0,
+                    (NOW() AT TIME ZONE 'UTC')::date, ${currentDisplaced},
+                    ${pin.created_at_pinterest ? pin.created_at_pinterest : null}, ${pin.creation_method || 'pinterest_platform'},
+                    ${JSON.stringify(metaToStore)}::jsonb, NOW()
+                  WHERE NOT EXISTS (
+                    SELECT 1 FROM keyword_ignored_pins kip
+                    WHERE kip.keyword_id = ${targetKid} AND kip.pin_id = ${pinId}
+                  )
+                  ON CONFLICT (keyword_id, pin_id, snapshot_date) DO UPDATE SET
+                    save_count = GREATEST(keyword_pins_snapshots.save_count, EXCLUDED.save_count),
+                    repin_count = GREATEST(keyword_pins_snapshots.repin_count, EXCLUDED.repin_count),
+                    metadata = COALESCE(keyword_pins_snapshots.metadata, '{}'::jsonb) || EXCLUDED.metadata;
+                `.catch(() => {});
+              } else {
+                console.warn(`[Sync Concurrency Guard] Crawl lease active for pin #${pinId} keywords (${activeCrawlKeywords.map(k=>k.id).join(',')}). Snapshot insertion deferred to active crawler.`);
+              }
             }
 
             // C. Shard daily snapshot record
@@ -2681,9 +2770,11 @@ export default {
                 ${pinId}, (NOW() AT TIME ZONE 'UTC')::date, NULL,
                 ${Number(pin.saves || 0)}, ${Number(pin.repins || 0)}, ${Number(pin.comments || 0)}, ${Number(pin.share_count || 0)}, 0, 0, NOW()
               )
-              ON CONFLICT (pin_id, snapshot_date) DO UPDATE SET
+              ON CONFLICT (pin_id, keyword_id, snapshot_date) DO UPDATE SET
                 save_count = GREATEST(pins_daily_snapshots.save_count, EXCLUDED.save_count),
-                repin_count = GREATEST(pins_daily_snapshots.repin_count, EXCLUDED.repin_count);
+                repin_count = GREATEST(pins_daily_snapshots.repin_count, EXCLUDED.repin_count),
+                comment_count = GREATEST(pins_daily_snapshots.comment_count, EXCLUDED.comment_count),
+                share_count = GREATEST(pins_daily_snapshots.share_count, EXCLUDED.share_count);
             `.catch(() => {});
 
             // D. Refreshed dossier

@@ -4840,7 +4840,10 @@ export function getKeywordsPageHtml(initialSlug = '') {
             const [tagA, tagB] = key.split('|||');
             const countA = tagCounts.get(tagA) || 1;
             const countB = tagCounts.get(tagB) || 1;
-            const lift = Number(((count * N) / (countA * countB)).toFixed(2));
+            // Phase 5: Standardized Laplace-smoothed Lift:
+            // Lift_smoothed = ((C_AB + 1) * (N + 4)) / ((C_A + 2) * (C_B + 2))
+            const liftRaw = ((count + 1) * (N + 4)) / ((countA + 2) * (countB + 2));
+            const lift = Number.isFinite(liftRaw) ? Number(liftRaw.toFixed(2)) : 1.0;
             results.push({
               tagA,
               tagB,

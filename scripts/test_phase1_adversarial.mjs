@@ -147,8 +147,8 @@ const poolerTestCases = [
   },
   {
     name: 'Multi-Cell Compute Subdomain (c-7)',
-    input: 'postgresql://neondb_owner:npg_0zBtbEkFXuc3@ep-wild-meadow-b5pva8wf.c-7.us-east-2.aws.neon.tech/neondb?sslmode=require',
-    expected: 'postgresql://neondb_owner:npg_0zBtbEkFXuc3@ep-wild-meadow-b5pva8wf-pooler.c-7.us-east-2.aws.neon.tech/neondb?sslmode=require'
+    input: 'postgresql://neondb_owner:pg_TESTONLY_REDACTED@ep-wild-meadow-b5pva8wf.c-7.us-east-2.aws.neon.tech/neondb?sslmode=require',
+    expected: 'postgresql://neondb_owner:pg_TESTONLY_REDACTED@ep-wild-meadow-b5pva8wf-pooler.c-7.us-east-2.aws.neon.tech/neondb?sslmode=require'
   },
   {
     name: 'Already Pooled URL (Idempotent)',

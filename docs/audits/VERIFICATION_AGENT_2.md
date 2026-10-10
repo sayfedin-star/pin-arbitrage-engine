@@ -41,9 +41,9 @@
   - الملف يحتوي مصفوفة صريحة بـ 99 قاعدة بيانات Neon:
     ```javascript
     // L25
-    { shard: 1, id: 'lingering-queen-63181356', url: 'postgresql://neondb_owner:npg_sdXJar4R1GlY@ep-blue-dew-b57i5te6-pooler.c-7.us-east-2.aws.neon.tech/neondb?...' },
+    { shard: 1, id: 'lingering-queen-63181356', url: 'postgresql://neondb_owner:[REDACTED]@ep-blue-dew-b57i5te6-pooler.c-7.us-east-2.aws.neon.tech/neondb?...' },
     // L26
-    { shard: 2, id: 'nameless-math-08100352', url: 'postgresql://neondb_owner:npg_PdKxRwNyS67I@ep-odd-shape-b4mq2e4q-pooler.c-6.us-east-2.aws.neon.tech/neondb?...' },
+    { shard: 2, id: 'nameless-math-08100352', url: 'postgresql://neondb_owner:[REDACTED]@ep-odd-shape-b4mq2e4q-pooler.c-6.us-east-2.aws.neon.tech/neondb?...' },
     ```
   - التحقق من Git: تنفيذ أمر `git ls-files scripts/populate_neon_fleet.mjs` أثبت أن الملف **متتبع ومحفوظ في سجل الـ Git**.
 - **الأثر التشغيلي:** تسريب كامل لصلاحيات المدير المالك (`neondb_owner`) لـ 99 قاعدة بيانات إنتاجية لأي شخص يملك صلاحية قراءة المستودع.

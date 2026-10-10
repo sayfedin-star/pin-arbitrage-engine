@@ -578,7 +578,15 @@ export function getPinDetailPageHtml(pinId = '') {
                   class="flex items-center justify-between text-[11px] text-slate-300 hover:text-emerald-400 p-1 rounded bg-slate-900 border border-slate-800/80 transition-colors"
                 >
                   <span class="truncate max-w-[120px]" x-text="kw.keyword"></span>
-                  <span class="font-mono text-emerald-400 font-bold" x-text="'#' + kw.rank"></span>
+                  <template x-if="!kw.is_displaced && kw.rank">
+                    <span class="font-mono text-emerald-400 font-bold" x-text="'#' + kw.rank"></span>
+                  </template>
+                  <template x-if="kw.is_displaced">
+                    <span class="font-mono text-amber-400 font-bold" x-text="'#' + (kw.rank || kw.last_known_rank || '?') + ' [Vault]'"></span>
+                  </template>
+                  <template x-if="!kw.is_displaced && !kw.rank">
+                    <span class="font-mono text-slate-400 font-bold">Unranked</span>
+                  </template>
                 </a>
               </template>
               <div x-show="!dossier?.pillar_2_keywords_context?.ranking_keywords?.length" class="text-[11px] text-slate-500 italic">
@@ -795,7 +803,15 @@ export function getPinDetailPageHtml(pinId = '') {
                         class="px-2 py-0.5 rounded bg-slate-950 border border-slate-800 text-[11px] text-slate-300 hover:text-emerald-400 hover:border-emerald-500/40 transition-colors flex items-center gap-1"
                       >
                         <span x-text="kw.keyword"></span>
-                        <span class="text-emerald-400 font-bold" x-text="'#' + kw.rank"></span>
+                        <template x-if="!kw.is_displaced && kw.rank">
+                          <span class="text-emerald-400 font-bold" x-text="'#' + kw.rank"></span>
+                        </template>
+                        <template x-if="kw.is_displaced">
+                          <span class="text-amber-400 font-bold" x-text="'#' + (kw.rank || kw.last_known_rank || '?') + ' [Vault]'"></span>
+                        </template>
+                        <template x-if="!kw.is_displaced && !kw.rank">
+                          <span class="text-slate-400 font-bold">Unranked</span>
+                        </template>
                       </a>
                     </template>
                     <span x-show="!d.ranking_keywords?.length" class="text-slate-500 text-[11px] italic">Universal metrics recorded</span>
@@ -847,7 +863,15 @@ export function getPinDetailPageHtml(pinId = '') {
                   </template>
                 </td>
                 <td class="p-3.5">
-                  <span class="px-2 py-0.5 rounded bg-slate-800 text-slate-200 border border-slate-700" x-text="'#' + (s.rank_position || 'N/A')"></span>
+                  <template x-if="s.rank_position">
+                    <span class="px-2 py-0.5 rounded bg-slate-800 text-slate-200 border border-slate-700" x-text="'#' + s.rank_position"></span>
+                  </template>
+                  <template x-if="!s.rank_position && (s.last_known_rank || s.is_displaced)">
+                    <span class="px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20" x-text="'#' + (s.last_known_rank || '?') + ' [Vault]'"></span>
+                  </template>
+                  <template x-if="!s.rank_position && !s.last_known_rank && !s.is_displaced">
+                    <span class="px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">N/A</span>
+                  </template>
                 </td>
                 <td class="p-3.5 text-emerald-400 font-bold" x-text="formatNumber(s.save_count)"></td>
                 <td class="p-3.5">

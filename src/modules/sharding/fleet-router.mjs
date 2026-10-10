@@ -528,7 +528,8 @@ export async function fetchUniversalPinDossier({ hubSql, pinId }) {
     SELECT 
       pin_id, title, domain, destination_url, image_url,
       creator_username, board_name, save_count, repin_count,
-      daily_save_velocity, dominant_color, visual_annotations
+      daily_save_velocity, dominant_color, visual_annotations,
+      rank_position, last_known_rank, is_displaced
     FROM keyword_serp_current
     WHERE pin_id = ${cleanPinId}
     ORDER BY save_count DESC;
@@ -676,7 +677,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId }) {
   if (!snapshots || snapshots.length === 0) {
     const hubSnapshots = await hubSql`
       SELECT 
-        id, snapshot_date, rank_position, save_count, repin_count,
+        id, snapshot_date, rank_position, last_known_rank, is_displaced, save_count, repin_count,
         comment_count, 0 as share_count, 0 as reaction_count, daily_save_velocity,
         keyword_id, NULL as competitor_id, created_at
       FROM keyword_pins_snapshots
@@ -745,14 +746,18 @@ export async function fetchUniversalPinDossier({ hubSql, pinId }) {
     day.share_count = Math.max(day.share_count, Number(s.share_count) || 0);
     day.reaction_count = Math.max(day.reaction_count, Number(s.reaction_count) || 0);
     day.daily_save_velocity = Math.max(day.daily_save_velocity, Number(s.daily_save_velocity) || 0);
-    if (s.rank_position && s.rank_position > 0) {
-      day.best_rank = Math.min(day.best_rank, s.rank_position);
+    const effRank = s.rank_position || s.last_known_rank || null;
+    if (effRank && effRank > 0) {
+      day.best_rank = Math.min(day.best_rank, effRank);
     }
     if (s.keyword_name) {
       day.ranking_keywords.push({
         keyword_id: s.keyword_id,
         keyword: s.keyword_name,
-        rank: s.rank_position,
+        rank: effRank,
+        rank_position: s.rank_position || null,
+        last_known_rank: s.last_known_rank || null,
+        is_displaced: Boolean(s.is_displaced),
         saves: Number(s.save_count) || 0
       });
     }
@@ -783,7 +788,10 @@ export async function fetchUniversalPinDossier({ hubSql, pinId }) {
         json_agg(json_build_object(
           'keyword_id', tk.id,
           'keyword', tk.keyword,
-          'rank', sc.rank_position,
+          'rank', COALESCE(sc.rank_position, sc.last_known_rank),
+          'rank_position', sc.rank_position,
+          'last_known_rank', sc.last_known_rank,
+          'is_displaced', COALESCE(sc.is_displaced, FALSE),
           'velocity', sc.daily_save_velocity
         )) as ranking_keywords
       FROM keyword_serp_current sc

@@ -133,59 +133,44 @@ async function inspectAndSyncPin(pin, kw) {
   for (const t of cleanNewAnnotations) mergedTagsSet.add(t);
   const finalAnnotations = Array.from(mergedTagsSet).slice(0, 15);
 
-  // 1. Cross-Keyword Cascade Update on Central Hub keyword_serp_current
-  // Updates ALL active SERP rankings where this pin appears across all keywords
+  // 1. Unified Cross-Keyword Cascade Update on Central Hub keyword_serp_current
+  // Updates ALL rankings (active and displaced) where this pin appears under the target keyword
   await sql`
     UPDATE keyword_serp_current
     SET 
       save_count = GREATEST(save_count, ${authenticSaves}::bigint),
       repin_count = GREATEST(repin_count, ${authenticRepins}::int),
+      comment_count = GREATEST(COALESCE(comment_count, 0), ${authenticComments}::int),
+      share_count = GREATEST(COALESCE(share_count, 0), ${authenticShares}::int),
       creator_username = CASE WHEN ${creator}::text <> '' THEN ${creator}::text ELSE creator_username END,
       board_name = CASE WHEN ${board}::text <> '' THEN ${board}::text ELSE board_name END,
       dominant_color = CASE WHEN ${dominantColor}::text <> '' THEN ${dominantColor}::text ELSE dominant_color END,
       created_at_pinterest = CASE WHEN ${createdAtPinterest}::timestamptz IS NOT NULL THEN ${createdAtPinterest}::timestamptz ELSE created_at_pinterest END,
       creation_method = CASE WHEN ${method}::text <> '' THEN ${method}::text ELSE creation_method END,
+      vacuum_opportunity_score = CASE 
+        WHEN COALESCE(last_known_rank, rank_position, 100) <= 5 THEN 85
+        WHEN COALESCE(last_known_rank, rank_position, 100) <= 15 THEN 75
+        WHEN COALESCE(last_known_rank, rank_position, 100) <= 50 THEN 60
+        ELSE 45
+      END,
       visual_annotations = CASE 
         WHEN jsonb_typeof(${JSON.stringify(finalAnnotations)}::jsonb) = 'array' AND jsonb_array_length(${JSON.stringify(finalAnnotations)}::jsonb) > 0 
         THEN ${JSON.stringify(finalAnnotations)}::jsonb 
         ELSE visual_annotations 
       END,
-      crawled_at = NOW()
-    WHERE pin_id = ${pin.pin_id} AND keyword_id = ${kw.id};
-  `;
-
-  // 2. Cascade Update on Central Hub keyword_displaced_pins (Displaced Vault)
-  // Ensures authentic metrics & active pace for this pin under the target keyword
-  await sql`
-    UPDATE keyword_displaced_pins
-    SET 
-      current_saves = GREATEST(current_saves, ${authenticSaves}::bigint),
-      current_repins = GREATEST(current_repins, ${authenticRepins}::int),
-      current_comments = GREATEST(current_comments, ${authenticComments}::int),
-      current_shares = GREATEST(current_shares, ${authenticShares}::int),
-      board_name = CASE WHEN ${board}::text <> '' THEN ${board}::text ELSE board_name END,
-      created_at_pinterest = CASE WHEN ${createdAtPinterest}::timestamptz IS NOT NULL THEN ${createdAtPinterest}::timestamptz ELSE created_at_pinterest END,
-      creation_method = CASE WHEN ${method}::text <> '' THEN ${method}::text ELSE creation_method END,
-      vacuum_opportunity_score = CASE 
-        WHEN last_known_rank <= 5 THEN 85
-        WHEN last_known_rank <= 15 THEN 75
-        WHEN last_known_rank <= 50 THEN 60
-        ELSE 45
-      END,
-      seo_alt_text = CASE WHEN ${altText}::text <> '' THEN ${altText}::text ELSE seo_alt_text END,
-      dominant_color = CASE WHEN ${dominantColor}::text <> '' THEN ${dominantColor}::text ELSE dominant_color END,
-      annotations = CASE 
-        WHEN jsonb_typeof(${JSON.stringify(finalAnnotations)}::jsonb) = 'array' AND jsonb_array_length(${JSON.stringify(finalAnnotations)}::jsonb) > 0 
-        THEN ${JSON.stringify(finalAnnotations)}::jsonb 
-        ELSE annotations 
-      END,
       metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
+        'description', ${description}::text,
+        'alt_text', ${altText}::text,
+        'share_count', ${authenticShares}::int,
+        'dominant_color', ${dominantColor}::text,
+        'board_name', ${board}::text,
         'method', ${method}::text,
         'creation_method', ${method}::text,
-        'board_name', ${board}::text,
-        'created_at_pinterest', ${createdAtPinterest}::text
+        'created_at_pinterest', ${createdAtPinterest}::text,
+        'is_deleted', ${isDead}::boolean,
+        'status', ${isDead ? 'archived_404' : 'active'}::text
       ),
-      last_checked_at = NOW(),
+      crawled_at = NOW(),
       updated_at = NOW()
     WHERE pin_id = ${pin.pin_id} AND keyword_id = ${kw.id};
   `;
@@ -310,7 +295,7 @@ async function flushToStorageShards(enrichedPins) {
               ${sp.daily_save_velocity}, (NOW() AT TIME ZONE 'UTC')::date, NOW()
             )
             ON CONFLICT (pin_id, keyword_id, snapshot_date) DO UPDATE SET
-              rank_position = EXCLUDED.rank_position,
+              rank_position = COALESCE(EXCLUDED.rank_position, pins_daily_snapshots.rank_position),
               save_count = GREATEST(pins_daily_snapshots.save_count, EXCLUDED.save_count),
               repin_count = GREATEST(pins_daily_snapshots.repin_count, EXCLUDED.repin_count),
               comment_count = GREATEST(pins_daily_snapshots.comment_count, EXCLUDED.comment_count),
@@ -375,55 +360,37 @@ async function run() {
     if (crawlScope === 'active_serp') {
       allPins = await sql`
         SELECT 
-          pin_id, rank_position, title, domain, destination_url, image_url,
+          pin_id, rank_position, last_known_rank, title, domain, destination_url, image_url,
           save_count, repin_count, daily_save_velocity, creator_username,
           board_name, dominant_color, visual_annotations, created_at_pinterest, creation_method, FALSE as is_displaced
         FROM keyword_serp_current
-        WHERE keyword_id = ${kwRow.id} AND pin_id ~ '^[0-9]+$'
+        WHERE keyword_id = ${kwRow.id} AND pin_id ~ '^[0-9]+$' AND is_displaced = FALSE
+          AND NOT EXISTS (
+            SELECT 1 FROM keyword_ignored_pins kip
+            WHERE kip.keyword_id = ${kwRow.id} AND kip.pin_id = keyword_serp_current.pin_id
+          )
         ORDER BY rank_position ASC;
       `;
     } else {
       allPins = await sql`
-        SELECT DISTINCT ON (pin_id)
-          pin_id, rank_position, title, domain, destination_url, image_url,
+        SELECT 
+          pin_id, rank_position, last_known_rank, title, domain, destination_url, image_url,
           save_count, repin_count, daily_save_velocity, creator_username,
           board_name, dominant_color, visual_annotations, created_at_pinterest, creation_method, is_displaced
-        FROM (
-          SELECT 
-            pin_id, rank_position, title, domain, destination_url, image_url,
-            save_count, repin_count, daily_save_velocity, creator_username,
-            board_name, dominant_color, visual_annotations, created_at_pinterest, creation_method, FALSE as is_displaced
-          FROM keyword_serp_current
-          WHERE keyword_id = ${kwRow.id} AND pin_id ~ '^[0-9]+$'
-          UNION ALL
-          SELECT 
-            pin_id, rank_position, title, domain, destination_url, image_url,
-            save_count, repin_count, daily_save_velocity, '' as creator_username,
-            '' as board_name, '' as dominant_color, 
-            COALESCE(metadata->'visual_annotations', '[]'::jsonb) as visual_annotations,
-            created_at_pinterest, creation_method,
-            is_displaced
-          FROM keyword_pins_snapshots
-          WHERE keyword_id = ${kwRow.id} AND pin_id ~ '^[0-9]+$'
-          UNION ALL
-          SELECT 
-            pin_id, last_known_rank as rank_position, title, domain, destination_url, image_url,
-            current_saves as save_count, current_repins as repin_count, daily_save_velocity, '' as creator_username,
-            '' as board_name, dominant_color, 
-            COALESCE(annotations, '[]'::jsonb) as visual_annotations,
-            created_at_pinterest, creation_method,
-            TRUE as is_displaced
-          FROM keyword_displaced_pins
-          WHERE keyword_id = ${kwRow.id} AND pin_id ~ '^[0-9]+$'
-        ) combined
-        ORDER BY pin_id, rank_position ASC NULLS LAST;
+        FROM keyword_serp_current
+        WHERE keyword_id = ${kwRow.id} AND pin_id ~ '^[0-9]+$'
+          AND NOT EXISTS (
+            SELECT 1 FROM keyword_ignored_pins kip
+            WHERE kip.keyword_id = ${kwRow.id} AND kip.pin_id = keyword_serp_current.pin_id
+          )
+        ORDER BY is_displaced ASC, rank_position ASC NULLS LAST;
       `;
     }
 
     // Deterministic sort to ensure identical order across all 20 runners
     allPins.sort((a, b) => {
-      const rA = Number(a.rank_position) || 9999;
-      const rB = Number(b.rank_position) || 9999;
+      const rA = Number(a.rank_position) || Number(a.last_known_rank) || 9999;
+      const rB = Number(b.rank_position) || Number(b.last_known_rank) || 9999;
       if (rA !== rB) return rA - rB;
       return String(a.pin_id).localeCompare(String(b.pin_id));
     });
@@ -431,8 +398,8 @@ async function run() {
     // Deterministic Hash Disjoint Partition (Immune to dynamic catalog size variations across worker start times)
     const myPins = allPins.filter(p => (crc32(p.pin_id) % workerTotal) === workerIndex);
     myPins.sort((a, b) => {
-      const rA = Number(a.rank_position) || 9999;
-      const rB = Number(b.rank_position) || 9999;
+      const rA = Number(a.rank_position) || Number(a.last_known_rank) || 9999;
+      const rB = Number(b.rank_position) || Number(b.last_known_rank) || 9999;
       if (rA !== rB) return rA - rB;
       return String(a.pin_id).localeCompare(String(b.pin_id));
     });
@@ -446,7 +413,7 @@ async function run() {
     const enrichedList = [];
     for (let i = 0; i < myPins.length; i++) {
       const p = myPins[i];
-      console.log(`  [${i + 1}/${myPins.length}] Inspecting Pin #${p.pin_id} (Rank #${p.rank_position || 'Vault'})...`);
+      console.log(`  [${i + 1}/${myPins.length}] Inspecting Pin #${p.pin_id} (Rank #${p.rank_position || (p.last_known_rank ? p.last_known_rank + ' [Vault]' : 'Vault')})...`);
       const enriched = await inspectAndSyncPin(p, kwRow);
       enrichedList.push(enriched);
 
@@ -548,12 +515,16 @@ async function run() {
           // Stage 2: Deep Inspection
           let serpPins = await sql`
             SELECT 
-              pin_id, rank_position, title, domain, destination_url, image_url,
+              pin_id, rank_position, last_known_rank, title, domain, destination_url, image_url,
               save_count, repin_count, daily_save_velocity, creator_username,
-              board_name, dominant_color, visual_annotations, FALSE as is_displaced
+              board_name, dominant_color, visual_annotations, is_displaced
             FROM keyword_serp_current
             WHERE keyword_id = ${kw.id} AND pin_id ~ '^[0-9]+$'
-            ORDER BY rank_position ASC
+              AND NOT EXISTS (
+                SELECT 1 FROM keyword_ignored_pins kip
+                WHERE kip.keyword_id = ${kw.id} AND kip.pin_id = keyword_serp_current.pin_id
+              )
+            ORDER BY is_displaced ASC, rank_position ASC NULLS LAST
             LIMIT ${maxPins};
           `;
 

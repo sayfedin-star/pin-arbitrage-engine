@@ -168,31 +168,27 @@ async function main() {
     if (crawlScope === 'active_serp') {
       console.log('  [*] Scope: active_serp (Top organic ranking pins only)');
       candidatePins = await sql`
-        SELECT pin_id, rank_position, FALSE as is_displaced
+        SELECT pin_id, rank_position, last_known_rank, FALSE as is_displaced
         FROM keyword_serp_current
-        WHERE keyword_id = ${kwRow.id} AND pin_id ~ '^[0-9]+$'
+        WHERE keyword_id = ${kwRow.id} AND pin_id ~ '^[0-9]+$' AND is_displaced = FALSE
         ORDER BY rank_position ASC;
       `;
     } else {
-      console.log('  [*] Scope: all_pins (Active SERP + Displaced Vault full catalog)');
+      console.log('  [*] Scope: all_pins (Unified Keyword Catalog: Active SERP + Displaced Vault)');
       candidatePins = await sql`
-        SELECT DISTINCT ON (pin_id) pin_id, rank_position, is_displaced
-        FROM (
-          SELECT pin_id, rank_position, FALSE as is_displaced
-          FROM keyword_serp_current
-          WHERE keyword_id = ${kwRow.id} AND pin_id ~ '^[0-9]+$'
-          UNION ALL
-          SELECT pin_id, rank_position, is_displaced
-          FROM keyword_pins_snapshots
-          WHERE keyword_id = ${kwRow.id} AND pin_id ~ '^[0-9]+$'
-          UNION ALL
-          SELECT pin_id, last_known_rank as rank_position, TRUE as is_displaced
-          FROM keyword_displaced_pins
-          WHERE keyword_id = ${kwRow.id} AND pin_id ~ '^[0-9]+$'
-        ) combined
-        ORDER BY pin_id, rank_position ASC NULLS LAST;
+        SELECT pin_id, rank_position, last_known_rank, is_displaced
+        FROM keyword_serp_current
+        WHERE keyword_id = ${kwRow.id} AND pin_id ~ '^[0-9]+$'
+        ORDER BY is_displaced ASC, rank_position ASC NULLS LAST;
       `;
     }
+
+    candidatePins.sort((a, b) => {
+      const rA = Number(a.rank_position) || Number(a.last_known_rank) || 9999;
+      const rB = Number(b.rank_position) || Number(b.last_known_rank) || 9999;
+      if (rA !== rB) return rA - rB;
+      return String(a.pin_id).localeCompare(String(b.pin_id));
+    });
 
     const totalPinsFound = candidatePins.length;
     console.log(`  [+] Total Catalog Pins Discovered: ${totalPinsFound} pins`);

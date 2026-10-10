@@ -912,10 +912,9 @@ export function getCampaignFoldersPageHtml(folderId = '') {
               const [t1, t2] = JSON.parse(key);
               const n1 = tagFreq.get(t1) || 1;
               const n2 = tagFreq.get(t2) || 1;
-              // Laplace-smoothed Lift & Confidence to eliminate rare-pair inflation:
-              // P(A ∩ B) = (jointCount + 1) / (N_total + 4)
-              // P(A) = (n1 + 1) / (N_total + 2), P(B) = (n2 + 1) / (N_total + 2)
-              const liftRaw = ((jointCount + 1) * Math.pow(N_total + 2, 2)) / ((N_total + 4) * (n1 + 1) * (n2 + 1));
+              // Phase 5: Standardized Laplace-smoothed Lift & Confidence:
+              // Lift_smoothed = ((C_AB + 1) * (N + 4)) / ((C_A + 2) * (C_B + 2))
+              const liftRaw = ((jointCount + 1) * (N_total + 4)) / ((n1 + 2) * (n2 + 2));
               const confRaw = (jointCount + 1) / (n1 + 2);
 
               const liftVal = Number.isFinite(liftRaw) ? Number(liftRaw.toFixed(2)) : 1.0;
