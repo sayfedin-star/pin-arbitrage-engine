@@ -45,6 +45,16 @@ const maxPages = Math.min(Math.max(1, parseInt(process.env.MAX_PAGES || getCliAr
 
 const cleanAccount = String(targetAccountArg || '').replace(/^@+/, '').trim().toLowerCase();
 
+let isShuttingDown = false;
+process.on('SIGINT', () => {
+  console.log('\n[!] SIGINT received. Completing active work and exiting gracefully...');
+  isShuttingDown = true;
+});
+process.on('SIGTERM', () => {
+  console.log('\n[!] SIGTERM received. Completing active work and exiting gracefully...');
+  isShuttingDown = true;
+});
+
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -228,12 +238,14 @@ async function crawlSeedPin(competitorId, seedPinId, targetUsername) {
     if (!bookmark) break;
   }
 
-  // Update last_crawled_at for this seed
-  await sql`
-    UPDATE competitor_seed_pins 
-    SET last_crawled_at = NOW() 
-    WHERE competitor_id = ${competitorId} AND pin_id = ${String(seedPinId)};
-  `;
+  // Update last_crawled_at for this seed only if crawl was successful (discovered nodes > 0) [CAP-28]
+  if (totalDiscoveredForSeed > 0) {
+    await sql`
+      UPDATE competitor_seed_pins 
+      SET last_crawled_at = NOW() 
+      WHERE competitor_id = ${competitorId} AND pin_id = ${String(seedPinId)};
+    `;
+  }
 
   return totalDiscoveredForSeed;
 }
@@ -353,6 +365,10 @@ async function main() {
   // 3. Harvest each seed
   let totalDiscovered = 0;
   for (let i = 0; i < seedIds.length; i++) {
+    if (isShuttingDown) {
+      console.log('[!] Graceful shutdown initiated. Skipping remaining seeds.');
+      break;
+    }
     const sid = seedIds[i];
     console.log(`\n=============================================================`);
     console.log(`[Seed ${i + 1}/${seedIds.length}] Processing Seed Pin: ${sid}`);

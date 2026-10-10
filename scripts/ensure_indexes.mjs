@@ -51,6 +51,7 @@ async function optimizeIndexes() {
   `;
 
   console.log('[*] 5. Indexing P4 pa_pins & metrics...');
+  await sql`DROP TRIGGER IF EXISTS trg_pa_pins_monotonic_metrics ON pa_pins;`.catch(err => console.warn('[Trigger Notice]', err.message));
   await sql`CREATE INDEX IF NOT EXISTS idx_pa_pins_saves ON pa_pins(saves DESC);`;
   await sql`CREATE INDEX IF NOT EXISTS idx_pa_pins_velocity ON pa_pins(velocity DESC);`;
   await sql`CREATE INDEX IF NOT EXISTS idx_pa_pins_account ON pa_pins(account_username);`;
@@ -125,12 +126,57 @@ async function optimizeIndexes() {
   await sql`CREATE INDEX IF NOT EXISTS idx_kps_kw_date_displaced ON keyword_pins_snapshots(keyword_id, is_displaced, snapshot_date DESC);`.catch(err => console.warn('[Index Notice]', err.message));
   await sql`CREATE INDEX IF NOT EXISTS idx_kps_kw_date_distinct ON keyword_pins_snapshots(keyword_id, snapshot_date DESC);`.catch(err => console.warn('[Index Notice]', err.message));
 
-  console.log('[*] 6. Ensuring created_at_pinterest and creation_method columns exist...');
+  console.log('[*] 11. Ensuring created_at_pinterest and creation_method columns exist...');
   await sql`ALTER TABLE keyword_serp_current ADD COLUMN IF NOT EXISTS created_at_pinterest TIMESTAMP WITH TIME ZONE;`.catch(err => console.warn('[Index Notice]', err.message));
   await sql`ALTER TABLE keyword_serp_current ADD COLUMN IF NOT EXISTS creation_method VARCHAR(50);`.catch(err => console.warn('[Index Notice]', err.message));
   await sql`ALTER TABLE keyword_displaced_pins ADD COLUMN IF NOT EXISTS creation_method VARCHAR(50);`.catch(err => console.warn('[Index Notice]', err.message));
   await sql`ALTER TABLE keyword_pins_snapshots ADD COLUMN IF NOT EXISTS created_at_pinterest TIMESTAMP WITH TIME ZONE;`.catch(err => console.warn('[Index Notice]', err.message));
   await sql`ALTER TABLE keyword_pins_snapshots ADD COLUMN IF NOT EXISTS creation_method VARCHAR(50);`.catch(err => console.warn('[Index Notice]', err.message));
+
+  console.log('[*] 12. Ensuring registry and case-insensitive search indexes [CAP-23, CAP-24]...');
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_npr_project_name ON neon_projects_registry(project_name);`.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`CREATE INDEX IF NOT EXISTS idx_tk_lower_keyword ON tracked_keywords(LOWER(keyword));`.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`CREATE INDEX IF NOT EXISTS idx_cp_lower_username ON competitor_profiles(LOWER(username));`.catch(err => console.warn('[Index Notice]', err.message));
+
+  console.log('[*] 13. Propagating core indexes across registered storage shards [CAP-21]...');
+  let shards = [];
+  try {
+    shards = await sql`
+      SELECT id, project_id, project_name, database_url
+      FROM neon_projects_registry
+      WHERE is_hub = FALSE AND status = 'active' AND database_url IS NOT NULL
+      ORDER BY id ASC;
+    `;
+  } catch (regErr) {
+    console.warn('[!] Could not fetch storage shards from registry:', regErr.message);
+  }
+
+  if (shards.length > 0) {
+    console.log(`[*] Discovered ${shards.length} storage shards in registry. Applying shard-level indexes...`);
+    for (const shard of shards) {
+      try {
+        const shardSql = neon(shard.database_url);
+        // Clean duplicate trigger on shard pa_pins [CAP-22]
+        await shardSql`DROP TRIGGER IF EXISTS trg_pa_pins_monotonic_metrics ON pa_pins;`.catch(() => {});
+        // P4 pa_pins
+        await shardSql`CREATE INDEX IF NOT EXISTS idx_pa_pins_saves ON pa_pins(saves DESC);`.catch(() => {});
+        await shardSql`CREATE INDEX IF NOT EXISTS idx_pa_pins_velocity ON pa_pins(velocity DESC);`.catch(() => {});
+        await shardSql`CREATE INDEX IF NOT EXISTS idx_pa_pins_account ON pa_pins(account_username);`.catch(() => {});
+        await shardSql`CREATE INDEX IF NOT EXISTS idx_pa_pins_created_at_pinterest ON pa_pins(created_at_pinterest DESC NULLS LAST);`.catch(() => {});
+        // competitor_pins queue indexes
+        await shardSql`CREATE INDEX IF NOT EXISTS idx_competitor_pins_queue_fast ON competitor_pins(competitor_id, enrichment_status, id);`.catch(() => {});
+        await shardSql`CREATE INDEX IF NOT EXISTS idx_competitor_pins_enrichment_global ON competitor_pins(enrichment_status) WHERE enrichment_status = 'pending';`.catch(() => {});
+        await shardSql`CREATE INDEX IF NOT EXISTS idx_competitor_pins_stale_reclaim ON competitor_pins(enrichment_status, updated_at) WHERE enrichment_status = 'processing';`.catch(() => {});
+        // universal_master_pins & snapshots
+        await shardSql`CREATE INDEX IF NOT EXISTS idx_ump_domain ON universal_master_pins(domain);`.catch(() => {});
+        await shardSql`CREATE INDEX IF NOT EXISTS idx_ump_creator ON universal_master_pins(creator_username);`.catch(() => {});
+        await shardSql`CREATE INDEX IF NOT EXISTS idx_pds_pin_date ON pins_daily_snapshots(pin_id, snapshot_date ASC, created_at DESC);`.catch(() => {});
+      } catch (shardErr) {
+        console.warn(`[!] Shard ${shard.project_name || shard.id} index notice:`, shardErr.message);
+      }
+    }
+    console.log(`[+] Fleet shard index propagation complete for ${shards.length} shards.`);
+  }
 
   console.log('[+] All indexes and columns verified and active in Neon Serverless Postgres!');
 }
