@@ -1053,12 +1053,19 @@ export async function calculateFolderCrossover(sql, folderId) {
   const compositeWeeklyWave = new Array(52).fill(0);
   let trendsLoaded = 0;
 
-  // Attempt to fetch trends for each keyword (capped at 15 to guarantee Cloudflare Worker subrequest compliance <= 50)
-  const trendsSample = folderKeywords.slice(0, 15);
-  for (const kw of trendsSample) {
-    if (trendsLoaded >= 15) break;
+  // Attempt to fetch trends for keywords (capped at 8 to guarantee Cloudflare Worker subrequest compliance <= 50, since each keyword triggers up to 5 subrequests: 8 * 5 = 40 <= 50)
+  const MAX_TRENDS_SAMPLE = 8;
+  const trendsSample = folderKeywords.slice(0, MAX_TRENDS_SAMPLE);
+
+  // Parallel fetch with Promise.allSettled to eliminate sequential isolate timeouts
+  const trendResults = await Promise.allSettled(
+    trendsSample.map(kw => fetchPinterestTrends(kw.keyword))
+  );
+
+  for (const res of trendResults) {
+    if (res.status !== 'fulfilled' || !res.value) continue;
     try {
-      const trendData = await fetchPinterestTrends(kw.keyword);
+      const trendData = res.value;
       const series = Array.isArray(trendData?.counts_52_weeks) && trendData.counts_52_weeks.length > 0
         ? trendData.counts_52_weeks
         : (Array.isArray(trendData?.timeline) ? trendData.timeline.map(p => p.value ?? p.normalized_interest ?? p) : null);

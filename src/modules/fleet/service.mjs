@@ -6,6 +6,7 @@
 import { neon } from '@neondatabase/serverless';
 import { getCompetitorsOverview, listCompetitors, formatMetric } from '../competitors/service.mjs';
 import { getShardNumberForEntity } from './sharding.mjs';
+import { enforceNeonPoolerUrl } from '../sharding/fleet-router.mjs';
 
 export async function getFleetProjects(sql) {
   const rows = await sql`
@@ -96,20 +97,26 @@ export async function getFleetCompetitors(sql, { account_type = 'all', search = 
     ORDER BY is_hub DESC, id ASC;
   `;
 
-  const results = await Promise.allSettled(activeProjects.map(async (p) => {
-    const pSql = p.is_hub ? sql : neon(p.database_url);
-    const overview = await getCompetitorsOverview(pSql);
-    let list = [];
-    if (overview.tracked_profiles > 0) {
-      list = await listCompetitors(pSql, { account_type, search, limit: 100, offset: 0 });
-      list = list.map(item => ({
-        ...item,
-        _shard_name: p.project_name,
-        _project_id: p.project_id
-      }));
-    }
-    return { project: p, overview, list };
-  }));
+  const CHUNK_SIZE = 5;
+  const results = [];
+  for (let i = 0; i < activeProjects.length; i += CHUNK_SIZE) {
+    const chunk = activeProjects.slice(i, i + CHUNK_SIZE);
+    const chunkResults = await Promise.allSettled(chunk.map(async (p) => {
+      const pSql = p.is_hub ? sql : neon(enforceNeonPoolerUrl(p.database_url));
+      const overview = await getCompetitorsOverview(pSql);
+      let list = [];
+      if (overview.tracked_profiles > 0) {
+        list = await listCompetitors(pSql, { account_type, search, limit: 100, offset: 0 });
+        list = list.map(item => ({
+          ...item,
+          _shard_name: p.project_name,
+          _project_id: p.project_id
+        }));
+      }
+      return { project: p, overview, list };
+    }));
+    results.push(...chunkResults);
+  }
 
   let total_profiles = 0;
   let competitor_count = 0;
@@ -283,7 +290,7 @@ export async function syncCompetitorAcrossFleet(hubSql, competitorUsernameOrId, 
 
     const syncToShard = async (shard) => {
       try {
-        const sSql = neon(shard.database_url);
+        const sSql = neon(enforceNeonPoolerUrl(shard.database_url));
         const [insertedP] = await sSql`
           INSERT INTO competitor_profiles (
             username, display_name, avatar_url, bio, website_url,
@@ -472,7 +479,7 @@ export async function syncFleetDatabases(hubSql, { targetProjectId = null } = {}
     const shardChunk = shards.slice(sIdx, sIdx + SHARD_BATCH);
     await Promise.allSettled(shardChunk.map(async (shard) => {
       try {
-        const sSql = neon(shard.database_url);
+        const sSql = neon(enforceNeonPoolerUrl(shard.database_url));
 
         // 0. Ensure schema compatibility on target shard
         await sSql`ALTER TABLE competitor_pins ADD COLUMN IF NOT EXISTS is_product BOOLEAN DEFAULT FALSE;`.catch(() => {});
@@ -788,7 +795,7 @@ export async function pingFleetProject(hubSql, projectId) {
   }
 
   const start = performance.now();
-  const shardSql = neon(proj.database_url);
+  const shardSql = neon(enforceNeonPoolerUrl(proj.database_url));
   await shardSql`SELECT 1;`;
   const latencyMs = Math.round(performance.now() - start);
 
