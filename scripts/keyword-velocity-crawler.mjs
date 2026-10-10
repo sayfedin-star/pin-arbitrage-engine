@@ -26,6 +26,7 @@ import fs from 'fs';
 import { crawlKeywordSERP } from '../src/modules/keywords/service.mjs';
 import { fetchPinFromPinterest } from './lib/pinterest.mjs';
 import { batchGroupByShard, resolveShardConnection } from '../src/modules/sharding/fleet-router.mjs';
+import { crc32 } from '../src/modules/fleet/sharding.mjs';
 
 if (typeof process.loadEnvFile === 'function') {
   try { process.loadEnvFile(); } catch (_) {}
@@ -415,9 +416,14 @@ async function run() {
       return String(a.pin_id).localeCompare(String(b.pin_id));
     });
 
-    // Modulo Disjoint Partition
-    const myPins = allPins.filter((_, idx) => (idx % workerTotal) === workerIndex);
-    myPins.sort((a, b) => String(a.pin_id).localeCompare(String(b.pin_id)));
+    // Deterministic Hash Disjoint Partition (Immune to dynamic catalog size variations across worker start times)
+    const myPins = allPins.filter(p => (crc32(p.pin_id) % workerTotal) === workerIndex);
+    myPins.sort((a, b) => {
+      const rA = Number(a.rank_position) || 9999;
+      const rB = Number(b.rank_position) || 9999;
+      if (rA !== rB) return rA - rB;
+      return String(a.pin_id).localeCompare(String(b.pin_id));
+    });
     console.log(`[*] Total Catalog Pins: ${allPins.length} | Worker Slice: ${myPins.length} pins assigned`);
 
     if (myPins.length === 0) {

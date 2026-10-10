@@ -132,9 +132,14 @@ async function main() {
       .sort((a, b) => Number(b.daily_save_velocity) - Number(a.daily_save_velocity))
       .slice(0, 5);
 
+    const fleetFailures = Number(process.env.FLEET_FAILURES || 0);
+    const fleetStatus = fleetFailures > 0
+      ? `🔴 **Partial Run (${fleetFailures} runners failed)**`
+      : '🟢 **Completed Successfully**';
+
     // Generate Rich Markdown Report
     mdReport += `## 🚀 Keyword Fleet Telemetry & Velocity Report\n\n`;
-    mdReport += `> **Target Keyword**: \`${kw.keyword}\` | **Fleet Execution**: \`20-Runner Parallel Matrix\` | **Status**: 🟢 **Completed Successfully**\n\n`;
+    mdReport += `> **Target Keyword**: \`${kw.keyword}\` | **Fleet Execution**: \`20-Runner Parallel Matrix\` | **Status**: ${fleetStatus}\n\n`;
 
     mdReport += `### 📊 Core Telemetry Metrics\n\n`;
     mdReport += `| Metric | Value | Architectural Context |\n`;
@@ -182,8 +187,13 @@ async function main() {
       LIMIT 20;
     `;
 
+    const fleetFailures = Number(process.env.FLEET_FAILURES || 0);
+    const fleetStatus = fleetFailures > 0
+      ? `🔴 **Partial Run (${fleetFailures} runners failed)**`
+      : '🟢 **Completed Successfully**';
+
     mdReport += `## 🚀 Multi-Keyword Distributed Fleet Radar Report\n\n`;
-    mdReport += `> **Fleet Mode**: \`20-Runner Parallel Matrix\` | **Keywords Processed**: **${keywords.length}** | **Status**: 🟢 **Completed Successfully**\n\n`;
+    mdReport += `> **Fleet Mode**: \`20-Runner Parallel Matrix\` | **Keywords Processed**: **${keywords.length}** | **Status**: ${fleetStatus}\n\n`;
 
     mdReport += `### 📊 Tracked Keywords Performance Matrix\n\n`;
     mdReport += `| Keyword | Category | Target Pins | Avg 24h Velocity | Last Updated | Status |\n`;

@@ -76,11 +76,12 @@ async function main() {
     }
   } catch (_) {}
 
+  let canonicalShard = null;
   if (targetAccount) {
     // Mode A: High-Throughput Multi-IP Swarm for Targeted Account
     // Deploys 15 parallel GitHub Actions runner VMs with 15 distinct Egress IPs
     // pulling concurrently from the Hub queue via FOR UPDATE SKIP LOCKED
-    const canonicalShard = getResilientShardNumberForEntity(targetAccount, shardTotal, quarantinedShards);
+    canonicalShard = getResilientShardNumberForEntity(targetAccount, shardTotal, quarantinedShards);
     const SWARM_SIZE = 15;
     activeShards = Array.from({ length: SWARM_SIZE }, (_, i) => i + 1).filter(s => !quarantinedShards.has(s));
     log(`[*] Target account @${targetAccount} mapped to Canonical Shard ${canonicalShard}/${shardTotal}`);
@@ -105,8 +106,8 @@ async function main() {
           ORDER BY id ASC;
         `;
       } catch (innerErr) {
-        console.error('[-] FATAL: Failed to query active profiles:', innerErr.message);
-        accounts = [];
+        console.error('[-] FATAL: Database query failure for active profiles:', innerErr.message);
+        throw new Error(`Database connectivity failure during fleet dispatch: ${innerErr.message}`);
       }
     }
 
@@ -191,6 +192,9 @@ async function main() {
     try {
       fs.appendFileSync(process.env.GITHUB_OUTPUT, `active_shards=${jsonOutput}\n`);
       fs.appendFileSync(process.env.GITHUB_OUTPUT, `active_count=${activeShards.length}\n`);
+      if (canonicalShard) {
+        fs.appendFileSync(process.env.GITHUB_OUTPUT, `canonical_shard=${canonicalShard}\n`);
+      }
       log(`[✓] Emitted active_shards to $GITHUB_OUTPUT: ${jsonOutput}`);
     } catch (err) {
       console.warn(`[!] Failed writing to GITHUB_OUTPUT:`, err.message);

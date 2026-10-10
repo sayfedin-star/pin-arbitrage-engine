@@ -54,6 +54,7 @@ jobs:
     outputs:
       active_shards: ${{ steps.dispatcher.outputs.active_shards }}
       active_count: ${{ steps.dispatcher.outputs.active_count }}
+      canonical_shard: ${{ steps.dispatcher.outputs.canonical_shard }}
     steps:
       - name: 1. Checkout repository
         uses: actions/checkout@v4
@@ -118,7 +119,8 @@ jobs:
           CRAWL_MODE: ${{ inputs.crawl_mode || 'sharded_boards' }}
           CRAWL_PHASE: 'discovery'
           MAX_PAGES: ${{ inputs.max_pages || '1000' }}
-          PERSONAL_BOARDS_ONLY: ${{ inputs.personal_boards_only != '' && inputs.personal_boards_only || 'true' }}
+          PERSONAL_BOARDS_ONLY: ${{ inputs.personal_boards_only == false && 'false' || 'true' }}
+          CANONICAL_SHARD: ${{ needs.dispatch-fleet.outputs.canonical_shard }}
           SHARD_NUMBER: 1
           SHARD_TOTAL: 99
         run: node scripts/crawler-engine.mjs
@@ -171,7 +173,8 @@ jobs:
           CRAWL_MODE: ${{ inputs.crawl_mode || 'sharded_boards' }}
           CRAWL_PHASE: "${{ inputs.target_account != '' && 'enrichment' || 'scheduled' }}"
           MAX_PAGES: ${{ inputs.max_pages || '1000' }}
-          PERSONAL_BOARDS_ONLY: ${{ inputs.personal_boards_only != '' && inputs.personal_boards_only || 'true' }}
+          PERSONAL_BOARDS_ONLY: ${{ inputs.personal_boards_only == false && 'false' || 'true' }}
+          CANONICAL_SHARD: ${{ needs.dispatch-fleet.outputs.canonical_shard }}
           SHARD_NUMBER: ${{ matrix.shard }}
           SHARD_TOTAL: 99
         run: node scripts/crawler-engine.mjs

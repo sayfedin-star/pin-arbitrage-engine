@@ -35,9 +35,10 @@ import {
 import { syncCompetitorAcrossFleet } from '../src/modules/fleet/service.mjs';
 import { getQualificationRules, isPinQualified } from '../src/modules/pinarchive/service.mjs';
 import { fetchBoardsResource, fetchPinFromPinterest, sleep, randomJitterMs } from './lib/pinterest.mjs';
-import { getShardNumberForEntity } from '../src/modules/fleet/sharding.mjs';
+import { getShardNumberForEntity, getResilientShardNumberForEntity } from '../src/modules/fleet/sharding.mjs';
 import { assertShardSchemaParity } from '../src/modules/fleet/guardrails.mjs';
 import { syncBoardIdeas } from '../src/modules/boards/service.mjs';
+import { enforceNeonPoolerUrl } from '../src/modules/sharding/fleet-router.mjs';
 
 // Auto-load .env in local execution environments
 if (typeof process.loadEnvFile === 'function') {
@@ -586,24 +587,25 @@ async function runDiscoveryJob(sqlClient, shardSql, cleanUser, maxPages, cookie,
 
   // Board Distribution Strategy:
   if (crawlMode === 'sharded_boards') {
+    const swarmSize = parseInt(process.env.SWARM_SIZE || process.env.SHARD_TOTAL || '15', 10);
     console.log(`[*] [Sharded Boards Matrix] ${allBoards.length} authentic boards registered in database.`);
-    console.log(`    [✓] Stage 2 will crawl all ${allBoards.length} boards concurrently across all 20 Shards to backfill board pins!`);
+    console.log(`    [✓] Stage 2 will crawl all ${allBoards.length} boards concurrently across all ${swarmSize} Shards to backfill board pins!`);
 
-    // Pre-initialize heartbeats for all 20 shards in sharded_boards mode to eliminate boot race conditions
+    // Pre-initialize heartbeats for all active swarm shards in sharded_boards mode to eliminate boot race conditions
     try {
       await sqlClient`
         INSERT INTO crawler_shard_heartbeats (
           competitor_id, shard_number, shard_total, status, discovered_count, enriched_count, updated_at
         )
         SELECT 
-          ${compId}, s, 20, 'crawling_boards', 0, 0, NOW()
-        FROM generate_series(1, 20) AS s
+          ${compId}, s, ${swarmSize}, 'crawling_boards', 0, 0, NOW()
+        FROM generate_series(1, ${swarmSize}) AS s
         ON CONFLICT (competitor_id, shard_number) DO UPDATE SET
-          shard_total = 20,
+          shard_total = ${swarmSize},
           status = 'crawling_boards',
           updated_at = NOW();
       `;
-      console.log(`    [✓] Distributed Matrix: Pre-initialized 20 shard coordination heartbeats.`);
+      console.log(`    [✓] Distributed Matrix: Pre-initialized ${swarmSize} shard coordination heartbeats.`);
     } catch (hErr) {
       console.warn(`[!] Heartbeat pre-initialization warning:`, hErr.message);
     }
@@ -977,7 +979,7 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
             WHERE competitor_id = ${compId}
               AND shard_number <> ${sNum}
               AND status = 'crawling_boards'
-              AND updated_at > NOW() - INTERVAL '8 minutes';
+              AND updated_at > NOW() - INTERVAL '3 minutes';
           `;
           activePeerBoardCrawlers = hRow?.cnt || 0;
         } catch (_) {}
@@ -1324,6 +1326,7 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
           WHERE id = ${compId}
             AND (
               last_harvest_metadata->>'rollup_claimed_at' IS NULL
+              OR last_harvest_metadata->>'rollup_completed_at' IS NULL
               OR (last_harvest_metadata->>'rollup_claimed_at')::timestamptz < NOW() - INTERVAL '10 minutes'
             )
           RETURNING id;
@@ -1459,15 +1462,16 @@ async function runDailyScheduledMode(sqlClient, shardSql, shardNumber, shardTota
 
   // 5. Tracked Boards Daily Recommendations Sync (Board Ideas Radar)
   try {
-    const isPrimaryShard = (parseInt(shardNumber, 10) === 1);
+    const sTot = parseInt(shardTotal, 10) || 99;
+    const sNum = parseInt(shardNumber, 10) || 1;
     const assignedBoards = await sqlClient`
       SELECT board_id, name, url, assigned_shard_id
       FROM tracked_boards
       WHERE is_active = TRUE
         AND track_daily = TRUE
         AND (
-          assigned_shard_id = ${shardNumber}
-          OR (${isPrimaryShard} AND assigned_shard_id IS NULL)
+          assigned_shard_id = ${sNum}
+          OR (assigned_shard_id IS NULL AND (abs(hashtext(board_id::text)) % ${sTot} + 1) = ${sNum})
         )
         AND (last_scanned_at IS NULL OR last_scanned_at < NOW() - INTERVAL '20 hours')
       ORDER BY last_scanned_at ASC NULLS FIRST
@@ -1550,15 +1554,36 @@ async function main() {
   // Look up dedicated shard database in Neon registry if configured
   // In targeted account mode, all swarm runners replicate to the account's canonical assigned shard
   // In scheduled fleet mode, runners connect to their assigned matrix shard
-  const effectiveShardNumber = targetAccount
-    ? getShardNumberForEntity(targetAccount, shardTotal)
-    : shardNumber;
+  let effectiveShardNumber;
+  const canonicalEnv = process.env.CANONICAL_SHARD || process.env.TARGET_SHARD;
+  if (canonicalEnv) {
+    effectiveShardNumber = parseInt(canonicalEnv, 10);
+  } else if (targetAccount) {
+    // Check registry for degraded/quarantined shards to match fleet-dispatcher resiliency
+    const quarantinedShards = new Set();
+    try {
+      const qRows = await sql`
+        SELECT assigned_shards 
+        FROM neon_projects_registry 
+        WHERE status IN ('degraded', 'quarantined', 'inactive') AND assigned_shards IS NOT NULL;
+      `;
+      for (const r of qRows) {
+        if (Array.isArray(r.assigned_shards)) {
+          r.assigned_shards.forEach(s => quarantinedShards.add(Number(s)));
+        }
+      }
+    } catch (_) {}
+    effectiveShardNumber = getResilientShardNumberForEntity(targetAccount, shardTotal, quarantinedShards);
+  } else {
+    effectiveShardNumber = shardNumber;
+  }
+
   const shardName = `pin-arbitrage-shard-${String(effectiveShardNumber).padStart(2, '0')}`;
   let shardSql = null;
   try {
     const [sRow] = await sql`SELECT database_url FROM neon_projects_registry WHERE project_name = ${shardName} LIMIT 1;`;
     if (sRow?.database_url) {
-      shardSql = neon(sRow.database_url);
+      shardSql = neon(enforceNeonPoolerUrl(sRow.database_url));
       console.log(`[*] [Fleet Shard] Connected to dedicated shard DB: ${shardName}${targetAccount ? ` (Canonical Shard for @${targetAccount})` : ''}`);
       
       // Continuous Schema Drift Guardrail: Fail-fast if shard lacks parity
