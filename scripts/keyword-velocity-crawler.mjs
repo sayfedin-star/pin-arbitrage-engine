@@ -286,13 +286,7 @@ async function flushToStorageShards(enrichedPins) {
               updated_at = NOW();
           `;
 
-          // Deduplicate daily snapshot for same pin + keyword on UTC date
-          await shardSql`
-            DELETE FROM pins_daily_snapshots 
-            WHERE pin_id = ${sp.pin_id} AND keyword_id = ${sp.keyword_id} AND snapshot_date = (NOW() AT TIME ZONE 'UTC')::date;
-          `.catch(() => {});
-
-          // Insert fresh daily telemetry record (Saves + Repins + Velocity)
+          // Atomic upsert into daily snapshots (Saves + Repins + Velocity) [CAP-19]
           await shardSql`
             INSERT INTO pins_daily_snapshots (
               pin_id, keyword_id, rank_position, save_count, repin_count, comment_count,
@@ -301,7 +295,15 @@ async function flushToStorageShards(enrichedPins) {
               ${sp.pin_id}, ${sp.keyword_id}, ${sp.rank_position}, ${sp.save_count},
               ${sp.repin_count}, ${sp.comment_count}, ${sp.share_count},
               ${sp.daily_save_velocity}, (NOW() AT TIME ZONE 'UTC')::date, NOW()
-            );
+            )
+            ON CONFLICT (pin_id, keyword_id, snapshot_date) DO UPDATE SET
+              rank_position = EXCLUDED.rank_position,
+              save_count = GREATEST(pins_daily_snapshots.save_count, EXCLUDED.save_count),
+              repin_count = GREATEST(pins_daily_snapshots.repin_count, EXCLUDED.repin_count),
+              comment_count = GREATEST(pins_daily_snapshots.comment_count, EXCLUDED.comment_count),
+              share_count = GREATEST(pins_daily_snapshots.share_count, EXCLUDED.share_count),
+              daily_save_velocity = EXCLUDED.daily_save_velocity,
+              created_at = NOW();
           `;
         }
       })();

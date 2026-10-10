@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 
 /**
- * scripts/migrate_fleet_016.mjs
+ * scripts/migrate_fleet_017.mjs
  *
- * Migration Runner for 016_hub_and_spoke_synopses_and_shards.sql
- * Applies Hub & Spoke synopses, active SERP cache, universal master pins,
- * and daily snapshot time-series tables across Hub and all registered Neon fleet shards.
+ * Migration Runner for 017_universal_fleet_parity_repair.sql
+ * Applies idempotent deduplication, unique index constraints, 13-column competitor_pins parity,
+ * and atomic row lease schema across Hub and all registered Neon fleet storage shards.
  */
 
 import { neon } from '@neondatabase/serverless';
@@ -30,7 +30,7 @@ if (!DATABASE_URL) {
 }
 
 const hubSql = neon(DATABASE_URL);
-const MIGRATION_FILE = path.join(__dirname, 'migrations', '016_hub_and_spoke_synopses_and_shards.sql');
+const MIGRATION_FILE = path.join(__dirname, 'migrations', '017_universal_fleet_parity_repair.sql');
 
 export function splitSqlStatements(sqlText) {
   const statements = [];
@@ -84,7 +84,7 @@ export function splitSqlStatements(sqlText) {
   return statements;
 }
 
-async function migrateEndpoint(dbUrl, endpointName, statements, isHub = false) {
+async function migrateEndpoint(dbUrl, endpointName, statements) {
   const sql = neon(dbUrl);
   const maxAttempts = 3;
 
@@ -96,22 +96,18 @@ async function migrateEndpoint(dbUrl, endpointName, statements, isHub = false) {
         await sql(stmt);
       }
 
-      // Verification: Check schema tables based on node role (Hub vs Storage Shard)
-      const expectedTables = isHub 
-        ? ['universal_master_pins', 'keyword_serp_current', 'keyword_folder_synopses']
-        : ['universal_master_pins', 'pins_daily_snapshots', 'pin_related_edges'];
-
-      const [tableCheck] = await sql`
+      // Verification: Check unique index uq_pds_pin_keyword_date
+      const [idxCheck] = await sql`
         SELECT COUNT(*) as cnt 
-        FROM information_schema.tables 
-        WHERE table_schema = 'public' 
-          AND table_name = ANY(${expectedTables});
+        FROM pg_indexes 
+        WHERE schemaname = 'public' 
+          AND indexname = 'uq_pds_pin_keyword_date';
       `;
 
       return {
         ok: true,
         endpoint: endpointName,
-        verified: Number(tableCheck?.cnt || 0) >= expectedTables.length
+        verified: Number(idxCheck?.cnt || 0) >= 1
       };
     } catch (err) {
       const isTransient = /timeout|lock_not_available|cold start|fetch failed|ECONNRESET/i.test(err.message);
@@ -128,7 +124,7 @@ async function migrateEndpoint(dbUrl, endpointName, statements, isHub = false) {
 
 async function run() {
   console.log('================================================================');
-  console.log('🚀 MIGRATION 016: HOLISTIC 4-PILLAR HUB & SPOKE 99-SHARD FLEET');
+  console.log('🚀 MIGRATION 017: UNIVERSAL FLEET PARITY & ATOMIC INVARIANTS');
   console.log('================================================================');
 
   if (!fs.existsSync(MIGRATION_FILE)) {
@@ -138,20 +134,13 @@ async function run() {
 
   const sqlContent = fs.readFileSync(MIGRATION_FILE, 'utf8');
   const statements = splitSqlStatements(sqlContent);
-  const hubStatements = statements;
-  // Shards receive Section B (universal master pins, snapshots, graph edges) and Section C (registration)
-  // Exclude Hub-only Section A statements referencing keyword_folders or tracked_keywords foreign keys [CAP-18]
-  const shardStatements = statements.filter(stmt => {
-    return !stmt.includes('keyword_folder_synopses') && !stmt.includes('keyword_serp_current');
-  });
-
-  console.log(`[*] Loaded ${statements.length} total statements (${hubStatements.length} for Hub, ${shardStatements.length} for Shards).\n`);
+  console.log(`[*] Loaded ${statements.length} hardened DDL statements from 017_universal_fleet_parity_repair.sql\n`);
 
   // Phase 1: Migrate Central Hub
   console.log('[*] Phase 1: Migrating Central Hub Database...');
-  const hubRes = await migrateEndpoint(DATABASE_URL, 'Neon Hub (Primary)', hubStatements, true);
+  const hubRes = await migrateEndpoint(DATABASE_URL, 'Neon Hub (Primary)', statements);
   if (hubRes.ok) {
-    console.log(`[+] Hub migrated successfully! Verification: ${hubRes.verified ? 'VERIFIED (3/3 Tables Created) ✅' : 'PENDING'}\n`);
+    console.log(`[+] Hub migrated successfully! Verification: ${hubRes.verified ? 'VERIFIED (uq_pds_pin_keyword_date Created) ✅' : 'PENDING'}\n`);
   } else {
     console.error(`[-] CRITICAL: Failed to migrate Hub:`, hubRes.error);
     process.exit(1);
@@ -168,7 +157,7 @@ async function run() {
   console.log(`[*] Discovered ${shards.length} active worker shards in registry.\n`);
 
   if (shards.length > 0) {
-    console.log(`[*] Phase 3: Applying Migration 016 across ${shards.length} worker shards (Bounded Pool: 10 parallel)...`);
+    console.log(`[*] Phase 3: Applying Migration 017 across ${shards.length} worker shards (Bounded Pool: 10 parallel)...`);
     const CONCURRENCY = 10;
     let succeeded = 0;
     let failed = 0;
@@ -177,7 +166,7 @@ async function run() {
     for (let i = 0; i < shards.length; i += CONCURRENCY) {
       const batch = shards.slice(i, i + CONCURRENCY);
       const batchResults = await Promise.all(
-        batch.map(shard => migrateEndpoint(shard.database_url, shard.project_name || shard.project_id, shardStatements, false))
+        batch.map(shard => migrateEndpoint(shard.database_url, shard.project_name || shard.project_id, statements))
       );
 
       for (const res of batchResults) {
@@ -193,7 +182,7 @@ async function run() {
     }
 
     console.log(`\n\n================================================================`);
-    console.log(`🎉 FLEET MIGRATION 016 COMPLETED!`);
+    console.log(`🎉 FLEET MIGRATION 017 COMPLETED!`);
     console.log(`   Total Shards: ${shards.length}`);
     console.log(`   Succeeded:    ${succeeded}`);
     console.log(`   Failed:       ${failed}`);
@@ -208,17 +197,17 @@ async function run() {
     }
   }
 
-  console.log('\n[✓] Migration 016 completed with 100% fleet parity!');
+  console.log('\n[✓] Migration 017 completed with 100% fleet parity!');
 }
 
 const isDirectRun = process.argv[1] && (
   fileURLToPath(import.meta.url) === process.argv[1] ||
-  process.argv[1].endsWith('migrate_fleet_016.mjs')
+  process.argv[1].endsWith('migrate_fleet_017.mjs')
 );
 
 if (isDirectRun) {
   run().catch(err => {
-    console.error('[-] Fatal Migration 016 Error:', err);
+    console.error('[-] Fatal Migration 017 Error:', err);
     process.exit(1);
   });
 }
