@@ -1681,7 +1681,6 @@ export async function getKeywordSERPComparison(sql, keywordId, knownKeyword = nu
       SELECT 
         id, keyword_id, pin_id, title, domain, destination_url, image_url,
         creator_username, board_name,
-        last_known_rank,
         COALESCE(last_known_rank, rank_position) as last_known_rank,
         displaced_date,
         'displaced_active' as status,
@@ -1705,9 +1704,11 @@ export async function getKeywordSERPComparison(sql, keywordId, knownKeyword = nu
           SELECT 1 FROM keyword_ignored_pins kip
           WHERE kip.keyword_id = ${kid} AND kip.pin_id = keyword_serp_current.pin_id
         )
-      ORDER BY vacuum_opportunity_score DESC, last_known_rank ASC NULLS LAST
-      LIMIT 100;
-    `.catch(() => []),
+      ORDER BY vacuum_opportunity_score DESC, last_known_rank ASC NULLS LAST;
+    `.catch((err) => {
+      console.warn('[getKeywordSERPComparison] Error fetching displaced pins:', err.message);
+      return [];
+    }),
     getKeywordGuides(sql, kid).catch(() => [])
   ]);
 
@@ -2219,8 +2220,8 @@ export async function getKeywordDisplacedPins(sql, keywordId, options = {}) {
   const kid = Number(keywordId);
   if (!kid) throw new Error('Valid keyword ID is required');
 
-  const { status = 'ALL', limit = 100, offset = 0 } = options;
-  const lim = Math.min(200, Math.max(1, Number(limit) || 100));
+  const { status = 'ALL', limit = 250, offset = 0 } = options;
+  const lim = Math.min(1000, Math.max(1, Number(limit) || 250));
   const off = Math.max(0, Number(offset) || 0);
 
   // Single source of truth: keyword_serp_current WHERE is_displaced = TRUE
@@ -2228,7 +2229,6 @@ export async function getKeywordDisplacedPins(sql, keywordId, options = {}) {
     SELECT 
       id, keyword_id, pin_id, title, domain, destination_url, image_url,
       creator_username, board_name,
-      last_known_rank,
       COALESCE(last_known_rank, rank_position) as last_known_rank,
       displaced_date,
       'displaced_active' as status,
@@ -2255,7 +2255,10 @@ export async function getKeywordDisplacedPins(sql, keywordId, options = {}) {
       )
     ORDER BY vacuum_opportunity_score DESC, last_known_rank ASC NULLS LAST
     LIMIT ${lim} OFFSET ${off};
-  `.catch(() => []);
+  `.catch((err) => {
+    console.warn('[getKeywordDisplacedPins] Error querying displaced pins:', err.message);
+    return [];
+  });
 
   const [cntRow] = await sql`
     SELECT COUNT(*)::int AS total 
