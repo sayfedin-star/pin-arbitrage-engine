@@ -5434,10 +5434,17 @@ export function getKeywordsPageHtml(initialSlug = '') {
           this.showToast('Crawling fresh 100-pin SERP from Pinterest...', 'info');
 
           try {
+            const targetKw = this.selectedKeyword?.keyword || this.activeKeywordQuery || '';
+            const targetSlug = this.selectedKeyword?.slug || this.activeKeywordQuery || '';
             const res = await fetch(this.getApiUrl('/api/keywords/sync'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ keyword_id: id, force: Boolean(force) })
+              body: JSON.stringify({
+                keyword_id: id,
+                keyword: targetKw,
+                slug: targetSlug,
+                force: Boolean(force)
+              })
             });
 
             if (!res.ok) {

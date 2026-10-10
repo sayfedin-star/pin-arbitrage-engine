@@ -231,20 +231,26 @@ export function verifyApiAuthentication(request, env = {}) {
   const secFetchSite = request.headers.get('Sec-Fetch-Site') || '';
   const origin = request.headers.get('Origin') || '';
   let isSameOrigin = secFetchSite === 'same-origin';
+  const reqHost = (request.headers.get('host') || '').split(':')[0] || new URL(request.url).hostname;
+
   if (!isSameOrigin && origin) {
     try {
-      const originHost = new URL(origin).host;
-      const requestHost = new URL(request.url).host;
-      if (originHost === requestHost) isSameOrigin = true;
+      const originHostname = new URL(origin).hostname;
+      if (originHostname === reqHost || 
+          (['localhost', '127.0.0.1'].includes(originHostname) && ['localhost', '127.0.0.1'].includes(reqHost))) {
+        isSameOrigin = true;
+      }
     } catch (_) {}
   }
   if (!isSameOrigin) {
     const referer = request.headers.get('Referer') || '';
     if (referer) {
       try {
-        const refererHost = new URL(referer).host;
-        const requestHost = new URL(request.url).host;
-        if (refererHost === requestHost) isSameOrigin = true;
+        const refererHostname = new URL(referer).hostname;
+        if (refererHostname === reqHost ||
+            (['localhost', '127.0.0.1'].includes(refererHostname) && ['localhost', '127.0.0.1'].includes(reqHost))) {
+          isSameOrigin = true;
+        }
       } catch (_) {}
     }
   }
@@ -3515,16 +3521,18 @@ export default {
    * Dispatches crawler-pipeline.yml on GitHub Actions rather than harvesting on Worker.
    */
   async scheduled(event, env, ctx) {
-    const githubToken = env.GITHUB_TOKEN || env.GITHUB_PAT;
+    const githubToken = env.GITHUB_TOKEN || env.GITHUB_PAT || env.GH_TOKEN || env.GH_REFRESH_TOKEN;
     const repo = env.GITHUB_REPOSITORY || 'sayfedin-star/pin-arbitrage-engine';
 
     if (githubToken) {
       console.log(`[Worker Cron] Delegating scheduled crawl to GitHub Actions 20-shard pipeline (${repo})...`);
+      const cleanToken = String(githubToken).replace(/^(token|Bearer)\s+/i, '').replace(/^["']|["']$/g, '').trim();
+      const authHeader = cleanToken.startsWith('ghp_') ? `token ${cleanToken}` : `Bearer ${cleanToken}`;
       try {
         const res = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/crawler-pipeline.yml/dispatches`, {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${githubToken}`,
+            'Authorization': authHeader,
             'Accept': 'application/vnd.github.v3+json',
             'User-Agent': 'Pin-Arbitrage-Engine-EdgeWorker'
           },

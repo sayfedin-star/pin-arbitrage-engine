@@ -201,6 +201,7 @@ function triggerCrawlProcess(seedPinId = null) {
   const childEnv = { ...process.env };
   delete childEnv.GITHUB_TOKEN;
   delete childEnv.GH_TOKEN;
+  delete childEnv.GH_REFRESH_TOKEN;
   delete childEnv.CLOUDFLARE_API_TOKEN;
 
   const child = spawn(process.execPath, args, {
@@ -1980,17 +1981,21 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'POST' && pathname === '/api/keywords/sync') {
-      const body = await parseJsonBody(req);
-      let keywordId = Number(body.keyword_id);
-      const slug = body.slug || body.keyword;
-      if (!keywordId && slug) {
-        const resolved = await resolveKeywordBySlug(targetSql, slug, true);
-        if (resolved) keywordId = resolved.id;
+      try {
+        const body = await parseJsonBody(req);
+        let keywordId = Number(body.keyword_id);
+        const slug = body.slug || body.keyword;
+        if (!keywordId && slug) {
+          const resolved = await resolveKeywordBySlug(targetSql, slug, true);
+          if (resolved) keywordId = resolved.id;
+        }
+        if (!keywordId) return sendJson(res, 400, { error: 'keyword_id or slug is required' });
+        const force = Boolean(body.force);
+        const result = await crawlKeywordSERP(targetSql, keywordId, { cookie: process.env.PINTEREST_COOKIE, force });
+        return sendJson(res, 200, { success: true, result });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, error: err.message });
       }
-      if (!keywordId) return sendJson(res, 400, { error: 'keyword_id or slug is required' });
-      const force = Boolean(body.force);
-      const result = await crawlKeywordSERP(targetSql, keywordId, { cookie: process.env.PINTEREST_COOKIE, force });
-      return sendJson(res, 200, { success: true, result });
     }
 
     if (method === 'DELETE' && pathname === '/api/keywords') {
