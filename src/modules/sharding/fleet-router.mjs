@@ -529,7 +529,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId }) {
       pin_id, title, domain, destination_url, image_url,
       creator_username, board_name, save_count, repin_count,
       daily_save_velocity, dominant_color, visual_annotations,
-      rank_position, last_known_rank, is_displaced
+      rank_position, last_known_rank, is_displaced, metadata
     FROM keyword_serp_current
     WHERE pin_id = ${cleanPinId}
     ORDER BY save_count DESC;
@@ -577,14 +577,14 @@ export async function fetchUniversalPinDossier({ hubSql, pinId }) {
         domain: topRow.domain,
         destination_url: topRow.destination_url,
         image_url: topRow.image_url,
-        creator_username: topRow.creator_username || '',
-        board_name: topRow.board_name || '',
+        creator_username: topRow.creator_username || topRow.metadata?.pinner?.username || '',
+        board_name: topRow.board_name || topRow.metadata?.board_name || '',
         save_count: topRow.save_count,
         repin_count: topRow.repin_count,
         daily_save_velocity: topRow.daily_save_velocity,
-        dominant_color: topRow.dominant_color || '#888888',
-        alt_text: hubHistoricalSnap?.metadata?.alt_text || '',
-        description: hubHistoricalSnap?.metadata?.description || '',
+        dominant_color: topRow.dominant_color || topRow.metadata?.dominant_color || '#888888',
+        alt_text: topRow.metadata?.alt_text || hubHistoricalSnap?.metadata?.alt_text || '',
+        description: topRow.metadata?.description || hubHistoricalSnap?.metadata?.description || '',
         visual_annotations: Array.from(unionSet)
       };
     } else if (hubHistoricalSnap) {
@@ -607,11 +607,11 @@ export async function fetchUniversalPinDossier({ hubSql, pinId }) {
     }
   } else {
     // Shard record exists: enrich missing alt_text or description if recovered from Hub
-    if (!masterRecord.alt_text && hubHistoricalSnap?.metadata?.alt_text) {
-      masterRecord.alt_text = hubHistoricalSnap.metadata.alt_text;
+    if (!masterRecord.alt_text) {
+      masterRecord.alt_text = hubSerpRows[0]?.metadata?.alt_text || hubHistoricalSnap?.metadata?.alt_text || '';
     }
-    if (!masterRecord.description && hubHistoricalSnap?.metadata?.description) {
-      masterRecord.description = hubHistoricalSnap.metadata.description;
+    if (!masterRecord.description) {
+      masterRecord.description = hubSerpRows[0]?.metadata?.description || hubHistoricalSnap?.metadata?.description || '';
     }
   }
 
@@ -833,7 +833,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId }) {
   const creatorUsername = masterRecord?.creator_username || '';
   const boardName = masterRecord?.board_name || '';
   const boardSlug = masterRecord?.board_slug || boardName.toLowerCase().replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-');
-  const snapMeta = hubHistoricalSnap?.metadata || {};
+  const snapMeta = hubHistoricalSnap?.metadata || hubSerpRows[0]?.metadata || {};
 
   const algorithmicIntelligence = {
     is_repin: Boolean(snapMeta.is_repin ?? false),

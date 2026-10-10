@@ -3270,6 +3270,13 @@ export function getKeywordsPageHtml(initialSlug = '') {
               <span>Alt Text</span>
             </button>
 
+            <button @click="copyToClipboard(dossierData?.description || activeInspectorPin?.metadata?.description || '', 'Copied Pin Description!')"
+                    class="px-2.5 py-1 rounded-xl text-[11px] font-bold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition flex items-center space-x-1 cursor-pointer"
+                    title="Copy Description">
+              <i data-lucide="align-left" class="w-3 h-3 text-emerald-500"></i>
+              <span>Desc</span>
+            </button>
+
             <a :href="'/pins/' + activeInspectorPin?.pin_id" target="_blank"
                class="px-2.5 py-1 rounded-xl text-[11px] font-bold bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 border border-purple-500/20 transition flex items-center space-x-1 cursor-pointer"
                title="Open Universal Pin Dossier (Level 3)">
@@ -3323,27 +3330,40 @@ export function getKeywordsPageHtml(initialSlug = '') {
 
             <!-- Creator & Board Attribution Strip -->
             <div class="flex flex-wrap items-center justify-between text-xs text-slate-500 dark:text-slate-400 gap-2 pt-1 font-mono">
-              <div class="flex items-center space-x-2">
-                <template x-if="activeInspectorPin?.metadata?.pinner?.image_small_url">
-                  <img :src="activeInspectorPin.metadata.pinner.image_small_url" class="w-5 h-5 rounded-full object-cover">
+              <div class="flex flex-wrap items-center gap-2">
+                <template x-if="dossierData?.creator_avatar_url || activeInspectorPin?.metadata?.pinner?.image_small_url">
+                  <img :src="dossierData?.creator_avatar_url || activeInspectorPin.metadata.pinner.image_small_url" class="w-5 h-5 rounded-full object-cover">
                 </template>
                 <span class="font-bold text-slate-700 dark:text-slate-300"
-                      x-text="activeInspectorPin?.metadata?.pinner?.full_name || ('@' + (activeInspectorPin?.metadata?.pinner?.username || activeInspectorPin?.creator_username || 'creator'))"></span>
-                <template x-if="activeInspectorPin?.metadata?.board_name || activeInspectorPin?.board_name">
-                  <span class="text-slate-400" x-text="'in ' + (activeInspectorPin?.metadata?.board_name || activeInspectorPin?.board_name)"></span>
+                      x-text="dossierData?.creator_name || activeInspectorPin?.metadata?.pinner?.full_name || ('@' + (dossierData?.creator_username || activeInspectorPin?.creator_username || 'creator'))"></span>
+                <template x-if="dossierData?.creator_is_verified_merchant || activeInspectorPin?.metadata?.pinner?.is_verified_merchant">
+                  <span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-500/15 text-blue-500 border border-blue-500/30" title="Verified Merchant">✓ Merchant</span>
+                </template>
+                <template x-if="dossierData?.creator_followers || activeInspectorPin?.metadata?.pinner?.follower_count">
+                  <span class="px-1.5 py-0.5 rounded text-[9px] bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold border border-slate-200 dark:border-slate-700"
+                        x-text="formatNumber(dossierData?.creator_followers || activeInspectorPin?.metadata?.pinner?.follower_count) + ' followers'"></span>
+                </template>
+                <template x-if="dossierData?.board_name || activeInspectorPin?.metadata?.board_name || activeInspectorPin?.board_name">
+                  <span class="text-slate-400 flex items-center gap-1">
+                    <span>in</span>
+                    <span class="font-bold text-slate-600 dark:text-slate-300" x-text="dossierData?.board_name || activeInspectorPin?.metadata?.board_name || activeInspectorPin?.board_name"></span>
+                    <template x-if="dossierData?.board_pin_count">
+                      <span class="text-[10px] text-slate-500 font-normal" x-text="'(' + formatNumber(dossierData.board_pin_count) + ' pins)'"></span>
+                    </template>
+                  </span>
                 </template>
               </div>
 
-              <template x-if="activeInspectorPin?.domain">
-                <a :href="safeUrl(activeInspectorPin.destination_url)" target="_blank" rel="noopener noreferrer"
+              <template x-if="activeInspectorPin?.domain || dossierData?.domain">
+                <a :href="safeUrl(dossierData?.destination_url || activeInspectorPin.destination_url)" target="_blank" rel="noopener noreferrer"
                    class="text-emerald-600 dark:text-emerald-400 hover:underline flex items-center space-x-1">
                   <i data-lucide="globe" class="w-3 h-3"></i>
-                  <span x-text="activeInspectorPin.domain"></span>
+                  <span x-text="dossierData?.domain || activeInspectorPin.domain"></span>
                 </a>
               </template>
             </div>
 
-            <!-- Publishing Method & Creation Date Strip (Image 2 Parity) -->
+            <!-- Publishing Method, Creation Date & Algorithmic Signals Strip -->
             <div class="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-200/60 dark:border-slate-800/60 font-mono text-xs">
               <!-- Method Badge -->
               <div class="flex items-center space-x-1.5 px-2.5 py-1 rounded-xl border text-[11px] font-bold"
@@ -3364,6 +3384,21 @@ export function getKeywordsPageHtml(initialSlug = '') {
                         x-text="formatPinAge(activeInspectorPin)"></span>
                 </template>
               </div>
+
+              <!-- Google Indexing Status Badge -->
+              <template x-if="dossierData?.is_indexed_google !== undefined">
+                <div class="flex items-center space-x-1 px-2.5 py-1 rounded-xl text-[11px] font-bold border"
+                     :class="dossierData.is_indexed_google ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30' : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30'">
+                  <span x-text="dossierData.is_indexed_google ? '✓ Google Indexed' : '⚠️ Google Noindex'"></span>
+                </div>
+              </template>
+
+              <!-- Repin Lineage Badge -->
+              <template x-if="dossierData?.is_repin">
+                <div class="flex items-center space-x-1 px-2.5 py-1 rounded-xl text-[11px] font-bold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/30">
+                  <span x-text="'Repin' + (dossierData?.origin_pinner?.username ? ' (@' + dossierData.origin_pinner.username + ')' : '')"></span>
+                </div>
+              </template>
             </div>
           </div>
 
@@ -3384,6 +3419,25 @@ export function getKeywordsPageHtml(initialSlug = '') {
 
             <p class="text-xs text-slate-800 dark:text-slate-200 leading-relaxed font-sans bg-white dark:bg-slate-900/60 p-3 rounded-xl border border-slate-200/80 dark:border-slate-800/80"
                x-text="dossierData?.seo_alt_text || activeInspectorPin?.seo_alt_text || (isDossierLoading ? 'Extracting official Pinterest SEO Alt text...' : 'No SEO Alt Text detected for this creative.')"></p>
+          </div>
+
+          <!-- PIN CLOSEUP BODY DESCRIPTION CONTAINER -->
+          <div class="p-4 rounded-2xl bg-slate-100/90 dark:bg-[#070d18] border border-slate-200 dark:border-slate-800 space-y-2">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center space-x-1.5">
+                <i data-lucide="align-left" class="w-4 h-4 text-emerald-500"></i>
+                <h4 class="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 font-mono">Pin Closeup Description</h4>
+                <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">Full Body</span>
+              </div>
+              <button @click="copyToClipboard(dossierData?.description || activeInspectorPin?.metadata?.description || '', 'Copied Pin Description!')"
+                      class="px-2 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold transition flex items-center space-x-1 cursor-pointer">
+                <i data-lucide="copy" class="w-3 h-3"></i>
+                <span>Copy Description</span>
+              </button>
+            </div>
+
+            <p class="text-xs text-slate-800 dark:text-slate-200 leading-relaxed font-sans bg-white dark:bg-slate-900/60 p-3 rounded-xl border border-slate-200/80 dark:border-slate-800/80"
+               x-text="dossierData?.description || activeInspectorPin?.metadata?.description || (isDossierLoading ? 'Extracting pin closeup body...' : 'No description captured for this creative.')"></p>
           </div>
 
           <!-- ANNOTATIONS & SEO KEYWORDS (Linked Ideas - Image 2 Exact Parity) -->

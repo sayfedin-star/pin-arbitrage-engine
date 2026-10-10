@@ -2697,9 +2697,14 @@ export default {
                 domain = CASE WHEN ${pin.domain || ''}::text <> '' THEN ${pin.domain}::text ELSE domain END,
                 destination_url = CASE WHEN ${pin.link || ''}::text <> '' THEN ${pin.link}::text ELSE destination_url END,
                 image_url = CASE WHEN ${pin.image_url || ''}::text <> '' THEN ${pin.image_url}::text ELSE image_url END,
-                creator_username = CASE WHEN ${pin.pinner?.username || ''}::text <> '' THEN ${pin.pinner.username}::text ELSE creator_username END,
+                creator_username = CASE WHEN ${pin.creator_username || pin.pinner?.username || ''}::text <> '' THEN ${pin.creator_username || pin.pinner?.username}::text ELSE creator_username END,
                 board_name = CASE WHEN ${pin.board_name || ''}::text <> '' THEN ${pin.board_name}::text ELSE board_name END,
                 dominant_color = CASE WHEN ${pin.dominant_color || ''}::text <> '' THEN ${pin.dominant_color}::text ELSE dominant_color END,
+                visual_annotations = CASE 
+                  WHEN jsonb_typeof(${JSON.stringify(pin.annotations?.map(a => a.name) || [])}::jsonb) = 'array' AND jsonb_array_length(${JSON.stringify(pin.annotations?.map(a => a.name) || [])}::jsonb) > 0 
+                  THEN ${JSON.stringify(pin.annotations?.map(a => a.name) || [])}::jsonb 
+                  ELSE visual_annotations 
+                END,
                 created_at_pinterest = CASE WHEN ${pin.created_at_pinterest}::timestamptz IS NOT NULL THEN ${pin.created_at_pinterest}::timestamptz ELSE created_at_pinterest END,
                 creation_method = CASE WHEN ${pin.creation_method || ''}::text <> '' THEN ${pin.creation_method}::text ELSE creation_method END,
                 metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify(metaToStore)}::jsonb,

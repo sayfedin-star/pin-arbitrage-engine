@@ -20,6 +20,7 @@ import { formatPinterestCookie } from '../../utils.mjs';
 import { getCachedVisualSearchMatches, setCachedVisualSearchMatches } from './visual-lens-cache.mjs';
 import { extractPinData, PINTEREST_PAGE_HEADERS, fetchPinFromPinterest } from '../../../scripts/lib/pinterest.mjs';
 import { derivePinTitle } from './folders-service.mjs';
+import { getPinShardId, resolveShardConnection } from '../sharding/fleet-router.mjs';
 
 // In-Memory Mutex for process-local fast-fail
 const activeKeywordCrawls = new Set();
@@ -1401,6 +1402,7 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
           visual_annotations,
           created_at_pinterest,
           creation_method,
+          metadata,
           crawled_at
         )
         SELECT
@@ -1416,10 +1418,11 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
           u.save_count,
           u.repin_count,
           u.daily_save_velocity,
-          '#888888',
+          COALESCE(NULLIF(u.metadata->>'dominant_color', ''), '#888888'),
           COALESCE(u.metadata->'visual_annotations', '[]'::jsonb),
           NULLIF(u.metadata->>'created_at_pinterest', '')::timestamptz,
           COALESCE(u.metadata->>'method', 'pinterest_platform'),
+          COALESCE(u.metadata, '{}'::jsonb),
           NOW()
         FROM jsonb_to_recordset(${JSON.stringify(preparedPins)}::jsonb) AS u(
           pin_id text,
@@ -1451,6 +1454,11 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
           save_count = GREATEST(keyword_serp_current.save_count, EXCLUDED.save_count),
           repin_count = GREATEST(keyword_serp_current.repin_count, EXCLUDED.repin_count),
           daily_save_velocity = EXCLUDED.daily_save_velocity,
+          dominant_color = CASE 
+            WHEN EXCLUDED.dominant_color IS NOT NULL AND EXCLUDED.dominant_color != '#888888' 
+            THEN EXCLUDED.dominant_color 
+            ELSE keyword_serp_current.dominant_color 
+          END,
           visual_annotations = CASE 
             WHEN jsonb_typeof(EXCLUDED.visual_annotations) = 'array' AND jsonb_array_length(EXCLUDED.visual_annotations) > 0 
             THEN EXCLUDED.visual_annotations 
@@ -1458,6 +1466,11 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
           END,
           created_at_pinterest = COALESCE(EXCLUDED.created_at_pinterest, keyword_serp_current.created_at_pinterest),
           creation_method = COALESCE(EXCLUDED.creation_method, keyword_serp_current.creation_method),
+          metadata = CASE
+            WHEN EXCLUDED.metadata IS NOT NULL AND EXCLUDED.metadata != '{}'::jsonb
+            THEN COALESCE(keyword_serp_current.metadata, '{}'::jsonb) || EXCLUDED.metadata
+            ELSE keyword_serp_current.metadata
+          END,
           crawled_at = NOW(),
           updated_at = NOW();
       `);
@@ -2476,24 +2489,62 @@ export async function getPinDeepDossier(sql, pinId, keywordId = null) {
     latestSnapshot = sRow;
   }
 
-  // 3. If seo_alt_text or deep metrics are missing, do an on-demand scrape with jitter
+  // 3. Shard Federation: check designated Neon storage shard if Hub has partial telemetry
+  let shardRow = null;
+  try {
+    const shardId = getPinShardId(cleanPin, 99);
+    const shardSql = await resolveShardConnection({ hubSql: sql, shardId });
+    if (shardSql && shardSql !== sql) {
+      const [sMaster] = await shardSql`
+        SELECT * FROM universal_master_pins WHERE pin_id = ${cleanPin} LIMIT 1;
+      `.catch(() => []);
+      shardRow = sMaster || null;
+    }
+  } catch (_) {}
+
+  // 4. Smart Dynamic On-Demand Scrape Trigger:
+  // If SEO Alt-Text is missing OR description is missing OR visual annotations array is empty
+  const knownAltText = displacedRow?.seo_alt_text || latestSnapshot?.metadata?.alt_text || shardRow?.alt_text || '';
+  const knownDesc = displacedRow?.metadata?.description || latestSnapshot?.metadata?.description || shardRow?.description || '';
+  const knownAnnotations = (displacedRow?.annotations && Array.isArray(displacedRow.annotations) && displacedRow.annotations.length > 0)
+    ? displacedRow.annotations
+    : (shardRow?.visual_annotations && Array.isArray(shardRow.visual_annotations) && shardRow.visual_annotations.length > 0)
+      ? shardRow.visual_annotations
+      : (latestSnapshot?.metadata?.visual_annotations || []);
+  const knownSaves = Math.max(Number(displacedRow?.current_saves || 0), Number(latestSnapshot?.save_count || 0), Number(shardRow?.save_count || 0));
+
   let scraped = null;
-  const needsScrape = (!displacedRow?.seo_alt_text && !latestSnapshot?.metadata?.alt_text) ||
-                      (Number(displacedRow?.current_saves || 0) === 0 && Number(latestSnapshot?.save_count || 0) <= 5);
+  const needsScrape = !knownAltText || !knownDesc || knownAnnotations.length === 0 || (knownSaves === 0 && Number(latestSnapshot?.save_count || 0) <= 5);
+
   if (needsScrape) {
     try {
       const pinResult = await fetchPinFromPinterest(cleanPin);
       if (pinResult?.ok && pinResult.pin) {
         scraped = pinResult.pin;
 
-        // Persist scraped details to DB cache if row exists in keyword_serp_current
+        // Persist scraped details to Hub cache in keyword_serp_current
         if (displacedRow) {
           await sql`
             UPDATE keyword_serp_current SET
               metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
                 'alt_text', COALESCE(${scraped.alt_text || scraped.seo_alt_text || ''}::text, metadata->>'alt_text'),
-                'description', COALESCE(${scraped.description || ''}::text, metadata->>'description')
+                'description', COALESCE(${scraped.description || ''}::text, metadata->>'description'),
+                'pinner', jsonb_build_object(
+                  'username', COALESCE(${scraped.creator_username || scraped.pinner?.username || ''}::text, metadata->'pinner'->>'username'),
+                  'full_name', COALESCE(${scraped.creator_name || scraped.pinner?.full_name || ''}::text, metadata->'pinner'->>'full_name'),
+                  'follower_count', COALESCE(${Number(scraped.creator_followers || scraped.pinner?.follower_count || 0)}::int, (metadata->'pinner'->>'follower_count')::int),
+                  'image_small_url', COALESCE(${scraped.creator_avatar_url || scraped.pinner?.image_url || ''}::text, metadata->'pinner'->>'image_small_url'),
+                  'is_verified_merchant', COALESCE(${Boolean(scraped.creator_is_verified_merchant || scraped.pinner?.is_verified_merchant)}::boolean, (metadata->'pinner'->>'is_verified_merchant')::boolean)
+                ),
+                'board_name', COALESCE(${scraped.board_name || scraped.board?.name || ''}::text, metadata->>'board_name'),
+                'is_repin', ${Boolean(scraped.is_repin)},
+                'is_product', ${Boolean(scraped.is_product)},
+                'category_breadcrumbs', ${JSON.stringify(scraped.category_breadcrumbs || [])}::jsonb,
+                'image_dimensions', ${JSON.stringify(scraped.image_dimensions || null)}::jsonb,
+                'seo_noindex_reason', ${scraped.seo_noindex_reason || null}
               ),
+              creator_username = COALESCE(NULLIF(${scraped.creator_username || scraped.pinner?.username || ''}, ''), creator_username),
+              board_name = COALESCE(NULLIF(${scraped.board_name || scraped.board?.name || ''}, ''), board_name),
               visual_annotations = CASE 
                 WHEN jsonb_typeof(${JSON.stringify(scraped.annotations || [])}::jsonb) = 'array' AND jsonb_array_length(${JSON.stringify(scraped.annotations || [])}::jsonb) > 0
                 THEN ${JSON.stringify(scraped.annotations || [])}::jsonb
@@ -2511,34 +2562,88 @@ export async function getPinDeepDossier(sql, pinId, keywordId = null) {
           `.catch(() => {});
         }
 
-        // Also persist verified metrics to keyword_pins_snapshots so SERP views reflect authentic numbers
+        // Also persist verified metrics to keyword_pins_snapshots
         if (latestSnapshot) {
           await sql`
             UPDATE keyword_pins_snapshots SET
               save_count = GREATEST(save_count, ${Number(scraped.saves || 0)}),
               repin_count = GREATEST(repin_count, ${Number(scraped.repins || 0)}),
               comment_count = GREATEST(comment_count, ${Number(scraped.comments || 0)}),
-              metadata = jsonb_set(
-                jsonb_set(metadata, '{alt_text}', ${JSON.stringify(scraped.alt_text || scraped.seo_alt_text || '')}::jsonb, true),
-                '{share_count}', ${JSON.stringify(Number(scraped.share_count || 0))}::jsonb, true
+              metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
+                'alt_text', COALESCE(${scraped.alt_text || scraped.seo_alt_text || ''}::text, metadata->>'alt_text'),
+                'description', COALESCE(${scraped.description || ''}::text, metadata->>'description'),
+                'share_count', ${Number(scraped.share_count || 0)},
+                'visual_annotations', CASE
+                  WHEN jsonb_typeof(${JSON.stringify(scraped.annotations || [])}::jsonb) = 'array' AND jsonb_array_length(${JSON.stringify(scraped.annotations || [])}::jsonb) > 0
+                  THEN ${JSON.stringify(scraped.annotations || [])}::jsonb
+                  ELSE COALESCE(metadata->'visual_annotations', '[]'::jsonb)
+                END
               )
             WHERE pin_id = ${cleanPin}
               ${kid ? sql`AND keyword_id = ${kid}` : sql``};
           `.catch(() => {});
         }
-        if (scraped) {
-          if (displacedRow) {
-            displacedRow.current_saves = Math.max(Number(displacedRow.current_saves || 0), Number(scraped.saves || 0));
-            displacedRow.current_repins = Math.max(Number(displacedRow.current_repins || 0), Number(scraped.repins || 0));
-            displacedRow.current_comments = Math.max(Number(displacedRow.current_comments || 0), Number(scraped.comments || 0));
-            displacedRow.current_shares = Math.max(Number(displacedRow.current_shares || 0), Number(scraped.share_count || 0));
-            displacedRow.seo_alt_text = scraped.alt_text || scraped.seo_alt_text || displacedRow.seo_alt_text;
+
+        // Backfill to Shard universal_master_pins
+        try {
+          const shardId = getPinShardId(cleanPin, 99);
+          const shardSql = await resolveShardConnection({ hubSql: sql, shardId });
+          if (shardSql && shardSql !== sql) {
+            const finalAnnoList = (scraped.annotations || [])
+              .map(a => typeof a === 'string' ? a : (a?.name || a?.label || ''))
+              .filter(Boolean);
+            await shardSql`
+              INSERT INTO universal_master_pins (
+                pin_id, creator_username, board_name, title, domain, destination_url,
+                image_url, description, alt_text, dominant_color, visual_annotations,
+                first_discovered_pillar, first_discovered_at, updated_at
+              ) VALUES (
+                ${cleanPin},
+                ${scraped.creator_username || scraped.pinner?.username || displacedRow?.creator_username || ''},
+                ${scraped.board_name || scraped.board?.name || displacedRow?.board_name || ''},
+                ${scraped.title || displacedRow?.title || ''},
+                ${scraped.domain || displacedRow?.domain || ''},
+                ${scraped.link || displacedRow?.destination_url || ''},
+                ${scraped.image_url || displacedRow?.image_url || ''},
+                ${scraped.description || ''},
+                ${scraped.alt_text || scraped.seo_alt_text || ''},
+                ${scraped.dominant_color || displacedRow?.dominant_color || '#888888'},
+                ${JSON.stringify(finalAnnoList)}::jsonb,
+                'keyword',
+                NOW(),
+                NOW()
+              )
+              ON CONFLICT (pin_id) DO UPDATE SET
+                creator_username = COALESCE(NULLIF(EXCLUDED.creator_username, ''), universal_master_pins.creator_username),
+                board_name = COALESCE(NULLIF(EXCLUDED.board_name, ''), universal_master_pins.board_name),
+                title = COALESCE(NULLIF(EXCLUDED.title, ''), universal_master_pins.title),
+                image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), universal_master_pins.image_url),
+                description = COALESCE(NULLIF(EXCLUDED.description, ''), universal_master_pins.description),
+                alt_text = COALESCE(NULLIF(EXCLUDED.alt_text, ''), universal_master_pins.alt_text),
+                dominant_color = COALESCE(NULLIF(EXCLUDED.dominant_color, ''), universal_master_pins.dominant_color),
+                visual_annotations = CASE 
+                  WHEN jsonb_typeof(EXCLUDED.visual_annotations) = 'array' AND jsonb_array_length(EXCLUDED.visual_annotations) > 0 
+                  THEN EXCLUDED.visual_annotations 
+                  ELSE universal_master_pins.visual_annotations 
+                END,
+                updated_at = NOW();
+            `.catch(() => {});
           }
-          if (latestSnapshot) {
-            latestSnapshot.save_count = Math.max(Number(latestSnapshot.save_count || 0), Number(scraped.saves || 0));
-            latestSnapshot.repin_count = Math.max(Number(latestSnapshot.repin_count || 0), Number(scraped.repins || 0));
-            latestSnapshot.comment_count = Math.max(Number(latestSnapshot.comment_count || 0), Number(scraped.comments || 0));
-          }
+        } catch (_) {}
+
+        if (displacedRow) {
+          displacedRow.current_saves = Math.max(Number(displacedRow.current_saves || 0), Number(scraped.saves || 0));
+          displacedRow.current_repins = Math.max(Number(displacedRow.current_repins || 0), Number(scraped.repins || 0));
+          displacedRow.current_comments = Math.max(Number(displacedRow.current_comments || 0), Number(scraped.comments || 0));
+          displacedRow.current_shares = Math.max(Number(displacedRow.current_shares || 0), Number(scraped.share_count || 0));
+          displacedRow.seo_alt_text = scraped.alt_text || scraped.seo_alt_text || displacedRow.seo_alt_text;
+          displacedRow.creator_username = scraped.creator_username || scraped.pinner?.username || displacedRow.creator_username;
+          displacedRow.board_name = scraped.board_name || scraped.board?.name || displacedRow.board_name;
+        }
+        if (latestSnapshot) {
+          latestSnapshot.save_count = Math.max(Number(latestSnapshot.save_count || 0), Number(scraped.saves || 0));
+          latestSnapshot.repin_count = Math.max(Number(latestSnapshot.repin_count || 0), Number(scraped.repins || 0));
+          latestSnapshot.comment_count = Math.max(Number(latestSnapshot.comment_count || 0), Number(scraped.comments || 0));
         }
       }
     } catch (err) {
@@ -2546,42 +2651,82 @@ export async function getPinDeepDossier(sql, pinId, keywordId = null) {
     }
   }
 
-  // 4. Retrieve trajectory
+  // 5. Retrieve trajectory
   const trajectory = await getPinPerformanceTrajectory(sql, kid, cleanPin, 'all');
 
-  // 5. Build consolidated Dossier matching Image 2
-  const title = displacedRow?.title || latestSnapshot?.title || scraped?.title || 'Untitled Pin';
-  const altText = displacedRow?.seo_alt_text || scraped?.alt_text || scraped?.seo_alt_text || latestSnapshot?.metadata?.alt_text || '';
+  // 6. Build consolidated 48-parameter Dossier
+  const title = displacedRow?.title || latestSnapshot?.title || scraped?.title || shardRow?.title || 'Untitled Pin';
+  const altText = displacedRow?.seo_alt_text || scraped?.alt_text || scraped?.seo_alt_text || latestSnapshot?.metadata?.alt_text || shardRow?.alt_text || '';
+  const description = scraped?.description || displacedRow?.metadata?.description || latestSnapshot?.metadata?.description || shardRow?.description || '';
+
   const annotations = (displacedRow?.annotations && Array.isArray(displacedRow.annotations) && displacedRow.annotations.length > 0)
     ? displacedRow.annotations
-    : (scraped?.annotations || latestSnapshot?.metadata?.visual_annotations || []);
-  
-  const dominantColor = displacedRow?.dominant_color || scraped?.dominant_color || latestSnapshot?.metadata?.dominant_color || '#b47732';
-  const createdAt = displacedRow?.created_at_pinterest || scraped?.created_at_pinterest || latestSnapshot?.metadata?.created_at || null;
-  const saves = Math.max(Number(scraped?.saves || 0), Number(displacedRow?.current_saves || 0), Number(latestSnapshot?.save_count || 0));
-  const repins = Math.max(Number(scraped?.repins || 0), Number(displacedRow?.current_repins || 0), Number(latestSnapshot?.repin_count || 0));
+    : (scraped?.annotations && Array.isArray(scraped.annotations) && scraped.annotations.length > 0)
+      ? scraped.annotations
+      : (shardRow?.visual_annotations && Array.isArray(shardRow.visual_annotations) && shardRow.visual_annotations.length > 0)
+        ? shardRow.visual_annotations
+        : (latestSnapshot?.metadata?.visual_annotations || []);
+
+  const dominantColor = displacedRow?.dominant_color || scraped?.dominant_color || latestSnapshot?.metadata?.dominant_color || shardRow?.dominant_color || '#b47732';
+  const createdAt = displacedRow?.created_at_pinterest || scraped?.created_at_pinterest || latestSnapshot?.metadata?.created_at || shardRow?.created_at_pinterest || null;
+  const saves = Math.max(Number(scraped?.saves || 0), Number(displacedRow?.current_saves || 0), Number(latestSnapshot?.save_count || 0), Number(shardRow?.save_count || 0));
+  const repins = Math.max(Number(scraped?.repins || 0), Number(displacedRow?.current_repins || 0), Number(latestSnapshot?.repin_count || 0), Number(shardRow?.repin_count || 0));
   const comments = Math.max(Number(scraped?.comments || 0), Number(displacedRow?.current_comments || 0), Number(latestSnapshot?.comment_count || 0));
   const shares = Math.max(Number(scraped?.share_count || 0), Number(displacedRow?.current_shares || 0), Number(latestSnapshot?.share_count || 0));
   const reactions = Math.max(Number(displacedRow?.current_reactions || 0), (typeof scraped?.reactions === 'object' ? Object.values(scraped.reactions).reduce((a, b) => a + Number(b || 0), 0) : 0), Number(latestSnapshot?.reaction_count || 0));
   const velocity = Number(displacedRow?.daily_save_velocity || latestSnapshot?.daily_save_velocity || 0);
+
+  const creatorUsername = displacedRow?.creator_username || displacedRow?.account_username || scraped?.creator_username || scraped?.pinner?.username || latestSnapshot?.metadata?.pinner?.username || shardRow?.creator_username || '';
+  const creatorFullName = scraped?.creator_name || scraped?.pinner?.full_name || latestSnapshot?.metadata?.pinner?.full_name || '';
+  const creatorFollowers = Number(scraped?.creator_followers || scraped?.pinner?.follower_count || latestSnapshot?.metadata?.pinner?.follower_count || 0);
+  const creatorAvatar = scraped?.creator_avatar_url || scraped?.pinner?.image_url || latestSnapshot?.metadata?.pinner?.image_small_url || null;
+  const creatorIsMerchant = Boolean(scraped?.creator_is_verified_merchant || scraped?.pinner?.is_verified_merchant || latestSnapshot?.metadata?.pinner?.is_verified_merchant || false);
+
+  const boardName = displacedRow?.board_name || latestSnapshot?.metadata?.board_name || scraped?.board_name || scraped?.board?.name || shardRow?.board_name || '';
+  const boardUrl = scraped?.board_url || scraped?.board?.url || (creatorUsername && boardName ? `https://www.pinterest.com/${creatorUsername}/${boardName.toLowerCase().replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-')}/` : null);
+  const boardPinCount = Number(scraped?.board_pin_count || scraped?.board?.pin_count || latestSnapshot?.metadata?.board_pin_count || 0);
+
+  const isRepin = Boolean(scraped?.is_repin || latestSnapshot?.metadata?.is_repin || false);
+  const originPinner = scraped?.origin_pinner || latestSnapshot?.metadata?.origin_pinner || null;
+  const isIndexedGoogle = !(scraped?.seo_noindex_reason || latestSnapshot?.metadata?.seo_noindex_reason);
+  const isGoLinkless = Boolean(scraped?.is_go_linkless || latestSnapshot?.metadata?.is_go_linkless || false);
+  const categoryBreadcrumbs = scraped?.category_breadcrumbs || latestSnapshot?.metadata?.category_breadcrumbs || [];
+  const imageDimensions = scraped?.image_dimensions || latestSnapshot?.metadata?.image_dimensions || null;
+  const imageSignature = displacedRow?.image_signature || scraped?.image_signature || latestSnapshot?.metadata?.image_signature || `sig_${cleanPin.slice(-8)}`;
+  const creationMethod = displacedRow?.creation_method || scraped?.creation_method || latestSnapshot?.creation_method || latestSnapshot?.metadata?.method || 'pinterest_platform';
 
   return {
     success: true,
     pin_id: cleanPin,
     keyword_id: kid,
     title,
-    domain: displacedRow?.domain || latestSnapshot?.domain || scraped?.domain || '',
-    destination_url: displacedRow?.destination_url || latestSnapshot?.destination_url || scraped?.link || '',
-    image_url: displacedRow?.image_url || latestSnapshot?.image_url || scraped?.image_url || '',
-    board_name: displacedRow?.board_name || latestSnapshot?.metadata?.board_name || scraped?.board_name || '',
-    creator_username: displacedRow?.account_username || latestSnapshot?.metadata?.pinner?.username || '',
+    description,
+    domain: displacedRow?.domain || latestSnapshot?.domain || scraped?.domain || shardRow?.domain || '',
+    destination_url: displacedRow?.destination_url || latestSnapshot?.destination_url || scraped?.link || shardRow?.destination_url || '',
+    image_url: displacedRow?.image_url || latestSnapshot?.image_url || scraped?.image_url || shardRow?.image_url || '',
+    board_name: boardName,
+    board_url: boardUrl,
+    board_pin_count: boardPinCount,
+    creator_username: creatorUsername,
+    creator_name: creatorFullName,
+    creator_avatar_url: creatorAvatar,
+    creator_followers: creatorFollowers,
+    creator_is_verified_merchant: creatorIsMerchant,
+    creator_url: creatorUsername ? `https://www.pinterest.com/${creatorUsername}/` : '',
     seo_alt_text: altText,
     dominant_color: dominantColor,
     created_at_pinterest: createdAt,
     first_pulled_at: displacedRow?.first_pulled_at || latestSnapshot?.created_at || new Date().toISOString(),
     last_archived_at: displacedRow?.last_checked_at || latestSnapshot?.created_at || new Date().toISOString(),
-    image_signature: displacedRow?.image_signature || `sig_${cleanPin.slice(-8)}`,
+    image_signature: imageSignature,
     canonical_id: cleanPin,
+    creation_method: creationMethod,
+    is_repin: isRepin,
+    origin_pinner: originPinner,
+    is_indexed_google: isIndexedGoogle,
+    is_go_linkless: isGoLinkless,
+    category_breadcrumbs: categoryBreadcrumbs,
+    image_dimensions: imageDimensions,
     annotations: Array.isArray(annotations)
       ? annotations.map(a => typeof a === 'string' ? a : (a?.name || a?.label || a?.display_label || a?.term || a?.title || '')).filter(Boolean)
       : [],
@@ -2599,6 +2744,7 @@ export async function getPinDeepDossier(sql, pinId, keywordId = null) {
       shares_24h: Number(shares > 0 ? Math.round(shares * 0.28) : 0),
       reactions_24h: Number(reactions > 0 ? Math.round(reactions * 0.28) : 0)
     },
+    reactions_breakdown: (typeof scraped?.reactions === 'object' && scraped?.reactions) ? scraped.reactions : (latestSnapshot?.metadata?.reactions || {}),
     trajectory
   };
 }
