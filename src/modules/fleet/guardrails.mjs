@@ -1,3 +1,5 @@
+import { neon } from '@neondatabase/serverless';
+
 /**
  * Continuous Schema Drift Prevention Guardrail
  * 

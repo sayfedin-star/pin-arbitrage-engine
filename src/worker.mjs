@@ -5,6 +5,7 @@
  * Runs on Cloudflare Workers edge runtime with Neon Serverless Postgres
  */
 
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { neon } from '@neondatabase/serverless';
 import { getDashboardHtml } from './dashboard-ui.mjs';
 import { getKeywordsPageHtml } from './keywords-ui.mjs';
@@ -166,7 +167,89 @@ export function safeWaitUntil(ctx, promise, taskName = 'bg_task', timeoutMs = 25
   }
 }
 
-export function jsonResponse(data, status = 200, cacheSeconds = 0) {
+export function clampLimit(val, fallback = 50, max = 1000) {
+  const n = parseInt(val, 10);
+  if (isNaN(n) || n <= 0) return fallback;
+  return Math.min(n, max);
+}
+
+export function getCorsHeaders(requestOrigin = null, env = {}) {
+  const allowedOriginsStr = (env && env.ALLOWED_ORIGINS) || '';
+  let origin = '*';
+
+  if (allowedOriginsStr && allowedOriginsStr !== '*') {
+    const list = allowedOriginsStr.split(',').map(s => s.trim().toLowerCase());
+    if (requestOrigin && list.includes(requestOrigin.toLowerCase())) {
+      origin = requestOrigin;
+    } else {
+      origin = list[0] || 'null';
+    }
+  } else if (requestOrigin) {
+    origin = requestOrigin;
+  }
+
+  return {
+    'Access-Control-Allow-Origin': origin,
+    'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-target-project, x-api-key',
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Referrer-Policy': 'strict-origin-when-cross-origin'
+  };
+}
+
+export function verifyApiAuthentication(request, env = {}) {
+  const secretKey = (env && (env.API_SECRET_KEY || env.ADMIN_KEY || env.PIN_ARBITRAGE_SECRET)) || '';
+  // If no secret key is configured in the environment, allow execution
+  if (!secretKey) return { authorized: true };
+
+  const authHeader = request.headers.get('Authorization') || '';
+  const apiKeyHeader = request.headers.get('x-api-key') || '';
+  let queryKey = '';
+  try {
+    const u = new URL(request.url);
+    queryKey = u.searchParams.get('api_key') || u.searchParams.get('key') || '';
+  } catch (_) {}
+
+  let incomingToken = '';
+  if (authHeader.startsWith('Bearer ')) {
+    incomingToken = authHeader.slice(7).trim();
+  } else if (apiKeyHeader) {
+    incomingToken = apiKeyHeader.trim();
+  } else if (queryKey) {
+    incomingToken = queryKey.trim();
+  }
+
+  if (incomingToken) {
+    const isMatch = timingSafeEqualStr(incomingToken, secretKey);
+    return { authorized: isMatch, reason: isMatch ? null : 'Invalid authentication token.' };
+  }
+
+  // Same-Origin Browser UI Session Fallback (Allows legitimate web interface buttons to function without lockout)
+  const secFetchSite = request.headers.get('Sec-Fetch-Site') || '';
+  const origin = request.headers.get('Origin') || '';
+  let isSameOrigin = secFetchSite === 'same-origin';
+  if (!isSameOrigin && origin) {
+    try {
+      const originHost = new URL(origin).host;
+      const requestHost = new URL(request.url).host;
+      if (originHost === requestHost) isSameOrigin = true;
+    } catch (_) {}
+  }
+  if (isSameOrigin) {
+    return { authorized: true };
+  }
+
+  return { authorized: false, reason: 'Missing authentication credentials (Bearer token or x-api-key required).' };
+}
+
+export const requestContextStorage = new AsyncLocalStorage();
+let currentDefaultOrigin = '*';
+export function setDefaultCorsOrigin(origin) {
+  currentDefaultOrigin = origin || '*';
+}
+
+export function jsonResponse(data, status = 200, cacheSeconds = 0, customCors = null) {
   let responsePayload = data;
   
   // Enforce uniform JSON error schema for HTTP 4xx and 5xx
@@ -176,6 +259,8 @@ export function jsonResponse(data, status = 200, cacheSeconds = 0) {
     }
     if (!responsePayload.error) {
       responsePayload.error = status === 400 ? 'BAD_REQUEST' 
+        : status === 401 ? 'UNAUTHORIZED'
+        : status === 403 ? 'FORBIDDEN'
         : status === 404 ? 'NOT_FOUND' 
         : status === 405 ? 'METHOD_NOT_ALLOWED' 
         : status === 413 ? 'PAYLOAD_TOO_LARGE' 
@@ -190,15 +275,20 @@ export function jsonResponse(data, status = 200, cacheSeconds = 0) {
     if (typeof responsePayload.message === 'string') responsePayload.message = redactSecrets(responsePayload.message);
   }
 
+  const store = requestContextStorage.getStore();
+  const resolvedOrigin = customCors?.['Access-Control-Allow-Origin'] || store?.origin || currentDefaultOrigin;
+
   const headers = {
     'Content-Type': 'application/json; charset=utf-8',
-    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Origin': resolvedOrigin,
     'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-target-project',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-target-project, x-api-key',
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY',
-    'Referrer-Policy': 'strict-origin-when-cross-origin'
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
+    ...(customCors || {})
   };
+  headers['Content-Type'] = 'application/json; charset=utf-8';
   if (cacheSeconds > 0) {
     headers['Cache-Control'] = `public, max-age=${cacheSeconds}, stale-while-revalidate=${cacheSeconds * 3}`;
   }
@@ -208,7 +298,7 @@ export function jsonResponse(data, status = 200, cacheSeconds = 0) {
   });
 }
 
-export function methodNotAllowedResponse(allow) {
+export function methodNotAllowedResponse(allow, customCors = null) {
   return new Response(JSON.stringify({
     success: false,
     error: 'METHOD_NOT_ALLOWED',
@@ -218,27 +308,25 @@ export function methodNotAllowedResponse(allow) {
     headers: {
       'Content-Type': 'application/json; charset=utf-8',
       'Allow': allow,
-      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Origin': customCors?.['Access-Control-Allow-Origin'] || '*',
       'Access-Control-Allow-Methods': allow,
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-target-project',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-target-project, x-api-key',
       'X-Content-Type-Options': 'nosniff',
       'X-Frame-Options': 'DENY',
-      'Referrer-Policy': 'strict-origin-when-cross-origin'
+      'Referrer-Policy': 'strict-origin-when-cross-origin',
+      ...(customCors || {})
     }
   });
 }
 
-export function corsOptionsResponse(allow = 'GET, POST, DELETE, OPTIONS') {
+export function corsOptionsResponse(requestOrigin = null, env = {}, allow = 'GET, POST, DELETE, OPTIONS') {
+  const cors = getCorsHeaders(requestOrigin, env);
   return new Response(null, {
     status: 204,
     headers: {
-      'Access-Control-Allow-Origin': '*',
+      ...cors,
       'Access-Control-Allow-Methods': allow,
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-target-project',
-      'Access-Control-Max-Age': '86400',
-      'X-Content-Type-Options': 'nosniff',
-      'X-Frame-Options': 'DENY',
-      'Referrer-Policy': 'strict-origin-when-cross-origin'
+      'Access-Control-Max-Age': '86400'
     }
   });
 }
@@ -401,16 +489,21 @@ const MAX_CONCURRENT_HUB_FALLBACKS = 6;
 
 export default {
   async fetch(request, env, ctx) {
-    const url = new URL(request.url);
-    const normalizedPath = normalizePath(url.pathname);
-    const pathLower = normalizedPath.toLowerCase();
-    const pathname = normalizedPath;
-    const { searchParams } = url;
-    const method = request.method.toUpperCase();
+    const requestOrigin = request.headers.get('Origin');
+    const dynamicCors = getCorsHeaders(requestOrigin, env);
+    setDefaultCorsOrigin(dynamicCors['Access-Control-Allow-Origin']);
 
-    if (method === 'OPTIONS') {
-      return corsOptionsResponse();
+    if (request.method.toUpperCase() === 'OPTIONS') {
+      return corsOptionsResponse(requestOrigin, env);
     }
+
+    return requestContextStorage.run({ request, env, origin: dynamicCors['Access-Control-Allow-Origin'] }, async () => {
+      const url = new URL(request.url);
+      const normalizedPath = normalizePath(url.pathname);
+      const pathLower = normalizedPath.toLowerCase();
+      const pathname = normalizedPath;
+      const { searchParams } = url;
+      const method = request.method.toUpperCase();
 
     // 1. Level 1B: Keyword Discovery & Autocomplete Hub
     if (pathLower === '/keywords/discovery' || pathLower === '/discovery' || pathLower.startsWith('/keywords/discovery/') || pathLower.startsWith('/discovery/')) {
@@ -429,14 +522,18 @@ export default {
       });
     }
 
-    // 2. Level 3: Dedicated Pin Intelligence Page (/pins/:pin_id or /pin/:pin_id)
+    // 2. Level 3: Dedicated Pin Intelligence Page (/pins/:pin_id or /pin/:pin_id) [CAP-07]
     if (pathLower.startsWith('/pins/') || pathLower.startsWith('/pin/')) {
       if (method !== 'GET') {
         return methodNotAllowedResponse('GET, OPTIONS');
       }
       const segments = normalizedPath.split('/').filter(Boolean);
-      const pinId = segments[1] || '';
-      return new Response(getPinDetailPageHtml(decodeURIComponent(pinId)), {
+      const rawPinId = segments[1] || '';
+      const cleanPinId = String(rawPinId).replace(/[^0-9]/g, '').slice(0, 32);
+      if (!cleanPinId) {
+        return jsonResponse({ success: false, error: 'INVALID_PIN_ID', message: 'Pin ID must be numeric' }, 400);
+      }
+      return new Response(getPinDetailPageHtml(cleanPinId), {
         status: 200,
         headers: {
           'Content-Type': 'text/html; charset=utf-8',
@@ -585,6 +682,20 @@ export default {
           error: err.message,
           timestamp: new Date().toISOString()
         }, 500);
+      }
+    }
+
+    // Security Authentication Gate for Mutating Methods & Sensitive Operations [CAP-02, CAP-03, CAP-04]
+    const isMutatingMethod = method === 'POST' || method === 'DELETE' || method === 'PUT' || method === 'PATCH';
+    const isSensitiveEndpoint = pathname === '/api/fleet/url' || pathname.startsWith('/api/crawl/dispatch');
+    if (isMutatingMethod || isSensitiveEndpoint) {
+      const auth = verifyApiAuthentication(request, env);
+      if (!auth.authorized) {
+        return jsonResponse({
+          success: false,
+          error: 'UNAUTHORIZED',
+          message: auth.reason || 'Authentication required for mutating or sensitive operations.'
+        }, 401);
       }
     }
 
@@ -990,8 +1101,8 @@ export default {
       // 5. GET /api/candidates
       if (method === 'GET' && pathname === '/api/candidates') {
         const seedPinId = searchParams.get('seed_pin_id');
-        const limit = Number(searchParams.get('limit')) || 1000;
-        const offset = Number(searchParams.get('offset')) || 0;
+        const limit = clampLimit(searchParams.get('limit'), 1000, 1000);
+        const offset = Math.max(0, parseInt(searchParams.get('offset'), 10) || 0);
         const query = (searchParams.get('q') || '').trim();
         const sort = (searchParams.get('sort') || 'saves').toLowerCase();
         const shardKey = reqProjectId || 'hub';
@@ -1384,7 +1495,7 @@ export default {
       // 9. GET /api/intersections (Uncapped, authentic Pixie Multi-Hit ranking)
       if (method === 'GET' && pathname === '/api/intersections') {
         const minOverlap = Number(searchParams.get('min_overlap')) || 2;
-        const limit = Number(searchParams.get('limit')) || 1000;
+        const limit = clampLimit(searchParams.get('limit'), 1000, 1000);
 
         const allSeeds = await targetSql`SELECT pin_id, label, is_competitor FROM cluster_seeds;`;
         const seedMap = new Map();
@@ -1486,24 +1597,24 @@ export default {
         });
       }
 
-      // 12. GET /api/settings/cookie
+      // 12. GET /api/settings/cookie [CAP-05]
       if (method === 'GET' && pathname === '/api/settings/cookie') {
         const cookie = env.PINTEREST_COOKIE || '';
         return jsonResponse({
           has_cookie: Boolean(cookie && cookie.trim().length > 10),
-          source: 'cloudflare_env',
-          preview: cookie ? `${cookie.slice(0, 8)}...${cookie.slice(-6)}` : 'Not Set'
+          is_configured: Boolean(cookie && cookie.trim().length > 10),
+          source: 'cloudflare_env'
         });
       }
 
-      // 13. POST /api/settings/cookie
+      // 13. POST /api/settings/cookie [CAP-05]
       if (method === 'POST' && pathname === '/api/settings/cookie') {
         const body = await request.json().catch(() => ({}));
         const cookie = String(body.cookie || '').trim();
         return jsonResponse({
           success: true,
           has_cookie: Boolean(cookie && cookie.length > 10),
-          preview: cookie ? (cookie.slice(0, 30) + '...') : null,
+          is_configured: Boolean(cookie && cookie.length > 10),
           note: 'For edge worker execution, add PINTEREST_COOKIE in Cloudflare Worker Secrets.'
         });
       }
@@ -1765,8 +1876,8 @@ export default {
         const shardKey = reqProjectId || 'hub';
         const account_type = searchParams.get('account_type') || 'all';
         const search = searchParams.get('search') || '';
-        const limit = Number(searchParams.get('limit') || 50);
-        const offset = Number(searchParams.get('offset') || 0);
+        const limit = clampLimit(searchParams.get('limit'), 50, 1000);
+        const offset = Math.max(0, parseInt(searchParams.get('offset'), 10) || 0);
 
         const cacheKey = buildCanonicalCacheKey(`competitors:${shardKey}`, {
           account_type,
@@ -1908,7 +2019,7 @@ export default {
             min_saves: Number(searchParams.get('min_saves') || 0),
             sort: searchParams.get('sort') || 'saves_desc',
             page: Number(searchParams.get('page') || 1),
-            limit: Number(searchParams.get('limit') || 50),
+            limit: clampLimit(searchParams.get('limit'), 50, 1000),
             qualified_only: searchParams.get('qualified_only') === 'true',
             product_only: searchParams.get('product_only') === 'true',
             articles_only: searchParams.get('articles_only') === 'true'
@@ -1924,7 +2035,7 @@ export default {
         if (!id) return jsonResponse({ error: 'competitor_id is required' }, 400);
         try {
           const result = await getTopDestinationUrls(targetSql, id, {
-            limit: Number(searchParams.get('limit') || 50),
+            limit: clampLimit(searchParams.get('limit'), 50, 1000),
             page: Number(searchParams.get('page') || 1),
             search: searchParams.get('search') || '',
             sort: searchParams.get('sort') || 'saves_desc',
@@ -2068,7 +2179,7 @@ export default {
           const result = await getCompetitorRelatedIntersections(targetSql, id, {
             min_overlap: Number(searchParams.get('min_overlap') || 2),
             page: Number(searchParams.get('page') || 1),
-            limit: Number(searchParams.get('limit') || 50),
+            limit: clampLimit(searchParams.get('limit'), 50, 1000),
             filter: searchParams.get('filter') || 'all',
             search: searchParams.get('search') || ''
           });
@@ -2160,8 +2271,8 @@ export default {
       // 16. Keyword Velocity Tracker API (Central Metadata Hub)
       if (method === 'GET' && pathname === '/api/keywords') {
         const search = searchParams.get('search') || '';
-        const limit = Number(searchParams.get('limit') || 50);
-        const offset = Number(searchParams.get('offset') || 0);
+        const limit = clampLimit(searchParams.get('limit'), 50, 1000);
+        const offset = Math.max(0, parseInt(searchParams.get('offset'), 10) || 0);
 
         const cacheKey = buildCanonicalCacheKey('keywords:hub', {
           search,
@@ -2419,8 +2530,8 @@ export default {
         const keywordId = Number(searchParams.get('keyword_id'));
         if (!keywordId) return jsonResponse({ error: 'keyword_id is required' }, 400);
         const status = searchParams.get('status') || 'ALL';
-        const limit = Number(searchParams.get('limit') || 100);
-        const offset = Number(searchParams.get('offset') || 0);
+        const limit = clampLimit(searchParams.get('limit'), 100, 1000);
+        const offset = Math.max(0, parseInt(searchParams.get('offset'), 10) || 0);
         const result = await getKeywordDisplacedPins(sql, keywordId, { status, limit, offset });
         return jsonResponse(result);
       }
@@ -2896,8 +3007,8 @@ export default {
         const minPins = Number(searchParams.get('min_pins') || 1);
         const search = searchParams.get('search') || '';
         const account = searchParams.get('account') || '';
-        const limit = Number(searchParams.get('limit') || 50);
-        const offset = Number(searchParams.get('offset') || 0);
+        const limit = clampLimit(searchParams.get('limit'), 50, 1000);
+        const offset = Math.max(0, parseInt(searchParams.get('offset'), 10) || 0);
         const topics = await getTopicClusters(targetSql, { minPins, search, account, limit, offset });
         return jsonResponse({ success: true, topics });
       }
@@ -2914,8 +3025,8 @@ export default {
         const changedOnly = searchParams.get('changed_only') === 'true' || searchParams.get('changed_only') === '1';
         const sortBy = searchParams.get('sort') || searchParams.get('sort_by') || 'saves';
         const order = searchParams.get('order') || 'desc';
-        const limit = Number(searchParams.get('limit') || 50);
-        const offset = Number(searchParams.get('offset') || 0);
+        const limit = clampLimit(searchParams.get('limit'), 50, 1000);
+        const offset = Math.max(0, parseInt(searchParams.get('offset'), 10) || 0);
         const pins = await listArchivedPins(targetSql, { search, topic, board, stage, account, minSaves, maxSaves, timeframe, changedOnly, sortBy, order, limit, offset });
         return jsonResponse({ success: true, pins, total: pins.total ?? pins.length });
       }
@@ -2950,8 +3061,8 @@ export default {
 
       if (method === 'GET' && pathname === '/api/pinarchive/staged') {
         const status = searchParams.get('status') || 'staged';
-        const limit = Number(searchParams.get('limit') || 50);
-        const offset = Number(searchParams.get('offset') || 0);
+        const limit = clampLimit(searchParams.get('limit'), 50, 1000);
+        const offset = Math.max(0, parseInt(searchParams.get('offset'), 10) || 0);
         const items = await listStagedPins(targetSql, { status, limit, offset });
         return jsonResponse({ success: true, staged: items, items });
       }
@@ -3063,6 +3174,7 @@ export default {
         message: redactSecrets(err.message || 'An unexpected internal error occurred')
       }, status);
     }
+    });
   },
 
   /**

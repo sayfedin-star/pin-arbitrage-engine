@@ -25,3 +25,7 @@ coverage/
 *.sln
 *.sw?
 scratch/
+*.pem
+*.key
+*credentials*
+*secret*

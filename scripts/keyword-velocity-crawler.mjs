@@ -294,12 +294,20 @@ async function flushToStorageShards(enrichedPins) {
         }
       })();
 
-      const timeoutTask = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error(`Shard #${shardId} cold-start connection timeout (3500ms limit)`)), 3500)
-      );
+      // Guarded Promise.race with active timer clearance and late rejection suppression [CAP-12]
+      let timerId;
+      const timeoutTask = new Promise((_, reject) => {
+        timerId = setTimeout(() => reject(new Error(`Shard #${shardId} cold-start connection timeout (3500ms limit)`)), 3500);
+      });
 
-      await Promise.race([syncTask, timeoutTask]);
-      shardsSynchronized++;
+      syncTask.catch(() => {});
+
+      try {
+        await Promise.race([syncTask, timeoutTask]);
+        shardsSynchronized++;
+      } finally {
+        if (timerId) clearTimeout(timerId);
+      }
     } catch (shardErr) {
       console.warn(`    [Shard ${shardId} Non-Blocking Guard] Shard write deferred: ${shardErr.message}`);
     }

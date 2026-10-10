@@ -6,13 +6,15 @@
  */
 
 export function getPinDetailPageHtml(pinId = '') {
+  const safePinId = String(pinId || '').replace(/[^0-9]/g, '').slice(0, 32);
+  const escapedPinId = safePinId.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   return `<!DOCTYPE html>
 <html lang="en" class="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="referrer" content="no-referrer">
-  <title>Universal Pin Dossier ${pinId} | Pinterest Arbitrage Intelligence</title>
+  <title>Universal Pin Dossier ${escapedPinId} | Pinterest Arbitrage Intelligence</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -49,7 +51,7 @@ export function getPinDetailPageHtml(pinId = '') {
     ::-webkit-scrollbar-thumb:hover { background: rgba(148, 163, 184, 0.4); }
   </style>
 </head>
-<body class="bg-slate-950 text-slate-100 min-h-screen antialiased flex flex-col font-sans" x-data="pinDetailApp('${pinId}')" x-init="init()">
+<body class="bg-slate-950 text-slate-100 min-h-screen antialiased flex flex-col font-sans" x-data="pinDetailApp('${safePinId}')" x-init="init()">
 
   <!-- Toast Notification Container -->
   <div 

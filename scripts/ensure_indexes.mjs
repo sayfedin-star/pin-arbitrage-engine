@@ -99,38 +99,38 @@ async function optimizeIndexes() {
   `;
 
   console.log('[*] 9. Ensuring enrichment_status and updated_at on competitor_pins for GHA 20-shard queue...');
-  await sql`ALTER TABLE competitor_pins ADD COLUMN IF NOT EXISTS enrichment_status VARCHAR(32) DEFAULT 'pending';`;
-  await sql`ALTER TABLE competitor_pins ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();`;
-  await sql`DROP INDEX IF EXISTS idx_competitor_pins_enrichment_queue;`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_competitor_pins_queue_fast ON competitor_pins(competitor_id, enrichment_status, id);`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_competitor_pins_enrichment_global ON competitor_pins(enrichment_status) WHERE enrichment_status = 'pending';`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_competitor_pins_stale_reclaim ON competitor_pins(enrichment_status, updated_at) WHERE enrichment_status = 'processing';`;
+  await sql`ALTER TABLE competitor_pins ADD COLUMN IF NOT EXISTS enrichment_status VARCHAR(32) DEFAULT 'pending';`.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`ALTER TABLE competitor_pins ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();`.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`DROP INDEX IF EXISTS idx_competitor_pins_enrichment_queue;`.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`CREATE INDEX IF NOT EXISTS idx_competitor_pins_queue_fast ON competitor_pins(competitor_id, enrichment_status, id);`.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`CREATE INDEX IF NOT EXISTS idx_competitor_pins_enrichment_global ON competitor_pins(enrichment_status) WHERE enrichment_status = 'pending';`.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`CREATE INDEX IF NOT EXISTS idx_competitor_pins_stale_reclaim ON competitor_pins(enrichment_status, updated_at) WHERE enrichment_status = 'processing';`.catch(err => console.warn('[Index Notice]', err.message));
 
   console.log('[*] 10. Ensuring keyword intelligence indexes & column widths...');
-  await sql`ALTER TABLE tracked_keywords ALTER COLUMN top_pin_id TYPE VARCHAR(255);`.catch(() => {});
-  await sql`ALTER TABLE keyword_pins_snapshots ALTER COLUMN pin_id TYPE VARCHAR(255);`.catch(() => {});
-  await sql`ALTER TABLE keyword_guided_capsules ALTER COLUMN dominant_color TYPE VARCHAR(64);`.catch(() => {});
-  await sql`CREATE INDEX IF NOT EXISTS idx_tracked_keywords_keyword ON tracked_keywords(keyword);`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_tracked_keywords_active ON tracked_keywords(is_active);`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_tracked_keywords_popular_pins_gin ON tracked_keywords USING gin(popular_pins jsonb_path_ops);`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_keyword_pins_lookup ON keyword_pins_snapshots(keyword_id, snapshot_date DESC);`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_kps_pin_id_date ON keyword_pins_snapshots(pin_id, snapshot_date ASC, created_at DESC);`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_kps_serp_ordered ON keyword_pins_snapshots(keyword_id, snapshot_date DESC, rank_position ASC) WHERE is_displaced IS FALSE;`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_keyword_pins_velocity ON keyword_pins_snapshots(daily_save_velocity DESC);`;
-  await sql`CREATE UNIQUE INDEX IF NOT EXISTS uq_seed_capsules_norm ON seed_guided_search_capsules (seed_pin_id, normalized_query);`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_kw_guided_capsules_kw ON keyword_guided_capsules(keyword_id, display_order ASC);`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_kw_guided_capsules_score ON keyword_guided_capsules(keyword_id, score DESC);`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_kdp_kw_vacuum ON keyword_displaced_pins(keyword_id, status, vacuum_opportunity_score DESC, last_known_rank ASC);`.catch(() => {});
-  await sql`CREATE INDEX IF NOT EXISTS idx_kdp_pin_id ON keyword_displaced_pins(pin_id);`.catch(() => {});
-  await sql`CREATE INDEX IF NOT EXISTS idx_kps_kw_date_displaced ON keyword_pins_snapshots(keyword_id, is_displaced, snapshot_date DESC);`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_kps_kw_date_distinct ON keyword_pins_snapshots(keyword_id, snapshot_date DESC);`;
+  await sql`ALTER TABLE tracked_keywords ALTER COLUMN top_pin_id TYPE VARCHAR(255);`.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`ALTER TABLE keyword_pins_snapshots ALTER COLUMN pin_id TYPE VARCHAR(255);`.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`ALTER TABLE keyword_guided_capsules ALTER COLUMN dominant_color TYPE VARCHAR(64);`.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`CREATE INDEX IF NOT EXISTS idx_tracked_keywords_keyword ON tracked_keywords(keyword);`.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`CREATE INDEX IF NOT EXISTS idx_tracked_keywords_active ON tracked_keywords(is_active);`.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`CREATE INDEX IF NOT EXISTS idx_tracked_keywords_popular_pins_gin ON tracked_keywords USING gin(popular_pins jsonb_path_ops);`.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`CREATE INDEX IF NOT EXISTS idx_keyword_pins_lookup ON keyword_pins_snapshots(keyword_id, snapshot_date DESC);`.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`CREATE INDEX IF NOT EXISTS idx_kps_pin_id_date ON keyword_pins_snapshots(pin_id, snapshot_date ASC, created_at DESC);`.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`CREATE INDEX IF NOT EXISTS idx_kps_serp_ordered ON keyword_pins_snapshots(keyword_id, snapshot_date DESC, rank_position ASC) WHERE is_displaced IS FALSE;`.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`CREATE INDEX IF NOT EXISTS idx_keyword_pins_velocity ON keyword_pins_snapshots(daily_save_velocity DESC);`.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS uq_seed_capsules_norm ON seed_guided_search_capsules (seed_pin_id, normalized_query);`.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`CREATE INDEX IF NOT EXISTS idx_kw_guided_capsules_kw ON keyword_guided_capsules(keyword_id, display_order ASC);`.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`CREATE INDEX IF NOT EXISTS idx_kw_guided_capsules_score ON keyword_guided_capsules(keyword_id, score DESC);`.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`CREATE INDEX IF NOT EXISTS idx_kdp_kw_vacuum ON keyword_displaced_pins(keyword_id, status, vacuum_opportunity_score DESC, last_known_rank ASC);`.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`CREATE INDEX IF NOT EXISTS idx_kdp_pin_id ON keyword_displaced_pins(pin_id);`.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`CREATE INDEX IF NOT EXISTS idx_kps_kw_date_displaced ON keyword_pins_snapshots(keyword_id, is_displaced, snapshot_date DESC);`.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`CREATE INDEX IF NOT EXISTS idx_kps_kw_date_distinct ON keyword_pins_snapshots(keyword_id, snapshot_date DESC);`.catch(err => console.warn('[Index Notice]', err.message));
 
   console.log('[*] 6. Ensuring created_at_pinterest and creation_method columns exist...');
-  await sql`ALTER TABLE keyword_serp_current ADD COLUMN IF NOT EXISTS created_at_pinterest TIMESTAMP WITH TIME ZONE;`.catch(() => {});
-  await sql`ALTER TABLE keyword_serp_current ADD COLUMN IF NOT EXISTS creation_method VARCHAR(50);`.catch(() => {});
-  await sql`ALTER TABLE keyword_displaced_pins ADD COLUMN IF NOT EXISTS creation_method VARCHAR(50);`.catch(() => {});
-  await sql`ALTER TABLE keyword_pins_snapshots ADD COLUMN IF NOT EXISTS created_at_pinterest TIMESTAMP WITH TIME ZONE;`.catch(() => {});
-  await sql`ALTER TABLE keyword_pins_snapshots ADD COLUMN IF NOT EXISTS creation_method VARCHAR(50);`.catch(() => {});
+  await sql`ALTER TABLE keyword_serp_current ADD COLUMN IF NOT EXISTS created_at_pinterest TIMESTAMP WITH TIME ZONE;`.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`ALTER TABLE keyword_serp_current ADD COLUMN IF NOT EXISTS creation_method VARCHAR(50);`.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`ALTER TABLE keyword_displaced_pins ADD COLUMN IF NOT EXISTS creation_method VARCHAR(50);`.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`ALTER TABLE keyword_pins_snapshots ADD COLUMN IF NOT EXISTS created_at_pinterest TIMESTAMP WITH TIME ZONE;`.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`ALTER TABLE keyword_pins_snapshots ADD COLUMN IF NOT EXISTS creation_method VARCHAR(50);`.catch(err => console.warn('[Index Notice]', err.message));
 
   console.log('[+] All indexes and columns verified and active in Neon Serverless Postgres!');
 }

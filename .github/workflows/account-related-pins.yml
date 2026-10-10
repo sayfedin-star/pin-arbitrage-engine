@@ -42,7 +42,8 @@ jobs:
       - name: 3. Check Runner Egress IP
         run: |
           echo "=== GitHub Actions Runner Egress IP ==="
-          curl -s https://api.ipify.org && echo ""
+          curl -s --max-time 5 https://api.ipify.org || echo "ip-diagnostics unavailable (non-fatal)"
+          echo ""
           echo "======================================="
 
       - name: 4. Install dependencies

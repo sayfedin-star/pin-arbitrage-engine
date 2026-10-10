@@ -103,7 +103,8 @@ jobs:
       - name: 3. Discovery Runner IP Diagnostics
         run: |
           echo "=== Stage 1 Discovery Runner Egress IP ==="
-          curl -s https://api.ipify.org && echo ""
+          curl -s --max-time 5 https://api.ipify.org || echo "ip-diagnostics unavailable (non-fatal)"
+          echo ""
           echo "=========================================="
 
       - name: 4. Install dependencies
@@ -155,7 +156,8 @@ jobs:
       - name: 3. Shard Egress IP Diagnostics
         run: |
           echo "=== Shard ${{ matrix.shard }}/99 Egress IP ==="
-          curl -s https://api.ipify.org && echo ""
+          curl -s --max-time 5 https://api.ipify.org || echo "ip-diagnostics unavailable (non-fatal)"
+          echo ""
           echo "=============================================="
 
       - name: 4. Install dependencies

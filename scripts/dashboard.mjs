@@ -16,6 +16,7 @@ import { promisify } from 'node:util';
 import { neon } from '@neondatabase/serverless';
 import { parsePinCandidate, formatPinterestCookie } from './cluster-intelligence.mjs';
 import { getDashboardHtml } from '../src/dashboard-ui.mjs';
+import { redactSecrets } from '../src/worker.mjs';
 import { getKeywordsPageHtml } from '../src/keywords-ui.mjs';
 import { getBoardIdeasPageHtml } from '../src/board-ideas-ui.mjs';
 import {
@@ -2444,14 +2445,14 @@ const server = http.createServer(async (req, res) => {
     res.end(JSON.stringify({ error: 'Endpoint not found' }));
 
   } catch (err) {
-    console.error('[-] Server Error:', err);
+    console.error('[-] Server Error:', redactSecrets(err.message));
     res.writeHead(500, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'Internal Server Error', message: err.message }));
+    res.end(JSON.stringify({ error: 'Internal Server Error', message: redactSecrets(err.message) }));
   }
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, '127.0.0.1', () => {
   console.log(`=============================================================`);
-  console.log(`  Pin Cluster Analyzer & Predictive Engine (V3) on http://localhost:${PORT}`);
+  console.log(`  Pin Cluster Analyzer & Predictive Engine (V3) on http://127.0.0.1:${PORT}`);
   console.log(`=============================================================`);
 });

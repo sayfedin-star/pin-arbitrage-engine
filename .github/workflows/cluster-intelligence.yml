@@ -44,7 +44,8 @@ jobs:
       - name: Check Runner Egress IP
         run: |
           echo "=== GitHub Actions Runner Egress IP (Shard ${{ matrix.shard }}/20) ==="
-          curl -s https://api.ipify.org && echo ""
+          curl -s --max-time 5 https://api.ipify.org || echo "ip-diagnostics unavailable (non-fatal)"
+          echo ""
           echo "==========================================================================="
 
       - name: Install dependencies

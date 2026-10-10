@@ -804,7 +804,7 @@ export async function pingFleetProject(hubSql, projectId) {
 /**
  * Retrieve clean database connection URL for authorized fleet administration.
  */
-export async function getFleetProjectUrl(hubSql, projectId) {
+export async function getFleetProjectUrl(hubSql, projectId, { allowUnmasked = false } = {}) {
   if (!projectId) throw new Error('project_id is required.');
   const [proj] = await hubSql`
     SELECT id, project_id, project_name, database_url
@@ -815,11 +815,13 @@ export async function getFleetProjectUrl(hubSql, projectId) {
   if (!proj) {
     throw new Error(`Project ${projectId} not found in fleet registry.`);
   }
+  const maskedUrl = proj.database_url ? proj.database_url.replace(/:([^:@]+)@/, ':••••••••@') : '';
   return {
     ok: true,
     project_id: proj.project_id,
     project_name: proj.project_name,
-    database_url: proj.database_url
+    database_url: allowUnmasked ? proj.database_url : maskedUrl,
+    database_url_masked: maskedUrl
   };
 }
 

@@ -60,7 +60,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
     .table-sticky-header th { position: sticky; top: 0; z-index: 20; }
   </style>
   <script>
-    window.__INITIAL_KEYWORD_SLUG__ = ${JSON.stringify(initialSlug || '')};
+    window.__INITIAL_KEYWORD_SLUG__ = ${JSON.stringify(String(initialSlug || '')).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029')};
   </script>
 </head>
 <body class="bg-slate-50 dark:bg-[#070b14] text-slate-900 dark:text-slate-100 min-h-screen font-sans antialiased selection:bg-emerald-500 selection:text-white"
