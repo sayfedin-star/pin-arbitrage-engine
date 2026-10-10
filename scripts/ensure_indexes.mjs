@@ -29,47 +29,47 @@ async function optimizeIndexes() {
   await sql`
     CREATE INDEX IF NOT EXISTS idx_metrics_seed_pin_analyzed 
     ON cluster_arbitrage_metrics (seed_pin_id, analyzed_at DESC);
-  `;
+  `.catch(err => console.warn('[Index Notice]', err.message));
 
   console.log('[*] 2. Indexing candidate_graph_nodes(candidate_pin_id)...');
   await sql`
     CREATE INDEX IF NOT EXISTS idx_candidates_candidate_pin 
     ON candidate_graph_nodes (candidate_pin_id);
-  `;
+  `.catch(err => console.warn('[Index Notice]', err.message));
 
   console.log('[*] 3. Indexing seed_guided_search_capsules(seed_pin_id, discovered_at DESC)...');
   await sql`
     CREATE INDEX IF NOT EXISTS idx_capsules_seed_discovered 
     ON seed_guided_search_capsules (seed_pin_id, discovered_at DESC);
-  `;
+  `.catch(err => console.warn('[Index Notice]', err.message));
 
   console.log('[*] 4. Indexing candidate_graph_nodes partial index for un-enriched nodes...');
   await sql`
     CREATE INDEX IF NOT EXISTS idx_candidates_enrichment_queue 
     ON candidate_graph_nodes (seed_pin_id) 
     WHERE (repins = 0 OR repins IS NULL) AND saves > 0;
-  `;
+  `.catch(err => console.warn('[Index Notice]', err.message));
 
   console.log('[*] 5. Indexing P4 pa_pins & metrics...');
   await sql`DROP TRIGGER IF EXISTS trg_pa_pins_monotonic_metrics ON pa_pins;`.catch(err => console.warn('[Trigger Notice]', err.message));
-  await sql`CREATE INDEX IF NOT EXISTS idx_pa_pins_saves ON pa_pins(saves DESC);`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_pa_pins_velocity ON pa_pins(velocity DESC);`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_pa_pins_account ON pa_pins(account_username);`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_pa_pins_created_at_pinterest ON pa_pins(created_at_pinterest DESC NULLS LAST);`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_pa_pins_annotations_gin ON pa_pins USING gin(annotations);`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_pa_staged_pins_status ON pa_staged_pins(status);`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_pa_pin_metrics_lookup ON pa_pin_metrics(pin_id, recorded_at DESC);`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_pa_pins_saves ON pa_pins(saves DESC);`.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`CREATE INDEX IF NOT EXISTS idx_pa_pins_velocity ON pa_pins(velocity DESC);`.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`CREATE INDEX IF NOT EXISTS idx_pa_pins_account ON pa_pins(account_username);`.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`CREATE INDEX IF NOT EXISTS idx_pa_pins_created_at_pinterest ON pa_pins(created_at_pinterest DESC NULLS LAST);`.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`CREATE INDEX IF NOT EXISTS idx_pa_pins_annotations_gin ON pa_pins USING gin(annotations);`.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`CREATE INDEX IF NOT EXISTS idx_pa_staged_pins_status ON pa_staged_pins(status);`.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`CREATE INDEX IF NOT EXISTS idx_pa_pin_metrics_lookup ON pa_pin_metrics(pin_id, recorded_at DESC);`.catch(err => console.warn('[Index Notice]', err.message));
 
   console.log('[*] 6. Indexing P2 competitor_boards & snapshots...');
-  await sql`CREATE INDEX IF NOT EXISTS idx_competitor_boards_lookup ON competitor_boards(competitor_id, pin_count DESC);`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_competitor_history_lookup ON competitor_history_snapshots(competitor_id, recorded_date DESC);`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_competitor_boards_lookup ON competitor_boards(competitor_id, pin_count DESC);`.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`CREATE INDEX IF NOT EXISTS idx_competitor_history_lookup ON competitor_history_snapshots(competitor_id, recorded_date DESC);`.catch(err => console.warn('[Index Notice]', err.message));
 
   console.log('[*] 7. Ensuring is_product and alt_text columns on competitor_pins and pa_pins...');
-  await sql`ALTER TABLE competitor_pins ADD COLUMN IF NOT EXISTS is_product BOOLEAN DEFAULT FALSE;`;
-  await sql`ALTER TABLE competitor_pins ADD COLUMN IF NOT EXISTS alt_text TEXT;`;
-  await sql`ALTER TABLE pa_pins ADD COLUMN IF NOT EXISTS alt_text TEXT;`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_competitor_pins_is_product ON competitor_pins(competitor_id, is_product) WHERE is_product = TRUE;`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_pa_pins_is_product ON pa_pins(is_product) WHERE is_product = TRUE;`;
+  await sql`ALTER TABLE competitor_pins ADD COLUMN IF NOT EXISTS is_product BOOLEAN DEFAULT FALSE;`.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`ALTER TABLE competitor_pins ADD COLUMN IF NOT EXISTS alt_text TEXT;`.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`ALTER TABLE pa_pins ADD COLUMN IF NOT EXISTS alt_text TEXT;`.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`CREATE INDEX IF NOT EXISTS idx_competitor_pins_is_product ON competitor_pins(competitor_id, is_product) WHERE is_product = TRUE;`.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`CREATE INDEX IF NOT EXISTS idx_pa_pins_is_product ON pa_pins(is_product) WHERE is_product = TRUE;`.catch(err => console.warn('[Index Notice]', err.message));
 
   console.log('[*] 8. Backfilling is_product flag for identified commercial product pins...');
   await sql`
@@ -84,7 +84,7 @@ async function optimizeIndexes() {
       destination_url ILIKE '%/item/%' OR 
       destination_url ILIKE '%gumroad.com%'
     );
-  `;
+  `.catch(err => console.warn('[Index Notice]', err.message));
   await sql`
     UPDATE pa_pins
     SET is_product = TRUE
@@ -97,7 +97,7 @@ async function optimizeIndexes() {
       link ILIKE '%/item/%' OR 
       link ILIKE '%gumroad.com%'
     );
-  `;
+  `.catch(err => console.warn('[Index Notice]', err.message));
 
   console.log('[*] 9. Ensuring enrichment_status and updated_at on competitor_pins for GHA 20-shard queue...');
   await sql`ALTER TABLE competitor_pins ADD COLUMN IF NOT EXISTS enrichment_status VARCHAR(32) DEFAULT 'pending';`.catch(err => console.warn('[Index Notice]', err.message));
