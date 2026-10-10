@@ -98,7 +98,15 @@ export function getPinDetailPageHtml(pinId = '') {
       </nav>
     </div>
 
-    <div class="flex items-center gap-3">
+    <div class="flex items-center gap-2.5">
+      <button 
+        @click="triggerLiveDeepSync()" 
+        :disabled="isSyncing"
+        class="px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white text-xs font-bold shadow-lg shadow-pink-900/20 transition-all flex items-center gap-1.5 border border-pink-500/30 disabled:opacity-50"
+      >
+        <span :class="isSyncing ? 'animate-spin' : ''">⚡</span>
+        <span x-text="isSyncing ? 'Syncing Pinterest...' : 'Live Deep Sync'"></span>
+      </button>
       <a :href="'https://www.pinterest.com/pin/' + pinId + '/'" target="_blank" rel="noopener noreferrer" class="px-3 py-1.5 rounded-lg bg-red-600/10 hover:bg-red-600/20 text-red-400 text-xs font-semibold border border-red-500/30 transition-colors flex items-center gap-1.5">
         <span>↗</span> Open on Pinterest
       </a>
@@ -276,7 +284,201 @@ export function getPinDetailPageHtml(pinId = '') {
       </div>
     </div>
 
-    <!-- 2. The 6 KPI Telemetry Cards Grid -->
+    <!-- 2. Algorithmic Intelligence Matrix & Lineage (مصفوفة الاستخبارات الخوارزمية وشجرة النسب) -->
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col gap-6 relative overflow-hidden">
+      <!-- Glow ambient background -->
+      <div class="absolute -top-24 -right-24 w-80 h-80 bg-pink-500/5 rounded-full blur-3xl pointer-events-none"></div>
+
+      <!-- Section Title & Badges Bar -->
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+        <div class="flex items-center gap-2.5">
+          <div class="w-8 h-8 rounded-lg bg-pink-500/10 border border-pink-500/30 flex items-center justify-center text-pink-400 font-bold">
+            🧬
+          </div>
+          <div>
+            <h2 class="text-sm font-bold text-white tracking-wide flex items-center gap-2">
+              Algorithmic Intelligence Matrix & Lineage
+              <span class="text-[11px] text-slate-400 font-normal hidden sm:inline">(مصفوفة الاستخبارات الخوارزمية وشجرة النسب)</span>
+            </h2>
+            <div class="text-[11px] text-slate-400 font-mono">48-Parameter Deep Forensics & Graph Provenance</div>
+          </div>
+        </div>
+
+        <!-- High-Signal Status Badges -->
+        <div class="flex items-center gap-2 flex-wrap">
+          <!-- Pin Type Badge (Repin vs Original) -->
+          <template x-if="dossier?.algorithmic_intelligence?.is_repin">
+            <span class="px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20 flex items-center gap-1.5 shadow-sm" title="Re-pinned pin circulating on secondary boards">
+              <span>🔁</span>
+              <span>Viral Repin</span>
+            </span>
+          </template>
+          <template x-if="!dossier?.algorithmic_intelligence?.is_repin">
+            <span class="px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1.5 shadow-sm" title="Original creative uploaded directly by creator">
+              <span>✨</span>
+              <span>Fresh Original Pin</span>
+            </span>
+          </template>
+
+          <!-- Arbitrage Traffic Outbound Badge -->
+          <template x-if="dossier?.algorithmic_intelligence?.is_arbitrage_active">
+            <span class="px-2.5 py-1 rounded-lg text-xs font-bold bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 flex items-center gap-1.5 shadow-sm" title="Direct Outbound Destination Active - Arbitrage Traffic Channel">
+              <span>🔗</span>
+              <span>Direct Outbound Traffic Active</span>
+            </span>
+          </template>
+          <template x-if="!dossier?.algorithmic_intelligence?.is_arbitrage_active">
+            <span class="px-2.5 py-1 rounded-lg text-xs font-bold bg-purple-500/10 text-purple-400 border border-purple-500/20 flex items-center gap-1.5 shadow-sm" title="Linkless Idea/Story Pin - No Direct Outbound Destination">
+              <span>🚫</span>
+              <span>Linkless Story Pin</span>
+            </span>
+          </template>
+
+          <!-- Google SERP Indexing Badge -->
+          <template x-if="dossier?.algorithmic_intelligence?.is_indexed_google">
+            <span class="px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1.5 shadow-sm" title="Eligible for organic Google Images SERP traffic (noindex penalty absent)">
+              <span>🔎</span>
+              <span>Google SERP Indexed</span>
+            </span>
+          </template>
+          <template x-if="!dossier?.algorithmic_intelligence?.is_indexed_google">
+            <span class="px-2.5 py-1 rounded-lg text-xs font-bold bg-rose-500/10 text-rose-400 border border-rose-500/20 flex items-center gap-1.5 shadow-sm" :title="'Google Noindex suppressed: ' + (dossier?.algorithmic_intelligence?.seo_noindex_reason || 'Unknown')">
+              <span>⛔</span>
+              <span x-text="'Noindex: ' + (dossier?.algorithmic_intelligence?.seo_noindex_reason || 'Suppressed')"></span>
+            </span>
+          </template>
+        </div>
+      </div>
+
+      <!-- Provenance Lineage Cards (شجرة النسب) -->
+      <div class="flex flex-col gap-3">
+        <div class="text-[11px] font-mono uppercase tracking-wider text-slate-400 font-bold flex items-center gap-1.5">
+          <span>🌳</span> Viral Provenance Lineage (سلسلة نسب النشر والملكية):
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <!-- Card 1: Origin Pinner (First Uploader) -->
+          <div class="p-4 rounded-xl bg-slate-950 border border-slate-800 flex flex-col justify-between gap-3">
+            <div class="flex flex-col gap-2">
+              <div class="flex items-center justify-between">
+                <span class="text-[10px] font-mono uppercase text-pink-400 font-bold flex items-center gap-1">
+                  <span>🚀</span> Stage 1: Origin Pinner
+                </span>
+                <span class="text-[10px] text-slate-500 font-mono">First Uploader</span>
+              </div>
+              <div class="flex items-center gap-2.5 mt-1">
+                <img 
+                  :src="dossier?.algorithmic_intelligence?.origin_pinner?.image_url || 'https://s.pinimg.com/images/user/default_75.png'" 
+                  class="w-9 h-9 rounded-full object-cover border border-slate-700 bg-slate-900"
+                  alt="Origin Pinner"
+                >
+                <div class="flex flex-col overflow-hidden">
+                  <div class="text-xs font-bold text-white truncate" x-text="dossier?.algorithmic_intelligence?.origin_pinner?.full_name || dossier?.algorithmic_intelligence?.origin_pinner?.username || 'Direct/Unknown'"></div>
+                  <div class="text-[11px] text-slate-400 font-mono truncate" x-text="dossier?.algorithmic_intelligence?.origin_pinner?.username ? '@' + dossier?.algorithmic_intelligence?.origin_pinner?.username : 'No upstream pinner'"></div>
+                </div>
+              </div>
+            </div>
+            <div class="flex items-center justify-between pt-2 border-t border-slate-800/80 text-[11px] font-mono">
+              <span class="text-slate-400">Followers:</span>
+              <span class="text-slate-200 font-bold" x-text="formatNumber(dossier?.algorithmic_intelligence?.origin_pinner?.follower_count || 0)"></span>
+            </div>
+          </div>
+
+          <!-- Card 2: Domain Official Account (Domain Authority) -->
+          <div class="p-4 rounded-xl bg-slate-950 border border-slate-800 flex flex-col justify-between gap-3">
+            <div class="flex flex-col gap-2">
+              <div class="flex items-center justify-between">
+                <span class="text-[10px] font-mono uppercase text-cyan-400 font-bold flex items-center gap-1">
+                  <span>🌐</span> Stage 2: Domain Account
+                </span>
+                <span class="text-[10px] text-slate-500 font-mono">Verified Host</span>
+              </div>
+              <div class="flex items-center gap-2.5 mt-1">
+                <div class="w-9 h-9 rounded-full bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-base text-cyan-400 font-bold">
+                  🏷️
+                </div>
+                <div class="flex flex-col overflow-hidden">
+                  <div class="text-xs font-bold text-white truncate" x-text="dossier?.algorithmic_intelligence?.domain_official_user?.full_name || dossier?.creative?.domain || 'Domain Verified'"></div>
+                  <div class="text-[11px] text-cyan-300 font-mono truncate" x-text="dossier?.algorithmic_intelligence?.domain_official_user?.username ? '@' + dossier?.algorithmic_intelligence?.domain_official_user?.username : dossier?.creative?.domain"></div>
+                </div>
+              </div>
+            </div>
+            <div class="flex items-center justify-between pt-2 border-t border-slate-800/80 text-[11px] font-mono">
+              <span class="text-slate-400">Domain Authority:</span>
+              <span class="text-cyan-400 font-bold" x-text="dossier?.algorithmic_intelligence?.domain_official_user?.follower_count ? formatNumber(dossier?.algorithmic_intelligence?.domain_official_user?.follower_count) + ' followers' : 'Verified Web Entity'"></span>
+            </div>
+          </div>
+
+          <!-- Card 3: Current Pinner & Curating Board -->
+          <div class="p-4 rounded-xl bg-slate-950 border border-slate-800 flex flex-col justify-between gap-3">
+            <div class="flex flex-col gap-2">
+              <div class="flex items-center justify-between">
+                <span class="text-[10px] font-mono uppercase text-emerald-400 font-bold flex items-center gap-1">
+                  <span>📁</span> Stage 3: Current Curator & Board
+                </span>
+                <span class="text-[10px] text-slate-500 font-mono">Board Container</span>
+              </div>
+              <div class="flex flex-col gap-1 mt-1">
+                <div class="text-xs font-bold text-white truncate" x-text="dossier?.pillar_1_creator_context?.board_name || 'Independent Board'"></div>
+                <div class="text-[11px] text-emerald-400 font-mono truncate" x-text="'@' + (dossier?.pillar_1_creator_context?.creator_username || 'anonymous')"></div>
+              </div>
+            </div>
+            <div class="flex items-center justify-between pt-2 border-t border-slate-800/80 text-[11px] font-mono">
+              <span class="text-slate-400">Board Pins / Activity:</span>
+              <span class="text-emerald-400 font-bold" x-text="(dossier?.algorithmic_intelligence?.board_metrics?.pin_count || 'N/A') + ' pins'"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Perceptual Hash, Dimensions & Taxonomy Sub-Grid -->
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-2">
+        <!-- 1. Perceptual Image Signature Hash -->
+        <div class="p-3.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between gap-3">
+          <div class="flex flex-col gap-0.5 overflow-hidden">
+            <div class="text-[10px] font-mono uppercase text-pink-400 font-bold flex items-center gap-1">
+              <span>🖼️</span> Perceptual Image Hash (بصمة الصورة)
+            </div>
+            <div class="text-xs font-mono text-slate-200 truncate" x-text="dossier?.algorithmic_intelligence?.image_signature || dossier?.creative?.image_signature || 'Not Captured'"></div>
+          </div>
+          <button 
+            @click="copyImageSignature()" 
+            class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-[11px] font-mono border border-slate-700 transition-colors whitespace-nowrap flex items-center gap-1"
+            title="Copy perceptual image signature to clipboard"
+          >
+            <span>📋 Copy</span>
+          </button>
+        </div>
+
+        <!-- 2. Dimensions & Aspect Ratio -->
+        <div class="p-3.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between gap-3">
+          <div class="flex flex-col gap-0.5">
+            <div class="text-[10px] font-mono uppercase text-blue-400 font-bold flex items-center gap-1">
+              <span>📐</span> Image Geometry & Dimensions
+            </div>
+            <div class="text-xs font-mono text-slate-200" x-text="dossier?.algorithmic_intelligence?.image_dimensions ? (dossier.algorithmic_intelligence.image_dimensions.width + ' × ' + dossier.algorithmic_intelligence.image_dimensions.height + ' (' + dossier.algorithmic_intelligence.image_dimensions.aspect_ratio + ' aspect)') : 'Standard 2:3 Pinterest Ratio'"></div>
+          </div>
+          <span class="px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[10px] font-mono">High-Res</span>
+        </div>
+
+        <!-- 3. Taxonomy Breadcrumbs -->
+        <div class="p-3.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between gap-3">
+          <div class="flex flex-col gap-0.5 overflow-hidden">
+            <div class="text-[10px] font-mono uppercase text-amber-400 font-bold flex items-center gap-1">
+              <span>🏷️</span> Category Breadcrumbs
+            </div>
+            <div class="flex items-center gap-1.5 flex-wrap">
+              <template x-for="cat in dossier?.algorithmic_intelligence?.category_breadcrumbs || []" :key="cat">
+                <span class="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-[10px] font-mono text-amber-300" x-text="cat"></span>
+              </template>
+              <span x-show="!dossier?.algorithmic_intelligence?.category_breadcrumbs?.length" class="text-xs font-mono text-slate-500 italic">General Category</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. The 6 KPI Telemetry Cards Grid -->
     <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
       <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between shadow-lg">
         <div class="text-[11px] font-mono text-slate-400 flex items-center justify-between">
@@ -711,6 +913,7 @@ export function getPinDetailPageHtml(pinId = '') {
         deleteModalOpen: false,
         snapshotToDelete: null,
         isDeleting: false,
+        isSyncing: false,
         viewMode: 'unified', // 'unified' | 'per_serp'
         selectedKeywordFilter: 'ALL',
         toast: {
@@ -932,6 +1135,46 @@ export function getPinDetailPageHtml(pinId = '') {
               .catch((err) => this.showToast('Clipboard error: ' + (err?.message || 'Access denied'), 'error'));
           } else {
             this.showToast('Clipboard API not available in this environment', 'error');
+          }
+        },
+
+        copyImageSignature() {
+          const sig = this.dossier?.algorithmic_intelligence?.image_signature || this.dossier?.creative?.image_signature;
+          if (!sig) {
+            this.showToast('No perceptual image signature available', 'error');
+            return;
+          }
+          if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+            navigator.clipboard.writeText(sig)
+              .then(() => this.showToast('Image signature copied to clipboard!'))
+              .catch((err) => this.showToast('Clipboard error: ' + (err?.message || 'Access denied'), 'error'));
+          } else {
+            this.showToast('Clipboard API not available in this environment', 'error');
+          }
+        },
+
+        async triggerLiveDeepSync() {
+          if (this.isSyncing) return;
+          this.isSyncing = true;
+          this.showToast('Triggering Live Pinterest Deep Sync (48 fields)...');
+          try {
+            const res = await fetch('/api/pins/' + encodeURIComponent(this.pinId) + '/sync', {
+              method: 'POST'
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+              if (data.dossier) {
+                this.dossier = data.dossier;
+              }
+              this.showToast('Live Deep Sync completed! All 48 parameters updated.');
+            } else {
+              this.showToast(data.message || 'Deep Sync error from Pinterest', 'error');
+            }
+          } catch (e) {
+            console.error('Error during deep sync:', e);
+            this.showToast('Network error during deep sync: ' + e.message, 'error');
+          } finally {
+            this.isSyncing = false;
           }
         },
 

@@ -1491,16 +1491,18 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
 
           txBatch.push(sql`
             INSERT INTO keyword_pins_snapshots (
-              keyword_id, pin_id, rank_position, title, domain, destination_url, image_url,
+              keyword_id, pin_id, rank_position, last_known_rank, displaced_date, title, domain, destination_url, image_url,
               save_count, repin_count, comment_count, daily_save_velocity, snapshot_date, is_displaced, created_at_pinterest, creation_method, metadata, created_at
             ) VALUES (
-              ${kid}, ${dp.pin_id}, NULL, ${dp.title}, ${dp.domain}, ${dp.destination_url}, ${dp.image_url},
+              ${kid}, ${dp.pin_id}, NULL, ${dp.rank_position}, (NOW() AT TIME ZONE 'UTC')::date, ${dp.title}, ${dp.domain}, ${dp.destination_url}, ${dp.image_url},
               ${dp.save_count}, ${dp.repin_count || 0}, ${dp.comment_count || 0}, 0, (NOW() AT TIME ZONE 'UTC')::date, TRUE,
               ${dp.created_at_pinterest ? dp.created_at_pinterest : null}, ${dp.creation_method || 'pinterest_platform'},
               ${JSON.stringify(dpMeta)}::jsonb, NOW()
             )
             ON CONFLICT (keyword_id, pin_id, snapshot_date) DO UPDATE SET
               is_displaced = TRUE,
+              last_known_rank = COALESCE(EXCLUDED.last_known_rank, keyword_pins_snapshots.last_known_rank),
+              displaced_date = COALESCE(EXCLUDED.displaced_date, keyword_pins_snapshots.displaced_date),
               save_count = GREATEST(keyword_pins_snapshots.save_count, EXCLUDED.save_count),
               repin_count = GREATEST(keyword_pins_snapshots.repin_count, EXCLUDED.repin_count),
               created_at_pinterest = COALESCE(EXCLUDED.created_at_pinterest, keyword_pins_snapshots.created_at_pinterest),
@@ -1655,17 +1657,43 @@ export async function getKeywordSERPComparison(sql, keywordId, knownKeyword = nu
       LIMIT 2;
     `,
     sql`
-      SELECT 
+      SELECT DISTINCT ON (pin_id)
         id, keyword_id, pin_id, title, domain, destination_url, image_url,
-        board_name, last_known_rank, displaced_date, status, current_saves, current_repins,
-        current_comments, current_shares, current_reactions,
+        COALESCE(metadata->>'board_name', '') as board_name,
+        COALESCE(last_known_rank, rank_position) as last_known_rank,
+        COALESCE(displaced_date, snapshot_date) as displaced_date,
+        'displaced_active' as status,
+        save_count as current_saves,
+        repin_count as current_repins,
+        comment_count as current_comments,
+        COALESCE((metadata->>'share_count')::int, share_count, 0) as current_shares,
+        0 as current_reactions,
         delta_saves_24h, delta_repins_24h, delta_saves_3d, delta_repins_3d,
         delta_saves_7d, delta_repins_7d, daily_save_velocity, vacuum_opportunity_score,
-        seo_alt_text, annotations, dominant_color, created_at_pinterest, creation_method, metadata, created_at
-      FROM keyword_displaced_pins
-      WHERE keyword_id = ${kid}
-      ORDER BY vacuum_opportunity_score DESC, last_known_rank ASC;
-    `.catch(() => []),
+        COALESCE(metadata->>'alt_text', '') as seo_alt_text,
+        COALESCE(metadata->'visual_annotations', '[]'::jsonb) as annotations,
+        COALESCE(metadata->>'dominant_color', '#888888') as dominant_color,
+        created_at_pinterest, creation_method, metadata, created_at
+      FROM keyword_pins_snapshots
+      WHERE keyword_id = ${kid} AND is_displaced = TRUE
+      ORDER BY pin_id, snapshot_date DESC, created_at DESC;
+    `.then(rows => {
+      if (rows && rows.length > 0) {
+        return rows.sort((a, b) => (Number(b.vacuum_opportunity_score || 0) - Number(a.vacuum_opportunity_score || 0)) || (Number(a.last_known_rank || 999) - Number(b.last_known_rank || 999)));
+      }
+      return sql`
+        SELECT 
+          id, keyword_id, pin_id, title, domain, destination_url, image_url,
+          board_name, last_known_rank, displaced_date, status, current_saves, current_repins,
+          current_comments, current_shares, current_reactions,
+          delta_saves_24h, delta_repins_24h, delta_saves_3d, delta_repins_3d,
+          delta_saves_7d, delta_repins_7d, daily_save_velocity, vacuum_opportunity_score,
+          seo_alt_text, annotations, dominant_color, created_at_pinterest, creation_method, metadata, created_at
+        FROM keyword_displaced_pins
+        WHERE keyword_id = ${kid}
+        ORDER BY vacuum_opportunity_score DESC, last_known_rank ASC;
+      `.catch(() => []);
+    }).catch(() => []),
     getKeywordGuides(sql, kid).catch(() => [])
   ]);
 
@@ -2182,48 +2210,94 @@ export async function getKeywordDisplacedPins(sql, keywordId, options = {}) {
   const off = Math.max(0, Number(offset) || 0);
 
   let rows = [];
-  if (status && status !== 'ALL') {
-    rows = await sql`
-      SELECT 
-        dp.*,
-        COALESCE(NULLIF(dp.current_saves, 0), snap.save_count, 0) AS save_count,
-        COALESCE(NULLIF(dp.current_repins, 0), snap.repin_count, 0) AS repin_count,
-        COALESCE(NULLIF(dp.current_comments, 0), snap.comment_count, 0) AS comment_count,
-        COALESCE(NULLIF(dp.current_shares, 0), snap.share_count, 0) AS share_count,
-        COALESCE(NULLIF(dp.daily_save_velocity, 0), snap.daily_save_velocity, 0) AS calculated_velocity
-      FROM keyword_displaced_pins dp
-      LEFT JOIN LATERAL (
-        SELECT save_count, repin_count, comment_count, share_count, daily_save_velocity
-        FROM keyword_pins_snapshots
-        WHERE pin_id = dp.pin_id AND (save_count > 0 OR repin_count > 0)
-        ORDER BY snapshot_date DESC, created_at DESC
-        LIMIT 1
-      ) snap ON true
-      WHERE dp.keyword_id = ${kid} AND dp.status = ${status}
-      ORDER BY dp.vacuum_opportunity_score DESC, dp.last_known_rank ASC
-      LIMIT ${lim} OFFSET ${off};
-    `;
+  let totalCount = 0;
+
+  // Primary unified source: keyword_pins_snapshots (WHERE is_displaced = TRUE)
+  let rawSnapshotRows = await sql`
+    SELECT DISTINCT ON (pin_id)
+      id, keyword_id, pin_id, title, domain, destination_url, image_url,
+      COALESCE(metadata->>'board_name', '') as board_name,
+      COALESCE(last_known_rank, rank_position) as last_known_rank,
+      COALESCE(displaced_date, snapshot_date) as displaced_date,
+      'displaced_active' as status,
+      save_count as current_saves,
+      save_count,
+      repin_count as current_repins,
+      repin_count,
+      comment_count as current_comments,
+      comment_count,
+      COALESCE((metadata->>'share_count')::int, share_count, 0) as current_shares,
+      COALESCE((metadata->>'share_count')::int, share_count, 0) as share_count,
+      0 as current_reactions,
+      delta_saves_24h, delta_repins_24h, delta_saves_3d, delta_repins_3d,
+      delta_saves_7d, delta_repins_7d, daily_save_velocity,
+      daily_save_velocity as calculated_velocity,
+      vacuum_opportunity_score,
+      COALESCE(metadata->>'alt_text', '') as seo_alt_text,
+      COALESCE(metadata->'visual_annotations', '[]'::jsonb) as annotations,
+      COALESCE(metadata->>'dominant_color', '#888888') as dominant_color,
+      created_at_pinterest, creation_method, metadata, created_at
+    FROM keyword_pins_snapshots
+    WHERE keyword_id = ${kid} AND is_displaced = TRUE
+    ORDER BY pin_id, snapshot_date DESC, created_at DESC;
+  `.catch(() => []);
+
+  if (rawSnapshotRows && rawSnapshotRows.length > 0) {
+    if (status && status !== 'ALL') {
+      rawSnapshotRows = rawSnapshotRows.filter(r => r.status === status);
+    }
+    rawSnapshotRows.sort((a, b) => (Number(b.vacuum_opportunity_score || 0) - Number(a.vacuum_opportunity_score || 0)) || (Number(a.last_known_rank || 999) - Number(b.last_known_rank || 999)));
+    totalCount = rawSnapshotRows.length;
+    rows = rawSnapshotRows.slice(off, off + lim);
   } else {
-    rows = await sql`
-      SELECT 
-        dp.*,
-        COALESCE(NULLIF(dp.current_saves, 0), snap.save_count, 0) AS save_count,
-        COALESCE(NULLIF(dp.current_repins, 0), snap.repin_count, 0) AS repin_count,
-        COALESCE(NULLIF(dp.current_comments, 0), snap.comment_count, 0) AS comment_count,
-        COALESCE(NULLIF(dp.current_shares, 0), snap.share_count, 0) AS share_count,
-        COALESCE(NULLIF(dp.daily_save_velocity, 0), snap.daily_save_velocity, 0) AS calculated_velocity
-      FROM keyword_displaced_pins dp
-      LEFT JOIN LATERAL (
-        SELECT save_count, repin_count, comment_count, share_count, daily_save_velocity
-        FROM keyword_pins_snapshots
-        WHERE pin_id = dp.pin_id AND (save_count > 0 OR repin_count > 0)
-        ORDER BY snapshot_date DESC, created_at DESC
-        LIMIT 1
-      ) snap ON true
-      WHERE dp.keyword_id = ${kid}
-      ORDER BY dp.vacuum_opportunity_score DESC, dp.last_known_rank ASC
-      LIMIT ${lim} OFFSET ${off};
-    `;
+    // Graceful fallback to keyword_displaced_pins if snapshots is empty
+    if (status && status !== 'ALL') {
+      rows = await sql`
+        SELECT 
+          dp.*,
+          COALESCE(NULLIF(dp.current_saves, 0), snap.save_count, 0) AS save_count,
+          COALESCE(NULLIF(dp.current_repins, 0), snap.repin_count, 0) AS repin_count,
+          COALESCE(NULLIF(dp.current_comments, 0), snap.comment_count, 0) AS comment_count,
+          COALESCE(NULLIF(dp.current_shares, 0), snap.share_count, 0) AS share_count,
+          COALESCE(NULLIF(dp.daily_save_velocity, 0), snap.daily_save_velocity, 0) AS calculated_velocity
+        FROM keyword_displaced_pins dp
+        LEFT JOIN LATERAL (
+          SELECT save_count, repin_count, comment_count, share_count, daily_save_velocity
+          FROM keyword_pins_snapshots
+          WHERE pin_id = dp.pin_id AND (save_count > 0 OR repin_count > 0)
+          ORDER BY snapshot_date DESC, created_at DESC
+          LIMIT 1
+        ) snap ON true
+        WHERE dp.keyword_id = ${kid} AND dp.status = ${status}
+        ORDER BY dp.vacuum_opportunity_score DESC, dp.last_known_rank ASC
+        LIMIT ${lim} OFFSET ${off};
+      `.catch(() => []);
+    } else {
+      rows = await sql`
+        SELECT 
+          dp.*,
+          COALESCE(NULLIF(dp.current_saves, 0), snap.save_count, 0) AS save_count,
+          COALESCE(NULLIF(dp.current_repins, 0), snap.repin_count, 0) AS repin_count,
+          COALESCE(NULLIF(dp.current_comments, 0), snap.comment_count, 0) AS comment_count,
+          COALESCE(NULLIF(dp.current_shares, 0), snap.share_count, 0) AS share_count,
+          COALESCE(NULLIF(dp.daily_save_velocity, 0), snap.daily_save_velocity, 0) AS calculated_velocity
+        FROM keyword_displaced_pins dp
+        LEFT JOIN LATERAL (
+          SELECT save_count, repin_count, comment_count, share_count, daily_save_velocity
+          FROM keyword_pins_snapshots
+          WHERE pin_id = dp.pin_id AND (save_count > 0 OR repin_count > 0)
+          ORDER BY snapshot_date DESC, created_at DESC
+          LIMIT 1
+        ) snap ON true
+        WHERE dp.keyword_id = ${kid}
+        ORDER BY dp.vacuum_opportunity_score DESC, dp.last_known_rank ASC
+        LIMIT ${lim} OFFSET ${off};
+      `.catch(() => []);
+    }
+    const [cntRow] = await sql`
+      SELECT COUNT(*)::int AS total FROM keyword_displaced_pins WHERE keyword_id = ${kid};
+    `.catch(() => []);
+    totalCount = cntRow?.total || rows.length;
   }
 
   // Calculate live deltas and vacuum opportunity score for each pin
@@ -2265,16 +2339,10 @@ export async function getKeywordDisplacedPins(sql, keywordId, options = {}) {
     }
   }
 
-  const [totalCountRow] = await sql`
-    SELECT COUNT(*)::int AS total
-    FROM keyword_displaced_pins
-    WHERE keyword_id = ${kid};
-  `;
-
   return {
     success: true,
     keyword_id: kid,
-    total: totalCountRow?.total || rows.length,
+    total: totalCount || rows.length,
     pins: rows,
     displaced_pins: rows
   };

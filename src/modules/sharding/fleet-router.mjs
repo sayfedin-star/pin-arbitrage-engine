@@ -545,24 +545,23 @@ export async function fetchUniversalPinDossier({ hubSql, pinId }) {
     }
   }
 
-  // Historical snapshot recovery for alt_text, description, or further annotations
+  // Historical snapshot recovery for rich algorithmic metadata, alt_text, description, or further annotations
   let hubHistoricalSnap = null;
-  if (!masterRecord || !masterRecord.alt_text || unionSet.size === 0) {
-    const snapRows = await hubSql`
-      SELECT 
-        pin_id, title, domain, destination_url, image_url,
-        save_count, repin_count, daily_save_velocity, metadata
-      FROM keyword_pins_snapshots
-      WHERE pin_id = ${cleanPinId}
-      ORDER BY save_count DESC, created_at DESC
-      LIMIT 10;
-    `.catch(() => []);
-    if (snapRows && snapRows.length > 0) {
-      hubHistoricalSnap = snapRows[0];
-      for (const sRow of snapRows) {
-        for (const tag of normalizeVisualAnnotations(sRow.metadata?.visual_annotations)) {
-          if (tag && typeof tag === 'string' && tag.trim()) unionSet.add(tag.trim());
-        }
+  const snapRows = await hubSql`
+    SELECT 
+      pin_id, title, domain, destination_url, image_url,
+      save_count, repin_count, comment_count, daily_save_velocity,
+      created_at_pinterest, creation_method, metadata, created_at
+    FROM keyword_pins_snapshots
+    WHERE pin_id = ${cleanPinId}
+    ORDER BY (metadata IS NOT NULL) DESC, save_count DESC, created_at DESC
+    LIMIT 10;
+  `.catch(() => []);
+  if (snapRows && snapRows.length > 0) {
+    hubHistoricalSnap = snapRows[0];
+    for (const sRow of snapRows) {
+      for (const tag of normalizeVisualAnnotations(sRow.metadata?.visual_annotations)) {
+        if (tag && typeof tag === 'string' && tag.trim()) unionSet.add(tag.trim());
       }
     }
   }
@@ -826,6 +825,28 @@ export async function fetchUniversalPinDossier({ hubSql, pinId }) {
   const creatorUsername = masterRecord?.creator_username || '';
   const boardName = masterRecord?.board_name || '';
   const boardSlug = masterRecord?.board_slug || boardName.toLowerCase().replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-');
+  const snapMeta = hubHistoricalSnap?.metadata || {};
+
+  const algorithmicIntelligence = {
+    is_repin: Boolean(snapMeta.is_repin ?? false),
+    origin_pinner: snapMeta.origin_pinner || null,
+    domain_official_user: snapMeta.domain_official_user || null,
+    creator_is_verified_merchant: Boolean(snapMeta.creator_is_verified_merchant ?? false),
+    image_signature: snapMeta.image_signature || '',
+    seo_noindex_reason: snapMeta.seo_noindex_reason || null,
+    is_indexed_google: !snapMeta.seo_noindex_reason,
+    is_go_linkless: Boolean(snapMeta.is_go_linkless ?? false),
+    is_arbitrage_active: !Boolean(snapMeta.is_go_linkless),
+    category_breadcrumbs: Array.isArray(snapMeta.category_breadcrumbs) ? snapMeta.category_breadcrumbs : [],
+    board_metrics: {
+      pin_count: Number(snapMeta.board_pin_count || 0),
+      order_modified_at: snapMeta.board_order_modified_at || null,
+      board_url: snapMeta.board_url || null
+    },
+    image_dimensions: snapMeta.image_dimensions || null,
+    creation_method: snapMeta.creation_method || snapMeta.method || hubHistoricalSnap?.creation_method || 'pinterest_platform',
+    share_count: Number(snapMeta.share_count || 0)
+  };
 
   return {
     success: true,
@@ -840,10 +861,12 @@ export async function fetchUniversalPinDossier({ hubSql, pinId }) {
       image_url: masterRecord?.image_url || '',
       dominant_color: masterRecord?.dominant_color || '#888888',
       visual_annotations: finalVisualAnnotations,
-      created_at_pinterest: masterRecord?.created_at_pinterest || null,
+      created_at_pinterest: masterRecord?.created_at_pinterest || hubHistoricalSnap?.created_at_pinterest || snapMeta.created_at_pinterest || snapMeta.created_at || null,
+      image_signature: snapMeta.image_signature || '',
       first_discovered_pillar: masterRecord?.first_discovered_pillar || 'keyword',
       is_deleted: Boolean(masterRecord?.is_deleted || hubHistoricalSnap?.metadata?.is_deleted || (hubHistoricalSnap?.metadata?.status === 'archived_404'))
     },
+    algorithmic_intelligence: algorithmicIntelligence,
     pillar_1_creator_context: {
       creator_username: creatorUsername,
       creator_url: creatorUsername ? `https://www.pinterest.com/${creatorUsername}/` : null,

@@ -18,6 +18,7 @@ import {
   getPinShardId,
   resolveShardConnection
 } from './modules/sharding/fleet-router.mjs';
+import { fetchPinFromPinterest } from '../scripts/lib/pinterest.mjs';
 
 // Reserved Keyword Slugs (Defends against route swallowing on /keywords/:slug)
 export const RESERVED_KEYWORD_SLUGS = new Set([
@@ -2546,7 +2547,166 @@ export default {
           return jsonResponse({ success: true, deleted_snapshot_id: snapshotId, pin_id: pinId });
         }
 
-        // 2. GET /api/pins/:pin_id (Universal 4-Pillar Dossier via fleet-router)
+        // 2. POST /api/pins/:pin_id/sync (Live Pinterest Deep Sync with 48 Algorithmic Fields)
+        if (parts[1] === 'sync') {
+          if (method !== 'POST') {
+            return methodNotAllowedResponse('POST, OPTIONS');
+          }
+          if (!pinId || !/^\d{10,30}$/.test(pinId)) {
+            return jsonResponse({
+              success: false,
+              error: 'INVALID_PIN_ID',
+              message: 'Pin ID must be a valid numeric Snowflake identifier (10-30 digits)'
+            }, 400);
+          }
+          try {
+            const pinResult = await fetchPinFromPinterest(pinId);
+            if (!pinResult?.ok || !pinResult.pin) {
+              return jsonResponse({
+                success: false,
+                error: 'SCRAPE_FAILED',
+                message: pinResult?.error || 'Failed to fetch live telemetry from Pinterest. Pin may be private or rate limited.',
+                pin_id: pinId
+              }, 502);
+            }
+            const pin = pinResult.pin;
+            const shardId = getPinShardId(pinId, 99);
+            const shardSql = await resolveShardConnection({ hubSql: sql, shardId }).catch(() => targetSql);
+
+            const metaToStore = {
+              alt_text: pin.alt_text || pin.seo_title || '',
+              description: pin.description || '',
+              board_name: pin.board_name || '',
+              creation_method: pin.creation_method || pin.method || 'pinterest_platform',
+              created_at_pinterest: pin.created_at_pinterest || pin.created_at || '',
+              is_repin: Boolean(pin.is_repin),
+              origin_pinner: pin.origin_pinner || null,
+              domain_official_user: pin.domain_official_user || null,
+              creator_is_verified_merchant: Boolean(pin.creator_is_verified_merchant),
+              board_pin_count: Number(pin.board_pin_count || 0),
+              board_order_modified_at: pin.board_order_modified_at || null,
+              board_url: pin.board_url || null,
+              image_signature: pin.image_signature || '',
+              seo_noindex_reason: pin.seo_noindex_reason || null,
+              is_go_linkless: Boolean(pin.is_go_linkless),
+              utm_link: pin.utm_link || '',
+              tracked_link: pin.tracked_link || '',
+              category_breadcrumbs: pin.category_breadcrumbs || [],
+              top_interest_id: pin.top_interest_id || null,
+              unauth_on_page_title: pin.unauth_on_page_title || '',
+              unauth_on_page_description: pin.unauth_on_page_description || '',
+              image_dimensions: pin.image_dimensions || null,
+              share_count: Number(pin.share_count || 0),
+              dominant_color: pin.dominant_color || '#888888',
+              visual_annotations: pin.annotations?.map(a => a.name) || []
+            };
+
+            // A. Master pin record on target shard
+            await shardSql`
+              INSERT INTO universal_master_pins (
+                pin_id, creator_username, board_name, title, domain, destination_url,
+                image_url, description, alt_text, dominant_color, visual_annotations,
+                first_discovered_pillar, first_discovered_at, updated_at
+              ) VALUES (
+                ${pinId},
+                ${pin.creator_username || ''},
+                ${pin.board_name || ''},
+                ${pin.title || ''},
+                ${pin.domain || ''},
+                ${pin.link || ''},
+                ${pin.image_url || ''},
+                ${pin.description || ''},
+                ${pin.alt_text || pin.seo_title || ''},
+                ${pin.dominant_color || '#888888'},
+                ${JSON.stringify(pin.annotations?.map(a => a.name) || [])}::jsonb,
+                'live_sync',
+                NOW(),
+                NOW()
+              )
+              ON CONFLICT (pin_id) DO UPDATE SET
+                creator_username = COALESCE(NULLIF(EXCLUDED.creator_username, ''), universal_master_pins.creator_username),
+                board_name = COALESCE(NULLIF(EXCLUDED.board_name, ''), universal_master_pins.board_name),
+                title = COALESCE(NULLIF(EXCLUDED.title, ''), universal_master_pins.title),
+                domain = COALESCE(NULLIF(EXCLUDED.domain, ''), universal_master_pins.domain),
+                destination_url = COALESCE(NULLIF(EXCLUDED.destination_url, ''), universal_master_pins.destination_url),
+                image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), universal_master_pins.image_url),
+                description = COALESCE(NULLIF(EXCLUDED.description, ''), universal_master_pins.description),
+                alt_text = COALESCE(NULLIF(EXCLUDED.alt_text, ''), universal_master_pins.alt_text),
+                dominant_color = COALESCE(NULLIF(EXCLUDED.dominant_color, ''), universal_master_pins.dominant_color),
+                visual_annotations = EXCLUDED.visual_annotations,
+                updated_at = NOW();
+            `.catch(() => {});
+
+            // B. Hub keyword_pins_snapshots
+            const updateResult = await sql`
+              UPDATE keyword_pins_snapshots SET
+                save_count = GREATEST(save_count, ${Number(pin.saves || 0)}),
+                repin_count = GREATEST(repin_count, ${Number(pin.repins || 0)}),
+                comment_count = GREATEST(comment_count, ${Number(pin.comments || 0)}),
+                share_count = GREATEST(COALESCE(share_count, 0), ${Number(pin.share_count || 0)}),
+                created_at_pinterest = CASE WHEN ${pin.created_at_pinterest}::timestamptz IS NOT NULL THEN ${pin.created_at_pinterest}::timestamptz ELSE created_at_pinterest END,
+                creation_method = CASE WHEN ${pin.creation_method}::text <> '' THEN ${pin.creation_method}::text ELSE creation_method END,
+                metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify(metaToStore)}::jsonb
+              WHERE pin_id = ${pinId}
+              RETURNING id;
+            `.catch(() => []);
+
+            if (!updateResult || updateResult.length === 0) {
+              const [kwRow] = await sql`SELECT keyword_id FROM keyword_serp_current WHERE pin_id = ${pinId} LIMIT 1;`.catch(() => []);
+              const targetKid = kwRow?.keyword_id || 1;
+              await sql`
+                INSERT INTO keyword_pins_snapshots (
+                  keyword_id, pin_id, rank_position, title, domain, destination_url, image_url,
+                  save_count, repin_count, comment_count, share_count, daily_save_velocity,
+                  snapshot_date, is_displaced, created_at_pinterest, creation_method, metadata, created_at
+                ) VALUES (
+                  ${targetKid}, ${pinId}, NULL, ${pin.title || ''}, ${pin.domain || ''}, ${pin.link || ''}, ${pin.image_url || ''},
+                  ${Number(pin.saves || 0)}, ${Number(pin.repins || 0)}, ${Number(pin.comments || 0)}, ${Number(pin.share_count || 0)}, 0,
+                  (NOW() AT TIME ZONE 'UTC')::date, FALSE,
+                  ${pin.created_at_pinterest ? pin.created_at_pinterest : null}, ${pin.creation_method || 'pinterest_platform'},
+                  ${JSON.stringify(metaToStore)}::jsonb, NOW()
+                )
+                ON CONFLICT (keyword_id, pin_id, snapshot_date) DO UPDATE SET
+                  save_count = GREATEST(keyword_pins_snapshots.save_count, EXCLUDED.save_count),
+                  repin_count = GREATEST(keyword_pins_snapshots.repin_count, EXCLUDED.repin_count),
+                  metadata = COALESCE(keyword_pins_snapshots.metadata, '{}'::jsonb) || EXCLUDED.metadata;
+              `.catch(() => {});
+            }
+
+            // C. Shard daily snapshot record
+            await shardSql`
+              INSERT INTO pins_daily_snapshots (
+                pin_id, snapshot_date, rank_position, save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity, created_at
+              ) VALUES (
+                ${pinId}, (NOW() AT TIME ZONE 'UTC')::date, NULL,
+                ${Number(pin.saves || 0)}, ${Number(pin.repins || 0)}, ${Number(pin.comments || 0)}, ${Number(pin.share_count || 0)}, 0, 0, NOW()
+              )
+              ON CONFLICT (pin_id, snapshot_date) DO UPDATE SET
+                save_count = GREATEST(pins_daily_snapshots.save_count, EXCLUDED.save_count),
+                repin_count = GREATEST(pins_daily_snapshots.repin_count, EXCLUDED.repin_count);
+            `.catch(() => {});
+
+            // D. Refreshed dossier
+            const refreshedDossier = await fetchUniversalPinDossier({ hubSql: sql, pinId });
+
+            return jsonResponse({
+              success: true,
+              synced: true,
+              pin_id: pinId,
+              pin,
+              dossier: refreshedDossier
+            }, 200, 0);
+          } catch (err) {
+            return jsonResponse({
+              success: false,
+              error: 'SYNC_ERROR',
+              message: redactSecrets(err.message),
+              pin_id: pinId
+            }, 500);
+          }
+        }
+
+        // 3. GET /api/pins/:pin_id (Universal 4-Pillar Dossier via fleet-router)
         if (parts.length === 1) {
           if (method !== 'GET') {
             return methodNotAllowedResponse('GET, OPTIONS');

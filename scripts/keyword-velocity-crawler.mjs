@@ -191,7 +191,7 @@ async function inspectAndSyncPin(pin, kw) {
   `;
 
   // 3. Cascade Update on Central Hub keyword_pins_snapshots
-  // Strictly anchored to invariant UTC calendar date: (NOW() AT TIME ZONE 'UTC')::date
+  // Strictly anchored to invariant UTC calendar date or displaced vault record
   await sql`
     UPDATE keyword_pins_snapshots
     SET
@@ -199,6 +199,12 @@ async function inspectAndSyncPin(pin, kw) {
       repin_count = GREATEST(repin_count, ${authenticRepins}::int),
       comment_count = GREATEST(comment_count, ${authenticComments}::int),
       share_count = GREATEST(COALESCE(share_count, 0), ${authenticShares}::int),
+      vacuum_opportunity_score = CASE 
+        WHEN COALESCE(last_known_rank, rank_position, 100) <= 5 THEN 85
+        WHEN COALESCE(last_known_rank, rank_position, 100) <= 15 THEN 75
+        WHEN COALESCE(last_known_rank, rank_position, 100) <= 50 THEN 60
+        ELSE 45
+      END,
       created_at_pinterest = CASE WHEN ${createdAtPinterest}::timestamptz IS NOT NULL THEN ${createdAtPinterest}::timestamptz ELSE created_at_pinterest END,
       creation_method = CASE WHEN ${method}::text <> '' THEN ${method}::text ELSE creation_method END,
       metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
@@ -218,7 +224,8 @@ async function inspectAndSyncPin(pin, kw) {
           ELSE COALESCE(metadata->'visual_annotations', '[]'::jsonb) 
         END
       )
-    WHERE pin_id = ${pin.pin_id} AND keyword_id = ${kw.id} AND snapshot_date = (NOW() AT TIME ZONE 'UTC')::date;
+    WHERE pin_id = ${pin.pin_id} AND keyword_id = ${kw.id}
+      AND (snapshot_date = (NOW() AT TIME ZONE 'UTC')::date OR is_displaced = TRUE);
   `;
 
   return {
