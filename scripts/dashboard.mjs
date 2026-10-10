@@ -107,6 +107,15 @@ if (!DATABASE_URL) {
 const sql = neon(DATABASE_URL);
 const PORT = Number(process.env.PORT || 3456);
 
+const HTML_SECURITY_HEADERS = {
+  'Content-Type': 'text/html; charset=utf-8',
+  'Cache-Control': 'no-cache',
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+  'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://unpkg.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https:; frame-ancestors 'none';"
+};
+
 // Culinary Color Name Mapper
 export function getCulinaryColorName(hex) {
   if (!hex || typeof hex !== 'string') return 'Culinary Accent';
@@ -2408,8 +2417,7 @@ const server = http.createServer(async (req, res) => {
       const slug = pathname.startsWith('/keywords/') ? decodeURIComponent(pathname.slice('/keywords/'.length)) : '';
       const html = getKeywordsPageHtml(slug);
       res.writeHead(200, {
-        'Content-Type': 'text/html; charset=utf-8',
-        'Cache-Control': 'no-cache',
+        ...HTML_SECURITY_HEADERS,
         'Content-Length': Buffer.byteLength(html)
       });
       if (method === 'HEAD') return res.end();
@@ -2420,8 +2428,7 @@ const server = http.createServer(async (req, res) => {
     if ((method === 'GET' || method === 'HEAD') && pathname === '/board-ideas') {
       const html = getBoardIdeasPageHtml();
       res.writeHead(200, {
-        'Content-Type': 'text/html; charset=utf-8',
-        'Cache-Control': 'no-cache',
+        ...HTML_SECURITY_HEADERS,
         'Content-Length': Buffer.byteLength(html)
       });
       if (method === 'HEAD') return res.end();
@@ -2432,8 +2439,7 @@ const server = http.createServer(async (req, res) => {
     if ((method === 'GET' || method === 'HEAD') && !pathname.startsWith('/api/')) {
       const html = getDashboardHtml();
       res.writeHead(200, {
-        'Content-Type': 'text/html; charset=utf-8',
-        'Cache-Control': 'no-cache',
+        ...HTML_SECURITY_HEADERS,
         'Content-Length': Buffer.byteLength(html)
       });
       if (method === 'HEAD') return res.end();

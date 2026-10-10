@@ -30,8 +30,8 @@ export function getDashboardHtml() {
       }
     }
   </script>
-  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
-  <script src="https://unpkg.com/lucide@latest"></script>
+  <script defer src="https://unpkg.com/alpinejs@3.14.8/dist/cdn.min.js"></script>
+  <script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.js"></script>
   <style>
     [x-cloak] { display: none !important; }
     ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -1157,7 +1157,7 @@ export function getDashboardHtml() {
                 <!-- Destination URL / Domain -->
                 <div class="flex items-center justify-between text-[11px]">
                   <template x-if="p.destination_url">
-                    <a :href="p.destination_url" target="_blank" rel="noopener noreferrer" class="text-sky-500 hover:underline flex items-center gap-1 truncate max-w-[180px]" :title="p.destination_url">
+                    <a :href="safeUrl(p.destination_url)" target="_blank" rel="noopener noreferrer" class="text-sky-500 hover:underline flex items-center gap-1 truncate max-w-[180px]" :title="p.destination_url">
                       <i data-lucide="link" class="w-3 h-3 shrink-0"></i>
                       <span class="truncate" x-text="p.link_domain || p.domain || 'Destination'"></span>
                     </a>
@@ -4963,7 +4963,7 @@ export function getDashboardHtml() {
                         <div class="flex items-center gap-2 mt-1 font-mono text-[10.5px] font-normal">
                           <span class="text-slate-400" x-text="'ID: ' + p.pin_id"></span>
                           <template x-if="p.destination_url">
-                            <a :href="p.destination_url" target="_blank" class="text-sky-500 hover:underline flex items-center gap-1 truncate max-w-[200px]" :title="p.destination_url">
+                            <a :href="safeUrl(p.destination_url)" target="_blank" rel="noopener noreferrer" class="text-sky-500 hover:underline flex items-center gap-1 truncate max-w-[200px]" :title="p.destination_url">
                               <i data-lucide="link" class="w-3 h-3 shrink-0"></i>
                               <span x-text="p.link_domain || 'Destination'"></span>
                             </a>
@@ -5490,7 +5490,7 @@ export function getDashboardHtml() {
                         <td class="py-3 px-3 text-[11px] text-slate-400 font-medium" x-text="item.last_pin_date ? item.last_pin_date.slice(0, 10) : '—'"></td>
                         <!-- Open Link Button -->
                         <td class="py-3 px-3 text-center">
-                          <a :href="item.sample_url" target="_blank" rel="noopener noreferrer" class="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-emerald-500 transition" title="Open Article in New Tab">
+                          <a :href="safeUrl(item.sample_url)" target="_blank" rel="noopener noreferrer" class="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-emerald-500 transition" title="Open Article in New Tab">
                             <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
                           </a>
                         </td>
@@ -7533,7 +7533,7 @@ export function getDashboardHtml() {
                         'bg-slate-500/10 text-slate-500 border border-slate-500/20': run.conclusion === 'cancelled'
                       }"
                       x-text="run.conclusion || run.status"></span>
-                <a :href="run.url" target="_blank" class="p-1 text-slate-400 hover:text-purple-500" title="View run log on GitHub Actions">
+                <a :href="safeUrl(run.url)" target="_blank" rel="noopener noreferrer" class="p-1 text-slate-400 hover:text-purple-500" title="View run log on GitHub Actions">
                   <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
                 </a>
               </div>
@@ -10299,20 +10299,21 @@ export function getDashboardHtml() {
         },
 
         exportCompetitorsCsv() {
-          const rows = [
-            ['Profile', 'Monthly Reach', 'Profile Views', 'Total Pins', 'Boards', 'Activity']
+          const headers = ['Profile', 'Monthly Reach', 'Profile Views', 'Total Pins', 'Boards', 'Activity'];
+          const lines = [
+            headers.map(h => this.sanitizeCsvCell(h)).join(',')
           ];
           for (const c of this.filteredCompetitors) {
-            rows.push([
-              '@' + c.username,
-              c.monthly_reach,
-              c.profile_views,
-              c.total_pins,
-              c.total_boards,
-              c.activity_status || '1d ago'
-            ]);
+            lines.push([
+              this.sanitizeCsvCell('@' + (c.username || '')),
+              this.sanitizeCsvCell(c.monthly_reach != null ? c.monthly_reach : 0),
+              this.sanitizeCsvCell(c.profile_views != null ? c.profile_views : 0),
+              this.sanitizeCsvCell(c.total_pins != null ? c.total_pins : 0),
+              this.sanitizeCsvCell(c.total_boards != null ? c.total_boards : 0),
+              this.sanitizeCsvCell(c.activity_status || '1d ago')
+            ].join(','));
           }
-          const blob = new Blob([rows.map(e => e.join(',')).join(String.fromCharCode(10))], { type: 'text/csv;charset=utf-8;' });
+          const blob = new Blob([lines.join(String.fromCharCode(10))], { type: 'text/csv;charset=utf-8;' });
           const url = URL.createObjectURL(blob);
           const link = document.createElement('a');
           link.setAttribute('href', url);
@@ -12161,7 +12162,10 @@ export function getDashboardHtml() {
             c.board_diversity_count || 0,
             c.created_at || ''
           ]);
-          const csvContent = [headers.join(','), ...rows.map(r => r.map(val => '"' + String(val).replace(/"/g, '""') + '"').join(','))].join(String.fromCharCode(10));
+          const csvContent = [
+            headers.map(h => this.sanitizeCsvCell(h)).join(','),
+            ...rows.map(r => r.map(val => this.sanitizeCsvCell(val)).join(','))
+          ].join(String.fromCharCode(10));
           const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
           const url = URL.createObjectURL(blob);
           const link = document.createElement('a');
@@ -12595,16 +12599,16 @@ export function getDashboardHtml() {
           const selected = this.seeds.filter(s => this.selectedSeedIds.includes(s.pin_id));
           if (selected.length === 0) return;
           const headers = ['pin_id', 'label', 'is_competitor', 'total_candidates', 'total_capsules', 'commercial_gap_ratio', 'last_crawled_at'];
-          const rows = [headers.join(',')];
+          const rows = [headers.map(h => this.sanitizeCsvCell(h)).join(',')];
           for (const s of selected) {
             rows.push([
-              s.pin_id,
-              '"' + (s.label || '').replace(/"/g, '""') + '"',
-              s.is_competitor,
-              s.total_candidates || 0,
-              s.total_capsules || 0,
-              s.commercial_gap_ratio || 100,
-              s.last_crawled_at || ''
+              this.sanitizeCsvCell(s.pin_id),
+              this.sanitizeCsvCell(s.label || ''),
+              this.sanitizeCsvCell(s.is_competitor),
+              this.sanitizeCsvCell(s.total_candidates || 0),
+              this.sanitizeCsvCell(s.total_capsules || 0),
+              this.sanitizeCsvCell(s.commercial_gap_ratio != null ? s.commercial_gap_ratio : 100),
+              this.sanitizeCsvCell(s.last_crawled_at || '')
             ].join(','));
           }
           const blob = new Blob([rows.join(String.fromCharCode(10))], { type: 'text/csv;charset=utf-8;' });
@@ -12656,6 +12660,22 @@ export function getDashboardHtml() {
           this.openDeleteModal({ pin_id: pinId, label: label });
         },
 
+        safeUrl(url) {
+          if (!url) return '#';
+          const s = String(url).trim();
+          if (/^https?:\\/\\//i.test(s) || s.startsWith('/')) return s;
+          return '#';
+        },
+
+        sanitizeCsvCell(val) {
+          let str = String(val == null ? '' : val);
+          const code = str.charCodeAt(0);
+          if (code === 61 || code === 43 || code === 45 || code === 64 || code === 9 || code === 10 || code === 13) {
+            str = "'" + str;
+          }
+          return '"' + str.replace(/"/g, '""') + '"';
+        },
+
         exportCsv(list, filename) {
           const fname = filename || 'arbitrage-candidates.csv';
           if (!list || list.length === 0) {
@@ -12677,7 +12697,7 @@ export function getDashboardHtml() {
             'pin_created_at',
             'seed_overlap_count'
           ];
-          const csvRows = [headers.join(',')];
+          const csvRows = [headers.map(h => this.sanitizeCsvCell(h)).join(',')];
 
           for (const row of list) {
             const values = headers.map(header => {
@@ -12686,9 +12706,7 @@ export function getDashboardHtml() {
               if (header === 'save_rate' && val === undefined) val = row.avg_save_rate;
               if (header === 'dominant_color' && !val) val = row.winning_color;
               if (header === 'provenance_engine' && !val) val = row.engine_source;
-              if (val === null || val === undefined) val = '';
-              const escaped = ('' + val).replace(/"/g, '""');
-              return '"' + escaped + '"';
+              return this.sanitizeCsvCell(val);
             });
             csvRows.push(values.join(','));
           }

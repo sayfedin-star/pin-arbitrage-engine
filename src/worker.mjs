@@ -331,6 +331,15 @@ export function corsOptionsResponse(requestOrigin = null, env = {}, allow = 'GET
   });
 }
 
+export const HTML_HEADERS = {
+  'Content-Type': 'text/html; charset=utf-8',
+  'Cache-Control': 'no-cache',
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+  'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://unpkg.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https:; frame-ancestors 'none';"
+};
+
 // Culinary Color Name Mapper
 export function getCulinaryColorName(hex) {
   if (!hex || typeof hex !== 'string') return 'Culinary Accent';
@@ -512,13 +521,7 @@ export default {
       }
       return new Response(getDiscoveryPageHtml(), {
         status: 200,
-        headers: {
-          'Content-Type': 'text/html; charset=utf-8',
-          'Cache-Control': 'no-cache',
-          'X-Content-Type-Options': 'nosniff',
-          'X-Frame-Options': 'DENY',
-          'Referrer-Policy': 'strict-origin-when-cross-origin'
-        }
+        headers: HTML_HEADERS
       });
     }
 
@@ -535,13 +538,7 @@ export default {
       }
       return new Response(getPinDetailPageHtml(cleanPinId), {
         status: 200,
-        headers: {
-          'Content-Type': 'text/html; charset=utf-8',
-          'Cache-Control': 'no-cache',
-          'X-Content-Type-Options': 'nosniff',
-          'X-Frame-Options': 'DENY',
-          'Referrer-Policy': 'strict-origin-when-cross-origin'
-        }
+        headers: HTML_HEADERS
       });
     }
 
@@ -554,13 +551,7 @@ export default {
       const folderId = segments[1] || '';
       return new Response(getCampaignFoldersPageHtml(decodeURIComponent(folderId)), {
         status: 200,
-        headers: {
-          'Content-Type': 'text/html; charset=utf-8',
-          'Cache-Control': 'no-cache',
-          'X-Content-Type-Options': 'nosniff',
-          'X-Frame-Options': 'DENY',
-          'Referrer-Policy': 'strict-origin-when-cross-origin'
-        }
+        headers: HTML_HEADERS
       });
     }
 
@@ -578,26 +569,14 @@ export default {
         if (slugLower === 'discovery') {
           return new Response(getDiscoveryPageHtml(), {
             status: 200,
-            headers: {
-              'Content-Type': 'text/html; charset=utf-8',
-              'Cache-Control': 'no-cache',
-              'X-Content-Type-Options': 'nosniff',
-              'X-Frame-Options': 'DENY',
-              'Referrer-Policy': 'strict-origin-when-cross-origin'
-            }
+            headers: HTML_HEADERS
           });
         }
         if (slugLower === 'folders') {
           const folderId = segments[2] || '';
           return new Response(getCampaignFoldersPageHtml(decodeURIComponent(folderId)), {
             status: 200,
-            headers: {
-              'Content-Type': 'text/html; charset=utf-8',
-              'Cache-Control': 'no-cache',
-              'X-Content-Type-Options': 'nosniff',
-              'X-Frame-Options': 'DENY',
-              'Referrer-Policy': 'strict-origin-when-cross-origin'
-            }
+            headers: HTML_HEADERS
           });
         }
       }
@@ -611,13 +590,7 @@ export default {
 
       return new Response(getKeywordsPageHtml(slug), {
         status: 200,
-        headers: {
-          'Content-Type': 'text/html; charset=utf-8',
-          'Cache-Control': 'no-cache',
-          'X-Content-Type-Options': 'nosniff',
-          'X-Frame-Options': 'DENY',
-          'Referrer-Policy': 'strict-origin-when-cross-origin'
-        }
+        headers: HTML_HEADERS
       });
     }
 
@@ -628,13 +601,7 @@ export default {
       }
       return new Response(getBoardIdeasPageHtml(), {
         status: 200,
-        headers: {
-          'Content-Type': 'text/html; charset=utf-8',
-          'Cache-Control': 'no-cache',
-          'X-Content-Type-Options': 'nosniff',
-          'X-Frame-Options': 'DENY',
-          'Referrer-Policy': 'strict-origin-when-cross-origin'
-        }
+        headers: HTML_HEADERS
       });
     }
 
@@ -645,13 +612,7 @@ export default {
       }
       return new Response(getDashboardHtml(), {
         status: 200,
-        headers: {
-          'Content-Type': 'text/html; charset=utf-8',
-          'Cache-Control': 'no-cache',
-          'X-Content-Type-Options': 'nosniff',
-          'X-Frame-Options': 'DENY',
-          'Referrer-Policy': 'strict-origin-when-cross-origin'
-        }
+        headers: HTML_HEADERS
       });
     }
 

@@ -34,7 +34,7 @@ export function getCampaignFoldersPageHtml(folderId = '') {
       }
     };
   </script>
-  <script defer src="https://unpkg.com/alpinejs@3.13.3/dist/cdn.min.js"></script>
+  <script defer src="https://unpkg.com/alpinejs@3.14.8/dist/cdn.min.js"></script>
   <style>
     [x-cloak] { display: none !important; }
     ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -994,8 +994,8 @@ export function getCampaignFoldersPageHtml(folderId = '') {
         sanitizeCsvCell(val) {
           let str = String(val == null ? '' : val);
           // CSV Formula Injection (DDE) Defense: Neutralize =, +, -, @, tab, newline prefixes
-          const first = str.charAt(0);
-          if (first === '=' || first === '+' || first === '-' || first === '@' || first === '\\t' || first === '\\r') {
+          const code = str.charCodeAt(0);
+          if (code === 61 || code === 43 || code === 45 || code === 64 || code === 9 || code === 10 || code === 13) {
             str = "'" + str;
           }
           return '"' + str.replace(/"/g, '""') + '"';

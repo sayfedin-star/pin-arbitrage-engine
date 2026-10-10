@@ -42,7 +42,7 @@ export function getPinDetailPageHtml(pinId = '') {
       }
     };
   </script>
-  <script defer src="https://unpkg.com/alpinejs@3.13.3/dist/cdn.min.js"></script>
+  <script defer src="https://unpkg.com/alpinejs@3.14.8/dist/cdn.min.js"></script>
   <style>
     [x-cloak] { display: none !important; }
     ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -350,7 +350,7 @@ export function getPinDetailPageHtml(pinId = '') {
             ></span>
             <a 
               x-show="dossier?.pillar_1_creator_context?.creator_url" 
-              :href="dossier?.pillar_1_creator_context?.creator_url" 
+              :href="safeUrl(dossier?.pillar_1_creator_context?.creator_url)" 
               target="_blank" 
               rel="noopener noreferrer" 
               class="text-xs text-blue-400 hover:underline font-mono"

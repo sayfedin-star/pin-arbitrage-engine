@@ -50,7 +50,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
     };
   </script>
   <script defer src="https://unpkg.com/alpinejs@3.14.8/dist/cdn.min.js"></script>
-  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.js"></script>
   <style>
     [x-cloak] { display: none !important; }
     ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -3335,7 +3335,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
               </div>
 
               <template x-if="activeInspectorPin?.domain">
-                <a :href="activeInspectorPin.destination_url || '#'" target="_blank"
+                <a :href="safeUrl(activeInspectorPin.destination_url)" target="_blank" rel="noopener noreferrer"
                    class="text-emerald-600 dark:text-emerald-400 hover:underline flex items-center space-x-1">
                   <i data-lucide="globe" class="w-3 h-3"></i>
                   <span x-text="activeInspectorPin.domain"></span>
@@ -5892,6 +5892,22 @@ export function getKeywordsPageHtml(initialSlug = '') {
           this.copyToClipboard(tags, 'Copied Universal Tag Blueprint to clipboard!');
         },
 
+        safeUrl(url) {
+          if (!url) return '#';
+          const s = String(url).trim();
+          if (/^https?:\\/\\//i.test(s) || s.startsWith('/')) return s;
+          return '#';
+        },
+
+        sanitizeCsvCell(val) {
+          let str = String(val == null ? '' : val);
+          const code = str.charCodeAt(0);
+          if (code === 61 || code === 43 || code === 45 || code === 64 || code === 9 || code === 10 || code === 13) {
+            str = "'" + str;
+          }
+          return '"' + str.replace(/"/g, '""') + '"';
+        },
+
         exportClusterBlueprintCsv() {
           const blueprint = this.crossoverData?.topic_cluster_blueprint;
           if (!blueprint || !Array.isArray(blueprint.csv_rows) || blueprint.csv_rows.length === 0) {
@@ -5901,8 +5917,8 @@ export function getKeywordsPageHtml(initialSlug = '') {
           const rows = blueprint.csv_rows;
           const headers = Object.keys(rows[0]);
           const csvContent = [
-            headers.map(h => '"' + h + '"').join(','),
-            ...rows.map(r => headers.map(h => '"' + String(r[h] || '').replace(/"/g, '""') + '"').join(','))
+            headers.map(h => this.sanitizeCsvCell(h)).join(','),
+            ...rows.map(r => headers.map(h => this.sanitizeCsvCell(r[h])).join(','))
           ].join('\\r\\n');
 
           const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
