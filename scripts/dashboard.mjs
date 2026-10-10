@@ -1915,16 +1915,18 @@ const server = http.createServer(async (req, res) => {
         const body = await parseJsonBody(req);
         const username = (body.username || body.target_account || '').replace(/^@+/, '').trim();
         if (!username) return sendJson(res, 400, { error: 'username is required' });
-        const token = process.env.GITHUB_TOKEN;
+        const token = process.env.GITHUB_TOKEN || process.env.GITHUB_PAT || process.env.GH_TOKEN || process.env.GH_REFRESH_TOKEN;
         const repo = process.env.GITHUB_REPOSITORY || 'sayfedin-star/pin-arbitrage-engine';
         if (!token) {
-          return sendJson(res, 500, { success: false, error: 'GITHUB_TOKEN environment variable is not configured' });
+          return sendJson(res, 500, { success: false, error: 'GITHUB_TOKEN or GH_REFRESH_TOKEN environment variable is not configured' });
         }
+        const cleanToken = String(token).replace(/^(token|Bearer)\s+/i, '').replace(/^["']|["']$/g, '').trim();
+        const authHeader = cleanToken.startsWith('ghp_') ? `token ${cleanToken}` : `Bearer ${cleanToken}`;
         const workflowUrl = `https://api.github.com/repos/${repo}/actions/workflows/account-related-pins.yml/dispatches`;
         const ghRes = await fetch(workflowUrl, {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${token}`,
+            'Authorization': authHeader,
             'Accept': 'application/vnd.github.v3+json',
             'User-Agent': 'PinArbitrageEngine-WorkflowDispatcher'
           },
@@ -2081,10 +2083,12 @@ const server = http.createServer(async (req, res) => {
       const maxPinsInput = String(body.max_pins || '100');
       const crawlScopeInput = String(body.crawl_scope || 'all_pins');
       const repo = process.env.GITHUB_REPOSITORY || 'sayfedin-star/pin-arbitrage-engine';
-      const token = process.env.GITHUB_TOKEN || process.env.GITHUB_PAT || process.env.GH_TOKEN;
+      const token = process.env.GITHUB_TOKEN || process.env.GITHUB_PAT || process.env.GH_TOKEN || process.env.GH_REFRESH_TOKEN;
       if (!token) {
-        return sendJson(res, 400, { success: false, error: 'GITHUB_TOKEN environment variable is not configured' });
+        return sendJson(res, 400, { success: false, error: 'GITHUB_TOKEN or GH_REFRESH_TOKEN environment variable is not configured' });
       }
+      const cleanToken = String(token).replace(/^(token|Bearer)\s+/i, '').replace(/^["']|["']$/g, '').trim();
+      const authHeader = cleanToken.startsWith('ghp_') ? `token ${cleanToken}` : `Bearer ${cleanToken}`;
       const workflowUrl = `https://api.github.com/repos/${repo}/actions/workflows/keyword-intelligence-velocity.yml/dispatches`;
       let dispatchRes;
       try {
@@ -2092,7 +2096,7 @@ const server = http.createServer(async (req, res) => {
           method: 'POST',
           headers: {
             'Accept': 'application/vnd.github.v3+json',
-            'Authorization': `Bearer ${token}`,
+            'Authorization': authHeader,
             'User-Agent': 'Pin-Arbitrage-Engine'
           },
           body: JSON.stringify({
@@ -2106,7 +2110,11 @@ const server = http.createServer(async (req, res) => {
         });
         if (!dispatchRes.ok) {
           const errText = await dispatchRes.text();
-          return sendJson(res, dispatchRes.status, { success: false, error: `GitHub API error: ${errText}` });
+          let errDetail = errText;
+          if (dispatchRes.status === 401) {
+            errDetail = 'GitHub Token rejected (401 Bad credentials). Ensure your token has both "repo" and "workflow" scopes enabled at https://github.com/settings/tokens';
+          }
+          return sendJson(res, dispatchRes.status, { success: false, error: `GitHub API error (${dispatchRes.status}): ${errDetail}` });
         }
         return sendJson(res, 200, { success: true, message: 'Workflow dispatched successfully' });
       } finally {

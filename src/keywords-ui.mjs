@@ -5440,7 +5440,10 @@ export function getKeywordsPageHtml(initialSlug = '') {
               body: JSON.stringify({ keyword_id: id, force: Boolean(force) })
             });
 
-            if (!res.ok) throw new Error('HTTP ' + res.status);
+            if (!res.ok) {
+              const errPayload = await res.json().catch(() => ({}));
+              throw new Error(errPayload.message || errPayload.error || ('HTTP ' + res.status));
+            }
             const data = await res.json();
             const count = data.result?.crawled_pins || 100;
             this.showToast('SERP updated: ' + count + ' pins indexed!', 'success');
@@ -5463,7 +5466,10 @@ export function getKeywordsPageHtml(initialSlug = '') {
           if (!confirm('Are you sure you want to delete this tracked keyword and its snapshots?')) return;
           try {
             const res = await fetch(this.getApiUrl('/api/keywords?id=' + id), { method: 'DELETE' });
-            if (!res.ok) throw new Error('HTTP ' + res.status);
+            if (!res.ok) {
+              const errPayload = await res.json().catch(() => ({}));
+              throw new Error(errPayload.message || errPayload.error || ('HTTP ' + res.status));
+            }
             this.showToast('Keyword deleted.', 'info');
             if (this.selectedKeyword?.id === id) {
               this.selectedKeyword = null;
@@ -5493,11 +5499,11 @@ export function getKeywordsPageHtml(initialSlug = '') {
                 max_pins: '100'
               })
             });
-            const data = await res.json();
+            const data = await res.json().catch(() => ({ success: false, error: 'Invalid response from server' }));
             if (data.success) {
               if (notify) this.showToast('GitHub Actions fleet workflow dispatched successfully!', 'success');
             } else {
-              if (notify) this.showToast('Dispatch note: ' + (data.error || 'Check GitHub token'), 'error');
+              if (notify) this.showToast('Dispatch note: ' + (data.message || data.error || 'Check GitHub token'), 'error');
             }
           } catch (err) {
             if (notify) this.showToast('Error triggering workflow: ' + err.message, 'error');

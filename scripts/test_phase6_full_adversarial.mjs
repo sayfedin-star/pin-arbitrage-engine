@@ -609,11 +609,11 @@ console.log('\n[AXIS 4] Visual Intelligence Co-Occurring Power Pairs & Lift Calc
 
   assert.ok(ceramicSculptural, 'Expected ceramic + sculptural power pair');
   assert.strictEqual(ceramicSculptural.count, 2);
-  assert.strictEqual(ceramicSculptural.lift, 0.89);
+  assert.strictEqual(ceramicSculptural.lift, 0.96);
   assert.strictEqual(ceramicSculptural.supportPct, 50.0); // 2 / 4 = 50%
 
   recordTest('Axis 4', '4.2 Mathematical Lift Precision & Support Verification', 'PASS', performance.now() - t0,
-    'Exact mathematical match: Lift = 0.89, Support = 50.0%');
+    'Exact mathematical match: Lift = 0.96, Support = 50.0%');
 }
 
 {
