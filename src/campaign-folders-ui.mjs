@@ -1763,6 +1763,15 @@ export function getCampaignFoldersPageHtml(folderId = '') {
           });
         },
 
+        sanitizeCsvCell(val) {
+          let str = String(val == null ? '' : val);
+          const code = str.charCodeAt(0);
+          if (code === 61 || code === 43 || code === 45 || code === 64 || code === 9 || code === 10 || code === 13) {
+            str = "'" + str;
+          }
+          return '"' + str.replace(/"/g, '""') + '"';
+        },
+
         downloadClusterCsv() {
           const bp = this.crossoverData?.topic_cluster_blueprint;
           if (!bp || !bp.csv_rows?.length) {
@@ -1772,11 +1781,11 @@ export function getCampaignFoldersPageHtml(folderId = '') {
 
           const headers = Object.keys(bp.csv_rows[0]);
           const csvContent = [
-            headers.join(','),
+            headers.map(h => this.sanitizeCsvCell(h)).join(','),
             ...bp.csv_rows.map(row => 
-              headers.map(h => '"' + String(row[h] || '').replace(/"/g, '""') + '"').join(',')
+              headers.map(h => this.sanitizeCsvCell(row[h])).join(',')
             )
-          ].join('\\n');
+          ].join('\\r\\n');
 
           const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
           const url = URL.createObjectURL(blob);

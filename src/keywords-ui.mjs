@@ -288,46 +288,64 @@ export function getKeywordsPageHtml(initialSlug = '') {
     <div x-show="viewModeLevel === 'dashboard'" x-cloak class="space-y-6">
       
       <!-- HERO & STRATEGIC ACTIONS HEADER -->
-      <section class="p-6 rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <section class="p-5 sm:p-6 rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/90 dark:border-slate-800/90 shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div class="flex items-center space-x-3.5">
-          <div class="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-500 text-white flex items-center justify-center shadow-lg shadow-emerald-600/20 shrink-0">
+          <div class="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-500 text-white flex items-center justify-center shadow-lg shadow-emerald-600/25 shrink-0 ring-4 ring-emerald-500/10">
             <i data-lucide="layers" class="w-6 h-6"></i>
           </div>
           <div>
             <div class="flex items-center space-x-2">
-              <h2 class="text-xl font-black text-slate-900 dark:text-white">Keywords Fleet Dashboard</h2>
+              <h2 class="text-xl font-black tracking-tight text-slate-900 dark:text-white">Keywords Fleet Dashboard</h2>
               <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">Level 1A</span>
             </div>
-            <p class="text-xs text-slate-400 mt-0.5">Multi-Cluster Organic SERP Monitoring • Velocity Tracking & Fleet Telemetry</p>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-medium">Multi-Cluster Organic SERP Monitoring • Velocity Tracking & Fleet Telemetry</p>
           </div>
         </div>
 
         <div class="flex flex-wrap items-center gap-2">
+          <!-- Refresh Hub Button -->
+          <button @click="fetchKeywords()" :disabled="isKeywordsLoading"
+                  class="px-3.5 py-2 rounded-2xl text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/80 dark:hover:bg-slate-700/80 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition flex items-center space-x-1.5 shadow-xs cursor-pointer active:scale-95"
+                  title="Sync with Neon Central Hub">
+            <i data-lucide="refresh-cw" class="w-3.5 h-3.5" :class="isKeywordsLoading ? 'animate-spin text-emerald-500' : 'text-slate-400'"></i>
+            <span class="hidden sm:inline">Refresh</span>
+          </button>
+
+          <!-- Primary CTA: Track Keyword -->
           <button @click="openQuickTrackModal()"
-                  class="px-4 py-2 rounded-2xl text-xs font-black uppercase tracking-wider bg-emerald-600 hover:bg-emerald-500 text-white transition flex items-center space-x-1.5 shadow-md shadow-emerald-950/20 active:scale-95 cursor-pointer">
-            <i data-lucide="plus-circle" class="w-3.5 h-3.5"></i>
+                  class="px-4 py-2 rounded-2xl text-xs font-black uppercase tracking-wider bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white transition flex items-center space-x-1.5 shadow-md shadow-emerald-900/20 active:scale-95 cursor-pointer ring-2 ring-emerald-500/20">
+            <i data-lucide="plus-circle" class="w-4 h-4"></i>
             <span>+ Track Keyword</span>
           </button>
+
+          <!-- Discover Keywords -->
           <a href="/keywords/discovery"
-             class="px-4 py-2 rounded-2xl text-xs font-black uppercase tracking-wider bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 transition flex items-center space-x-1.5 shadow-xs cursor-pointer">
-            <i data-lucide="compass" class="w-3.5 h-3.5"></i>
-            <span>+ Discover Keywords</span>
+             class="px-3.5 py-2 rounded-2xl text-xs font-bold bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 transition flex items-center space-x-1.5 shadow-xs cursor-pointer">
+            <i data-lucide="compass" class="w-3.5 h-3.5 text-emerald-500"></i>
+            <span>Discovery</span>
           </a>
+
+          <!-- Campaign Folders -->
           <a href="/folders"
-             class="px-4 py-2 rounded-2xl text-xs font-black uppercase tracking-wider bg-pink-500/15 hover:bg-pink-500/25 text-pink-600 dark:text-pink-400 border border-pink-500/30 transition flex items-center space-x-1.5 shadow-xs cursor-pointer">
-            <i data-lucide="folder-kanban" class="w-3.5 h-3.5"></i>
-            <span>Campaign Folders</span>
+             class="px-3.5 py-2 rounded-2xl text-xs font-bold bg-pink-500/10 hover:bg-pink-500/20 text-pink-700 dark:text-pink-400 border border-pink-500/30 transition flex items-center space-x-1.5 shadow-xs cursor-pointer">
+            <i data-lucide="folder-kanban" class="w-3.5 h-3.5 text-pink-500"></i>
+            <span>Folders</span>
+            <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-pink-500/20 text-pink-700 dark:text-pink-300 font-mono font-bold" x-text="folders.length"></span>
           </a>
+
+          <!-- Settings -->
           <button @click="openSettingsModal()"
-                  class="px-4 py-2 rounded-2xl text-xs font-black uppercase tracking-wider bg-violet-500/15 hover:bg-violet-500/25 text-violet-600 dark:text-violet-400 border border-violet-500/30 transition flex items-center space-x-1.5 shadow-xs cursor-pointer"
+                  class="px-3.5 py-2 rounded-2xl text-xs font-bold bg-violet-500/10 hover:bg-violet-500/20 text-violet-700 dark:text-violet-400 border border-violet-500/30 transition flex items-center space-x-1.5 shadow-xs cursor-pointer"
                   title="Configure Crawl Depth & Breakout Hunter">
             <i data-lucide="sliders" class="w-3.5 h-3.5 text-violet-500"></i>
             <span>Settings</span>
           </button>
+
+          <!-- Trigger Fleet Crawl -->
           <button @click="triggerWorkflow()" :disabled="isWorkflowDispatching"
-                  class="px-4 py-2 rounded-2xl text-xs font-black uppercase tracking-wider bg-slate-900 hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white transition flex items-center space-x-1.5 shadow-xs disabled:opacity-50 cursor-pointer">
+                  class="px-3.5 py-2 rounded-2xl text-xs font-bold uppercase tracking-wider bg-slate-900 hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white transition flex items-center space-x-1.5 shadow-xs disabled:opacity-50 cursor-pointer">
             <i data-lucide="play" class="w-3.5 h-3.5 text-emerald-400" :class="isWorkflowDispatching ? 'animate-spin' : ''"></i>
-            <span>Trigger Fleet Crawl</span>
+            <span>Trigger Fleet</span>
           </button>
         </div>
       </section>
@@ -335,248 +353,378 @@ export function getKeywordsPageHtml(initialSlug = '') {
       <!-- 4 TOP KPI CARDS: FLEET TELEMETRY RIBBON -->
       <section class="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <!-- KPI 1: Tracked Queries Fleet -->
-        <div class="p-5 rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 space-y-3 shadow-xs">
+        <div class="p-5 rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/90 dark:border-slate-800/90 space-y-3 shadow-xs">
           <div class="flex items-center justify-between">
             <span class="text-xs font-bold text-slate-500 dark:text-slate-400">Tracked Queries Fleet</span>
-            <span class="p-1.5 rounded-xl bg-emerald-500/10 text-emerald-500">
+            <span class="p-1.5 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
               <i data-lucide="tags" class="w-4 h-4"></i>
             </span>
           </div>
-          <div class="flex items-baseline space-x-2">
-            <span class="text-2xl font-black text-slate-900 dark:text-white font-mono" x-text="keywords.length"></span>
-            <span class="text-xs text-slate-400 font-mono">Monitored</span>
-          </div>
-          <div class="flex items-center justify-between text-[11px] pt-1 border-t border-slate-100 dark:border-slate-800/80 font-mono">
-            <span class="text-emerald-500 font-bold" x-text="activeKeywordsCount + ' Active'"></span>
-            <span class="text-amber-500 font-bold" x-text="pausedKeywordsCount + ' Paused'"></span>
-          </div>
+          <template x-if="isKeywordsLoading">
+            <div class="space-y-2 py-1">
+              <div class="h-8 w-20 bg-slate-200 dark:bg-slate-800 rounded-xl animate-pulse"></div>
+              <div class="h-3 w-32 bg-slate-100 dark:bg-slate-800/60 rounded animate-pulse"></div>
+            </div>
+          </template>
+          <template x-if="!isKeywordsLoading">
+            <div>
+              <div class="flex items-baseline space-x-2">
+                <span class="text-3xl font-black text-slate-900 dark:text-white font-mono" x-text="keywords.length"></span>
+                <span class="text-xs text-slate-500 dark:text-slate-400 font-mono font-medium">Monitored</span>
+              </div>
+              <div class="flex items-center justify-between text-[11px] pt-2 mt-2 border-t border-slate-100 dark:border-slate-800/80 font-mono">
+                <span class="text-emerald-600 dark:text-emerald-400 font-bold" x-text="activeKeywordsCount + ' Active'"></span>
+                <span class="text-amber-600 dark:text-amber-400 font-bold" x-text="pausedKeywordsCount + ' Paused'"></span>
+              </div>
+            </div>
+          </template>
         </div>
 
         <!-- KPI 2: Total Monitored Organic Pins -->
-        <div class="p-5 rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 space-y-3 shadow-xs">
+        <div class="p-5 rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/90 dark:border-slate-800/90 space-y-3 shadow-xs">
           <div class="flex items-center justify-between">
             <span class="text-xs font-bold text-slate-500 dark:text-slate-400">Monitored Organic Pins</span>
-            <span class="p-1.5 rounded-xl bg-blue-500/10 text-blue-500">
+            <span class="p-1.5 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400">
               <i data-lucide="database" class="w-4 h-4"></i>
             </span>
           </div>
-          <div class="flex items-baseline space-x-2">
-            <span class="text-2xl font-black text-slate-900 dark:text-white font-mono" x-text="formatNumber(totalMonitoredPins)"></span>
-            <span class="text-xs text-slate-400 font-mono">Pins</span>
-          </div>
-          <div class="flex items-center justify-between text-[11px] pt-1 border-t border-slate-100 dark:border-slate-800/80 text-slate-400 font-mono">
-            <span>Quota Depth:</span>
-            <span class="font-bold text-blue-500" x-text="'~' + (appSettings.default_max_pins || 250) + ' Pins / Query'">~250 Pins / Query</span>
-          </div>
+          <template x-if="isKeywordsLoading">
+            <div class="space-y-2 py-1">
+              <div class="h-8 w-24 bg-slate-200 dark:bg-slate-800 rounded-xl animate-pulse"></div>
+              <div class="h-3 w-28 bg-slate-100 dark:bg-slate-800/60 rounded animate-pulse"></div>
+            </div>
+          </template>
+          <template x-if="!isKeywordsLoading">
+            <div>
+              <div class="flex items-baseline space-x-2">
+                <span class="text-3xl font-black text-slate-900 dark:text-white font-mono" x-text="formatNumber(totalMonitoredPins)"></span>
+                <span class="text-xs text-slate-500 dark:text-slate-400 font-mono font-medium">Pins</span>
+              </div>
+              <div class="flex items-center justify-between text-[11px] pt-2 mt-2 border-t border-slate-100 dark:border-slate-800/80 text-slate-500 dark:text-slate-400 font-mono">
+                <span>Quota Depth:</span>
+                <span class="font-bold text-blue-600 dark:text-blue-400" x-text="'~' + (appSettings.default_max_pins || 250) + ' Pins / Query'"></span>
+              </div>
+            </div>
+          </template>
         </div>
 
         <!-- KPI 3: Fleet Save Velocity Pulse -->
-        <div class="p-5 rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 space-y-3 shadow-xs">
+        <div class="p-5 rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/90 dark:border-slate-800/90 space-y-3 shadow-xs">
           <div class="flex items-center justify-between">
             <span class="text-xs font-bold text-slate-500 dark:text-slate-400">Fleet Velocity Pulse</span>
-            <span class="p-1.5 rounded-xl bg-cyan-500/10 text-cyan-500">
+            <span class="p-1.5 rounded-xl bg-cyan-500/10 text-cyan-600 dark:text-cyan-400">
               <i data-lucide="zap" class="w-4 h-4"></i>
             </span>
           </div>
-          <div class="flex items-baseline space-x-2">
-            <span class="text-2xl font-black text-emerald-600 dark:text-emerald-400 font-mono" x-text="'+' + averageFleetVelocity + ' v/d'"></span>
-            <span class="text-xs text-slate-400 font-mono">Average</span>
-          </div>
-          <div class="flex items-center justify-between text-[11px] pt-1 border-t border-slate-100 dark:border-slate-800/80 text-slate-400 font-mono">
-            <span>Fleet Momentum:</span>
-            <span class="font-bold text-emerald-500">Kinetic Growth</span>
-          </div>
+          <template x-if="isKeywordsLoading">
+            <div class="space-y-2 py-1">
+              <div class="h-8 w-28 bg-slate-200 dark:bg-slate-800 rounded-xl animate-pulse"></div>
+              <div class="h-3 w-32 bg-slate-100 dark:bg-slate-800/60 rounded animate-pulse"></div>
+            </div>
+          </template>
+          <template x-if="!isKeywordsLoading">
+            <div>
+              <div class="flex items-baseline space-x-2">
+                <span class="text-3xl font-black text-emerald-600 dark:text-emerald-400 font-mono" x-text="'+' + averageFleetVelocity + ' v/d'"></span>
+                <span class="text-xs text-slate-500 dark:text-slate-400 font-mono font-medium">Average</span>
+              </div>
+              <div class="flex items-center justify-between text-[11px] pt-2 mt-2 border-t border-slate-100 dark:border-slate-800/80 text-slate-500 dark:text-slate-400 font-mono">
+                <span>Fleet Momentum:</span>
+                <span class="font-bold text-emerald-600 dark:text-emerald-400 flex items-center space-x-1">
+                  <i data-lucide="trending-up" class="w-3 h-3"></i>
+                  <span>Kinetic Growth</span>
+                </span>
+              </div>
+            </div>
+          </template>
         </div>
 
         <!-- KPI 4: Nightly Crawler Fleet Status -->
-        <div class="p-5 rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 space-y-3 shadow-xs">
+        <div class="p-5 rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/90 dark:border-slate-800/90 space-y-3 shadow-xs">
           <div class="flex items-center justify-between">
             <span class="text-xs font-bold text-slate-500 dark:text-slate-400">Nightly Crawler Fleet</span>
-            <span class="p-1.5 rounded-xl bg-purple-500/10 text-purple-500">
+            <span class="p-1.5 rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400">
               <i data-lucide="clock" class="w-4 h-4"></i>
             </span>
           </div>
           <div class="flex items-center space-x-2">
-            <span class="px-2.5 py-1 rounded-xl text-xs font-black font-mono bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
-              ● OPERATIONAL
+            <span class="px-2.5 py-1 rounded-xl text-xs font-black font-mono bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 flex items-center space-x-1.5">
+              <span class="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
+              <span>OPERATIONAL</span>
             </span>
           </div>
-          <div class="flex items-center justify-between text-[11px] pt-1 border-t border-slate-100 dark:border-slate-800/80 text-slate-400 font-mono truncate">
+          <div class="flex items-center justify-between text-[11px] pt-2 border-t border-slate-100 dark:border-slate-800/80 text-slate-500 dark:text-slate-400 font-mono truncate">
             <span class="truncate" x-text="nightlySyncCountdown"></span>
           </div>
         </div>
       </section>
 
       <!-- FILTER & SORT CONTROLS STRIP -->
-      <section class="p-4 rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
-        <div class="flex flex-wrap items-center gap-2 flex-1">
-          <!-- Search input -->
-          <div class="relative flex-1 min-w-[200px] max-w-md">
-            <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
-            <input type="text" x-model="dashboardSearch" placeholder="Search keywords or categories..."
-                   class="w-full pl-9 pr-3 py-2 text-xs rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/40">
+      <section class="p-4 rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/90 dark:border-slate-800/90 shadow-xs space-y-3">
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <!-- Left: Search and Dropdowns -->
+          <div class="flex flex-wrap items-center gap-2 flex-1">
+            <!-- Search input with clear button -->
+            <div class="relative flex-1 min-w-[200px] max-w-md">
+              <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
+              <input type="text" x-model="dashboardSearch" placeholder="Search keywords or categories..."
+                     class="w-full pl-9 pr-8 py-2 text-xs rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/40">
+              <button x-show="dashboardSearch" @click="dashboardSearch = ''"
+                      class="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-white p-0.5 cursor-pointer">
+                <i data-lucide="x" class="w-3.5 h-3.5"></i>
+              </button>
+            </div>
+
+            <!-- Category filter dropdown -->
+            <select x-model="dashboardCategoryFilter" class="px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 focus:outline-none cursor-pointer">
+              <option value="ALL">All Categories</option>
+              <template x-for="cat in uniqueCategories" :key="cat">
+                <option :value="cat" x-text="cat"></option>
+              </template>
+            </select>
+
+            <!-- Status filter dropdown -->
+            <select x-model="dashboardStatusFilter" class="px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 focus:outline-none cursor-pointer">
+              <option value="ALL">All Statuses</option>
+              <option value="ACTIVE">Active Only</option>
+              <option value="PAUSED">Paused Only</option>
+            </select>
+
+            <!-- Sort filter dropdown -->
+            <select x-model="dashboardSort" class="px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 focus:outline-none cursor-pointer">
+              <option value="velocity">Sort: Daily Velocity (Highest)</option>
+              <option value="saves_delta">Sort: 24h Saves Δ (Highest)</option>
+              <option value="repins_delta">Sort: 24h Repins Δ (Highest)</option>
+              <option value="name">Sort: Alphabetical (A-Z)</option>
+              <option value="crawled">Sort: Recently Crawled</option>
+            </select>
           </div>
 
-          <!-- Category filter -->
-          <select x-model="dashboardCategoryFilter" class="px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 focus:outline-none cursor-pointer">
-            <option value="ALL">All Categories</option>
-            <template x-for="cat in uniqueCategories" :key="cat">
-              <option :value="cat" x-text="cat"></option>
-            </template>
-          </select>
+          <!-- Right: Counter & Table/Grid View Switcher -->
+          <div class="flex items-center space-x-3 shrink-0">
+            <span class="text-xs font-mono text-slate-500 dark:text-slate-400 font-semibold"
+                  x-text="filteredDashboardKeywords.length + ' of ' + keywords.length + ' Queries'"></span>
 
-          <!-- Status filter -->
-          <select x-model="dashboardStatusFilter" class="px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 focus:outline-none cursor-pointer">
-            <option value="ALL">All Statuses</option>
-            <option value="ACTIVE">Active Tracking Only</option>
-            <option value="PAUSED">Paused Only</option>
-          </select>
-
-          <!-- Sort filter -->
-          <select x-model="dashboardSort" class="px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 focus:outline-none cursor-pointer">
-            <option value="velocity">Sort: Daily Velocity (Highest)</option>
-            <option value="saves_delta">Sort: 24h Saves Δ (Highest)</option>
-            <option value="repins_delta">Sort: 24h Repins Δ (Highest)</option>
-            <option value="name">Sort: Alphabetical (A-Z)</option>
-            <option value="crawled">Sort: Recently Crawled</option>
-          </select>
+            <!-- View Switcher (Table vs Grid) -->
+            <div class="flex items-center p-0.5 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+              <button @click="dashboardViewMode = 'table'"
+                      :class="dashboardViewMode === 'table' ? 'bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 shadow-xs font-bold' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'"
+                      class="px-2.5 py-1.5 rounded-lg text-xs transition flex items-center space-x-1 cursor-pointer"
+                      title="Table View">
+                <i data-lucide="list" class="w-3.5 h-3.5"></i>
+                <span class="hidden sm:inline">Table</span>
+              </button>
+              <button @click="dashboardViewMode = 'grid'"
+                      :class="dashboardViewMode === 'grid' ? 'bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 shadow-xs font-bold' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'"
+                      class="px-2.5 py-1.5 rounded-lg text-xs transition flex items-center space-x-1 cursor-pointer"
+                      title="Visual Cards View">
+                <i data-lucide="layout-grid" class="w-3.5 h-3.5"></i>
+                <span class="hidden sm:inline">Grid</span>
+              </button>
+            </div>
+          </div>
         </div>
 
-        <div class="flex items-center space-x-2 text-xs font-mono text-slate-400 shrink-0">
-          <span x-text="filteredDashboardKeywords.length + ' of ' + keywords.length + ' Queries Shown'"></span>
+        <!-- Category Quick Pills -->
+        <div class="flex flex-wrap items-center gap-1.5 pt-2 border-t border-slate-100 dark:border-slate-800/80 text-xs">
+          <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider font-mono mr-1">Categories:</span>
+          <button @click="dashboardCategoryFilter = 'ALL'"
+                  class="px-2.5 py-0.5 rounded-lg text-xs font-semibold transition cursor-pointer"
+                  :class="dashboardCategoryFilter === 'ALL' ? 'bg-emerald-600 text-white shadow-xs' : 'bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'">
+            All
+          </button>
+          <template x-for="cat in uniqueCategories" :key="cat">
+            <button @click="dashboardCategoryFilter = cat"
+                    class="px-2.5 py-0.5 rounded-lg text-xs font-semibold transition cursor-pointer"
+                    :class="dashboardCategoryFilter === cat ? 'bg-emerald-600 text-white shadow-xs' : 'bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'"
+                    x-text="cat"></button>
+          </template>
         </div>
       </section>
 
-      <!-- HIGH-DENSITY TRACKED KEYWORDS TABLE -->
-      <section class="rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 shadow-xs overflow-hidden">
+      <!-- VIEW MODE 1: HIGH-DENSITY TRACKED KEYWORDS TABLE -->
+      <section x-show="dashboardViewMode === 'table'" class="rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/90 dark:border-slate-800/90 shadow-xs overflow-hidden">
         <div class="overflow-x-auto">
           <table class="w-full text-left border-collapse">
             <thead>
-              <tr class="table-sticky-header bg-slate-100/90 dark:bg-[#080d19]/90 border-b border-slate-200 dark:border-slate-800 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 font-mono">
+              <tr class="table-sticky-header bg-slate-50/95 dark:bg-[#080d19]/95 border-b border-slate-200 dark:border-slate-800 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 font-mono">
                 <th class="py-3.5 px-4 w-12 text-center">
                   <input type="checkbox" @click="toggleSelectAllDashboardKeywords()"
                          :checked="selectedKeywordIds.length === filteredDashboardKeywords.length && filteredDashboardKeywords.length > 0"
                          class="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300 dark:border-slate-700">
                 </th>
-                <th class="py-3.5 px-3 w-14">Preview</th>
-                <th class="py-3.5 px-4 min-w-[220px]">Keyword & Category</th>
+                <th class="py-3.5 px-3 w-16">Preview</th>
+                <th class="py-3.5 px-4 min-w-[240px]">Keyword & Category</th>
                 <th class="py-3.5 px-3 w-28">24h Saves Δ</th>
                 <th class="py-3.5 px-3 w-28">24h Repins Δ</th>
                 <th class="py-3.5 px-3 w-32">Daily Velocity</th>
-                <th class="py-3.5 px-3 w-24">Pins Quota</th>
+                <th class="py-3.5 px-3 w-36">Pins Quota</th>
                 <th class="py-3.5 px-3 w-28 text-center">Status</th>
                 <th class="py-3.5 px-3 w-36">Last Crawled</th>
                 <th class="py-3.5 px-4 w-36 text-right">Actions</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-100 dark:divide-slate-800/80 text-xs">
-              <template x-for="kw in filteredDashboardKeywords" :key="kw.id">
-                <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition group cursor-pointer"
-                    @click="switchToSerpStudio(kw)">
-                  
-                  <!-- Checkbox -->
-                  <td class="py-3.5 px-4 text-center" @click.stop>
-                    <input type="checkbox" :checked="isDashboardKeywordSelected(kw.id)" @click="toggleDashboardKeywordSelection(kw.id)"
-                           class="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300 dark:border-slate-700">
-                  </td>
-
-                  <!-- Thumbnail -->
-                  <td class="py-3.5 px-3">
-                    <template x-if="kw.top_pin_image">
-                      <img :src="kw.top_pin_image" class="w-10 h-13 rounded-lg object-cover border border-slate-200 dark:border-slate-700 shadow-xs">
-                    </template>
-                    <template x-if="!kw.top_pin_image">
-                      <div class="w-10 h-13 rounded-lg bg-slate-200 dark:bg-slate-800 flex items-center justify-center">
-                        <i data-lucide="image" class="w-3.5 h-3.5 text-slate-400"></i>
+              <!-- Skeleton Loading Rows (Shown while fetching) -->
+              <template x-if="isKeywordsLoading">
+                <template x-for="i in [1, 2, 3, 4, 5]" :key="i">
+                  <tr class="animate-pulse">
+                    <td class="py-4 px-4 text-center"><div class="w-4 h-4 bg-slate-200 dark:bg-slate-800 rounded mx-auto"></div></td>
+                    <td class="py-4 px-3"><div class="w-12 h-16 bg-slate-200 dark:bg-slate-800 rounded-xl"></div></td>
+                    <td class="py-4 px-4">
+                      <div class="space-y-2">
+                        <div class="h-4 w-40 bg-slate-200 dark:bg-slate-800 rounded"></div>
+                        <div class="h-3 w-20 bg-slate-100 dark:bg-slate-800/60 rounded-full"></div>
                       </div>
-                    </template>
-                  </td>
+                    </td>
+                    <td class="py-4 px-3"><div class="h-6 w-16 bg-slate-200 dark:bg-slate-800 rounded-full"></div></td>
+                    <td class="py-4 px-3"><div class="h-6 w-12 bg-slate-200 dark:bg-slate-800 rounded-full"></div></td>
+                    <td class="py-4 px-3"><div class="h-6 w-20 bg-slate-200 dark:bg-slate-800 rounded-lg"></div></td>
+                    <td class="py-4 px-3"><div class="h-3 w-24 bg-slate-200 dark:bg-slate-800 rounded"></div></td>
+                    <td class="py-4 px-3 text-center"><div class="h-6 w-16 bg-slate-200 dark:bg-slate-800 rounded-full mx-auto"></div></td>
+                    <td class="py-4 px-3"><div class="h-3 w-20 bg-slate-200 dark:bg-slate-800 rounded"></div></td>
+                    <td class="py-4 px-4 text-right"><div class="h-8 w-24 bg-slate-200 dark:bg-slate-800 rounded-xl ml-auto"></div></td>
+                  </tr>
+                </template>
+              </template>
 
-                  <!-- Keyword & Category -->
-                  <td class="py-3.5 px-4 min-w-[220px]">
-                    <div class="space-y-1">
-                      <span class="font-bold text-slate-900 dark:text-white group-hover:text-emerald-500 text-sm capitalize block transition"
-                            x-text="kw.keyword"></span>
-                      <div class="flex items-center space-x-2">
-                        <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300"
-                              x-text="kw.category || 'General'"></span>
-                        <template x-if="kw.annotation_id">
-                          <span class="text-[10px] font-mono text-slate-400" x-text="'ID: ' + kw.annotation_id"></span>
+              <!-- Real Data Rows -->
+              <template x-if="!isKeywordsLoading">
+                <template x-for="kw in filteredDashboardKeywords" :key="kw.id">
+                  <tr class="hover:bg-slate-50/90 dark:hover:bg-slate-900/50 transition group cursor-pointer"
+                      @click="switchToSerpStudio(kw)">
+                    
+                    <!-- Checkbox -->
+                    <td class="py-3.5 px-4 text-center" @click.stop>
+                      <input type="checkbox" :checked="isDashboardKeywordSelected(kw.id)" @click="toggleDashboardKeywordSelection(kw.id)"
+                             class="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300 dark:border-slate-700">
+                    </td>
+
+                    <!-- Thumbnail with Zoom -->
+                    <td class="py-3.5 px-3">
+                      <div class="w-12 h-16 rounded-xl overflow-hidden bg-slate-100 dark:bg-slate-800 border border-slate-200/90 dark:border-slate-700/80 shadow-xs relative">
+                        <template x-if="kw.top_pin_image">
+                          <img :src="kw.top_pin_image" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200">
+                        </template>
+                        <template x-if="!kw.top_pin_image">
+                          <div class="w-full h-full flex items-center justify-center">
+                            <i data-lucide="image" class="w-4 h-4 text-slate-400"></i>
+                          </div>
                         </template>
                       </div>
-                    </div>
-                  </td>
+                    </td>
 
-                  <!-- 24h Saves Delta Pill Badge -->
-                  <td class="py-3.5 px-3 font-mono">
-                    <span class="px-2.5 py-1 rounded-full text-xs font-bold inline-block"
-                          :class="getKeywordSaveDelta(kw) > 0 ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30' : (getKeywordSaveDelta(kw) < 0 ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30' : 'bg-slate-100 dark:bg-slate-800 text-slate-500')"
-                          x-text="(getKeywordSaveDelta(kw) > 0 ? '+' : '') + formatNumber(getKeywordSaveDelta(kw))"></span>
-                  </td>
+                    <!-- Keyword & Category -->
+                    <td class="py-3.5 px-4 min-w-[240px]">
+                      <div class="space-y-1">
+                        <span class="font-bold text-slate-900 dark:text-white group-hover:text-emerald-600 dark:group-hover:text-emerald-400 text-sm capitalize block transition"
+                              x-text="kw.keyword"></span>
+                        <div class="flex items-center space-x-2">
+                          <span class="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700/60"
+                                x-text="kw.category || 'General'"></span>
+                          <template x-if="kw.annotation_id">
+                            <span class="text-[10px] font-mono text-slate-400" x-text="'ID: ' + kw.annotation_id"></span>
+                          </template>
+                        </div>
+                      </div>
+                    </td>
 
-                  <!-- 24h Repins Delta Pill Badge -->
-                  <td class="py-3.5 px-3 font-mono">
-                    <span class="px-2.5 py-1 rounded-full text-xs font-bold inline-block"
-                          :class="getKeywordRepinDelta(kw) > 0 ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30' : (getKeywordRepinDelta(kw) < 0 ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30' : 'bg-slate-100 dark:bg-slate-800 text-slate-500')"
-                          x-text="(getKeywordRepinDelta(kw) > 0 ? '+' : '') + formatNumber(getKeywordRepinDelta(kw))"></span>
-                  </td>
+                    <!-- 24h Saves Delta Pill Badge -->
+                    <td class="py-3.5 px-3 font-mono">
+                      <span class="px-2.5 py-1 rounded-full text-xs font-bold inline-flex items-center space-x-1"
+                            :class="getKeywordSaveDelta(kw) > 0 ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700/80' : (getKeywordSaveDelta(kw) < 0 ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 border border-rose-300 dark:border-rose-700/80' : 'bg-slate-100 dark:bg-slate-800 text-slate-500')">
+                        <template x-if="getKeywordSaveDelta(kw) > 0">
+                          <i data-lucide="arrow-up" class="w-3 h-3 text-emerald-600 shrink-0"></i>
+                        </template>
+                        <span x-text="(getKeywordSaveDelta(kw) > 0 ? '+' : '') + formatNumber(getKeywordSaveDelta(kw))"></span>
+                      </span>
+                    </td>
 
-                  <!-- Daily Velocity -->
-                  <td class="py-3.5 px-3 font-mono">
-                    <span class="px-2.5 py-1 rounded-lg text-xs font-black inline-block"
-                          :class="Number(kw.avg_daily_velocity || 0) > 0 ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'"
-                          x-text="(Number(kw.avg_daily_velocity || 0) > 0 ? '+' : '') + Number(kw.avg_daily_velocity || 0) + ' v/d'"></span>
-                  </td>
+                    <!-- 24h Repins Delta Pill Badge -->
+                    <td class="py-3.5 px-3 font-mono">
+                      <span class="px-2.5 py-1 rounded-full text-xs font-bold inline-flex items-center space-x-1"
+                            :class="getKeywordRepinDelta(kw) > 0 ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700/80' : (getKeywordRepinDelta(kw) < 0 ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 border border-rose-300 dark:border-rose-700/80' : 'bg-slate-100 dark:bg-slate-800 text-slate-500')">
+                        <template x-if="getKeywordRepinDelta(kw) > 0">
+                          <i data-lucide="arrow-up" class="w-3 h-3 text-emerald-600 shrink-0"></i>
+                        </template>
+                        <span x-text="(getKeywordRepinDelta(kw) > 0 ? '+' : '') + formatNumber(getKeywordRepinDelta(kw))"></span>
+                      </span>
+                    </td>
 
-                  <!-- Pins Quota -->
-                  <td class="py-3.5 px-3 font-mono text-slate-500 dark:text-slate-400">
-                    <span x-text="(kw.snapshots_count || kw.target_pin_count || 250) + ' / ' + (kw.target_pin_count || 250)"></span>
-                  </td>
+                    <!-- Daily Velocity -->
+                    <td class="py-3.5 px-3 font-mono">
+                      <span class="px-2.5 py-1 rounded-lg text-xs font-black inline-flex items-center space-x-1"
+                            :class="Number(kw.avg_daily_velocity || 0) > 0 ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'">
+                        <i data-lucide="zap" class="w-3 h-3" :class="Number(kw.avg_daily_velocity || 0) > 0 ? 'text-emerald-500' : 'text-slate-400'"></i>
+                        <span x-text="(Number(kw.avg_daily_velocity || 0) > 0 ? '+' : '') + Number(kw.avg_daily_velocity || 0) + ' v/d'"></span>
+                      </span>
+                    </td>
 
-                  <!-- Active / Paused Status Toggle -->
-                  <td class="py-3.5 px-3 text-center" @click.stop>
-                    <button @click="toggleKeywordStatus(kw)"
-                            class="px-2.5 py-1 rounded-full text-[10px] font-mono font-bold transition inline-flex items-center space-x-1 cursor-pointer"
-                            :class="kw.is_active !== false ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25' : 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 hover:bg-amber-500/25'"
-                            :title="kw.is_active !== false ? 'Click to Pause Tracking' : 'Click to Resume Tracking'">
-                      <span class="w-1.5 h-1.5 rounded-full" :class="kw.is_active !== false ? 'bg-emerald-500' : 'bg-amber-500'"></span>
-                      <span x-text="kw.is_active !== false ? 'Active' : 'Paused'"></span>
-                    </button>
-                  </td>
+                    <!-- Pins Quota Progress Bar -->
+                    <td class="py-3.5 px-3">
+                      <div class="space-y-1">
+                        <div class="flex items-center justify-between text-[11px] font-mono">
+                          <span class="font-bold text-slate-700 dark:text-slate-300" x-text="(kw.snapshots_count || kw.target_pin_count || 250) + ' / ' + (kw.target_pin_count || 250)"></span>
+                          <span class="text-[10px] text-slate-400 font-semibold" x-text="getQuotaPercentage(kw) + '%'"></span>
+                        </div>
+                        <div class="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                          <div class="h-full bg-emerald-500 rounded-full transition-all duration-300" :style="'width: ' + getQuotaPercentage(kw) + '%'"></div>
+                        </div>
+                      </div>
+                    </td>
 
-                  <!-- Last Crawled -->
-                  <td class="py-3.5 px-3 font-mono text-slate-500 dark:text-slate-400 text-[11px] truncate"
-                      x-text="formatDate(kw.last_crawled_at)"></td>
-
-                  <!-- Actions -->
-                  <td class="py-3.5 px-4 text-right" @click.stop>
-                    <div class="flex items-center justify-end space-x-1.5">
-                      <button @click="switchToSerpStudio(kw)"
-                              class="px-2.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition flex items-center space-x-1 cursor-pointer"
-                              title="Open Level 2 SERP Studio">
-                        <span>Studio</span>
-                        <i data-lucide="arrow-right" class="w-3.5 h-3.5"></i>
+                    <!-- Active / Paused Status Toggle -->
+                    <td class="py-3.5 px-3 text-center" @click.stop>
+                      <button @click="toggleKeywordStatus(kw)"
+                              class="px-2.5 py-1 rounded-full text-[10px] font-mono font-bold transition inline-flex items-center space-x-1.5 cursor-pointer shadow-2xs"
+                              :class="kw.is_active !== false ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 hover:bg-emerald-100' : 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-300 dark:border-amber-700 hover:bg-amber-100'"
+                              :title="kw.is_active !== false ? 'Click to Pause Tracking' : 'Click to Resume Tracking'">
+                        <span class="w-1.5 h-1.5 rounded-full" :class="kw.is_active !== false ? 'bg-emerald-500' : 'bg-amber-500'"></span>
+                        <span x-text="kw.is_active !== false ? 'Active' : 'Paused'"></span>
                       </button>
-                      <button @click="rescanKeyword(kw.id, true)" :disabled="syncingKeywordId === kw.id"
-                              class="p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 hover:text-emerald-500 transition cursor-pointer"
-                              :title="'Re-Crawl ' + (kw.target_pin_count || 250) + ' pins'">
-                        <i data-lucide="refresh-cw" class="w-3.5 h-3.5" :class="syncingKeywordId === kw.id ? 'animate-spin text-emerald-500' : ''"></i>
-                      </button>
-                      <button @click="deleteKeyword(kw.id)"
-                              class="p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 hover:text-rose-500 transition cursor-pointer"
-                              title="Delete Keyword">
-                        <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
-                      </button>
-                    </div>
-                  </td>
+                    </td>
 
-                </tr>
+                    <!-- Last Crawled (Relative Time + Full Date) -->
+                    <td class="py-3.5 px-3">
+                      <div class="space-y-0.5 font-mono text-[11px]">
+                        <div class="flex items-center space-x-1.5">
+                          <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                          <span class="font-bold text-slate-700 dark:text-slate-300" x-text="formatRelativeTime(kw.last_crawled_at)"></span>
+                        </div>
+                        <span class="text-[10px] text-slate-400 block truncate" x-text="formatDate(kw.last_crawled_at)"></span>
+                      </div>
+                    </td>
+
+                    <!-- Actions -->
+                    <td class="py-3.5 px-4 text-right" @click.stop>
+                      <div class="flex items-center justify-end space-x-1.5">
+                        <button @click="switchToSerpStudio(kw)"
+                                class="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition flex items-center space-x-1 shadow-xs cursor-pointer group-hover:scale-102"
+                                title="Open Level 2 SERP Studio">
+                          <span>Studio</span>
+                          <i data-lucide="arrow-right" class="w-3.5 h-3.5"></i>
+                        </button>
+                        <button @click="rescanKeyword(kw.id, true)" :disabled="syncingKeywordId === kw.id"
+                                class="p-1.5 rounded-xl bg-slate-100 hover:bg-emerald-50 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 hover:text-emerald-600 transition cursor-pointer"
+                                :title="'Re-Crawl ' + (kw.target_pin_count || 250) + ' pins'">
+                          <i data-lucide="refresh-cw" class="w-3.5 h-3.5" :class="syncingKeywordId === kw.id ? 'animate-spin text-emerald-500' : ''"></i>
+                        </button>
+                        <button @click="deleteKeyword(kw.id)"
+                                class="p-1.5 rounded-xl bg-slate-100 hover:bg-rose-50 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 hover:text-rose-600 transition cursor-pointer"
+                                title="Delete Keyword">
+                          <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                        </button>
+                      </div>
+                    </td>
+
+                  </tr>
+                </template>
               </template>
 
               <!-- Empty State Row -->
               <template x-if="!isKeywordsLoading && (!filteredDashboardKeywords || filteredDashboardKeywords.length === 0)">
                 <tr>
-                  <td colspan="8" class="py-16 text-center">
+                  <td colspan="10" class="py-16 text-center">
                     <div class="max-w-md mx-auto space-y-4 p-4">
                       <div class="w-12 h-12 rounded-2xl bg-emerald-500/10 text-emerald-500 mx-auto flex items-center justify-center">
                         <i data-lucide="search" class="w-6 h-6"></i>
@@ -602,6 +750,110 @@ export function getKeywordsPageHtml(initialSlug = '') {
             </tbody>
           </table>
         </div>
+      </section>
+
+      <!-- VIEW MODE 2: PINTEREST-STYLE VISUAL CARDS GRID -->
+      <section x-show="dashboardViewMode === 'grid'" class="space-y-4">
+        <!-- Grid Skeleton Loader -->
+        <template x-if="isKeywordsLoading">
+          <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
+            <template x-for="i in [1, 2, 3, 4]" :key="i">
+              <div class="rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/90 dark:border-slate-800/90 p-4 space-y-3 animate-pulse">
+                <div class="w-full h-44 bg-slate-200 dark:bg-slate-800 rounded-2xl"></div>
+                <div class="h-4 w-32 bg-slate-200 dark:bg-slate-800 rounded"></div>
+                <div class="h-3 w-20 bg-slate-100 dark:bg-slate-800/60 rounded"></div>
+              </div>
+            </template>
+          </div>
+        </template>
+
+        <!-- Grid Cards -->
+        <template x-if="!isKeywordsLoading">
+          <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
+            <template x-for="kw in filteredDashboardKeywords" :key="kw.id">
+              <div class="rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/90 dark:border-slate-800/90 p-4 shadow-xs hover:shadow-md transition-all duration-200 group flex flex-col justify-between cursor-pointer space-y-3"
+                   @click="switchToSerpStudio(kw)">
+                
+                <!-- Card Header: Image Banner with Floating Badges -->
+                <div class="w-full h-48 rounded-2xl overflow-hidden bg-slate-100 dark:bg-slate-900 border border-slate-200/70 dark:border-slate-800 relative">
+                  <template x-if="kw.top_pin_image">
+                    <img :src="kw.top_pin_image" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300">
+                  </template>
+                  <template x-if="!kw.top_pin_image">
+                    <div class="w-full h-full flex items-center justify-center">
+                      <i data-lucide="image" class="w-8 h-8 text-slate-400"></i>
+                    </div>
+                  </template>
+
+                  <!-- Top Badges Overlay -->
+                  <div class="absolute top-2.5 left-2.5 right-2.5 flex items-center justify-between">
+                    <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold backdrop-blur-md"
+                          :class="kw.is_active !== false ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-500/40' : 'bg-amber-950/80 text-amber-300 border border-amber-500/40'"
+                          x-text="kw.is_active !== false ? '● Active' : '● Paused'"></span>
+
+                    <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-slate-950/80 text-white backdrop-blur-md border border-slate-700/60"
+                          x-text="Number(kw.avg_daily_velocity || 0) > 0 ? '+' + Number(kw.avg_daily_velocity) + ' v/d' : '0 v/d'"></span>
+                  </div>
+                </div>
+
+                <!-- Card Body -->
+                <div class="space-y-2 flex-1">
+                  <div class="flex items-start justify-between gap-2">
+                    <h3 class="font-black text-slate-900 dark:text-white text-base capitalize group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition truncate"
+                        x-text="kw.keyword"></h3>
+                  </div>
+
+                  <span class="inline-block px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700/60"
+                        x-text="kw.category || 'General'"></span>
+
+                  <!-- Metrics Ribbon -->
+                  <div class="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 dark:border-slate-800/80 text-xs font-mono">
+                    <div class="p-2 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800">
+                      <span class="text-[10px] text-slate-400 block font-sans">24h Saves Δ</span>
+                      <span class="font-bold text-slate-800 dark:text-slate-200"
+                            :class="getKeywordSaveDelta(kw) > 0 ? 'text-emerald-600 dark:text-emerald-400' : ''"
+                            x-text="(getKeywordSaveDelta(kw) > 0 ? '+' : '') + formatNumber(getKeywordSaveDelta(kw))"></span>
+                    </div>
+                    <div class="p-2 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800">
+                      <span class="text-[10px] text-slate-400 block font-sans">24h Repins Δ</span>
+                      <span class="font-bold text-slate-800 dark:text-slate-200"
+                            :class="getKeywordRepinDelta(kw) > 0 ? 'text-emerald-600 dark:text-emerald-400' : ''"
+                            x-text="(getKeywordRepinDelta(kw) > 0 ? '+' : '') + formatNumber(getKeywordRepinDelta(kw))"></span>
+                    </div>
+                  </div>
+
+                  <!-- Quota Progress Bar -->
+                  <div class="space-y-1 pt-1">
+                    <div class="flex items-center justify-between text-[10px] font-mono text-slate-500">
+                      <span>Pins Quota:</span>
+                      <span class="font-bold text-slate-700 dark:text-slate-300" x-text="(kw.snapshots_count || kw.target_pin_count || 250) + ' / ' + (kw.target_pin_count || 250)"></span>
+                    </div>
+                    <div class="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                      <div class="h-full bg-emerald-500 rounded-full transition-all duration-300" :style="'width: ' + getQuotaPercentage(kw) + '%'"></div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Card Footer Actions -->
+                <div class="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
+                  <span class="text-[10px] font-mono text-slate-400" x-text="formatRelativeTime(kw.last_crawled_at)"></span>
+                  <div class="flex items-center space-x-1.5">
+                    <button @click.stop="switchToSerpStudio(kw)"
+                            class="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition flex items-center space-x-1 text-xs">
+                      <span>Studio</span>
+                      <i data-lucide="arrow-right" class="w-3 h-3"></i>
+                    </button>
+                    <button @click.stop="deleteKeyword(kw.id)"
+                            class="p-1.5 rounded-xl text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-slate-800 transition">
+                      <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                    </button>
+                  </div>
+                </div>
+
+              </div>
+            </template>
+          </div>
+        </template>
       </section>
 
       <!-- Quick Track Keyword Modal -->
@@ -4535,6 +4787,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
         dashboardCategoryFilter: 'ALL',
         dashboardStatusFilter: 'ALL',
         dashboardSort: 'velocity',
+        dashboardViewMode: 'table', // 'table' | 'grid'
         isBulkFolderModalOpen: false,
         bulkTargetFolderId: '',
         isBulkLoading: false,
@@ -6383,6 +6636,34 @@ export function getKeywordsPageHtml(initialSlug = '') {
           } catch (_) {
             return String(d);
           }
+        },
+
+        formatRelativeTime(d) {
+          if (!d) return 'Never';
+          try {
+            const date = new Date(d);
+            const now = new Date();
+            const diffMs = now - date;
+            if (diffMs < 0) return 'Just now';
+            const diffSec = Math.floor(diffMs / 1000);
+            if (diffSec < 60) return diffSec + 's ago';
+            const diffMin = Math.floor(diffSec / 60);
+            if (diffMin < 60) return diffMin + 'm ago';
+            const diffHours = Math.floor(diffMin / 60);
+            if (diffHours < 24) return diffHours + 'h ago';
+            const diffDays = Math.floor(diffHours / 24);
+            if (diffDays < 7) return diffDays + 'd ago';
+            return date.toLocaleDateString();
+          } catch (_) {
+            return String(d);
+          }
+        },
+
+        getQuotaPercentage(kw) {
+          if (!kw) return 0;
+          const current = Number(kw.snapshots_count) || Number(kw.target_pin_count) || 250;
+          const target = Number(kw.target_pin_count) || 250;
+          return Math.min(100, Math.max(0, Math.round((current / target) * 100)));
         },
 
         getPinMethod(pin) {
