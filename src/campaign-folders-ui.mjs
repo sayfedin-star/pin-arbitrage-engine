@@ -257,7 +257,7 @@ export function getCampaignFoldersPageHtml(folderId = '') {
 
             <!-- Search Filter -->
             <div class="relative">
-              <input type="text" x-model="searchQuery" @input="currentPage = 1" placeholder="Filter pins by title, domain, or tag..."
+              <input type="text" x-model.debounce.150ms="searchQuery" @input="currentPage = 1" placeholder="Filter pins by title, domain, or tag..."
                      class="w-64 pl-8 pr-3 py-1.5 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg text-xs text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 font-sans focus:outline-none focus:border-indigo-500 shadow-sm">
               <span class="absolute left-2.5 top-1.5 text-slate-400 text-xs">🔍</span>
             </div>
@@ -389,50 +389,50 @@ export function getCampaignFoldersPageHtml(folderId = '') {
           </table>
         </div>
 
-        <!-- Numbered Pagination Bar -->
-        <div class="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40 flex items-center justify-between flex-wrap gap-4">
-          <div class="flex items-center gap-3">
-            <span class="text-xs text-slate-600 dark:text-slate-400">
-              Showing <span class="font-mono font-bold text-slate-900 dark:text-white" x-text="filteredPinsList().length ? ((currentPage - 1) * pageSize + 1) : 0"></span>
-              to <span class="font-mono font-bold text-slate-900 dark:text-white" x-text="Math.min(currentPage * pageSize, filteredPinsList().length)"></span>
-              of <span class="font-mono font-bold text-indigo-600 dark:text-indigo-400" x-text="formatNumber(filteredPinsList().length)"></span> pins
-            </span>
-            <div class="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400">
-              <span>Per page:</span>
-              <select x-model.number="pageSize" @change="currentPage = 1" class="bg-white dark:bg-slate-800 text-slate-900 dark:text-white rounded px-2 py-1 text-xs border border-slate-300 dark:border-slate-700 font-mono shadow-sm">
-                <option :value="25">25</option>
-                <option :value="50">50</option>
-                <option :value="100">100</option>
+        <!-- Table Pagination Footer -->
+        <div class="flex items-center justify-between p-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40 text-xs font-mono" x-show="filteredPinsList().length > 0">
+          <div class="flex items-center gap-2.5">
+            <span class="text-slate-500 dark:text-slate-400 hidden sm:inline" 
+                  x-text="'Showing ' + (filteredPinsList().length ? ((currentPage - 1) * pageSize + 1) : 0) + '–' + Math.min(currentPage * pageSize, filteredPinsList().length) + ' of ' + formatNumber(filteredPinsList().length) + ' pins'"></span>
+            <div class="flex items-center gap-1 text-[11px] text-slate-400">
+              <span>Density:</span>
+              <select 
+                x-model.number="pageSize" 
+                @change="currentPage = 1"
+                class="py-0.5 px-1.5 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono text-[11px] focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-900 dark:text-white cursor-pointer"
+              >
+                <option :value="10">10 / page</option>
+                <option :value="25">25 / page</option>
+                <option :value="50">50 / page</option>
+                <option :value="100">100 / page</option>
               </select>
             </div>
           </div>
-
-          <div class="flex items-center gap-1" x-show="totalPages() > 1">
-            <button @click="goToPage(1)" :disabled="currentPage === 1" 
-                    class="px-2.5 py-1 rounded bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-40 text-xs font-mono border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 transition-colors shadow-sm">« First</button>
-            <button @click="goToPage(currentPage - 1)" :disabled="currentPage === 1" 
-                    class="px-2.5 py-1 rounded bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-40 text-xs font-mono border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 transition-colors shadow-sm">‹ Prev</button>
-
-            <template x-for="p in visiblePages()" :key="p">
-              <div>
-                <template x-if="p === '...'">
-                  <span class="px-2 py-1 text-xs text-slate-400 dark:text-slate-500 font-mono">...</span>
-                </template>
-                <template x-if="p !== '...'">
-                  <button @click="goToPage(p)" 
-                          class="px-2.5 py-1 rounded text-xs font-mono font-semibold transition-colors border"
-                          :class="currentPage === p 
-                            ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm' 
-                            : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 border-slate-200 dark:border-slate-700 shadow-sm'"
-                          x-text="p"></button>
-                </template>
-              </div>
-            </template>
-
-            <button @click="goToPage(currentPage + 1)" :disabled="currentPage === totalPages()" 
-                    class="px-2.5 py-1 rounded bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-40 text-xs font-mono border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 transition-colors shadow-sm">Next ›</button>
-            <button @click="goToPage(totalPages())" :disabled="currentPage === totalPages()" 
-                    class="px-2.5 py-1 rounded bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-40 text-xs font-mono border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 transition-colors shadow-sm">Last »</button>
+          <div class="flex items-center gap-1.5 ml-auto sm:ml-0">
+            <button 
+              :disabled="currentPage <= 1" 
+              @click="currentPage = Math.max(1, (parseInt(currentPage, 10) || 1) - 1); scrollToSection('pins-table-section')" 
+              class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 disabled:opacity-40 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors shadow-2xs">
+              ← Prev
+            </button>
+            <div class="flex items-center gap-1 text-slate-500 dark:text-slate-400">
+              <span>Page</span>
+              <input 
+                type="number" 
+                min="1" 
+                :max="totalPages()" 
+                x-model.number="currentPage" 
+                @change="currentPage = Math.max(1, Math.min(totalPages(), parseInt(currentPage, 10) || 1)); scrollToSection('pins-table-section')"
+                class="w-12 text-center py-0.5 px-1 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-900 dark:text-white" 
+              />
+              <span x-text="'/ ' + totalPages()"></span>
+            </div>
+            <button 
+              :disabled="currentPage >= totalPages()" 
+              @click="currentPage = Math.min(totalPages(), (parseInt(currentPage, 10) || 1) + 1); scrollToSection('pins-table-section')" 
+              class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 disabled:opacity-40 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors shadow-2xs">
+              Next →
+            </button>
           </div>
         </div>
       </div>
@@ -1027,7 +1027,7 @@ export function getCampaignFoldersPageHtml(folderId = '') {
       </div>
 
       <!-- SECTION 5: Creator & Domain Monopoly Breakdown -->
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div class="space-y-6">
 
         <!-- Domain Monopoly Breakdown -->
         <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm dark:shadow-xl flex flex-col transition-colors">
@@ -1185,7 +1185,7 @@ export function getCampaignFoldersPageHtml(folderId = '') {
               <tbody class="divide-y divide-slate-200 dark:divide-slate-800/60 text-slate-700 dark:text-slate-300">
                 <template x-for="cm in (crossoverData?.creator_monopoly || []).slice(0, 10)" :key="cm.username">
                   <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                    <td class="p-3.5 max-w-[140px] truncate">
+                    <td class="p-3.5 max-w-xs sm:max-w-sm truncate">
                       <span class="font-bold text-slate-900 dark:text-white block truncate" x-text="cm.display_name || cm.username"></span>
                       <span class="text-[10px] text-slate-400 dark:text-slate-500 block truncate" x-text="'@' + cm.username"></span>
                     </td>
@@ -1197,7 +1197,7 @@ export function getCampaignFoldersPageHtml(folderId = '') {
                       </div>
                     </td>
                     <td class="p-3.5 text-right font-sans">
-                      <button @click="setEntityFilter('creator', cm.username)" class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs border border-slate-300 dark:border-slate-700 transition-colors shadow-sm">
+                      <button @click="setEntityFilter('creator', cm.username)" class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs border border-slate-300 dark:border-slate-700 transition-colors shadow-sm cursor-pointer">
                         Filter →
                       </button>
                     </td>
@@ -1384,7 +1384,7 @@ export function getCampaignFoldersPageHtml(folderId = '') {
         scopeFilter: 'all',
         sortBy: 'saves_desc',
         currentPage: 1,
-        pageSize: 50,
+        pageSize: 10,
         searchQuery: '',
         entityFilter: { type: null, value: null },
         showBlueprint: true,
@@ -2070,23 +2070,30 @@ export function getCampaignFoldersPageHtml(folderId = '') {
 
         totalPages() {
           const total = this.filteredPinsList().length;
-          return Math.max(1, Math.ceil(total / this.pageSize));
+          const pageSize = Math.max(1, parseInt(this.pageSize, 10) || 10);
+          return Math.max(1, Math.ceil(total / pageSize));
         },
 
         paginatedPins() {
           const list = this.filteredPinsList();
-          const maxPage = Math.max(1, Math.ceil(list.length / this.pageSize));
-          if (this.currentPage > maxPage) {
-            this.currentPage = 1;
-          }
-          const start = (this.currentPage - 1) * this.pageSize;
-          return list.slice(start, start + this.pageSize);
+          const pageSize = Math.max(1, parseInt(this.pageSize, 10) || 10);
+          const maxPage = Math.max(1, Math.ceil(list.length / pageSize));
+          let page = parseInt(this.currentPage, 10);
+          if (!page || isNaN(page) || page < 1) page = 1;
+          if (page > maxPage) page = maxPage;
+          const start = (page - 1) * pageSize;
+          return list.slice(start, start + pageSize);
         },
 
         goToPage(page) {
           const total = this.totalPages();
-          if (page >= 1 && page <= total) {
-            this.currentPage = page;
+          const p = parseInt(page, 10);
+          if (!p || isNaN(p) || p < 1) {
+            this.currentPage = 1;
+          } else if (p > total) {
+            this.currentPage = total;
+          } else {
+            this.currentPage = p;
           }
         },
 
