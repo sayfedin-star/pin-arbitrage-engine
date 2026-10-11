@@ -716,7 +716,13 @@ async function run() {
           console.log(`  [+] Stage 1 Fast Crawl Success: Crawled ${crawlRes.crawled_pins} pins | Velocity: +${crawlRes.avg_velocity} saves/day`);
 
           // Stage 2: Deep Inspection across both Active SERP and Displaced Vault
-          const activeLimit = Math.max(25, Math.min(1000, maxPins || kw.target_pin_count || 250));
+          // Timeout Protection Guard: In multi-keyword batch chunk mode (keywordsToProcess > 1),
+          // cap inspection to top 20 active candidate pins + 5 vault pins per keyword.
+          // This keeps per-keyword inspection time at ~1.3m, allowing 15-20 keywords to finish comfortably in ~20-25m (well within 55m timeout).
+          // In single-keyword dedicated mode, inspect full 250 pins.
+          const isBatchFleet = keywordsToProcess.length > 1;
+          const activeLimit = isBatchFleet ? 20 : Math.max(25, Math.min(1000, maxPins || kw.target_pin_count || 250));
+          const vaultLimit = isBatchFleet ? 5 : 30;
           const activePins = await sql`
             SELECT 
               pin_id, rank_position, last_known_rank, title, domain, destination_url, image_url,
@@ -745,7 +751,7 @@ async function run() {
                 WHERE kip.keyword_id = ${kw.id} AND kip.pin_id = keyword_serp_current.pin_id
               )
             ORDER BY updated_at ASC NULLS FIRST
-            LIMIT 30;
+            LIMIT ${vaultLimit};
           `;
 
           const pinMap = new Map();

@@ -1166,22 +1166,23 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
       );
 
       // 24h Daily Save Velocity is evaluated against previous day's baseline
-      // Time-Normalized: Divides delta by actual elapsed days to prevent multi-day velocity inflation
+      // Time-Normalized: Divides delta by pure UTC calendar days to prevent intraday hour bias or multi-day velocity inflation
       let velocity = 0;
       const todayDate = new Date();
+      const todayUtc = Date.UTC(todayDate.getUTCFullYear(), todayDate.getUTCMonth(), todayDate.getUTCDate());
       if (baselineMap.has(pinId)) {
         const rawDelta = Math.max(0, confirmedSaves - baselineMap.get(pinId));
         let daysElapsed = 1;
         if (baselineSnapshotDate) {
-          const diffMs = todayDate.getTime() - baselineSnapshotDate.getTime();
-          daysElapsed = Math.max(1, Math.round(diffMs / (1000 * 60 * 60 * 24)));
+          const baseUtc = Date.UTC(baselineSnapshotDate.getUTCFullYear(), baselineSnapshotDate.getUTCMonth(), baselineSnapshotDate.getUTCDate());
+          daysElapsed = Math.max(1, Math.round((todayUtc - baseUtc) / (1000 * 60 * 60 * 24)));
         }
         velocity = Math.round(rawDelta / daysElapsed);
       } else if (immediateData && String(immediateData.snapshotDate).slice(0, 10) < todayDate.toISOString().slice(0, 10)) {
         const rawDelta = Math.max(0, confirmedSaves - immediateData.saves);
         const immDate = new Date(immediateData.snapshotDate);
-        const diffMs = todayDate.getTime() - immDate.getTime();
-        const daysElapsed = Math.max(1, Math.round(diffMs / (1000 * 60 * 60 * 24)));
+        const immUtc = Date.UTC(immDate.getUTCFullYear(), immDate.getUTCMonth(), immDate.getUTCDate());
+        const daysElapsed = Math.max(1, Math.round((todayUtc - immUtc) / (1000 * 60 * 60 * 24)));
         velocity = Math.round(rawDelta / daysElapsed);
       }
 
