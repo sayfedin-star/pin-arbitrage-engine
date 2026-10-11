@@ -568,38 +568,189 @@ export function getCampaignFoldersPageHtml(folderId = '') {
           </template>
         </div>
 
-        <!-- Subsection A: Co-Occurring Power Pairs Grid -->
-        <div class="space-y-3">
-          <div class="flex items-center justify-between">
-            <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono">Co-Occurring Visual Power Pairs (Algorithmic Lift)</h4>
-            <span class="text-[10px] text-slate-400 font-mono">Top combinations with high intra-SERP affinity</span>
-          </div>
+        <!-- Subsection A: Co-Occurring Power Pairs Grid & Table -->
+        <div class="space-y-4">
+          <!-- Sub-header & Controls Bar -->
+          <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 p-3 rounded-2xl bg-slate-50/80 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800">
+            <div class="flex items-center gap-2.5 flex-wrap">
+              <h4 class="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 font-mono">Co-Occurring Visual Power Pairs</h4>
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30"
+                    x-text="powerPairs.length + ' Pairs Computed'"></span>
+            </div>
 
-          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3" x-show="powerPairs.length > 0">
-            <template x-for="(pair, idx) in powerPairs.slice(0, 8)" :key="idx">
-              <div class="p-3.5 rounded-2xl bg-slate-50/70 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 flex flex-col justify-between space-y-2.5 hover:border-purple-500/40 transition group shadow-sm">
-                <div class="space-y-2">
-                  <div class="flex items-center justify-between">
-                    <span class="px-2 py-0.5 rounded-md text-[9px] font-mono font-black bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30"
-                          x-text="pair.lift + 'x Lift'"></span>
-                    <span class="text-[9px] font-mono text-slate-400" x-text="pair.joint_count + ' Pins (' + pair.support_pct + '%)'"></span>
-                  </div>
-                  <div class="flex items-center space-x-1.5 text-xs font-bold text-slate-900 dark:text-white truncate">
-                    <button @click="searchQuery = pair.tag_a; currentPage = 1; scrollToSection('pins-table-section')" class="capitalize text-emerald-600 dark:text-emerald-400 hover:underline truncate cursor-pointer" :title="'Filter Pins: #' + pair.tag_a" x-text="pair.tag_a"></button>
-                    <span class="text-slate-400">+</span>
-                    <button @click="searchQuery = pair.tag_b; currentPage = 1; scrollToSection('pins-table-section')" class="capitalize text-purple-600 dark:text-purple-400 hover:underline truncate cursor-pointer" :title="'Filter Pins: #' + pair.tag_b" x-text="pair.tag_b"></button>
-                  </div>
-                </div>
-                <button @click="copyVisualBlueprint(pair)"
-                        class="w-full py-1.5 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 text-[10px] font-bold font-mono transition flex items-center justify-center space-x-1 cursor-pointer">
-                  <span>📋 Copy Visual Blueprint</span>
+            <div class="flex items-center gap-2.5 flex-wrap">
+              <!-- Search within pairs -->
+              <div class="relative">
+                <input type="text" 
+                       x-model="powerPairsSearch" 
+                       @input="powerPairsPage = 1"
+                       placeholder="Filter pairs (e.g. Steak, Chicken)..." 
+                       class="px-3 py-1.5 pl-8 rounded-xl text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/30 w-48 sm:w-56 font-sans">
+                <span class="absolute left-2.5 top-2 text-xs text-slate-400">🔍</span>
+                <button x-show="powerPairsSearch" @click="powerPairsSearch = ''; powerPairsPage = 1" class="absolute right-2.5 top-1.5 text-xs text-slate-400 hover:text-slate-600 cursor-pointer">✕</button>
+              </div>
+
+              <!-- View Switcher -->
+              <div class="flex items-center rounded-xl bg-white dark:bg-slate-900 p-0.5 border border-slate-200 dark:border-slate-800 text-xs font-mono">
+                <button @click="powerPairsView = 'cards'" 
+                        :class="powerPairsView === 'cards' ? 'bg-purple-600 text-white font-bold shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
+                        class="px-2.5 py-1 rounded-lg transition flex items-center gap-1.5 cursor-pointer">
+                  <span>🎴</span>
+                  <span>Cards</span>
+                </button>
+                <button @click="powerPairsView = 'table'" 
+                        :class="powerPairsView === 'table' ? 'bg-purple-600 text-white font-bold shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
+                        class="px-2.5 py-1 rounded-lg transition flex items-center gap-1.5 cursor-pointer">
+                  <span>📊</span>
+                  <span>Table</span>
                 </button>
               </div>
-            </template>
+            </div>
           </div>
 
-          <div x-show="!powerPairs.length" class="py-6 text-center text-xs text-slate-400 font-mono rounded-2xl bg-slate-50/70 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800">
-            Indexing visual tags... Co-occurring power pairs require at least 2 pins with shared visual annotations.
+          <!-- 1. CARDS VIEW -->
+          <div x-show="powerPairsView === 'cards' && filteredPowerPairs().length > 0" class="space-y-4">
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+              <template x-for="(pair, idx) in filteredPowerPairs().slice(0, powerPairsLimit)" :key="idx">
+                <div class="p-4 rounded-2xl bg-white dark:bg-slate-950/80 border border-slate-200 dark:border-slate-800 flex flex-col justify-between gap-3 hover:border-purple-500/50 hover:shadow-md transition group shadow-sm">
+                  <!-- Top Metrics Bar -->
+                  <div class="flex items-center justify-between">
+                    <span class="px-2.5 py-0.5 rounded-lg text-[10px] font-mono font-black bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30"
+                          x-text="pair.lift + 'x Lift'"></span>
+                    <span class="text-[10px] font-mono text-slate-500 dark:text-slate-400" x-text="pair.joint_count + ' Pins (' + pair.support_pct + '%)'"></span>
+                  </div>
+
+                  <!-- Stacked Full-Width Tags (No Truncation) -->
+                  <div class="flex flex-col gap-2">
+                    <div class="p-2.5 rounded-xl bg-emerald-500/10 dark:bg-emerald-500/15 border border-emerald-500/25 flex items-start justify-between gap-2">
+                      <div class="flex items-start gap-1.5 min-w-0">
+                        <span class="text-xs mt-0.5">🏷️</span>
+                        <button @click="searchQuery = pair.tag_a; currentPage = 1; scrollToSection('pins-table-section')" 
+                                class="text-xs font-bold text-emerald-700 dark:text-emerald-300 hover:underline text-left leading-snug cursor-pointer break-words" 
+                                :title="'Filter Pins: #' + pair.tag_a" 
+                                x-text="pair.tag_a"></button>
+                      </div>
+                      <span class="text-[9px] font-mono text-emerald-600 dark:text-emerald-400 font-bold flex-shrink-0 uppercase">Tag A</span>
+                    </div>
+
+                    <!-- Synergy Connector -->
+                    <div class="flex items-center justify-center -my-1">
+                      <span class="text-[9px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-purple-600 dark:text-purple-400 flex items-center gap-1 shadow-2xs">
+                        <span>⚡</span>
+                        <span>High Synergy With</span>
+                      </span>
+                    </div>
+
+                    <!-- Tag B Block -->
+                    <div class="p-2.5 rounded-xl bg-purple-500/10 dark:bg-purple-500/15 border border-purple-500/25 flex items-start justify-between gap-2">
+                      <div class="flex items-start gap-1.5 min-w-0">
+                        <span class="text-xs mt-0.5">🏷️</span>
+                        <button @click="searchQuery = pair.tag_b; currentPage = 1; scrollToSection('pins-table-section')" 
+                                class="text-xs font-bold text-purple-700 dark:text-purple-300 hover:underline text-left leading-snug cursor-pointer break-words" 
+                                :title="'Filter Pins: #' + pair.tag_b" 
+                                x-text="pair.tag_b"></button>
+                      </div>
+                      <span class="text-[9px] font-mono text-purple-600 dark:text-purple-400 font-bold flex-shrink-0 uppercase">Tag B</span>
+                    </div>
+                  </div>
+
+                  <!-- Copy Blueprint Button -->
+                  <button @click="copyVisualBlueprint(pair)"
+                          class="w-full py-2 rounded-xl bg-slate-100 hover:bg-purple-600 hover:text-white dark:bg-slate-900 dark:hover:bg-purple-600 text-slate-700 dark:text-slate-300 text-xs font-bold font-mono transition flex items-center justify-center gap-1.5 border border-slate-200 dark:border-slate-800 cursor-pointer shadow-2xs group-hover:border-purple-500/40">
+                    <span>📋</span>
+                    <span>Copy Visual Blueprint</span>
+                  </button>
+                </div>
+              </template>
+            </div>
+
+            <!-- Cards Expansion Controls -->
+            <div class="flex items-center justify-between p-3 rounded-2xl bg-slate-50/60 dark:bg-slate-950/40 border border-slate-200 dark:border-slate-800 text-xs">
+              <span class="font-mono text-slate-500 dark:text-slate-400" 
+                    x-text="'Showing ' + Math.min(powerPairsLimit, filteredPowerPairs().length) + ' of ' + filteredPowerPairs().length + ' Power Pairs'"></span>
+              <div class="flex items-center gap-2">
+                <button x-show="powerPairsLimit < filteredPowerPairs().length" 
+                        @click="powerPairsLimit += 12" 
+                        class="px-3 py-1.5 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 font-bold font-mono transition cursor-pointer">
+                  <span>↓ Show More (+12)</span>
+                </button>
+                <button x-show="powerPairsLimit < filteredPowerPairs().length" 
+                        @click="powerPairsLimit = filteredPowerPairs().length" 
+                        class="px-3 py-1.5 rounded-xl bg-slate-200/80 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold font-mono transition cursor-pointer">
+                  <span>Show All (<span x-text="filteredPowerPairs().length"></span>)</span>
+                </button>
+                <button x-show="powerPairsLimit > 12" 
+                        @click="powerPairsLimit = 12" 
+                        class="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 font-bold font-mono transition cursor-pointer">
+                  <span>↑ Collapse to 12</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 2. TABLE VIEW -->
+          <div x-show="powerPairsView === 'table' && filteredPowerPairs().length > 0" class="space-y-3">
+            <div class="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950">
+              <table class="w-full text-left text-xs font-mono">
+                <thead class="bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 uppercase text-[10px]">
+                  <tr>
+                    <th class="p-3 w-12 text-center">#</th>
+                    <th class="p-3">Visual Anchor (Tag A)</th>
+                    <th class="p-3 w-8 text-center"></th>
+                    <th class="p-3">Synergy Partner (Tag B)</th>
+                    <th class="p-3">Algorithmic Lift</th>
+                    <th class="p-3">Pins Frequency</th>
+                    <th class="p-3 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-200 dark:divide-slate-800/60 text-slate-700 dark:text-slate-300">
+                  <template x-for="(pair, idx) in paginatedPowerPairsTable()" :key="idx">
+                    <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
+                      <td class="p-3 text-center text-slate-400 font-mono" x-text="((powerPairsPage - 1) * powerPairsPageSize) + idx + 1"></td>
+                      <td class="p-3">
+                        <button @click="searchQuery = pair.tag_a; currentPage = 1; scrollToSection('pins-table-section')" 
+                                class="px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold hover:underline cursor-pointer border border-emerald-500/20 text-left inline-block" 
+                                x-text="'🏷️ ' + pair.tag_a"></button>
+                      </td>
+                      <td class="p-3 text-center text-purple-500 font-bold">⚡</td>
+                      <td class="p-3">
+                        <button @click="searchQuery = pair.tag_b; currentPage = 1; scrollToSection('pins-table-section')" 
+                                class="px-2.5 py-1 rounded-lg bg-purple-500/10 text-purple-600 dark:text-purple-400 font-bold hover:underline cursor-pointer border border-purple-500/20 text-left inline-block" 
+                                x-text="'🏷️ ' + pair.tag_b"></button>
+                      </td>
+                      <td class="p-3">
+                        <span class="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30" x-text="pair.lift + 'x Lift'"></span>
+                      </td>
+                      <td class="p-3 font-mono">
+                        <span class="font-bold text-slate-900 dark:text-white" x-text="pair.joint_count + ' pins'"></span>
+                        <span class="text-slate-400 text-[10px]" x-text="' (' + pair.support_pct + '%)'"></span>
+                      </td>
+                      <td class="p-3 text-right">
+                        <button @click="copyVisualBlueprint(pair)" class="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-xs transition-colors inline-flex items-center gap-1 cursor-pointer">
+                          <span>📋</span>
+                          <span>Blueprint</span>
+                        </button>
+                      </td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Table Pagination -->
+            <div class="flex items-center justify-between p-3 rounded-2xl bg-slate-50/60 dark:bg-slate-950/40 border border-slate-200 dark:border-slate-800 text-xs font-mono">
+              <span class="text-slate-500 dark:text-slate-400" 
+                    x-text="'Page ' + powerPairsPage + ' of ' + totalPowerPairsPages() + ' (' + filteredPowerPairs().length + ' pairs)'"></span>
+              <div class="flex items-center gap-1.5">
+                <button :disabled="powerPairsPage <= 1" @click="powerPairsPage--" class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 disabled:opacity-40 cursor-pointer">← Prev</button>
+                <button :disabled="powerPairsPage >= totalPowerPairsPages()" @click="powerPairsPage++" class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 disabled:opacity-40 cursor-pointer">Next →</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Empty state when searching -->
+          <div x-show="filteredPowerPairs().length === 0" class="py-8 text-center text-xs text-slate-400 font-mono rounded-2xl bg-slate-50/70 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800">
+            No visual power pairs match "<span x-text="powerPairsSearch"></span>".
           </div>
         </div>
 
@@ -960,6 +1111,31 @@ export function getCampaignFoldersPageHtml(folderId = '') {
         _pinsCacheKey: '',
         _cachedFilteredPins: null,
         powerPairs: [],
+        powerPairsView: 'cards',
+        powerPairsLimit: 12,
+        powerPairsSearch: '',
+        powerPairsPage: 1,
+        powerPairsPageSize: 15,
+
+        filteredPowerPairs() {
+          if (!this.powerPairs || this.powerPairs.length === 0) return [];
+          if (!this.powerPairsSearch.trim()) return this.powerPairs;
+          const q = this.powerPairsSearch.toLowerCase().trim();
+          return this.powerPairs.filter(p => 
+            p.tag_a.toLowerCase().includes(q) || 
+            p.tag_b.toLowerCase().includes(q)
+          );
+        },
+
+        paginatedPowerPairsTable() {
+          const list = this.filteredPowerPairs();
+          const start = (this.powerPairsPage - 1) * this.powerPairsPageSize;
+          return list.slice(start, start + this.powerPairsPageSize);
+        },
+
+        totalPowerPairsPages() {
+          return Math.ceil(this.filteredPowerPairs().length / this.powerPairsPageSize) || 1;
+        },
         toasts: [],
         colorOptions: ['#6366f1', '#ec4899', '#10b981', '#f59e0b', '#8b5cf6', '#06b6d4'],
 
@@ -1130,16 +1306,17 @@ export function getCampaignFoldersPageHtml(folderId = '') {
           ]);
 
           const toTitleCase = (str) => {
-            return str.split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+            if (!str) return '';
+            return str.split(' ').filter(Boolean).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
           };
 
           for (const pin of pins) {
             const rawSet = new Set();
             for (const va of (pin.visual_annotations || [])) {
               if (typeof va === 'string') {
-                // Preserve spaces between words, strip punctuation
-                const clean = va.trim().toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
-                if (clean.length >= 3 && clean.length <= 32 && !skipWords.has(clean)) {
+                // Preserve spaces between words, strip punctuation without template-string regex hazards
+                const clean = va.trim().toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/  +/g, ' ').trim();
+                if (clean.length >= 3 && clean.length <= 35 && !skipWords.has(clean)) {
                   rawSet.add(clean);
                 }
               }
