@@ -585,9 +585,20 @@ export function getCampaignFoldersPageHtml(folderId = '') {
                        x-model="powerPairsSearch" 
                        @input="powerPairsPage = 1"
                        placeholder="Filter pairs (e.g. Steak, Chicken)..." 
-                       class="px-3 py-1.5 pl-8 rounded-xl text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/30 w-48 sm:w-56 font-sans">
+                       class="px-3 py-1.5 pl-8 rounded-xl text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/30 w-44 sm:w-52 font-sans">
                 <span class="absolute left-2.5 top-2 text-xs text-slate-400">🔍</span>
                 <button x-show="powerPairsSearch" @click="powerPairsSearch = ''; powerPairsPage = 1" class="absolute right-2.5 top-1.5 text-xs text-slate-400 hover:text-slate-600 cursor-pointer">✕</button>
+              </div>
+
+              <!-- Sort Selector (Pins Frequency, Lift, Synergy) -->
+              <div class="flex items-center gap-1.5 text-xs font-mono">
+                <span class="text-slate-400">Sort:</span>
+                <select x-model="powerPairsSort" @change="powerPairsPage = 1" class="px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 text-xs font-sans focus:outline-none cursor-pointer">
+                  <option value="synergy_desc">⚡ Balanced Synergy (Default)</option>
+                  <option value="freq_desc">🔥 Pins Frequency (High → Low)</option>
+                  <option value="lift_desc">🚀 Algorithmic Lift (High → Low)</option>
+                  <option value="tag_asc">🏷️ Tag A (A → Z)</option>
+                </select>
               </div>
 
               <!-- View Switcher -->
@@ -694,12 +705,20 @@ export function getCampaignFoldersPageHtml(folderId = '') {
               <table class="w-full text-left text-xs font-mono">
                 <thead class="bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 uppercase text-[10px]">
                   <tr>
-                    <th class="p-3 w-12 text-center">#</th>
-                    <th class="p-3">Visual Anchor (Tag A)</th>
+                    <th @click="togglePowerPairsSort('synergy')" class="p-3 w-12 text-center cursor-pointer hover:text-indigo-600 select-none" title="Sort by Balanced Synergy">
+                      # <span x-show="powerPairsSort === 'synergy_desc'">⚡</span>
+                    </th>
+                    <th @click="togglePowerPairsSort('tag')" class="p-3 cursor-pointer hover:text-indigo-600 select-none" title="Sort by Tag Name">
+                      Visual Anchor (Tag A) <span x-show="powerPairsSort.startsWith('tag')" x-text="powerPairsSort === 'tag_asc' ? '↑' : '↓'"></span>
+                    </th>
                     <th class="p-3 w-8 text-center"></th>
                     <th class="p-3">Synergy Partner (Tag B)</th>
-                    <th class="p-3">Algorithmic Lift</th>
-                    <th class="p-3">Pins Frequency</th>
+                    <th @click="togglePowerPairsSort('lift')" class="p-3 cursor-pointer hover:text-indigo-600 select-none" title="Sort by Algorithmic Lift">
+                      Algorithmic Lift <span x-show="powerPairsSort.startsWith('lift')" x-text="powerPairsSort === 'lift_desc' ? '↓' : '↑'"></span>
+                    </th>
+                    <th @click="togglePowerPairsSort('freq')" class="p-3 cursor-pointer hover:text-indigo-600 select-none" title="Sort by Pins Frequency">
+                      Pins Frequency <span x-show="powerPairsSort.startsWith('freq')" x-text="powerPairsSort === 'freq_desc' ? '↓' : '↑'"></span>
+                    </th>
                     <th class="p-3 text-right">Action</th>
                   </tr>
                 </thead>
@@ -755,28 +774,199 @@ export function getCampaignFoldersPageHtml(folderId = '') {
         </div>
 
         <!-- Subsection B: Core Visual Anchors Matrix -->
-        <div class="space-y-3 pt-2">
-          <div class="flex items-center justify-between">
-            <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono">Core Visual Anchors (Frequency Across Ranking Pins)</h4>
-            <span class="text-[10px] text-slate-400 font-mono" x-text="coreAnchorsList.length + ' Anchors Detected'"></span>
-          </div>
+        <div class="space-y-4 pt-2">
+          <!-- Controls Bar -->
+          <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 p-3 rounded-2xl bg-slate-50/80 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800">
+            <div class="flex items-center gap-2.5 flex-wrap">
+              <h4 class="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 font-mono">Core Visual Anchors</h4>
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30"
+                    x-text="filteredAnchorsList().length + ' / ' + coreAnchorsList.length + ' Anchors'"></span>
+            </div>
 
-          <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5" x-show="coreAnchorsList.length > 0">
-            <template x-for="(anchor, idx) in coreAnchorsList.slice(0, 24)" :key="anchor.tag">
-              <button @click="searchQuery = anchor.tag; currentPage = 1; scrollToSection('pins-table-section')"
-                      class="p-2.5 rounded-2xl bg-slate-50/70 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 text-left hover:border-purple-500/40 transition cursor-pointer flex flex-col justify-between group shadow-sm"
-                      :class="searchQuery.toLowerCase() === anchor.tag.toLowerCase() ? 'border-purple-500 ring-2 ring-purple-500/20' : ''">
-                <div class="flex items-center justify-between text-[10px] font-mono text-slate-400 mb-1">
-                  <span x-text="'#' + (idx + 1)"></span>
-                  <span class="font-bold text-purple-600 dark:text-purple-400" x-text="anchor.count + ' Pins'"></span>
-                </div>
-                <div class="text-xs font-bold text-slate-900 dark:text-white capitalize truncate group-hover:text-purple-600 dark:group-hover:text-purple-400 transition" x-text="anchor.tag"></div>
+            <!-- Tier Filter Pills -->
+            <div class="flex items-center gap-1.5 flex-wrap text-xs font-mono">
+              <button @click="anchorsTier = 'all'; anchorsPage = 1" 
+                      :class="anchorsTier === 'all' ? 'bg-indigo-600 text-white font-bold' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700'"
+                      class="px-2.5 py-1 rounded-lg transition cursor-pointer">
+                All
               </button>
-            </template>
+              <button @click="anchorsTier = 'whales'; anchorsPage = 1" 
+                      :class="anchorsTier === 'whales' ? 'bg-indigo-600 text-white font-bold' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700'"
+                      class="px-2.5 py-1 rounded-lg transition cursor-pointer" title="Anchors with >= 25 Pins">
+                💎 Whales (≥25)
+              </button>
+              <button @click="anchorsTier = 'high'; anchorsPage = 1" 
+                      :class="anchorsTier === 'high' ? 'bg-indigo-600 text-white font-bold' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700'"
+                      class="px-2.5 py-1 rounded-lg transition cursor-pointer" title="Anchors with >= 10 Pins">
+                🔥 High (≥10)
+              </button>
+              <button @click="anchorsTier = 'core'; anchorsPage = 1" 
+                      :class="anchorsTier === 'core' ? 'bg-indigo-600 text-white font-bold' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700'"
+                      class="px-2.5 py-1 rounded-lg transition cursor-pointer" title="Anchors with >= 5 Pins">
+                ⚡ Core (≥5)
+              </button>
+            </div>
+
+            <div class="flex items-center gap-2.5 flex-wrap">
+              <!-- Search within Anchors -->
+              <div class="relative">
+                <input type="text" 
+                       x-model="anchorsSearch" 
+                       @input="anchorsPage = 1"
+                       placeholder="Filter anchors (e.g. Steak, Pasta)..." 
+                       class="px-3 py-1.5 pl-8 rounded-xl text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/30 w-44 sm:w-52 font-sans">
+                <span class="absolute left-2.5 top-2 text-xs text-slate-400">🔍</span>
+                <button x-show="anchorsSearch" @click="anchorsSearch = ''; anchorsPage = 1" class="absolute right-2.5 top-1.5 text-xs text-slate-400 hover:text-slate-600 cursor-pointer">✕</button>
+              </div>
+
+              <!-- View Switcher -->
+              <div class="flex items-center rounded-xl bg-white dark:bg-slate-900 p-0.5 border border-slate-200 dark:border-slate-800 text-xs font-mono">
+                <button @click="anchorsView = 'cards'" 
+                        :class="anchorsView === 'cards' ? 'bg-purple-600 text-white font-bold shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
+                        class="px-2.5 py-1 rounded-lg transition flex items-center gap-1.5 cursor-pointer" title="Cards Grid">
+                  <span>🎴</span>
+                  <span>Cards</span>
+                </button>
+                <button @click="anchorsView = 'cloud'" 
+                        :class="anchorsView === 'cloud' ? 'bg-purple-600 text-white font-bold shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
+                        class="px-2.5 py-1 rounded-lg transition flex items-center gap-1.5 cursor-pointer" title="Semantic Tag Cloud">
+                  <span>☁️</span>
+                  <span>Cloud</span>
+                </button>
+                <button @click="anchorsView = 'table'" 
+                        :class="anchorsView === 'table' ? 'bg-purple-600 text-white font-bold shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
+                        class="px-2.5 py-1 rounded-lg transition flex items-center gap-1.5 cursor-pointer" title="Full Paginated Table">
+                  <span>📊</span>
+                  <span>Table</span>
+                </button>
+              </div>
+            </div>
           </div>
 
-          <div x-show="!coreAnchorsList.length" class="py-4 text-center text-xs text-slate-400 font-mono rounded-2xl bg-slate-50/70 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800">
-            No visual anchors with >= 2 pins found yet.
+          <!-- 1. CARDS GRID VIEW -->
+          <div x-show="anchorsView === 'cards' && filteredAnchorsList().length > 0" class="space-y-4">
+            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
+              <template x-for="(anchor, idx) in filteredAnchorsList().slice(0, anchorsLimit)" :key="anchor.tag">
+                <button @click="searchQuery = anchor.tag; currentPage = 1; scrollToSection('pins-table-section')"
+                        class="p-2.5 rounded-2xl bg-slate-50/70 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 text-left hover:border-purple-500/40 transition cursor-pointer flex flex-col justify-between group shadow-sm"
+                        :class="searchQuery.toLowerCase() === anchor.tag.toLowerCase() ? 'border-purple-500 ring-2 ring-purple-500/20' : ''">
+                  <div class="flex items-center justify-between text-[10px] font-mono text-slate-400 mb-1">
+                    <span x-text="'#' + (idx + 1)"></span>
+                    <span class="font-bold text-purple-600 dark:text-purple-400" x-text="anchor.count + ' Pins'"></span>
+                  </div>
+                  <div class="text-xs font-bold text-slate-900 dark:text-white capitalize truncate group-hover:text-purple-600 dark:group-hover:text-purple-400 transition" x-text="anchor.tag"></div>
+                </button>
+              </template>
+            </div>
+
+            <!-- Cards Expansion Controls -->
+            <div class="flex items-center justify-between p-3 rounded-2xl bg-slate-50/60 dark:bg-slate-950/40 border border-slate-200 dark:border-slate-800 text-xs">
+              <span class="font-mono text-slate-500 dark:text-slate-400" 
+                    x-text="'Showing ' + Math.min(anchorsLimit, filteredAnchorsList().length) + ' of ' + filteredAnchorsList().length + ' Visual Anchors'"></span>
+              <div class="flex items-center gap-2 font-mono">
+                <button x-show="anchorsLimit < filteredAnchorsList().length" 
+                        @click="anchorsLimit += 36" 
+                        class="px-3 py-1.5 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 font-bold transition cursor-pointer">
+                  <span>↓ Show More (+36)</span>
+                </button>
+                <button x-show="anchorsLimit < filteredAnchorsList().length" 
+                        @click="anchorsLimit = filteredAnchorsList().length" 
+                        class="px-3 py-1.5 rounded-xl bg-slate-200/80 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold transition cursor-pointer">
+                  <span>Show All (<span x-text="filteredAnchorsList().length"></span>)</span>
+                </button>
+                <button x-show="anchorsLimit > 24" 
+                        @click="anchorsLimit = 24" 
+                        class="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 font-bold transition cursor-pointer">
+                  <span>↑ Collapse to 24</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 2. SEMANTIC TAG CLOUD VIEW -->
+          <div x-show="anchorsView === 'cloud' && filteredAnchorsList().length > 0" class="p-4 rounded-2xl bg-slate-50/70 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 space-y-3">
+            <div class="flex items-center justify-between text-xs text-slate-400 font-mono pb-2 border-b border-slate-200 dark:border-slate-800">
+              <span>Dynamic Tag Cloud (Size & Glow scaled by Pin Frequency across cluster)</span>
+              <span>Click any tag to filter 1,788 pins</span>
+            </div>
+            <div class="flex flex-wrap gap-2 items-center justify-center py-4">
+              <template x-for="anchor in filteredAnchorsList().slice(0, 120)" :key="anchor.tag">
+                <button @click="searchQuery = anchor.tag; currentPage = 1; scrollToSection('pins-table-section')"
+                        class="rounded-xl font-bold transition-all cursor-pointer flex items-center gap-1.5"
+                        :class="[
+                          searchQuery.toLowerCase() === anchor.tag.toLowerCase() ? 'ring-2 ring-purple-500 bg-purple-600 text-white' : '',
+                          anchor.count >= 40 
+                            ? 'px-3.5 py-1.5 text-sm bg-purple-500/20 text-purple-700 dark:text-purple-300 border border-purple-500/40 hover:bg-purple-500/30 shadow-xs' 
+                            : (anchor.count >= 15 
+                              ? 'px-3 py-1 text-xs bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30 hover:bg-indigo-500/25' 
+                              : 'px-2.5 py-0.5 text-[11px] bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:border-purple-400')
+                        ]">
+                  <span x-text="anchor.tag"></span>
+                  <span class="text-[9px] font-mono opacity-70 px-1 py-0.2 rounded bg-black/10 dark:bg-white/10" x-text="anchor.count"></span>
+                </button>
+              </template>
+            </div>
+          </div>
+
+          <!-- 3. TABLE VIEW -->
+          <div x-show="anchorsView === 'table' && filteredAnchorsList().length > 0" class="space-y-3">
+            <div class="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950">
+              <table class="w-full text-left text-xs font-mono">
+                <thead class="bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 uppercase text-[10px]">
+                  <tr>
+                    <th class="p-3 w-16 text-center">Rank #</th>
+                    <th class="p-3">Visual Anchor Tag</th>
+                    <th class="p-3">Pins Frequency</th>
+                    <th class="p-3">Cluster Share (SOV %)</th>
+                    <th class="p-3 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-200 dark:divide-slate-800/60 text-slate-700 dark:text-slate-300">
+                  <template x-for="(anchor, idx) in paginatedAnchorsTable()" :key="anchor.tag">
+                    <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
+                      <td class="p-3 text-center text-slate-400 font-mono" x-text="'#' + (((anchorsPage - 1) * anchorsPageSize) + idx + 1)"></td>
+                      <td class="p-3">
+                        <button @click="searchQuery = anchor.tag; currentPage = 1; scrollToSection('pins-table-section')" 
+                                class="font-bold text-slate-900 dark:text-white hover:text-purple-600 dark:hover:text-purple-400 hover:underline cursor-pointer flex items-center gap-1.5 text-left">
+                          <span>🏷️</span>
+                          <span x-text="anchor.tag"></span>
+                        </button>
+                      </td>
+                      <td class="p-3">
+                        <div class="flex items-center gap-2">
+                          <div class="w-24 bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                            <div class="h-full rounded-full bg-purple-500" :style="'width: ' + Math.min(100, Math.round((anchor.count / (coreAnchorsList[0]?.count || 1)) * 100)) + '%'"></div>
+                          </div>
+                          <span class="font-bold text-purple-600 dark:text-purple-400 font-mono" x-text="anchor.count + ' pins'"></span>
+                        </div>
+                      </td>
+                      <td class="p-3 text-slate-500 dark:text-slate-400 font-mono" 
+                          x-text="((anchor.count / (crossoverData?.all_pins?.length || 1788)) * 100).toFixed(1) + '%'"></td>
+                      <td class="p-3 text-right">
+                        <button @click="searchQuery = anchor.tag; currentPage = 1; scrollToSection('pins-table-section')" 
+                                class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-purple-600 hover:text-white dark:bg-slate-900 dark:hover:bg-purple-600 text-slate-700 dark:text-slate-200 text-xs font-semibold border border-slate-200 dark:border-slate-800 transition-colors shadow-2xs">
+                          Filter Pins →
+                        </button>
+                      </td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Anchors Table Pagination -->
+            <div class="flex items-center justify-between p-3 rounded-2xl bg-slate-50/60 dark:bg-slate-950/40 border border-slate-200 dark:border-slate-800 text-xs font-mono">
+              <span class="text-slate-500 dark:text-slate-400" 
+                    x-text="'Page ' + anchorsPage + ' of ' + totalAnchorsPages() + ' (' + filteredAnchorsList().length + ' anchors)'"></span>
+              <div class="flex items-center gap-1.5">
+                <button :disabled="anchorsPage <= 1" @click="anchorsPage--" class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 disabled:opacity-40 cursor-pointer">← Prev</button>
+                <button :disabled="anchorsPage >= totalAnchorsPages()" @click="anchorsPage++" class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 disabled:opacity-40 cursor-pointer">Next →</button>
+              </div>
+            </div>
+          </div>
+
+          <div x-show="filteredAnchorsList().length === 0" class="py-8 text-center text-xs text-slate-400 font-mono rounded-2xl bg-slate-50/70 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800">
+            No visual anchors match current filter.
           </div>
         </div>
 
@@ -1114,17 +1304,58 @@ export function getCampaignFoldersPageHtml(folderId = '') {
         powerPairsView: 'cards',
         powerPairsLimit: 12,
         powerPairsSearch: '',
+        powerPairsSort: 'synergy_desc',
         powerPairsPage: 1,
         powerPairsPageSize: 15,
 
+        // Core Visual Anchors State
+        anchorsView: 'cards',
+        anchorsLimit: 24,
+        anchorsSearch: '',
+        anchorsTier: 'all',
+        anchorsPage: 1,
+        anchorsPageSize: 25,
+
+        togglePowerPairsSort(col) {
+          if (col === 'freq') {
+            this.powerPairsSort = this.powerPairsSort === 'freq_desc' ? 'freq_asc' : 'freq_desc';
+          } else if (col === 'lift') {
+            this.powerPairsSort = this.powerPairsSort === 'lift_desc' ? 'lift_asc' : 'lift_desc';
+          } else if (col === 'tag') {
+            this.powerPairsSort = this.powerPairsSort === 'tag_asc' ? 'tag_desc' : 'tag_asc';
+          } else {
+            this.powerPairsSort = 'synergy_desc';
+          }
+          this.powerPairsPage = 1;
+        },
+
         filteredPowerPairs() {
           if (!this.powerPairs || this.powerPairs.length === 0) return [];
-          if (!this.powerPairsSearch.trim()) return this.powerPairs;
-          const q = this.powerPairsSearch.toLowerCase().trim();
-          return this.powerPairs.filter(p => 
-            p.tag_a.toLowerCase().includes(q) || 
-            p.tag_b.toLowerCase().includes(q)
-          );
+          let list = this.powerPairs;
+          if (this.powerPairsSearch.trim()) {
+            const q = this.powerPairsSearch.toLowerCase().trim();
+            list = list.filter(p => 
+              p.tag_a.toLowerCase().includes(q) || 
+              p.tag_b.toLowerCase().includes(q)
+            );
+          }
+
+          if (this.powerPairsSort === 'freq_desc') {
+            list = list.slice().sort((a, b) => b.joint_count - a.joint_count || b.lift - a.lift);
+          } else if (this.powerPairsSort === 'freq_asc') {
+            list = list.slice().sort((a, b) => a.joint_count - b.joint_count || b.lift - a.lift);
+          } else if (this.powerPairsSort === 'lift_desc') {
+            list = list.slice().sort((a, b) => b.lift - a.lift || b.joint_count - a.joint_count);
+          } else if (this.powerPairsSort === 'lift_asc') {
+            list = list.slice().sort((a, b) => a.lift - b.lift || b.joint_count - a.joint_count);
+          } else if (this.powerPairsSort === 'tag_asc') {
+            list = list.slice().sort((a, b) => a.tag_a.localeCompare(b.tag_a));
+          } else if (this.powerPairsSort === 'tag_desc') {
+            list = list.slice().sort((a, b) => b.tag_a.localeCompare(a.tag_a));
+          } else {
+            list = list.slice().sort((a, b) => b.synergy_score - a.synergy_score || b.joint_count - a.joint_count);
+          }
+          return list;
         },
 
         paginatedPowerPairsTable() {
@@ -1135,6 +1366,33 @@ export function getCampaignFoldersPageHtml(folderId = '') {
 
         totalPowerPairsPages() {
           return Math.ceil(this.filteredPowerPairs().length / this.powerPairsPageSize) || 1;
+        },
+
+        filteredAnchorsList() {
+          let list = this.coreAnchorsList || [];
+          if (this.anchorsTier === 'whales') {
+            list = list.filter(a => a.count >= 25);
+          } else if (this.anchorsTier === 'high') {
+            list = list.filter(a => a.count >= 10);
+          } else if (this.anchorsTier === 'core') {
+            list = list.filter(a => a.count >= 5);
+          }
+
+          if (this.anchorsSearch.trim()) {
+            const q = this.anchorsSearch.toLowerCase().trim();
+            list = list.filter(a => a.tag.toLowerCase().includes(q));
+          }
+          return list;
+        },
+
+        paginatedAnchorsTable() {
+          const list = this.filteredAnchorsList();
+          const start = (this.anchorsPage - 1) * this.anchorsPageSize;
+          return list.slice(start, start + this.anchorsPageSize);
+        },
+
+        totalAnchorsPages() {
+          return Math.ceil(this.filteredAnchorsList().length / this.anchorsPageSize) || 1;
         },
         toasts: [],
         colorOptions: ['#6366f1', '#ec4899', '#10b981', '#f59e0b', '#8b5cf6', '#06b6d4'],
