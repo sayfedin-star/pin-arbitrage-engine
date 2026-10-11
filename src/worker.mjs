@@ -2962,29 +2962,58 @@ export default {
         }
       }
 
-      // Level 1B: Discovery Typeahead API (Enriched with real Pinterest internal_search_count)
+      // Level 1B: Discovery Typeahead API (Enriched with real Pinterest internal_search_count + Seed Term)
       if (pathname === '/api/discovery/typeahead') {
         if (method !== 'GET') {
           return methodNotAllowedResponse('GET, OPTIONS');
         }
         const q = searchParams.get('q') || searchParams.get('term') || searchParams.get('query') || '';
-        const result = await fetchKeywordTypeahead(q);
-        if (result.success && Array.isArray(result.suggestions) && result.suggestions.length > 0) {
-          const targetSuggestions = result.suggestions;
+        const cleanQ = String(q || '').trim();
+        const result = await fetchKeywordTypeahead(cleanQ);
+
+        // Prepend root seed keyword at index 0 so user sees the searched term's volume & taxonomy
+        let targetSuggestions = Array.isArray(result?.suggestions) ? [...result.suggestions] : [];
+        if (cleanQ.length >= 2) {
+          const lowerQ = cleanQ.toLowerCase();
+          const exists = targetSuggestions.some(item => {
+            const s = typeof item === 'string' ? item : (item.term || item.query || '');
+            return s.trim().toLowerCase() === lowerQ;
+          });
+          if (!exists) {
+            targetSuggestions.unshift({ term: cleanQ, is_seed: true });
+          } else {
+            targetSuggestions = targetSuggestions.map(item => {
+              const s = typeof item === 'string' ? item : (item.term || item.query || '');
+              if (s.trim().toLowerCase() === lowerQ) {
+                return { term: s.trim(), is_seed: true };
+              }
+              return item;
+            });
+            const seedIdx = targetSuggestions.findIndex(item => (typeof item === 'object' && item.is_seed));
+            if (seedIdx > 0) {
+              const [seedItem] = targetSuggestions.splice(seedIdx, 1);
+              targetSuggestions.unshift(seedItem);
+            }
+          }
+        }
+
+        if (targetSuggestions.length > 0) {
           const suggestionTerms = targetSuggestions.map(item => 
             typeof item === 'string' ? item : (item.term || item.query || '')
           ).filter(Boolean);
 
           const [velocityMapResult, enriched] = await Promise.all([
-            fetchPinterestBatchVelocity(q, suggestionTerms).catch(() => new Map()),
+            fetchPinterestBatchVelocity(cleanQ, suggestionTerms).catch(() => new Map()),
             Promise.allSettled(targetSuggestions.map(async (item) => {
               const termStr = typeof item === 'string' ? item : (item.term || item.query || '');
+              const isSeed = (typeof item === 'object' && Boolean(item.is_seed)) || (termStr.toLowerCase() === cleanQ.toLowerCase());
               try {
                 const interest = await fetchPinterestInterestVolume(termStr);
                 const hasAnno = interest && interest.id && String(interest.id) !== '0' && (interest.internal_search_count > 0);
                 const breadcrumbs = (hasAnno && Array.isArray(interest.seo_breadcrumbs)) ? interest.seo_breadcrumbs : [];
                 return {
                   term: termStr,
+                  is_seed: isSeed,
                   search_volume: hasAnno ? interest.internal_search_count : null,
                   annotation_id: hasAnno ? interest.id : null,
                   category_tree: breadcrumbs,
@@ -2992,15 +3021,25 @@ export default {
                   url: hasAnno && interest.url_name ? `https://www.pinterest.com/ideas/${interest.url_name}/${interest.id}/` : null
                 };
               } catch (_) {
-                return { term: termStr, search_volume: null, annotation_id: null, category_tree: [], category_path: '', url: null };
+                return { term: termStr, is_seed: isSeed, search_volume: null, annotation_id: null, category_tree: [], category_path: '', url: null };
               }
             }))
           ]);
 
           const velocityMap = (velocityMapResult instanceof Map) ? velocityMapResult : new Map();
 
+          result.success = true;
+          result.term = cleanQ;
+          result.suggestions = suggestionTerms;
           result.enriched_suggestions = enriched.map((r, i) => {
-            const base = r.status === 'fulfilled' ? r.value : { term: suggestionTerms[i] || '', search_volume: null, category_tree: [], category_path: '', url: null };
+            const base = r.status === 'fulfilled' ? r.value : { 
+              term: suggestionTerms[i] || '', 
+              is_seed: (suggestionTerms[i] || '').toLowerCase() === cleanQ.toLowerCase(), 
+              search_volume: null, 
+              category_tree: [], 
+              category_path: '', 
+              url: null 
+            };
             const cleanT = String(base.term || '').trim().toLowerCase();
             const velData = velocityMap.get(cleanT);
             return {

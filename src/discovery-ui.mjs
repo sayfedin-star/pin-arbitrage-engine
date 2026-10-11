@@ -274,7 +274,7 @@ export function getDiscoveryPageHtml() {
           <!-- Results Body -->
           <tbody x-show="!loading || results.length > 0" class="divide-y divide-slate-800/60 text-slate-300 font-sans">
             <template x-for="(item, idx) in results" :key="item.term">
-              <tr class="hover:bg-slate-800/40 transition-colors group">
+              <tr :class="item.isSeed ? 'bg-cyan-950/20 border-l-2 border-l-cyan-500 hover:bg-cyan-950/30' : 'hover:bg-slate-800/40'" class="transition-colors group">
                 <td class="p-3.5 text-center">
                   <input 
                     type="checkbox" 
@@ -289,6 +289,10 @@ export function getDiscoveryPageHtml() {
                     <div class="flex flex-col">
                       <div class="flex items-center gap-2">
                         <span class="font-semibold text-slate-100 font-mono" x-html="highlightTerm(item.term)"></span>
+                        <span x-show="item.isSeed" class="text-[9px] px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-300 font-mono border border-cyan-500/30 flex items-center gap-1 font-semibold" title="Primary Seed Keyword">
+                          <span>🌱</span>
+                          <span>Seed</span>
+                        </span>
                         <span x-show="item.isTop" class="text-[9px] px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-400 font-mono border border-emerald-500/20">Top Hit</span>
                         <span x-show="item.hasPrediction" class="text-xs" title="Official Pinterest Trends Prediction Active">🔮</span>
                       </div>
@@ -1037,8 +1041,11 @@ export function getDiscoveryPageHtml() {
               const hasPrediction = (typeof item === 'object' && Boolean(item.has_prediction));
               const volumeBarPct = searchVol !== null ? Math.max(8, Math.min(100, Math.round((searchVol / maxVol) * 100))) : null;
 
+              const isSeed = (typeof item === 'object' && Boolean(item.is_seed)) || (termStr.toLowerCase() === q.toLowerCase());
+
               return {
                 term: termStr,
+                isSeed: isSeed,
                 searchVolume: searchVol,
                 volumeBarPct: volumeBarPct,
                 annotationId: annoId,
@@ -1051,7 +1058,7 @@ export function getDiscoveryPageHtml() {
                 velocity30d: velocity30d,
                 counts: counts,
                 hasPrediction: hasPrediction,
-                isTop: idx === 0
+                isTop: (idx === 0 && !isSeed) || (idx === 1 && isSeed)
               };
             }).filter(r => r.term.length > 0);
 
