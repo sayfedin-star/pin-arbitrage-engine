@@ -15,6 +15,7 @@ const INTEREST_CACHE_MAX = 500;
 const INTEREST_TTL_MS = 2 * 60 * 60 * 1000; // 2 Hours TTL
 
 const velocityCache = new Map();
+const inflightVelocity = new Map();
 const VELOCITY_CACHE_MAX = 500;
 const VELOCITY_TTL_MS = 60 * 60 * 1000; // 1 Hour TTL
 
@@ -25,7 +26,8 @@ const VELOCITY_TTL_MS = 60 * 60 * 1000; // 1 Hour TTL
 export async function fetchPinterestInterestVolume(term) {
   const cleanTerm = String(term || '').trim().toLowerCase();
   if (!cleanTerm) return null;
-  const slug = cleanTerm.replace(/[\s_]+/g, '-');
+  const slug = cleanTerm.replace(/[^a-z0-9\s-]/gi, ' ').trim().replace(/[\s_]+/g, '-');
+  if (!slug) return null;
   const now = Date.now();
 
   // 1. Check in-memory LRU cache
@@ -276,16 +278,24 @@ export async function fetchPinterestBatchVelocity(seedQuery, terms = [], country
     if (!item || !item.term) return null;
     const counts = Array.isArray(item.counts) ? item.counts : [];
     if (counts.length < 5) return { velocity_30d: null, counts };
-    const curr = Number(counts[counts.length - 1] ?? 0);
-    const past = Number(counts[counts.length - 5] ?? 0);
+
+    const currVal = counts[counts.length - 1];
+    const pastVal = counts[counts.length - 5];
+    const curr = Number.isFinite(Number(currVal)) ? Number(currVal) : null;
+    const past = Number.isFinite(Number(pastVal)) ? Number(pastVal) : null;
+    if (curr === null || past === null) return { velocity_30d: null, counts };
+
     let vel = null;
     if (past > 0) {
       vel = Math.round(((curr - past) / past) * 100);
+      if (!Number.isFinite(vel)) vel = 0;
     } else if (curr > 0) {
-      vel = 100; // Breakout from zero
+      vel = 100; // Breakout surge from zero
     } else {
       vel = 0;
     }
+    // Clamp extreme anomalies safely between -100% and +999%
+    vel = Math.max(-100, Math.min(999, vel));
     return { velocity_30d: vel, counts };
   };
 
@@ -306,70 +316,103 @@ export async function fetchPinterestBatchVelocity(seedQuery, terms = [], country
     return resultMap;
   }
 
-  const headers = {
-    'Accept': 'application/json, text/plain, */*',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
-    'Referer': 'https://trends.pinterest.com/'
-  };
+  // Stampede protection: coalesce in-flight batch requests
+  const inflightKey = `${cleanSeed}_${country}_${normalizedTerms.slice(0, 10).sort().join('|')}`;
+  if (inflightVelocity.has(inflightKey)) {
+    return await inflightVelocity.get(inflightKey);
+  }
 
-  // 2. Fetch seed query prefix_match (broadest match returning 10+ matching suggestion curves)
-  if (cleanSeed && cleanSeed.length >= 2) {
-    try {
-      const url = `https://trends.pinterest.com/prefix_match/?query=${encodeURIComponent(cleanSeed)}&country=${country}`;
-      const res = await fetch(url, { headers, signal: AbortSignal.timeout(6000) });
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data)) {
-          for (const item of data) {
-            const t = String(item.term || '').trim().toLowerCase();
-            const parsed = parseItemVelocity(item);
-            if (t && parsed) {
-              const cKey = `${t}_${country}`;
-              velocityCache.set(cKey, { data: parsed, timestamp: now });
-              if (normalizedTerms.includes(t)) {
-                resultMap.set(t, parsed);
+  const requestPromise = (async () => {
+    const headers = {
+      'Accept': 'application/json, text/plain, */*',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+      'Referer': 'https://trends.pinterest.com/'
+    };
+
+    // 2. Fetch seed query prefix_match (broadest match returning 10+ matching suggestion curves)
+    if (cleanSeed && cleanSeed.length >= 2) {
+      let res;
+      try {
+        const url = `https://trends.pinterest.com/prefix_match/?query=${encodeURIComponent(cleanSeed)}&country=${country}`;
+        res = await fetch(url, { headers, signal: AbortSignal.timeout(6000) });
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data)) {
+            for (const item of data) {
+              const t = String(item.term || '').trim().toLowerCase();
+              const parsed = parseItemVelocity(item);
+              if (t && parsed) {
+                const cKey = `${t}_${country}`;
+                velocityCache.set(cKey, { data: parsed, timestamp: Date.now() });
+                if (normalizedTerms.includes(t)) {
+                  resultMap.set(t, parsed);
+                }
               }
             }
           }
         }
-      }
-    } catch (_) {}
-  }
-
-  // 3. For any terms still missing from prefix_match, fetch individually (up to 4 terms concurrently)
-  const stillMissing = normalizedTerms.filter(t => !resultMap.has(t)).slice(0, 4);
-  if (stillMissing.length > 0) {
-    const missingFetches = stillMissing.map(async (mTerm) => {
-      try {
-        const url = `https://trends.pinterest.com/prefix_match/?query=${encodeURIComponent(mTerm)}&country=${country}`;
-        const res = await fetch(url, { headers, signal: AbortSignal.timeout(6000) });
-        if (res.ok) {
-          const data = await res.json();
-          if (Array.isArray(data) && data.length > 0) {
-            const exact = data.find(x => String(x.term || '').trim().toLowerCase() === mTerm) || data[0];
-            const parsed = parseItemVelocity(exact);
-            if (parsed) {
-              const cKey = `${mTerm}_${country}`;
-              velocityCache.set(cKey, { data: parsed, timestamp: now });
-              resultMap.set(mTerm, parsed);
-            }
-          }
+      } catch (_) {
+      } finally {
+        if (res?.body && !res.bodyUsed) {
+          await res.body.cancel().catch(() => {});
         }
-      } catch (_) {}
-    });
-    await Promise.allSettled(missingFetches);
-  }
-
-  // Prune cache if over limit
-  if (velocityCache.size > VELOCITY_CACHE_MAX) {
-    for (const [k, v] of velocityCache.entries()) {
-      if (now - v.timestamp >= VELOCITY_TTL_MS) {
-        velocityCache.delete(k);
       }
     }
-  }
 
-  return resultMap;
+    // 3. For any terms still missing from prefix_match, fetch individually (up to 4 terms concurrently)
+    const stillMissing = normalizedTerms.filter(t => !resultMap.has(t)).slice(0, 4);
+    if (stillMissing.length > 0) {
+      const missingFetches = stillMissing.map(async (mTerm) => {
+        let mRes;
+        try {
+          const url = `https://trends.pinterest.com/prefix_match/?query=${encodeURIComponent(mTerm)}&country=${country}`;
+          mRes = await fetch(url, { headers, signal: AbortSignal.timeout(6000) });
+          if (mRes.ok) {
+            const data = await mRes.json();
+            if (Array.isArray(data) && data.length > 0) {
+              const exact = data.find(x => String(x.term || '').trim().toLowerCase() === mTerm) || data[0];
+              const parsed = parseItemVelocity(exact);
+              if (parsed) {
+                const cKey = `${mTerm}_${country}`;
+                velocityCache.set(cKey, { data: parsed, timestamp: Date.now() });
+                resultMap.set(mTerm, parsed);
+              }
+            }
+          }
+        } catch (_) {
+        } finally {
+          if (mRes?.body && !mRes.bodyUsed) {
+            await mRes.body.cancel().catch(() => {});
+          }
+        }
+      });
+      await Promise.allSettled(missingFetches);
+    }
+
+    // Active LRU memory pruning: evict expired items, then enforce hard ceiling
+    if (velocityCache.size >= VELOCITY_CACHE_MAX) {
+      const curTime = Date.now();
+      for (const [k, v] of velocityCache.entries()) {
+        if (curTime - v.timestamp >= VELOCITY_TTL_MS) {
+          velocityCache.delete(k);
+        }
+      }
+      while (velocityCache.size >= VELOCITY_CACHE_MAX) {
+        const oldestKey = velocityCache.keys().next().value;
+        if (!oldestKey) break;
+        velocityCache.delete(oldestKey);
+      }
+    }
+
+    return resultMap;
+  })();
+
+  inflightVelocity.set(inflightKey, requestPromise);
+  try {
+    return await requestPromise;
+  } finally {
+    inflightVelocity.delete(inflightKey);
+  }
 }
 
 export async function fetchPinterestTrends(term, country = 'US', force = false) {

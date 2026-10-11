@@ -279,18 +279,21 @@ export function getDiscoveryPageHtml() {
                 </td>
                 <td class="p-3.5">
                   <div class="flex flex-col gap-1 items-start max-w-[260px]">
-                    <template x-if="item.categoryPath">
-                      <div class="flex items-center gap-1.5 text-slate-200 font-medium text-[11px] truncate max-w-full" :title="item.categoryPath">
-                        <span class="text-rose-400 text-xs flex-shrink-0">🌿</span>
-                        <span class="truncate font-sans" x-text="item.categoryPath"></span>
-                      </div>
-                    </template>
-                    <template x-if="!item.categoryPath">
-                      <div class="flex items-center gap-1 text-slate-500 italic text-[10px] font-sans">
-                        <span>—</span>
-                        <span>Unindexed Category</span>
-                      </div>
-                    </template>
+                    <div 
+                      x-show="item.categoryPath" 
+                      class="flex items-center gap-1.5 text-slate-200 font-medium text-[11px] truncate max-w-full" 
+                      :title="item.categoryPath"
+                    >
+                      <span class="text-rose-400 text-xs flex-shrink-0">🌿</span>
+                      <span class="truncate font-sans" x-text="item.categoryPath"></span>
+                    </div>
+                    <div 
+                      x-show="!item.categoryPath" 
+                      class="flex items-center gap-1 text-slate-500 italic text-[10px] font-sans"
+                    >
+                      <span>—</span>
+                      <span>Unindexed Category</span>
+                    </div>
                     <span 
                       class="px-2 py-0.5 rounded text-[10px] border font-mono"
                       :class="item.intent.badgeClass"
@@ -299,30 +302,35 @@ export function getDiscoveryPageHtml() {
                   </div>
                 </td>
                 <td class="p-3.5 font-mono text-[11px]">
-                  <template x-if="item.velocity30d !== null && item.velocity30d > 0">
-                    <span class="inline-flex items-center gap-1 text-emerald-400 font-semibold bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
-                      <span>↗</span>
-                      <span x-text="'+' + item.velocity30d + '% 30d'"></span>
-                    </span>
-                  </template>
-                  <template x-if="item.velocity30d !== null && item.velocity30d < 0">
-                    <span class="inline-flex items-center gap-1 text-rose-400 font-semibold bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20">
-                      <span>↘</span>
-                      <span x-text="item.velocity30d + '% 30d'"></span>
-                    </span>
-                  </template>
-                  <template x-if="item.velocity30d !== null && item.velocity30d === 0">
-                    <span class="inline-flex items-center gap-1 text-slate-300 bg-slate-800 px-2 py-0.5 rounded border border-slate-700">
-                      <span>→</span>
-                      <span>0% 30d</span>
-                    </span>
-                  </template>
-                  <template x-if="item.velocity30d === null">
-                    <span class="inline-flex items-center gap-1 text-slate-400 bg-slate-800/60 px-2 py-0.5 rounded border border-slate-700/60 text-[10px]" title="No 52-week historical trend indexed on Pinterest Trends yet">
-                      <span>—</span>
-                      <span>Stable</span>
-                    </span>
-                  </template>
+                  <span 
+                    x-show="item.velocity30d !== null && item.velocity30d > 0" 
+                    class="inline-flex items-center gap-1 text-emerald-400 font-semibold bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20"
+                  >
+                    <span>↗</span>
+                    <span x-text="'+' + item.velocity30d + '% 30d'"></span>
+                  </span>
+                  <span 
+                    x-show="item.velocity30d !== null && item.velocity30d < 0" 
+                    class="inline-flex items-center gap-1 text-rose-400 font-semibold bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20"
+                  >
+                    <span>↘</span>
+                    <span x-text="item.velocity30d + '% 30d'"></span>
+                  </span>
+                  <span 
+                    x-show="item.velocity30d !== null && item.velocity30d === 0" 
+                    class="inline-flex items-center gap-1 text-slate-300 bg-slate-800 px-2 py-0.5 rounded border border-slate-700"
+                  >
+                    <span>→</span>
+                    <span>0% 30d</span>
+                  </span>
+                  <span 
+                    x-show="item.velocity30d === null" 
+                    class="inline-flex items-center gap-1 text-slate-400 bg-slate-800/60 px-2 py-0.5 rounded border border-slate-700/60 text-[10px]" 
+                    title="No 52-week historical trend indexed on Pinterest Trends yet"
+                  >
+                    <span>—</span>
+                    <span>Stable</span>
+                  </span>
                 </td>
                 <td class="p-3.5 text-right">
                   <div class="flex items-center justify-end gap-1.5 flex-wrap">

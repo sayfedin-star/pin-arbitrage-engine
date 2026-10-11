@@ -2970,13 +2970,14 @@ export default {
         const q = searchParams.get('q') || searchParams.get('term') || searchParams.get('query') || '';
         const result = await fetchKeywordTypeahead(q);
         if (result.success && Array.isArray(result.suggestions) && result.suggestions.length > 0) {
-          const suggestionTerms = result.suggestions.map(item => 
+          const targetSuggestions = result.suggestions.slice(0, 12);
+          const suggestionTerms = targetSuggestions.map(item => 
             typeof item === 'string' ? item : (item.term || item.query || '')
           ).filter(Boolean);
 
-          const [velocityMap, enriched] = await Promise.all([
-            fetchPinterestBatchVelocity(q, suggestionTerms),
-            Promise.allSettled(result.suggestions.map(async (item) => {
+          const [velocityMapResult, enriched] = await Promise.all([
+            fetchPinterestBatchVelocity(q, suggestionTerms).catch(() => new Map()),
+            Promise.allSettled(targetSuggestions.map(async (item) => {
               const termStr = typeof item === 'string' ? item : (item.term || item.query || '');
               try {
                 const interest = await fetchPinterestInterestVolume(termStr);
@@ -2995,6 +2996,8 @@ export default {
               }
             }))
           ]);
+
+          const velocityMap = (velocityMapResult instanceof Map) ? velocityMapResult : new Map();
 
           result.enriched_suggestions = enriched.map((r, i) => {
             const base = r.status === 'fulfilled' ? r.value : { term: suggestionTerms[i] || '', search_volume: null, category_tree: [], category_path: '', url: null };
