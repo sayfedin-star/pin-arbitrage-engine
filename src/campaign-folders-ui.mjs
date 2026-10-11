@@ -305,6 +305,20 @@ export function getCampaignFoldersPageHtml(folderId = '') {
                                 x-text="sp.format || 'ORGANIC PIN'"></span>
                           <span class="text-[9px] font-mono text-slate-500" x-text="sp.aspect_ratio || '2:3'"></span>
                         </div>
+
+                        <!-- Pinterest Computer Vision Visual Annotations -->
+                        <div class="flex items-center gap-1 flex-wrap pt-1" x-show="sp.visual_annotations?.length">
+                          <template x-for="va in (sp.visual_annotations || []).slice(0, 3)" :key="va">
+                            <button @click="searchQuery = va; currentPage = 1" 
+                                    class="text-[9px] font-mono px-1.5 py-0.5 rounded bg-indigo-50/80 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/60 transition-colors truncate max-w-[130px] text-left" 
+                                    :title="'Filter cluster pins by visual tag: ' + va"
+                                    x-text="'👁️ ' + va"></button>
+                          </template>
+                          <span x-show="sp.visual_annotations?.length > 3" 
+                                class="text-[9px] font-mono text-slate-400 dark:text-slate-500 cursor-help"
+                                :title="(sp.visual_annotations || []).slice(3).join(', ')"
+                                x-text="'+' + (sp.visual_annotations.length - 3) + ' more'"></span>
+                        </div>
                       </div>
                     </div>
                   </td>
@@ -324,7 +338,14 @@ export function getCampaignFoldersPageHtml(folderId = '') {
                           </span>
                         </template>
                       </div>
-                      <span class="text-[10px] text-slate-500 dark:text-slate-400" x-text="'Ranks in ' + sp.overlap_count + ' keyword' + (sp.overlap_count > 1 ? 's' : '') + ' (' + sp.overlap_percentage + '% coverage)'"></span>
+                      <div class="flex items-center gap-2 flex-wrap">
+                        <span class="text-[10px] text-slate-500 dark:text-slate-400" x-text="'Ranks in ' + sp.overlap_count + ' keyword' + (sp.overlap_count > 1 ? 's' : '') + ' (' + sp.overlap_percentage + '% coverage)'"></span>
+                        <template x-if="sp.bridge_tags && sp.bridge_tags.length">
+                          <span class="text-[9px] font-mono px-1.5 py-0.2 rounded bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 font-semibold"
+                                :title="'Universal Bridge Tags: ' + sp.bridge_tags.join(', ')"
+                                x-text="'🌉 ' + sp.bridge_tags.length + ' Bridges'"></span>
+                        </template>
+                      </div>
                     </div>
                   </td>
 

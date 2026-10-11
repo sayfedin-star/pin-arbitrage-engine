@@ -960,6 +960,25 @@ async function _executeFolderCrossover(sql, fid) {
   })
   .slice(0, 50);
 
+  // Link universal bridge visual tags back to each pin record for inline display
+  const bridgeTagMap = new Map();
+  for (const tb of tagBridges) {
+    if (tb.is_universal) {
+      bridgeTagMap.set(tb.raw_tag.toLowerCase(), tb);
+    }
+  }
+
+  for (const pin of allPins) {
+    const matchedBridges = [];
+    for (const va of pin.visual_annotations) {
+      const clean = typeof va === 'string' ? normalizeTagLemma(va.trim().toLowerCase()) : '';
+      if (clean && bridgeTagMap.has(clean)) {
+        matchedBridges.push(bridgeTagMap.get(clean).tag);
+      }
+    }
+    pin.bridge_tags = Array.from(new Set(matchedBridges));
+  }
+
   // =========================================================================
   // DIMENSION C: SHARED GUIDED SEARCH CAPSULES & SEMANTIC PIVOTS
   // =========================================================================
