@@ -221,7 +221,8 @@ async function main() {
         SELECT id, keyword, category, target_pin_count 
         FROM tracked_keywords 
         WHERE is_active = TRUE 
-        ORDER BY last_crawled_at ASC NULLS FIRST;
+        ORDER BY last_crawled_at ASC NULLS FIRST
+        LIMIT 250;
       `;
     }
 

@@ -96,6 +96,9 @@ export const circuitBreakers = new Map(); // shardId -> { state: 'CLOSED'|'OPEN'
 export const CIRCUIT_FAILURE_THRESHOLD = 2;
 export const CIRCUIT_COOLDOWN_MS = 30000; // 30 seconds cooldown before half-open probe
 
+// In-Flight Read-Repair Deduplication Set (Prevents concurrent duplicate backfills on same pin)
+export const reconcilingPins = new Set();
+
 /**
  * Test helper: Reset all circuit breakers
  */
@@ -731,7 +734,8 @@ export async function fetchUniversalPinDossier({ hubSql, pinId }) {
   );
 
   // Non-blocking Read-Repair: Backfill missing historical Hub snapshots into target shard
-  if (shardSql && shardSql !== hubSql && missingFromShard.length > 0) {
+  if (shardSql && shardSql !== hubSql && missingFromShard.length > 0 && !reconcilingPins.has(cleanPinId)) {
+    reconcilingPins.add(cleanPinId);
     const repairPromise = (async () => {
       try {
         const repairPayload = missingFromShard.slice(0, 90).map(s => {
@@ -790,13 +794,15 @@ export async function fetchUniversalPinDossier({ hubSql, pinId }) {
         `;
       } catch (repairErr) {
         console.warn(`[Read-Repair] Shard ${shardId} pin ${cleanPinId} snapshot repair deferred:`, repairErr.message);
+      } finally {
+        reconcilingPins.delete(cleanPinId);
       }
     })();
 
     try {
       await Promise.race([
         repairPromise,
-        new Promise(r => setTimeout(r, 1200))
+        new Promise(r => setTimeout(r, 2500))
       ]);
     } catch (_) {}
   }

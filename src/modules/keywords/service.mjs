@@ -748,6 +748,29 @@ export async function fetchVisualSearchLens(sql, pinId, cookie = (typeof process
  * - Intraday snapshot pruning -> Exactly 50 pins preserved with clean rank sequencing.
  * - Separation of intraday rank movements vs prior-day save velocity baseline.
  */
+/**
+ * Comprehensive Pinterest Ad & Commercial Post Detector
+ * Exhaustively checks all nested attributes to prevent sponsored/shopping ad leakage into organic SERPs
+ */
+export function isCommercialOrAdPin(it) {
+  if (!it) return false;
+  return Boolean(
+    it.is_promoted ||
+    it.promoted ||
+    it.is_sponsored ||
+    it.ad ||
+    it.advertiser_name ||
+    it.promoter ||
+    it.is_buyable ||
+    it.price_value != null ||
+    it.tracking_params?.ad_id ||
+    it.tracking_params?.campaign_id ||
+    it.attribution?.provider_name === 'ad' ||
+    it.type === 'ad' ||
+    it.type === 'promoted_pin'
+  );
+}
+
 export async function crawlKeywordSERP(sql, keywordId, options = {}) {
   const kid = Number(keywordId);
   if (!kid) throw new Error('Valid keyword ID is required');
@@ -821,13 +844,22 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
       (configuredPages * 25)
     )));
     const targetCount = configuredTargetPins;
-    const maxPages = configuredPages;
+    // Replenishment Guard: Dynamic maxPages ensures excluded ads/boards/tombstone never starve targetCount
+    const maxPages = Math.min(40, Math.max(configuredPages, Math.ceil(targetCount / 15)));
 
     // Resolve Filtration Exceptions from options -> app_settings -> default true
     const appSettings = await getAppSettings(sql);
     const excludePromoted = options.exclude_promoted ?? appSettings.exclude_promoted ?? true;
     const excludeBoardsAndSuggestions = options.exclude_boards_and_suggestions ?? appSettings.exclude_boards_and_suggestions ?? true;
     const excludeIgnoredPins = options.exclude_ignored_pins ?? appSettings.exclude_ignored_pins ?? true;
+
+    // Phase 2 Tombstone Architecture: Pre-fetch Ignored Pins Registry to accurately gate paging quota
+    const ignoredPinRows = await sql`
+      SELECT pin_id
+      FROM keyword_ignored_pins
+      WHERE keyword_id = ${kid};
+    `.catch(() => []);
+    const ignoredPinSet = new Set(ignoredPinRows.map(r => String(r.pin_id)));
 
     const headers = {
       'Accept': 'application/json, text/javascript, */*, q=0.01',
@@ -894,8 +926,9 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
         for (const it of pageItems) {
           if (!it || !it.id || it.type !== 'pin') continue;
           if (excludeBoardsAndSuggestions && (it.format === 'Related Interests' || it.format === 'board')) continue;
-          if (excludePromoted && it.is_promoted) continue;
+          if (excludePromoted && isCommercialOrAdPin(it)) continue;
           const pid = String(it.id);
+          if (excludeIgnoredPins && ignoredPinSet.has(pid)) continue;
           if (!seenPagingIds.has(pid)) {
             seenPagingIds.add(pid);
             organicPinsCollected++;
@@ -987,14 +1020,6 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
     }
     const resurgedPins = [];
 
-    // D) Phase 2 Tombstone Architecture: Ignored / Tombstoned Pins Registry Lookup
-    const ignoredPinRows = await sql`
-      SELECT pin_id
-      FROM keyword_ignored_pins
-      WHERE keyword_id = ${kid};
-    `.catch(() => []);
-    const ignoredPinSet = new Set(ignoredPinRows.map(r => String(r.pin_id)));
-
     // System-wide maximum confirmed saves lookup across all keywords and unified catalog
     const discoveredPids = Array.from(seenPagingIds);
     const globalSavesMap = new Map();
@@ -1044,7 +1069,7 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
     for (const item of rawResults) {
       if (!item || !item.id || item.type !== 'pin') continue;
       if (excludeBoardsAndSuggestions && (item.format === 'Related Interests' || item.format === 'board')) continue;
-      if (excludePromoted && item.is_promoted) continue;
+      if (excludePromoted && isCommercialOrAdPin(item)) continue;
       const pinId = String(item.id).trim().slice(0, 255);
       if (!pinId || seenPinIds.has(pinId)) continue;
       if (excludeIgnoredPins && ignoredPinSet.has(pinId)) continue;
