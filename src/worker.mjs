@@ -3022,8 +3022,16 @@ export default {
         if (!q || q.trim().length < 2) {
           return jsonResponse({ success: false, error: 'Query term must be at least 2 characters' }, 400);
         }
-        const result = await fetchKeywordRelatedInterests(q, mode);
-        return jsonResponse(result);
+        try {
+          const result = await fetchKeywordRelatedInterests(q, mode);
+          return jsonResponse(result);
+        } catch (err) {
+          return jsonResponse({
+            success: false,
+            error: 'INTERNAL_ERROR',
+            message: redactSecrets(err.message)
+          }, 500);
+        }
       }
 
       // Level 1B: Bulk Keywords Importer API
@@ -3115,8 +3123,10 @@ export default {
         const category = body.category || 'General';
         const imported = [];
 
-        for (const cleanKw of validKeywords) {
-          try {
+        const CHUNK_SIZE = 10;
+        for (let i = 0; i < validKeywords.length; i += CHUNK_SIZE) {
+          const chunk = validKeywords.slice(i, i + CHUNK_SIZE);
+          const settled = await Promise.allSettled(chunk.map(async (cleanKw) => {
             const [row] = await sql`
               INSERT INTO tracked_keywords (
                 keyword, category, is_active, updated_at
@@ -3128,13 +3138,17 @@ export default {
                 is_active = TRUE
               RETURNING id, keyword, category;
             `;
-            if (row) {
-              imported.push(row);
-              if (folderId) {
-                await addKeywordToFolder(sql, folderId, row.id).catch(() => {});
-              }
+            if (row && folderId) {
+              await addKeywordToFolder(sql, folderId, row.id).catch(() => {});
             }
-          } catch (_) {}
+            return row;
+          }));
+
+          for (const item of settled) {
+            if (item.status === 'fulfilled' && item.value) {
+              imported.push(item.value);
+            }
+          }
         }
 
         return jsonResponse({

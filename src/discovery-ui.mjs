@@ -776,6 +776,9 @@ export function getDiscoveryPageHtml() {
         relatedData: null,
         selectedRelatedAnnotations: [],
         copyingAnnoId: null,
+        relatedAbortController: null,
+        relatedRequestIdCounter: 0,
+        activeRelatedRequestId: 0,
         toast: {
           show: false,
           message: '',
@@ -975,6 +978,14 @@ export function getDiscoveryPageHtml() {
         async openRelatedExplorer(term) {
           const clean = String(term || this.searchQuery || '').trim();
           if (!clean) return;
+
+          if (this.relatedAbortController) {
+            this.relatedAbortController.abort();
+          }
+          this.relatedAbortController = new AbortController();
+          const reqId = ++this.relatedRequestIdCounter;
+          this.activeRelatedRequestId = reqId;
+
           this.activeRelatedTerm = clean;
           this.openRelatedModal = true;
           this.relatedLoading = true;
@@ -983,18 +994,26 @@ export function getDiscoveryPageHtml() {
           this.relatedData = null;
 
           try {
-            const res = await fetch('/api/keywords/related-interests?q=' + encodeURIComponent(clean) + '&mode=both');
+            const res = await fetch('/api/keywords/related-interests?q=' + encodeURIComponent(clean) + '&mode=both', {
+              signal: this.relatedAbortController.signal
+            });
+            if (reqId !== this.activeRelatedRequestId) return; // Stale request discarded
             if (!res.ok) throw new Error('HTTP ' + res.status);
             const data = await res.json();
+            if (reqId !== this.activeRelatedRequestId) return; // Stale request discarded
             if (data.success) {
               this.relatedData = data;
             } else {
               this.showToast(data.error || 'Failed to fetch related interests', 'error');
             }
           } catch (err) {
+            if (err.name === 'AbortError') return; // Silent discard
+            if (reqId !== this.activeRelatedRequestId) return;
             this.showToast('Error querying Pinterest Interest graph: ' + err.message, 'error');
           } finally {
-            this.relatedLoading = false;
+            if (reqId === this.activeRelatedRequestId) {
+              this.relatedLoading = false;
+            }
           }
         },
 
@@ -1154,6 +1173,12 @@ export function getDiscoveryPageHtml() {
           if (!targetKws.length || this.submittingBulk) return;
           this.submittingBulk = true;
           try {
+            if (!this.selectedFolderId && !this.newFolderName.trim()) {
+              this.showToast('Please select an existing folder or enter a new folder name', 'error');
+              this.submittingBulk = false;
+              return;
+            }
+
             let targetFid = this.selectedFolderId;
             if (!targetFid && this.newFolderName.trim()) {
               const createRes = await fetch('/api/folders', {
