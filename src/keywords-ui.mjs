@@ -530,7 +530,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
 
                   <!-- Pins Quota -->
                   <td class="py-3.5 px-3 font-mono text-slate-500 dark:text-slate-400">
-                    <span x-text="(kw.snapshots_count || 100) + ' / 100'"></span>
+                    <span x-text="(kw.snapshots_count || kw.target_pin_count || 250) + ' / ' + (kw.target_pin_count || 250)"></span>
                   </td>
 
                   <!-- Active / Paused Status Toggle -->
@@ -583,7 +583,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
                       </div>
                       <h3 class="text-base font-bold text-slate-900 dark:text-white">No Tracked Keywords Found</h3>
                       <p class="text-xs text-slate-500 dark:text-slate-400">
-                        Monitor 100-pin SERP rankings, save velocity, and visual co-occurrence in real time. Track an evergreen query like <strong class="text-emerald-500 cursor-pointer hover:underline" @click="quickTrackKeyword('breakfast ideas')">"breakfast ideas"</strong> now.
+                        Monitor comprehensive SERP rankings, save velocity, and visual co-occurrence in real time. Track an evergreen query like <strong class="text-emerald-500 cursor-pointer hover:underline" @click="quickTrackKeyword('breakfast ideas')">"breakfast ideas"</strong> now.
                       </p>
                       <div class="flex items-center gap-2 max-w-sm mx-auto">
                         <input type="text" x-model="quickKeywordInput" @keydown.enter="submitQuickKeyword()"
@@ -641,154 +641,6 @@ export function getKeywordsPageHtml(initialSlug = '') {
               <button @click="submitQuickKeyword()" class="px-5 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white flex items-center space-x-1.5 shadow-md shadow-emerald-950/20 cursor-pointer">
                 <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
                 <span x-text="'Track & Index ' + (appSettings.default_max_pins || 250) + ' Pins'">Track & Index 250 Pins</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Engine & Crawl Depth Settings Modal -->
-      <div x-show="isSettingsModalOpen" x-cloak class="relative z-50">
-        <div class="fixed inset-0 bg-slate-950/75 backdrop-blur-xs" @click="isSettingsModalOpen = false"></div>
-        <div class="fixed inset-0 flex items-center justify-center p-4">
-          <div class="w-full max-w-xl bg-white dark:bg-[#0c1322] border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto">
-            
-            <!-- Header -->
-            <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-              <div class="flex items-center space-x-3">
-                <div class="w-9 h-9 rounded-2xl bg-gradient-to-tr from-violet-600 to-indigo-600 text-white flex items-center justify-center shadow-md shadow-violet-600/20">
-                  <i data-lucide="sliders" class="w-4 h-4"></i>
-                </div>
-                <div>
-                  <h3 class="text-sm font-black text-slate-900 dark:text-white flex items-center space-x-2">
-                    <span>Crawl Intelligence & Depth Settings</span>
-                    <template x-if="settingsTargetKeyword">
-                      <span class="px-2 py-0.5 rounded-full text-[10px] font-mono bg-violet-500/10 text-violet-500 border border-violet-500/30" x-text="settingsTargetKeyword.keyword"></span>
-                    </template>
-                  </h3>
-                  <p class="text-[11px] text-slate-400 mt-0.5">Configure SERP Harvest Horizon, Telemetry Mode, and Emerging Breakout Criteria</p>
-                </div>
-              </div>
-              <button @click="isSettingsModalOpen = false" class="p-1 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 transition cursor-pointer">
-                <i data-lucide="x" class="w-4 h-4"></i>
-              </button>
-            </div>
-
-            <!-- Section 1: Crawl Depth & SERP Reach -->
-            <div class="space-y-3">
-              <div class="flex items-center justify-between">
-                <label class="text-xs font-black text-slate-900 dark:text-white flex items-center space-x-1.5 uppercase font-mono">
-                  <span>1. Crawl Depth & Pages Limit</span>
-                </label>
-                <span class="text-xs font-mono font-bold text-emerald-500" x-text="'~' + (settingsCrawlPages * 25) + ' Pins (' + settingsCrawlPages + ' Pages)'"></span>
-              </div>
-              <p class="text-[11px] text-slate-500 dark:text-slate-400">Controls how deep the engine paginates into Pinterest search results. All discovered pins remain permanently active in catalog.</p>
-
-              <!-- Depth Presets Grid -->
-              <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                <button type="button" @click="settingsCrawlPages = 4; settingsMaxPins = 100"
-                        class="p-2.5 rounded-xl border text-left transition cursor-pointer"
-                        :class="settingsCrawlPages === 4 ? 'bg-violet-500/10 border-violet-500 text-violet-600 dark:text-violet-400 font-bold' : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'">
-                  <div class="text-xs font-black">4 Pages</div>
-                  <div class="text-[10px] opacity-75">~100 Pins (Fast)</div>
-                </button>
-                <button type="button" @click="settingsCrawlPages = 10; settingsMaxPins = 250"
-                        class="p-2.5 rounded-xl border text-left transition cursor-pointer"
-                        :class="settingsCrawlPages === 10 ? 'bg-violet-500/10 border-violet-500 text-violet-600 dark:text-violet-400 font-bold' : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'">
-                  <div class="text-xs font-black flex items-center justify-between">
-                    <span>10 Pages</span>
-                    <span class="text-[9px] px-1 rounded bg-emerald-500/20 text-emerald-500">Rec</span>
-                  </div>
-                  <div class="text-[10px] opacity-75">~250 Pins (Deep)</div>
-                </button>
-                <button type="button" @click="settingsCrawlPages = 20; settingsMaxPins = 500"
-                        class="p-2.5 rounded-xl border text-left transition cursor-pointer"
-                        :class="settingsCrawlPages === 20 ? 'bg-violet-500/10 border-violet-500 text-violet-600 dark:text-violet-400 font-bold' : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'">
-                  <div class="text-xs font-black">20 Pages</div>
-                  <div class="text-[10px] opacity-75">~500 Pins (Wide)</div>
-                </button>
-                <button type="button" @click="settingsCrawlPages = 30; settingsMaxPins = 750"
-                        class="p-2.5 rounded-xl border text-left transition cursor-pointer"
-                        :class="settingsCrawlPages === 30 ? 'bg-violet-500/10 border-violet-500 text-violet-600 dark:text-violet-400 font-bold' : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'">
-                  <div class="text-xs font-black">30 Pages</div>
-                  <div class="text-[10px] opacity-75">Max Exhaustion</div>
-                </button>
-              </div>
-
-              <!-- Custom Pages Slider / Input -->
-              <div class="flex items-center space-x-3 pt-1">
-                <input type="range" min="2" max="35" step="1" x-model.number="settingsCrawlPages"
-                       @input="settingsMaxPins = settingsCrawlPages * 25"
-                       class="w-full h-1.5 bg-slate-200 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-violet-600">
-                <span class="text-xs font-mono font-bold text-slate-700 dark:text-slate-300 w-16 text-right" x-text="settingsCrawlPages + ' pages'"></span>
-              </div>
-            </div>
-
-            <!-- Section 2: Inspection Mode -->
-            <div class="space-y-3 pt-3 border-t border-slate-100 dark:border-slate-800">
-              <label class="text-xs font-black text-slate-900 dark:text-white uppercase font-mono block">
-                2. Inspection & Telemetry Mode
-              </label>
-              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <label class="flex items-start space-x-3 p-3 rounded-2xl border cursor-pointer transition"
-                       :class="settingsInspectionMode === 'smart_breakout' ? 'bg-emerald-500/10 border-emerald-500/40' : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800'">
-                  <input type="radio" value="smart_breakout" x-model="settingsInspectionMode" class="mt-0.5 text-emerald-600">
-                  <div class="text-xs">
-                    <div class="font-bold text-slate-900 dark:text-white flex items-center space-x-1">
-                      <span>🚀 Smart Breakout Filter</span>
-                      <span class="text-[9px] px-1 rounded bg-emerald-500/20 text-emerald-500 font-bold">Recommended</span>
-                    </div>
-                    <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Top 50 + auto-detect & closeup inspect all emerging breakout pins in deep pages.</p>
-                  </div>
-                </label>
-                <label class="flex items-start space-x-3 p-3 rounded-2xl border cursor-pointer transition"
-                       :class="settingsInspectionMode === 'full_catalog' ? 'bg-violet-500/10 border-violet-500/40' : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800'">
-                  <input type="radio" value="full_catalog" x-model="settingsInspectionMode" class="mt-0.5 text-violet-600">
-                  <div class="text-xs">
-                    <div class="font-bold text-slate-900 dark:text-white">💯 Full Catalog Deep Scan</div>
-                    <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">100% closeup telemetry across all discovered pins distributed over 20 parallel runner VMs.</p>
-                  </div>
-                </label>
-              </div>
-            </div>
-
-            <!-- Section 3: Breakout Hunter Criteria -->
-            <div class="space-y-3 pt-3 border-t border-slate-100 dark:border-slate-800">
-              <label class="text-xs font-black text-slate-900 dark:text-white uppercase font-mono block">
-                3. Breakout Opportunity Predictor
-              </label>
-              <div class="grid grid-cols-2 gap-3">
-                <div>
-                  <label class="text-[10px] font-bold text-slate-500 uppercase font-mono block mb-1">Max Pin Age (Days)</label>
-                  <input type="number" min="3" max="60" x-model.number="settingsMaxPinAgeDays"
-                         class="w-full px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-900 dark:text-white">
-                </div>
-                <div>
-                  <label class="text-[10px] font-bold text-slate-500 uppercase font-mono block mb-1">Min Daily Velocity (Saves/Day)</label>
-                  <input type="number" min="0.5" max="50" step="0.5" x-model.number="settingsMinVelocity"
-                         class="w-full px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-900 dark:text-white">
-                </div>
-              </div>
-            </div>
-
-            <!-- Scope Target Selection -->
-            <div class="p-3 rounded-2xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs">
-              <span class="text-slate-600 dark:text-slate-400 font-medium">Apply as global default to all keywords</span>
-              <label class="relative inline-flex items-center cursor-pointer">
-                <input type="checkbox" x-model="settingsApplyGlobal" class="sr-only peer">
-                <div class="w-9 h-5 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
-              </label>
-            </div>
-
-            <!-- Footer Actions -->
-            <div class="flex items-center justify-end space-x-2 pt-2">
-              <button type="button" @click="isSettingsModalOpen = false" class="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition cursor-pointer">
-                Cancel
-              </button>
-              <button type="button" @click="saveSettings()" :disabled="settingsLoading"
-                      class="px-5 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white flex items-center space-x-1.5 shadow-md shadow-indigo-950/20 active:scale-95 disabled:opacity-50 cursor-pointer">
-                <i data-lucide="check" class="w-3.5 h-3.5" :class="settingsLoading ? 'animate-spin' : ''"></i>
-                <span x-text="settingsLoading ? 'Saving...' : '💾 Save & Apply Settings'"></span>
               </button>
             </div>
           </div>
@@ -1048,7 +900,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
         </div>
         <div class="flex items-center space-x-2">
           <span class="text-xl font-black text-slate-900 dark:text-white font-mono" x-text="selectedKeywordDetails?.current_pins?.length || 0"></span>
-          <span class="text-xs text-slate-400 font-mono">/ 100 Organic Pins</span>
+          <span class="text-xs text-slate-400 font-mono" x-text="'/ ' + (selectedKeyword?.target_pin_count || 250) + ' Organic Pins'"></span>
         </div>
         <div class="grid grid-cols-4 gap-1 pt-1 border-t border-slate-100 dark:border-slate-800/80 text-center">
           <div class="p-1 rounded-lg bg-emerald-500/10 text-[10px] font-mono font-bold text-emerald-600 dark:text-emerald-400" title="Climbed">
@@ -1303,7 +1155,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
               </select>
 
               <select x-model="pinSort" class="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 focus:outline-none">
-                <option value="rank">Sort: SERP Rank #1-100</option>
+                <option value="rank" x-text="'Sort: SERP Rank #1-' + (selectedKeyword?.target_pin_count || 250)">Sort: SERP Rank (Ascending)</option>
                 <option value="velocity">Sort: 24h Velocity (Highest)</option>
                 <option value="saves">Sort: Saves / Likes (Highest)</option>
                 <option value="age">Sort: Newest First</option>
@@ -1480,8 +1332,8 @@ export function getKeywordsPageHtml(initialSlug = '') {
                         <div class="flex flex-col space-y-1">
                           <div class="flex items-center space-x-1.5 flex-wrap gap-y-0.5">
                             <span class="px-2 py-0.5 rounded-lg bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 text-xs font-mono font-bold"
-                                  :title="'Catalog Rank #' + (pin.catalog_rank || (100 + (idx + 1)))"
-                                  x-text="'#' + (pin.catalog_rank || (100 + (idx + 1)))"></span>
+                                  :title="'Catalog Rank #' + (pin.catalog_rank || ((selectedKeyword?.target_pin_count || 250) + (idx + 1)))"
+                                  x-text="'#' + (pin.catalog_rank || ((selectedKeyword?.target_pin_count || 250) + (idx + 1)))"></span>
                             <span class="px-1.5 py-0.5 rounded-md bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30 text-[10px] font-black uppercase tracking-wider shrink-0"
                                   x-text="'Was #' + (pin.last_known_rank || pin.rank_position || '?')"></span>
                           </div>
@@ -2479,7 +2331,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
               <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-rose-500/15 text-rose-600 dark:text-rose-400"
                     x-text="filteredDisplacedPins.length + ' Tracked in Vault'"></span>
             </div>
-            <p class="text-xs text-slate-500">Pins that dropped out of the Top 100 SERP — monitored daily for engagement growth and vacuum ranking opportunities</p>
+            <p class="text-xs text-slate-500">Pins that dropped out of the active SERP reach — monitored daily for engagement growth and vacuum ranking opportunities</p>
           </div>
 
           <div class="flex flex-wrap items-center gap-2">
@@ -2556,7 +2408,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
               <i data-lucide="shield-check" class="w-6 h-6"></i>
             </div>
             <h4 class="text-sm font-bold text-slate-900 dark:text-white">Zero Pins Displaced</h4>
-            <p class="text-xs text-slate-500">All crawled pins currently maintain active positions inside the organic Top 100 SERP.</p>
+            <p class="text-xs text-slate-500">All crawled pins currently maintain active positions inside the organic SERP reach.</p>
           </div>
         </template>
 
@@ -3839,6 +3691,154 @@ export function getKeywordsPageHtml(initialSlug = '') {
     </div>
   </div>
 
+  <!-- Engine & Crawl Depth Settings Modal (Global Scope) -->
+  <div x-show="isSettingsModalOpen" x-cloak class="relative z-50">
+    <div class="fixed inset-0 bg-slate-950/75 backdrop-blur-xs" @click="isSettingsModalOpen = false"></div>
+    <div class="fixed inset-0 flex items-center justify-center p-4">
+      <div class="w-full max-w-xl bg-white dark:bg-[#0c1322] border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto">
+        
+        <!-- Header -->
+        <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+          <div class="flex items-center space-x-3">
+            <div class="w-9 h-9 rounded-2xl bg-gradient-to-tr from-violet-600 to-indigo-600 text-white flex items-center justify-center shadow-md shadow-violet-600/20">
+              <i data-lucide="sliders" class="w-4 h-4"></i>
+            </div>
+            <div>
+              <h3 class="text-sm font-black text-slate-900 dark:text-white flex items-center space-x-2">
+                <span>Crawl Intelligence & Depth Settings</span>
+                <template x-if="settingsTargetKeyword">
+                  <span class="px-2 py-0.5 rounded-full text-[10px] font-mono bg-violet-500/10 text-violet-500 border border-violet-500/30" x-text="settingsTargetKeyword.keyword"></span>
+                </template>
+              </h3>
+              <p class="text-[11px] text-slate-400 mt-0.5">Configure SERP Harvest Horizon, Telemetry Mode, and Emerging Breakout Criteria</p>
+            </div>
+          </div>
+          <button @click="isSettingsModalOpen = false" class="p-1 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 transition cursor-pointer">
+            <i data-lucide="x" class="w-4 h-4"></i>
+          </button>
+        </div>
+
+        <!-- Section 1: Crawl Depth & SERP Reach -->
+        <div class="space-y-3">
+          <div class="flex items-center justify-between">
+            <label class="text-xs font-black text-slate-900 dark:text-white flex items-center space-x-1.5 uppercase font-mono">
+              <span>1. Crawl Depth & Pages Limit</span>
+            </label>
+            <span class="text-xs font-mono font-bold text-emerald-500" x-text="'~' + (settingsCrawlPages * 25) + ' Pins (' + settingsCrawlPages + ' Pages)'"></span>
+          </div>
+          <p class="text-[11px] text-slate-500 dark:text-slate-400">Controls how deep the engine paginates into Pinterest search results. All discovered pins remain permanently active in catalog.</p>
+
+          <!-- Depth Presets Grid -->
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <button type="button" @click="settingsCrawlPages = 4; settingsMaxPins = 100"
+                    class="p-2.5 rounded-xl border text-left transition cursor-pointer"
+                    :class="settingsCrawlPages === 4 ? 'bg-violet-500/10 border-violet-500 text-violet-600 dark:text-violet-400 font-bold' : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'">
+              <div class="text-xs font-black">4 Pages</div>
+              <div class="text-[10px] opacity-75">~100 Pins (Fast)</div>
+            </button>
+            <button type="button" @click="settingsCrawlPages = 10; settingsMaxPins = 250"
+                    class="p-2.5 rounded-xl border text-left transition cursor-pointer"
+                    :class="settingsCrawlPages === 10 ? 'bg-violet-500/10 border-violet-500 text-violet-600 dark:text-violet-400 font-bold' : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'">
+              <div class="text-xs font-black flex items-center justify-between">
+                <span>10 Pages</span>
+                <span class="text-[9px] px-1 rounded bg-emerald-500/20 text-emerald-500">Rec</span>
+              </div>
+              <div class="text-[10px] opacity-75">~250 Pins (Deep)</div>
+            </button>
+            <button type="button" @click="settingsCrawlPages = 20; settingsMaxPins = 500"
+                    class="p-2.5 rounded-xl border text-left transition cursor-pointer"
+                    :class="settingsCrawlPages === 20 ? 'bg-violet-500/10 border-violet-500 text-violet-600 dark:text-violet-400 font-bold' : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'">
+              <div class="text-xs font-black">20 Pages</div>
+              <div class="text-[10px] opacity-75">~500 Pins (Wide)</div>
+            </button>
+            <button type="button" @click="settingsCrawlPages = 30; settingsMaxPins = 750"
+                    class="p-2.5 rounded-xl border text-left transition cursor-pointer"
+                    :class="settingsCrawlPages === 30 ? 'bg-violet-500/10 border-violet-500 text-violet-600 dark:text-violet-400 font-bold' : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'">
+              <div class="text-xs font-black">30 Pages</div>
+              <div class="text-[10px] opacity-75">Max Exhaustion</div>
+            </button>
+          </div>
+
+          <!-- Custom Pages Slider / Input -->
+          <div class="flex items-center space-x-3 pt-1">
+            <input type="range" min="2" max="35" step="1" x-model.number="settingsCrawlPages"
+                   @input="settingsMaxPins = settingsCrawlPages * 25"
+                   class="w-full h-1.5 bg-slate-200 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-violet-600">
+            <span class="text-xs font-mono font-bold text-slate-700 dark:text-slate-300 w-16 text-right" x-text="settingsCrawlPages + ' pages'"></span>
+          </div>
+        </div>
+
+        <!-- Section 2: Inspection Mode -->
+        <div class="space-y-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+          <label class="text-xs font-black text-slate-900 dark:text-white uppercase font-mono block">
+            2. Inspection & Telemetry Mode
+          </label>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <label class="flex items-start space-x-3 p-3 rounded-2xl border cursor-pointer transition"
+                   :class="settingsInspectionMode === 'smart_breakout' ? 'bg-emerald-500/10 border-emerald-500/40' : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800'">
+              <input type="radio" value="smart_breakout" x-model="settingsInspectionMode" class="mt-0.5 text-emerald-600">
+              <div class="text-xs">
+                <div class="font-bold text-slate-900 dark:text-white flex items-center space-x-1">
+                  <span>🚀 Smart Breakout Filter</span>
+                  <span class="text-[9px] px-1 rounded bg-emerald-500/20 text-emerald-500 font-bold">Recommended</span>
+                </div>
+                <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Top 50 + auto-detect & closeup inspect all emerging breakout pins in deep pages.</p>
+              </div>
+            </label>
+            <label class="flex items-start space-x-3 p-3 rounded-2xl border cursor-pointer transition"
+                   :class="settingsInspectionMode === 'full_catalog' ? 'bg-violet-500/10 border-violet-500/40' : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800'">
+              <input type="radio" value="full_catalog" x-model="settingsInspectionMode" class="mt-0.5 text-violet-600">
+              <div class="text-xs">
+                <div class="font-bold text-slate-900 dark:text-white">💯 Full Catalog Deep Scan</div>
+                <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">100% closeup telemetry across all discovered pins distributed over 20 parallel runner VMs.</p>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <!-- Section 3: Breakout Hunter Criteria -->
+        <div class="space-y-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+          <label class="text-xs font-black text-slate-900 dark:text-white uppercase font-mono block">
+            3. Breakout Opportunity Predictor
+          </label>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="text-[10px] font-bold text-slate-500 uppercase font-mono block mb-1">Max Pin Age (Days)</label>
+              <input type="number" min="3" max="60" x-model.number="settingsMaxPinAgeDays"
+                     class="w-full px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-900 dark:text-white">
+            </div>
+            <div>
+              <label class="text-[10px] font-bold text-slate-500 uppercase font-mono block mb-1">Min Daily Velocity (Saves/Day)</label>
+              <input type="number" min="0.5" max="50" step="0.5" x-model.number="settingsMinVelocity"
+                     class="w-full px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-900 dark:text-white">
+            </div>
+          </div>
+        </div>
+
+        <!-- Scope Target Selection -->
+        <div class="p-3 rounded-2xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs">
+          <span class="text-slate-600 dark:text-slate-400 font-medium">Apply as global default to all keywords</span>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" x-model="settingsApplyGlobal" class="sr-only peer">
+            <div class="w-9 h-5 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+          </label>
+        </div>
+
+        <!-- Footer Actions -->
+        <div class="flex items-center justify-end space-x-2 pt-2">
+          <button type="button" @click="isSettingsModalOpen = false" class="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition cursor-pointer">
+            Cancel
+          </button>
+          <button type="button" @click="saveSettings()" :disabled="settingsLoading"
+                  class="px-5 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white flex items-center space-x-1.5 shadow-md shadow-indigo-950/20 active:scale-95 disabled:opacity-50 cursor-pointer">
+            <i data-lucide="check" class="w-3.5 h-3.5" :class="settingsLoading ? 'animate-spin' : ''"></i>
+            <span x-text="settingsLoading ? 'Saving...' : '💾 Save & Apply Settings'"></span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- VISUAL SIMILARITY LENS MODAL (v3_visual_search) -->
   <div x-show="isVisualLensModalOpen" x-cloak
        x-transition:enter="transition ease-out duration-300"
@@ -4461,7 +4461,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
         },
 
         get totalMonitoredPins() {
-          return (this.keywords || []).reduce((acc, k) => acc + (Number(k.snapshots_count) || 100), 0);
+          return (this.keywords || []).reduce((acc, k) => acc + (Number(k.snapshots_count) || Number(k.target_pin_count) || 250), 0);
         },
 
         get averageFleetVelocity() {
@@ -5498,11 +5498,12 @@ export function getKeywordsPageHtml(initialSlug = '') {
         },
 
         openSettingsModal(kw = null) {
-          this.settingsTargetKeyword = kw;
-          if (kw) {
-            this.settingsCrawlPages = Number(kw.crawl_pages_limit || this.appSettings.default_crawl_pages || 10);
-            this.settingsMaxPins = Number(kw.target_pin_count || this.appSettings.default_max_pins || 250);
-            this.settingsInspectionMode = kw.inspection_mode || this.appSettings.default_inspection_mode || 'smart_breakout';
+          const target = kw || (this.viewModeLevel === 'serp_studio' ? (this.selectedKeyword || this.selectedKeywordDetails?.keyword) : null);
+          this.settingsTargetKeyword = target;
+          if (target) {
+            this.settingsCrawlPages = Number(target.crawl_pages_limit || this.appSettings.default_crawl_pages || 10);
+            this.settingsMaxPins = Number(target.target_pin_count || this.appSettings.default_max_pins || 250);
+            this.settingsInspectionMode = target.inspection_mode || this.appSettings.default_inspection_mode || 'smart_breakout';
             this.settingsApplyGlobal = false;
           } else {
             this.settingsCrawlPages = Number(this.appSettings.default_crawl_pages || 10);
@@ -5556,10 +5557,21 @@ export function getKeywordsPageHtml(initialSlug = '') {
               this.settingsTargetKeyword.crawl_pages_limit = this.settingsCrawlPages;
               this.settingsTargetKeyword.target_pin_count = this.settingsMaxPins;
               this.settingsTargetKeyword.inspection_mode = this.settingsInspectionMode;
-              if (this.selectedKeyword?.id === this.settingsTargetKeyword.id) {
+              if (this.selectedKeyword && this.selectedKeyword.id === this.settingsTargetKeyword.id) {
                 this.selectedKeyword.crawl_pages_limit = this.settingsCrawlPages;
                 this.selectedKeyword.target_pin_count = this.settingsMaxPins;
                 this.selectedKeyword.inspection_mode = this.settingsInspectionMode;
+              }
+              if (this.selectedKeywordDetails?.keyword && this.selectedKeywordDetails.keyword.id === this.settingsTargetKeyword.id) {
+                this.selectedKeywordDetails.keyword.crawl_pages_limit = this.settingsCrawlPages;
+                this.selectedKeywordDetails.keyword.target_pin_count = this.settingsMaxPins;
+                this.selectedKeywordDetails.keyword.inspection_mode = this.settingsInspectionMode;
+              }
+              const inList = (this.keywords || []).find(k => k.id === this.settingsTargetKeyword.id);
+              if (inList) {
+                inList.crawl_pages_limit = this.settingsCrawlPages;
+                inList.target_pin_count = this.settingsMaxPins;
+                inList.inspection_mode = this.settingsInspectionMode;
               }
             }
 
