@@ -211,18 +211,13 @@ export async function listKeywords(sql, { search = '', limit = 50, offset = 0 } 
  * Get Global Keyword & Crawl Intelligence Settings
  */
 export async function getAppSettings(sql) {
-  try {
-    const rows = await sql`SELECT key, value, updated_at FROM app_settings WHERE key = 'keyword_crawl_settings';`;
-    if (rows.length > 0 && rows[0].value) {
-      return rows[0].value;
-    }
-  } catch (err) {
-    console.warn('[Settings] Failed reading app_settings from DB:', err.message);
-  }
-  return {
+  const defaultSettings = {
     default_crawl_pages: 10,
     default_max_pins: 250,
     default_inspection_mode: 'smart_breakout',
+    exclude_promoted: true,
+    exclude_boards_and_suggestions: true,
+    exclude_ignored_pins: true,
     breakout_rules: {
       max_pin_age_days: 14,
       min_daily_save_velocity: 3.0,
@@ -230,6 +225,22 @@ export async function getAppSettings(sql) {
       target_rank_zone: [20, 400]
     }
   };
+  try {
+    const rows = await sql`SELECT key, value, updated_at FROM app_settings WHERE key = 'keyword_crawl_settings';`;
+    if (rows.length > 0 && rows[0].value) {
+      return {
+        ...defaultSettings,
+        ...rows[0].value,
+        breakout_rules: {
+          ...defaultSettings.breakout_rules,
+          ...(rows[0].value.breakout_rules || {})
+        }
+      };
+    }
+  } catch (err) {
+    console.warn('[Settings] Failed reading app_settings from DB:', err.message);
+  }
+  return defaultSettings;
 }
 
 /**
@@ -812,6 +823,12 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
     const targetCount = configuredTargetPins;
     const maxPages = configuredPages;
 
+    // Resolve Filtration Exceptions from options -> app_settings -> default true
+    const appSettings = await getAppSettings(sql);
+    const excludePromoted = options.exclude_promoted ?? appSettings.exclude_promoted ?? true;
+    const excludeBoardsAndSuggestions = options.exclude_boards_and_suggestions ?? appSettings.exclude_boards_and_suggestions ?? true;
+    const excludeIgnoredPins = options.exclude_ignored_pins ?? appSettings.exclude_ignored_pins ?? true;
+
     const headers = {
       'Accept': 'application/json, text/javascript, */*, q=0.01',
       'X-Requested-With': 'XMLHttpRequest',
@@ -875,12 +892,13 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
         rawResults = rawResults.concat(pageItems);
 
         for (const it of pageItems) {
-          if (it && it.id && it.type === 'pin' && it.format !== 'Related Interests' && it.format !== 'board' && !it.is_promoted) {
-            const pid = String(it.id);
-            if (!seenPagingIds.has(pid)) {
-              seenPagingIds.add(pid);
-              organicPinsCollected++;
-            }
+          if (!it || !it.id || it.type !== 'pin') continue;
+          if (excludeBoardsAndSuggestions && (it.format === 'Related Interests' || it.format === 'board')) continue;
+          if (excludePromoted && it.is_promoted) continue;
+          const pid = String(it.id);
+          if (!seenPagingIds.has(pid)) {
+            seenPagingIds.add(pid);
+            organicPinsCollected++;
           }
         }
 
@@ -1024,9 +1042,12 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
     const seenPinIds = new Set();
 
     for (const item of rawResults) {
-      if (!item || !item.id || item.type !== 'pin' || item.format === 'Related Interests' || item.format === 'board') continue;
+      if (!item || !item.id || item.type !== 'pin') continue;
+      if (excludeBoardsAndSuggestions && (item.format === 'Related Interests' || item.format === 'board')) continue;
+      if (excludePromoted && item.is_promoted) continue;
       const pinId = String(item.id).trim().slice(0, 255);
-      if (!pinId || seenPinIds.has(pinId) || ignoredPinSet.has(pinId)) continue;
+      if (!pinId || seenPinIds.has(pinId)) continue;
+      if (excludeIgnoredPins && ignoredPinSet.has(pinId)) continue;
       if (preparedPins.length >= targetCount) break;
       seenPinIds.add(pinId);
 

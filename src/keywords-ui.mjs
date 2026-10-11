@@ -4347,6 +4347,48 @@ export function getKeywordsPageHtml(initialSlug = '') {
                      class="w-full px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-900 dark:text-white">
             </div>
           </div>
+        <!-- Section 4: Filtration & Quality Exclusions -->
+        <div class="space-y-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+          <div class="flex items-center justify-between">
+            <label class="text-xs font-black text-slate-900 dark:text-white uppercase font-mono block">
+              4. Data Quality & Filtration Exclusions
+            </label>
+            <span class="text-[10px] text-slate-500 font-mono">Organic Telemetry Rules</span>
+          </div>
+          <div class="space-y-2">
+            <label class="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 cursor-pointer">
+              <div class="text-xs pr-2">
+                <div class="font-bold text-slate-900 dark:text-white flex items-center gap-1.5 flex-wrap">
+                  <span>🚫 Exclude Promoted & Sponsored Ads</span>
+                  <span class="text-[9px] px-1 rounded bg-amber-500/20 text-amber-500 font-mono font-bold">is_promoted</span>
+                </div>
+                <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Filters out paid advertisements to track 100% authentic organic rankings.</p>
+              </div>
+              <input type="checkbox" x-model="settingsExcludePromoted" class="w-4 h-4 text-violet-600 rounded cursor-pointer accent-violet-600">
+            </label>
+
+            <label class="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 cursor-pointer">
+              <div class="text-xs pr-2">
+                <div class="font-bold text-slate-900 dark:text-white flex items-center gap-1.5 flex-wrap">
+                  <span>📋 Exclude Boards & Suggestion Cards</span>
+                  <span class="text-[9px] px-1 rounded bg-slate-500/20 text-slate-400 font-mono font-bold">board / Related Interests</span>
+                </div>
+                <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Filters carousel containers and search suggestions to focus on pure pins.</p>
+              </div>
+              <input type="checkbox" x-model="settingsExcludeBoardsAndSuggestions" class="w-4 h-4 text-violet-600 rounded cursor-pointer accent-violet-600">
+            </label>
+
+            <label class="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 cursor-pointer">
+              <div class="text-xs pr-2">
+                <div class="font-bold text-slate-900 dark:text-white flex items-center gap-1.5 flex-wrap">
+                  <span>🪦 Exclude Ignored / Tombstoned Pins</span>
+                  <span class="text-[9px] px-1 rounded bg-rose-500/20 text-rose-400 font-mono font-bold">keyword_ignored_pins</span>
+                </div>
+                <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Honors the custom tombstone registry so ignored pins never re-surface.</p>
+              </div>
+              <input type="checkbox" x-model="settingsExcludeIgnoredPins" class="w-4 h-4 text-violet-600 rounded cursor-pointer accent-violet-600">
+            </label>
+          </div>
         </div>
 
         <!-- Scope Target Selection -->
@@ -4862,6 +4904,9 @@ export function getKeywordsPageHtml(initialSlug = '') {
         settingsCrawlPages: 10,
         settingsMaxPins: 250,
         settingsInspectionMode: 'smart_breakout',
+        settingsExcludePromoted: true,
+        settingsExcludeBoardsAndSuggestions: true,
+        settingsExcludeIgnoredPins: true,
         settingsMaxPinAgeDays: 30,
         settingsMinVelocity: 1.5,
         settingsApplyGlobal: true,
@@ -4870,6 +4915,9 @@ export function getKeywordsPageHtml(initialSlug = '') {
           default_crawl_pages: 10,
           default_max_pins: 250,
           default_inspection_mode: 'smart_breakout',
+          exclude_promoted: true,
+          exclude_boards_and_suggestions: true,
+          exclude_ignored_pins: true,
           breakout_max_pin_age_days: 30,
           breakout_min_velocity: 1.5
         },
@@ -6189,6 +6237,9 @@ export function getKeywordsPageHtml(initialSlug = '') {
                 this.settingsCrawlPages = Number(data.settings.default_crawl_pages || 10);
                 this.settingsMaxPins = Number(data.settings.default_max_pins || 250);
                 this.settingsInspectionMode = data.settings.default_inspection_mode || 'smart_breakout';
+                this.settingsExcludePromoted = data.settings.exclude_promoted !== undefined ? Boolean(data.settings.exclude_promoted) : true;
+                this.settingsExcludeBoardsAndSuggestions = data.settings.exclude_boards_and_suggestions !== undefined ? Boolean(data.settings.exclude_boards_and_suggestions) : true;
+                this.settingsExcludeIgnoredPins = data.settings.exclude_ignored_pins !== undefined ? Boolean(data.settings.exclude_ignored_pins) : true;
                 this.settingsMaxPinAgeDays = Number(data.settings.breakout_max_pin_age_days || data.settings.breakout_rules?.max_pin_age_days || 30);
                 this.settingsMinVelocity = Number(data.settings.breakout_min_velocity || data.settings.breakout_rules?.min_daily_save_velocity || 1.5);
               }
@@ -6212,6 +6263,9 @@ export function getKeywordsPageHtml(initialSlug = '') {
             this.settingsInspectionMode = this.appSettings.default_inspection_mode || 'smart_breakout';
             this.settingsApplyGlobal = true;
           }
+          this.settingsExcludePromoted = this.appSettings.exclude_promoted !== undefined ? Boolean(this.appSettings.exclude_promoted) : true;
+          this.settingsExcludeBoardsAndSuggestions = this.appSettings.exclude_boards_and_suggestions !== undefined ? Boolean(this.appSettings.exclude_boards_and_suggestions) : true;
+          this.settingsExcludeIgnoredPins = this.appSettings.exclude_ignored_pins !== undefined ? Boolean(this.appSettings.exclude_ignored_pins) : true;
           this.settingsMaxPinAgeDays = Number(this.appSettings.breakout_max_pin_age_days || this.appSettings.breakout_rules?.max_pin_age_days || 30);
           this.settingsMinVelocity = Number(this.appSettings.breakout_min_velocity || this.appSettings.breakout_rules?.min_daily_save_velocity || 1.5);
           this.isSettingsModalOpen = true;
@@ -6226,6 +6280,9 @@ export function getKeywordsPageHtml(initialSlug = '') {
                 default_crawl_pages: this.settingsCrawlPages,
                 default_max_pins: this.settingsMaxPins,
                 default_inspection_mode: this.settingsInspectionMode,
+                exclude_promoted: this.settingsExcludePromoted,
+                exclude_boards_and_suggestions: this.settingsExcludeBoardsAndSuggestions,
+                exclude_ignored_pins: this.settingsExcludeIgnoredPins,
                 breakout_max_pin_age_days: this.settingsMaxPinAgeDays,
                 breakout_min_velocity: this.settingsMinVelocity,
                 breakout_rules: {

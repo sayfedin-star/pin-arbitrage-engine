@@ -2,8 +2,8 @@ name: Keyword Intelligence & Velocity Pipeline
 
 on:
   schedule:
-    # Run daily at 05:00 UTC to compute exact 24h save velocity
-    - cron: '0 5 * * *'
+    # Run daily at 01:00 UTC to compute exact 24h save velocity
+    - cron: '0 1 * * *'
   workflow_dispatch:
     inputs:
       target_keyword:
@@ -87,7 +87,7 @@ jobs:
     needs: [dispatch]
     if: needs.dispatch.outputs.task_count != '0'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 55
     strategy:
       fail-fast: false
       max-parallel: 20

@@ -662,8 +662,7 @@ async function run() {
         SELECT * FROM tracked_keywords 
         WHERE is_active = TRUE
           AND (crawl_lease_until IS NULL OR crawl_lease_until < NOW())
-        ORDER BY last_crawled_at ASC NULLS FIRST
-        LIMIT 20;
+        ORDER BY last_crawled_at ASC NULLS FIRST;
       `;
     }
 

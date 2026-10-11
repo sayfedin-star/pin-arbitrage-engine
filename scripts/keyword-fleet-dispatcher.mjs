@@ -199,7 +199,7 @@ async function main() {
     let targetRows = [];
     if (commaKeywords.length > 1) {
       console.log(`[*] Resolving ${commaKeywords.length} explicitly specified keywords...`);
-      for (const kwStr of commaKeywords.slice(0, 20)) {
+      for (const kwStr of commaKeywords) {
         let [row] = await sql`
           SELECT id, keyword, category, target_pin_count 
           FROM tracked_keywords 
@@ -216,13 +216,12 @@ async function main() {
         if (row) targetRows.push(row);
       }
     } else {
-      console.log('[*] Querying top active keywords from Central Metadata Hub...');
+      console.log('[*] Querying all active tracked keywords from Central Metadata Hub...');
       targetRows = await sql`
         SELECT id, keyword, category, target_pin_count 
         FROM tracked_keywords 
         WHERE is_active = TRUE 
-        ORDER BY last_crawled_at ASC NULLS FIRST 
-        LIMIT 20;
+        ORDER BY last_crawled_at ASC NULLS FIRST;
       `;
     }
 
