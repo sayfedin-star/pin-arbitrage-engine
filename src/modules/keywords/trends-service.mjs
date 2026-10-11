@@ -9,6 +9,11 @@ const inflightTrends = new Map();
 const TRENDS_CACHE_MAX = 300;
 const TRENDS_TTL_MS = 60 * 60 * 1000; // 1 Hour TTL
 
+const interestCache = new Map();
+const inflightInterest = new Map();
+const INTEREST_CACHE_MAX = 500;
+const INTEREST_TTL_MS = 2 * 60 * 60 * 1000; // 2 Hours TTL
+
 /**
  * Fetch official Pinterest Interest / Annotation metrics (Exact search count, category tree, related taxonomy)
  * Direct access to Pinterest's InterestResource via slug or ID.
@@ -17,52 +22,233 @@ export async function fetchPinterestInterestVolume(term) {
   const cleanTerm = String(term || '').trim().toLowerCase();
   if (!cleanTerm) return null;
   const slug = cleanTerm.replace(/[\s_]+/g, '-');
-  
-  const headers = {
-    'Accept': 'application/json, text/javascript, */*, q=0.01',
-    'x-requested-with': 'XMLHttpRequest',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
-    'x-pinterest-pws-handler': 'www/ideas/[interest_url_name]/[interest_id].js',
-    'referer': `https://www.pinterest.com/ideas/${slug}/`
-  };
+  const now = Date.now();
 
-  const dataParam = encodeURIComponent(JSON.stringify({
-    options: { interest: slug, field_set_key: 'ideas_hub' },
-    context: {}
-  }));
-  const url = `https://www.pinterest.com/resource/InterestResource/get/?source_url=%2Fideas%2F${slug}%2F&data=${dataParam}`;
+  // 1. Check in-memory LRU cache
+  const cached = interestCache.get(slug);
+  if (cached) {
+    if (now - cached.timestamp < INTEREST_TTL_MS) {
+      interestCache.delete(slug);
+      interestCache.set(slug, cached);
+      return cached.data;
+    } else {
+      interestCache.delete(slug);
+    }
+  }
 
-  try {
-    const res = await fetch(url, { headers, signal: AbortSignal.timeout(6000) });
-    if (!res.ok) return null;
-    const json = await res.json();
-    const data = json?.resource_response?.data;
-    if (!data) return null;
+  // 2. Coalesce in-flight requests (prevent duplicate requests for same term)
+  if (inflightInterest.has(slug)) {
+    return await inflightInterest.get(slug);
+  }
 
-    return {
-      success: true,
-      id: data.id,
-      key: data.key,
-      url_name: data.url_name,
-      internal_search_count: Number(data.internal_search_count || 0),
-      feed_update_time: data.feed_update_time || null,
-      seo_breadcrumbs: Array.isArray(data.seo_breadcrumbs)
-        ? data.seo_breadcrumbs.map(b => b.name)
-        : [],
-      seo_related_interests: Array.isArray(data.seo_related_interests)
-        ? data.seo_related_interests.slice(0, 10).map(r => r.name || r.key)
-        : [],
-      ideas_pivots: Array.isArray(data.ideas_klp_pivots)
-        ? data.ideas_klp_pivots.map(p => ({
+  const promise = (async () => {
+    // Active cache size pruning
+    if (interestCache.size >= INTEREST_CACHE_MAX) {
+      const oldestKey = interestCache.keys().next().value;
+      if (oldestKey) interestCache.delete(oldestKey);
+    }
+
+    const headers = {
+      'Accept': 'application/json, text/javascript, */*, q=0.01',
+      'x-requested-with': 'XMLHttpRequest',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+      'x-pinterest-pws-handler': 'www/ideas/[interest_url_name]/[interest_id].js',
+      'referer': `https://www.pinterest.com/ideas/${slug}/`
+    };
+
+    const dataParam = encodeURIComponent(JSON.stringify({
+      options: { interest: slug, field_set_key: 'ideas_hub' },
+      context: {}
+    }));
+    const url = `https://www.pinterest.com/resource/InterestResource/get/?source_url=%2Fideas%2F${slug}%2F&data=${dataParam}`;
+
+    try {
+      const res = await fetch(url, { headers, signal: AbortSignal.timeout(7000) });
+      if (!res.ok) return null;
+      const json = await res.json();
+      const data = json?.resource_response?.data;
+      if (!data) return null;
+
+      const rawRelated = Array.isArray(data.seo_related_interests) ? data.seo_related_interests : [];
+      const rawPivots = Array.isArray(data.ideas_klp_pivots) ? data.ideas_klp_pivots : [];
+
+      const result = {
+        success: true,
+        id: String(data.id || ''),
+        key: data.key || cleanTerm,
+        url_name: data.url_name || slug,
+        internal_search_count: Number(data.internal_search_count || 0),
+        feed_update_time: data.feed_update_time || null,
+        seo_breadcrumbs: Array.isArray(data.seo_breadcrumbs)
+          ? data.seo_breadcrumbs.map(b => b.name)
+          : [],
+        seo_related_interests: rawRelated.slice(0, 15).map(r => r.name || r.key),
+        seo_related_objects: rawRelated.slice(0, 15).map(r => ({
+          name: r.name || r.key,
+          key: r.key || r.name,
+          id: String(r.id || r.origin_interest_id || ''),
+          url: r.url || `/ideas/${(r.key || r.name).replace(/\s+/g, '-')}/${r.id || ''}/`
+        })),
+        ideas_pivots: rawPivots.slice(0, 15).map(p => {
+          const pivotUrl = p.pivot_url || '';
+          const pivotId = pivotUrl.split('/').filter(Boolean).pop() || '';
+          return {
             label: p.pivot_display_text,
             full_name: p.pivot_full_name,
-            url: p.pivot_url
-          }))
-        : []
-    };
-  } catch (_) {
-    return null;
+            url: pivotUrl,
+            id: pivotId
+          };
+        })
+      };
+
+      interestCache.set(slug, { data: result, timestamp: Date.now() });
+      return result;
+    } catch (_) {
+      return null;
+    }
+  })();
+
+  inflightInterest.set(slug, promise);
+  try {
+    return await promise;
+  } finally {
+    inflightInterest.delete(slug);
   }
+}
+
+/**
+ * Fetch complete Related Interests and Sub-Niche Additions/Pivots for a keyword.
+ * Concurrently resolves internal_search_count, annotation ID, category tree, and Pinterest URLs.
+ * @param {string} term
+ * @param {'both'|'related'|'additions'} mode
+ */
+export async function fetchKeywordRelatedInterests(term, mode = 'both') {
+  const cleanTerm = String(term || '').trim().toLowerCase();
+  if (!cleanTerm || cleanTerm.length < 2) {
+    return { success: false, error: 'Query term must be at least 2 characters' };
+  }
+
+  // 1. Fetch main seed annotation
+  const main = await fetchPinterestInterestVolume(cleanTerm);
+  if (!main || !main.id || main.id === '0') {
+    return {
+      success: false,
+      term: cleanTerm,
+      error: `No official Pinterest Interest Annotation found for "${cleanTerm}". Pinterest has not indexed this term as a taxonomy node yet.`,
+      main: null,
+      related_interests: [],
+      additions: [],
+      all: []
+    };
+  }
+
+  const formatUpdateDate = (dateStr) => {
+    if (!dateStr || String(dateStr).includes('1970')) return 'Recent';
+    try {
+      return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    } catch (_) {
+      return 'Recent';
+    }
+  };
+
+  const mainRow = {
+    annotation: main.key,
+    search_volume: main.internal_search_count,
+    formatted_volume: main.internal_search_count ? main.internal_search_count.toLocaleString() : '0',
+    last_updated: formatUpdateDate(main.feed_update_time),
+    annotation_id: main.id,
+    category_tree: main.seo_breadcrumbs.join(' > '),
+    breadcrumbs: main.seo_breadcrumbs,
+    link: `https://www.pinterest.com/ideas/${main.url_name}/${main.id}/`,
+    type: 'main'
+  };
+
+  const relatedPromises = [];
+  const additionPromises = [];
+
+  // 2. Queue Related Interests
+  if (mode === 'both' || mode === 'related') {
+    const relatedList = main.seo_related_objects || [];
+    for (const item of relatedList) {
+      if (!item.name) continue;
+      relatedPromises.push((async () => {
+        const details = await fetchPinterestInterestVolume(item.name);
+        const vol = details?.internal_search_count || 0;
+        const annoId = (details?.id && details.id !== '0') ? details.id : (item.id && item.id !== '0' ? item.id : '');
+        const breadcrumbs = details?.seo_breadcrumbs || main.seo_breadcrumbs.slice(0, -1);
+        const urlName = details?.url_name || item.name.replace(/[\s_]+/g, '-');
+        const link = annoId 
+          ? `https://www.pinterest.com/ideas/${urlName}/${annoId}/`
+          : `https://www.pinterest.com/ideas/${urlName}/`;
+
+        return {
+          annotation: details?.key || item.name,
+          search_volume: vol,
+          formatted_volume: vol ? vol.toLocaleString() : '0',
+          last_updated: formatUpdateDate(details?.feed_update_time),
+          annotation_id: annoId,
+          category_tree: breadcrumbs.join(' > '),
+          breadcrumbs,
+          link,
+          type: 'related'
+        };
+      })());
+    }
+  }
+
+  // 3. Queue Additions / Pivots
+  if (mode === 'both' || mode === 'additions') {
+    const pivotsList = main.ideas_pivots || [];
+    for (const pivot of pivotsList) {
+      if (!pivot.full_name) continue;
+      additionPromises.push((async () => {
+        const details = await fetchPinterestInterestVolume(pivot.full_name);
+        const vol = details?.internal_search_count || 0;
+        const annoId = (details?.id && details.id !== '0') ? details.id : (pivot.id && pivot.id !== '0' ? pivot.id : '');
+        const breadcrumbs = details?.seo_breadcrumbs || [...main.seo_breadcrumbs, pivot.label].filter(Boolean);
+        const link = pivot.url.startsWith('http') ? pivot.url : `https://www.pinterest.com${pivot.url}`;
+
+        return {
+          annotation: pivot.full_name,
+          search_volume: vol,
+          formatted_volume: vol ? vol.toLocaleString() : '0',
+          last_updated: formatUpdateDate(details?.feed_update_time),
+          annotation_id: annoId,
+          category_tree: breadcrumbs.join(' > '),
+          breadcrumbs,
+          link,
+          type: 'addition'
+        };
+      })());
+    }
+  }
+
+  // 4. Resolve concurrently
+  const [settledRelated, settledAdditions] = await Promise.all([
+    Promise.allSettled(relatedPromises),
+    Promise.allSettled(additionPromises)
+  ]);
+
+  const relatedInterests = settledRelated
+    .filter(r => r.status === 'fulfilled' && r.value)
+    .map(r => r.value)
+    .sort((a, b) => (b.search_volume || 0) - (a.search_volume || 0));
+
+  const additions = settledAdditions
+    .filter(r => r.status === 'fulfilled' && r.value)
+    .map(r => r.value)
+    .sort((a, b) => (b.search_volume || 0) - (a.search_volume || 0));
+
+  const all = [mainRow, ...relatedInterests, ...additions];
+
+  return {
+    success: true,
+    term: cleanTerm,
+    main: mainRow,
+    related_interests: relatedInterests,
+    additions,
+    all
+  };
 }
 
 export async function fetchPinterestTrends(term, country = 'US', force = false) {

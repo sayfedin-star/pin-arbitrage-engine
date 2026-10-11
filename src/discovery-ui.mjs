@@ -193,6 +193,13 @@ export function getDiscoveryPageHtml() {
 
         <!-- Quick Summary Actions -->
         <div class="flex items-center gap-2" x-show="results.length > 0" x-cloak>
+          <button 
+            @click="openRelatedExplorer(searchQuery)" 
+            class="px-2.5 py-1 rounded bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 hover:text-white text-xs font-mono border border-rose-700/40 flex items-center gap-1.5 transition-colors"
+            title="Explore Pinterest Related Interests for current search"
+          >
+            <span>🔗 Get Related</span>
+          </button>
           <button @click="selectAllToggle()" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-mono border border-slate-700">
             <span x-text="selectedKeywords.length === results.length ? 'Clear Selection' : 'Select All'"></span>
           </button>
@@ -214,7 +221,7 @@ export function getDiscoveryPageHtml() {
                 >
               </th>
               <th class="p-3.5">Keyword Term</th>
-              <th class="p-3.5">Search Volume Tier</th>
+              <th class="p-3.5">Search Volume & Tier</th>
               <th class="p-3.5">Taxonomy / Intent</th>
               <th class="p-3.5">Trending Velocity</th>
               <th class="p-3.5 text-right">Actions</th>
@@ -254,11 +261,21 @@ export function getDiscoveryPageHtml() {
                   </div>
                 </td>
                 <td class="p-3.5 font-mono">
-                  <span 
-                    class="px-2 py-0.5 rounded-full text-[10px] font-semibold border"
-                    :class="item.volumeTier === 'High' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : (item.volumeTier === 'Medium' ? 'bg-amber-500/10 text-amber-400 border-amber-500/30' : 'bg-indigo-500/10 text-indigo-400 border-indigo-500/30')"
-                    x-text="item.volumeTier === 'High' ? 'High (50k-500k+)' : (item.volumeTier === 'Medium' ? 'Medium (10k-50k)' : 'Rising Velocity')"
-                  ></span>
+                  <div class="flex flex-col gap-1">
+                    <div class="flex items-center gap-1.5 flex-wrap">
+                      <span 
+                        x-show="item.searchVolume" 
+                        class="font-bold text-slate-100 text-xs" 
+                        x-text="item.searchVolume ? item.searchVolume.toLocaleString() : ''"
+                      ></span>
+                      <span 
+                        class="px-2 py-0.5 rounded-full text-[10px] font-semibold border"
+                        :class="item.volumeTier === 'Mega' ? 'bg-purple-500/10 text-purple-400 border-purple-500/30' : (item.volumeTier === 'High' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : (item.volumeTier === 'Medium' ? 'bg-amber-500/10 text-amber-400 border-amber-500/30' : 'bg-indigo-500/10 text-indigo-400 border-indigo-500/30'))"
+                        x-text="item.volumeLabel"
+                      ></span>
+                    </div>
+                    <span x-show="item.annotationId" class="text-[9px] text-slate-500 font-mono" x-text="'ID: ' + item.annotationId"></span>
+                  </div>
                 </td>
                 <td class="p-3.5 font-mono text-[11px]">
                   <span 
@@ -271,7 +288,14 @@ export function getDiscoveryPageHtml() {
                   <span x-text="'+' + item.growthPercent + '% 30d'"></span>
                 </td>
                 <td class="p-3.5 text-right">
-                  <div class="flex items-center justify-end gap-2">
+                  <div class="flex items-center justify-end gap-1.5 flex-wrap">
+                    <button 
+                      @click="openRelatedExplorer(item.term)" 
+                      class="px-2 py-1 rounded bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 hover:text-white font-mono text-[11px] border border-rose-700/40 transition-colors flex items-center gap-1"
+                      title="Explore official Pinterest related interests & additions"
+                    >
+                      <span>🔗 Related</span>
+                    </button>
                     <button 
                       @click="trackSingleKeyword(item.term)" 
                       class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-emerald-400 hover:text-emerald-300 font-mono text-[11px] border border-slate-700 transition-colors"
@@ -446,6 +470,229 @@ export function getDiscoveryPageHtml() {
     </div>
   </div>
 
+  <!-- Pinterest Related Interests & Additions Modal (Exact Parity with Target Tool) -->
+  <div x-show="openRelatedModal" class="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-6" x-cloak>
+    <div @click.away="openRelatedModal = false" class="bg-slate-900 border border-slate-800 rounded-2xl max-w-5xl w-full max-h-[92vh] shadow-2xl flex flex-col overflow-hidden">
+      <!-- Modal Header -->
+      <div class="p-4 sm:p-5 border-b border-slate-800 flex items-center justify-between flex-wrap gap-3 bg-slate-950/60">
+        <div class="flex items-center gap-3">
+          <div class="w-9 h-9 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400 text-lg">
+            📌
+          </div>
+          <div>
+            <h3 class="text-sm sm:text-base font-bold text-white flex items-center gap-2">
+              <span>Pinterest Interest Graph Explorer</span>
+              <span class="text-xs px-2 py-0.5 rounded font-mono bg-rose-500/10 text-rose-300 border border-rose-500/20" x-text="activeRelatedTerm"></span>
+            </h3>
+            <p class="text-[11px] text-slate-400">Official Pinterest Annotations, Exact Monthly Search Volume, Taxonomy Breadcrumbs & Sub-Niches</p>
+          </div>
+        </div>
+
+        <!-- Filter Action Tabs (Exact Parity with Buttons in Screenshot) -->
+        <div class="flex items-center gap-2">
+          <div class="inline-flex rounded-lg bg-slate-950 p-1 border border-slate-800 text-xs font-mono">
+            <button 
+              @click="relatedTab = 'all'" 
+              :class="relatedTab === 'all' ? 'bg-slate-800 text-white font-semibold' : 'text-slate-400 hover:text-slate-200'"
+              class="px-2.5 py-1 rounded transition-colors"
+            >
+              All (<span x-text="relatedData?.all?.length || 0"></span>)
+            </button>
+            <button 
+              @click="relatedTab = 'related'" 
+              :class="relatedTab === 'related' ? 'bg-rose-900/60 text-rose-200 font-semibold' : 'text-slate-400 hover:text-slate-200'"
+              class="px-2.5 py-1 rounded transition-colors flex items-center gap-1"
+            >
+              <span>Get Related</span>
+              <span>(<span x-text="relatedData?.related_interests?.length || 0"></span>)</span>
+            </button>
+            <button 
+              @click="relatedTab = 'additions'" 
+              :class="relatedTab === 'additions' ? 'bg-indigo-900/60 text-indigo-200 font-semibold' : 'text-slate-400 hover:text-slate-200'"
+              class="px-2.5 py-1 rounded transition-colors flex items-center gap-1"
+            >
+              <span>Get Additions</span>
+              <span>(<span x-text="relatedData?.additions?.length || 0"></span>)</span>
+            </button>
+          </div>
+          <button @click="openRelatedModal = false" class="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors" title="Close Modal">
+            ✕
+          </button>
+        </div>
+      </div>
+
+      <!-- Main Seed Annotation Hero Banner -->
+      <template x-if="relatedData && relatedData.main">
+        <div class="p-4 bg-slate-950/40 border-b border-slate-800/80 flex items-center justify-between flex-wrap gap-3">
+          <div class="flex items-center gap-4 flex-wrap">
+            <div>
+              <span class="text-[10px] text-slate-500 font-mono uppercase block">Target Annotation</span>
+              <span class="font-bold text-white text-sm font-mono" x-text="relatedData.main.annotation"></span>
+            </div>
+            <div>
+              <span class="text-[10px] text-slate-500 font-mono uppercase block">Official Search Volume</span>
+              <span class="font-bold text-emerald-400 text-sm font-mono" x-text="relatedData.main.formatted_volume"></span>
+            </div>
+            <div>
+              <span class="text-[10px] text-slate-500 font-mono uppercase block">Annotation ID</span>
+              <span 
+                @click="copyAnnotationId(relatedData.main.annotation_id)" 
+                class="font-mono text-slate-300 text-xs cursor-pointer hover:text-white hover:underline flex items-center gap-1"
+                title="Click to copy ID"
+              >
+                <span x-text="relatedData.main.annotation_id"></span>
+                <span class="text-[10px] text-slate-500">📋</span>
+              </span>
+            </div>
+            <div>
+              <span class="text-[10px] text-slate-500 font-mono uppercase block">Category Tree</span>
+              <span class="text-xs text-slate-300 font-sans" x-text="relatedData.main.category_tree"></span>
+            </div>
+          </div>
+          <div>
+            <a 
+              :href="relatedData.main.link" 
+              target="_blank" 
+              class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white text-xs font-mono border border-slate-700 transition-colors flex items-center gap-1.5"
+            >
+              <span>View On Pinterest</span>
+              <span>↗</span>
+            </a>
+          </div>
+        </div>
+      </template>
+
+      <!-- Modal Body (Table or Loading) -->
+      <div class="flex-1 overflow-y-auto p-4 min-h-[300px]">
+        <!-- Loading State -->
+        <div x-show="relatedLoading" class="py-16 flex flex-col items-center justify-center gap-3 text-center" x-cloak>
+          <div class="w-10 h-10 border-2 border-rose-500 border-t-transparent rounded-full animate-spin"></div>
+          <p class="text-sm font-semibold text-white">Traversing Pinterest Interest Graph...</p>
+          <p class="text-xs text-slate-400 font-mono">Resolving official internal_search_count, taxonomy breadcrumbs & pivots</p>
+        </div>
+
+        <!-- Error State -->
+        <div x-show="!relatedLoading && (!relatedData || !relatedData.success)" class="py-16 text-center" x-cloak>
+          <div class="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center text-xl text-slate-400 mx-auto mb-3">🔍</div>
+          <h4 class="text-sm font-bold text-white mb-1">No Pinterest Annotation Graph Found</h4>
+          <p class="text-xs text-slate-400 max-w-md mx-auto" x-text="relatedData?.error || 'This keyword does not map to an indexed Pinterest Interest node yet.'"></p>
+        </div>
+
+        <!-- Table View (Exact Columns Parity with Screenshot) -->
+        <div x-show="!relatedLoading && relatedData && relatedData.success" class="overflow-x-auto border border-slate-800 rounded-xl" x-cloak>
+          <table class="w-full text-left text-xs font-sans">
+            <thead class="bg-slate-950/80 border-b border-slate-800 text-slate-400 font-mono uppercase text-[10px]">
+              <tr>
+                <th class="p-3 w-10 text-center">
+                  <input 
+                    type="checkbox" 
+                    :checked="filteredRelatedList.length > 0 && selectedRelatedAnnotations.length === filteredRelatedList.length" 
+                    @change="toggleSelectAllRelated()" 
+                    class="rounded bg-slate-800 border-slate-700 text-emerald-500 focus:ring-0 cursor-pointer"
+                  >
+                </th>
+                <th class="p-3 font-semibold">Annotation</th>
+                <th class="p-3 font-semibold">Search Volume</th>
+                <th class="p-3 font-semibold">Last Updated</th>
+                <th class="p-3 font-semibold">Annotation Id</th>
+                <th class="p-3 font-semibold">Category Tree</th>
+                <th class="p-3 font-semibold">Link</th>
+                <th class="p-3 text-right font-semibold">Action</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-800/60 text-slate-300">
+              <template x-for="item in filteredRelatedList" :key="item.annotation + '_' + (item.annotation_id || '')">
+                <tr 
+                  class="transition-colors group hover:bg-slate-800/40"
+                  :class="selectedRelatedAnnotations.includes(item.annotation) ? 'bg-rose-950/20' : ''"
+                >
+                  <td class="p-3 text-center">
+                    <input 
+                      type="checkbox" 
+                      :value="item.annotation" 
+                      x-model="selectedRelatedAnnotations" 
+                      class="rounded bg-slate-800 border-slate-700 text-emerald-500 focus:ring-0 cursor-pointer"
+                    >
+                  </td>
+                  <td class="p-3">
+                    <div class="flex items-center gap-2">
+                      <span class="font-semibold text-white font-mono" x-text="item.annotation"></span>
+                      <span 
+                        class="text-[9px] px-1.5 py-0.5 rounded font-mono border"
+                        :class="item.type === 'main' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : (item.type === 'related' ? 'bg-rose-500/10 text-rose-300 border-rose-500/30' : 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30')"
+                        x-text="item.type === 'main' ? 'Seed' : (item.type === 'related' ? 'Related' : 'Addition')"
+                      ></span>
+                    </div>
+                  </td>
+                  <td class="p-3 font-mono font-bold text-slate-100">
+                    <span 
+                      :class="(item.search_volume || 0) >= 500000 ? 'text-purple-400' : ((item.search_volume || 0) >= 50000 ? 'text-emerald-400' : ((item.search_volume || 0) >= 10000 ? 'text-amber-400' : 'text-slate-400'))"
+                      x-text="item.formatted_volume || '0'"
+                    ></span>
+                  </td>
+                  <td class="p-3 font-mono text-[11px] text-slate-400" x-text="item.last_updated || 'Recent'"></td>
+                  <td class="p-3 font-mono text-[11px]">
+                    <span 
+                      @click="copyAnnotationId(item.annotation_id)" 
+                      class="cursor-pointer text-slate-300 hover:text-white hover:underline flex items-center gap-1"
+                      title="Click to copy ID"
+                    >
+                      <span x-text="item.annotation_id || '—'"></span>
+                    </span>
+                  </td>
+                  <td class="p-3 text-[11px] text-slate-300 max-w-xs truncate" :title="item.category_tree" x-text="item.category_tree || '—'"></td>
+                  <td class="p-3 font-mono text-[11px]">
+                    <a 
+                      :href="item.link" 
+                      target="_blank" 
+                      class="text-indigo-400 hover:text-indigo-300 underline flex items-center gap-1"
+                    >
+                      <span>pinterest</span>
+                      <span>↗</span>
+                    </a>
+                  </td>
+                  <td class="p-3 text-right">
+                    <button 
+                      @click="trackRelatedSingle(item.annotation)" 
+                      class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-emerald-400 hover:text-emerald-300 font-mono text-[11px] border border-slate-700 transition-colors"
+                      title="Track directly in Radar"
+                    >
+                      ⚡ Track
+                    </button>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Modal Footer (Bulk Actions) -->
+      <div class="p-4 border-t border-slate-800 flex items-center justify-between flex-wrap gap-3 bg-slate-950/70">
+        <div class="flex items-center gap-2 text-xs text-slate-400 font-mono">
+          <span x-text="selectedRelatedAnnotations.length"></span>
+          <span>of</span>
+          <span x-text="filteredRelatedList.length"></span>
+          <span>annotations selected</span>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <button 
+            @click="trackSelectedRelated()" 
+            :disabled="selectedRelatedAnnotations.length === 0" 
+            class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-mono text-xs font-bold transition-colors flex items-center gap-1.5"
+          >
+            <span>⚡ Track Selected in Radar</span>
+            <span x-show="selectedRelatedAnnotations.length > 0" x-text="'(' + selectedRelatedAnnotations.length + ')'"></span>
+          </button>
+          <button @click="openRelatedModal = false" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium">
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script>
     function discoveryApp() {
       return {
@@ -466,6 +713,14 @@ export function getDiscoveryPageHtml() {
         requestIdCounter: 0,
         activeRequestId: 0,
         searchCache: new Map(),
+        // Related Interests Modal State
+        openRelatedModal: false,
+        relatedLoading: false,
+        activeRelatedTerm: '',
+        relatedTab: 'all', // 'all', 'related', 'additions'
+        relatedData: null,
+        selectedRelatedAnnotations: [],
+        copyingAnnoId: null,
         toast: {
           show: false,
           message: '',
@@ -595,13 +850,45 @@ export function getDiscoveryPageHtml() {
               throw new Error(data.error || 'Pinterest API error');
             }
 
-            const rawSuggestions = data.suggestions || data.terms || data.queries || data.data || [];
+            const rawSuggestions = data.enriched_suggestions || data.suggestions || data.terms || data.queries || data.data || [];
 
             const mapped = rawSuggestions.map((item, idx) => {
               const termStr = typeof item === 'string' ? item : (item.term || item.query || item.clean_query || '');
+              const searchVol = (typeof item === 'object' && typeof item.search_volume === 'number') ? item.search_volume : null;
+              const annoId = (typeof item === 'object' && item.annotation_id) ? item.annotation_id : null;
+              const categoryTree = (typeof item === 'object' && Array.isArray(item.category_tree)) ? item.category_tree : [];
+              const pinterestUrl = (typeof item === 'object' && item.url) ? item.url : ('https://www.pinterest.com/search/pins/?q=' + encodeURIComponent(termStr));
+
+              let volumeTier = 'Rising';
+              let volumeLabel = 'Rising';
+              if (searchVol !== null && searchVol > 0) {
+                if (searchVol >= 500000) {
+                  volumeTier = 'Mega';
+                  volumeLabel = 'Mega (500k+)';
+                } else if (searchVol >= 50000) {
+                  volumeTier = 'High';
+                  volumeLabel = 'High (50k-500k)';
+                } else if (searchVol >= 10000) {
+                  volumeTier = 'Medium';
+                  volumeLabel = 'Medium (10k-50k)';
+                } else {
+                  volumeTier = 'Low';
+                  volumeLabel = '< 10k';
+                }
+              } else {
+                volumeTier = idx < 3 ? 'High' : (idx < 7 ? 'Medium' : 'Rising');
+                volumeLabel = idx < 3 ? 'High (Est)' : (idx < 7 ? 'Medium (Est)' : 'Rising Velocity');
+              }
+
               return {
                 term: termStr,
-                volumeTier: idx < 3 ? 'High' : (idx < 7 ? 'Medium' : 'Rising'),
+                searchVolume: searchVol,
+                annotationId: annoId,
+                categoryTree: categoryTree,
+                categoryPath: categoryTree.join(' > '),
+                pinterestUrl: pinterestUrl,
+                volumeTier: volumeTier,
+                volumeLabel: volumeLabel,
                 intent: this.determineIntent(termStr),
                 growthPercent: 35 + ((idx * 13) % 55),
                 isTop: idx === 0
@@ -625,6 +912,86 @@ export function getDiscoveryPageHtml() {
               this.loading = false;
             }
           }
+        },
+
+        // --- Pinterest Related Interests Explorer ---
+        async openRelatedExplorer(term) {
+          const clean = String(term || this.searchQuery || '').trim();
+          if (!clean) return;
+          this.activeRelatedTerm = clean;
+          this.openRelatedModal = true;
+          this.relatedLoading = true;
+          this.relatedTab = 'all';
+          this.selectedRelatedAnnotations = [];
+          this.relatedData = null;
+
+          try {
+            const res = await fetch('/api/keywords/related-interests?q=' + encodeURIComponent(clean) + '&mode=both');
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            const data = await res.json();
+            if (data.success) {
+              this.relatedData = data;
+            } else {
+              this.showToast(data.error || 'Failed to fetch related interests', 'error');
+            }
+          } catch (err) {
+            this.showToast('Error querying Pinterest Interest graph: ' + err.message, 'error');
+          } finally {
+            this.relatedLoading = false;
+          }
+        },
+
+        get filteredRelatedList() {
+          if (!this.relatedData) return [];
+          if (this.relatedTab === 'related') {
+            return this.relatedData.related_interests || [];
+          }
+          if (this.relatedTab === 'additions') {
+            return this.relatedData.additions || [];
+          }
+          return this.relatedData.all || [];
+        },
+
+        toggleSelectAllRelated() {
+          const list = this.filteredRelatedList;
+          if (this.selectedRelatedAnnotations.length === list.length) {
+            this.selectedRelatedAnnotations = [];
+          } else {
+            this.selectedRelatedAnnotations = list.map(item => item.annotation);
+          }
+        },
+
+        async trackRelatedSingle(annotation) {
+          await this.trackSingleKeyword(annotation);
+        },
+
+        async trackSelectedRelated() {
+          if (!this.selectedRelatedAnnotations.length) return;
+          try {
+            const res = await fetch('/api/keywords/bulk-import', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ keywords: this.selectedRelatedAnnotations })
+            });
+            const data = await res.json();
+            if (data.success) {
+              this.showToast('Successfully tracked ' + (data.added || this.selectedRelatedAnnotations.length) + ' annotations in Radar!');
+              this.selectedRelatedAnnotations = [];
+            } else {
+              this.showToast(data.message || 'Failed to track annotations', 'error');
+            }
+          } catch (err) {
+            this.showToast(err.message, 'error');
+          }
+        },
+
+        copyAnnotationId(id) {
+          if (!id) return;
+          navigator.clipboard.writeText(String(id)).then(() => {
+            this.copyingAnnoId = id;
+            setTimeout(() => { this.copyingAnnoId = null; }, 1800);
+            this.showToast('Copied Annotation ID: ' + id);
+          }).catch(() => {});
         },
 
         determineIntent(term) {
