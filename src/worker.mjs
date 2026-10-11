@@ -2356,12 +2356,14 @@ export default {
       }
 
       if (method === 'POST' && pathname === '/api/settings') {
+        invalidateEdgeCache('keywords');
         const body = await request.json().catch(() => ({}));
         const updated = await updateAppSettings(sql, body);
         return jsonResponse({ success: true, settings: updated });
       }
 
       if (method === 'POST' && pathname === '/api/keywords/settings') {
+        invalidateEdgeCache('keywords');
         const body = await request.json().catch(() => ({}));
         const keywordId = Number(body.keyword_id);
         if (!keywordId) return jsonResponse({ error: 'keyword_id is required' }, 400);
@@ -3297,7 +3299,7 @@ export default {
       if (method === 'POST' && pathname === '/api/keywords/dispatch-workflow') {
         const body = await request.json().catch(() => ({}));
         const targetKw = body.target_keyword || body.keyword || '';
-        const maxPinsInput = String(body.max_pins || '100');
+        const maxPinsInput = String(body.max_pins || '250');
         const crawlScopeInput = String(body.crawl_scope || 'all_pins');
         const repo = (typeof env !== 'undefined' && env?.GITHUB_REPOSITORY) || (typeof process !== 'undefined' ? process.env?.GITHUB_REPOSITORY : null) || 'sayfedin-star/pin-arbitrage-engine';
         const token = (typeof env !== 'undefined' && (env?.GITHUB_TOKEN || env?.GITHUB_PAT || env?.GH_TOKEN || env?.GH_REFRESH_TOKEN)) || (typeof process !== 'undefined' ? (process.env?.GITHUB_TOKEN || process.env?.GITHUB_PAT || process.env?.GH_TOKEN || process.env?.GH_REFRESH_TOKEN) : null);

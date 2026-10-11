@@ -644,6 +644,9 @@ export function getKeywordsPageHtml(initialSlug = '') {
               </button>
             </div>
           </div>
+        </div>
+      </div>
+
       <!-- Engine & Crawl Depth Settings Modal -->
       <div x-show="isSettingsModalOpen" x-cloak class="relative z-50">
         <div class="fixed inset-0 bg-slate-950/75 backdrop-blur-xs" @click="isSettingsModalOpen = false"></div>
@@ -4805,8 +4808,8 @@ export function getKeywordsPageHtml(initialSlug = '') {
         },
 
         get breakoutPins() {
-          const maxAge = Number(this.appSettings.breakout_max_pin_age_days || 30);
-          const minVel = Number(this.appSettings.breakout_min_velocity || 1.5);
+          const maxAge = Number(this.appSettings.breakout_max_pin_age_days || this.appSettings.breakout_rules?.max_pin_age_days || 30);
+          const minVel = Number(this.appSettings.breakout_min_velocity || this.appSettings.breakout_rules?.min_daily_save_velocity || 1.5);
           return (this.allCombinedPins || []).filter(p => {
             if (p.is_breakout_candidate) return true;
             if (Number(p.breakout_score || 0) >= 20) return true;
@@ -5485,8 +5488,8 @@ export function getKeywordsPageHtml(initialSlug = '') {
                 this.settingsCrawlPages = Number(data.settings.default_crawl_pages || 10);
                 this.settingsMaxPins = Number(data.settings.default_max_pins || 250);
                 this.settingsInspectionMode = data.settings.default_inspection_mode || 'smart_breakout';
-                this.settingsMaxPinAgeDays = Number(data.settings.breakout_max_pin_age_days || 30);
-                this.settingsMinVelocity = Number(data.settings.breakout_min_velocity || 1.5);
+                this.settingsMaxPinAgeDays = Number(data.settings.breakout_max_pin_age_days || data.settings.breakout_rules?.max_pin_age_days || 30);
+                this.settingsMinVelocity = Number(data.settings.breakout_min_velocity || data.settings.breakout_rules?.min_daily_save_velocity || 1.5);
               }
             }
           } catch (e) {
@@ -5507,8 +5510,8 @@ export function getKeywordsPageHtml(initialSlug = '') {
             this.settingsInspectionMode = this.appSettings.default_inspection_mode || 'smart_breakout';
             this.settingsApplyGlobal = true;
           }
-          this.settingsMaxPinAgeDays = Number(this.appSettings.breakout_max_pin_age_days || 30);
-          this.settingsMinVelocity = Number(this.appSettings.breakout_min_velocity || 1.5);
+          this.settingsMaxPinAgeDays = Number(this.appSettings.breakout_max_pin_age_days || this.appSettings.breakout_rules?.max_pin_age_days || 30);
+          this.settingsMinVelocity = Number(this.appSettings.breakout_min_velocity || this.appSettings.breakout_rules?.min_daily_save_velocity || 1.5);
           this.isSettingsModalOpen = true;
           this.$nextTick(() => { lucide.createIcons(); });
         },
@@ -5522,7 +5525,11 @@ export function getKeywordsPageHtml(initialSlug = '') {
                 default_max_pins: this.settingsMaxPins,
                 default_inspection_mode: this.settingsInspectionMode,
                 breakout_max_pin_age_days: this.settingsMaxPinAgeDays,
-                breakout_min_velocity: this.settingsMinVelocity
+                breakout_min_velocity: this.settingsMinVelocity,
+                breakout_rules: {
+                  max_pin_age_days: this.settingsMaxPinAgeDays,
+                  min_daily_save_velocity: this.settingsMinVelocity
+                }
               };
               const res = await fetch(this.getApiUrl('/api/settings'), {
                 method: 'POST',

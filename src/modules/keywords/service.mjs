@@ -1303,7 +1303,10 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
             if (baseSaves !== undefined && baseSaves !== null) {
               const newVel = Math.min(25000, Math.max(0, p.save_count - Number(baseSaves)));
               p.daily_save_velocity = newVel;
-              pinVelocities[idx] = newVel;
+              const pIdxInPrepared = preparedPins.indexOf(p);
+              if (pIdxInPrepared !== -1) {
+                pinVelocities[pIdxInPrepared] = newVel;
+              }
               if (p.metadata) {
                 p.metadata.prev_save_count = baseSaves;
                 if (newVel >= 50) p.metadata.velocity_tier = 'explosive';
