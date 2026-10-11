@@ -3222,7 +3222,8 @@ export default {
             message: 'Valid numeric folder_id is required'
           }, 400);
         }
-        const crossover = await calculateFolderCrossover(sql, Number(folderId));
+        const refresh = searchParams.get('refresh') === 'true' || searchParams.get('force') === 'true';
+        const crossover = await calculateFolderCrossover(sql, Number(folderId), { refresh });
         return jsonResponse({ success: true, crossover });
       }
 
@@ -3393,7 +3394,8 @@ export default {
       if (method === 'GET' && pathname === '/api/keywords/folders/crossover') {
         const folderId = searchParams.get('folder_id') || searchParams.get('id');
         if (!folderId) return jsonResponse({ error: 'folder_id is required' }, 400);
-        const crossover = await calculateFolderCrossover(sql, folderId);
+        const refresh = searchParams.get('refresh') === 'true' || searchParams.get('force') === 'true';
+        const crossover = await calculateFolderCrossover(sql, folderId, { refresh });
         return jsonResponse({ success: true, crossover });
       }
 

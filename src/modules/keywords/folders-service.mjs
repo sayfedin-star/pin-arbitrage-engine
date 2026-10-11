@@ -16,6 +16,22 @@
 
 import { fetchPinterestTrends } from './trends-service.mjs';
 
+const crossoverCache = new Map();
+const CROSSOVER_TTL_MS = 10 * 60 * 1000; // 10 minutes TTL
+const CROSSOVER_CACHE_MAX = 50;
+const inflightCrossover = new Map();
+
+/**
+ * Invalidate in-memory crossover cache for a folder or all folders
+ */
+export function invalidateFolderCache(folderId) {
+  if (folderId) {
+    crossoverCache.delete(Number(folderId));
+  } else {
+    crossoverCache.clear();
+  }
+}
+
 /**
  * List all folders with item counts and keyword previews
  */
@@ -168,6 +184,7 @@ export async function updateFolder(sql, folderId, {
     RETURNING *;
   `;
 
+  invalidateFolderCache(fid);
   return updated;
 }
 
@@ -184,6 +201,7 @@ export async function deleteFolder(sql, folderId) {
     RETURNING id, name;
   `;
 
+  invalidateFolderCache(fid);
   return deleted;
 }
 
@@ -218,6 +236,7 @@ export async function addKeywordToFolder(sql, folderId, keywordId, notes = '') {
     WHERE id = ${fid};
   `;
 
+  invalidateFolderCache(fid);
   return item;
 }
 
@@ -253,6 +272,7 @@ export async function batchAddKeywordsToFolder(sql, folderId, keywordIds = []) {
     WHERE id = ${fid};
   `;
 
+  invalidateFolderCache(fid);
   return { added };
 }
 
@@ -276,6 +296,7 @@ export async function removeKeywordFromFolder(sql, folderId, keywordId) {
     WHERE id = ${fid};
   `;
 
+  invalidateFolderCache(fid);
   return deleted;
 }
 
@@ -632,11 +653,44 @@ function synthesizeSpokeTitle(modifier, targetKw) {
  * 4. Creator & Domain Monopoly Index (who owns authority across this niche)
  * 5. Composite 52-Week Seasonality Wave & Optimal Launch Calendar
  * 6. Algorithmic Topic Cluster Blueprint & CSV Content Plan
+ * 7. Fast edge caching (10m TTL) with ?refresh=true bypass and inflight coalescing
  */
-export async function calculateFolderCrossover(sql, folderId) {
+export async function calculateFolderCrossover(sql, folderId, { refresh = false } = {}) {
   const fid = Number(folderId);
   if (!fid) throw new Error('Invalid folder ID');
 
+  const now = Date.now();
+  if (!refresh) {
+    const cached = crossoverCache.get(fid);
+    if (cached && (now - cached.timestamp < CROSSOVER_TTL_MS)) {
+      return cached.data;
+    }
+  }
+
+  const flightKey = `${fid}:${refresh ? 'refresh' : 'standard'}`;
+  if (inflightCrossover.has(flightKey)) {
+    return await inflightCrossover.get(flightKey);
+  }
+
+  const computePromise = (async () => {
+    try {
+      const result = await _executeFolderCrossover(sql, fid);
+      if (crossoverCache.size >= CROSSOVER_CACHE_MAX) {
+        const oldest = crossoverCache.keys().next().value;
+        if (oldest) crossoverCache.delete(oldest);
+      }
+      crossoverCache.set(fid, { timestamp: Date.now(), data: result });
+      return result;
+    } finally {
+      inflightCrossover.delete(flightKey);
+    }
+  })();
+
+  inflightCrossover.set(flightKey, computePromise);
+  return await computePromise;
+}
+
+async function _executeFolderCrossover(sql, fid) {
   // 1. Fetch Folder & Member Keywords
   const [folder] = await sql`
     SELECT * FROM keyword_folders WHERE id = ${fid} LIMIT 1;
@@ -1285,6 +1339,7 @@ export async function calculateFolderCrossover(sql, folderId) {
       monopoly_creator_count: creatorMonopoly.length
     },
     super_pins: superPins.length > 0 ? superPins : topRankedPins,
+    all_pins: allPins.slice().sort((a, b) => (b.save_count || 0) - (a.save_count || 0) || (b.daily_save_velocity || 0) - (a.daily_save_velocity || 0)),
     has_super_pins: superPins.length > 0,
     tag_bridges: tagBridges,
     guided_pivots: guidedPivots,
