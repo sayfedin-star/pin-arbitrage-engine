@@ -140,6 +140,10 @@ export function getCampaignFoldersPageHtml(folderId = '') {
         </div>
 
         <div class="flex items-center gap-3">
+          <button @click="scrollToSection('blueprint-section')" class="px-3.5 py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/80 text-xs font-semibold shadow-sm transition-colors flex items-center gap-1.5">
+            <span>🎯</span>
+            <span>Content Blueprint</span>
+          </button>
           <button @click="runCrossoverAnalysis(true)" :disabled="crossoverLoading" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-semibold shadow-md transition-colors flex items-center gap-2">
             <span x-show="!crossoverLoading">⚡</span>
             <span x-show="crossoverLoading" class="animate-spin inline-block">⏳</span>
@@ -194,129 +198,10 @@ export function getCampaignFoldersPageHtml(folderId = '') {
         </button>
       </div>
 
-      <!-- Scope Switcher, Sorter & Filter Bar -->
-      <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 flex items-center justify-between flex-wrap gap-4 shadow-sm">
-        <div class="flex items-center gap-2 flex-wrap">
-          <span class="text-xs font-medium text-slate-500 dark:text-slate-400 mr-1">Scope:</span>
-          <button @click="scopeFilter = 'all'; currentPage = 1" 
-                  class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
-                  :class="scopeFilter === 'all' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'">
-            All Cluster Pins (<span x-text="formatNumber(crossoverData?.summary?.total_unique_pins || (crossoverData?.all_pins?.length || 0))"></span>)
-          </button>
-          <button @click="scopeFilter = 'super_only'; currentPage = 1" 
-                  class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5"
-                  :class="scopeFilter === 'super_only' ? 'bg-pink-600 text-white shadow-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'">
-            <span>⭐</span> Super-Pins Only (<span x-text="formatNumber(crossoverData?.summary?.super_pins_count || (crossoverData?.super_pins?.length || 0))"></span>)
-          </button>
-          <template x-if="activeFolder?.items?.length">
-            <select x-model="scopeFilter" @change="currentPage = 1" class="bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 rounded-lg text-xs py-1.5 px-2.5 font-mono">
-              <option value="all">Filter by Keyword (All)</option>
-              <template x-for="item in activeFolder.items" :key="item.keyword">
-                <option :value="item.keyword" x-text="item.keyword"></option>
-              </template>
-            </select>
-          </template>
-        </div>
-
-        <div class="flex items-center gap-3 flex-wrap">
-          <!-- Sort Dropdown -->
-          <div class="flex items-center gap-1.5 text-xs">
-            <span class="text-slate-500 dark:text-slate-400">Sort:</span>
-            <select x-model="sortBy" @change="currentPage = 1" class="bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 rounded-lg text-xs py-1.5 px-2.5 font-mono">
-              <option value="saves_desc">Total Saves (High → Low)</option>
-              <option value="saves_asc">Total Saves (Low → High)</option>
-              <option value="velocity_desc">Daily Velocity (Fastest)</option>
-              <option value="rank_asc">Best Rank (#1 First)</option>
-              <option value="overlap_desc">Cross-SERP Overlap (Most)</option>
-              <option value="title_asc">Title (A → Z)</option>
-            </select>
-          </div>
-
-          <!-- Search Filter -->
-          <div class="relative">
-            <input type="text" x-model="searchQuery" @input="currentPage = 1" placeholder="Filter pins by title, domain, or tag..."
-                   class="w-64 pl-8 pr-3 py-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg text-xs text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 font-sans focus:outline-none focus:border-indigo-500">
-            <span class="absolute left-2.5 top-1.5 text-slate-400 text-xs">🔍</span>
-          </div>
-          <span class="text-xs font-mono text-slate-500 dark:text-slate-400" x-text="filteredPinsList().length + ' matching'"></span>
-        </div>
-      </div>
-
-      <!-- 1-Click Topic Cluster Blueprint & Content Generator Section -->
-      <div x-show="crossoverData?.topic_cluster_blueprint" class="bg-gradient-to-br from-indigo-50/70 via-white to-indigo-50/30 dark:from-slate-900 dark:to-indigo-950/40 border border-indigo-200 dark:border-indigo-500/20 rounded-2xl p-6 shadow-sm dark:shadow-xl flex flex-col gap-5 transition-colors" x-cloak>
-        <div class="flex items-center justify-between flex-wrap gap-4 pb-4 border-b border-slate-200 dark:border-slate-800/80">
-          <div class="flex items-center gap-3">
-            <div class="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-600 dark:text-indigo-400 font-bold text-lg">
-              🎯
-            </div>
-            <div>
-              <div class="flex items-center gap-2">
-                <h3 class="text-base font-bold text-slate-900 dark:text-white tracking-tight">Algorithmic Topic Cluster Blueprint</h3>
-                <span class="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30 font-medium">Auto-Synthesized</span>
-              </div>
-              <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">High-converting pillar concept and 5 spoke pins generated from verified SERP intersections.</p>
-            </div>
-          </div>
-
-          <div class="flex items-center gap-2">
-            <button @click="copyClusterSummary()" class="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold border border-slate-300 dark:border-slate-700 transition-colors flex items-center gap-1.5 shadow-sm">
-              <span>📋</span> Copy Master Blueprint
-            </button>
-            <button @click="downloadClusterCsv()" class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition-colors flex items-center gap-1.5 shadow-sm">
-              <span>📥</span> Export CSV Content Plan
-            </button>
-          </div>
-        </div>
-
-        <!-- Pillar Concept & Seasonality Launch Window -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div class="md:col-span-2 bg-white/90 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-xl p-4 flex flex-col gap-2 shadow-sm">
-            <span class="text-[10px] font-mono uppercase text-indigo-600 dark:text-indigo-400 tracking-wider font-semibold">Pillar Pin Concept</span>
-            <div class="text-sm font-bold text-slate-900 dark:text-white tracking-tight" x-text="crossoverData?.topic_cluster_blueprint?.pillar_concept"></div>
-            <div class="flex items-center gap-2 flex-wrap pt-1">
-              <span class="text-[11px] text-slate-500 dark:text-slate-400">Target Keywords:</span>
-              <template x-for="kw in (crossoverData?.topic_cluster_blueprint?.target_keywords || []).slice(0, 5)" :key="kw">
-                <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700" x-text="kw"></span>
-              </template>
-            </div>
-          </div>
-
-          <div class="bg-white/90 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-xl p-4 flex flex-col gap-2 shadow-sm">
-            <span class="text-[10px] font-mono uppercase text-amber-600 dark:text-amber-400 tracking-wider font-semibold">Seasonality & Launch Window</span>
-            <div class="text-xs font-bold text-slate-900 dark:text-white" x-text="crossoverData?.seasonality?.recommended_launch_window || 'Year-round Evergreen'"></div>
-            <div class="flex items-center gap-1 flex-wrap pt-1">
-              <span class="text-[10px] text-slate-500 dark:text-slate-400">Peak Months:</span>
-              <template x-for="pm in (crossoverData?.seasonality?.peak_months || [])" :key="pm">
-                <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20" x-text="pm"></span>
-              </template>
-            </div>
-          </div>
-        </div>
-
-        <!-- Spoke Pins Grid -->
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-          <template x-for="spoke in (crossoverData?.topic_cluster_blueprint?.spoke_angles || [])" :key="spoke.angle_number">
-            <div class="bg-white/80 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800/80 hover:border-slate-300 dark:hover:border-slate-700 rounded-xl p-3.5 flex flex-col justify-between gap-3 shadow-sm transition-colors">
-              <div class="flex flex-col gap-1.5">
-                <div class="flex items-center justify-between">
-                  <span class="text-[10px] font-mono font-bold text-indigo-600 dark:text-indigo-400" x-text="'Spoke #' + spoke.angle_number"></span>
-                  <span class="text-[9px] font-mono px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700" x-text="spoke.recommended_format"></span>
-                </div>
-                <h4 class="text-xs font-semibold text-slate-900 dark:text-white tracking-tight line-clamp-2" x-text="spoke.angle_title"></h4>
-                <p class="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-2" x-text="spoke.hook_concept"></p>
-              </div>
-
-              <div class="pt-2 border-t border-slate-200 dark:border-slate-800/60 flex items-center justify-between text-[10px]">
-                <span class="text-slate-500 dark:text-slate-400 font-mono truncate" x-text="'Kw: ' + spoke.target_keyword"></span>
-                <span class="text-indigo-600 dark:text-indigo-400 font-mono font-semibold" x-text="spoke.recommended_aspect_ratio"></span>
-              </div>
-            </div>
-          </template>
-        </div>
-      </div>
-
       <!-- SECTION 1: Full Pins Table (Paginated 1,788 Unique Pins / Super-Pins) -->
-      <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm dark:shadow-xl flex flex-col transition-colors">
+      <div id="pins-table-section" class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm dark:shadow-xl flex flex-col transition-colors">
+        
+        <!-- Table Title & Meta Bar -->
         <div class="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between flex-wrap gap-3">
           <div class="flex items-center gap-2">
             <span class="text-base" x-text="scopeFilter === 'super_only' ? '⭐' : '📌'">📌</span>
@@ -325,10 +210,61 @@ export function getCampaignFoldersPageHtml(folderId = '') {
             <span class="text-xs text-slate-500 dark:text-slate-400" 
                   x-text="scopeFilter === 'super_only' ? '(Pins ranking across >= 2 cluster search terms)' : '(Every verified pin across cluster search snapshots)'"></span>
           </div>
-          <div class="flex items-center gap-2">
+          <div class="flex items-center gap-3">
             <span class="text-xs font-mono text-indigo-600 dark:text-indigo-400 font-bold" x-text="formatNumber(filteredPinsList().length) + ' pins matching'"></span>
             <span class="text-xs text-slate-300 dark:text-slate-600">|</span>
             <span class="text-xs text-slate-500 dark:text-slate-400 font-mono" x-text="'Page ' + currentPage + ' of ' + totalPages()"></span>
+          </div>
+        </div>
+
+        <!-- Integrated Toolbar: Scope Switcher, Sorter & Search Filter Bar -->
+        <div class="p-3.5 bg-slate-50/80 dark:bg-slate-950/60 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between flex-wrap gap-3">
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="text-xs font-medium text-slate-500 dark:text-slate-400 mr-1">Scope:</span>
+            <button @click="scopeFilter = 'all'; currentPage = 1" 
+                    class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
+                    :class="scopeFilter === 'all' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700'">
+              All Cluster Pins (<span x-text="formatNumber(crossoverData?.summary?.total_unique_pins || (crossoverData?.all_pins?.length || 0))"></span>)
+            </button>
+            <button @click="scopeFilter = 'super_only'; currentPage = 1" 
+                    class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5"
+                    :class="scopeFilter === 'super_only' ? 'bg-pink-600 text-white shadow-sm' : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700'">
+              <span>⭐</span> Super-Pins Only (<span x-text="formatNumber(crossoverData?.summary?.super_pins_count || (crossoverData?.super_pins?.length || 0))"></span>)
+            </button>
+            <template x-if="activeFolder?.items?.length">
+              <select x-model="scopeFilter" @change="currentPage = 1" class="bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-lg text-xs py-1.5 px-2.5 font-mono shadow-sm">
+                <option value="all">Filter by Keyword (All)</option>
+                <template x-for="item in activeFolder.items" :key="item.keyword">
+                  <option :value="item.keyword" x-text="item.keyword"></option>
+                </template>
+              </select>
+            </template>
+          </div>
+
+          <div class="flex items-center gap-3 flex-wrap">
+            <!-- Sort Dropdown -->
+            <div class="flex items-center gap-1.5 text-xs">
+              <span class="text-slate-500 dark:text-slate-400">Sort:</span>
+              <select x-model="sortBy" @change="currentPage = 1" class="bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-lg text-xs py-1.5 px-2.5 font-mono shadow-sm">
+                <option value="saves_desc">Total Saves (High → Low)</option>
+                <option value="saves_asc">Total Saves (Low → High)</option>
+                <option value="velocity_desc">Daily Velocity (Fastest)</option>
+                <option value="rank_asc">Best Rank (#1 First)</option>
+                <option value="overlap_desc">Cross-SERP Overlap (Most)</option>
+                <option value="title_asc">Title (A → Z)</option>
+              </select>
+            </div>
+
+            <!-- Search Filter -->
+            <div class="relative">
+              <input type="text" x-model="searchQuery" @input="currentPage = 1" placeholder="Filter pins by title, domain, or tag..."
+                     class="w-64 pl-8 pr-3 py-1.5 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg text-xs text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 font-sans focus:outline-none focus:border-indigo-500 shadow-sm">
+              <span class="absolute left-2.5 top-1.5 text-slate-400 text-xs">🔍</span>
+            </div>
+            
+            <a href="#blueprint-section" @click.prevent="scrollToSection('blueprint-section')" class="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 transition-colors flex items-center gap-1 ml-1">
+              <span>🎯 Blueprint Plan ↓</span>
+            </a>
           </div>
         </div>
 
@@ -480,7 +416,112 @@ export function getCampaignFoldersPageHtml(folderId = '') {
         </div>
       </div>
 
-      <!-- SECTION 2: Universal Visual Annotations Overlap Matrix (Bridge Tags Heatmap) -->
+      <!-- SECTION 2: 1-Click Algorithmic Topic Cluster Blueprint & Content Studio -->
+      <div id="blueprint-section" x-show="crossoverData?.topic_cluster_blueprint" class="bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-500/20 rounded-2xl overflow-hidden shadow-sm dark:shadow-xl flex flex-col transition-colors" x-cloak>
+        <!-- Blueprint Header with Quick Actions -->
+        <div class="p-4 border-b border-slate-200 dark:border-slate-800 bg-gradient-to-r from-indigo-50/70 via-white to-purple-50/30 dark:from-slate-900 dark:via-slate-900 dark:to-indigo-950/40 flex items-center justify-between flex-wrap gap-4">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-600 dark:text-indigo-400 font-bold text-lg">
+              🎯
+            </div>
+            <div>
+              <div class="flex items-center gap-2">
+                <h3 class="text-sm font-bold text-slate-900 dark:text-white tracking-tight">Algorithmic Topic Cluster Blueprint</h3>
+                <span class="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30 font-semibold">Auto-Synthesized</span>
+              </div>
+              <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">High-converting pillar concept and 5 spoke pins generated from verified SERP intersections.</p>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-2 flex-wrap">
+            <button @click="copyAiPrompt()" class="px-3 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 text-xs font-semibold border border-indigo-200 dark:border-indigo-800 transition-colors flex items-center gap-1.5 shadow-sm">
+              <span>🤖</span> Copy AI Prompt
+            </button>
+            <button @click="copyClusterSummary()" class="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold border border-slate-300 dark:border-slate-700 transition-colors flex items-center gap-1.5 shadow-sm">
+              <span>📋</span> Copy Blueprint
+            </button>
+            <button @click="downloadClusterCsv()" class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition-colors flex items-center gap-1.5 shadow-sm">
+              <span>📥</span> Export CSV Content Plan
+            </button>
+            <button @click="showBlueprint = !showBlueprint" class="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-semibold border border-slate-200 dark:border-slate-700 transition-colors flex items-center gap-1 shadow-sm">
+              <span x-text="showBlueprint ? 'Collapse' : 'Expand'"></span>
+              <span class="inline-block transition-transform duration-200 text-[10px]" :class="showBlueprint ? 'rotate-180' : ''">▼</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Collapsible Content Body -->
+        <div x-show="showBlueprint" class="p-6 flex flex-col gap-6" x-cloak>
+          <!-- Pillar Concept & Seasonality Launch Window -->
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="md:col-span-2 bg-slate-50/70 dark:bg-slate-950/50 border border-slate-200 dark:border-slate-800 rounded-xl p-4 flex flex-col gap-2 shadow-sm">
+              <div class="flex items-center justify-between">
+                <span class="text-[10px] font-mono uppercase text-indigo-600 dark:text-indigo-400 tracking-wider font-semibold">🏛️ Pillar Pin & Article Concept</span>
+                <span class="text-[10px] text-slate-400 font-mono" x-text="(crossoverData?.topic_cluster_blueprint?.target_keywords?.length || 0) + ' keywords targeted'"></span>
+              </div>
+              <div class="text-sm font-bold text-slate-900 dark:text-white tracking-tight" x-text="crossoverData?.topic_cluster_blueprint?.pillar_concept"></div>
+              <div class="flex items-center gap-1.5 flex-wrap pt-1">
+                <span class="text-[11px] text-slate-500 dark:text-slate-400">Target Keywords:</span>
+                <template x-for="kw in (crossoverData?.topic_cluster_blueprint?.target_keywords || []).slice(0, 6)" :key="kw">
+                  <button @click="scopeFilter = kw; currentPage = 1; scrollToSection('pins-table-section')" 
+                          class="text-[10px] font-mono px-2 py-0.5 rounded bg-white dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:border-indigo-300 transition-colors shadow-sm" 
+                          x-text="kw"></button>
+                </template>
+              </div>
+            </div>
+
+            <div class="bg-slate-50/70 dark:bg-slate-950/50 border border-slate-200 dark:border-slate-800 rounded-xl p-4 flex flex-col gap-2 shadow-sm">
+              <span class="text-[10px] font-mono uppercase text-amber-600 dark:text-amber-400 tracking-wider font-semibold">📅 Seasonality & Launch Window</span>
+              <div class="text-xs font-bold text-slate-900 dark:text-white" x-text="crossoverData?.seasonality?.recommended_launch_window || 'Year-round Evergreen'"></div>
+              <div class="flex items-center gap-1 flex-wrap pt-1">
+                <span class="text-[10px] text-slate-500 dark:text-slate-400">Peak Months:</span>
+                <template x-for="pm in (crossoverData?.seasonality?.peak_months || [])" :key="pm">
+                  <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20" x-text="pm"></span>
+                </template>
+              </div>
+            </div>
+          </div>
+
+          <!-- Spoke Pins Header -->
+          <div class="flex items-center justify-between pt-2 border-t border-slate-200 dark:border-slate-800">
+            <h4 class="text-xs font-bold text-slate-900 dark:text-white uppercase font-mono tracking-wider">📌 5 Spoke Content Blueprints (Actionable Pin Angles)</h4>
+            <span class="text-xs text-slate-500 dark:text-slate-400">Click "Copy Angle" on any card to copy title, hook & directive</span>
+          </div>
+
+          <!-- Spoke Pins Grid -->
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <template x-for="spoke in (crossoverData?.topic_cluster_blueprint?.spoke_angles || [])" :key="spoke.angle_number">
+              <div class="bg-slate-50/80 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 hover:border-indigo-300 dark:hover:border-indigo-700 rounded-xl p-4 flex flex-col justify-between gap-3 shadow-sm hover:shadow transition-all">
+                <div class="flex flex-col gap-2">
+                  <div class="flex items-center justify-between">
+                    <span class="text-[10px] font-mono font-bold text-indigo-600 dark:text-indigo-400" x-text="'Spoke #' + spoke.angle_number"></span>
+                    <span class="text-[9px] font-mono px-2 py-0.5 rounded font-semibold"
+                          :class="spoke.recommended_format.includes('VIDEO') ? 'bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700'"
+                          x-text="spoke.recommended_format"></span>
+                  </div>
+                  <h4 class="text-xs font-bold text-slate-900 dark:text-white tracking-tight leading-snug" x-text="spoke.angle_title"></h4>
+                  <div class="p-2.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed font-sans">
+                    <span class="font-semibold text-slate-800 dark:text-slate-200">🎬 Visual Hook: </span>
+                    <span x-text="spoke.hook_concept"></span>
+                  </div>
+                </div>
+
+                <div class="pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2">
+                  <div class="flex flex-col gap-0.5 truncate text-[10px]">
+                    <span class="text-slate-400 dark:text-slate-500 font-mono">Target Kw:</span>
+                    <span class="text-slate-700 dark:text-slate-300 font-mono font-semibold truncate" x-text="spoke.target_keyword"></span>
+                  </div>
+                  <button @click="copySpoke(spoke)" class="px-2.5 py-1.5 rounded-lg bg-white hover:bg-indigo-50 dark:bg-slate-800 dark:hover:bg-slate-700 text-indigo-600 dark:text-indigo-400 text-xs font-semibold border border-slate-200 dark:border-slate-700 hover:border-indigo-300 transition-colors flex items-center gap-1 shadow-sm flex-shrink-0">
+                    <span>📋</span> Copy Angle
+                  </button>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
+
+      <!-- SECTION 3: Universal Visual Annotations Overlap Matrix (Bridge Tags Heatmap) -->
       <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm dark:shadow-xl flex flex-col transition-colors">
         <div class="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between flex-wrap gap-3">
           <div class="flex items-center gap-2">
@@ -548,7 +589,7 @@ export function getCampaignFoldersPageHtml(folderId = '') {
         </div>
       </div>
 
-      <!-- SECTION 3: Co-Occurring Power Pairs Table (Lift >= 1.0) -->
+      <!-- SECTION 4: Co-Occurring Power Pairs Table (Lift >= 1.0) -->
       <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm dark:shadow-xl flex flex-col transition-colors">
         <div class="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between flex-wrap gap-3">
           <div class="flex items-center gap-2">
@@ -613,7 +654,7 @@ export function getCampaignFoldersPageHtml(folderId = '') {
         </div>
       </div>
 
-      <!-- SECTION 4: Creator & Domain Monopoly Breakdown -->
+      <!-- SECTION 5: Creator & Domain Monopoly Breakdown -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
         <!-- Domain Monopoly Breakdown -->
@@ -884,6 +925,7 @@ export function getCampaignFoldersPageHtml(folderId = '') {
         pageSize: 50,
         searchQuery: '',
         entityFilter: { type: null, value: null },
+        showBlueprint: true,
         _pinsCacheKey: '',
         _cachedFilteredPins: null,
         powerPairs: [],
@@ -1098,6 +1140,77 @@ export function getCampaignFoldersPageHtml(folderId = '') {
             this.showToast('Copied Visual Blueprint (' + tagA + ' + ' + tagB + ')!', 'success');
           }).catch(() => {
             this.showToast('Clipboard access denied', 'warning');
+          });
+        },
+
+        scrollToSection(id) {
+          if (id === 'blueprint-section') {
+            this.showBlueprint = true;
+          }
+          this.$nextTick(() => {
+            const el = document.getElementById(id);
+            if (el) {
+              el.scrollIntoView({ behavior: 'smooth' });
+            }
+          });
+        },
+
+        copySpoke(spoke) {
+          if (!spoke) return;
+          const lines = [
+            '📌 PIN SPOKE #' + spoke.angle_number + ': ' + spoke.angle_title,
+            '--------------------------------------------------',
+            '🎯 Target Keyword: ' + spoke.target_keyword,
+            '💡 Modifier Pivot: ' + (spoke.modifier || 'N/A'),
+            '📐 Format & Ratio: ' + spoke.recommended_format + ' (' + spoke.recommended_aspect_ratio + ')',
+            '🎬 Visual Hook Directive: ' + spoke.hook_concept,
+            '🏷️ SEO Tags: ' + (spoke.target_tags || 'N/A')
+          ];
+
+          navigator.clipboard.writeText(lines.join('\\n')).then(() => {
+            this.showToast('Copied Spoke #' + spoke.angle_number + ' to clipboard!', 'success');
+          }).catch(() => {
+            this.showToast('Failed to copy spoke to clipboard', 'warning');
+          });
+        },
+
+        copyAiPrompt() {
+          const bp = this.crossoverData?.topic_cluster_blueprint;
+          if (!bp) return;
+
+          const lines = [
+            'You are an expert Pinterest SEO and content strategist. Create a comprehensive high-converting Pinterest campaign and blog post outline based on this algorithmic cluster blueprint:',
+            '',
+            'CLUSTER THEME: ' + (bp.folder_name || 'Campaign Cluster'),
+            'PILLAR CONCEPT: ' + bp.pillar_concept,
+            'RECOMMENDED LAUNCH: ' + (this.crossoverData?.seasonality?.recommended_launch_window || 'Evergreen'),
+            'UNIVERSAL VISUAL TAGS: ' + (bp.universal_tag_blueprint || ''),
+            'SEARCH CONNECTORS: ' + (bp.top_connectors || []).join(', '),
+            '',
+            '5 ACTIONABLE SPOKE PINS TO GENERATE:'
+          ];
+
+          for (const sp of (bp.spoke_angles || [])) {
+            lines.push(
+              '- Spoke #' + sp.angle_number + ' [' + sp.recommended_format + ' | ' + sp.recommended_aspect_ratio + ']: ' +
+              sp.angle_title + ' (Target Keyword: ' + sp.target_keyword + ')\\n  Visual Hook: ' + sp.hook_concept
+            );
+          }
+
+          lines.push('');
+          lines.push('FOR EACH SPOKE PIN, WRITE:');
+          lines.push('1. High-CTR Pin Title (under 100 chars, keyword front-loaded)');
+          lines.push('2. Engaging Pin Description (under 500 chars with natural keyword integration and call-to-action)');
+          lines.push('3. On-Pin Text Overlay Hook (3-6 punchy words for image overlay)');
+          lines.push('4. Visual Scene Directive for image/video generation');
+          lines.push('');
+          lines.push('THEN WRITE:');
+          lines.push('A 1,500-word comprehensive Pillar Blog Article outline interlinking all 5 spokes.');
+
+          navigator.clipboard.writeText(lines.join('\\n')).then(() => {
+            this.showToast('Copied ready-to-run AI Content Prompt!', 'success');
+          }).catch(() => {
+            this.showToast('Failed to copy AI prompt to clipboard', 'warning');
           });
         },
 
