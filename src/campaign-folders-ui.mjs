@@ -542,136 +542,146 @@ export function getCampaignFoldersPageHtml(folderId = '') {
         </div>
       </div>
 
-      <!-- SECTION 3: Universal Visual Annotations Overlap Matrix (Bridge Tags Heatmap) -->
-      <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm dark:shadow-xl flex flex-col transition-colors">
-        <div class="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between flex-wrap gap-3">
-          <div class="flex items-center gap-2">
-            <span class="text-base">🌉</span>
-            <h3 class="text-sm font-semibold text-slate-900 dark:text-white tracking-tight">Raw Visual Tag Bridges Heatmap</h3>
-            <span class="text-xs text-slate-500 dark:text-slate-400">(Computer Vision labels shared across multiple cluster search terms)</span>
-          </div>
-          <span class="text-xs font-mono text-slate-500 dark:text-slate-400" x-text="filteredTagBridges().length + ' bridge tags'"></span>
-        </div>
-
-        <div class="overflow-x-auto">
-          <table class="w-full text-left text-xs font-mono">
-            <thead class="bg-slate-50 dark:bg-slate-950/80 border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 uppercase text-[10px]">
-              <tr>
-                <th class="p-3.5">Visual Tag Entity</th>
-                <th class="p-3.5">Tier & Overlap %</th>
-                <th class="p-3.5">Shared Keywords</th>
-                <th class="p-3.5">Pin Occurrences</th>
-                <th class="p-3.5">Combined Saves</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-200 dark:divide-slate-800/60 text-slate-700 dark:text-slate-300">
-              <template x-for="tb in filteredTagBridges().slice(0, 30)" :key="tb.raw_tag || tb.tag">
-                <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                  <td class="p-3.5">
-                    <span class="font-bold text-slate-900 dark:text-white text-xs" x-text="tb.tag"></span>
-                  </td>
-
-                  <td class="p-3.5">
-                    <div class="flex items-center gap-2">
-                      <div class="w-20 bg-slate-200 dark:bg-slate-800 rounded-full h-2 overflow-hidden">
-                        <div class="h-full rounded-full transition-all"
-                             :class="tb.overlap_percentage >= 80 ? 'bg-emerald-500 dark:bg-emerald-400' : tb.overlap_percentage >= 50 ? 'bg-indigo-500 dark:bg-indigo-400' : 'bg-slate-400 dark:bg-slate-500'"
-                             :style="'width: ' + tb.overlap_percentage + '%'"></div>
-                      </div>
-                      <span class="font-bold text-xs" 
-                            :class="tb.overlap_percentage >= 80 ? 'text-emerald-600 dark:text-emerald-400' : tb.overlap_percentage >= 50 ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-500 dark:text-slate-400'"
-                            x-text="tb.overlap_percentage + '%'"></span>
-                      <span class="text-[9px] px-1.5 py-0.5 rounded font-sans uppercase font-semibold"
-                            :class="tb.overlap_percentage >= 80 ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20' : tb.overlap_percentage >= 50 ? 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border border-indigo-500/20' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'"
-                            x-text="tb.overlap_percentage >= 80 ? 'Master' : tb.overlap_percentage >= 50 ? 'Strong' : 'Secondary'"></span>
-                    </div>
-                  </td>
-
-                  <td class="p-3.5">
-                    <div class="flex items-center gap-1 flex-wrap">
-                      <template x-for="kw in (tb.keywords || [])" :key="kw">
-                        <span class="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 text-[10px]" x-text="kw"></span>
-                      </template>
-                    </div>
-                  </td>
-
-                  <td class="p-3.5 font-bold font-mono text-sky-600 dark:text-sky-400" x-text="formatNumber(tb.pin_count)"></td>
-                  <td class="p-3.5 font-bold font-mono text-emerald-600 dark:text-emerald-400" x-text="formatNumber(tb.total_saves)"></td>
-                </tr>
-              </template>
-
-              <tr x-show="!filteredTagBridges().length">
-                <td colspan="5" class="p-8 text-center text-slate-500 font-sans">
-                  No visual tag bridges found across this cluster.
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <!-- SECTION 4: Co-Occurring Power Pairs Table (Lift >= 1.0) -->
-      <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm dark:shadow-xl flex flex-col transition-colors">
-        <div class="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between flex-wrap gap-3">
-          <div class="flex items-center gap-2">
-            <span class="text-base">⚡</span>
+      <!-- SECTION 3: VISUAL ANNOTATIONS CROSSOVER HUB (Across 1,788 Unique Pins) -->
+      <div id="visual-crossover-hub" class="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-6 shadow-sm dark:shadow-xl transition-colors">
+        <!-- Hub Header -->
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-200 dark:border-slate-800">
+          <div class="flex items-center space-x-3">
+            <div class="w-10 h-10 rounded-2xl bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center text-lg font-bold">
+              ✨
+            </div>
             <div>
-              <h3 class="text-sm font-semibold text-slate-900 dark:text-white tracking-tight">Co-Occurring Visual Power Pairs</h3>
-              <p class="text-[11px] text-slate-500 dark:text-slate-400 font-sans">
-                Algorithmic association rules: Pairs with Lift(A,B) &gt; 1.0 co-occur significantly more than random chance.
-              </p>
+              <div class="flex items-center space-x-2">
+                <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">Visual Annotations Crossover Hub</h3>
+                <span class="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30"
+                      x-text="powerPairs.length + ' Power Pairs Computed'"></span>
+              </div>
+              <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Computer-vision tag co-occurrences, intra-SERP algorithmic lift, and visual prompt blueprint combinations across 1,788 unique pins.</p>
             </div>
           </div>
-          <span class="text-xs font-mono text-slate-500 dark:text-slate-400" x-text="powerPairs.length + ' power pairs calculated'"></span>
+
+          <template x-if="searchQuery">
+            <button @click="searchQuery = ''; currentPage = 1" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-rose-500/15 text-rose-600 dark:text-rose-400 hover:bg-rose-500/25 transition flex items-center space-x-1.5 cursor-pointer">
+              <span>✕</span>
+              <span x-text="'Clear Tag #' + searchQuery"></span>
+            </button>
+          </template>
         </div>
 
-        <div class="overflow-x-auto">
-          <table class="w-full text-left text-xs font-mono">
-            <thead class="bg-slate-50 dark:bg-slate-950/80 border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 uppercase text-[10px]">
-              <tr>
-                <th class="p-3.5">Synergy Pair (Tag A + Tag B)</th>
-                <th class="p-3.5">Joint Occurrences N(A∩B)</th>
-                <th class="p-3.5">Mathematical Lift</th>
-                <th class="p-3.5">Confidence A→B</th>
-                <th class="p-3.5 text-right">Creative Action</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-200 dark:divide-slate-800/60 text-slate-700 dark:text-slate-300">
-              <template x-for="pair in powerPairs.slice(0, 15)" :key="pair.tag_a + '_' + pair.tag_b">
-                <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                  <td class="p-3.5">
-                    <div class="flex items-center gap-2">
-                      <span class="px-2 py-0.5 rounded bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-500/20 font-bold" x-text="pair.tag_a"></span>
-                      <span class="text-slate-400 font-bold">+</span>
-                      <span class="px-2 py-0.5 rounded bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-500/20 font-bold" x-text="pair.tag_b"></span>
-                    </div>
-                  </td>
+        <!-- Subsection A: Co-Occurring Power Pairs Grid -->
+        <div class="space-y-3">
+          <div class="flex items-center justify-between">
+            <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono">Co-Occurring Visual Power Pairs (Algorithmic Lift)</h4>
+            <span class="text-[10px] text-slate-400 font-mono">Top combinations with high intra-SERP affinity</span>
+          </div>
 
-                  <td class="p-3.5 font-bold text-sky-600 dark:text-sky-400" x-text="pair.joint_count + ' pins'"></td>
-
-                  <td class="p-3.5">
-                    <span class="font-bold text-xs px-2 py-0.5 rounded"
-                          :class="pair.lift >= 2.0 ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20' : 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20'"
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3" x-show="powerPairs.length > 0">
+            <template x-for="(pair, idx) in powerPairs.slice(0, 8)" :key="idx">
+              <div class="p-3.5 rounded-2xl bg-slate-50/70 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 flex flex-col justify-between space-y-2.5 hover:border-purple-500/40 transition group shadow-sm">
+                <div class="space-y-2">
+                  <div class="flex items-center justify-between">
+                    <span class="px-2 py-0.5 rounded-md text-[9px] font-mono font-black bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30"
                           x-text="pair.lift + 'x Lift'"></span>
-                  </td>
+                    <span class="text-[9px] font-mono text-slate-400" x-text="pair.joint_count + ' Pins (' + pair.support_pct + '%)'"></span>
+                  </div>
+                  <div class="flex items-center space-x-1.5 text-xs font-bold text-slate-900 dark:text-white truncate">
+                    <button @click="searchQuery = pair.tag_a; currentPage = 1; scrollToSection('pins-table-section')" class="capitalize text-emerald-600 dark:text-emerald-400 hover:underline truncate cursor-pointer" :title="'Filter Pins: #' + pair.tag_a" x-text="pair.tag_a"></button>
+                    <span class="text-slate-400">+</span>
+                    <button @click="searchQuery = pair.tag_b; currentPage = 1; scrollToSection('pins-table-section')" class="capitalize text-purple-600 dark:text-purple-400 hover:underline truncate cursor-pointer" :title="'Filter Pins: #' + pair.tag_b" x-text="pair.tag_b"></button>
+                  </div>
+                </div>
+                <button @click="copyVisualBlueprint(pair)"
+                        class="w-full py-1.5 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 text-[10px] font-bold font-mono transition flex items-center justify-center space-x-1 cursor-pointer">
+                  <span>📋 Copy Visual Blueprint</span>
+                </button>
+              </div>
+            </template>
+          </div>
 
-                  <td class="p-3.5 text-slate-500 dark:text-slate-400" x-text="(pair.confidence * 100).toFixed(1) + '%'"></td>
+          <div x-show="!powerPairs.length" class="py-6 text-center text-xs text-slate-400 font-mono rounded-2xl bg-slate-50/70 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800">
+            Indexing visual tags... Co-occurring power pairs require at least 2 pins with shared visual annotations.
+          </div>
+        </div>
 
-                  <td class="p-3.5 text-right font-sans">
-                    <button @click="copyVisualBlueprint(pair)" class="px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-sm transition-colors flex items-center gap-1.5 ml-auto">
-                      <span>📋</span> Copy Visual Blueprint
-                    </button>
-                  </td>
+        <!-- Subsection B: Core Visual Anchors Matrix -->
+        <div class="space-y-3 pt-2">
+          <div class="flex items-center justify-between">
+            <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono">Core Visual Anchors (Frequency Across Ranking Pins)</h4>
+            <span class="text-[10px] text-slate-400 font-mono" x-text="coreAnchorsList.length + ' Anchors Detected'"></span>
+          </div>
+
+          <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5" x-show="coreAnchorsList.length > 0">
+            <template x-for="(anchor, idx) in coreAnchorsList.slice(0, 24)" :key="anchor.tag">
+              <button @click="searchQuery = anchor.tag; currentPage = 1; scrollToSection('pins-table-section')"
+                      class="p-2.5 rounded-2xl bg-slate-50/70 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 text-left hover:border-purple-500/40 transition cursor-pointer flex flex-col justify-between group shadow-sm"
+                      :class="searchQuery.toLowerCase() === anchor.tag.toLowerCase() ? 'border-purple-500 ring-2 ring-purple-500/20' : ''">
+                <div class="flex items-center justify-between text-[10px] font-mono text-slate-400 mb-1">
+                  <span x-text="'#' + (idx + 1)"></span>
+                  <span class="font-bold text-purple-600 dark:text-purple-400" x-text="anchor.count + ' Pins'"></span>
+                </div>
+                <div class="text-xs font-bold text-slate-900 dark:text-white capitalize truncate group-hover:text-purple-600 dark:group-hover:text-purple-400 transition" x-text="anchor.tag"></div>
+              </button>
+            </template>
+          </div>
+
+          <div x-show="!coreAnchorsList.length" class="py-4 text-center text-xs text-slate-400 font-mono rounded-2xl bg-slate-50/70 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800">
+            No visual anchors with >= 2 pins found yet.
+          </div>
+        </div>
+
+        <!-- Subsection C: Universal Visual Tag Bridges (Cluster SERP Intersections) -->
+        <div class="space-y-3 pt-2" x-show="filteredTagBridges().length">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono">Universal Visual Tag Bridges (Cluster SERP Intersections)</h4>
+              <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20" x-text="filteredTagBridges().length + ' Bridges'"></span>
+            </div>
+            <span class="text-[10px] text-slate-400 font-mono">Tags bridging multiple search queries across cluster</span>
+          </div>
+
+          <div class="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
+            <table class="w-full text-left text-xs font-mono">
+              <thead class="bg-slate-50 dark:bg-slate-950/80 border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 uppercase text-[10px]">
+                <tr>
+                  <th class="p-3">Bridge Visual Tag</th>
+                  <th class="p-3">Cluster Overlap %</th>
+                  <th class="p-3">Connected Keywords</th>
+                  <th class="p-3">Pin Frequency</th>
+                  <th class="p-3 text-right">Combined Saves</th>
                 </tr>
-              </template>
-
-              <tr x-show="!powerPairs.length">
-                <td colspan="5" class="p-8 text-center text-slate-500 font-sans">
-                  Computing co-occurring power pairs across this folder...
-                </td>
-              </tr>
-            </tbody>
-          </table>
+              </thead>
+              <tbody class="divide-y divide-slate-200 dark:divide-slate-800/60 text-slate-700 dark:text-slate-300">
+                <template x-for="tb in filteredTagBridges().slice(0, 15)" :key="tb.raw_tag || tb.tag">
+                  <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
+                    <td class="p-3 font-bold text-slate-900 dark:text-white">
+                      <button @click="searchQuery = tb.raw_tag || tb.tag; currentPage = 1; scrollToSection('pins-table-section')" class="hover:text-indigo-600 dark:hover:text-indigo-400 hover:underline flex items-center gap-1.5 cursor-pointer text-left">
+                        <span>🌉</span>
+                        <span x-text="tb.tag"></span>
+                      </button>
+                    </td>
+                    <td class="p-3">
+                      <div class="flex items-center gap-2">
+                        <div class="w-16 bg-slate-200 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                          <div class="h-full rounded-full bg-indigo-500" :style="'width: ' + tb.overlap_percentage + '%'"></div>
+                        </div>
+                        <span class="font-bold text-xs text-indigo-600 dark:text-indigo-400" x-text="tb.overlap_percentage + '%'"></span>
+                      </div>
+                    </td>
+                    <td class="p-3">
+                      <div class="flex items-center gap-1 flex-wrap">
+                        <template x-for="kw in (tb.keywords || []).slice(0, 4)" :key="kw">
+                          <span class="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 text-[9px]" x-text="kw"></span>
+                        </template>
+                        <span x-show="(tb.keywords || []).length > 4" class="text-[9px] text-slate-400 font-mono" x-text="'+' + ((tb.keywords || []).length - 4)"></span>
+                      </div>
+                    </td>
+                    <td class="p-3 font-bold font-mono text-sky-600 dark:text-sky-400" x-text="formatNumber(tb.pin_count) + ' pins'"></td>
+                    <td class="p-3 font-bold font-mono text-emerald-600 dark:text-emerald-400 text-right" x-text="formatNumber(tb.total_saves)"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
@@ -1066,15 +1076,48 @@ export function getCampaignFoldersPageHtml(folderId = '') {
           }
         },
 
+        get coreAnchorsList() {
+          const pins = (this.crossoverData?.all_pins && this.crossoverData.all_pins.length > 0)
+            ? this.crossoverData.all_pins
+            : (this.crossoverData?.super_pins || []);
+          if (!pins || pins.length === 0) return [];
+          
+          const freqMap = new Map();
+          for (const pin of pins) {
+            const tags = Array.isArray(pin.visual_annotations) ? pin.visual_annotations : [];
+            const seen = new Set();
+            for (const t of tags) {
+              if (typeof t === 'string' && t.trim().length >= 3) {
+                const clean = t.trim();
+                const key = clean.toLowerCase();
+                if (!seen.has(key)) {
+                  seen.add(key);
+                  freqMap.set(clean, (freqMap.get(clean) || 0) + 1);
+                }
+              }
+            }
+          }
+
+          const list = [];
+          for (const [tag, count] of freqMap.entries()) {
+            if (count >= 2) {
+              list.push({ tag, count });
+            }
+          }
+          return list.sort((a, b) => b.count - a.count);
+        },
+
         computePowerPairs() {
-          // Optimization: compute power pairs strictly on Super-Pins (or top 100 pins) to avoid combinatorial latency
-          const source = this.crossoverData?.super_pins || [];
-          const pins = (source.length >= 2) ? source : (this.crossoverData?.all_pins || []).slice(0, 100);
-          if (!pins || pins.length < 2) {
+          // Compute across all 1,788 cluster pins (or super-pins)
+          const source = (this.crossoverData?.all_pins && this.crossoverData.all_pins.length > 0)
+            ? this.crossoverData.all_pins
+            : (this.crossoverData?.super_pins || []);
+          if (!source || source.length < 2) {
             this.powerPairs = [];
             return;
           }
 
+          const pins = source;
           const N_total = pins.length;
           const tagFreq = new Map();
           const pairFreq = new Map();
@@ -1094,7 +1137,7 @@ export function getCampaignFoldersPageHtml(folderId = '') {
               }
             }
 
-            const pinTags = Array.from(rawSet).slice(0, 15);
+            const pinTags = Array.from(rawSet).slice(0, 10);
 
             for (let i = 0; i < pinTags.length; i++) {
               const t1 = pinTags[i];
@@ -1119,13 +1162,15 @@ export function getCampaignFoldersPageHtml(folderId = '') {
 
               const liftVal = Number.isFinite(liftRaw) ? Number(liftRaw.toFixed(2)) : 1.0;
               const confidence = Number.isFinite(confRaw) ? Number(confRaw.toFixed(2)) : 0.0;
+              const supportPct = Number(((jointCount / N_total) * 100).toFixed(1));
 
               pairs.push({
                 tag_a: t1.charAt(0).toUpperCase() + t1.slice(1),
                 tag_b: t2.charAt(0).toUpperCase() + t2.slice(1),
                 joint_count: jointCount,
                 lift: liftVal,
-                confidence: confidence
+                confidence: confidence,
+                support_pct: supportPct
               });
             }
           }
