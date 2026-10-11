@@ -221,8 +221,7 @@ async function main() {
         SELECT id, keyword, category, target_pin_count 
         FROM tracked_keywords 
         WHERE is_active = TRUE 
-        ORDER BY last_crawled_at ASC NULLS FIRST
-        LIMIT 250;
+        ORDER BY last_crawled_at ASC NULLS FIRST;
       `;
     }
 
@@ -231,7 +230,8 @@ async function main() {
     if (targetRows.length === 0) {
       console.log('[!] Warning: No active keywords found in database. Emitting empty matrix.');
       matrixTasks = [];
-    } else {
+    } else if (targetRows.length <= 200) {
+      // 1:1 Mapping: Direct individual runner per keyword (up to 200 concurrent tasks)
       matrixTasks = targetRows.map((row, idx) => ({
         mode: 'keyword_sweep',
         keyword: row.keyword,
@@ -243,6 +243,29 @@ async function main() {
         max_pins: maxPinsInput,
         crawl_scope: crawlScope
       }));
+    } else {
+      // Chunking strategy: Partition large keyword fleet into 20 workers to prevent GitHub Actions matrix explosion (256 limit)
+      // Ensures 100% of tracked keywords are crawled on schedule without multi-day velocity drift
+      const WORKER_COUNT = 20;
+      matrixTasks = [];
+      for (let w = 0; w < WORKER_COUNT; w++) {
+        const chunk = targetRows.filter((_, idx) => idx % WORKER_COUNT === w);
+        if (chunk.length > 0) {
+          matrixTasks.push({
+            mode: 'keyword_sweep',
+            keyword: chunk[0].keyword,
+            keyword_id: chunk[0].id,
+            keyword_ids: chunk.map(r => r.id).join(','),
+            keywords_count: chunk.length,
+            category: 'Batch Fleet',
+            worker_index: w,
+            worker_slot: w + 1,
+            worker_total: WORKER_COUNT,
+            max_pins: maxPinsInput,
+            crawl_scope: crawlScope
+          });
+        }
+      }
     }
 
     summaryDetails = {

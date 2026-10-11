@@ -44,6 +44,10 @@ const workerIndex = parseInt(process.env.WORKER_INDEX || '0', 10);
 const workerTotal = Math.max(1, parseInt(process.env.WORKER_TOTAL || '1', 10));
 const targetKeyword = (process.env.TARGET_KEYWORD || '').trim().toLowerCase();
 const keywordIdInput = process.env.KEYWORD_ID ? parseInt(process.env.KEYWORD_ID, 10) : null;
+const keywordIdsInput = (process.env.KEYWORD_IDS || '')
+  .split(',')
+  .map(s => parseInt(s.trim(), 10))
+  .filter(n => !isNaN(n));
 const folderIdInput = process.env.FOLDER_ID ? parseInt(process.env.FOLDER_ID, 10) : null;
 const crawlScope = (process.env.CRAWL_SCOPE || 'all_pins').toLowerCase().trim();
 const cookie = process.env.PINTEREST_COOKIE || null;
@@ -644,7 +648,13 @@ async function run() {
     await sql`ALTER TABLE tracked_keywords ADD COLUMN IF NOT EXISTS crawl_lease_until TIMESTAMPTZ;`.catch(() => {});
 
     let keywordsToProcess = [];
-    if (targetKeyword) {
+    if (keywordIdsInput.length > 0) {
+      keywordsToProcess = await sql`
+        SELECT * FROM tracked_keywords 
+        WHERE id = ANY(${keywordIdsInput}) AND is_active = TRUE
+        ORDER BY last_crawled_at ASC NULLS FIRST;
+      `;
+    } else if (targetKeyword) {
       keywordsToProcess = await sql`
         SELECT * FROM tracked_keywords 
         WHERE LOWER(keyword) = ${targetKeyword} AND is_active = TRUE;

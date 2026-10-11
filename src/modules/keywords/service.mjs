@@ -761,8 +761,6 @@ export function isCommercialOrAdPin(it) {
     it.ad ||
     it.advertiser_name ||
     it.promoter ||
-    it.is_buyable ||
-    it.price_value != null ||
     it.tracking_params?.ad_id ||
     it.tracking_params?.campaign_id ||
     it.attribution?.provider_name === 'ad' ||
@@ -948,7 +946,8 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
         page++;
 
         if (organicPinsCollected < targetCount && page <= maxPages) {
-          await new Promise(r => setTimeout(r, 600 + Math.floor(Math.random() * 400)));
+          const jitter = 2500 + Math.floor(Math.random() * 1500);
+          await new Promise(r => setTimeout(r, jitter));
         }
       } finally {
         if (res?.body && !res.bodyUsed) {
@@ -991,7 +990,7 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
     // B) Prior-day baseline snapshots (strictly snapshot_date < CURRENT_DATE)
     // Ensures daily save velocity is NEVER corrupted by intraday rescans
     const baselineDaySnapshots = await sql`
-      SELECT pin_id, save_count
+      SELECT pin_id, save_count, snapshot_date
       FROM keyword_pins_snapshots
       WHERE keyword_id = ${kid}
         AND is_displaced = FALSE
@@ -1004,8 +1003,12 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
         );
     `;
     const baselineMap = new Map();
+    let baselineSnapshotDate = null;
     for (const s of baselineDaySnapshots) {
       baselineMap.set(String(s.pin_id), Number(s.save_count || 0));
+      if (!baselineSnapshotDate && s.snapshot_date) {
+        baselineSnapshotDate = new Date(s.snapshot_date);
+      }
     }
 
     // C) Existing Displaced Pins Registry lookup (for Resurgence detection)
@@ -1163,11 +1166,23 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
       );
 
       // 24h Daily Save Velocity is evaluated against previous day's baseline
+      // Time-Normalized: Divides delta by actual elapsed days to prevent multi-day velocity inflation
       let velocity = 0;
+      const todayDate = new Date();
       if (baselineMap.has(pinId)) {
-        velocity = Math.max(0, confirmedSaves - baselineMap.get(pinId));
-      } else if (immediateData && String(immediateData.snapshotDate).slice(0, 10) < new Date().toISOString().slice(0, 10)) {
-        velocity = Math.max(0, confirmedSaves - immediateData.saves);
+        const rawDelta = Math.max(0, confirmedSaves - baselineMap.get(pinId));
+        let daysElapsed = 1;
+        if (baselineSnapshotDate) {
+          const diffMs = todayDate.getTime() - baselineSnapshotDate.getTime();
+          daysElapsed = Math.max(1, Math.round(diffMs / (1000 * 60 * 60 * 24)));
+        }
+        velocity = Math.round(rawDelta / daysElapsed);
+      } else if (immediateData && String(immediateData.snapshotDate).slice(0, 10) < todayDate.toISOString().slice(0, 10)) {
+        const rawDelta = Math.max(0, confirmedSaves - immediateData.saves);
+        const immDate = new Date(immediateData.snapshotDate);
+        const diffMs = todayDate.getTime() - immDate.getTime();
+        const daysElapsed = Math.max(1, Math.round(diffMs / (1000 * 60 * 60 * 24)));
+        velocity = Math.round(rawDelta / daysElapsed);
       }
 
       // Sanity bound to protect against malicious bot-farm spikes

@@ -121,8 +121,9 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           PINTEREST_COOKIE: ${{ secrets.PINTEREST_COOKIE }}
           MODE: ${{ matrix.mode }}
-          TARGET_KEYWORD: ${{ matrix.keyword }}
+          TARGET_KEYWORD: ${{ matrix.keyword_ids != '' && '' || matrix.keyword }}
           KEYWORD_ID: ${{ matrix.keyword_id }}
+          KEYWORD_IDS: ${{ matrix.keyword_ids || '' }}
           FOLDER_ID: ${{ matrix.folder_id }}
           WORKER_INDEX: ${{ matrix.worker_index }}
           WORKER_TOTAL: ${{ matrix.worker_total }}
