@@ -1098,9 +1098,9 @@ async function _executeFolderCrossover(sql, fid) {
   }))
   .sort((a, b) => {
     if (b.keywords_count !== a.keywords_count) return b.keywords_count - a.keywords_count;
-    return b.pin_count - a.pin_count;
-  })
-  .slice(0, 20);
+    if (b.pin_count !== a.pin_count) return b.pin_count - a.pin_count;
+    return b.total_saves - a.total_saves;
+  });
 
   const creatorMonopoly = Array.from(creatorMap.values()).map(c => ({
     username: c.username,

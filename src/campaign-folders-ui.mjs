@@ -1031,28 +1031,64 @@ export function getCampaignFoldersPageHtml(folderId = '') {
 
         <!-- Domain Monopoly Breakdown -->
         <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm dark:shadow-xl flex flex-col transition-colors">
-          <div class="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+          <div class="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 flex-wrap">
             <div class="flex items-center gap-2">
               <span class="text-base">🌐</span>
               <h3 class="text-sm font-semibold text-slate-900 dark:text-white tracking-tight">Domain Monopoly (Share of Voice)</h3>
             </div>
-            <span class="text-xs font-mono text-slate-500 dark:text-slate-400" x-text="(crossoverData?.domain_monopoly?.length || 0) + ' domains'"></span>
+            <div class="flex items-center gap-2">
+              <div class="relative">
+                <input 
+                  type="text" 
+                  x-model.debounce.150ms="domainSearch" 
+                  @input="domainPage = 1; _domainCacheKey = ''" 
+                  placeholder="Search domain..." 
+                  class="px-2.5 py-1 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-sans w-32 sm:w-40"
+                />
+                <button 
+                  x-show="domainSearch" 
+                  @click="domainSearch = ''; domainPage = 1; _domainCacheKey = ''" 
+                  class="absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xs cursor-pointer">✕</button>
+              </div>
+              <span class="text-xs font-mono text-slate-500 dark:text-slate-400 shrink-0" x-text="(filteredDomainList().length) + ' domains'"></span>
+            </div>
           </div>
 
-          <div class="overflow-x-auto">
+          <div class="overflow-x-auto flex-1">
             <table class="w-full text-left text-xs font-mono">
               <thead class="bg-slate-50 dark:bg-slate-950/80 border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 uppercase text-[10px]">
                 <tr>
-                  <th class="p-3.5">Domain</th>
-                  <th class="p-3.5">Keywords Covered</th>
-                  <th class="p-3.5">Pins & SOV %</th>
+                  <th class="p-3.5 cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none transition-colors" @click="toggleDomainSort('domain')">
+                    <span class="inline-flex items-center gap-1">
+                      <span>Domain</span>
+                      <span class="text-[9px]" x-text="domainSort === 'domain_asc' ? '▲' : (domainSort === 'domain_desc' ? '▼' : '')"></span>
+                    </span>
+                  </th>
+                  <th class="p-3.5 cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none transition-colors" @click="toggleDomainSort('keywords')">
+                    <span class="inline-flex items-center gap-1">
+                      <span>Keywords Covered</span>
+                      <span class="text-[9px]" x-text="domainSort === 'kw_asc' ? '▲' : (domainSort === 'kw_desc' || domainSort === 'default' ? '▼' : '')"></span>
+                    </span>
+                  </th>
+                  <th class="p-3.5 cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none transition-colors" @click="toggleDomainSort('pins')">
+                    <span class="inline-flex items-center gap-1">
+                      <span>Pins & SOV %</span>
+                      <span class="text-[9px]" x-text="domainSort === 'pins_asc' ? '▲' : (domainSort === 'pins_desc' ? '▼' : '')"></span>
+                    </span>
+                  </th>
+                  <th class="p-3.5 cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none transition-colors" @click="toggleDomainSort('saves')">
+                    <span class="inline-flex items-center gap-1">
+                      <span>Total Saves</span>
+                      <span class="text-[9px]" x-text="domainSort === 'saves_asc' ? '▲' : (domainSort === 'saves_desc' ? '▼' : '')"></span>
+                    </span>
+                  </th>
                   <th class="p-3.5 text-right">Drill-Down</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-slate-200 dark:divide-slate-800/60 text-slate-700 dark:text-slate-300">
-                <template x-for="dm in (crossoverData?.domain_monopoly || []).slice(0, 10)" :key="dm.domain">
+                <template x-for="dm in paginatedDomains()" :key="dm.domain">
                   <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                    <td class="p-3.5 font-bold text-slate-900 dark:text-white max-w-[140px] truncate" x-text="dm.domain"></td>
+                    <td class="p-3.5 font-bold text-slate-900 dark:text-white max-w-[140px] truncate" :title="dm.domain" x-text="dm.domain"></td>
                     <td class="p-3.5 font-mono text-indigo-600 dark:text-indigo-400" x-text="dm.keywords_count + ' / ' + (crossoverData?.summary?.total_keywords || 1) + ' (' + dm.overlap_percentage + '%)'"></td>
                     <td class="p-3.5">
                       <div class="flex items-center gap-2">
@@ -1060,8 +1096,11 @@ export function getCampaignFoldersPageHtml(folderId = '') {
                         <span class="text-[10px] text-slate-400 dark:text-slate-500" x-text="'(' + calcSov(dm.pin_count) + '% SOV)'"></span>
                       </div>
                     </td>
+                    <td class="p-3.5">
+                      <span class="font-bold text-amber-600 dark:text-amber-400 font-mono" x-text="formatNumber(dm.total_saves) + ' saves'"></span>
+                    </td>
                     <td class="p-3.5 text-right font-sans">
-                      <button @click="setEntityFilter('domain', dm.domain)" class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs border border-slate-300 dark:border-slate-700 transition-colors shadow-sm">
+                      <button @click="setEntityFilter('domain', dm.domain)" class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs border border-slate-300 dark:border-slate-700 transition-colors shadow-sm cursor-pointer">
                         Filter →
                       </button>
                     </td>
@@ -1069,6 +1108,57 @@ export function getCampaignFoldersPageHtml(folderId = '') {
                 </template>
               </tbody>
             </table>
+          </div>
+
+          <!-- Empty search results state -->
+          <div x-show="filteredDomainList().length === 0" class="py-8 text-center text-xs text-slate-400 font-mono">
+            No domains match "<span x-text="domainSearch"></span>".
+          </div>
+
+          <!-- Table Pagination Footer -->
+          <div class="flex items-center justify-between p-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40 text-xs font-mono" x-show="filteredDomainList().length > 0">
+            <div class="flex items-center gap-2.5">
+              <span class="text-slate-500 dark:text-slate-400 hidden sm:inline" 
+                    x-text="'Page ' + domainPage + ' of ' + totalDomainPages() + ' (' + filteredDomainList().length + ' domains)'"></span>
+              <div class="flex items-center gap-1 text-[11px] text-slate-400">
+                <span>Density:</span>
+                <select 
+                  x-model.number="domainPageSize" 
+                  @change="domainPage = 1; _domainCacheKey = ''"
+                  class="py-0.5 px-1.5 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono text-[11px] focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-900 dark:text-white cursor-pointer"
+                >
+                  <option :value="10">10 / page</option>
+                  <option :value="25">25 / page</option>
+                  <option :value="50">50 / page</option>
+                </select>
+              </div>
+            </div>
+            <div class="flex items-center gap-1.5 ml-auto sm:ml-0">
+              <button 
+                :disabled="domainPage <= 1" 
+                @click="domainPage = Math.max(1, (parseInt(domainPage, 10) || 1) - 1)" 
+                class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 disabled:opacity-40 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors shadow-2xs">
+                ← Prev
+              </button>
+              <div class="flex items-center gap-1 text-slate-500 dark:text-slate-400">
+                <span>Page</span>
+                <input 
+                  type="number" 
+                  min="1" 
+                  :max="totalDomainPages()" 
+                  x-model.number="domainPage" 
+                  @change="domainPage = Math.max(1, Math.min(totalDomainPages(), parseInt(domainPage, 10) || 1))"
+                  class="w-12 text-center py-0.5 px-1 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-900 dark:text-white" 
+                />
+                <span x-text="'/ ' + totalDomainPages()"></span>
+              </div>
+              <button 
+                :disabled="domainPage >= totalDomainPages()" 
+                @click="domainPage = Math.min(totalDomainPages(), (parseInt(domainPage, 10) || 1) + 1)" 
+                class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 disabled:opacity-40 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors shadow-2xs">
+                Next →
+              </button>
+            </div>
           </div>
         </div>
 
@@ -1316,6 +1406,14 @@ export function getCampaignFoldersPageHtml(folderId = '') {
         anchorsPage: 1,
         anchorsPageSize: 25,
 
+        // Domain Monopoly State
+        domainSearch: '',
+        domainSort: 'default',
+        domainPage: 1,
+        domainPageSize: 10,
+        _domainCacheKey: '',
+        _cachedFilteredDomains: null,
+
         togglePowerPairsSort(col) {
           if (col === 'freq') {
             this.powerPairsSort = this.powerPairsSort === 'freq_desc' ? 'freq_asc' : 'freq_desc';
@@ -1393,6 +1491,74 @@ export function getCampaignFoldersPageHtml(folderId = '') {
 
         totalAnchorsPages() {
           return Math.ceil(this.filteredAnchorsList().length / this.anchorsPageSize) || 1;
+        },
+
+        toggleDomainSort(col) {
+          if (col === 'domain') {
+            this.domainSort = this.domainSort === 'domain_asc' ? 'domain_desc' : 'domain_asc';
+          } else if (col === 'keywords') {
+            this.domainSort = this.domainSort === 'kw_desc' ? 'kw_asc' : 'kw_desc';
+          } else if (col === 'pins') {
+            this.domainSort = this.domainSort === 'pins_desc' ? 'pins_asc' : 'pins_desc';
+          } else if (col === 'saves') {
+            this.domainSort = this.domainSort === 'saves_desc' ? 'saves_asc' : 'saves_desc';
+          } else {
+            this.domainSort = 'default';
+          }
+          this.domainPage = 1;
+          this._domainCacheKey = '';
+        },
+
+        filteredDomainList() {
+          const monopoly = this.crossoverData?.domain_monopoly || [];
+          const search = (this.domainSearch || '').toLowerCase().trim();
+          const currentKey = (this.activeFolderId || '') + '|' + search + '|' + this.domainSort + '|' + monopoly.length;
+          if (this._domainCacheKey === currentKey && this._cachedFilteredDomains) {
+            return this._cachedFilteredDomains;
+          }
+
+          let list = monopoly;
+          if (search) {
+            list = monopoly.filter(d => d.domain && d.domain.toLowerCase().includes(search));
+          }
+
+          if (this.domainSort === 'domain_asc') {
+            list = list.slice().sort((a, b) => String(a.domain || '').localeCompare(String(b.domain || '')));
+          } else if (this.domainSort === 'domain_desc') {
+            list = list.slice().sort((a, b) => String(b.domain || '').localeCompare(String(a.domain || '')));
+          } else if (this.domainSort === 'kw_desc') {
+            list = list.slice().sort((a, b) => ((b.keywords_count || 0) - (a.keywords_count || 0)) || ((b.pin_count || 0) - (a.pin_count || 0)) || ((b.total_saves || 0) - (a.total_saves || 0)));
+          } else if (this.domainSort === 'kw_asc') {
+            list = list.slice().sort((a, b) => ((a.keywords_count || 0) - (b.keywords_count || 0)) || ((a.pin_count || 0) - (b.pin_count || 0)) || ((a.total_saves || 0) - (b.total_saves || 0)));
+          } else if (this.domainSort === 'pins_desc') {
+            list = list.slice().sort((a, b) => ((b.pin_count || 0) - (a.pin_count || 0)) || ((b.total_saves || 0) - (a.total_saves || 0)));
+          } else if (this.domainSort === 'pins_asc') {
+            list = list.slice().sort((a, b) => ((a.pin_count || 0) - (b.pin_count || 0)) || ((a.total_saves || 0) - (b.total_saves || 0)));
+          } else if (this.domainSort === 'saves_desc') {
+            list = list.slice().sort((a, b) => ((b.total_saves || 0) - (a.total_saves || 0)) || ((b.pin_count || 0) - (a.pin_count || 0)));
+          } else if (this.domainSort === 'saves_asc') {
+            list = list.slice().sort((a, b) => ((a.total_saves || 0) - (b.total_saves || 0)) || ((a.pin_count || 0) - (b.pin_count || 0)));
+          }
+
+          this._domainCacheKey = currentKey;
+          this._cachedFilteredDomains = list;
+          return list;
+        },
+
+        paginatedDomains() {
+          const list = this.filteredDomainList();
+          const pageSize = Math.max(1, parseInt(this.domainPageSize, 10) || 10);
+          const totalPages = Math.ceil(list.length / pageSize) || 1;
+          let page = parseInt(this.domainPage, 10);
+          if (!page || isNaN(page) || page < 1) page = 1;
+          if (page > totalPages) page = totalPages;
+          const start = (page - 1) * pageSize;
+          return list.slice(start, start + pageSize);
+        },
+
+        totalDomainPages() {
+          const pageSize = Math.max(1, parseInt(this.domainPageSize, 10) || 10);
+          return Math.ceil(this.filteredDomainList().length / pageSize) || 1;
         },
         toasts: [],
         colorOptions: ['#6366f1', '#ec4899', '#10b981', '#f59e0b', '#8b5cf6', '#06b6d4'],
@@ -1472,6 +1638,11 @@ export function getCampaignFoldersPageHtml(folderId = '') {
               this.crossoverData = cdata.crossover || cdata;
               this.computePowerPairs();
               this.currentPage = 1;
+              this.domainPage = 1;
+              this.domainSearch = '';
+              this.domainSort = 'default';
+              this._domainCacheKey = '';
+              this._cachedFilteredDomains = null;
               this._pinsCacheKey = '';
             } else {
               this.showToast('Failed to compute crossover matrix', 'error');
@@ -1495,6 +1666,11 @@ export function getCampaignFoldersPageHtml(folderId = '') {
               this.crossoverData = data.crossover || data;
               this.computePowerPairs();
               this.currentPage = 1;
+              this.domainPage = 1;
+              this.domainSearch = '';
+              this.domainSort = 'default';
+              this._domainCacheKey = '';
+              this._cachedFilteredDomains = null;
               this._pinsCacheKey = '';
               if (isRefresh) {
                 this.showToast('Crossover analysis recalculated successfully', 'success');
@@ -1804,6 +1980,7 @@ export function getCampaignFoldersPageHtml(folderId = '') {
           this.entityFilter = { type, value };
           this.currentPage = 1;
           this.showToast('Filtered pins by ' + type + ': ' + value, 'info');
+          this.scrollToSection('pins-table-section');
         },
 
         clearEntityFilter() {
