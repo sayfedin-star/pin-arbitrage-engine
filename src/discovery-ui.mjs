@@ -117,31 +117,52 @@ export function getDiscoveryPageHtml() {
           <p class="text-xs text-slate-400 mt-1">Live direct connection to Pinterest v3_typeahead search engine. Discover real-time search volume & trends.</p>
         </div>
 
-        <div class="relative">
+        <div class="relative flex items-center">
           <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
           </div>
           <input 
             type="text" 
             x-model="searchQuery" 
-            @input.debounce.250ms="onInputDebounced()" 
             @keydown.enter="searchImmediately()"
             placeholder="Type seed keyword (e.g. healthy dinner, air fryer salmon, living room decor)..."
-            class="w-full pl-12 pr-32 py-3.5 bg-slate-950 border border-slate-700 rounded-xl text-white text-sm placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all font-mono"
+            class="w-full pl-12 pr-44 py-3.5 bg-slate-950 border border-slate-700 rounded-xl text-white text-sm placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all font-mono"
             autofocus
           >
-          <div class="absolute inset-y-0 right-3 flex items-center gap-2">
-            <!-- Loading Spinner -->
-            <div x-show="loading" class="flex items-center gap-1.5 text-xs text-emerald-400 font-mono" x-cloak>
-              <svg class="animate-spin h-3.5 w-3.5 text-emerald-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
-              </svg>
-              <span>Searching</span>
-            </div>
+          <div class="absolute inset-y-0 right-2 flex items-center gap-1.5">
             <!-- Clear Button -->
-            <button @click="clearSearch()" x-show="searchQuery" class="p-1 text-slate-400 hover:text-white rounded-md hover:bg-slate-800 transition-colors" title="Clear query (Esc)" x-cloak>
+            <button 
+              @click="clearSearch()" 
+              x-show="searchQuery" 
+              class="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors" 
+              title="Clear query (Esc)" 
+              x-cloak
+            >
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+
+            <!-- Prominent Search Button -->
+            <button 
+              @click="searchImmediately()" 
+              :disabled="loading || !searchQuery.trim()" 
+              class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-mono font-medium rounded-lg shadow-sm transition-all flex items-center gap-1.5 flex-shrink-0 cursor-pointer"
+              title="Search or press Enter"
+            >
+              <template x-if="!loading">
+                <span class="flex items-center gap-1.5">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                  <span>Search</span>
+                </span>
+              </template>
+              <template x-if="loading">
+                <span class="flex items-center gap-1.5">
+                  <svg class="animate-spin h-3.5 w-3.5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+                  </svg>
+                  <span>Searching...</span>
+                </span>
+              </template>
             </button>
           </div>
         </div>
@@ -176,7 +197,11 @@ export function getDiscoveryPageHtml() {
         <div class="flex items-center gap-3">
           <h2 class="text-sm font-semibold text-white flex items-center gap-2">
             Suggested Search Terms
-            <span class="text-xs font-mono font-normal text-slate-400" x-text="'(' + results.length + ' found)'"></span>
+            <span 
+              class="text-xs font-mono font-normal"
+              :class="loading ? 'text-emerald-400 animate-pulse font-medium' : 'text-slate-400'"
+              x-text="loading ? '(Searching...)' : (results.length > 0 ? '(' + results.length + ' found)' : (searchQuery.trim() ? '(0 found)' : ''))"
+            ></span>
           </h2>
           <!-- Telemetry Cache Indicator -->
           <template x-if="results.length > 0">

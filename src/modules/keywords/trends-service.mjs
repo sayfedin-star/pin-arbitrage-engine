@@ -431,38 +431,34 @@ export async function fetchPinterestBatchVelocity(seedQuery, terms = [], country
       }
     }
 
-    // 3. For any terms still missing from prefix_match, fetch in batches without arbitrary truncation
-    const stillMissing = normalizedTerms.filter(t => !resultMap.has(t));
+    // 3. For any terms still missing from prefix_match, fetch in parallel without arbitrary truncation
+    const stillMissing = normalizedTerms.filter(t => !resultMap.has(t) && t.length <= 40 && !t.includes('|'));
     if (stillMissing.length > 0) {
-      const BATCH_SIZE = 6;
-      for (let i = 0; i < stillMissing.length; i += BATCH_SIZE) {
-        const chunk = stillMissing.slice(i, i + BATCH_SIZE);
-        const missingFetches = chunk.map(async (mTerm) => {
-          let mRes;
-          try {
-            const url = `https://trends.pinterest.com/prefix_match/?query=${encodeURIComponent(mTerm)}&country=${country}`;
-            mRes = await fetch(url, { headers, signal: AbortSignal.timeout(6000) });
-            if (mRes.ok) {
-              const data = await mRes.json();
-              if (Array.isArray(data) && data.length > 0) {
-                const exact = data.find(x => String(x.term || '').trim().toLowerCase() === mTerm) || data[0];
-                const parsed = parseItemVelocity(exact);
-                if (parsed) {
-                  const cKey = `${mTerm}_${country}`;
-                  velocityCache.set(cKey, { data: parsed, timestamp: Date.now() });
-                  resultMap.set(mTerm, parsed);
-                }
+      const missingFetches = stillMissing.map(async (mTerm) => {
+        let mRes;
+        try {
+          const url = `https://trends.pinterest.com/prefix_match/?query=${encodeURIComponent(mTerm)}&country=${country}`;
+          mRes = await fetch(url, { headers, signal: AbortSignal.timeout(3000) });
+          if (mRes.ok) {
+            const data = await mRes.json();
+            if (Array.isArray(data) && data.length > 0) {
+              const exact = data.find(x => String(x.term || '').trim().toLowerCase() === mTerm) || data[0];
+              const parsed = parseItemVelocity(exact);
+              if (parsed) {
+                const cKey = `${mTerm}_${country}`;
+                velocityCache.set(cKey, { data: parsed, timestamp: Date.now() });
+                resultMap.set(mTerm, parsed);
               }
             }
-          } catch (_) {
-          } finally {
-            if (mRes?.body && !mRes.bodyUsed) {
-              await mRes.body.cancel().catch(() => {});
-            }
           }
-        });
-        await Promise.allSettled(missingFetches);
-      }
+        } catch (_) {
+        } finally {
+          if (mRes?.body && !mRes.bodyUsed) {
+            await mRes.body.cancel().catch(() => {});
+          }
+        }
+      });
+      await Promise.allSettled(missingFetches);
     }
 
     // Active LRU memory pruning: evict expired items, then enforce hard ceiling
