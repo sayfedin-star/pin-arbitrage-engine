@@ -20,10 +20,10 @@ on:
           - active_serp
         default: 'all_pins'
       max_pins:
-        description: 'Target pins count to harvest per keyword (default: 100)'
+        description: 'Target pins count to harvest per keyword (default: 250, up to 1000)'
         required: false
         type: string
-        default: '100'
+        default: '250'
 
 concurrency:
   group: keyword-intelligence-${{ github.workflow }}-${{ github.ref }}-${{ inputs.target_keyword || 'all' }}
@@ -69,7 +69,7 @@ jobs:
           PINTEREST_COOKIE: ${{ secrets.PINTEREST_COOKIE }}
           TARGET_KEYWORD: ${{ inputs.target_keyword }}
           CRAWL_SCOPE: ${{ inputs.crawl_scope || 'all_pins' }}
-          MAX_PINS: ${{ inputs.max_pins || '100' }}
+          MAX_PINS: ${{ inputs.max_pins || '250' }}
         run: node scripts/keyword-fleet-dispatcher.mjs
 
   # ============================================================================

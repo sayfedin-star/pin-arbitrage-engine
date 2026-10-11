@@ -207,7 +207,83 @@ export async function listKeywords(sql, { search = '', limit = 50, offset = 0 } 
 /**
  * Add a new keyword to track
  */
-export async function addKeyword(sql, { keyword, category = 'General', target_pin_count = 100 }) {
+/**
+ * Get Global Keyword & Crawl Intelligence Settings
+ */
+export async function getAppSettings(sql) {
+  try {
+    const rows = await sql`SELECT key, value, updated_at FROM app_settings WHERE key = 'keyword_crawl_settings';`;
+    if (rows.length > 0 && rows[0].value) {
+      return rows[0].value;
+    }
+  } catch (err) {
+    console.warn('[Settings] Failed reading app_settings from DB:', err.message);
+  }
+  return {
+    default_crawl_pages: 10,
+    default_max_pins: 250,
+    default_inspection_mode: 'smart_breakout',
+    breakout_rules: {
+      max_pin_age_days: 14,
+      min_daily_save_velocity: 3.0,
+      min_repins: 1,
+      target_rank_zone: [20, 400]
+    }
+  };
+}
+
+/**
+ * Update Global Keyword & Crawl Intelligence Settings
+ */
+export async function updateAppSettings(sql, newSettings = {}) {
+  const current = await getAppSettings(sql);
+  const merged = {
+    ...current,
+    ...newSettings,
+    breakout_rules: {
+      ...(current.breakout_rules || {}),
+      ...(newSettings.breakout_rules || {})
+    }
+  };
+  await sql`
+    INSERT INTO app_settings (key, value, updated_at)
+    VALUES ('keyword_crawl_settings', ${JSON.stringify(merged)}::jsonb, NOW())
+    ON CONFLICT (key) DO UPDATE SET
+      value = EXCLUDED.value,
+      updated_at = NOW();
+  `;
+  return merged;
+}
+
+/**
+ * Update individual keyword settings (pages limit, inspection mode, target pin count)
+ */
+export async function updateKeywordSettings(sql, keywordId, settings = {}) {
+  const kid = Number(keywordId);
+  if (!kid) throw new Error('Valid keyword ID is required');
+  const pages = settings.crawl_pages_limit !== undefined ? Math.max(1, Math.min(40, Number(settings.crawl_pages_limit))) : null;
+  const mode = settings.inspection_mode !== undefined ? String(settings.inspection_mode).trim() : null;
+  const pinCount = settings.target_pin_count !== undefined 
+    ? Math.max(25, Math.min(1000, Number(settings.target_pin_count))) 
+    : (pages ? pages * 25 : null);
+
+  const [updated] = await sql`
+    UPDATE tracked_keywords
+    SET 
+      crawl_pages_limit = COALESCE(${pages}, crawl_pages_limit),
+      inspection_mode = COALESCE(${mode}, inspection_mode),
+      target_pin_count = COALESCE(${pinCount}, target_pin_count),
+      updated_at = NOW()
+    WHERE id = ${kid}
+    RETURNING id, keyword, category, target_pin_count, crawl_pages_limit, inspection_mode;
+  `;
+  return updated;
+}
+
+/**
+ * Add a new keyword to track with dynamic depth support
+ */
+export async function addKeyword(sql, { keyword, category = 'General', target_pin_count = 250, crawl_pages_limit = 10, inspection_mode = 'smart_breakout' }) {
   const cleanKeyword = keyword.trim().toLowerCase();
   if (!cleanKeyword) throw new Error('Keyword is required.');
 
@@ -216,6 +292,8 @@ export async function addKeyword(sql, { keyword, category = 'General', target_pi
       keyword,
       category,
       target_pin_count,
+      crawl_pages_limit,
+      inspection_mode,
       is_active,
       created_at,
       updated_at
@@ -223,6 +301,8 @@ export async function addKeyword(sql, { keyword, category = 'General', target_pi
       ${cleanKeyword},
       ${category},
       ${target_pin_count},
+      ${crawl_pages_limit},
+      ${inspection_mode},
       TRUE,
       NOW(),
       NOW()
@@ -267,13 +347,17 @@ export async function resolveKeywordBySlug(sql, slug, autoCreate = true) {
         keyword,
         category,
         target_pin_count,
+        crawl_pages_limit,
+        inspection_mode,
         is_active,
         created_at,
         updated_at
       ) VALUES (
         ${normalized},
         'Organic Search',
-        100,
+        250,
+        10,
+        'smart_breakout',
         TRUE,
         NOW(),
         NOW()
@@ -712,7 +796,21 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
     if (!keywordRow) throw new Error(`Keyword ID ${kid} not found.`);
 
     const query = encodeURIComponent(keywordRow.keyword);
-    const targetCount = Math.max(100, Math.min(keywordRow.target_pin_count || 100, 100));
+
+    // Resolve Dynamic Depth from options -> keywordRow -> defaults
+    const configuredPages = Math.max(1, Math.min(40, Number(
+      options.crawl_pages || 
+      options.max_pages || 
+      keywordRow.crawl_pages_limit || 
+      10
+    )));
+    const configuredTargetPins = Math.max(25, Math.min(1000, Number(
+      options.max_pins || 
+      keywordRow.target_pin_count || 
+      (configuredPages * 25)
+    )));
+    const targetCount = configuredTargetPins;
+    const maxPages = configuredPages;
 
     const headers = {
       'Accept': 'application/json, text/javascript, */*, q=0.01',
@@ -729,9 +827,8 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
     const seenPagingIds = new Set();
     let organicPinsCollected = 0;
 
-    // Deep pagination: Allow up to 8 pages to guarantee achieving targetCount (100 pins)
-    // even when subsequent pages return fewer results (20-25 items per page)
-    while (organicPinsCollected < targetCount && page <= 8) {
+    // Deep dynamic pagination: Follow bookmark stream up to maxPages / targetCount
+    while (organicPinsCollected < targetCount && page <= maxPages) {
       const optionsObj = {
         query: decodeURIComponent(query),
         scope: 'pins',
@@ -799,7 +896,7 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
         bookmark = nextBookmark;
         page++;
 
-        if (organicPinsCollected < targetCount) {
+        if (organicPinsCollected < targetCount && page <= maxPages) {
           await new Promise(r => setTimeout(r, 600 + Math.floor(Math.random() * 400)));
         }
       } finally {
@@ -1130,6 +1227,14 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
           aspect_ratio: aspectRatio,
           aspect_ratio_tier: aspectRatioTier,
           velocity_tier: velocityTier,
+          is_breakout_candidate: Boolean(
+            rank >= 10 && (
+              (pinAgeDays !== null && pinAgeDays <= 21 && (velocity >= 2.0 || confirmedSaves >= 10)) ||
+              (rankDelta >= 10 && (velocity >= 1.0 || confirmedSaves >= 5)) ||
+              (isNew && confirmedSaves >= 15)
+            )
+          ),
+          breakout_score: Math.round((confirmedSaves / Math.max(1, pinAgeDays || 7)) * 10),
           crawled_at: new Date().toISOString(),
           created_at: createdAt,
           created_at_pinterest: createdAt,
@@ -1148,8 +1253,10 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
       rank++;
     }
 
-    // Enrich top 5 ranking pins with verified live deep metrics via fetchPinFromPinterest
-    const topToEnrich = preparedPins.slice(0, 5);
+    // Enrich top 10 ranking pins + up to 10 detected breakout candidates with verified live deep metrics via fetchPinFromPinterest
+    const topSlice = preparedPins.slice(0, 10);
+    const breakoutSlice = preparedPins.filter(p => p.metadata?.is_breakout_candidate && !topSlice.includes(p)).slice(0, 10);
+    const topToEnrich = [...topSlice, ...breakoutSlice];
     if (topToEnrich.length > 0) {
       await Promise.allSettled(topToEnrich.map(async (p, idx) => {
         try {

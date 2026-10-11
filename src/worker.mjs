@@ -67,7 +67,10 @@ import {
   getKeywordIntelligence,
   getKeywordDisplacedPins,
   getPinPerformanceTrajectory,
-  getPinDeepDossier
+  getPinDeepDossier,
+  getAppSettings,
+  updateAppSettings,
+  updateKeywordSettings
 } from './modules/keywords/service.mjs';
 import { fetchPinterestTrends, fetchPinterestTrendsPopularPins, fetchPinterestInterestVolume, fetchKeywordRelatedInterests, fetchPinterestBatchVelocity } from './modules/keywords/trends-service.mjs';
 import {
@@ -2299,7 +2302,14 @@ export default {
         if (!keywordId) return jsonResponse({ error: 'keyword_id or slug is required' }, 400);
         const force = Boolean(body.force);
         const cookie = env.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env.PINTEREST_COOKIE : null);
-        const res = await crawlKeywordSERP(sql, keywordId, { cookie, force });
+        const crawlPages = body.crawl_pages || body.max_pages;
+        const maxPins = body.max_pins;
+        const res = await crawlKeywordSERP(sql, keywordId, { 
+          cookie, 
+          force,
+          crawl_pages: crawlPages,
+          max_pins: maxPins
+        });
 
         // Trigger Stage 2 Deep Crawler in GitHub Actions asynchronously (< 3s edge response preserved)
         const autoDispatch = body.dispatch_workflow !== false;
@@ -2307,7 +2317,7 @@ export default {
         if (autoDispatch && token && res?.success) {
           const repo = (typeof env !== 'undefined' && env?.GITHUB_REPOSITORY) || (typeof process !== 'undefined' ? process.env?.GITHUB_REPOSITORY : null) || 'sayfedin-star/pin-arbitrage-engine';
           const targetKw = res.keyword || body.target_keyword || body.keyword || resolvedKw?.keyword || '';
-          const maxPinsInput = String(body.max_pins || '100');
+          const maxPinsInput = String(body.max_pins || resolvedKw?.target_pin_count || '250');
           const crawlScopeInput = String(body.crawl_scope || 'all_pins');
           const cleanToken = String(token).replace(/^(token|Bearer)\s+/i, '').replace(/^["']|["']$/g, '').trim();
           const authHeader = cleanToken.startsWith('ghp_') ? `token ${cleanToken}` : `Bearer ${cleanToken}`;
@@ -2338,6 +2348,25 @@ export default {
         }
 
         return jsonResponse({ success: true, result: res });
+      }
+
+      if (method === 'GET' && pathname === '/api/settings') {
+        const settings = await getAppSettings(sql);
+        return jsonResponse({ success: true, settings });
+      }
+
+      if (method === 'POST' && pathname === '/api/settings') {
+        const body = await request.json().catch(() => ({}));
+        const updated = await updateAppSettings(sql, body);
+        return jsonResponse({ success: true, settings: updated });
+      }
+
+      if (method === 'POST' && pathname === '/api/keywords/settings') {
+        const body = await request.json().catch(() => ({}));
+        const keywordId = Number(body.keyword_id);
+        if (!keywordId) return jsonResponse({ error: 'keyword_id is required' }, 400);
+        const updated = await updateKeywordSettings(sql, keywordId, body);
+        return jsonResponse({ success: true, keyword: updated });
       }
 
       if (method === 'POST' && (pathname === '/api/keywords/status' || pathname === '/api/keywords/toggle')) {

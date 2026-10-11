@@ -33,7 +33,7 @@ const sql = neon(DATABASE_URL);
 const rawTargetKeyword = (process.env.TARGET_KEYWORD || '').trim();
 const crawlScope = (process.env.CRAWL_SCOPE || 'all_pins').toLowerCase().trim();
 const cookie = process.env.PINTEREST_COOKIE || null;
-const maxPinsInput = Math.max(5, Math.min(250, parseInt(process.env.MAX_PINS || '100', 10)));
+const maxPinsInput = Math.max(25, Math.min(1000, parseInt(process.env.MAX_PINS || '250', 10)));
 const githubOutputPath = process.env.GITHUB_OUTPUT || null;
 const stepSummaryPath = process.env.GITHUB_STEP_SUMMARY || null;
 
@@ -81,8 +81,8 @@ async function main() {
         if (!row) {
           console.log(`  [+] Auto-registering new keyword: "${kwStr}"`);
           [row] = await sql`
-            INSERT INTO tracked_keywords (keyword, category, target_pin_count, is_active)
-            VALUES (${kwStr}, 'General', 100, TRUE)
+            INSERT INTO tracked_keywords (keyword, category, target_pin_count, crawl_pages_limit, inspection_mode, is_active)
+            VALUES (${kwStr}, 'General', 250, 10, 'smart_breakout', TRUE)
             RETURNING id, keyword, category, target_pin_count;
           `;
         }
@@ -142,8 +142,8 @@ async function main() {
     if (!kwRow) {
       console.log(`  [+] Auto-registering keyword: "${singleKeyword}"...`);
       [kwRow] = await sql`
-        INSERT INTO tracked_keywords (keyword, category, target_pin_count, is_active)
-        VALUES (${singleKeyword}, 'General', 100, TRUE)
+        INSERT INTO tracked_keywords (keyword, category, target_pin_count, crawl_pages_limit, inspection_mode, is_active)
+        VALUES (${singleKeyword}, 'General', 250, 10, 'smart_breakout', TRUE)
         RETURNING id, keyword, category, target_pin_count;
       `;
     }

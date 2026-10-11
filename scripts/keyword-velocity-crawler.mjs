@@ -47,7 +47,7 @@ const keywordIdInput = process.env.KEYWORD_ID ? parseInt(process.env.KEYWORD_ID,
 const crawlScope = (process.env.CRAWL_SCOPE || 'all_pins').toLowerCase().trim();
 const cookie = process.env.PINTEREST_COOKIE || null;
 const stepSummaryPath = process.env.GITHUB_STEP_SUMMARY || null;
-const maxPins = Math.max(5, Math.min(250, parseInt(process.env.MAX_PINS || '100', 10)));
+const maxPins = Math.max(25, Math.min(1000, parseInt(process.env.MAX_PINS || '250', 10)));
 
 /**
  * Deep Closeup Inspection and Storage Shard Synchronization for a single pin entity
@@ -512,22 +512,42 @@ async function run() {
         if (crawlRes.success) {
           console.log(`  [+] Stage 1 Fast Crawl Success: Crawled ${crawlRes.crawled_pins} pins | Velocity: +${crawlRes.avg_velocity} saves/day`);
 
-          // Stage 2: Deep Inspection
-          let serpPins = await sql`
+          // Stage 2: Deep Inspection across both Active SERP and Displaced Vault
+          const activeLimit = Math.max(25, Math.min(1000, maxPins || kw.target_pin_count || 250));
+          const activePins = await sql`
             SELECT 
               pin_id, rank_position, last_known_rank, title, domain, destination_url, image_url,
               save_count, repin_count, daily_save_velocity, creator_username,
               board_name, dominant_color, visual_annotations, is_displaced
             FROM keyword_serp_current
-            WHERE keyword_id = ${kw.id} AND pin_id ~ '^[0-9]+$'
+            WHERE keyword_id = ${kw.id} AND pin_id ~ '^[0-9]+$' AND is_displaced = FALSE
               AND NOT EXISTS (
                 SELECT 1 FROM keyword_ignored_pins kip
                 WHERE kip.keyword_id = ${kw.id} AND kip.pin_id = keyword_serp_current.pin_id
               )
-            ORDER BY is_displaced ASC, rank_position ASC NULLS LAST
-            LIMIT ${maxPins};
+            ORDER BY rank_position ASC NULLS LAST
+            LIMIT ${activeLimit};
           `;
 
+          // Defensively pull vault pins so displaced pins never stay frozen with legacy/stale metrics
+          const vaultPins = await sql`
+            SELECT 
+              pin_id, rank_position, last_known_rank, title, domain, destination_url, image_url,
+              save_count, repin_count, daily_save_velocity, creator_username,
+              board_name, dominant_color, visual_annotations, is_displaced
+            FROM keyword_serp_current
+            WHERE keyword_id = ${kw.id} AND pin_id ~ '^[0-9]+$' AND is_displaced = TRUE
+              AND NOT EXISTS (
+                SELECT 1 FROM keyword_ignored_pins kip
+                WHERE kip.keyword_id = ${kw.id} AND kip.pin_id = keyword_serp_current.pin_id
+              )
+            ORDER BY updated_at ASC NULLS FIRST
+            LIMIT 30;
+          `;
+
+          const pinMap = new Map();
+          for (const p of [...activePins, ...vaultPins]) pinMap.set(String(p.pin_id), p);
+          let serpPins = Array.from(pinMap.values());
           serpPins.sort((a, b) => String(a.pin_id).localeCompare(String(b.pin_id)));
           const enrichedPins = [];
           for (let pIdx = 0; pIdx < serpPins.length; pIdx++) {
