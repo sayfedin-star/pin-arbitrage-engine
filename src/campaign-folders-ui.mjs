@@ -1125,15 +1125,23 @@ export function getCampaignFoldersPageHtml(folderId = '') {
           // Stopwords filter for pairs
           const skipWords = new Set([
             'pin', 'pins', 'recipe', 'recipes', 'idea', 'ideas', 'food', 'dinner', 
-            'meal', 'easy', 'quick', 'best', 'delicious', 'simple', 'diy', 'guide'
+            'meal', 'meals', 'easy', 'quick', 'best', 'delicious', 'simple', 'diy', 'guide',
+            'homemade', 'cook', 'cooking', 'dish', 'dishes'
           ]);
+
+          const toTitleCase = (str) => {
+            return str.split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+          };
 
           for (const pin of pins) {
             const rawSet = new Set();
             for (const va of (pin.visual_annotations || [])) {
-              if (typeof va === 'string' && va.trim().length >= 3) {
-                const clean = va.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-                if (clean.length >= 3 && !skipWords.has(clean)) rawSet.add(clean);
+              if (typeof va === 'string') {
+                // Preserve spaces between words, strip punctuation
+                const clean = va.trim().toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+                if (clean.length >= 3 && clean.length <= 32 && !skipWords.has(clean)) {
+                  rawSet.add(clean);
+                }
               }
             }
 
@@ -1145,16 +1153,22 @@ export function getCampaignFoldersPageHtml(folderId = '') {
 
               for (let j = i + 1; j < pinTags.length; j++) {
                 const t2 = pinTags[j];
-                const key = JSON.stringify(t1 < t2 ? [t1, t2] : [t2, t1]);
+                // Filter redundant pairs where one tag is contained within the other
+                if (t1.includes(t2) || t2.includes(t1)) continue;
+
+                const key = t1 < t2 ? (t1 + '|||' + t2) : (t2 + '|||' + t1);
                 pairFreq.set(key, (pairFreq.get(key) || 0) + 1);
               }
             }
           }
 
+          // Dynamic min support threshold: 2 for small subsets, at least 5 for 1,000+ pins
+          const minSupport = N_total > 500 ? 5 : (N_total > 100 ? 3 : 2);
+
           const pairs = [];
           for (const [key, jointCount] of pairFreq.entries()) {
-            if (jointCount >= 2) {
-              const [t1, t2] = JSON.parse(key);
+            if (jointCount >= minSupport) {
+              const [t1, t2] = key.split('|||');
               const n1 = tagFreq.get(t1) || 1;
               const n2 = tagFreq.get(t2) || 1;
               const liftRaw = ((jointCount + 1) * (N_total + 4)) / ((n1 + 2) * (n2 + 2));
@@ -1164,18 +1178,23 @@ export function getCampaignFoldersPageHtml(folderId = '') {
               const confidence = Number.isFinite(confRaw) ? Number(confRaw.toFixed(2)) : 0.0;
               const supportPct = Number(((jointCount / N_total) * 100).toFixed(1));
 
+              // Balanced Synergy Score: Lift weighted by log2 support to prevent rare 2-pin anomalies
+              const synergyScore = liftVal * Math.log2(jointCount + 1);
+
               pairs.push({
-                tag_a: t1.charAt(0).toUpperCase() + t1.slice(1),
-                tag_b: t2.charAt(0).toUpperCase() + t2.slice(1),
+                tag_a: toTitleCase(t1),
+                tag_b: toTitleCase(t2),
                 joint_count: jointCount,
                 lift: liftVal,
                 confidence: confidence,
-                support_pct: supportPct
+                support_pct: supportPct,
+                synergy_score: synergyScore
               });
             }
           }
 
-          pairs.sort((a, b) => b.lift - a.lift || b.joint_count - a.joint_count);
+          // Sort by balanced synergy score so high-frequency, high-lift pairs rank at the top
+          pairs.sort((a, b) => b.synergy_score - a.synergy_score || b.joint_count - a.joint_count);
           this.powerPairs = pairs;
         },
 
