@@ -14,6 +14,10 @@ const inflightInterest = new Map();
 const INTEREST_CACHE_MAX = 500;
 const INTEREST_TTL_MS = 2 * 60 * 60 * 1000; // 2 Hours TTL
 
+const velocityCache = new Map();
+const VELOCITY_CACHE_MAX = 500;
+const VELOCITY_TTL_MS = 60 * 60 * 1000; // 1 Hour TTL
+
 /**
  * Fetch official Pinterest Interest / Annotation metrics (Exact search count, category tree, related taxonomy)
  * Direct access to Pinterest's InterestResource via slug or ID.
@@ -249,6 +253,123 @@ export async function fetchKeywordRelatedInterests(term, mode = 'both') {
     additions,
     all
   };
+}
+
+/**
+ * Batch resolve authentic 30-day trending velocity from official Pinterest 52-week curves.
+ * Formula: ((latest_week - 4_weeks_prior) / 4_weeks_prior) * 100%
+ * @param {string} seedQuery - Seed query term
+ * @param {string[]} terms - Array of suggestion terms to resolve
+ * @param {string} [country='US'] - Country code
+ * @returns {Promise<Map<string, { velocity_30d: number | null, counts: number[] }>>}
+ */
+export async function fetchPinterestBatchVelocity(seedQuery, terms = [], country = 'US') {
+  const cleanSeed = String(seedQuery || '').trim().toLowerCase();
+  const normalizedTerms = (Array.isArray(terms) ? terms : [])
+    .map(t => String(t || '').trim().toLowerCase())
+    .filter(Boolean);
+
+  const resultMap = new Map();
+  const now = Date.now();
+
+  const parseItemVelocity = (item) => {
+    if (!item || !item.term) return null;
+    const counts = Array.isArray(item.counts) ? item.counts : [];
+    if (counts.length < 5) return { velocity_30d: null, counts };
+    const curr = Number(counts[counts.length - 1] ?? 0);
+    const past = Number(counts[counts.length - 5] ?? 0);
+    let vel = null;
+    if (past > 0) {
+      vel = Math.round(((curr - past) / past) * 100);
+    } else if (curr > 0) {
+      vel = 100; // Breakout from zero
+    } else {
+      vel = 0;
+    }
+    return { velocity_30d: vel, counts };
+  };
+
+  // 1. Check LRU cache for all terms
+  const missingTerms = [];
+  for (const term of normalizedTerms) {
+    const cacheKey = `${term}_${country}`;
+    const cached = velocityCache.get(cacheKey);
+    if (cached && (now - cached.timestamp < VELOCITY_TTL_MS)) {
+      resultMap.set(term, cached.data);
+    } else {
+      missingTerms.push(term);
+    }
+  }
+
+  // If all terms are cached, return immediately
+  if (missingTerms.length === 0 && normalizedTerms.length > 0) {
+    return resultMap;
+  }
+
+  const headers = {
+    'Accept': 'application/json, text/plain, */*',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+    'Referer': 'https://trends.pinterest.com/'
+  };
+
+  // 2. Fetch seed query prefix_match (broadest match returning 10+ matching suggestion curves)
+  if (cleanSeed && cleanSeed.length >= 2) {
+    try {
+      const url = `https://trends.pinterest.com/prefix_match/?query=${encodeURIComponent(cleanSeed)}&country=${country}`;
+      const res = await fetch(url, { headers, signal: AbortSignal.timeout(6000) });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          for (const item of data) {
+            const t = String(item.term || '').trim().toLowerCase();
+            const parsed = parseItemVelocity(item);
+            if (t && parsed) {
+              const cKey = `${t}_${country}`;
+              velocityCache.set(cKey, { data: parsed, timestamp: now });
+              if (normalizedTerms.includes(t)) {
+                resultMap.set(t, parsed);
+              }
+            }
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  // 3. For any terms still missing from prefix_match, fetch individually (up to 4 terms concurrently)
+  const stillMissing = normalizedTerms.filter(t => !resultMap.has(t)).slice(0, 4);
+  if (stillMissing.length > 0) {
+    const missingFetches = stillMissing.map(async (mTerm) => {
+      try {
+        const url = `https://trends.pinterest.com/prefix_match/?query=${encodeURIComponent(mTerm)}&country=${country}`;
+        const res = await fetch(url, { headers, signal: AbortSignal.timeout(6000) });
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data) && data.length > 0) {
+            const exact = data.find(x => String(x.term || '').trim().toLowerCase() === mTerm) || data[0];
+            const parsed = parseItemVelocity(exact);
+            if (parsed) {
+              const cKey = `${mTerm}_${country}`;
+              velocityCache.set(cKey, { data: parsed, timestamp: now });
+              resultMap.set(mTerm, parsed);
+            }
+          }
+        }
+      } catch (_) {}
+    });
+    await Promise.allSettled(missingFetches);
+  }
+
+  // Prune cache if over limit
+  if (velocityCache.size > VELOCITY_CACHE_MAX) {
+    for (const [k, v] of velocityCache.entries()) {
+      if (now - v.timestamp >= VELOCITY_TTL_MS) {
+        velocityCache.delete(k);
+      }
+    }
+  }
+
+  return resultMap;
 }
 
 export async function fetchPinterestTrends(term, country = 'US', force = false) {

@@ -270,22 +270,59 @@ export function getDiscoveryPageHtml() {
                       ></span>
                       <span 
                         class="px-2 py-0.5 rounded-full text-[10px] font-semibold border"
-                        :class="item.volumeTier === 'Mega' ? 'bg-purple-500/10 text-purple-400 border-purple-500/30' : (item.volumeTier === 'High' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : (item.volumeTier === 'Medium' ? 'bg-amber-500/10 text-amber-400 border-amber-500/30' : 'bg-indigo-500/10 text-indigo-400 border-indigo-500/30'))"
+                        :class="item.volumeTier === 'Mega' ? 'bg-purple-500/10 text-purple-400 border-purple-500/30' : (item.volumeTier === 'High' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : (item.volumeTier === 'Medium' ? 'bg-amber-500/10 text-amber-400 border-amber-500/30' : (item.volumeTier === 'Low' ? 'bg-slate-700/50 text-slate-300 border-slate-600/40' : 'bg-indigo-500/10 text-indigo-400 border-indigo-500/30')))"
                         x-text="item.volumeLabel"
                       ></span>
                     </div>
                     <span x-show="item.annotationId" class="text-[9px] text-slate-500 font-mono" x-text="'ID: ' + item.annotationId"></span>
                   </div>
                 </td>
-                <td class="p-3.5 font-mono text-[11px]">
-                  <span 
-                    class="px-2 py-0.5 rounded text-[10px] border"
-                    :class="item.intent.badgeClass"
-                    x-text="item.intent.label"
-                  ></span>
+                <td class="p-3.5">
+                  <div class="flex flex-col gap-1 items-start max-w-[260px]">
+                    <template x-if="item.categoryPath">
+                      <div class="flex items-center gap-1.5 text-slate-200 font-medium text-[11px] truncate max-w-full" :title="item.categoryPath">
+                        <span class="text-rose-400 text-xs flex-shrink-0">🌿</span>
+                        <span class="truncate font-sans" x-text="item.categoryPath"></span>
+                      </div>
+                    </template>
+                    <template x-if="!item.categoryPath">
+                      <div class="flex items-center gap-1 text-slate-500 italic text-[10px] font-sans">
+                        <span>—</span>
+                        <span>Unindexed Category</span>
+                      </div>
+                    </template>
+                    <span 
+                      class="px-2 py-0.5 rounded text-[10px] border font-mono"
+                      :class="item.intent.badgeClass"
+                      x-text="item.intent.label"
+                    ></span>
+                  </div>
                 </td>
-                <td class="p-3.5 font-mono text-emerald-400">
-                  <span x-text="'+' + item.growthPercent + '% 30d'"></span>
+                <td class="p-3.5 font-mono text-[11px]">
+                  <template x-if="item.velocity30d !== null && item.velocity30d > 0">
+                    <span class="inline-flex items-center gap-1 text-emerald-400 font-semibold bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                      <span>↗</span>
+                      <span x-text="'+' + item.velocity30d + '% 30d'"></span>
+                    </span>
+                  </template>
+                  <template x-if="item.velocity30d !== null && item.velocity30d < 0">
+                    <span class="inline-flex items-center gap-1 text-rose-400 font-semibold bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20">
+                      <span>↘</span>
+                      <span x-text="item.velocity30d + '% 30d'"></span>
+                    </span>
+                  </template>
+                  <template x-if="item.velocity30d !== null && item.velocity30d === 0">
+                    <span class="inline-flex items-center gap-1 text-slate-300 bg-slate-800 px-2 py-0.5 rounded border border-slate-700">
+                      <span>→</span>
+                      <span>0% 30d</span>
+                    </span>
+                  </template>
+                  <template x-if="item.velocity30d === null">
+                    <span class="inline-flex items-center gap-1 text-slate-400 bg-slate-800/60 px-2 py-0.5 rounded border border-slate-700/60 text-[10px]" title="No 52-week historical trend indexed on Pinterest Trends yet">
+                      <span>—</span>
+                      <span>Stable</span>
+                    </span>
+                  </template>
                 </td>
                 <td class="p-3.5 text-right">
                   <div class="flex items-center justify-end gap-1.5 flex-wrap">
@@ -867,7 +904,9 @@ export function getDiscoveryPageHtml() {
               const searchVol = (typeof item === 'object' && typeof item.search_volume === 'number') ? item.search_volume : null;
               const annoId = (typeof item === 'object' && item.annotation_id) ? item.annotation_id : null;
               const categoryTree = (typeof item === 'object' && Array.isArray(item.category_tree)) ? item.category_tree : [];
+              const categoryPath = (typeof item === 'object' && item.category_path) ? item.category_path : (categoryTree.length > 0 ? categoryTree.join(' > ') : '');
               const pinterestUrl = (typeof item === 'object' && item.url) ? item.url : ('https://www.pinterest.com/search/pins/?q=' + encodeURIComponent(termStr));
+              const velocity30d = (typeof item === 'object' && typeof item.velocity_30d === 'number') ? item.velocity_30d : null;
 
               let volumeTier = 'Rising';
               let volumeLabel = 'Rising';
@@ -886,8 +925,8 @@ export function getDiscoveryPageHtml() {
                   volumeLabel = '< 10k';
                 }
               } else {
-                volumeTier = idx < 3 ? 'High' : (idx < 7 ? 'Medium' : 'Rising');
-                volumeLabel = idx < 3 ? 'High (Est)' : (idx < 7 ? 'Medium (Est)' : 'Rising Velocity');
+                volumeTier = 'Rising';
+                volumeLabel = 'Rising';
               }
 
               return {
@@ -895,12 +934,12 @@ export function getDiscoveryPageHtml() {
                 searchVolume: searchVol,
                 annotationId: annoId,
                 categoryTree: categoryTree,
-                categoryPath: categoryTree.join(' > '),
+                categoryPath: categoryPath,
                 pinterestUrl: pinterestUrl,
                 volumeTier: volumeTier,
                 volumeLabel: volumeLabel,
                 intent: this.determineIntent(termStr),
-                growthPercent: 35 + ((idx * 13) % 55),
+                velocity30d: velocity30d,
                 isTop: idx === 0
               };
             }).filter(r => r.term.length > 0);

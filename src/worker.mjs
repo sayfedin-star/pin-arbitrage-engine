@@ -69,7 +69,7 @@ import {
   getPinPerformanceTrajectory,
   getPinDeepDossier
 } from './modules/keywords/service.mjs';
-import { fetchPinterestTrends, fetchPinterestTrendsPopularPins, fetchPinterestInterestVolume, fetchKeywordRelatedInterests } from './modules/keywords/trends-service.mjs';
+import { fetchPinterestTrends, fetchPinterestTrendsPopularPins, fetchPinterestInterestVolume, fetchKeywordRelatedInterests, fetchPinterestBatchVelocity } from './modules/keywords/trends-service.mjs';
 import {
   listFolders,
   getFolder,
@@ -2970,24 +2970,41 @@ export default {
         const q = searchParams.get('q') || searchParams.get('term') || searchParams.get('query') || '';
         const result = await fetchKeywordTypeahead(q);
         if (result.success && Array.isArray(result.suggestions) && result.suggestions.length > 0) {
-          const enrichPromises = result.suggestions.map(async (item) => {
-            const termStr = typeof item === 'string' ? item : (item.term || item.query || '');
-            try {
-              const interest = await fetchPinterestInterestVolume(termStr);
-              const hasAnno = interest && interest.id && String(interest.id) !== '0' && (interest.internal_search_count > 0);
-              return {
-                term: termStr,
-                search_volume: hasAnno ? interest.internal_search_count : null,
-                annotation_id: hasAnno ? interest.id : null,
-                category_tree: hasAnno ? interest.seo_breadcrumbs : [],
-                url: hasAnno && interest.url_name ? `https://www.pinterest.com/ideas/${interest.url_name}/${interest.id}/` : null
-              };
-            } catch (_) {
-              return { term: termStr, search_volume: null, annotation_id: null, category_tree: [] };
-            }
+          const suggestionTerms = result.suggestions.map(item => 
+            typeof item === 'string' ? item : (item.term || item.query || '')
+          ).filter(Boolean);
+
+          const [velocityMap, enriched] = await Promise.all([
+            fetchPinterestBatchVelocity(q, suggestionTerms),
+            Promise.allSettled(result.suggestions.map(async (item) => {
+              const termStr = typeof item === 'string' ? item : (item.term || item.query || '');
+              try {
+                const interest = await fetchPinterestInterestVolume(termStr);
+                const hasAnno = interest && interest.id && String(interest.id) !== '0' && (interest.internal_search_count > 0);
+                const breadcrumbs = (hasAnno && Array.isArray(interest.seo_breadcrumbs)) ? interest.seo_breadcrumbs : [];
+                return {
+                  term: termStr,
+                  search_volume: hasAnno ? interest.internal_search_count : null,
+                  annotation_id: hasAnno ? interest.id : null,
+                  category_tree: breadcrumbs,
+                  category_path: breadcrumbs.length > 0 ? breadcrumbs.join(' > ') : '',
+                  url: hasAnno && interest.url_name ? `https://www.pinterest.com/ideas/${interest.url_name}/${interest.id}/` : null
+                };
+              } catch (_) {
+                return { term: termStr, search_volume: null, annotation_id: null, category_tree: [], category_path: '', url: null };
+              }
+            }))
+          ]);
+
+          result.enriched_suggestions = enriched.map((r, i) => {
+            const base = r.status === 'fulfilled' ? r.value : { term: suggestionTerms[i] || '', search_volume: null, category_tree: [], category_path: '', url: null };
+            const cleanT = String(base.term || '').trim().toLowerCase();
+            const velData = velocityMap.get(cleanT);
+            return {
+              ...base,
+              velocity_30d: (velData && typeof velData.velocity_30d === 'number') ? velData.velocity_30d : null
+            };
           });
-          const enriched = await Promise.allSettled(enrichPromises);
-          result.enriched_suggestions = enriched.map((r, i) => r.status === 'fulfilled' ? r.value : { term: result.suggestions[i], search_volume: null });
         }
         return jsonResponse(result);
       }
