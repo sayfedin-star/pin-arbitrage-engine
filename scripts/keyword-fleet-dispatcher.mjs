@@ -31,6 +31,7 @@ if (!DATABASE_URL) {
 
 const sql = neon(DATABASE_URL);
 const rawTargetKeyword = (process.env.TARGET_KEYWORD || '').trim();
+const rawFolderId = (process.env.FOLDER_ID || '').trim();
 const crawlScope = (process.env.CRAWL_SCOPE || 'all_pins').toLowerCase().trim();
 const cookie = process.env.PINTEREST_COOKIE || null;
 const maxPinsInput = Math.max(25, Math.min(1000, parseInt(process.env.MAX_PINS || '250', 10)));
@@ -52,6 +53,7 @@ async function main() {
   console.log('   🚀 KEYWORD INTELLIGENCE & VELOCITY FLEET DISPATCHER (20-RUNNER)');
   console.log('================================================================');
   console.log(`[Config] Target Input: "${rawTargetKeyword || '<EMPTY: ALL ACTIVE KEYWORDS>'}"`);
+  console.log(`[Config] Folder ID:    "${rawFolderId || '<NONE>'}"`);
   console.log(`[Config] Crawl Scope:  "${crawlScope}"`);
   console.log(`[Config] Max Pins:     ${maxPinsInput}`);
 
@@ -62,7 +64,132 @@ async function main() {
   let matrixTasks = [];
   let summaryDetails = {};
 
-  if (isSweepAll || commaKeywords.length > 1) {
+  if (rawFolderId) {
+    // =========================================================================
+    // MODE C: FOLDER CLUSTER PIN-SLICE SHARDING (Up to 20 Parallel Runners)
+    // =========================================================================
+    mode = 'folder_pin_partition';
+    const fid = parseInt(rawFolderId, 10);
+    console.log(`\n[*] Mode Selected: MODE C (Folder Cluster Pin Partition for Folder ID: ${fid})`);
+
+    const [folderRow] = await sql`
+      SELECT id, name, description FROM keyword_folders WHERE id = ${fid} LIMIT 1;
+    `;
+    if (!folderRow) {
+      console.error(`[-] FATAL: Folder ID ${fid} not found in database.`);
+      process.exit(1);
+    }
+
+    console.log(`  [+] Target Folder: "${folderRow.name}" (ID: ${folderRow.id})`);
+
+    // 1. Fetch keywords belonging to this folder
+    const folderKeywords = await sql`
+      SELECT tk.id, tk.keyword, tk.category, tk.target_pin_count
+      FROM keyword_folder_items kfi
+      JOIN tracked_keywords tk ON tk.id = kfi.keyword_id
+      WHERE kfi.folder_id = ${fid}
+      ORDER BY kfi.added_at ASC;
+    `;
+
+    console.log(`  [+] Resolved ${folderKeywords.length} keywords in folder cluster.`);
+
+    // 2. Stage 0 Fast SERP Ingestion for all cluster keywords to refresh ranks & ingest new pins
+    console.log(`  [*] Executing Stage 0 Fast SERP Ingestion across ${folderKeywords.length} folder keywords...`);
+    for (let kIdx = 0; kIdx < folderKeywords.length; kIdx++) {
+      const kw = folderKeywords[kIdx];
+      try {
+        console.log(`    [${kIdx + 1}/${folderKeywords.length}] Ingesting SERP for "${kw.keyword}" (ID: ${kw.id})...`);
+        const crawlRes = await crawlKeywordSERP(sql, kw.id, cookie);
+        if (crawlRes?.success) {
+          console.log(`      [+] Ingested ${crawlRes.crawled_pins} pins | Avg Velocity: +${crawlRes.avg_velocity} saves/day`);
+        } else {
+          console.warn(`      [!] SERP warning for "${kw.keyword}": ${crawlRes?.message || 'Incomplete'}`);
+        }
+      } catch (kwErr) {
+        console.warn(`      [!] SERP error for "${kw.keyword}": ${kwErr.message}`);
+      }
+      if (kIdx < folderKeywords.length - 1) {
+        await new Promise(r => setTimeout(r, 600));
+      }
+    }
+
+    // 3. Query All Deduplicated Candidate Pins for this Folder
+    let candidatePins = [];
+    if (crawlScope === 'active_serp') {
+      console.log('  [*] Scope: active_serp (Top organic ranking pins only)');
+      candidatePins = await sql`
+        SELECT DISTINCT ON (ksc.pin_id)
+          ksc.pin_id, ksc.rank_position, ksc.last_known_rank, FALSE as is_displaced
+        FROM keyword_serp_current ksc
+        JOIN keyword_folder_items kfi ON kfi.keyword_id = ksc.keyword_id
+        WHERE kfi.folder_id = ${fid} AND ksc.pin_id ~ '^[0-9]+$' AND ksc.is_displaced = FALSE
+        ORDER BY ksc.pin_id, ksc.rank_position ASC NULLS LAST;
+      `;
+    } else {
+      console.log('  [*] Scope: all_pins (Unified Folder Catalog: Active SERP + Displaced Vault)');
+      candidatePins = await sql`
+        SELECT DISTINCT ON (ksc.pin_id)
+          ksc.pin_id, ksc.rank_position, ksc.last_known_rank, ksc.is_displaced
+        FROM keyword_serp_current ksc
+        JOIN keyword_folder_items kfi ON kfi.keyword_id = ksc.keyword_id
+        WHERE kfi.folder_id = ${fid} AND ksc.pin_id ~ '^[0-9]+$'
+        ORDER BY ksc.pin_id, ksc.is_displaced ASC, ksc.rank_position ASC NULLS LAST;
+      `;
+    }
+
+    candidatePins.sort((a, b) => {
+      const rA = Number(a.rank_position) || Number(a.last_known_rank) || 9999;
+      const rB = Number(b.rank_position) || Number(b.last_known_rank) || 9999;
+      if (rA !== rB) return rA - rB;
+      return String(a.pin_id).localeCompare(String(b.pin_id));
+    });
+
+    const totalPinsFound = candidatePins.length;
+    console.log(`  [+] Total Deduplicated Catalog Pins in Folder: ${totalPinsFound} pins`);
+
+    if (totalPinsFound === 0) {
+      console.log('  [!] No valid pins discovered in folder. Spawning 1 fallback runner.');
+      matrixTasks = [{
+        mode: 'folder_pin_partition',
+        folder_id: fid,
+        folder_name: folderRow.name,
+        keyword: folderKeywords[0]?.keyword || folderRow.name,
+        worker_index: 0,
+        worker_slot: 1,
+        worker_total: 1,
+        total_pins: 0,
+        crawl_scope: crawlScope,
+        max_pins: maxPinsInput
+      }];
+    } else {
+      const numWorkers = Math.min(20, Math.max(1, totalPinsFound > 0 ? 20 : 1));
+      console.log(`  [*] Partitioning ${totalPinsFound} cluster pins across ${numWorkers} concurrent runners (~${Math.ceil(totalPinsFound / numWorkers)} pins/runner)...`);
+
+      matrixTasks = Array.from({ length: numWorkers }, (_, idx) => ({
+        mode: 'folder_pin_partition',
+        folder_id: fid,
+        folder_name: folderRow.name,
+        keyword: folderRow.name,
+        worker_index: idx,
+        worker_slot: idx + 1,
+        worker_total: numWorkers,
+        total_pins: totalPinsFound,
+        crawl_scope: crawlScope,
+        max_pins: maxPinsInput
+      }));
+    }
+
+    summaryDetails = {
+      mode: 'Folder Cluster Pin Partition',
+      folderName: folderRow.name,
+      folderId: fid,
+      keywordsCount: folderKeywords.length,
+      totalCatalogPins: totalPinsFound,
+      runnersAssigned: matrixTasks.length,
+      averagePinsPerRunner: Math.ceil(totalPinsFound / (matrixTasks.length || 1))
+    };
+
+  } else if (isSweepAll || commaKeywords.length > 1) {
     // =========================================================================
     // MODE A: MULTI-KEYWORD BROADCAST MATRIX (Up to 20 Parallel Runners)
     // =========================================================================
@@ -255,7 +382,14 @@ async function main() {
       let md = `## 🚀 Stage 0: Dynamic Fleet Orchestrator & Dispatcher\n\n`;
       md += `> **Fleet Mode**: \`${summaryDetails.mode}\` | **Parallel Runners Allocated**: **${matrixTasks.length} / 20**\n\n`;
 
-      if (mode === 'keyword_sweep') {
+      if (mode === 'folder_pin_partition') {
+        md += `### 📁 Folder Cluster Deduplicated Catalog Partition\n\n`;
+        md += `- **Folder**: \`${summaryDetails.folderName}\` (ID: ${summaryDetails.folderId})\n`;
+        md += `- **Cluster Keywords**: **${summaryDetails.keywordsCount}** keywords refreshed via Stage 0 SERP crawl\n`;
+        md += `- **Total Deduplicated Cluster Pins**: **${summaryDetails.totalCatalogPins}** pins\n`;
+        md += `- **Slices Created**: **${matrixTasks.length}** concurrent partitions (~${summaryDetails.averagePinsPerRunner} pins/runner)\n`;
+        md += `- **Estimated Inspection Latency**: **~5-6 minutes** across 20 Azure egress IPs\n\n`;
+      } else if (mode === 'keyword_sweep') {
         md += `### 📋 Assigned Keywords Matrix\n\n`;
         md += `| Runner # | Assigned Keyword | Category | Target Pins |\n`;
         md += `| :---: | :--- | :--- | :---: |\n`;

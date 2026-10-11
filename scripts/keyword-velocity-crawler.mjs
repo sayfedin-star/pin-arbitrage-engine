@@ -44,6 +44,7 @@ const workerIndex = parseInt(process.env.WORKER_INDEX || '0', 10);
 const workerTotal = Math.max(1, parseInt(process.env.WORKER_TOTAL || '1', 10));
 const targetKeyword = (process.env.TARGET_KEYWORD || '').trim().toLowerCase();
 const keywordIdInput = process.env.KEYWORD_ID ? parseInt(process.env.KEYWORD_ID, 10) : null;
+const folderIdInput = process.env.FOLDER_ID ? parseInt(process.env.FOLDER_ID, 10) : null;
 const crawlScope = (process.env.CRAWL_SCOPE || 'all_pins').toLowerCase().trim();
 const cookie = process.env.PINTEREST_COOKIE || null;
 const stepSummaryPath = process.env.GITHUB_STEP_SUMMARY || null;
@@ -134,84 +135,168 @@ async function inspectAndSyncPin(pin, kw) {
   const finalAnnotations = Array.from(mergedTagsSet).slice(0, 15);
 
   // 1. Unified Cross-Keyword Cascade Update on Central Hub keyword_serp_current
-  // Updates ALL rankings (active and displaced) where this pin appears under the target keyword
-  await sql`
-    UPDATE keyword_serp_current
-    SET 
-      save_count = GREATEST(save_count, ${authenticSaves}::bigint),
-      repin_count = GREATEST(repin_count, ${authenticRepins}::int),
-      comment_count = GREATEST(COALESCE(comment_count, 0), ${authenticComments}::int),
-      share_count = GREATEST(COALESCE(share_count, 0), ${authenticShares}::int),
-      creator_username = CASE WHEN ${creator}::text <> '' THEN ${creator}::text ELSE creator_username END,
-      board_name = CASE WHEN ${board}::text <> '' THEN ${board}::text ELSE board_name END,
-      dominant_color = CASE WHEN ${dominantColor}::text <> '' THEN ${dominantColor}::text ELSE dominant_color END,
-      created_at_pinterest = CASE WHEN ${createdAtPinterest}::timestamptz IS NOT NULL THEN ${createdAtPinterest}::timestamptz ELSE created_at_pinterest END,
-      creation_method = CASE WHEN ${method}::text <> '' THEN ${method}::text ELSE creation_method END,
-      vacuum_opportunity_score = CASE 
-        WHEN COALESCE(last_known_rank, rank_position, 100) <= 5 THEN 85
-        WHEN COALESCE(last_known_rank, rank_position, 100) <= 15 THEN 75
-        WHEN COALESCE(last_known_rank, rank_position, 100) <= 50 THEN 60
-        ELSE 45
-      END,
-      visual_annotations = CASE 
-        WHEN jsonb_typeof(${JSON.stringify(finalAnnotations)}::jsonb) = 'array' AND jsonb_array_length(${JSON.stringify(finalAnnotations)}::jsonb) > 0 
-        THEN ${JSON.stringify(finalAnnotations)}::jsonb 
-        ELSE visual_annotations 
-      END,
-      metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
-        'description', ${description}::text,
-        'alt_text', ${altText}::text,
-        'share_count', ${authenticShares}::int,
-        'dominant_color', ${dominantColor}::text,
-        'board_name', ${board}::text,
-        'method', ${method}::text,
-        'creation_method', ${method}::text,
-        'created_at_pinterest', ${createdAtPinterest}::text,
-        'is_deleted', ${isDead}::boolean,
-        'status', ${isDead ? 'archived_404' : 'active'}::text
-      ),
-      crawled_at = NOW(),
-      updated_at = NOW()
-    WHERE pin_id = ${pin.pin_id} AND keyword_id = ${kw.id};
-  `;
-
-  // 3. Cascade Update on Central Hub keyword_pins_snapshots
-  // Strictly anchored to invariant UTC calendar date or displaced vault record
-  await sql`
-    UPDATE keyword_pins_snapshots
-    SET
-      save_count = GREATEST(save_count, ${authenticSaves}::bigint),
-      repin_count = GREATEST(repin_count, ${authenticRepins}::int),
-      comment_count = GREATEST(comment_count, ${authenticComments}::int),
-      share_count = GREATEST(COALESCE(share_count, 0), ${authenticShares}::int),
-      vacuum_opportunity_score = CASE 
-        WHEN COALESCE(last_known_rank, rank_position, 100) <= 5 THEN 85
-        WHEN COALESCE(last_known_rank, rank_position, 100) <= 15 THEN 75
-        WHEN COALESCE(last_known_rank, rank_position, 100) <= 50 THEN 60
-        ELSE 45
-      END,
-      created_at_pinterest = CASE WHEN ${createdAtPinterest}::timestamptz IS NOT NULL THEN ${createdAtPinterest}::timestamptz ELSE created_at_pinterest END,
-      creation_method = CASE WHEN ${method}::text <> '' THEN ${method}::text ELSE creation_method END,
-      metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
-        'description', ${description}::text,
-        'alt_text', ${altText}::text,
-        'share_count', ${authenticShares}::int,
-        'dominant_color', ${dominantColor}::text,
-        'board_name', ${board}::text,
-        'method', ${method}::text,
-        'creation_method', ${method}::text,
-        'created_at_pinterest', ${createdAtPinterest}::text,
-        'is_deleted', ${isDead}::boolean,
-        'status', ${isDead ? 'archived_404' : 'active'}::text,
-        'visual_annotations', CASE 
+  // Updates ALL rankings (active and displaced) where this pin appears under the folder cluster or target keyword
+  if (kw?.folder_id) {
+    await sql`
+      UPDATE keyword_serp_current
+      SET 
+        save_count = GREATEST(save_count, ${authenticSaves}::bigint),
+        repin_count = GREATEST(repin_count, ${authenticRepins}::int),
+        comment_count = GREATEST(COALESCE(comment_count, 0), ${authenticComments}::int),
+        share_count = GREATEST(COALESCE(share_count, 0), ${authenticShares}::int),
+        creator_username = CASE WHEN ${creator}::text <> '' THEN ${creator}::text ELSE creator_username END,
+        board_name = CASE WHEN ${board}::text <> '' THEN ${board}::text ELSE board_name END,
+        dominant_color = CASE WHEN ${dominantColor}::text <> '' THEN ${dominantColor}::text ELSE dominant_color END,
+        created_at_pinterest = CASE WHEN ${createdAtPinterest}::timestamptz IS NOT NULL THEN ${createdAtPinterest}::timestamptz ELSE created_at_pinterest END,
+        creation_method = CASE WHEN ${method}::text <> '' THEN ${method}::text ELSE creation_method END,
+        vacuum_opportunity_score = CASE 
+          WHEN COALESCE(last_known_rank, rank_position, 100) <= 5 THEN 85
+          WHEN COALESCE(last_known_rank, rank_position, 100) <= 15 THEN 75
+          WHEN COALESCE(last_known_rank, rank_position, 100) <= 50 THEN 60
+          ELSE 45
+        END,
+        visual_annotations = CASE 
           WHEN jsonb_typeof(${JSON.stringify(finalAnnotations)}::jsonb) = 'array' AND jsonb_array_length(${JSON.stringify(finalAnnotations)}::jsonb) > 0 
           THEN ${JSON.stringify(finalAnnotations)}::jsonb 
-          ELSE COALESCE(metadata->'visual_annotations', '[]'::jsonb) 
-        END
-      )
-    WHERE pin_id = ${pin.pin_id} AND keyword_id = ${kw.id}
-      AND (snapshot_date = (NOW() AT TIME ZONE 'UTC')::date OR is_displaced = TRUE);
-  `;
+          ELSE visual_annotations 
+        END,
+        metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
+          'description', ${description}::text,
+          'alt_text', ${altText}::text,
+          'share_count', ${authenticShares}::int,
+          'dominant_color', ${dominantColor}::text,
+          'board_name', ${board}::text,
+          'method', ${method}::text,
+          'creation_method', ${method}::text,
+          'created_at_pinterest', ${createdAtPinterest}::text,
+          'is_deleted', ${isDead}::boolean,
+          'status', ${isDead ? 'archived_404' : 'active'}::text
+        ),
+        crawled_at = NOW(),
+        updated_at = NOW()
+      WHERE pin_id = ${pin.pin_id}
+        AND keyword_id IN (
+          SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${kw.folder_id}
+        );
+    `;
+
+    await sql`
+      UPDATE keyword_pins_snapshots
+      SET
+        save_count = GREATEST(save_count, ${authenticSaves}::bigint),
+        repin_count = GREATEST(repin_count, ${authenticRepins}::int),
+        comment_count = GREATEST(comment_count, ${authenticComments}::int),
+        share_count = GREATEST(COALESCE(share_count, 0), ${authenticShares}::int),
+        vacuum_opportunity_score = CASE 
+          WHEN COALESCE(last_known_rank, rank_position, 100) <= 5 THEN 85
+          WHEN COALESCE(last_known_rank, rank_position, 100) <= 15 THEN 75
+          WHEN COALESCE(last_known_rank, rank_position, 100) <= 50 THEN 60
+          ELSE 45
+        END,
+        created_at_pinterest = CASE WHEN ${createdAtPinterest}::timestamptz IS NOT NULL THEN ${createdAtPinterest}::timestamptz ELSE created_at_pinterest END,
+        creation_method = CASE WHEN ${method}::text <> '' THEN ${method}::text ELSE creation_method END,
+        metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
+          'description', ${description}::text,
+          'alt_text', ${altText}::text,
+          'share_count', ${authenticShares}::int,
+          'dominant_color', ${dominantColor}::text,
+          'board_name', ${board}::text,
+          'method', ${method}::text,
+          'creation_method', ${method}::text,
+          'created_at_pinterest', ${createdAtPinterest}::text,
+          'is_deleted', ${isDead}::boolean,
+          'status', ${isDead ? 'archived_404' : 'active'}::text,
+          'visual_annotations', CASE 
+            WHEN jsonb_typeof(${JSON.stringify(finalAnnotations)}::jsonb) = 'array' AND jsonb_array_length(${JSON.stringify(finalAnnotations)}::jsonb) > 0 
+            THEN ${JSON.stringify(finalAnnotations)}::jsonb 
+            ELSE COALESCE(metadata->'visual_annotations', '[]'::jsonb) 
+          END
+        )
+      WHERE pin_id = ${pin.pin_id}
+        AND keyword_id IN (
+          SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${kw.folder_id}
+        )
+        AND (snapshot_date = (NOW() AT TIME ZONE 'UTC')::date OR is_displaced = TRUE);
+    `;
+  } else {
+    await sql`
+      UPDATE keyword_serp_current
+      SET 
+        save_count = GREATEST(save_count, ${authenticSaves}::bigint),
+        repin_count = GREATEST(repin_count, ${authenticRepins}::int),
+        comment_count = GREATEST(COALESCE(comment_count, 0), ${authenticComments}::int),
+        share_count = GREATEST(COALESCE(share_count, 0), ${authenticShares}::int),
+        creator_username = CASE WHEN ${creator}::text <> '' THEN ${creator}::text ELSE creator_username END,
+        board_name = CASE WHEN ${board}::text <> '' THEN ${board}::text ELSE board_name END,
+        dominant_color = CASE WHEN ${dominantColor}::text <> '' THEN ${dominantColor}::text ELSE dominant_color END,
+        created_at_pinterest = CASE WHEN ${createdAtPinterest}::timestamptz IS NOT NULL THEN ${createdAtPinterest}::timestamptz ELSE created_at_pinterest END,
+        creation_method = CASE WHEN ${method}::text <> '' THEN ${method}::text ELSE creation_method END,
+        vacuum_opportunity_score = CASE 
+          WHEN COALESCE(last_known_rank, rank_position, 100) <= 5 THEN 85
+          WHEN COALESCE(last_known_rank, rank_position, 100) <= 15 THEN 75
+          WHEN COALESCE(last_known_rank, rank_position, 100) <= 50 THEN 60
+          ELSE 45
+        END,
+        visual_annotations = CASE 
+          WHEN jsonb_typeof(${JSON.stringify(finalAnnotations)}::jsonb) = 'array' AND jsonb_array_length(${JSON.stringify(finalAnnotations)}::jsonb) > 0 
+          THEN ${JSON.stringify(finalAnnotations)}::jsonb 
+          ELSE visual_annotations 
+        END,
+        metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
+          'description', ${description}::text,
+          'alt_text', ${altText}::text,
+          'share_count', ${authenticShares}::int,
+          'dominant_color', ${dominantColor}::text,
+          'board_name', ${board}::text,
+          'method', ${method}::text,
+          'creation_method', ${method}::text,
+          'created_at_pinterest', ${createdAtPinterest}::text,
+          'is_deleted', ${isDead}::boolean,
+          'status', ${isDead ? 'archived_404' : 'active'}::text
+        ),
+        crawled_at = NOW(),
+        updated_at = NOW()
+      WHERE pin_id = ${pin.pin_id} AND keyword_id = ${kw.id};
+    `;
+
+    // 3. Cascade Update on Central Hub keyword_pins_snapshots
+    // Strictly anchored to invariant UTC calendar date or displaced vault record
+    await sql`
+      UPDATE keyword_pins_snapshots
+      SET
+        save_count = GREATEST(save_count, ${authenticSaves}::bigint),
+        repin_count = GREATEST(repin_count, ${authenticRepins}::int),
+        comment_count = GREATEST(comment_count, ${authenticComments}::int),
+        share_count = GREATEST(COALESCE(share_count, 0), ${authenticShares}::int),
+        vacuum_opportunity_score = CASE 
+          WHEN COALESCE(last_known_rank, rank_position, 100) <= 5 THEN 85
+          WHEN COALESCE(last_known_rank, rank_position, 100) <= 15 THEN 75
+          WHEN COALESCE(last_known_rank, rank_position, 100) <= 50 THEN 60
+          ELSE 45
+        END,
+        created_at_pinterest = CASE WHEN ${createdAtPinterest}::timestamptz IS NOT NULL THEN ${createdAtPinterest}::timestamptz ELSE created_at_pinterest END,
+        creation_method = CASE WHEN ${method}::text <> '' THEN ${method}::text ELSE creation_method END,
+        metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
+          'description', ${description}::text,
+          'alt_text', ${altText}::text,
+          'share_count', ${authenticShares}::int,
+          'dominant_color', ${dominantColor}::text,
+          'board_name', ${board}::text,
+          'method', ${method}::text,
+          'creation_method', ${method}::text,
+          'created_at_pinterest', ${createdAtPinterest}::text,
+          'is_deleted', ${isDead}::boolean,
+          'status', ${isDead ? 'archived_404' : 'active'}::text,
+          'visual_annotations', CASE 
+            WHEN jsonb_typeof(${JSON.stringify(finalAnnotations)}::jsonb) = 'array' AND jsonb_array_length(${JSON.stringify(finalAnnotations)}::jsonb) > 0 
+            THEN ${JSON.stringify(finalAnnotations)}::jsonb 
+            ELSE COALESCE(metadata->'visual_annotations', '[]'::jsonb) 
+          END
+        )
+      WHERE pin_id = ${pin.pin_id} AND keyword_id = ${kw.id}
+        AND (snapshot_date = (NOW() AT TIME ZONE 'UTC')::date OR is_displaced = TRUE);
+    `;
+  }
 
   return {
     pin_id: pin.pin_id,
@@ -337,7 +422,116 @@ async function run() {
   console.log(`[Config] Target Keyword:  "${targetKeyword || '<AUTO-RESOLVE>'}"`);
   console.log(`[Config] Crawl Scope:     ${crawlScope}`);
 
-  if (mode === 'pin_partition') {
+  if (mode === 'folder_pin_partition') {
+    // =========================================================================
+    // EXECUTION MODE C: FOLDER CLUSTER PIN-SLICE SHARDING
+    // =========================================================================
+    const fid = folderIdInput;
+    if (!fid) {
+      console.error(`[-] FATAL: FOLDER_ID is required for folder_pin_partition.`);
+      process.exit(1);
+    }
+
+    const [folderRow] = await sql`
+      SELECT id, name, description FROM keyword_folders WHERE id = ${fid} LIMIT 1;
+    `;
+    if (!folderRow) {
+      console.error(`[-] FATAL: Folder ${fid} not found in database.`);
+      process.exit(1);
+    }
+
+    console.log(`[*] Target Folder Identified: "${folderRow.name}" (ID: ${folderRow.id})`);
+
+    // Fetch candidate pins across all folder keywords
+    let allPins = [];
+    if (crawlScope === 'active_serp') {
+      allPins = await sql`
+        SELECT DISTINCT ON (ksc.pin_id)
+          ksc.pin_id, ksc.rank_position, ksc.last_known_rank, ksc.title, ksc.domain, ksc.destination_url, ksc.image_url,
+          ksc.save_count, ksc.repin_count, ksc.daily_save_velocity, ksc.creator_username,
+          ksc.board_name, ksc.dominant_color, ksc.visual_annotations, ksc.created_at_pinterest, ksc.creation_method, FALSE as is_displaced
+        FROM keyword_serp_current ksc
+        JOIN keyword_folder_items kfi ON kfi.keyword_id = ksc.keyword_id
+        WHERE kfi.folder_id = ${fid} AND ksc.pin_id ~ '^[0-9]+$' AND ksc.is_displaced = FALSE
+          AND NOT EXISTS (
+            SELECT 1 FROM keyword_ignored_pins kip
+            WHERE kip.keyword_id = ksc.keyword_id AND kip.pin_id = ksc.pin_id
+          )
+        ORDER BY ksc.pin_id, ksc.rank_position ASC NULLS LAST;
+      `;
+    } else {
+      allPins = await sql`
+        SELECT DISTINCT ON (ksc.pin_id)
+          ksc.pin_id, ksc.rank_position, ksc.last_known_rank, ksc.title, ksc.domain, ksc.destination_url, ksc.image_url,
+          ksc.save_count, ksc.repin_count, ksc.daily_save_velocity, ksc.creator_username,
+          ksc.board_name, ksc.dominant_color, ksc.visual_annotations, ksc.created_at_pinterest, ksc.creation_method, ksc.is_displaced
+        FROM keyword_serp_current ksc
+        JOIN keyword_folder_items kfi ON kfi.keyword_id = ksc.keyword_id
+        WHERE kfi.folder_id = ${fid} AND ksc.pin_id ~ '^[0-9]+$'
+          AND NOT EXISTS (
+            SELECT 1 FROM keyword_ignored_pins kip
+            WHERE kip.keyword_id = ksc.keyword_id AND kip.pin_id = ksc.pin_id
+          )
+        ORDER BY ksc.pin_id, ksc.is_displaced ASC, ksc.rank_position ASC NULLS LAST;
+      `;
+    }
+
+    allPins.sort((a, b) => {
+      const rA = Number(a.rank_position) || Number(a.last_known_rank) || 9999;
+      const rB = Number(b.rank_position) || Number(b.last_known_rank) || 9999;
+      if (rA !== rB) return rA - rB;
+      return String(a.pin_id).localeCompare(String(b.pin_id));
+    });
+
+    const myPins = allPins.filter(p => (crc32(p.pin_id) % workerTotal) === workerIndex);
+    myPins.sort((a, b) => {
+      const rA = Number(a.rank_position) || Number(a.last_known_rank) || 9999;
+      const rB = Number(b.rank_position) || Number(b.last_known_rank) || 9999;
+      if (rA !== rB) return rA - rB;
+      return String(a.pin_id).localeCompare(String(b.pin_id));
+    });
+
+    console.log(`[*] Total Unique Folder Pins: ${allPins.length} | Worker Slice: ${myPins.length} pins assigned`);
+
+    if (myPins.length === 0) {
+      console.log(`[Worker ${workerIndex + 1}/${workerTotal}] No pins assigned for slice. Exiting cleanly.`);
+      process.exit(0);
+    }
+
+    const enrichedList = [];
+    for (let i = 0; i < myPins.length; i++) {
+      const p = myPins[i];
+      try {
+        console.log(`  [${i + 1}/${myPins.length}] Inspecting Pin #${p.pin_id} (Rank #${p.rank_position || (p.last_known_rank ? p.last_known_rank + ' [Vault]' : 'Vault')})...`);
+        const enriched = await inspectAndSyncPin(p, { folder_id: fid, keyword: folderRow.name });
+        if (enriched) enrichedList.push(enriched);
+      } catch (pinErr) {
+        console.warn(`  [!] Non-fatal warning inspecting Pin #${p.pin_id}:`, pinErr.message);
+      }
+
+      if (i < myPins.length - 1) {
+        const jitter = 2500 + Math.floor(Math.random() * 1500);
+        await new Promise(r => setTimeout(r, jitter));
+      }
+    }
+
+    const shardsSynced = await flushToStorageShards(enrichedList);
+    console.log(`\n✅ Slice ${workerIndex + 1}/${workerTotal} Complete: Inspected ${enrichedList.length} pins | Flushed across ${shardsSynced} shards.`);
+
+    if (stepSummaryPath) {
+      try {
+        let md = `### 📁 Folder Runner Slice ${workerIndex + 1}/${workerTotal} Summary\n\n`;
+        md += `- **Folder**: \`${folderRow.name}\` (ID: ${fid})\n`;
+        md += `- **Pins Inspected in Slice**: **${enrichedList.length}**\n`;
+        md += `- **Storage Shards Synchronized**: **${shardsSynced}**\n`;
+        md += `- **Dead/404 Pins Flagged**: **${enrichedList.filter(p => p.is_deleted).length}**\n\n`;
+        fs.appendFileSync(stepSummaryPath, md, 'utf8');
+      } catch (_) {}
+    }
+
+    process.exit(0);
+
+  } else if (mode === 'pin_partition') {
     // =========================================================================
     // EXECUTION MODE B: SINGLE-KEYWORD PIN-SLICE SHARDING
     // =========================================================================

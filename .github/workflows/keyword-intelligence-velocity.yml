@@ -24,9 +24,14 @@ on:
         required: false
         type: string
         default: '250'
+      folder_id:
+        description: 'Folder / Cluster ID to audit (partitions all unique folder cluster pins across 20 runners)'
+        required: false
+        type: string
+        default: ''
 
 concurrency:
-  group: keyword-intelligence-${{ github.workflow }}-${{ github.ref }}-${{ inputs.target_keyword || 'all' }}
+  group: keyword-intelligence-${{ github.workflow }}-${{ github.ref }}-${{ inputs.folder_id != '' && format('folder-{0}', inputs.folder_id) || inputs.target_keyword != '' && inputs.target_keyword || 'all' }}
   cancel-in-progress: false
 
 permissions:
@@ -68,6 +73,7 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           PINTEREST_COOKIE: ${{ secrets.PINTEREST_COOKIE }}
           TARGET_KEYWORD: ${{ inputs.target_keyword }}
+          FOLDER_ID: ${{ inputs.folder_id }}
           CRAWL_SCOPE: ${{ inputs.crawl_scope || 'all_pins' }}
           MAX_PINS: ${{ inputs.max_pins || '250' }}
         run: node scripts/keyword-fleet-dispatcher.mjs
@@ -77,7 +83,7 @@ jobs:
   # Executes simultaneously across up to 20 isolated Azure runner VMs with distinct IPs
   # ============================================================================
   crawl-fleet:
-    name: Fleet Worker #${{ matrix.worker_slot }}/${{ matrix.worker_total }} - ${{ matrix.keyword }}
+    name: Fleet Worker #${{ matrix.worker_slot }}/${{ matrix.worker_total }} - ${{ matrix.keyword || matrix.folder_name }}
     needs: [dispatch]
     if: needs.dispatch.outputs.task_count != '0'
     runs-on: ubuntu-latest
@@ -117,6 +123,7 @@ jobs:
           MODE: ${{ matrix.mode }}
           TARGET_KEYWORD: ${{ matrix.keyword }}
           KEYWORD_ID: ${{ matrix.keyword_id }}
+          FOLDER_ID: ${{ matrix.folder_id }}
           WORKER_INDEX: ${{ matrix.worker_index }}
           WORKER_TOTAL: ${{ matrix.worker_total }}
           CRAWL_SCOPE: ${{ matrix.crawl_scope || 'all_pins' }}
@@ -153,4 +160,5 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           MODE: ${{ needs.dispatch.outputs.mode }}
           TARGET_KEYWORD: ${{ inputs.target_keyword }}
+          FOLDER_ID: ${{ inputs.folder_id }}
         run: node scripts/keyword-fleet-consolidator.mjs

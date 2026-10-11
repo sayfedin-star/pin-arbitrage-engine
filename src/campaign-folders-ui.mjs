@@ -149,6 +149,11 @@ export function getCampaignFoldersPageHtml(folderId = '') {
             <span x-show="crossoverLoading" class="animate-spin inline-block">⏳</span>
             <span x-text="crossoverLoading ? 'Recalculating Matrix...' : 'Re-Run Crossover Analysis'"></span>
           </button>
+          <button @click="dispatchFolderDeepAudit()" :disabled="auditDispatching" class="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white text-xs font-semibold shadow-md transition-colors flex items-center gap-2" title="Partition all cluster pins across 20 parallel GitHub runners to deep inspect authentic saves, repins & CV annotations">
+            <span x-show="!auditDispatching">🚀</span>
+            <span x-show="auditDispatching" class="animate-spin inline-block">⏳</span>
+            <span x-text="auditDispatching ? 'Launching 20 Runners...' : 'Deep Cluster Audit (20 Runners)'"></span>
+          </button>
         </div>
       </div>
 
@@ -1376,6 +1381,7 @@ export function getCampaignFoldersPageHtml(folderId = '') {
         activeFolder: null,
         crossoverData: null,
         crossoverLoading: false,
+        auditDispatching: false,
         openNewFolderModal: false,
         newFolderName: '',
         newFolderDesc: '',
@@ -1683,6 +1689,32 @@ export function getCampaignFoldersPageHtml(folderId = '') {
             this.showToast('Network error analyzing crossover', 'error');
           } finally {
             this.crossoverLoading = false;
+          }
+        },
+
+        async dispatchFolderDeepAudit() {
+          if (!this.activeFolderId) return;
+          this.auditDispatching = true;
+          this.showToast('🚀 Dispatching 20-runner parallel cluster fleet on GitHub Actions...', 'info');
+          try {
+            const res = await fetch('/api/folders/' + this.activeFolderId + '/dispatch-audit', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                crawl_scope: 'all_pins',
+                max_pins: '250'
+              })
+            });
+            const data = await res.json().catch(() => ({ success: false, error: 'Invalid response from server' }));
+            if (data.success) {
+              this.showToast(data.message || '20-Runner Parallel Fleet Audit dispatched successfully on GitHub Actions!', 'success');
+            } else {
+              this.showToast('Dispatch note: ' + (data.message || data.error || 'Check GitHub token in settings'), 'error');
+            }
+          } catch (err) {
+            this.showToast('Error triggering cluster fleet: ' + err.message, 'error');
+          } finally {
+            this.auditDispatching = false;
           }
         },
 

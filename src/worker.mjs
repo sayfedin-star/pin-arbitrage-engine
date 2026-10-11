@@ -3255,7 +3255,7 @@ export default {
         }
         const refresh = searchParams.get('refresh') === 'true' || searchParams.get('force') === 'true';
         const crossover = await calculateFolderCrossover(sql, Number(folderId), { refresh });
-        return jsonResponse({ success: true, crossover });
+        return jsonResponse({ success: true, crossover }, 200, refresh ? 0 : 30);
       }
 
       // Aliased Campaign Folders CRUD API (/api/folders)
@@ -3267,12 +3267,12 @@ export default {
           if (folderId) {
             const folder = await getFolder(sql, folderId);
             if (!folder) return jsonResponse({ error: 'Folder not found' }, 404);
-            return jsonResponse({ success: true, folder });
+            return jsonResponse({ success: true, folder }, 200, 15);
           }
           const folders = await listFolders(sql, {
             projectId: searchParams.get('project_id') || 'default'
           });
-          return jsonResponse({ success: true, folders });
+          return jsonResponse({ success: true, folders }, 200, 10);
         }
 
         if (method === 'POST') {
@@ -3299,6 +3299,7 @@ export default {
       if (method === 'POST' && pathname === '/api/keywords/dispatch-workflow') {
         const body = await request.json().catch(() => ({}));
         const targetKw = body.target_keyword || body.keyword || '';
+        const folderIdInput = body.folder_id ? String(body.folder_id).trim() : '';
         const maxPinsInput = String(body.max_pins || '250');
         const crawlScopeInput = String(body.crawl_scope || 'all_pins');
         const repo = (typeof env !== 'undefined' && env?.GITHUB_REPOSITORY) || (typeof process !== 'undefined' ? process.env?.GITHUB_REPOSITORY : null) || 'sayfedin-star/pin-arbitrage-engine';
@@ -3322,6 +3323,7 @@ export default {
               ref: 'main',
               inputs: {
                 target_keyword: targetKw,
+                folder_id: folderIdInput,
                 crawl_scope: crawlScopeInput,
                 max_pins: maxPinsInput
               }
@@ -3336,6 +3338,65 @@ export default {
             return jsonResponse({ success: false, error: `GitHub API error (${dispatchRes.status}): ${errDetail}` }, dispatchRes.status);
           }
           return jsonResponse({ success: true, message: 'Workflow dispatched successfully' });
+        } finally {
+          if (dispatchRes?.body && !dispatchRes.bodyUsed) {
+            await dispatchRes.body.cancel().catch(() => {});
+          }
+        }
+      }
+
+      // 16.4 Dedicated Folder Cluster Fleet Audit Dispatch API
+      const folderAuditMatch = method === 'POST' && pathname.match(/^\/api\/folders\/(\d+)\/dispatch-audit$/);
+      if (folderAuditMatch) {
+        const folderId = folderAuditMatch[1];
+        const [folderRow] = await targetSql`SELECT id, name FROM keyword_folders WHERE id = ${Number(folderId)} LIMIT 1;`;
+        if (!folderRow) {
+          return jsonResponse({ success: false, error: `Folder ${folderId} not found` }, 404);
+        }
+        const body = await request.json().catch(() => ({}));
+        const crawlScopeInput = String(body.crawl_scope || 'all_pins');
+        const maxPinsInput = String(body.max_pins || '250');
+        const repo = (typeof env !== 'undefined' && env?.GITHUB_REPOSITORY) || (typeof process !== 'undefined' ? process.env?.GITHUB_REPOSITORY : null) || 'sayfedin-star/pin-arbitrage-engine';
+        const token = (typeof env !== 'undefined' && (env?.GITHUB_TOKEN || env?.GITHUB_PAT || env?.GH_TOKEN || env?.GH_REFRESH_TOKEN)) || (typeof process !== 'undefined' ? (process.env?.GITHUB_TOKEN || process.env?.GITHUB_PAT || process.env?.GH_TOKEN || process.env?.GH_REFRESH_TOKEN) : null);
+        if (!token) {
+          return jsonResponse({ success: false, error: 'GitHub Token secret not configured. Please add GITHUB_TOKEN or GH_REFRESH_TOKEN secret in settings.' }, 400);
+        }
+        const cleanToken = String(token).replace(/^(token|Bearer)\s+/i, '').replace(/^["']|["']$/g, '').trim();
+        const authHeader = cleanToken.startsWith('ghp_') ? `token ${cleanToken}` : `Bearer ${cleanToken}`;
+        const workflowUrl = `https://api.github.com/repos/${repo}/actions/workflows/keyword-intelligence-velocity.yml/dispatches`;
+        let dispatchRes;
+        try {
+          dispatchRes = await fetch(workflowUrl, {
+            method: 'POST',
+            headers: {
+              'Accept': 'application/vnd.github.v3+json',
+              'Authorization': authHeader,
+              'User-Agent': 'Pin-Arbitrage-Engine'
+            },
+            body: JSON.stringify({
+              ref: 'main',
+              inputs: {
+                target_keyword: '',
+                folder_id: String(folderId),
+                crawl_scope: crawlScopeInput,
+                max_pins: maxPinsInput
+              }
+            })
+          });
+          if (!dispatchRes.ok) {
+            const errText = await dispatchRes.text();
+            let errDetail = errText;
+            if (dispatchRes.status === 401) {
+              errDetail = 'GitHub Token rejected (401 Bad credentials). Ensure your token in Cloudflare/Koyeb has both "repo" and "workflow" scopes enabled at https://github.com/settings/tokens';
+            }
+            return jsonResponse({ success: false, error: `GitHub API error (${dispatchRes.status}): ${errDetail}` }, dispatchRes.status);
+          }
+          return jsonResponse({ 
+            success: true, 
+            folder_id: Number(folderId),
+            folder_name: folderRow.name,
+            message: `20-Runner Parallel Fleet Audit dispatched successfully for folder "${folderRow.name}"!` 
+          });
         } finally {
           if (dispatchRes?.body && !dispatchRes.bodyUsed) {
             await dispatchRes.body.cancel().catch(() => {});
