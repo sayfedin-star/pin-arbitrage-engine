@@ -207,9 +207,9 @@ export async function fetchKeywordRelatedInterests(term, mode = 'both') {
     const relatedPromises = [];
     const additionPromises = [];
 
-    // Cap to top 8 items each to strictly safeguard against Cloudflare edge subrequest limits (max 16 concurrent requests)
+    // Resolve ALL official Related Interests and Additions returned by Pinterest
     if (mode === 'both' || mode === 'related') {
-      const relatedList = (main.seo_related_objects || []).slice(0, 8);
+      const relatedList = main.seo_related_objects || [];
       for (const item of relatedList) {
         if (!item.name) continue;
         relatedPromises.push((async () => {
@@ -238,7 +238,7 @@ export async function fetchKeywordRelatedInterests(term, mode = 'both') {
     }
 
     if (mode === 'both' || mode === 'additions') {
-      const pivotsList = (main.ideas_pivots || []).slice(0, 8);
+      const pivotsList = main.ideas_pivots || [];
       for (const pivot of pivotsList) {
         if (!pivot.full_name) continue;
         additionPromises.push((async () => {
