@@ -230,8 +230,8 @@ async function main() {
     if (targetRows.length === 0) {
       console.log('[!] Warning: No active keywords found in database. Emitting empty matrix.');
       matrixTasks = [];
-    } else if (targetRows.length <= 200) {
-      // 1:1 Mapping: Direct individual runner per keyword (up to 200 concurrent tasks)
+    } else if (targetRows.length <= 250) {
+      // 1:1 Mapping: Direct individual runner per keyword (up to 250 concurrent tasks)
       matrixTasks = targetRows.map((row, idx) => ({
         mode: 'keyword_sweep',
         keyword: row.keyword,
