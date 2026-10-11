@@ -220,10 +220,12 @@ export function getDiscoveryPageHtml() {
                   :disabled="results.length === 0"
                 >
               </th>
-              <th class="p-3.5">Keyword Term</th>
-              <th class="p-3.5">Search Volume & Tier</th>
+              <th class="p-3.5">Keywords</th>
+              <th class="p-3.5">Search Volume</th>
+              <th class="p-3.5 text-right">Weekly change</th>
+              <th class="p-3.5 text-right">Monthly change</th>
+              <th class="p-3.5 text-right">Yearly change</th>
               <th class="p-3.5">Taxonomy / Intent</th>
-              <th class="p-3.5">Trending Velocity</th>
               <th class="p-3.5 text-right">Actions</th>
             </tr>
           </thead>
@@ -233,11 +235,13 @@ export function getDiscoveryPageHtml() {
             <template x-for="i in [1, 2, 3, 4, 5, 6]" :key="i">
               <tr class="animate-pulse">
                 <td class="p-3.5 text-center"><div class="w-4 h-4 bg-slate-800 rounded mx-auto"></div></td>
-                <td class="p-3.5"><div class="h-4 bg-slate-800 rounded w-52"></div></td>
+                <td class="p-3.5"><div class="h-4 bg-slate-800 rounded w-48"></div></td>
                 <td class="p-3.5"><div class="h-4 bg-slate-800 rounded w-28"></div></td>
-                <td class="p-3.5"><div class="h-4 bg-slate-800 rounded w-36"></div></td>
-                <td class="p-3.5"><div class="h-4 bg-slate-800 rounded w-20"></div></td>
-                <td class="p-3.5 text-right"><div class="h-6 bg-slate-800 rounded w-28 ml-auto"></div></td>
+                <td class="p-3.5 text-right"><div class="h-4 bg-slate-800 rounded w-14 ml-auto"></div></td>
+                <td class="p-3.5 text-right"><div class="h-4 bg-slate-800 rounded w-14 ml-auto"></div></td>
+                <td class="p-3.5 text-right"><div class="h-4 bg-slate-800 rounded w-14 ml-auto"></div></td>
+                <td class="p-3.5"><div class="h-4 bg-slate-800 rounded w-32"></div></td>
+                <td class="p-3.5 text-right"><div class="h-6 bg-slate-800 rounded w-36 ml-auto"></div></td>
               </tr>
             </template>
           </tbody>
@@ -254,31 +258,124 @@ export function getDiscoveryPageHtml() {
                     class="rounded bg-slate-800 border-slate-700 text-emerald-500 focus:ring-0 cursor-pointer"
                   >
                 </td>
+                <!-- Keywords + Authentic 52-Week Sparkline -->
                 <td class="p-3.5 font-medium text-white">
-                  <div class="flex items-center gap-2">
-                    <span class="font-semibold text-slate-100 font-mono" x-html="highlightTerm(item.term)"></span>
-                    <span x-show="item.isTop" class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-mono border border-emerald-500/20">Top Hit</span>
+                  <div class="flex items-center gap-3">
+                    <div class="flex flex-col">
+                      <div class="flex items-center gap-2">
+                        <span class="font-semibold text-slate-100 font-mono" x-html="highlightTerm(item.term)"></span>
+                        <span x-show="item.isTop" class="text-[9px] px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-400 font-mono border border-emerald-500/20">Top Hit</span>
+                        <span x-show="item.hasPrediction" class="text-xs" title="Official Pinterest Trends Prediction Active">🔮</span>
+                      </div>
+                    </div>
+                    <!-- 52-Week Official Sparkline Curve -->
+                    <div x-show="item.counts && item.counts.length >= 5" class="ml-auto pr-2 flex items-center" title="52-Week Pinterest Trends momentum curve">
+                      <svg class="w-12 h-5 text-emerald-400 overflow-visible" viewBox="0 0 48 18">
+                        <polyline
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="1.75"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          :points="sparklinePoints(item.counts)"
+                        />
+                      </svg>
+                    </div>
                   </div>
                 </td>
+
+                <!-- Search Volume & Relative Bar -->
                 <td class="p-3.5 font-mono">
-                  <div class="flex flex-col gap-1">
-                    <div class="flex items-center gap-1.5 flex-wrap">
+                  <div class="flex flex-col gap-1 min-w-[120px]">
+                    <div class="flex items-center gap-2">
                       <span 
                         x-show="item.searchVolume" 
                         class="font-bold text-slate-100 text-xs" 
                         x-text="item.searchVolume ? item.searchVolume.toLocaleString() : ''"
                       ></span>
                       <span 
-                        class="px-2 py-0.5 rounded-full text-[10px] font-semibold border"
+                        class="px-1.5 py-0.2 rounded text-[9px] font-semibold border"
                         :class="item.volumeTier === 'Mega' ? 'bg-purple-500/10 text-purple-400 border-purple-500/30' : (item.volumeTier === 'High' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : (item.volumeTier === 'Medium' ? 'bg-amber-500/10 text-amber-400 border-amber-500/30' : (item.volumeTier === 'Low' ? 'bg-slate-700/50 text-slate-300 border-slate-600/40' : 'bg-indigo-500/10 text-indigo-400 border-indigo-500/30')))"
                         x-text="item.volumeLabel"
                       ></span>
                     </div>
+                    <!-- Official Trends Relative Volume Bar -->
+                    <div x-show="item.searchVolume" class="w-20 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                      <div class="h-full bg-slate-300 rounded-full transition-all duration-300" :style="'width: ' + (item.volumeBarPct || 10) + '%'"></div>
+                    </div>
                     <span x-show="item.annotationId" class="text-[9px] text-slate-500 font-mono" x-text="'ID: ' + item.annotationId"></span>
                   </div>
                 </td>
+
+                <!-- Weekly Change -->
+                <td class="p-3.5 font-mono text-[11px] text-right">
+                  <span 
+                    x-show="item.weeklyChange !== null && item.weeklyChange > 0" 
+                    class="text-emerald-400 font-semibold"
+                    x-text="'+' + item.weeklyChange + '%'"
+                  ></span>
+                  <span 
+                    x-show="item.weeklyChange !== null && item.weeklyChange < 0" 
+                    class="text-rose-400 font-semibold"
+                    x-text="item.weeklyChange + '%'"
+                  ></span>
+                  <span 
+                    x-show="item.weeklyChange !== null && item.weeklyChange === 0" 
+                    class="text-slate-300"
+                  >0%</span>
+                  <span 
+                    x-show="item.weeklyChange === null" 
+                    class="text-slate-500 text-[10px]"
+                  >—</span>
+                </td>
+
+                <!-- Monthly Change -->
+                <td class="p-3.5 font-mono text-[11px] text-right">
+                  <span 
+                    x-show="item.monthlyChange !== null && item.monthlyChange > 0" 
+                    class="text-emerald-400 font-semibold"
+                    x-text="'+' + item.monthlyChange + '%'"
+                  ></span>
+                  <span 
+                    x-show="item.monthlyChange !== null && item.monthlyChange < 0" 
+                    class="text-rose-400 font-semibold"
+                    x-text="item.monthlyChange + '%'"
+                  ></span>
+                  <span 
+                    x-show="item.monthlyChange !== null && item.monthlyChange === 0" 
+                    class="text-slate-300"
+                  >0%</span>
+                  <span 
+                    x-show="item.monthlyChange === null" 
+                    class="text-slate-500 text-[10px]"
+                  >—</span>
+                </td>
+
+                <!-- Yearly Change -->
+                <td class="p-3.5 font-mono text-[11px] text-right">
+                  <span 
+                    x-show="item.yearlyChange !== null && item.yearlyChange > 0" 
+                    class="text-emerald-400 font-semibold"
+                    x-text="'+' + item.yearlyChange + '%'"
+                  ></span>
+                  <span 
+                    x-show="item.yearlyChange !== null && item.yearlyChange < 0" 
+                    class="text-rose-400 font-semibold"
+                    x-text="item.yearlyChange + '%'"
+                  ></span>
+                  <span 
+                    x-show="item.yearlyChange !== null && item.yearlyChange === 0" 
+                    class="text-slate-300"
+                  >0%</span>
+                  <span 
+                    x-show="item.yearlyChange === null" 
+                    class="text-slate-500 text-[10px]"
+                  >—</span>
+                </td>
+
+                <!-- Taxonomy & Intent -->
                 <td class="p-3.5">
-                  <div class="flex flex-col gap-1 items-start max-w-[260px]">
+                  <div class="flex flex-col gap-1 items-start max-w-[200px]">
                     <div 
                       x-show="item.categoryPath" 
                       class="flex items-center gap-1.5 text-slate-200 font-medium text-[11px] truncate max-w-full" 
@@ -301,37 +398,8 @@ export function getDiscoveryPageHtml() {
                     ></span>
                   </div>
                 </td>
-                <td class="p-3.5 font-mono text-[11px]">
-                  <span 
-                    x-show="item.velocity30d !== null && item.velocity30d > 0" 
-                    class="inline-flex items-center gap-1 text-emerald-400 font-semibold bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20"
-                  >
-                    <span>↗</span>
-                    <span x-text="'+' + item.velocity30d + '% 30d'"></span>
-                  </span>
-                  <span 
-                    x-show="item.velocity30d !== null && item.velocity30d < 0" 
-                    class="inline-flex items-center gap-1 text-rose-400 font-semibold bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20"
-                  >
-                    <span>↘</span>
-                    <span x-text="item.velocity30d + '% 30d'"></span>
-                  </span>
-                  <span 
-                    x-show="item.velocity30d !== null && item.velocity30d === 0" 
-                    class="inline-flex items-center gap-1 text-slate-300 bg-slate-800 px-2 py-0.5 rounded border border-slate-700"
-                  >
-                    <span>→</span>
-                    <span>0% 30d</span>
-                  </span>
-                  <span 
-                    x-show="item.velocity30d === null" 
-                    class="inline-flex items-center gap-1 text-slate-400 bg-slate-800/60 px-2 py-0.5 rounded border border-slate-700/60 text-[10px]" 
-                    title="No 52-week historical trend indexed on Pinterest Trends yet"
-                  >
-                    <span>—</span>
-                    <span>Stable</span>
-                  </span>
-                </td>
+
+                <!-- Actions -->
                 <td class="p-3.5 text-right">
                   <div class="flex items-center justify-end gap-1.5 flex-wrap">
                     <button 
@@ -348,12 +416,19 @@ export function getDiscoveryPageHtml() {
                     >
                       ⚡ Track
                     </button>
+                    <button
+                      @click="openAddToFolderModalForSingle(item.term)"
+                      class="px-2 py-1 rounded bg-indigo-950/40 hover:bg-indigo-900/60 text-indigo-300 hover:text-white font-mono text-[11px] border border-indigo-700/40 transition-colors"
+                      title="Add to Campaign Folder"
+                    >
+                      📁 Folder
+                    </button>
                     <a 
                       :href="'/keywords/' + encodeURIComponent(item.term)" 
                       target="_blank"
-                      class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white font-mono text-[11px] border border-slate-700 transition-colors flex items-center gap-1"
+                      class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-mono text-[11px] border border-slate-700 transition-colors flex items-center gap-1"
                     >
-                      <span>See Top Pins</span>
+                      <span>Pins</span>
                       <span>→</span>
                     </a>
                   </div>
@@ -910,6 +985,14 @@ export function getDiscoveryPageHtml() {
 
             const rawSuggestions = data.enriched_suggestions || data.suggestions || data.terms || data.queries || data.data || [];
 
+            // Calculate max volume for relative volume bar
+            let maxVol = 10000;
+            rawSuggestions.forEach(item => {
+              if (item && typeof item === 'object' && typeof item.search_volume === 'number' && item.search_volume > maxVol) {
+                maxVol = item.search_volume;
+              }
+            });
+
             const mapped = rawSuggestions.map((item, idx) => {
               const termStr = typeof item === 'string' ? item : (item.term || item.query || item.clean_query || '');
               const searchVol = (typeof item === 'object' && typeof item.search_volume === 'number') ? item.search_volume : null;
@@ -917,7 +1000,13 @@ export function getDiscoveryPageHtml() {
               const categoryTree = (typeof item === 'object' && Array.isArray(item.category_tree)) ? item.category_tree : [];
               const categoryPath = (typeof item === 'object' && item.category_path) ? item.category_path : (categoryTree.length > 0 ? categoryTree.join(' > ') : '');
               const pinterestUrl = (typeof item === 'object' && item.url) ? item.url : ('https://www.pinterest.com/search/pins/?q=' + encodeURIComponent(termStr));
-              const velocity30d = (typeof item === 'object' && typeof item.velocity_30d === 'number') ? item.velocity_30d : null;
+              const weeklyChange = (typeof item === 'object' && typeof item.weekly_change === 'number') ? item.weekly_change : null;
+              const monthlyChange = (typeof item === 'object' && typeof item.monthly_change === 'number') ? item.monthly_change : ((typeof item === 'object' && typeof item.velocity_30d === 'number') ? item.velocity_30d : null);
+              const yearlyChange = (typeof item === 'object' && typeof item.yearly_change === 'number') ? item.yearly_change : null;
+              const velocity30d = monthlyChange;
+              const counts = (typeof item === 'object' && Array.isArray(item.counts)) ? item.counts : [];
+              const hasPrediction = (typeof item === 'object' && Boolean(item.has_prediction));
+              const volumeBarPct = searchVol !== null ? Math.max(8, Math.min(100, Math.round((searchVol / maxVol) * 100))) : null;
 
               let volumeTier = 'Rising';
               let volumeLabel = 'Rising';
@@ -943,6 +1032,7 @@ export function getDiscoveryPageHtml() {
               return {
                 term: termStr,
                 searchVolume: searchVol,
+                volumeBarPct: volumeBarPct,
                 annotationId: annoId,
                 categoryTree: categoryTree,
                 categoryPath: categoryPath,
@@ -950,7 +1040,12 @@ export function getDiscoveryPageHtml() {
                 volumeTier: volumeTier,
                 volumeLabel: volumeLabel,
                 intent: this.determineIntent(termStr),
+                weeklyChange: weeklyChange,
+                monthlyChange: monthlyChange,
+                yearlyChange: yearlyChange,
                 velocity30d: velocity30d,
+                counts: counts,
+                hasPrediction: hasPrediction,
                 isTop: idx === 0
               };
             }).filter(r => r.term.length > 0);
@@ -1065,6 +1160,27 @@ export function getDiscoveryPageHtml() {
           if (!this.selectedRelatedAnnotations.length) return;
           this.keywordsToAddToFolder = [...this.selectedRelatedAnnotations];
           this.openAddToFolderModal = true;
+        },
+
+        openAddToFolderModalForSingle(term) {
+          if (!term) return;
+          this.keywordsToAddToFolder = [term];
+          this.openAddToFolderModal = true;
+        },
+
+        sparklinePoints(counts) {
+          if (!Array.isArray(counts) || counts.length < 2) return '';
+          const min = Math.min(...counts);
+          const max = Math.max(...counts);
+          const range = max - min || 1;
+          const width = 48;
+          const height = 18;
+          const step = width / (counts.length - 1);
+          return counts.map((c, i) => {
+            const x = Math.round(i * step);
+            const y = Math.round(height - ((c - min) / range) * (height - 4) - 2);
+            return x + ',' + y;
+          }).join(' ');
         },
 
         copyAnnotationId(id) {

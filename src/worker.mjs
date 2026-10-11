@@ -2970,7 +2970,7 @@ export default {
         const q = searchParams.get('q') || searchParams.get('term') || searchParams.get('query') || '';
         const result = await fetchKeywordTypeahead(q);
         if (result.success && Array.isArray(result.suggestions) && result.suggestions.length > 0) {
-          const targetSuggestions = result.suggestions.slice(0, 12);
+          const targetSuggestions = result.suggestions;
           const suggestionTerms = targetSuggestions.map(item => 
             typeof item === 'string' ? item : (item.term || item.query || '')
           ).filter(Boolean);
@@ -3005,7 +3005,12 @@ export default {
             const velData = velocityMap.get(cleanT);
             return {
               ...base,
-              velocity_30d: (velData && typeof velData.velocity_30d === 'number') ? velData.velocity_30d : null
+              weekly_change: (velData && typeof velData.weekly_change === 'number') ? velData.weekly_change : null,
+              monthly_change: (velData && typeof velData.monthly_change === 'number') ? velData.monthly_change : null,
+              yearly_change: (velData && typeof velData.yearly_change === 'number') ? velData.yearly_change : null,
+              velocity_30d: (velData && typeof velData.velocity_30d === 'number') ? velData.velocity_30d : null,
+              counts: Array.isArray(velData?.counts) ? velData.counts : [],
+              has_prediction: Boolean(velData?.hasPrediction)
             };
           });
         }

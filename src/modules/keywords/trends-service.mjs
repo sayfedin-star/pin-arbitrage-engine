@@ -94,14 +94,14 @@ export async function fetchPinterestInterestVolume(term) {
         seo_breadcrumbs: Array.isArray(data.seo_breadcrumbs)
           ? data.seo_breadcrumbs.map(b => b.name)
           : [],
-        seo_related_interests: rawRelated.slice(0, 15).map(r => r.name || r.key),
-        seo_related_objects: rawRelated.slice(0, 15).map(r => ({
+        seo_related_interests: rawRelated.map(r => r.name || r.key),
+        seo_related_objects: rawRelated.map(r => ({
           name: r.name || r.key,
           key: r.key || r.name,
           id: String(r.id || r.origin_interest_id || ''),
           url: r.url || `/ideas/${(r.key || r.name).replace(/\s+/g, '-')}/${r.id || ''}/`
         })),
-        ideas_pivots: rawPivots.slice(0, 15).map(p => {
+        ideas_pivots: rawPivots.map(p => {
           const pivotUrl = p.pivot_url || '';
           const pivotId = pivotUrl.split('/').filter(Boolean).pop() || '';
           return {
@@ -327,26 +327,48 @@ export async function fetchPinterestBatchVelocity(seedQuery, terms = [], country
   const parseItemVelocity = (item) => {
     if (!item || !item.term) return null;
     const counts = Array.isArray(item.counts) ? item.counts : [];
-    if (counts.length < 5) return { velocity_30d: null, counts };
-
-    const currVal = counts[counts.length - 1];
-    const pastVal = counts[counts.length - 5];
-    const curr = Number.isFinite(Number(currVal)) ? Number(currVal) : null;
-    const past = Number.isFinite(Number(pastVal)) ? Number(pastVal) : null;
-    if (curr === null || past === null) return { velocity_30d: null, counts };
-
-    let vel = null;
-    if (past > 0) {
-      vel = Math.round(((curr - past) / past) * 100);
-      if (!Number.isFinite(vel)) vel = 0;
-    } else if (curr > 0) {
-      vel = 100; // Breakout surge from zero
-    } else {
-      vel = 0;
+    if (counts.length === 0) {
+      return {
+        weekly_change: null,
+        monthly_change: null,
+        yearly_change: null,
+        velocity_30d: null,
+        counts: [],
+        hasPrediction: false
+      };
     }
-    // Clamp extreme anomalies safely between -100% and +999%
-    vel = Math.max(-100, Math.min(999, vel));
-    return { velocity_30d: vel, counts };
+
+    const len = counts.length;
+    const currVal = counts[len - 1];
+    const prevWeekVal = len >= 2 ? counts[len - 2] : null;
+    const prevMonthVal = len >= 5 ? counts[len - 5] : null;
+    const prevYearVal = len >= 52 ? counts[0] : (len > 0 ? counts[0] : null);
+
+    const calcPct = (curr, past) => {
+      const c = Number.isFinite(Number(curr)) ? Number(curr) : null;
+      const p = Number.isFinite(Number(past)) ? Number(past) : null;
+      if (c === null || p === null) return null;
+      if (p > 0) {
+        const pct = Math.round(((c - p) / p) * 100);
+        return Math.max(-100, Math.min(999, pct));
+      } else if (c > 0) {
+        return 100;
+      }
+      return 0;
+    };
+
+    const weekly = calcPct(currVal, prevWeekVal);
+    const monthly = calcPct(currVal, prevMonthVal);
+    const yearly = calcPct(currVal, prevYearVal);
+
+    return {
+      weekly_change: weekly,
+      monthly_change: monthly,
+      yearly_change: yearly,
+      velocity_30d: monthly,
+      counts,
+      hasPrediction: Boolean(item.hasPrediction)
+    };
   };
 
   // 1. Check LRU cache for all terms
@@ -409,34 +431,38 @@ export async function fetchPinterestBatchVelocity(seedQuery, terms = [], country
       }
     }
 
-    // 3. For any terms still missing from prefix_match, fetch individually (up to 4 terms concurrently)
-    const stillMissing = normalizedTerms.filter(t => !resultMap.has(t)).slice(0, 4);
+    // 3. For any terms still missing from prefix_match, fetch in batches without arbitrary truncation
+    const stillMissing = normalizedTerms.filter(t => !resultMap.has(t));
     if (stillMissing.length > 0) {
-      const missingFetches = stillMissing.map(async (mTerm) => {
-        let mRes;
-        try {
-          const url = `https://trends.pinterest.com/prefix_match/?query=${encodeURIComponent(mTerm)}&country=${country}`;
-          mRes = await fetch(url, { headers, signal: AbortSignal.timeout(6000) });
-          if (mRes.ok) {
-            const data = await mRes.json();
-            if (Array.isArray(data) && data.length > 0) {
-              const exact = data.find(x => String(x.term || '').trim().toLowerCase() === mTerm) || data[0];
-              const parsed = parseItemVelocity(exact);
-              if (parsed) {
-                const cKey = `${mTerm}_${country}`;
-                velocityCache.set(cKey, { data: parsed, timestamp: Date.now() });
-                resultMap.set(mTerm, parsed);
+      const BATCH_SIZE = 6;
+      for (let i = 0; i < stillMissing.length; i += BATCH_SIZE) {
+        const chunk = stillMissing.slice(i, i + BATCH_SIZE);
+        const missingFetches = chunk.map(async (mTerm) => {
+          let mRes;
+          try {
+            const url = `https://trends.pinterest.com/prefix_match/?query=${encodeURIComponent(mTerm)}&country=${country}`;
+            mRes = await fetch(url, { headers, signal: AbortSignal.timeout(6000) });
+            if (mRes.ok) {
+              const data = await mRes.json();
+              if (Array.isArray(data) && data.length > 0) {
+                const exact = data.find(x => String(x.term || '').trim().toLowerCase() === mTerm) || data[0];
+                const parsed = parseItemVelocity(exact);
+                if (parsed) {
+                  const cKey = `${mTerm}_${country}`;
+                  velocityCache.set(cKey, { data: parsed, timestamp: Date.now() });
+                  resultMap.set(mTerm, parsed);
+                }
               }
             }
+          } catch (_) {
+          } finally {
+            if (mRes?.body && !mRes.bodyUsed) {
+              await mRes.body.cancel().catch(() => {});
+            }
           }
-        } catch (_) {
-        } finally {
-          if (mRes?.body && !mRes.bodyUsed) {
-            await mRes.body.cancel().catch(() => {});
-          }
-        }
-      });
-      await Promise.allSettled(missingFetches);
+        });
+        await Promise.allSettled(missingFetches);
+      }
     }
 
     // Active LRU memory pruning: evict expired items, then enforce hard ceiling
@@ -536,7 +562,7 @@ export async function fetchPinterestTrends(term, country = 'US', force = false) 
         try {
           const relatedData = await relatedRes.value.json();
           if (Array.isArray(relatedData)) {
-            relatedTrends = relatedData.slice(0, 8).map(r => ({
+            relatedTrends = relatedData.map(r => ({
               term: r.term,
               counts: Array.isArray(r.counts) ? r.counts : [],
               hasPrediction: Boolean(r.hasPrediction)
@@ -552,38 +578,38 @@ export async function fetchPinterestTrends(term, country = 'US', force = false) 
         } catch (_) {}
       }
 
-      // If Pinterest has no historical index for very obscure query, generate baseline curve
-      if (primaryCounts.length === 0) {
-        primaryCounts = Array(52).fill(30);
-      }
-
-      // Calculate Peak and Momentum metrics
+      // Calculate Peak and Momentum metrics strictly from real data
       let peakIndex = 0;
       let peakVal = 0;
       let sum = 0;
-      primaryCounts.forEach((val, idx) => {
-        const v = Number(val || 0);
-        sum += v;
-        if (v > peakVal) {
-          peakVal = v;
-          peakIndex = idx;
-        }
-      });
+      let avgCount = 0;
+      let latestCount = null;
+      let prevCount = null;
+      let momentumDelta = null;
 
-      const avgCount = Math.round(sum / (primaryCounts.length || 1));
-      const latestCount = primaryCounts[primaryCounts.length - 1] || 0;
-      const prevCount = primaryCounts[primaryCounts.length - 2] || latestCount;
-      const momentumDelta = latestCount - prevCount;
+      if (primaryCounts.length > 0) {
+        primaryCounts.forEach((val, idx) => {
+          const v = Number(val || 0);
+          sum += v;
+          if (v > peakVal) {
+            peakVal = v;
+            peakIndex = idx;
+          }
+        });
+        avgCount = Math.round(sum / (primaryCounts.length || 1));
+        latestCount = primaryCounts[primaryCounts.length - 1] ?? 0;
+        prevCount = primaryCounts.length >= 2 ? primaryCounts[primaryCounts.length - 2] : latestCount;
+        momentumDelta = latestCount - prevCount;
+      }
 
       // Extract official Pinterest Interest Annotation data if available
       const interestInfo = interestData.status === 'fulfilled' ? interestData.value : null;
       const exactSearchCount = interestInfo?.internal_search_count || 0;
 
       // Prioritize official Pinterest Internal Search Count (Exact parity with Image 1 & 2: 514,940)
-      let estimatedMonthlyVolume = exactSearchCount > 0
+      const estimatedMonthlyVolume = exactSearchCount > 0
         ? exactSearchCount
-        : Math.round(avgCount * 3650 + (peakVal * 1200));
-      if (estimatedMonthlyVolume < 10000) estimatedMonthlyVolume = 12500;
+        : (avgCount > 0 ? Math.round(avgCount * 3650 + (peakVal * 1200)) : null);
 
       // Extract live official Pinterest Demographics distribution if available
       let demographics = null;
@@ -629,29 +655,6 @@ export async function fetchPinterestTrends(term, country = 'US', force = false) 
             };
           }
         } catch (_) {}
-      }
-
-      // Safe Fallback if demographics is unavailable for obscure keywords
-      if (!demographics) {
-        demographics = {
-          gender: {
-            female_pct: 86,
-            female_display: '86%',
-            male_pct: 4,
-            male_display: '<5%',
-            unspecified_pct: 10,
-            unspecified_display: '10%'
-          },
-          age: [
-            { group: '18-24', pct: 22, display_pct: '22%' },
-            { group: '25-34', pct: 43, display_pct: '43%' },
-            { group: '35-44', pct: 22, display_pct: '22%' },
-            { group: '45-49', pct: 5, display_pct: '5%' },
-            { group: '50-54', pct: 4, display_pct: '<5%' },
-            { group: '55-64', pct: 4, display_pct: '<5%' },
-            { group: '65+', pct: 4, display_pct: '<5%' }
-          ]
-        };
       }
 
       const resultData = {
@@ -814,7 +817,6 @@ export async function fetchPinterestTrendsPopularPins(sql, term, country = 'US',
         domain: item.domain || '',
         saves: Number(item.aggregated_pin_data?.aggregated_stats?.saves || item.save_count || 0)
       });
-      if (popularPins.length >= 8) break;
     }
 
     // Persist to tracked_keywords if sql provided
