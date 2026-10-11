@@ -2813,14 +2813,26 @@ export default {
             }
 
             // C. Shard daily snapshot record
+            const [serpRow] = await sql`
+              SELECT keyword_id, rank_position, is_displaced 
+              FROM keyword_serp_current 
+              WHERE pin_id = ${pinId} 
+              LIMIT 1;
+            `.catch(() => []);
+            const shardKid = serpRow?.keyword_id || null;
+            const shardDisplaced = Boolean(serpRow?.is_displaced ?? false);
+            const shardRank = shardDisplaced ? null : (serpRow?.rank_position ?? null);
+
             await shardSql`
               INSERT INTO pins_daily_snapshots (
-                pin_id, snapshot_date, rank_position, save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity, created_at
+                pin_id, keyword_id, snapshot_date, rank_position, is_displaced, save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity, created_at
               ) VALUES (
-                ${pinId}, (NOW() AT TIME ZONE 'UTC')::date, NULL,
+                ${pinId}, ${shardKid}, (NOW() AT TIME ZONE 'UTC')::date, ${shardRank}, ${shardDisplaced},
                 ${Number(pin.saves || 0)}, ${Number(pin.repins || 0)}, ${Number(pin.comments || 0)}, ${Number(pin.share_count || 0)}, 0, 0, NOW()
               )
               ON CONFLICT (pin_id, keyword_id, snapshot_date) DO UPDATE SET
+                rank_position = EXCLUDED.rank_position,
+                is_displaced = EXCLUDED.is_displaced,
                 save_count = GREATEST(pins_daily_snapshots.save_count, EXCLUDED.save_count),
                 repin_count = GREATEST(pins_daily_snapshots.repin_count, EXCLUDED.repin_count),
                 comment_count = GREATEST(pins_daily_snapshots.comment_count, EXCLUDED.comment_count),

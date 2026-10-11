@@ -774,7 +774,10 @@ export function getPinDetailPageHtml(pinId = '') {
                     <span class="font-mono text-emerald-700 font-bold" x-text="'#' + kw.rank"></span>
                   </template>
                   <template x-if="kw.is_displaced">
-                    <span class="font-mono text-amber-700 font-bold" x-text="'#' + (kw.rank || kw.last_known_rank || '?') + ' [Vault]'"></span>
+                    <div class="flex items-center gap-1 font-mono font-bold">
+                      <span class="text-amber-700" x-text="'#' + (kw.catalog_rank || 101) + ' [Vault]'"></span>
+                      <span class="text-rose-600 text-[10px]" x-text="'(Was #' + (kw.last_known_rank || kw.rank || '?') + ')'"></span>
+                    </div>
                   </template>
                 </a>
               </template>
@@ -879,7 +882,12 @@ export function getPinDetailPageHtml(pinId = '') {
                     <span class="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold" x-text="'#' + s.rank_position"></span>
                   </template>
                   <template x-if="!s.rank_position && (s.last_known_rank || s.is_displaced)">
-                    <span class="px-2 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200 font-bold" x-text="'#' + (s.last_known_rank || '?') + ' [Vault]'"></span>
+                    <div class="flex items-center gap-1.5 flex-wrap">
+                      <span class="px-2 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200 font-bold" x-text="'#' + (s.catalog_rank || 101) + ' [Vault]'"></span>
+                      <template x-if="s.last_known_rank">
+                        <span class="px-1.5 py-0.5 rounded bg-rose-50 text-rose-600 border border-rose-200 text-[10px] font-bold" x-text="'Was #' + s.last_known_rank"></span>
+                      </template>
+                    </div>
                   </template>
                   <template x-if="!s.rank_position && !s.last_known_rank && !s.is_displaced">
                     <span class="px-2 py-0.5 rounded bg-slate-100 text-slate-500 border border-slate-200">N/A</span>

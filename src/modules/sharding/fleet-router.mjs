@@ -490,7 +490,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId }) {
       queryFn: async (sqlClient) => {
         const rows = await sqlClient`
           SELECT 
-            id, snapshot_date, rank_position, save_count, repin_count,
+            id, snapshot_date, rank_position, is_displaced, save_count, repin_count,
             comment_count, share_count, reaction_count, daily_save_velocity,
             keyword_id, competitor_id, created_at
           FROM pins_daily_snapshots
@@ -526,7 +526,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId }) {
   // 2. Fetch all SERP occurrences for this pin across all keywords from Central Hub
   const hubSerpRows = await hubSql`
     SELECT 
-      pin_id, title, domain, destination_url, image_url,
+      keyword_id, pin_id, title, domain, destination_url, image_url,
       creator_username, board_name, save_count, repin_count,
       daily_save_velocity, dominant_color, visual_annotations,
       rank_position, last_known_rank, is_displaced, metadata
@@ -709,15 +709,34 @@ export async function fetchUniversalPinDossier({ hubSql, pinId }) {
     } catch (_) {}
   }
 
-  const enrichedSnapshots = rawSnapshots.map(s => {
+  // Build lookup of SERP current records by keyword_id
+  const serpByKeyword = new Map();
+  for (const row of hubSerpRows) {
+    if (row && row.keyword_id) {
+      serpByKeyword.set(Number(row.keyword_id), row);
+    }
+  }
+
+  const enrichedSnapshots = rawSnapshots.map((s, sIdx) => {
     const sDate = s.snapshot_date instanceof Date
       ? s.snapshot_date.toISOString().slice(0, 10)
       : String(s.snapshot_date || '').slice(0, 10);
     const kid = s.keyword_id != null ? Number(s.keyword_id) : null;
+    const serpMatch = (kid ? serpByKeyword.get(kid) : null) || hubSerpRows[0] || null;
+    const isDisplaced = Boolean(
+      s.is_displaced ||
+      serpMatch?.is_displaced ||
+      (!s.rank_position && (s.last_known_rank || serpMatch?.last_known_rank))
+    );
+    const lastKnownRank = s.last_known_rank || serpMatch?.last_known_rank || (isDisplaced ? (s.rank_position || serpMatch?.rank_position) : null);
+    const catalogRank = s.catalog_rank || (isDisplaced ? (100 + (sIdx + 1)) : (s.rank_position || 1));
     return {
       ...s,
       snapshot_date: sDate,
-      keyword_name: kid ? (kwMap.get(kid) || `Keyword #${kid}`) : null
+      keyword_name: kid ? (kwMap.get(kid) || `Keyword #${kid}`) : null,
+      is_displaced: isDisplaced,
+      last_known_rank: lastKnownRank,
+      catalog_rank: catalogRank
     };
   });
 
@@ -792,6 +811,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId }) {
           'rank_position', sc.rank_position,
           'last_known_rank', sc.last_known_rank,
           'is_displaced', COALESCE(sc.is_displaced, FALSE),
+          'catalog_rank', CASE WHEN COALESCE(sc.is_displaced, FALSE) THEN 101 ELSE COALESCE(sc.rank_position, 1) END,
           'velocity', sc.daily_save_velocity
         )) as ranking_keywords
       FROM keyword_serp_current sc

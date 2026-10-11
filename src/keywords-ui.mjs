@@ -1306,17 +1306,21 @@ export function getKeywordsPageHtml(initialSlug = '') {
                         </div>
                       </template>
                       <template x-if="pin.is_displaced">
-                        <div class="flex flex-col space-y-0.5">
-                          <span class="px-2 py-0.5 rounded-lg bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30 text-[10px] font-black uppercase tracking-wider w-fit">
-                            Was #<span x-text="pin.last_known_rank || pin.rank_position || '?'"></span> | Displaced
-                          </span>
+                        <div class="flex flex-col space-y-1">
+                          <div class="flex items-center space-x-1.5 flex-wrap gap-y-0.5">
+                            <span class="px-2 py-0.5 rounded-lg bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 text-xs font-mono font-bold"
+                                  :title="'Catalog Rank #' + (pin.catalog_rank || (100 + (idx + 1)))"
+                                  x-text="'#' + (pin.catalog_rank || (100 + (idx + 1)))"></span>
+                            <span class="px-1.5 py-0.5 rounded-md bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30 text-[10px] font-black uppercase tracking-wider shrink-0"
+                                  x-text="'Was #' + (pin.last_known_rank || pin.rank_position || '?')"></span>
+                          </div>
                           <template x-if="pin.is_deleted || pin.metadata?.is_deleted || pin.metadata?.status === 'archived_404'">
                             <span class="text-[9px] text-rose-400 font-mono font-bold flex items-center gap-1">
                               <span>🗑️ Removed (404)</span>
                             </span>
                           </template>
                           <template x-if="!(pin.is_deleted || pin.metadata?.is_deleted || pin.metadata?.status === 'archived_404')">
-                            <span class="text-[9px] text-slate-400 font-mono" x-text="'Vault • ' + (pin.status || 'Dropped')"></span>
+                            <span class="text-[9px] text-slate-400 font-mono" x-text="'Vault • ' + (pin.status || 'displaced_active')"></span>
                           </template>
                         </div>
                       </template>
@@ -1421,8 +1425,10 @@ export function getKeywordsPageHtml(initialSlug = '') {
                            x-text="'#' + pin.rank_position"></div>
                     </template>
                     <template x-if="pin.is_displaced">
-                      <div class="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-lg bg-rose-950/90 text-rose-300 font-mono font-black text-[10px] backdrop-blur-xs border border-rose-500/40"
-                           x-text="'Was #' + (pin.last_known_rank || pin.rank_position || '?') + ' Displaced'"></div>
+                      <div class="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-lg bg-amber-950/90 text-amber-300 font-mono font-black text-[10px] backdrop-blur-xs border border-amber-500/40 flex items-center gap-1 shadow-sm">
+                        <span x-text="'#' + (pin.catalog_rank || 101)"></span>
+                        <span class="text-rose-400 text-[9px] font-semibold" x-text="'(Was #' + (pin.last_known_rank || '?') + ')'"></span>
+                      </div>
                     </template>
                     <div class="absolute top-2.5 right-2.5 px-2 py-0.5 rounded-md bg-slate-950/70 text-[10px] font-mono text-slate-200 backdrop-blur-xs uppercase"
                          x-text="pin.metadata?.format || pin.format || 'ORGANIC'"></div>
@@ -3217,13 +3223,17 @@ export function getKeywordsPageHtml(initialSlug = '') {
         <div class="p-4 sm:p-5 border-b border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/50 dark:bg-slate-900/40 shrink-0">
           
           <div class="flex items-center space-x-2">
-            <template x-if="activeInspectorPin?.rank_position">
+            <template x-if="activeInspectorPin?.is_displaced || (!activeInspectorPin?.rank_position && activeInspectorPin?.last_known_rank)">
+              <div class="flex items-center space-x-1.5">
+                <span class="px-2.5 py-1 rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-400 font-mono font-black text-xs border border-amber-500/30"
+                      x-text="'#' + (activeInspectorPin?.catalog_rank || 101) + ' [Vault]'"></span>
+                <span class="px-2 py-0.5 rounded-lg bg-rose-500/15 text-rose-600 dark:text-rose-400 font-mono font-bold text-xs border border-rose-500/30"
+                      x-text="'Was #' + (activeInspectorPin?.last_known_rank || '?')"></span>
+              </div>
+            </template>
+            <template x-if="!activeInspectorPin?.is_displaced && activeInspectorPin?.rank_position">
               <span class="px-2.5 py-1 rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-mono font-black text-xs border border-emerald-500/30"
                     x-text="'#' + activeInspectorPin.rank_position"></span>
-            </template>
-            <template x-if="!activeInspectorPin?.rank_position && activeInspectorPin?.last_known_rank">
-              <span class="px-2.5 py-1 rounded-xl bg-rose-500/15 text-rose-600 dark:text-rose-400 font-mono font-black text-xs border border-rose-500/30"
-                    x-text="'Was #' + activeInspectorPin.last_known_rank"></span>
             </template>
             <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">Pin Deep Dossier</h3>
             <span class="px-2 py-0.5 rounded-lg text-[10px] font-mono font-bold border"
@@ -4364,6 +4374,17 @@ export function getKeywordsPageHtml(initialSlug = '') {
             }
           }
           const vaultPins = Array.from(vaultMap.values());
+          // Sort displaced pins by their historical last_known_rank so they form a continuous #101, #102... catalog sequence
+          vaultPins.sort((a, b) => Number(a.last_known_rank || a.rank_position || 999) - Number(b.last_known_rank || b.rank_position || 999));
+
+          const activeCount = currentPins.length;
+          vaultPins.forEach((p, idx) => {
+            p.catalog_rank = activeCount + idx + 1;
+          });
+          currentPins.forEach((p, idx) => {
+            p.catalog_rank = Number(p.rank_position) || (idx + 1);
+          });
+
           this.cachedDisplacedVaultPins = vaultPins;
 
           const combined = [...currentPins, ...vaultPins];
@@ -4659,7 +4680,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
           return [...list].sort((a, b) => {
             if (a.is_displaced && !b.is_displaced) return 1;
             if (!a.is_displaced && b.is_displaced) return -1;
-            return Number(a.rank_position || a.last_known_rank || 999) - Number(b.rank_position || b.last_known_rank || 999);
+            return Number(a.catalog_rank || a.rank_position || a.last_known_rank || 999) - Number(b.catalog_rank || b.rank_position || b.last_known_rank || 999);
           });
         },
 
