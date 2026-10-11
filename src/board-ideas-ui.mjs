@@ -360,10 +360,14 @@ export function getBoardIdeasPageHtml(initialData = {}) {
                       <span class="px-1.5 py-0.5 rounded-lg bg-emerald-500/90 text-white text-[9px] font-black uppercase tracking-wider">NEW ★</span>
                     </template>
                     <template x-if="!pin.metadata?.is_new && pin.metadata?.rank_delta > 0">
-                      <span class="px-1.5 py-0.5 rounded-lg bg-purple-500/90 text-white text-[9px] font-black font-mono" x-text="'▲ +' + pin.metadata.rank_delta"></span>
+                      <span class="px-1.5 py-0.5 rounded-lg bg-purple-500/90 text-white text-[9px] font-black font-mono cursor-help"
+                            :title="'Climbed from #' + (pin.metadata?.prev_rank ?? '?') + ' (' + (pin.metadata?.baseline_date ? 'vs crawl on ' + pin.metadata.baseline_date : 'vs prior crawl') + ')'"
+                            x-text="'▲ +' + pin.metadata.rank_delta"></span>
                     </template>
                     <template x-if="!pin.metadata?.is_new && pin.metadata?.rank_delta < 0">
-                      <span class="px-1.5 py-0.5 rounded-lg bg-rose-500/90 text-white text-[9px] font-black font-mono" x-text="'▼ ' + pin.metadata.rank_delta"></span>
+                      <span class="px-1.5 py-0.5 rounded-lg bg-rose-500/90 text-white text-[9px] font-black font-mono cursor-help"
+                            :title="'Dropped from #' + (pin.metadata?.prev_rank ?? '?') + ' (' + (pin.metadata?.baseline_date ? 'vs crawl on ' + pin.metadata.baseline_date : 'vs prior crawl') + ')'"
+                            x-text="'▼ ' + pin.metadata.rank_delta"></span>
                     </template>
                   </div>
 

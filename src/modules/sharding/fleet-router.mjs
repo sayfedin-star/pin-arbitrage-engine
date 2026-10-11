@@ -673,21 +673,132 @@ export async function fetchUniversalPinDossier({ hubSql, pinId }) {
     } catch (_) {}
   }
 
-  // Hub Fallback: If shard has no snapshots recorded yet, query Hub's keyword_pins_snapshots
-  if (!snapshots || snapshots.length === 0) {
-    const hubSnapshots = await hubSql`
-      SELECT 
-        id, snapshot_date, rank_position, last_known_rank, is_displaced, save_count, repin_count,
-        comment_count, 0 as share_count, 0 as reaction_count, daily_save_velocity,
-        keyword_id, NULL as competitor_id, created_at
-      FROM keyword_pins_snapshots
-      WHERE pin_id = ${cleanPinId}
-      ORDER BY snapshot_date DESC, created_at DESC
-      LIMIT 90;
-    `.catch(() => []);
-    if (hubSnapshots && hubSnapshots.length > 0) {
-      snapshots = hubSnapshots;
+  // Smart Merge-on-Read: Query Hub snapshots to guarantee full historical timeline and prevent shard history gaps
+  const hubSnapshots = await hubSql`
+    SELECT 
+      id, snapshot_date, rank_position, last_known_rank, is_displaced, save_count, repin_count,
+      comment_count, 0 as share_count, 0 as reaction_count, daily_save_velocity,
+      keyword_id, NULL as competitor_id, created_at
+    FROM keyword_pins_snapshots
+    WHERE pin_id = ${cleanPinId}
+    ORDER BY snapshot_date DESC, created_at DESC
+    LIMIT 90;
+  `.catch(() => []);
+
+  // Merge & Deduplicate across Shard and Hub with Latest-Timestamp-Wins (LWW)
+  const shardList = snapshots || [];
+  const snapshotMap = new Map();
+
+  function getSnapTimestamp(s) {
+    const t = s.created_at || s.updated_at || s.snapshot_date;
+    return t ? new Date(t).getTime() : 0;
+  }
+
+  // Populate map with Shard snapshots first
+  for (const s of shardList) {
+    const sDate = s.snapshot_date instanceof Date
+      ? s.snapshot_date.toISOString().slice(0, 10)
+      : String(s.snapshot_date || '').slice(0, 10);
+    if (!sDate) continue;
+    const dedupKey = `${sDate}_${s.keyword_id || 'global'}`;
+    snapshotMap.set(dedupKey, s);
+  }
+
+  // Merge Hub snapshots with LWW and collect missing snapshots for Shard Read-Repair
+  const missingFromShard = [];
+  for (const h of hubSnapshots) {
+    const hDate = h.snapshot_date instanceof Date
+      ? h.snapshot_date.toISOString().slice(0, 10)
+      : String(h.snapshot_date || '').slice(0, 10);
+    if (!hDate) continue;
+    const dedupKey = `${hDate}_${h.keyword_id || 'global'}`;
+    const existing = snapshotMap.get(dedupKey);
+
+    if (!existing) {
+      snapshotMap.set(dedupKey, h);
+      missingFromShard.push(h);
+    } else {
+      const existingTime = getSnapTimestamp(existing);
+      const incomingTime = getSnapTimestamp(h);
+      if (incomingTime > existingTime || (incomingTime === existingTime && Number(h.id || 0) > Number(existing.id || 0))) {
+        snapshotMap.set(dedupKey, h);
+      }
     }
+  }
+
+  snapshots = Array.from(snapshotMap.values()).sort(
+    (a, b) => new Date(b.snapshot_date) - new Date(a.snapshot_date)
+  );
+
+  // Non-blocking Read-Repair: Backfill missing historical Hub snapshots into target shard
+  if (shardSql && shardSql !== hubSql && missingFromShard.length > 0) {
+    const repairPromise = (async () => {
+      try {
+        const repairPayload = missingFromShard.slice(0, 90).map(s => {
+          const sDate = s.snapshot_date instanceof Date
+            ? s.snapshot_date.toISOString().slice(0, 10)
+            : String(s.snapshot_date || '').slice(0, 10);
+          return {
+            pin_id: cleanPinId,
+            keyword_id: s.keyword_id != null && !isNaN(Number(s.keyword_id)) ? Number(s.keyword_id) : null,
+            snapshot_date: sDate,
+            rank_position: s.rank_position != null && !isNaN(Number(s.rank_position)) ? Number(s.rank_position) : null,
+            is_displaced: Boolean(s.is_displaced),
+            save_count: Number(s.save_count || 0),
+            repin_count: Number(s.repin_count || 0),
+            comment_count: Number(s.comment_count || 0),
+            share_count: Number(s.share_count || 0),
+            reaction_count: Number(s.reaction_count || 0),
+            daily_save_velocity: Number(s.daily_save_velocity || 0),
+            created_at: s.created_at ? new Date(s.created_at).toISOString() : new Date().toISOString()
+          };
+        });
+
+        await shardSql`
+          INSERT INTO pins_daily_snapshots (
+            pin_id, keyword_id, snapshot_date, rank_position, is_displaced,
+            save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity, created_at
+          )
+          SELECT
+            u.pin_id,
+            u.keyword_id,
+            u.snapshot_date::date,
+            u.rank_position,
+            u.is_displaced,
+            u.save_count,
+            u.repin_count,
+            u.comment_count,
+            u.share_count,
+            u.reaction_count,
+            u.daily_save_velocity,
+            u.created_at::timestamptz
+          FROM jsonb_to_recordset(${JSON.stringify(repairPayload)}::jsonb) AS u(
+            pin_id text,
+            keyword_id int,
+            snapshot_date text,
+            rank_position int,
+            is_displaced boolean,
+            save_count bigint,
+            repin_count int,
+            comment_count int,
+            share_count int,
+            reaction_count int,
+            daily_save_velocity numeric,
+            created_at text
+          )
+          ON CONFLICT (pin_id, keyword_id, snapshot_date) DO NOTHING;
+        `;
+      } catch (repairErr) {
+        console.warn(`[Read-Repair] Shard ${shardId} pin ${cleanPinId} snapshot repair deferred:`, repairErr.message);
+      }
+    })();
+
+    try {
+      await Promise.race([
+        repairPromise,
+        new Promise(r => setTimeout(r, 1200))
+      ]);
+    } catch (_) {}
   }
 
   // Resolve Keyword Names for all snapshot keyword_ids to eliminate multi-SERP ambiguity

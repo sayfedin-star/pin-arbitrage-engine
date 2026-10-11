@@ -909,7 +909,7 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
     // Pre-query historical records:
     // A) Immediate prior crawl (for rank shifts, title/image preservation, and new entry detection)
     const immediateSnapshots = await sql`
-      SELECT pin_id, rank_position, save_count, repin_count, comment_count, title, image_url, domain, destination_url, metadata, snapshot_date, created_at_pinterest, creation_method
+      SELECT id AS snapshot_id, pin_id, rank_position, save_count, repin_count, comment_count, title, image_url, domain, destination_url, metadata, snapshot_date, created_at, created_at_pinterest, creation_method
       FROM keyword_pins_snapshots
       WHERE keyword_id = ${kid}
         AND is_displaced = FALSE
@@ -923,6 +923,7 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
     const immediateMap = new Map();
     for (const s of immediateSnapshots) {
       immediateMap.set(String(s.pin_id), {
+        snapshotId: s.snapshot_id != null ? Number(s.snapshot_id) : null,
         rank: Number(s.rank_position || 0),
         saves: Number(s.save_count || 0),
         repins: Number(s.repin_count || 0),
@@ -931,7 +932,8 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
         imageUrl: s.image_url || null,
         domain: s.domain || '',
         destinationUrl: s.destination_url || '',
-        snapshotDate: s.snapshot_date
+        snapshotDate: s.snapshot_date,
+        createdAt: s.created_at
       });
     }
 
@@ -1221,6 +1223,9 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
           image_url: imageUrl,
           prev_rank: prevRank,
           rank_delta: rankDelta,
+          baseline_snapshot_id: immediateData?.snapshotId ?? null,
+          baseline_date: immediateData?.snapshotDate ? (immediateData.snapshotDate instanceof Date ? immediateData.snapshotDate.toISOString().slice(0, 10) : String(immediateData.snapshotDate).slice(0, 10)) : null,
+          baseline_crawled_at: immediateData?.createdAt || immediateData?.snapshotDate || null,
           is_new: isNew,
           prev_save_count: baselineMap.get(pinId) ?? (immediateData ? immediateData.saves : confirmedSaves),
           format,

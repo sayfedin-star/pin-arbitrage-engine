@@ -1591,13 +1591,22 @@ export function getKeywordsPageHtml(initialSlug = '') {
                                 x-text="'#' + pin.rank_position"></span>
                           
                           <template x-if="pin.metadata?.is_new">
-                            <span class="px-1.5 py-0.2 rounded text-[9px] bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">★ NEW</span>
+                            <span class="px-1.5 py-0.2 rounded text-[9px] bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 cursor-help"
+                                  title="Newly discovered in this crawl">★ NEW</span>
                           </template>
                           <template x-if="!pin.metadata?.is_new && Number(pin.metadata?.rank_delta || 0) > 0">
-                            <span class="text-[10px] text-emerald-500 font-bold" x-text="'▲ +' + pin.metadata.rank_delta"></span>
+                            <span class="text-[10px] text-emerald-500 font-bold cursor-help"
+                                  :title="'Climbed from #' + (pin.metadata?.prev_rank ?? '?') + ' (' + (pin.metadata?.baseline_date ? 'vs crawl on ' + pin.metadata.baseline_date : 'vs prior crawl') + ')'"
+                                  x-text="'▲ +' + pin.metadata.rank_delta"></span>
                           </template>
                           <template x-if="!pin.metadata?.is_new && Number(pin.metadata?.rank_delta || 0) < 0">
-                            <span class="text-[10px] text-rose-500 font-bold" x-text="'▼ ' + pin.metadata.rank_delta"></span>
+                            <span class="text-[10px] text-rose-500 font-bold cursor-help"
+                                  :title="'Dropped from #' + (pin.metadata?.prev_rank ?? '?') + ' (' + (pin.metadata?.baseline_date ? 'vs crawl on ' + pin.metadata.baseline_date : 'vs prior crawl') + ')'"
+                                  x-text="'▼ ' + pin.metadata.rank_delta"></span>
+                          </template>
+                          <template x-if="!pin.metadata?.is_new && Number(pin.metadata?.rank_delta || 0) === 0">
+                            <span class="text-[10px] text-slate-400 font-bold cursor-help"
+                                  :title="'Maintained rank (' + (pin.metadata?.baseline_date ? 'vs crawl on ' + pin.metadata.baseline_date : 'vs prior crawl') + ')'">=</span>
                           </template>
                         </div>
                       </template>
