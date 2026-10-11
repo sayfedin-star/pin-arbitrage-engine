@@ -225,7 +225,7 @@ export function getDiscoveryPageHtml() {
               <th class="p-3.5 text-right">Weekly change</th>
               <th class="p-3.5 text-right">Monthly change</th>
               <th class="p-3.5 text-right">Yearly change</th>
-              <th class="p-3.5">Taxonomy / Intent</th>
+              <th class="p-3.5">Taxonomy</th>
               <th class="p-3.5 text-right">Actions</th>
             </tr>
           </thead>
@@ -236,11 +236,11 @@ export function getDiscoveryPageHtml() {
               <tr class="animate-pulse">
                 <td class="p-3.5 text-center"><div class="w-4 h-4 bg-slate-800 rounded mx-auto"></div></td>
                 <td class="p-3.5"><div class="h-4 bg-slate-800 rounded w-48"></div></td>
-                <td class="p-3.5"><div class="h-4 bg-slate-800 rounded w-28"></div></td>
+                <td class="p-3.5"><div class="h-4 bg-slate-800 rounded w-24"></div></td>
                 <td class="p-3.5 text-right"><div class="h-4 bg-slate-800 rounded w-14 ml-auto"></div></td>
                 <td class="p-3.5 text-right"><div class="h-4 bg-slate-800 rounded w-14 ml-auto"></div></td>
                 <td class="p-3.5 text-right"><div class="h-4 bg-slate-800 rounded w-14 ml-auto"></div></td>
-                <td class="p-3.5"><div class="h-4 bg-slate-800 rounded w-32"></div></td>
+                <td class="p-3.5"><div class="h-4 bg-slate-800 rounded w-48"></div></td>
                 <td class="p-3.5 text-right"><div class="h-6 bg-slate-800 rounded w-36 ml-auto"></div></td>
               </tr>
             </template>
@@ -284,20 +284,19 @@ export function getDiscoveryPageHtml() {
                   </div>
                 </td>
 
-                <!-- Search Volume & Relative Bar -->
+                <!-- Search Volume & Relative Bar (Clean Volume without arbitrary badges) -->
                 <td class="p-3.5 font-mono">
-                  <div class="flex flex-col gap-1 min-w-[120px]">
-                    <div class="flex items-center gap-2">
+                  <div class="flex flex-col gap-1 min-w-[110px]">
+                    <div class="flex items-center gap-1.5">
                       <span 
                         x-show="item.searchVolume" 
                         class="font-bold text-slate-100 text-xs" 
                         x-text="item.searchVolume ? item.searchVolume.toLocaleString() : ''"
                       ></span>
                       <span 
-                        class="px-1.5 py-0.2 rounded text-[9px] font-semibold border"
-                        :class="item.volumeTier === 'Mega' ? 'bg-purple-500/10 text-purple-400 border-purple-500/30' : (item.volumeTier === 'High' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : (item.volumeTier === 'Medium' ? 'bg-amber-500/10 text-amber-400 border-amber-500/30' : (item.volumeTier === 'Low' ? 'bg-slate-700/50 text-slate-300 border-slate-600/40' : 'bg-indigo-500/10 text-indigo-400 border-indigo-500/30')))"
-                        x-text="item.volumeLabel"
-                      ></span>
+                        x-show="!item.searchVolume" 
+                        class="text-slate-500 font-mono text-xs"
+                      >—</span>
                     </div>
                     <!-- Official Trends Relative Volume Bar -->
                     <div x-show="item.searchVolume" class="w-20 h-1.5 bg-slate-800 rounded-full overflow-hidden">
@@ -373,29 +372,34 @@ export function getDiscoveryPageHtml() {
                   >—</span>
                 </td>
 
-                <!-- Taxonomy & Intent -->
+                <!-- Pinterest Taxonomy (Complete & Beautifully Formatted without Truncation or Intent) -->
                 <td class="p-3.5">
-                  <div class="flex flex-col gap-1 items-start max-w-[200px]">
-                    <div 
-                      x-show="item.categoryPath" 
-                      class="flex items-center gap-1.5 text-slate-200 font-medium text-[11px] truncate max-w-full" 
-                      :title="item.categoryPath"
-                    >
-                      <span class="text-rose-400 text-xs flex-shrink-0">🌿</span>
-                      <span class="truncate font-sans" x-text="item.categoryPath"></span>
+                  <div class="flex flex-col gap-1 items-start min-w-[200px] max-w-md">
+                    <!-- Formatted Breadcrumbs with Individual Segments -->
+                    <div x-show="item.categoryTree && item.categoryTree.length > 0" class="flex items-center gap-1 flex-wrap text-[11px] font-sans leading-normal">
+                      <span class="text-emerald-400 text-xs flex-shrink-0 mr-0.5">🌿</span>
+                      <template x-for="(crumb, cIdx) in item.categoryTree" :key="cIdx">
+                        <span class="inline-flex items-center gap-1">
+                          <span 
+                            :class="cIdx === item.categoryTree.length - 1 ? 'text-emerald-300 font-medium bg-emerald-950/40 px-1.5 py-0.5 rounded border border-emerald-800/40' : 'text-slate-300'"
+                            x-text="crumb"
+                          ></span>
+                          <span x-show="cIdx < item.categoryTree.length - 1" class="text-slate-600 text-[10px] select-none">›</span>
+                        </span>
+                      </template>
                     </div>
-                    <div 
-                      x-show="!item.categoryPath" 
-                      class="flex items-center gap-1 text-slate-500 italic text-[10px] font-sans"
-                    >
+
+                    <!-- Direct Category Path Fallback -->
+                    <div x-show="(!item.categoryTree || item.categoryTree.length === 0) && item.categoryPath" class="flex items-center gap-1.5 text-slate-200 font-medium text-[11px]">
+                      <span class="text-emerald-400 text-xs flex-shrink-0">🌿</span>
+                      <span class="font-sans break-words" x-text="item.categoryPath"></span>
+                    </div>
+
+                    <!-- Unindexed Category State -->
+                    <div x-show="!item.categoryPath && (!item.categoryTree || item.categoryTree.length === 0)" class="flex items-center gap-1 text-slate-500 italic text-[11px] font-sans">
                       <span>—</span>
                       <span>Unindexed Category</span>
                     </div>
-                    <span 
-                      class="px-2 py-0.5 rounded text-[10px] border font-mono"
-                      :class="item.intent.badgeClass"
-                      x-text="item.intent.label"
-                    ></span>
                   </div>
                 </td>
 
@@ -1008,27 +1012,6 @@ export function getDiscoveryPageHtml() {
               const hasPrediction = (typeof item === 'object' && Boolean(item.has_prediction));
               const volumeBarPct = searchVol !== null ? Math.max(8, Math.min(100, Math.round((searchVol / maxVol) * 100))) : null;
 
-              let volumeTier = 'Rising';
-              let volumeLabel = 'Rising';
-              if (searchVol !== null && searchVol > 0) {
-                if (searchVol >= 500000) {
-                  volumeTier = 'Mega';
-                  volumeLabel = 'Mega (500k+)';
-                } else if (searchVol >= 50000) {
-                  volumeTier = 'High';
-                  volumeLabel = 'High (50k-500k)';
-                } else if (searchVol >= 10000) {
-                  volumeTier = 'Medium';
-                  volumeLabel = 'Medium (10k-50k)';
-                } else {
-                  volumeTier = 'Low';
-                  volumeLabel = '< 10k';
-                }
-              } else {
-                volumeTier = 'Rising';
-                volumeLabel = 'Rising';
-              }
-
               return {
                 term: termStr,
                 searchVolume: searchVol,
@@ -1037,9 +1020,6 @@ export function getDiscoveryPageHtml() {
                 categoryTree: categoryTree,
                 categoryPath: categoryPath,
                 pinterestUrl: pinterestUrl,
-                volumeTier: volumeTier,
-                volumeLabel: volumeLabel,
-                intent: this.determineIntent(termStr),
                 weeklyChange: weeklyChange,
                 monthlyChange: monthlyChange,
                 yearlyChange: yearlyChange,
@@ -1192,22 +1172,6 @@ export function getDiscoveryPageHtml() {
           }).catch(() => {});
         },
 
-        determineIntent(term) {
-          const lower = String(term).toLowerCase();
-          if (/(recipe|dinner|lunch|breakfast|salad|soup|bake|cook|cake|dessert|smoothie|meal)/.test(lower)) {
-            return { label: 'Recipe / Cooking', badgeClass: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' };
-          }
-          if (/(buy|shop|store|cheap|cost|price|sale|outfit|decor|furniture|gift)/.test(lower)) {
-            return { label: 'Commercial / Buyer', badgeClass: 'bg-blue-500/10 text-blue-400 border-blue-500/20' };
-          }
-          if (/(how to|tutorial|diy|guide|tips|easy|quick|hacks)/.test(lower)) {
-            return { label: 'Informational / DIY', badgeClass: 'bg-amber-500/10 text-amber-400 border-amber-500/20' };
-          }
-          if (/(aesthetic|style|ideas|inspo|inspiration|design|wallpaper|art)/.test(lower)) {
-            return { label: 'Inspirational / Visual', badgeClass: 'bg-purple-500/10 text-purple-400 border-purple-500/20' };
-          }
-          return { label: 'Search Discovery', badgeClass: 'bg-slate-800 text-slate-300 border-slate-700' };
-        },
 
         highlightTerm(term) {
           if (!this.searchQuery || !term) return this.escapeHtml(term);
