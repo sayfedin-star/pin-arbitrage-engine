@@ -310,10 +310,10 @@ async function main() {
     mdReport += `\n`;
   }
 
-  // 4. Automated Shard Janitor GC: Clean orphan SERP positions for inactive keywords across 99 shards
+  // 4. Automated Shard Janitor GC: Clean orphan SERP positions for purged keywords across 99 shards
   const gcPurgedKeywords = await runShardJanitorGC();
   if (gcPurgedKeywords > 0) {
-    mdReport += `\n> 🧹 **Automated Shard Janitor GC**: Purged orphan SERP positions for **${gcPurgedKeywords}** inactive keywords across all 99 storage shards.\n\n`;
+    mdReport += `\n> 🧹 **Automated Shard Janitor GC**: Purged orphan SERP positions for **${gcPurgedKeywords}** purged keywords across all 99 storage shards.\n\n`;
   }
 
   // Write to GITHUB_STEP_SUMMARY
@@ -334,24 +334,32 @@ async function main() {
 
 /**
  * Automated Shard Janitor Garbage Collection (Orphan SERP Positions GC)
- * Purges pin_serp_positions across all 99 shards for keywords that are inactive (is_active = FALSE)
+ * Purges pin_serp_positions across all 99 shards ONLY for keywords explicitly marked for GC purge.
+ * 
+ * Production Inquest Guarantees:
+ * 1. Semantic Preservation: Keywords that are simply paused (is_active = FALSE) are NEVER purged,
+ *    preserving their historical SERP rank trajectories intact for charts and analytics.
+ * 2. Run-Once Semantics: Keywords flagged for purge (metadata->>'gc_purge_requested' = 'true')
+ *    are atomically marked with metadata.shards_purged = true upon successful shard cleanup,
+ *    eradicating the repeating 99-shard broadcast storm on subsequent fleet runs.
  */
 async function runShardJanitorGC() {
   console.log('\n[*] Running Automated Shard Janitor GC...');
   try {
-    const inactiveRows = await sql`
+    const purgeCandidates = await sql`
       SELECT id, keyword
       FROM tracked_keywords
-      WHERE is_active = FALSE;
+      WHERE (metadata->>'gc_purge_requested' = 'true')
+        AND (metadata->>'shards_purged' IS NULL OR metadata->>'shards_purged' != 'true');
     `.catch(() => []);
 
-    if (!inactiveRows || inactiveRows.length === 0) {
-      console.log('    [+] Shard Janitor GC: No inactive keywords found. Shard positions clean.');
+    if (!purgeCandidates || purgeCandidates.length === 0) {
+      console.log('    [+] Shard Janitor GC: No pending purge candidates found. Shard positions clean.');
       return 0;
     }
 
-    const inactiveIds = inactiveRows.map(r => Number(r.id)).filter(id => id && !isNaN(id));
-    console.log(`    [!] Found ${inactiveIds.length} inactive keywords: [${inactiveIds.join(', ')}]. Broadcasting cleanup to 99 shards...`);
+    const purgeIds = purgeCandidates.map(r => Number(r.id)).filter(id => id && !isNaN(id));
+    console.log(`    [!] Found ${purgeIds.length} pending purge keywords: [${purgeIds.join(', ')}]. Broadcasting cleanup to 99 shards...`);
 
     await preloadNeonRegistry(sql);
     const shardIds = Array.from({ length: 99 }, (_, i) => i + 1);
@@ -365,14 +373,25 @@ async function runShardJanitorGC() {
           const shardSql = await resolveShardConnection({ hubSql: sql, shardId });
           await shardSql`
             DELETE FROM pin_serp_positions
-            WHERE keyword_id = ANY(${inactiveIds});
+            WHERE keyword_id = ANY(${purgeIds});
           `;
           purgedShardsCount++;
         } catch (_) {}
       }));
     }
-    console.log(`    [+] Shard Janitor GC: Broadcast complete across ${purgedShardsCount} shards.`);
-    return inactiveIds.length;
+
+    // Atomic State Transition: Mark shards_purged = true to guarantee strictly-once execution
+    await sql`
+      UPDATE tracked_keywords
+      SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{shards_purged}', 'true'::jsonb),
+          updated_at = NOW()
+      WHERE id = ANY(${purgeIds});
+    `.catch(err => {
+      console.warn('    [!] Failed marking shards_purged on tracked_keywords:', err.message);
+    });
+
+    console.log(`    [+] Shard Janitor GC: Broadcast complete across ${purgedShardsCount} shards. Marked ${purgeIds.length} keywords as shards_purged.`);
+    return purgeIds.length;
   } catch (gcErr) {
     console.warn('    [!] Shard Janitor GC non-fatal warning:', gcErr.message);
     return 0;

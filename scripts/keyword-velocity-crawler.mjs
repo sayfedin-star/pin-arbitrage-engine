@@ -107,7 +107,7 @@ const MAX_SAME_DAY_TTL_MS = 18 * 60 * 60 * 1000; // 18 Hours Maximum Same-Day Ca
  * Hardened Hydration Guard (Dual-Threshold: 4h Hard Floor + 18h Same-Day Cache)
  */
 function evaluateHydrationGuard(pin, currentUtcTimestamp = Date.now()) {
-  const crawlTime = pin.crawled_at || pin.updated_at;
+  const crawlTime = pin.crawled_at || pin.updated_at || pin.metadata?.crawled_at || pin.metadata?.updated_at;
   if (!crawlTime || pin.save_count == null || Number(pin.save_count) === 0) {
     return { shouldFetch: true, reason: 'unhydrated_pin', reuseTelemetry: null };
   }
@@ -207,10 +207,13 @@ async function inspectPin(pin, kw) {
     };
   }
 
-  if (Date.now() < rateLimitCooldownUntil) {
-    const waitTime = rateLimitCooldownUntil - Date.now();
-    await new Promise(r => setTimeout(r, waitTime));
+  // Active Cooldown Loop & Circuit Breaker Check
+  while (Date.now() < rateLimitCooldownUntil) {
+    if (circuitBroken) return null;
+    const waitTime = Math.min(rateLimitCooldownUntil - Date.now(), 5000);
+    await new Promise(r => setTimeout(r, Math.max(200, waitTime)));
   }
+  if (circuitBroken) return null;
 
   let detail = null;
   let isDead = false;
@@ -226,11 +229,14 @@ async function inspectPin(pin, kw) {
       fetchError = '404_not_found';
       consecutiveErrors = 0;
     } else if (fetchRes?.status === 429 || fetchRes?.code === 429) {
-      consecutiveErrors++;
-      const wasAlreadyInCooldown = Date.now() < rateLimitCooldownUntil;
-      rateLimitCooldownUntil = Math.max(rateLimitCooldownUntil, Date.now() + 60000);
+      const now = Date.now();
+      const wasAlreadyInCooldown = now < rateLimitCooldownUntil;
+      rateLimitCooldownUntil = Math.max(rateLimitCooldownUntil, now + 60000);
       if (!wasAlreadyInCooldown) {
-        console.warn(`    [429 RATE LIMIT] Pin ${pin.pin_id} received 429. Pausing fleet for 60s cooldown.`);
+        consecutiveErrors++;
+        console.warn(`    [429 RATE LIMIT] Pin ${pin.pin_id} received 429. Cooldown initiated for 60s (consecutive error incidents: ${consecutiveErrors}/${CIRCUIT_BREAKER_LIMIT}).`);
+      } else {
+        console.log(`    [429 RATE LIMIT] Pin ${pin.pin_id} received 429 in-flight during active cooldown; incident coalesced.`);
       }
     } else {
       consecutiveErrors++;
@@ -239,9 +245,17 @@ async function inspectPin(pin, kw) {
     if (err.message?.includes('404')) {
       isDead = true;
       fetchError = '404_not_found';
+      consecutiveErrors = 0;
     } else if (err.message?.includes('429')) {
-      rateLimitCooldownUntil = Math.max(rateLimitCooldownUntil, Date.now() + 60000);
-      consecutiveErrors++;
+      const now = Date.now();
+      const wasAlreadyInCooldown = now < rateLimitCooldownUntil;
+      rateLimitCooldownUntil = Math.max(rateLimitCooldownUntil, now + 60000);
+      if (!wasAlreadyInCooldown) {
+        consecutiveErrors++;
+        console.warn(`    [429 RATE LIMIT] Pin ${pin.pin_id} caught 429 exception. Cooldown initiated for 60s (consecutive error incidents: ${consecutiveErrors}/${CIRCUIT_BREAKER_LIMIT}).`);
+      } else {
+        console.log(`    [429 RATE LIMIT] Pin ${pin.pin_id} caught 429 exception during active cooldown; incident coalesced.`);
+      }
     } else {
       console.warn(`    [!] Pin ${pin.pin_id} fetch warning:`, err.message);
       consecutiveErrors++;
@@ -736,7 +750,10 @@ async function flushToStorageShards(enrichedPins) {
                   repin_count = GREATEST(pins_daily_metrics.repin_count, EXCLUDED.repin_count),
                   comment_count = GREATEST(pins_daily_metrics.comment_count, EXCLUDED.comment_count),
                   share_count = GREATEST(pins_daily_metrics.share_count, EXCLUDED.share_count),
-                  daily_save_velocity = EXCLUDED.daily_save_velocity,
+                  daily_save_velocity = CASE 
+                    WHEN EXCLUDED.daily_save_velocity > 0 THEN GREATEST(COALESCE(pins_daily_metrics.daily_save_velocity, 0), EXCLUDED.daily_save_velocity)
+                    ELSE pins_daily_metrics.daily_save_velocity 
+                  END,
                   updated_at = NOW()
                 RETURNING pin_id
               ),
@@ -845,6 +862,7 @@ async function inspectPinsConcurrently(pins, kw, label = 'Worker') {
   };
 
   const pool = pins.map((p) => sem.run(async () => {
+    if (circuitBroken) return;
     try {
       const enriched = await inspectPin(p, kw);
       if (enriched) {
@@ -911,7 +929,8 @@ async function run() {
         SELECT DISTINCT ON (ksc.pin_id)
           ksc.pin_id, ksc.keyword_id, ksc.rank_position, ksc.last_known_rank, ksc.title, ksc.domain, ksc.destination_url, ksc.image_url,
           ksc.save_count, ksc.repin_count, ksc.daily_save_velocity, ksc.creator_username,
-          ksc.board_name, ksc.dominant_color, ksc.visual_annotations, ksc.created_at_pinterest, ksc.creation_method, FALSE as is_displaced
+          ksc.board_name, ksc.dominant_color, ksc.visual_annotations, ksc.created_at_pinterest, ksc.creation_method,
+          ksc.crawled_at, ksc.updated_at, FALSE as is_displaced
         FROM keyword_serp_current ksc
         JOIN keyword_folder_items kfi ON kfi.keyword_id = ksc.keyword_id
         WHERE kfi.folder_id = ${fid} AND ksc.pin_id ~ '^[0-9]+$' AND ksc.is_displaced = FALSE
@@ -926,7 +945,8 @@ async function run() {
         SELECT DISTINCT ON (ksc.pin_id)
           ksc.pin_id, ksc.keyword_id, ksc.rank_position, ksc.last_known_rank, ksc.title, ksc.domain, ksc.destination_url, ksc.image_url,
           ksc.save_count, ksc.repin_count, ksc.daily_save_velocity, ksc.creator_username,
-          ksc.board_name, ksc.dominant_color, ksc.visual_annotations, ksc.created_at_pinterest, ksc.creation_method, ksc.is_displaced
+          ksc.board_name, ksc.dominant_color, ksc.visual_annotations, ksc.created_at_pinterest, ksc.creation_method,
+          ksc.crawled_at, ksc.updated_at, ksc.is_displaced
         FROM keyword_serp_current ksc
         JOIN keyword_folder_items kfi ON kfi.keyword_id = ksc.keyword_id
         WHERE kfi.folder_id = ${fid} AND ksc.pin_id ~ '^[0-9]+$'
@@ -1007,7 +1027,8 @@ async function run() {
         SELECT 
           pin_id, rank_position, last_known_rank, title, domain, destination_url, image_url,
           save_count, repin_count, daily_save_velocity, creator_username,
-          board_name, dominant_color, visual_annotations, created_at_pinterest, creation_method, FALSE as is_displaced
+          board_name, dominant_color, visual_annotations, created_at_pinterest, creation_method,
+          crawled_at, updated_at, FALSE as is_displaced
         FROM keyword_serp_current
         WHERE keyword_id = ${kwRow.id} AND pin_id ~ '^[0-9]+$' AND is_displaced = FALSE
           AND NOT EXISTS (
@@ -1021,7 +1042,8 @@ async function run() {
         SELECT 
           pin_id, rank_position, last_known_rank, title, domain, destination_url, image_url,
           save_count, repin_count, daily_save_velocity, creator_username,
-          board_name, dominant_color, visual_annotations, created_at_pinterest, creation_method, is_displaced
+          board_name, dominant_color, visual_annotations, created_at_pinterest, creation_method,
+          crawled_at, updated_at, is_displaced
         FROM keyword_serp_current
         WHERE keyword_id = ${kwRow.id} AND pin_id ~ '^[0-9]+$'
           AND NOT EXISTS (
@@ -1161,7 +1183,7 @@ async function run() {
             SELECT 
               pin_id, keyword_id, rank_position, last_known_rank, title, domain, destination_url, image_url,
               save_count, repin_count, daily_save_velocity, creator_username,
-              board_name, dominant_color, visual_annotations, is_displaced
+              board_name, dominant_color, visual_annotations, crawled_at, updated_at, is_displaced
             FROM keyword_serp_current
             WHERE keyword_id = ${kw.id} AND pin_id ~ '^[0-9]+$'
               AND NOT EXISTS (
