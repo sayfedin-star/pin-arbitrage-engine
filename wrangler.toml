@@ -22,3 +22,20 @@ binding = "PIN_D1_DB"
 database_name = "pin-engine-edge"
 database_id = "<D1_DATABASE_ID>"
 
+# 4. Preview Configuration for Worker Previews (Wrangler v4 preview builds)
+[previews.vars]
+PORT = "3456"
+
+[[previews.hyperdrive]]
+binding = "HYPERDRIVE"
+id = "<HYPERDRIVE_CONFIG_ID>"
+
+[[previews.kv_namespaces]]
+binding = "PIN_ENGINE_KV"
+id = "<KV_NAMESPACE_ID>"
+
+[[previews.d1_databases]]
+binding = "PIN_D1_DB"
+database_id = "<D1_DATABASE_ID>"
+
+
