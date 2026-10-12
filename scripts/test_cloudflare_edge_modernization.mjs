@@ -155,7 +155,7 @@ function createMockSql() {
         }
       ];
     }
-    if (query.includes('FROM keywords')) {
+    if (query.includes('FROM tracked_keywords') || query.includes('FROM keywords')) {
       return [
         { keyword: 'sourdough bread', search_volume: 45000, pin_count: 120 },
         { keyword: 'sourdough starter', search_volume: 32000, pin_count: 95 }
@@ -365,7 +365,7 @@ async function runModernizationTests() {
       pin_count: 190
     });
 
-    // 4.2 Query /api/search/autocomplete?q=sour
+    // 4.2 Query /api/search/autocomplete?q=sour and /api/keywords/autocomplete?q=sour
     const reqAutoc = new Request('https://worker.test/api/search/autocomplete?q=sour');
     const resAutoc = await worker.fetch(reqAutoc, env);
     const dataAutoc = await resAutoc.json();
@@ -377,6 +377,14 @@ async function runModernizationTests() {
     assert(
       'Autocomplete results return correct schema (keyword, search_volume, pin_count)',
       dataAutoc.results[0].keyword === 'sourdough bread' && dataAutoc.results[0].search_volume === 85000
+    );
+
+    const reqAutocAlias = new Request('https://worker.test/api/keywords/autocomplete?q=sour');
+    const resAutocAlias = await worker.fetch(reqAutocAlias, env);
+    const dataAutocAlias = await resAutocAlias.json();
+    assert(
+      'GET /api/keywords/autocomplete alias queries D1 edge database (source: d1_edge)',
+      resAutocAlias.status === 200 && dataAutocAlias.source === 'd1_edge' && dataAutocAlias.results?.length === 2
     );
 
     // 4.3 Autocomplete fallback to Neon when D1 is unconfigured
@@ -425,6 +433,14 @@ async function runModernizationTests() {
       resF1.status === 200 && dataF1.source === 'd1_edge' && dataF1.folder?.name === 'Autumn Baking Campaign'
     );
 
+    const reqCF1 = new Request('https://worker.test/api/campaign-folders/101');
+    const resCF1 = await worker.fetch(reqCF1, env);
+    const dataCF1 = await resCF1.json();
+    assert(
+      'GET /api/campaign-folders/:id alias serves directly from D1 edge database (source: d1_edge)',
+      resCF1.status === 200 && dataCF1.source === 'd1_edge' && dataCF1.folder?.name === 'Autumn Baking Campaign'
+    );
+
     // 5.3 List folders from D1
     const reqFList = new Request('https://worker.test/api/folders');
     const resFList = await worker.fetch(reqFList, env);
@@ -432,6 +448,14 @@ async function runModernizationTests() {
     assert(
       'GET /api/folders list serves directly from D1 edge database (source: d1_edge)',
       resFList.status === 200 && dataFList.source === 'd1_edge' && dataFList.folders?.length === 1
+    );
+
+    const reqCFList = new Request('https://worker.test/api/campaign-folders');
+    const resCFList = await worker.fetch(reqCFList, env);
+    const dataCFList = await resCFList.json();
+    assert(
+      'GET /api/campaign-folders alias serves directly from D1 edge database (source: d1_edge)',
+      resCFList.status === 200 && dataCFList.source === 'd1_edge' && dataCFList.folders?.length === 1
     );
 
     // 5.4 Delete folder from D1

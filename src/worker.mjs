@@ -806,6 +806,7 @@ export default {
           hyperdrive_accelerated: hyperdriveAccelerated,
           hyperdrive: hyperdriveAccelerated ? 'active' : 'fallback',
           neon: 'connected',
+          direct_neon_configured: Boolean(directNeonUrl),
           kv: isKvConfigured ? 'connected' : 'unconfigured',
           kv_configured: isKvConfigured,
           d1: isD1Configured ? 'connected' : 'unconfigured',
@@ -2531,6 +2532,10 @@ export default {
           });
         }, 8000, 30000);
 
+        if (Array.isArray(keywords) && keywords.length > 0 && env?.PIN_D1_DB) {
+          safeWaitUntil(ctx, Promise.all(keywords.map(k => syncKeywordToD1(env, k))), 'syncKeywordsToD1');
+        }
+
         return jsonResponse({ success: true, keywords }, 200, 8);
       }
 
@@ -2826,7 +2831,7 @@ export default {
       }
 
       // Edge-Native Search Autocomplete API via Cloudflare D1 (Sub-10ms UI Autocomplete)
-      if (method === 'GET' && pathname === '/api/search/autocomplete') {
+      if (method === 'GET' && (pathname === '/api/search/autocomplete' || pathname === '/api/keywords/autocomplete')) {
         const q = String(searchParams.get('q') || searchParams.get('query') || '').trim();
         if (!q) {
           return jsonResponse({ success: true, results: [] });
@@ -2852,12 +2857,15 @@ export default {
         try {
           const likePattern = `${q.toLowerCase()}%`;
           const rows = await sql`
-            SELECT keyword, COALESCE(monthly_search_volume, 0) as search_volume, COALESCE(pin_count, 0) as pin_count
-            FROM keywords
-            WHERE keyword ILIKE ${likePattern}
-            ORDER BY monthly_search_volume DESC NULLS LAST, keyword ASC
+            SELECT keyword, COALESCE(target_pin_count, 0) as search_volume, COALESCE(target_pin_count, 0) as pin_count
+            FROM tracked_keywords
+            WHERE LOWER(keyword) LIKE ${likePattern}
+            ORDER BY keyword ASC
             LIMIT 10;
           `;
+          if (Array.isArray(rows) && rows.length > 0 && env?.PIN_D1_DB) {
+            safeWaitUntil(ctx, Promise.all(rows.map(r => syncKeywordToD1(env, r))), 'syncFallbackKeywordsToD1');
+          }
           return jsonResponse({ success: true, source: 'neon_hub', results: rows }, 200, 15);
         } catch (_) {
           return jsonResponse({ success: true, source: 'empty_fallback', results: [] });
@@ -3720,9 +3728,15 @@ export default {
         return jsonResponse({ success: true, crossover }, 200, refresh ? 0 : 30);
       }
 
-      // Aliased Campaign Folders CRUD API (/api/folders)
-      if ((pathname === '/api/folders' || pathname.startsWith('/api/folders/')) && !pathname.includes('crossover')) {
-        const parts = pathname.slice('/api/folders'.length).split('/').filter(Boolean);
+      // Aliased Campaign Folders CRUD API (/api/folders and /api/campaign-folders)
+      const isFoldersRoute = (
+        pathname === '/api/folders' || pathname.startsWith('/api/folders/') ||
+        pathname === '/api/campaign-folders' || pathname.startsWith('/api/campaign-folders/')
+      ) && !pathname.includes('crossover');
+
+      if (isFoldersRoute) {
+        const basePrefix = pathname.startsWith('/api/campaign-folders') ? '/api/campaign-folders' : '/api/folders';
+        const parts = pathname.slice(basePrefix.length).split('/').filter(Boolean);
         const folderId = parts[0] ? Number(parts[0]) : (searchParams.get('id') || searchParams.get('folder_id'));
 
         if (method === 'GET') {
@@ -3768,6 +3782,13 @@ export default {
           const created = await createFolder(sql, body);
           safeWaitUntil(ctx, syncFolderToD1(env, created), 'syncFolderToD1');
           return jsonResponse({ success: true, folder: created });
+        }
+
+        if ((method === 'PUT' || method === 'PATCH') && folderId) {
+          const body = await request.json().catch(() => ({}));
+          const updated = await updateFolder(sql, folderId, body);
+          safeWaitUntil(ctx, syncFolderToD1(env, updated), 'syncFolderToD1');
+          return jsonResponse({ success: true, folder: updated });
         }
 
         if (method === 'DELETE' && folderId) {
