@@ -564,28 +564,35 @@ export async function getTopicClusters(sql, { minPins = 1, search = '', account 
     }));
   }
 
-  const rows = await sql`
-    SELECT
-      topic_name,
-      pins_count::bigint AS pins_count,
-      total_saves::numeric AS total_saves,
-      avg_saves::bigint AS avg_saves,
-      avg_velocity::numeric AS avg_velocity
-    FROM pa_topic_clusters_page(
-      ${minNum},
-      ${searchPattern},
-      ${lim},
-      ${off}
-    );
-  `;
+  try {
+    const rows = await sql`
+      SELECT
+        topic_name,
+        pins_count::bigint AS pins_count,
+        total_saves::numeric AS total_saves,
+        avg_saves::bigint AS avg_saves,
+        avg_velocity::numeric AS avg_velocity
+      FROM pa_topic_clusters_page(
+        ${minNum},
+        ${searchPattern},
+        ${lim},
+        ${off}
+      );
+    `;
 
-  return rows.map(r => ({
-    name: r.topic_name,
-    pins_count: Number(r.pins_count),
-    total_saves: Number(r.total_saves),
-    avg_saves: Number(r.avg_saves),
-    avg_velocity: Number(r.avg_velocity),
-  }));
+    if (!Array.isArray(rows)) return [];
+
+    return rows.map(r => ({
+      name: r.topic_name,
+      pins_count: Number(r.pins_count || 0),
+      total_saves: Number(r.total_saves || 0),
+      avg_saves: Number(r.avg_saves || 0),
+      avg_velocity: Number(r.avg_velocity || 0),
+    }));
+  } catch (err) {
+    console.warn('[getTopicClusters] Stored procedure query failed, returning fallback empty list:', err.message);
+    return [];
+  }
 }
 
 /**

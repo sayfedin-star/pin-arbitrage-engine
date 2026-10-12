@@ -528,9 +528,9 @@ function getCachedShardSql(key, factory) {
 
 export function createHyperdriveClient(connectionString) {
   const pSql = postgres(connectionString, {
-    max: 5,
-    idle_timeout: 15,
-    connect_timeout: 10
+    max: 15,
+    idle_timeout: 30,
+    connect_timeout: 15
   });
   pSql.transaction = async (queries) => {
     return await pSql.begin(async (tx) => {
@@ -924,10 +924,19 @@ export default {
           const directSql = getCachedShardSql(directNeonUrl, () => neon(directNeonUrl));
           sql = new Proxy(hyperdriveSql, {
             apply(target, thisArg, argArray) {
-              return Reflect.apply(target, thisArg, argArray).catch(err => {
-                console.warn(`[Hyperdrive Fallback] Query failed (${redactSecrets(err.message)}). Degrading to direct Neon HTTP.`);
+              try {
+                const res = Reflect.apply(target, thisArg, argArray);
+                if (res && typeof res.catch === 'function') {
+                  return res.catch(err => {
+                    console.warn(`[Hyperdrive Fallback] Query failed (${redactSecrets(err.message)}). Degrading to direct Neon HTTP.`);
+                    return Reflect.apply(directSql, thisArg, argArray);
+                  });
+                }
+                return res;
+              } catch (syncErr) {
+                console.warn(`[Hyperdrive Sync Fallback] Query failed synchronously (${redactSecrets(syncErr.message)}). Degrading to direct Neon HTTP.`);
                 return Reflect.apply(directSql, thisArg, argArray);
-              });
+              }
             },
             get(target, prop, receiver) {
               if (prop === 'transaction') {
@@ -940,7 +949,11 @@ export default {
                   }
                 };
               }
-              return Reflect.get(target, prop, receiver);
+              const val = Reflect.get(target, prop, receiver);
+              if (typeof val === 'function') {
+                return val.bind(target);
+              }
+              return val;
             }
           });
         } else {
@@ -1762,89 +1775,102 @@ export default {
 
       // 9. GET /api/intersections (Uncapped, authentic Pixie Multi-Hit ranking)
       if (method === 'GET' && pathname === '/api/intersections') {
+        const shardKey = reqProjectId || 'hub';
         const minOverlap = Number(searchParams.get('min_overlap')) || 2;
         const limit = clampLimit(searchParams.get('limit'), 1000, 1000);
 
-        const allSeeds = await targetSql`SELECT pin_id, label, is_competitor FROM cluster_seeds;`;
-        const seedMap = new Map();
-        for (const s of allSeeds) seedMap.set(s.pin_id, s);
-
-        const rows = await targetSql`
-          SELECT 
-              c.candidate_pin_id,
-              MAX(c.title) AS title,
-              MAX(c.domain) AS domain,
-              BOOL_OR(c.is_product) AS is_product,
-              MAX(c.dominant_color) AS winning_color,
-              MAX(c.ocr_text) AS ocr_text,
-              MAX(c.aspect_ratio) AS aspect_ratio,
-              MAX(c.daily_velocity) AS daily_velocity,
-              MAX(c.pin_created_at) AS pin_created_at,
-              MAX(c.sequence_role) AS sequence_role,
-              MAX(c.provenance_engine) AS provenance_engine,
-              MAX(c.repins) AS total_repins,
-              MAX(c.image_url) AS image_url,
-              BOOL_OR(c.is_video) AS is_video,
-              MAX(c.ingestion_method) AS ingestion_method,
-              ROUND(AVG(c.save_rate)::numeric, 2) AS avg_save_rate,
-              COUNT(DISTINCT c.seed_pin_id) AS seed_overlap_count,
-              ROUND(POWER(SUM(SQRT(GREATEST(c.saves, 1))), 2)::numeric, 2) AS pixie_multihit_score,
-              MAX(c.saves) AS total_saves,
-              ARRAY_AGG(DISTINCT c.seed_pin_id) AS originating_seeds
-          FROM candidate_graph_nodes c
-          GROUP BY c.candidate_pin_id
-          HAVING COUNT(DISTINCT c.seed_pin_id) >= ${minOverlap}
-          ORDER BY pixie_multihit_score DESC
-          LIMIT ${limit};
-        `;
-
-        const totalSeedsCount = Math.max(allSeeds.length, 1);
-        const computedCouplings = rows.map((r) => {
-          const overlap = Number(r.seed_overlap_count || 1);
-          const saves = Number(r.total_saves || 0);
-          const multihitWeight = Math.sqrt(Math.max(saves, 1)) * overlap;
-          const nodeStrength = Math.max(saves, 1);
-          return multihitWeight / Math.sqrt(totalSeedsCount * nodeStrength);
-        });
-        const meanRho = computedCouplings.reduce((acc, v) => acc + v, 0) / Math.max(computedCouplings.length, 1);
-
-        const enrichedRows = rows.map((r, idx) => {
-          const saves = Number(r.total_saves || 0);
-          const engine = r.provenance_engine || 'P2P_TWO_TOWER';
-          const couplingRho = Number((computedCouplings[idx] || 0).toFixed(4));
-          const passesRelativeThreshold = couplingRho >= (0.5 * meanRho);
-
-          const ar = Number(r.aspect_ratio || 0.56);
-          let format = 'ORGANIC PIN';
-          if (r.is_product) format = 'PRODUCT CARD';
-          else if (r.is_video) format = 'VIDEO PIN';
-          else if (ar > 1.3) format = 'IDEA PIN';
-
-          const seedDetails = (r.originating_seeds || []).map((sid) => {
-            const found = seedMap.get(sid);
-            return {
-              pin_id: sid,
-              label: found ? found.label : `Seed ${sid}`,
-              is_competitor: found ? found.is_competitor : false
-            };
-          });
-
-          return {
-            ...r,
-            engine_source: engine,
-            coupling_rho: couplingRho,
-            coupling_drift: !passesRelativeThreshold,
-            format_type: format,
-            culinary_color_name: getCulinaryColorName(r.winning_color),
-            is_vacuum_target: !r.is_product && saves >= 5000,
-            originating_seed_details: seedDetails,
-            image_url: r.image_url || '',
-            is_video: Boolean(r.is_video),
-            ingestion_method: r.ingestion_method || 'uploaded'
-          };
+        const cacheKey = buildCanonicalCacheKey(`intersections:${shardKey}`, {
+          min_overlap: minOverlap,
+          limit
         });
 
-        return jsonResponse(enrichedRows);
+        try {
+          const enrichedRows = await getCachedOrFetch(cacheKey, async () => {
+            const allSeeds = await targetSql`SELECT pin_id, label, is_competitor FROM cluster_seeds;`.catch(() => []);
+            const seedMap = new Map();
+            for (const s of allSeeds) seedMap.set(s.pin_id, s);
+
+            const rows = await targetSql`
+              SELECT 
+                  c.candidate_pin_id,
+                  MAX(c.title) AS title,
+                  MAX(c.domain) AS domain,
+                  BOOL_OR(c.is_product) AS is_product,
+                  MAX(c.dominant_color) AS winning_color,
+                  MAX(c.ocr_text) AS ocr_text,
+                  MAX(c.aspect_ratio) AS aspect_ratio,
+                  MAX(c.daily_velocity) AS daily_velocity,
+                  MAX(c.pin_created_at) AS pin_created_at,
+                  MAX(c.sequence_role) AS sequence_role,
+                  MAX(c.provenance_engine) AS provenance_engine,
+                  MAX(c.repins) AS total_repins,
+                  MAX(c.image_url) AS image_url,
+                  BOOL_OR(c.is_video) AS is_video,
+                  MAX(c.ingestion_method) AS ingestion_method,
+                  ROUND(AVG(c.save_rate)::numeric, 2) AS avg_save_rate,
+                  COUNT(DISTINCT c.seed_pin_id) AS seed_overlap_count,
+                  ROUND(POWER(SUM(SQRT(GREATEST(c.saves, 1))), 2)::numeric, 2) AS pixie_multihit_score,
+                  MAX(c.saves) AS total_saves,
+                  ARRAY_AGG(DISTINCT c.seed_pin_id) AS originating_seeds
+              FROM candidate_graph_nodes c
+              GROUP BY c.candidate_pin_id
+              HAVING COUNT(DISTINCT c.seed_pin_id) >= ${minOverlap}
+              ORDER BY pixie_multihit_score DESC
+              LIMIT ${limit};
+            `.catch(() => []);
+
+            const totalSeedsCount = Math.max((allSeeds || []).length, 1);
+            const computedCouplings = (rows || []).map((r) => {
+              const overlap = Number(r.seed_overlap_count || 1);
+              const saves = Number(r.total_saves || 0);
+              const multihitWeight = Math.sqrt(Math.max(saves, 1)) * overlap;
+              const nodeStrength = Math.max(saves, 1);
+              return multihitWeight / Math.sqrt(totalSeedsCount * nodeStrength);
+            });
+            const meanRho = computedCouplings.reduce((acc, v) => acc + v, 0) / Math.max(computedCouplings.length, 1);
+
+            return (rows || []).map((r, idx) => {
+              const saves = Number(r.total_saves || 0);
+              const engine = r.provenance_engine || 'P2P_TWO_TOWER';
+              const couplingRho = Number((computedCouplings[idx] || 0).toFixed(4));
+              const passesRelativeThreshold = couplingRho >= (0.5 * meanRho);
+
+              const ar = Number(r.aspect_ratio || 0.56);
+              let format = 'ORGANIC PIN';
+              if (r.is_product) format = 'PRODUCT CARD';
+              else if (r.is_video) format = 'VIDEO PIN';
+              else if (ar > 1.3) format = 'IDEA PIN';
+
+              const seedDetails = (r.originating_seeds || []).map((sid) => {
+                const found = seedMap.get(sid);
+                return {
+                  pin_id: sid,
+                  label: found ? found.label : `Seed ${sid}`,
+                  is_competitor: found ? found.is_competitor : false
+                };
+              });
+
+              return {
+                ...r,
+                engine_source: engine,
+                coupling_rho: couplingRho,
+                coupling_drift: !passesRelativeThreshold,
+                format_type: format,
+                culinary_color_name: getCulinaryColorName(r.winning_color),
+                is_vacuum_target: !r.is_product && saves >= 5000,
+                originating_seed_details: seedDetails,
+                image_url: r.image_url || '',
+                is_video: Boolean(r.is_video),
+                ingestion_method: r.ingestion_method || 'uploaded'
+              };
+            });
+          }, 8000, 30000);
+
+          return jsonResponse(Array.isArray(enrichedRows) ? enrichedRows : [], 200, 8);
+        } catch (err) {
+          console.error('[Intersections Error]', err.message);
+          return jsonResponse([], 200);
+        }
       }
 
       // 10. POST /api/crawl (Instruct user or trigger)
@@ -2154,18 +2180,27 @@ export default {
           offset
         });
 
-        const data = await getCachedOrFetch(cacheKey, async () => {
-          const overview = await getCompetitorsOverview(targetSql);
-          const competitors = await listCompetitors(targetSql, {
-            account_type,
-            search,
-            limit,
-            offset
-          });
-          return { overview, competitors };
-        }, 8000, 30000);
+        try {
+          const data = await getCachedOrFetch(cacheKey, async () => {
+            const overview = await getCompetitorsOverview(targetSql);
+            const competitors = await listCompetitors(targetSql, {
+              account_type,
+              search,
+              limit,
+              offset
+            });
+            return { overview, competitors };
+          }, 8000, 30000);
 
-        return jsonResponse({ success: true, ...data }, 200, 8);
+          return jsonResponse({ success: true, ...data }, 200, 8);
+        } catch (err) {
+          console.error('[Competitors Error]', err.message);
+          return jsonResponse({
+            success: true,
+            overview: { tracked_profiles: 0, competitor_count: 0, own_count: 0, combined_reach: 0, total_audience: 0, pins_tracked: 0, top_competitor: null },
+            competitors: []
+          }, 200);
+        }
       }
 
       if (method === 'POST' && pathname === '/api/competitors') {
@@ -2548,19 +2583,24 @@ export default {
           offset
         });
 
-        const keywords = await getCachedOrFetch(cacheKey, async () => {
-          return await listKeywords(sql, {
-            search,
-            limit,
-            offset
-          });
-        }, 8000, 30000);
+        try {
+          const keywords = await getCachedOrFetch(cacheKey, async () => {
+            return await listKeywords(sql, {
+              search,
+              limit,
+              offset
+            });
+          }, 8000, 30000);
 
-        if (Array.isArray(keywords) && keywords.length > 0 && env?.PIN_D1_DB) {
-          safeWaitUntil(ctx, Promise.all(keywords.map(k => syncKeywordToD1(env, k))), 'syncKeywordsToD1');
+          if (Array.isArray(keywords) && keywords.length > 0 && env?.PIN_D1_DB) {
+            safeWaitUntil(ctx, Promise.all(keywords.map(k => syncKeywordToD1(env, k))), 'syncKeywordsToD1');
+          }
+
+          return jsonResponse({ success: true, keywords: Array.isArray(keywords) ? keywords : [] }, 200, 8);
+        } catch (err) {
+          console.error('[Keywords Error]', err.message);
+          return jsonResponse({ success: true, keywords: [] }, 200);
         }
-
-        return jsonResponse({ success: true, keywords }, 200, 8);
       }
 
       if (method === 'POST' && pathname === '/api/keywords') {
@@ -3792,13 +3832,19 @@ export default {
               }
             } catch (_) {}
           }
-          const folders = await listFolders(sql, {
-            projectId: searchParams.get('project_id') || 'default'
-          });
+          let folders = [];
+          try {
+            folders = await listFolders(sql, {
+              projectId: searchParams.get('project_id') || 'default'
+            });
+          } catch (err) {
+            console.warn('[Folders Fallback] listFolders failed:', err.message);
+            folders = [];
+          }
           if (Array.isArray(folders) && folders.length > 0) {
             safeWaitUntil(ctx, Promise.all(folders.map(f => syncFolderToD1(env, f))), 'syncAllFoldersToD1');
           }
-          return jsonResponse({ success: true, folders }, 200, 10);
+          return jsonResponse({ success: true, folders: Array.isArray(folders) ? folders : [] }, 200, 10);
         }
 
         if (method === 'POST') {
@@ -4134,13 +4180,23 @@ export default {
 
       // 18. PinArchive & Topic Clusters API
       if (method === 'GET' && pathname === '/api/pinarchive/overview') {
-        const overview = await getPinArchiveOverview(targetSql);
-        return jsonResponse({ success: true, overview });
+        try {
+          const overview = await getPinArchiveOverview(targetSql);
+          return jsonResponse({ success: true, overview });
+        } catch (err) {
+          console.error('[PinArchive Overview Error]', err.message);
+          return jsonResponse({ success: true, overview: { total_pins: 0, high_velocity_pins: 0, dormant_pins: 0, cooling_pins: 0, mature_pins: 0, growing_pins: 0 } }, 200);
+        }
       }
 
       if (method === 'GET' && pathname === '/api/pinarchive/rules') {
-        const rules = await getQualificationRules(targetSql);
-        return jsonResponse({ success: true, rules });
+        try {
+          const rules = await getQualificationRules(targetSql);
+          return jsonResponse({ success: true, rules });
+        } catch (err) {
+          console.error('[PinArchive Rules Error]', err.message);
+          return jsonResponse({ success: true, rules: {} }, 200);
+        }
       }
 
       if (method === 'POST' && pathname === '/api/pinarchive/rules') {
@@ -4157,13 +4213,30 @@ export default {
       }
 
       if (method === 'GET' && pathname === '/api/pinarchive/topics') {
+        const shardKey = reqProjectId || 'hub';
         const minPins = Number(searchParams.get('min_pins') || 1);
         const search = searchParams.get('search') || '';
         const account = searchParams.get('account') || '';
         const limit = clampLimit(searchParams.get('limit'), 50, 1000);
         const offset = Math.max(0, parseInt(searchParams.get('offset'), 10) || 0);
-        const topics = await getTopicClusters(targetSql, { minPins, search, account, limit, offset });
-        return jsonResponse({ success: true, topics });
+
+        const cacheKey = buildCanonicalCacheKey(`topics:${shardKey}`, {
+          minPins,
+          search,
+          account,
+          limit,
+          offset
+        });
+
+        try {
+          const topics = await getCachedOrFetch(cacheKey, async () => {
+            return await getTopicClusters(targetSql, { minPins, search, account, limit, offset });
+          }, 8000, 30000);
+          return jsonResponse({ success: true, topics: Array.isArray(topics) ? topics : [] }, 200, 8);
+        } catch (err) {
+          console.error('[Topics Error]', err.message);
+          return jsonResponse({ success: true, topics: [] }, 200);
+        }
       }
 
       if (method === 'GET' && pathname === '/api/pinarchive/pins') {

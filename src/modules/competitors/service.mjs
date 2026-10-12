@@ -55,98 +55,120 @@ export function normalizePinterestUsername(input) {
  * Get aggregated KPIs across all tracked competitor profiles
  */
 export async function getCompetitorsOverview(sql) {
-  const [totals] = await sql`
-    SELECT
-      COUNT(*)::int AS total_profiles,
-      COUNT(CASE WHEN account_type = 'competitor' THEN 1 END)::int AS competitor_count,
-      COUNT(CASE WHEN account_type = 'own' THEN 1 END)::int AS own_count,
-      COALESCE(SUM(monthly_reach), 0)::bigint AS combined_reach,
-      COALESCE(SUM(profile_views), 0)::bigint AS total_audience,
-      COALESCE(SUM(total_pins), 0)::int AS total_pins_tracked
-    FROM competitor_profiles
-    WHERE is_active = TRUE;
-  `;
+  try {
+    const totalsRes = await sql`
+      SELECT
+        COUNT(*)::int AS total_profiles,
+        COUNT(CASE WHEN account_type = 'competitor' THEN 1 END)::int AS competitor_count,
+        COUNT(CASE WHEN account_type = 'own' THEN 1 END)::int AS own_count,
+        COALESCE(SUM(monthly_reach), 0)::bigint AS combined_reach,
+        COALESCE(SUM(profile_views), 0)::bigint AS total_audience,
+        COALESCE(SUM(total_pins), 0)::int AS total_pins_tracked
+      FROM competitor_profiles
+      WHERE is_active = TRUE;
+    `;
+    const totals = totalsRes?.[0] || {};
 
-  const [topProfile] = await sql`
-    SELECT username, monthly_reach
-    FROM competitor_profiles
-    WHERE is_active = TRUE AND monthly_reach > 0
-    ORDER BY monthly_reach DESC
-    LIMIT 1;
-  `;
+    const topProfileRes = await sql`
+      SELECT username, monthly_reach
+      FROM competitor_profiles
+      WHERE is_active = TRUE AND monthly_reach > 0
+      ORDER BY monthly_reach DESC
+      LIMIT 1;
+    `;
+    const topProfile = topProfileRes?.[0] || null;
 
-  return {
-    tracked_profiles: totals.total_profiles || 0,
-    competitor_count: totals.competitor_count || 0,
-    own_count: totals.own_count || 0,
-    combined_reach: Number(totals.combined_reach || 0),
-    total_audience: Number(totals.total_audience || 0),
-    pins_tracked: totals.total_pins_tracked || 0,
-    top_competitor: topProfile ? {
-      handle: `@${topProfile.username}`,
-      reach: formatMetric(topProfile.monthly_reach, true)
-    } : null
-  };
+    return {
+      tracked_profiles: totals.total_profiles || 0,
+      competitor_count: totals.competitor_count || 0,
+      own_count: totals.own_count || 0,
+      combined_reach: Number(totals.combined_reach || 0),
+      total_audience: Number(totals.total_audience || 0),
+      pins_tracked: totals.total_pins_tracked || 0,
+      top_competitor: topProfile ? {
+        handle: `@${topProfile.username}`,
+        reach: formatMetric(topProfile.monthly_reach, true)
+      } : null
+    };
+  } catch (err) {
+    console.warn('[getCompetitorsOverview] Query failed, returning fallback summary:', err.message);
+    return {
+      tracked_profiles: 0,
+      competitor_count: 0,
+      own_count: 0,
+      combined_reach: 0,
+      total_audience: 0,
+      pins_tracked: 0,
+      top_competitor: null
+    };
+  }
 }
 
 /**
  * List tracked profiles with reach/view deltas and board stats
  */
 export async function listCompetitors(sql, { account_type = 'all', search = '', limit = 50, offset = 0 } = {}) {
-  let query;
-  const lim = Math.max(1, Math.min(isNaN(Number(limit)) ? 50 : Number(limit), 200));
-  const off = Math.max(0, isNaN(Number(offset)) ? 0 : Number(offset));
-  const searchPattern = search ? `%${search.toLowerCase().replace('@', '')}%` : null;
+  try {
+    let query;
+    const lim = Math.max(1, Math.min(isNaN(Number(limit)) ? 50 : Number(limit), 200));
+    const off = Math.max(0, isNaN(Number(offset)) ? 0 : Number(offset));
+    const searchPattern = search ? `%${search.toLowerCase().replace('@', '')}%` : null;
 
-  if (account_type && account_type !== 'all') {
-    if (searchPattern) {
-      query = await sql`
-        SELECT *
-        FROM competitor_profiles
-        WHERE account_type = ${account_type}
-          AND (LOWER(username) LIKE ${searchPattern} OR LOWER(COALESCE(display_name, '')) LIKE ${searchPattern})
-        ORDER BY monthly_reach DESC
-        LIMIT ${lim} OFFSET ${off};
-      `;
+    if (account_type && account_type !== 'all') {
+      if (searchPattern) {
+        query = await sql`
+          SELECT *
+          FROM competitor_profiles
+          WHERE account_type = ${account_type}
+            AND (LOWER(username) LIKE ${searchPattern} OR LOWER(COALESCE(display_name, '')) LIKE ${searchPattern})
+          ORDER BY monthly_reach DESC
+          LIMIT ${lim} OFFSET ${off};
+        `;
+      } else {
+        query = await sql`
+          SELECT *
+          FROM competitor_profiles
+          WHERE account_type = ${account_type}
+          ORDER BY monthly_reach DESC
+          LIMIT ${lim} OFFSET ${off};
+        `;
+      }
     } else {
-      query = await sql`
-        SELECT *
-        FROM competitor_profiles
-        WHERE account_type = ${account_type}
-        ORDER BY monthly_reach DESC
-        LIMIT ${lim} OFFSET ${off};
-      `;
+      if (searchPattern) {
+        query = await sql`
+          SELECT *
+          FROM competitor_profiles
+          WHERE (LOWER(username) LIKE ${searchPattern} OR LOWER(COALESCE(display_name, '')) LIKE ${searchPattern})
+          ORDER BY monthly_reach DESC
+          LIMIT ${lim} OFFSET ${off};
+        `;
+      } else {
+        query = await sql`
+          SELECT *
+          FROM competitor_profiles
+          ORDER BY monthly_reach DESC
+          LIMIT ${lim} OFFSET ${off};
+        `;
+      }
     }
-  } else {
-    if (searchPattern) {
-      query = await sql`
-        SELECT *
-        FROM competitor_profiles
-        WHERE (LOWER(username) LIKE ${searchPattern} OR LOWER(COALESCE(display_name, '')) LIKE ${searchPattern})
-        ORDER BY monthly_reach DESC
-        LIMIT ${lim} OFFSET ${off};
-      `;
-    } else {
-      query = await sql`
-        SELECT *
-        FROM competitor_profiles
-        ORDER BY monthly_reach DESC
-        LIMIT ${lim} OFFSET ${off};
-      `;
-    }
+
+    if (!Array.isArray(query)) return [];
+
+    return query.map(p => ({
+      ...p,
+      handle: `@${p.username}`,
+      monthly_reach: Number(p.monthly_reach || 0),
+      reach_delta_7d: Number(p.reach_delta_7d || 0),
+      profile_views: Number(p.profile_views || 0),
+      views_delta_7d: Number(p.views_delta_7d || 0),
+      total_pins: Number(p.total_pins || 0),
+      total_boards: Number(p.total_boards || 0),
+      follower_count: Number(p.follower_count || 0)
+    }));
+  } catch (err) {
+    console.warn('[listCompetitors] Query failed, returning fallback empty list:', err.message);
+    return [];
   }
-
-  return query.map(p => ({
-    ...p,
-    handle: `@${p.username}`,
-    monthly_reach: Number(p.monthly_reach || 0),
-    reach_delta_7d: Number(p.reach_delta_7d || 0),
-    profile_views: Number(p.profile_views || 0),
-    views_delta_7d: Number(p.views_delta_7d || 0),
-    total_pins: Number(p.total_pins || 0),
-    total_boards: Number(p.total_boards || 0),
-    follower_count: Number(p.follower_count || 0)
-  }));
 }
 
 /**
