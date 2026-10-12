@@ -798,6 +798,29 @@ export default {
       }
       try {
         await sql`SELECT 1 as alive;`;
+        let kvShardsCount = 0;
+        if (isKvConfigured) {
+          try {
+            let cachedMap = await env.PIN_ENGINE_KV.get('fleet:shards_map', { type: 'json' });
+            if (!cachedMap || !Array.isArray(cachedMap) || cachedMap.length === 0) {
+              const rows = await sql`
+                SELECT id, project_id, project_name, database_url, status, assigned_shards
+                FROM neon_projects_registry 
+                WHERE status = 'active';
+              `;
+              if (Array.isArray(rows) && rows.length > 0) {
+                await env.PIN_ENGINE_KV.put('fleet:shards_map', JSON.stringify(rows), { expirationTtl: 86400 });
+                cachedMap = rows;
+              }
+            }
+            kvShardsCount = Array.isArray(cachedMap) ? cachedMap.length : 0;
+            await env.PIN_ENGINE_KV.put('fleet:health', JSON.stringify({
+              status: 'healthy',
+              shards_count: kvShardsCount,
+              updated_at: new Date().toISOString()
+            }), { expirationTtl: 86400 });
+          } catch (_) {}
+        }
         const hyperdriveAccelerated = Boolean(isHyperdriveConfigured && (usedHyperdrive || env?.SQL_CLIENT));
         return jsonResponse({
           status: 'healthy',
@@ -809,6 +832,7 @@ export default {
           direct_neon_configured: Boolean(directNeonUrl),
           kv: isKvConfigured ? 'connected' : 'unconfigured',
           kv_configured: isKvConfigured,
+          kv_shards_cached: kvShardsCount,
           d1: isD1Configured ? 'connected' : 'unconfigured',
           d1_configured: isD1Configured,
           timestamp: new Date().toISOString()
@@ -4032,15 +4056,32 @@ export default {
         return jsonResponse({ success: true, crossover });
       }
 
-      // 17. Neon Multi-Project Fleet API
-      if (method === 'GET' && pathname === '/api/fleet/projects') {
-        const cacheKey = 'fleet_projects';
-        const projects = await getCachedOrFetch(cacheKey, () => getFleetProjects(sql), 10000, 30000);
-        return jsonResponse({ success: true, projects }, 200, 10);
+      // 17. Neon Multi-Project Fleet API & Shards Map (KV Accelerated)
+      if (method === 'GET' && (pathname === '/api/fleet/projects' || pathname === '/api/fleet/shards')) {
+        let projects = null;
+        if (env?.PIN_ENGINE_KV) {
+          try {
+            projects = await env.PIN_ENGINE_KV.get('fleet:shards_map', { type: 'json', cacheTtl: 300 });
+          } catch (_) {}
+        }
+        if (!projects || !Array.isArray(projects) || projects.length === 0) {
+          const cacheKey = 'fleet_projects';
+          projects = await getCachedOrFetch(cacheKey, () => getFleetProjects(sql), 10000, 30000);
+          if (env?.PIN_ENGINE_KV && Array.isArray(projects) && projects.length > 0) {
+            safeWaitUntil(ctx, env.PIN_ENGINE_KV.put('fleet:shards_map', JSON.stringify(projects), { expirationTtl: 86400 }), 'kv_cache_shards_map');
+          }
+        }
+        return jsonResponse({
+          success: true,
+          projects,
+          shards: projects,
+          source: env?.PIN_ENGINE_KV ? 'kv_edge' : 'neon_hub'
+        }, 200, 10);
       }
 
       if (method === 'POST' && pathname === '/api/fleet/projects') {
         invalidateEdgeCache('fleet_projects');
+        if (env?.PIN_ENGINE_KV) safeWaitUntil(ctx, env.PIN_ENGINE_KV.delete('fleet:shards_map'), 'kv_evict_shards_map');
         const body = await request.json().catch(() => ({}));
         const row = await registerNewProject(sql, body);
         return jsonResponse({ success: true, project: row });
@@ -4048,6 +4089,7 @@ export default {
 
       if (method === 'POST' && pathname === '/api/fleet/sync') {
         invalidateEdgeCache('fleet_projects');
+        if (env?.PIN_ENGINE_KV) safeWaitUntil(ctx, env.PIN_ENGINE_KV.delete('fleet:shards_map'), 'kv_evict_shards_map');
         const body = await request.json().catch(() => ({}));
         const targetProj = body?.project_id || searchParams.get('project_id');
         const syncRes = await syncFleetDatabases(sql, { targetProjectId: targetProj });
