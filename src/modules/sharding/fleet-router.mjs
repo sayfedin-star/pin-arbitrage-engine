@@ -152,9 +152,10 @@ export function enforceNeonPoolerUrl(url) {
  * @param {number} options.shardId - Target Shard Number (1-99)
  * @param {string} [options.dsnTemplate] - Optional template DSN e.g. postgres://user:pass@ep-shard-{SHARD_NUM}-pooler.neon.tech/neondb
  * @param {string} [options.prefix] - Project name prefix (default: 'pin-arbitrage-shard')
+ * @param {object} [options.env] - Cloudflare Workers environment bindings (PIN_ENGINE_KV)
  * @returns {Promise<Function>} Neon SQL client instance
  */
-export async function resolveShardConnection({ hubSql, shardId, dsnTemplate = null, prefix = 'pin-arbitrage-shard' }) {
+export async function resolveShardConnection({ hubSql, shardId, dsnTemplate = null, prefix = 'pin-arbitrage-shard', env = null }) {
   const cleanId = Math.max(1, Math.min(99, Number(shardId) || 1));
   const shardName = getShardProjectName(cleanId, prefix);
 
@@ -187,7 +188,27 @@ export async function resolveShardConnection({ hubSql, shardId, dsnTemplate = nu
     }
   }
 
-  // Refresh registry from Hub
+  // 3. Workers KV Fast Shard Routing (fleet:shards_map)
+  if (env?.PIN_ENGINE_KV) {
+    const kvRows = await getFleetShardsMap(env, hubSql);
+    if (Array.isArray(kvRows)) {
+      const match = kvRows.find(r => 
+        (r.project_name === shardName) ||
+        (Array.isArray(r.assigned_shards) && r.assigned_shards.map(Number).includes(cleanId))
+      );
+      if (match?.database_url) {
+        registryCache.set(cleanId, { ...match, cachedAt: now });
+        registryLastFetched = now;
+        const pooledDsn = enforceNeonPoolerUrl(match.database_url);
+        if (!shardSqlClients.has(pooledDsn)) {
+          shardSqlClients.set(pooledDsn, neon(pooledDsn));
+        }
+        return shardSqlClients.get(pooledDsn);
+      }
+    }
+  }
+
+  // 4. Refresh registry from Central Hub
   if (!hubSql) {
     throw new Error(`Cannot resolve shard ${cleanId}: No Hub database client provided.`);
   }
@@ -215,21 +236,75 @@ export async function resolveShardConnection({ hubSql, shardId, dsnTemplate = nu
 }
 
 /**
+ * Resolves active shard mappings from Cloudflare Workers KV (fleet:shards_map)
+ * or falls back to querying the Central Metadata Hub.
+ *
+ * @param {object} [env] - Cloudflare Worker environment bindings
+ * @param {Function} [hubSql] - Central Metadata Hub Neon client
+ * @returns {Promise<Array<object>|null>}
+ */
+export async function getFleetShardsMap(env = null, hubSql = null) {
+  if (env?.PIN_ENGINE_KV) {
+    try {
+      const kvData = await env.PIN_ENGINE_KV.get('fleet:shards_map', { type: 'json', cacheTtl: 300 });
+      if (Array.isArray(kvData) && kvData.length > 0) {
+        return kvData;
+      }
+    } catch (_) {}
+  }
+
+  if (hubSql) {
+    try {
+      const rows = await hubSql`
+        SELECT id, project_id, project_name, database_url, status, assigned_shards
+        FROM neon_projects_registry
+        WHERE status = 'active';
+      `;
+      if (env?.PIN_ENGINE_KV && Array.isArray(rows) && rows.length > 0) {
+        env.PIN_ENGINE_KV.put('fleet:shards_map', JSON.stringify(rows), { expirationTtl: 86400 }).catch(() => {});
+      }
+      return rows;
+    } catch (err) {
+      console.warn('[fleet-router] getFleetShardsMap query failed:', err.message);
+    }
+  }
+
+  return null;
+}
+
+/**
  * Preloads all active shard connection records from the Central Metadata Hub
  * into memory in a single query. Eliminates N+1 registry roundtrips.
  *
  * @param {Function} hubSql - Central Metadata Hub Neon client
+ * @param {object} [env] - Cloudflare Workers environment bindings (PIN_ENGINE_KV)
  * @returns {Promise<number>} Number of shard mappings loaded
  */
-export async function preloadNeonRegistry(hubSql) {
-  if (!hubSql) return 0;
+export async function preloadNeonRegistry(hubSql, env = null) {
   const now = Date.now();
   try {
-    const rows = await hubSql`
-      SELECT id, project_id, project_name, database_url, status, assigned_shards
-      FROM neon_projects_registry
-      WHERE status = 'active';
-    `;
+    let rows = null;
+    if (env?.PIN_ENGINE_KV) {
+      try {
+        const kvData = await env.PIN_ENGINE_KV.get('fleet:shards_map', { type: 'json', cacheTtl: 300 });
+        if (Array.isArray(kvData) && kvData.length > 0) {
+          rows = kvData;
+        }
+      } catch (_) {}
+    }
+
+    if (!rows && hubSql) {
+      rows = await hubSql`
+        SELECT id, project_id, project_name, database_url, status, assigned_shards
+        FROM neon_projects_registry
+        WHERE status = 'active';
+      `;
+      if (env?.PIN_ENGINE_KV && Array.isArray(rows) && rows.length > 0) {
+        env.PIN_ENGINE_KV.put('fleet:shards_map', JSON.stringify(rows), { expirationTtl: 86400 }).catch(() => {});
+      }
+    }
+
+    if (!rows) return 0;
     let loaded = 0;
     for (const row of rows) {
       if (Array.isArray(row.assigned_shards)) {

@@ -5,3 +5,20 @@ compatibility_flags = ["nodejs_compat"]
 
 [vars]
 PORT = "3456"
+
+# 1. Hyperdrive Binding for Neon Central Hub
+[[hyperdrive]]
+binding = "HYPERDRIVE"
+id = "<HYPERDRIVE_CONFIG_ID>"
+
+# 2. Workers KV Namespace for Shard Routing & Circuit Breakers
+[[kv_namespaces]]
+binding = "PIN_ENGINE_KV"
+id = "<KV_NAMESPACE_ID>"
+
+# 3. D1 Database for Edge Search Autocomplete & Folders
+[[d1_databases]]
+binding = "PIN_D1_DB"
+database_name = "pin-engine-edge"
+database_id = "<D1_DATABASE_ID>"
+
