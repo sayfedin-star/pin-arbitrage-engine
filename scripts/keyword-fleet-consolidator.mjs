@@ -334,32 +334,51 @@ async function main() {
 
 /**
  * Automated Shard Janitor Garbage Collection (Orphan SERP Positions GC)
- * Purges pin_serp_positions across all 99 shards ONLY for keywords explicitly marked for GC purge.
+ * Purges pin_serp_positions across all 99 shards for keywords tracked in keyword_tombstones.
  * 
  * Production Inquest Guarantees:
- * 1. Semantic Preservation: Keywords that are simply paused (is_active = FALSE) are NEVER purged,
+ * 1. Real Lifecycle: Sourced directly from persistent `keyword_tombstones` populated upon keyword deletion.
+ * 2. Semantic Preservation: Keywords that are simply paused (is_active = FALSE) are NEVER purged,
  *    preserving their historical SERP rank trajectories intact for charts and analytics.
- * 2. Run-Once Semantics: Keywords flagged for purge (metadata->>'gc_purge_requested' = 'true')
- *    are atomically marked with metadata.shards_purged = true upon successful shard cleanup,
- *    eradicating the repeating 99-shard broadcast storm on subsequent fleet runs.
+ * 3. Run-Once Semantics: Tombstones are atomically updated with shards_purged = TRUE and purged_at = NOW(),
+ *    permanently eliminating repeating 99-shard broadcast storms on subsequent fleet runs.
  */
 async function runShardJanitorGC() {
   console.log('\n[*] Running Automated Shard Janitor GC...');
   try {
-    const purgeCandidates = await sql`
-      SELECT id, keyword
-      FROM tracked_keywords
-      WHERE (metadata->>'gc_purge_requested' = 'true')
-        AND (metadata->>'shards_purged' IS NULL OR metadata->>'shards_purged' != 'true');
+    await sql`
+      CREATE TABLE IF NOT EXISTS keyword_tombstones (
+        keyword_id INT PRIMARY KEY,
+        keyword TEXT,
+        deleted_at TIMESTAMPTZ DEFAULT NOW(),
+        shards_purged BOOLEAN DEFAULT FALSE,
+        purged_at TIMESTAMPTZ
+      );
+    `.catch(() => {});
+
+    // Sweep any orphan keyword_ids in keyword_serp_current missing from tracked_keywords
+    await sql`
+      INSERT INTO keyword_tombstones (keyword_id, keyword, deleted_at, shards_purged)
+      SELECT DISTINCT ksc.keyword_id, '<orphan>', NOW(), FALSE
+      FROM keyword_serp_current ksc
+      LEFT JOIN tracked_keywords tk ON tk.id = ksc.keyword_id
+      WHERE tk.id IS NULL AND ksc.keyword_id IS NOT NULL
+      ON CONFLICT (keyword_id) DO NOTHING;
+    `.catch(() => {});
+
+    const pendingTombstones = await sql`
+      SELECT keyword_id, keyword
+      FROM keyword_tombstones
+      WHERE shards_purged = FALSE;
     `.catch(() => []);
 
-    if (!purgeCandidates || purgeCandidates.length === 0) {
-      console.log('    [+] Shard Janitor GC: No pending purge candidates found. Shard positions clean.');
+    if (!pendingTombstones || pendingTombstones.length === 0) {
+      console.log('    [+] Shard Janitor GC: No pending tombstones found. Shard positions clean.');
       return 0;
     }
 
-    const purgeIds = purgeCandidates.map(r => Number(r.id)).filter(id => id && !isNaN(id));
-    console.log(`    [!] Found ${purgeIds.length} pending purge keywords: [${purgeIds.join(', ')}]. Broadcasting cleanup to 99 shards...`);
+    const purgeIds = pendingTombstones.map(r => Number(r.keyword_id)).filter(id => id && !isNaN(id));
+    console.log(`    [!] Found ${purgeIds.length} pending tombstone keywords: [${purgeIds.join(', ')}]. Broadcasting cleanup to 99 shards...`);
 
     await preloadNeonRegistry(sql);
     const shardIds = Array.from({ length: 99 }, (_, i) => i + 1);
@@ -382,15 +401,18 @@ async function runShardJanitorGC() {
 
     // Atomic State Transition: Mark shards_purged = true to guarantee strictly-once execution
     await sql`
-      UPDATE tracked_keywords
-      SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{shards_purged}', 'true'::jsonb),
-          updated_at = NOW()
-      WHERE id = ANY(${purgeIds});
+      UPDATE keyword_tombstones
+      SET shards_purged = TRUE,
+          purged_at = NOW()
+      WHERE keyword_id = ANY(${purgeIds});
     `.catch(err => {
-      console.warn('    [!] Failed marking shards_purged on tracked_keywords:', err.message);
+      console.warn('    [!] Failed marking shards_purged on keyword_tombstones:', err.message);
     });
 
-    console.log(`    [+] Shard Janitor GC: Broadcast complete across ${purgedShardsCount} shards. Marked ${purgeIds.length} keywords as shards_purged.`);
+    // Clean any lingering Hub records for purged tombstones
+    await sql`DELETE FROM keyword_serp_current WHERE keyword_id = ANY(${purgeIds});`.catch(() => {});
+
+    console.log(`    [+] Shard Janitor GC: Broadcast complete across ${purgedShardsCount} shards. Marked ${purgeIds.length} tombstones as shards_purged.`);
     return purgeIds.length;
   } catch (gcErr) {
     console.warn('    [!] Shard Janitor GC non-fatal warning:', gcErr.message);

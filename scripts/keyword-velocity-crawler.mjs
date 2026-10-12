@@ -272,6 +272,13 @@ async function inspectPin(pin, kw) {
     return null;
   }
 
+  // Guard against False-Success Masking (Landmine 2):
+  // If pin could not be fetched and is not confirmed dead (e.g. 429 rate limit or network error),
+  // return null so it is NOT marked with crawled_at = NOW() and remains eligible for retry.
+  if (!detail && !isDead) {
+    return null;
+  }
+
   // Authentic Metrics Normalization
   const authenticSaves = Math.max(
     Number(pin.save_count || 0),
@@ -285,6 +292,28 @@ async function inspectPin(pin, kw) {
   );
   const authenticComments = Number(detail?.comments || detail?.comment_count || 0);
   const authenticShares = Number(detail?.shares || detail?.share_count || 0);
+
+  // Live Velocity Delta Generation (Landmine 5):
+  // Dynamically compute 24h normalized save velocity when fresh Pinterest closeup yields new saves
+  const prevSaves = Number(pin.save_count || 0);
+  let computedVelocity = Number(pin.daily_save_velocity || 0);
+
+  if (detail && authenticSaves > prevSaves && prevSaves > 0) {
+    const rawDelta = authenticSaves - prevSaves;
+    const lastTimestamp = pin.crawled_at || pin.updated_at;
+    if (lastTimestamp) {
+      const elapsedHours = Math.max(0.25, (Date.now() - new Date(lastTimestamp).getTime()) / (1000 * 60 * 60));
+      if (elapsedHours >= 0.5 && elapsedHours <= 72) {
+        const annualizedDelta = Math.round((rawDelta / elapsedHours) * 24);
+        computedVelocity = Math.min(25000, Math.max(computedVelocity, annualizedDelta));
+      } else {
+        computedVelocity = Math.min(25000, Math.max(computedVelocity, rawDelta));
+      }
+    } else {
+      computedVelocity = Math.min(25000, Math.max(computedVelocity, rawDelta));
+    }
+  }
+
   const description = detail?.description || pin.description || '';
   const altText = detail?.alt_text || detail?.altText || detail?.seo_alt_text || pin.alt_text || '';
   const dominantColor = detail?.dominant_color || detail?.dominantColor || pin.dominant_color || '#888888';
@@ -351,10 +380,11 @@ async function inspectPin(pin, kw) {
     repin_count: authenticRepins,
     comment_count: authenticComments,
     share_count: authenticShares,
-    daily_save_velocity: pin.daily_save_velocity || 0,
+    daily_save_velocity: computedVelocity,
     rank_position: pin.rank_position,
     keyword_id: pin.keyword_id || kw?.id || null,
-    is_deleted: isDead
+    is_deleted: isDead,
+    from_hydration_cache: false
   };
 }
 
@@ -372,6 +402,8 @@ async function flushBatchToHub(pinsChunk, kw) {
     authentic_repins: Number(p.repin_count || 0),
     authentic_comments: Number(p.comment_count || 0),
     authentic_shares: Number(p.share_count || 0),
+    daily_save_velocity: Number(p.daily_save_velocity || 0),
+    from_hydration_cache: Boolean(p.from_hydration_cache),
     creator: String(p.creator_username || ''),
     board: String(p.board_name || ''),
     dominant_color: String(p.dominant_color || '#888888'),
@@ -391,6 +423,10 @@ async function flushBatchToHub(pinsChunk, kw) {
         repin_count = GREATEST(ksc.repin_count, u.authentic_repins::int),
         comment_count = GREATEST(COALESCE(ksc.comment_count, 0), u.authentic_comments::int),
         share_count = GREATEST(COALESCE(ksc.share_count, 0), u.authentic_shares::int),
+        daily_save_velocity = CASE 
+          WHEN u.daily_save_velocity > 0 THEN GREATEST(COALESCE(ksc.daily_save_velocity, 0), u.daily_save_velocity::numeric)
+          ELSE ksc.daily_save_velocity 
+        END,
         creator_username = CASE WHEN u.creator <> '' THEN u.creator ELSE ksc.creator_username END,
         board_name = CASE WHEN u.board <> '' THEN u.board ELSE ksc.board_name END,
         dominant_color = CASE WHEN u.dominant_color <> '' THEN u.dominant_color ELSE ksc.dominant_color END,
@@ -419,7 +455,7 @@ async function flushBatchToHub(pinsChunk, kw) {
           'is_deleted', u.is_dead::boolean,
           'status', CASE WHEN u.is_dead THEN 'archived_404' ELSE 'active' END
         ),
-        crawled_at = NOW(),
+        crawled_at = CASE WHEN u.from_hydration_cache THEN ksc.crawled_at ELSE NOW() END,
         updated_at = NOW()
       FROM jsonb_to_recordset(${payloadJson}::jsonb) AS u(
         pin_id text,
@@ -427,6 +463,8 @@ async function flushBatchToHub(pinsChunk, kw) {
         authentic_repins int,
         authentic_comments int,
         authentic_shares int,
+        daily_save_velocity numeric,
+        from_hydration_cache boolean,
         creator text,
         board text,
         dominant_color text,
@@ -450,6 +488,10 @@ async function flushBatchToHub(pinsChunk, kw) {
         repin_count = GREATEST(kps.repin_count, u.authentic_repins::int),
         comment_count = GREATEST(kps.comment_count, u.authentic_comments::int),
         share_count = GREATEST(COALESCE(kps.share_count, 0), u.authentic_shares::int),
+        daily_save_velocity = CASE 
+          WHEN u.daily_save_velocity > 0 THEN GREATEST(COALESCE(kps.daily_save_velocity, 0), u.daily_save_velocity::numeric)
+          ELSE kps.daily_save_velocity 
+        END,
         vacuum_opportunity_score = CASE 
           WHEN COALESCE(kps.last_known_rank, kps.rank_position, 100) <= 5 THEN 85
           WHEN COALESCE(kps.last_known_rank, kps.rank_position, 100) <= 15 THEN 75
@@ -481,6 +523,8 @@ async function flushBatchToHub(pinsChunk, kw) {
         authentic_repins int,
         authentic_comments int,
         authentic_shares int,
+        daily_save_velocity numeric,
+        from_hydration_cache boolean,
         creator text,
         board text,
         dominant_color text,
@@ -505,6 +549,10 @@ async function flushBatchToHub(pinsChunk, kw) {
         repin_count = GREATEST(ksc.repin_count, u.authentic_repins::int),
         comment_count = GREATEST(COALESCE(ksc.comment_count, 0), u.authentic_comments::int),
         share_count = GREATEST(COALESCE(ksc.share_count, 0), u.authentic_shares::int),
+        daily_save_velocity = CASE 
+          WHEN u.daily_save_velocity > 0 THEN GREATEST(COALESCE(ksc.daily_save_velocity, 0), u.daily_save_velocity::numeric)
+          ELSE ksc.daily_save_velocity 
+        END,
         creator_username = CASE WHEN u.creator <> '' THEN u.creator ELSE ksc.creator_username END,
         board_name = CASE WHEN u.board <> '' THEN u.board ELSE ksc.board_name END,
         dominant_color = CASE WHEN u.dominant_color <> '' THEN u.dominant_color ELSE ksc.dominant_color END,
@@ -533,7 +581,7 @@ async function flushBatchToHub(pinsChunk, kw) {
           'is_deleted', u.is_dead::boolean,
           'status', CASE WHEN u.is_dead THEN 'archived_404' ELSE 'active' END
         ),
-        crawled_at = NOW(),
+        crawled_at = CASE WHEN u.from_hydration_cache THEN ksc.crawled_at ELSE NOW() END,
         updated_at = NOW()
       FROM jsonb_to_recordset(${payloadJson}::jsonb) AS u(
         pin_id text,
@@ -541,6 +589,8 @@ async function flushBatchToHub(pinsChunk, kw) {
         authentic_repins int,
         authentic_comments int,
         authentic_shares int,
+        daily_save_velocity numeric,
+        from_hydration_cache boolean,
         creator text,
         board text,
         dominant_color text,
@@ -561,6 +611,10 @@ async function flushBatchToHub(pinsChunk, kw) {
         repin_count = GREATEST(kps.repin_count, u.authentic_repins::int),
         comment_count = GREATEST(kps.comment_count, u.authentic_comments::int),
         share_count = GREATEST(COALESCE(kps.share_count, 0), u.authentic_shares::int),
+        daily_save_velocity = CASE 
+          WHEN u.daily_save_velocity > 0 THEN GREATEST(COALESCE(kps.daily_save_velocity, 0), u.daily_save_velocity::numeric)
+          ELSE kps.daily_save_velocity 
+        END,
         vacuum_opportunity_score = CASE 
           WHEN COALESCE(kps.last_known_rank, kps.rank_position, 100) <= 5 THEN 85
           WHEN COALESCE(kps.last_known_rank, kps.rank_position, 100) <= 15 THEN 75
@@ -592,6 +646,8 @@ async function flushBatchToHub(pinsChunk, kw) {
         authentic_repins int,
         authentic_comments int,
         authentic_shares int,
+        daily_save_velocity numeric,
+        from_hydration_cache boolean,
         creator text,
         board text,
         dominant_color text,
@@ -811,7 +867,10 @@ async function flushToStorageShards(enrichedPins) {
                 repin_count = GREATEST(pins_daily_snapshots.repin_count, EXCLUDED.repin_count),
                 comment_count = GREATEST(pins_daily_snapshots.comment_count, EXCLUDED.comment_count),
                 share_count = GREATEST(pins_daily_snapshots.share_count, EXCLUDED.share_count),
-                daily_save_velocity = EXCLUDED.daily_save_velocity,
+                daily_save_velocity = CASE 
+                  WHEN EXCLUDED.daily_save_velocity > 0 THEN GREATEST(COALESCE(pins_daily_snapshots.daily_save_velocity, 0), EXCLUDED.daily_save_velocity)
+                  ELSE pins_daily_snapshots.daily_save_velocity 
+                END,
                 created_at = NOW();
             `;
           })();

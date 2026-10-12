@@ -2427,21 +2427,53 @@ export default {
           keyword = keyword || body.keyword;
         } catch (_) {}
 
-        const ids = Array.isArray(body.ids) ? body.ids.map(Number).filter(Boolean) : [];
+        let targetIds = [];
         if (ids.length > 0) {
-          await sql`DELETE FROM tracked_keywords WHERE id = ANY(${ids});`;
-          return jsonResponse({ success: true, deleted_ids: ids });
-        }
-
-        if (id && !isNaN(Number(id))) {
-          await sql`DELETE FROM tracked_keywords WHERE id = ${Number(id)};`;
-          return jsonResponse({ success: true, deleted_id: Number(id) });
+          targetIds = ids;
+        } else if (id && !isNaN(Number(id))) {
+          targetIds = [Number(id)];
         } else if (keyword) {
           const cleanKeyword = keyword.toLowerCase().trim();
-          await sql`DELETE FROM tracked_keywords WHERE LOWER(keyword) = ${cleanKeyword};`;
-          return jsonResponse({ success: true, deleted_keyword: cleanKeyword });
+          const rows = await sql`SELECT id FROM tracked_keywords WHERE LOWER(keyword) = ${cleanKeyword};`;
+          targetIds = rows.map(r => Number(r.id)).filter(Boolean);
         }
-        return jsonResponse({ error: 'id, keyword, or ids array is required to delete tracked keyword' }, 400);
+
+        if (targetIds.length === 0) {
+          return jsonResponse({ error: 'id, keyword, or ids array is required to delete tracked keyword' }, 400);
+        }
+
+        // 1. Ensure persistent distributed tombstone table exists on Central Hub
+        await sql`
+          CREATE TABLE IF NOT EXISTS keyword_tombstones (
+            keyword_id INT PRIMARY KEY,
+            keyword TEXT,
+            deleted_at TIMESTAMPTZ DEFAULT NOW(),
+            shards_purged BOOLEAN DEFAULT FALSE,
+            purged_at TIMESTAMPTZ
+          );
+        `.catch(() => {});
+
+        // 2. Fetch keyword metadata for the tombstone audit trail
+        const existingKw = await sql`
+          SELECT id, keyword FROM tracked_keywords WHERE id = ANY(${targetIds});
+        `.catch(() => []);
+
+        // 3. Record tombstones for Shard Janitor GC (initiating 99 Shards cleanup lifecycle)
+        if (existingKw.length > 0) {
+          await sql`
+            INSERT INTO keyword_tombstones (keyword_id, keyword, deleted_at, shards_purged)
+            SELECT u.id, u.keyword, NOW(), FALSE
+            FROM jsonb_to_recordset(${JSON.stringify(existingKw)}::jsonb) AS u(id int, keyword text)
+            ON CONFLICT (keyword_id) DO UPDATE SET deleted_at = NOW(), shards_purged = FALSE;
+          `.catch(() => {});
+        }
+
+        // 4. Clean Central Hub items & execute deletion from tracked_keywords
+        await sql`DELETE FROM keyword_serp_current WHERE keyword_id = ANY(${targetIds});`.catch(() => {});
+        await sql`DELETE FROM keyword_folder_items WHERE keyword_id = ANY(${targetIds});`.catch(() => {});
+        await sql`DELETE FROM tracked_keywords WHERE id = ANY(${targetIds});`;
+
+        return jsonResponse({ success: true, deleted_ids: targetIds });
       }
 
       // DELETE /api/keywords/:keywordId/pins/:pinId (Manual Pin Catalog Deletion Directive)
