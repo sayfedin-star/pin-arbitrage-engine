@@ -6,40 +6,35 @@ compatibility_flags = ["nodejs_compat"]
 [vars]
 PORT = "3456"
 
-# ==============================================================================
-# Edge Modernization Bindings (Hyperdrive, Workers KV, and Cloudflare D1)
-# Note: Uncomment and fill in your real Cloudflare resource IDs once created.
-# The worker automatically falls back gracefully to Neon Central Hub if unset.
-# ==============================================================================
+# 1. Workers KV Namespace for Shard Routing & Circuit Breakers
+[[kv_namespaces]]
+binding = "PIN_ENGINE_KV"
+id = "5ef158495b3a4b8b800e50c3242fb92d"
 
-# 1. Hyperdrive Binding for Neon Central Hub
+# 2. D1 Database for Edge Search Autocomplete & Folders
+[[d1_databases]]
+binding = "PIN_D1_DB"
+database_name = "pin-engine-edge"
+database_id = "b0e9c924-4190-436f-909b-a7142696680b"
+
+# 3. Hyperdrive Binding for Neon Central Hub
+# Note: Uncomment and paste Hyperdrive ID once created after clicking "Next"
 # [[hyperdrive]]
 # binding = "HYPERDRIVE"
 # id = "<HYPERDRIVE_CONFIG_ID>"
-
-# 2. Workers KV Namespace for Shard Routing & Circuit Breakers
-# [[kv_namespaces]]
-# binding = "PIN_ENGINE_KV"
-# id = "<KV_NAMESPACE_ID>"
-
-# 3. D1 Database for Edge Search Autocomplete & Folders
-# [[d1_databases]]
-# binding = "PIN_D1_DB"
-# database_name = "pin-engine-edge"
-# database_id = "<D1_DATABASE_ID>"
 
 # 4. Preview Configuration for Worker Previews (Wrangler v4 preview builds)
 [previews.vars]
 PORT = "3456"
 
+[[previews.kv_namespaces]]
+binding = "PIN_ENGINE_KV"
+id = "5ef158495b3a4b8b800e50c3242fb92d"
+
+[[previews.d1_databases]]
+binding = "PIN_D1_DB"
+database_id = "b0e9c924-4190-436f-909b-a7142696680b"
+
 # [[previews.hyperdrive]]
 # binding = "HYPERDRIVE"
 # id = "<HYPERDRIVE_CONFIG_ID>"
-
-# [[previews.kv_namespaces]]
-# binding = "PIN_ENGINE_KV"
-# id = "<KV_NAMESPACE_ID>"
-
-# [[previews.d1_databases]]
-# binding = "PIN_D1_DB"
-# database_id = "<D1_DATABASE_ID>"
