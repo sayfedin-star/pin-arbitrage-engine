@@ -4071,10 +4071,24 @@ export default {
             safeWaitUntil(ctx, env.PIN_ENGINE_KV.put('fleet:shards_map', JSON.stringify(projects), { expirationTtl: 86400 }), 'kv_cache_shards_map');
           }
         }
+
+        // Security: Mask database credentials before transmitting to client
+        const clientProjects = (Array.isArray(projects) ? projects : []).map(p => {
+          const rawUrl = p.database_url || '';
+          const masked = rawUrl.includes('@')
+            ? rawUrl.replace(/(:\/\/[^:]+:)(.*)(@[^@]+$)/, '$1••••••••$3')
+            : rawUrl;
+          return {
+            ...p,
+            database_url: masked,
+            masked_url: masked
+          };
+        });
+
         return jsonResponse({
           success: true,
-          projects,
-          shards: projects,
+          projects: clientProjects,
+          shards: clientProjects,
           source: env?.PIN_ENGINE_KV ? 'kv_edge' : 'neon_hub'
         }, 200, 10);
       }
