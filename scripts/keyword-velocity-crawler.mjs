@@ -298,7 +298,7 @@ async function inspectPin(pin, kw) {
   const prevSaves = Number(pin.save_count || 0);
   let computedVelocity = Number(pin.daily_save_velocity || 0);
 
-  if (detail && authenticSaves > prevSaves && prevSaves > 0) {
+  if (detail && authenticSaves > prevSaves && prevSaves >= 0) {
     const rawDelta = authenticSaves - prevSaves;
     const lastTimestamp = pin.crawled_at || pin.updated_at;
     if (lastTimestamp) {

@@ -2427,6 +2427,7 @@ export default {
           keyword = keyword || body.keyword;
         } catch (_) {}
 
+        const ids = Array.isArray(body?.ids) ? body.ids.map(Number).filter(Boolean) : [];
         let targetIds = [];
         if (ids.length > 0) {
           targetIds = ids;
