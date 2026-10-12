@@ -18,10 +18,9 @@ database_name = "pin-engine-edge"
 database_id = "b0e9c924-4190-436f-909b-a7142696680b"
 
 # 3. Hyperdrive Binding for Neon Central Hub
-# Note: Uncomment and paste Hyperdrive ID once created after clicking "Next"
-# [[hyperdrive]]
-# binding = "HYPERDRIVE"
-# id = "<HYPERDRIVE_CONFIG_ID>"
+[[hyperdrive]]
+binding = "HYPERDRIVE"
+id = "66ba4dc750fc464b991eb52558a8c026"
 
 # 4. Preview Configuration for Worker Previews (Wrangler v4 preview builds)
 [previews.vars]
@@ -35,6 +34,6 @@ id = "5ef158495b3a4b8b800e50c3242fb92d"
 binding = "PIN_D1_DB"
 database_id = "b0e9c924-4190-436f-909b-a7142696680b"
 
-# [[previews.hyperdrive]]
-# binding = "HYPERDRIVE"
-# id = "<HYPERDRIVE_CONFIG_ID>"
+[[previews.hyperdrive]]
+binding = "HYPERDRIVE"
+id = "66ba4dc750fc464b991eb52558a8c026"
