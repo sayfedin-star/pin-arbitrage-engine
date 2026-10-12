@@ -16,7 +16,8 @@ import { getCampaignFoldersPageHtml } from './campaign-folders-ui.mjs';
 import {
   fetchUniversalPinDossier,
   getPinShardId,
-  resolveShardConnection
+  resolveShardConnection,
+  getFleetShardsMap
 } from './modules/sharding/fleet-router.mjs';
 import { fetchPinFromPinterest } from '../scripts/lib/pinterest.mjs';
 
@@ -168,6 +169,102 @@ export function safeWaitUntil(ctx, promise, taskName = 'bg_task', timeoutMs = 25
 
   if (ctx && typeof ctx.waitUntil === 'function') {
     ctx.waitUntil(guardedPromise);
+  }
+}
+
+// Edge Circuit Breaker for Pinterest HTTP 429
+export async function checkPinterestCircuitBreaker(env) {
+  if (!env?.PIN_ENGINE_KV) return null;
+  try {
+    const raw = await env.PIN_ENGINE_KV.get('circuit:pinterest:429', { type: 'json' });
+    if (!raw) return null;
+    const now = Date.now();
+    const triggeredAt = Number(raw.triggered_at) || 0;
+    const cooldownSec = Number(raw.cooldown_seconds) || 900;
+    const expiresAt = triggeredAt + (cooldownSec * 1000);
+    if (expiresAt > now) {
+      const remainingSec = Math.max(1, Math.ceil((expiresAt - now) / 1000));
+      return {
+        active: true,
+        remaining_seconds: remainingSec,
+        reason: raw.reason || 'HTTP 429 Too Many Requests',
+        triggered_at: triggeredAt
+      };
+    }
+  } catch (_) {}
+  return null;
+}
+
+export async function tripPinterestCircuitBreaker(env, reason = 'HTTP 429 Too Many Requests', cooldownSeconds = 900) {
+  if (!env?.PIN_ENGINE_KV) return;
+  try {
+    const payload = JSON.stringify({
+      triggered_at: Date.now(),
+      cooldown_seconds: cooldownSeconds,
+      reason
+    });
+    await env.PIN_ENGINE_KV.put('circuit:pinterest:429', payload, { expirationTtl: cooldownSeconds });
+  } catch (err) {
+    console.warn('[circuit:pinterest:429] Failed to trip KV circuit breaker:', redactSecrets(err.message));
+  }
+}
+
+// Edge D1 Database Synchronization Helpers
+export async function syncFolderToD1(env, folder) {
+  if (!env?.PIN_D1_DB || !folder?.id) return;
+  try {
+    const id = String(folder.id);
+    const name = String(folder.name || 'Untitled');
+    const color = String(folder.color || '#e60023');
+    const description = folder.description || null;
+    const itemCount = Number(folder.item_count || folder.keyword_count || 0);
+    const updatedAt = folder.updated_at ? new Date(folder.updated_at).toISOString() : new Date().toISOString();
+
+    await env.PIN_D1_DB.prepare(`
+      INSERT INTO edge_campaign_folders (id, name, color, description, item_count, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        name = excluded.name,
+        color = excluded.color,
+        description = excluded.description,
+        item_count = excluded.item_count,
+        updated_at = excluded.updated_at
+    `).bind(id, name, color, description, itemCount, updatedAt).run();
+  } catch (err) {
+    console.warn('[syncFolderToD1] Non-fatal D1 sync error:', redactSecrets(err.message));
+  }
+}
+
+export async function deleteFolderFromD1(env, folderId) {
+  if (!env?.PIN_D1_DB || !folderId) return;
+  try {
+    await env.PIN_D1_DB.prepare("DELETE FROM edge_campaign_folders WHERE id = ?").bind(String(folderId)).run();
+  } catch (err) {
+    console.warn('[deleteFolderFromD1] Non-fatal D1 delete error:', redactSecrets(err.message));
+  }
+}
+
+export async function syncKeywordToD1(env, keywordObj) {
+  if (!env?.PIN_D1_DB || !keywordObj?.keyword) return;
+  try {
+    const kw = String(keywordObj.keyword).trim();
+    if (!kw) return;
+    const searchVolume = Number(keywordObj.search_volume || keywordObj.monthly_search_volume || 0);
+    const monthlyGrowth = Number(keywordObj.monthly_growth || keywordObj.velocity_score || 0);
+    const pinCount = Number(keywordObj.pin_count || 0);
+    const lastSyncedAt = new Date().toISOString();
+
+    await env.PIN_D1_DB.prepare(`
+      INSERT INTO search_autocomplete_index (keyword, search_volume, monthly_growth, pin_count, last_synced_at)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(keyword) DO UPDATE SET
+        search_volume = excluded.search_volume,
+        monthly_growth = excluded.monthly_growth,
+        pin_count = excluded.pin_count,
+        last_synced_at = excluded.last_synced_at
+    `).bind(kw, searchVolume, monthlyGrowth, pinCount, lastSyncedAt).run();
+  } catch (err) {
+    console.warn('[syncKeywordToD1] Non-fatal D1 sync error:', redactSecrets(err.message));
   }
 }
 
@@ -639,29 +736,54 @@ export default {
 
     // Health check endpoint
     if (pathname === '/api/health') {
-      const dbUrl = env.DATABASE_URL || (typeof process !== 'undefined' ? process.env.DATABASE_URL : null);
-      if (!dbUrl) {
+      const dbUrl = env?.HYPERDRIVE?.connectionString || env?.DATABASE_URL || (typeof process !== 'undefined' ? process.env?.DATABASE_URL : null);
+      const isHyperdrive = Boolean(env?.HYPERDRIVE?.connectionString);
+      const isKvConfigured = Boolean(env?.PIN_ENGINE_KV);
+      const isD1Configured = Boolean(env?.PIN_D1_DB);
+
+      if (!dbUrl && !env?.SQL_CLIENT) {
         return jsonResponse({
           status: 'degraded',
           database: 'missing_database_url',
-          error: 'DATABASE_URL secret is not set in Cloudflare Workers settings.',
+          error: 'DATABASE_URL or HYPERDRIVE secret is not set in Cloudflare Workers settings.',
+          hyperdrive_accelerated: isHyperdrive,
+          hyperdrive: isHyperdrive ? 'active' : 'fallback',
+          neon: 'unconfigured',
+          kv: isKvConfigured ? 'connected' : 'unconfigured',
+          kv_configured: isKvConfigured,
+          d1: isD1Configured ? 'connected' : 'unconfigured',
+          d1_configured: isD1Configured,
           timestamp: new Date().toISOString()
         }, 503);
       }
       try {
-        const sql = neon(dbUrl);
+        const sql = env?.SQL_CLIENT || neon(dbUrl);
         await sql`SELECT 1 as alive;`;
         return jsonResponse({
           status: 'healthy',
           database: 'connected',
           runtime: 'cloudflare_workers',
+          hyperdrive_accelerated: isHyperdrive,
+          hyperdrive: isHyperdrive ? 'active' : 'fallback',
+          neon: 'connected',
+          kv: isKvConfigured ? 'connected' : 'unconfigured',
+          kv_configured: isKvConfigured,
+          d1: isD1Configured ? 'connected' : 'unconfigured',
+          d1_configured: isD1Configured,
           timestamp: new Date().toISOString()
-        });
+        }, 200);
       } catch (err) {
         return jsonResponse({
           status: 'error',
           database: 'disconnected',
-          error: err.message,
+          error: redactSecrets(err.message),
+          hyperdrive_accelerated: isHyperdrive,
+          hyperdrive: isHyperdrive ? 'active' : 'fallback',
+          neon: 'disconnected',
+          kv: isKvConfigured ? 'connected' : 'unconfigured',
+          kv_configured: isKvConfigured,
+          d1: isD1Configured ? 'connected' : 'unconfigured',
+          d1_configured: isD1Configured,
           timestamp: new Date().toISOString()
         }, 500);
       }
@@ -681,8 +803,31 @@ export default {
       }
     }
 
-    const dbUrl = env.DATABASE_URL || (typeof process !== 'undefined' ? process.env.DATABASE_URL : null);
-    if (!dbUrl) {
+    // Edge Circuit Breaker Gate for Pinterest Rate Limits (HTTP 429)
+    const isCrawlerEndpoint = pathname === '/api/crawl' || pathname.startsWith('/api/crawl/') || pathname === '/api/keywords/sync' || pathname === '/api/competitors/dispatch-crawl';
+    if (isCrawlerEndpoint && (isMutatingMethod || pathname.startsWith('/api/crawl/dispatch'))) {
+      const cb = await checkPinterestCircuitBreaker(env);
+      if (cb?.active) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'PINTEREST_RATE_LIMITED',
+          message: `Pinterest rate-limit circuit breaker is active. Operations cooling down for ${cb.remaining_seconds}s.`,
+          retry_after: cb.remaining_seconds,
+          reason: cb.reason
+        }), {
+          status: 429,
+          headers: {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Retry-After': String(cb.remaining_seconds),
+            'X-Circuit-Breaker': 'OPEN',
+            ...dynamicCors
+          }
+        });
+      }
+    }
+
+    const dbUrl = env?.HYPERDRIVE?.connectionString || env?.DATABASE_URL || (typeof process !== 'undefined' ? process.env?.DATABASE_URL : null);
+    if (!dbUrl && !env?.SQL_CLIENT) {
       return jsonResponse({
         error: 'DATABASE_URL secret is not set in Cloudflare Workers environment.',
         hint: 'Add DATABASE_URL in Cloudflare Dashboard -> Workers & Pages -> pin-arbitrage-engine -> Settings -> Variables and Secrets.'
@@ -698,11 +843,30 @@ export default {
         targetSql = shardSqlCache.get(cleanKey);
       } else {
         try {
-          const [proj] = await sql`
-            SELECT project_id, project_name, database_url FROM neon_projects_registry 
-            WHERE (project_id = ${cleanKey} OR project_name = ${cleanKey}) AND status = 'active' 
-            LIMIT 1;
-          `;
+          let shardsMap = null;
+          if (env?.PIN_ENGINE_KV) {
+            try {
+              shardsMap = await env.PIN_ENGINE_KV.get('fleet:shards_map', { type: 'json', cacheTtl: 300 });
+            } catch (_) {}
+          }
+          if (!shardsMap) {
+            shardsMap = await sql`
+              SELECT id, project_id, project_name, database_url, status, assigned_shards
+              FROM neon_projects_registry 
+              WHERE status = 'active';
+            `;
+            if (env?.PIN_ENGINE_KV && Array.isArray(shardsMap) && shardsMap.length > 0) {
+              safeWaitUntil(ctx, env.PIN_ENGINE_KV.put('fleet:shards_map', JSON.stringify(shardsMap), { expirationTtl: 86400 }), 'kv_cache_shards_map');
+            }
+          }
+          let proj = null;
+          if (Array.isArray(shardsMap)) {
+            proj = shardsMap.find(p => 
+              (p.project_id && String(p.project_id).trim() === cleanKey) ||
+              (p.project_name && String(p.project_name).trim() === cleanKey) ||
+              (Array.isArray(p.assigned_shards) && p.assigned_shards.map(Number).includes(Number(cleanKey)))
+            );
+          }
           if (proj && proj.database_url) {
             targetSql = getCachedShardSql(proj.database_url, () => neon(proj.database_url));
             setCachedShardSql(cleanKey, targetSql);
@@ -2277,6 +2441,9 @@ export default {
         invalidateEdgeCache('keywords');
         const body = await request.json().catch(() => ({}));
         const row = await addKeyword(sql, body);
+        if (row) {
+          safeWaitUntil(ctx, syncKeywordToD1(env, row), 'syncKeywordToD1');
+        }
         return jsonResponse({ success: true, keyword: row });
       }
 
@@ -2286,6 +2453,9 @@ export default {
         const autoCreate = searchParams.get('auto_create') !== 'false';
         const row = await resolveKeywordBySlug(sql, slug, autoCreate);
         if (!row) return jsonResponse({ error: 'Keyword not found and could not be resolved' }, 404);
+        if (row) {
+          safeWaitUntil(ctx, syncKeywordToD1(env, row), 'syncKeywordToD1');
+        }
         return jsonResponse({ success: true, keyword: row });
       }
 
@@ -2345,6 +2515,18 @@ export default {
           if (ctx && typeof ctx.waitUntil === 'function') {
             ctx.waitUntil(dispatchPromise);
           }
+        }
+
+        // Asynchronously sync keyword autocomplete to D1 database
+        if (res?.success && (res?.keyword || slug)) {
+          safeWaitUntil(ctx, syncKeywordToD1(env, {
+            keyword: res.keyword || slug,
+            search_volume: res.search_volume || 0,
+            monthly_growth: res.monthly_growth || 0,
+            pin_count: res.pins_collected || res.pin_count || 0
+          }), 'syncKeywordToD1');
+        } else if (res?.status === 429 || (res?.error && typeof res.error === 'string' && res.error.includes('429'))) {
+          safeWaitUntil(ctx, tripPinterestCircuitBreaker(env, 'HTTP 429 Too Many Requests', 900), 'tripPinterestCircuitBreaker');
         }
 
         return jsonResponse({ success: true, result: res });
@@ -2544,6 +2726,45 @@ export default {
         const q = searchParams.get('q') || searchParams.get('term') || '';
         const result = await fetchKeywordTypeahead(q);
         return jsonResponse(result);
+      }
+
+      // Edge-Native Search Autocomplete API via Cloudflare D1 (Sub-10ms UI Autocomplete)
+      if (method === 'GET' && pathname === '/api/search/autocomplete') {
+        const q = String(searchParams.get('q') || searchParams.get('query') || '').trim();
+        if (!q) {
+          return jsonResponse({ success: true, results: [] });
+        }
+
+        // 1. Primary Edge Query: Cloudflare D1 Database
+        if (env?.PIN_D1_DB) {
+          try {
+            const stmt = env.PIN_D1_DB.prepare(
+              "SELECT keyword, search_volume, pin_count FROM search_autocomplete_index WHERE keyword LIKE ? LIMIT 10"
+            ).bind(`${q}%`);
+            const d1Res = await stmt.all();
+            const rows = d1Res?.results || [];
+            if (rows.length > 0) {
+              return jsonResponse({ success: true, source: 'd1_edge', results: rows }, 200, 30);
+            }
+          } catch (err) {
+            console.warn('[D1 Autocomplete] Non-fatal D1 query error:', redactSecrets(err.message));
+          }
+        }
+
+        // 2. Graceful Fallback: Neon Postgres Central Hub
+        try {
+          const likePattern = `${q.toLowerCase()}%`;
+          const rows = await sql`
+            SELECT keyword, COALESCE(monthly_search_volume, 0) as search_volume, COALESCE(pin_count, 0) as pin_count
+            FROM keywords
+            WHERE keyword ILIKE ${likePattern}
+            ORDER BY monthly_search_volume DESC NULLS LAST, keyword ASC
+            LIMIT 10;
+          `;
+          return jsonResponse({ success: true, source: 'neon_hub', results: rows }, 200, 15);
+        } catch (_) {
+          return jsonResponse({ success: true, source: 'empty_fallback', results: [] });
+        }
       }
 
       if (method === 'GET' && pathname === '/api/keywords/visual-search') {
@@ -3409,24 +3630,52 @@ export default {
 
         if (method === 'GET') {
           if (folderId) {
+            // Check D1 edge database first (sub-5ms reads)
+            if (env?.PIN_D1_DB) {
+              try {
+                const d1Folder = await env.PIN_D1_DB.prepare(
+                  "SELECT id, name, color, description, item_count, updated_at FROM edge_campaign_folders WHERE id = ?"
+                ).bind(String(folderId)).first();
+                if (d1Folder) {
+                  return jsonResponse({ success: true, folder: d1Folder, source: 'd1_edge' }, 200, 15);
+                }
+              } catch (_) {}
+            }
             const folder = await getFolder(sql, folderId);
             if (!folder) return jsonResponse({ error: 'Folder not found' }, 404);
+            safeWaitUntil(ctx, syncFolderToD1(env, folder), 'syncFolderToD1');
             return jsonResponse({ success: true, folder }, 200, 15);
+          }
+          // Try D1 edge folders listing
+          if (env?.PIN_D1_DB) {
+            try {
+              const d1Folders = await env.PIN_D1_DB.prepare(
+                "SELECT id, name, color, description, item_count, updated_at FROM edge_campaign_folders ORDER BY updated_at DESC"
+              ).all();
+              if (d1Folders?.results?.length > 0) {
+                return jsonResponse({ success: true, folders: d1Folders.results, source: 'd1_edge' }, 200, 10);
+              }
+            } catch (_) {}
           }
           const folders = await listFolders(sql, {
             projectId: searchParams.get('project_id') || 'default'
           });
+          if (Array.isArray(folders) && folders.length > 0) {
+            safeWaitUntil(ctx, Promise.all(folders.map(f => syncFolderToD1(env, f))), 'syncAllFoldersToD1');
+          }
           return jsonResponse({ success: true, folders }, 200, 10);
         }
 
         if (method === 'POST') {
           const body = await request.json().catch(() => ({}));
           const created = await createFolder(sql, body);
+          safeWaitUntil(ctx, syncFolderToD1(env, created), 'syncFolderToD1');
           return jsonResponse({ success: true, folder: created });
         }
 
         if (method === 'DELETE' && folderId) {
           const deleted = await deleteFolder(sql, folderId);
+          safeWaitUntil(ctx, deleteFolderFromD1(env, folderId), 'deleteFolderFromD1');
           return jsonResponse({ success: true, deleted });
         }
       }
@@ -3552,19 +3801,44 @@ export default {
       if (method === 'GET' && pathname === '/api/keywords/folders') {
         const folderId = searchParams.get('id') || searchParams.get('folder_id');
         if (folderId) {
+          if (env?.PIN_D1_DB) {
+            try {
+              const d1Folder = await env.PIN_D1_DB.prepare(
+                "SELECT id, name, color, description, item_count, updated_at FROM edge_campaign_folders WHERE id = ?"
+              ).bind(String(folderId)).first();
+              if (d1Folder) {
+                return jsonResponse({ success: true, folder: d1Folder, source: 'd1_edge' });
+              }
+            } catch (_) {}
+          }
           const folder = await getFolder(sql, folderId);
           if (!folder) return jsonResponse({ error: 'Folder not found' }, 404);
+          safeWaitUntil(ctx, syncFolderToD1(env, folder), 'syncFolderToD1');
           return jsonResponse({ success: true, folder });
+        }
+        if (env?.PIN_D1_DB) {
+          try {
+            const d1Folders = await env.PIN_D1_DB.prepare(
+              "SELECT id, name, color, description, item_count, updated_at FROM edge_campaign_folders ORDER BY updated_at DESC"
+            ).all();
+            if (d1Folders?.results?.length > 0) {
+              return jsonResponse({ success: true, folders: d1Folders.results, source: 'd1_edge' });
+            }
+          } catch (_) {}
         }
         const folders = await listFolders(sql, {
           projectId: searchParams.get('project_id') || 'default'
         });
+        if (Array.isArray(folders) && folders.length > 0) {
+          safeWaitUntil(ctx, Promise.all(folders.map(f => syncFolderToD1(env, f))), 'syncAllFoldersToD1');
+        }
         return jsonResponse({ success: true, folders });
       }
 
       if (method === 'POST' && pathname === '/api/keywords/folders') {
         const body = await request.json().catch(() => ({}));
         const created = await createFolder(sql, body);
+        safeWaitUntil(ctx, syncFolderToD1(env, created), 'syncFolderToD1');
         return jsonResponse({ success: true, folder: created });
       }
 
@@ -3573,6 +3847,7 @@ export default {
         const folderId = body.id || searchParams.get('id');
         if (!folderId) return jsonResponse({ error: 'Folder id is required' }, 400);
         const updated = await updateFolder(sql, folderId, body);
+        safeWaitUntil(ctx, syncFolderToD1(env, updated), 'syncFolderToD1');
         return jsonResponse({ success: true, folder: updated });
       }
 
@@ -3586,6 +3861,7 @@ export default {
         }
         if (!folderId) return jsonResponse({ error: 'Folder id is required' }, 400);
         const deleted = await deleteFolder(sql, folderId);
+        safeWaitUntil(ctx, deleteFolderFromD1(env, folderId), 'deleteFolderFromD1');
         return jsonResponse({ success: true, deleted });
       }
 
@@ -3596,12 +3872,14 @@ export default {
         
         if (Array.isArray(body.keyword_ids)) {
           const result = await batchAddKeywordsToFolder(sql, folderId, body.keyword_ids);
+          safeWaitUntil(ctx, getFolder(sql, folderId).then(f => f && syncFolderToD1(env, f)), 'syncFolderItemCount');
           return jsonResponse({ success: true, ...result });
         }
         
         const keywordId = body.keyword_id || searchParams.get('keyword_id');
         if (!keywordId) return jsonResponse({ error: 'keyword_id or keyword_ids is required' }, 400);
         const item = await addKeywordToFolder(sql, folderId, keywordId, body.notes || '');
+        safeWaitUntil(ctx, getFolder(sql, folderId).then(f => f && syncFolderToD1(env, f)), 'syncFolderItemCount');
         return jsonResponse({ success: true, item });
       }
 
@@ -3617,6 +3895,7 @@ export default {
         }
         if (!folderId || !keywordId) return jsonResponse({ error: 'folder_id and keyword_id are required' }, 400);
         const deleted = await removeKeywordFromFolder(sql, folderId, keywordId);
+        safeWaitUntil(ctx, getFolder(sql, folderId).then(f => f && syncFolderToD1(env, f)), 'syncFolderItemCount');
         return jsonResponse({ success: true, deleted });
       }
 
