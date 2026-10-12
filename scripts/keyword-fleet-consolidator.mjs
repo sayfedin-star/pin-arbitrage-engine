@@ -14,6 +14,7 @@
 
 import { neon } from '@neondatabase/serverless';
 import fs from 'node:fs';
+import { preloadNeonRegistry, resolveShardConnection } from '../src/modules/sharding/fleet-router.mjs';
 
 if (typeof process.loadEnvFile === 'function') {
   try { process.loadEnvFile(); } catch (_) {}
@@ -309,6 +310,12 @@ async function main() {
     mdReport += `\n`;
   }
 
+  // 4. Automated Shard Janitor GC: Clean orphan SERP positions for inactive keywords across 99 shards
+  const gcPurgedKeywords = await runShardJanitorGC();
+  if (gcPurgedKeywords > 0) {
+    mdReport += `\n> 🧹 **Automated Shard Janitor GC**: Purged orphan SERP positions for **${gcPurgedKeywords}** inactive keywords across all 99 storage shards.\n\n`;
+  }
+
   // Write to GITHUB_STEP_SUMMARY
   if (stepSummaryPath) {
     try {
@@ -323,6 +330,53 @@ async function main() {
   console.log('✅ STAGE 3 CONSOLIDATION COMPLETED SUCCESSFULLY');
   console.log('================================================================');
   process.exit(0);
+}
+
+/**
+ * Automated Shard Janitor Garbage Collection (Orphan SERP Positions GC)
+ * Purges pin_serp_positions across all 99 shards for keywords that are inactive (is_active = FALSE)
+ */
+async function runShardJanitorGC() {
+  console.log('\n[*] Running Automated Shard Janitor GC...');
+  try {
+    const inactiveRows = await sql`
+      SELECT id, keyword
+      FROM tracked_keywords
+      WHERE is_active = FALSE;
+    `.catch(() => []);
+
+    if (!inactiveRows || inactiveRows.length === 0) {
+      console.log('    [+] Shard Janitor GC: No inactive keywords found. Shard positions clean.');
+      return 0;
+    }
+
+    const inactiveIds = inactiveRows.map(r => Number(r.id)).filter(id => id && !isNaN(id));
+    console.log(`    [!] Found ${inactiveIds.length} inactive keywords: [${inactiveIds.join(', ')}]. Broadcasting cleanup to 99 shards...`);
+
+    await preloadNeonRegistry(sql);
+    const shardIds = Array.from({ length: 99 }, (_, i) => i + 1);
+    const SHARD_CONCURRENCY = 10;
+    let purgedShardsCount = 0;
+
+    for (let i = 0; i < shardIds.length; i += SHARD_CONCURRENCY) {
+      const chunk = shardIds.slice(i, i + SHARD_CONCURRENCY);
+      await Promise.allSettled(chunk.map(async (shardId) => {
+        try {
+          const shardSql = await resolveShardConnection({ hubSql: sql, shardId });
+          await shardSql`
+            DELETE FROM pin_serp_positions
+            WHERE keyword_id = ANY(${inactiveIds});
+          `;
+          purgedShardsCount++;
+        } catch (_) {}
+      }));
+    }
+    console.log(`    [+] Shard Janitor GC: Broadcast complete across ${purgedShardsCount} shards.`);
+    return inactiveIds.length;
+  } catch (gcErr) {
+    console.warn('    [!] Shard Janitor GC non-fatal warning:', gcErr.message);
+    return 0;
+  }
 }
 
 main().catch(err => {

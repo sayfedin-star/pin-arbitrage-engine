@@ -215,6 +215,46 @@ export async function resolveShardConnection({ hubSql, shardId, dsnTemplate = nu
 }
 
 /**
+ * Preloads all active shard connection records from the Central Metadata Hub
+ * into memory in a single query. Eliminates N+1 registry roundtrips.
+ *
+ * @param {Function} hubSql - Central Metadata Hub Neon client
+ * @returns {Promise<number>} Number of shard mappings loaded
+ */
+export async function preloadNeonRegistry(hubSql) {
+  if (!hubSql) return 0;
+  const now = Date.now();
+  try {
+    const rows = await hubSql`
+      SELECT id, project_id, project_name, database_url, status, assigned_shards
+      FROM neon_projects_registry
+      WHERE status = 'active';
+    `;
+    let loaded = 0;
+    for (const row of rows) {
+      if (Array.isArray(row.assigned_shards)) {
+        for (const sid of row.assigned_shards) {
+          registryCache.set(Number(sid), { ...row, cachedAt: now });
+          loaded++;
+        }
+      }
+      const match = row.project_name?.match(/shard-(\d+)/i);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (!isNaN(num)) {
+          registryCache.set(num, { ...row, cachedAt: now });
+        }
+      }
+    }
+    registryLastFetched = now;
+    return loaded;
+  } catch (err) {
+    console.warn('[fleet-router] preloadNeonRegistry non-fatal warning:', err.message);
+    return 0;
+  }
+}
+
+/**
  * 3. Cold-Start Immunity & Circuit-Breaker Executor
  * Protects against Scale-to-Zero latencies (1-3 seconds) on Neon free projects.
  *
@@ -491,6 +531,65 @@ export async function fetchUniversalPinDossier({ hubSql, pinId }) {
       shardId,
       shardSql,
       queryFn: async (sqlClient) => {
+        // 1. Query Two-Tier view pins_daily_rollups_v2 first
+        try {
+          const rollups = await sqlClient`
+            SELECT 
+              pin_id, snapshot_date, save_count, repin_count,
+              comment_count, share_count, reaction_count, daily_save_velocity,
+              updated_at, serp_rankings
+            FROM pins_daily_rollups_v2
+            WHERE pin_id = ${cleanPinId}
+            ORDER BY snapshot_date DESC
+            LIMIT 90;
+          `;
+          if (rollups && rollups.length > 0) {
+            const expanded = [];
+            for (const r of rollups) {
+              const rankings = Array.isArray(r.serp_rankings) ? r.serp_rankings : [];
+              if (rankings.length === 0) {
+                expanded.push({
+                  pin_id: r.pin_id,
+                  snapshot_date: r.snapshot_date,
+                  save_count: Number(r.save_count) || 0,
+                  repin_count: Number(r.repin_count) || 0,
+                  comment_count: Number(r.comment_count) || 0,
+                  share_count: Number(r.share_count) || 0,
+                  reaction_count: Number(r.reaction_count) || 0,
+                  daily_save_velocity: Number(r.daily_save_velocity) || 0,
+                  keyword_id: null,
+                  rank_position: null,
+                  is_displaced: false,
+                  last_known_rank: null,
+                  catalog_rank: null,
+                  created_at: r.updated_at
+                });
+              } else {
+                for (const pos of rankings) {
+                  expanded.push({
+                    pin_id: r.pin_id,
+                    snapshot_date: r.snapshot_date,
+                    save_count: Number(r.save_count) || 0,
+                    repin_count: Number(r.repin_count) || 0,
+                    comment_count: Number(r.comment_count) || 0,
+                    share_count: Number(r.share_count) || 0,
+                    reaction_count: Number(r.reaction_count) || 0,
+                    daily_save_velocity: Number(r.daily_save_velocity) || 0,
+                    keyword_id: pos.keyword_id,
+                    rank_position: pos.rank_position,
+                    is_displaced: Boolean(pos.is_displaced),
+                    last_known_rank: pos.last_known_rank,
+                    catalog_rank: pos.catalog_rank,
+                    created_at: r.updated_at
+                  });
+                }
+              }
+            }
+            return expanded;
+          }
+        } catch (_) {}
+
+        // 2. Graceful fallback to legacy pins_daily_snapshots
         const rows = await sqlClient`
           SELECT 
             id, snapshot_date, rank_position, is_displaced, save_count, repin_count,
@@ -504,7 +603,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId }) {
         return rows;
       },
       fallbackFn: async () => [],
-      timeoutMs: 2000
+      timeoutMs: 2500
     })
   ]);
 
@@ -792,6 +891,62 @@ export async function fetchUniversalPinDossier({ hubSql, pinId }) {
           )
           ON CONFLICT (pin_id, keyword_id, snapshot_date) DO NOTHING;
         `;
+
+        // Two-Tier Shard Read-Repair: Hydrate pins_daily_metrics
+        const metricsMap = new Map();
+        for (const s of repairPayload) {
+          const d = s.snapshot_date;
+          if (!metricsMap.has(d) || Number(s.save_count) > Number(metricsMap.get(d).save_count)) {
+            metricsMap.set(d, s);
+          }
+        }
+        const metricsRows = Array.from(metricsMap.values());
+        if (metricsRows.length > 0) {
+          await shardSql`
+            INSERT INTO pins_daily_metrics (
+              pin_id, snapshot_date, save_count, repin_count,
+              comment_count, share_count, reaction_count, daily_save_velocity, updated_at
+            )
+            SELECT
+              u.pin_id, u.snapshot_date::date, u.save_count, u.repin_count,
+              u.comment_count, u.share_count, u.reaction_count, u.daily_save_velocity, u.created_at::timestamptz
+            FROM jsonb_to_recordset(${JSON.stringify(metricsRows)}::jsonb) AS u(
+              pin_id text, snapshot_date text, save_count bigint, repin_count int,
+              comment_count int, share_count int, reaction_count int, daily_save_velocity numeric, created_at text
+            )
+            ON CONFLICT (pin_id, snapshot_date) DO UPDATE SET
+              save_count = GREATEST(pins_daily_metrics.save_count, EXCLUDED.save_count),
+              repin_count = GREATEST(pins_daily_metrics.repin_count, EXCLUDED.repin_count),
+              comment_count = GREATEST(pins_daily_metrics.comment_count, EXCLUDED.comment_count),
+              share_count = GREATEST(pins_daily_metrics.share_count, EXCLUDED.share_count),
+              reaction_count = GREATEST(pins_daily_metrics.reaction_count, EXCLUDED.reaction_count),
+              daily_save_velocity = CASE 
+                WHEN EXCLUDED.daily_save_velocity > 0 THEN EXCLUDED.daily_save_velocity 
+                ELSE pins_daily_metrics.daily_save_velocity 
+              END,
+              updated_at = NOW();
+          `.catch(() => {});
+        }
+
+        // Two-Tier Shard Read-Repair: Hydrate pin_serp_positions
+        const positionRows = repairPayload.filter(s => s.keyword_id != null);
+        if (positionRows.length > 0) {
+          await shardSql`
+            INSERT INTO pin_serp_positions (
+              pin_id, snapshot_date, keyword_id, rank_position, is_displaced, last_known_rank, catalog_rank, updated_at
+            )
+            SELECT
+              u.pin_id, u.snapshot_date::date, u.keyword_id, u.rank_position, u.is_displaced, u.rank_position,
+              CASE WHEN u.is_displaced THEN 101 ELSE COALESCE(u.rank_position, 1) END, u.created_at::timestamptz
+            FROM jsonb_to_recordset(${JSON.stringify(positionRows)}::jsonb) AS u(
+              pin_id text, snapshot_date text, keyword_id int, rank_position int, is_displaced boolean, created_at text
+            )
+            ON CONFLICT (pin_id, snapshot_date, keyword_id) DO UPDATE SET
+              rank_position = COALESCE(EXCLUDED.rank_position, pin_serp_positions.rank_position),
+              is_displaced = COALESCE(EXCLUDED.is_displaced, pin_serp_positions.is_displaced),
+              updated_at = NOW();
+          `.catch(() => {});
+        }
       } catch (repairErr) {
         console.warn(`[Read-Repair] Shard ${shardId} pin ${cleanPinId} snapshot repair deferred:`, repairErr.message);
       } finally {

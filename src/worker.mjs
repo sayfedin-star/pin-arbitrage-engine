@@ -2621,7 +2621,7 @@ export default {
         const parts = pathname.slice('/api/pins/'.length).split('/').filter(Boolean);
         const pinId = parts[0];
 
-        // 1. DELETE /api/pins/:pin_id/snapshots/:snapshot_id
+        // 1. DELETE /api/pins/:pin_id/snapshots/:snapshot_id (Legacy backward compatibility)
         if (parts[1] === 'snapshots') {
           if (method !== 'DELETE') {
             return methodNotAllowedResponse('DELETE, OPTIONS');
@@ -2646,6 +2646,117 @@ export default {
           await shardSql`DELETE FROM pins_daily_snapshots WHERE id = ${snapshotId};`.catch(() => {});
           await shardSql`DELETE FROM keyword_pins_snapshots WHERE id = ${snapshotId};`.catch(() => {});
           return jsonResponse({ success: true, deleted_snapshot_id: snapshotId, pin_id: pinId });
+        }
+
+        // 1A. DELETE /api/pins/:pin_id/serp-positions (Delete specific SERP position for a keyword on a date)
+        if (parts[1] === 'serp-positions') {
+          if (method !== 'DELETE') {
+            return methodNotAllowedResponse('DELETE, OPTIONS');
+          }
+          if (!pinId || !/^\d{10,30}$/.test(pinId)) {
+            return jsonResponse({
+              success: false,
+              error: 'INVALID_PIN_ID',
+              message: 'Pin ID must be a valid numeric Snowflake identifier (10-30 digits)'
+            }, 400);
+          }
+
+          let body = {};
+          if (request.headers.get('content-type')?.includes('application/json')) {
+            try { body = await request.json(); } catch (_) {}
+          }
+          const kwId = Number(body.keyword_id || searchParams.get('keyword_id'));
+          const snapshotDate = String(body.snapshot_date || searchParams.get('snapshot_date') || '').trim();
+
+          if (!kwId || isNaN(kwId) || !/^\d{4}-\d{2}-\d{2}$/.test(snapshotDate)) {
+            return jsonResponse({
+              success: false,
+              error: 'BAD_REQUEST',
+              message: 'Valid numeric keyword_id and YYYY-MM-DD snapshot_date are required'
+            }, 400);
+          }
+
+          const shardId = getPinShardId(pinId, 99);
+          const shardSql = await resolveShardConnection({ hubSql: sql, shardId }).catch(() => targetSql);
+
+          // Delete from Two-Tier positions table on shard
+          await shardSql`
+            DELETE FROM pin_serp_positions
+            WHERE pin_id = ${pinId} AND snapshot_date = ${snapshotDate}::date AND keyword_id = ${kwId};
+          `.catch(() => {});
+
+          // Delete from legacy shard table
+          await shardSql`
+            DELETE FROM pins_daily_snapshots
+            WHERE pin_id = ${pinId} AND snapshot_date = ${snapshotDate}::date AND keyword_id = ${kwId};
+          `.catch(() => {});
+
+          // Delete from Hub snapshots
+          await sql`
+            DELETE FROM keyword_pins_snapshots
+            WHERE pin_id = ${pinId} AND snapshot_date = ${snapshotDate}::date AND keyword_id = ${kwId};
+          `.catch(() => {});
+
+          return jsonResponse({
+            success: true,
+            pin_id: pinId,
+            keyword_id: kwId,
+            snapshot_date: snapshotDate
+          });
+        }
+
+        // 1B. DELETE /api/pins/:pin_id/daily-metrics/:date (Delete entire day's metrics and all ranks)
+        if (parts[1] === 'daily-metrics') {
+          if (method !== 'DELETE') {
+            return methodNotAllowedResponse('DELETE, OPTIONS');
+          }
+          if (!pinId || !/^\d{10,30}$/.test(pinId)) {
+            return jsonResponse({
+              success: false,
+              error: 'INVALID_PIN_ID',
+              message: 'Pin ID must be a valid numeric Snowflake identifier (10-30 digits)'
+            }, 400);
+          }
+          const snapshotDate = String(parts[2] || searchParams.get('snapshot_date') || '').trim();
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(snapshotDate)) {
+            return jsonResponse({
+              success: false,
+              error: 'BAD_REQUEST',
+              message: 'Valid YYYY-MM-DD snapshot_date is required in path (/api/pins/:pinId/daily-metrics/YYYY-MM-DD)'
+            }, 400);
+          }
+
+          const shardId = getPinShardId(pinId, 99);
+          const shardSql = await resolveShardConnection({ hubSql: sql, shardId }).catch(() => targetSql);
+
+          // Delete metrics and positions from shard
+          await shardSql`
+            DELETE FROM pins_daily_metrics
+            WHERE pin_id = ${pinId} AND snapshot_date = ${snapshotDate}::date;
+          `.catch(() => {});
+
+          await shardSql`
+            DELETE FROM pin_serp_positions
+            WHERE pin_id = ${pinId} AND snapshot_date = ${snapshotDate}::date;
+          `.catch(() => {});
+
+          // Delete from legacy shard table
+          await shardSql`
+            DELETE FROM pins_daily_snapshots
+            WHERE pin_id = ${pinId} AND snapshot_date = ${snapshotDate}::date;
+          `.catch(() => {});
+
+          // Delete from Hub snapshots
+          await sql`
+            DELETE FROM keyword_pins_snapshots
+            WHERE pin_id = ${pinId} AND snapshot_date = ${snapshotDate}::date;
+          `.catch(() => {});
+
+          return jsonResponse({
+            success: true,
+            pin_id: pinId,
+            snapshot_date: snapshotDate
+          });
         }
 
         // 2. POST /api/pins/:pin_id/sync (Live Pinterest Deep Sync with 48 Algorithmic Fields)

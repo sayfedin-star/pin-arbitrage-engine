@@ -855,14 +855,14 @@ export function getPinDetailPageHtml(pinId = '') {
         </div>
       </div>
 
-      <!-- Snapshots Table (Clean Light SaaS Table) -->
+      <!-- Snapshots Table (Clean Light SaaS Table with Unified Single Row Per Date) -->
       <div class="overflow-x-auto rounded-xl border border-slate-200">
         <table class="w-full text-left text-xs font-mono border-collapse">
           <thead>
             <tr class="bg-slate-50 text-slate-700 border-b border-slate-200">
               <th class="p-3 font-semibold">Date</th>
-              <th class="p-3 font-semibold">Keyword / Context</th>
-              <th class="p-3 font-semibold">Rank</th>
+              <th class="p-3 font-semibold">SERP Rankings & Keywords</th>
+              <th class="p-3 font-semibold">Best Rank</th>
               <th class="p-3 font-semibold">Saves</th>
               <th class="p-3 font-semibold">Delta 24h</th>
               <th class="p-3 font-semibold">Repins</th>
@@ -871,51 +871,66 @@ export function getPinDetailPageHtml(pinId = '') {
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100 bg-white">
-            <template x-for="(s, idx) in filteredSnapshots()" :key="s.id">
+            <template x-for="(day, idx) in filteredDays()" :key="day.snapshot_date">
               <tr class="hover:bg-slate-50/80 transition-colors">
-                <td class="p-3 font-bold text-slate-900" x-text="s.snapshot_date"></td>
+                <td class="p-3 font-bold text-slate-900" x-text="day.snapshot_date"></td>
                 <td class="p-3">
-                  <span class="px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200 font-medium" x-text="s.keyword_name || 'Direct / Global'"></span>
+                  <div class="flex items-center gap-1.5 flex-wrap">
+                    <template x-for="kw in (day.ranking_keywords || [])" :key="kw.keyword_id || kw.keyword">
+                      <span 
+                        class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium border transition-colors"
+                        :class="kw.is_displaced ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-slate-100 text-slate-800 border-slate-200'"
+                      >
+                        <template x-if="kw.rank && !kw.is_displaced">
+                          <span class="font-bold text-emerald-700" x-text="'#' + kw.rank"></span>
+                        </template>
+                        <template x-if="kw.is_displaced">
+                          <span class="font-bold text-amber-700" x-text="'[Vault #' + (kw.rank || 101) + ']'"></span>
+                        </template>
+                        <span x-text="kw.keyword"></span>
+                        <button 
+                          @click.stop="requestDeleteSerpBadge(kw, day.snapshot_date)" 
+                          class="text-slate-400 hover:text-red-600 transition-colors ml-0.5" 
+                          title="Remove rank for this keyword on this date"
+                        >✕</button>
+                      </span>
+                    </template>
+                    <template x-if="!day.ranking_keywords || day.ranking_keywords.length === 0">
+                      <span class="px-2 py-0.5 rounded bg-slate-50 text-slate-400 border border-slate-200 text-[11px]">Direct / Pillar</span>
+                    </template>
+                  </div>
                 </td>
                 <td class="p-3">
-                  <template x-if="s.rank_position && !s.is_displaced">
-                    <span class="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold" x-text="'#' + s.rank_position"></span>
+                  <template x-if="day.best_rank && day.best_rank !== 999">
+                    <span class="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold" x-text="'#' + day.best_rank"></span>
                   </template>
-                  <template x-if="!s.rank_position && (s.last_known_rank || s.is_displaced)">
-                    <div class="flex items-center gap-1.5 flex-wrap">
-                      <span class="px-2 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200 font-bold" x-text="'#' + (s.catalog_rank || 101) + ' [Vault]'"></span>
-                      <template x-if="s.last_known_rank">
-                        <span class="px-1.5 py-0.5 rounded bg-rose-50 text-rose-600 border border-rose-200 text-[10px] font-bold" x-text="'Was #' + s.last_known_rank"></span>
-                      </template>
-                    </div>
-                  </template>
-                  <template x-if="!s.rank_position && !s.last_known_rank && !s.is_displaced">
-                    <span class="px-2 py-0.5 rounded bg-slate-100 text-slate-500 border border-slate-200">N/A</span>
+                  <template x-if="!day.best_rank || day.best_rank === 999">
+                    <span class="px-2 py-0.5 rounded bg-slate-100 text-slate-400 border border-slate-200">N/A</span>
                   </template>
                 </td>
-                <td class="p-3 text-emerald-700 font-bold" x-text="formatNumber(s.save_count)"></td>
+                <td class="p-3 text-emerald-700 font-bold" x-text="formatNumber(day.save_count)"></td>
                 <td class="p-3">
                   <span 
-                    :class="(computeDelta(idx, 'save_count') || computeDeltaPerSerp(idx, 'save_count')) > 0 ? 'text-emerald-700 font-semibold' : ((computeDelta(idx, 'save_count') || computeDeltaPerSerp(idx, 'save_count')) < 0 ? 'text-red-700' : 'text-slate-400')" 
-                    x-text="(computeDelta(idx, 'save_count') || computeDeltaPerSerp(idx, 'save_count')) > 0 ? '+' + (computeDelta(idx, 'save_count') || computeDeltaPerSerp(idx, 'save_count')) : ((computeDelta(idx, 'save_count') || computeDeltaPerSerp(idx, 'save_count')) < 0 ? (computeDelta(idx, 'save_count') || computeDeltaPerSerp(idx, 'save_count')) : '0')"
+                    :class="computeDeltaByDate(day.snapshot_date, 'save_count') > 0 ? 'text-emerald-700 font-semibold' : (computeDeltaByDate(day.snapshot_date, 'save_count') < 0 ? 'text-red-700 font-semibold' : 'text-slate-400')" 
+                    x-text="computeDeltaByDate(day.snapshot_date, 'save_count') > 0 ? '+' + formatNumber(computeDeltaByDate(day.snapshot_date, 'save_count')) : (computeDeltaByDate(day.snapshot_date, 'save_count') < 0 ? formatNumber(computeDeltaByDate(day.snapshot_date, 'save_count')) : '0')"
                   ></span>
                 </td>
-                <td class="p-3 text-pink-700 font-bold" x-text="formatNumber(s.repin_count)"></td>
-                <td class="p-3 text-amber-700 font-medium" x-text="'+' + (s.daily_save_velocity || 0) + '/d'"></td>
+                <td class="p-3 text-pink-700 font-bold" x-text="formatNumber(day.repin_count)"></td>
+                <td class="p-3 text-amber-700 font-medium" x-text="'+' + (day.daily_save_velocity || 0) + '/d'"></td>
                 <td class="p-3 text-right">
                   <button 
-                    @click="requestDeleteSnapshot(s.id)" 
+                    @click="requestDeleteDay(day.snapshot_date)" 
                     class="px-2.5 py-1 rounded bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-[11px] transition-colors"
-                    title="Delete snapshot from Shard"
+                    title="Delete all data for this day from Shard"
                   >
-                    Delete ✕
+                    Delete Day ✕
                   </button>
                 </td>
               </tr>
             </template>
-            <tr x-show="!filteredSnapshots().length">
+            <tr x-show="!filteredDays().length">
               <td colspan="8" class="p-8 text-center text-slate-400 font-mono text-xs">
-                No snapshots match the selected SERP filter.
+                No telemetry records match the selected SERP filter.
               </td>
             </tr>
           </tbody>
@@ -925,21 +940,33 @@ export function getPinDetailPageHtml(pinId = '') {
 
   </main>
 
-  <!-- Delete Snapshot Confirmation Modal -->
+  <!-- Delete Confirmation Modal (Supporting Granular Day, SERP Badge, or Legacy Snapshot) -->
   <div x-show="deleteModalOpen" class="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4" x-cloak>
     <div @click.away="deleteModalOpen = false" class="bg-white border border-slate-200 rounded-2xl max-w-sm w-full p-6 shadow-xl flex flex-col gap-4">
       <div class="flex items-center gap-3 text-red-600">
         <span class="text-xl">🗑️</span>
-        <h3 class="text-sm font-bold text-slate-900">Confirm Snapshot Deletion</h3>
+        <h3 class="text-sm font-bold text-slate-900">
+          <span x-show="deleteType === 'DAY'">Confirm Delete Day</span>
+          <span x-show="deleteType === 'SERP_BADGE'">Remove Keyword Rank</span>
+          <span x-show="deleteType === 'SNAPSHOT'">Confirm Snapshot Deletion</span>
+        </h3>
       </div>
       <p class="text-xs text-slate-600">
-        Are you sure you want to delete snapshot <span class="font-mono text-pink-600 font-semibold" x-text="'#' + snapshotToDelete"></span>? This will permanently remove the record from Shard <span class="font-mono text-emerald-600 font-semibold" x-text="'#' + dossier?.shard_id"></span>.
+        <template x-if="deleteType === 'DAY'">
+          <span>Are you sure you want to permanently delete all metrics and SERP rankings for <strong class="text-slate-900" x-text="itemToDelete?.date"></strong>? This will remove the record from Shard <span class="font-mono text-emerald-600 font-semibold" x-text="'#' + dossier?.shard_id"></span>.</span>
+        </template>
+        <template x-if="deleteType === 'SERP_BADGE'">
+          <span>Remove keyword ranking for <strong class="text-slate-900" x-text="itemToDelete?.keywordName"></strong> on <strong class="text-slate-900" x-text="itemToDelete?.date"></strong>? Daily metrics will be preserved.</span>
+        </template>
+        <template x-if="deleteType === 'SNAPSHOT'">
+          <span>Delete snapshot <strong class="text-pink-600" x-text="'#' + itemToDelete?.snapshotId"></strong> from Shard <span class="font-mono text-emerald-600 font-semibold" x-text="'#' + dossier?.shard_id"></span>?</span>
+        </template>
       </p>
       <div class="flex items-center justify-end gap-3 pt-2">
         <button @click="deleteModalOpen = false" class="px-3.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs">
           Cancel
         </button>
-        <button @click="executeDeleteSnapshot()" :disabled="isDeleting" class="px-3.5 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-bold transition-colors">
+        <button @click="confirmDelete()" :disabled="isDeleting" class="px-3.5 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-bold transition-colors">
           <span x-show="!isDeleting">Delete Permanently</span>
           <span x-show="isDeleting">Deleting...</span>
         </button>
@@ -953,7 +980,10 @@ export function getPinDetailPageHtml(pinId = '') {
         pinId,
         loading: true,
         dossier: null,
+        _cachedDateMap: null,
         deleteModalOpen: false,
+        deleteType: 'DAY',
+        itemToDelete: null,
         snapshotToDelete: null,
         isDeleting: false,
         isSyncing: false,
@@ -990,13 +1020,16 @@ export function getPinDetailPageHtml(pinId = '') {
             if (res.ok) {
               const data = await res.json();
               this.dossier = data;
+              this.rebuildDateMapCache();
             } else {
               this.dossier = null;
+              this._cachedDateMap = null;
               this.showToast('Pin not found or shard offline.', 'error');
             }
           } catch (e) {
             console.error('Error fetching pin dossier:', e);
             this.dossier = null;
+            this._cachedDateMap = null;
             this.showToast('Network error loading pin dossier', 'error');
           } finally {
             this.loading = false;
@@ -1101,12 +1134,110 @@ export function getPinDetailPageHtml(pinId = '') {
           return 'Top 50';
         },
 
-        uniqueKeywords() {
+        rebuildDateMapCache() {
+          const map = new Map();
+          const traj = (this.dossier?.daily_trajectory && this.dossier.daily_trajectory.length > 0)
+            ? this.dossier.daily_trajectory
+            : this.synthesizeDailyTrajectoryFromSnapshots();
+
+          for (let i = 0; i < traj.length; i++) {
+            const curr = traj[i];
+            const prev = traj[i + 1] || null;
+            const dateKey = curr.snapshot_date;
+            if (!dateKey) continue;
+            const deltaSaves = prev ? (Number(curr.save_count || 0) - Number(prev.save_count || 0)) : 0;
+            const deltaRepins = prev ? (Number(curr.repin_count || 0) - Number(prev.repin_count || 0)) : 0;
+            map.set(dateKey, {
+              current: curr,
+              previous: prev,
+              deltaSaves,
+              deltaRepins
+            });
+          }
+          this._cachedDateMap = map;
+        },
+
+        computeDeltaByDate(snapshotDate, field = 'save_count') {
+          if (!this._cachedDateMap) {
+            this.rebuildDateMapCache();
+          }
+          const entry = this._cachedDateMap?.get(snapshotDate);
+          if (!entry) return 0;
+          if (field === 'save_count') return entry.deltaSaves;
+          if (field === 'repin_count') return entry.deltaRepins;
+          if (!entry.previous) return 0;
+          return (Number(entry.current?.[field] || 0) - Number(entry.previous?.[field] || 0));
+        },
+
+        filteredDays() {
+          const list = (this.dossier?.daily_trajectory && this.dossier.daily_trajectory.length > 0)
+            ? this.dossier.daily_trajectory
+            : this.synthesizeDailyTrajectoryFromSnapshots();
+          if (this.selectedKeywordFilter === 'ALL') return list;
+          return list.filter(d => 
+            Array.isArray(d.ranking_keywords) && 
+            d.ranking_keywords.some(k => k.keyword === this.selectedKeywordFilter)
+          );
+        },
+
+        synthesizeDailyTrajectoryFromSnapshots() {
           const snaps = this.dossier?.snapshots || [];
-          const counts = new Map();
+          const map = new Map();
           for (const s of snaps) {
+            const date = s.snapshot_date;
+            if (!date) continue;
+            if (!map.has(date)) {
+              map.set(date, {
+                snapshot_date: date,
+                save_count: Number(s.save_count || 0),
+                repin_count: Number(s.repin_count || 0),
+                comment_count: Number(s.comment_count || 0),
+                share_count: Number(s.share_count || 0),
+                reaction_count: Number(s.reaction_count || 0),
+                daily_save_velocity: Number(s.daily_save_velocity || 0),
+                best_rank: (s.rank_position && s.rank_position > 0) ? s.rank_position : 999,
+                ranking_keywords: []
+              });
+            }
+            const d = map.get(date);
+            d.save_count = Math.max(d.save_count, Number(s.save_count || 0));
+            d.repin_count = Math.max(d.repin_count, Number(s.repin_count || 0));
+            d.comment_count = Math.max(d.comment_count, Number(s.comment_count || 0));
+            d.daily_save_velocity = Math.max(d.daily_save_velocity, Number(s.daily_save_velocity) || 0);
+            const effRank = s.rank_position || s.last_known_rank || null;
+            if (effRank && effRank > 0) {
+              d.best_rank = Math.min(d.best_rank, effRank);
+            }
             if (s.keyword_name) {
-              counts.set(s.keyword_name, (counts.get(s.keyword_name) || 0) + 1);
+              d.ranking_keywords.push({
+                keyword_id: s.keyword_id,
+                keyword: s.keyword_name,
+                rank: effRank,
+                rank_position: s.rank_position || null,
+                last_known_rank: s.last_known_rank || null,
+                is_displaced: Boolean(s.is_displaced),
+                saves: Number(s.save_count || 0)
+              });
+            }
+          }
+          return Array.from(map.values()).sort((a, b) => b.snapshot_date.localeCompare(a.snapshot_date));
+        },
+
+        uniqueKeywords() {
+          const traj = this.dossier?.daily_trajectory || [];
+          const counts = new Map();
+          for (const d of traj) {
+            for (const k of (d.ranking_keywords || [])) {
+              if (k.keyword) {
+                counts.set(k.keyword, (counts.get(k.keyword) || 0) + 1);
+              }
+            }
+          }
+          if (counts.size === 0) {
+            for (const s of (this.dossier?.snapshots || [])) {
+              if (s.keyword_name) {
+                counts.set(s.keyword_name, (counts.get(s.keyword_name) || 0) + 1);
+              }
             }
           }
           return Array.from(counts.entries()).map(([name, count]) => ({ name, count }));
@@ -1118,37 +1249,20 @@ export function getPinDetailPageHtml(pinId = '') {
           return snaps.filter(s => s.keyword_name === this.selectedKeywordFilter);
         },
 
-        computeDeltaUnified(currentIdx, field) {
+        computeDeltaUnified(currentIdx, field = 'save_count') {
           const traj = this.dossier?.daily_trajectory || [];
-          if (currentIdx >= traj.length - 1) return 0;
-          const current = Number(traj[currentIdx]?.[field]) || 0;
-          const previous = Number(traj[currentIdx + 1]?.[field]) || 0;
-          return current - previous;
+          if (!traj[currentIdx]) return 0;
+          return this.computeDeltaByDate(traj[currentIdx].snapshot_date, field);
         },
 
-        computeDeltaPerSerp(currentIdx, field) {
-          const list = this.filteredSnapshots();
-          if (currentIdx >= list.length - 1) return 0;
-          const current = list[currentIdx];
-          for (let i = currentIdx + 1; i < list.length; i++) {
-            if (list[i].keyword_id === current.keyword_id || this.selectedKeywordFilter !== 'ALL') {
-              const prevVal = Number(list[i]?.[field]) || 0;
-              const currVal = Number(current?.[field]) || 0;
-              return currVal - prevVal;
-            }
-          }
-          return 0;
+        computeDeltaPerSerp(currentIdx, field = 'save_count') {
+          const list = this.filteredDays();
+          if (!list[currentIdx]) return 0;
+          return this.computeDeltaByDate(list[currentIdx].snapshot_date, field);
         },
 
-        computeDelta(currentIdx, field) {
-          if (this.dossier?.daily_trajectory && this.dossier.daily_trajectory.length > 0) {
-            return this.computeDeltaUnified(currentIdx, field);
-          }
-          const snaps = this.dossier?.snapshots || [];
-          if (currentIdx >= snaps.length - 1) return 0;
-          const current = isFinite(Number(snaps[currentIdx]?.[field])) ? Number(snaps[currentIdx][field]) : 0;
-          const previous = isFinite(Number(snaps[currentIdx + 1]?.[field])) ? Number(snaps[currentIdx + 1][field]) : 0;
-          return current - previous;
+        computeDelta(currentIdx, field = 'save_count') {
+          return this.computeDeltaUnified(currentIdx, field);
         },
 
         totalEngagementScore() {
@@ -1206,6 +1320,7 @@ export function getPinDetailPageHtml(pinId = '') {
             if (res.ok && data.success) {
               if (data.dossier) {
                 this.dossier = data.dossier;
+                this.rebuildDateMapCache();
               }
               this.showToast('Live Deep Sync completed! All 48 parameters updated.');
             } else {
@@ -1219,32 +1334,80 @@ export function getPinDetailPageHtml(pinId = '') {
           }
         },
 
+        requestDeleteSerpBadge(kw, date) {
+          this.deleteType = 'SERP_BADGE';
+          this.itemToDelete = { keywordId: kw.keyword_id, keywordName: kw.keyword, date };
+          this.deleteModalOpen = true;
+        },
+
+        requestDeleteDay(date) {
+          this.deleteType = 'DAY';
+          this.itemToDelete = { date };
+          this.deleteModalOpen = true;
+        },
+
         requestDeleteSnapshot(id) {
+          this.deleteType = 'SNAPSHOT';
+          this.itemToDelete = { snapshotId: id };
           this.snapshotToDelete = id;
           this.deleteModalOpen = true;
         },
 
-        async executeDeleteSnapshot() {
-          if (!this.snapshotToDelete || this.isDeleting) return;
+        async confirmDelete() {
+          if (this.isDeleting || !this.itemToDelete) return;
           this.isDeleting = true;
           try {
-            const res = await fetch('/api/pins/' + encodeURIComponent(this.pinId) + '/snapshots/' + this.snapshotToDelete, {
-              method: 'DELETE'
-            });
-            const data = await res.json();
-            if (res.ok && data.success) {
-              this.dossier.snapshots = this.dossier.snapshots.filter(s => s.id !== this.snapshotToDelete);
-              this.showToast('Snapshot #' + this.snapshotToDelete + ' deleted successfully');
-              this.deleteModalOpen = false;
-              this.snapshotToDelete = null;
-            } else {
-              this.showToast(data.message || 'Error deleting snapshot', 'error');
+            if (this.deleteType === 'SERP_BADGE') {
+              const { keywordId, keywordName, date } = this.itemToDelete;
+              const res = await fetch('/api/pins/' + encodeURIComponent(this.pinId) + '/serp-positions', {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ keyword_id: keywordId, snapshot_date: date })
+              });
+              const data = await res.json();
+              if (res.ok && data.success) {
+                this.showToast('Keyword rank "' + keywordName + '" removed for ' + date);
+                this.deleteModalOpen = false;
+                await this.loadDossier();
+              } else {
+                this.showToast(data.message || 'Error removing keyword rank', 'error');
+              }
+            } else if (this.deleteType === 'DAY') {
+              const { date } = this.itemToDelete;
+              const res = await fetch('/api/pins/' + encodeURIComponent(this.pinId) + '/daily-metrics/' + encodeURIComponent(date), {
+                method: 'DELETE'
+              });
+              const data = await res.json();
+              if (res.ok && data.success) {
+                this.showToast('All data for ' + date + ' deleted successfully');
+                this.deleteModalOpen = false;
+                await this.loadDossier();
+              } else {
+                this.showToast(data.message || 'Error deleting day', 'error');
+              }
+            } else if (this.deleteType === 'SNAPSHOT') {
+              const snapshotId = this.itemToDelete.snapshotId;
+              const res = await fetch('/api/pins/' + encodeURIComponent(this.pinId) + '/snapshots/' + snapshotId, {
+                method: 'DELETE'
+              });
+              const data = await res.json();
+              if (res.ok && data.success) {
+                this.showToast('Snapshot #' + snapshotId + ' deleted successfully');
+                this.deleteModalOpen = false;
+                await this.loadDossier();
+              } else {
+                this.showToast(data.message || 'Error deleting snapshot', 'error');
+              }
             }
-          } catch (e) {
-            this.showToast('Error deleting snapshot: ' + e.message, 'error');
+          } catch (err) {
+            this.showToast('Deletion error: ' + err.message, 'error');
           } finally {
             this.isDeleting = false;
           }
+        },
+
+        async executeDeleteSnapshot() {
+          return this.confirmDelete();
         },
 
         formatNumber(n) {
