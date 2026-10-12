@@ -7,6 +7,7 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { neon } from '@neondatabase/serverless';
+import postgres from 'postgres';
 import { getDashboardHtml } from './dashboard-ui.mjs';
 import { getKeywordsPageHtml } from './keywords-ui.mjs';
 import { getBoardIdeasPageHtml } from './board-ideas-ui.mjs';
@@ -525,6 +526,30 @@ function getCachedShardSql(key, factory) {
   return client;
 }
 
+export function createHyperdriveClient(connectionString) {
+  const pSql = postgres(connectionString, {
+    max: 5,
+    idle_timeout: 15,
+    connect_timeout: 10
+  });
+  pSql.transaction = async (queries) => {
+    return await pSql.begin(async (tx) => {
+      const results = [];
+      for (const q of queries) {
+        if (q && q.strings && q.args) {
+          results.push(await tx(q.strings, ...q.args));
+        } else if (typeof q === 'function') {
+          results.push(await q(tx));
+        } else {
+          results.push(await tx(q));
+        }
+      }
+      return results;
+    });
+  };
+  return pSql;
+}
+
 // Edge Data Cache & Single-Flight Request Coalescing (Anti-Thundering Herd & SWR)
 export const edgeCache = new Map();
 export const inflightPromises = new Map();
@@ -736,18 +761,33 @@ export default {
 
     // Health check endpoint
     if (pathname === '/api/health') {
-      const dbUrl = env?.HYPERDRIVE?.connectionString || env?.DATABASE_URL || (typeof process !== 'undefined' ? process.env?.DATABASE_URL : null);
-      const isHyperdrive = Boolean(env?.HYPERDRIVE?.connectionString);
+      const isHyperdriveConfigured = Boolean(env?.HYPERDRIVE?.connectionString);
       const isKvConfigured = Boolean(env?.PIN_ENGINE_KV);
       const isD1Configured = Boolean(env?.PIN_D1_DB);
+      const directNeonUrl = env?.DATABASE_URL || (typeof process !== 'undefined' ? process.env?.DATABASE_URL : null);
 
-      if (!dbUrl && !env?.SQL_CLIENT) {
+      let sql = env?.SQL_CLIENT;
+      let usedHyperdrive = false;
+
+      if (!sql) {
+        if (isHyperdriveConfigured) {
+          try {
+            sql = createHyperdriveClient(env.HYPERDRIVE.connectionString);
+            usedHyperdrive = true;
+          } catch (_) {}
+        }
+        if (!sql && directNeonUrl) {
+          sql = neon(directNeonUrl);
+        }
+      }
+
+      if (!sql) {
         return jsonResponse({
           status: 'degraded',
           database: 'missing_database_url',
           error: 'DATABASE_URL or HYPERDRIVE secret is not set in Cloudflare Workers settings.',
-          hyperdrive_accelerated: isHyperdrive,
-          hyperdrive: isHyperdrive ? 'active' : 'fallback',
+          hyperdrive_accelerated: false,
+          hyperdrive: isHyperdriveConfigured ? 'failed' : 'fallback',
           neon: 'unconfigured',
           kv: isKvConfigured ? 'connected' : 'unconfigured',
           kv_configured: isKvConfigured,
@@ -757,14 +797,14 @@ export default {
         }, 503);
       }
       try {
-        const sql = env?.SQL_CLIENT || neon(dbUrl);
         await sql`SELECT 1 as alive;`;
+        const hyperdriveAccelerated = Boolean(isHyperdriveConfigured && (usedHyperdrive || env?.SQL_CLIENT));
         return jsonResponse({
           status: 'healthy',
           database: 'connected',
           runtime: 'cloudflare_workers',
-          hyperdrive_accelerated: isHyperdrive,
-          hyperdrive: isHyperdrive ? 'active' : 'fallback',
+          hyperdrive_accelerated: hyperdriveAccelerated,
+          hyperdrive: hyperdriveAccelerated ? 'active' : 'fallback',
           neon: 'connected',
           kv: isKvConfigured ? 'connected' : 'unconfigured',
           kv_configured: isKvConfigured,
@@ -773,12 +813,33 @@ export default {
           timestamp: new Date().toISOString()
         }, 200);
       } catch (err) {
+        // Fallback: If Hyperdrive TCP check threw an error and directNeonUrl is available, try direct Neon HTTP
+        if (usedHyperdrive && directNeonUrl) {
+          try {
+            const fallbackSql = neon(directNeonUrl);
+            await fallbackSql`SELECT 1 as alive;`;
+            return jsonResponse({
+              status: 'healthy',
+              database: 'connected',
+              runtime: 'cloudflare_workers',
+              hyperdrive_accelerated: false,
+              hyperdrive: 'fallback',
+              neon: 'connected',
+              kv: isKvConfigured ? 'connected' : 'unconfigured',
+              kv_configured: isKvConfigured,
+              d1: isD1Configured ? 'connected' : 'unconfigured',
+              d1_configured: isD1Configured,
+              hyperdrive_error: redactSecrets(err.message),
+              timestamp: new Date().toISOString()
+            }, 200);
+          } catch (_) {}
+        }
         return jsonResponse({
           status: 'error',
           database: 'disconnected',
           error: redactSecrets(err.message),
-          hyperdrive_accelerated: isHyperdrive,
-          hyperdrive: isHyperdrive ? 'active' : 'fallback',
+          hyperdrive_accelerated: isHyperdriveConfigured,
+          hyperdrive: isHyperdriveConfigured ? 'active' : 'fallback',
           neon: 'disconnected',
           kv: isKvConfigured ? 'connected' : 'unconfigured',
           kv_configured: isKvConfigured,
@@ -826,15 +887,51 @@ export default {
       }
     }
 
-    const dbUrl = env?.HYPERDRIVE?.connectionString || env?.DATABASE_URL || (typeof process !== 'undefined' ? process.env?.DATABASE_URL : null);
-    if (!dbUrl && !env?.SQL_CLIENT) {
+    let sql = env?.SQL_CLIENT;
+    if (!sql) {
+      const isHyperdriveConfigured = Boolean(env?.HYPERDRIVE?.connectionString);
+      const directNeonUrl = env?.DATABASE_URL || (typeof process !== 'undefined' ? process.env?.DATABASE_URL : null);
+
+      if (isHyperdriveConfigured) {
+        const hyperdriveConn = env.HYPERDRIVE.connectionString;
+        const hyperdriveSql = getCachedShardSql(`hyperdrive:${hyperdriveConn}`, () => createHyperdriveClient(hyperdriveConn));
+        if (directNeonUrl) {
+          const directSql = getCachedShardSql(directNeonUrl, () => neon(directNeonUrl));
+          sql = new Proxy(hyperdriveSql, {
+            apply(target, thisArg, argArray) {
+              return Reflect.apply(target, thisArg, argArray).catch(err => {
+                console.warn(`[Hyperdrive Fallback] Query failed (${redactSecrets(err.message)}). Degrading to direct Neon HTTP.`);
+                return Reflect.apply(directSql, thisArg, argArray);
+              });
+            },
+            get(target, prop, receiver) {
+              if (prop === 'transaction') {
+                return async (queries) => {
+                  try {
+                    return await target.transaction(queries);
+                  } catch (err) {
+                    console.warn(`[Hyperdrive Tx Fallback] Tx failed (${redactSecrets(err.message)}). Degrading to direct Neon HTTP tx.`);
+                    return await directSql.transaction(queries);
+                  }
+                };
+              }
+              return Reflect.get(target, prop, receiver);
+            }
+          });
+        } else {
+          sql = hyperdriveSql;
+        }
+      } else if (directNeonUrl) {
+        sql = getCachedShardSql(directNeonUrl, () => neon(directNeonUrl));
+      }
+    }
+
+    if (!sql) {
       return jsonResponse({
         error: 'DATABASE_URL secret is not set in Cloudflare Workers environment.',
         hint: 'Add DATABASE_URL in Cloudflare Dashboard -> Workers & Pages -> pin-arbitrage-engine -> Settings -> Variables and Secrets.'
       }, 500);
     }
-
-    const sql = env.SQL_CLIENT || getCachedShardSql(dbUrl, () => neon(dbUrl));
     let targetSql = sql;
     const reqProjectId = searchParams.get('project_id') || searchParams.get('shard') || request.headers.get('x-target-project');
     if (reqProjectId && reqProjectId !== 'all' && reqProjectId !== 'hub') {
