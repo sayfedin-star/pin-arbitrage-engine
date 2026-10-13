@@ -212,9 +212,13 @@ export async function listKeywords(sql, { search = '', limit = 50, offset = 0 } 
  */
 export async function getAppSettings(sql) {
   const defaultSettings = {
+    enable_serp_harvest: true,
     default_crawl_pages: 10,
     default_max_pins: 250,
-    default_inspection_mode: 'smart_breakout',
+    max_serp_pins: 250,
+    max_catalog_inspect: 0,
+    default_crawl_scope: 'all_pins',
+    default_inspection_mode: 'full_catalog',
     exclude_promoted: true,
     exclude_boards_and_suggestions: true,
     exclude_ignored_pins: true,
@@ -769,16 +773,20 @@ export function isCommercialOrAdPin(it) {
   );
 }
 
-export async function crawlKeywordSERP(sql, keywordId, options = {}) {
+export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, maybeOptions = {}) {
   const kid = Number(keywordId);
   if (!kid) throw new Error('Valid keyword ID is required');
 
   let cookie = (typeof process !== 'undefined' && process?.env ? process.env.PINTEREST_COOKIE : null);
   let force = false;
+  let options = {};
 
-  if (typeof options === 'string') {
-    cookie = options;
-  } else if (options && typeof options === 'object') {
+  if (typeof optionsOrCookie === 'string') {
+    cookie = optionsOrCookie;
+    options = (maybeOptions && typeof maybeOptions === 'object') ? maybeOptions : {};
+    if (options.force) force = Boolean(options.force);
+  } else if (optionsOrCookie && typeof optionsOrCookie === 'object') {
+    options = optionsOrCookie;
     if (options.cookie !== undefined) cookie = options.cookie;
     if (options.force) force = Boolean(options.force);
   }
@@ -837,6 +845,7 @@ export async function crawlKeywordSERP(sql, keywordId, options = {}) {
       10
     )));
     const configuredTargetPins = Math.max(25, Math.min(1000, Number(
+      options.max_serp_pins || 
       options.max_pins || 
       keywordRow.target_pin_count || 
       (configuredPages * 25)

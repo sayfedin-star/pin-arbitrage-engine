@@ -16,7 +16,7 @@
 
 import { neon } from '@neondatabase/serverless';
 import fs from 'node:fs';
-import { crawlKeywordSERP } from '../src/modules/keywords/service.mjs';
+import { crawlKeywordSERP, getAppSettings } from '../src/modules/keywords/service.mjs';
 
 // Auto-load .env in local environments
 if (typeof process.loadEnvFile === 'function') {
@@ -32,9 +32,7 @@ if (!DATABASE_URL) {
 const sql = neon(DATABASE_URL);
 const rawTargetKeyword = (process.env.TARGET_KEYWORD || '').trim();
 const rawFolderId = (process.env.FOLDER_ID || '').trim();
-const crawlScope = (process.env.CRAWL_SCOPE || 'all_pins').toLowerCase().trim();
 const cookie = process.env.PINTEREST_COOKIE || null;
-const maxPinsInput = Math.max(25, Math.min(1000, parseInt(process.env.MAX_PINS || '250', 10)));
 const githubOutputPath = process.env.GITHUB_OUTPUT || null;
 const stepSummaryPath = process.env.GITHUB_STEP_SUMMARY || null;
 
@@ -52,10 +50,32 @@ async function main() {
   console.log('================================================================');
   console.log('   🚀 KEYWORD INTELLIGENCE & VELOCITY FLEET DISPATCHER (20-RUNNER)');
   console.log('================================================================');
-  console.log(`[Config] Target Input: "${rawTargetKeyword || '<EMPTY: ALL ACTIVE KEYWORDS>'}"`);
-  console.log(`[Config] Folder ID:    "${rawFolderId || '<NONE>'}"`);
-  console.log(`[Config] Crawl Scope:  "${crawlScope}"`);
-  console.log(`[Config] Max Pins:     ${maxPinsInput}`);
+
+  // Dynamically resolve configuration from DB app_settings with ENV overrides
+  const appSettings = await getAppSettings(sql).catch(() => ({}));
+  const envHarvest = process.env.ENABLE_SERP_HARVEST?.trim();
+  const enableSerpHarvest = (envHarvest !== undefined && envHarvest !== '')
+    ? (envHarvest === 'true' || envHarvest === '1')
+    : (appSettings.enable_serp_harvest ?? true);
+
+  const envSerpPins = process.env.MAX_SERP_PINS?.trim() || process.env.MAX_PINS?.trim();
+  const maxSerpPins = (envSerpPins && !isNaN(parseInt(envSerpPins, 10)))
+    ? Math.max(25, Math.min(1000, parseInt(envSerpPins, 10)))
+    : (appSettings.max_serp_pins || appSettings.default_max_pins || 250);
+
+  const envCatalogInspect = process.env.MAX_CATALOG_INSPECT?.trim();
+  const maxCatalogInspect = (envCatalogInspect !== undefined && envCatalogInspect !== '' && !isNaN(parseInt(envCatalogInspect, 10)))
+    ? Math.max(0, parseInt(envCatalogInspect, 10))
+    : (appSettings.max_catalog_inspect !== undefined ? Math.max(0, parseInt(appSettings.max_catalog_inspect, 10)) : 0);
+
+  const envCrawlScope = process.env.CRAWL_SCOPE?.trim();
+  const crawlScope = ((envCrawlScope && envCrawlScope !== '') ? envCrawlScope : (appSettings.default_crawl_scope || 'all_pins')).toLowerCase().trim();
+
+  console.log(`[Config] Target Input:       "${rawTargetKeyword || '<EMPTY: ALL ACTIVE KEYWORDS>'}"`);
+  console.log(`[Config] Folder ID:          "${rawFolderId || '<NONE>'}"`);
+  console.log(`[Config] Crawl Scope:        "${crawlScope}"`);
+  console.log(`[Config] SERP Harvest Quota: ${maxSerpPins} pins (${enableSerpHarvest ? 'ENABLED' : 'DISABLED: AUDIT ONLY'})`);
+  console.log(`[Config] Catalog Inspect:    ${maxCatalogInspect === 0 ? 'UNLIMITED / ALL PINS' : maxCatalogInspect + ' pins'}`);
 
   const isSweepAll = !rawTargetKeyword || rawTargetKeyword.toLowerCase() === 'all' || rawTargetKeyword.toLowerCase() === 'cron' || rawTargetKeyword.toLowerCase() === '*';
   const commaKeywords = rawTargetKeyword.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
@@ -94,23 +114,27 @@ async function main() {
     console.log(`  [+] Resolved ${folderKeywords.length} keywords in folder cluster.`);
 
     // 2. Stage 0 Fast SERP Ingestion for all cluster keywords to refresh ranks & ingest new pins
-    console.log(`  [*] Executing Stage 0 Fast SERP Ingestion across ${folderKeywords.length} folder keywords...`);
-    for (let kIdx = 0; kIdx < folderKeywords.length; kIdx++) {
-      const kw = folderKeywords[kIdx];
-      try {
-        console.log(`    [${kIdx + 1}/${folderKeywords.length}] Ingesting SERP for "${kw.keyword}" (ID: ${kw.id})...`);
-        const crawlRes = await crawlKeywordSERP(sql, kw.id, cookie);
-        if (crawlRes?.success) {
-          console.log(`      [+] Ingested ${crawlRes.crawled_pins} pins | Avg Velocity: +${crawlRes.avg_velocity} saves/day`);
-        } else {
-          console.warn(`      [!] SERP warning for "${kw.keyword}": ${crawlRes?.message || 'Incomplete'}`);
+    if (enableSerpHarvest) {
+      console.log(`  [*] Executing Stage 0 Fast SERP Ingestion across ${folderKeywords.length} folder keywords...`);
+      for (let kIdx = 0; kIdx < folderKeywords.length; kIdx++) {
+        const kw = folderKeywords[kIdx];
+        try {
+          console.log(`    [${kIdx + 1}/${folderKeywords.length}] Ingesting SERP for "${kw.keyword}" (ID: ${kw.id})...`);
+          const crawlRes = await crawlKeywordSERP(sql, kw.id, { cookie, max_serp_pins: maxSerpPins });
+          if (crawlRes?.success) {
+            console.log(`      [+] Ingested ${crawlRes.crawled_pins} pins | Avg Velocity: +${crawlRes.avg_velocity} saves/day`);
+          } else {
+            console.warn(`      [!] SERP warning for "${kw.keyword}": ${crawlRes?.message || 'Incomplete'}`);
+          }
+        } catch (kwErr) {
+          console.warn(`      [!] SERP error for "${kw.keyword}": ${kwErr.message}`);
         }
-      } catch (kwErr) {
-        console.warn(`      [!] SERP error for "${kw.keyword}": ${kwErr.message}`);
+        if (kIdx < folderKeywords.length - 1) {
+          await new Promise(r => setTimeout(r, 600));
+        }
       }
-      if (kIdx < folderKeywords.length - 1) {
-        await new Promise(r => setTimeout(r, 600));
-      }
+    } else {
+      console.log(`  [*] Stage 0 Fast SERP Ingestion Skipped (Audit-Only Mode Active). Proceeding directly to Folder Catalog Partition...`);
     }
 
     // 3. Query All Deduplicated Candidate Pins for this Folder
@@ -144,6 +168,11 @@ async function main() {
       return String(a.pin_id).localeCompare(String(b.pin_id));
     });
 
+    if (maxCatalogInspect > 0 && candidatePins.length > maxCatalogInspect) {
+      console.log(`  [*] Applying max_catalog_inspect cap: ${candidatePins.length} -> ${maxCatalogInspect} pins`);
+      candidatePins = candidatePins.slice(0, maxCatalogInspect);
+    }
+
     const totalPinsFound = candidatePins.length;
     console.log(`  [+] Total Deduplicated Catalog Pins in Folder: ${totalPinsFound} pins`);
 
@@ -159,7 +188,10 @@ async function main() {
         worker_total: 1,
         total_pins: 0,
         crawl_scope: crawlScope,
-        max_pins: maxPinsInput
+        max_pins: maxSerpPins,
+        max_serp_pins: maxSerpPins,
+        max_catalog_inspect: maxCatalogInspect,
+        enable_serp_harvest: enableSerpHarvest
       }];
     } else {
       const numWorkers = Math.min(20, Math.max(1, totalPinsFound > 0 ? 20 : 1));
@@ -175,7 +207,10 @@ async function main() {
         worker_total: numWorkers,
         total_pins: totalPinsFound,
         crawl_scope: crawlScope,
-        max_pins: maxPinsInput
+        max_pins: maxSerpPins,
+        max_serp_pins: maxSerpPins,
+        max_catalog_inspect: maxCatalogInspect,
+        enable_serp_harvest: enableSerpHarvest
       }));
     }
 
@@ -240,8 +275,11 @@ async function main() {
         worker_index: idx,
         worker_slot: idx + 1,
         worker_total: targetRows.length,
-        max_pins: maxPinsInput,
-        crawl_scope: crawlScope
+        max_pins: maxSerpPins,
+        max_serp_pins: maxSerpPins,
+        max_catalog_inspect: maxCatalogInspect,
+        crawl_scope: crawlScope,
+        enable_serp_harvest: enableSerpHarvest
       }));
     } else {
       // Chunking strategy: Partition large keyword fleet into 20 workers to prevent GitHub Actions matrix explosion (256 limit)
@@ -261,8 +299,11 @@ async function main() {
             worker_index: w,
             worker_slot: w + 1,
             worker_total: WORKER_COUNT,
-            max_pins: maxPinsInput,
-            crawl_scope: crawlScope
+            max_pins: maxSerpPins,
+            max_serp_pins: maxSerpPins,
+            max_catalog_inspect: maxCatalogInspect,
+            crawl_scope: crawlScope,
+            enable_serp_harvest: enableSerpHarvest
           });
         }
       }
@@ -293,7 +334,7 @@ async function main() {
       console.log(`  [+] Auto-registering keyword: "${singleKeyword}"...`);
       [kwRow] = await sql`
         INSERT INTO tracked_keywords (keyword, category, target_pin_count, crawl_pages_limit, inspection_mode, is_active)
-        VALUES (${singleKeyword}, 'General', 250, 10, 'smart_breakout', TRUE)
+        VALUES (${singleKeyword}, 'General', 250, 10, 'full_catalog', TRUE)
         RETURNING id, keyword, category, target_pin_count;
       `;
     }
@@ -301,16 +342,20 @@ async function main() {
     console.log(`  [+] Keyword Confirmed: "${kwRow.keyword}" (ID: ${kwRow.id})`);
 
     // 2. Stage 1: Fast SERP Search Ingestion (~5-8s)
-    console.log('  [*] Executing Stage 1 Fast SERP Ingestion via Pinterest API...');
-    try {
-      const crawlRes = await crawlKeywordSERP(sql, kwRow.id, cookie);
-      if (crawlRes?.success) {
-        console.log(`  [+] Stage 1 Complete: Captured ${crawlRes.crawled_pins} pins | Avg Velocity: +${crawlRes.avg_velocity} saves/day`);
-      } else {
-        console.warn(`  [!] Stage 1 Warning: ${crawlRes?.message || 'Incomplete SERP fetch'}`);
+    if (enableSerpHarvest) {
+      console.log('  [*] Executing Stage 1 Fast SERP Ingestion via Pinterest API...');
+      try {
+        const crawlRes = await crawlKeywordSERP(sql, kwRow.id, { cookie, max_serp_pins: maxSerpPins });
+        if (crawlRes?.success) {
+          console.log(`  [+] Stage 1 Complete: Captured ${crawlRes.crawled_pins} pins | Avg Velocity: +${crawlRes.avg_velocity} saves/day`);
+        } else {
+          console.warn(`  [!] Stage 1 Warning: ${crawlRes?.message || 'Incomplete SERP fetch'}`);
+        }
+      } catch (serpErr) {
+        console.warn(`  [!] Stage 1 Warning (proceeding to catalog inspection): ${serpErr.message}`);
       }
-    } catch (serpErr) {
-      console.warn(`  [!] Stage 1 Warning (proceeding to catalog inspection): ${serpErr.message}`);
+    } else {
+      console.log('  [*] Stage 1 Fast SERP Ingestion Skipped (Audit-Only Mode Active). Proceeding directly to Catalog Pin Slicing...');
     }
 
     // 3. Query All Relevant Pins for this Keyword (Active SERP + Displaced Vault)
@@ -340,6 +385,11 @@ async function main() {
       return String(a.pin_id).localeCompare(String(b.pin_id));
     });
 
+    if (maxCatalogInspect > 0 && candidatePins.length > maxCatalogInspect) {
+      console.log(`  [*] Applying max_catalog_inspect cap: ${candidatePins.length} -> ${maxCatalogInspect} pins`);
+      candidatePins = candidatePins.slice(0, maxCatalogInspect);
+    }
+
     const totalPinsFound = candidatePins.length;
     console.log(`  [+] Total Catalog Pins Discovered: ${totalPinsFound} pins`);
 
@@ -354,7 +404,10 @@ async function main() {
         worker_total: 1,
         total_pins: 0,
         crawl_scope: crawlScope,
-        max_pins: maxPinsInput
+        max_pins: maxSerpPins,
+        max_serp_pins: maxSerpPins,
+        max_catalog_inspect: maxCatalogInspect,
+        enable_serp_harvest: enableSerpHarvest
       }];
     } else {
       // Calculate optimal runners count (up to 20 runners)
@@ -370,7 +423,10 @@ async function main() {
         worker_total: numWorkers,
         total_pins: totalPinsFound,
         crawl_scope: crawlScope,
-        max_pins: maxPinsInput
+        max_pins: maxSerpPins,
+        max_serp_pins: maxSerpPins,
+        max_catalog_inspect: maxCatalogInspect,
+        enable_serp_harvest: enableSerpHarvest
       }));
     }
 

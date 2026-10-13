@@ -24,6 +24,21 @@ on:
         required: false
         type: string
         default: '250'
+      max_serp_pins:
+        description: 'Live Search Discovery Quota (default: 250, up to 1000)'
+        required: false
+        type: string
+        default: ''
+      max_catalog_inspect:
+        description: 'Total Catalog & Vault Inspection Cap (0 = Unlimited / All Pins, default: 0)'
+        required: false
+        type: string
+        default: ''
+      enable_serp_harvest:
+        description: 'Harvest new live SERP pins before deep inspecting catalog (true / false)'
+        required: false
+        type: string
+        default: ''
       folder_id:
         description: 'Folder / Cluster ID to audit (partitions all unique folder cluster pins across 20 runners)'
         required: false
@@ -76,6 +91,9 @@ jobs:
           FOLDER_ID: ${{ inputs.folder_id }}
           CRAWL_SCOPE: ${{ inputs.crawl_scope || 'all_pins' }}
           MAX_PINS: ${{ inputs.max_pins || '250' }}
+          MAX_SERP_PINS: ${{ inputs.max_serp_pins || inputs.max_pins || '' }}
+          MAX_CATALOG_INSPECT: ${{ inputs.max_catalog_inspect }}
+          ENABLE_SERP_HARVEST: ${{ inputs.enable_serp_harvest }}
         run: node scripts/keyword-fleet-dispatcher.mjs
 
   # ============================================================================
@@ -129,6 +147,9 @@ jobs:
           WORKER_TOTAL: ${{ matrix.worker_total }}
           CRAWL_SCOPE: ${{ matrix.crawl_scope || 'all_pins' }}
           MAX_PINS: ${{ matrix.max_pins }}
+          MAX_SERP_PINS: ${{ matrix.max_serp_pins }}
+          MAX_CATALOG_INSPECT: ${{ matrix.max_catalog_inspect }}
+          ENABLE_SERP_HARVEST: ${{ matrix.enable_serp_harvest }}
         run: node scripts/keyword-velocity-crawler.mjs
 
   # ============================================================================

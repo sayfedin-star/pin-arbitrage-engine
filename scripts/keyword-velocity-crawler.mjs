@@ -52,7 +52,21 @@ const folderIdInput = process.env.FOLDER_ID ? parseInt(process.env.FOLDER_ID, 10
 const crawlScope = (process.env.CRAWL_SCOPE || 'all_pins').toLowerCase().trim();
 const cookie = process.env.PINTEREST_COOKIE || null;
 const stepSummaryPath = process.env.GITHUB_STEP_SUMMARY || null;
-const maxPins = process.env.MAX_PINS ? parseInt(process.env.MAX_PINS, 10) : null;
+const envSerpPins = process.env.MAX_SERP_PINS?.trim() || process.env.MAX_PINS?.trim();
+const maxSerpPins = (envSerpPins && !isNaN(parseInt(envSerpPins, 10)))
+  ? Math.max(25, Math.min(1000, parseInt(envSerpPins, 10)))
+  : 250;
+
+const envCatalogInspect = process.env.MAX_CATALOG_INSPECT?.trim();
+const maxCatalogInspect = (envCatalogInspect !== undefined && envCatalogInspect !== '' && !isNaN(parseInt(envCatalogInspect, 10)))
+  ? Math.max(0, parseInt(envCatalogInspect, 10))
+  : 0;
+
+const envHarvest = process.env.ENABLE_SERP_HARVEST?.trim();
+const enableSerpHarvest = (envHarvest !== undefined && envHarvest !== '')
+  ? (envHarvest === 'true' || envHarvest === '1')
+  : true;
+const maxPins = maxSerpPins;
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -1024,6 +1038,11 @@ async function run() {
       return String(a.pin_id).localeCompare(String(b.pin_id));
     });
 
+    if (maxCatalogInspect > 0 && allPins.length > maxCatalogInspect) {
+      console.log(`  [*] Applying max_catalog_inspect cap: ${allPins.length} -> ${maxCatalogInspect} pins`);
+      allPins = allPins.slice(0, maxCatalogInspect);
+    }
+
     const myPins = allPins.filter(p => (crc32(p.pin_id) % workerTotal) === workerIndex);
     myPins.sort((a, b) => {
       const rA = Number(a.rank_position) || Number(a.last_known_rank) || 9999;
@@ -1120,6 +1139,11 @@ async function run() {
       if (rA !== rB) return rA - rB;
       return String(a.pin_id).localeCompare(String(b.pin_id));
     });
+
+    if (maxCatalogInspect > 0 && allPins.length > maxCatalogInspect) {
+      console.log(`  [*] Applying max_catalog_inspect cap: ${allPins.length} -> ${maxCatalogInspect} pins`);
+      allPins = allPins.slice(0, maxCatalogInspect);
+    }
 
     // Deterministic Hash Disjoint Partition (Immune to dynamic catalog size variations across worker start times)
     const myPins = allPins.filter(p => (crc32(p.pin_id) % workerTotal) === workerIndex);
@@ -1232,27 +1256,56 @@ async function run() {
       }
 
       try {
-        const crawlRes = await crawlKeywordSERP(sql, kw.id, cookie);
-        if (crawlRes.success) {
-          console.log(`  [+] Stage 1 Fast Crawl Success: Crawled ${crawlRes.crawled_pins} pins | Velocity: +${crawlRes.avg_velocity} saves/day`);
+        let crawlRes = { success: true, crawled_pins: 0, avg_velocity: 0 };
+        if (enableSerpHarvest) {
+          crawlRes = await crawlKeywordSERP(sql, kw.id, cookie, { max_serp_pins: maxSerpPins });
+          if (crawlRes && crawlRes.success) {
+            console.log(`  [+] Stage 1 Fast Crawl Success: Crawled ${crawlRes.crawled_pins} pins | Velocity: +${crawlRes.avg_velocity} saves/day`);
+          }
+        } else {
+          console.log(`  [*] Stage 1 Live SERP Harvesting skipped (enable_serp_harvest = false). Proceeding directly to Catalog & Vault Inspection.`);
+        }
 
+        if (crawlRes && crawlRes.success) {
           // Stage 2: Exhaustive Deep Inspection across both Active SERP and Displaced Vault
           // User Directive: Inspect ALL pins for keyword without exception and without limits
-          const allKeywordPins = await sql`
-            SELECT 
-              pin_id, keyword_id, rank_position, last_known_rank, title, domain, destination_url, image_url,
-              save_count, repin_count, daily_save_velocity, creator_username,
-              board_name, dominant_color, visual_annotations, crawled_at, updated_at, is_displaced
-            FROM keyword_serp_current
-            WHERE keyword_id = ${kw.id} AND pin_id ~ '^[0-9]+$'
-              AND NOT EXISTS (
-                SELECT 1 FROM keyword_ignored_pins kip
-                WHERE kip.keyword_id = ${kw.id} AND kip.pin_id = keyword_serp_current.pin_id
-              )
-            ORDER BY is_displaced ASC, rank_position ASC NULLS LAST;
-          `;
+          let allKeywordPins = [];
+          if (crawlScope === 'active_serp') {
+            allKeywordPins = await sql`
+              SELECT 
+                pin_id, keyword_id, rank_position, last_known_rank, title, domain, destination_url, image_url,
+                save_count, repin_count, daily_save_velocity, creator_username,
+                board_name, dominant_color, visual_annotations, crawled_at, updated_at, FALSE as is_displaced
+              FROM keyword_serp_current
+              WHERE keyword_id = ${kw.id} AND pin_id ~ '^[0-9]+$' AND is_displaced = FALSE
+                AND NOT EXISTS (
+                  SELECT 1 FROM keyword_ignored_pins kip
+                  WHERE kip.keyword_id = ${kw.id} AND kip.pin_id = keyword_serp_current.pin_id
+                )
+              ORDER BY rank_position ASC;
+            `;
+          } else {
+            allKeywordPins = await sql`
+              SELECT 
+                pin_id, keyword_id, rank_position, last_known_rank, title, domain, destination_url, image_url,
+                save_count, repin_count, daily_save_velocity, creator_username,
+                board_name, dominant_color, visual_annotations, crawled_at, updated_at, is_displaced
+              FROM keyword_serp_current
+              WHERE keyword_id = ${kw.id} AND pin_id ~ '^[0-9]+$'
+                AND NOT EXISTS (
+                  SELECT 1 FROM keyword_ignored_pins kip
+                  WHERE kip.keyword_id = ${kw.id} AND kip.pin_id = keyword_serp_current.pin_id
+                )
+              ORDER BY is_displaced ASC, rank_position ASC NULLS LAST;
+            `;
+          }
 
-          const serpPins = maxPins ? allKeywordPins.slice(0, maxPins) : allKeywordPins;
+          let serpPins = [];
+          if (crawlScope === 'active_serp') {
+            serpPins = (maxSerpPins > 0) ? allKeywordPins.slice(0, maxSerpPins) : allKeywordPins;
+          } else {
+            serpPins = (maxCatalogInspect > 0) ? allKeywordPins.slice(0, maxCatalogInspect) : allKeywordPins;
+          }
           console.log(`  [*] Keyword Catalog: ${allKeywordPins.length} total pins (${allKeywordPins.filter(p => !p.is_displaced).length} active + ${allKeywordPins.filter(p => p.is_displaced).length} vault). Inspecting ${serpPins.length} pins...`);
 
           const enrichedPins = await inspectPinsConcurrently(
@@ -1268,10 +1321,10 @@ async function run() {
             id: kw.id,
             keyword: kw.keyword,
             category: kw.category,
-            crawled_pins: crawlRes.crawled_pins,
+            crawled_pins: crawlRes.crawled_pins || 0,
             enriched_pins: enrichedPins.length,
             shards_updated: shardsSynced,
-            avg_velocity: crawlRes.avg_velocity,
+            avg_velocity: crawlRes.avg_velocity || 0,
             status: 'success'
           });
         }
