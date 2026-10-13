@@ -253,26 +253,34 @@ export async function batchAddKeywordsToFolder(sql, folderId, keywordIds = []) {
   const validKids = (keywordIds || []).map(Number).filter(Boolean);
   if (!validKids.length) return { added: 0 };
 
-  const inserted = await sql`
-    INSERT INTO keyword_folder_items (
-      folder_id,
-      keyword_id,
-      added_at
-    )
-    SELECT
-      ${fid},
-      k_id,
-      NOW()
-    FROM UNNEST(${validKids}::int[]) AS k_id
-    ON CONFLICT (folder_id, keyword_id) DO NOTHING
-    RETURNING keyword_id;
-  `;
+  const txRunner = typeof sql.begin === 'function'
+    ? sql.begin.bind(sql)
+    : (typeof sql.transaction === 'function' ? sql.transaction.bind(sql) : (fn) => fn(sql));
 
-  await sql`
-    UPDATE keyword_folders 
-    SET updated_at = NOW() 
-    WHERE id = ${fid};
-  `;
+  const inserted = await txRunner(async (tx) => {
+    const rows = await tx`
+      INSERT INTO keyword_folder_items (
+        folder_id,
+        keyword_id,
+        added_at
+      )
+      SELECT
+        ${fid},
+        k_id,
+        NOW()
+      FROM UNNEST(${validKids}::int[]) AS k_id
+      ON CONFLICT (folder_id, keyword_id) DO NOTHING
+      RETURNING keyword_id;
+    `;
+
+    await tx`
+      UPDATE keyword_folders 
+      SET updated_at = NOW() 
+      WHERE id = ${fid};
+    `;
+
+    return rows;
+  });
 
   invalidateFolderCache(fid);
   return { added: inserted.length };

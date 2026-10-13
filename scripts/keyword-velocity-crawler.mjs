@@ -24,9 +24,16 @@
 import { neon } from '@neondatabase/serverless';
 import fs from 'fs';
 import { crawlKeywordSERP } from '../src/modules/keywords/service.mjs';
-import { fetchPinFromPinterest } from './lib/pinterest.mjs';
+import { fetchPinFromPinterest, setDefaultDispatcher } from './lib/pinterest.mjs';
 import { batchGroupByShard, resolveShardConnection, preloadNeonRegistry } from '../src/modules/sharding/fleet-router.mjs';
 import { crc32 } from '../src/modules/fleet/sharding.mjs';
+
+let undiciAgent = null;
+try {
+  const { Agent } = await import('undici');
+  undiciAgent = new Agent({ keepAliveTimeout: 30000, connections: 50, pipelining: 1 });
+  setDefaultDispatcher(undiciAgent);
+} catch (_) {}
 
 if (typeof process.loadEnvFile === 'function') {
   try { process.loadEnvFile(); } catch (_) {}
@@ -702,6 +709,17 @@ async function flushToStorageShards(enrichedPins) {
   let shardsSynchronized = 0;
 
   const shardEntries = Array.from(shardGroups.entries());
+
+  // Parallel prewarming pulse (SELECT 1) across affected shards to eliminate cold-start latencies
+  await Promise.allSettled(
+    shardEntries.map(async ([shardId]) => {
+      try {
+        const prewarmSql = await resolveShardConnection({ hubSql: sql, shardId });
+        await prewarmSql`SELECT 1;`;
+      } catch (_) {}
+    })
+  );
+
   const SHARD_CONCURRENCY = 10;
 
   for (let i = 0; i < shardEntries.length; i += SHARD_CONCURRENCY) {
@@ -711,7 +729,8 @@ async function flushToStorageShards(enrichedPins) {
         try {
           const syncTask = (async () => {
             const shardSql = await resolveShardConnection({ hubSql: sql, shardId });
-            const shardPayload = JSON.stringify(shardPins.map(sp => ({
+            const sortedPins = [...shardPins].sort((a, b) => String(a.pin_id).localeCompare(String(b.pin_id)));
+            const shardPayload = JSON.stringify(sortedPins.map(sp => ({
               pin_id: String(sp.pin_id),
               creator_username: String(sp.creator_username || ''),
               board_name: String(sp.board_name || ''),
@@ -752,7 +771,7 @@ async function flushToStorageShards(enrichedPins) {
                 destination_url text, image_url text, description text, alt_text text, dominant_color text,
                 visual_annotations jsonb
               )
-              ORDER BY u.pin_id, u.title DESC NULLS LAST
+              ORDER BY u.pin_id ASC, u.title DESC NULLS LAST
               ON CONFLICT (pin_id) DO UPDATE SET
                 creator_username = COALESCE(NULLIF(EXCLUDED.creator_username, ''), universal_master_pins.creator_username),
                 board_name = COALESCE(NULLIF(EXCLUDED.board_name, ''), universal_master_pins.board_name),
@@ -837,7 +856,7 @@ async function flushToStorageShards(enrichedPins) {
                   catalog_rank
                 FROM raw_batch
                 WHERE keyword_id IS NOT NULL AND keyword_id > 0
-                ORDER BY pin_id, keyword_id, rank_position ASC NULLS LAST
+                ORDER BY pin_id ASC, keyword_id ASC, rank_position ASC NULLS LAST
               )
               INSERT INTO pin_serp_positions (
                 pin_id, snapshot_date, keyword_id, rank_position, is_displaced,
@@ -874,7 +893,7 @@ async function flushToStorageShards(enrichedPins) {
                 pin_id text, keyword_id int, rank_position int, save_count bigint, repin_count int, comment_count int,
                 share_count int, daily_save_velocity numeric
               )
-              ORDER BY u.pin_id, u.keyword_id, u.rank_position ASC NULLS LAST
+              ORDER BY u.pin_id ASC, u.keyword_id ASC, u.rank_position ASC NULLS LAST
               ON CONFLICT (pin_id, keyword_id, snapshot_date) DO UPDATE SET
                 rank_position = COALESCE(EXCLUDED.rank_position, pins_daily_snapshots.rank_position),
                 save_count = GREATEST(pins_daily_snapshots.save_count, EXCLUDED.save_count),
@@ -882,14 +901,20 @@ async function flushToStorageShards(enrichedPins) {
                 comment_count = GREATEST(pins_daily_snapshots.comment_count, EXCLUDED.comment_count),
                 share_count = GREATEST(pins_daily_snapshots.share_count, EXCLUDED.share_count),
                 daily_save_velocity = CASE 
-                  WHEN EXCLUDED.daily_save_velocity > 0 THEN GREATEST(COALESCE(pins_daily_snapshots.daily_save_velocity, 0), EXCLUDED.daily_save_velocity)
-                  ELSE pins_daily_snapshots.daily_save_velocity 
-                END,
-                created_at = NOW();
+                WHEN EXCLUDED.daily_save_velocity > 0 THEN GREATEST(COALESCE(pins_daily_snapshots.daily_save_velocity, 0), EXCLUDED.daily_save_velocity)
+                ELSE pins_daily_snapshots.daily_save_velocity 
+              END,
+              created_at = NOW();
             `;
 
             if (typeof shardSql.transaction === 'function') {
               await shardSql.transaction([q1, q2, q3]);
+            } else if (typeof shardSql.begin === 'function') {
+              await shardSql.begin(async (tx) => {
+                await tx(q1.strings, ...q1.args);
+                await tx(q2.strings, ...q2.args);
+                await tx(q3.strings, ...q3.args);
+              });
             } else {
               await q1;
               await q2;

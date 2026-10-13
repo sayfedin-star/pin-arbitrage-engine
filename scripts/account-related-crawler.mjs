@@ -11,6 +11,12 @@ import { neon } from '@neondatabase/serverless';
 import fs from 'fs';
 import { sanitizeForJsonb } from './crawler-engine.mjs';
 
+let undiciAgent = null;
+try {
+  const { Agent } = await import('undici');
+  undiciAgent = new Agent({ keepAliveTimeout: 30000, connections: 50, pipelining: 1 });
+} catch (_) {}
+
 // Load environment variables safely
 if (typeof process.loadEnvFile === 'function') {
   try { process.loadEnvFile(); } catch (_) {}
@@ -118,7 +124,7 @@ async function crawlSeedPin(competitorId, seedPinId, targetUsername) {
 
     let res;
     try {
-      res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
+      res = await fetch(url, { headers, signal: AbortSignal.timeout(8000), ...(undiciAgent ? { dispatcher: undiciAgent } : {}) });
     } catch (err) {
       console.warn(`    [-] Network timeout / abort on page ${page} for seed ${seedPinId}:`, err.message);
       break;
@@ -221,6 +227,7 @@ async function crawlSeedPin(competitorId, seedPinId, targetUsername) {
           is_product boolean, is_same_account boolean, creator_username varchar, creator_name varchar,
           provenance_engine varchar
         )
+        ORDER BY x.candidate_pin_id ASC
         ON CONFLICT (competitor_id, seed_pin_id, candidate_pin_id) DO UPDATE SET
           saves = GREATEST(competitor_related_nodes.saves, EXCLUDED.saves),
           repins = GREATEST(competitor_related_nodes.repins, EXCLUDED.repins),

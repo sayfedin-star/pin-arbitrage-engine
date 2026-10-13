@@ -616,11 +616,12 @@ export async function getCachedOrFetch(key, fetcher, ttlMs = 15000, staleMs = 60
             });
             if (l1Cache) {
               const cacheUrl = `https://edge-cache.internal/${encodeURIComponent(key)}`;
+              const cacheReq = new Request(cacheUrl, { method: 'GET' });
               const cacheHeaders = {
                 'Content-Type': 'application/json',
                 'Cache-Control': `public, max-age=${Math.floor(ttlMs / 1000)}, stale-while-revalidate=${Math.floor(staleMs / 1000)}`
               };
-              await l1Cache.put(cacheUrl, new Response(JSON.stringify(fresh), { headers: cacheHeaders })).catch(() => {});
+              await l1Cache.put(cacheReq, new Response(JSON.stringify(fresh), { headers: cacheHeaders })).catch(() => {});
             }
           } catch (_) {} finally {
             inflightPromises.delete(key);
@@ -646,7 +647,8 @@ export async function getCachedOrFetch(key, fetcher, ttlMs = 15000, staleMs = 60
   if (l1Cache) {
     try {
       const cacheUrl = `https://edge-cache.internal/${encodeURIComponent(key)}`;
-      const matched = await l1Cache.match(cacheUrl);
+      const cacheReq = new Request(cacheUrl, { method: 'GET' });
+      const matched = await l1Cache.match(cacheReq);
       if (matched) {
         const l1Data = await matched.json();
         // Warm L0 memory cache
@@ -681,11 +683,12 @@ export async function getCachedOrFetch(key, fetcher, ttlMs = 15000, staleMs = 60
       if (l1Cache) {
         try {
           const cacheUrl = `https://edge-cache.internal/${encodeURIComponent(key)}`;
+          const cacheReq = new Request(cacheUrl, { method: 'GET' });
           const cacheHeaders = {
             'Content-Type': 'application/json',
             'Cache-Control': `public, max-age=${Math.floor(ttlMs / 1000)}, stale-while-revalidate=${Math.floor(staleMs / 1000)}`
           };
-          const putPromise = l1Cache.put(cacheUrl, new Response(JSON.stringify(fresh), { headers: cacheHeaders })).catch(() => {});
+          const putPromise = l1Cache.put(cacheReq, new Response(JSON.stringify(fresh), { headers: cacheHeaders })).catch(() => {});
           const store = requestContextStorage?.getStore?.();
           const ctx = store?.ctx;
           if (ctx && typeof ctx.waitUntil === 'function') {
@@ -727,7 +730,8 @@ export function invalidateEdgeCache(prefix = '') {
       const ctx = store?.ctx;
       const delPromises = keysToInvalidate.map(k => {
         const cacheUrl = `https://edge-cache.internal/${encodeURIComponent(k)}`;
-        return l1Cache.delete(cacheUrl).catch(() => {});
+        const cacheReq = new Request(cacheUrl, { method: 'GET' });
+        return l1Cache.delete(cacheReq).catch(() => {});
       });
       const allDel = Promise.all(delPromises).catch(() => {});
       if (ctx && typeof ctx.waitUntil === 'function') {
@@ -2345,6 +2349,7 @@ export default {
       }
 
       if (method === 'POST' && pathname === '/api/competitors/sync') {
+        invalidateEdgeCache('competitors');
         const body = await request.json().catch(() => ({}));
         const username = body.username;
         if (!username) return jsonResponse({ error: 'username is required' }, 400);
@@ -2388,6 +2393,7 @@ export default {
       }
 
       if (method === 'POST' && pathname === '/api/competitors/sync-boards') {
+        invalidateEdgeCache('competitors');
         try {
           const body = await request.json().catch(() => ({}));
           const { competitor_id, username } = body;
@@ -2405,6 +2411,7 @@ export default {
       }
 
       if (method === 'POST' && pathname === '/api/competitors/sync-pins') {
+        invalidateEdgeCache('competitors');
         const body = await request.json().catch(() => ({}));
         const { competitor_id, username, mode, max_pages } = body;
         if (!username && !competitor_id) return jsonResponse({ error: 'username or competitor_id is required' }, 400);
@@ -2682,6 +2689,7 @@ export default {
       }
 
       if (method === 'DELETE' && (pathname === '/api/competitors/snapshot' || pathname === '/api/competitors/snapshots')) {
+        invalidateEdgeCache('competitors');
         let snapshotId = searchParams.get('id') || searchParams.get('snapshot_id');
         if (!snapshotId) {
           try {
@@ -2695,6 +2703,7 @@ export default {
       }
 
       if (method === 'POST' && (pathname === '/api/competitors/status' || pathname === '/api/competitors/toggle')) {
+        invalidateEdgeCache('competitors');
         const body = await request.json();
         const idOrUser = body.username || body.id || body.competitor_id;
         if (!idOrUser) return jsonResponse({ error: 'id or username is required' }, 400);
@@ -4329,9 +4338,13 @@ export default {
 
       // 18. PinArchive & Topic Clusters API
       if (method === 'GET' && pathname === '/api/pinarchive/overview') {
+        const shardKey = reqProjectId || 'hub';
+        const cacheKey = buildCanonicalCacheKey(`pinarchive:overview:${shardKey}`, {});
         try {
-          const overview = await getPinArchiveOverview(targetSql);
-          return jsonResponse({ success: true, overview });
+          const overview = await getCachedOrFetch(cacheKey, async () => {
+            return await getPinArchiveOverview(targetSql);
+          }, 15000, 60000);
+          return jsonResponse({ success: true, overview }, 200, 15);
         } catch (err) {
           console.error('[PinArchive Overview Error]', err.message);
           return jsonResponse({ success: true, overview: { total_pins: 0, high_velocity_pins: 0, dormant_pins: 0, cooling_pins: 0, mature_pins: 0, growing_pins: 0 } }, 200);
@@ -4349,12 +4362,16 @@ export default {
       }
 
       if (method === 'POST' && pathname === '/api/pinarchive/rules') {
+        invalidateEdgeCache('pinarchive');
+        invalidateEdgeCache('topics');
         const body = await request.json().catch(() => ({}));
         const rules = await updateQualificationRules(targetSql, body);
         return jsonResponse({ success: true, rules });
       }
 
       if (method === 'POST' && pathname === '/api/pinarchive/re-evaluate') {
+        invalidateEdgeCache('pinarchive');
+        invalidateEdgeCache('topics');
         const body = await request.json().catch(() => ({}));
         const account = searchParams.get('account') || searchParams.get('username') || body.account_username || null;
         const audit = await reEvaluateArchivedPins(targetSql, (body && Object.keys(body).length > 0) ? body : null, account);
@@ -4416,6 +4433,7 @@ export default {
       }
 
       if (method === 'DELETE' && pathname === '/api/pinarchive/pin-snapshot') {
+        invalidateEdgeCache('pinarchive');
         const body = await request.json().catch(() => ({}));
         const snapshotId = searchParams.get('id') || searchParams.get('snapshot_id') || body.id || body.snapshot_id;
         const pinId = searchParams.get('pin_id') || body.pin_id;
@@ -4425,6 +4443,7 @@ export default {
       }
 
       if (method === 'POST' && pathname === '/api/pinarchive/stage') {
+        invalidateEdgeCache('pinarchive');
         const body = await request.json().catch(() => ({}));
         const pinIds = body.pin_ids || body.pinIds;
         const targetBoard = body.target_board || body.targetBoard || '';
@@ -4454,6 +4473,7 @@ export default {
       }
 
       if (method === 'DELETE' && (pathname === '/api/pinarchive/staged' || pathname === '/api/pinarchive/cancel-staged')) {
+        invalidateEdgeCache('pinarchive');
         const body = await request.json().catch(() => ({}));
         const stagedId = searchParams.get('id') || searchParams.get('staged_id') || body.staged_id || body.id || body.pin_id;
         if (!stagedId) return jsonResponse({ error: 'staged_id or pin_id is required' }, 400);
@@ -4466,15 +4486,19 @@ export default {
 
       // Board Ideas Radar API
       if (method === 'GET' && pathname === '/api/board-ideas/boards') {
+        const cacheKey = buildCanonicalCacheKey('board-ideas:list', {});
         try {
-          const data = await listAvailableBoards(targetSql);
-          return jsonResponse({ success: true, ...data });
+          const data = await getCachedOrFetch(cacheKey, async () => {
+            return await listAvailableBoards(targetSql);
+          }, 15000, 60000);
+          return jsonResponse({ success: true, ...data }, 200, 15);
         } catch (err) {
           return jsonResponse({ success: false, error: err.message }, 500);
         }
       }
 
       if (method === 'POST' && pathname === '/api/board-ideas/resolve') {
+        invalidateEdgeCache('board-ideas');
         try {
           const body = await request.json().catch(() => ({}));
           const url = body.url || body.board_url || '';
@@ -4488,6 +4512,7 @@ export default {
       }
 
       if (method === 'POST' && pathname === '/api/board-ideas/sync') {
+        invalidateEdgeCache('board-ideas');
         try {
           const body = await request.json().catch(() => ({}));
           const boardId = body.board_id;
@@ -4505,14 +4530,18 @@ export default {
         try {
           const boardId = searchParams.get('board_id') || searchParams.get('id');
           if (!boardId) return jsonResponse({ error: 'board_id is required' }, 400);
-          const details = await getBoardIdeasComparison(targetSql, boardId);
-          return jsonResponse({ success: true, ...details });
+          const cacheKey = buildCanonicalCacheKey('board-ideas:details', { board_id: boardId });
+          const details = await getCachedOrFetch(cacheKey, async () => {
+            return await getBoardIdeasComparison(targetSql, boardId);
+          }, 15000, 60000);
+          return jsonResponse({ success: true, ...details }, 200, 15);
         } catch (err) {
           return jsonResponse({ success: false, error: err.message }, 500);
         }
       }
 
       if (method === 'DELETE' && pathname === '/api/board-ideas') {
+        invalidateEdgeCache('board-ideas');
         try {
           let boardId = searchParams.get('board_id') || searchParams.get('id');
           if (!boardId) {

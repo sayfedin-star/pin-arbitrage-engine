@@ -34,11 +34,18 @@ import {
 } from '../src/modules/competitors/service.mjs';
 import { syncCompetitorAcrossFleet } from '../src/modules/fleet/service.mjs';
 import { getQualificationRules, isPinQualified } from '../src/modules/pinarchive/service.mjs';
-import { fetchBoardsResource, fetchPinFromPinterest, sleep, randomJitterMs } from './lib/pinterest.mjs';
+import { fetchBoardsResource, fetchPinFromPinterest, setDefaultDispatcher, sleep, randomJitterMs } from './lib/pinterest.mjs';
 import { getShardNumberForEntity, getResilientShardNumberForEntity } from '../src/modules/fleet/sharding.mjs';
 import { assertShardSchemaParity } from '../src/modules/fleet/guardrails.mjs';
 import { syncBoardIdeas } from '../src/modules/boards/service.mjs';
 import { enforceNeonPoolerUrl } from '../src/modules/sharding/fleet-router.mjs';
+
+let undiciAgent = null;
+try {
+  const { Agent } = await import('undici');
+  undiciAgent = new Agent({ keepAliveTimeout: 30000, connections: 50, pipelining: 1 });
+  setDefaultDispatcher(undiciAgent);
+} catch (_) {}
 
 // Auto-load .env in local execution environments
 if (typeof process.loadEnvFile === 'function') {
@@ -1235,8 +1242,14 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
       // 3. Atomically commit the batch using single bulk SQL operations (<50ms total)
       if (enrichedPins.length > 0) {
         try {
-          await bulkUpsertPaPins(sqlClient, enrichedPins);
-          await bulkInsertMetrics(sqlClient, metricSnapshots);
+          const txRunner = typeof sqlClient.begin === 'function'
+            ? sqlClient.begin.bind(sqlClient)
+            : (typeof sqlClient.transaction === 'function' ? sqlClient.transaction.bind(sqlClient) : (fn) => fn(sqlClient));
+
+          await txRunner(async (tx) => {
+            await bulkUpsertPaPins(tx, enrichedPins);
+            await bulkInsertMetrics(tx, metricSnapshots);
+          });
 
           if (shardSql) {
             await bulkUpsertPaPins(shardSql, enrichedPins).catch((sErr) => {

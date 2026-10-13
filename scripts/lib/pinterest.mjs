@@ -13,6 +13,25 @@
  * - Resilient XHR endpoints with AbortSignal.timeout(8000) and jitter.
  */
 
+let defaultDispatcher = null;
+
+export function setDefaultDispatcher(dispatcher) {
+  defaultDispatcher = dispatcher;
+}
+
+export function getDefaultDispatcher() {
+  return defaultDispatcher;
+}
+
+export async function pinterestFetch(url, init = {}) {
+  const { dispatcher = defaultDispatcher, ...restInit } = init;
+  const fetchOpts = {
+    ...restInit,
+    ...(dispatcher ? { dispatcher } : {})
+  };
+  return await fetch(url, fetchOpts);
+}
+
 export const PINTEREST_PAGE_HEADERS = {
   'User-Agent':
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',
@@ -787,20 +806,26 @@ export function extractPinData(rawHtml, pinId) {
 /**
  * Fetch a single pin HTML and parse it.
  */
-export async function fetchPinFromPinterest(pinId) {
+export async function fetchPinFromPinterest(pinId, cookieOrOptions = null, maybeOptions = {}) {
   try {
     const cleanId = String(pinId || '').trim();
     if (!cleanId || cleanId.startsWith('-') || !/^\d+$/.test(cleanId)) {
       return { ok: false, status: 400, error: 'invalid_pin_id' };
     }
+    const opts = (typeof cookieOrOptions === 'object' && cookieOrOptions !== null)
+      ? cookieOrOptions
+      : (maybeOptions || {});
+    const dispatcher = opts.dispatcher || defaultDispatcher;
+
     const url = `https://www.pinterest.com/pin/${cleanId}/`;
     // Pin details MUST always be queried anonymously (zero cookies)
     // to guarantee Pinterest serves public aggregate stats (saves/repins) instead of viewer-state zeroes
     const headers = { ...PINTEREST_PAGE_HEADERS };
-    let res = await fetch(url, {
+    let res = await pinterestFetch(url, {
       headers,
       redirect: 'follow',
       signal: AbortSignal.timeout(8000),
+      dispatcher
     });
 
     if (res.status === 401 || res.status === 403 || res.status === 429 || res.status === 502 || res.status === 503 || res.status === 504) {
@@ -814,7 +839,7 @@ export async function fetchPinFromPinterest(pinId) {
         retryDelay = Math.max(retryDelay, retrySec * 1000);
       }
       await sleep(retryDelay);
-      res = await fetch(url, { headers: PINTEREST_PAGE_HEADERS, redirect: 'follow', signal: AbortSignal.timeout(8000) });
+      res = await pinterestFetch(url, { headers: PINTEREST_PAGE_HEADERS, redirect: 'follow', signal: AbortSignal.timeout(8000), dispatcher });
     }
 
     if (!res.ok) {
@@ -834,16 +859,18 @@ export async function fetchPinFromPinterest(pinId) {
  * Scrape user profile from Pinterest unauthenticated SSR HTML document.
  * 100% cookie-free, extracts user details from initialReduxState and JSON-LD ProfilePage.
  */
-export async function fetchUserProfileUnauth(username) {
+export async function fetchUserProfileUnauth(username, options = {}) {
   const cleanUser = String(username || '').replace(/^@/, '').trim().toLowerCase();
   if (!cleanUser) return { ok: false, error: 'invalid_username' };
+  const dispatcher = options.dispatcher || defaultDispatcher;
 
   try {
     const url = `https://www.pinterest.com/${cleanUser}/`;
-    const res = await fetch(url, {
+    const res = await pinterestFetch(url, {
       headers: PINTEREST_PAGE_HEADERS,
       redirect: 'follow',
       signal: AbortSignal.timeout(8000),
+      dispatcher
     });
 
     if (!res.ok) {
@@ -964,25 +991,26 @@ export async function fetchUserProfileUnauth(username) {
  * Fetch competitor user profile with resilient unauthenticated SSR HTML fallback.
  * Works 100% cookie-free without triggering 401/403 session errors.
  */
-export async function fetchUserResource(username, activeCookie = '') {
+export async function fetchUserResource(username, activeCookie = '', options = {}) {
   const cleanUser = String(username || '').replace(/^@/, '').trim().toLowerCase();
   if (!cleanUser) return { ok: false, error: 'invalid_username' };
+  const dispatcher = options.dispatcher || defaultDispatcher;
 
   const url = `https://www.pinterest.com/resource/UserResource/get/?source_url=%2F${cleanUser}%2F&data=%7B%22options%22%3A%7B%22username%22%3A%22${cleanUser}%22%2C%22field_set_key%22%3A%22profile%22%7D%2C%22context%22%3A%7B%7D%7D`;
   const headers = getPinterestXhrHeaders(cleanUser, activeCookie);
 
   try {
-    let res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
+    let res = await pinterestFetch(url, { headers, signal: AbortSignal.timeout(8000), dispatcher });
     if (res.status === 401 || res.status === 403 || res.status === 429) {
       if (res.body) await res.body.cancel().catch(() => {});
       await sleep(exponentialBackoffWithFullJitter(1, 2000, 6000));
       const anonHeaders = getPinterestXhrHeaders(cleanUser, '');
-      res = await fetch(url, { headers: anonHeaders, signal: AbortSignal.timeout(8000) });
+      res = await pinterestFetch(url, { headers: anonHeaders, signal: AbortSignal.timeout(8000), dispatcher });
     }
 
     if (!res.ok) {
       if (res.body) await res.body.cancel().catch(() => {});
-      const unauthRes = await fetchUserProfileUnauth(cleanUser);
+      const unauthRes = await fetchUserProfileUnauth(cleanUser, { dispatcher });
       if (unauthRes.ok) return unauthRes;
       return { ok: false, status: res.status };
     }
@@ -1034,9 +1062,10 @@ export async function fetchUserResource(username, activeCookie = '') {
  * Fetch competitor boards from BoardsResource with full bookmark pagination.
  * Supports accounts with thousands of boards (e.g. 1,600+ boards).
  */
-export async function fetchBoardsResource(username, activeCookie = '', maxPages = 45) {
+export async function fetchBoardsResource(username, activeCookie = '', maxPages = 45, options = {}) {
   const cleanUser = String(username || '').replace(/^@/, '').trim().toLowerCase();
   if (!cleanUser) return { ok: false, error: 'invalid_username', boards: [] };
+  const dispatcher = options.dispatcher || defaultDispatcher;
 
   const boards = [];
   const seenBoardIds = new Set();
@@ -1045,7 +1074,7 @@ export async function fetchBoardsResource(username, activeCookie = '', maxPages 
   const pageLimit = Math.max(1, Math.min(Number(maxPages) || 45, 100));
 
   for (let page = 1; page <= pageLimit; page++) {
-    const options = {
+    const opts = {
       privacy_filter: 'all',
       sort: 'last_pinned_to',
       field_set_key: 'profile_grid_item',
@@ -1057,25 +1086,25 @@ export async function fetchBoardsResource(username, activeCookie = '', maxPages 
       filter_all_pins: false,
       add_fields: 'board.{meal_plan,collaborator_count,is_collaborative,owner}'
     };
-    if (bookmark) options.bookmarks = [bookmark];
+    if (bookmark) opts.bookmarks = [bookmark];
 
     const src = `/${cleanUser}/`;
-    const url = `https://www.pinterest.com/resource/BoardsResource/get/?source_url=${encodeURIComponent(src)}&data=${encodeURIComponent(JSON.stringify({ options, context: {} }))}&_=${Date.now()}`;
+    const url = `https://www.pinterest.com/resource/BoardsResource/get/?source_url=${encodeURIComponent(src)}&data=${encodeURIComponent(JSON.stringify({ options: opts, context: {} }))}&_=${Date.now()}`;
     const headers = getPinterestXhrHeaders(cleanUser, activeCookie, { sourceUrl: src });
 
     try {
-      let res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
+      let res = await pinterestFetch(url, { headers, signal: AbortSignal.timeout(8000), dispatcher });
       if (res.status === 401 || res.status === 403 || res.status === 429) {
         if (res.body) await res.body.cancel().catch(() => {});
         await sleep(randomJitterMs(2500, 4000));
         const anonHeaders = getPinterestXhrHeaders(cleanUser, '', { sourceUrl: src });
-        res = await fetch(url, { headers: anonHeaders, signal: AbortSignal.timeout(8000) });
+        res = await pinterestFetch(url, { headers: anonHeaders, signal: AbortSignal.timeout(8000), dispatcher });
       }
 
       if (!res.ok) {
         if (res.body) await res.body.cancel().catch(() => {});
         if (page === 1) {
-          const unauth = await fetchUserProfileUnauth(cleanUser);
+          const unauth = await fetchUserProfileUnauth(cleanUser, { dispatcher });
           if (unauth.ok && Array.isArray(unauth.initial_boards) && unauth.initial_boards.length > 0) {
             return { ok: true, boards: unauth.initial_boards };
           }
@@ -1199,12 +1228,13 @@ export async function fetchBoardsResource(username, activeCookie = '', maxPages 
 /**
  * Fetch pins from UserActivityPinsResource (discovery, backfill & early-stop).
  */
-export async function fetchUserActivityPinsResource(username, bookmark = null, activeCookie = '') {
+export async function fetchUserActivityPinsResource(username, bookmark = null, activeCookie = '', options = {}) {
   const cleanUser = String(username || '').replace(/^@/, '').trim().toLowerCase();
   if (!cleanUser) return { ok: false, error: 'invalid_username', pins: [], nextBookmark: null };
+  const dispatcher = options.dispatcher || defaultDispatcher;
 
   const src = `/${cleanUser}/_created/`;
-  const options = {
+  const opts = {
     exclude_add_pin_rep: true,
     field_set_key: 'profile_created_grid_item',
     is_own_profile_pins: false,
@@ -1213,21 +1243,21 @@ export async function fetchUserActivityPinsResource(username, bookmark = null, a
     data: { page_size: 50 },
     noCache: true,
   };
-  if (bookmark) options.bookmarks = [bookmark];
+  if (bookmark) opts.bookmarks = [bookmark];
 
   const url = `https://www.pinterest.com/resource/UserActivityPinsResource/get/?source_url=${encodeURIComponent(
     src
-  )}&data=${encodeURIComponent(JSON.stringify({ options, context: {} }))}&_=${Date.now()}`;
+  )}&data=${encodeURIComponent(JSON.stringify({ options: opts, context: {} }))}&_=${Date.now()}`;
 
   const headers = getPinterestXhrHeaders(cleanUser, activeCookie, { sourceUrl: src });
 
   try {
-    let res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
+    let res = await pinterestFetch(url, { headers, signal: AbortSignal.timeout(8000), dispatcher });
     if (res.status === 401 || res.status === 403 || res.status === 429) {
       if (res.body) await res.body.cancel().catch(() => {});
       await sleep(randomJitterMs(2500, 4000));
       const anonHeaders = getPinterestXhrHeaders(cleanUser, '', { sourceUrl: src });
-      res = await fetch(url, { headers: anonHeaders, signal: AbortSignal.timeout(8000) });
+      res = await pinterestFetch(url, { headers: anonHeaders, signal: AbortSignal.timeout(8000), dispatcher });
     }
 
     if (!res.ok) {
@@ -1263,9 +1293,10 @@ export async function fetchUserActivityPinsResource(username, bookmark = null, a
 /**
  * Fetch pins from BoardFeedResource (board-level crawling for sharded distributed crawling).
  */
-export async function fetchBoardFeedResource(boardId, boardUrl, bookmark = null, activeCookie = '') {
+export async function fetchBoardFeedResource(boardId, boardUrl, bookmark = null, activeCookie = '', options = {}) {
   const cleanId = String(boardId || '').trim();
   if (!cleanId) return { ok: false, error: 'invalid_board_id', pins: [], nextBookmark: null };
+  const dispatcher = options.dispatcher || defaultDispatcher;
 
   let srcUrl = String(boardUrl || '').trim();
   if (srcUrl.startsWith('http')) {
@@ -1280,7 +1311,7 @@ export async function fetchBoardFeedResource(boardId, boardUrl, bookmark = null,
   const pathParts = srcUrl.split('/').filter(Boolean);
   const username = pathParts[0] || '';
 
-  const options = {
+  const opts = {
     board_id: cleanId,
     board_url: srcUrl,
     field_set_key: 'grid_item',
@@ -1288,21 +1319,21 @@ export async function fetchBoardFeedResource(boardId, boardUrl, bookmark = null,
     sort: 'default',
     page_size: 25,
   };
-  if (bookmark) options.bookmarks = [bookmark];
+  if (bookmark) opts.bookmarks = [bookmark];
 
   const url = `https://www.pinterest.com/resource/BoardFeedResource/get/?source_url=${encodeURIComponent(
     srcUrl
-  )}&data=${encodeURIComponent(JSON.stringify({ options, context: {} }))}&_=${Date.now()}`;
+  )}&data=${encodeURIComponent(JSON.stringify({ options: opts, context: {} }))}&_=${Date.now()}`;
 
   const headers = getPinterestXhrHeaders(username, activeCookie, { sourceUrl: srcUrl });
 
   try {
-    let res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
+    let res = await pinterestFetch(url, { headers, signal: AbortSignal.timeout(8000), dispatcher });
     if (res.status === 401 || res.status === 403 || res.status === 429) {
       if (res.body) await res.body.cancel().catch(() => {});
       await sleep(randomJitterMs(2500, 4000));
       const anonHeaders = getPinterestXhrHeaders(username, '', { sourceUrl: srcUrl });
-      res = await fetch(url, { headers: anonHeaders, signal: AbortSignal.timeout(8000) });
+      res = await pinterestFetch(url, { headers: anonHeaders, signal: AbortSignal.timeout(8000), dispatcher });
     }
 
     if (!res.ok) {
@@ -1339,9 +1370,10 @@ export async function fetchBoardFeedResource(boardId, boardUrl, bookmark = null,
  * Scrape dedicated board page from Pinterest unauthenticated SSR HTML document.
  * 100% cookie-free, extracts board metadata, cover, stats, and authentic algorithmic board_vase (Related Interests).
  */
-export async function fetchBoardDetailUnauth(username, boardSlugOrName) {
+export async function fetchBoardDetailUnauth(username, boardSlugOrName, options = {}) {
   const cleanUser = String(username || '').replace(/^@/, '').trim().toLowerCase();
   if (!cleanUser) return { ok: false, error: 'invalid_username' };
+  const dispatcher = options.dispatcher || defaultDispatcher;
 
   let rawBoard = String(boardSlugOrName || '').trim();
   if (rawBoard.startsWith('http')) {
@@ -1362,19 +1394,21 @@ export async function fetchBoardDetailUnauth(username, boardSlugOrName) {
 
   const url = `https://www.pinterest.com/${cleanUser}/${cleanSlug}/`;
   try {
-    let res = await fetch(url, {
+    let res = await pinterestFetch(url, {
       headers: PINTEREST_PAGE_HEADERS,
       redirect: 'follow',
       signal: AbortSignal.timeout(8000),
+      dispatcher
     });
 
     if (res.status === 401 || res.status === 403 || res.status === 429) {
       if (res.body) await res.body.cancel().catch(() => {});
       await sleep(randomJitterMs(2500, 4000));
-      res = await fetch(url, {
+      res = await pinterestFetch(url, {
         headers: PINTEREST_PAGE_HEADERS,
         redirect: 'follow',
         signal: AbortSignal.timeout(8000),
+        dispatcher
       });
     }
 

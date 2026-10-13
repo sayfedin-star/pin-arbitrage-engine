@@ -14,6 +14,12 @@
 import crypto from 'node:crypto';
 import { neon } from '@neondatabase/serverless';
 
+let undiciAgent = null;
+try {
+  const { Agent } = await import('undici');
+  undiciAgent = new Agent({ keepAliveTimeout: 30000, connections: 50, pipelining: 1 });
+} catch (_) {}
+
 // Load .env automatically if available in runtime environment
 if (typeof process.loadEnvFile === 'function') {
   try {
@@ -140,7 +146,8 @@ async function fetchWithRetry(url, headers, maxRetries = 3) {
     try {
       const response = await fetch(url, {
         headers,
-        signal: AbortSignal.timeout(8000)
+        signal: AbortSignal.timeout(8000),
+        ...(undiciAgent ? { dispatcher: undiciAgent } : {})
       });
 
       if (response.status === 429) {
@@ -816,7 +823,8 @@ export async function fetchPinDetails(pinId, baseHeaders) {
   try {
     const response = await fetch(targetUrl, {
       headers,
-      signal: AbortSignal.timeout(8000)
+      signal: AbortSignal.timeout(8000),
+      ...(undiciAgent ? { dispatcher: undiciAgent } : {})
     });
 
     if (response.status === 429) {
