@@ -22,8 +22,6 @@ const sql = neon(DATABASE_URL);
 async function run() {
   console.log('[*] Running Migration 024: Fillfactor 80 Hardening on Neon Central Hub...');
 
-  await sql`SET lock_timeout = '3000';`;
-
   const tables = [
     'keyword_serp_current',
     'pa_pins',
@@ -36,14 +34,13 @@ async function run() {
     'candidate_graph_nodes'
   ];
 
-  for (const tbl of tables) {
-    try {
-      await sql(`ALTER TABLE ${tbl} SET (fillfactor = 80);`);
-      console.log(`[+] Table ${tbl} fillfactor set to 80.`);
-    } catch (err) {
-      console.warn(`[!] Warning on table ${tbl}:`, err.message);
-    }
-  }
+  // Execute in a single transactional batch so SET LOCAL lock_timeout applies to all DDLs over stateless HTTP
+  console.log('[*] Executing transactional DDL batch with SET LOCAL lock_timeout = 3000ms...');
+  await sql.transaction([
+    sql`SET LOCAL lock_timeout = '3000';`,
+    ...tables.map(tbl => sql(`ALTER TABLE ${tbl} SET (fillfactor = 80);`))
+  ]);
+  console.log('[+] Successfully applied fillfactor = 80 to all 9 tables within transaction.');
 
   // Register in schema_migrations
   await sql`

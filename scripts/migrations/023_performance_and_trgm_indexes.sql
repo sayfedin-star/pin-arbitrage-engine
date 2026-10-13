@@ -19,6 +19,8 @@ ON tracked_boards USING gin (url gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_tb_trgm_name 
 ON tracked_boards USING gin (LOWER(name) gin_trgm_ops);
 
--- Composite covering index for fast live catalog lookups (Bottleneck 5 & 8)
+-- True covering index with payload columns for Index-Only Scan (Heap Fetches = 0)
+DROP INDEX IF EXISTS idx_ksc_active_covering;
 CREATE INDEX IF NOT EXISTS idx_ksc_active_covering 
-ON keyword_serp_current (keyword_id, is_displaced, rank_position);
+ON keyword_serp_current (keyword_id, is_displaced, rank_position)
+INCLUDE (pin_id, save_count, daily_save_velocity);

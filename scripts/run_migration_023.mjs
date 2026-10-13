@@ -63,12 +63,14 @@ async function run() {
   `;
   console.log('[+] Index idx_tb_trgm_name created.');
 
-  // 3. Create composite covering index for keyword_serp_current
+  // 3. Create true covering index with payload columns for Index-Only Scan (Heap Fetches = 0)
+  await sql`DROP INDEX IF EXISTS idx_ksc_active_covering;`;
   await sql`
     CREATE INDEX IF NOT EXISTS idx_ksc_active_covering 
-    ON keyword_serp_current (keyword_id, is_displaced, rank_position);
+    ON keyword_serp_current (keyword_id, is_displaced, rank_position)
+    INCLUDE (pin_id, save_count, daily_save_velocity);
   `;
-  console.log('[+] Index idx_ksc_active_covering created.');
+  console.log('[+] Index idx_ksc_active_covering (with INCLUDE payload) created.');
 
   // 4. Verification
   const indexes = await sql`
