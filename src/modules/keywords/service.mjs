@@ -187,16 +187,22 @@ export async function listKeywords(sql, { search = '', limit = 50, offset = 0 } 
         COALESCE(s_count.cnt, 0)::int AS snapshots_count
       FROM tracked_keywords k
       LEFT JOIN LATERAL (
-        SELECT COUNT(*)::int AS cnt
-        FROM keyword_pins_snapshots
-        WHERE keyword_id = k.id
-          AND is_displaced IS NOT TRUE
-          AND snapshot_date = (
-            SELECT MAX(snapshot_date) 
+        SELECT COALESCE(
+          NULLIF((SELECT COUNT(*)::int FROM keyword_serp_current WHERE keyword_id = k.id AND is_displaced = FALSE AND rank_position >= 1), 0),
+          (
+            SELECT COUNT(*)::int 
             FROM keyword_pins_snapshots 
-            WHERE keyword_id = k.id
-              AND is_displaced IS NOT TRUE
-          )
+            WHERE keyword_id = k.id 
+              AND is_displaced IS NOT TRUE 
+              AND snapshot_date = (
+                SELECT MAX(snapshot_date) 
+                FROM keyword_pins_snapshots 
+                WHERE keyword_id = k.id 
+                  AND is_displaced IS NOT TRUE
+              )
+          ),
+          0
+        )::int AS cnt
       ) s_count ON true
       WHERE LOWER(k.keyword) LIKE ${pattern}
       ORDER BY k.created_at DESC
@@ -209,16 +215,22 @@ export async function listKeywords(sql, { search = '', limit = 50, offset = 0 } 
         COALESCE(s_count.cnt, 0)::int AS snapshots_count
       FROM tracked_keywords k
       LEFT JOIN LATERAL (
-        SELECT COUNT(*)::int AS cnt
-        FROM keyword_pins_snapshots
-        WHERE keyword_id = k.id
-          AND is_displaced IS NOT TRUE
-          AND snapshot_date = (
-            SELECT MAX(snapshot_date) 
+        SELECT COALESCE(
+          NULLIF((SELECT COUNT(*)::int FROM keyword_serp_current WHERE keyword_id = k.id AND is_displaced = FALSE AND rank_position >= 1), 0),
+          (
+            SELECT COUNT(*)::int 
             FROM keyword_pins_snapshots 
-            WHERE keyword_id = k.id
-              AND is_displaced IS NOT TRUE
-          )
+            WHERE keyword_id = k.id 
+              AND is_displaced IS NOT TRUE 
+              AND snapshot_date = (
+                SELECT MAX(snapshot_date) 
+                FROM keyword_pins_snapshots 
+                WHERE keyword_id = k.id 
+                  AND is_displaced IS NOT TRUE
+              )
+          ),
+          0
+        )::int AS cnt
       ) s_count ON true
       ORDER BY k.created_at DESC
       LIMIT ${lim} OFFSET ${off};
@@ -1739,25 +1751,72 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
 
       // Record today's displaced snapshot in keyword_pins_snapshots (for timeseries retention)
       if (droppedOutList.length > 0) {
+        const validDroppedOut = [];
         for (const dp of droppedOutList) {
           if (ignoredPinSet.has(String(dp.pin_id))) continue;
-          const dpMeta = {
-            ...(dp.metadata || {}),
-            method: dp.creation_method || 'pinterest_platform',
+          validDroppedOut.push({
+            keyword_id: kid,
+            pin_id: String(dp.pin_id),
+            last_known_rank: dp.rank_position ? Number(dp.rank_position) : null,
+            title: String(dp.title || ''),
+            domain: String(dp.domain || ''),
+            destination_url: String(dp.destination_url || ''),
+            image_url: String(dp.image_url || ''),
+            save_count: Number(dp.save_count || 0),
+            repin_count: Number(dp.repin_count || 0),
+            comment_count: Number(dp.comment_count || 0),
+            created_at_pinterest: dp.created_at_pinterest || null,
             creation_method: dp.creation_method || 'pinterest_platform',
-            created_at_pinterest: dp.created_at_pinterest || '',
-            board_name: dp.board_name || ''
-          };
+            metadata: {
+              ...(dp.metadata || {}),
+              method: dp.creation_method || 'pinterest_platform',
+              creation_method: dp.creation_method || 'pinterest_platform',
+              created_at_pinterest: dp.created_at_pinterest || '',
+              board_name: dp.board_name || ''
+            }
+          });
+        }
 
+        if (validDroppedOut.length > 0) {
           txBatch.push(sql`
             INSERT INTO keyword_pins_snapshots (
               keyword_id, pin_id, rank_position, last_known_rank, displaced_date, title, domain, destination_url, image_url,
               save_count, repin_count, comment_count, daily_save_velocity, snapshot_date, is_displaced, created_at_pinterest, creation_method, metadata, created_at
-            ) VALUES (
-              ${kid}, ${dp.pin_id}, NULL, ${dp.rank_position}, (NOW() AT TIME ZONE 'UTC')::date, ${dp.title}, ${dp.domain}, ${dp.destination_url}, ${dp.image_url},
-              ${dp.save_count}, ${dp.repin_count || 0}, ${dp.comment_count || 0}, 0, (NOW() AT TIME ZONE 'UTC')::date, TRUE,
-              ${dp.created_at_pinterest ? dp.created_at_pinterest : null}, ${dp.creation_method || 'pinterest_platform'},
-              ${JSON.stringify(dpMeta)}::jsonb, NOW()
+            )
+            SELECT
+              u.keyword_id,
+              u.pin_id,
+              NULL,
+              u.last_known_rank,
+              (NOW() AT TIME ZONE 'UTC')::date,
+              u.title,
+              u.domain,
+              u.destination_url,
+              u.image_url,
+              u.save_count,
+              u.repin_count,
+              u.comment_count,
+              0,
+              (NOW() AT TIME ZONE 'UTC')::date,
+              TRUE,
+              u.created_at_pinterest::timestamptz,
+              u.creation_method,
+              u.metadata,
+              NOW()
+            FROM jsonb_to_recordset(${JSON.stringify(validDroppedOut)}::jsonb) AS u(
+              keyword_id int,
+              pin_id text,
+              last_known_rank int,
+              title text,
+              domain text,
+              destination_url text,
+              image_url text,
+              save_count bigint,
+              repin_count int,
+              comment_count int,
+              created_at_pinterest text,
+              creation_method text,
+              metadata jsonb
             )
             ON CONFLICT (keyword_id, pin_id, snapshot_date) DO UPDATE SET
               is_displaced = TRUE,

@@ -96,11 +96,15 @@ export async function getFolder(sql, folderId) {
       tk.top_pin_image,
       tk.last_crawled_at,
       tk.is_active,
-      (
-        SELECT COUNT(DISTINCT pin_id)::int 
-        FROM keyword_pins_snapshots 
-        WHERE keyword_id = tk.id
-      ) as pin_count
+      COALESCE(
+        NULLIF((SELECT COUNT(*)::int FROM keyword_serp_current WHERE keyword_id = tk.id AND is_displaced = FALSE AND rank_position >= 1), 0),
+        (
+          SELECT COUNT(DISTINCT pin_id)::int 
+          FROM keyword_pins_snapshots 
+          WHERE keyword_id = tk.id
+        ),
+        0
+      )::int as pin_count
     FROM keyword_folder_items i
     JOIN tracked_keywords tk ON tk.id = i.keyword_id
     WHERE i.folder_id = ${fid}
@@ -249,22 +253,20 @@ export async function batchAddKeywordsToFolder(sql, folderId, keywordIds = []) {
   const validKids = (keywordIds || []).map(Number).filter(Boolean);
   if (!validKids.length) return { added: 0 };
 
-  let added = 0;
-  for (const kid of validKids) {
-    await sql`
-      INSERT INTO keyword_folder_items (
-        folder_id,
-        keyword_id,
-        added_at
-      ) VALUES (
-        ${fid},
-        ${kid},
-        NOW()
-      )
-      ON CONFLICT (folder_id, keyword_id) DO NOTHING;
-    `;
-    added++;
-  }
+  const inserted = await sql`
+    INSERT INTO keyword_folder_items (
+      folder_id,
+      keyword_id,
+      added_at
+    )
+    SELECT
+      ${fid},
+      k_id,
+      NOW()
+    FROM UNNEST(${validKids}::int[]) AS k_id
+    ON CONFLICT (folder_id, keyword_id) DO NOTHING
+    RETURNING keyword_id;
+  `;
 
   await sql`
     UPDATE keyword_folders 
@@ -273,7 +275,7 @@ export async function batchAddKeywordsToFolder(sql, folderId, keywordIds = []) {
   `;
 
   invalidateFolderCache(fid);
-  return { added };
+  return { added: inserted.length };
 }
 
 /**
@@ -743,42 +745,70 @@ async function _executeFolderCrossover(sql, fid) {
     };
   }
 
-  // 2. Query Latest Pin Snapshots for all folder keywords
-  // Distinct per (keyword_id, pin_id) using the latest snapshot_date
-  const pinRows = await sql`
-    WITH ranked_snaps AS (
-      SELECT 
-        s.id,
-        s.keyword_id,
-        s.pin_id,
-        s.rank_position,
-        s.title,
-        s.domain,
-        s.destination_url,
-        s.image_url,
-        s.save_count,
-        s.repin_count,
-        s.comment_count,
-        s.daily_save_velocity,
-        s.snapshot_date,
-        s.metadata,
-        tk.keyword as keyword_text,
-        ROW_NUMBER() OVER(
-          PARTITION BY s.keyword_id, s.pin_id 
-          ORDER BY s.snapshot_date DESC, s.id DESC
-        ) as rn
-      FROM keyword_pins_snapshots s
-      JOIN tracked_keywords tk ON tk.id = s.keyword_id
-      WHERE s.keyword_id = ANY(${keywordIds})
-        AND s.rank_position IS NOT NULL
-        AND s.rank_position >= 1
-        AND (s.is_displaced IS FALSE OR s.is_displaced IS NULL)
-    )
-    SELECT *
-    FROM ranked_snaps
-    WHERE rn = 1
-    ORDER BY save_count DESC, daily_save_velocity DESC;
+  // 2. Query Live Active Catalog from keyword_serp_current for all folder keywords (Migration 019)
+  let pinRows = await sql`
+    SELECT 
+      c.id,
+      c.keyword_id,
+      c.pin_id,
+      c.rank_position,
+      c.title,
+      c.domain,
+      c.destination_url,
+      c.image_url,
+      c.save_count,
+      c.repin_count,
+      c.comment_count,
+      c.daily_save_velocity,
+      c.updated_at as snapshot_date,
+      c.metadata,
+      tk.keyword as keyword_text
+    FROM keyword_serp_current c
+    JOIN tracked_keywords tk ON tk.id = c.keyword_id
+    WHERE c.keyword_id = ANY(${keywordIds})
+      AND c.is_displaced IS FALSE
+      AND c.rank_position IS NOT NULL
+      AND c.rank_position >= 1
+    ORDER BY c.save_count DESC, c.daily_save_velocity DESC;
   `;
+
+  // Fallback to historical keyword_pins_snapshots only if keyword_serp_current has no rows (legacy keywords)
+  if (!pinRows || pinRows.length === 0) {
+    pinRows = await sql`
+      WITH ranked_snaps AS (
+        SELECT 
+          s.id,
+          s.keyword_id,
+          s.pin_id,
+          s.rank_position,
+          s.title,
+          s.domain,
+          s.destination_url,
+          s.image_url,
+          s.save_count,
+          s.repin_count,
+          s.comment_count,
+          s.daily_save_velocity,
+          s.snapshot_date,
+          s.metadata,
+          tk.keyword as keyword_text,
+          ROW_NUMBER() OVER(
+            PARTITION BY s.keyword_id, s.pin_id 
+            ORDER BY s.snapshot_date DESC, s.id DESC
+          ) as rn
+        FROM keyword_pins_snapshots s
+        JOIN tracked_keywords tk ON tk.id = s.keyword_id
+        WHERE s.keyword_id = ANY(${keywordIds})
+          AND s.rank_position IS NOT NULL
+          AND s.rank_position >= 1
+          AND (s.is_displaced IS FALSE OR s.is_displaced IS NULL)
+      )
+      SELECT *
+      FROM ranked_snaps
+      WHERE rn = 1
+      ORDER BY save_count DESC, daily_save_velocity DESC;
+    `;
+  }
 
   // 3. Query Guided Search Capsules for all folder keywords
   const capsuleRows = await sql`

@@ -569,7 +569,7 @@ export async function getFolderCrossoverSynopsis(hubSql, folderId) {
  * @param {string|number} options.pinId - Pinterest Pin Snowflake ID
  * @returns {Promise<object>} Unified Pin Dossier
  */
-export async function fetchUniversalPinDossier({ hubSql, pinId }) {
+export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null }) {
   const cleanPinId = String(pinId || '').trim();
   if (!cleanPinId) throw new Error('Pin ID is required');
 
@@ -841,13 +841,17 @@ export async function fetchUniversalPinDossier({ hubSql, pinId }) {
       }
     })();
 
-    // Await backfill with a bounded 1500ms race to avoid unhandled termination in serverless isolate
-    try {
-      await Promise.race([
-        backfillPromise,
-        new Promise(r => setTimeout(r, 1500))
-      ]);
-    } catch (_) {}
+    // Edge execution: Dispatch asynchronously via ctx.waitUntil; Fall back to bounded Promise.race for CLI/Node
+    if (ctx && typeof ctx.waitUntil === 'function') {
+      ctx.waitUntil(backfillPromise);
+    } else {
+      try {
+        await Promise.race([
+          backfillPromise,
+          new Promise(r => setTimeout(r, 1500))
+        ]);
+      } catch (_) {}
+    }
   }
 
   // Smart Merge-on-Read: Query Hub snapshots to guarantee full historical timeline and prevent shard history gaps
@@ -932,7 +936,9 @@ export async function fetchUniversalPinDossier({ hubSql, pinId }) {
           };
         });
 
-        await shardSql`
+        const txQueries = [];
+
+        txQueries.push(shardSql`
           INSERT INTO pins_daily_snapshots (
             pin_id, keyword_id, snapshot_date, rank_position, is_displaced,
             save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity, created_at
@@ -965,7 +971,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId }) {
             created_at text
           )
           ON CONFLICT (pin_id, keyword_id, snapshot_date) DO NOTHING;
-        `;
+        `);
 
         // Two-Tier Shard Read-Repair: Hydrate pins_daily_metrics
         const metricsMap = new Map();
@@ -977,7 +983,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId }) {
         }
         const metricsRows = Array.from(metricsMap.values());
         if (metricsRows.length > 0) {
-          await shardSql`
+          txQueries.push(shardSql`
             INSERT INTO pins_daily_metrics (
               pin_id, snapshot_date, save_count, repin_count,
               comment_count, share_count, reaction_count, daily_save_velocity, updated_at
@@ -1000,13 +1006,13 @@ export async function fetchUniversalPinDossier({ hubSql, pinId }) {
                 ELSE pins_daily_metrics.daily_save_velocity 
               END,
               updated_at = NOW();
-          `.catch(() => {});
+          `);
         }
 
         // Two-Tier Shard Read-Repair: Hydrate pin_serp_positions
         const positionRows = repairPayload.filter(s => s.keyword_id != null);
         if (positionRows.length > 0) {
-          await shardSql`
+          txQueries.push(shardSql`
             INSERT INTO pin_serp_positions (
               pin_id, snapshot_date, keyword_id, rank_position, is_displaced, last_known_rank, catalog_rank, updated_at
             )
@@ -1020,7 +1026,15 @@ export async function fetchUniversalPinDossier({ hubSql, pinId }) {
               rank_position = COALESCE(EXCLUDED.rank_position, pin_serp_positions.rank_position),
               is_displaced = COALESCE(EXCLUDED.is_displaced, pin_serp_positions.is_displaced),
               updated_at = NOW();
-          `.catch(() => {});
+          `);
+        }
+
+        if (typeof shardSql.transaction === 'function') {
+          await shardSql.transaction(txQueries);
+        } else {
+          for (const q of txQueries) {
+            await q.catch(() => {});
+          }
         }
       } catch (repairErr) {
         console.warn(`[Read-Repair] Shard ${shardId} pin ${cleanPinId} snapshot repair deferred:`, repairErr.message);
@@ -1029,12 +1043,17 @@ export async function fetchUniversalPinDossier({ hubSql, pinId }) {
       }
     })();
 
-    try {
-      await Promise.race([
-        repairPromise,
-        new Promise(r => setTimeout(r, 2500))
-      ]);
-    } catch (_) {}
+    // Edge execution: Dispatch asynchronously via ctx.waitUntil; Fall back to bounded Promise.race for CLI/Node
+    if (ctx && typeof ctx.waitUntil === 'function') {
+      ctx.waitUntil(repairPromise);
+    } else {
+      try {
+        await Promise.race([
+          repairPromise,
+          new Promise(r => setTimeout(r, 2500))
+        ]);
+      } catch (_) {}
+    }
   }
 
   // Resolve Keyword Names for all snapshot keyword_ids to eliminate multi-SERP ambiguity

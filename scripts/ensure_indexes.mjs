@@ -133,10 +133,16 @@ async function optimizeIndexes() {
   await sql`ALTER TABLE keyword_pins_snapshots ADD COLUMN IF NOT EXISTS created_at_pinterest TIMESTAMP WITH TIME ZONE;`.catch(err => console.warn('[Index Notice]', err.message));
   await sql`ALTER TABLE keyword_pins_snapshots ADD COLUMN IF NOT EXISTS creation_method VARCHAR(50);`.catch(err => console.warn('[Index Notice]', err.message));
 
-  console.log('[*] 12. Ensuring registry and case-insensitive search indexes [CAP-23, CAP-24]...');
+  console.log('[*] 12. Ensuring registry, trigram search, and covering indexes [CAP-23, CAP-24, Migration 023]...');
+  await sql`CREATE EXTENSION IF NOT EXISTS pg_trgm;`.catch(err => console.warn('[Extension Notice]', err.message));
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_npr_project_name ON neon_projects_registry(project_name);`.catch(err => console.warn('[Index Notice]', err.message));
   await sql`CREATE INDEX IF NOT EXISTS idx_tk_lower_keyword ON tracked_keywords(LOWER(keyword));`.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`CREATE INDEX IF NOT EXISTS idx_tk_trgm_keyword ON tracked_keywords USING gin (LOWER(keyword) gin_trgm_ops);`.catch(err => console.warn('[Index Notice]', err.message));
   await sql`CREATE INDEX IF NOT EXISTS idx_cp_lower_username ON competitor_profiles(LOWER(username));`.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`CREATE INDEX IF NOT EXISTS idx_cp_trgm_username ON competitor_profiles USING gin (LOWER(username) gin_trgm_ops);`.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`CREATE INDEX IF NOT EXISTS idx_cp_trgm_display_name ON competitor_profiles USING gin (LOWER(COALESCE(display_name, '')) gin_trgm_ops);`.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`CREATE INDEX IF NOT EXISTS idx_tb_trgm_url ON tracked_boards USING gin (url gin_trgm_ops);`.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`CREATE INDEX IF NOT EXISTS idx_ksc_active_covering ON keyword_serp_current (keyword_id, is_displaced, rank_position);`.catch(err => console.warn('[Index Notice]', err.message));
 
   console.log('[*] 13. Propagating core indexes across registered storage shards [CAP-21]...');
   let shards = [];

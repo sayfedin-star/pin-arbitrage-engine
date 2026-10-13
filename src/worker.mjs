@@ -526,14 +526,18 @@ function getCachedShardSql(key, factory) {
   return client;
 }
 
-export function createHyperdriveClient(connectionString) {
+export function createHyperdriveClient(connectionString, customOpts = {}) {
   const pSql = postgres(connectionString, {
-    max: 15,
-    idle_timeout: 30,
-    connect_timeout: 15
+    max: 1,
+    fetch_types: false,
+    prepare: false,
+    idle_timeout: 5,
+    connect_timeout: 10,
+    ...customOpts
   });
-  pSql.transaction = async (queries) => {
+  pSql.transaction = async (queriesOrFn) => {
     return await pSql.begin(async (tx) => {
+      const queries = typeof queriesOrFn === 'function' ? queriesOrFn(tx) : queriesOrFn;
       const results = [];
       for (const q of queries) {
         if (q && q.strings && q.args) {
@@ -649,8 +653,9 @@ export default {
       return corsOptionsResponse(requestOrigin, env);
     }
 
-    return requestContextStorage.run({ request, env, origin: dynamicCors['Access-Control-Allow-Origin'] }, async () => {
-      const url = new URL(request.url);
+    return requestContextStorage.run({ request, env, ctx, origin: dynamicCors['Access-Control-Allow-Origin'] }, async () => {
+      try {
+        const url = new URL(request.url);
       const normalizedPath = normalizePath(url.pathname);
       const pathLower = normalizedPath.toLowerCase();
       const pathname = normalizedPath;
@@ -772,7 +777,13 @@ export default {
       if (!sql) {
         if (isHyperdriveConfigured) {
           try {
-            sql = createHyperdriveClient(env.HYPERDRIVE.connectionString);
+            const store = requestContextStorage.getStore();
+            let hyperdriveSql = store?.hyperdriveSql;
+            if (!hyperdriveSql) {
+              hyperdriveSql = createHyperdriveClient(env.HYPERDRIVE.connectionString);
+              if (store) store.hyperdriveSql = hyperdriveSql;
+            }
+            sql = hyperdriveSql;
             usedHyperdrive = true;
           } catch (_) {}
         }
@@ -919,7 +930,12 @@ export default {
 
       if (isHyperdriveConfigured) {
         const hyperdriveConn = env.HYPERDRIVE.connectionString;
-        const hyperdriveSql = getCachedShardSql(`hyperdrive:${hyperdriveConn}`, () => createHyperdriveClient(hyperdriveConn));
+        const store = requestContextStorage.getStore();
+        let hyperdriveSql = store?.hyperdriveSql;
+        if (!hyperdriveSql) {
+          hyperdriveSql = createHyperdriveClient(hyperdriveConn);
+          if (store) store.hyperdriveSql = hyperdriveSql;
+        }
         if (directNeonUrl) {
           const directSql = getCachedShardSql(directNeonUrl, () => neon(directNeonUrl));
           sql = new Proxy(hyperdriveSql, {
@@ -1049,98 +1065,107 @@ export default {
       }
     }
 
-    try {
-      // 1. GET /api/overview
-      if (method === 'GET' && pathname === '/api/overview') {
-        const overviewRows = await targetSql`
-          SELECT 
-            (SELECT COUNT(*) FROM cluster_seeds) AS total_seeds,
-            (SELECT COUNT(*) FROM cluster_seeds WHERE last_crawled_at IS NOT NULL) AS indexed_seeds,
-            (SELECT COUNT(*) FROM cluster_seeds WHERE last_crawled_at IS NULL) AS queued_seeds,
-            (SELECT COUNT(*) FROM candidate_graph_nodes) AS total_candidates,
-            (SELECT COUNT(*) FROM candidate_graph_nodes WHERE is_product = true) AS total_products,
-            (SELECT COALESCE(ROUND(AVG(commercial_gap_ratio)::numeric, 2), 0) FROM cluster_arbitrage_metrics) AS avg_commercial_gap,
-            (SELECT COUNT(*) FROM (
-                SELECT candidate_pin_id 
-                FROM candidate_graph_nodes 
-                GROUP BY candidate_pin_id 
-                HAVING COUNT(DISTINCT seed_pin_id) >= 2
-            ) sub) AS intersecting_hubs_count;
-        `;
+    // 1. GET /api/overview
+    if (method === 'GET' && pathname === '/api/overview') {
+        const cacheKey = buildCanonicalCacheKey('api:overview', {});
+        const payload = await getCachedOrFetch(cacheKey, async () => {
+          const overviewRows = await targetSql`
+            SELECT 
+              (SELECT COUNT(*) FROM cluster_seeds) AS total_seeds,
+              (SELECT COUNT(*) FROM cluster_seeds WHERE last_crawled_at IS NOT NULL) AS indexed_seeds,
+              (SELECT COUNT(*) FROM cluster_seeds WHERE last_crawled_at IS NULL) AS queued_seeds,
+              (SELECT COUNT(*) FROM candidate_graph_nodes) AS total_candidates,
+              (SELECT COUNT(*) FROM candidate_graph_nodes WHERE is_product = true) AS total_products,
+              (SELECT COALESCE(ROUND(AVG(commercial_gap_ratio)::numeric, 2), 0) FROM cluster_arbitrage_metrics) AS avg_commercial_gap,
+              (SELECT COUNT(*) FROM (
+                  SELECT candidate_pin_id 
+                  FROM candidate_graph_nodes 
+                  GROUP BY candidate_pin_id 
+                  HAVING COUNT(DISTINCT seed_pin_id) >= 2
+              ) sub) AS intersecting_hubs_count;
+          `;
 
-        const overview = overviewRows[0] || {};
-        const totalCandidates = Number(overview.total_candidates || 0);
-        const totalProducts = Number(overview.total_products || 0);
-        const avgCommercialGap = Number(overview.avg_commercial_gap || 0);
-        const intersectingHubsCount = Number(overview.intersecting_hubs_count || 0);
+          const overview = overviewRows[0] || {};
+          const totalCandidates = Number(overview.total_candidates || 0);
+          const totalProducts = Number(overview.total_products || 0);
+          const avgCommercialGap = Number(overview.avg_commercial_gap || 0);
+          const intersectingHubsCount = Number(overview.intersecting_hubs_count || 0);
 
-        const shoppingPresencePct = totalCandidates > 0
-          ? Number(((totalProducts / totalCandidates) * 100).toFixed(1))
-          : 0;
+          const shoppingPresencePct = totalCandidates > 0
+            ? Number(((totalProducts / totalCandidates) * 100).toFixed(1))
+            : 0;
 
-        const vulnerabilityIndex = Number(Math.min(99.9, Math.max(15, (avgCommercialGap * 0.75 + (intersectingHubsCount > 0 ? 25 : 10)))).toFixed(1));
+          const vulnerabilityIndex = Number(Math.min(99.9, Math.max(15, (avgCommercialGap * 0.75 + (intersectingHubsCount > 0 ? 25 : 10)))).toFixed(1));
 
-        return jsonResponse({
-          total_seeds: Number(overview.total_seeds || 0),
-          indexed_seeds: Number(overview.indexed_seeds || 0),
-          queued_seeds: Number(overview.queued_seeds || 0),
-          total_candidates: totalCandidates,
-          total_products: totalProducts,
-          shopping_presence_pct: shoppingPresencePct,
-          avg_commercial_gap: avgCommercialGap,
-          intersecting_hubs_count: intersectingHubsCount,
-          cluster_vulnerability_index: vulnerabilityIndex,
-          utility_advantage_multiplier: 5.12,
-          expected_prod_utility: 383.34,
-          organic_peak_utility: -74.91,
-          semantically_aligned: true
-        });
+          return {
+            total_seeds: Number(overview.total_seeds || 0),
+            indexed_seeds: Number(overview.indexed_seeds || 0),
+            queued_seeds: Number(overview.queued_seeds || 0),
+            total_candidates: totalCandidates,
+            total_products: totalProducts,
+            shopping_presence_pct: shoppingPresencePct,
+            avg_commercial_gap: avgCommercialGap,
+            intersecting_hubs_count: intersectingHubsCount,
+            cluster_vulnerability_index: vulnerabilityIndex,
+            utility_advantage_multiplier: 5.12,
+            expected_prod_utility: 383.34,
+            organic_peak_utility: -74.91,
+            semantically_aligned: true
+          };
+        }, 30000, 120000);
+
+        return jsonResponse(payload);
       }
 
       // 2. GET /api/seeds
       if (method === 'GET' && pathname === '/api/seeds') {
-        const seeds = await targetSql`
-          SELECT 
-              s.pin_id,
-              s.label,
-              s.is_competitor,
-              s.created_at,
-              s.last_crawled_at,
-              COALESCE(c_count.count, 0) AS total_candidates,
-              COALESCE(c_count.count, 0) AS candidate_count,
-              COALESCE(cap_count.count, 0) AS total_capsules,
-              COALESCE(cap_count.count, 0) AS capsule_count,
-              m.total_candidates AS metrics_candidates,
-              m.recgpt_count,
-              m.navboost_count,
-              m.randomwalk_count,
-              m.two_tower_count,
-              m.fresh_candidate_count,
-              m.product_count,
-              m.commercial_gap_ratio,
-              m.winning_color_centroids,
-              m.high_save_tokens,
-              m.utility_snapshot,
-              m.analyzed_at
-          FROM cluster_seeds s
-          LEFT JOIN LATERAL (
-              SELECT COUNT(*) AS count
-              FROM candidate_graph_nodes
-              WHERE seed_pin_id = s.pin_id
-          ) c_count ON true
-          LEFT JOIN LATERAL (
-              SELECT COUNT(*) AS count
-              FROM seed_guided_search_capsules
-              WHERE seed_pin_id = s.pin_id
-          ) cap_count ON true
-          LEFT JOIN LATERAL (
-              SELECT * FROM cluster_arbitrage_metrics 
-              WHERE seed_pin_id = s.pin_id 
-              ORDER BY analyzed_at DESC 
-              LIMIT 1
-          ) m ON true
-          ORDER BY s.created_at DESC;
-        `;
+        const cacheKey = buildCanonicalCacheKey('api:seeds', {});
+        const seeds = await getCachedOrFetch(cacheKey, async () => {
+          return await targetSql`
+            SELECT 
+                s.pin_id,
+                s.label,
+                s.is_competitor,
+                s.created_at,
+                s.last_crawled_at,
+                COALESCE(m.total_candidates, c_count.count, 0) AS total_candidates,
+                COALESCE(m.total_candidates, c_count.count, 0) AS candidate_count,
+                COALESCE(cap_count.count, 0) AS total_capsules,
+                COALESCE(cap_count.count, 0) AS capsule_count,
+                m.total_candidates AS metrics_candidates,
+                m.recgpt_count,
+                m.navboost_count,
+                m.randomwalk_count,
+                m.two_tower_count,
+                m.fresh_candidate_count,
+                m.product_count,
+                m.commercial_gap_ratio,
+                m.winning_color_centroids,
+                m.high_save_tokens,
+                m.utility_snapshot,
+                m.analyzed_at
+            FROM cluster_seeds s
+            LEFT JOIN LATERAL (
+                SELECT * FROM cluster_arbitrage_metrics 
+                WHERE seed_pin_id = s.pin_id 
+                ORDER BY analyzed_at DESC 
+                LIMIT 1
+            ) m ON true
+            LEFT JOIN LATERAL (
+                SELECT COUNT(*) AS count
+                FROM candidate_graph_nodes
+                WHERE seed_pin_id = s.pin_id
+                  AND m.total_candidates IS NULL
+            ) c_count ON true
+            LEFT JOIN LATERAL (
+                SELECT COUNT(*) AS count
+                FROM seed_guided_search_capsules
+                WHERE seed_pin_id = s.pin_id
+            ) cap_count ON true
+            ORDER BY s.created_at DESC;
+          `;
+        }, 30000, 120000);
+
         return jsonResponse(seeds);
       }
 
@@ -1163,6 +1188,8 @@ export default {
               is_competitor = EXCLUDED.is_competitor
           RETURNING pin_id, label, is_competitor, last_crawled_at;
         `;
+        invalidateEdgeCache('api:overview');
+        invalidateEdgeCache('api:seeds');
         return jsonResponse({ success: true, seed: result[0] }, 201);
       }
 
@@ -1215,6 +1242,8 @@ export default {
           inserted.push(...chunkResults.flat());
         }
 
+        invalidateEdgeCache('api:overview');
+        invalidateEdgeCache('api:seeds');
         return jsonResponse({ success: true, count: inserted.length, seeds: inserted }, 201);
       }
 
@@ -1237,6 +1266,8 @@ export default {
         }
         await targetSql`DELETE FROM cluster_seeds WHERE pin_id = ANY(${pinIds});`;
 
+        invalidateEdgeCache('api:overview');
+        invalidateEdgeCache('api:seeds');
         return jsonResponse({
           success: true,
           deleted_count: pinIds.length,
@@ -1260,6 +1291,8 @@ export default {
           ]);
         }
         await targetSql`DELETE FROM cluster_seeds WHERE pin_id = ${pinId};`;
+        invalidateEdgeCache('api:overview');
+        invalidateEdgeCache('api:seeds');
         return jsonResponse({ success: true, deleted_pin_id: pinId, purged_database: purgeData });
       }
 
@@ -3405,7 +3438,7 @@ export default {
             `.catch(() => {});
 
             // D. Refreshed dossier
-            const refreshedDossier = await fetchUniversalPinDossier({ hubSql: sql, pinId });
+            const refreshedDossier = await fetchUniversalPinDossier({ hubSql: sql, pinId, ctx });
 
             return jsonResponse({
               success: true,
@@ -3437,7 +3470,7 @@ export default {
             }, 400);
           }
           try {
-            let dossier = await fetchUniversalPinDossier({ hubSql: sql, pinId });
+            let dossier = await fetchUniversalPinDossier({ hubSql: sql, pinId, ctx });
 
             // Auto-Enrichment Guard: If dossier exists but lacks deep algorithmic telemetry
             // (e.g. only shallow SERP snapshot without canonical_pin_id or seo_related_interests)
@@ -3503,7 +3536,7 @@ export default {
                     WHERE pin_id = ${pinId};
                   `.catch(() => {});
 
-                  dossier = await fetchUniversalPinDossier({ hubSql: sql, pinId });
+                  dossier = await fetchUniversalPinDossier({ hubSql: sql, pinId, ctx });
                 }
               } catch (_) {}
             }
@@ -4417,6 +4450,14 @@ export default {
           : 'INTERNAL_SERVER_ERROR',
         message: redactSecrets(err.message || 'An unexpected internal error occurred')
       }, status);
+    } finally {
+      const store = requestContextStorage.getStore();
+      if (store?.hyperdriveSql && typeof store.hyperdriveSql.end === 'function') {
+        const closePromise = store.hyperdriveSql.end({ timeout: 1 }).catch(() => {});
+        if (ctx && typeof ctx.waitUntil === 'function') {
+          ctx.waitUntil(closePromise);
+        }
+      }
     }
     });
   },

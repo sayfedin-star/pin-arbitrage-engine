@@ -737,7 +737,7 @@ async function flushToStorageShards(enrichedPins) {
             })));
 
             // 1. Master Pin Record Upsert (Deduplicated on pin_id)
-            await shardSql`
+            const q1 = shardSql`
               INSERT INTO universal_master_pins (
                 pin_id, creator_username, board_name, board_slug, title, domain, destination_url,
                 image_url, description, alt_text, dominant_color, visual_annotations,
@@ -772,7 +772,7 @@ async function flushToStorageShards(enrichedPins) {
             `;
 
             // 2. Atomic Two-Tier Upsert: pins_daily_metrics + pin_serp_positions (Immune to SQLSTATE 21000)
-            await shardSql`
+            const q2 = shardSql`
               WITH raw_batch AS (
                 SELECT * FROM jsonb_to_recordset(${shardPayload}::jsonb) AS u(
                   pin_id text,
@@ -862,7 +862,7 @@ async function flushToStorageShards(enrichedPins) {
             `;
 
             // 3. Legacy Backward-Compatible Snapshots (Deduplicated on pin_id, keyword_id)
-            await shardSql`
+            const q3 = shardSql`
               INSERT INTO pins_daily_snapshots (
                 pin_id, keyword_id, rank_position, save_count, repin_count, comment_count,
                 share_count, daily_save_velocity, snapshot_date, created_at
@@ -887,6 +887,14 @@ async function flushToStorageShards(enrichedPins) {
                 END,
                 created_at = NOW();
             `;
+
+            if (typeof shardSql.transaction === 'function') {
+              await shardSql.transaction([q1, q2, q3]);
+            } else {
+              await q1;
+              await q2;
+              await q3;
+            }
           })();
 
           let timerId;

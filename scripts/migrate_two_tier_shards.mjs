@@ -81,40 +81,39 @@ async function rolloutShardsDDL() {
           ON pin_serp_positions (keyword_id, snapshot_date DESC);
         `;
 
-        // 3. View pins_daily_rollups_v2 (with FULL OUTER JOIN and aggregation)
+        // 3. View pins_daily_rollups_v2 (Optimized LEFT JOIN LATERAL with index pushdown)
         await shardSql`
           CREATE OR REPLACE VIEW pins_daily_rollups_v2 AS
           SELECT 
-            COALESCE(m.pin_id, p.pin_id) AS pin_id,
-            COALESCE(m.snapshot_date, p.snapshot_date) AS snapshot_date,
+            m.pin_id,
+            m.snapshot_date,
             COALESCE(m.save_count, 0) AS save_count,
             COALESCE(m.repin_count, 0) AS repin_count,
             COALESCE(m.comment_count, 0) AS comment_count,
             COALESCE(m.share_count, 0) AS share_count,
             COALESCE(m.reaction_count, 0) AS reaction_count,
             COALESCE(m.daily_save_velocity, 0) AS daily_save_velocity,
-            COALESCE(m.updated_at, MAX(p.updated_at)) AS updated_at,
-            COALESCE(
-              jsonb_agg(
-                jsonb_build_object(
-                  'keyword_id', p.keyword_id,
-                  'rank_position', p.rank_position,
-                  'is_displaced', p.is_displaced,
-                  'last_known_rank', p.last_known_rank,
-                  'catalog_rank', p.catalog_rank
-                ) ORDER BY p.rank_position ASC NULLS LAST
-              ) FILTER (WHERE p.keyword_id IS NOT NULL),
-              '[]'::jsonb
-            ) AS serp_rankings
+            m.updated_at,
+            COALESCE(sp.serp_rankings, '[]'::jsonb) AS serp_rankings
           FROM pins_daily_metrics m
-          FULL OUTER JOIN pin_serp_positions p 
-            ON p.pin_id = m.pin_id 
-           AND p.snapshot_date = m.snapshot_date
-          GROUP BY 
-            COALESCE(m.pin_id, p.pin_id), 
-            COALESCE(m.snapshot_date, p.snapshot_date), 
-            m.save_count, m.repin_count, m.comment_count, 
-            m.share_count, m.reaction_count, m.daily_save_velocity, m.updated_at;
+          LEFT JOIN LATERAL (
+            SELECT 
+              COALESCE(
+                jsonb_agg(
+                  jsonb_build_object(
+                    'keyword_id', p.keyword_id,
+                    'rank_position', p.rank_position,
+                    'is_displaced', p.is_displaced,
+                    'last_known_rank', p.last_known_rank,
+                    'catalog_rank', p.catalog_rank
+                  ) ORDER BY p.rank_position ASC NULLS LAST
+                ) FILTER (WHERE p.keyword_id IS NOT NULL),
+                '[]'::jsonb
+              ) AS serp_rankings
+            FROM pin_serp_positions p
+            WHERE p.pin_id = m.pin_id 
+              AND p.snapshot_date = m.snapshot_date
+          ) sp ON TRUE;
         `;
 
         successfulShards++;
