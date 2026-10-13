@@ -285,11 +285,14 @@ async function main() {
     // =========================================================================
     console.log('[*] Consolidating multi-keyword broadcast run...');
     const keywords = await sql`
-      SELECT id, keyword, category, target_pin_count, avg_daily_velocity, last_crawled_at
-      FROM tracked_keywords
-      WHERE is_active = TRUE
-      ORDER BY last_crawled_at DESC NULLS LAST
-      LIMIT 20;
+      SELECT 
+        tk.id, tk.keyword, tk.category, tk.target_pin_count, tk.avg_daily_velocity, tk.last_crawled_at,
+        COUNT(DISTINCT ksc.pin_id) as total_inspected_pins
+      FROM tracked_keywords tk
+      LEFT JOIN keyword_serp_current ksc ON ksc.keyword_id = tk.id
+      WHERE tk.is_active = TRUE
+      GROUP BY tk.id, tk.keyword, tk.category, tk.target_pin_count, tk.avg_daily_velocity, tk.last_crawled_at
+      ORDER BY tk.last_crawled_at DESC NULLS LAST;
     `;
 
     const fleetFailures = Number(process.env.FLEET_FAILURES || 0);
@@ -301,11 +304,12 @@ async function main() {
     mdReport += `> **Fleet Mode**: \`20-Runner Parallel Matrix\` | **Keywords Processed**: **${keywords.length}** | **Status**: ${fleetStatus}\n\n`;
 
     mdReport += `### 📊 Tracked Keywords Performance Matrix\n\n`;
-    mdReport += `| Keyword | Category | Target Pins | Avg 24h Velocity | Last Updated | Status |\n`;
-    mdReport += `| :--- | :--- | :---: | :---: | :---: | :---: |\n`;
+    mdReport += `| Keyword | Category | SERP Target | Inspected Pins (Catalog + Vault) | Avg 24h Velocity | Last Updated | Status |\n`;
+    mdReport += `| :--- | :--- | :---: | :---: | :---: | :---: | :---: |\n`;
     for (const k of keywords) {
       const timeStr = k.last_crawled_at ? new Date(k.last_crawled_at).toISOString().slice(11, 16) + ' UTC' : 'Pending';
-      mdReport += `| **${k.keyword}** | ${k.category || 'General'} | ${k.target_pin_count || 100} | \`+${k.avg_daily_velocity || 0} saves/day\` | ${timeStr} | 🟢 Fresh |\n`;
+      const inspectedStr = Number(k.total_inspected_pins) > 0 ? `**${Number(k.total_inspected_pins).toLocaleString()} Pins**` : '0';
+      mdReport += `| **${k.keyword}** | ${k.category || 'General'} | ${k.target_pin_count || 250} | ${inspectedStr} | \`+${k.avg_daily_velocity || 0} saves/day\` | ${timeStr} | 🟢 Fresh |\n`;
     }
     mdReport += `\n`;
   }

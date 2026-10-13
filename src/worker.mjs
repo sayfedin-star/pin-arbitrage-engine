@@ -3738,9 +3738,9 @@ export default {
           const settled = await Promise.allSettled(chunk.map(async (cleanKw) => {
             const [row] = await sql`
               INSERT INTO tracked_keywords (
-                keyword, category, is_active, updated_at
+                keyword, category, target_pin_count, crawl_pages_limit, inspection_mode, is_active, updated_at
               ) VALUES (
-                ${cleanKw}, ${category}, TRUE, NOW()
+                ${cleanKw}, ${category}, 250, 10, 'full_catalog', TRUE, NOW()
               )
               ON CONFLICT (keyword) DO UPDATE SET
                 updated_at = NOW(),

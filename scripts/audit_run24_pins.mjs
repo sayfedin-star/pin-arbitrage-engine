@@ -2,6 +2,10 @@
 import { neon } from '@neondatabase/serverless';
 import { preloadNeonRegistry, resolveShardConnection } from '../src/modules/sharding/fleet-router.mjs';
 
+if (typeof process.loadEnvFile === 'function') {
+  try { process.loadEnvFile(); } catch (_) {}
+}
+
 const sql = neon(process.env.DATABASE_URL);
 
 async function verifyRun24() {
