@@ -76,6 +76,33 @@ async function run() {
 
   // 2. Preload Shard Registry
   await preloadNeonRegistry(hubSql);
+
+  const isCanary = process.argv.includes('--canary') || process.env.CANARY_ONLY === 'true';
+  const targetShardArg = process.argv.find(a => a.startsWith('--shard='));
+  const specificShard = targetShardArg ? parseInt(targetShardArg.split('=')[1], 10) : (isCanary ? 1 : null);
+
+  if (specificShard) {
+    console.log(`\n[*] 🧪 CANARY MODE: Testing view rollout on single shard #${specificShard}...`);
+    try {
+      const canarySql = await resolveShardConnection({ hubSql, shardId: specificShard });
+      await canarySql(OPTIMIZED_VIEW_SQL);
+      console.log(`[+] Successfully applied OPTIMIZED_VIEW_SQL to Canary Shard #${specificShard}.`);
+      
+      // Probe query to verify column resolution and execution plan
+      const probeRows = await canarySql`
+        SELECT pin_id, snapshot_date, save_count, serp_rankings 
+        FROM pins_daily_rollups_v2 
+        LIMIT 2;
+      `;
+      console.log(`[+] Canary query executed successfully! Rows returned: ${probeRows.length}`);
+      console.log('✅ Canary Shard verification PASSED. Ready for full fleet propagation.');
+      return;
+    } catch (canaryErr) {
+      console.error(`[-] ❌ Canary Shard #${specificShard} FAILED:`, canaryErr.message);
+      process.exit(1);
+    }
+  }
+
   const shardIds = Array.from({ length: 99 }, (_, i) => i + 1);
   const CONCURRENCY = 15;
   let successfulShards = 0;

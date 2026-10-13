@@ -142,6 +142,7 @@ async function optimizeIndexes() {
   await sql`CREATE INDEX IF NOT EXISTS idx_cp_trgm_username ON competitor_profiles USING gin (LOWER(username) gin_trgm_ops);`.catch(err => console.warn('[Index Notice]', err.message));
   await sql`CREATE INDEX IF NOT EXISTS idx_cp_trgm_display_name ON competitor_profiles USING gin (LOWER(COALESCE(display_name, '')) gin_trgm_ops);`.catch(err => console.warn('[Index Notice]', err.message));
   await sql`CREATE INDEX IF NOT EXISTS idx_tb_trgm_url ON tracked_boards USING gin (url gin_trgm_ops);`.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`CREATE INDEX IF NOT EXISTS idx_tb_trgm_name ON tracked_boards USING gin (LOWER(name) gin_trgm_ops);`.catch(err => console.warn('[Index Notice]', err.message));
   await sql`CREATE INDEX IF NOT EXISTS idx_ksc_active_covering ON keyword_serp_current (keyword_id, is_displaced, rank_position);`.catch(err => console.warn('[Index Notice]', err.message));
 
   console.log('[*] 13. Propagating core indexes across registered storage shards [CAP-21]...');

@@ -16,6 +16,9 @@ ON competitor_profiles USING gin (LOWER(COALESCE(display_name, '')) gin_trgm_ops
 CREATE INDEX IF NOT EXISTS idx_tb_trgm_url 
 ON tracked_boards USING gin (url gin_trgm_ops);
 
+CREATE INDEX IF NOT EXISTS idx_tb_trgm_name 
+ON tracked_boards USING gin (LOWER(name) gin_trgm_ops);
+
 -- Composite covering index for fast live catalog lookups (Bottleneck 5 & 8)
 CREATE INDEX IF NOT EXISTS idx_ksc_active_covering 
 ON keyword_serp_current (keyword_id, is_displaced, rank_position);

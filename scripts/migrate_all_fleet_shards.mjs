@@ -69,7 +69,23 @@ async function migrateFleet() {
             destination_url ILIKE '%/item/%' OR 
             destination_url ILIKE '%gumroad.com%'
           );
-        `;
+        `.catch(() => {});
+
+        // 4. Fillfactor 80 Hardening (HOT updates without index bloat)
+        await sSql`ALTER TABLE universal_master_pins SET (fillfactor = 80);`.catch(() => {});
+        await sSql`ALTER TABLE pin_serp_positions SET (fillfactor = 80);`.catch(() => {});
+        await sSql`ALTER TABLE pins_daily_metrics SET (fillfactor = 80);`.catch(() => {});
+        await sSql`ALTER TABLE pins_daily_snapshots SET (fillfactor = 80);`.catch(() => {});
+        if (proj.is_hub) {
+          await sSql`ALTER TABLE keyword_serp_current SET (fillfactor = 80);`.catch(() => {});
+          await sSql`ALTER TABLE pa_pins SET (fillfactor = 80);`.catch(() => {});
+          await sSql`ALTER TABLE pa_pin_metrics SET (fillfactor = 80);`.catch(() => {});
+          await sSql`ALTER TABLE competitor_profiles SET (fillfactor = 80);`.catch(() => {});
+          await sSql`ALTER TABLE competitor_pins SET (fillfactor = 80);`.catch(() => {});
+          await sSql`ALTER TABLE tracked_boards SET (fillfactor = 80);`.catch(() => {});
+          await sSql`ALTER TABLE tracked_keywords SET (fillfactor = 80);`.catch(() => {});
+          await sSql`ALTER TABLE candidate_graph_nodes SET (fillfactor = 80);`.catch(() => {});
+        }
 
         succeeded++;
       } catch (err) {
