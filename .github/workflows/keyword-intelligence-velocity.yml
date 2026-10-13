@@ -62,7 +62,7 @@ jobs:
   dispatch:
     name: Stage 0 - Fleet Orchestrator & Dispatcher
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     outputs:
       matrix_tasks: ${{ steps.dispatcher.outputs.matrix_tasks }}
       mode: ${{ steps.dispatcher.outputs.mode }}

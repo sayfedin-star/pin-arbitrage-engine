@@ -1702,7 +1702,10 @@ export function getCampaignFoldersPageHtml(folderId = '') {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 crawl_scope: 'all_pins',
-                max_pins: '250'
+                max_pins: '250',
+                max_serp_pins: '250',
+                max_catalog_inspect: '0',
+                enable_serp_harvest: 'false'
               })
             });
             const data = await res.json().catch(() => ({ success: false, error: 'Invalid response from server' }));

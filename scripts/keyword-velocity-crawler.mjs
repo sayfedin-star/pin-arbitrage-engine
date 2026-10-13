@@ -1369,7 +1369,13 @@ async function run() {
       }
     }
 
-    console.log(`\n✅ WORKER COMPLETE: Processed ${results.length} keywords.`);
+    const failedCount = results.filter(r => r.status === 'error').length;
+    const successCount = results.filter(r => r.status === 'success').length;
+    console.log(`\n✅ WORKER COMPLETE: Processed ${results.length} keywords (${successCount} succeeded, ${failedCount} failed).`);
+    if (keywordsToProcess.length > 0 && successCount === 0 && failedCount > 0) {
+      console.error(`[-] All ${failedCount} keywords failed during this worker execution. Exiting with failure.`);
+      process.exit(1);
+    }
     process.exit(0);
   }
 }

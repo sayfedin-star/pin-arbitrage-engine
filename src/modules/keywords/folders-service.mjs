@@ -145,7 +145,7 @@ export async function createFolder(sql, {
       ${String(color || '#ec4899').trim()},
       ${String(icon || 'folder').trim()},
       ${String(projectId || 'default').trim()},
-      ${JSON.stringify(metadata || {})},
+      ${JSON.stringify(typeof metadata === 'object' && metadata !== null && !Array.isArray(metadata) ? metadata : {})}::jsonb,
       NOW(),
       NOW()
     )
@@ -178,7 +178,7 @@ export async function updateFolder(sql, folderId, {
       description = COALESCE(${description !== undefined ? String(description).trim() : null}, description),
       color = COALESCE(${color !== undefined ? String(color).trim() : null}, color),
       icon = COALESCE(${icon !== undefined ? String(icon).trim() : null}, icon),
-      metadata = COALESCE(${metadata !== undefined ? JSON.stringify(metadata) : null}::jsonb, metadata),
+      metadata = COALESCE(${metadata !== undefined ? JSON.stringify(typeof metadata === 'object' && metadata !== null && !Array.isArray(metadata) ? metadata : {}) : null}::jsonb, metadata),
       updated_at = NOW()
     WHERE id = ${fid}
     RETURNING *;

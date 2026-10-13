@@ -25,6 +25,28 @@ import { getPinShardId, resolveShardConnection } from '../sharding/fleet-router.
 // In-Memory Mutex for process-local fast-fail
 const activeKeywordCrawls = new Set();
 
+/**
+ * Defensive JSONB Metadata Normalizer (Resilient against double-stringification, nulls, and scalars)
+ */
+export function safeNormalizeMetadata(raw) {
+  if (!raw) return {};
+  if (typeof raw === 'object' && !Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (!trimmed || trimmed === '""' || trimmed === "''") return {};
+    try {
+      let parsed = JSON.parse(trimmed);
+      if (typeof parsed === 'string') {
+        try { parsed = JSON.parse(parsed); } catch (_) {}
+      }
+      return (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) ? parsed : {};
+    } catch (_) {
+      return {};
+    }
+  }
+  return {};
+}
+
 // In-Memory True LRU Cache for Pinterest Typeahead (max 500 entries, 15m TTL)
 const typeaheadCache = new Map();
 const inflightTypeahead = new Map();
@@ -812,18 +834,26 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
     const leaseResult = force
       ? await sql`
           UPDATE tracked_keywords
-          SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{crawl_lock}', to_jsonb(EXTRACT(EPOCH FROM NOW())::numeric))
+          SET metadata = jsonb_set(
+            CASE WHEN jsonb_typeof(metadata) = 'object' THEN metadata ELSE '{}'::jsonb END,
+            '{crawl_lock}',
+            to_jsonb(EXTRACT(EPOCH FROM NOW())::numeric)
+          )
           WHERE id = ${kid}
           RETURNING id;
         `
       : await sql`
           UPDATE tracked_keywords
-          SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{crawl_lock}', to_jsonb(EXTRACT(EPOCH FROM NOW())::numeric))
+          SET metadata = jsonb_set(
+            CASE WHEN jsonb_typeof(metadata) = 'object' THEN metadata ELSE '{}'::jsonb END,
+            '{crawl_lock}',
+            to_jsonb(EXTRACT(EPOCH FROM NOW())::numeric)
+          )
           WHERE id = ${kid}
             AND (
-              metadata->>'crawl_lock' IS NULL
+              CASE WHEN jsonb_typeof(metadata) = 'object' THEN metadata->>'crawl_lock' ELSE NULL END IS NULL
               OR CASE 
-                   WHEN metadata->>'crawl_lock' ~ '^[0-9]+(\.[0-9]+)?$' 
+                   WHEN jsonb_typeof(metadata) = 'object' AND metadata->>'crawl_lock' ~ '^[0-9]+(\.[0-9]+)?$' 
                    THEN (metadata->>'crawl_lock')::numeric 
                    ELSE 0 
                  END < EXTRACT(EPOCH FROM NOW())::numeric - 60
@@ -1478,7 +1508,8 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
     const avgVelocity = crawledCount > 0 ? Number((robustTotalVelocity / crawledCount).toFixed(2)) : 0;
 
     // Track 14-day historical daily average velocity points for trend sparklines
-    const prevHistory = Array.isArray(keywordRow.metadata?.velocity_history) ? [...keywordRow.metadata.velocity_history] : [];
+    const baseMetadata = safeNormalizeMetadata(keywordRow.metadata);
+    const prevHistory = Array.isArray(baseMetadata.velocity_history) ? [...baseMetadata.velocity_history] : [];
     const todayIso = new Date().toISOString().slice(0, 10);
     const filteredHistory = prevHistory.filter(h => h && h.date !== todayIso);
     filteredHistory.push({ date: todayIso, velocity: avgVelocity });
@@ -1486,7 +1517,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
 
     // Build consolidated metadata with dropped out pins record
     const updatedMetadata = {
-      ...(keywordRow.metadata || {}),
+      ...baseMetadata,
       velocity_history: filteredHistory,
       last_dropped_pins: droppedOutList,
       last_crawled_pins_count: crawledCount,
@@ -1806,7 +1837,12 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
     // If this node acquired the lease and transaction failed or aborted early, heal crawl_lock lease
     if (leaseAcquired && !leaseCommittedInTx) {
       await sql`
-        UPDATE tracked_keywords SET metadata = metadata - 'crawl_lock' WHERE id = ${kid};
+        UPDATE tracked_keywords 
+        SET metadata = CASE 
+          WHEN jsonb_typeof(metadata) = 'object' THEN metadata - 'crawl_lock' 
+          ELSE '{}'::jsonb 
+        END 
+        WHERE id = ${kid};
       `.catch(() => {});
     }
   }

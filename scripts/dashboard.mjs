@@ -2083,9 +2083,13 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'POST' && pathname === '/api/keywords/dispatch-workflow') {
-      const body = await parseJsonBody(req);
+      const body = await parseJsonBody(req).catch(() => ({}));
       const targetKw = body.target_keyword || body.keyword || '';
-      const maxPinsInput = String(body.max_pins || '100');
+      const folderIdInput = body.folder_id ? String(body.folder_id).trim() : '';
+      const maxPinsInput = String(body.max_pins || '250');
+      const maxSerpPinsInput = String(body.max_serp_pins || body.max_pins || maxPinsInput);
+      const maxCatalogInspectInput = String(body.max_catalog_inspect || '0');
+      const enableSerpHarvestInput = String(body.enable_serp_harvest ?? (folderIdInput ? 'false' : 'true'));
       const crawlScopeInput = String(body.crawl_scope || 'all_pins');
       const repo = process.env.GITHUB_REPOSITORY || 'sayfedin-star/pin-arbitrage-engine';
       const token = process.env.GITHUB_TOKEN || process.env.GITHUB_PAT || process.env.GH_TOKEN || process.env.GH_REFRESH_TOKEN;
@@ -2099,6 +2103,7 @@ const server = http.createServer(async (req, res) => {
       try {
         dispatchRes = await fetch(workflowUrl, {
           method: 'POST',
+          signal: AbortSignal.timeout(8000),
           headers: {
             'Accept': 'application/vnd.github.v3+json',
             'Authorization': authHeader,
@@ -2108,8 +2113,12 @@ const server = http.createServer(async (req, res) => {
             ref: 'main',
             inputs: {
               target_keyword: targetKw,
+              folder_id: folderIdInput,
               crawl_scope: crawlScopeInput,
-              max_pins: maxPinsInput
+              max_pins: maxPinsInput,
+              max_serp_pins: maxSerpPinsInput,
+              max_catalog_inspect: maxCatalogInspectInput,
+              enable_serp_harvest: enableSerpHarvestInput
             }
           })
         });
@@ -2126,6 +2135,133 @@ const server = http.createServer(async (req, res) => {
         if (dispatchRes?.body && !dispatchRes.bodyUsed) {
           await dispatchRes.body.cancel().catch(() => {});
         }
+      }
+    }
+
+    // Dedicated Folder Cluster Fleet Audit Dispatch API (Unified Aliases: /api/folders, /api/campaign-folders, /api/keywords/folders)
+    const folderAuditMatch = method === 'POST' && pathname.match(/^\/api\/(?:folders|campaign-folders|keywords\/folders)\/(\d+)\/dispatch-audit$/);
+    if (folderAuditMatch) {
+      const folderId = folderAuditMatch[1];
+      const [folderRow] = await targetSql`SELECT id, name FROM keyword_folders WHERE id = ${Number(folderId)} LIMIT 1;`;
+      if (!folderRow) {
+        return sendJson(res, 404, { success: false, error: `Folder ${folderId} not found` });
+      }
+      const body = await parseJsonBody(req).catch(() => ({}));
+      const crawlScopeInput = String(body.crawl_scope || 'all_pins');
+      const maxPinsInput = String(body.max_pins || '250');
+      const maxSerpPinsInput = String(body.max_serp_pins || body.max_pins || '250');
+      const maxCatalogInspectInput = String(body.max_catalog_inspect || '0');
+      const enableSerpHarvestInput = String(body.enable_serp_harvest ?? 'false');
+
+      const repo = process.env.GITHUB_REPOSITORY || 'sayfedin-star/pin-arbitrage-engine';
+      const token = process.env.GITHUB_TOKEN || process.env.GITHUB_PAT || process.env.GH_TOKEN || process.env.GH_REFRESH_TOKEN;
+      if (!token) {
+        return sendJson(res, 400, { success: false, error: 'GITHUB_TOKEN or GH_REFRESH_TOKEN environment variable is not configured' });
+      }
+      const cleanToken = String(token).replace(/^(token|Bearer)\s+/i, '').replace(/^["']|["']$/g, '').trim();
+      const authHeader = cleanToken.startsWith('ghp_') ? `token ${cleanToken}` : `Bearer ${cleanToken}`;
+      const workflowUrl = `https://api.github.com/repos/${repo}/actions/workflows/keyword-intelligence-velocity.yml/dispatches`;
+      let dispatchRes;
+      try {
+        dispatchRes = await fetch(workflowUrl, {
+          method: 'POST',
+          signal: AbortSignal.timeout(8000),
+          headers: {
+            'Accept': 'application/vnd.github.v3+json',
+            'Authorization': authHeader,
+            'User-Agent': 'Pin-Arbitrage-Engine'
+          },
+          body: JSON.stringify({
+            ref: 'main',
+            inputs: {
+              target_keyword: '',
+              folder_id: String(folderId),
+              crawl_scope: crawlScopeInput,
+              max_pins: maxPinsInput,
+              max_serp_pins: maxSerpPinsInput,
+              max_catalog_inspect: maxCatalogInspectInput,
+              enable_serp_harvest: enableSerpHarvestInput
+            }
+          })
+        });
+        if (!dispatchRes.ok) {
+          const errText = await dispatchRes.text();
+          let errDetail = errText;
+          if (dispatchRes.status === 401) {
+            errDetail = 'GitHub Token rejected (401 Bad credentials). Ensure your token in settings has both "repo" and "workflow" scopes enabled at https://github.com/settings/tokens';
+          }
+          return sendJson(res, dispatchRes.status, { success: false, error: `GitHub API error (${dispatchRes.status}): ${errDetail}` });
+        }
+        return sendJson(res, 200, { 
+          success: true, 
+          folder_id: Number(folderId),
+          folder_name: folderRow.name,
+          message: `20-Runner Parallel Fleet Audit dispatched successfully for folder "${folderRow.name}"!` 
+        });
+      } finally {
+        if (dispatchRes?.body && !dispatchRes.bodyUsed) {
+          await dispatchRes.body.cancel().catch(() => {});
+        }
+      }
+    }
+
+    // Raw Visual Annotations Crossover API (/api/folders/:id/raw-visual-crossover, etc.)
+    if (
+      (pathname.startsWith('/api/folders/') && (pathname.endsWith('/raw-visual-crossover') || pathname.endsWith('/crossover'))) ||
+      (pathname.startsWith('/api/campaign-folders/') && (pathname.endsWith('/raw-visual-crossover') || pathname.endsWith('/crossover'))) ||
+      (pathname.startsWith('/api/keywords/folders/') && (pathname.endsWith('/raw-visual-crossover') || pathname.endsWith('/crossover')))
+    ) {
+      if (method !== 'GET') {
+        return sendJson(res, 405, { error: 'Method not allowed' });
+      }
+      const parts = pathname.split('/').filter(Boolean);
+      const folderId = (parts[1] === 'keywords' && parts[2] === 'folders') ? parts[3] : parts[2];
+      if (!folderId || isNaN(Number(folderId))) {
+        return sendJson(res, 400, { success: false, error: 'Valid numeric folder_id is required' });
+      }
+      const refresh = searchParams.get('refresh') === 'true' || searchParams.get('force') === 'true';
+      const crossover = await calculateFolderCrossover(targetSql, Number(folderId), { refresh });
+      return sendJson(res, 200, { success: true, crossover });
+    }
+
+    // Aliased Campaign Folders CRUD API (/api/folders and /api/campaign-folders)
+    const isDashboardFoldersRoute = (
+      pathname === '/api/folders' || pathname.startsWith('/api/folders/') ||
+      pathname === '/api/campaign-folders' || pathname.startsWith('/api/campaign-folders/')
+    ) && !pathname.includes('crossover') && !pathname.includes('dispatch-audit');
+
+    if (isDashboardFoldersRoute) {
+      const basePrefix = pathname.startsWith('/api/campaign-folders') ? '/api/campaign-folders' : '/api/folders';
+      const parts = pathname.slice(basePrefix.length).split('/').filter(Boolean);
+      const folderId = parts[0] ? Number(parts[0]) : (searchParams.get('id') || searchParams.get('folder_id'));
+
+      if (method === 'GET') {
+        if (folderId) {
+          const folder = await getFolder(targetSql, folderId);
+          if (!folder) return sendJson(res, 404, { error: 'Folder not found' });
+          return sendJson(res, 200, { success: true, folder });
+        }
+        const folders = await listFolders(targetSql, {
+          projectId: searchParams.get('project_id') || 'default'
+        });
+        return sendJson(res, 200, { success: true, folders });
+      }
+
+      if (method === 'POST' && parts.length === 0) {
+        const body = await parseJsonBody(req);
+        const created = await createFolder(targetSql, body);
+        return sendJson(res, 200, { success: true, folder: created });
+      }
+
+      if ((method === 'PUT' || method === 'PATCH') && folderId) {
+        const body = await parseJsonBody(req);
+        const updated = await updateFolder(targetSql, folderId, body);
+        return sendJson(res, 200, { success: true, folder: updated });
+      }
+
+      if (method === 'DELETE' && folderId) {
+        const deleted = await deleteFolder(targetSql, folderId);
+        return sendJson(res, 200, { success: true, deleted });
       }
     }
 

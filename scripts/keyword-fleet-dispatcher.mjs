@@ -56,7 +56,7 @@ async function main() {
   const envHarvest = process.env.ENABLE_SERP_HARVEST?.trim();
   const enableSerpHarvest = (envHarvest !== undefined && envHarvest !== '')
     ? (envHarvest === 'true' || envHarvest === '1')
-    : (appSettings.enable_serp_harvest ?? true);
+    : (rawFolderId ? false : (appSettings.enable_serp_harvest ?? true));
 
   const envSerpPins = process.env.MAX_SERP_PINS?.trim() || process.env.MAX_PINS?.trim();
   const maxSerpPins = (envSerpPins && !isNaN(parseInt(envSerpPins, 10)))
@@ -116,7 +116,13 @@ async function main() {
     // 2. Stage 0 Fast SERP Ingestion for all cluster keywords to refresh ranks & ingest new pins
     if (enableSerpHarvest) {
       console.log(`  [*] Executing Stage 0 Fast SERP Ingestion across ${folderKeywords.length} folder keywords...`);
+      const stage0StartTime = Date.now();
+      const STAGE0_MAX_BUDGET_MS = 90000; // 90 seconds hard deadline guard
       for (let kIdx = 0; kIdx < folderKeywords.length; kIdx++) {
+        if (Date.now() - stage0StartTime > STAGE0_MAX_BUDGET_MS) {
+          console.warn(`  [!] Stage 0 time budget exceeded (90s). Gracefully stopping SERP ingestion to protect fleet orchestrator.`);
+          break;
+        }
         const kw = folderKeywords[kIdx];
         try {
           console.log(`    [${kIdx + 1}/${folderKeywords.length}] Ingesting SERP for "${kw.keyword}" (ID: ${kw.id})...`);
