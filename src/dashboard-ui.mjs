@@ -6325,7 +6325,7 @@ export function getDashboardHtml() {
                     <span class="px-2 py-0.5 rounded-full text-[11px] font-bold" :class="Number(kw.avg_daily_velocity || 0) > 0 ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'" x-text="(Number(kw.avg_daily_velocity || 0) > 0 ? '+' : '') + formatNumber(kw.avg_daily_velocity || 0) + ' saves/day'"></span>
                   </td>
                   <td class="py-3 px-3 text-center font-mono">
-                    <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300" x-text="(kw.snapshots_count || 0) + ' / ' + (kw.target_pin_count || 50)"></span>
+                    <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300" x-text="(kw.snapshots_count || 0) + ' / ' + (kw.target_pin_count || 250)"></span>
                   </td>
                   <td class="py-3 px-3 text-center">
                     <div class="flex items-center justify-center space-x-1.5">

@@ -298,7 +298,7 @@ export async function updateKeywordSettings(sql, keywordId, settings = {}) {
 /**
  * Add a new keyword to track with dynamic depth support
  */
-export async function addKeyword(sql, { keyword, category = 'General', target_pin_count = 250, crawl_pages_limit = 10, inspection_mode = 'smart_breakout' }) {
+export async function addKeyword(sql, { keyword, category = 'General', target_pin_count = 250, crawl_pages_limit = 10, inspection_mode = 'full_catalog' }) {
   const cleanKeyword = keyword.trim().toLowerCase();
   if (!cleanKeyword) throw new Error('Keyword is required.');
 
@@ -324,6 +324,9 @@ export async function addKeyword(sql, { keyword, category = 'General', target_pi
     )
     ON CONFLICT (keyword) DO UPDATE SET
       is_active = TRUE,
+      target_pin_count = GREATEST(tracked_keywords.target_pin_count, EXCLUDED.target_pin_count),
+      crawl_pages_limit = GREATEST(tracked_keywords.crawl_pages_limit, EXCLUDED.crawl_pages_limit),
+      inspection_mode = EXCLUDED.inspection_mode,
       updated_at = NOW()
     RETURNING *;
   `;
@@ -372,13 +375,16 @@ export async function resolveKeywordBySlug(sql, slug, autoCreate = true) {
         'Organic Search',
         250,
         10,
-        'smart_breakout',
+        'full_catalog',
         TRUE,
         NOW(),
         NOW()
       )
       ON CONFLICT (keyword) DO UPDATE SET
         is_active = TRUE,
+        target_pin_count = GREATEST(tracked_keywords.target_pin_count, EXCLUDED.target_pin_count),
+        crawl_pages_limit = GREATEST(tracked_keywords.crawl_pages_limit, EXCLUDED.crawl_pages_limit),
+        inspection_mode = EXCLUDED.inspection_mode,
         updated_at = NOW()
       RETURNING *;
     `;

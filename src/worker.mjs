@@ -3743,6 +3743,9 @@ export default {
                 ${cleanKw}, ${category}, 250, 10, 'full_catalog', TRUE, NOW()
               )
               ON CONFLICT (keyword) DO UPDATE SET
+                target_pin_count = GREATEST(tracked_keywords.target_pin_count, 250),
+                crawl_pages_limit = GREATEST(tracked_keywords.crawl_pages_limit, 10),
+                inspection_mode = 'full_catalog',
                 updated_at = NOW(),
                 is_active = TRUE
               RETURNING id, keyword, category;

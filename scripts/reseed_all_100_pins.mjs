@@ -40,12 +40,12 @@ const hubSql = neon(DATABASE_URL);
 
 async function run() {
   console.log('================================================================');
-  console.log('🚀 100-PIN TARGET FLEET SYNCHRONIZER & CRAWLER');
+  console.log('🚀 250-PIN TARGET FLEET SYNCHRONIZER & CRAWLER');
   console.log('================================================================');
 
   // 1. Update Hub target_pin_count
-  console.log('[*] Updating Central Hub target_pin_count = 100...');
-  await hubSql`UPDATE tracked_keywords SET target_pin_count = 100;`;
+  console.log('[*] Updating Central Hub target_pin_count = 250...');
+  await hubSql`UPDATE tracked_keywords SET target_pin_count = 250, crawl_pages_limit = 10, inspection_mode = 'full_catalog';`;
 
   // 2. Discover Fleet Shards & update target_pin_count
   try {
@@ -54,21 +54,21 @@ async function run() {
       FROM neon_projects_registry
       WHERE is_hub = FALSE AND status = 'active' AND database_url IS NOT NULL;
     `;
-    console.log(`[*] Updating target_pin_count = 100 across ${shards.length} fleet shards...`);
+    console.log(`[*] Updating target_pin_count = 250 across ${shards.length} fleet shards...`);
     const CHUNK_SIZE = 15;
     for (let i = 0; i < shards.length; i += CHUNK_SIZE) {
       const chunk = shards.slice(i, i + CHUNK_SIZE);
       await Promise.allSettled(chunk.map(async (shard) => {
         const sSql = neon(shard.database_url);
-        await sSql`UPDATE tracked_keywords SET target_pin_count = 100;`;
+        await sSql`UPDATE tracked_keywords SET target_pin_count = 250, crawl_pages_limit = 10, inspection_mode = 'full_catalog';`;
       }));
     }
-    console.log('[+] All fleet shards updated to 100 pins target.');
+    console.log('[+] All fleet shards updated to 250 pins target.');
   } catch (err) {
     console.warn('[!] Fleet registry update warning:', err.message);
   }
 
-  // 3. Find Hub keywords that need 100 pins crawl
+  // 3. Find Hub keywords that need 250 pins crawl
   const keywords = await hubSql`
     SELECT tk.id, tk.keyword, tk.target_pin_count,
       (
@@ -83,9 +83,9 @@ async function run() {
 
   console.log(`[*] Checked ${keywords.length} active keywords on Central Hub:`);
   for (const kw of keywords) {
-    console.log(`  - "${kw.keyword}": Today pins = ${kw.today_pins} / 100`);
-    if (kw.today_pins < 90) {
-      console.log(`    -> Crawling full 100 pins for "${kw.keyword}"...`);
+    console.log(`  - "${kw.keyword}": Today pins = ${kw.today_pins} / 250`);
+    if (kw.today_pins < 220) {
+      console.log(`    -> Crawling full 250 pins for "${kw.keyword}"...`);
       try {
         const crawlRes = await crawlKeywordSERP(hubSql, kw.id);
         console.log(`    [+] Crawled: ${crawlRes.crawled_pins} pins (Status: ${crawlRes.success})`);
@@ -98,7 +98,7 @@ async function run() {
   }
 
   console.log('================================================================');
-  console.log('🏁 100-PIN SYNCHRONIZATION COMPLETE!');
+  console.log('🏁 250-PIN SYNCHRONIZATION COMPLETE!');
   console.log('================================================================');
 }
 

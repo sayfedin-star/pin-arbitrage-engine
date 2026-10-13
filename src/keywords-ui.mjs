@@ -6666,7 +6666,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
           const kwObj = this.keywords.find(k => k.id === id) || (this.selectedKeyword?.id === id ? this.selectedKeyword : null);
           const crawlPages = kwObj?.crawl_pages_limit || this.appSettings.default_crawl_pages || 10;
           const maxPins = kwObj?.target_pin_count || this.appSettings.default_max_pins || 250;
-          const inspectionMode = kwObj?.inspection_mode || this.appSettings.default_inspection_mode || 'smart_breakout';
+          const inspectionMode = kwObj?.inspection_mode || this.appSettings.default_inspection_mode || 'full_catalog';
 
           this.showToast('Crawling fresh SERP (~' + maxPins + ' pins) from Pinterest...', 'info');
 
