@@ -528,7 +528,7 @@ function getCachedShardSql(key, factory) {
 
 export function createHyperdriveClient(connectionString, customOpts = {}) {
   const pSql = postgres(connectionString, {
-    max: 1,
+    max: 5,
     fetch_types: false,
     prepare: false,
     idle_timeout: 5,
@@ -537,13 +537,34 @@ export function createHyperdriveClient(connectionString, customOpts = {}) {
   });
   pSql.transaction = async (queriesOrFn) => {
     return await pSql.begin(async (tx) => {
-      const queries = typeof queriesOrFn === 'function' ? queriesOrFn(tx) : queriesOrFn;
+      if (typeof queriesOrFn === 'function') {
+        const res = await queriesOrFn(tx);
+        if (Array.isArray(res)) {
+          const results = [];
+          for (const q of res) {
+            if (q && q.strings && q.args) {
+              results.push(await tx(q.strings, ...q.args));
+            } else if (typeof q === 'function') {
+              results.push(await q(tx));
+            } else if (q && typeof q.then === 'function') {
+              results.push(await q);
+            } else {
+              results.push(await tx(q));
+            }
+          }
+          return results;
+        }
+        return res;
+      }
+      const queries = Array.isArray(queriesOrFn) ? queriesOrFn : [queriesOrFn];
       const results = [];
       for (const q of queries) {
         if (q && q.strings && q.args) {
           results.push(await tx(q.strings, ...q.args));
         } else if (typeof q === 'function') {
           results.push(await q(tx));
+        } else if (q && typeof q.then === 'function') {
+          results.push(await q);
         } else {
           results.push(await tx(q));
         }
@@ -559,18 +580,22 @@ export const edgeCache = new Map();
 export const inflightPromises = new Map();
 const MAX_CACHE_ENTRIES = 512;
 
+// Node.js Test Guard for Cloudflare Worker Cache API (L1 Edge Cache)
+export const l1Cache = (typeof caches !== 'undefined' && caches?.default) ? caches.default : null;
+
 export function buildCanonicalCacheKey(prefix, params = {}) {
   const sortedEntries = Object.entries(params)
     .filter(([_, v]) => v !== undefined && v !== null && v !== '')
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v).trim().toLowerCase())}`);
-  return `${prefix}?${sortedEntries.join('&')}`;
+  return sortedEntries.length > 0 ? `${prefix}?${sortedEntries.join('&')}` : prefix;
 }
 
 export async function getCachedOrFetch(key, fetcher, ttlMs = 15000, staleMs = 60000) {
   const now = Date.now();
   const cached = edgeCache.get(key);
 
+  // 1. L0 In-Memory Cache Check
   if (cached) {
     if (now < cached.expiresAt) {
       return cached.data;
@@ -589,21 +614,53 @@ export async function getCachedOrFetch(key, fetcher, ttlMs = 15000, staleMs = 60
               expiresAt: Date.now() + ttlMs,
               staleUntil: Date.now() + ttlMs + staleMs
             });
+            if (l1Cache) {
+              const cacheUrl = `https://edge-cache.internal/${encodeURIComponent(key)}`;
+              const cacheHeaders = {
+                'Content-Type': 'application/json',
+                'Cache-Control': `public, max-age=${Math.floor(ttlMs / 1000)}, stale-while-revalidate=${Math.floor(staleMs / 1000)}`
+              };
+              await l1Cache.put(cacheUrl, new Response(JSON.stringify(fresh), { headers: cacheHeaders })).catch(() => {});
+            }
           } catch (_) {} finally {
             inflightPromises.delete(key);
           }
         })();
         inflightPromises.set(key, revalPromise);
+        const store = requestContextStorage?.getStore?.();
+        const ctx = store?.ctx;
+        if (ctx && typeof ctx.waitUntil === 'function') {
+          safeWaitUntil(ctx, revalPromise, `swr_revalidate_${key}`);
+        }
       }
       return cached.data;
     }
   }
 
-  // Cache miss or expired beyond stale window: Single-flight coalescing
+  // 2. Coalesce concurrent in-flight requests (Single-Flight)
   if (inflightPromises.has(key)) {
     return await inflightPromises.get(key);
   }
 
+  // 3. L1 Edge Cache (Cache API) Lookup
+  if (l1Cache) {
+    try {
+      const cacheUrl = `https://edge-cache.internal/${encodeURIComponent(key)}`;
+      const matched = await l1Cache.match(cacheUrl);
+      if (matched) {
+        const l1Data = await matched.json();
+        // Warm L0 memory cache
+        edgeCache.set(key, {
+          data: l1Data,
+          expiresAt: now + ttlMs,
+          staleUntil: now + ttlMs + staleMs
+        });
+        return l1Data;
+      }
+    } catch (_) {}
+  }
+
+  // 4. Cache Miss: Fetch fresh data with single-flight deduplication
   const promise = (async () => {
     try {
       const fresh = await Promise.race([
@@ -619,6 +676,24 @@ export async function getCachedOrFetch(key, fetcher, ttlMs = 15000, staleMs = 60
         expiresAt: Date.now() + ttlMs,
         staleUntil: Date.now() + ttlMs + staleMs
       });
+
+      // Write to L1 Edge Cache with Cache-Control
+      if (l1Cache) {
+        try {
+          const cacheUrl = `https://edge-cache.internal/${encodeURIComponent(key)}`;
+          const cacheHeaders = {
+            'Content-Type': 'application/json',
+            'Cache-Control': `public, max-age=${Math.floor(ttlMs / 1000)}, stale-while-revalidate=${Math.floor(staleMs / 1000)}`
+          };
+          const putPromise = l1Cache.put(cacheUrl, new Response(JSON.stringify(fresh), { headers: cacheHeaders })).catch(() => {});
+          const store = requestContextStorage?.getStore?.();
+          const ctx = store?.ctx;
+          if (ctx && typeof ctx.waitUntil === 'function') {
+            safeWaitUntil(ctx, putPromise, `l1_cache_put_${key}`);
+          }
+        } catch (_) {}
+      }
+
       return fresh;
     } finally {
       inflightPromises.delete(key);
@@ -630,12 +705,35 @@ export async function getCachedOrFetch(key, fetcher, ttlMs = 15000, staleMs = 60
 }
 
 export function invalidateEdgeCache(prefix = '') {
+  const keysToInvalidate = [];
   if (!prefix) {
+    keysToInvalidate.push(...edgeCache.keys());
     edgeCache.clear();
-    return;
+  } else {
+    for (const k of edgeCache.keys()) {
+      if (k.startsWith(prefix)) {
+        keysToInvalidate.push(k);
+        edgeCache.delete(k);
+      }
+    }
+    if (!keysToInvalidate.includes(prefix)) {
+      keysToInvalidate.push(prefix);
+    }
   }
-  for (const k of edgeCache.keys()) {
-    if (k.startsWith(prefix)) edgeCache.delete(k);
+
+  if (l1Cache) {
+    try {
+      const store = requestContextStorage?.getStore?.();
+      const ctx = store?.ctx;
+      const delPromises = keysToInvalidate.map(k => {
+        const cacheUrl = `https://edge-cache.internal/${encodeURIComponent(k)}`;
+        return l1Cache.delete(cacheUrl).catch(() => {});
+      });
+      const allDel = Promise.all(delPromises).catch(() => {});
+      if (ctx && typeof ctx.waitUntil === 'function') {
+        safeWaitUntil(ctx, allDel, `l1_cache_evict_${prefix || 'all'}`);
+      }
+    } catch (_) {}
   }
 }
 
@@ -956,12 +1054,12 @@ export default {
             },
             get(target, prop, receiver) {
               if (prop === 'transaction') {
-                return async (queries) => {
+                return async (queriesOrFn) => {
                   try {
-                    return await target.transaction(queries);
+                    return await target.transaction(queriesOrFn);
                   } catch (err) {
                     console.warn(`[Hyperdrive Tx Fallback] Tx failed (${redactSecrets(err.message)}). Degrading to direct Neon HTTP tx.`);
-                    return await directSql.transaction(queries);
+                    return await directSql.transaction(queriesOrFn);
                   }
                 };
               }
@@ -1156,7 +1254,7 @@ export default {
                 FROM candidate_graph_nodes
                 WHERE seed_pin_id = s.pin_id
                   AND m.total_candidates IS NULL
-            ) c_count ON true
+            ) c_count ON m.total_candidates IS NULL
             LEFT JOIN LATERAL (
                 SELECT COUNT(*) AS count
                 FROM seed_guided_search_capsules

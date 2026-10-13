@@ -77,10 +77,54 @@ export function getShardProjectName(shardId, prefix = 'pin-arbitrage-shard') {
   return `${prefix}-${String(shardId).padStart(2, '0')}`;
 }
 
-// In-Memory Connection and Registry Caches
-const registryCache = new Map(); // shardId -> { database_url, status, project_name }
-let registryLastFetched = 0;
-const REGISTRY_TTL_MS = 60 * 60 * 1000; // 1 hour
+// Isolate-Level Shard Routing Cache (Anti-Thundering Herd Singleflight & 10m TTL)
+export const globalShardMap = new Map(); // shardId -> { database_url, status, project_name, cachedAt }
+export const registryCache = globalShardMap; // Backward compatibility alias
+export let globalShardMapLastFetched = 0;
+export const SHARD_MAP_TTL_MS = 10 * 60 * 1000; // 10 minutes (600,000ms)
+let inflightShardMapPromise = null;
+
+// Bounded Background Task Execution Guard for Cloudflare Worker Isolate Lifecycle
+export function safeWaitUntil(ctx, promise, taskName = 'bg_task', timeoutMs = 25000) {
+  if (!promise || typeof promise.then !== 'function') return;
+  let timer;
+  const timeoutPromise = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`Background task "${taskName}" timed out after ${timeoutMs}ms`)), timeoutMs);
+  });
+  const guardedPromise = Promise.race([promise, timeoutPromise])
+    .catch(err => {
+      console.warn(`[safeWaitUntil] Background task "${taskName}" non-fatal warning:`, err?.message || err);
+    })
+    .finally(() => {
+      clearTimeout(timer);
+    });
+
+  if (ctx && typeof ctx.waitUntil === 'function') {
+    ctx.waitUntil(guardedPromise);
+  }
+}
+
+/**
+ * Singleflight Lazy Warm-up for Global Shard Routing Map
+ * Populates globalShardMap upon isolate activation without thundering herd.
+ */
+export async function warmGlobalShardMap(hubSql, env = null) {
+  const now = Date.now();
+  if (globalShardMap.size > 0 && (now - globalShardMapLastFetched < SHARD_MAP_TTL_MS)) {
+    return globalShardMap.size;
+  }
+  if (inflightShardMapPromise) {
+    return await inflightShardMapPromise;
+  }
+  inflightShardMapPromise = (async () => {
+    try {
+      return await preloadNeonRegistry(hubSql, env);
+    } finally {
+      inflightShardMapPromise = null;
+    }
+  })();
+  return await inflightShardMapPromise;
+}
 
 export const shardSqlClients = new Map(); // dsn -> neon client
 
@@ -175,11 +219,11 @@ export async function resolveShardConnection({ hubSql, shardId, dsnTemplate = nu
     return shardSqlClients.get(pooledDsn);
   }
 
-  // 2. Hub Registry Resolution with In-Memory Caching
+  // 2. Ultra-Fast In-Memory Lookup (0ms execution time from globalShardMap)
   const now = Date.now();
-  if (registryCache.has(cleanId)) {
-    const cachedEntry = registryCache.get(cleanId);
-    if (cachedEntry?.database_url && (now - (cachedEntry.cachedAt || 0) < REGISTRY_TTL_MS)) {
+  if (globalShardMap.has(cleanId)) {
+    const cachedEntry = globalShardMap.get(cleanId);
+    if (cachedEntry?.database_url && (now - (cachedEntry.cachedAt || 0) < SHARD_MAP_TTL_MS)) {
       const pooledDsn = enforceNeonPoolerUrl(cachedEntry.database_url);
       if (!shardSqlClients.has(pooledDsn)) {
         shardSqlClients.set(pooledDsn, neon(pooledDsn));
@@ -188,7 +232,22 @@ export async function resolveShardConnection({ hubSql, shardId, dsnTemplate = nu
     }
   }
 
-  // 3. Workers KV Fast Shard Routing (fleet:shards_map)
+  // 3. Lazy Singleflight Warmup from KV / Hub
+  if (globalShardMap.size === 0 || (now - globalShardMapLastFetched >= SHARD_MAP_TTL_MS)) {
+    await warmGlobalShardMap(hubSql, env);
+    if (globalShardMap.has(cleanId)) {
+      const cachedEntry = globalShardMap.get(cleanId);
+      if (cachedEntry?.database_url) {
+        const pooledDsn = enforceNeonPoolerUrl(cachedEntry.database_url);
+        if (!shardSqlClients.has(pooledDsn)) {
+          shardSqlClients.set(pooledDsn, neon(pooledDsn));
+        }
+        return shardSqlClients.get(pooledDsn);
+      }
+    }
+  }
+
+  // 4. Workers KV Fast Shard Routing (fleet:shards_map)
   if (env?.PIN_ENGINE_KV) {
     const kvRows = await getFleetShardsMap(env, hubSql);
     if (Array.isArray(kvRows)) {
@@ -197,8 +256,8 @@ export async function resolveShardConnection({ hubSql, shardId, dsnTemplate = nu
         (Array.isArray(r.assigned_shards) && r.assigned_shards.map(Number).includes(cleanId))
       );
       if (match?.database_url) {
-        registryCache.set(cleanId, { ...match, cachedAt: now });
-        registryLastFetched = now;
+        globalShardMap.set(cleanId, { ...match, cachedAt: now });
+        globalShardMapLastFetched = now;
         const pooledDsn = enforceNeonPoolerUrl(match.database_url);
         if (!shardSqlClients.has(pooledDsn)) {
           shardSqlClients.set(pooledDsn, neon(pooledDsn));
@@ -208,7 +267,7 @@ export async function resolveShardConnection({ hubSql, shardId, dsnTemplate = nu
     }
   }
 
-  // 4. Refresh registry from Central Hub
+  // 5. Final fallback: Refresh registry from Central Hub single row query
   if (!hubSql) {
     throw new Error(`Cannot resolve shard ${cleanId}: No Hub database client provided.`);
   }
@@ -225,8 +284,8 @@ export async function resolveShardConnection({ hubSql, shardId, dsnTemplate = nu
     throw new Error(`Shard database '${shardName}' (ID: ${cleanId}) is not active in neon_projects_registry.`);
   }
 
-  registryCache.set(cleanId, { ...row, cachedAt: now });
-  registryLastFetched = now;
+  globalShardMap.set(cleanId, { ...row, cachedAt: now });
+  globalShardMapLastFetched = now;
 
   const pooledDsn = enforceNeonPoolerUrl(row.database_url);
   if (!shardSqlClients.has(pooledDsn)) {
@@ -309,7 +368,7 @@ export async function preloadNeonRegistry(hubSql, env = null) {
     for (const row of rows) {
       if (Array.isArray(row.assigned_shards)) {
         for (const sid of row.assigned_shards) {
-          registryCache.set(Number(sid), { ...row, cachedAt: now });
+          globalShardMap.set(Number(sid), { ...row, cachedAt: now });
           loaded++;
         }
       }
@@ -317,11 +376,11 @@ export async function preloadNeonRegistry(hubSql, env = null) {
       if (match) {
         const num = parseInt(match[1], 10);
         if (!isNaN(num)) {
-          registryCache.set(num, { ...row, cachedAt: now });
+          globalShardMap.set(num, { ...row, cachedAt: now });
         }
       }
     }
-    registryLastFetched = now;
+    globalShardMapLastFetched = now;
     return loaded;
   } catch (err) {
     console.warn('[fleet-router] preloadNeonRegistry non-fatal warning:', err.message);
@@ -581,9 +640,16 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null }) {
     shardSql = hubSql; // Graceful degradation to Hub
   }
 
-  // 1 & 2. Fetch Master Creative Record and Historical Snapshots concurrently from target shard
+  // 1 & 2. Ultra-Low Latency Parallel Scatter-Gather (t=0 concurrent dispatch)
+  // Concurrently fires Shard queries (with 650ms circuit breaker) and Hub queries.
   let shardErrorReason = null;
-  const [initialMaster, initialSnapshots] = await Promise.all([
+  const [
+    initialMaster,
+    initialSnapshots,
+    hubSerpRowsRaw,
+    snapRowsRaw,
+    hubSnapshotsRaw
+  ] = await Promise.all([
     executeShardQueryWithCircuitBreaker({
       shardId,
       shardSql,
@@ -600,7 +666,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null }) {
         shardErrorReason = info?.reason || 'SHARD_UNAVAILABLE';
         return null;
       },
-      timeoutMs: 2500
+      timeoutMs: 650
     }),
     executeShardQueryWithCircuitBreaker({
       shardId,
@@ -678,12 +744,45 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null }) {
         return rows;
       },
       fallbackFn: async () => [],
-      timeoutMs: 2500
-    })
+      timeoutMs: 650
+    }),
+    hubSql`
+      SELECT 
+        keyword_id, pin_id, title, domain, destination_url, image_url,
+        creator_username, board_name, save_count, repin_count,
+        daily_save_velocity, dominant_color, visual_annotations,
+        rank_position, last_known_rank, is_displaced, metadata
+      FROM keyword_serp_current
+      WHERE pin_id = ${cleanPinId}
+      ORDER BY save_count DESC;
+    `.catch(() => []),
+    hubSql`
+      SELECT 
+        pin_id, title, domain, destination_url, image_url,
+        save_count, repin_count, comment_count, daily_save_velocity,
+        created_at_pinterest, creation_method, metadata, created_at
+      FROM keyword_pins_snapshots
+      WHERE pin_id = ${cleanPinId}
+      ORDER BY (metadata IS NOT NULL) DESC, save_count DESC, created_at DESC
+      LIMIT 10;
+    `.catch(() => []),
+    hubSql`
+      SELECT 
+        id, snapshot_date, rank_position, last_known_rank, is_displaced, save_count, repin_count,
+        comment_count, 0 as share_count, 0 as reaction_count, daily_save_velocity,
+        keyword_id, NULL as competitor_id, created_at
+      FROM keyword_pins_snapshots
+      WHERE pin_id = ${cleanPinId}
+      ORDER BY snapshot_date DESC, created_at DESC
+      LIMIT 90;
+    `.catch(() => [])
   ]);
 
   let masterRecord = initialMaster;
   let snapshots = initialSnapshots;
+  const hubSerpRows = Array.isArray(hubSerpRowsRaw) ? hubSerpRowsRaw : [];
+  const snapRows = Array.isArray(snapRowsRaw) ? snapRowsRaw : [];
+  const hubSnapshots = Array.isArray(hubSnapshotsRaw) ? hubSnapshotsRaw : [];
 
   // Helper to safely parse visual annotations
   function normalizeVisualAnnotations(raw) {
@@ -700,18 +799,6 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null }) {
     return [];
   }
 
-  // 2. Fetch all SERP occurrences for this pin across all keywords from Central Hub
-  const hubSerpRows = await hubSql`
-    SELECT 
-      keyword_id, pin_id, title, domain, destination_url, image_url,
-      creator_username, board_name, save_count, repin_count,
-      daily_save_velocity, dominant_color, visual_annotations,
-      rank_position, last_known_rank, is_displaced, metadata
-    FROM keyword_serp_current
-    WHERE pin_id = ${cleanPinId}
-    ORDER BY save_count DESC;
-  `.catch(() => []);
-
   // Compute Mathematical Set Union of Visual Annotations across all sources
   const unionSet = new Set();
   for (const tag of normalizeVisualAnnotations(masterRecord?.visual_annotations)) {
@@ -725,16 +812,6 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null }) {
 
   // Historical snapshot recovery for rich algorithmic metadata, alt_text, description, or further annotations
   let hubHistoricalSnap = null;
-  const snapRows = await hubSql`
-    SELECT 
-      pin_id, title, domain, destination_url, image_url,
-      save_count, repin_count, comment_count, daily_save_velocity,
-      created_at_pinterest, creation_method, metadata, created_at
-    FROM keyword_pins_snapshots
-    WHERE pin_id = ${cleanPinId}
-    ORDER BY (metadata IS NOT NULL) DESC, save_count DESC, created_at DESC
-    LIMIT 10;
-  `.catch(() => []);
   if (snapRows && snapRows.length > 0) {
     hubHistoricalSnap = snapRows[0];
     for (const sRow of snapRows) {
@@ -843,7 +920,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null }) {
 
     // Edge execution: Dispatch asynchronously via ctx.waitUntil; Fall back to bounded Promise.race for CLI/Node
     if (ctx && typeof ctx.waitUntil === 'function') {
-      ctx.waitUntil(backfillPromise);
+      safeWaitUntil(ctx, backfillPromise, 'dossier_shard_backfill');
     } else {
       try {
         await Promise.race([
@@ -853,18 +930,6 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null }) {
       } catch (_) {}
     }
   }
-
-  // Smart Merge-on-Read: Query Hub snapshots to guarantee full historical timeline and prevent shard history gaps
-  const hubSnapshots = await hubSql`
-    SELECT 
-      id, snapshot_date, rank_position, last_known_rank, is_displaced, save_count, repin_count,
-      comment_count, 0 as share_count, 0 as reaction_count, daily_save_velocity,
-      keyword_id, NULL as competitor_id, created_at
-    FROM keyword_pins_snapshots
-    WHERE pin_id = ${cleanPinId}
-    ORDER BY snapshot_date DESC, created_at DESC
-    LIMIT 90;
-  `.catch(() => []);
 
   // Merge & Deduplicate across Shard and Hub with Latest-Timestamp-Wins (LWW)
   const shardList = snapshots || [];
@@ -1045,12 +1110,12 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null }) {
 
     // Edge execution: Dispatch asynchronously via ctx.waitUntil; Fall back to bounded Promise.race for CLI/Node
     if (ctx && typeof ctx.waitUntil === 'function') {
-      ctx.waitUntil(repairPromise);
+      safeWaitUntil(ctx, repairPromise, 'dossier_read_repair');
     } else {
       try {
         await Promise.race([
           repairPromise,
-          new Promise(r => setTimeout(r, 2500))
+          new Promise(r => setTimeout(r, 1500))
         ]);
       } catch (_) {}
     }

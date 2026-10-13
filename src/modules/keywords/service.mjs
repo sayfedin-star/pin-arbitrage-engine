@@ -1909,9 +1909,33 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
 
 /**
  * Retrieve pins for a specific keyword ordered by rank
+ * Reads directly from active catalog (keyword_serp_current) via idx_ksc_active_covering
+ * with automatic fallback to historical keyword_pins_snapshots.
  */
 export async function getKeywordPins(sql, keywordId) {
   const kid = Number(keywordId);
+  if (!kid) return [];
+
+  // 1. Direct Ultra-Low Latency Read from Active Catalog (keyword_serp_current)
+  const activeRows = await sql`
+    SELECT *
+    FROM keyword_serp_current
+    WHERE keyword_id = ${kid}
+      AND is_displaced = FALSE
+      AND rank_position IS NOT NULL
+      AND rank_position >= 1
+      AND NOT EXISTS (
+        SELECT 1 FROM keyword_ignored_pins kip
+        WHERE kip.keyword_id = ${kid} AND kip.pin_id = keyword_serp_current.pin_id
+      )
+    ORDER BY rank_position ASC;
+  `.catch(() => []);
+
+  if (activeRows && activeRows.length > 0) {
+    return activeRows;
+  }
+
+  // 2. Resilient Fallback to historical keyword_pins_snapshots for legacy keywords or test fixtures
   return await sql`
     SELECT *
     FROM keyword_pins_snapshots
