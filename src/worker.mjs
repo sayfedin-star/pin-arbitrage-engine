@@ -2908,11 +2908,12 @@ export default {
 
       if (method === 'GET' && pathname === '/api/settings') {
         const settings = await getAppSettings(sql);
-        return jsonResponse({ success: true, settings });
+        return jsonResponse({ success: true, settings }, 200, 60);
       }
 
       if (method === 'POST' && pathname === '/api/settings') {
         invalidateEdgeCache('keywords');
+        invalidateEdgeCache('settings');
         const body = await request.json().catch(() => ({}));
         const updated = await updateAppSettings(sql, body);
         return jsonResponse({ success: true, settings: updated });
@@ -4279,10 +4280,12 @@ export default {
         if (Array.isArray(folders) && folders.length > 0) {
           safeWaitUntil(ctx, Promise.all(folders.map(f => syncFolderToD1(env, f))), 'syncAllFoldersToD1');
         }
-        return jsonResponse({ success: true, folders });
+        return jsonResponse({ success: true, folders }, 200, 8);
       }
 
       if (method === 'POST' && pathname === '/api/keywords/folders') {
+        invalidateEdgeCache('keywords');
+        invalidateEdgeCache('folders');
         const body = await request.json().catch(() => ({}));
         const created = await createFolder(sql, body);
         safeWaitUntil(ctx, syncFolderToD1(env, created), 'syncFolderToD1');
@@ -4290,6 +4293,8 @@ export default {
       }
 
       if ((method === 'PUT' || method === 'PATCH') && pathname === '/api/keywords/folders') {
+        invalidateEdgeCache('keywords');
+        invalidateEdgeCache('folders');
         const body = await request.json().catch(() => ({}));
         const folderId = body.id || searchParams.get('id');
         if (!folderId) return jsonResponse({ error: 'Folder id is required' }, 400);
@@ -4299,6 +4304,8 @@ export default {
       }
 
       if (method === 'DELETE' && pathname === '/api/keywords/folders') {
+        invalidateEdgeCache('keywords');
+        invalidateEdgeCache('folders');
         let folderId = searchParams.get('id') || searchParams.get('folder_id');
         if (!folderId) {
           try {
@@ -4313,6 +4320,8 @@ export default {
       }
 
       if (method === 'POST' && pathname === '/api/keywords/folders/items') {
+        invalidateEdgeCache('keywords');
+        invalidateEdgeCache('folders');
         const body = await request.json().catch(() => ({}));
         const folderId = body.folder_id || searchParams.get('folder_id');
         if (!folderId) return jsonResponse({ error: 'folder_id is required' }, 400);
@@ -4331,6 +4340,8 @@ export default {
       }
 
       if (method === 'DELETE' && pathname === '/api/keywords/folders/items') {
+        invalidateEdgeCache('keywords');
+        invalidateEdgeCache('folders');
         let folderId = searchParams.get('folder_id');
         let keywordId = searchParams.get('keyword_id');
         if (!folderId || !keywordId) {

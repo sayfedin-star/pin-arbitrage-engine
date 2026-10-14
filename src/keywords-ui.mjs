@@ -163,113 +163,6 @@ export function getKeywordsPageHtml(initialSlug = '') {
     </div>
   </header>
 
-  <!-- Slide-Over Drawer: Tracked Keywords Fleet Manager -->
-  <div x-show="isDrawerOpen" x-cloak class="relative z-50">
-    <!-- Backdrop -->
-    <div x-show="isDrawerOpen"
-         x-transition:enter="transition-opacity ease-linear duration-300"
-         x-transition:enter-start="opacity-0"
-         x-transition:enter-end="opacity-100"
-         x-transition:leave="transition-opacity ease-linear duration-300"
-         x-transition:leave-start="opacity-100"
-         x-transition:leave-end="opacity-0"
-         @click="isDrawerOpen = false"
-         class="fixed inset-0 bg-slate-950/70 backdrop-blur-xs"></div>
-
-    <!-- Panel -->
-    <div class="fixed inset-y-0 right-0 max-w-full flex pl-10">
-      <div x-show="isDrawerOpen"
-           x-transition:enter="transform transition ease-in-out duration-300"
-           x-transition:enter-start="translate-x-full"
-           x-transition:enter-end="translate-x-0"
-           x-transition:leave="transform transition ease-in-out duration-300"
-           x-transition:leave-start="translate-x-0"
-           x-transition:leave-end="translate-x-full"
-           class="w-screen max-w-md bg-white dark:bg-[#0c1322] border-l border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col">
-        
-        <!-- Drawer Header -->
-        <div class="p-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
-          <div class="flex items-center space-x-2.5">
-            <div class="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center">
-              <i data-lucide="tag" class="w-4 h-4"></i>
-            </div>
-            <div>
-              <h3 class="text-sm font-black text-slate-900 dark:text-white">Tracked Keywords Fleet</h3>
-              <p class="text-[11px] text-slate-400 font-mono" x-text="filteredKeywords.length + ' Keywords Monitored'"></p>
-            </div>
-          </div>
-          <button @click="isDrawerOpen = false" class="p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-white transition">
-            <i data-lucide="x" class="w-4 h-4"></i>
-          </button>
-        </div>
-
-        <!-- Search in Drawer -->
-        <div class="p-4 border-b border-slate-100 dark:border-slate-800/80">
-          <div class="relative">
-            <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
-            <input type="text" x-model="keywordSearch" placeholder="Filter tracked queries..."
-                   class="w-full pl-8 pr-3 py-2 text-xs rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/40">
-          </div>
-        </div>
-
-        <!-- Keyword Cards in Drawer -->
-        <div class="p-4 flex-1 overflow-y-auto space-y-2">
-          <template x-for="kw in filteredKeywords" :key="kw.id">
-            <div @click="selectKeyword(kw); isDrawerOpen = false"
-                 class="p-3 rounded-2xl border transition cursor-pointer relative group"
-                 :class="selectedKeyword?.id === kw.id ? 'bg-emerald-500/10 border-emerald-500/40 shadow-xs' : 'bg-slate-50/70 dark:bg-slate-900/40 border-slate-200/80 dark:border-slate-800/80 hover:border-slate-300 dark:hover:border-slate-700'">
-              <div class="flex items-start justify-between gap-2">
-                <div class="flex items-center space-x-2.5 min-w-0">
-                  <template x-if="kw.top_pin_image">
-                    <img :src="kw.top_pin_image" class="w-9 h-11 rounded-lg object-cover border border-slate-200 dark:border-slate-700 shrink-0">
-                  </template>
-                  <template x-if="!kw.top_pin_image">
-                    <div class="w-9 h-11 rounded-lg bg-slate-200 dark:bg-slate-800 flex items-center justify-center shrink-0">
-                      <i data-lucide="image" class="w-3.5 h-3.5 text-slate-400"></i>
-                    </div>
-                  </template>
-                  <div class="min-w-0">
-                    <p class="text-xs font-bold text-slate-900 dark:text-white truncate capitalize" x-text="kw.keyword"></p>
-                    <span class="text-[10px] text-slate-400 font-mono" x-text="kw.category || 'General'"></span>
-                  </div>
-                </div>
-
-                <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold shrink-0 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700/60"
-                      x-text="getKeywordTotalPins(kw) + ' Pins'"></span>
-              </div>
-
-              <!-- Sparkline -->
-              <div class="mt-2 flex items-center justify-between px-1">
-                <span class="text-[9px] text-slate-400 font-mono" x-text="getKeywordTotalPins(kw) + ' Total Pins'"></span>
-                <svg class="w-20 h-3.5 overflow-visible" viewBox="0 0 80 20">
-                  <path :d="generateSparklinePath(getSparklinePoints(kw), 80, 20)"
-                        fill="none" :stroke="getKeywordSaveDelta(kw) > 0 ? '#10b981' : '#64748b'" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
-              </div>
-
-              <!-- Actions -->
-              <div class="mt-2 pt-2 border-t border-slate-200/60 dark:border-slate-800/60 flex items-center justify-between text-[11px] text-slate-400">
-                <span class="text-[10px] font-mono text-slate-500 truncate" x-text="'Updated: ' + formatDate(kw.last_crawled_at)"></span>
-                <div class="flex items-center space-x-1.5">
-                  <button @click.stop="rescanKeyword(kw.id, true)" :disabled="syncingKeywordId === kw.id"
-                          class="p-1 rounded hover:bg-emerald-500/20 text-slate-400 hover:text-emerald-500 transition"
-                          :title="'Re-Crawl ' + (kw.target_pin_count || 250) + ' pins now'">
-                    <i data-lucide="refresh-cw" class="w-3 h-3" :class="syncingKeywordId === kw.id ? 'animate-spin text-emerald-500' : ''"></i>
-                  </button>
-                  <button @click.stop="deleteKeyword(kw.id)"
-                          class="p-1 rounded hover:bg-rose-500/20 text-slate-400 hover:text-rose-500 transition" title="Delete keyword">
-                    <i data-lucide="trash-2" class="w-3 h-3"></i>
-                  </button>
-                </div>
-              </div>
-            </div>
-          </template>
-        </div>
-
-      </div>
-    </div>
-  </div>
-
   <!-- Main Full-Width Executive Container -->
   <main class="w-full max-w-[1920px] mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
 
@@ -496,7 +389,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
                   x-text="filteredDashboardKeywords.length + ' of ' + keywords.length + ' Queries'"></span>
 
             <!-- Column Visibility Dropdown (Table View Only) -->
-            <div x-show="dashboardViewMode === 'table'" class="relative" x-data="{ isColumnsOpen: false }" @click.outside="isColumnsOpen = false">
+            <div x-show="dashboardViewMode === 'table'" class="relative" x-data="{ isColumnsOpen: false }" @click.outside="isColumnsOpen = false" @keydown.escape.window="isColumnsOpen = false">
               <button type="button" @click="isColumnsOpen = !isColumnsOpen"
                       class="px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 text-xs font-semibold transition flex items-center space-x-1.5 cursor-pointer shadow-2xs">
                 <i data-lucide="columns-3" class="w-3.5 h-3.5 text-slate-500"></i>
@@ -5193,15 +5086,12 @@ export function getKeywordsPageHtml(initialSlug = '') {
       return {
         viewModeLevel: (window.__INITIAL_KEYWORD_SLUG__ && window.__INITIAL_KEYWORD_SLUG__.trim()) ? 'serp_studio' : 'dashboard',
         keywords: [],
-        filteredKeywords: [],
-        keywordSearch: '',
         selectedKeyword: null,
         selectedKeywordDetails: null,
         activeKeywordQuery: '',
         isDetailsLoading: false,
         isWorkflowDispatching: false,
         syncingKeywordId: null,
-        isDrawerOpen: false,
 
         // Level 1A Dashboard State & Bulk Selection
         selectedKeywordIds: [],
@@ -5224,7 +5114,6 @@ export function getKeywordsPageHtml(initialSlug = '') {
         quickKeywordCategory: 'General',
 
         // Table Column Visibility State & Definitions
-        isColumnsOpen: false,
         columnDefinitions: [
           { key: 'preview', label: 'Preview Image', required: false },
           { key: 'keyword', label: 'Keyword & Folders', required: true },
@@ -5436,7 +5325,8 @@ export function getKeywordsPageHtml(initialSlug = '') {
             list = list.filter(k => k.is_active === false);
           }
           if (this.dashboardCategoryFilter && this.dashboardCategoryFilter !== 'ALL') {
-            list = list.filter(k => (k.category || 'General').toLowerCase() === this.dashboardCategoryFilter.toLowerCase());
+            const cat = this.dashboardCategoryFilter.toLowerCase();
+            list = list.filter(k => (k.category || 'General').toLowerCase() === cat);
           }
           if (this.dashboardFolderFilter && this.dashboardFolderFilter !== 'ALL') {
             if (this.dashboardFolderFilter === 'UNASSIGNED') {
@@ -5448,44 +5338,44 @@ export function getKeywordsPageHtml(initialSlug = '') {
           }
           if (this.dashboardGrowthFilter && this.dashboardGrowthFilter !== 'ALL') {
             if (this.dashboardGrowthFilter === 'HIGH') {
-              list = list.filter(k => this.getKeywordSaveDelta(k) >= 50);
+              list = list.filter(k => (k._saveDelta !== undefined ? k._saveDelta : this.getKeywordSaveDelta(k)) >= 50);
             } else if (this.dashboardGrowthFilter === 'POSITIVE') {
-              list = list.filter(k => this.getKeywordSaveDelta(k) > 0);
+              list = list.filter(k => (k._saveDelta !== undefined ? k._saveDelta : this.getKeywordSaveDelta(k)) > 0);
             } else if (this.dashboardGrowthFilter === 'FLAT') {
-              list = list.filter(k => this.getKeywordSaveDelta(k) === 0);
+              list = list.filter(k => (k._saveDelta !== undefined ? k._saveDelta : this.getKeywordSaveDelta(k)) === 0);
             } else if (this.dashboardGrowthFilter === 'DECLINING') {
-              list = list.filter(k => this.getKeywordSaveDelta(k) < 0);
+              list = list.filter(k => (k._saveDelta !== undefined ? k._saveDelta : this.getKeywordSaveDelta(k)) < 0);
             }
           }
           if (this.dashboardPinsFilter && this.dashboardPinsFilter !== 'ALL') {
             if (this.dashboardPinsFilter === '250_PLUS') {
-              list = list.filter(k => this.getKeywordTotalPins(k) >= 250);
+              list = list.filter(k => (k._totalPins !== undefined ? k._totalPins : this.getKeywordTotalPins(k)) >= 250);
             } else if (this.dashboardPinsFilter === 'UNDER_250') {
-              list = list.filter(k => this.getKeywordTotalPins(k) < 250);
+              list = list.filter(k => (k._totalPins !== undefined ? k._totalPins : this.getKeywordTotalPins(k)) < 250);
             }
           }
           if (this.dashboardSearch && this.dashboardSearch.trim()) {
             const q = this.dashboardSearch.toLowerCase().trim();
-            list = list.filter(k => 
+            list = list.filter(k => k._searchCorpus ? k._searchCorpus.includes(q) : (
               (k.keyword || '').toLowerCase().includes(q) ||
               (k.category || '').toLowerCase().includes(q) ||
               this.getKeywordFolders(k).some(f => (f.name || '').toLowerCase().includes(q))
-            );
+            ));
           }
           if (this.dashboardSort === 'saves_delta') {
-            return [...list].sort((a, b) => this.getKeywordSaveDelta(b) - this.getKeywordSaveDelta(a));
+            return [...list].sort((a, b) => (b._saveDelta ?? this.getKeywordSaveDelta(b)) - (a._saveDelta ?? this.getKeywordSaveDelta(a)));
           } else if (this.dashboardSort === 'repins_delta') {
-            return [...list].sort((a, b) => this.getKeywordRepinDelta(b) - this.getKeywordRepinDelta(a));
+            return [...list].sort((a, b) => (b._repinDelta ?? this.getKeywordRepinDelta(b)) - (a._repinDelta ?? this.getKeywordRepinDelta(a)));
           } else if (this.dashboardSort === 'total_pins') {
-            return [...list].sort((a, b) => this.getKeywordTotalPins(b) - this.getKeywordTotalPins(a));
+            return [...list].sort((a, b) => (b._totalPins ?? this.getKeywordTotalPins(b)) - (a._totalPins ?? this.getKeywordTotalPins(a)));
           } else if (this.dashboardSort === 'created_desc') {
-            return [...list].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+            return [...list].sort((a, b) => (b._createdAtMs ?? (Date.parse(b.created_at) || 0)) - (a._createdAtMs ?? (Date.parse(a.created_at) || 0)));
           } else if (this.dashboardSort === 'created_asc') {
-            return [...list].sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
+            return [...list].sort((a, b) => (a._createdAtMs ?? (Date.parse(a.created_at) || 0)) - (b._createdAtMs ?? (Date.parse(b.created_at) || 0)));
           } else if (this.dashboardSort === 'name') {
             return [...list].sort((a, b) => (a.keyword || '').localeCompare(b.keyword || ''));
           } else if (this.dashboardSort === 'crawled') {
-            return [...list].sort((a, b) => new Date(b.last_crawled_at || 0) - new Date(a.last_crawled_at || 0));
+            return [...list].sort((a, b) => (b._crawledAtMs ?? (Date.parse(b.last_crawled_at) || 0)) - (a._crawledAtMs ?? (Date.parse(a.last_crawled_at) || 0)));
           } else if (this.dashboardSort === 'velocity') {
             return [...list].sort((a, b) => Number(b.avg_daily_velocity || 0) - Number(a.avg_daily_velocity || 0));
           }
@@ -5577,18 +5467,20 @@ export function getKeywordsPageHtml(initialSlug = '') {
 
         getKeywordFolders(kw) {
           if (!kw) return [];
+          if (Array.isArray(kw._folders)) return kw._folders;
           let folders = kw.folders;
           if (typeof folders === 'string' && folders.trim().startsWith('[')) {
             try { folders = JSON.parse(folders); } catch (_) { folders = []; }
           }
           if (Array.isArray(folders) && folders.length > 0) {
             const seen = new Set();
-            return folders.filter(f => f && f.id && !seen.has(String(f.id)) && seen.add(String(f.id)));
+            kw._folders = folders.filter(f => f && f.id && !seen.has(String(f.id)) && seen.add(String(f.id)));
+            return kw._folders;
           }
           if (!this.folders || this.folders.length === 0) return [];
           const kid = String(kw.id);
           const seen = new Set();
-          return this.folders
+          kw._folders = this.folders
             .filter(f => {
               if (!f) return false;
               let prev = f.keywords_preview;
@@ -5599,6 +5491,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
             })
             .map(f => ({ id: f.id, name: f.name, color: f.color || '#ec4899' }))
             .filter(f => !seen.has(String(f.id)) && seen.add(String(f.id)));
+          return kw._folders;
         },
 
         getFolderKeywordCount(f) {
@@ -5639,7 +5532,11 @@ export function getKeywordsPageHtml(initialSlug = '') {
 
         toggleColumn(key) {
           if (key === 'keyword') return; // Core column cannot be hidden
-          this.visibleColumns[key] = !this.visibleColumns[key];
+          this.visibleColumns = {
+            ...this.visibleColumns,
+            [key]: !this.visibleColumns[key],
+            keyword: true
+          };
           try {
             localStorage.setItem('keywords_visible_columns', JSON.stringify(this.visibleColumns));
           } catch (_) {}
@@ -6285,7 +6182,6 @@ export function getKeywordsPageHtml(initialSlug = '') {
             this.fetchFolders();
           }
 
-          this.$watch('keywordSearch', () => this.filterKeywords());
           this.$watch('dashboardSearch', () => { this.dashboardPage = 1; this.$nextTick(() => { if (window.lucide) lucide.createIcons(); }); });
           this.$watch('dashboardCategoryFilter', () => { this.dashboardPage = 1; this.$nextTick(() => { if (window.lucide) lucide.createIcons(); }); });
           this.$watch('dashboardStatusFilter', () => { this.dashboardPage = 1; this.$nextTick(() => { if (window.lucide) lucide.createIcons(); }); });
@@ -6582,30 +6478,32 @@ export function getKeywordsPageHtml(initialSlug = '') {
           } catch (_) {}
         },
 
+        normalizeKeyword(k) {
+          if (!k) return k;
+          k._totalPins = this.getKeywordTotalPins(k);
+          k._saveDelta = this.getKeywordSaveDelta(k);
+          k._repinDelta = this.getKeywordRepinDelta(k);
+          k._createdAtMs = k.created_at ? (Date.parse(k.created_at) || 0) : 0;
+          k._crawledAtMs = k.last_crawled_at ? (Date.parse(k.last_crawled_at) || 0) : 0;
+          const folders = this.getKeywordFolders(k);
+          k._folders = folders;
+          k._searchCorpus = ((k.keyword || '') + ' ' + (k.category || '') + ' ' + (folders.map(f => f.name || '').join(' '))).toLowerCase();
+          return k;
+        },
+
         async fetchKeywords() {
           this.isKeywordsLoading = true;
           try {
             const res = await fetch(this.getApiUrl('/api/keywords?limit=1000'));
             if (!res.ok) throw new Error('HTTP ' + res.status);
             const data = await res.json();
-            this.keywords = data.keywords || [];
-            this.filterKeywords();
+            const raw = Array.isArray(data.keywords) ? data.keywords : [];
+            this.keywords = raw.map(k => this.normalizeKeyword(k));
           } catch (err) {
             this.showToast('Failed to load keywords: ' + err.message, 'error');
           } finally {
             this.isKeywordsLoading = false;
-            this.$nextTick(() => { lucide.createIcons(); });
-          }
-        },
-
-        filterKeywords() {
-          if (!this.keywordSearch.trim()) {
-            this.filteredKeywords = this.keywords;
-          } else {
-            const q = this.keywordSearch.toLowerCase().trim();
-            this.filteredKeywords = this.keywords.filter(k => 
-              k.keyword.toLowerCase().includes(q) || (k.category || '').toLowerCase().includes(q)
-            );
+            this.$nextTick(() => { if (window.lucide) lucide.createIcons(); });
           }
         },
 

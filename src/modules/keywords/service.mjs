@@ -182,56 +182,86 @@ export async function listKeywords(sql, { search = '', limit = 1000, offset = 0 
   if (search) {
     const pattern = `%${search.toLowerCase().trim()}%`;
     return await sql`
+      WITH paged_keywords AS (
+        SELECT *
+        FROM tracked_keywords
+        WHERE LOWER(keyword) LIKE ${pattern}
+        ORDER BY created_at DESC
+        LIMIT ${lim} OFFSET ${off}
+      ),
+      pin_counts AS (
+        SELECT keyword_id, COUNT(*)::int AS cnt
+        FROM keyword_serp_current
+        WHERE keyword_id IN (SELECT id FROM paged_keywords)
+        GROUP BY keyword_id
+      ),
+      folder_map AS (
+        SELECT 
+          kfi.keyword_id, 
+          json_agg(json_build_object('id', f.id, 'name', f.name, 'color', f.color)) AS folders
+        FROM keyword_folder_items kfi
+        JOIN keyword_folders f ON f.id = kfi.folder_id
+        WHERE kfi.keyword_id IN (SELECT id FROM paged_keywords)
+        GROUP BY kfi.keyword_id
+      )
       SELECT 
-        k.*,
-        COALESCE(s_count.cnt, 0)::int AS snapshots_count,
-        COALESCE(s_count.cnt, 0)::int AS total_pins_count,
+        pk.*,
         COALESCE(
-          (
-            SELECT json_agg(json_build_object('id', f.id, 'name', f.name, 'color', f.color))
-            FROM keyword_folder_items kfi
-            JOIN keyword_folders f ON f.id = kfi.folder_id
-            WHERE kfi.keyword_id = k.id
-          ),
-          '[]'::json
-        ) AS folders
-      FROM tracked_keywords k
-      LEFT JOIN LATERAL (
-        SELECT COALESCE(
-          NULLIF((SELECT COUNT(*)::int FROM keyword_serp_current WHERE keyword_id = k.id), 0),
-          CASE WHEN k.metadata->>'last_crawled_pins_count' ~ '^[0-9]+$' THEN (k.metadata->>'last_crawled_pins_count')::int ELSE 0 END,
+          NULLIF(pc.cnt, 0),
+          CASE WHEN pk.metadata->>'last_crawled_pins_count' ~ '^[0-9]+$' THEN (pk.metadata->>'last_crawled_pins_count')::int ELSE 0 END,
           0
-        )::int AS cnt
-      ) s_count ON true
-      WHERE LOWER(k.keyword) LIKE ${pattern}
-      ORDER BY k.created_at DESC
-      LIMIT ${lim} OFFSET ${off};
+        )::int AS snapshots_count,
+        COALESCE(
+          NULLIF(pc.cnt, 0),
+          CASE WHEN pk.metadata->>'last_crawled_pins_count' ~ '^[0-9]+$' THEN (pk.metadata->>'last_crawled_pins_count')::int ELSE 0 END,
+          0
+        )::int AS total_pins_count,
+        COALESCE(fm.folders, '[]'::json) AS folders
+      FROM paged_keywords pk
+      LEFT JOIN pin_counts pc ON pc.keyword_id = pk.id
+      LEFT JOIN folder_map fm ON fm.keyword_id = pk.id
+      ORDER BY pk.created_at DESC;
     `;
   } else {
     return await sql`
+      WITH paged_keywords AS (
+        SELECT *
+        FROM tracked_keywords
+        ORDER BY created_at DESC
+        LIMIT ${lim} OFFSET ${off}
+      ),
+      pin_counts AS (
+        SELECT keyword_id, COUNT(*)::int AS cnt
+        FROM keyword_serp_current
+        WHERE keyword_id IN (SELECT id FROM paged_keywords)
+        GROUP BY keyword_id
+      ),
+      folder_map AS (
+        SELECT 
+          kfi.keyword_id, 
+          json_agg(json_build_object('id', f.id, 'name', f.name, 'color', f.color)) AS folders
+        FROM keyword_folder_items kfi
+        JOIN keyword_folders f ON f.id = kfi.folder_id
+        WHERE kfi.keyword_id IN (SELECT id FROM paged_keywords)
+        GROUP BY kfi.keyword_id
+      )
       SELECT 
-        k.*,
-        COALESCE(s_count.cnt, 0)::int AS snapshots_count,
-        COALESCE(s_count.cnt, 0)::int AS total_pins_count,
+        pk.*,
         COALESCE(
-          (
-            SELECT json_agg(json_build_object('id', f.id, 'name', f.name, 'color', f.color))
-            FROM keyword_folder_items kfi
-            JOIN keyword_folders f ON f.id = kfi.folder_id
-            WHERE kfi.keyword_id = k.id
-          ),
-          '[]'::json
-        ) AS folders
-      FROM tracked_keywords k
-      LEFT JOIN LATERAL (
-        SELECT COALESCE(
-          NULLIF((SELECT COUNT(*)::int FROM keyword_serp_current WHERE keyword_id = k.id), 0),
-          CASE WHEN k.metadata->>'last_crawled_pins_count' ~ '^[0-9]+$' THEN (k.metadata->>'last_crawled_pins_count')::int ELSE 0 END,
+          NULLIF(pc.cnt, 0),
+          CASE WHEN pk.metadata->>'last_crawled_pins_count' ~ '^[0-9]+$' THEN (pk.metadata->>'last_crawled_pins_count')::int ELSE 0 END,
           0
-        )::int AS cnt
-      ) s_count ON true
-      ORDER BY k.created_at DESC
-      LIMIT ${lim} OFFSET ${off};
+        )::int AS snapshots_count,
+        COALESCE(
+          NULLIF(pc.cnt, 0),
+          CASE WHEN pk.metadata->>'last_crawled_pins_count' ~ '^[0-9]+$' THEN (pk.metadata->>'last_crawled_pins_count')::int ELSE 0 END,
+          0
+        )::int AS total_pins_count,
+        COALESCE(fm.folders, '[]'::json) AS folders
+      FROM paged_keywords pk
+      LEFT JOIN pin_counts pc ON pc.keyword_id = pk.id
+      LEFT JOIN folder_map fm ON fm.keyword_id = pk.id
+      ORDER BY pk.created_at DESC;
     `;
   }
 }
