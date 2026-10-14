@@ -389,6 +389,28 @@ async function syncEnrichedSnapshotTotals(sqlClient, compId, cleanUser) {
 }
 
 /**
+ * Helper: Load degraded/quarantined shards from neon_projects_registry
+ */
+export async function loadQuarantinedShards(sqlClient) {
+  const quarantined = new Set();
+  try {
+    const rows = await sqlClient`
+      SELECT project_name, assigned_shards
+      FROM neon_projects_registry
+      WHERE status IN ('inactive', 'suspended', 'quarantined', 'degraded');
+    `;
+    for (const r of rows) {
+      const match = r.project_name?.match(/shard-(\d+)/i);
+      if (match) quarantined.add(parseInt(match[1], 10));
+      if (Array.isArray(r.assigned_shards)) {
+        r.assigned_shards.forEach(s => quarantined.add(Number(s)));
+      }
+    }
+  } catch (_) {}
+  return quarantined;
+}
+
+/**
  * Deterministic Partitioning across Active Accounts
  */
 export async function getAccountsAssignedToShard(sqlClient, shardNumber, shardTotal) {
@@ -420,10 +442,12 @@ export async function getAccountsAssignedToShard(sqlClient, shardNumber, shardTo
 
   const sNum = parseInt(shardNumber, 10);
   const sTot = parseInt(shardTotal, 10);
+  const quarantinedShards = await loadQuarantinedShards(sqlClient);
 
-  // Deterministic Mathematical Sharding (Zero Historical Drift Invariant)
+  // Deterministic Mathematical Sharding (Zero Historical Drift Invariant with Resilient Fallback)
   const assigned = allAccounts.filter(acc => {
-    const targetShard = getShardNumberForEntity(acc.username, sTot);
+    const cleanUser = String(acc.username || '').replace(/^@+/, '').trim().toLowerCase();
+    const targetShard = getResilientShardNumberForEntity(cleanUser, sTot, quarantinedShards);
     return targetShard === sNum;
   });
   console.log(`[Deterministic CRC32 Sharding] Shard ${sNum}/${sTot}: Assigned ${assigned.length} of ${allAccounts.length} active accounts.`);
@@ -607,9 +631,14 @@ async function runDiscoveryJob(sqlClient, shardSql, cleanUser, maxPages, cookie,
 
   // Board Distribution Strategy:
   if (crawlMode === 'sharded_boards') {
-    const swarmSize = parseInt(process.env.SWARM_SIZE || process.env.SHARD_TOTAL || '15', 10);
+    const activeShardsRaw = process.env.ACTIVE_SHARDS ? JSON.parse(process.env.ACTIVE_SHARDS) : null;
+    const activeSwarmList = Array.isArray(activeShardsRaw) && activeShardsRaw.length > 0
+      ? activeShardsRaw.map(Number)
+      : Array.from({ length: parseInt(process.env.SWARM_SIZE || '15', 10) }, (_, i) => i + 1);
+    const effectiveSwarmTotal = activeSwarmList.length;
+
     console.log(`[*] [Sharded Boards Matrix] ${allBoards.length} authentic boards registered in database.`);
-    console.log(`    [✓] Stage 2 will crawl all ${allBoards.length} boards concurrently across all ${swarmSize} Shards to backfill board pins!`);
+    console.log(`    [✓] Stage 2 will crawl all ${allBoards.length} boards concurrently across ${effectiveSwarmTotal} active Swarm Shards to backfill board pins!`);
 
     // Pre-initialize heartbeats for all active swarm shards in sharded_boards mode to eliminate boot race conditions
     try {
@@ -618,14 +647,14 @@ async function runDiscoveryJob(sqlClient, shardSql, cleanUser, maxPages, cookie,
           competitor_id, shard_number, shard_total, status, discovered_count, enriched_count, updated_at
         )
         SELECT 
-          ${compId}, s, ${swarmSize}, 'crawling_boards', 0, 0, NOW()
-        FROM generate_series(1, ${swarmSize}) AS s
+          ${compId}, s, ${effectiveSwarmTotal}, 'crawling_boards', 0, 0, NOW()
+        FROM UNNEST(${activeSwarmList}::int[]) AS s
         ON CONFLICT (competitor_id, shard_number) DO UPDATE SET
-          shard_total = ${swarmSize},
+          shard_total = ${effectiveSwarmTotal},
           status = 'crawling_boards',
           updated_at = NOW();
       `;
-      console.log(`    [✓] Distributed Matrix: Pre-initialized ${swarmSize} shard coordination heartbeats.`);
+      console.log(`    [✓] Distributed Matrix: Pre-initialized ${effectiveSwarmTotal} active shard coordination heartbeats.`);
     } catch (hErr) {
       console.warn(`[!] Heartbeat pre-initialization warning:`, hErr.message);
     }
@@ -801,10 +830,16 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
         }
       }
 
-      const shardIndex = sNum - 1;
-      const assignedBoards = allBoards.filter((_, idx) => (idx % sTot) === shardIndex);
+      const activeShardsRaw = process.env.ACTIVE_SHARDS ? JSON.parse(process.env.ACTIVE_SHARDS) : null;
+      const activeSwarmList = Array.isArray(activeShardsRaw) && activeShardsRaw.length > 0
+        ? activeShardsRaw.map(Number)
+        : Array.from({ length: parseInt(process.env.SWARM_SIZE || '15', 10) }, (_, i) => i + 1);
+      const effectiveSwarmTotal = activeSwarmList.length;
+      const effectiveSwarmIndex = Math.max(0, activeSwarmList.indexOf(sNum));
 
-      console.log(`🚀 [SHARDED BOARD MATRIX] Shard ${sNum}/${sTot}: Assigned ${assignedBoards.length} of ${allBoards.length} total boards.`);
+      const assignedBoards = allBoards.filter((_, idx) => (idx % effectiveSwarmTotal) === effectiveSwarmIndex);
+
+      console.log(`🚀 [SHARDED BOARD MATRIX] Shard ${sNum}/${sTot} (Swarm Slot ${effectiveSwarmIndex + 1}/${effectiveSwarmTotal}): Assigned ${assignedBoards.length} of ${allBoards.length} total boards.`);
       
       let boardHeartbeatTimer = null;
       if (assignedBoards.length > 0 && compId) {
@@ -1226,8 +1261,8 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
             });
           }
 
-          // Micro-jitter delay per worker
-          await sleep(randomJitterMs(600, 1100));
+          // Micro-jitter delay per worker (Enforce 2500ms - 4000ms architectural jitter standard)
+          await sleep(randomJitterMs(2500, 4000));
         }
       }
 

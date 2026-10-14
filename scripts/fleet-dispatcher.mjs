@@ -63,13 +63,16 @@ async function main() {
   const quarantinedShards = new Set();
   try {
     const inactiveRows = await sql`
-      SELECT project_name
+      SELECT project_name, assigned_shards
       FROM neon_projects_registry
       WHERE status IN ('inactive', 'suspended', 'quarantined', 'degraded');
     `;
     for (const row of inactiveRows) {
       const match = row.project_name?.match(/shard-(\d+)/i);
       if (match) quarantinedShards.add(parseInt(match[1], 10));
+      if (Array.isArray(row.assigned_shards)) {
+        row.assigned_shards.forEach(s => quarantinedShards.add(Number(s)));
+      }
     }
     if (quarantinedShards.size > 0) {
       log(`[Quarantine Watchdog] Identified ${quarantinedShards.size} degraded shards in registry: [${Array.from(quarantinedShards).join(', ')}]. Fallback routing active.`);

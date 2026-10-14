@@ -186,20 +186,20 @@ export async function reEvaluateArchivedPins(sql, rules = null, accountUsername 
   const activeRules = rules || (await getQualificationRules(sql));
   const cleanUser = accountUsername ? String(accountUsername).replace(/^@/, '').trim().toLowerCase() : null;
   
-  // If master ingest is disabled, no pins qualify
+  // If master ingest is disabled, no pins qualify for active ingestion (read-only evaluation)
   if (activeRules.master_ingest_enabled === false) {
-    const delRes = await sql`
-      DELETE FROM pa_pins
-      WHERE (${cleanUser}::text IS NULL OR LOWER(account_username) = ${cleanUser})
-      RETURNING pin_id;
+    const [cnt] = await sql`
+      SELECT count(*)::int AS total
+      FROM pa_pins
+      WHERE (${cleanUser}::text IS NULL OR LOWER(account_username) = ${cleanUser});
     `;
-    const total = delRes.length || 0;
+    const total = cnt?.total || 0;
     return {
       ok: true,
       total_evaluated: total,
       qualified_count: 0,
       disqualified_count: total,
-      disqualified_pruned: total,
+      disqualified_pruned: 0,
       rules: activeRules
     };
   }

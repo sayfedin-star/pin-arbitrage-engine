@@ -108,8 +108,9 @@ export function redactSecrets(str) {
     .replace(/(Bearer\s+)[A-Za-z0-9_.-]{12,}/gi, '$1[REDACTED_TOKEN]')
     .replace(/(gh[pousr]_[A-Za-z0-9_]{20,})/gi, '[REDACTED_GH_TOKEN]')
     .replace(/(github_pat_[A-Za-z0-9_]{20,})/gi, '[REDACTED_GH_PAT]')
+    .replace(/(_pinterest_sess=)[^;\s"']+/gi, '$1[REDACTED_COOKIE]')
     .replace(/([?&](?:password|token|secret|apiKey)=)[^&]+/gi, '$1[REDACTED]')
-    .replace(/ep-[a-z0-9-]+(?:\.[a-z0-9-]+)*\.aws\.neon\.tech/gi, '[REDACTED_NEON_HOST]');
+    .replace(/ep-[a-z0-9-]+(?:\.[a-z0-9-]+)*\.neon\.tech/gi, '[REDACTED_NEON_HOST]');
 }
 
 // Normalized Path Resolver (Resolves traversal %2e%2e, removes duplicate/trailing slashes)

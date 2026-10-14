@@ -124,6 +124,8 @@ jobs:
           MAX_PAGES: ${{ inputs.max_pages || '1000' }}
           PERSONAL_BOARDS_ONLY: ${{ inputs.personal_boards_only == false && 'false' || 'true' }}
           CANONICAL_SHARD: ${{ needs.dispatch-fleet.outputs.canonical_shard }}
+          ACTIVE_SHARDS: ${{ needs.dispatch-fleet.outputs.active_shards }}
+          SWARM_SIZE: ${{ needs.dispatch-fleet.outputs.active_count }}
           SHARD_NUMBER: 1
           SHARD_TOTAL: 99
         run: node scripts/crawler-engine.mjs
@@ -178,6 +180,8 @@ jobs:
           MAX_PAGES: ${{ inputs.max_pages || '1000' }}
           PERSONAL_BOARDS_ONLY: ${{ inputs.personal_boards_only == false && 'false' || 'true' }}
           CANONICAL_SHARD: ${{ needs.dispatch-fleet.outputs.canonical_shard }}
+          ACTIVE_SHARDS: ${{ needs.dispatch-fleet.outputs.active_shards }}
+          SWARM_SIZE: ${{ needs.dispatch-fleet.outputs.active_count }}
           SHARD_NUMBER: ${{ matrix.shard }}
           SHARD_TOTAL: 99
         run: node scripts/crawler-engine.mjs

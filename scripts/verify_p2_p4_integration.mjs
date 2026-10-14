@@ -351,7 +351,7 @@ async function runTests() {
 
     // 3.9 Test reEvaluateArchivedPins with master_ingest_enabled: false
     const disabledRules = { ...rules, master_ingest_enabled: false };
-    const disabledReEval = await reEvaluateArchivedPins(sql, disabledRules);
+    const disabledReEval = await reEvaluateArchivedPins(sql, disabledRules, TEST_COMPETITOR_USERNAME);
     assert(disabledReEval.ok && disabledReEval.qualified_count === 0, 'reEvaluateArchivedPins returned 0 qualified pins when master_ingest_enabled is false');
 
     // 3.10 Test listArchivedPins sorting with NULLS LAST
