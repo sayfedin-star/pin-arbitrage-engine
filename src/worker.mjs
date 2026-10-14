@@ -85,7 +85,8 @@ import {
   batchAddKeywordsToFolder,
   removeKeywordFromFolder,
   getFoldersForKeyword,
-  calculateFolderCrossover
+  calculateFolderCrossover,
+  normalizeFolderMetadata
 } from './modules/keywords/folders-service.mjs';
 import { getFleetProjects, registerNewProject, syncFleetDatabases, syncCompetitorAcrossFleet, pingFleetProject, getFleetProjectUrl } from './modules/fleet/service.mjs';
 import {
@@ -4038,16 +4039,17 @@ export default {
       const folderAuditMatch = method === 'POST' && pathname.match(/^\/api\/(?:folders|campaign-folders|keywords\/folders)\/(\d+)\/dispatch-audit$/);
       if (folderAuditMatch) {
         const folderId = folderAuditMatch[1];
-        const [folderRow] = await targetSql`SELECT id, name FROM keyword_folders WHERE id = ${Number(folderId)} LIMIT 1;`;
+        const [folderRow] = await targetSql`SELECT id, name, metadata FROM keyword_folders WHERE id = ${Number(folderId)} LIMIT 1;`;
         if (!folderRow) {
           return jsonResponse({ success: false, error: `Folder ${folderId} not found` }, 404);
         }
         const body = await request.json().catch(() => ({}));
-        const crawlScopeInput = String(body.crawl_scope || 'all_pins');
-        const maxPinsInput = String(body.max_pins || '250');
-        const maxSerpPinsInput = String(body.max_serp_pins || body.max_pins || '250');
-        const maxCatalogInspectInput = String(body.max_catalog_inspect || '0');
-        const enableSerpHarvestInput = String(body.enable_serp_harvest ?? 'false');
+        const folderMeta = normalizeFolderMetadata(folderRow?.metadata);
+        const crawlScopeInput = String(body.crawl_scope || folderMeta.crawl_scope || 'all_pins');
+        const maxPinsInput = String(body.max_pins || folderMeta.max_pins || '250');
+        const maxSerpPinsInput = String(body.max_serp_pins || body.max_pins || folderMeta.max_serp_pins || '250');
+        const maxCatalogInspectInput = String(body.max_catalog_inspect || folderMeta.max_catalog_inspect || '0');
+        const enableSerpHarvestInput = String(body.enable_serp_harvest ?? folderMeta.enable_serp_harvest ?? 'true');
 
         const repo = (typeof env !== 'undefined' && env?.GITHUB_REPOSITORY) || (typeof process !== 'undefined' ? process.env?.GITHUB_REPOSITORY : null) || 'sayfedin-star/pin-arbitrage-engine';
         const token = (typeof env !== 'undefined' && (env?.GITHUB_TOKEN || env?.GITHUB_PAT || env?.GH_TOKEN || env?.GH_REFRESH_TOKEN)) || (typeof process !== 'undefined' ? (process.env?.GITHUB_TOKEN || process.env?.GITHUB_PAT || process.env?.GH_TOKEN || process.env?.GH_REFRESH_TOKEN) : null);
@@ -4193,7 +4195,7 @@ export default {
         const maxPinsInput = String(body.max_pins || '250');
         const maxSerpPinsInput = String(body.max_serp_pins || body.max_pins || maxPinsInput);
         const maxCatalogInspectInput = String(body.max_catalog_inspect || '0');
-        const enableSerpHarvestInput = String(body.enable_serp_harvest ?? (folderIdInput ? 'false' : 'true'));
+        const enableSerpHarvestInput = String(body.enable_serp_harvest ?? 'true');
         const crawlScopeInput = String(body.crawl_scope || 'all_pins');
         const repo = (typeof env !== 'undefined' && env?.GITHUB_REPOSITORY) || (typeof process !== 'undefined' ? process.env?.GITHUB_REPOSITORY : null) || 'sayfedin-star/pin-arbitrage-engine';
         const token = (typeof env !== 'undefined' && (env?.GITHUB_TOKEN || env?.GITHUB_PAT || env?.GH_TOKEN || env?.GH_REFRESH_TOKEN)) || (typeof process !== 'undefined' ? (process.env?.GITHUB_TOKEN || process.env?.GITHUB_PAT || process.env?.GH_TOKEN || process.env?.GH_REFRESH_TOKEN) : null);

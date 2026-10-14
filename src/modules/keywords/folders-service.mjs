@@ -21,6 +21,25 @@ const CROSSOVER_TTL_MS = 10 * 60 * 1000; // 10 minutes TTL
 const CROSSOVER_CACHE_MAX = 50;
 const inflightCrossover = new Map();
 
+export function normalizeFolderMetadata(raw) {
+  if (!raw) return {};
+  if (typeof raw === 'object' && !Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (!trimmed || trimmed === '""' || trimmed === "''") return {};
+    try {
+      let parsed = JSON.parse(trimmed);
+      if (typeof parsed === 'string') {
+        try { parsed = JSON.parse(parsed); } catch (_) {}
+      }
+      return (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) ? parsed : {};
+    } catch (_) {
+      return {};
+    }
+  }
+  return {};
+}
+
 /**
  * Invalidate in-memory crossover cache for a folder or all folders
  */
@@ -61,7 +80,7 @@ export async function listFolders(sql, { projectId = 'default' } = {}) {
     GROUP BY f.id
     ORDER BY f.updated_at DESC, f.created_at DESC;
   `;
-  return rows;
+  return rows.map(r => ({ ...r, metadata: normalizeFolderMetadata(r.metadata) }));
 }
 
 /**
@@ -109,6 +128,7 @@ export async function getFolder(sql, folderId) {
 
   return {
     ...folder,
+    metadata: normalizeFolderMetadata(folder.metadata),
     items
   };
 }
@@ -129,6 +149,7 @@ export async function createFolder(sql, {
     throw new Error('Folder name is required.');
   }
 
+  const cleanMetadata = normalizeFolderMetadata(metadata);
   const [created] = await sql`
     INSERT INTO keyword_folders (
       name,
@@ -145,14 +166,14 @@ export async function createFolder(sql, {
       ${String(color || '#ec4899').trim()},
       ${String(icon || 'folder').trim()},
       ${String(projectId || 'default').trim()},
-      ${JSON.stringify(typeof metadata === 'object' && metadata !== null && !Array.isArray(metadata) ? metadata : {})}::jsonb,
+      ${JSON.stringify(cleanMetadata)}::jsonb,
       NOW(),
       NOW()
     )
     RETURNING *;
   `;
 
-  return created;
+  return created ? { ...created, metadata: normalizeFolderMetadata(created.metadata) } : null;
 }
 
 /**
@@ -171,6 +192,7 @@ export async function updateFolder(sql, folderId, {
   const cleanName = name !== undefined ? String(name).trim() : null;
   if (name !== undefined && !cleanName) throw new Error('Folder name cannot be empty');
 
+  const cleanMetadata = metadata !== undefined ? normalizeFolderMetadata(metadata) : null;
   const [updated] = await sql`
     UPDATE keyword_folders
     SET 
@@ -178,14 +200,14 @@ export async function updateFolder(sql, folderId, {
       description = COALESCE(${description !== undefined ? String(description).trim() : null}, description),
       color = COALESCE(${color !== undefined ? String(color).trim() : null}, color),
       icon = COALESCE(${icon !== undefined ? String(icon).trim() : null}, icon),
-      metadata = COALESCE(${metadata !== undefined ? JSON.stringify(typeof metadata === 'object' && metadata !== null && !Array.isArray(metadata) ? metadata : {}) : null}::jsonb, metadata),
+      metadata = COALESCE(${cleanMetadata !== null ? JSON.stringify(cleanMetadata) : null}::jsonb, metadata),
       updated_at = NOW()
     WHERE id = ${fid}
     RETURNING *;
   `;
 
   invalidateFolderCache(fid);
-  return updated;
+  return updated ? { ...updated, metadata: normalizeFolderMetadata(updated.metadata) } : null;
 }
 
 /**

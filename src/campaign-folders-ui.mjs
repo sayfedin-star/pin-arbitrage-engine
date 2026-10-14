@@ -149,6 +149,10 @@ export function getCampaignFoldersPageHtml(folderId = '') {
             <span x-show="crossoverLoading" class="animate-spin inline-block">⏳</span>
             <span x-text="crossoverLoading ? 'Recalculating Matrix...' : 'Re-Run Crossover Analysis'"></span>
           </button>
+          <button @click="openFolderSettingsModal()" class="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 text-xs font-semibold shadow-sm transition-colors flex items-center gap-1.5 cursor-pointer" title="Folder Settings & Cluster Fleet Dispatch Config">
+            <span>⚙️</span>
+            <span>Settings</span>
+          </button>
           <button @click="dispatchFolderDeepAudit()" :disabled="auditDispatching" class="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white text-xs font-semibold shadow-md transition-colors flex items-center gap-2" title="Partition all cluster pins across 20 parallel GitHub runners to deep inspect authentic saves, repins & CV annotations">
             <span x-show="!auditDispatching">🚀</span>
             <span x-show="auditDispatching" class="animate-spin inline-block">⏳</span>
@@ -1371,6 +1375,149 @@ export function getCampaignFoldersPageHtml(folderId = '') {
     </div>
   </div>
 
+  <!-- Folder Settings & Fleet Dispatch Modal -->
+  <div x-show="isSettingsModalOpen" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4" x-cloak>
+    <div class="bg-white dark:bg-[#0c1322] border border-slate-200 dark:border-slate-800 rounded-3xl max-w-xl w-full p-6 shadow-2xl flex flex-col gap-5 max-h-[90vh] overflow-y-auto" @click.away="isSettingsModalOpen = false">
+      
+      <!-- Modal Header -->
+      <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-600 dark:text-indigo-400 flex items-center justify-center text-lg font-bold">
+            ⚙️
+          </div>
+          <div>
+            <h3 class="text-sm font-bold text-slate-900 dark:text-white">Folder Settings & 20-Runner Fleet Config</h3>
+            <p class="text-xs text-slate-500 dark:text-slate-400">Configure cluster harvest depth, live SERP ingestion and metadata</p>
+          </div>
+        </div>
+        <button @click="isSettingsModalOpen = false" class="p-1 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition">✕</button>
+      </div>
+
+      <!-- Section 1: 20-Runner Cluster Fleet Engine -->
+      <div class="p-4 rounded-2xl bg-gradient-to-br from-indigo-500/5 via-purple-500/5 to-transparent border border-indigo-500/20 flex flex-col gap-4">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="text-base">🚀</span>
+            <span class="text-xs font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-300">Cluster Fleet Engine (20 Parallel Runners)</span>
+          </div>
+          <span class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 font-bold border border-indigo-500/20">Stage 0 + Stage 1 Matrix</span>
+        </div>
+
+        <!-- Live SERP Ingestion Toggle -->
+        <div class="flex items-start justify-between gap-4 p-3 rounded-xl bg-white/70 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800">
+          <div class="flex flex-col gap-0.5">
+            <div class="flex items-center gap-2">
+              <span class="text-xs font-bold text-slate-900 dark:text-white">Live Search Discovery & SERP Ingestion</span>
+              <span class="text-[10px] font-mono px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">Essential</span>
+            </div>
+            <p class="text-[11px] text-slate-500 dark:text-slate-400">Harvest fresh Pinterest search SERPs across cluster keywords before partitioning pins. Prevents newly added keywords from remaining at 0 pins.</p>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer shrink-0 mt-1">
+            <input type="checkbox" x-model="folderSettings.enable_serp_harvest" class="sr-only peer">
+            <div class="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
+          </label>
+        </div>
+
+        <!-- Target Pin Quota per Keyword -->
+        <div class="flex flex-col gap-1.5">
+          <label class="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center justify-between">
+            <span>Pin Quota per Keyword (Harvest Depth)</span>
+            <span class="text-xs font-mono text-indigo-600 dark:text-indigo-400 font-bold" x-text="folderSettings.max_pins + ' pins/KW'"></span>
+          </label>
+          <div class="grid grid-cols-4 gap-2">
+            <template x-for="q in ['100', '250', '500', '1000']" :key="q">
+              <button type="button" @click="folderSettings.max_pins = q; folderSettings.max_serp_pins = q"
+                      class="px-2.5 py-1.5 rounded-xl text-xs font-mono font-medium border text-center transition"
+                      :class="folderSettings.max_pins === q 
+                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm' 
+                        : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:border-slate-300'">
+                <span x-text="q + ' pins'"></span>
+              </button>
+            </template>
+          </div>
+        </div>
+
+        <!-- Crawl Scope & Inspection Cap -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div class="flex flex-col gap-1.5">
+            <label class="text-xs font-semibold text-slate-700 dark:text-slate-300">Crawl Scope</label>
+            <select x-model="folderSettings.crawl_scope" class="w-full text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-3 py-2 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500">
+              <option value="all_pins">all_pins (Active + Vault Archive)</option>
+              <option value="active_serp">active_serp (Top 100 Organic Only)</option>
+            </select>
+          </div>
+          <div class="flex flex-col gap-1.5">
+            <label class="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center justify-between">
+              <span>Inspection Cap</span>
+              <span class="text-[10px] text-slate-400 font-mono" x-text="folderSettings.max_catalog_inspect === '0' ? 'Unlimited' : folderSettings.max_catalog_inspect + ' pins'"></span>
+            </label>
+            <input type="number" x-model="folderSettings.max_catalog_inspect" min="0" step="50" placeholder="0 = Unlimited"
+                   class="w-full text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-3 py-2 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500">
+          </div>
+        </div>
+      </div>
+
+      <!-- Section 2: Folder Metadata (Identity) -->
+      <div class="flex flex-col gap-3">
+        <span class="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Folder Identity</span>
+        
+        <div class="flex flex-col gap-1.5">
+          <label class="text-xs font-semibold text-slate-700 dark:text-slate-300">Folder Name</label>
+          <input type="text" x-model="folderSettings.name" placeholder="e.g. Crockpot Meals Cluster"
+                 class="w-full text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-3 py-2 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500">
+        </div>
+
+        <div class="flex flex-col gap-1.5">
+          <label class="text-xs font-semibold text-slate-700 dark:text-slate-300">Campaign Description</label>
+          <textarea x-model="folderSettings.description" rows="2" placeholder="Campaign Topic Cluster & Cross-SERP Intelligence"
+                    class="w-full text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-3 py-2 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"></textarea>
+        </div>
+
+        <div class="flex flex-col gap-1.5">
+          <label class="text-xs font-semibold text-slate-700 dark:text-slate-300">Theme Color</label>
+          <div class="flex items-center gap-2">
+            <template x-for="c in colorOptions" :key="c">
+              <button type="button" @click="folderSettings.color = c" 
+                      class="w-7 h-7 rounded-lg border-2 transition-transform cursor-pointer"
+                      :class="folderSettings.color === c ? 'scale-110 border-indigo-600 dark:border-white shadow' : 'border-transparent'"
+                      :style="'background-color: ' + c"></button>
+            </template>
+          </div>
+        </div>
+      </div>
+
+      <!-- Section 3: Cluster Keywords Summary -->
+      <div class="p-3 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs">
+        <div class="flex items-center gap-2">
+          <span class="font-bold text-slate-700 dark:text-slate-300">Cluster Status:</span>
+          <span class="font-mono text-emerald-600 dark:text-emerald-400 font-semibold" x-text="crawledKeywordsCount + ' Crawled'"></span>
+          <span class="text-slate-400">•</span>
+          <span class="font-mono text-amber-600 dark:text-amber-400 font-semibold" x-text="pendingKeywordsCount + ' Pending Harvest'"></span>
+        </div>
+        <span class="text-[11px] font-mono text-slate-500" x-text="(activeFolder?.items?.length || 0) + ' Total Keywords'"></span>
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="flex items-center justify-between gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+        <button type="button" @click="isSettingsModalOpen = false" class="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition">
+          Cancel
+        </button>
+        <div class="flex items-center gap-2">
+          <button type="button" @click="saveFolderSettings(false)" :disabled="settingsLoading"
+                  class="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 transition">
+            <span x-text="settingsLoading ? 'Saving...' : 'Save Settings'"></span>
+          </button>
+          <button type="button" @click="saveFolderSettings(true)" :disabled="settingsLoading || auditDispatching"
+                  class="px-4 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white shadow-md transition flex items-center gap-1.5">
+            <span>🚀</span>
+            <span x-text="auditDispatching ? 'Launching...' : 'Save & Launch 20 Runners'"></span>
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
   <script>
     function foldersApp(activeFolderId) {
       return {
@@ -1382,6 +1529,27 @@ export function getCampaignFoldersPageHtml(folderId = '') {
         crossoverData: null,
         crossoverLoading: false,
         auditDispatching: false,
+        isSettingsModalOpen: false,
+        settingsLoading: false,
+        folderSettings: {
+          name: '',
+          description: '',
+          color: '#6366f1',
+          enable_serp_harvest: true,
+          max_pins: '250',
+          max_serp_pins: '250',
+          crawl_scope: 'all_pins',
+          max_catalog_inspect: '0'
+        },
+
+        get crawledKeywordsCount() {
+          if (!this.activeFolder?.items) return 0;
+          return this.activeFolder.items.filter(i => (i.pin_count > 0 || i.last_crawled_at)).length;
+        },
+        get pendingKeywordsCount() {
+          if (!this.activeFolder?.items) return 0;
+          return this.activeFolder.items.filter(i => !(i.pin_count > 0 || i.last_crawled_at)).length;
+        },
         openNewFolderModal: false,
         newFolderName: '',
         newFolderDesc: '',
@@ -1635,6 +1803,7 @@ export function getCampaignFoldersPageHtml(folderId = '') {
             if (folderRes.ok) {
               const data = await folderRes.json();
               this.activeFolder = data.folder || null;
+              this.syncFolderSettingsFromActive();
             } else {
               this.showToast('Campaign folder not found', 'error');
             }
@@ -1692,25 +1861,130 @@ export function getCampaignFoldersPageHtml(folderId = '') {
           }
         },
 
+        syncFolderSettingsFromActive() {
+          if (!this.activeFolder) return;
+          let meta = this.activeFolder.metadata;
+          if (typeof meta === 'string') {
+            try {
+              meta = JSON.parse(meta);
+              if (typeof meta === 'string') meta = JSON.parse(meta);
+            } catch (_) { meta = {}; }
+          }
+          if (!meta || typeof meta !== 'object' || Array.isArray(meta)) meta = {};
+
+          this.folderSettings = {
+            name: this.activeFolder.name || '',
+            description: this.activeFolder.description || '',
+            color: this.activeFolder.color || '#6366f1',
+            enable_serp_harvest: meta.enable_serp_harvest !== undefined ? Boolean(meta.enable_serp_harvest) : true,
+            max_pins: String(meta.max_pins || '250'),
+            max_serp_pins: String(meta.max_serp_pins || meta.max_pins || '250'),
+            crawl_scope: String(meta.crawl_scope || 'all_pins'),
+            max_catalog_inspect: String(meta.max_catalog_inspect || '0'),
+          };
+        },
+
+        openFolderSettingsModal() {
+          if (!this.activeFolder) return;
+          this.syncFolderSettingsFromActive();
+          this.isSettingsModalOpen = true;
+        },
+
+        async saveFolderSettings(andLaunchAudit = false) {
+          if (!this.activeFolderId) return;
+          this.settingsLoading = true;
+          try {
+            let meta = this.activeFolder.metadata;
+            if (typeof meta === 'string') {
+              try {
+                meta = JSON.parse(meta);
+                if (typeof meta === 'string') meta = JSON.parse(meta);
+              } catch (_) { meta = {}; }
+            }
+            if (!meta || typeof meta !== 'object' || Array.isArray(meta)) meta = {};
+
+            const payload = {
+              name: this.folderSettings.name.trim() || this.activeFolder.name,
+              description: this.folderSettings.description.trim(),
+              color: this.folderSettings.color,
+              metadata: {
+                ...meta,
+                enable_serp_harvest: Boolean(this.folderSettings.enable_serp_harvest),
+                max_pins: String(this.folderSettings.max_pins),
+                max_serp_pins: String(this.folderSettings.max_serp_pins || this.folderSettings.max_pins),
+                crawl_scope: String(this.folderSettings.crawl_scope),
+                max_catalog_inspect: String(this.folderSettings.max_catalog_inspect || '0'),
+              }
+            };
+
+            const res = await fetch('/api/folders/' + this.activeFolderId, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            });
+
+            if (res.ok) {
+              const data = await res.json();
+              if (data.folder) {
+                this.activeFolder = { ...this.activeFolder, ...data.folder };
+                const fIdx = this.foldersList.findIndex(f => f.id === this.activeFolderId);
+                if (fIdx !== -1) {
+                  this.foldersList[fIdx] = { ...this.foldersList[fIdx], ...data.folder };
+                }
+              }
+              this.showToast('Folder settings saved successfully', 'success');
+              if (andLaunchAudit) {
+                await this.dispatchFolderDeepAudit();
+              } else {
+                this.isSettingsModalOpen = false;
+              }
+            } else {
+              this.showToast('Failed to save folder settings', 'error');
+            }
+          } catch (err) {
+            this.showToast('Error saving settings: ' + err.message, 'error');
+          } finally {
+            this.settingsLoading = false;
+          }
+        },
+
         async dispatchFolderDeepAudit() {
           if (!this.activeFolderId) return;
           this.auditDispatching = true;
           this.showToast('🚀 Dispatching 20-runner parallel cluster fleet on GitHub Actions...', 'info');
           try {
+            let meta = this.activeFolder?.metadata;
+            if (typeof meta === 'string') {
+              try {
+                meta = JSON.parse(meta);
+                if (typeof meta === 'string') meta = JSON.parse(meta);
+              } catch (_) { meta = {}; }
+            }
+            if (!meta || typeof meta !== 'object' || Array.isArray(meta)) meta = {};
+
+            const harvest = this.folderSettings?.enable_serp_harvest !== undefined
+              ? Boolean(this.folderSettings.enable_serp_harvest)
+              : (meta.enable_serp_harvest !== undefined ? Boolean(meta.enable_serp_harvest) : true);
+            const maxPins = String(this.folderSettings?.max_pins || meta.max_pins || '250');
+            const maxSerpPins = String(this.folderSettings?.max_serp_pins || meta.max_serp_pins || maxPins);
+            const crawlScope = String(this.folderSettings?.crawl_scope || meta.crawl_scope || 'all_pins');
+            const maxCatalogInspect = String(this.folderSettings?.max_catalog_inspect || meta.max_catalog_inspect || '0');
+
             const res = await fetch('/api/folders/' + this.activeFolderId + '/dispatch-audit', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                crawl_scope: 'all_pins',
-                max_pins: '250',
-                max_serp_pins: '250',
-                max_catalog_inspect: '0',
-                enable_serp_harvest: 'false'
+                crawl_scope: crawlScope,
+                max_pins: maxPins,
+                max_serp_pins: maxSerpPins,
+                max_catalog_inspect: maxCatalogInspect,
+                enable_serp_harvest: String(harvest)
               })
             });
             const data = await res.json().catch(() => ({ success: false, error: 'Invalid response from server' }));
             if (data.success) {
               this.showToast(data.message || '20-Runner Parallel Fleet Audit dispatched successfully on GitHub Actions!', 'success');
+              if (this.isSettingsModalOpen) this.isSettingsModalOpen = false;
             } else {
               this.showToast('Dispatch note: ' + (data.message || data.error || 'Check GitHub token in settings'), 'error');
             }

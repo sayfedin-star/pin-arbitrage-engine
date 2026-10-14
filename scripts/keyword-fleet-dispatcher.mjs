@@ -16,7 +16,7 @@
 
 import { neon } from '@neondatabase/serverless';
 import fs from 'node:fs';
-import { crawlKeywordSERP, getAppSettings } from '../src/modules/keywords/service.mjs';
+import { crawlKeywordSERP, getAppSettings, safeNormalizeMetadata } from '../src/modules/keywords/service.mjs';
 
 // Auto-load .env in local environments
 if (typeof process.loadEnvFile === 'function') {
@@ -54,9 +54,9 @@ async function main() {
   // Dynamically resolve configuration from DB app_settings with ENV overrides
   const appSettings = await getAppSettings(sql).catch(() => ({}));
   const envHarvest = process.env.ENABLE_SERP_HARVEST?.trim();
-  const enableSerpHarvest = (envHarvest !== undefined && envHarvest !== '')
+  let enableSerpHarvest = (envHarvest !== undefined && envHarvest !== '')
     ? (envHarvest === 'true' || envHarvest === '1')
-    : (rawFolderId ? false : (appSettings.enable_serp_harvest ?? true));
+    : (appSettings.enable_serp_harvest ?? true);
 
   const envSerpPins = process.env.MAX_SERP_PINS?.trim() || process.env.MAX_PINS?.trim();
   const maxSerpPins = (envSerpPins && !isNaN(parseInt(envSerpPins, 10)))
@@ -93,22 +93,39 @@ async function main() {
     console.log(`\n[*] Mode Selected: MODE C (Folder Cluster Pin Partition for Folder ID: ${fid})`);
 
     const [folderRow] = await sql`
-      SELECT id, name, description FROM keyword_folders WHERE id = ${fid} LIMIT 1;
+      SELECT id, name, description, metadata FROM keyword_folders WHERE id = ${fid} LIMIT 1;
     `;
     if (!folderRow) {
       console.error(`[-] FATAL: Folder ID ${fid} not found in database.`);
       process.exit(1);
     }
 
-    console.log(`  [+] Target Folder: "${folderRow.name}" (ID: ${folderRow.id})`);
+    const folderMeta = safeNormalizeMetadata(folderRow.metadata);
 
-    // 1. Fetch keywords belonging to this folder
+    if ((envHarvest === undefined || envHarvest === '') && folderMeta.enable_serp_harvest !== undefined) {
+      enableSerpHarvest = Boolean(folderMeta.enable_serp_harvest);
+    }
+
+    const resolvedMaxSerpPins = (!envSerpPins && folderMeta.max_serp_pins)
+      ? Math.max(25, Math.min(1000, parseInt(folderMeta.max_serp_pins, 10)))
+      : maxSerpPins;
+    const resolvedCrawlScope = (!envCrawlScope && folderMeta.crawl_scope)
+      ? String(folderMeta.crawl_scope).toLowerCase().trim()
+      : crawlScope;
+    const resolvedMaxCatalogInspect = (!envCatalogInspect && folderMeta.max_catalog_inspect !== undefined)
+      ? Math.max(0, parseInt(folderMeta.max_catalog_inspect, 10))
+      : maxCatalogInspect;
+
+    console.log(`  [+] Target Folder: "${folderRow.name}" (ID: ${folderRow.id})`);
+    console.log(`  [+] Resolved Config: Harvest=${enableSerpHarvest ? 'ON' : 'OFF'} | Scope=${resolvedCrawlScope} | MaxPins=${resolvedMaxSerpPins} | InspectCap=${resolvedMaxCatalogInspect}`);
+
+    // 1. Fetch keywords belonging to this folder, prioritizing never-crawled keywords first
     const folderKeywords = await sql`
-      SELECT tk.id, tk.keyword, tk.category, tk.target_pin_count
+      SELECT tk.id, tk.keyword, tk.category, tk.target_pin_count, tk.last_crawled_at
       FROM keyword_folder_items kfi
       JOIN tracked_keywords tk ON tk.id = kfi.keyword_id
       WHERE kfi.folder_id = ${fid}
-      ORDER BY kfi.added_at ASC;
+      ORDER BY tk.last_crawled_at ASC NULLS FIRST, kfi.added_at ASC;
     `;
 
     console.log(`  [+] Resolved ${folderKeywords.length} keywords in folder cluster.`);
@@ -117,16 +134,16 @@ async function main() {
     if (enableSerpHarvest) {
       console.log(`  [*] Executing Stage 0 Fast SERP Ingestion across ${folderKeywords.length} folder keywords...`);
       const stage0StartTime = Date.now();
-      const STAGE0_MAX_BUDGET_MS = 90000; // 90 seconds hard deadline guard
+      const STAGE0_MAX_BUDGET_MS = 300000; // 5 minutes hard deadline guard (safely within 15m runner limit)
       for (let kIdx = 0; kIdx < folderKeywords.length; kIdx++) {
         if (Date.now() - stage0StartTime > STAGE0_MAX_BUDGET_MS) {
-          console.warn(`  [!] Stage 0 time budget exceeded (90s). Gracefully stopping SERP ingestion to protect fleet orchestrator.`);
+          console.warn(`  [!] Stage 0 time budget exceeded (5m). Gracefully stopping SERP ingestion to protect fleet orchestrator.`);
           break;
         }
         const kw = folderKeywords[kIdx];
         try {
           console.log(`    [${kIdx + 1}/${folderKeywords.length}] Ingesting SERP for "${kw.keyword}" (ID: ${kw.id})...`);
-          const crawlRes = await crawlKeywordSERP(sql, kw.id, { cookie, max_serp_pins: maxSerpPins });
+          const crawlRes = await crawlKeywordSERP(sql, kw.id, { cookie, max_serp_pins: resolvedMaxSerpPins, force: true });
           if (crawlRes?.success) {
             console.log(`      [+] Ingested ${crawlRes.crawled_pins} pins | Avg Velocity: +${crawlRes.avg_velocity} saves/day`);
           } else {
@@ -145,7 +162,7 @@ async function main() {
 
     // 3. Query All Deduplicated Candidate Pins for this Folder
     let candidatePins = [];
-    if (crawlScope === 'active_serp') {
+    if (resolvedCrawlScope === 'active_serp') {
       console.log('  [*] Scope: active_serp (Top organic ranking pins only)');
       candidatePins = await sql`
         SELECT DISTINCT ON (ksc.pin_id)
@@ -174,9 +191,9 @@ async function main() {
       return String(a.pin_id).localeCompare(String(b.pin_id));
     });
 
-    if (maxCatalogInspect > 0 && candidatePins.length > maxCatalogInspect) {
-      console.log(`  [*] Applying max_catalog_inspect cap: ${candidatePins.length} -> ${maxCatalogInspect} pins`);
-      candidatePins = candidatePins.slice(0, maxCatalogInspect);
+    if (resolvedMaxCatalogInspect > 0 && candidatePins.length > resolvedMaxCatalogInspect) {
+      console.log(`  [*] Applying max_catalog_inspect cap: ${candidatePins.length} -> ${resolvedMaxCatalogInspect} pins`);
+      candidatePins = candidatePins.slice(0, resolvedMaxCatalogInspect);
     }
 
     const totalPinsFound = candidatePins.length;
@@ -193,10 +210,10 @@ async function main() {
         worker_slot: 1,
         worker_total: 1,
         total_pins: 0,
-        crawl_scope: crawlScope,
-        max_pins: maxSerpPins,
-        max_serp_pins: maxSerpPins,
-        max_catalog_inspect: maxCatalogInspect,
+        crawl_scope: resolvedCrawlScope,
+        max_pins: resolvedMaxSerpPins,
+        max_serp_pins: resolvedMaxSerpPins,
+        max_catalog_inspect: resolvedMaxCatalogInspect,
         enable_serp_harvest: enableSerpHarvest
       }];
     } else {
@@ -212,10 +229,10 @@ async function main() {
         worker_slot: idx + 1,
         worker_total: numWorkers,
         total_pins: totalPinsFound,
-        crawl_scope: crawlScope,
-        max_pins: maxSerpPins,
-        max_serp_pins: maxSerpPins,
-        max_catalog_inspect: maxCatalogInspect,
+        crawl_scope: resolvedCrawlScope,
+        max_pins: resolvedMaxSerpPins,
+        max_serp_pins: resolvedMaxSerpPins,
+        max_catalog_inspect: resolvedMaxCatalogInspect,
         enable_serp_harvest: enableSerpHarvest
       }));
     }

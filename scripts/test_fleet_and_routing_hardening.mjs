@@ -96,18 +96,23 @@ console.log('  ✓ [PASS] Zero Route Shadowing: /dispatch-audit is 100% immune f
 // -----------------------------------------------------------------------------
 console.log('\n[TEST 3] Auditing Mode C Dispatcher Invariants...');
 
-// Invariant: In Mode C, enable_serp_harvest defaults to false unless explicitly 'true'
-function resolveSerpHarvest(envHarvest, rawFolderId, appSettingsHarvest = true) {
-  return (envHarvest !== undefined && envHarvest !== '')
+// Invariant: In Mode C, enable_serp_harvest respects folder metadata and appSettings, with ENV overrides
+function resolveSerpHarvest(envHarvest, folderMeta = {}, appSettingsHarvest = true) {
+  let harvest = (envHarvest !== undefined && envHarvest !== '')
     ? (envHarvest === 'true' || envHarvest === '1')
-    : (rawFolderId ? false : appSettingsHarvest);
+    : (appSettingsHarvest ?? true);
+  if ((envHarvest === undefined || envHarvest === '') && folderMeta.enable_serp_harvest !== undefined) {
+    harvest = Boolean(folderMeta.enable_serp_harvest);
+  }
+  return harvest;
 }
 
-assert.equal(resolveSerpHarvest(undefined, '5', true), false, 'Mode C must default to false');
-assert.equal(resolveSerpHarvest('', '5', true), false, 'Mode C with empty env must default to false');
-assert.equal(resolveSerpHarvest('true', '5', true), true, 'Mode C with explicit "true" must be true');
-assert.equal(resolveSerpHarvest(undefined, '', true), true, 'Standard sweep without folder must default to appSettings (true)');
-console.log('  ✓ [PASS] Mode C SERP harvest defaults to false (Audit-Only) preventing Stage 0 timeouts');
+assert.equal(resolveSerpHarvest(undefined, {}, true), true, 'Default Mode C with no metadata must default to true');
+assert.equal(resolveSerpHarvest('', { enable_serp_harvest: false }, true), false, 'Mode C with folder metadata=false must be false');
+assert.equal(resolveSerpHarvest('', { enable_serp_harvest: true }, false), true, 'Mode C with folder metadata=true must be true');
+assert.equal(resolveSerpHarvest('false', { enable_serp_harvest: true }, true), false, 'ENV override "false" must supersede folder metadata');
+assert.equal(resolveSerpHarvest('true', { enable_serp_harvest: false }, false), true, 'ENV override "true" must supersede folder metadata');
+console.log('  ✓ [PASS] Mode C SERP harvest dynamically respects folder settings & ENV overrides cleanly');
 
 console.log('\n================================================================');
 console.log('   🎉 ALL VERIFICATION SUITE CHECKS PASSED (100% GREEN)');
