@@ -272,18 +272,6 @@ export async function runMigrations() {
   `;
   await sql`CREATE INDEX IF NOT EXISTS idx_pa_pin_metrics_lookup ON pa_pin_metrics(pin_id, recorded_at DESC);`;
   await sql`
-    CREATE TABLE IF NOT EXISTS pa_staged_pins (
-      id SERIAL PRIMARY KEY,
-      pin_id VARCHAR(64) NOT NULL REFERENCES pa_pins(pin_id) ON DELETE CASCADE,
-      target_board VARCHAR(255),
-      override_link TEXT,
-      status VARCHAR(32) DEFAULT 'staged',
-      created_at TIMESTAMPTZ DEFAULT NOW(),
-      updated_at TIMESTAMPTZ DEFAULT NOW()
-    );
-  `;
-  await sql`CREATE INDEX IF NOT EXISTS idx_pa_staged_pins_status ON pa_staged_pins(status);`;
-  await sql`
     CREATE OR REPLACE FUNCTION trg_pa_pins_enforce_monotonic_metrics()
     RETURNS trigger LANGUAGE plpgsql AS $$
     BEGIN

@@ -461,7 +461,6 @@ export async function syncFleetDatabases(hubSql, { targetProjectId = null } = {}
   const pins = await hubSql`SELECT * FROM pa_pins;`;
   const metrics = await hubSql`SELECT * FROM pa_pin_metrics;`;
   const [rules] = await hubSql`SELECT * FROM pa_qualification_rules WHERE id = 1;`;
-  const staged = await hubSql`SELECT * FROM pa_staged_pins;`;
 
   let query = hubSql`
     SELECT project_id, project_name, database_url
@@ -734,19 +733,7 @@ export async function syncFleetDatabases(hubSql, { targetProjectId = null } = {}
           }
         }
 
-        // 9. Sync pa_staged_pins
-        if (staged.length > 0) {
-          await Promise.all(staged.map(st => sSql`
-            INSERT INTO pa_staged_pins (
-              pin_id, target_board, override_link, status, created_at, updated_at
-            ) VALUES (
-              ${st.pin_id}, ${st.target_board}, ${st.override_link}, ${st.status}, ${st.created_at}, NOW()
-            )
-            ON CONFLICT DO NOTHING;
-          `));
-        }
-
-        // 10. Update stats in neon_projects_registry on Hub
+        // 9. Update stats in neon_projects_registry on Hub
         const [cnt] = await sSql`SELECT COUNT(*)::int as c FROM competitor_profiles;`;
         const [bCnt] = await sSql`SELECT COUNT(*)::int as c FROM competitor_boards;`;
         const [pCnt] = await sSql`SELECT COUNT(*)::int as c FROM pa_pins;`;

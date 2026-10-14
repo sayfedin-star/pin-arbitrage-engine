@@ -78,10 +78,6 @@ import {
   getPinArchiveOverview,
   getTopicClusters,
   listArchivedPins,
-  stagePinsForRepurpose,
-  listStagedPins,
-  claimStagedPinCas,
-  cancelStagedPin,
   getQualificationRules,
   updateQualificationRules,
   reEvaluateArchivedPins,
@@ -2459,46 +2455,6 @@ const server = http.createServer(async (req, res) => {
       if (!snapshotId || !pinId) return sendJson(res, 400, { error: 'snapshot_id and pin_id are required' });
       const result = await deletePinMetricSnapshot(targetSql, snapshotId, pinId);
       return sendJson(res, 200, result);
-    }
-
-    if (method === 'POST' && pathname === '/api/pinarchive/stage') {
-      const body = await parseJsonBody(req);
-      const pinIds = body.pin_ids || body.pinIds;
-      const targetBoard = body.target_board || body.targetBoard || '';
-      const overrideLink = body.override_link || body.overrideLink || '';
-      if (!pinIds || !pinIds.length) return sendJson(res, 400, { error: 'pin_ids are required' });
-      const result = await stagePinsForRepurpose(targetSql, { pinIds, targetBoard, overrideLink });
-      return sendJson(res, 200, { success: true, ...result });
-    }
-
-    if (method === 'GET' && pathname === '/api/pinarchive/staged') {
-      const status = searchParams.get('status') || 'staged';
-      const limit = Number(searchParams.get('limit') || 50);
-      const offset = Number(searchParams.get('offset') || 0);
-      const items = await listStagedPins(targetSql, { status, limit, offset });
-      return sendJson(res, 200, { success: true, staged: items, items });
-    }
-
-    if (method === 'POST' && pathname === '/api/pinarchive/claim-cas') {
-      const body = await parseJsonBody(req);
-      const stagedId = body.staged_id || body.id || body.pin_id;
-      if (!stagedId) return sendJson(res, 400, { error: 'staged_id or pin_id is required' });
-      const result = await claimStagedPinCas(targetSql, stagedId);
-      if (!result.success) {
-        return sendJson(res, 409, { success: false, error: 'CAS Conflict: pin already dispatched or not in staged status' });
-      }
-      return sendJson(res, 200, { success: true, ...result });
-    }
-
-    if (method === 'DELETE' && (pathname === '/api/pinarchive/staged' || pathname === '/api/pinarchive/cancel-staged')) {
-      const body = await parseJsonBody(req).catch(() => ({}));
-      const stagedId = searchParams.get('id') || searchParams.get('staged_id') || body.staged_id || body.id || body.pin_id;
-      if (!stagedId) return sendJson(res, 400, { error: 'staged_id or pin_id is required' });
-      const result = await cancelStagedPin(targetSql, stagedId);
-      if (!result.success) {
-        return sendJson(res, 404, { success: false, error: 'Staged pin not found or already dispatched/cancelled', ...result });
-      }
-      return sendJson(res, 200, { success: true, ...result });
     }
 
     // Board Ideas Radar API

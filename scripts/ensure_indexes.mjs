@@ -57,7 +57,6 @@ async function optimizeIndexes() {
   await sql`CREATE INDEX IF NOT EXISTS idx_pa_pins_account ON pa_pins(account_username);`.catch(err => console.warn('[Index Notice]', err.message));
   await sql`CREATE INDEX IF NOT EXISTS idx_pa_pins_created_at_pinterest ON pa_pins(created_at_pinterest DESC NULLS LAST);`.catch(err => console.warn('[Index Notice]', err.message));
   await sql`CREATE INDEX IF NOT EXISTS idx_pa_pins_annotations_gin ON pa_pins USING gin(annotations);`.catch(err => console.warn('[Index Notice]', err.message));
-  await sql`CREATE INDEX IF NOT EXISTS idx_pa_staged_pins_status ON pa_staged_pins(status);`.catch(err => console.warn('[Index Notice]', err.message));
   await sql`CREATE INDEX IF NOT EXISTS idx_pa_pin_metrics_lookup ON pa_pin_metrics(pin_id, recorded_at DESC);`.catch(err => console.warn('[Index Notice]', err.message));
 
   console.log('[*] 6. Indexing P2 competitor_boards & snapshots...');

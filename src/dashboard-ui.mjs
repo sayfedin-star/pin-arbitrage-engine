@@ -1178,9 +1178,6 @@ export function getDashboardHtml() {
                   <a :href="'https://www.pinterest.com/pin/' + (p.pin_id || p.id) + '/'" target="_blank" rel="noopener noreferrer" class="p-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0b1120] text-slate-500 hover:text-rose-500 hover:bg-slate-50 dark:hover:bg-slate-800 transition" title="Open on Pinterest">
                     <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
                   </a>
-                  <button type="button" @click="stagePinAction(p.pin_id || p.id)" class="p-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0b1120] text-slate-500 hover:text-emerald-500 hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer" title="Stage Pin for Repurpose">
-                    <i data-lucide="play-circle" class="w-3.5 h-3.5"></i>
-                  </button>
                 </div>
 
               </div>
@@ -3387,20 +3384,16 @@ export function getDashboardHtml() {
           <div class="mt-1 text-[11px] text-slate-500 font-mono" x-text="formatNumber(pinarchiveOverview.total_repins) + ' Repins'"></div>
         </div>
 
-        <!-- Card 5: Avg Velocity & Staged -->
-        <div class="p-4 rounded-2xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 shadow-sm cursor-pointer hover:border-rose-500/50 transition" @click="creatorSubTab = 'staged'">
+        <!-- Card 5: Avg Daily Velocity -->
+        <div class="p-4 rounded-2xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 shadow-sm cursor-pointer hover:border-amber-500/50 transition" @click="creatorSubTab = 'topics'">
           <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider">
-            <span>Velocity / Staged</span>
+            <span>Avg Daily Velocity</span>
             <i data-lucide="zap" class="w-4 h-4 text-amber-500"></i>
           </div>
           <div class="mt-2.5 flex items-baseline space-x-2">
             <span class="text-2xl font-extrabold text-amber-600 dark:text-amber-400 font-mono" x-text="(pinarchiveOverview.avg_velocity || '0') + '/d'"></span>
-            <span class="text-xs font-bold font-mono px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-600 dark:text-rose-400" x-text="formatNumber(pinarchiveOverview.staged_pins_count) + ' staged'"></span>
           </div>
-          <div class="mt-1 text-[11px] text-rose-500 font-semibold flex items-center space-x-1">
-            <span>View Staged Queue</span>
-            <i data-lucide="arrow-right" class="w-3 h-3"></i>
-          </div>
+          <div class="mt-1 text-[11px] text-slate-500 dark:text-slate-400 truncate" x-text="pinarchiveOverview.top_cluster?.name ? 'Top Cluster: ' + pinarchiveOverview.top_cluster.name : 'Daily Save Velocity'"></div>
         </div>
       </div>
 
@@ -3422,12 +3415,6 @@ export function getDashboardHtml() {
           <i data-lucide="layers" class="w-3.5 h-3.5"></i>
           <span>Smart Topic Clusters</span>
           <span class="px-1.5 py-0.5 rounded text-[10px] font-mono" :class="creatorSubTab === 'topics' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'" x-text="pinarchiveTopics.length"></span>
-        </button>
-
-        <button @click="creatorSubTab = 'staged'" class="flex items-center space-x-2 px-3.5 py-2 text-xs font-bold rounded-xl transition whitespace-nowrap active:scale-95" :class="creatorSubTab === 'staged' ? 'bg-rose-600 text-white shadow-sm' : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400'">
-          <i data-lucide="send" class="w-3.5 h-3.5"></i>
-          <span>Staged Repurposing</span>
-          <span class="px-1.5 py-0.5 rounded text-[10px] font-mono" :class="creatorSubTab === 'staged' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'" x-text="pinarchiveOverview.staged_pins_count"></span>
         </button>
 
         <button @click="creatorSubTab = 'rules'" class="flex items-center space-x-2 px-3.5 py-2 text-xs font-bold rounded-xl transition whitespace-nowrap active:scale-95" :class="creatorSubTab === 'rules' ? 'bg-amber-600 text-white shadow-sm' : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400'">
@@ -3666,9 +3653,9 @@ export function getDashboardHtml() {
                   <a :href="'https://www.pinterest.com/pin/' + pin.pin_id + '/'" target="_blank" class="p-1.5 rounded-lg bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-indigo-500 transition" title="Open on Pinterest">
                     <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
                   </a>
-                  <button @click="stagePinAction(pin.pin_id)" class="flex-1 py-1.5 px-2.5 rounded-xl text-[11px] font-bold bg-indigo-600 hover:bg-indigo-500 text-white transition active:scale-95 flex items-center justify-center space-x-1 shadow-sm">
-                    <i data-lucide="plus" class="w-3 h-3"></i>
-                    <span>Stage for Repurpose</span>
+                  <button type="button" @click="openPinDossier(pin)" class="flex-1 py-1.5 px-2.5 rounded-xl text-[11px] font-bold bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30 transition active:scale-95 flex items-center justify-center space-x-1 shadow-2xs cursor-pointer">
+                    <i data-lucide="eye" class="w-3 h-3"></i>
+                    <span>Inspect Pin</span>
                   </button>
                 </div>
               </div>
@@ -3704,11 +3691,8 @@ export function getDashboardHtml() {
                     <td class="py-2 px-3 text-right text-slate-500" x-text="formatNumber(pin.repins)"></td>
                     <td class="py-2 px-3 text-right font-bold text-amber-500" x-text="(pin.velocity || '0') + '/d'"></td>
                     <td class="py-2 px-3 text-center">
-                      <div class="flex items-center justify-center space-x-1.5">
-                        <button @click="stagePinAction(pin.pin_id)" class="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-[11px] transition shadow-sm active:scale-95">
-                          Stage
-                        </button>
-                        <a :href="'https://www.pinterest.com/pin/' + pin.pin_id + '/'" target="_blank" class="p-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-indigo-500 transition">
+                      <div class="flex items-center justify-center">
+                        <a :href="'https://www.pinterest.com/pin/' + pin.pin_id + '/'" target="_blank" rel="noopener noreferrer" class="p-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-indigo-500 transition" title="Open on Pinterest">
                           <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
                         </a>
                       </div>
@@ -3765,67 +3749,7 @@ export function getDashboardHtml() {
       </div>
 
       <!-- ======================================================== -->
-      <!-- SUB-TAB 4: 🚀 STAGED REPURPOSING QUEUE                   -->
-      <!-- ======================================================== -->
-      <div x-show="creatorSubTab === 'staged'" class="space-y-4">
-        <div class="p-4 rounded-2xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 space-y-4 shadow-sm">
-          <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800/80 pb-3">
-            <div class="flex items-center space-x-2">
-              <i data-lucide="send" class="w-4 h-4 text-rose-500"></i>
-              <div>
-                <h3 class="font-bold text-xs uppercase tracking-wider text-slate-800 dark:text-slate-200">Staged Pins Queue (طابور النشر بالـ Compare-And-Swap)</h3>
-                <p class="text-[11px] text-slate-500">Atomic CAS ensures zero double-posting across concurrent runners.</p>
-              </div>
-            </div>
-            <button @click="fetchStagedPins()" class="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center space-x-1.5">
-              <i data-lucide="rotate-cw" class="w-3.5 h-3.5"></i>
-              <span>Refresh Queue</span>
-            </button>
-          </div>
-
-          <div class="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden max-h-96 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
-            <template x-for="item in stagedPinsList" :key="item.id">
-              <div class="p-3 bg-white dark:bg-slate-900/50 flex items-center justify-between gap-3 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
-                <div class="flex items-center space-x-3 min-w-0">
-                  <template x-if="item.image_url">
-                    <img :src="item.image_url" class="w-10 h-14 rounded-lg object-cover border border-slate-200 dark:border-slate-700 flex-shrink-0">
-                  </template>
-                  <div class="min-w-0 space-y-1">
-                    <h5 class="font-bold text-xs text-slate-900 dark:text-white truncate" x-text="item.title || 'Archived Pin'"></h5>
-                    <div class="flex items-center space-x-2 text-[11px] font-mono text-slate-500">
-                      <span x-text="'Pin ID: ' + item.pin_id"></span>
-                      <span>•</span>
-                      <span x-text="formatNumber(item.saves) + ' saves'"></span>
-                      <span>•</span>
-                      <span class="text-amber-500" x-text="(item.velocity || '0') + '/day'"></span>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="flex items-center space-x-2">
-                  <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase" :class="item.status === 'staged' ? 'bg-amber-500/10 text-amber-600 border border-amber-500/30' : 'bg-emerald-500/10 text-emerald-600 border border-emerald-500/30'" x-text="item.status"></span>
-                  <template x-if="item.status === 'staged'">
-                    <div class="flex items-center space-x-1.5">
-                      <button @click="claimStagedPinAction(item.id)" class="px-3 py-1 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white transition active:scale-95 shadow-sm">
-                        Mark Dispatched (CAS)
-                      </button>
-                      <button @click="cancelStagedPinAction(item.id)" class="p-1 rounded-xl hover:bg-rose-100 dark:hover:bg-rose-950/40 text-slate-400 hover:text-rose-500" title="Cancel Staged">
-                        <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
-                      </button>
-                    </div>
-                  </template>
-                </div>
-              </div>
-            </template>
-            <div x-show="stagedPinsList.length === 0" class="p-8 text-center text-slate-400 text-xs font-mono">
-              <span>No pins currently staged in queue.</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- ======================================================== -->
-      <!-- SUB-TAB 5: ⚙️ QUALIFICATION & INGEST RULES                -->
+      <!-- SUB-TAB 4: ⚙️ QUALIFICATION & INGEST RULES                -->
       <!-- ======================================================== -->
       <div x-show="creatorSubTab === 'rules'" class="space-y-4">
         <div class="p-5 rounded-2xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 shadow-sm space-y-4">
@@ -5016,13 +4940,10 @@ export function getDashboardHtml() {
 
                       <!-- Actions -->
                       <td class="py-2.5 px-3 text-center">
-                        <div class="flex items-center justify-center gap-1">
-                          <a :href="'https://www.pinterest.com/pin/' + p.pin_id + '/'" target="_blank" class="inline-flex items-center justify-center h-7 w-7 rounded-lg text-slate-500 hover:text-rose-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition" title="Open on Pinterest">
+                        <div class="flex items-center justify-center">
+                          <a :href="'https://www.pinterest.com/pin/' + p.pin_id + '/'" target="_blank" rel="noopener noreferrer" class="inline-flex items-center justify-center h-7 w-7 rounded-lg text-slate-500 hover:text-rose-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition" title="Open on Pinterest">
                             <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
                           </a>
-                          <button @click="stagePinAction(p.pin_id)" class="inline-flex items-center justify-center h-7 w-7 rounded-lg text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer" title="Stage Pin for Repurpose">
-                            <i data-lucide="play-circle" class="w-4 h-4"></i>
-                          </button>
                         </div>
                       </td>
                     </tr>
@@ -5146,10 +5067,6 @@ export function getDashboardHtml() {
                 <button type="button" @click="analyzeSelectedPinsAsRelated()" :disabled="isAddingSeeds" class="px-3.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold transition shadow-sm cursor-pointer flex items-center gap-1.5">
                   <i data-lucide="network" class="w-3.5 h-3.5" :class="isAddingSeeds ? 'animate-spin' : ''"></i>
                   <span>Analyze Related Pins</span>
-                </button>
-                <button type="button" @click="stageSelectedCreatorPins()" class="px-4 py-1.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold transition shadow-sm cursor-pointer flex items-center gap-1.5">
-                  <i data-lucide="play-circle" class="w-3.5 h-3.5"></i>
-                  <span>Stage Selected Pins</span>
                 </button>
               </div>
             </div>
@@ -5336,9 +5253,9 @@ export function getDashboardHtml() {
                       <td class="py-2.5 px-3 font-sans text-slate-500 text-[11px]" x-text="p.formatted_first_pulled || '—'"></td>
                       <td class="py-2.5 px-3 font-sans text-slate-500 text-[11px]" x-text="p.formatted_created || '—'"></td>
                       <td class="py-2.5 px-3 text-center">
-                        <button @click="stagePinAction(p.pin_id)" class="inline-flex items-center justify-center h-7 w-7 rounded-full text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer" title="Stage Pin for Repurpose">
-                          <i data-lucide="play-circle" class="w-4 h-4"></i>
-                        </button>
+                        <a :href="'https://www.pinterest.com/pin/' + p.pin_id + '/'" target="_blank" rel="noopener noreferrer" class="inline-flex items-center justify-center h-7 w-7 rounded-lg text-slate-500 hover:text-rose-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition" title="Open on Pinterest">
+                          <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+                        </a>
                       </td>
                     </tr>
                   </template>
@@ -5369,8 +5286,8 @@ export function getDashboardHtml() {
                     <a :href="'https://www.pinterest.com/pin/' + pin.pin_id + '/'" target="_blank" class="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-rose-500">
                       <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
                     </a>
-                    <button @click="stagePinAction(pin.pin_id)" class="flex-1 py-1.5 px-2 rounded-xl text-[10px] font-bold bg-rose-500 hover:bg-rose-600 text-white transition active:scale-95 shadow-sm">
-                      Stage Pin
+                    <button type="button" @click="openPinDossier(pin)" class="flex-1 py-1.5 px-2 rounded-xl text-[10px] font-bold bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/30 transition active:scale-95 shadow-2xs cursor-pointer">
+                      Inspect Pin
                     </button>
                   </div>
                 </div>
@@ -8118,63 +8035,6 @@ export function getDashboardHtml() {
 
 
 
-  <!-- Modal: Staged Pins for Repurposing Queue -->
-  <div x-show="isStagedModalOpen" x-cloak class="fixed inset-0 z-50 overflow-y-auto bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-4">
-    <div class="bg-white dark:bg-[#0d1526] border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-3xl shadow-2xl p-6 space-y-4 text-slate-900 dark:text-white" @click.away="isStagedModalOpen = false">
-      <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
-        <div class="flex items-center space-x-2">
-          <i data-lucide="send" class="w-5 h-5 text-rose-500"></i>
-          <div>
-            <h3 class="font-bold text-sm">Staged Pins Queue (طابور النشر بالـ Compare-And-Swap)</h3>
-            <p class="text-[11px] text-slate-500">Atomic CAS ensures zero double-posting across concurrent runners.</p>
-          </div>
-        </div>
-        <button @click="isStagedModalOpen = false" class="text-slate-400 hover:text-slate-700 dark:hover:text-white">
-          <i data-lucide="x" class="w-4 h-4"></i>
-        </button>
-      </div>
-
-      <!-- Staged List -->
-      <div class="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden max-h-96 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
-        <template x-for="item in stagedPinsList" :key="item.id">
-          <div class="p-3 bg-white dark:bg-slate-900/50 flex items-center justify-between gap-3 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
-            <div class="flex items-center space-x-3 min-w-0">
-              <template x-if="item.image_url">
-                <img :src="item.image_url" class="w-10 h-14 rounded-lg object-cover border border-slate-200 dark:border-slate-700 flex-shrink-0">
-              </template>
-              <div class="min-w-0 space-y-1">
-                <h5 class="font-bold text-xs text-slate-900 dark:text-white truncate" x-text="item.title || 'Archived Pin'"></h5>
-                <div class="flex items-center space-x-2 text-[11px] font-mono text-slate-500">
-                  <span x-text="'Pin ID: ' + item.pin_id"></span>
-                  <span>•</span>
-                  <span x-text="formatNumber(item.saves) + ' saves'"></span>
-                  <span>•</span>
-                  <span class="text-amber-500" x-text="(item.velocity || '0') + '/day'"></span>
-                </div>
-              </div>
-            </div>
-
-            <div class="flex items-center space-x-2">
-              <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase" :class="item.status === 'staged' ? 'bg-amber-500/10 text-amber-600 border border-amber-500/30' : 'bg-emerald-500/10 text-emerald-600 border border-emerald-500/30'" x-text="item.status"></span>
-              <template x-if="item.status === 'staged'">
-                <button @click="claimStagedPinAction(item.id)" class="px-3 py-1 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white transition active:scale-95 shadow-sm">
-                  Mark Dispatched (CAS)
-                </button>
-              </template>
-            </div>
-          </div>
-        </template>
-        <div x-show="stagedPinsList.length === 0" class="p-8 text-center text-slate-400 text-xs">
-          <span>No pins currently staged. Stage pins from the PinArchive tab to populate this queue.</span>
-        </div>
-      </div>
-
-      <div class="pt-2 text-right border-t border-slate-200 dark:border-slate-800">
-        <button @click="isStagedModalOpen = false" class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-500 hover:text-slate-700">Close</button>
-      </div>
-    </div>
-  </div>
-
   <!-- Modal: Bulk Add Related Pin Seeds -->
   <div x-show="isBulkAddSeedsModalOpen" x-cloak class="fixed inset-0 z-50 overflow-y-auto bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-4">
     <div class="bg-white dark:bg-[#0d1526] border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-lg shadow-2xl p-6 space-y-4 text-slate-900 dark:text-white" @click.away="isBulkAddSeedsModalOpen = false">
@@ -8260,14 +8120,6 @@ export function getDashboardHtml() {
       >
         <i data-lucide="network" class="w-3.5 h-3.5" :class="isAddingSeeds ? 'animate-spin' : ''"></i>
         <span>🕸️ Analyze Related Pins Radar</span>
-      </button>
-      <button
-        type="button"
-        @click="stageSelectedCreatorPins()"
-        class="px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition shadow-sm cursor-pointer flex items-center gap-1.5"
-      >
-        <i data-lucide="play-circle" class="w-3.5 h-3.5"></i>
-        <span>Stage for Repurpose</span>
       </button>
       <button
         type="button"
@@ -8584,7 +8436,7 @@ export function getDashboardHtml() {
         },
 
         // Tab 6: PinArchive & Topic Clusters State
-        pinarchiveOverview: { total_pins: 0, total_saves: 0, total_repins: 0, avg_velocity: 0, tracked_accounts: 0, top_cluster: null, staged_pins_count: 0 },
+        pinarchiveOverview: { total_pins: 0, total_saves: 0, total_repins: 0, avg_velocity: 0, tracked_accounts: 0, top_cluster: null },
         pinarchiveTopics: [],
         pinarchivePins: [],
         pinarchiveTopicSearch: '',
@@ -8617,11 +8469,6 @@ export function getDashboardHtml() {
         competitorBoardsList: [],
         isLoadingBoards: false,
         isSyncingBoards: false,
-
-        // Staged Queue Modal State
-        isStagedModalOpen: false,
-        stagedPinsList: [],
-        isLoadingStaged: false,
 
         // GitHub Actions 20-Shard Crawler & Board Sharding Modal State
         isGhaCrawlerModalOpen: false,
@@ -10052,9 +9899,7 @@ export function getDashboardHtml() {
             }
           } catch (_) {}
           this.$watch('creatorSubTab', (val) => {
-            if (val === 'staged' && (!this.stagedPinsList || this.stagedPinsList.length === 0)) {
-              this.fetchStagedPins();
-            } else if (val === 'archive' && (!this.pinarchivePins || this.pinarchivePins.length === 0)) {
+            if (val === 'archive' && (!this.pinarchivePins || this.pinarchivePins.length === 0)) {
               this.fetchPinArchivePins();
             }
             this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
@@ -10192,9 +10037,6 @@ export function getDashboardHtml() {
               await this.loadExplorerData();
             } else if (this.currentTab === 'creators_archive' || this.currentTab === 'pinarchive' || this.currentTab === 'competitors') {
               await this.fetchPinArchivePins();
-              if (this.creatorSubTab === 'staged') {
-                await this.fetchStagedPins();
-              }
             }
           } finally {
             this.isLoading = false;
@@ -10592,7 +10434,7 @@ export function getDashboardHtml() {
           this.overview = { total_seeds: 0, total_candidates: 0, commercial_gaps: 0, top_clusters: [] };
           this.intersections = [];
           this.pinarchivePins = [];
-          this.pinarchiveOverview = { total_pins: 0, total_saves: 0, total_repins: 0, avg_velocity: 0, tracked_accounts: 0, top_cluster: null, staged_pins_count: 0 };
+          this.pinarchiveOverview = { total_pins: 0, total_saves: 0, total_repins: 0, avg_velocity: 0, tracked_accounts: 0, top_cluster: null };
           this.pinarchiveTopics = [];
           this.showToast('Switched view to project: ' + projId);
           await this.refreshAll();
@@ -10605,11 +10447,11 @@ export function getDashboardHtml() {
               const data = await res.json();
               this.pinarchiveOverview = data.overview || data;
             } else {
-              this.pinarchiveOverview = { total_pins: 0, total_saves: 0, total_repins: 0, avg_velocity: 0, tracked_accounts: 0, top_cluster: null, staged_pins_count: 0 };
+              this.pinarchiveOverview = { total_pins: 0, total_saves: 0, total_repins: 0, avg_velocity: 0, tracked_accounts: 0, top_cluster: null };
             }
           } catch (e) {
             console.error('fetchPinArchiveOverview error:', e);
-            this.pinarchiveOverview = { total_pins: 0, total_saves: 0, total_repins: 0, avg_velocity: 0, tracked_accounts: 0, top_cluster: null, staged_pins_count: 0 };
+            this.pinarchiveOverview = { total_pins: 0, total_saves: 0, total_repins: 0, avg_velocity: 0, tracked_accounts: 0, top_cluster: null };
           }
         },
 
@@ -10664,79 +10506,6 @@ export function getDashboardHtml() {
             this.pinarchiveSelectedTopic = topicName;
           }
           this.fetchPinArchivePins();
-        },
-
-        async stagePinAction(pinId) {
-          try {
-            const res = await fetch(this.getApiUrl('/api/pinarchive/stage'), {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ pin_ids: [pinId], scheduled_slot: 'morning' })
-            });
-            if (res.ok) {
-              const data = await res.json();
-              const count = data.staged_count !== undefined ? data.staged_count : (data.stagedCount || 0);
-              if (count > 0) {
-                this.showToast('✅ Pin staged for repurposing queue! (' + count + ' added)');
-                if (this.pinarchiveOverview) {
-                  this.pinarchiveOverview.staged_pins_count = (this.pinarchiveOverview.staged_pins_count || 0) + count;
-                }
-              } else {
-                this.showToast('ℹ️ Pin is already in the staged repurposing queue.');
-              }
-            } else {
-              const err = await res.json();
-              this.showToast('Failed to stage pin: ' + (err.error || 'Error'));
-            }
-          } catch (e) {
-            this.showToast('Error staging pin: ' + e.message);
-          }
-        },
-
-        async openStagedModal() {
-          this.isStagedModalOpen = true;
-          await this.fetchStagedPins();
-          this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
-        },
-
-        async fetchStagedPins() {
-          this.isLoadingStaged = true;
-          try {
-            const res = await fetch(this.getApiUrl('/api/pinarchive/staged?status=all&limit=50'));
-            if (res.ok) {
-              const data = await res.json();
-              this.stagedPinsList = data.staged || data.items || [];
-            }
-          } catch (e) {
-            console.error('fetchStagedPins error:', e);
-          } finally {
-            this.isLoadingStaged = false;
-            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
-          }
-        },
-
-        async claimStagedPinAction(stagedId) {
-          try {
-            const res = await fetch(this.getApiUrl('/api/pinarchive/claim-cas'), {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ id: stagedId, staged_id: stagedId, expected_version: 1 })
-            });
-            if (res.ok) {
-              this.showToast('🚀 Pin marked dispatched via atomic CAS!');
-              await this.fetchStagedPins();
-              await this.fetchPinArchiveOverview();
-            } else if (res.status === 409) {
-              const err = await res.json();
-              this.showToast('⚠️ CAS Conflict (409): ' + (err.error || 'Pin was already claimed by another worker.'));
-              await this.fetchStagedPins();
-            } else {
-              const err = await res.json();
-              this.showToast('CAS Claim conflict: ' + (err.error || 'Failed'));
-            }
-          } catch (e) {
-            this.showToast('Claim error: ' + e.message);
-          }
         },
 
         async fetchQualificationRules() {
@@ -12210,30 +11979,6 @@ export function getDashboardHtml() {
           }
         },
 
-        async stageSelectedCreatorPins() {
-          if (!this.selectedCreatorPinIds.length) {
-            this.showToast('No pins selected.', 'info');
-            return;
-          }
-          const count = this.selectedCreatorPinIds.length;
-          try {
-            const res = await fetch(this.getApiUrl('/api/pinarchive/stage'), {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ pinIds: this.selectedCreatorPinIds })
-            });
-            if (res.ok) {
-              this.showToast('✅ Successfully staged ' + count + ' pin(s)!');
-              this.selectedCreatorPinIds = [];
-            } else {
-              this.showToast('Failed to stage pins.', 'error');
-            }
-          } catch (e) {
-            console.error('stageSelectedCreatorPins error:', e);
-            this.showToast('Error staging pins.', 'error');
-          }
-        },
-
         openCreatorDossierByName(username) {
           if (!username) return;
           const clean = username.replace(/^@+/, '').trim().toLowerCase();
@@ -12316,25 +12061,6 @@ export function getDashboardHtml() {
 
         async submitAddCompetitor() {
           return this.submitTrackCreatorUnified();
-        },
-
-        async cancelStagedPinAction(stagedId) {
-          if (!confirm('Remove this pin from the staged queue?')) return;
-          try {
-            const res = await fetch(this.getApiUrl('/api/pinarchive/staged?id=' + encodeURIComponent(stagedId)), {
-              method: 'DELETE'
-            });
-            if (res.ok) {
-              this.showToast('Pin removed from staged queue.');
-              await this.fetchStagedPins();
-              await this.fetchPinArchiveOverview();
-            } else {
-              const err = await res.json();
-              this.showToast('Failed to cancel staged pin: ' + (err.error || 'Error'));
-            }
-          } catch (e) {
-            this.showToast('Cancel error: ' + e.message);
-          }
         },
 
         async submitAddKeyword() {

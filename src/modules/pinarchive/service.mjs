@@ -6,7 +6,6 @@
  * - Atomic pin batch ingestion into pa_pins & time-series telemetry in pa_pin_metrics.
  * - Semantic topic cluster extraction from annotations via pa_topic_clusters_page.
  * - High-speed indexed listing & filtering of archived winning pins.
- * - Safe staging & Bulk Compare-And-Swap (CAS) dispatching via pa_staged_pins.
  */
 
 import { fetchPinFromPinterest } from '../../../scripts/lib/pinterest.mjs';
@@ -553,7 +552,7 @@ export async function ingestPinsBatch(sql, pins, accountUsername = null, { filte
  * Get aggregated PinArchive overview metrics
  */
 export async function getPinArchiveOverview(sql) {
-  const [[stats], [topCluster], [stagedCount]] = await Promise.all([
+  const [[stats], [topCluster]] = await Promise.all([
     sql`
       SELECT
         COUNT(*)::bigint AS total_pins,
@@ -566,12 +565,7 @@ export async function getPinArchiveOverview(sql) {
     sql`
       SELECT *
       FROM pa_topic_clusters_page(1, NULL, 1, 0);
-    `.catch(() => []),
-    sql`
-      SELECT COUNT(*)::int AS count
-      FROM pa_staged_pins
-      WHERE status = 'staged';
-    `
+    `.catch(() => [])
   ]);
 
   return {
@@ -585,8 +579,7 @@ export async function getPinArchiveOverview(sql) {
       pins: Number(topCluster.pins_count),
       avg_saves: Number(topCluster.avg_saves),
       total_saves: Number(topCluster.total_saves),
-    } : null,
-    staged_pins_count: Number(stagedCount?.count || 0)
+    } : null
   };
 }
 
@@ -898,165 +891,6 @@ export async function listArchivedPins(sql, {
 
   mapped.total = countRow ? countRow.total : mapped.length;
   return mapped;
-}
-
-/**
- * Stage selected pins for repurposing & scheduling (idempotent: avoids duplicate active staging)
- */
-export async function stagePinsForRepurpose(sql, { pinIds = [], targetBoard = '', overrideLink = '' } = {}) {
-  if (!Array.isArray(pinIds) || pinIds.length === 0) {
-    throw new Error('No pin IDs provided to stage.');
-  }
-
-  const stagedRows = [];
-  for (const pinId of pinIds) {
-    const cleanId = String(pinId).trim();
-    if (!cleanId) continue;
-
-    try {
-      const [inserted] = await sql`
-        INSERT INTO pa_staged_pins (
-          pin_id,
-          target_board,
-          override_link,
-          status,
-          created_at,
-          updated_at
-        )
-        SELECT
-          ${cleanId},
-          ${targetBoard || null},
-          ${overrideLink || null},
-          'staged',
-          NOW(),
-          NOW()
-        WHERE EXISTS (
-          SELECT 1 FROM pa_pins WHERE pin_id = ${cleanId}
-        )
-        AND NOT EXISTS (
-          SELECT 1 FROM pa_staged_pins WHERE pin_id = ${cleanId} AND status = 'staged'
-        )
-        RETURNING *;
-      `;
-      if (inserted) stagedRows.push(inserted);
-    } catch (err) {
-      console.warn(`[stagePinsForRepurpose] Skipped pin ${cleanId}:`, err.message);
-    }
-  }
-
-  return { ok: true, stagedCount: stagedRows.length, staged_count: stagedRows.length, items: stagedRows };
-}
-
-/**
- * Atomic Compare-And-Swap (CAS) dispatch claim for a staged pin
- * Prevents double-posting across concurrent workers.
- */
-export async function claimStagedPinCas(sql, stagedId) {
-  if (!stagedId) throw new Error('Invalid staged ID');
-  const cleanStr = String(stagedId).trim();
-  const numericId = parseInt(cleanStr, 10);
-  const isSerialId = !isNaN(numericId) && String(numericId) === cleanStr && numericId > 0 && numericId <= 2147483647;
-
-  let claimed;
-  if (isSerialId) {
-    [claimed] = await sql`
-      UPDATE pa_staged_pins
-      SET status = 'dispatched', updated_at = NOW()
-      WHERE id = ${numericId} AND status = 'staged'
-      RETURNING *;
-    `;
-  }
-
-  // Fallback to claim by Pinterest pin_id if not claimed by serial primary key
-  if (!claimed) {
-    [claimed] = await sql`
-      UPDATE pa_staged_pins
-      SET status = 'dispatched', updated_at = NOW()
-      WHERE pin_id = ${cleanStr} AND status = 'staged'
-      RETURNING *;
-    `;
-  }
-
-  return {
-    success: Boolean(claimed),
-    item: claimed || null,
-  };
-}
-
-/**
- * Cancel or unstage a pin in pa_staged_pins
- */
-export async function cancelStagedPin(sql, stagedId) {
-  if (!stagedId) throw new Error('Invalid staged ID');
-  const cleanStr = String(stagedId).trim();
-  const numericId = parseInt(cleanStr, 10);
-  const isSerialId = !isNaN(numericId) && String(numericId) === cleanStr && numericId > 0 && numericId <= 2147483647;
-
-  let cancelled;
-  if (isSerialId) {
-    [cancelled] = await sql`
-      UPDATE pa_staged_pins
-      SET status = 'cancelled', updated_at = NOW()
-      WHERE id = ${numericId} AND status = 'staged'
-      RETURNING *;
-    `;
-  }
-
-  // Fallback to cancel by Pinterest pin_id if not matched by serial ID
-  if (!cancelled) {
-    [cancelled] = await sql`
-      UPDATE pa_staged_pins
-      SET status = 'cancelled', updated_at = NOW()
-      WHERE pin_id = ${cleanStr} AND status = 'staged'
-      RETURNING *;
-    `;
-  }
-
-  return {
-    success: Boolean(cancelled),
-    item: cancelled || null,
-  };
-}
-
-/**
- * List all staged pins in the repurposing pipeline (supports status 'all' and individual statuses)
- */
-export async function listStagedPins(sql, { status = 'all', limit = 50, offset = 0 } = {}) {
-  const lim = Math.max(1, Math.min(isNaN(Number(limit)) ? 50 : Number(limit), 200));
-  const off = Math.max(0, isNaN(Number(offset)) ? 0 : Number(offset));
-
-  if (status && status !== 'all') {
-    return await sql`
-      SELECT
-        s.*,
-        p.title,
-        p.image_url,
-        p.dominant_color,
-        p.saves,
-        p.velocity,
-        p.link AS original_link
-      FROM pa_staged_pins s
-      LEFT JOIN pa_pins p ON s.pin_id = p.pin_id
-      WHERE s.status = ${status}
-      ORDER BY s.created_at DESC
-      LIMIT ${lim} OFFSET ${off};
-    `;
-  }
-
-  return await sql`
-    SELECT
-      s.*,
-      p.title,
-      p.image_url,
-      p.dominant_color,
-      p.saves,
-      p.velocity,
-      p.link AS original_link
-    FROM pa_staged_pins s
-    LEFT JOIN pa_pins p ON s.pin_id = p.pin_id
-    ORDER BY s.created_at DESC
-    LIMIT ${lim} OFFSET ${off};
-  `;
 }
 
 /**

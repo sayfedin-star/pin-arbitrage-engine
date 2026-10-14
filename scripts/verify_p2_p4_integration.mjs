@@ -24,10 +24,6 @@ import {
   getPinArchiveOverview,
   getTopicClusters,
   listArchivedPins,
-  stagePinsForRepurpose,
-  claimStagedPinCas,
-  cancelStagedPin,
-  listStagedPins,
   getQualificationRules,
   updateQualificationRules,
   qualifyPin,
@@ -229,47 +225,6 @@ async function runTests() {
       `getPinArchiveOverview returned aggregated stats (pins: ${overview.total_pins}, saves: ${overview.total_saves})`
     );
 
-    // 2.5 Test Staging and Atomic CAS Dispatch (pa_staged_pins)
-    const stageRes = await stagePinsForRepurpose(sql, {
-      pinIds: [TEST_PIN_ID],
-      targetBoard: 'Keto Repurposed',
-      overrideLink: 'https://zizeeba.com/viral'
-    });
-    assert(stageRes.ok && stageRes.stagedCount === 1, `stagePinsForRepurpose successfully staged pin in queue`);
-    const stagedId = stageRes.items[0].id;
-
-    // 2.5.1 Test duplicate staging prevention (idempotency)
-    const dupStageRes = await stagePinsForRepurpose(sql, {
-      pinIds: [TEST_PIN_ID],
-      targetBoard: 'Keto Repurposed 2'
-    });
-    assert(
-      dupStageRes.ok && dupStageRes.stagedCount === 0,
-      `stagePinsForRepurpose idempotency verified: prevented duplicate active staging for pin ${TEST_PIN_ID}`
-    );
-
-    // 2.5.2 Test listStagedPins with status='all' and status='staged'
-    const stagedAll = await listStagedPins(sql, { status: 'all' });
-    assert(
-      stagedAll.some(s => s.id === stagedId && s.status === 'staged'),
-      `listStagedPins(status='all') retrieved staged pin without query failure`
-    );
-
-    // CAS Attempt 1: Should claim and transition status to 'dispatched'
-    const cas1 = await claimStagedPinCas(sql, stagedId);
-    assert(cas1.success === true && cas1.item.status === 'dispatched', `First CAS claim succeeded: status transitioned to 'dispatched'`);
-
-    // CAS Attempt 2: Should fail gracefully with success === false (idempotent / race protected)
-    const cas2 = await claimStagedPinCas(sql, stagedId);
-    assert(cas2.success === false && cas2.item === null, `Second CAS claim rejected: atomic collision prevented duplicate posting`);
-
-    // 2.5.3 Test listStagedPins with status='dispatched'
-    const stagedDispatched = await listStagedPins(sql, { status: 'dispatched' });
-    assert(
-      stagedDispatched.some(s => s.id === stagedId && s.status === 'dispatched'),
-      `listStagedPins(status='dispatched') retrieved dispatched pin`
-    );
-
     console.log('\n=== TEST SUITE 3: Pin Qualification Rules (Anti-Bloat & Early-Stop) ===');
 
     // 3.1 Verify getQualificationRules returns default 3-tier rules
@@ -348,15 +303,9 @@ async function runTests() {
     const reEvalResult = await reEvaluateArchivedPins(sql, rules);
     assert(reEvalResult.ok && reEvalResult.total_evaluated >= 1 && reEvalResult.disqualified_count !== undefined, `reEvaluateArchivedPins evaluated ${reEvalResult.total_evaluated} pins successfully with disqualified count`);
 
-    // 3.6 Test claimStagedPinCas by string pin_id (polymorphic claim)
-    const stageQualRes = await stagePinsForRepurpose(sql, { pinIds: [TEST_QUALIFIED_PIN] });
-    assert(stageQualRes.ok && stageQualRes.stagedCount === 1, 'Staged qualified pin successfully for raw pin_id claim');
-    const casByPinId = await claimStagedPinCas(sql, TEST_QUALIFIED_PIN);
-    assert(casByPinId.success === true && casByPinId.item.status === 'dispatched', 'claimStagedPinCas claimed pin by raw string pin_id');
-
     // 3.7 Test formatPin clock skew resilience (negative msDiff handled gracefully)
     const clockSkewPin = formatPin({
-      id: 'skew_pin_1',
+      id: '999888777666555444',
       created_at: new Date(Date.now() + 5000).toISOString(),
       saves: 30,
       repins: 5
@@ -364,10 +313,6 @@ async function runTests() {
     assert(clockSkewPin && clockSkewPin.age_days === 0.1, 'formatPin safely assigned 0.1 age_days to pin with clock skew');
     const skewQual = qualifyPin(clockSkewPin, rules);
     assert(skewQual.qualified && skewQual.matchedTier === 'tier3', 'Pin with clock skew qualifies under Tier 3');
-
-    // 3.8 Test stagePinsForRepurpose FK error resilience
-    const nonExistentStageRes = await stagePinsForRepurpose(sql, { pinIds: ['non_existent_pin_fk_test_999'] });
-    assert(nonExistentStageRes.ok && nonExistentStageRes.stagedCount === 0, 'stagePinsForRepurpose handled non-existent pin ID gracefully without throwing FK exception');
 
     // 3.9 Test reEvaluateArchivedPins with master_ingest_enabled: false
     const disabledRules = { ...rules, master_ingest_enabled: false };
@@ -388,7 +333,7 @@ async function runTests() {
     }
     assert(scheduledPassed, 'Cloudflare Worker scheduled cron executed cleanly without ReferenceError (getPool)');
 
-    // 3.12 Test claimStagedPinCas with 64-bit numeric Pinterest pin ID (prevents PostgreSQL integer overflow)
+    // 3.12 Test ingestPinsBatch with 64-bit numeric Pinterest pin ID & username normalization
     const PIN_64BIT_NUMERIC = '795170940510168393';
     await ingestPinsBatch(sql, [{
       pin_id: PIN_64BIT_NUMERIC,
@@ -401,21 +346,10 @@ async function runTests() {
     const [persisted64] = await sql`SELECT account_username FROM pa_pins WHERE pin_id = ${PIN_64BIT_NUMERIC};`;
     assert(persisted64?.account_username === 'testcamelcaseuser', 'ingestPinsBatch normalized @TestCamelCaseUser to clean lowercase without @');
 
-    await stagePinsForRepurpose(sql, { pinIds: [PIN_64BIT_NUMERIC] });
-    const claim64Res = await claimStagedPinCas(sql, PIN_64BIT_NUMERIC);
-    assert(claim64Res.success === true && claim64Res.item?.pin_id === PIN_64BIT_NUMERIC, 'claimStagedPinCas cleanly claimed 64-bit numeric pin without integer out-of-range error');
-
     // 3.13 Test comments and newest sorting in listArchivedPins
     const commentSorted = await listArchivedPins(sql, { sortBy: 'comments', order: 'desc', limit: 3 });
     const newestSorted = await listArchivedPins(sql, { sortBy: 'newest', order: 'desc', limit: 3 });
     assert(Array.isArray(commentSorted) && Array.isArray(newestSorted), 'listArchivedPins supports comments and newest sorting without SQL errors');
-
-    // 3.14 Test cancelStagedPin functionality
-    const cancelPinId = 'test_cancel_pin_' + Date.now();
-    await ingestPinsBatch(sql, [{ pin_id: cancelPinId, title: 'Pin to cancel', saves: 200, annotations: ['Cancel'] }]);
-    await stagePinsForRepurpose(sql, { pinIds: [cancelPinId] });
-    const cancelRes = await cancelStagedPin(sql, cancelPinId);
-    assert(cancelRes.success === true && cancelRes.item?.status === 'cancelled', 'cancelStagedPin successfully transitioned pin status to cancelled');
 
     // 3.15 Test paused_policy: reject prevents crawling inactive competitor
     const [pausedComp] = await sql`
@@ -553,12 +487,10 @@ async function runTests() {
     assert(boardJson.success === true && Array.isArray(boardJson.board?.board_vase) && boardJson.board.board_vase.length >= 9, `Worker endpoint delivered authentic board_vase with ${boardJson.board?.board_vase?.length} topics`);
 
     console.log('\n=== TEST SUITE 4: Cleanup ===');
-    // Cleanup staged pins
-    await sql`DELETE FROM pa_staged_pins WHERE pin_id IN (${TEST_PIN_ID}, ${TEST_QUALIFIED_PIN}, ${TEST_UNQUALIFIED_PIN}, ${PIN_64BIT_NUMERIC}, ${cancelPinId}, ${presPinId});`;
     // Cleanup metrics
-    await sql`DELETE FROM pa_pin_metrics WHERE pin_id IN (${TEST_PIN_ID}, ${TEST_QUALIFIED_PIN}, ${TEST_UNQUALIFIED_PIN}, ${PIN_64BIT_NUMERIC}, ${cancelPinId}, ${presPinId}, ${deltaTestPinId});`;
+    await sql`DELETE FROM pa_pin_metrics WHERE pin_id IN (${TEST_PIN_ID}, ${TEST_QUALIFIED_PIN}, ${TEST_UNQUALIFIED_PIN}, ${PIN_64BIT_NUMERIC}, ${presPinId}, ${deltaTestPinId});`;
     // Cleanup pa_pins
-    await sql`DELETE FROM pa_pins WHERE pin_id IN (${TEST_PIN_ID}, ${TEST_QUALIFIED_PIN}, ${TEST_UNQUALIFIED_PIN}, ${PIN_64BIT_NUMERIC}, ${cancelPinId}, ${presPinId}, ${deltaTestPinId});`;
+    await sql`DELETE FROM pa_pins WHERE pin_id IN (${TEST_PIN_ID}, ${TEST_QUALIFIED_PIN}, ${TEST_UNQUALIFIED_PIN}, ${PIN_64BIT_NUMERIC}, ${presPinId}, ${deltaTestPinId});`;
     // Cleanup boards
     await sql`DELETE FROM competitor_boards WHERE competitor_id = ${testCompetitorId};`;
     // Cleanup profile

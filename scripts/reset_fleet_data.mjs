@@ -38,15 +38,14 @@ export async function purgeHubData() {
   `;
   console.log('[+] Purged competitor_profiles, competitor_boards, competitor_pins, competitor_history_snapshots');
 
-  // 2. Truncate pin archive & repurposing data
+  // 2. Truncate pin archive data
   await sql`
     TRUNCATE TABLE 
-      pa_staged_pins,
       pa_pin_metrics,
       pa_pins
     CASCADE;
   `;
-  console.log('[+] Purged pa_pins, pa_pin_metrics, pa_staged_pins');
+  console.log('[+] Purged pa_pins, pa_pin_metrics');
 
   // 3. Truncate seed & candidate graph data
   await sql`
@@ -162,7 +161,7 @@ export async function verifyCleanSlate() {
   console.log(`- Hub Competitor Profiles: ${hubProfiles.c} (Expected: 0)`);
   console.log(`- Hub Competitor Boards:   ${hubBoards.c} (Expected: 0)`);
   console.log(`- Hub Competitor Pins:     ${hubCompPins.c} (Expected: 0)`);
-  console.log(`- Hub Repurposing Pins:    ${hubPins.c} (Expected: 0)`);
+  console.log(`- Hub Archived Pins:        ${hubPins.c} (Expected: 0)`);
   console.log(`- Hub Candidate Nodes:     ${hubCandidates.c} (Expected: 0)`);
   console.log(`- Neon Fleet Registry:     ${registryCount.c} nodes preserved (Expected: 100)`);
   console.log(`================================================================`);

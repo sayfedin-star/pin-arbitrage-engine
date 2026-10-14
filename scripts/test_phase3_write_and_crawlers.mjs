@@ -111,11 +111,6 @@ assert(
   'POST /api/pinarchive/re-evaluate must invalidate pinarchive and topics caches'
 );
 assert(
-  workerContent.includes("pathname === '/api/pinarchive/stage'") &&
-  workerContent.includes("invalidateEdgeCache('pinarchive')"),
-  'POST /api/pinarchive/stage must invalidate pinarchive cache'
-);
-assert(
   workerContent.includes("pathname === '/api/pinarchive/pin-snapshot'") &&
   workerContent.includes("invalidateEdgeCache('pinarchive')"),
   'DELETE /api/pinarchive/pin-snapshot must invalidate pinarchive cache'
