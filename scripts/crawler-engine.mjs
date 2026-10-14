@@ -662,11 +662,11 @@ async function runDiscoveryJob(sqlClient, shardSql, cleanUser, maxPages, cookie,
         competitor_id, monthly_reach, profile_views, follower_count, total_pins, total_boards, recorded_date, metadata
       ) SELECT
         ${compId},
-        COALESCE(NULLIF(${compProfile?.monthly_reach || 0}, 0), p.monthly_reach, 0),
-        COALESCE(NULLIF(${compProfile?.profile_views || 0}, 0), p.profile_views, 0),
-        COALESCE(NULLIF(${compProfile?.follower_count || 0}, 0), p.follower_count, 0),
-        COALESCE(NULLIF(${totalDiscovered || compProfile?.total_pins || 0}, 0), p.total_pins, 0),
-        COALESCE(NULLIF(${allBoards.length}, 0), p.total_boards, 0),
+        COALESCE(NULLIF(${Number(compProfile?.monthly_reach || 0)}, 0), p.monthly_reach, 0),
+        COALESCE(NULLIF(${Number(compProfile?.profile_views || 0)}, 0), p.profile_views, 0),
+        COALESCE(NULLIF(${Number(compProfile?.follower_count || 0)}, 0), p.follower_count, 0),
+        COALESCE(NULLIF(${Number(totalDiscovered || compProfile?.total_pins || 0)}, 0), p.total_pins, 0),
+        COALESCE(NULLIF(${Number(allBoards.length || 0)}, 0), p.total_boards, 0),
         CURRENT_DATE,
         jsonb_build_object('total_saves', 0, 'total_repins', 0)
       FROM competitor_profiles p

@@ -1959,7 +1959,7 @@ const server = http.createServer(async (req, res) => {
     if (method === 'GET' && pathname === '/api/keywords') {
       const keywords = await listKeywords(targetSql, {
         search: searchParams.get('search') || '',
-        limit: Number(searchParams.get('limit') || 50),
+        limit: Number(searchParams.get('limit') || 1000),
         offset: Number(searchParams.get('offset') || 0)
       });
       return sendJson(res, 200, { success: true, keywords });
