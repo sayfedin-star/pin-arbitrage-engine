@@ -1,6 +1,21 @@
+#!/usr/bin/env node
+
+/**
+ * scripts/optimize_hub_storage.mjs
+ * 
+ * Automated Zero-Bloat Hub Maintenance & Storage Optimization Engine
+ * 
+ * Routinely maintains Central Metadata Hub storage < 65 MB:
+ * 1. Prunes keyword_pins_snapshots using the relative 2-snapshot window per keyword.
+ * 2. Compacts completed/failed rows in competitor_pins queue table.
+ * 3. Strips bloated JSONB keys from Hub tables.
+ * 4. Runs non-blocking VACUUM (ANALYZE) on target tables.
+ */
+
 import { neon } from '@neondatabase/serverless';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // Load .env
 const envPath = path.resolve(process.cwd(), '.env');
@@ -20,140 +35,144 @@ if (fs.existsSync(envPath)) {
   }
 }
 
-if (!process.env.DATABASE_URL) {
-  console.error('ERROR: DATABASE_URL not found in .env');
-  process.exit(1);
-}
+/**
+ * Core Reusable Storage Optimizer
+ * @param {Function} sql - Neon client instance connected to Hub
+ */
+export async function optimizeHubStorage(sql) {
+  if (!sql) throw new Error('optimizeHubStorage requires an active SQL client.');
 
-const sql = neon(process.env.DATABASE_URL);
+  const results = {
+    prunedSnapshots: 0,
+    compactedCompetitors: 0,
+    cleanedSerpMetadata: 0,
+    cleanedSnapMetadata: 0,
+    vacuumedTables: []
+  };
 
-async function main() {
-  console.log('================================================================');
-  console.log('🧹 NEON DATABASE STORAGE & DEAD TUPLE OPTIMIZATION (PHASE 5)');
-  console.log('================================================================\n');
-
-  console.log('[*] Step 1: Inspecting Table Statistics & Dead Tuples...');
-  const tableStats = await sql`
-    SELECT 
-      relname AS table_name,
-      n_live_tup AS live_tuples,
-      n_dead_tup AS dead_tuples,
-      last_vacuum,
-      last_autovacuum,
-      last_analyze,
-      last_autoanalyze,
-      pg_size_pretty(pg_total_relation_size(relid)) AS total_size
-    FROM pg_stat_user_tables
-    WHERE relname IN (
-      'keyword_pins_snapshots', 
-      'keyword_displaced_pins', 
-      'competitor_pins', 
-      'pa_pins', 
-      'tracked_keywords'
-    )
-    ORDER BY n_dead_tup DESC;
-  `;
-
-  console.table(tableStats);
-
-  console.log('\n[*] Step 2: Checking Old Snapshots (> 30 days retention)...');
-  const oldSnapshots = await sql`
-    SELECT 
-      COUNT(*) AS total_old,
-      COUNT(*) FILTER (WHERE is_displaced IS TRUE) AS displaced_protected,
-      COUNT(*) FILTER (WHERE is_displaced IS NOT TRUE) AS eligible_for_cleanup
-    FROM keyword_pins_snapshots
-    WHERE snapshot_date < CURRENT_DATE - INTERVAL '30 days';
-  `;
-  console.log('    Old snapshots count (>30d):', oldSnapshots[0]);
-
-  // Clean old snapshots older than 30 days ONLY if is_displaced is FALSE or NULL
-  if (Number(oldSnapshots[0].eligible_for_cleanup) > 0) {
-    console.log(`[*] Cleaning ${oldSnapshots[0].eligible_for_cleanup} expired SERP snapshots (> 30 days) in batches of 5000...`);
-    let totalDeleted = 0;
-    while (true) {
-      const deletedRows = await sql`
-        DELETE FROM keyword_pins_snapshots
-        WHERE id IN (
-          SELECT id FROM keyword_pins_snapshots
-          WHERE snapshot_date < CURRENT_DATE - INTERVAL '30 days'
-            AND (is_displaced IS FALSE OR is_displaced IS NULL)
-          LIMIT 5000
-        )
-        RETURNING id;
-      `;
-      totalDeleted += deletedRows.length;
-      console.log(`    Chunk deleted: ${deletedRows.length} rows (total: ${totalDeleted})`);
-      if (deletedRows.length < 5000) break;
-    }
-    console.log(`    Cleanup complete: ${totalDeleted} expired snapshots deleted.`);
-  } else {
-    console.log('    No expired SERP snapshots need cleanup (>30d is clean).');
+  // 1. Prune keyword_pins_snapshots using relative 2-snapshot window per keyword
+  try {
+    const deleted = await sql`
+      WITH ranked_dates AS (
+        SELECT keyword_id, snapshot_date,
+               DENSE_RANK() OVER (PARTITION BY keyword_id ORDER BY snapshot_date DESC) AS dr
+        FROM (
+          SELECT DISTINCT keyword_id, snapshot_date
+          FROM keyword_pins_snapshots
+          WHERE keyword_id IS NOT NULL
+        ) d
+      ),
+      cutoff_per_keyword AS (
+        SELECT keyword_id, MIN(snapshot_date) AS keep_from_date
+        FROM ranked_dates
+        WHERE dr <= 2
+        GROUP BY keyword_id
+      )
+      DELETE FROM keyword_pins_snapshots kps
+      USING cutoff_per_keyword c
+      WHERE kps.keyword_id = c.keyword_id
+        AND kps.snapshot_date < c.keep_from_date
+      RETURNING kps.id;
+    `;
+    results.prunedSnapshots = deleted.length;
+  } catch (err) {
+    console.warn('[optimizeHubStorage] Prune snapshots warning:', err.message);
   }
 
-  console.log('\n[*] Step 3: Executing VACUUM & ANALYZE on Target Tables...');
+  // 2. Strip bloated JSONB keys from Hub tables
+  try {
+    const serpClean = await sql`
+      UPDATE keyword_serp_current
+      SET metadata = metadata - 'title' - 'domain' - 'destination_url' - 'image_url' - 'visual_annotations' - 'description' - 'raw_saves' - 'crawled_at' - 'created_at' - 'created_at_pinterest' - 'method' - 'creation_method' - 'rich_metadata' - 'visual_objects'
+      WHERE metadata IS NOT NULL AND metadata != '{}'::jsonb
+      RETURNING id;
+    `;
+    results.cleanedSerpMetadata = serpClean.length;
+
+    const snapClean = await sql`
+      UPDATE keyword_pins_snapshots
+      SET metadata = metadata - 'title' - 'domain' - 'destination_url' - 'image_url' - 'description' - 'raw_saves' - 'crawled_at' - 'created_at' - 'created_at_pinterest' - 'method' - 'creation_method' - 'rich_metadata' - 'visual_objects'
+      WHERE metadata IS NOT NULL AND metadata != '{}'::jsonb
+      RETURNING id;
+    `;
+    results.cleanedSnapMetadata = snapClean.length;
+
+    await sql`
+      UPDATE tracked_keywords
+      SET metadata = metadata - 'last_dropped_pins'
+      WHERE metadata ? 'last_dropped_pins';
+    `;
+  } catch (err) {
+    console.warn('[optimizeHubStorage] Strip metadata warning:', err.message);
+  }
+
+  // 3. Compact completed/failed competitor pins queue
+  try {
+    const compacted = await sql`
+      UPDATE competitor_pins
+      SET description = NULL,
+          alt_text = NULL,
+          metadata = '{}'::jsonb
+      WHERE enrichment_status IN ('completed', 'failed')
+        AND (description IS NOT NULL OR alt_text IS NOT NULL OR (metadata IS NOT NULL AND metadata != '{}'::jsonb))
+      RETURNING id;
+    `;
+    results.compactedCompetitors = compacted.length;
+  } catch (err) {
+    console.warn('[optimizeHubStorage] Compact competitor pins warning:', err.message);
+  }
+
+  // 4. Non-blocking VACUUM (ANALYZE) on target tables
   const targetTables = [
     'keyword_pins_snapshots',
-    'keyword_displaced_pins',
+    'keyword_serp_current',
     'competitor_pins',
     'pa_pins',
-    'tracked_keywords',
-    'tracked_boards',
-    'competitor_profiles',
-    'competitor_history_snapshots',
-    'competitor_seed_pins',
-    'keyword_folders',
-    'keyword_folder_items',
-    'schema_migrations'
+    'tracked_keywords'
   ];
 
   for (const tbl of targetTables) {
     try {
-      console.log(`    Running VACUUM (ANALYZE) on ${tbl}...`);
       await sql(`VACUUM (ANALYZE) ${tbl}`);
-      console.log(`    ✓ ${tbl} vacuumed & analyzed successfully.`);
-    } catch (err) {
-      console.warn(`    ⚠️ VACUUM direct execution note for ${tbl}: ${err.message}`);
-      // Fallback: If VACUUM cannot run in transaction block over HTTP driver, run ANALYZE
+      results.vacuumedTables.push(tbl);
+    } catch (_) {
       try {
-        console.log(`    Attempting ANALYZE on ${tbl}...`);
         await sql(`ANALYZE ${tbl}`);
-        console.log(`    ✓ ${tbl} analyzed successfully.`);
-      } catch (err2) {
-        console.error(`    ❌ Failed to analyze ${tbl}: ${err2.message}`);
-      }
+        results.vacuumedTables.push(`${tbl} (analyze only)`);
+      } catch (_) {}
     }
   }
 
-  console.log('\n[*] Step 4: Post-Optimization Statistics Verification...');
-  const postStats = await sql`
-    SELECT 
-      relname AS table_name,
-      n_live_tup AS live_tuples,
-      n_dead_tup AS dead_tuples,
-      last_vacuum,
-      last_autovacuum,
-      last_analyze,
-      last_autoanalyze,
-      pg_size_pretty(pg_total_relation_size(relid)) AS total_size
-    FROM pg_stat_user_tables
-    WHERE relname IN (
-      'keyword_pins_snapshots', 
-      'keyword_displaced_pins', 
-      'competitor_pins', 
-      'pa_pins', 
-      'tracked_keywords'
-    )
-    ORDER BY n_dead_tup DESC;
-  `;
+  return results;
+}
 
-  console.table(postStats);
+async function main() {
+  console.log('================================================================');
+  console.log('🧹 ROUTINE ZERO-BLOAT HUB STORAGE OPTIMIZATION');
+  console.log('================================================================\n');
+
+  if (!process.env.DATABASE_URL) {
+    console.error('[-] FATAL: DATABASE_URL not found.');
+    process.exit(1);
+  }
+
+  const sql = neon(process.env.DATABASE_URL);
+  console.log('[*] Running automated maintenance...');
+  const res = await optimizeHubStorage(sql);
+
+  console.log(`  ✓ Pruned older snapshots:         ${res.prunedSnapshots} rows`);
+  console.log(`  ✓ Cleaned SERP metadata:          ${res.cleanedSerpMetadata} rows`);
+  console.log(`  ✓ Cleaned Snapshot metadata:      ${res.cleanedSnapMetadata} rows`);
+  console.log(`  ✓ Compacted competitor queue:     ${res.compactedCompetitors} rows`);
+  console.log(`  ✓ Vacuumed & analyzed tables:     ${res.vacuumedTables.join(', ')}`);
   console.log('\n================================================================');
-  console.log('✓ PHASE 5 DB STORAGE OPTIMIZATION COMPLETE');
+  console.log('✓ ROUTINE STORAGE OPTIMIZATION COMPLETE');
   console.log('================================================================');
 }
 
-main().catch(err => {
-  console.error('Execution error:', err);
-  process.exit(1);
-});
+if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
+  main().catch(err => {
+    console.error('Execution error:', err);
+    process.exit(1);
+  });
+}

@@ -15,6 +15,7 @@
 import { neon } from '@neondatabase/serverless';
 import fs from 'node:fs';
 import { preloadNeonRegistry, resolveShardConnection } from '../src/modules/sharding/fleet-router.mjs';
+import { optimizeHubStorage } from './optimize_hub_storage.mjs';
 
 if (typeof process.loadEnvFile === 'function') {
   try { process.loadEnvFile(); } catch (_) {}
@@ -318,6 +319,15 @@ async function main() {
   const gcPurgedKeywords = await runShardJanitorGC();
   if (gcPurgedKeywords > 0) {
     mdReport += `\n> 🧹 **Automated Shard Janitor GC**: Purged orphan SERP positions for **${gcPurgedKeywords}** purged keywords across all 99 storage shards.\n\n`;
+  }
+
+  // 5. Automated Zero-Bloat Hub Storage Maintenance
+  try {
+    console.log('[*] Executing Automated Hub Storage Self-Healing Maintenance...');
+    const optRes = await optimizeHubStorage(sql);
+    console.log(`  ✓ Storage Maintenance: Pruned older snapshots: ${optRes.prunedSnapshots}, Compacted competitors: ${optRes.compactedCompetitors}`);
+  } catch (optErr) {
+    console.warn('[!] Hub Storage maintenance non-fatal warning:', optErr.message);
   }
 
   // Write to GITHUB_STEP_SUMMARY

@@ -465,7 +465,6 @@ async function flushBatchToHub(pinsChunk, kw) {
           ELSE ksc.visual_annotations 
         END,
         metadata = COALESCE(ksc.metadata, '{}'::jsonb) || jsonb_build_object(
-          'description', u.description,
           'alt_text', u.alt_text,
           'share_count', u.authentic_shares::int,
           'dominant_color', u.dominant_color,
@@ -522,7 +521,6 @@ async function flushBatchToHub(pinsChunk, kw) {
         created_at_pinterest = CASE WHEN u.created_at_pinterest::timestamptz IS NOT NULL THEN u.created_at_pinterest::timestamptz ELSE kps.created_at_pinterest END,
         creation_method = CASE WHEN u.method <> '' THEN u.method ELSE kps.creation_method END,
         metadata = COALESCE(kps.metadata, '{}'::jsonb) || jsonb_build_object(
-          'description', u.description,
           'alt_text', u.alt_text,
           'share_count', u.authentic_shares::int,
           'dominant_color', u.dominant_color,
@@ -560,7 +558,7 @@ async function flushBatchToHub(pinsChunk, kw) {
         AND kps.keyword_id IN (
           SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${kw.folder_id}
         )
-        AND (kps.snapshot_date = (NOW() AT TIME ZONE 'UTC')::date OR kps.is_displaced = TRUE);
+        AND kps.snapshot_date = (NOW() AT TIME ZONE 'UTC')::date;
     `;
   } else {
     await sql`
@@ -591,7 +589,6 @@ async function flushBatchToHub(pinsChunk, kw) {
           ELSE ksc.visual_annotations 
         END,
         metadata = COALESCE(ksc.metadata, '{}'::jsonb) || jsonb_build_object(
-          'description', u.description,
           'alt_text', u.alt_text,
           'share_count', u.authentic_shares::int,
           'dominant_color', u.dominant_color,
@@ -645,7 +642,6 @@ async function flushBatchToHub(pinsChunk, kw) {
         created_at_pinterest = CASE WHEN u.created_at_pinterest::timestamptz IS NOT NULL THEN u.created_at_pinterest::timestamptz ELSE kps.created_at_pinterest END,
         creation_method = CASE WHEN u.method <> '' THEN u.method ELSE kps.creation_method END,
         metadata = COALESCE(kps.metadata, '{}'::jsonb) || jsonb_build_object(
-          'description', u.description,
           'alt_text', u.alt_text,
           'share_count', u.authentic_shares::int,
           'dominant_color', u.dominant_color,
@@ -680,7 +676,7 @@ async function flushBatchToHub(pinsChunk, kw) {
         visual_annotations jsonb
       )
       WHERE kps.pin_id = u.pin_id AND kps.keyword_id = ${kw.id}
-        AND (kps.snapshot_date = (NOW() AT TIME ZONE 'UTC')::date OR kps.is_displaced = TRUE);
+        AND kps.snapshot_date = (NOW() AT TIME ZONE 'UTC')::date;
     `;
   }
 }

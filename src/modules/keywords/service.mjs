@@ -20,7 +20,7 @@ import { formatPinterestCookie } from '../../utils.mjs';
 import { getCachedVisualSearchMatches, setCachedVisualSearchMatches } from './visual-lens-cache.mjs';
 import { extractPinData, PINTEREST_PAGE_HEADERS, fetchPinFromPinterest } from '../../../scripts/lib/pinterest.mjs';
 import { derivePinTitle } from './folders-service.mjs';
-import { getPinShardId, resolveShardConnection } from '../sharding/fleet-router.mjs';
+import { getPinShardId, resolveShardConnection, executeShardQueryWithCircuitBreaker } from '../sharding/fleet-router.mjs';
 
 // In-Memory Mutex for process-local fast-fail
 const activeKeywordCrawls = new Set();
@@ -1313,16 +1313,13 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
         daily_save_velocity: velocity,
         created_at_pinterest: createdAt,
         creation_method: method,
+        dominant_color: item.dominant_color || '#888888',
+        visual_annotations: visualAnnotations,
         metadata: {
-          title,
-          domain,
-          destination_url: destinationUrl,
-          image_url: imageUrl,
           prev_rank: prevRank,
           rank_delta: rankDelta,
           baseline_snapshot_id: immediateData?.snapshotId ?? null,
           baseline_date: immediateData?.snapshotDate ? (immediateData.snapshotDate instanceof Date ? immediateData.snapshotDate.toISOString().slice(0, 10) : String(immediateData.snapshotDate).slice(0, 10)) : null,
-          baseline_crawled_at: immediateData?.createdAt || immediateData?.snapshotDate || null,
           is_new: isNew,
           prev_save_count: baselineMap.get(pinId) ?? (immediateData ? immediateData.saves : confirmedSaves),
           format,
@@ -1337,18 +1334,11 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
             )
           ),
           breakout_score: Math.round((confirmedSaves / Math.max(1, pinAgeDays || 7)) * 10),
-          crawled_at: new Date().toISOString(),
-          created_at: createdAt,
-          created_at_pinterest: createdAt,
-          method,
-          creation_method: method,
           pin_age_days: pinAgeDays,
           pinner,
-          raw_saves: confirmedSaves,
           reactions,
-          visual_annotations: visualAnnotations,
-          description,
-          board_name: boardName
+          board_name: boardName,
+          alt_text: (item.closeup_unified_description || item.description || '').slice(0, 500)
         }
       });
 
@@ -1376,25 +1366,19 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
             if (scraped.created_at_pinterest || scraped.created_at) {
               const enrichedCreated = scraped.created_at_pinterest || scraped.created_at;
               p.created_at_pinterest = enrichedCreated;
-              if (p.metadata) {
-                p.metadata.created_at = enrichedCreated;
-                p.metadata.created_at_pinterest = enrichedCreated;
-              }
             }
             if (scraped.method || scraped.creation_method) {
               const enrichedMethod = scraped.method || scraped.creation_method;
               p.creation_method = enrichedMethod;
-              if (p.metadata) {
-                p.metadata.method = enrichedMethod;
-                p.metadata.creation_method = enrichedMethod;
-              }
+            }
+            if (scraped.dominant_color) {
+              p.dominant_color = scraped.dominant_color;
+            }
+            if (Array.isArray(scraped.visual_annotations) && scraped.visual_annotations.length > 0) {
+              p.visual_annotations = scraped.visual_annotations;
             }
             if (p.metadata) {
-              p.metadata.raw_saves = p.save_count;
               p.metadata.share_count = enrichedShares;
-              if (scraped.description && (!p.metadata.description || p.metadata.description.length < scraped.description.length)) {
-                p.metadata.description = String(scraped.description).slice(0, 500);
-              }
               if (scraped.alt_text || scraped.seo_alt_text) {
                 p.metadata.alt_text = scraped.alt_text || scraped.seo_alt_text;
               }
@@ -1559,8 +1543,8 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
           u.comment_count,
           u.daily_save_velocity,
           (NOW() AT TIME ZONE 'UTC')::date,
-          NULLIF(u.metadata->>'created_at_pinterest', '')::timestamptz,
-          COALESCE(u.metadata->>'method', 'pinterest_platform'),
+          u.created_at_pinterest::timestamptz,
+          COALESCE(u.creation_method, 'pinterest_platform'),
           u.metadata,
           NOW()
         FROM jsonb_to_recordset(${JSON.stringify(preparedPins)}::jsonb) AS u(
@@ -1574,6 +1558,8 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
           repin_count int,
           comment_count int,
           daily_save_velocity numeric,
+          created_at_pinterest text,
+          creation_method text,
           metadata jsonb
         )
         WHERE NOT EXISTS (
@@ -1631,10 +1617,10 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
           u.save_count,
           u.repin_count,
           u.daily_save_velocity,
-          COALESCE(NULLIF(u.metadata->>'dominant_color', ''), '#888888'),
-          COALESCE(u.metadata->'visual_annotations', '[]'::jsonb),
-          NULLIF(u.metadata->>'created_at_pinterest', '')::timestamptz,
-          COALESCE(u.metadata->>'method', 'pinterest_platform'),
+          COALESCE(NULLIF(u.dominant_color, ''), '#888888'),
+          COALESCE(u.visual_annotations, '[]'::jsonb),
+          u.created_at_pinterest::timestamptz,
+          COALESCE(u.creation_method, 'pinterest_platform'),
           COALESCE(u.metadata, '{}'::jsonb),
           NOW()
         FROM jsonb_to_recordset(${JSON.stringify(preparedPins)}::jsonb) AS u(
@@ -1647,6 +1633,10 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
           save_count bigint,
           repin_count int,
           daily_save_velocity numeric,
+          dominant_color text,
+          visual_annotations jsonb,
+          created_at_pinterest text,
+          creation_method text,
           metadata jsonb
         )
         WHERE NOT EXISTS (
@@ -1847,6 +1837,28 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
       WHERE id = ${kid};
     `);
 
+    // Enforce relative 2-snapshot rolling window per keyword on the Hub
+    txBatch.push(sql`
+      WITH ranked_dates AS (
+        SELECT snapshot_date,
+               DENSE_RANK() OVER (ORDER BY snapshot_date DESC) AS dr
+        FROM (
+          SELECT DISTINCT snapshot_date
+          FROM keyword_pins_snapshots
+          WHERE keyword_id = ${kid}
+        ) d
+      ),
+      cutoff AS (
+        SELECT MIN(snapshot_date) AS keep_from_date
+        FROM ranked_dates
+        WHERE dr <= 2
+      )
+      DELETE FROM keyword_pins_snapshots kps
+      USING cutoff c
+      WHERE kps.keyword_id = ${kid}
+        AND kps.snapshot_date < c.keep_from_date;
+    `);
+
     // Execute atomic transaction in 1 network roundtrip
     await sql.transaction(txBatch);
     leaseCommittedInTx = true;
@@ -2036,12 +2048,13 @@ export async function getKeywordSERPComparison(sql, keywordId, knownKeyword = nu
   let currentPins = Array.isArray(activeCatalogPins) && activeCatalogPins.length > 0 ? activeCatalogPins : [];
   if (currentPins.length === 0 && latestDate) {
     currentPins = await sql`
-      SELECT *
-      FROM keyword_pins_snapshots
-      WHERE keyword_id = ${kid}
-        AND snapshot_date = ${latestDate}
-        AND is_displaced = FALSE
-      ORDER BY rank_position ASC;
+      SELECT kps.*, ksc.visual_annotations, ksc.dominant_color
+      FROM keyword_pins_snapshots kps
+      LEFT JOIN keyword_serp_current ksc ON ksc.keyword_id = kps.keyword_id AND ksc.pin_id = kps.pin_id
+      WHERE kps.keyword_id = ${kid}
+        AND kps.snapshot_date = ${latestDate}
+        AND kps.is_displaced = FALSE
+      ORDER BY kps.rank_position ASC;
     `.catch(() => []);
   }
 
@@ -2650,39 +2663,20 @@ export async function getPinPerformanceTrajectory(sql, keywordId, pinId, range =
   else if (range === '14d') intervalDays = 14;
   else if (range === '30d') intervalDays = 30;
 
-  let snapshots = [];
-  if (kid) {
-    if (intervalDays) {
-      snapshots = await sql`
-        SELECT DISTINCT ON (snapshot_date)
-          pin_id, rank_position, save_count, repin_count, comment_count, share_count, reaction_count,
-          daily_save_velocity, snapshot_date
-        FROM keyword_pins_snapshots
-        WHERE keyword_id = ${kid} AND pin_id = ${cleanPin} AND snapshot_date >= (NOW() AT TIME ZONE 'UTC')::date - (${intervalDays} || ' days')::interval
-        ORDER BY snapshot_date ASC, created_at DESC;
-      `;
-    } else {
-      snapshots = await sql`
-        SELECT DISTINCT ON (snapshot_date)
-          pin_id, rank_position, save_count, repin_count, comment_count, share_count, reaction_count,
-          daily_save_velocity, snapshot_date
-        FROM keyword_pins_snapshots
-        WHERE keyword_id = ${kid} AND pin_id = ${cleanPin}
-        ORDER BY snapshot_date ASC, created_at DESC;
-      `;
-    }
-  } else {
-    if (intervalDays) {
-      snapshots = await sql`
-        SELECT DISTINCT ON (snapshot_date)
-          pin_id, rank_position, save_count, repin_count, comment_count, share_count, reaction_count,
-          daily_save_velocity, snapshot_date
-        FROM keyword_pins_snapshots
-        WHERE pin_id = ${cleanPin} AND snapshot_date >= (NOW() AT TIME ZONE 'UTC')::date - (${intervalDays} || ' days')::interval
-        ORDER BY snapshot_date ASC, created_at DESC;
-      `;
-    } else {
-      snapshots = await sql`
+  // 1. Hub Query (Relative rolling 2-snapshot baseline cache)
+  const hubPromise = (async () => {
+    try {
+      if (kid) {
+        return await sql`
+          SELECT DISTINCT ON (snapshot_date)
+            pin_id, rank_position, save_count, repin_count, comment_count, share_count, reaction_count,
+            daily_save_velocity, snapshot_date
+          FROM keyword_pins_snapshots
+          WHERE keyword_id = ${kid} AND pin_id = ${cleanPin}
+          ORDER BY snapshot_date ASC, created_at DESC;
+        `;
+      }
+      return await sql`
         SELECT DISTINCT ON (snapshot_date)
           pin_id, rank_position, save_count, repin_count, comment_count, share_count, reaction_count,
           daily_save_velocity, snapshot_date
@@ -2690,7 +2684,103 @@ export async function getPinPerformanceTrajectory(sql, keywordId, pinId, range =
         WHERE pin_id = ${cleanPin}
         ORDER BY snapshot_date ASC, created_at DESC;
       `;
+    } catch (_) {
+      return [];
     }
+  })();
+
+  // 2. Shard Query (Full 90-day distributed time-series archive)
+  const shardPromise = (async () => {
+    try {
+      const shardId = getPinShardId(cleanPin, 99);
+      const shardSql = await resolveShardConnection({ hubSql: sql, shardId });
+      return await executeShardQueryWithCircuitBreaker({
+        shardId,
+        shardSql,
+        queryFn: async (client) => {
+          try {
+            const rollups = await client`
+              SELECT 
+                pin_id, snapshot_date, save_count, repin_count, comment_count,
+                share_count, reaction_count, daily_save_velocity, updated_at
+              FROM pins_daily_rollups_v2
+              WHERE pin_id = ${cleanPin}
+              ORDER BY snapshot_date ASC;
+            `;
+            if (rollups && rollups.length > 0) return rollups;
+          } catch (_) {}
+          return await client`
+            SELECT 
+              pin_id, snapshot_date, rank_position, save_count, repin_count, comment_count,
+              share_count, reaction_count, daily_save_velocity, created_at
+            FROM pins_daily_snapshots
+            WHERE pin_id = ${cleanPin}
+            ORDER BY snapshot_date ASC;
+          `;
+        },
+        fallbackFn: async () => [],
+        timeoutMs: 800
+      });
+    } catch (_) {
+      return [];
+    }
+  })();
+
+  const [hubSnapshotsRaw, shardSnapshotsRaw] = await Promise.all([hubPromise, shardPromise]);
+  const hubRows = Array.isArray(hubSnapshotsRaw) ? hubSnapshotsRaw : [];
+  const shardRows = Array.isArray(shardSnapshotsRaw) ? shardSnapshotsRaw : [];
+
+  // Merge and deduplicate by ISO date string (Shard provides historical baseline; Hub provides today's live state)
+  const dateMap = new Map();
+
+  for (const s of shardRows) {
+    const dStr = s.snapshot_date instanceof Date ? s.snapshot_date.toISOString().slice(0, 10) : String(s.snapshot_date || '').slice(0, 10);
+    if (dStr) {
+      dateMap.set(dStr, {
+        pin_id: cleanPin,
+        rank_position: s.rank_position ?? null,
+        save_count: Number(s.save_count || 0),
+        repin_count: Number(s.repin_count || 0),
+        comment_count: Number(s.comment_count || 0),
+        share_count: Number(s.share_count || 0),
+        reaction_count: Number(s.reaction_count || 0),
+        daily_save_velocity: Number(s.daily_save_velocity || 0),
+        snapshot_date: dStr
+      });
+    }
+  }
+
+  for (const h of hubRows) {
+    const dStr = h.snapshot_date instanceof Date ? h.snapshot_date.toISOString().slice(0, 10) : String(h.snapshot_date || '').slice(0, 10);
+    if (dStr) {
+      const existing = dateMap.get(dStr);
+      dateMap.set(dStr, {
+        pin_id: cleanPin,
+        rank_position: h.rank_position ?? existing?.rank_position ?? null,
+        save_count: Math.max(Number(h.save_count || 0), Number(existing?.save_count || 0)),
+        repin_count: Math.max(Number(h.repin_count || 0), Number(existing?.repin_count || 0)),
+        comment_count: Math.max(Number(h.comment_count || 0), Number(existing?.comment_count || 0)),
+        share_count: Math.max(Number(h.share_count || 0), Number(existing?.share_count || 0)),
+        reaction_count: Math.max(Number(h.reaction_count || 0), Number(existing?.reaction_count || 0)),
+        daily_save_velocity: (h.daily_save_velocity !== undefined && h.daily_save_velocity !== null) ? Number(h.daily_save_velocity) : (existing?.daily_save_velocity || 0),
+        snapshot_date: dStr
+      });
+    }
+  }
+
+  let snapshots = Array.from(dateMap.values()).sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date));
+
+  // Apply range cutoff if intervalDays specified
+  if (intervalDays) {
+    const cutoffDate = new Date(Date.now() - intervalDays * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    snapshots = snapshots.filter(s => s.snapshot_date >= cutoffDate);
+  }
+
+  // Enforce monotonic non-decreasing save_count
+  let runningMaxSaves = 0;
+  for (const s of snapshots) {
+    s.save_count = Math.max(runningMaxSaves, Number(s.save_count || 0));
+    runningMaxSaves = s.save_count;
   }
 
   // Calculate Net Growth summary (first snapshot vs latest snapshot)
