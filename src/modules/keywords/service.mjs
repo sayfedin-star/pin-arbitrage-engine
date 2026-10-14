@@ -184,11 +184,21 @@ export async function listKeywords(sql, { search = '', limit = 1000, offset = 0 
     return await sql`
       SELECT 
         k.*,
-        COALESCE(s_count.cnt, 0)::int AS snapshots_count
+        COALESCE(s_count.cnt, 0)::int AS snapshots_count,
+        COALESCE(s_count.cnt, 0)::int AS total_pins_count,
+        COALESCE(
+          (
+            SELECT json_agg(json_build_object('id', f.id, 'name', f.name, 'color', f.color))
+            FROM keyword_folder_items kfi
+            JOIN keyword_folders f ON f.id = kfi.folder_id
+            WHERE kfi.keyword_id = k.id
+          ),
+          '[]'::json
+        ) AS folders
       FROM tracked_keywords k
       LEFT JOIN LATERAL (
         SELECT COALESCE(
-          NULLIF((SELECT COUNT(*)::int FROM keyword_serp_current WHERE keyword_id = k.id AND is_displaced = FALSE AND rank_position >= 1), 0),
+          NULLIF((SELECT COUNT(*)::int FROM keyword_serp_current WHERE keyword_id = k.id), 0),
           CASE WHEN k.metadata->>'last_crawled_pins_count' ~ '^[0-9]+$' THEN (k.metadata->>'last_crawled_pins_count')::int ELSE 0 END,
           0
         )::int AS cnt
@@ -201,11 +211,21 @@ export async function listKeywords(sql, { search = '', limit = 1000, offset = 0 
     return await sql`
       SELECT 
         k.*,
-        COALESCE(s_count.cnt, 0)::int AS snapshots_count
+        COALESCE(s_count.cnt, 0)::int AS snapshots_count,
+        COALESCE(s_count.cnt, 0)::int AS total_pins_count,
+        COALESCE(
+          (
+            SELECT json_agg(json_build_object('id', f.id, 'name', f.name, 'color', f.color))
+            FROM keyword_folder_items kfi
+            JOIN keyword_folders f ON f.id = kfi.folder_id
+            WHERE kfi.keyword_id = k.id
+          ),
+          '[]'::json
+        ) AS folders
       FROM tracked_keywords k
       LEFT JOIN LATERAL (
         SELECT COALESCE(
-          NULLIF((SELECT COUNT(*)::int FROM keyword_serp_current WHERE keyword_id = k.id AND is_displaced = FALSE AND rank_position >= 1), 0),
+          NULLIF((SELECT COUNT(*)::int FROM keyword_serp_current WHERE keyword_id = k.id), 0),
           CASE WHEN k.metadata->>'last_crawled_pins_count' ~ '^[0-9]+$' THEN (k.metadata->>'last_crawled_pins_count')::int ELSE 0 END,
           0
         )::int AS cnt

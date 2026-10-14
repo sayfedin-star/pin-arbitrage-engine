@@ -242,17 +242,16 @@ export function getKeywordsPageHtml(initialSlug = '') {
                   </div>
                 </div>
 
-                <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold shrink-0"
-                      :class="Number(kw.avg_daily_velocity || 0) > 0 ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : 'bg-slate-200 dark:bg-slate-800 text-slate-500'"
-                      x-text="(Number(kw.avg_daily_velocity || 0) > 0 ? '+' : '') + Number(kw.avg_daily_velocity || 0) + ' v/d'"></span>
+                <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold shrink-0 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700/60"
+                      x-text="getKeywordTotalPins(kw) + ' Pins'"></span>
               </div>
 
               <!-- Sparkline -->
               <div class="mt-2 flex items-center justify-between px-1">
-                <span class="text-[9px] text-slate-400 font-mono" x-text="(kw.snapshots_count || 0) + ' / ' + (kw.target_pin_count || 250) + ' pins'"></span>
+                <span class="text-[9px] text-slate-400 font-mono" x-text="getKeywordTotalPins(kw) + ' Total Pins'"></span>
                 <svg class="w-20 h-3.5 overflow-visible" viewBox="0 0 80 20">
                   <path :d="generateSparklinePath(getSparklinePoints(kw), 80, 20)"
-                        fill="none" :stroke="Number(kw.avg_daily_velocity || 0) > 0 ? '#10b981' : '#64748b'" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        fill="none" :stroke="getKeywordSaveDelta(kw) > 0 ? '#10b981' : '#64748b'" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                 </svg>
               </div>
 
@@ -408,36 +407,28 @@ export function getKeywordsPageHtml(initialSlug = '') {
           </template>
         </div>
 
-        <!-- KPI 3: Fleet Save Velocity Pulse -->
-        <div class="p-5 rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/90 dark:border-slate-800/90 space-y-3 shadow-xs">
+        <!-- KPI 3: Campaign Folders Fleet -->
+        <a href="/folders" class="p-5 rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/90 dark:border-slate-800/90 space-y-3 shadow-xs hover:border-pink-500/40 transition block group cursor-pointer">
           <div class="flex items-center justify-between">
-            <span class="text-xs font-bold text-slate-500 dark:text-slate-400">Fleet Velocity Pulse</span>
-            <span class="p-1.5 rounded-xl bg-cyan-500/10 text-cyan-600 dark:text-cyan-400">
-              <i data-lucide="zap" class="w-4 h-4"></i>
+            <span class="text-xs font-bold text-slate-500 dark:text-slate-400 group-hover:text-pink-600 dark:group-hover:text-pink-400 transition">Campaign Folders</span>
+            <span class="p-1.5 rounded-xl bg-pink-500/10 text-pink-600 dark:text-pink-400">
+              <i data-lucide="folder-kanban" class="w-4 h-4"></i>
             </span>
           </div>
-          <template x-if="isKeywordsLoading">
-            <div class="space-y-2 py-1">
-              <div class="h-8 w-28 bg-slate-200 dark:bg-slate-800 rounded-xl animate-pulse"></div>
-              <div class="h-3 w-32 bg-slate-100 dark:bg-slate-800/60 rounded animate-pulse"></div>
+          <div>
+            <div class="flex items-baseline space-x-2">
+              <span class="text-3xl font-black text-pink-600 dark:text-pink-400 font-mono" x-text="folders.length"></span>
+              <span class="text-xs text-slate-500 dark:text-slate-400 font-mono font-medium">Folders</span>
             </div>
-          </template>
-          <template x-if="!isKeywordsLoading">
-            <div>
-              <div class="flex items-baseline space-x-2">
-                <span class="text-3xl font-black text-emerald-600 dark:text-emerald-400 font-mono" x-text="'+' + averageFleetVelocity + ' v/d'"></span>
-                <span class="text-xs text-slate-500 dark:text-slate-400 font-mono font-medium">Average</span>
-              </div>
-              <div class="flex items-center justify-between text-[11px] pt-2 mt-2 border-t border-slate-100 dark:border-slate-800/80 text-slate-500 dark:text-slate-400 font-mono">
-                <span>Fleet Momentum:</span>
-                <span class="font-bold text-emerald-600 dark:text-emerald-400 flex items-center space-x-1">
-                  <i data-lucide="trending-up" class="w-3 h-3"></i>
-                  <span>Kinetic Growth</span>
-                </span>
-              </div>
+            <div class="flex items-center justify-between text-[11px] pt-2 mt-2 border-t border-slate-100 dark:border-slate-800/80 text-slate-500 dark:text-slate-400 font-mono">
+              <span>Organized Hub:</span>
+              <span class="font-bold text-pink-600 dark:text-pink-400 flex items-center space-x-1">
+                <span>View Folders</span>
+                <i data-lucide="arrow-right" class="w-3 h-3"></i>
+              </span>
             </div>
-          </template>
-        </div>
+          </div>
+        </a>
 
         <!-- KPI 4: Nightly Crawler Fleet Status -->
         <div class="p-5 rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/90 dark:border-slate-800/90 space-y-3 shadow-xs">
@@ -467,13 +458,22 @@ export function getKeywordsPageHtml(initialSlug = '') {
             <!-- Search input with clear button -->
             <div class="relative flex-1 min-w-[200px] max-w-md">
               <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
-              <input type="text" x-model="dashboardSearch" placeholder="Search keywords or categories..."
+              <input type="text" x-model="dashboardSearch" placeholder="Search keywords, categories, or folders..."
                      class="w-full pl-9 pr-8 py-2 text-xs rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/40">
               <button x-show="dashboardSearch" @click="dashboardSearch = ''"
                       class="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-white p-0.5 cursor-pointer">
                 <i data-lucide="x" class="w-3.5 h-3.5"></i>
               </button>
             </div>
+
+            <!-- Campaign Folders filter dropdown -->
+            <select x-model="dashboardFolderFilter" class="px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 focus:outline-none cursor-pointer">
+              <option value="ALL">📁 All Folders</option>
+              <option value="UNASSIGNED">Unassigned (No Folder)</option>
+              <template x-for="f in folders" :key="f.id">
+                <option :value="f.id" x-text="'📁 ' + f.name + ' (' + getFolderKeywordCount(f) + ')'"></option>
+              </template>
+            </select>
 
             <!-- Category filter dropdown -->
             <select x-model="dashboardCategoryFilter" class="px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 focus:outline-none cursor-pointer">
@@ -490,13 +490,22 @@ export function getKeywordsPageHtml(initialSlug = '') {
               <option value="PAUSED">Paused Only</option>
             </select>
 
+            <!-- Growth Momentum filter dropdown -->
+            <select x-model="dashboardGrowthFilter" class="px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 focus:outline-none cursor-pointer">
+              <option value="ALL">All Growth</option>
+              <option value="HIGH">🔥 High Growth (+50 Saves)</option>
+              <option value="POSITIVE">📈 Positive Growth (> 0)</option>
+              <option value="FLAT">⏸ Flat (= 0)</option>
+              <option value="DECLINING">📉 Declining (< 0)</option>
+            </select>
+
             <!-- Sort filter dropdown -->
             <select x-model="dashboardSort" class="px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 focus:outline-none cursor-pointer">
-              <option value="velocity">Sort: Daily Velocity (Highest)</option>
               <option value="saves_delta">Sort: 24h Saves Δ (Highest)</option>
               <option value="repins_delta">Sort: 24h Repins Δ (Highest)</option>
-              <option value="name">Sort: Alphabetical (A-Z)</option>
+              <option value="total_pins">Sort: Total Pins (Highest)</option>
               <option value="crawled">Sort: Recently Crawled</option>
+              <option value="name">Sort: Alphabetical (A-Z)</option>
             </select>
           </div>
 
@@ -525,40 +534,52 @@ export function getKeywordsPageHtml(initialSlug = '') {
           </div>
         </div>
 
-        <!-- Category Quick Pills -->
-        <div class="flex flex-wrap items-center gap-1.5 pt-2 border-t border-slate-100 dark:border-slate-800/80 text-xs">
-          <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider font-mono mr-1">Categories:</span>
-          <button @click="dashboardCategoryFilter = 'ALL'"
-                  class="px-2.5 py-0.5 rounded-lg text-xs font-semibold transition cursor-pointer"
-                  :class="dashboardCategoryFilter === 'ALL' ? 'bg-emerald-600 text-white shadow-xs' : 'bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'">
-            All
-          </button>
-          <template x-for="cat in uniqueCategories" :key="cat">
-            <button @click="dashboardCategoryFilter = cat"
+        <!-- Category Quick Pills & Active Folder Pill -->
+        <div class="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-slate-800/80 text-xs">
+          <div class="flex flex-wrap items-center gap-1.5">
+            <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider font-mono mr-1">Categories:</span>
+            <button @click="dashboardCategoryFilter = 'ALL'"
                     class="px-2.5 py-0.5 rounded-lg text-xs font-semibold transition cursor-pointer"
-                    :class="dashboardCategoryFilter === cat ? 'bg-emerald-600 text-white shadow-xs' : 'bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'"
-                    x-text="cat"></button>
+                    :class="dashboardCategoryFilter === 'ALL' ? 'bg-emerald-600 text-white shadow-xs' : 'bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'">
+              All
+            </button>
+            <template x-for="cat in uniqueCategories" :key="cat">
+              <button @click="dashboardCategoryFilter = cat"
+                      class="px-2.5 py-0.5 rounded-lg text-xs font-semibold transition cursor-pointer"
+                      :class="dashboardCategoryFilter === cat ? 'bg-emerald-600 text-white shadow-xs' : 'bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'"
+                      x-text="cat"></button>
+            </template>
+          </div>
+
+          <!-- Active Folder Filter Indicator -->
+          <template x-if="dashboardFolderFilter !== 'ALL'">
+            <div class="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-xl bg-pink-500/15 text-pink-700 dark:text-pink-300 text-xs font-bold border border-pink-500/30 font-mono shadow-2xs">
+              <i data-lucide="folder" class="w-3.5 h-3.5 text-pink-500"></i>
+              <span>Folder: <span x-text="activeFolderName"></span></span>
+              <button @click="clearFolderFilter()" class="hover:text-pink-900 dark:hover:text-white p-0.5 cursor-pointer ml-1" title="Clear Folder Filter">
+                <i data-lucide="x" class="w-3 h-3"></i>
+              </button>
+            </div>
           </template>
         </div>
       </section>
 
       <!-- VIEW MODE 1: HIGH-DENSITY TRACKED KEYWORDS TABLE -->
-      <section x-show="dashboardViewMode === 'table'" class="rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/90 dark:border-slate-800/90 shadow-xs overflow-hidden">
+      <section id="keywords-dashboard-table" x-show="dashboardViewMode === 'table'" class="rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/90 dark:border-slate-800/90 shadow-xs overflow-hidden">
         <div class="overflow-x-auto">
           <table class="w-full text-left border-collapse">
             <thead>
               <tr class="table-sticky-header bg-slate-50/95 dark:bg-[#080d19]/95 border-b border-slate-200 dark:border-slate-800 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 font-mono">
                 <th class="py-3.5 px-4 w-12 text-center">
                   <input type="checkbox" @click="toggleSelectAllDashboardKeywords()"
-                         :checked="selectedKeywordIds.length === filteredDashboardKeywords.length && filteredDashboardKeywords.length > 0"
+                         :checked="paginatedDashboardKeywords.length > 0 && paginatedDashboardKeywords.every(k => isDashboardKeywordSelected(k.id))"
                          class="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300 dark:border-slate-700">
                 </th>
                 <th class="py-3.5 px-3 w-16">Preview</th>
-                <th class="py-3.5 px-4 min-w-[240px]">Keyword & Category</th>
+                <th class="py-3.5 px-4 min-w-[260px]">Keyword & Folders</th>
                 <th class="py-3.5 px-3 w-28">24h Saves Δ</th>
                 <th class="py-3.5 px-3 w-28">24h Repins Δ</th>
-                <th class="py-3.5 px-3 w-32">Daily Velocity</th>
-                <th class="py-3.5 px-3 w-36">Pins Quota</th>
+                <th class="py-3.5 px-3 w-32">Total Pins</th>
                 <th class="py-3.5 px-3 w-28 text-center">Status</th>
                 <th class="py-3.5 px-3 w-36">Last Crawled</th>
                 <th class="py-3.5 px-4 w-36 text-right">Actions</th>
@@ -580,7 +601,6 @@ export function getKeywordsPageHtml(initialSlug = '') {
                     <td class="py-4 px-3"><div class="h-6 w-16 bg-slate-200 dark:bg-slate-800 rounded-full"></div></td>
                     <td class="py-4 px-3"><div class="h-6 w-12 bg-slate-200 dark:bg-slate-800 rounded-full"></div></td>
                     <td class="py-4 px-3"><div class="h-6 w-20 bg-slate-200 dark:bg-slate-800 rounded-lg"></div></td>
-                    <td class="py-4 px-3"><div class="h-3 w-24 bg-slate-200 dark:bg-slate-800 rounded"></div></td>
                     <td class="py-4 px-3 text-center"><div class="h-6 w-16 bg-slate-200 dark:bg-slate-800 rounded-full mx-auto"></div></td>
                     <td class="py-4 px-3"><div class="h-3 w-20 bg-slate-200 dark:bg-slate-800 rounded"></div></td>
                     <td class="py-4 px-4 text-right"><div class="h-8 w-24 bg-slate-200 dark:bg-slate-800 rounded-xl ml-auto"></div></td>
@@ -590,8 +610,9 @@ export function getKeywordsPageHtml(initialSlug = '') {
 
               <!-- Real Data Rows -->
               <template x-if="!isKeywordsLoading">
-                <template x-for="kw in filteredDashboardKeywords" :key="kw.id">
+                <template x-for="kw in paginatedDashboardKeywords" :key="kw.id">
                   <tr class="hover:bg-slate-50/90 dark:hover:bg-slate-900/50 transition group cursor-pointer"
+                      :class="isDashboardKeywordSelected(kw.id) ? 'bg-emerald-50/60 dark:bg-emerald-950/25' : ''"
                       @click="switchToSerpStudio(kw)">
                     
                     <!-- Checkbox -->
@@ -614,14 +635,36 @@ export function getKeywordsPageHtml(initialSlug = '') {
                       </div>
                     </td>
 
-                    <!-- Keyword & Category -->
-                    <td class="py-3.5 px-4 min-w-[240px]">
-                      <div class="space-y-1">
+                    <!-- Keyword & Category & Folder Tags -->
+                    <td class="py-3.5 px-4 min-w-[260px]">
+                      <div class="space-y-1.5">
                         <span class="font-bold text-slate-900 dark:text-white group-hover:text-emerald-600 dark:group-hover:text-emerald-400 text-sm capitalize block transition"
                               x-text="kw.keyword"></span>
-                        <div class="flex items-center space-x-2">
+                        <div class="flex flex-wrap items-center gap-1.5">
                           <span class="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700/60"
                                 x-text="kw.category || 'General'"></span>
+                          
+                          <!-- Campaign Folders Tags -->
+                          <template x-for="f in getKeywordFolders(kw)" :key="f.id">
+                            <button type="button" @click.stop="filterByFolder(f.id)"
+                                    class="px-2 py-0.5 rounded-md text-[10px] font-bold font-mono transition flex items-center space-x-1 border cursor-pointer hover:scale-105 active:scale-95 shadow-2xs"
+                                    :style="'background-color: ' + (f.color || '#ec4899') + '15; color: ' + (f.color || '#ec4899') + '; border-color: ' + (f.color || '#ec4899') + '40;'"
+                                    :title="'Click to filter keywords in folder: ' + f.name">
+                              <i data-lucide="folder" class="w-2.5 h-2.5 shrink-0"></i>
+                              <span x-text="f.name"></span>
+                            </button>
+                          </template>
+
+                          <!-- If no folders, quick add button -->
+                          <template x-if="getKeywordFolders(kw).length === 0">
+                            <button type="button" @click.stop="openQuickFolderModal(kw)"
+                                    class="px-1.5 py-0.5 rounded-md text-[10px] font-mono text-slate-400 hover:text-pink-500 hover:bg-pink-500/10 transition border border-dashed border-slate-200 dark:border-slate-800 flex items-center space-x-1 cursor-pointer"
+                                    title="Add to Campaign Folder">
+                              <i data-lucide="folder-plus" class="w-2.5 h-2.5"></i>
+                              <span>Folder</span>
+                            </button>
+                          </template>
+
                           <template x-if="kw.annotation_id">
                             <span class="text-[10px] font-mono text-slate-400" x-text="'ID: ' + kw.annotation_id"></span>
                           </template>
@@ -651,26 +694,13 @@ export function getKeywordsPageHtml(initialSlug = '') {
                       </span>
                     </td>
 
-                    <!-- Daily Velocity -->
+                    <!-- Total Pins Badge (Clean, No Quota Bar) -->
                     <td class="py-3.5 px-3 font-mono">
-                      <span class="px-2.5 py-1 rounded-lg text-xs font-black inline-flex items-center space-x-1"
-                            :class="Number(kw.avg_daily_velocity || 0) > 0 ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'">
-                        <i data-lucide="zap" class="w-3 h-3" :class="Number(kw.avg_daily_velocity || 0) > 0 ? 'text-emerald-500' : 'text-slate-400'"></i>
-                        <span x-text="(Number(kw.avg_daily_velocity || 0) > 0 ? '+' : '') + Number(kw.avg_daily_velocity || 0) + ' v/d'"></span>
+                      <span class="px-2.5 py-1 rounded-xl text-xs font-bold inline-flex items-center space-x-1.5 bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-200 border border-slate-200/80 dark:border-slate-700/80 shadow-2xs">
+                        <i data-lucide="pin" class="w-3.5 h-3.5 text-emerald-500 shrink-0"></i>
+                        <span class="font-black text-slate-900 dark:text-white" x-text="getKeywordTotalPins(kw)"></span>
+                        <span class="text-[10px] text-slate-400 uppercase">Pins</span>
                       </span>
-                    </td>
-
-                    <!-- Pins Quota Progress Bar -->
-                    <td class="py-3.5 px-3">
-                      <div class="space-y-1">
-                        <div class="flex items-center justify-between text-[11px] font-mono">
-                          <span class="font-bold text-slate-700 dark:text-slate-300" x-text="(kw.snapshots_count || kw.target_pin_count || 250) + ' / ' + (kw.target_pin_count || 250)"></span>
-                          <span class="text-[10px] text-slate-400 font-semibold" x-text="getQuotaPercentage(kw) + '%'"></span>
-                        </div>
-                        <div class="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                          <div class="h-full bg-emerald-500 rounded-full transition-all duration-300" :style="'width: ' + getQuotaPercentage(kw) + '%'"></div>
-                        </div>
-                      </div>
                     </td>
 
                     <!-- Active / Paused Status Toggle -->
@@ -724,7 +754,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
               <!-- Empty State Row -->
               <template x-if="!isKeywordsLoading && (!filteredDashboardKeywords || filteredDashboardKeywords.length === 0)">
                 <tr>
-                  <td colspan="10" class="py-16 text-center">
+                  <td colspan="9" class="py-16 text-center">
                     <div class="max-w-md mx-auto space-y-4 p-4">
                       <div class="w-12 h-12 rounded-2xl bg-emerald-500/10 text-emerald-500 mx-auto flex items-center justify-center">
                         <i data-lucide="search" class="w-6 h-6"></i>
@@ -750,10 +780,95 @@ export function getKeywordsPageHtml(initialSlug = '') {
             </tbody>
           </table>
         </div>
+
+        <!-- DASHBOARD TABLE PAGINATION FOOTER -->
+        <template x-if="!isKeywordsLoading && filteredDashboardKeywords && filteredDashboardKeywords.length > 0">
+          <div class="px-5 py-3.5 border-t border-slate-200/80 dark:border-slate-800/80 bg-slate-50/50 dark:bg-slate-900/30 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+            
+            <!-- Left: Items range & Page Size selector -->
+            <div class="flex flex-wrap items-center gap-3 text-slate-500 font-mono text-[11px]">
+              <div>
+                <span>Showing </span>
+                <span class="font-bold text-slate-900 dark:text-white" x-text="dashboardRangeStart"></span>
+                <span> - </span>
+                <span class="font-bold text-slate-900 dark:text-white" x-text="dashboardRangeEnd"></span>
+                <span> of </span>
+                <span class="font-bold text-slate-900 dark:text-white" x-text="filteredDashboardKeywords.length"></span>
+                <span> Queries</span>
+              </div>
+
+              <!-- Per Page Selector -->
+              <div class="flex items-center space-x-1.5">
+                <span class="text-slate-400 font-sans">Rows:</span>
+                <select x-model="dashboardPageSize" class="px-2 py-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[11px] font-mono font-bold text-slate-700 dark:text-slate-300 focus:outline-none cursor-pointer">
+                  <option :value="10">10 / page</option>
+                  <option :value="25">25 / page</option>
+                  <option :value="50">50 / page</option>
+                  <option value="all">All</option>
+                </select>
+              </div>
+
+              <template x-if="selectedKeywordIds.length > 0">
+                <span class="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-bold border border-emerald-500/30 font-sans"
+                      x-text="selectedKeywordIds.length + ' selected'"></span>
+              </template>
+            </div>
+
+            <!-- Right: Pagination Buttons -->
+            <template x-if="dashboardPageSize !== 'all' && dashboardTotalPages > 1">
+              <div class="flex items-center space-x-1">
+                <!-- First Page -->
+                <button type="button" @click="setDashboardPage(1)" :disabled="dashboardPage <= 1"
+                        class="p-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer text-slate-600 dark:text-slate-400"
+                        title="First Page">
+                  <i data-lucide="chevrons-left" class="w-4 h-4"></i>
+                </button>
+
+                <!-- Previous Page -->
+                <button type="button" @click="setDashboardPage(dashboardPage - 1)" :disabled="dashboardPage <= 1"
+                        class="p-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer text-slate-600 dark:text-slate-400"
+                        title="Previous Page">
+                  <i data-lucide="chevron-left" class="w-4 h-4"></i>
+                </button>
+
+                <!-- Numbered Page Pills -->
+                <div class="flex items-center space-x-1 px-1">
+                  <template x-for="(p, pIdx) in dashboardPageNumbers" :key="pIdx">
+                    <div>
+                      <template x-if="p === '...'">
+                        <span class="px-2 py-1 text-slate-400 font-mono text-xs">...</span>
+                      </template>
+                      <template x-if="p !== '...'">
+                        <button type="button" @click="setDashboardPage(p)"
+                                class="min-w-8 h-8 px-2 rounded-xl text-xs font-mono font-bold transition cursor-pointer"
+                                :class="dashboardPage === p ? 'bg-emerald-600 text-white shadow-xs' : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'"
+                                x-text="p"></button>
+                      </template>
+                    </div>
+                  </template>
+                </div>
+
+                <!-- Next Page -->
+                <button type="button" @click="setDashboardPage(dashboardPage + 1)" :disabled="dashboardPage >= dashboardTotalPages"
+                        class="p-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer text-slate-600 dark:text-slate-400"
+                        title="Next Page">
+                  <i data-lucide="chevron-right" class="w-4 h-4"></i>
+                </button>
+
+                <!-- Last Page -->
+                <button type="button" @click="setDashboardPage(dashboardTotalPages)" :disabled="dashboardPage >= dashboardTotalPages"
+                        class="p-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer text-slate-600 dark:text-slate-400"
+                        title="Last Page">
+                  <i data-lucide="chevrons-right" class="w-4 h-4"></i>
+                </button>
+              </div>
+            </template>
+          </div>
+        </template>
       </section>
 
       <!-- VIEW MODE 2: PINTEREST-STYLE VISUAL CARDS GRID -->
-      <section x-show="dashboardViewMode === 'grid'" class="space-y-4">
+      <section id="keywords-dashboard-grid" x-show="dashboardViewMode === 'grid'" class="space-y-4">
         <!-- Grid Skeleton Loader -->
         <template x-if="isKeywordsLoading">
           <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
@@ -769,87 +884,196 @@ export function getKeywordsPageHtml(initialSlug = '') {
 
         <!-- Grid Cards -->
         <template x-if="!isKeywordsLoading">
-          <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
-            <template x-for="kw in filteredDashboardKeywords" :key="kw.id">
-              <div class="rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/90 dark:border-slate-800/90 p-4 shadow-xs hover:shadow-md transition-all duration-200 group flex flex-col justify-between cursor-pointer space-y-3"
-                   @click="switchToSerpStudio(kw)">
+          <div class="space-y-4">
+            <!-- Grid Empty State -->
+            <template x-if="!filteredDashboardKeywords || filteredDashboardKeywords.length === 0">
+              <div class="p-12 text-center rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/90 dark:border-slate-800/90 shadow-xs">
+                <div class="max-w-md mx-auto space-y-3">
+                  <div class="w-12 h-12 rounded-2xl bg-emerald-500/10 text-emerald-500 mx-auto flex items-center justify-center">
+                    <i data-lucide="search" class="w-6 h-6"></i>
+                  </div>
+                  <h3 class="text-base font-bold text-slate-900 dark:text-white">No Tracked Keywords Found</h3>
+                  <p class="text-xs text-slate-500 dark:text-slate-400">Try adjusting your category, folder, or search filters.</p>
+                </div>
+              </div>
+            </template>
+
+            <div x-show="filteredDashboardKeywords && filteredDashboardKeywords.length > 0"
+                 class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
+              <template x-for="kw in paginatedDashboardKeywords" :key="kw.id">
+                <div class="rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/90 dark:border-slate-800/90 p-4 shadow-xs hover:shadow-md transition-all duration-200 group flex flex-col justify-between cursor-pointer space-y-3"
+                     @click="switchToSerpStudio(kw)">
+                  
+                  <!-- Card Header: Image Banner with Floating Badges -->
+                  <div class="w-full h-48 rounded-2xl overflow-hidden bg-slate-100 dark:bg-slate-900 border border-slate-200/70 dark:border-slate-800 relative">
+                    <template x-if="kw.top_pin_image">
+                      <img :src="kw.top_pin_image" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300">
+                    </template>
+                    <template x-if="!kw.top_pin_image">
+                      <div class="w-full h-full flex items-center justify-center">
+                        <i data-lucide="image" class="w-8 h-8 text-slate-400"></i>
+                      </div>
+                    </template>
+
+                    <!-- Top Badges Overlay -->
+                    <div class="absolute top-2.5 left-2.5 right-2.5 flex items-center justify-between">
+                      <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold backdrop-blur-md"
+                            :class="kw.is_active !== false ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-500/40' : 'bg-amber-950/80 text-amber-300 border border-amber-500/40'"
+                            x-text="kw.is_active !== false ? '● Active' : '● Paused'"></span>
+
+                      <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-slate-950/80 text-white backdrop-blur-md border border-slate-700/60 inline-flex items-center space-x-1">
+                        <i data-lucide="pin" class="w-3 h-3 text-emerald-400"></i>
+                        <span x-text="getKeywordTotalPins(kw) + ' Pins'"></span>
+                      </span>
+                    </div>
+                  </div>
+
+                  <!-- Card Body -->
+                  <div class="space-y-2 flex-1">
+                    <div class="flex items-start justify-between gap-2">
+                      <h3 class="font-black text-slate-900 dark:text-white text-base capitalize group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition truncate"
+                          x-text="kw.keyword"></h3>
+                    </div>
+
+                    <div class="flex flex-wrap items-center gap-1">
+                      <span class="inline-block px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700/60"
+                            x-text="kw.category || 'General'"></span>
+                      
+                      <!-- Folder Tags -->
+                      <template x-for="f in getKeywordFolders(kw)" :key="f.id">
+                        <button type="button" @click.stop="filterByFolder(f.id)"
+                                class="px-2 py-0.5 rounded-md text-[10px] font-bold font-mono transition inline-flex items-center space-x-1 border cursor-pointer hover:scale-105 shadow-2xs"
+                                :style="'background-color: ' + (f.color || '#ec4899') + '15; color: ' + (f.color || '#ec4899') + '; border-color: ' + (f.color || '#ec4899') + '40;'"
+                                :title="'Click to filter keywords in: ' + f.name">
+                          <i data-lucide="folder" class="w-2.5 h-2.5 shrink-0"></i>
+                          <span x-text="f.name"></span>
+                        </button>
+                      </template>
+                    </div>
+
+                    <!-- Metrics Ribbon -->
+                    <div class="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 dark:border-slate-800/80 text-xs font-mono">
+                      <div class="p-2 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800">
+                        <span class="text-[10px] text-slate-400 block font-sans">24h Saves Δ</span>
+                        <span class="font-bold text-slate-800 dark:text-slate-200"
+                              :class="getKeywordSaveDelta(kw) > 0 ? 'text-emerald-600 dark:text-emerald-400' : ''"
+                              x-text="(getKeywordSaveDelta(kw) > 0 ? '+' : '') + formatNumber(getKeywordSaveDelta(kw))"></span>
+                      </div>
+                      <div class="p-2 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800">
+                        <span class="text-[10px] text-slate-400 block font-sans">24h Repins Δ</span>
+                        <span class="font-bold text-slate-800 dark:text-slate-200"
+                              :class="getKeywordRepinDelta(kw) > 0 ? 'text-emerald-600 dark:text-emerald-400' : ''"
+                              x-text="(getKeywordRepinDelta(kw) > 0 ? '+' : '') + formatNumber(getKeywordRepinDelta(kw))"></span>
+                      </div>
+                    </div>
+
+                    <!-- Total Pins Status Ribbon -->
+                    <div class="flex items-center justify-between text-xs font-mono pt-1">
+                      <span class="text-slate-400">Total Pins:</span>
+                      <span class="font-bold text-slate-900 dark:text-white inline-flex items-center space-x-1.5">
+                        <i data-lucide="pin" class="w-3.5 h-3.5 text-emerald-500"></i>
+                        <span x-text="getKeywordTotalPins(kw) + ' Pins'"></span>
+                      </span>
+                    </div>
+                  </div>
+
+                  <!-- Card Footer Actions -->
+                  <div class="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
+                    <span class="text-[10px] font-mono text-slate-400" x-text="formatRelativeTime(kw.last_crawled_at)"></span>
+                    <div class="flex items-center space-x-1.5">
+                      <button @click.stop="switchToSerpStudio(kw)"
+                              class="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition flex items-center space-x-1 text-xs">
+                        <span>Studio</span>
+                        <i data-lucide="arrow-right" class="w-3 h-3"></i>
+                      </button>
+                      <button @click.stop="deleteKeyword(kw.id)"
+                              class="p-1.5 rounded-xl text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-slate-800 transition">
+                        <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                      </button>
+                    </div>
+                  </div>
+
+                </div>
+              </template>
+            </div>
+
+            <!-- DASHBOARD GRID PAGINATION FOOTER -->
+            <template x-if="filteredDashboardKeywords && filteredDashboardKeywords.length > 0">
+              <div class="px-5 py-3.5 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 bg-white dark:bg-[#0b1120] flex flex-col sm:flex-row items-center justify-between gap-3 text-xs shadow-xs">
                 
-                <!-- Card Header: Image Banner with Floating Badges -->
-                <div class="w-full h-48 rounded-2xl overflow-hidden bg-slate-100 dark:bg-slate-900 border border-slate-200/70 dark:border-slate-800 relative">
-                  <template x-if="kw.top_pin_image">
-                    <img :src="kw.top_pin_image" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300">
-                  </template>
-                  <template x-if="!kw.top_pin_image">
-                    <div class="w-full h-full flex items-center justify-center">
-                      <i data-lucide="image" class="w-8 h-8 text-slate-400"></i>
-                    </div>
-                  </template>
-
-                  <!-- Top Badges Overlay -->
-                  <div class="absolute top-2.5 left-2.5 right-2.5 flex items-center justify-between">
-                    <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold backdrop-blur-md"
-                          :class="kw.is_active !== false ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-500/40' : 'bg-amber-950/80 text-amber-300 border border-amber-500/40'"
-                          x-text="kw.is_active !== false ? '● Active' : '● Paused'"></span>
-
-                    <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-slate-950/80 text-white backdrop-blur-md border border-slate-700/60"
-                          x-text="Number(kw.avg_daily_velocity || 0) > 0 ? '+' + Number(kw.avg_daily_velocity) + ' v/d' : '0 v/d'"></span>
-                  </div>
-                </div>
-
-                <!-- Card Body -->
-                <div class="space-y-2 flex-1">
-                  <div class="flex items-start justify-between gap-2">
-                    <h3 class="font-black text-slate-900 dark:text-white text-base capitalize group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition truncate"
-                        x-text="kw.keyword"></h3>
+                <!-- Left: Items range & Page Size selector -->
+                <div class="flex flex-wrap items-center gap-3 text-slate-500 font-mono text-[11px]">
+                  <div>
+                    <span>Showing </span>
+                    <span class="font-bold text-slate-900 dark:text-white" x-text="dashboardRangeStart"></span>
+                    <span> - </span>
+                    <span class="font-bold text-slate-900 dark:text-white" x-text="dashboardRangeEnd"></span>
+                    <span> of </span>
+                    <span class="font-bold text-slate-900 dark:text-white" x-text="filteredDashboardKeywords.length"></span>
+                    <span> Queries</span>
                   </div>
 
-                  <span class="inline-block px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700/60"
-                        x-text="kw.category || 'General'"></span>
-
-                  <!-- Metrics Ribbon -->
-                  <div class="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 dark:border-slate-800/80 text-xs font-mono">
-                    <div class="p-2 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800">
-                      <span class="text-[10px] text-slate-400 block font-sans">24h Saves Δ</span>
-                      <span class="font-bold text-slate-800 dark:text-slate-200"
-                            :class="getKeywordSaveDelta(kw) > 0 ? 'text-emerald-600 dark:text-emerald-400' : ''"
-                            x-text="(getKeywordSaveDelta(kw) > 0 ? '+' : '') + formatNumber(getKeywordSaveDelta(kw))"></span>
-                    </div>
-                    <div class="p-2 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800">
-                      <span class="text-[10px] text-slate-400 block font-sans">24h Repins Δ</span>
-                      <span class="font-bold text-slate-800 dark:text-slate-200"
-                            :class="getKeywordRepinDelta(kw) > 0 ? 'text-emerald-600 dark:text-emerald-400' : ''"
-                            x-text="(getKeywordRepinDelta(kw) > 0 ? '+' : '') + formatNumber(getKeywordRepinDelta(kw))"></span>
-                    </div>
-                  </div>
-
-                  <!-- Quota Progress Bar -->
-                  <div class="space-y-1 pt-1">
-                    <div class="flex items-center justify-between text-[10px] font-mono text-slate-500">
-                      <span>Pins Quota:</span>
-                      <span class="font-bold text-slate-700 dark:text-slate-300" x-text="(kw.snapshots_count || kw.target_pin_count || 250) + ' / ' + (kw.target_pin_count || 250)"></span>
-                    </div>
-                    <div class="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                      <div class="h-full bg-emerald-500 rounded-full transition-all duration-300" :style="'width: ' + getQuotaPercentage(kw) + '%'"></div>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Card Footer Actions -->
-                <div class="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
-                  <span class="text-[10px] font-mono text-slate-400" x-text="formatRelativeTime(kw.last_crawled_at)"></span>
+                  <!-- Per Page Selector -->
                   <div class="flex items-center space-x-1.5">
-                    <button @click.stop="switchToSerpStudio(kw)"
-                            class="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition flex items-center space-x-1 text-xs">
-                      <span>Studio</span>
-                      <i data-lucide="arrow-right" class="w-3 h-3"></i>
-                    </button>
-                    <button @click.stop="deleteKeyword(kw.id)"
-                            class="p-1.5 rounded-xl text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-slate-800 transition">
-                      <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
-                    </button>
+                    <span class="text-slate-400 font-sans">Rows:</span>
+                    <select x-model="dashboardPageSize" class="px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[11px] font-mono font-bold text-slate-700 dark:text-slate-300 focus:outline-none cursor-pointer">
+                      <option :value="10">10 / page</option>
+                      <option :value="25">25 / page</option>
+                      <option :value="50">50 / page</option>
+                      <option value="all">All</option>
+                    </select>
                   </div>
                 </div>
 
+                <!-- Right: Pagination Buttons -->
+                <template x-if="dashboardPageSize !== 'all' && dashboardTotalPages > 1">
+                  <div class="flex items-center space-x-1">
+                    <!-- First Page -->
+                    <button type="button" @click="setDashboardPage(1)" :disabled="dashboardPage <= 1"
+                            class="p-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer text-slate-600 dark:text-slate-400"
+                            title="First Page">
+                      <i data-lucide="chevrons-left" class="w-4 h-4"></i>
+                    </button>
+
+                    <!-- Previous Page -->
+                    <button type="button" @click="setDashboardPage(dashboardPage - 1)" :disabled="dashboardPage <= 1"
+                            class="p-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer text-slate-600 dark:text-slate-400"
+                            title="Previous Page">
+                      <i data-lucide="chevron-left" class="w-4 h-4"></i>
+                    </button>
+
+                    <!-- Numbered Page Pills -->
+                    <div class="flex items-center space-x-1 px-1">
+                      <template x-for="(p, pIdx) in dashboardPageNumbers" :key="pIdx">
+                        <div>
+                          <template x-if="p === '...'">
+                            <span class="px-2 py-1 text-slate-400 font-mono text-xs">...</span>
+                          </template>
+                          <template x-if="p !== '...'">
+                            <button type="button" @click="setDashboardPage(p)"
+                                    class="min-w-8 h-8 px-2 rounded-xl text-xs font-mono font-bold transition cursor-pointer"
+                                    :class="dashboardPage === p ? 'bg-emerald-600 text-white shadow-xs' : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'"
+                                    x-text="p"></button>
+                          </template>
+                        </div>
+                      </template>
+                    </div>
+
+                    <!-- Next Page -->
+                    <button type="button" @click="setDashboardPage(dashboardPage + 1)" :disabled="dashboardPage >= dashboardTotalPages"
+                            class="p-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer text-slate-600 dark:text-slate-400"
+                            title="Next Page">
+                      <i data-lucide="chevron-right" class="w-4 h-4"></i>
+                    </button>
+
+                    <!-- Last Page -->
+                    <button type="button" @click="setDashboardPage(dashboardTotalPages)" :disabled="dashboardPage >= dashboardTotalPages"
+                            class="p-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer text-slate-600 dark:text-slate-400"
+                            title="Last Page">
+                      <i data-lucide="chevrons-right" class="w-4 h-4"></i>
+                    </button>
+                  </div>
+                </template>
               </div>
             </template>
           </div>
@@ -1086,7 +1310,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
                     <i data-lucide="check-circle" class="w-3.5 h-3.5 text-emerald-500"></i>
                     <span class="capitalize" x-text="kw.keyword"></span>
                   </div>
-                  <span class="text-[10px] text-slate-400 font-mono" x-text="'+' + Number(kw.avg_daily_velocity || 0) + ' v/d'"></span>
+                  <span class="text-[10px] text-slate-400 font-mono" x-text="getKeywordTotalPins(kw) + ' Pins'"></span>
                 </div>
               </template>
             </div>
@@ -4906,7 +5130,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
                 <span class="text-[10px] text-slate-400 font-mono" x-text="kw.category || 'General'"></span>
               </div>
             </div>
-            <span class="text-[10px] font-mono font-bold text-slate-500" x-text="Number(kw.avg_daily_velocity || 0) + ' v/d'"></span>
+            <span class="text-[10px] font-mono font-bold text-slate-500" x-text="getKeywordTotalPins(kw) + ' Pins'"></span>
           </div>
         </template>
       </div>
@@ -4947,8 +5171,13 @@ export function getKeywordsPageHtml(initialSlug = '') {
         dashboardSearch: '',
         dashboardCategoryFilter: 'ALL',
         dashboardStatusFilter: 'ALL',
-        dashboardSort: 'velocity',
+        dashboardFolderFilter: 'ALL',
+        dashboardGrowthFilter: 'ALL',
+        dashboardPinsFilter: 'ALL',
+        dashboardSort: 'saves_delta',
         dashboardViewMode: 'table', // 'table' | 'grid'
+        dashboardPage: 1,
+        dashboardPageSize: 10,
         isBulkFolderModalOpen: false,
         bulkTargetFolderId: '',
         isBulkLoading: false,
@@ -5147,25 +5376,199 @@ export function getKeywordsPageHtml(initialSlug = '') {
           if (this.dashboardCategoryFilter && this.dashboardCategoryFilter !== 'ALL') {
             list = list.filter(k => (k.category || 'General').toLowerCase() === this.dashboardCategoryFilter.toLowerCase());
           }
+          if (this.dashboardFolderFilter && this.dashboardFolderFilter !== 'ALL') {
+            if (this.dashboardFolderFilter === 'UNASSIGNED') {
+              list = list.filter(k => this.getKeywordFolders(k).length === 0);
+            } else {
+              const targetFid = String(this.dashboardFolderFilter);
+              list = list.filter(k => this.getKeywordFolders(k).some(f => f && String(f.id) === targetFid));
+            }
+          }
+          if (this.dashboardGrowthFilter && this.dashboardGrowthFilter !== 'ALL') {
+            if (this.dashboardGrowthFilter === 'HIGH') {
+              list = list.filter(k => this.getKeywordSaveDelta(k) >= 50);
+            } else if (this.dashboardGrowthFilter === 'POSITIVE') {
+              list = list.filter(k => this.getKeywordSaveDelta(k) > 0);
+            } else if (this.dashboardGrowthFilter === 'FLAT') {
+              list = list.filter(k => this.getKeywordSaveDelta(k) === 0);
+            } else if (this.dashboardGrowthFilter === 'DECLINING') {
+              list = list.filter(k => this.getKeywordSaveDelta(k) < 0);
+            }
+          }
+          if (this.dashboardPinsFilter && this.dashboardPinsFilter !== 'ALL') {
+            if (this.dashboardPinsFilter === '250_PLUS') {
+              list = list.filter(k => this.getKeywordTotalPins(k) >= 250);
+            } else if (this.dashboardPinsFilter === 'UNDER_250') {
+              list = list.filter(k => this.getKeywordTotalPins(k) < 250);
+            }
+          }
           if (this.dashboardSearch && this.dashboardSearch.trim()) {
             const q = this.dashboardSearch.toLowerCase().trim();
             list = list.filter(k => 
               (k.keyword || '').toLowerCase().includes(q) ||
-              (k.category || '').toLowerCase().includes(q)
+              (k.category || '').toLowerCase().includes(q) ||
+              this.getKeywordFolders(k).some(f => (f.name || '').toLowerCase().includes(q))
             );
           }
-          if (this.dashboardSort === 'velocity') {
-            return [...list].sort((a, b) => Number(b.avg_daily_velocity || 0) - Number(a.avg_daily_velocity || 0));
-          } else if (this.dashboardSort === 'saves_delta') {
+          if (this.dashboardSort === 'saves_delta') {
             return [...list].sort((a, b) => this.getKeywordSaveDelta(b) - this.getKeywordSaveDelta(a));
           } else if (this.dashboardSort === 'repins_delta') {
             return [...list].sort((a, b) => this.getKeywordRepinDelta(b) - this.getKeywordRepinDelta(a));
+          } else if (this.dashboardSort === 'total_pins') {
+            return [...list].sort((a, b) => this.getKeywordTotalPins(b) - this.getKeywordTotalPins(a));
           } else if (this.dashboardSort === 'name') {
             return [...list].sort((a, b) => (a.keyword || '').localeCompare(b.keyword || ''));
           } else if (this.dashboardSort === 'crawled') {
             return [...list].sort((a, b) => new Date(b.last_crawled_at || 0) - new Date(a.last_crawled_at || 0));
+          } else if (this.dashboardSort === 'velocity') {
+            return [...list].sort((a, b) => Number(b.avg_daily_velocity || 0) - Number(a.avg_daily_velocity || 0));
           }
           return list;
+        },
+
+        get paginatedDashboardKeywords() {
+          if (this.dashboardPageSize === 'all') return this.filteredDashboardKeywords;
+          const size = Number(this.dashboardPageSize || 10);
+          const totalPages = this.dashboardTotalPages;
+          const safePage = Math.min(Math.max(1, Number(this.dashboardPage) || 1), totalPages);
+          const start = Math.max(0, (safePage - 1) * size);
+          return this.filteredDashboardKeywords.slice(start, start + size);
+        },
+
+        get dashboardTotalPages() {
+          if (this.dashboardPageSize === 'all') return 1;
+          const size = Number(this.dashboardPageSize || 10);
+          return Math.ceil(this.filteredDashboardKeywords.length / size) || 1;
+        },
+
+        get dashboardRangeStart() {
+          const total = this.filteredDashboardKeywords.length;
+          if (total === 0) return 0;
+          if (this.dashboardPageSize === 'all') return 1;
+          const size = Number(this.dashboardPageSize || 10);
+          const safePage = Math.min(Math.max(1, Number(this.dashboardPage) || 1), this.dashboardTotalPages);
+          return ((safePage - 1) * size) + 1;
+        },
+
+        get dashboardRangeEnd() {
+          const total = this.filteredDashboardKeywords.length;
+          if (total === 0) return 0;
+          if (this.dashboardPageSize === 'all') return total;
+          const size = Number(this.dashboardPageSize || 10);
+          const safePage = Math.min(Math.max(1, Number(this.dashboardPage) || 1), this.dashboardTotalPages);
+          return Math.min(safePage * size, total);
+        },
+
+        get dashboardPageNumbers() {
+          const total = this.dashboardTotalPages;
+          const current = Math.min(Math.max(1, Number(this.dashboardPage) || 1), total);
+          if (total <= 7) {
+            return Array.from({ length: total }, (_, i) => i + 1);
+          }
+          const pages = [];
+          if (current <= 4) {
+            for (let i = 1; i <= 5; i++) pages.push(i);
+            pages.push('...');
+            pages.push(total);
+          } else if (current >= total - 3) {
+            pages.push(1);
+            pages.push('...');
+            for (let i = total - 4; i <= total; i++) pages.push(i);
+          } else {
+            pages.push(1);
+            pages.push('...');
+            pages.push(current - 1);
+            pages.push(current);
+            pages.push(current + 1);
+            pages.push('...');
+            pages.push(total);
+          }
+          return pages;
+        },
+
+        setDashboardPage(p) {
+          if (p === '...' || p < 1 || p > this.dashboardTotalPages) return;
+          this.dashboardPage = p;
+          this.$nextTick(() => {
+            if (window.lucide) lucide.createIcons();
+            const el = this.dashboardViewMode === 'grid'
+              ? (document.getElementById('keywords-dashboard-grid') || document.getElementById('keywords-dashboard-table'))
+              : document.getElementById('keywords-dashboard-table');
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          });
+        },
+
+        getKeywordTotalPins(kw) {
+          if (!kw) return 0;
+          if (kw.total_pins_count !== undefined && kw.total_pins_count !== null && !isNaN(Number(kw.total_pins_count))) {
+            return Number(kw.total_pins_count);
+          }
+          if (kw.snapshots_count !== undefined && kw.snapshots_count !== null && !isNaN(Number(kw.snapshots_count))) {
+            return Number(kw.snapshots_count);
+          }
+          return 0;
+        },
+
+        getKeywordFolders(kw) {
+          if (!kw) return [];
+          let folders = kw.folders;
+          if (typeof folders === 'string' && folders.trim().startsWith('[')) {
+            try { folders = JSON.parse(folders); } catch (_) { folders = []; }
+          }
+          if (Array.isArray(folders) && folders.length > 0) {
+            const seen = new Set();
+            return folders.filter(f => f && f.id && !seen.has(String(f.id)) && seen.add(String(f.id)));
+          }
+          if (!this.folders || this.folders.length === 0) return [];
+          const kid = String(kw.id);
+          const seen = new Set();
+          return this.folders
+            .filter(f => {
+              if (!f) return false;
+              let prev = f.keywords_preview;
+              if (typeof prev === 'string' && prev.trim().startsWith('[')) {
+                try { prev = JSON.parse(prev); } catch (_) { prev = []; }
+              }
+              return (Array.isArray(prev) ? prev : []).some(k => k && String(k.id) === kid);
+            })
+            .map(f => ({ id: f.id, name: f.name, color: f.color || '#ec4899' }))
+            .filter(f => !seen.has(String(f.id)) && seen.add(String(f.id)));
+        },
+
+        getFolderKeywordCount(f) {
+          if (!f) return 0;
+          if (f.keyword_count !== undefined && f.keyword_count !== null && !isNaN(Number(f.keyword_count))) {
+            return Number(f.keyword_count);
+          }
+          let prev = f.keywords_preview;
+          if (typeof prev === 'string' && prev.trim().startsWith('[')) {
+            try { prev = JSON.parse(prev); } catch (_) {}
+          }
+          return Array.isArray(prev) ? prev.filter(Boolean).length : 0;
+        },
+
+        filterByFolder(folderId) {
+          this.dashboardFolderFilter = String(folderId);
+          this.dashboardPage = 1;
+        },
+
+        clearFolderFilter() {
+          this.dashboardFolderFilter = 'ALL';
+          this.dashboardPage = 1;
+        },
+
+        get activeFolderName() {
+          if (this.dashboardFolderFilter === 'ALL') return '';
+          if (this.dashboardFolderFilter === 'UNASSIGNED') return 'Unassigned (No Folder)';
+          const f = (this.folders || []).find(x => x && String(x.id) === String(this.dashboardFolderFilter));
+          return f ? f.name : ('Folder #' + this.dashboardFolderFilter);
+        },
+
+        openQuickFolderModal(kw) {
+          if (!kw) return;
+          this.selectedKeyword = kw;
+          this.selectedKeywordIds = [kw.id];
+          this.openBulkFolderModal();
         },
 
         get activeKeywordsCount() {
@@ -5177,7 +5580,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
         },
 
         get totalMonitoredPins() {
-          return (this.keywords || []).reduce((acc, k) => acc + (Number(k.snapshots_count) || Number(k.target_pin_count) || 250), 0);
+          return (this.keywords || []).reduce((acc, k) => acc + this.getKeywordTotalPins(k), 0);
         },
 
         get averageFleetVelocity() {
@@ -5775,6 +6178,16 @@ export function getKeywordsPageHtml(initialSlug = '') {
           }
 
           this.$watch('keywordSearch', () => this.filterKeywords());
+          this.$watch('dashboardSearch', () => { this.dashboardPage = 1; this.$nextTick(() => { if (window.lucide) lucide.createIcons(); }); });
+          this.$watch('dashboardCategoryFilter', () => { this.dashboardPage = 1; this.$nextTick(() => { if (window.lucide) lucide.createIcons(); }); });
+          this.$watch('dashboardStatusFilter', () => { this.dashboardPage = 1; this.$nextTick(() => { if (window.lucide) lucide.createIcons(); }); });
+          this.$watch('dashboardFolderFilter', () => { this.dashboardPage = 1; this.$nextTick(() => { if (window.lucide) lucide.createIcons(); }); });
+          this.$watch('dashboardGrowthFilter', () => { this.dashboardPage = 1; this.$nextTick(() => { if (window.lucide) lucide.createIcons(); }); });
+          this.$watch('dashboardPinsFilter', () => { this.dashboardPage = 1; this.$nextTick(() => { if (window.lucide) lucide.createIcons(); }); });
+          this.$watch('dashboardSort', () => { this.dashboardPage = 1; this.$nextTick(() => { if (window.lucide) lucide.createIcons(); }); });
+          this.$watch('dashboardPageSize', () => { this.dashboardPage = 1; this.$nextTick(() => { if (window.lucide) lucide.createIcons(); }); });
+          this.$watch('dashboardTotalPages', (total) => { if (this.dashboardPage > total) this.dashboardPage = Math.max(1, total); });
+          this.$watch('dashboardViewMode', () => { this.$nextTick(() => { if (window.lucide) lucide.createIcons(); }); });
           this.$watch('pinSearch', () => { this.pinPage = 1; });
           this.$watch('serpScope', () => { this.pinPage = 1; });
           this.$watch('formatFilter', () => { this.pinPage = 1; });
@@ -5803,24 +6216,31 @@ export function getKeywordsPageHtml(initialSlug = '') {
         },
 
         toggleDashboardKeywordSelection(kwId) {
-          if (this.selectedKeywordIds.includes(kwId)) {
-            this.selectedKeywordIds = this.selectedKeywordIds.filter(id => id !== kwId);
+          const id = Number(kwId);
+          const idx = this.selectedKeywordIds.findIndex(x => Number(x) === id);
+          if (idx > -1) {
+            this.selectedKeywordIds.splice(idx, 1);
           } else {
-            this.selectedKeywordIds.push(kwId);
+            this.selectedKeywordIds.push(id);
           }
         },
 
         toggleSelectAllDashboardKeywords() {
-          const list = this.filteredDashboardKeywords;
-          if (this.selectedKeywordIds.length === list.length && list.length > 0) {
-            this.selectedKeywordIds = [];
+          const list = this.paginatedDashboardKeywords;
+          const allSelected = list.length > 0 && list.every(k => this.isDashboardKeywordSelected(k.id));
+          if (allSelected) {
+            const pageIds = new Set(list.map(k => Number(k.id)));
+            this.selectedKeywordIds = this.selectedKeywordIds.filter(id => !pageIds.has(Number(id)));
           } else {
-            this.selectedKeywordIds = list.map(k => k.id);
+            const newIds = new Set(this.selectedKeywordIds.map(x => Number(x)));
+            list.forEach(k => newIds.add(Number(k.id)));
+            this.selectedKeywordIds = Array.from(newIds);
           }
         },
 
         isDashboardKeywordSelected(kwId) {
-          return this.selectedKeywordIds.includes(kwId);
+          const id = Number(kwId);
+          return this.selectedKeywordIds.some(x => Number(x) === id);
         },
 
         clearSelectedKeywords() {
