@@ -25,18 +25,18 @@ database_id = "b0e9c924-4190-436f-909b-a7142696680b"
 binding = "HYPERDRIVE"
 id = "66ba4dc750fc464b991eb52558a8c026"
 
-# 4. Preview Configuration for Worker Previews (Wrangler v4 preview builds)
-[previews.vars]
+# 4. Preview Configuration for Worker Previews (Wrangler environments)
+[env.preview.vars]
 PORT = "3456"
 
-[[previews.kv_namespaces]]
+[[env.preview.kv_namespaces]]
 binding = "PIN_ENGINE_KV"
 id = "5ef158495b3a4b8b800e50c3242fb92d"
 
-[[previews.d1_databases]]
+[[env.preview.d1_databases]]
 binding = "PIN_D1_DB"
 database_id = "b0e9c924-4190-436f-909b-a7142696680b"
 
-[[previews.hyperdrive]]
+[[env.preview.hyperdrive]]
 binding = "HYPERDRIVE"
 id = "66ba4dc750fc464b991eb52558a8c026"
