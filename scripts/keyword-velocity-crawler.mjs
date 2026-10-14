@@ -128,7 +128,7 @@ const MAX_SAME_DAY_TTL_MS = 18 * 60 * 60 * 1000; // 18 Hours Maximum Same-Day Ca
  * Hardened Hydration Guard (Dual-Threshold: 4h Hard Floor + 18h Same-Day Cache)
  */
 function evaluateHydrationGuard(pin, currentUtcTimestamp = Date.now()) {
-  const crawlTime = pin.crawled_at || pin.updated_at || pin.metadata?.crawled_at || pin.metadata?.updated_at;
+  const crawlTime = pin.crawled_at || pin.metadata?.crawled_at || null;
   if (!crawlTime || pin.save_count == null || Number(pin.save_count) === 0) {
     return { shouldFetch: true, reason: 'unhydrated_pin', reuseTelemetry: null };
   }
@@ -336,7 +336,7 @@ async function inspectPin(pin, kw) {
 
   if (detail && authenticSaves > prevSaves && prevSaves >= 0) {
     const rawDelta = authenticSaves - prevSaves;
-    const lastTimestamp = pin.crawled_at || pin.updated_at;
+    const lastTimestamp = pin.crawled_at || pin.metadata?.crawled_at || null;
     if (lastTimestamp) {
       const elapsedHours = Math.max(0.25, (Date.now() - new Date(lastTimestamp).getTime()) / (1000 * 60 * 60));
       if (elapsedHours >= 0.5 && elapsedHours <= 72) {
