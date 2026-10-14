@@ -144,14 +144,6 @@ export function getKeywordsPageHtml(initialSlug = '') {
           <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-pink-500/20 text-pink-600 dark:text-pink-300 font-mono" x-text="folders.length"></span>
         </a>
 
-        <!-- Button to open All Keywords Slide-Over Drawer -->
-        <button @click="isDrawerOpen = true"
-                class="px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 transition flex items-center space-x-1.5 cursor-pointer">
-          <i data-lucide="layers" class="w-3.5 h-3.5 text-emerald-500"></i>
-          <span>Tracked Keywords</span>
-          <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-mono" x-text="keywords.length"></span>
-        </button>
-
         <a href="/board-ideas" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 transition hidden sm:flex items-center space-x-1.5">
           <i data-lucide="radar" class="w-3.5 h-3.5 text-purple-500"></i>
           <span>Board Radar</span>
@@ -317,20 +309,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
             <span>+ Track Keyword</span>
           </button>
 
-          <!-- Discover Keywords -->
-          <a href="/keywords/discovery"
-             class="px-3.5 py-2 rounded-2xl text-xs font-bold bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 transition flex items-center space-x-1.5 shadow-xs cursor-pointer">
-            <i data-lucide="compass" class="w-3.5 h-3.5 text-emerald-500"></i>
-            <span>Discovery</span>
-          </a>
 
-          <!-- Campaign Folders -->
-          <a href="/folders"
-             class="px-3.5 py-2 rounded-2xl text-xs font-bold bg-pink-500/10 hover:bg-pink-500/20 text-pink-700 dark:text-pink-400 border border-pink-500/30 transition flex items-center space-x-1.5 shadow-xs cursor-pointer">
-            <i data-lucide="folder-kanban" class="w-3.5 h-3.5 text-pink-500"></i>
-            <span>Folders</span>
-            <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-pink-500/20 text-pink-700 dark:text-pink-300 font-mono font-bold" x-text="folders.length"></span>
-          </a>
 
           <!-- Settings -->
           <button @click="openSettingsModal()"
@@ -504,15 +483,57 @@ export function getKeywordsPageHtml(initialSlug = '') {
               <option value="saves_delta">Sort: 24h Saves Δ (Highest)</option>
               <option value="repins_delta">Sort: 24h Repins Δ (Highest)</option>
               <option value="total_pins">Sort: Total Pins (Highest)</option>
+              <option value="created_desc">Sort: Date Added (Newest)</option>
+              <option value="created_asc">Sort: Date Added (Oldest)</option>
               <option value="crawled">Sort: Recently Crawled</option>
               <option value="name">Sort: Alphabetical (A-Z)</option>
             </select>
           </div>
 
-          <!-- Right: Counter & Table/Grid View Switcher -->
-          <div class="flex items-center space-x-3 shrink-0">
-            <span class="text-xs font-mono text-slate-500 dark:text-slate-400 font-semibold"
+          <!-- Right: Counter, Columns Visibility & Table/Grid View Switcher -->
+          <div class="flex items-center space-x-2 sm:space-x-3 shrink-0">
+            <span class="text-xs font-mono text-slate-500 dark:text-slate-400 font-semibold hidden md:inline"
                   x-text="filteredDashboardKeywords.length + ' of ' + keywords.length + ' Queries'"></span>
+
+            <!-- Column Visibility Dropdown (Table View Only) -->
+            <div x-show="dashboardViewMode === 'table'" class="relative" x-data="{ isColumnsOpen: false }" @click.outside="isColumnsOpen = false">
+              <button type="button" @click="isColumnsOpen = !isColumnsOpen"
+                      class="px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 text-xs font-semibold transition flex items-center space-x-1.5 cursor-pointer shadow-2xs">
+                <i data-lucide="columns-3" class="w-3.5 h-3.5 text-slate-500"></i>
+                <span>Columns</span>
+                <i data-lucide="chevron-down" class="w-3 h-3 text-slate-400 transition-transform" :class="isColumnsOpen ? 'rotate-180' : ''"></i>
+              </button>
+
+              <!-- Dropdown menu -->
+              <div x-show="isColumnsOpen" x-cloak
+                   x-transition:enter="transition ease-out duration-150"
+                   x-transition:enter-start="opacity-0 scale-95"
+                   x-transition:enter-end="opacity-100 scale-100"
+                   x-transition:leave="transition ease-in duration-100"
+                   x-transition:leave-start="opacity-100 scale-100"
+                   x-transition:leave-end="opacity-0 scale-95"
+                   class="absolute right-0 mt-2 w-56 rounded-2xl bg-white dark:bg-[#0c1322] border border-slate-200 dark:border-slate-800 shadow-xl p-2 space-y-0.5 z-40 text-xs font-sans">
+                <div class="px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400 font-mono border-b border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
+                  <span>Display Columns</span>
+                  <button type="button" @click="resetColumns()" class="text-emerald-500 hover:underline capitalize text-[10px]">Reset</button>
+                </div>
+                
+                <template x-for="col in columnDefinitions" :key="col.key">
+                  <label class="flex items-center space-x-2 px-2.5 py-1.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/60 cursor-pointer select-none transition"
+                         :class="col.required ? 'opacity-60 cursor-not-allowed' : ''">
+                    <input type="checkbox"
+                           :checked="visibleColumns[col.key]"
+                           :disabled="col.required"
+                           @change="toggleColumn(col.key)"
+                           class="w-3.5 h-3.5 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300 dark:border-slate-700 cursor-pointer">
+                    <span class="text-xs text-slate-700 dark:text-slate-300 font-medium" x-text="col.label"></span>
+                    <template x-if="col.required">
+                      <span class="text-[9px] text-slate-400 font-mono ml-auto">(Required)</span>
+                    </template>
+                  </label>
+                </template>
+              </div>
+            </div>
 
             <!-- View Switcher (Table vs Grid) -->
             <div class="flex items-center p-0.5 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
@@ -575,14 +596,15 @@ export function getKeywordsPageHtml(initialSlug = '') {
                          :checked="paginatedDashboardKeywords.length > 0 && paginatedDashboardKeywords.every(k => isDashboardKeywordSelected(k.id))"
                          class="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300 dark:border-slate-700">
                 </th>
-                <th class="py-3.5 px-3 w-16">Preview</th>
-                <th class="py-3.5 px-4 min-w-[260px]">Keyword & Folders</th>
-                <th class="py-3.5 px-3 w-28">24h Saves Δ</th>
-                <th class="py-3.5 px-3 w-28">24h Repins Δ</th>
-                <th class="py-3.5 px-3 w-32">Total Pins</th>
-                <th class="py-3.5 px-3 w-28 text-center">Status</th>
-                <th class="py-3.5 px-3 w-36">Last Crawled</th>
-                <th class="py-3.5 px-4 w-36 text-right">Actions</th>
+                <th x-show="visibleColumns.preview" class="py-3.5 px-3 w-16">Preview</th>
+                <th x-show="visibleColumns.keyword" class="py-3.5 px-4 min-w-[260px]">Keyword & Folders</th>
+                <th x-show="visibleColumns.saves_delta" class="py-3.5 px-3 w-28">24h Saves Δ</th>
+                <th x-show="visibleColumns.repins_delta" class="py-3.5 px-3 w-28">24h Repins Δ</th>
+                <th x-show="visibleColumns.total_pins" class="py-3.5 px-3 w-32">Total Pins</th>
+                <th x-show="visibleColumns.status" class="py-3.5 px-3 w-28 text-center">Status</th>
+                <th x-show="visibleColumns.created_at" class="py-3.5 px-3 w-36">Date Added</th>
+                <th x-show="visibleColumns.last_crawled" class="py-3.5 px-3 w-36">Last Crawled</th>
+                <th x-show="visibleColumns.actions" class="py-3.5 px-4 w-36 text-right">Actions</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-100 dark:divide-slate-800/80 text-xs">
@@ -591,19 +613,20 @@ export function getKeywordsPageHtml(initialSlug = '') {
                 <template x-for="i in [1, 2, 3, 4, 5]" :key="i">
                   <tr class="animate-pulse">
                     <td class="py-4 px-4 text-center"><div class="w-4 h-4 bg-slate-200 dark:bg-slate-800 rounded mx-auto"></div></td>
-                    <td class="py-4 px-3"><div class="w-12 h-16 bg-slate-200 dark:bg-slate-800 rounded-xl"></div></td>
-                    <td class="py-4 px-4">
+                    <td x-show="visibleColumns.preview" class="py-4 px-3"><div class="w-12 h-16 bg-slate-200 dark:bg-slate-800 rounded-xl"></div></td>
+                    <td x-show="visibleColumns.keyword" class="py-4 px-4">
                       <div class="space-y-2">
                         <div class="h-4 w-40 bg-slate-200 dark:bg-slate-800 rounded"></div>
                         <div class="h-3 w-20 bg-slate-100 dark:bg-slate-800/60 rounded-full"></div>
                       </div>
                     </td>
-                    <td class="py-4 px-3"><div class="h-6 w-16 bg-slate-200 dark:bg-slate-800 rounded-full"></div></td>
-                    <td class="py-4 px-3"><div class="h-6 w-12 bg-slate-200 dark:bg-slate-800 rounded-full"></div></td>
-                    <td class="py-4 px-3"><div class="h-6 w-20 bg-slate-200 dark:bg-slate-800 rounded-lg"></div></td>
-                    <td class="py-4 px-3 text-center"><div class="h-6 w-16 bg-slate-200 dark:bg-slate-800 rounded-full mx-auto"></div></td>
-                    <td class="py-4 px-3"><div class="h-3 w-20 bg-slate-200 dark:bg-slate-800 rounded"></div></td>
-                    <td class="py-4 px-4 text-right"><div class="h-8 w-24 bg-slate-200 dark:bg-slate-800 rounded-xl ml-auto"></div></td>
+                    <td x-show="visibleColumns.saves_delta" class="py-4 px-3"><div class="h-6 w-16 bg-slate-200 dark:bg-slate-800 rounded-full"></div></td>
+                    <td x-show="visibleColumns.repins_delta" class="py-4 px-3"><div class="h-6 w-12 bg-slate-200 dark:bg-slate-800 rounded-full"></div></td>
+                    <td x-show="visibleColumns.total_pins" class="py-4 px-3"><div class="h-6 w-20 bg-slate-200 dark:bg-slate-800 rounded-lg"></div></td>
+                    <td x-show="visibleColumns.status" class="py-4 px-3 text-center"><div class="h-6 w-16 bg-slate-200 dark:bg-slate-800 rounded-full mx-auto"></div></td>
+                    <td x-show="visibleColumns.created_at" class="py-4 px-3"><div class="h-3 w-20 bg-slate-200 dark:bg-slate-800 rounded"></div></td>
+                    <td x-show="visibleColumns.last_crawled" class="py-4 px-3"><div class="h-3 w-20 bg-slate-200 dark:bg-slate-800 rounded"></div></td>
+                    <td x-show="visibleColumns.actions" class="py-4 px-4 text-right"><div class="h-8 w-24 bg-slate-200 dark:bg-slate-800 rounded-xl ml-auto"></div></td>
                   </tr>
                 </template>
               </template>
@@ -622,7 +645,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
                     </td>
 
                     <!-- Thumbnail with Zoom -->
-                    <td class="py-3.5 px-3">
+                    <td x-show="visibleColumns.preview" class="py-3.5 px-3">
                       <div class="w-12 h-16 rounded-xl overflow-hidden bg-slate-100 dark:bg-slate-800 border border-slate-200/90 dark:border-slate-700/80 shadow-xs relative">
                         <template x-if="kw.top_pin_image">
                           <img :src="kw.top_pin_image" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200">
@@ -636,7 +659,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
                     </td>
 
                     <!-- Keyword & Category & Folder Tags -->
-                    <td class="py-3.5 px-4 min-w-[260px]">
+                    <td x-show="visibleColumns.keyword" class="py-3.5 px-4 min-w-[260px]">
                       <div class="space-y-1.5">
                         <span class="font-bold text-slate-900 dark:text-white group-hover:text-emerald-600 dark:group-hover:text-emerald-400 text-sm capitalize block transition"
                               x-text="kw.keyword"></span>
@@ -673,7 +696,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
                     </td>
 
                     <!-- 24h Saves Delta Pill Badge -->
-                    <td class="py-3.5 px-3 font-mono">
+                    <td x-show="visibleColumns.saves_delta" class="py-3.5 px-3 font-mono">
                       <span class="px-2.5 py-1 rounded-full text-xs font-bold inline-flex items-center space-x-1"
                             :class="getKeywordSaveDelta(kw) > 0 ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700/80' : (getKeywordSaveDelta(kw) < 0 ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 border border-rose-300 dark:border-rose-700/80' : 'bg-slate-100 dark:bg-slate-800 text-slate-500')">
                         <template x-if="getKeywordSaveDelta(kw) > 0">
@@ -684,7 +707,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
                     </td>
 
                     <!-- 24h Repins Delta Pill Badge -->
-                    <td class="py-3.5 px-3 font-mono">
+                    <td x-show="visibleColumns.repins_delta" class="py-3.5 px-3 font-mono">
                       <span class="px-2.5 py-1 rounded-full text-xs font-bold inline-flex items-center space-x-1"
                             :class="getKeywordRepinDelta(kw) > 0 ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700/80' : (getKeywordRepinDelta(kw) < 0 ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 border border-rose-300 dark:border-rose-700/80' : 'bg-slate-100 dark:bg-slate-800 text-slate-500')">
                         <template x-if="getKeywordRepinDelta(kw) > 0">
@@ -695,7 +718,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
                     </td>
 
                     <!-- Total Pins Badge (Clean, No Quota Bar) -->
-                    <td class="py-3.5 px-3 font-mono">
+                    <td x-show="visibleColumns.total_pins" class="py-3.5 px-3 font-mono">
                       <span class="px-2.5 py-1 rounded-xl text-xs font-bold inline-flex items-center space-x-1.5 bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-200 border border-slate-200/80 dark:border-slate-700/80 shadow-2xs">
                         <i data-lucide="pin" class="w-3.5 h-3.5 text-emerald-500 shrink-0"></i>
                         <span class="font-black text-slate-900 dark:text-white" x-text="getKeywordTotalPins(kw)"></span>
@@ -704,7 +727,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
                     </td>
 
                     <!-- Active / Paused Status Toggle -->
-                    <td class="py-3.5 px-3 text-center" @click.stop>
+                    <td x-show="visibleColumns.status" class="py-3.5 px-3 text-center" @click.stop>
                       <button @click="toggleKeywordStatus(kw)"
                               class="px-2.5 py-1 rounded-full text-[10px] font-mono font-bold transition inline-flex items-center space-x-1.5 cursor-pointer shadow-2xs"
                               :class="kw.is_active !== false ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 hover:bg-emerald-100' : 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-300 dark:border-amber-700 hover:bg-amber-100'"
@@ -714,8 +737,19 @@ export function getKeywordsPageHtml(initialSlug = '') {
                       </button>
                     </td>
 
+                    <!-- Date Added -->
+                    <td x-show="visibleColumns.created_at" class="py-3.5 px-3">
+                      <div class="space-y-0.5 font-mono text-[11px]">
+                        <div class="flex items-center space-x-1.5">
+                          <span class="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
+                          <span class="font-bold text-slate-700 dark:text-slate-300" x-text="formatRelativeTime(kw.created_at)"></span>
+                        </div>
+                        <span class="text-[10px] text-slate-400 block truncate" x-text="formatDate(kw.created_at)"></span>
+                      </div>
+                    </td>
+
                     <!-- Last Crawled (Relative Time + Full Date) -->
-                    <td class="py-3.5 px-3">
+                    <td x-show="visibleColumns.last_crawled" class="py-3.5 px-3">
                       <div class="space-y-0.5 font-mono text-[11px]">
                         <div class="flex items-center space-x-1.5">
                           <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
@@ -726,7 +760,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
                     </td>
 
                     <!-- Actions -->
-                    <td class="py-3.5 px-4 text-right" @click.stop>
+                    <td x-show="visibleColumns.actions" class="py-3.5 px-4 text-right" @click.stop>
                       <div class="flex items-center justify-end space-x-1.5">
                         <button @click="switchToSerpStudio(kw)"
                                 class="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition flex items-center space-x-1 shadow-xs cursor-pointer group-hover:scale-102"
@@ -754,7 +788,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
               <!-- Empty State Row -->
               <template x-if="!isKeywordsLoading && (!filteredDashboardKeywords || filteredDashboardKeywords.length === 0)">
                 <tr>
-                  <td colspan="9" class="py-16 text-center">
+                  <td :colspan="activeVisibleColumnCount" class="py-16 text-center">
                     <div class="max-w-md mx-auto space-y-4 p-4">
                       <div class="w-12 h-12 rounded-2xl bg-emerald-500/10 text-emerald-500 mx-auto flex items-center justify-center">
                         <i data-lucide="search" class="w-6 h-6"></i>
@@ -979,8 +1013,11 @@ export function getKeywordsPageHtml(initialSlug = '') {
 
                   <!-- Card Footer Actions -->
                   <div class="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
-                    <span class="text-[10px] font-mono text-slate-400" x-text="formatRelativeTime(kw.last_crawled_at)"></span>
-                    <div class="flex items-center space-x-1.5">
+                    <div class="space-y-0.5 text-[10px] font-mono">
+                      <span class="block text-slate-500 dark:text-slate-400 truncate" x-text="'Added: ' + formatDate(kw.created_at)"></span>
+                      <span class="block text-slate-400 truncate" x-text="'Crawled: ' + formatRelativeTime(kw.last_crawled_at)"></span>
+                    </div>
+                    <div class="flex items-center space-x-1.5 shrink-0">
                       <button @click.stop="switchToSerpStudio(kw)"
                               class="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition flex items-center space-x-1 text-xs">
                         <span>Studio</span>
@@ -5186,6 +5223,31 @@ export function getKeywordsPageHtml(initialSlug = '') {
         quickKeywordInput: '',
         quickKeywordCategory: 'General',
 
+        // Table Column Visibility State & Definitions
+        isColumnsOpen: false,
+        columnDefinitions: [
+          { key: 'preview', label: 'Preview Image', required: false },
+          { key: 'keyword', label: 'Keyword & Folders', required: true },
+          { key: 'saves_delta', label: '24h Saves Δ', required: false },
+          { key: 'repins_delta', label: '24h Repins Δ', required: false },
+          { key: 'total_pins', label: 'Total Pins', required: false },
+          { key: 'status', label: 'Status', required: false },
+          { key: 'created_at', label: 'Date Added', required: false },
+          { key: 'last_crawled', label: 'Last Crawled', required: false },
+          { key: 'actions', label: 'Actions', required: false }
+        ],
+        visibleColumns: {
+          preview: true,
+          keyword: true,
+          saves_delta: true,
+          repins_delta: true,
+          total_pins: true,
+          status: true,
+          created_at: true,
+          last_crawled: true,
+          actions: true
+        },
+
         // Dual-Scope Switcher State (Active SERP Top 100 vs All Vault Pins)
         serpScope: 'active', // 'active' | 'vault'
 
@@ -5416,6 +5478,10 @@ export function getKeywordsPageHtml(initialSlug = '') {
             return [...list].sort((a, b) => this.getKeywordRepinDelta(b) - this.getKeywordRepinDelta(a));
           } else if (this.dashboardSort === 'total_pins') {
             return [...list].sort((a, b) => this.getKeywordTotalPins(b) - this.getKeywordTotalPins(a));
+          } else if (this.dashboardSort === 'created_desc') {
+            return [...list].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+          } else if (this.dashboardSort === 'created_asc') {
+            return [...list].sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
           } else if (this.dashboardSort === 'name') {
             return [...list].sort((a, b) => (a.keyword || '').localeCompare(b.keyword || ''));
           } else if (this.dashboardSort === 'crawled') {
@@ -5569,6 +5635,38 @@ export function getKeywordsPageHtml(initialSlug = '') {
           this.selectedKeyword = kw;
           this.selectedKeywordIds = [kw.id];
           this.openBulkFolderModal();
+        },
+
+        toggleColumn(key) {
+          if (key === 'keyword') return; // Core column cannot be hidden
+          this.visibleColumns[key] = !this.visibleColumns[key];
+          try {
+            localStorage.setItem('keywords_visible_columns', JSON.stringify(this.visibleColumns));
+          } catch (_) {}
+          this.$nextTick(() => { if (window.lucide) lucide.createIcons(); });
+        },
+
+        resetColumns() {
+          this.visibleColumns = {
+            preview: true,
+            keyword: true,
+            saves_delta: true,
+            repins_delta: true,
+            total_pins: true,
+            status: true,
+            created_at: true,
+            last_crawled: true,
+            actions: true
+          };
+          try {
+            localStorage.removeItem('keywords_visible_columns');
+          } catch (_) {}
+          this.$nextTick(() => { if (window.lucide) lucide.createIcons(); });
+        },
+
+        get activeVisibleColumnCount() {
+          const visible = Object.entries(this.visibleColumns || {}).filter(([_, v]) => Boolean(v)).length;
+          return visible + 1; // +1 for selection checkbox
         },
 
         get activeKeywordsCount() {
@@ -6146,6 +6244,16 @@ export function getKeywordsPageHtml(initialSlug = '') {
           this.applyTheme();
           this.fetchSettings();
           this.fetchFleetProjects();
+
+          try {
+            const savedCols = localStorage.getItem('keywords_visible_columns');
+            if (savedCols) {
+              const parsed = JSON.parse(savedCols);
+              if (parsed && typeof parsed === 'object') {
+                this.visibleColumns = { ...this.visibleColumns, ...parsed, keyword: true };
+              }
+            }
+          } catch (_) {}
 
           window.addEventListener('popstate', (e) => {
             const path = window.location.pathname || '';
