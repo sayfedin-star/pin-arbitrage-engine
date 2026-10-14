@@ -253,37 +253,48 @@ export async function batchAddKeywordsToFolder(sql, folderId, keywordIds = []) {
   const validKids = (keywordIds || []).map(Number).filter(Boolean);
   if (!validKids.length) return { added: 0 };
 
-  const txRunner = typeof sql.begin === 'function'
-    ? sql.begin.bind(sql)
-    : (typeof sql.transaction === 'function' ? sql.transaction.bind(sql) : (fn) => fn(sql));
+  const buildInsertQuery = (db) => db`
+    INSERT INTO keyword_folder_items (
+      folder_id,
+      keyword_id,
+      added_at
+    )
+    SELECT
+      ${fid},
+      k_id,
+      NOW()
+    FROM UNNEST(${validKids}::int[]) AS k_id
+    ON CONFLICT (folder_id, keyword_id) DO NOTHING
+    RETURNING keyword_id;
+  `;
 
-  const inserted = await txRunner(async (tx) => {
-    const rows = await tx`
-      INSERT INTO keyword_folder_items (
-        folder_id,
-        keyword_id,
-        added_at
-      )
-      SELECT
-        ${fid},
-        k_id,
-        NOW()
-      FROM UNNEST(${validKids}::int[]) AS k_id
-      ON CONFLICT (folder_id, keyword_id) DO NOTHING
-      RETURNING keyword_id;
-    `;
+  const buildUpdateQuery = (db) => db`
+    UPDATE keyword_folders 
+    SET updated_at = NOW() 
+    WHERE id = ${fid};
+  `;
 
-    await tx`
-      UPDATE keyword_folders 
-      SET updated_at = NOW() 
-      WHERE id = ${fid};
-    `;
-
-    return rows;
-  });
+  let inserted = [];
+  if (typeof sql.begin === 'function') {
+    // Hyperdrive / postgres.js (TCP)
+    [inserted] = await sql.begin(async (tx) => {
+      const rows = await buildInsertQuery(tx);
+      await buildUpdateQuery(tx);
+      return [rows];
+    });
+  } else if (typeof sql.transaction === 'function') {
+    // Neon Serverless (HTTP) - requires array of queries
+    const qInsert = buildInsertQuery(sql);
+    const qUpdate = buildUpdateQuery(sql);
+    const res = await sql.transaction([ qInsert, qUpdate ]);
+    inserted = res && res[0] ? res[0] : [];
+  } else {
+    inserted = await buildInsertQuery(sql);
+    await buildUpdateQuery(sql);
+  }
 
   invalidateFolderCache(fid);
-  return { added: inserted.length };
+  return { added: (inserted || []).length };
 }
 
 /**

@@ -132,11 +132,10 @@ import { ingestPinsBatch } from '../src/modules/pinarchive/service.mjs';
 
 const pinarchiveServiceContent = fs.readFileSync('src/modules/pinarchive/service.mjs', 'utf8');
 
-// Ensure txRunner wraps the bulk upserts
+// Ensure Neon HTTP array transaction and TCP begin are supported
 assert(
-  pinarchiveServiceContent.includes('const txRunner = typeof sql.begin === \'function\'') ||
-  pinarchiveServiceContent.includes('txRunner(async (tx)'),
-  'ingestPinsBatch must wrap pa_pins and pa_pin_metrics in an atomic transaction'
+  pinarchiveServiceContent.includes('sql.transaction([ qPins, qMetrics ])'),
+  'ingestPinsBatch must pass array [ qPins, qMetrics ] to sql.transaction for Neon HTTP compatibility'
 );
 
 // Ensure ORDER BY raw.pin_id ASC is present in SQL
@@ -146,7 +145,7 @@ assert(
   'ingestPinsBatch must order by raw.pin_id ASC in both pa_pins and pa_pin_metrics upserts'
 );
 
-// Functional test with mock transaction runner
+// Functional test with mock TCP transaction runner (sql.begin)
 let txBegun = false;
 let queriesRun = 0;
 const mockTx = (strings, ...args) => {
@@ -166,15 +165,62 @@ const mockSql = {
 };
 
 const testPins = [
-  { pin_id: '999888', title: 'Test Pin B', saves: 20 },
-  { pin_id: '111222', title: 'Test Pin A', saves: 10 }
+  {
+    pin_id: '999888',
+    title: 'Test Pin B',
+    saves: 20,
+    reactions: { like: 1 },
+    annotations: ['style', 'decor']
+  },
+  {
+    pin_id: '111222',
+    title: 'Test Pin A',
+    saves: 10,
+    reactions: '{"heart": 3}',
+    annotations: '["diy", "crafts"]'
+  }
 ];
 
 const ingestResult = await ingestPinsBatch(mockSql, testPins);
 assert.strictEqual(txBegun, true, 'Transaction runner must be called');
 assert.strictEqual(queriesRun, 2, 'Both pa_pins and pa_pin_metrics queries must execute in transaction');
 assert.strictEqual(ingestResult.ok, true, 'Ingest result must succeed');
-console.log('  ✓ ingestPinsBatch executes atomic transaction with ORDER BY raw.pin_id ASC');
+
+// Functional test with mock Neon HTTP array transaction runner (sql.transaction([q1, q2]))
+let httpTxBegun = false;
+let receivedQueries = null;
+let parsedPayload = null;
+
+const mockNeonSql = (strings, ...args) => {
+  const sqlText = strings.join('?');
+  // Check the jsonPayload passed into jsonb_to_recordset
+  for (const arg of args) {
+    if (typeof arg === 'string' && arg.startsWith('[{"pin_id"')) {
+      parsedPayload = JSON.parse(arg);
+    }
+  }
+  return { sqlText, args };
+};
+
+mockNeonSql.transaction = async (queries) => {
+  httpTxBegun = true;
+  receivedQueries = queries;
+  assert(Array.isArray(queries), 'Neon HTTP transaction strictly requires an array of queries');
+  assert.strictEqual(queries.length, 2, 'Must submit exactly [qPins, qMetrics] array');
+  return [[{ is_inserted: true }]];
+};
+
+const neonIngestResult = await ingestPinsBatch(mockNeonSql, testPins);
+assert.strictEqual(httpTxBegun, true, 'Neon HTTP transaction must be invoked');
+assert.strictEqual(neonIngestResult.ok, true, 'Neon Ingest result must succeed');
+
+// Verify Double-Stringification Immunity: annotations must be Array, reactions must be Object
+assert(parsedPayload, 'JSON payload must be constructed');
+for (const p of parsedPayload) {
+  assert(Array.isArray(p.annotations), `annotations must be an Array, not string scalar: ${JSON.stringify(p.annotations)}`);
+  assert(typeof p.reactions === 'object' && !Array.isArray(p.reactions), `reactions must be an Object, not string scalar: ${JSON.stringify(p.reactions)}`);
+}
+console.log('  ✓ ingestPinsBatch verified: Neon HTTP array contract, TCP begin, and double-stringification immunity passed');
 
 // -------------------------------------------------------------
 // Test 4: Keyword Folders Service Set-Based Atomic Writes
@@ -190,33 +236,23 @@ assert(
   'batchAddKeywordsToFolder must use set-based UNNEST'
 );
 assert(
-  foldersServiceContent.includes('txRunner(async (tx)'),
-  'batchAddKeywordsToFolder must execute insert and updated_at update atomically'
+  foldersServiceContent.includes('sql.transaction([ qInsert, qUpdate ])'),
+  'batchAddKeywordsToFolder must pass query array to sql.transaction for Neon HTTP'
 );
 
 let folderTxBegun = false;
-let folderQueries = 0;
-const mockFolderTx = (strings, ...args) => {
-  folderQueries++;
-  const sqlText = strings.join('?');
-  if (sqlText.includes('INSERT INTO keyword_folder_items')) {
-    return [{ keyword_id: 101 }, { keyword_id: 102 }];
-  }
-  return [];
-};
-
-const mockFolderSql = {
-  transaction: async (callback) => {
-    folderTxBegun = true;
-    return await callback(mockFolderTx);
-  }
+const mockFolderSql = (strings, ...args) => ({ strings, args });
+mockFolderSql.transaction = async (queries) => {
+  folderTxBegun = true;
+  assert(Array.isArray(queries), 'sql.transaction must receive an array of queries for Neon HTTP');
+  assert.strictEqual(queries.length, 2, 'sql.transaction must receive [qInsert, qUpdate]');
+  return [[{ keyword_id: 101 }, { keyword_id: 102 }]];
 };
 
 const folderResult = await batchAddKeywordsToFolder(mockFolderSql, 1, [101, 102]);
 assert.strictEqual(folderTxBegun, true, 'Folder transaction runner must be invoked');
-assert.strictEqual(folderQueries, 2, 'Folder items insert and folder timestamp update must both run in tx');
 assert.strictEqual(folderResult.added, 2, 'Added count must equal 2');
-console.log('  ✓ batchAddKeywordsToFolder executes set-based UNNEST atomically');
+console.log('  ✓ batchAddKeywordsToFolder executes set-based UNNEST with Neon HTTP array transaction');
 
 // -------------------------------------------------------------
 // Test 5: undici Agent Injection & Zero Static Import Architectural Red Line
@@ -286,6 +322,18 @@ assert(
 assert(
   relatedContent.includes('ORDER BY x.candidate_pin_id ASC'),
   'account-related-crawler.mjs must order candidate graph writes by candidate_pin_id ASC'
+);
+
+// Verify cluster intelligence bulk jsonb_to_recordset writes
+assert(
+  clusterContent.includes('FROM jsonb_to_recordset(${chunkPayload}::jsonb)') &&
+  clusterContent.includes('ORDER BY raw.candidate_pin_id ASC'),
+  'cluster-intelligence.mjs must use bulk jsonb_to_recordset for candidate_graph_nodes ordered by candidate_pin_id ASC'
+);
+assert(
+  clusterContent.includes('FROM jsonb_to_recordset(${capPayload}::jsonb)') &&
+  clusterContent.includes('ORDER BY raw.normalized_query ASC'),
+  'cluster-intelligence.mjs must use bulk jsonb_to_recordset for seed_guided_search_capsules ordered by normalized_query ASC'
 );
 
 console.log('  ✓ Parallel SELECT 1 prewarming and atomic shard transactions verified');

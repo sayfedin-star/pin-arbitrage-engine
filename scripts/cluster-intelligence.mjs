@@ -1249,12 +1249,37 @@ async function crawlSeed(seed) {
     allCandidates.sort((a, b) => String(a.candidate_pin_id).localeCompare(String(b.candidate_pin_id)));
     console.log(`[*] Upserting ${allCandidates.length} candidate graph nodes into Neon (parallel resilient batch mode, deterministically sorted)...`);
 
-    // Batch upsert in concurrent chunks of 25 to respect pool limits
-    const chunkSize = 25;
+    // Batch upsert in chunks of 50 to respect query payload sizes
+    const chunkSize = 50;
     for (let i = 0; i < allCandidates.length; i += chunkSize) {
       const chunk = allCandidates.slice(i, i + chunkSize);
+      const chunkPayload = JSON.stringify(chunk.map((node) => ({
+        seed_pin_id: String(node.seed_pin_id || pinId),
+        candidate_pin_id: String(node.candidate_pin_id),
+        title: node.title || '',
+        dominant_color: node.dominant_color || '#888888',
+        aspect_ratio: Number(node.aspect_ratio) || 0.56,
+        saves: Number(node.saves) || 0,
+        repins: Number(node.repins) || 0,
+        save_rate: Number(node.save_rate) || 0,
+        domain: node.domain || '',
+        is_product: Boolean(node.is_product),
+        ocr_text: node.ocr_text || '',
+        pin_created_at: node.pin_created_at || null,
+        age_days: Number(node.age_days) || 180,
+        daily_velocity: Number(node.daily_velocity) || 0,
+        provenance_engine: node.provenance_engine || 'P2P_TWO_TOWER',
+        individual_prod_score: Number(node.individual_prod_score) || 0,
+        recgpt_transition_score: Number(node.recgpt_transition_score) || 0,
+        sequence_role: node.sequence_role || 'DIRECT_MATCH',
+        is_recgpt_candidate: Boolean(node.is_recgpt_candidate),
+        visual_entropy_score: Number(node.visual_entropy_score) || 0,
+        image_url: node.image_url || '',
+        is_video: Boolean(node.is_video),
+        ingestion_method: node.ingestion_method || 'uploaded'
+      })));
 
-      await Promise.all(chunk.map((node) => sqlWithRetry(() => sql`
+      await sqlWithRetry(() => sql`
         INSERT INTO candidate_graph_nodes (
           seed_pin_id, candidate_pin_id, title, dominant_color, aspect_ratio,
           saves, repins, save_rate, domain, is_product, ocr_text, extracted_at,
@@ -1262,17 +1287,43 @@ async function crawlSeed(seed) {
           individual_prod_score, recgpt_transition_score, sequence_role,
           is_recgpt_candidate, visual_entropy_score,
           image_url, is_video, ingestion_method
-        ) VALUES (
-          ${node.seed_pin_id}, ${node.candidate_pin_id}, ${node.title},
-          ${node.dominant_color}, ${node.aspect_ratio}, ${node.saves},
-          ${node.repins}, ${node.save_rate}, ${node.domain},
-          ${node.is_product}, ${node.ocr_text}, NOW(),
-          ${node.pin_created_at}, ${node.age_days}, ${node.daily_velocity},
-          ${node.provenance_engine}, ${node.individual_prod_score},
-          ${node.recgpt_transition_score}, ${node.sequence_role},
-          ${node.is_recgpt_candidate}, ${node.visual_entropy_score},
-          ${node.image_url}, ${node.is_video}, ${node.ingestion_method}
         )
+        SELECT
+          x.seed_pin_id, x.candidate_pin_id, x.title, x.dominant_color, x.aspect_ratio,
+          x.saves, x.repins, x.save_rate, x.domain, x.is_product, x.ocr_text, NOW(),
+          x.pin_created_at::timestamptz, x.age_days, x.daily_velocity, x.provenance_engine,
+          x.individual_prod_score, x.recgpt_transition_score, x.sequence_role,
+          x.is_recgpt_candidate, x.visual_entropy_score,
+          x.image_url, x.is_video, x.ingestion_method
+        FROM (
+          SELECT *
+          FROM jsonb_to_recordset(${chunkPayload}::jsonb) AS raw(
+            seed_pin_id text,
+            candidate_pin_id text,
+            title text,
+            dominant_color text,
+            aspect_ratio numeric,
+            saves bigint,
+            repins bigint,
+            save_rate numeric,
+            domain text,
+            is_product boolean,
+            ocr_text text,
+            pin_created_at text,
+            age_days numeric,
+            daily_velocity numeric,
+            provenance_engine text,
+            individual_prod_score numeric,
+            recgpt_transition_score numeric,
+            sequence_role text,
+            is_recgpt_candidate boolean,
+            visual_entropy_score numeric,
+            image_url text,
+            is_video boolean,
+            ingestion_method text
+          )
+          ORDER BY raw.candidate_pin_id ASC
+        ) x
         ON CONFLICT (seed_pin_id, candidate_pin_id) DO UPDATE SET
           title = EXCLUDED.title,
           dominant_color = EXCLUDED.dominant_color,
@@ -1302,7 +1353,7 @@ async function crawlSeed(seed) {
           image_url = EXCLUDED.image_url,
           is_video = EXCLUDED.is_video,
           ingestion_method = EXCLUDED.ingestion_method;
-      `)));
+      `);
     }
     console.log(`[+] Successfully stored candidate nodes in Neon.`);
 
@@ -1344,22 +1395,44 @@ async function crawlSeed(seed) {
     );
   `);
 
-  // Persist all captured Pinterest Guided Search Capsules into Neon in chunks
+  // Persist all captured Pinterest Guided Search Capsules into Neon in chunks via bulk jsonb_to_recordset
   const allCapsules = Array.from(guidedSearchCapsulesMap.values());
   if (allCapsules.length > 0) {
-    console.log(`[*] Persisting ${allCapsules.length} guided search capsules into Neon...`);
-    const capChunkSize = 25;
+    allCapsules.sort((a, b) => String(a.normalized_query).localeCompare(String(b.normalized_query)));
+    console.log(`[*] Persisting ${allCapsules.length} guided search capsules into Neon (bulk jsonb_to_recordset)...`);
+    const capChunkSize = 50;
     for (let i = 0; i < allCapsules.length; i += capChunkSize) {
       const chunk = allCapsules.slice(i, i + capChunkSize);
-      await Promise.all(chunk.map(cap => sqlWithRetry(() => sql`
+      const capPayload = JSON.stringify(chunk.map((cap) => ({
+        seed_pin_id: String(cap.seed_pin_id || pinId),
+        query_term: String(cap.query_term || ''),
+        normalized_query: String(cap.normalized_query || ''),
+        image_url: cap.image_url || '',
+        search_url: cap.search_url || '',
+        node_id: cap.node_id || ''
+      })));
+
+      await sqlWithRetry(() => sql`
         INSERT INTO seed_guided_search_capsules (
           seed_pin_id, query_term, normalized_query, image_url, search_url, node_id, discovered_at
-        ) VALUES (
-          ${cap.seed_pin_id}, ${cap.query_term}, ${cap.normalized_query}, ${cap.image_url}, ${cap.search_url}, ${cap.node_id}, NOW()
         )
+        SELECT
+          x.seed_pin_id, x.query_term, x.normalized_query, x.image_url, x.search_url, x.node_id, NOW()
+        FROM (
+          SELECT *
+          FROM jsonb_to_recordset(${capPayload}::jsonb) AS raw(
+            seed_pin_id text,
+            query_term text,
+            normalized_query text,
+            image_url text,
+            search_url text,
+            node_id text
+          )
+          ORDER BY raw.normalized_query ASC
+        ) x
         ON CONFLICT (seed_pin_id, normalized_query) DO UPDATE
         SET image_url = EXCLUDED.image_url, search_url = EXCLUDED.search_url, node_id = EXCLUDED.node_id;
-      `)));
+      `);
     }
     console.log(`[+] Successfully stored ${allCapsules.length} guided search capsules in Neon.`);
   }

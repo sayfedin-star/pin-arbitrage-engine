@@ -1242,14 +1242,15 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
       // 3. Atomically commit the batch using single bulk SQL operations (<50ms total)
       if (enrichedPins.length > 0) {
         try {
-          const txRunner = typeof sqlClient.begin === 'function'
-            ? sqlClient.begin.bind(sqlClient)
-            : (typeof sqlClient.transaction === 'function' ? sqlClient.transaction.bind(sqlClient) : (fn) => fn(sqlClient));
-
-          await txRunner(async (tx) => {
-            await bulkUpsertPaPins(tx, enrichedPins);
-            await bulkInsertMetrics(tx, metricSnapshots);
-          });
+          if (typeof sqlClient.begin === 'function') {
+            await sqlClient.begin(async (tx) => {
+              await bulkUpsertPaPins(tx, enrichedPins);
+              await bulkInsertMetrics(tx, metricSnapshots);
+            });
+          } else {
+            await bulkUpsertPaPins(sqlClient, enrichedPins);
+            await bulkInsertMetrics(sqlClient, metricSnapshots);
+          }
 
           if (shardSql) {
             await bulkUpsertPaPins(shardSql, enrichedPins).catch((sErr) => {

@@ -308,20 +308,28 @@ export async function ingestPinsBatch(sql, pins, accountUsername = null, { filte
     const comments = Math.max(0, isNaN(Number(pin.comments)) ? 0 : Number(pin.comments));
     const shareCount = Math.max(0, isNaN(Number(pin.share_count)) ? 0 : Number(pin.share_count));
     
-    let reactions = '{}';
-    if (pin.reactions && typeof pin.reactions === 'object') {
-      reactions = JSON.stringify(pin.reactions);
+    let reactions = {};
+    if (pin.reactions && typeof pin.reactions === 'object' && !Array.isArray(pin.reactions)) {
+      reactions = pin.reactions;
     } else if (typeof pin.reactions === 'string' && pin.reactions.trim().startsWith('{')) {
-      reactions = pin.reactions.trim();
+      try {
+        reactions = JSON.parse(pin.reactions.trim());
+      } catch {
+        reactions = {};
+      }
     }
 
     const velocity = Math.max(0, isNaN(Number(pin.velocity)) ? 0 : Number(pin.velocity));
 
-    let annotations = '[]';
+    let annotations = [];
     if (Array.isArray(pin.annotations)) {
-      annotations = JSON.stringify(pin.annotations.slice(0, 15));
+      annotations = pin.annotations.slice(0, 15);
     } else if (typeof pin.annotations === 'string' && pin.annotations.trim().startsWith('[')) {
-      annotations = pin.annotations.trim();
+      try {
+        annotations = JSON.parse(pin.annotations.trim()).slice(0, 15);
+      } catch {
+        annotations = [];
+      }
     }
 
     const isVideo = Boolean(pin.is_video);
@@ -379,150 +387,161 @@ export async function ingestPinsBatch(sql, pins, accountUsername = null, { filte
     repins: Number(p.repins || 0),
     comments: Number(p.comments || 0),
     share_count: Number(p.shareCount || 0),
-    reactions: p.reactions || {},
+    reactions: (p.reactions && typeof p.reactions === 'object' && !Array.isArray(p.reactions)) ? p.reactions : {},
     velocity: Number(p.velocity || 0),
-    annotations: p.annotations || [],
+    annotations: Array.isArray(p.annotations) ? p.annotations : [],
     is_video: Boolean(p.isVideo),
     is_product: Boolean(p.isProduct),
     created_at_pinterest: p.createdAtPinterest || null
   })));
 
   try {
-    const txRunner = typeof sql.begin === 'function'
-      ? sql.begin.bind(sql)
-      : (typeof sql.transaction === 'function' ? sql.transaction.bind(sql) : (fn) => fn(sql));
-
-    await txRunner(async (tx) => {
-      // 1. Bulk Upsert pa_pins sorted ORDER BY pin_id ASC to eliminate deadlocks
-      const pinRows = await tx`
-        INSERT INTO pa_pins (
-          pin_id,
-          account_username,
-          title,
-          description,
-          link,
-          domain,
-          board_name,
-          image_url,
-          dominant_color,
-          saves,
-          repins,
-          comments,
-          share_count,
-          reactions,
-          velocity,
-          annotations,
-          is_video,
-          is_product,
-          created_at_pinterest,
-          first_seen_at,
-          last_updated_at
+    const buildPinsQuery = (db) => db`
+      INSERT INTO pa_pins (
+        pin_id,
+        account_username,
+        title,
+        description,
+        link,
+        domain,
+        board_name,
+        image_url,
+        dominant_color,
+        saves,
+        repins,
+        comments,
+        share_count,
+        reactions,
+        velocity,
+        annotations,
+        is_video,
+        is_product,
+        created_at_pinterest,
+        first_seen_at,
+        last_updated_at
+      )
+      SELECT
+        u.pin_id,
+        u.account_username,
+        u.title,
+        u.description,
+        u.link,
+        u.domain,
+        u.board_name,
+        u.image_url,
+        u.dominant_color,
+        u.saves,
+        u.repins,
+        u.comments,
+        u.share_count,
+        u.reactions,
+        u.velocity,
+        u.annotations,
+        u.is_video,
+        u.is_product,
+        u.created_at_pinterest::timestamptz,
+        NOW(),
+        NOW()
+      FROM (
+        SELECT *
+        FROM jsonb_to_recordset(${jsonPayload}::jsonb) AS raw(
+          pin_id text,
+          account_username text,
+          title text,
+          description text,
+          link text,
+          domain text,
+          board_name text,
+          image_url text,
+          dominant_color text,
+          saves bigint,
+          repins int,
+          comments int,
+          share_count int,
+          reactions jsonb,
+          velocity numeric,
+          annotations jsonb,
+          is_video boolean,
+          is_product boolean,
+          created_at_pinterest text
         )
-        SELECT
-          u.pin_id,
-          u.account_username,
-          u.title,
-          u.description,
-          u.link,
-          u.domain,
-          u.board_name,
-          u.image_url,
-          u.dominant_color,
-          u.saves,
-          u.repins,
-          u.comments,
-          u.share_count,
-          u.reactions,
-          u.velocity,
-          u.annotations,
-          u.is_video,
-          u.is_product,
-          u.created_at_pinterest::timestamptz,
-          NOW(),
-          NOW()
-        FROM (
-          SELECT *
-          FROM jsonb_to_recordset(${jsonPayload}::jsonb) AS raw(
-            pin_id text,
-            account_username text,
-            title text,
-            description text,
-            link text,
-            domain text,
-            board_name text,
-            image_url text,
-            dominant_color text,
-            saves bigint,
-            repins int,
-            comments int,
-            share_count int,
-            reactions jsonb,
-            velocity numeric,
-            annotations jsonb,
-            is_video boolean,
-            is_product boolean,
-            created_at_pinterest text
-          )
-          ORDER BY raw.pin_id ASC
-        ) u
-        ON CONFLICT (pin_id) DO UPDATE SET
-          account_username = COALESCE(EXCLUDED.account_username, pa_pins.account_username),
-          title = CASE WHEN EXCLUDED.title <> '' THEN EXCLUDED.title ELSE pa_pins.title END,
-          description = CASE WHEN EXCLUDED.description <> '' THEN EXCLUDED.description ELSE pa_pins.description END,
-          link = CASE WHEN EXCLUDED.link <> '' THEN EXCLUDED.link ELSE pa_pins.link END,
-          domain = CASE WHEN EXCLUDED.domain <> '' THEN EXCLUDED.domain ELSE pa_pins.domain END,
-          board_name = CASE WHEN EXCLUDED.board_name <> '' THEN EXCLUDED.board_name ELSE pa_pins.board_name END,
-          image_url = CASE WHEN EXCLUDED.image_url <> '' THEN EXCLUDED.image_url ELSE pa_pins.image_url END,
-          dominant_color = CASE WHEN EXCLUDED.dominant_color <> '#888888' AND EXCLUDED.dominant_color <> '' THEN EXCLUDED.dominant_color ELSE pa_pins.dominant_color END,
-          saves = GREATEST(pa_pins.saves, EXCLUDED.saves),
-          repins = GREATEST(pa_pins.repins, EXCLUDED.repins),
-          comments = GREATEST(pa_pins.comments, EXCLUDED.comments),
-          share_count = GREATEST(pa_pins.share_count, EXCLUDED.share_count),
-          reactions = CASE WHEN EXCLUDED.reactions <> '{}'::jsonb THEN EXCLUDED.reactions ELSE pa_pins.reactions END,
-          velocity = CASE WHEN EXCLUDED.velocity > 0 THEN EXCLUDED.velocity ELSE pa_pins.velocity END,
-          annotations = CASE WHEN jsonb_typeof(EXCLUDED.annotations) = 'array' AND jsonb_array_length(EXCLUDED.annotations) > 0 THEN EXCLUDED.annotations ELSE pa_pins.annotations END,
-          is_product = (pa_pins.is_product OR EXCLUDED.is_product),
-          created_at_pinterest = COALESCE(pa_pins.created_at_pinterest, EXCLUDED.created_at_pinterest),
-          last_updated_at = NOW()
-        RETURNING (xmax = 0) AS is_inserted;
-      `;
+        ORDER BY raw.pin_id ASC
+      ) u
+      ON CONFLICT (pin_id) DO UPDATE SET
+        account_username = COALESCE(EXCLUDED.account_username, pa_pins.account_username),
+        title = CASE WHEN EXCLUDED.title <> '' THEN EXCLUDED.title ELSE pa_pins.title END,
+        description = CASE WHEN EXCLUDED.description <> '' THEN EXCLUDED.description ELSE pa_pins.description END,
+        link = CASE WHEN EXCLUDED.link <> '' THEN EXCLUDED.link ELSE pa_pins.link END,
+        domain = CASE WHEN EXCLUDED.domain <> '' THEN EXCLUDED.domain ELSE pa_pins.domain END,
+        board_name = CASE WHEN EXCLUDED.board_name <> '' THEN EXCLUDED.board_name ELSE pa_pins.board_name END,
+        image_url = CASE WHEN EXCLUDED.image_url <> '' THEN EXCLUDED.image_url ELSE pa_pins.image_url END,
+        dominant_color = CASE WHEN EXCLUDED.dominant_color <> '#888888' AND EXCLUDED.dominant_color <> '' THEN EXCLUDED.dominant_color ELSE pa_pins.dominant_color END,
+        saves = GREATEST(pa_pins.saves, EXCLUDED.saves),
+        repins = GREATEST(pa_pins.repins, EXCLUDED.repins),
+        comments = GREATEST(pa_pins.comments, EXCLUDED.comments),
+        share_count = GREATEST(pa_pins.share_count, EXCLUDED.share_count),
+        reactions = CASE WHEN EXCLUDED.reactions <> '{}'::jsonb THEN EXCLUDED.reactions ELSE pa_pins.reactions END,
+        velocity = CASE WHEN EXCLUDED.velocity > 0 THEN EXCLUDED.velocity ELSE pa_pins.velocity END,
+        annotations = CASE WHEN jsonb_typeof(EXCLUDED.annotations) = 'array' AND jsonb_array_length(EXCLUDED.annotations) > 0 THEN EXCLUDED.annotations ELSE pa_pins.annotations END,
+        is_product = (pa_pins.is_product OR EXCLUDED.is_product),
+        created_at_pinterest = COALESCE(pa_pins.created_at_pinterest, EXCLUDED.created_at_pinterest),
+        last_updated_at = NOW()
+      RETURNING (xmax = 0) AS is_inserted;
+    `;
 
-      for (const r of pinRows) {
-        if (r.is_inserted) addedCount++;
-        else updatedCount++;
-      }
-
-      // 2. Bulk Upsert hourly telemetry snapshot in pa_pin_metrics
-      await tx`
-        INSERT INTO pa_pin_metrics (
-          pin_id,
-          recorded_at,
-          saves,
-          repins,
-          comments
+    const buildMetricsQuery = (db) => db`
+      INSERT INTO pa_pin_metrics (
+        pin_id,
+        recorded_at,
+        saves,
+        repins,
+        comments
+      )
+      SELECT
+        u.pin_id,
+        date_trunc('hour', NOW()),
+        u.saves,
+        u.repins,
+        u.comments
+      FROM (
+        SELECT *
+        FROM jsonb_to_recordset(${jsonPayload}::jsonb) AS raw(
+          pin_id text,
+          saves bigint,
+          repins int,
+          comments int
         )
-        SELECT
-          u.pin_id,
-          date_trunc('hour', NOW()),
-          u.saves,
-          u.repins,
-          u.comments
-        FROM (
-          SELECT *
-          FROM jsonb_to_recordset(${jsonPayload}::jsonb) AS raw(
-            pin_id text,
-            saves bigint,
-            repins int,
-            comments int
-          )
-          ORDER BY raw.pin_id ASC
-        ) u
-        ON CONFLICT (pin_id, recorded_at) DO UPDATE SET
-          saves = GREATEST(pa_pin_metrics.saves, EXCLUDED.saves),
-          repins = GREATEST(pa_pin_metrics.repins, EXCLUDED.repins),
-          comments = GREATEST(pa_pin_metrics.comments, EXCLUDED.comments);
-      `;
-    });
+        ORDER BY raw.pin_id ASC
+      ) u
+      ON CONFLICT (pin_id, recorded_at) DO UPDATE SET
+        saves = GREATEST(pa_pin_metrics.saves, EXCLUDED.saves),
+        repins = GREATEST(pa_pin_metrics.repins, EXCLUDED.repins),
+        comments = GREATEST(pa_pin_metrics.comments, EXCLUDED.comments);
+    `;
+
+    let pinRows = [];
+    if (typeof sql.begin === 'function') {
+      // Hyperdrive / postgres.js (TCP)
+      [pinRows] = await sql.begin(async (tx) => {
+        const rows = await buildPinsQuery(tx);
+        await buildMetricsQuery(tx);
+        return [rows];
+      });
+    } else if (typeof sql.transaction === 'function') {
+      // Neon Serverless (HTTP) - requires array of queries
+      const qPins = buildPinsQuery(sql);
+      const qMetrics = buildMetricsQuery(sql);
+      const res = await sql.transaction([ qPins, qMetrics ]);
+      pinRows = res && res[0] ? res[0] : [];
+    } else {
+      pinRows = await buildPinsQuery(sql);
+      await buildMetricsQuery(sql);
+    }
+
+    for (const r of (pinRows || [])) {
+      if (r.is_inserted) addedCount++;
+      else updatedCount++;
+    }
   } catch (batchErr) {
     console.warn('[ingestPinsBatch] Bulk ingest batch warning:', batchErr.message);
   }
