@@ -10367,7 +10367,7 @@ export function getDashboardHtml() {
 
         async fetchKeywords() {
           try {
-            const res = await fetch(this.getApiUrl('/api/keywords'));
+            const res = await fetch(this.getApiUrl('/api/keywords?limit=1000'));
             if (res.ok) {
               const data = await res.json();
               this.keywords = data.keywords || [];

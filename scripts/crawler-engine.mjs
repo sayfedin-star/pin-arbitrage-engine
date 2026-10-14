@@ -349,11 +349,23 @@ async function syncEnrichedSnapshotTotals(sqlClient, compId, cleanUser) {
       await sqlClient`
         INSERT INTO competitor_history_snapshots (
           competitor_id, monthly_reach, profile_views, follower_count, total_pins, total_boards, recorded_date, metadata
-        ) VALUES (
-          ${compId}, 0, 0, 0, 0, 0, CURRENT_DATE,
+        ) SELECT
+          id,
+          COALESCE(monthly_reach, 0),
+          COALESCE(profile_views, 0),
+          COALESCE(follower_count, 0),
+          COALESCE(total_pins, 0),
+          COALESCE(total_boards, 0),
+          CURRENT_DATE,
           jsonb_build_object('total_saves', ${Number(totals.total_saves)}::bigint, 'total_repins', ${Number(totals.total_repins)}::bigint)
-        )
+        FROM competitor_profiles
+        WHERE id = ${compId}
         ON CONFLICT (competitor_id, recorded_date) DO UPDATE SET
+          monthly_reach  = CASE WHEN competitor_history_snapshots.monthly_reach = 0 AND EXCLUDED.monthly_reach > 0 THEN EXCLUDED.monthly_reach ELSE competitor_history_snapshots.monthly_reach END,
+          profile_views  = CASE WHEN competitor_history_snapshots.profile_views = 0 AND EXCLUDED.profile_views > 0 THEN EXCLUDED.profile_views ELSE competitor_history_snapshots.profile_views END,
+          follower_count = CASE WHEN competitor_history_snapshots.follower_count = 0 AND EXCLUDED.follower_count > 0 THEN EXCLUDED.follower_count ELSE competitor_history_snapshots.follower_count END,
+          total_pins     = GREATEST(competitor_history_snapshots.total_pins, EXCLUDED.total_pins),
+          total_boards   = GREATEST(competitor_history_snapshots.total_boards, EXCLUDED.total_boards),
           metadata = jsonb_set(
             jsonb_set(
               COALESCE(competitor_history_snapshots.metadata, '{}'::jsonb),
@@ -504,7 +516,7 @@ async function runDiscoveryJob(sqlClient, shardSql, cleanUser, maxPages, cookie,
   try {
     console.log(`[*] [1/3 Profile] Refreshing profile stats for @${cleanUser}...`);
     const profRes = await syncCompetitorProfile(sqlClient, cleanUser, cookie);
-    compProfile = profRes?.profile || null;
+    compProfile = profRes?.profile || profRes || null;
     if (shardSql) {
       await syncCompetitorProfile(shardSql, cleanUser, cookie).catch(() => {});
     }
@@ -648,18 +660,23 @@ async function runDiscoveryJob(sqlClient, shardSql, cleanUser, maxPages, cookie,
     await sqlClient`
       INSERT INTO competitor_history_snapshots (
         competitor_id, monthly_reach, profile_views, follower_count, total_pins, total_boards, recorded_date, metadata
-      ) VALUES (
+      ) SELECT
         ${compId},
-        ${compProfile?.monthly_reach || 0},
-        ${compProfile?.profile_views || 0},
-        ${compProfile?.follower_count || 0},
-        ${totalDiscovered || compProfile?.total_pins || 0},
-        ${allBoards.length},
+        COALESCE(NULLIF(${compProfile?.monthly_reach || 0}, 0), p.monthly_reach, 0),
+        COALESCE(NULLIF(${compProfile?.profile_views || 0}, 0), p.profile_views, 0),
+        COALESCE(NULLIF(${compProfile?.follower_count || 0}, 0), p.follower_count, 0),
+        COALESCE(NULLIF(${totalDiscovered || compProfile?.total_pins || 0}, 0), p.total_pins, 0),
+        COALESCE(NULLIF(${allBoards.length}, 0), p.total_boards, 0),
         CURRENT_DATE,
         jsonb_build_object('total_saves', 0, 'total_repins', 0)
-      )
+      FROM competitor_profiles p
+      WHERE p.id = ${compId}
       ON CONFLICT (competitor_id, recorded_date) DO UPDATE SET
-        total_pins = GREATEST(competitor_history_snapshots.total_pins, EXCLUDED.total_pins);
+        monthly_reach  = CASE WHEN EXCLUDED.monthly_reach > 0 THEN EXCLUDED.monthly_reach ELSE competitor_history_snapshots.monthly_reach END,
+        profile_views  = CASE WHEN EXCLUDED.profile_views > 0 THEN EXCLUDED.profile_views ELSE competitor_history_snapshots.profile_views END,
+        follower_count = CASE WHEN EXCLUDED.follower_count > 0 THEN EXCLUDED.follower_count ELSE competitor_history_snapshots.follower_count END,
+        total_pins     = GREATEST(competitor_history_snapshots.total_pins, EXCLUDED.total_pins),
+        total_boards   = GREATEST(competitor_history_snapshots.total_boards, EXCLUDED.total_boards);
     `;
   } catch (_) {}
 

@@ -6057,7 +6057,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
         async fetchKeywords() {
           this.isKeywordsLoading = true;
           try {
-            const res = await fetch(this.getApiUrl('/api/keywords'));
+            const res = await fetch(this.getApiUrl('/api/keywords?limit=1000'));
             if (!res.ok) throw new Error('HTTP ' + res.status);
             const data = await res.json();
             this.keywords = data.keywords || [];

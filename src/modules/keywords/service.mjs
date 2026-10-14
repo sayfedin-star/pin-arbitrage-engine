@@ -176,8 +176,8 @@ export function extractPinTitle(item, fallbackQuery = '') {
 /**
  * List all tracked keywords with velocity summaries
  */
-export async function listKeywords(sql, { search = '', limit = 50, offset = 0 } = {}) {
-  const lim = Math.max(1, Math.min(isNaN(Number(limit)) ? 50 : Number(limit), 200));
+export async function listKeywords(sql, { search = '', limit = 1000, offset = 0 } = {}) {
+  const lim = Math.max(1, Math.min(isNaN(Number(limit)) ? 1000 : Number(limit), 1000));
   const off = Math.max(0, isNaN(Number(offset)) ? 0 : Number(offset));
   if (search) {
     const pattern = `%${search.toLowerCase().trim()}%`;

@@ -240,8 +240,8 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
     LIMIT 1;
   `;
 
-  const reachDelta = prevSnapshot ? (monthlyReach - Number(prevSnapshot.monthly_reach || 0)) : 0;
-  const viewsDelta = prevSnapshot ? (profileViews - Number(prevSnapshot.profile_views || 0)) : 0;
+  const reachDelta = (prevSnapshot && monthlyReach > 0) ? (monthlyReach - Number(prevSnapshot.monthly_reach || 0)) : 0;
+  const viewsDelta = (prevSnapshot && profileViews > 0) ? (profileViews - Number(prevSnapshot.profile_views || 0)) : 0;
 
   const metaUpdate = {};
   if (res.account_created_at) metaUpdate.account_created_at = res.account_created_at;
@@ -354,11 +354,11 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
         metadata
       ) VALUES (
         ${updated.id},
-        ${monthlyReach},
-        ${profileViews},
-        ${followers},
-        ${totalPins},
-        ${totalBoards},
+        ${Number(updated.monthly_reach || monthlyReach || 0)},
+        ${Number(updated.profile_views || profileViews || 0)},
+        ${Number(updated.follower_count || followers || 0)},
+        ${Number(updated.total_pins || totalPins || 0)},
+        ${Number(updated.total_boards || totalBoards || 0)},
         CURRENT_DATE,
         ${JSON.stringify(pinAgg)}::jsonb
       )

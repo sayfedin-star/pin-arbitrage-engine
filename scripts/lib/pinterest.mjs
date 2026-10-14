@@ -946,8 +946,8 @@ export async function fetchUserProfileUnauth(username, options = {}) {
       }
     }
 
-    if (!userData && !jsonLdData) {
-      return { ok: false, error: 'profile_not_found_in_html' };
+    if (!userData) {
+      return { ok: false, error: jsonLdData ? 'partial_jsonld_missing_metrics' : 'profile_not_found_in_html' };
     }
 
     const mainEntity = jsonLdData?.mainEntity || {};

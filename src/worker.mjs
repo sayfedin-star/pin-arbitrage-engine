@@ -2782,7 +2782,7 @@ export default {
       // 16. Keyword Velocity Tracker API (Central Metadata Hub)
       if (method === 'GET' && pathname === '/api/keywords') {
         const search = searchParams.get('search') || '';
-        const limit = clampLimit(searchParams.get('limit'), 50, 1000);
+        const limit = clampLimit(searchParams.get('limit'), 1000, 1000);
         const offset = Math.max(0, parseInt(searchParams.get('offset'), 10) || 0);
 
         const cacheKey = buildCanonicalCacheKey('keywords:hub', {
