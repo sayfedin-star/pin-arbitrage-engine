@@ -270,6 +270,39 @@ export async function syncKeywordToD1(env, keywordObj) {
   }
 }
 
+export async function syncKeywordsBatchToD1(env, keywords) {
+  if (!env?.PIN_D1_DB || !Array.isArray(keywords) || keywords.length === 0) return;
+  try {
+    const lastSyncedAt = new Date().toISOString();
+    const stmts = [];
+    for (const k of keywords) {
+      if (!k?.keyword) continue;
+      const kw = String(k.keyword).trim();
+      if (!kw) continue;
+      const searchVolume = Number(k.search_volume || k.monthly_search_volume || 0);
+      const monthlyGrowth = Number(k.monthly_growth || k.velocity_score || 0);
+      const pinCount = Number(k.pin_count || k.total_pins_count || 0);
+      stmts.push(
+        env.PIN_D1_DB.prepare(`
+          INSERT INTO search_autocomplete_index (keyword, search_volume, monthly_growth, pin_count, last_synced_at)
+          VALUES (?, ?, ?, ?, ?)
+          ON CONFLICT(keyword) DO UPDATE SET
+            search_volume = excluded.search_volume,
+            monthly_growth = excluded.monthly_growth,
+            pin_count = excluded.pin_count,
+            last_synced_at = excluded.last_synced_at
+        `).bind(kw, searchVolume, monthlyGrowth, pinCount, lastSyncedAt)
+      );
+      if (stmts.length >= 100) break; // bounded batch size per subrequest limit
+    }
+    if (stmts.length > 0) {
+      await env.PIN_D1_DB.batch(stmts);
+    }
+  } catch (err) {
+    console.warn('[syncKeywordsBatchToD1] Non-fatal batch D1 sync error:', redactSecrets(err.message));
+  }
+}
+
 export function clampLimit(val, fallback = 50, max = 1000) {
   const n = parseInt(val, 10);
   if (isNaN(n) || n <= 0) return fallback;
@@ -2801,7 +2834,7 @@ export default {
           }, 8000, 30000);
 
           if (Array.isArray(keywords) && keywords.length > 0 && env?.PIN_D1_DB) {
-            safeWaitUntil(ctx, Promise.all(keywords.map(k => syncKeywordToD1(env, k))), 'syncKeywordsToD1');
+            safeWaitUntil(ctx, syncKeywordsBatchToD1(env, keywords), 'syncKeywordsBatchToD1');
           }
 
           return jsonResponse({ success: true, keywords: Array.isArray(keywords) ? keywords : [] }, 200, 8);

@@ -567,7 +567,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
                                     :style="'background-color: ' + (f.color || '#ec4899') + '15; color: ' + (f.color || '#ec4899') + '; border-color: ' + (f.color || '#ec4899') + '40;'"
                                     :title="'Click to filter keywords in folder: ' + f.name">
                               <i data-lucide="folder" class="w-2.5 h-2.5 shrink-0"></i>
-                              <span x-text="f.name"></span>
+                              <span class="max-w-[120px] truncate" x-text="f.name"></span>
                             </button>
                           </template>
 
@@ -635,9 +635,9 @@ export function getKeywordsPageHtml(initialSlug = '') {
                       <div class="space-y-0.5 font-mono text-[11px]">
                         <div class="flex items-center space-x-1.5">
                           <span class="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
-                          <span class="font-bold text-slate-700 dark:text-slate-300" x-text="formatRelativeTime(kw.created_at)"></span>
+                          <span class="font-bold text-slate-700 dark:text-slate-300" x-text="kw._relativeCreatedAt || formatRelativeTime(kw.created_at)"></span>
                         </div>
-                        <span class="text-[10px] text-slate-400 block truncate" x-text="formatDate(kw.created_at)"></span>
+                        <span class="text-[10px] text-slate-400 block truncate" x-text="kw._formattedCreatedAt || formatDate(kw.created_at)"></span>
                       </div>
                     </td>
 
@@ -646,9 +646,9 @@ export function getKeywordsPageHtml(initialSlug = '') {
                       <div class="space-y-0.5 font-mono text-[11px]">
                         <div class="flex items-center space-x-1.5">
                           <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                          <span class="font-bold text-slate-700 dark:text-slate-300" x-text="formatRelativeTime(kw.last_crawled_at)"></span>
+                          <span class="font-bold text-slate-700 dark:text-slate-300" x-text="kw._relativeCrawledAt || formatRelativeTime(kw.last_crawled_at)"></span>
                         </div>
-                        <span class="text-[10px] text-slate-400 block truncate" x-text="formatDate(kw.last_crawled_at)"></span>
+                        <span class="text-[10px] text-slate-400 block truncate" x-text="kw._formattedCrawledAt || formatDate(kw.last_crawled_at)"></span>
                       </div>
                     </td>
 
@@ -760,17 +760,13 @@ export function getKeywordsPageHtml(initialSlug = '') {
 
                 <!-- Numbered Page Pills -->
                 <div class="flex items-center space-x-1 px-1">
-                  <template x-for="(p, pIdx) in dashboardPageNumbers" :key="pIdx">
+                  <template x-for="(p, pIdx) in dashboardPageNumbers" :key="'p-' + pIdx + '-' + p">
                     <div>
-                      <template x-if="p === '...'">
-                        <span class="px-2 py-1 text-slate-400 font-mono text-xs">...</span>
-                      </template>
-                      <template x-if="p !== '...'">
-                        <button type="button" @click="setDashboardPage(p)"
-                                class="min-w-8 h-8 px-2 rounded-xl text-xs font-mono font-bold transition cursor-pointer"
-                                :class="dashboardPage === p ? 'bg-emerald-600 text-white shadow-xs' : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'"
-                                x-text="p"></button>
-                      </template>
+                      <span x-show="p === '...'" class="px-2 py-1 text-slate-400 font-mono text-xs">...</span>
+                      <button x-show="p !== '...'" type="button" @click="setDashboardPage(p)"
+                              class="min-w-8 h-8 px-2 rounded-xl text-xs font-mono font-bold transition cursor-pointer"
+                              :class="dashboardPage === p ? 'bg-emerald-600 text-white shadow-xs' : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'"
+                              x-text="p"></button>
                     </div>
                   </template>
                 </div>
@@ -873,7 +869,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
                                 :style="'background-color: ' + (f.color || '#ec4899') + '15; color: ' + (f.color || '#ec4899') + '; border-color: ' + (f.color || '#ec4899') + '40;'"
                                 :title="'Click to filter keywords in: ' + f.name">
                           <i data-lucide="folder" class="w-2.5 h-2.5 shrink-0"></i>
-                          <span x-text="f.name"></span>
+                          <span class="max-w-[120px] truncate" x-text="f.name"></span>
                         </button>
                       </template>
                     </div>
@@ -907,8 +903,8 @@ export function getKeywordsPageHtml(initialSlug = '') {
                   <!-- Card Footer Actions -->
                   <div class="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
                     <div class="space-y-0.5 text-[10px] font-mono">
-                      <span class="block text-slate-500 dark:text-slate-400 truncate" x-text="'Added: ' + formatDate(kw.created_at)"></span>
-                      <span class="block text-slate-400 truncate" x-text="'Crawled: ' + formatRelativeTime(kw.last_crawled_at)"></span>
+                      <span class="block text-slate-500 dark:text-slate-400 truncate" x-text="'Added: ' + (kw._formattedCreatedAt || formatDate(kw.created_at))"></span>
+                      <span class="block text-slate-400 truncate" x-text="'Crawled: ' + (kw._relativeCrawledAt || formatRelativeTime(kw.last_crawled_at))"></span>
                     </div>
                     <div class="flex items-center space-x-1.5 shrink-0">
                       <button @click.stop="switchToSerpStudio(kw)"
@@ -974,17 +970,13 @@ export function getKeywordsPageHtml(initialSlug = '') {
 
                     <!-- Numbered Page Pills -->
                     <div class="flex items-center space-x-1 px-1">
-                      <template x-for="(p, pIdx) in dashboardPageNumbers" :key="pIdx">
+                      <template x-for="(p, pIdx) in dashboardPageNumbers" :key="'gp-' + pIdx + '-' + p">
                         <div>
-                          <template x-if="p === '...'">
-                            <span class="px-2 py-1 text-slate-400 font-mono text-xs">...</span>
-                          </template>
-                          <template x-if="p !== '...'">
-                            <button type="button" @click="setDashboardPage(p)"
-                                    class="min-w-8 h-8 px-2 rounded-xl text-xs font-mono font-bold transition cursor-pointer"
-                                    :class="dashboardPage === p ? 'bg-emerald-600 text-white shadow-xs' : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'"
-                                    x-text="p"></button>
-                          </template>
+                          <span x-show="p === '...'" class="px-2 py-1 text-slate-400 font-mono text-xs">...</span>
+                          <button x-show="p !== '...'" type="button" @click="setDashboardPage(p)"
+                                  class="min-w-8 h-8 px-2 rounded-xl text-xs font-mono font-bold transition cursor-pointer"
+                                  :class="dashboardPage === p ? 'bg-emerald-600 text-white shadow-xs' : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'"
+                                  x-text="p"></button>
                         </div>
                       </template>
                     </div>
@@ -5308,7 +5300,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
         get omnibarTrackedMatches() {
           if (!this.omnibarQuery.trim()) return [];
           const q = this.omnibarQuery.toLowerCase().trim();
-          return this.keywords.filter(k => k.keyword.toLowerCase().includes(q)).slice(0, 5);
+          return (this.keywords || []).filter(k => (k?.keyword || '').toLowerCase().includes(q)).slice(0, 5);
         },
 
         get selectableKeywordsForFolder() {
@@ -6485,6 +6477,10 @@ export function getKeywordsPageHtml(initialSlug = '') {
           k._repinDelta = this.getKeywordRepinDelta(k);
           k._createdAtMs = k.created_at ? (Date.parse(k.created_at) || 0) : 0;
           k._crawledAtMs = k.last_crawled_at ? (Date.parse(k.last_crawled_at) || 0) : 0;
+          k._formattedCreatedAt = this.formatDate(k.created_at);
+          k._relativeCreatedAt = this.formatRelativeTime(k.created_at);
+          k._formattedCrawledAt = this.formatDate(k.last_crawled_at);
+          k._relativeCrawledAt = this.formatRelativeTime(k.last_crawled_at);
           const folders = this.getKeywordFolders(k);
           k._folders = folders;
           k._searchCorpus = ((k.keyword || '') + ' ' + (k.category || '') + ' ' + (folders.map(f => f.name || '').join(' '))).toLowerCase();
@@ -6537,8 +6533,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
                 this.domainSearch = '';
                 this.rebuildPinCaches();
                 if (!this.keywords.some(k => k.id === data.keyword.id)) {
-                  this.keywords.unshift(data.keyword);
-                  this.filterKeywords();
+                  this.keywords.unshift(this.normalizeKeyword(data.keyword));
                 }
                 if (updateHistory) {
                   window.history.pushState(null, '', '/keywords/' + encodeURIComponent(cleanSlug));
@@ -7258,7 +7253,9 @@ export function getKeywordsPageHtml(initialSlug = '') {
         formatDate(d) {
           if (!d) return 'Never';
           try {
-            return new Date(d).toLocaleDateString() + ' ' + new Date(d).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const date = new Date(d);
+            if (isNaN(date.getTime())) return String(d);
+            return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
           } catch (_) {
             return String(d);
           }
@@ -7268,8 +7265,8 @@ export function getKeywordsPageHtml(initialSlug = '') {
           if (!d) return 'Never';
           try {
             const date = new Date(d);
-            const now = new Date();
-            const diffMs = now - date;
+            if (isNaN(date.getTime())) return 'Never';
+            const diffMs = Date.now() - date.getTime();
             if (diffMs < 0) return 'Just now';
             const diffSec = Math.floor(diffMs / 1000);
             if (diffSec < 60) return diffSec + 's ago';
@@ -7475,6 +7472,14 @@ export function getKeywordsPageHtml(initialSlug = '') {
             if (res.ok) {
               const data = await res.json();
               this.folders = data.folders || [];
+              if (this.keywords && this.keywords.length > 0) {
+                this.keywords.forEach(k => {
+                  delete k._folders;
+                  const fList = this.getKeywordFolders(k);
+                  k._folders = fList;
+                  k._searchCorpus = ((k.keyword || '') + ' ' + (k.category || '') + ' ' + (fList.map(f => f.name || '').join(' '))).toLowerCase();
+                });
+              }
               if (this.folders.length > 0 && !this.activeFolder) {
                 this.activeFolder = this.folders[0];
                 if (this.activeTab === 'crossover') {
