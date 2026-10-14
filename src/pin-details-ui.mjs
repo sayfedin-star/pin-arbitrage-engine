@@ -996,11 +996,12 @@ export function getPinDetailPageHtml(pinId = '') {
         toastTimeout: null,
 
         async init() {
-          await this.loadDossier();
-          // Auto-trigger Live Deep Sync if pin has never been enriched
-          if (this.dossier && this.dossier.success && (!this.dossier.algorithmic_intelligence?.image_signature || !this.dossier.algorithmic_intelligence?.origin_pinner)) {
-            this.triggerLiveDeepSync();
+          if (!this.pinId) {
+            this.error = 'No Pin ID provided in URL.';
+            this.loading = false;
+            return;
           }
+          await this.loadDossier();
         },
 
         showToast(message, type = 'success') {

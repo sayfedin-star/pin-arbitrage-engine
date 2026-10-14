@@ -189,18 +189,7 @@ export async function listKeywords(sql, { search = '', limit = 50, offset = 0 } 
       LEFT JOIN LATERAL (
         SELECT COALESCE(
           NULLIF((SELECT COUNT(*)::int FROM keyword_serp_current WHERE keyword_id = k.id AND is_displaced = FALSE AND rank_position >= 1), 0),
-          (
-            SELECT COUNT(*)::int 
-            FROM keyword_pins_snapshots 
-            WHERE keyword_id = k.id 
-              AND is_displaced IS NOT TRUE 
-              AND snapshot_date = (
-                SELECT MAX(snapshot_date) 
-                FROM keyword_pins_snapshots 
-                WHERE keyword_id = k.id 
-                  AND is_displaced IS NOT TRUE
-              )
-          ),
+          CASE WHEN k.metadata->>'last_crawled_pins_count' ~ '^[0-9]+$' THEN (k.metadata->>'last_crawled_pins_count')::int ELSE 0 END,
           0
         )::int AS cnt
       ) s_count ON true
@@ -217,18 +206,7 @@ export async function listKeywords(sql, { search = '', limit = 50, offset = 0 } 
       LEFT JOIN LATERAL (
         SELECT COALESCE(
           NULLIF((SELECT COUNT(*)::int FROM keyword_serp_current WHERE keyword_id = k.id AND is_displaced = FALSE AND rank_position >= 1), 0),
-          (
-            SELECT COUNT(*)::int 
-            FROM keyword_pins_snapshots 
-            WHERE keyword_id = k.id 
-              AND is_displaced IS NOT TRUE 
-              AND snapshot_date = (
-                SELECT MAX(snapshot_date) 
-                FROM keyword_pins_snapshots 
-                WHERE keyword_id = k.id 
-                  AND is_displaced IS NOT TRUE
-              )
-          ),
+          CASE WHEN k.metadata->>'last_crawled_pins_count' ~ '^[0-9]+$' THEN (k.metadata->>'last_crawled_pins_count')::int ELSE 0 END,
           0
         )::int AS cnt
       ) s_count ON true
@@ -1990,9 +1968,22 @@ export async function getKeywordSERPComparison(sql, keywordId, knownKeyword = nu
   const kid = Number(keywordId);
   if (!kid) throw new Error('Valid keyword ID is required');
 
-  // Parallel fetch: keyword metadata (if not already known), distinct dates, dropped pins, and guided capsules
-  const [keywordRows, dates, droppedOutPinsRaw, guides] = await Promise.all([
+  // Parallel fetch: keyword metadata (if not already known), active catalog pins, distinct dates, dropped pins, and guided capsules
+  const [keywordRows, activeCatalogPins, dates, droppedOutPinsRaw, guides] = await Promise.all([
     knownKeyword ? Promise.resolve([knownKeyword]) : sql`SELECT * FROM tracked_keywords WHERE id = ${kid};`,
+    sql`
+      SELECT *
+      FROM keyword_serp_current
+      WHERE keyword_id = ${kid}
+        AND is_displaced = FALSE
+        AND rank_position IS NOT NULL
+        AND rank_position >= 1
+        AND NOT EXISTS (
+          SELECT 1 FROM keyword_ignored_pins kip
+          WHERE kip.keyword_id = ${kid} AND kip.pin_id = keyword_serp_current.pin_id
+        )
+      ORDER BY rank_position ASC;
+    `.catch(() => []),
     sql`
       SELECT DISTINCT snapshot_date
       FROM keyword_pins_snapshots
@@ -2000,7 +1991,7 @@ export async function getKeywordSERPComparison(sql, keywordId, knownKeyword = nu
         AND (is_displaced IS FALSE OR is_displaced IS NULL)
       ORDER BY snapshot_date DESC
       LIMIT 2;
-    `,
+    `.catch(() => []),
     sql`
       SELECT 
         id, keyword_id, pin_id, title, domain, destination_url, image_url,
@@ -2041,7 +2032,20 @@ export async function getKeywordSERPComparison(sql, keywordId, knownKeyword = nu
 
   let droppedOutPins = droppedOutPinsRaw || [];
 
-  if (!dates || dates.length === 0) {
+  const latestDate = dates?.[0]?.snapshot_date || (activeCatalogPins?.[0]?.crawled_at ? new Date(activeCatalogPins[0].crawled_at).toISOString().slice(0, 10) : null);
+  let currentPins = Array.isArray(activeCatalogPins) && activeCatalogPins.length > 0 ? activeCatalogPins : [];
+  if (currentPins.length === 0 && latestDate) {
+    currentPins = await sql`
+      SELECT *
+      FROM keyword_pins_snapshots
+      WHERE keyword_id = ${kid}
+        AND snapshot_date = ${latestDate}
+        AND is_displaced = FALSE
+      ORDER BY rank_position ASC;
+    `.catch(() => []);
+  }
+
+  if (currentPins.length === 0 && (!dates || dates.length === 0)) {
     return {
       status: 'never_crawled',
       keyword,
@@ -2054,16 +2058,6 @@ export async function getKeywordSERPComparison(sql, keywordId, knownKeyword = nu
       stats: { total: 0, climbed: 0, dropped: 0, stable: 0, new_entries: 0, dropped_out: 0 }
     };
   }
-
-  const latestDate = dates[0].snapshot_date;
-  const currentPins = await sql`
-    SELECT *
-    FROM keyword_pins_snapshots
-    WHERE keyword_id = ${kid}
-      AND snapshot_date = ${latestDate}
-      AND is_displaced = FALSE
-    ORDER BY rank_position ASC;
-  `;
 
   if (droppedOutPins.length === 0 && dates.length > 1) {
     const prevDate = dates[1].snapshot_date;
@@ -2736,15 +2730,20 @@ export async function getPinPerformanceTrajectory(sql, keywordId, pinId, range =
  * Pulls cached Pinterest SEO Alt Text, 9 linked Annotations, 6 KPIs, and Trajectory.
  * Automatically enriches missing Alt Text via on-demand fetchPinFromPinterest.
  */
-export async function getPinDeepDossier(sql, pinId, keywordId = null) {
+export async function getPinDeepDossier(sql, pinId, keywordId = null, { forceRefresh = false } = {}) {
   const cleanPin = String(pinId || '').trim();
   if (!cleanPin) throw new Error('pin_id is required');
   const kid = keywordId ? Number(keywordId) : null;
 
-  // 1. Check if detailed data exists in unified keyword_serp_current
-  let displacedRow = null;
-  if (kid) {
-    const [row] = await sql`
+  // 1-4. Concurrent scatter-gather for SERP current, snapshots, shard master, and trajectory
+  const [
+    displacedRows,
+    snapshotRows,
+    shardRow,
+    trajectory
+  ] = await Promise.all([
+    // 1. keyword_serp_current
+    (kid ? sql`
       SELECT 
         id, keyword_id, pin_id, title, domain, destination_url, image_url,
         creator_username, board_name, last_known_rank, rank_position, displaced_date,
@@ -2758,11 +2757,60 @@ export async function getPinDeepDossier(sql, pinId, keywordId = null) {
         dominant_color, created_at_pinterest, creation_method, metadata, crawled_at as created_at
       FROM keyword_serp_current 
       WHERE keyword_id = ${kid} AND pin_id = ${cleanPin};
-    `.catch(() => []);
-    displacedRow = row;
-  }
-  if (!displacedRow) {
-    const [row] = await sql`
+    ` : sql`
+      SELECT 
+        id, keyword_id, pin_id, title, domain, destination_url, image_url,
+        creator_username, board_name, last_known_rank, rank_position, displaced_date,
+        is_displaced, save_count, save_count as current_saves,
+        repin_count, repin_count as current_repins,
+        comment_count, comment_count as current_comments,
+        share_count, share_count as current_shares,
+        daily_save_velocity, vacuum_opportunity_score,
+        COALESCE(metadata->>'alt_text', '') as seo_alt_text,
+        COALESCE(visual_annotations, '[]'::jsonb) as annotations,
+        dominant_color, created_at_pinterest, creation_method, metadata, crawled_at as created_at
+      FROM keyword_serp_current 
+      WHERE pin_id = ${cleanPin} 
+      LIMIT 1;
+    `).catch(() => []),
+
+    // 2. keyword_pins_snapshots
+    (kid ? sql`
+      SELECT * FROM keyword_pins_snapshots 
+      WHERE keyword_id = ${kid} AND pin_id = ${cleanPin}
+      ORDER BY snapshot_date DESC LIMIT 1;
+    ` : sql`
+      SELECT * FROM keyword_pins_snapshots 
+      WHERE pin_id = ${cleanPin}
+      ORDER BY snapshot_date DESC LIMIT 1;
+    `).catch(() => []),
+
+    // 3. Shard master pin with 650ms timeout
+    (async () => {
+      try {
+        const shardId = getPinShardId(cleanPin, 99);
+        const shardSql = await resolveShardConnection({ hubSql: sql, shardId });
+        if (shardSql && shardSql !== sql) {
+          const shardPromise = shardSql`
+            SELECT * FROM universal_master_pins WHERE pin_id = ${cleanPin} LIMIT 1;
+          `.catch(() => []);
+          const [sMaster] = await Promise.race([
+            shardPromise,
+            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 650))
+          ]);
+          return sMaster || null;
+        }
+      } catch (_) {}
+      return null;
+    })(),
+
+    // 4. Trajectory
+    getPinPerformanceTrajectory(sql, kid, cleanPin, 'all').catch(() => [])
+  ]);
+
+  let displacedRow = displacedRows?.[0] || null;
+  if (!displacedRow && kid) {
+    const [fallbackRow] = await sql`
       SELECT 
         id, keyword_id, pin_id, title, domain, destination_url, image_url,
         creator_username, board_name, last_known_rank, rank_position, displaced_date,
@@ -2778,54 +2826,23 @@ export async function getPinDeepDossier(sql, pinId, keywordId = null) {
       WHERE pin_id = ${cleanPin} 
       LIMIT 1;
     `.catch(() => []);
-    displacedRow = row;
+    displacedRow = fallbackRow || null;
   }
 
-  // 2. Check latest snapshot row
-  let latestSnapshot = null;
-  if (kid) {
-    const [sRow] = await sql`
-      SELECT * FROM keyword_pins_snapshots 
-      WHERE keyword_id = ${kid} AND pin_id = ${cleanPin}
-      ORDER BY snapshot_date DESC LIMIT 1;
-    `;
-    latestSnapshot = sRow;
-  }
-  if (!latestSnapshot) {
+  let latestSnapshot = snapshotRows?.[0] || null;
+  if (!latestSnapshot && kid) {
     const [sRow] = await sql`
       SELECT * FROM keyword_pins_snapshots 
       WHERE pin_id = ${cleanPin}
       ORDER BY snapshot_date DESC LIMIT 1;
-    `;
-    latestSnapshot = sRow;
+    `.catch(() => []);
+    latestSnapshot = sRow || null;
   }
 
-  // 3. Shard Federation: check designated Neon storage shard if Hub has partial telemetry
-  let shardRow = null;
-  try {
-    const shardId = getPinShardId(cleanPin, 99);
-    const shardSql = await resolveShardConnection({ hubSql: sql, shardId });
-    if (shardSql && shardSql !== sql) {
-      const [sMaster] = await shardSql`
-        SELECT * FROM universal_master_pins WHERE pin_id = ${cleanPin} LIMIT 1;
-      `.catch(() => []);
-      shardRow = sMaster || null;
-    }
-  } catch (_) {}
-
   // 4. Smart Dynamic On-Demand Scrape Trigger:
-  // If SEO Alt-Text is missing OR description is missing OR visual annotations array is empty
-  const knownAltText = displacedRow?.seo_alt_text || latestSnapshot?.metadata?.alt_text || shardRow?.alt_text || '';
-  const knownDesc = displacedRow?.metadata?.description || latestSnapshot?.metadata?.description || shardRow?.description || '';
-  const knownAnnotations = (displacedRow?.annotations && Array.isArray(displacedRow.annotations) && displacedRow.annotations.length > 0)
-    ? displacedRow.annotations
-    : (shardRow?.visual_annotations && Array.isArray(shardRow.visual_annotations) && shardRow.visual_annotations.length > 0)
-      ? shardRow.visual_annotations
-      : (latestSnapshot?.metadata?.visual_annotations || []);
-  const knownSaves = Math.max(Number(displacedRow?.current_saves || 0), Number(latestSnapshot?.save_count || 0), Number(shardRow?.save_count || 0));
-
+  // Only scrape if explicitly requested via forceRefresh
   let scraped = null;
-  const needsScrape = !knownAltText || !knownDesc || knownAnnotations.length === 0 || (knownSaves === 0 && Number(latestSnapshot?.save_count || 0) <= 5);
+  const needsScrape = Boolean(forceRefresh);
 
   if (needsScrape) {
     try {
@@ -2962,10 +2979,7 @@ export async function getPinDeepDossier(sql, pinId, keywordId = null) {
     }
   }
 
-  // 5. Retrieve trajectory
-  const trajectory = await getPinPerformanceTrajectory(sql, kid, cleanPin, 'all');
-
-  // 6. Build consolidated 48-parameter Dossier
+  // 5. Build consolidated 48-parameter Dossier (Trajectory already retrieved in parallel)
   const title = displacedRow?.title || latestSnapshot?.title || scraped?.title || shardRow?.title || 'Untitled Pin';
   const altText = displacedRow?.seo_alt_text || scraped?.alt_text || scraped?.seo_alt_text || latestSnapshot?.metadata?.alt_text || shardRow?.alt_text || '';
   const description = scraped?.description || displacedRow?.metadata?.description || latestSnapshot?.metadata?.description || shardRow?.description || '';

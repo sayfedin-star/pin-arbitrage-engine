@@ -452,7 +452,7 @@ export function corsOptionsResponse(requestOrigin = null, env = {}, allow = 'GET
 
 export const HTML_HEADERS = {
   'Content-Type': 'text/html; charset=utf-8',
-  'Cache-Control': 'no-cache',
+  'Cache-Control': 'private, max-age=120, stale-while-revalidate=600',
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'DENY',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
@@ -1292,6 +1292,9 @@ export default {
         `;
         invalidateEdgeCache('api:overview');
         invalidateEdgeCache('api:seeds');
+        invalidateEdgeCache('api:recgpt-playbook');
+        invalidateEdgeCache('api:cluster-telemetry');
+        invalidateEdgeCache('api:guided-search');
         return jsonResponse({ success: true, seed: result[0] }, 201);
       }
 
@@ -1346,6 +1349,9 @@ export default {
 
         invalidateEdgeCache('api:overview');
         invalidateEdgeCache('api:seeds');
+        invalidateEdgeCache('api:recgpt-playbook');
+        invalidateEdgeCache('api:cluster-telemetry');
+        invalidateEdgeCache('api:guided-search');
         return jsonResponse({ success: true, count: inserted.length, seeds: inserted }, 201);
       }
 
@@ -1370,6 +1376,9 @@ export default {
 
         invalidateEdgeCache('api:overview');
         invalidateEdgeCache('api:seeds');
+        invalidateEdgeCache('api:recgpt-playbook');
+        invalidateEdgeCache('api:cluster-telemetry');
+        invalidateEdgeCache('api:guided-search');
         return jsonResponse({
           success: true,
           deleted_count: pinIds.length,
@@ -1395,6 +1404,9 @@ export default {
         await targetSql`DELETE FROM cluster_seeds WHERE pin_id = ${pinId};`;
         invalidateEdgeCache('api:overview');
         invalidateEdgeCache('api:seeds');
+        invalidateEdgeCache('api:recgpt-playbook');
+        invalidateEdgeCache('api:cluster-telemetry');
+        invalidateEdgeCache('api:guided-search');
         return jsonResponse({ success: true, deleted_pin_id: pinId, purged_database: purgeData });
       }
 
@@ -1414,6 +1426,9 @@ export default {
           await targetSql`DELETE FROM candidate_graph_nodes WHERE candidate_pin_id = ANY(${candIds});`;
         }
 
+        invalidateEdgeCache('api:recgpt-playbook');
+        invalidateEdgeCache('api:cluster-telemetry');
+        invalidateEdgeCache('api:guided-search');
         return jsonResponse({ success: true, deleted_count: candIds.length });
       }
 
@@ -1646,266 +1661,291 @@ export default {
       // 6. GET /api/recgpt-playbook
       if (method === 'GET' && pathname === '/api/recgpt-playbook') {
         const seedPinId = searchParams.get('seed_pin_id');
-
-        let dinnerAnchor = null;
-        let navboostSide = null;
-        let sessionFinisher = null;
-
-        let isBakerySeed = false;
-        if (seedPinId) {
-          const sInfo = await targetSql`SELECT label FROM cluster_seeds WHERE pin_id = ${seedPinId} LIMIT 1;`;
-          if (sInfo.length > 0) {
-            isBakerySeed = /\b(muffin|muffins|cake|cakes|cookie|cookies|brownie|brownies|roll|rolls|cinnamon|pie|pies|tart|bread|cupcake|cupcakes|donut|donuts|pastry|pastries|bake|baking|dessert|sweet|chocolate|caramel|pumpkin spice)\b/i.test(sInfo[0].label || '');
-          }
-
-          if (isBakerySeed) {
-            const dRows = await targetSql`
-              SELECT * FROM candidate_graph_nodes
-              WHERE seed_pin_id = ${seedPinId} AND sequence_role IN ('DESSERT_HERO', 'DINNER_ANCHOR')
-              ORDER BY (sequence_role = 'DESSERT_HERO') DESC, saves DESC LIMIT 1;
-            `;
-            if (dRows.length > 0) dinnerAnchor = dRows[0];
-
-            const nRows = await targetSql`
-              SELECT * FROM candidate_graph_nodes
-              WHERE seed_pin_id = ${seedPinId} AND sequence_role IN ('BEVERAGE_PAIRING', 'NAVBOOST_CO_VISITOR')
-                AND candidate_pin_id != ${dinnerAnchor?.candidate_pin_id || ''}
-              ORDER BY (sequence_role = 'BEVERAGE_PAIRING') DESC, saves DESC LIMIT 1;
-            `;
-            if (nRows.length > 0) navboostSide = nRows[0];
-
-            const sRows = await targetSql`
-              SELECT * FROM candidate_graph_nodes
-              WHERE seed_pin_id = ${seedPinId} AND sequence_role IN ('PASTRY_BITES', 'SESSION_FINISHER')
-                AND candidate_pin_id != ${dinnerAnchor?.candidate_pin_id || ''}
-                AND candidate_pin_id != ${navboostSide?.candidate_pin_id || ''}
-              ORDER BY (sequence_role = 'PASTRY_BITES') DESC, saves DESC LIMIT 1;
-            `;
-            if (sRows.length > 0) sessionFinisher = sRows[0];
-          } else {
-            const dRows = await targetSql`
-              SELECT * FROM candidate_graph_nodes
-              WHERE seed_pin_id = ${seedPinId} AND sequence_role = 'DINNER_ANCHOR'
-              ORDER BY saves DESC LIMIT 1;
-            `;
-            if (dRows.length > 0) dinnerAnchor = dRows[0];
-
-            const nRows = await targetSql`
-              SELECT * FROM candidate_graph_nodes
-              WHERE seed_pin_id = ${seedPinId} AND sequence_role = 'NAVBOOST_CO_VISITOR'
-              ORDER BY saves DESC LIMIT 1;
-            `;
-            if (nRows.length > 0) navboostSide = nRows[0];
-
-            const sRows = await targetSql`
-              SELECT * FROM candidate_graph_nodes
-              WHERE seed_pin_id = ${seedPinId} AND sequence_role = 'SESSION_FINISHER'
-              ORDER BY saves DESC LIMIT 1;
-            `;
-            if (sRows.length > 0) sessionFinisher = sRows[0];
-          }
-
-          // Seed-scoped fallbacks: never cross into another seed
-          if (!dinnerAnchor) {
-            const f = await targetSql`
-              SELECT * FROM candidate_graph_nodes
-              WHERE seed_pin_id = ${seedPinId}
-              ORDER BY saves DESC LIMIT 1;
-            `;
-            dinnerAnchor = f[0] || null;
-          }
-          if (!navboostSide) {
-            const f = await targetSql`
-              SELECT * FROM candidate_graph_nodes
-              WHERE seed_pin_id = ${seedPinId} AND candidate_pin_id != ${dinnerAnchor?.candidate_pin_id || ''}
-              ORDER BY saves DESC LIMIT 1;
-            `;
-            navboostSide = f[0] || null;
-          }
-          if (!sessionFinisher) {
-            const f = await targetSql`
-              SELECT * FROM candidate_graph_nodes
-              WHERE seed_pin_id = ${seedPinId}
-                AND candidate_pin_id != ${dinnerAnchor?.candidate_pin_id || ''}
-                AND candidate_pin_id != ${navboostSide?.candidate_pin_id || ''}
-              ORDER BY saves DESC LIMIT 1;
-            `;
-            sessionFinisher = f[0] || null;
-          }
-        } else {
-          // Global explorer fallbacks only when no specific seed is requested
-          if (!dinnerAnchor) {
-            const f = await targetSql`SELECT * FROM candidate_graph_nodes WHERE sequence_role = 'DINNER_ANCHOR' ORDER BY saves DESC LIMIT 1;`;
-            dinnerAnchor = f[0] || null;
-          }
-          if (!navboostSide) {
-            const f = await targetSql`SELECT * FROM candidate_graph_nodes WHERE sequence_role = 'NAVBOOST_CO_VISITOR' ORDER BY saves DESC LIMIT 1;`;
-            navboostSide = f[0] || null;
-          }
-          if (!sessionFinisher) {
-            const f = await targetSql`SELECT * FROM candidate_graph_nodes WHERE sequence_role = 'SESSION_FINISHER' ORDER BY saves DESC LIMIT 1;`;
-            sessionFinisher = f[0] || null;
-          }
-
-          if (!dinnerAnchor) {
-            const f = await targetSql`SELECT * FROM candidate_graph_nodes ORDER BY saves DESC LIMIT 1;`;
-            dinnerAnchor = f[0] || null;
-          }
-          if (!navboostSide) {
-            const f = await targetSql`SELECT * FROM candidate_graph_nodes ORDER BY saves DESC OFFSET 1 LIMIT 1;`;
-            navboostSide = f[0] || null;
-          }
-          if (!sessionFinisher) {
-            const f = await targetSql`SELECT * FROM candidate_graph_nodes ORDER BY saves DESC OFFSET 2 LIMIT 1;`;
-            sessionFinisher = f[0] || null;
-          }
-        }
-
-        const formatCard = (node, defaultTitle, defaultRole, defaultPrep) => {
-          if (!node) {
-            return {
-              title: defaultTitle,
-              candidate_pin_id: '',
-              saves: 0,
-              save_rate: 0,
-              daily_velocity: 0,
-              recgpt_transition_score: 0,
-              prep_time: defaultPrep,
-              sequence_role: defaultRole,
-              winning_color: '#888888',
-              culinary_color_name: 'Pending Crawl Data',
-              provenance_engine: 'P2P_RECGPT',
-              is_pending_data: true
-            };
-          }
-          return {
-            title: node.title,
-            candidate_pin_id: node.candidate_pin_id,
-            saves: Number(node.saves || 0),
-            save_rate: Number(node.save_rate || 0),
-            daily_velocity: Number(node.daily_velocity || 0),
-            recgpt_transition_score: Number(node.recgpt_transition_score || (Number(node.save_rate || 0) * 0.95).toFixed(1)),
-            prep_time: defaultPrep,
-            sequence_role: node.sequence_role || defaultRole,
-            winning_color: node.dominant_color || '#888888',
-            culinary_color_name: getCulinaryColorName(node.dominant_color),
-            provenance_engine: node.provenance_engine || 'P2P_RECGPT',
-            ocr_text: node.ocr_text || '',
-            image_url: node.image_url || '',
-            is_video: Boolean(node.is_video),
-            ingestion_method: node.ingestion_method || 'uploaded'
-          };
-        };
-
-        return jsonResponse({
-          seed_pin_id: seedPinId,
-          dinner_anchor: formatCard(dinnerAnchor, 'Slow Cooker Garlic Herb Butter Chicken & Red Potatoes', 'DINNER_ANCHOR', '15m'),
-          navboost_co_visitor: formatCard(navboostSide, 'Cast Iron Skillet Garlic Cheddar Honey Biscuits', 'NAVBOOST_CO_VISITOR', '20m'),
-          session_finisher: formatCard(sessionFinisher, 'Warm Skillet Salted Caramel Chocolate Chip Cookie with Vanilla Ice Cream', 'SESSION_FINISHER', '10m')
+        const cacheKey = buildCanonicalCacheKey('api:recgpt-playbook', {
+          seed_pin_id: seedPinId || 'all',
+          shard: reqProjectId || 'hub'
         });
+
+        const playbookData = await getCachedOrFetch(cacheKey, async () => {
+          let dinnerAnchor = null;
+          let navboostSide = null;
+          let sessionFinisher = null;
+
+          let isBakerySeed = false;
+          if (seedPinId) {
+            const sInfo = await targetSql`SELECT label FROM cluster_seeds WHERE pin_id = ${seedPinId} LIMIT 1;`;
+            if (sInfo.length > 0) {
+              isBakerySeed = /\b(muffin|muffins|cake|cakes|cookie|cookies|brownie|brownies|roll|rolls|cinnamon|pie|pies|tart|bread|cupcake|cupcakes|donut|donuts|pastry|pastries|bake|baking|dessert|sweet|chocolate|caramel|pumpkin spice)\b/i.test(sInfo[0].label || '');
+            }
+
+            if (isBakerySeed) {
+              const dRows = await targetSql`
+                SELECT * FROM candidate_graph_nodes
+                WHERE seed_pin_id = ${seedPinId} AND sequence_role IN ('DESSERT_HERO', 'DINNER_ANCHOR')
+                ORDER BY (sequence_role = 'DESSERT_HERO') DESC, saves DESC LIMIT 1;
+              `;
+              if (dRows.length > 0) dinnerAnchor = dRows[0];
+
+              const nRows = await targetSql`
+                SELECT * FROM candidate_graph_nodes
+                WHERE seed_pin_id = ${seedPinId} AND sequence_role IN ('BEVERAGE_PAIRING', 'NAVBOOST_CO_VISITOR')
+                  AND candidate_pin_id != ${dinnerAnchor?.candidate_pin_id || ''}
+                ORDER BY (sequence_role = 'BEVERAGE_PAIRING') DESC, saves DESC LIMIT 1;
+              `;
+              if (nRows.length > 0) navboostSide = nRows[0];
+
+              const sRows = await targetSql`
+                SELECT * FROM candidate_graph_nodes
+                WHERE seed_pin_id = ${seedPinId} AND sequence_role IN ('PASTRY_BITES', 'SESSION_FINISHER')
+                  AND candidate_pin_id != ${dinnerAnchor?.candidate_pin_id || ''}
+                  AND candidate_pin_id != ${navboostSide?.candidate_pin_id || ''}
+                ORDER BY (sequence_role = 'PASTRY_BITES') DESC, saves DESC LIMIT 1;
+              `;
+              if (sRows.length > 0) sessionFinisher = sRows[0];
+            } else {
+              const dRows = await targetSql`
+                SELECT * FROM candidate_graph_nodes
+                WHERE seed_pin_id = ${seedPinId} AND sequence_role = 'DINNER_ANCHOR'
+                ORDER BY saves DESC LIMIT 1;
+              `;
+              if (dRows.length > 0) dinnerAnchor = dRows[0];
+
+              const nRows = await targetSql`
+                SELECT * FROM candidate_graph_nodes
+                WHERE seed_pin_id = ${seedPinId} AND sequence_role = 'NAVBOOST_CO_VISITOR'
+                ORDER BY saves DESC LIMIT 1;
+              `;
+              if (nRows.length > 0) navboostSide = nRows[0];
+
+              const sRows = await targetSql`
+                SELECT * FROM candidate_graph_nodes
+                WHERE seed_pin_id = ${seedPinId} AND sequence_role = 'SESSION_FINISHER'
+                ORDER BY saves DESC LIMIT 1;
+              `;
+              if (sRows.length > 0) sessionFinisher = sRows[0];
+            }
+
+            // Seed-scoped fallbacks: never cross into another seed
+            if (!dinnerAnchor) {
+              const f = await targetSql`
+                SELECT * FROM candidate_graph_nodes
+                WHERE seed_pin_id = ${seedPinId}
+                ORDER BY saves DESC LIMIT 1;
+              `;
+              dinnerAnchor = f[0] || null;
+            }
+            if (!navboostSide) {
+              const f = await targetSql`
+                SELECT * FROM candidate_graph_nodes
+                WHERE seed_pin_id = ${seedPinId} AND candidate_pin_id != ${dinnerAnchor?.candidate_pin_id || ''}
+                ORDER BY saves DESC LIMIT 1;
+              `;
+              navboostSide = f[0] || null;
+            }
+            if (!sessionFinisher) {
+              const f = await targetSql`
+                SELECT * FROM candidate_graph_nodes
+                WHERE seed_pin_id = ${seedPinId}
+                  AND candidate_pin_id != ${dinnerAnchor?.candidate_pin_id || ''}
+                  AND candidate_pin_id != ${navboostSide?.candidate_pin_id || ''}
+                ORDER BY saves DESC LIMIT 1;
+              `;
+              sessionFinisher = f[0] || null;
+            }
+          } else {
+            // Global explorer fallbacks only when no specific seed is requested
+            if (!dinnerAnchor) {
+              const f = await targetSql`SELECT * FROM candidate_graph_nodes WHERE sequence_role = 'DINNER_ANCHOR' ORDER BY saves DESC LIMIT 1;`;
+              dinnerAnchor = f[0] || null;
+            }
+            if (!navboostSide) {
+              const f = await targetSql`SELECT * FROM candidate_graph_nodes WHERE sequence_role = 'NAVBOOST_CO_VISITOR' ORDER BY saves DESC LIMIT 1;`;
+              navboostSide = f[0] || null;
+            }
+            if (!sessionFinisher) {
+              const f = await targetSql`SELECT * FROM candidate_graph_nodes WHERE sequence_role = 'SESSION_FINISHER' ORDER BY saves DESC LIMIT 1;`;
+              sessionFinisher = f[0] || null;
+            }
+
+            if (!dinnerAnchor) {
+              const f = await targetSql`SELECT * FROM candidate_graph_nodes ORDER BY saves DESC LIMIT 1;`;
+              dinnerAnchor = f[0] || null;
+            }
+            if (!navboostSide) {
+              const f = await targetSql`SELECT * FROM candidate_graph_nodes ORDER BY saves DESC OFFSET 1 LIMIT 1;`;
+              navboostSide = f[0] || null;
+            }
+            if (!sessionFinisher) {
+              const f = await targetSql`SELECT * FROM candidate_graph_nodes ORDER BY saves DESC OFFSET 2 LIMIT 1;`;
+              sessionFinisher = f[0] || null;
+            }
+          }
+
+          const formatCard = (node, defaultTitle, defaultRole, defaultPrep) => {
+            if (!node) {
+              return {
+                title: defaultTitle,
+                candidate_pin_id: '',
+                saves: 0,
+                save_rate: 0,
+                daily_velocity: 0,
+                recgpt_transition_score: 0,
+                prep_time: defaultPrep,
+                sequence_role: defaultRole,
+                winning_color: '#888888',
+                culinary_color_name: 'Pending Crawl Data',
+                provenance_engine: 'P2P_RECGPT',
+                is_pending_data: true
+              };
+            }
+            return {
+              title: node.title,
+              candidate_pin_id: node.candidate_pin_id,
+              saves: Number(node.saves || 0),
+              save_rate: Number(node.save_rate || 0),
+              daily_velocity: Number(node.daily_velocity || 0),
+              recgpt_transition_score: Number(node.recgpt_transition_score || (Number(node.save_rate || 0) * 0.95).toFixed(1)),
+              prep_time: defaultPrep,
+              sequence_role: node.sequence_role || defaultRole,
+              winning_color: node.dominant_color || '#888888',
+              culinary_color_name: getCulinaryColorName(node.dominant_color),
+              provenance_engine: node.provenance_engine || 'P2P_RECGPT',
+              ocr_text: node.ocr_text || '',
+              image_url: node.image_url || '',
+              is_video: Boolean(node.is_video),
+              ingestion_method: node.ingestion_method || 'uploaded'
+            };
+          };
+
+          return {
+            seed_pin_id: seedPinId,
+            dinner_anchor: formatCard(dinnerAnchor, 'Slow Cooker Garlic Herb Butter Chicken & Red Potatoes', 'DINNER_ANCHOR', '15m'),
+            navboost_co_visitor: formatCard(navboostSide, 'Cast Iron Skillet Garlic Cheddar Honey Biscuits', 'NAVBOOST_CO_VISITOR', '20m'),
+            session_finisher: formatCard(sessionFinisher, 'Warm Skillet Salted Caramel Chocolate Chip Cookie with Vanilla Ice Cream', 'SESSION_FINISHER', '10m')
+          };
+        }, 20000, 60000);
+
+        return jsonResponse(playbookData, 200, 20);
       }
 
       // 7. GET /api/cluster-telemetry
       if (method === 'GET' && pathname === '/api/cluster-telemetry') {
-        let seedPinId = searchParams.get('seed_pin_id');
-        if (!seedPinId) {
-          const latestSeed = await targetSql`
-            SELECT pin_id FROM cluster_seeds
-            WHERE last_crawled_at IS NOT NULL
-            ORDER BY last_crawled_at DESC
+        const seedPinIdParam = searchParams.get('seed_pin_id') || '';
+        const cacheKey = buildCanonicalCacheKey('api:cluster-telemetry', {
+          seed_pin_id: seedPinIdParam,
+          shard: reqProjectId || 'hub'
+        });
+
+        const telemetryData = await getCachedOrFetch(cacheKey, async () => {
+          let seedPinId = seedPinIdParam;
+          if (!seedPinId) {
+            const latestSeed = await targetSql`
+              SELECT pin_id FROM cluster_seeds
+              WHERE last_crawled_at IS NOT NULL
+              ORDER BY last_crawled_at DESC
+              LIMIT 1;
+            `;
+            if (latestSeed.length > 0) {
+              seedPinId = latestSeed[0].pin_id;
+            }
+          }
+
+          if (!seedPinId) {
+            return {
+              recgpt_count: 0,
+              navboost_count: 0,
+              randomwalk_count: 0,
+              two_tower_count: 0,
+              fresh_candidate_count: 0,
+              product_count: 0,
+              total_engine_quota: 0,
+              color_centroids: [],
+              high_save_tokens: []
+            };
+          }
+
+          const metricsRows = await targetSql`
+            SELECT *
+            FROM cluster_arbitrage_metrics
+            WHERE seed_pin_id = ${seedPinId}
+            ORDER BY analyzed_at DESC
             LIMIT 1;
           `;
-          if (latestSeed.length > 0) {
-            seedPinId = latestSeed[0].pin_id;
-          }
-        }
 
-        if (!seedPinId) {
-          return jsonResponse({
-            recgpt_count: 0,
-            navboost_count: 0,
-            randomwalk_count: 0,
-            two_tower_count: 0,
-            fresh_candidate_count: 0,
-            product_count: 0,
-            total_engine_quota: 0,
-            color_centroids: [],
-            high_save_tokens: []
-          });
-        }
+          const m = metricsRows[0] || {};
+          const recgpt = Number(m.recgpt_count || 0);
+          const navboost = Number(m.navboost_count || 0);
+          const randomwalk = Number(m.randomwalk_count || 0);
+          const twoTower = Number(m.two_tower_count || 0);
+          const fresh = Number(m.fresh_candidate_count || 0);
+          const productCount = Number(m.product_count || 0);
 
-        const metricsRows = await targetSql`
-          SELECT *
-          FROM cluster_arbitrage_metrics
-          WHERE seed_pin_id = ${seedPinId}
-          ORDER BY analyzed_at DESC
-          LIMIT 1;
-        `;
+          const totalEngineQuota = recgpt + navboost + randomwalk + twoTower + fresh || 1;
+          const calcPct = (val) => Number(((val / totalEngineQuota) * 100).toFixed(1));
 
-        const m = metricsRows[0] || {};
-        const recgpt = Number(m.recgpt_count || 0);
-        const navboost = Number(m.navboost_count || 0);
-        const randomwalk = Number(m.randomwalk_count || 0);
-        const twoTower = Number(m.two_tower_count || 0);
-        const fresh = Number(m.fresh_candidate_count || 0);
-        const productCount = Number(m.product_count || 0);
+          const countRows = await targetSql`
+            SELECT COUNT(*) AS count
+            FROM candidate_graph_nodes
+            WHERE seed_pin_id = ${seedPinId};
+          `;
+          const extractedCount = Number(countRows[0]?.count || 0);
 
-        const totalEngineQuota = recgpt + navboost + randomwalk + twoTower + fresh || 1;
-        const calcPct = (val) => Number(((val / totalEngineQuota) * 100).toFixed(1));
+          return {
+            seed_pin_id: seedPinId,
+            recgpt_count: recgpt,
+            recgpt_pct: calcPct(recgpt),
+            navboost_count: navboost,
+            navboost_pct: calcPct(navboost),
+            randomwalk_count: randomwalk,
+            randomwalk_pct: calcPct(randomwalk),
+            two_tower_count: twoTower,
+            two_tower_pct: calcPct(twoTower),
+            fresh_candidate_count: fresh,
+            fresh_pct: calcPct(fresh),
+            fresh_candidate_pct: calcPct(fresh),
+            product_count: productCount,
+            product_pct: calcPct(productCount),
+            total_engine_quota: (totalEngineQuota > 1 ? totalEngineQuota : 0),
+            extracted_count: extractedCount,
+            commercial_gap_ratio: Number(m.commercial_gap_ratio || 0),
+            color_centroids: m.winning_color_centroids || [],
+            high_save_tokens: m.high_save_tokens || [],
+            utility_snapshot: m.utility_snapshot || null,
+            analyzed_at: m.analyzed_at || null
+          };
+        }, 20000, 60000);
 
-        const countRows = await targetSql`
-          SELECT COUNT(*) AS count
-          FROM candidate_graph_nodes
-          WHERE seed_pin_id = ${seedPinId};
-        `;
-        const extractedCount = Number(countRows[0]?.count || 0);
-
-        return jsonResponse({
-          seed_pin_id: seedPinId,
-          recgpt_count: recgpt,
-          recgpt_pct: calcPct(recgpt),
-          navboost_count: navboost,
-          navboost_pct: calcPct(navboost),
-          randomwalk_count: randomwalk,
-          randomwalk_pct: calcPct(randomwalk),
-          two_tower_count: twoTower,
-          two_tower_pct: calcPct(twoTower),
-          fresh_candidate_count: fresh,
-          fresh_pct: calcPct(fresh),
-          fresh_candidate_pct: calcPct(fresh),
-          product_count: productCount,
-          product_pct: calcPct(productCount),
-          total_engine_quota: (totalEngineQuota > 1 ? totalEngineQuota : 0),
-          extracted_count: extractedCount,
-          commercial_gap_ratio: Number(m.commercial_gap_ratio || 0),
-          color_centroids: m.winning_color_centroids || [],
-          high_save_tokens: m.high_save_tokens || [],
-          utility_snapshot: m.utility_snapshot || null,
-          analyzed_at: m.analyzed_at || null
-        });
+        return jsonResponse(telemetryData, 200, 20);
       }
 
       // 8. GET /api/guided-search
       if (method === 'GET' && pathname === '/api/guided-search') {
         const seedPinId = searchParams.get('seed_pin_id');
-        let rows;
-        if (seedPinId && seedPinId !== 'all') {
-          rows = await targetSql`
-            SELECT g.*, s.label AS seed_label
-            FROM seed_guided_search_capsules g
-            LEFT JOIN cluster_seeds s ON s.pin_id = g.seed_pin_id
-            WHERE g.seed_pin_id = ${seedPinId}
-            ORDER BY g.discovered_at DESC;
-          `;
-        } else {
-          rows = await targetSql`
-            SELECT g.*, s.label AS seed_label
-            FROM seed_guided_search_capsules g
-            LEFT JOIN cluster_seeds s ON s.pin_id = g.seed_pin_id
-            ORDER BY g.discovered_at DESC;
-          `;
-        }
-        return jsonResponse(rows);
+        const cacheKey = buildCanonicalCacheKey('api:guided-search', {
+          seed_pin_id: seedPinId || 'all',
+          shard: reqProjectId || 'hub'
+        });
+
+        const rows = await getCachedOrFetch(cacheKey, async () => {
+          if (seedPinId && seedPinId !== 'all') {
+            return await targetSql`
+              SELECT g.*, s.label AS seed_label
+              FROM seed_guided_search_capsules g
+              LEFT JOIN cluster_seeds s ON s.pin_id = g.seed_pin_id
+              WHERE g.seed_pin_id = ${seedPinId}
+              ORDER BY g.discovered_at DESC;
+            `;
+          } else {
+            return await targetSql`
+              SELECT g.*, s.label AS seed_label
+              FROM seed_guided_search_capsules g
+              LEFT JOIN cluster_seeds s ON s.pin_id = g.seed_pin_id
+              ORDER BY g.discovered_at DESC;
+            `;
+          }
+        }, 20000, 60000);
+
+        return jsonResponse(rows, 200, 20);
       }
 
       // 9. GET /api/intersections (Uncapped, authentic Pixie Multi-Hit ranking)
@@ -2292,6 +2332,9 @@ export default {
           }
         }
 
+        invalidateEdgeCache('api:recgpt-playbook');
+        invalidateEdgeCache('api:cluster-telemetry');
+        invalidateEdgeCache('api:guided-search');
         return jsonResponse({
           success: true,
           candidates_imported: rawCandidates.length,
@@ -2388,8 +2431,13 @@ export default {
         const competitorId = searchParams.get('competitor_id') || searchParams.get('id');
         const idOrUser = username || competitorId;
         if (!idOrUser) return jsonResponse({ error: 'competitor_id or username is required' }, 400);
-        const boards = await getCompetitorBoards(targetSql, idOrUser, { username });
-        return jsonResponse({ success: true, boards }, 200, 30);
+        const shardKey = reqProjectId || 'hub';
+        const cacheKey = buildCanonicalCacheKey(`competitors:boards:${shardKey}`, { idOrUser, username: username || '' });
+        const boardsData = await getCachedOrFetch(cacheKey, async () => {
+          const boards = await getCompetitorBoards(targetSql, idOrUser, { username });
+          return { success: true, boards };
+        }, 30000, 60000);
+        return jsonResponse(boardsData, 200, 30);
       }
 
       if (method === 'POST' && pathname === '/api/competitors/sync-boards') {
@@ -2427,8 +2475,13 @@ export default {
         const idOrUser = username || id;
         if (!idOrUser) return jsonResponse({ error: 'id or username is required' }, 400);
         try {
-          const detail = await getCompetitorDetail(targetSql, idOrUser, { username });
-          return jsonResponse({ success: true, ...detail }, 200, 20);
+          const shardKey = reqProjectId || 'hub';
+          const cacheKey = buildCanonicalCacheKey(`competitors:detail:${shardKey}`, { idOrUser, username: username || '' });
+          const detailData = await getCachedOrFetch(cacheKey, async () => {
+            const detail = await getCompetitorDetail(targetSql, idOrUser, { username });
+            return { success: true, ...detail };
+          }, 20000, 60000);
+          return jsonResponse(detailData, 200, 20);
         } catch (err) {
           return jsonResponse({ success: false, error: err.message }, 500);
         }
@@ -2453,8 +2506,10 @@ export default {
         const idOrUser = username || id;
         if (!idOrUser) return jsonResponse({ error: 'id or username is required' }, 400);
         try {
-          const data = await listCompetitorAccountPins(targetSql, idOrUser, {
-            username,
+          const shardKey = reqProjectId || 'hub';
+          const cacheParams = {
+            idOrUser,
+            username: username || '',
             search: searchParams.get('search') || '',
             board: searchParams.get('board') || searchParams.get('board_name') || searchParams.get('slug') || '',
             min_saves: Number(searchParams.get('min_saves') || 0),
@@ -2464,8 +2519,13 @@ export default {
             qualified_only: searchParams.get('qualified_only') === 'true',
             product_only: searchParams.get('product_only') === 'true',
             articles_only: searchParams.get('articles_only') === 'true'
-          });
-          return jsonResponse({ success: true, ...data }, 200, 15);
+          };
+          const cacheKey = buildCanonicalCacheKey(`competitors:all-pins:${shardKey}`, cacheParams);
+          const allPinsData = await getCachedOrFetch(cacheKey, async () => {
+            const data = await listCompetitorAccountPins(targetSql, idOrUser, cacheParams);
+            return { success: true, ...data };
+          }, 20000, 60000);
+          return jsonResponse(allPinsData, 200, 15);
         } catch (err) {
           return jsonResponse({ success: false, error: err.message }, 500);
         }
@@ -2475,14 +2535,21 @@ export default {
         const id = searchParams.get('id') || searchParams.get('competitor_id');
         if (!id) return jsonResponse({ error: 'competitor_id is required' }, 400);
         try {
-          const result = await getTopDestinationUrls(targetSql, id, {
+          const shardKey = reqProjectId || 'hub';
+          const cacheParams = {
+            id,
             limit: clampLimit(searchParams.get('limit'), 50, 1000),
             page: Number(searchParams.get('page') || 1),
             search: searchParams.get('search') || '',
             sort: searchParams.get('sort') || 'saves_desc',
             filter_type: searchParams.get('filter_type') || 'all'
-          });
-          return jsonResponse({ success: true, ...result }, 200, 15);
+          };
+          const cacheKey = buildCanonicalCacheKey(`competitors:top-urls:${shardKey}`, cacheParams);
+          const topUrlsData = await getCachedOrFetch(cacheKey, async () => {
+            const result = await getTopDestinationUrls(targetSql, id, cacheParams);
+            return { success: true, ...result };
+          }, 20000, 60000);
+          return jsonResponse(topUrlsData, 200, 15);
         } catch (err) {
           return jsonResponse({ success: false, error: err.message }, 500);
         }
@@ -3024,8 +3091,12 @@ export default {
           if (resolved) keywordId = resolved.id;
         }
         if (!keywordId) return jsonResponse({ error: 'keyword_id is required' }, 400);
-        const pins = await getKeywordPins(sql, keywordId);
-        return jsonResponse({ success: true, pins });
+        const cacheKey = buildCanonicalCacheKey('keywords:pins', { keyword_id: keywordId, slug: slug || '' });
+        const result = await getCachedOrFetch(cacheKey, async () => {
+          const pins = await getKeywordPins(sql, keywordId);
+          return { success: true, pins };
+        }, 30000, 120000);
+        return jsonResponse(result, 200, 15);
       }
 
       if (method === 'GET' && pathname === '/api/keywords/typeahead') {
@@ -3092,8 +3163,12 @@ export default {
           if (resolved) keywordId = resolved.id;
         }
         if (!keywordId) return jsonResponse({ error: 'keyword_id is required' }, 400);
-        const guides = await getKeywordGuides(sql, keywordId);
-        return jsonResponse({ success: true, guides });
+        const cacheKey = buildCanonicalCacheKey('keywords:guides', { keyword_id: keywordId, slug: slug || '' });
+        const result = await getCachedOrFetch(cacheKey, async () => {
+          const guides = await getKeywordGuides(sql, keywordId);
+          return { success: true, guides };
+        }, 30000, 120000);
+        return jsonResponse(result, 200, 15);
       }
 
       if (method === 'GET' && pathname === '/api/keywords/serp-compare') {
@@ -3121,8 +3196,11 @@ export default {
       if (method === 'GET' && pathname === '/api/keywords/intelligence') {
         const keywordId = Number(searchParams.get('keyword_id'));
         if (!keywordId) return jsonResponse({ error: 'keyword_id is required' }, 400);
-        const result = await getKeywordIntelligence(sql, keywordId);
-        return jsonResponse(result);
+        const cacheKey = buildCanonicalCacheKey('keywords:intelligence', { keyword_id: keywordId });
+        const result = await getCachedOrFetch(cacheKey, async () => {
+          return await getKeywordIntelligence(sql, keywordId);
+        }, 30000, 120000);
+        return jsonResponse(result, 200, 15);
       }
 
       if (method === 'GET' && pathname === '/api/keywords/trends') {
@@ -3158,8 +3236,11 @@ export default {
         const status = searchParams.get('status') || 'ALL';
         const limit = clampLimit(searchParams.get('limit'), 100, 1000);
         const offset = Math.max(0, parseInt(searchParams.get('offset'), 10) || 0);
-        const result = await getKeywordDisplacedPins(sql, keywordId, { status, limit, offset });
-        return jsonResponse(result);
+        const cacheKey = buildCanonicalCacheKey('keywords:displaced', { keyword_id: keywordId, status, limit, offset });
+        const result = await getCachedOrFetch(cacheKey, async () => {
+          return await getKeywordDisplacedPins(sql, keywordId, { status, limit, offset });
+        }, 30000, 120000);
+        return jsonResponse(result, 200, 15);
       }
 
       if (method === 'GET' && pathname === '/api/keywords/pins/trajectory') {
@@ -3175,8 +3256,11 @@ export default {
         const pinId = searchParams.get('pin_id');
         if (!pinId) return jsonResponse({ error: 'pin_id is required' }, 400);
         const keywordId = Number(searchParams.get('keyword_id') || 0) || null;
-        const result = await getPinDeepDossier(sql, pinId, keywordId);
-        return jsonResponse(result);
+        const forceRefresh = searchParams.get('refresh') === 'true';
+        const cacheKey = buildCanonicalCacheKey('keywords:pin-dossier', { pin_id: pinId, keyword_id: keywordId || '' });
+        if (forceRefresh) invalidateEdgeCache(cacheKey);
+        const result = await getCachedOrFetch(cacheKey, () => getPinDeepDossier(sql, pinId, keywordId, { forceRefresh }), 30000, 120000);
+        return jsonResponse(result, 200, 15);
       }
 
       // Universal Pin Intelligence API (/api/pins/:pin_id & /api/pins/:pin_id/snapshots/:snapshot_id)
@@ -3208,6 +3292,7 @@ export default {
           const shardSql = await resolveShardConnection({ hubSql: sql, shardId }).catch(() => targetSql);
           await shardSql`DELETE FROM pins_daily_snapshots WHERE id = ${snapshotId};`.catch(() => {});
           await shardSql`DELETE FROM keyword_pins_snapshots WHERE id = ${snapshotId};`.catch(() => {});
+          invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
           return jsonResponse({ success: true, deleted_snapshot_id: snapshotId, pin_id: pinId });
         }
 
@@ -3260,6 +3345,7 @@ export default {
             WHERE pin_id = ${pinId} AND snapshot_date = ${snapshotDate}::date AND keyword_id = ${kwId};
           `.catch(() => {});
 
+          invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
           return jsonResponse({
             success: true,
             pin_id: pinId,
@@ -3315,6 +3401,7 @@ export default {
             WHERE pin_id = ${pinId} AND snapshot_date = ${snapshotDate}::date;
           `.catch(() => {});
 
+          invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
           return jsonResponse({
             success: true,
             pin_id: pinId,
@@ -3546,6 +3633,7 @@ export default {
 
             // D. Refreshed dossier
             const refreshedDossier = await fetchUniversalPinDossier({ hubSql: sql, pinId, ctx });
+            invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
 
             return jsonResponse({
               success: true,
@@ -3564,7 +3652,7 @@ export default {
           }
         }
 
-        // 3. GET /api/pins/:pin_id (Universal 4-Pillar Dossier via fleet-router)
+        // 3. GET /api/pins/:pin_id (Universal 4-Pillar Dossier via fleet-router - Zero-Blocking)
         if (parts.length === 1) {
           if (method !== 'GET') {
             return methodNotAllowedResponse('GET, OPTIONS');
@@ -3577,78 +3665,89 @@ export default {
             }, 400);
           }
           try {
-            let dossier = await fetchUniversalPinDossier({ hubSql: sql, pinId, ctx });
+            const forceRefresh = searchParams.get('refresh') === 'true';
+            const dossierCacheKey = buildCanonicalCacheKey('pin:dossier', { pin_id: pinId });
+            if (forceRefresh) {
+              invalidateEdgeCache(dossierCacheKey);
+            }
 
-            // Auto-Enrichment Guard: If dossier exists but lacks deep algorithmic telemetry
-            // (e.g. only shallow SERP snapshot without canonical_pin_id or seo_related_interests)
+            const dossier = await getCachedOrFetch(dossierCacheKey, async () => {
+              return await fetchUniversalPinDossier({ hubSql: sql, pinId, ctx });
+            }, 30000, 120000);
+
+            // Non-Blocking Background Auto-Enrichment via safeWaitUntil (0ms user wait)
             if (dossier?.success && (!dossier?.algorithmic_intelligence?.canonical_pin_id || !dossier?.algorithmic_intelligence?.seo_related_interests?.length)) {
-              try {
-                const liveRes = await Promise.race([
-                  fetchPinFromPinterest(pinId),
-                  new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000))
-                ]);
-                if (liveRes?.ok && liveRes.pin) {
-                  const p = liveRes.pin;
-                  const autoMeta = {
-                    alt_text: p.alt_text || p.seo_title || '',
-                    description: p.description || '',
-                    board_name: p.board_name || '',
-                    creation_method: p.creation_method || p.method || 'pinterest_platform',
-                    created_at_pinterest: p.created_at_pinterest || p.created_at || '',
-                    is_repin: Boolean(p.is_repin),
-                    origin_pinner: p.origin_pinner || null,
-                    domain_official_user: p.domain_official_user || null,
-                    creator_is_verified_merchant: Boolean(p.creator_is_verified_merchant),
-                    board_pin_count: Number(p.board_pin_count || 0),
-                    board_order_modified_at: p.board_order_modified_at || null,
-                    board_url: p.board_url || null,
-                    board_cover_url: p.board_cover_url || null,
-                    board_thumbnail_url: p.board_thumbnail_url || null,
-                    image_signature: p.image_signature || '',
-                    seo_title: p.seo_title || '',
-                    seo_description: p.seo_description || '',
-                    seo_canonical_url: p.seo_canonical_url || '',
-                    seo_canonical_domain: p.seo_canonical_domain || '',
-                    canonical_pin_id: p.canonical_pin_id || null,
-                    canonical_pin_url: p.canonical_pin_url || null,
-                    seo_related_interests: p.seo_related_interests || [],
-                    rich_metadata: p.rich_metadata || null,
-                    visual_objects: p.visual_objects || [],
-                    reactions: p.reactions || {},
-                    seo_noindex_reason: p.seo_noindex_reason || null,
-                    is_go_linkless: Boolean(p.is_go_linkless),
-                    utm_link: p.utm_link || '',
-                    tracked_link: p.tracked_link || '',
-                    category_breadcrumbs: p.category_breadcrumbs || [],
-                    top_interest_id: p.top_interest_id || null,
-                    unauth_on_page_title: p.unauth_on_page_title || '',
-                    unauth_on_page_description: p.unauth_on_page_description || '',
-                    image_dimensions: p.image_dimensions || null,
-                    share_count: Number(p.share_count || 0),
-                    dominant_color: p.dominant_color || '#888888',
-                    visual_annotations: p.annotations?.map(a => a.name) || []
-                  };
+              const bgEnrichPromise = (async () => {
+                try {
+                  const liveRes = await Promise.race([
+                    fetchPinFromPinterest(pinId),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000))
+                  ]);
+                  if (liveRes?.ok && liveRes.pin) {
+                    const p = liveRes.pin;
+                    const autoMeta = {
+                      alt_text: p.alt_text || p.seo_title || '',
+                      description: p.description || '',
+                      board_name: p.board_name || '',
+                      creation_method: p.creation_method || p.method || 'pinterest_platform',
+                      created_at_pinterest: p.created_at_pinterest || p.created_at || '',
+                      is_repin: Boolean(p.is_repin),
+                      origin_pinner: p.origin_pinner || null,
+                      domain_official_user: p.domain_official_user || null,
+                      creator_is_verified_merchant: Boolean(p.creator_is_verified_merchant),
+                      board_pin_count: Number(p.board_pin_count || 0),
+                      board_order_modified_at: p.board_order_modified_at || null,
+                      board_url: p.board_url || null,
+                      board_cover_url: p.board_cover_url || null,
+                      board_thumbnail_url: p.board_thumbnail_url || null,
+                      image_signature: p.image_signature || '',
+                      seo_title: p.seo_title || '',
+                      seo_description: p.seo_description || '',
+                      seo_canonical_url: p.seo_canonical_url || '',
+                      seo_canonical_domain: p.seo_canonical_domain || '',
+                      canonical_pin_id: p.canonical_pin_id || null,
+                      canonical_pin_url: p.canonical_pin_url || null,
+                      seo_related_interests: p.seo_related_interests || [],
+                      rich_metadata: p.rich_metadata || null,
+                      visual_objects: p.visual_objects || [],
+                      reactions: p.reactions || {},
+                      seo_noindex_reason: p.seo_noindex_reason || null,
+                      is_go_linkless: Boolean(p.is_go_linkless),
+                      utm_link: p.utm_link || '',
+                      tracked_link: p.tracked_link || '',
+                      category_breadcrumbs: p.category_breadcrumbs || [],
+                      top_interest_id: p.top_interest_id || null,
+                      unauth_on_page_title: p.unauth_on_page_title || '',
+                      unauth_on_page_description: p.unauth_on_page_description || '',
+                      image_dimensions: p.image_dimensions || null,
+                      share_count: Number(p.share_count || 0),
+                      dominant_color: p.dominant_color || '#888888',
+                      visual_annotations: p.annotations?.map(a => a.name) || []
+                    };
 
-                  await sql`
-                    UPDATE keyword_serp_current SET
-                      metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify(autoMeta)}::jsonb,
-                      destination_url = CASE WHEN ${p.link || ''}::text <> '' THEN ${p.link}::text ELSE destination_url END,
-                      updated_at = NOW()
-                    WHERE pin_id = ${pinId};
-                  `.catch(() => {});
-
-                  await sql`
-                    UPDATE keyword_pins_snapshots SET
-                      metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify(autoMeta)}::jsonb
-                    WHERE pin_id = ${pinId};
-                  `.catch(() => {});
-
-                  dossier = await fetchUniversalPinDossier({ hubSql: sql, pinId, ctx });
-                }
-              } catch (_) {}
+                    await Promise.allSettled([
+                      sql`
+                        UPDATE keyword_serp_current SET
+                          metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify(autoMeta)}::jsonb,
+                          destination_url = CASE WHEN ${p.link || ''}::text <> '' THEN ${p.link}::text ELSE destination_url END,
+                          updated_at = NOW()
+                        WHERE pin_id = ${pinId};
+                      `,
+                      sql`
+                        UPDATE keyword_pins_snapshots SET
+                          metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify(autoMeta)}::jsonb
+                        WHERE pin_id = ${pinId};
+                      `
+                    ]);
+                    invalidateEdgeCache(dossierCacheKey);
+                  }
+                } catch (_) {}
+              })();
+              safeWaitUntil(ctx, bgEnrichPromise, `bg_enrich_pin_${pinId}`);
             }
 
             if (!dossier || !dossier.pin_id || !dossier.success) {
+              invalidateEdgeCache(dossierCacheKey);
               return jsonResponse({
                 success: false,
                 error: 'NOT_FOUND',
@@ -4419,8 +4518,30 @@ export default {
         const order = searchParams.get('order') || 'desc';
         const limit = clampLimit(searchParams.get('limit'), 50, 1000);
         const offset = Math.max(0, parseInt(searchParams.get('offset'), 10) || 0);
-        const pins = await listArchivedPins(targetSql, { search, topic, board, stage, account, minSaves, maxSaves, timeframe, changedOnly, sortBy, order, limit, offset });
-        return jsonResponse({ success: true, pins, total: pins.total ?? pins.length });
+
+        const shardKey = reqProjectId || 'hub';
+        const cacheKey = buildCanonicalCacheKey(`pinarchive:pins:${shardKey}`, {
+          search,
+          topic,
+          board,
+          stage,
+          account,
+          min_saves: minSaves,
+          max_saves: maxSaves ?? '',
+          timeframe,
+          changed_only: changedOnly,
+          sort: sortBy,
+          order,
+          limit,
+          offset
+        });
+
+        const data = await getCachedOrFetch(cacheKey, async () => {
+          const pins = await listArchivedPins(targetSql, { search, topic, board, stage, account, minSaves, maxSaves, timeframe, changedOnly, sortBy, order, limit, offset });
+          return { success: true, pins, total: pins.total ?? pins.length };
+        }, 10000, 30000);
+
+        return jsonResponse(data, 200, 10);
       }
 
       if (method === 'GET' && pathname === '/api/pinarchive/pin-detail') {

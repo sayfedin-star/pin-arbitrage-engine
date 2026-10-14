@@ -806,22 +806,49 @@ export async function listArchivedPins(sql, {
 
   const now = Date.now();
 
-  // Batch-fetch true historical time-series snapshots for the retrieved page of pins
+  // Batch-fetch true historical time-series summaries for the retrieved page of pins
   const metricsMap = new Map();
   if (rows.length > 0) {
     try {
       const pinIds = rows.map(r => r.pin_id);
-      const metricSnapshots = await sql`
-        SELECT pin_id, saves, repins, comments, recorded_at
-        FROM pa_pin_metrics
-        WHERE pin_id = ANY(${pinIds})
-        ORDER BY pin_id, recorded_at DESC;
+      const metricSummaryRows = await sql`
+        SELECT
+          u.pin_id,
+          s24.saves AS saves_24h,
+          s24.repins AS repins_24h,
+          s3d.saves AS saves_3d,
+          s7d.saves AS saves_7d
+        FROM UNNEST(${pinIds}::text[]) AS u(pin_id)
+        LEFT JOIN LATERAL (
+          SELECT saves, repins
+          FROM pa_pin_metrics m
+          WHERE m.pin_id = u.pin_id
+            AND m.recorded_at <= NOW() - INTERVAL '6 hours'
+            AND m.recorded_at >= NOW() - INTERVAL '36 hours'
+          ORDER BY ABS(EXTRACT(EPOCH FROM (m.recorded_at - (NOW() - INTERVAL '24 hours')))) ASC
+          LIMIT 1
+        ) s24 ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT saves
+          FROM pa_pin_metrics m
+          WHERE m.pin_id = u.pin_id
+            AND m.recorded_at <= NOW() - INTERVAL '60 hours'
+            AND m.recorded_at >= NOW() - INTERVAL '108 hours'
+          ORDER BY m.recorded_at DESC
+          LIMIT 1
+        ) s3d ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT saves
+          FROM pa_pin_metrics m
+          WHERE m.pin_id = u.pin_id
+            AND m.recorded_at <= NOW() - INTERVAL '144 hours'
+            AND m.recorded_at >= NOW() - INTERVAL '204 hours'
+          ORDER BY m.recorded_at DESC
+          LIMIT 1
+        ) s7d ON TRUE;
       `;
-      for (const snap of metricSnapshots) {
-        if (!metricsMap.has(snap.pin_id)) {
-          metricsMap.set(snap.pin_id, []);
-        }
-        metricsMap.get(snap.pin_id).push(snap);
+      for (const snap of metricSummaryRows) {
+        metricsMap.set(snap.pin_id, snap);
       }
     } catch (_) {}
   }
@@ -831,49 +858,14 @@ export async function listArchivedPins(sql, {
     const createdDate = p.created_at_pinterest ? new Date(p.created_at_pinterest) : (p.first_seen_at ? new Date(p.first_seen_at) : new Date());
     const ageDays = Math.max(1, Math.round((now - createdDate.getTime()) / 86400000));
     
-    // Genuine growth deltas calculation directly from time-series snapshots
-    const history = metricsMap.get(p.pin_id) || [];
+    // Genuine growth deltas calculation directly from summary object
+    const snap = metricsMap.get(p.pin_id);
     const curSaves = Number(p.saves || 0);
     const curRepins = Number(p.repins || 0);
-
-    let deltaSaves = 0;
-    let deltaRepins = 0;
-    let deltaSaves3d = 0;
-    let deltaSaves7d = 0;
-
-    if (history.length > 0) {
-      const tNow = Date.now();
-      // Find snapshot closest to 24 hours ago (between 16h and 36h, or oldest in window, or previous snapshot)
-      const snap24h = history.find(s => {
-        const diffHours = (tNow - new Date(s.recorded_at).getTime()) / 3600000;
-        return diffHours >= 16 && diffHours <= 36;
-      }) || (history.length > 1 && (tNow - new Date(history[history.length - 1].recorded_at).getTime()) >= 6 * 3600000 ? history[history.length - 1] : null);
-
-      if (snap24h) {
-        deltaSaves = Math.max(0, curSaves - Number(snap24h.saves || 0));
-        deltaRepins = Math.max(0, curRepins - Number(snap24h.repins || 0));
-      }
-
-      const snap3d = history.find(s => {
-        const diffDays = (tNow - new Date(s.recorded_at).getTime()) / 86400000;
-        return diffDays >= 2.5 && diffDays <= 4.5;
-      });
-      if (snap3d) {
-        deltaSaves3d = Math.max(0, curSaves - Number(snap3d.saves || 0));
-      } else if (deltaSaves > 0) {
-        deltaSaves3d = deltaSaves;
-      }
-
-      const snap7d = history.find(s => {
-        const diffDays = (tNow - new Date(s.recorded_at).getTime()) / 86400000;
-        return diffDays >= 6 && diffDays <= 8.5;
-      });
-      if (snap7d) {
-        deltaSaves7d = Math.max(0, curSaves - Number(snap7d.saves || 0));
-      } else if (deltaSaves3d > 0) {
-        deltaSaves7d = deltaSaves3d;
-      }
-    }
+    const deltaSaves = snap?.saves_24h != null ? Math.max(0, curSaves - Number(snap.saves_24h)) : 0;
+    const deltaRepins = snap?.repins_24h != null ? Math.max(0, curRepins - Number(snap.repins_24h)) : 0;
+    const deltaSaves3d = snap?.saves_3d != null ? Math.max(0, curSaves - Number(snap.saves_3d)) : deltaSaves;
+    const deltaSaves7d = snap?.saves_7d != null ? Math.max(0, curSaves - Number(snap.saves_7d)) : deltaSaves3d;
 
     const pinStage = computePinStage(velocity, deltaSaves, ageDays);
 

@@ -647,7 +647,6 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null }) {
     initialMaster,
     initialSnapshots,
     hubSerpRowsRaw,
-    snapRowsRaw,
     hubSnapshotsRaw
   ] = await Promise.all([
     executeShardQueryWithCircuitBreaker({
@@ -748,32 +747,29 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null }) {
     }),
     hubSql`
       SELECT 
-        keyword_id, pin_id, title, domain, destination_url, image_url,
-        creator_username, board_name, save_count, repin_count,
-        daily_save_velocity, dominant_color, visual_annotations,
-        rank_position, last_known_rank, is_displaced, metadata
-      FROM keyword_serp_current
-      WHERE pin_id = ${cleanPinId}
-      ORDER BY save_count DESC;
+        sc.keyword_id, sc.pin_id, sc.title, sc.domain, sc.destination_url, sc.image_url,
+        sc.creator_username, sc.board_name, sc.save_count, sc.repin_count,
+        sc.daily_save_velocity, sc.dominant_color, sc.visual_annotations,
+        sc.rank_position, sc.last_known_rank, sc.is_displaced, sc.metadata,
+        tk.keyword AS keyword_name
+      FROM keyword_serp_current sc
+      LEFT JOIN tracked_keywords tk ON tk.id = sc.keyword_id
+      WHERE sc.pin_id = ${cleanPinId}
+      ORDER BY sc.save_count DESC;
     `.catch(() => []),
     hubSql`
       SELECT 
-        pin_id, title, domain, destination_url, image_url,
-        save_count, repin_count, comment_count, daily_save_velocity,
-        created_at_pinterest, creation_method, metadata, created_at
-      FROM keyword_pins_snapshots
-      WHERE pin_id = ${cleanPinId}
-      ORDER BY (metadata IS NOT NULL) DESC, save_count DESC, created_at DESC
-      LIMIT 10;
-    `.catch(() => []),
-    hubSql`
-      SELECT 
-        id, snapshot_date, rank_position, last_known_rank, is_displaced, save_count, repin_count,
-        comment_count, 0 as share_count, 0 as reaction_count, daily_save_velocity,
-        keyword_id, NULL as competitor_id, created_at
-      FROM keyword_pins_snapshots
-      WHERE pin_id = ${cleanPinId}
-      ORDER BY snapshot_date DESC, created_at DESC
+        kps.id, kps.pin_id, kps.title, kps.domain, kps.destination_url, kps.image_url,
+        kps.snapshot_date, kps.rank_position, kps.last_known_rank, kps.is_displaced,
+        kps.save_count, kps.repin_count, kps.comment_count,
+        0 as share_count, 0 as reaction_count, kps.daily_save_velocity,
+        kps.keyword_id, NULL as competitor_id,
+        kps.created_at_pinterest, kps.creation_method, kps.metadata, kps.created_at,
+        tk.keyword AS keyword_name
+      FROM keyword_pins_snapshots kps
+      LEFT JOIN tracked_keywords tk ON tk.id = kps.keyword_id
+      WHERE kps.pin_id = ${cleanPinId}
+      ORDER BY kps.snapshot_date DESC, kps.created_at DESC
       LIMIT 90;
     `.catch(() => [])
   ]);
@@ -781,8 +777,10 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null }) {
   let masterRecord = initialMaster;
   let snapshots = initialSnapshots;
   const hubSerpRows = Array.isArray(hubSerpRowsRaw) ? hubSerpRowsRaw : [];
-  const snapRows = Array.isArray(snapRowsRaw) ? snapRowsRaw : [];
   const hubSnapshots = Array.isArray(hubSnapshotsRaw) ? hubSnapshotsRaw : [];
+  const snapRows = [...hubSnapshots]
+    .sort((a, b) => (Boolean(b.metadata) - Boolean(a.metadata)) || (Number(b.save_count || 0) - Number(a.save_count || 0)))
+    .slice(0, 10);
 
   // Helper to safely parse visual annotations
   function normalizeVisualAnnotations(raw) {
@@ -1123,21 +1121,19 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null }) {
 
   // Resolve Keyword Names for all snapshot keyword_ids to eliminate multi-SERP ambiguity
   const rawSnapshots = snapshots || [];
-  const kwIds = [...new Set(rawSnapshots.map(s => s.keyword_id).filter(id => id != null && !isNaN(Number(id))))];
   const kwMap = new Map();
-  if (kwIds.length > 0) {
-    try {
-      const kwRows = await hubSql`
-        SELECT id, keyword
-        FROM tracked_keywords
-        WHERE id = ANY(${kwIds});
-      `.catch(() => []);
-      for (const r of kwRows) {
-        if (r && r.id != null) {
-          kwMap.set(Number(r.id), r.keyword);
-        }
-      }
-    } catch (_) {}
+  for (const r of hubSerpRows) {
+    if (r?.keyword_id && r?.keyword_name) kwMap.set(Number(r.keyword_id), r.keyword_name);
+  }
+  for (const r of hubSnapshots) {
+    if (r?.keyword_id && r?.keyword_name) kwMap.set(Number(r.keyword_id), r.keyword_name);
+  }
+  const missingKwIds = [...new Set(rawSnapshots.map(s => s.keyword_id).filter(id => id != null && !isNaN(Number(id)) && !kwMap.has(Number(id))))];
+  if (missingKwIds.length > 0) {
+    const kwRows = await hubSql`SELECT id, keyword FROM tracked_keywords WHERE id = ANY(${missingKwIds});`.catch(() => []);
+    for (const r of kwRows) {
+      if (r && r.id != null) kwMap.set(Number(r.id), r.keyword);
+    }
   }
 
   // Build lookup of SERP current records by keyword_id
@@ -1231,38 +1227,31 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null }) {
     }
   }
 
-  // 3. Query Central Hub for Relational Cross-Pillar Context
-  const [hubContext] = await hubSql`
-    WITH kw_context AS (
-      SELECT 
-        json_agg(json_build_object(
-          'keyword_id', tk.id,
-          'keyword', tk.keyword,
-          'rank', COALESCE(sc.rank_position, sc.last_known_rank),
-          'rank_position', sc.rank_position,
-          'last_known_rank', sc.last_known_rank,
-          'is_displaced', COALESCE(sc.is_displaced, FALSE),
-          'catalog_rank', CASE WHEN COALESCE(sc.is_displaced, FALSE) THEN 101 ELSE COALESCE(sc.rank_position, 1) END,
-          'velocity', sc.daily_save_velocity
-        )) as ranking_keywords
-      FROM keyword_serp_current sc
-      JOIN tracked_keywords tk ON tk.id = sc.keyword_id
-      WHERE sc.pin_id = ${cleanPinId}
-    ),
-    comp_context AS (
-      SELECT 
-        cp.id as competitor_id,
-        cp.username as competitor_username,
-        cp.display_name,
-        cp.is_active as competitor_active
-      FROM competitor_profiles cp
-      WHERE LOWER(cp.username) = LOWER(${masterRecord?.creator_username || ''})
-      LIMIT 1
-    )
-    SELECT 
-      COALESCE((SELECT ranking_keywords FROM kw_context), '[]'::json) as ranking_keywords,
-      (SELECT to_json(comp_context.*) FROM comp_context) as competitor_info;
-  `.catch(() => [{ ranking_keywords: [], competitor_info: null }]);
+  // 3. Central Hub Relational Cross-Pillar Context (In-Memory ranking_keywords + conditional competitor lookup)
+  const rankingKeywordsFromMem = hubSerpRows
+    .filter(sc => sc.keyword_id && (sc.keyword_name || kwMap.get(Number(sc.keyword_id))))
+    .map(sc => ({
+      keyword_id: Number(sc.keyword_id),
+      keyword: sc.keyword_name || kwMap.get(Number(sc.keyword_id)),
+      rank: sc.rank_position ?? sc.last_known_rank ?? null,
+      rank_position: sc.rank_position ?? null,
+      last_known_rank: sc.last_known_rank ?? null,
+      is_displaced: Boolean(sc.is_displaced),
+      catalog_rank: sc.is_displaced ? 101 : (sc.rank_position || 1),
+      velocity: Number(sc.daily_save_velocity || 0)
+    }));
+
+  let competitorInfo = null;
+  if (masterRecord?.creator_username) {
+    const [compRow] = await hubSql`
+      SELECT id as competitor_id, username as competitor_username, display_name, is_active as competitor_active
+      FROM competitor_profiles
+      WHERE LOWER(username) = LOWER(${masterRecord.creator_username})
+      LIMIT 1;
+    `.catch(() => []);
+    competitorInfo = compRow || null;
+  }
+  const hubContext = { ranking_keywords: rankingKeywordsFromMem, competitor_info: competitorInfo };
 
   if (!masterRecord && snapshots.length === 0 && (!hubContext?.ranking_keywords || hubContext.ranking_keywords.length === 0)) {
     if (shardErrorReason) {

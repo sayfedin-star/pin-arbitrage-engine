@@ -98,11 +98,7 @@ export async function getFolder(sql, folderId) {
       tk.is_active,
       COALESCE(
         NULLIF((SELECT COUNT(*)::int FROM keyword_serp_current WHERE keyword_id = tk.id AND is_displaced = FALSE AND rank_position >= 1), 0),
-        (
-          SELECT COUNT(DISTINCT pin_id)::int 
-          FROM keyword_pins_snapshots 
-          WHERE keyword_id = tk.id
-        ),
+        CASE WHEN tk.metadata->>'last_crawled_pins_count' ~ '^[0-9]+$' THEN (tk.metadata->>'last_crawled_pins_count')::int ELSE 0 END,
         0
       )::int as pin_count
     FROM keyword_folder_items i
@@ -1183,9 +1179,12 @@ async function _executeFolderCrossover(sql, fid) {
   const MAX_TRENDS_SAMPLE = 8;
   const trendsSample = folderKeywords.slice(0, MAX_TRENDS_SAMPLE);
 
-  // Parallel fetch with Promise.allSettled to eliminate sequential isolate timeouts
+  // Parallel fetch with Promise.allSettled to eliminate sequential isolate timeouts (1200ms hard cap)
   const trendResults = await Promise.allSettled(
-    trendsSample.map(kw => fetchPinterestTrends(kw.keyword))
+    trendsSample.map(kw => Promise.race([
+      fetchPinterestTrends(kw.keyword),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Trends timeout')), 1200))
+    ]))
   );
 
   for (const res of trendResults) {
