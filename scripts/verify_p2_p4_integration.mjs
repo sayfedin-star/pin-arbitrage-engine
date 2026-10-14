@@ -2,7 +2,7 @@
  * Live Verification Script for P2 (Competitors & Boards) and P4 (PinArchive & Topic Intelligence)
  *
  * Runs strictly against live Neon Serverless Postgres (DATABASE_URL).
- * Tests all schema tables, lateral RPCs, monotonic triggers, and CAS concurrency logic.
+ * Tests all schema tables, lateral RPCs, qualification rules, and monotonic triggers.
  */
 
 import { neon } from '@neondatabase/serverless';
@@ -224,6 +224,41 @@ async function runTests() {
       overview.total_pins >= 1 && overview.total_saves >= 500,
       `getPinArchiveOverview returned aggregated stats (pins: ${overview.total_pins}, saves: ${overview.total_saves})`
     );
+    assert(
+      !('staged_pins_count' in overview),
+      'getPinArchiveOverview cleanly omits deprecated staged_pins_count property'
+    );
+
+    // 2.5 Negative Regression Tests: Staged Repurposing & CAS Route Elimination
+    const [stagedTableCheck] = await sql`
+      SELECT COUNT(*)::int AS count
+      FROM information_schema.tables
+      WHERE table_schema = 'public' AND table_name = 'pa_staged_pins';
+    `;
+    assert(stagedTableCheck.count === 0, 'Negative Assertion: pa_staged_pins table does NOT exist in database schema');
+
+    const [stagedIndexCheck] = await sql`
+      SELECT COUNT(*)::int AS count
+      FROM pg_indexes
+      WHERE schemaname = 'public' AND indexname = 'idx_pa_staged_pins_status';
+    `;
+    assert(stagedIndexCheck.count === 0, 'Negative Assertion: idx_pa_staged_pins_status index does NOT exist in database schema');
+
+    const deletedRoutes = [
+      { method: 'POST', path: '/api/pinarchive/stage' },
+      { method: 'GET', path: '/api/pinarchive/staged' },
+      { method: 'POST', path: '/api/pinarchive/claim-cas' },
+      { method: 'DELETE', path: '/api/pinarchive/staged' }
+    ];
+    for (const r of deletedRoutes) {
+      const req = new Request(`http://localhost${r.path}`, {
+        method: r.method,
+        headers: { 'Content-Type': 'application/json' },
+        body: r.method !== 'GET' ? JSON.stringify({ pinIds: ['123'] }) : undefined
+      });
+      const res = await workerModule.fetch(req, { DATABASE_URL: dbUrl });
+      assert(res.status === 404, `Negative Assertion: Route ${r.method} ${r.path} returns HTTP 404`);
+    }
 
     console.log('\n=== TEST SUITE 3: Pin Qualification Rules (Anti-Bloat & Early-Stop) ===');
 

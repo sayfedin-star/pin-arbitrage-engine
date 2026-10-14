@@ -8,6 +8,8 @@
 import { neon } from '@neondatabase/serverless';
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
+import { enforceNeonPoolerUrl } from '../src/modules/sharding/fleet-router.mjs';
 
 // Load .env
 const envPath = path.resolve(process.cwd(), '.env');
@@ -39,21 +41,27 @@ if (!DATABASE_URL) {
   process.exit(1);
 }
 
-const hubSql = neon(DATABASE_URL);
+const hubSql = neon(enforceNeonPoolerUrl(DATABASE_URL));
 
 async function run() {
   console.log('[*] ==============================================================');
   console.log('[*] Running Migration 025: Drop Staged Repurposing (pa_staged_pins)');
   console.log('[*] ==============================================================');
 
+  // Compute SHA-256 Checksum of 025 migration file
+  const migrationSqlPath = path.resolve(process.cwd(), 'scripts/migrations/025_drop_staged_repurposing.sql');
+  const migrationSqlContent = fs.readFileSync(migrationSqlPath, 'utf8');
+  const checksum = crypto.createHash('sha256').update(migrationSqlContent).digest('hex');
+  console.log(`[*] Migration 025 SQL SHA-256: ${checksum}`);
+
   // 1. Drop from Central Hub
-  console.log('\n[1/3] Dropping pa_staged_pins on Neon Central Hub...');
+  console.log('\n[1/4] Dropping pa_staged_pins on Neon Central Hub...');
   await hubSql`DROP INDEX IF EXISTS idx_pa_staged_pins_status;`;
   await hubSql`DROP TABLE IF EXISTS pa_staged_pins CASCADE;`;
   console.log('[+] Central Hub: Dropped pa_staged_pins table and idx_pa_staged_pins_status.');
 
   // 2. Register in schema_migrations on Hub
-  console.log('\n[2/3] Registering Migration 025 in schema_migrations...');
+  console.log('\n[2/4] Registering Migration 025 in schema_migrations...');
   await hubSql`
     CREATE TABLE IF NOT EXISTS schema_migrations (
       version VARCHAR(64) PRIMARY KEY,
@@ -63,14 +71,17 @@ async function run() {
     );
   `;
   await hubSql`
-    INSERT INTO schema_migrations (version, name, applied_at)
-    VALUES ('025', 'drop_staged_repurposing', NOW())
-    ON CONFLICT (version) DO UPDATE SET applied_at = NOW();
+    INSERT INTO schema_migrations (version, name, checksum, applied_at)
+    VALUES ('025', 'drop_staged_repurposing', ${checksum}, NOW())
+    ON CONFLICT (version) DO UPDATE SET
+      name = EXCLUDED.name,
+      checksum = EXCLUDED.checksum,
+      applied_at = NOW();
   `;
   console.log('[+] Migration 025 successfully recorded in schema_migrations.');
 
   // 3. Propagate to all active fleet shards
-  console.log('\n[3/3] Propagating drop to all active Neon Fleet shards...');
+  console.log('\n[3/4] Propagating drop to all active Neon Fleet shards...');
   let registry = [];
   try {
     registry = await hubSql`
@@ -80,42 +91,92 @@ async function run() {
       ORDER BY id ASC;
     `;
   } catch (err) {
-    console.warn('[!] neon_projects_registry query skipped or not found:', err.message);
+    console.error('[-] Fatal: Failed to query neon_projects_registry:', err.message);
+    process.exit(1);
   }
 
   console.log(`[*] Discovered ${registry.length} active fleet shards to process.`);
-  let succeeded = 0;
-  let failed = 0;
+  let dropSucceeded = 0;
+  let dropFailed = 0;
   const BATCH_SIZE = 10;
 
   for (let i = 0; i < registry.length; i += BATCH_SIZE) {
     const batch = registry.slice(i, i + BATCH_SIZE);
     await Promise.all(batch.map(async (shard) => {
       try {
-        const shardSql = neon(shard.database_url);
+        const poolerUrl = enforceNeonPoolerUrl(shard.database_url);
+        const shardSql = neon(poolerUrl);
         await shardSql`DROP INDEX IF EXISTS idx_pa_staged_pins_status;`;
         await shardSql`DROP TABLE IF EXISTS pa_staged_pins CASCADE;`;
-        succeeded++;
+        dropSucceeded++;
       } catch (err) {
-        console.warn(`[-] Failed to drop on shard ${shard.project_id || shard.project_name}:`, err.message);
-        failed++;
+        console.error(`[-] Failed to drop on shard ${shard.project_id || shard.project_name}:`, err.message);
+        dropFailed++;
       }
     }));
   }
 
-  console.log(`[+] Fleet Shard execution complete: ${succeeded} succeeded, ${failed} failed.`);
+  console.log(`[+] Fleet Shard drop execution complete: ${dropSucceeded} succeeded, ${dropFailed} failed.`);
 
-  // 4. Verification Check
-  const [hubCheck] = await hubSql`
+  // 4. Deep Fleet-Wide Verification Check
+  console.log('\n[4/4] Step 4 — Deep Fleet-Wide Verification Check...');
+
+  // 4.1 Verify Hub
+  const [hubTableCheck] = await hubSql`
     SELECT COUNT(*)::int as c
     FROM information_schema.tables
-    WHERE table_name = 'pa_staged_pins';
+    WHERE table_schema = 'public' AND table_name = 'pa_staged_pins';
   `;
+  const [hubIndexCheck] = await hubSql`
+    SELECT COUNT(*)::int as c
+    FROM pg_indexes
+    WHERE schemaname = 'public' AND indexname = 'idx_pa_staged_pins_status';
+  `;
+  const hubTableCount = hubTableCheck.c;
+  const hubIndexCount = hubIndexCheck.c;
 
-  if (hubCheck.c === 0) {
-    console.log('\n✅ [VERIFICATION PASSED] pa_staged_pins is completely removed from database!');
+  // 4.2 Verify Shards
+  let shardsVerifiedClean = 0;
+  let shardVerifyFailed = 0;
+
+  for (let i = 0; i < registry.length; i += BATCH_SIZE) {
+    const batch = registry.slice(i, i + BATCH_SIZE);
+    await Promise.all(batch.map(async (shard) => {
+      try {
+        const poolerUrl = enforceNeonPoolerUrl(shard.database_url);
+        const shardSql = neon(poolerUrl);
+        const [stCheck] = await shardSql`
+          SELECT COUNT(*)::int as c
+          FROM information_schema.tables
+          WHERE table_schema = 'public' AND table_name = 'pa_staged_pins';
+        `;
+        const [siCheck] = await shardSql`
+          SELECT COUNT(*)::int as c
+          FROM pg_indexes
+          WHERE schemaname = 'public' AND indexname = 'idx_pa_staged_pins_status';
+        `;
+        if (stCheck.c === 0 && siCheck.c === 0) {
+          shardsVerifiedClean++;
+        } else {
+          console.error(`[-] Shard ${shard.project_id || shard.project_name} residual found: table=${stCheck.c}, index=${siCheck.c}`);
+          shardVerifyFailed++;
+        }
+      } catch (err) {
+        console.error(`[-] Failed to verify shard ${shard.project_id || shard.project_name}:`, err.message);
+        shardVerifyFailed++;
+      }
+    }));
+  }
+
+  const totalFailedShards = dropFailed + shardVerifyFailed;
+
+  console.log(`\nHub Table Count: ${hubTableCount} | Hub Index Count: ${hubIndexCount} | Shards Verified Clean: ${shardsVerifiedClean}/${registry.length} | Failed Shards: ${totalFailedShards}`);
+
+  if (hubTableCount === 0 && hubIndexCount === 0 && shardsVerifiedClean === registry.length && totalFailedShards === 0) {
+    console.log('\n✅ [VERIFICATION PASSED] pa_staged_pins and idx_pa_staged_pins_status completely removed from Hub and all 99 Fleet Shards!');
+    process.exit(0);
   } else {
-    console.error('\n❌ [VERIFICATION FAILED] pa_staged_pins still exists in database!');
+    console.error('\n❌ [VERIFICATION FAILED] Staged Repurposing residuals detected or fleet communication failure!');
     process.exit(1);
   }
 }

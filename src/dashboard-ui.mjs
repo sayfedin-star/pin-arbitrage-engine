@@ -3610,7 +3610,7 @@ export function getDashboardHtml() {
             <template x-for="pin in pinarchivePins" :key="pin.pin_id">
               <div class="bg-slate-50 dark:bg-slate-900/60 rounded-2xl border border-slate-200/80 dark:border-slate-800 overflow-hidden shadow-sm hover:border-indigo-500/50 transition flex flex-col justify-between">
                 <div>
-                  <div class="relative aspect-[2/3] bg-slate-200 dark:bg-slate-800 overflow-hidden group">
+                  <div class="relative aspect-[2/3] bg-slate-200 dark:bg-slate-800 overflow-hidden group cursor-pointer" @click="openPinDossier(pin)">
                     <img :src="pin.image_url" loading="lazy" class="w-full h-full object-cover group-hover:scale-105 transition duration-300">
                     <div class="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition flex items-end p-3">
                       <span class="text-white text-xs font-bold truncate" x-text="pin.title || 'Untitled Pin'"></span>
@@ -3628,7 +3628,7 @@ export function getDashboardHtml() {
 
                   <!-- Details -->
                   <div class="p-3.5 space-y-2">
-                    <h4 class="font-bold text-xs text-slate-900 dark:text-white line-clamp-2" x-text="pin.title || 'Untitled Pin'"></h4>
+                    <h4 class="font-bold text-xs text-slate-900 dark:text-white line-clamp-2 cursor-pointer hover:text-indigo-500 transition" @click="openPinDossier(pin)" x-text="pin.title || 'Untitled Pin'"></h4>
                     <div class="flex items-center justify-between text-[11px] font-mono text-slate-500">
                       <span class="truncate hover:text-purple-600 dark:hover:text-purple-400 hover:underline cursor-pointer" @click="openCreatorDossierByName(pin.account_username)" :title="'Inspect @' + pin.account_username + ' Dossier'" x-text="'@' + (pin.account_username || 'creator')"></span>
                       <span class="px-1.5 py-0.2 rounded bg-slate-200 dark:bg-slate-800 text-[10px]" x-text="pin.board_name || 'General'"></span>
@@ -3680,10 +3680,10 @@ export function getDashboardHtml() {
                 <template x-for="pin in pinarchivePins" :key="pin.pin_id">
                   <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition">
                     <td class="py-2 px-3 w-14">
-                      <img :src="pin.image_url" class="w-10 h-14 rounded-lg object-cover border border-slate-200 dark:border-slate-700">
+                      <img :src="pin.image_url" class="w-10 h-14 rounded-lg object-cover border border-slate-200 dark:border-slate-700 cursor-pointer hover:opacity-80 transition" @click="openPinDossier(pin)">
                     </td>
                     <td class="py-2 px-3 font-sans">
-                      <div class="font-bold text-slate-900 dark:text-white line-clamp-1" x-text="pin.title || 'Untitled Pin'"></div>
+                      <div class="font-bold text-slate-900 dark:text-white line-clamp-1 hover:text-indigo-500 transition cursor-pointer" @click="openPinDossier(pin)" x-text="pin.title || 'Untitled Pin'"></div>
                       <div class="text-[11px] text-purple-600 dark:text-purple-400 font-mono mt-0.5 hover:underline cursor-pointer" @click="openCreatorDossierByName(pin.account_username)" :title="'Inspect @' + pin.account_username + ' Dossier'" x-text="'@' + (pin.account_username || 'creator')"></div>
                     </td>
                     <td class="py-2 px-3 font-sans text-slate-600 dark:text-slate-300" x-text="pin.board_name || 'General'"></td>
@@ -3691,7 +3691,11 @@ export function getDashboardHtml() {
                     <td class="py-2 px-3 text-right text-slate-500" x-text="formatNumber(pin.repins)"></td>
                     <td class="py-2 px-3 text-right font-bold text-amber-500" x-text="(pin.velocity || '0') + '/d'"></td>
                     <td class="py-2 px-3 text-center">
-                      <div class="flex items-center justify-center">
+                      <div class="flex items-center justify-center space-x-1.5">
+                        <button type="button" @click="openPinDossier(pin)" class="px-2.5 py-1 rounded-lg border border-indigo-500/30 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-500/20 font-bold text-[11px] transition cursor-pointer flex items-center space-x-1" title="Inspect Pin Dossier">
+                          <i data-lucide="eye" class="w-3 h-3"></i>
+                          <span>Inspect</span>
+                        </button>
                         <a :href="'https://www.pinterest.com/pin/' + pin.pin_id + '/'" target="_blank" rel="noopener noreferrer" class="p-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-indigo-500 transition" title="Open on Pinterest">
                           <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
                         </a>
