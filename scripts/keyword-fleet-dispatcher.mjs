@@ -16,7 +16,7 @@
 
 import { neon } from '@neondatabase/serverless';
 import fs from 'node:fs';
-import { crawlKeywordSERP, getAppSettings, safeNormalizeMetadata } from '../src/modules/keywords/service.mjs';
+import { getAppSettings, safeNormalizeMetadata } from '../src/modules/keywords/service.mjs';
 
 // Auto-load .env in local environments
 if (typeof process.loadEnvFile === 'function') {
@@ -130,121 +130,38 @@ async function main() {
 
     console.log(`  [+] Resolved ${folderKeywords.length} keywords in folder cluster.`);
 
-    // 2. Stage 0 Fast SERP Ingestion for all cluster keywords to refresh ranks & ingest new pins
-    if (enableSerpHarvest) {
-      console.log(`  [*] Executing Stage 0 Fast SERP Ingestion across ${folderKeywords.length} folder keywords...`);
-      const stage0StartTime = Date.now();
-      const STAGE0_MAX_BUDGET_MS = 300000; // 5 minutes hard deadline guard (safely within 15m runner limit)
-      for (let kIdx = 0; kIdx < folderKeywords.length; kIdx++) {
-        if (Date.now() - stage0StartTime > STAGE0_MAX_BUDGET_MS) {
-          console.warn(`  [!] Stage 0 time budget exceeded (5m). Gracefully stopping SERP ingestion to protect fleet orchestrator.`);
-          break;
-        }
-        const kw = folderKeywords[kIdx];
-        try {
-          console.log(`    [${kIdx + 1}/${folderKeywords.length}] Ingesting SERP for "${kw.keyword}" (ID: ${kw.id})...`);
-          const crawlRes = await crawlKeywordSERP(sql, kw.id, { cookie, max_serp_pins: resolvedMaxSerpPins, force: true });
-          if (crawlRes?.success) {
-            console.log(`      [+] Ingested ${crawlRes.crawled_pins} pins | Avg Velocity: +${crawlRes.avg_velocity} saves/day`);
-          } else {
-            console.warn(`      [!] SERP warning for "${kw.keyword}": ${crawlRes?.message || 'Incomplete'}`);
-          }
-        } catch (kwErr) {
-          console.warn(`      [!] SERP error for "${kw.keyword}": ${kwErr.message}`);
-        }
-        if (kIdx < folderKeywords.length - 1) {
-          await new Promise(r => setTimeout(r, 600));
-        }
-      }
-    } else {
-      console.log(`  [*] Stage 0 Fast SERP Ingestion Skipped (Audit-Only Mode Active). Proceeding directly to Folder Catalog Partition...`);
-    }
+    // 2. Stage 0 Pure Zero-Crawl Dispatch:
+    // Partition folder's keywords evenly across 20 runners for parallel Stage 1A SERP ingestion.
+    // Deep pin inspection will run in Stage 1B after Phase 1A barrier sync.
+    const numWorkers = 20;
+    console.log(`  [*] Partitioning ${folderKeywords.length} cluster keywords across ${numWorkers} parallel fleet runners for distributed SERP harvest...`);
 
-    // 3. Query All Deduplicated Candidate Pins for this Folder
-    let candidatePins = [];
-    if (resolvedCrawlScope === 'active_serp') {
-      console.log('  [*] Scope: active_serp (Top organic ranking pins only)');
-      candidatePins = await sql`
-        SELECT DISTINCT ON (ksc.pin_id)
-          ksc.pin_id, ksc.rank_position, ksc.last_known_rank, FALSE as is_displaced
-        FROM keyword_serp_current ksc
-        JOIN keyword_folder_items kfi ON kfi.keyword_id = ksc.keyword_id
-        WHERE kfi.folder_id = ${fid} AND ksc.pin_id ~ '^[0-9]+$' AND ksc.is_displaced = FALSE
-        ORDER BY ksc.pin_id, ksc.rank_position ASC NULLS LAST;
-      `;
-    } else {
-      console.log('  [*] Scope: all_pins (Unified Folder Catalog: Active SERP + Displaced Vault)');
-      candidatePins = await sql`
-        SELECT DISTINCT ON (ksc.pin_id)
-          ksc.pin_id, ksc.rank_position, ksc.last_known_rank, ksc.is_displaced
-        FROM keyword_serp_current ksc
-        JOIN keyword_folder_items kfi ON kfi.keyword_id = ksc.keyword_id
-        WHERE kfi.folder_id = ${fid} AND ksc.pin_id ~ '^[0-9]+$'
-        ORDER BY ksc.pin_id, ksc.is_displaced ASC, ksc.rank_position ASC NULLS LAST;
-      `;
-    }
-
-    candidatePins.sort((a, b) => {
-      const rA = Number(a.rank_position) || Number(a.last_known_rank) || 9999;
-      const rB = Number(b.rank_position) || Number(b.last_known_rank) || 9999;
-      if (rA !== rB) return rA - rB;
-      return String(a.pin_id).localeCompare(String(b.pin_id));
-    });
-
-    if (resolvedMaxCatalogInspect > 0 && candidatePins.length > resolvedMaxCatalogInspect) {
-      console.log(`  [*] Applying max_catalog_inspect cap: ${candidatePins.length} -> ${resolvedMaxCatalogInspect} pins`);
-      candidatePins = candidatePins.slice(0, resolvedMaxCatalogInspect);
-    }
-
-    const totalPinsFound = candidatePins.length;
-    console.log(`  [+] Total Deduplicated Catalog Pins in Folder: ${totalPinsFound} pins`);
-
-    if (totalPinsFound === 0) {
-      console.log('  [!] No valid pins discovered in folder. Spawning 1 fallback runner.');
-      matrixTasks = [{
-        mode: 'folder_pin_partition',
-        folder_id: fid,
-        folder_name: folderRow.name,
-        keyword: folderKeywords[0]?.keyword || folderRow.name,
-        worker_index: 0,
-        worker_slot: 1,
-        worker_total: 1,
-        total_pins: 0,
-        crawl_scope: resolvedCrawlScope,
-        max_pins: resolvedMaxSerpPins,
-        max_serp_pins: resolvedMaxSerpPins,
-        max_catalog_inspect: resolvedMaxCatalogInspect,
-        enable_serp_harvest: enableSerpHarvest
-      }];
-    } else {
-      const numWorkers = Math.min(20, Math.max(1, totalPinsFound > 0 ? 20 : 1));
-      console.log(`  [*] Partitioning ${totalPinsFound} cluster pins across ${numWorkers} concurrent runners (~${Math.ceil(totalPinsFound / numWorkers)} pins/runner)...`);
-
-      matrixTasks = Array.from({ length: numWorkers }, (_, idx) => ({
+    matrixTasks = Array.from({ length: numWorkers }, (_, idx) => {
+      const assignedKeywords = folderKeywords.filter((_, kIdx) => kIdx % numWorkers === idx);
+      return {
         mode: 'folder_pin_partition',
         folder_id: fid,
         folder_name: folderRow.name,
         keyword: folderRow.name,
+        keyword_ids: assignedKeywords.map(k => k.id).join(','),
+        keywords_count: assignedKeywords.length,
         worker_index: idx,
         worker_slot: idx + 1,
         worker_total: numWorkers,
-        total_pins: totalPinsFound,
         crawl_scope: resolvedCrawlScope,
         max_pins: resolvedMaxSerpPins,
         max_serp_pins: resolvedMaxSerpPins,
         max_catalog_inspect: resolvedMaxCatalogInspect,
         enable_serp_harvest: enableSerpHarvest
-      }));
-    }
+      };
+    });
 
     summaryDetails = {
-      mode: 'Folder Cluster Pin Partition',
+      mode: 'Folder Cluster True Distributed SERP & Pin Partition',
       folderName: folderRow.name,
       folderId: fid,
       keywordsCount: folderKeywords.length,
-      totalCatalogPins: totalPinsFound,
-      runnersAssigned: matrixTasks.length,
-      averagePinsPerRunner: Math.ceil(totalPinsFound / (matrixTasks.length || 1))
+      runnersAssigned: matrixTasks.length
     };
 
   } else if (isSweepAll || commaKeywords.length > 1) {
@@ -394,102 +311,32 @@ async function main() {
 
     console.log(`  [+] Keyword Confirmed: "${kwRow.keyword}" (ID: ${kwRow.id})`);
 
-    // 2. Stage 1: Fast SERP Search Ingestion (~5-8s)
-    if (enableSerpHarvest) {
-      console.log('  [*] Executing Stage 1 Fast SERP Ingestion via Pinterest API...');
-      try {
-        const crawlRes = await crawlKeywordSERP(sql, kwRow.id, { cookie, max_serp_pins: maxSerpPins });
-        if (crawlRes?.success) {
-          console.log(`  [+] Stage 1 Complete: Captured ${crawlRes.crawled_pins} pins | Avg Velocity: +${crawlRes.avg_velocity} saves/day`);
-        } else {
-          console.warn(`  [!] Stage 1 Warning: ${crawlRes?.message || 'Incomplete SERP fetch'}`);
-        }
-      } catch (serpErr) {
-        console.warn(`  [!] Stage 1 Warning (proceeding to catalog inspection): ${serpErr.message}`);
-      }
-    } else {
-      console.log('  [*] Stage 1 Fast SERP Ingestion Skipped (Audit-Only Mode Active). Proceeding directly to Catalog Pin Slicing...');
-    }
+    // 2. Stage 0 Pure Zero-Crawl Dispatch:
+    // Spawns 20 parallel runners. Runner 1 handles Phase 1A SERP ingestion if harvest is enabled,
+    // and all 20 runners partition the candidate pins for Phase 1B deep inspection.
+    const numWorkers = 20;
+    console.log(`  [*] Partitioning "${kwRow.keyword}" across ${numWorkers} parallel runners (Runner 1 handles Phase 1A SERP ingestion)...`);
 
-    // 3. Query All Relevant Pins for this Keyword (Active SERP + Displaced Vault)
-    let candidatePins = [];
-    if (crawlScope === 'active_serp') {
-      console.log('  [*] Scope: active_serp (Top organic ranking pins only)');
-      candidatePins = await sql`
-        SELECT pin_id, rank_position, last_known_rank, FALSE as is_displaced
-        FROM keyword_serp_current
-        WHERE keyword_id = ${kwRow.id} AND pin_id ~ '^[0-9]+$' AND is_displaced = FALSE
-        ORDER BY rank_position ASC;
-      `;
-    } else {
-      console.log('  [*] Scope: all_pins (Unified Keyword Catalog: Active SERP + Displaced Vault)');
-      candidatePins = await sql`
-        SELECT pin_id, rank_position, last_known_rank, is_displaced
-        FROM keyword_serp_current
-        WHERE keyword_id = ${kwRow.id} AND pin_id ~ '^[0-9]+$'
-        ORDER BY is_displaced ASC, rank_position ASC NULLS LAST;
-      `;
-    }
-
-    candidatePins.sort((a, b) => {
-      const rA = Number(a.rank_position) || Number(a.last_known_rank) || 9999;
-      const rB = Number(b.rank_position) || Number(b.last_known_rank) || 9999;
-      if (rA !== rB) return rA - rB;
-      return String(a.pin_id).localeCompare(String(b.pin_id));
-    });
-
-    if (maxCatalogInspect > 0 && candidatePins.length > maxCatalogInspect) {
-      console.log(`  [*] Applying max_catalog_inspect cap: ${candidatePins.length} -> ${maxCatalogInspect} pins`);
-      candidatePins = candidatePins.slice(0, maxCatalogInspect);
-    }
-
-    const totalPinsFound = candidatePins.length;
-    console.log(`  [+] Total Catalog Pins Discovered: ${totalPinsFound} pins`);
-
-    if (totalPinsFound === 0) {
-      console.log('  [!] No valid pins discovered for this keyword. Spawning 1 fallback runner.');
-      matrixTasks = [{
-        mode: 'pin_partition',
-        keyword: kwRow.keyword,
-        keyword_id: kwRow.id,
-        worker_index: 0,
-        worker_slot: 1,
-        worker_total: 1,
-        total_pins: 0,
-        crawl_scope: crawlScope,
-        max_pins: maxSerpPins,
-        max_serp_pins: maxSerpPins,
-        max_catalog_inspect: maxCatalogInspect,
-        enable_serp_harvest: enableSerpHarvest
-      }];
-    } else {
-      // Calculate optimal runners count (up to 20 runners)
-      const numWorkers = Math.min(20, Math.max(1, totalPinsFound));
-      console.log(`  [*] Partitioning ${totalPinsFound} pins across ${numWorkers} concurrent runners (~${Math.ceil(totalPinsFound / numWorkers)} pins/runner)...`);
-
-      matrixTasks = Array.from({ length: numWorkers }, (_, idx) => ({
-        mode: 'pin_partition',
-        keyword: kwRow.keyword,
-        keyword_id: kwRow.id,
-        worker_index: idx,
-        worker_slot: idx + 1,
-        worker_total: numWorkers,
-        total_pins: totalPinsFound,
-        crawl_scope: crawlScope,
-        max_pins: maxSerpPins,
-        max_serp_pins: maxSerpPins,
-        max_catalog_inspect: maxCatalogInspect,
-        enable_serp_harvest: enableSerpHarvest
-      }));
-    }
+    matrixTasks = Array.from({ length: numWorkers }, (_, idx) => ({
+      mode: 'pin_partition',
+      keyword: kwRow.keyword,
+      keyword_id: kwRow.id,
+      keyword_ids: idx === 0 ? String(kwRow.id) : '',
+      worker_index: idx,
+      worker_slot: idx + 1,
+      worker_total: numWorkers,
+      crawl_scope: crawlScope,
+      max_pins: maxSerpPins,
+      max_serp_pins: maxSerpPins,
+      max_catalog_inspect: maxCatalogInspect,
+      enable_serp_harvest: enableSerpHarvest
+    }));
 
     summaryDetails = {
-      mode: 'Single-Keyword Pin-Slice Sharding',
+      mode: 'Single-Keyword Distributed Pin Partition',
       keyword: kwRow.keyword,
       keywordId: kwRow.id,
-      totalCatalogPins: totalPinsFound,
-      runnersAssigned: matrixTasks.length,
-      averagePinsPerRunner: Math.ceil(totalPinsFound / (matrixTasks.length || 1))
+      runnersAssigned: matrixTasks.length
     };
   }
 
@@ -515,12 +362,10 @@ async function main() {
       md += `> **Fleet Mode**: \`${summaryDetails.mode}\` | **Parallel Runners Allocated**: **${matrixTasks.length} / 20**\n\n`;
 
       if (mode === 'folder_pin_partition') {
-        md += `### 📁 Folder Cluster Deduplicated Catalog Partition\n\n`;
+        md += `### 📁 Folder Cluster True Distributed SERP & Pin Partition\n\n`;
         md += `- **Folder**: \`${summaryDetails.folderName}\` (ID: ${summaryDetails.folderId})\n`;
-        md += `- **Cluster Keywords**: **${summaryDetails.keywordsCount}** keywords refreshed via Stage 0 SERP crawl\n`;
-        md += `- **Total Deduplicated Cluster Pins**: **${summaryDetails.totalCatalogPins}** pins\n`;
-        md += `- **Slices Created**: **${matrixTasks.length}** concurrent partitions (~${summaryDetails.averagePinsPerRunner} pins/runner)\n`;
-        md += `- **Estimated Inspection Latency**: **~5-6 minutes** across 20 Azure egress IPs\n\n`;
+        md += `- **Cluster Keywords**: **${summaryDetails.keywordsCount}** keywords distributed across **${matrixTasks.length}** parallel runners\n`;
+        md += `- **Execution Architecture**: Two-Phase Distributed Fleet (Phase 1A: 20-Egress Parallel SERP Harvest + Phase 1B: Pin Slice Sharding)\n\n`;
       } else if (mode === 'keyword_sweep') {
         md += `### 📋 Assigned Keywords Matrix\n\n`;
         md += `| Runner # | Assigned Keyword | Category | Target Pins |\n`;
@@ -529,11 +374,10 @@ async function main() {
           md += `| **Runner ${t.worker_index + 1}/${t.worker_total}** | \`${t.keyword}\` | ${t.category} | ${t.max_pins} |\n`;
         });
       } else {
-        md += `### 🎯 Single-Keyword 201-Pin Catalog Partition\n\n`;
+        md += `### 🎯 Single-Keyword Distributed Partition\n\n`;
         md += `- **Target Keyword**: \`${summaryDetails.keyword}\` (ID: ${summaryDetails.keywordId})\n`;
-        md += `- **Total Catalog Pins**: **${summaryDetails.totalCatalogPins}** (Active SERP + Displaced Vault)\n`;
-        md += `- **Slices Created**: **${matrixTasks.length}** concurrent partitions (~${summaryDetails.averagePinsPerRunner} pins/runner)\n`;
-        md += `- **Estimated Inspection Latency**: **~30 seconds** across 20 Azure egress IPs\n\n`;
+        md += `- **Parallel Runners**: **${matrixTasks.length}** runners allocated\n`;
+        md += `- **Execution Architecture**: Two-Phase Distributed Fleet (Phase 1A: Runner 1 SERP Harvest + Phase 1B: 20-Runner Pin Slice Inspection)\n\n`;
       }
 
       fs.appendFileSync(stepSummaryPath, md, 'utf8');
@@ -543,7 +387,8 @@ async function main() {
     }
   }
 
-  process.exit(0);
+  process.exitCode = 0;
+  return;
 }
 
 main().catch(err => {

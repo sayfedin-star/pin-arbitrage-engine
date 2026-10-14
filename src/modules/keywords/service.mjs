@@ -981,7 +981,9 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
         page++;
 
         if (organicPinsCollected < targetCount && page <= maxPages) {
-          const jitter = 2500 + Math.floor(Math.random() * 1500);
+          const jitter = options.skip_top_enrich
+            ? (800 + Math.floor(Math.random() * 600))
+            : (2500 + Math.floor(Math.random() * 1500));
           await new Promise(r => setTimeout(r, jitter));
         }
       } finally {
@@ -1315,6 +1317,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
         creation_method: method,
         dominant_color: item.dominant_color || '#888888',
         visual_annotations: visualAnnotations,
+        crawled_at: null,
         metadata: {
           prev_rank: prevRank,
           rank_delta: rankDelta,
@@ -1346,8 +1349,9 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
     }
 
     // Enrich top 10 ranking pins + up to 10 detected breakout candidates with verified live deep metrics via fetchPinFromPinterest
-    const topSlice = preparedPins.slice(0, 10);
-    const breakoutSlice = preparedPins.filter(p => p.metadata?.is_breakout_candidate && !topSlice.includes(p)).slice(0, 10);
+    const skipTopEnrich = Boolean(options.skip_top_enrich);
+    const topSlice = skipTopEnrich ? [] : preparedPins.slice(0, 10);
+    const breakoutSlice = skipTopEnrich ? [] : preparedPins.filter(p => p.metadata?.is_breakout_candidate && !topSlice.includes(p)).slice(0, 10);
     const topToEnrich = [...topSlice, ...breakoutSlice];
     if (topToEnrich.length > 0) {
       await Promise.allSettled(topToEnrich.map(async (p, idx) => {
@@ -1355,6 +1359,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
           const detail = await fetchPinFromPinterest(p.pin_id, cookie);
           const scraped = detail?.pin || detail;
           if (scraped && (scraped.saves || scraped.save_count || scraped.repins || scraped.repin_count)) {
+            p.crawled_at = new Date().toISOString();
             const enrichedSaves = Number(scraped.saves ?? scraped.save_count ?? p.save_count);
             const enrichedRepins = Number(scraped.repins ?? scraped.repin_count ?? p.repin_count);
             const enrichedComments = Number(scraped.comments ?? scraped.comment_count ?? p.comment_count);
@@ -1622,7 +1627,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
           u.created_at_pinterest::timestamptz,
           COALESCE(u.creation_method, 'pinterest_platform'),
           COALESCE(u.metadata, '{}'::jsonb),
-          NOW()
+          u.crawled_at::timestamptz
         FROM jsonb_to_recordset(${JSON.stringify(preparedPins)}::jsonb) AS u(
           pin_id text,
           rank_position int,
@@ -1637,7 +1642,8 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
           visual_annotations jsonb,
           created_at_pinterest text,
           creation_method text,
-          metadata jsonb
+          metadata jsonb,
+          crawled_at text
         )
         WHERE NOT EXISTS (
           SELECT 1 FROM keyword_ignored_pins kip
@@ -1674,7 +1680,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
             THEN COALESCE(keyword_serp_current.metadata, '{}'::jsonb) || EXCLUDED.metadata
             ELSE keyword_serp_current.metadata
           END,
-          crawled_at = NOW(),
+          crawled_at = COALESCE(EXCLUDED.crawled_at, keyword_serp_current.crawled_at),
           updated_at = NOW();
       `);
 

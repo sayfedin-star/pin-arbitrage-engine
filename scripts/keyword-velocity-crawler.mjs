@@ -111,7 +111,7 @@ class Semaphore {
   }
 }
 
-const CONCURRENCY = Math.max(1, parseInt(process.env.CONCURRENCY || '8', 10));
+const CONCURRENCY = Math.max(1, parseInt(process.env.CONCURRENCY || '4', 10));
 const BATCH_SIZE = Math.max(10, parseInt(process.env.BATCH_SIZE || '100', 10));
 const SLEEP_MS_MIN = Math.max(500, parseInt(process.env.SLEEP_MS_MIN || '1500', 10));
 const SLEEP_MS_MAX = Math.max(SLEEP_MS_MIN, parseInt(process.env.SLEEP_MS_MAX || '2500', 10));
@@ -240,47 +240,62 @@ async function inspectPin(pin, kw) {
   let isDead = false;
   let fetchError = null;
 
+  let fetchRes = null;
   try {
-    const fetchRes = await fetchPinFromPinterest(pin.pin_id, cookie);
-    if (fetchRes?.ok && fetchRes.pin) {
-      detail = fetchRes.pin;
-      consecutiveErrors = 0;
-    } else if (fetchRes?.status === 404 || fetchRes?.error?.includes('404')) {
-      isDead = true;
-      fetchError = '404_not_found';
-      consecutiveErrors = 0;
-    } else if (fetchRes?.status === 429 || fetchRes?.code === 429) {
-      const now = Date.now();
-      const wasAlreadyInCooldown = now < rateLimitCooldownUntil;
-      rateLimitCooldownUntil = Math.max(rateLimitCooldownUntil, now + 60000);
-      if (!wasAlreadyInCooldown) {
-        consecutiveErrors++;
-        console.warn(`    [429 RATE LIMIT] Pin ${pin.pin_id} received 429. Cooldown initiated for 60s (consecutive error incidents: ${consecutiveErrors}/${CIRCUIT_BREAKER_LIMIT}).`);
-      } else {
-        console.log(`    [429 RATE LIMIT] Pin ${pin.pin_id} received 429 in-flight during active cooldown; incident coalesced.`);
-      }
-    } else {
-      consecutiveErrors++;
+    fetchRes = await fetchPinFromPinterest(pin.pin_id, cookie);
+    // 1-time retry with 1500ms jitter if transient failure or empty response (excluding confirmed 404 / 429)
+    const isConfirmedDead = fetchRes?.status === 404 || String(fetchRes?.error || '').includes('404');
+    const isRateLimited = fetchRes?.status === 429 || fetchRes?.code === 429 || String(fetchRes?.error || '').includes('429');
+    if (!fetchRes?.ok && !isConfirmedDead && !isRateLimited) {
+      const retryJitter = 1000 + Math.floor(Math.random() * 1000); // 1000-2000ms (~1500ms) jitter
+      await new Promise(r => setTimeout(r, retryJitter));
+      fetchRes = await fetchPinFromPinterest(pin.pin_id, cookie);
     }
   } catch (err) {
-    if (err.message?.includes('404')) {
-      isDead = true;
-      fetchError = '404_not_found';
-      consecutiveErrors = 0;
-    } else if (err.message?.includes('429')) {
-      const now = Date.now();
-      const wasAlreadyInCooldown = now < rateLimitCooldownUntil;
-      rateLimitCooldownUntil = Math.max(rateLimitCooldownUntil, now + 60000);
-      if (!wasAlreadyInCooldown) {
-        consecutiveErrors++;
-        console.warn(`    [429 RATE LIMIT] Pin ${pin.pin_id} caught 429 exception. Cooldown initiated for 60s (consecutive error incidents: ${consecutiveErrors}/${CIRCUIT_BREAKER_LIMIT}).`);
-      } else {
-        console.log(`    [429 RATE LIMIT] Pin ${pin.pin_id} caught 429 exception during active cooldown; incident coalesced.`);
+    fetchError = err;
+    const isConfirmedDead = String(err.message || '').includes('404');
+    const isRateLimited = String(err.message || '').includes('429');
+    if (!isConfirmedDead && !isRateLimited) {
+      const retryJitter = 1000 + Math.floor(Math.random() * 1000);
+      await new Promise(r => setTimeout(r, retryJitter));
+      try {
+        fetchRes = await fetchPinFromPinterest(pin.pin_id, cookie);
+        fetchError = null;
+      } catch (retryErr) {
+        fetchError = retryErr;
       }
-    } else {
-      console.warn(`    [!] Pin ${pin.pin_id} fetch warning:`, err.message);
-      consecutiveErrors++;
     }
+  }
+
+  const isTimeoutError = (e, res) => {
+    const msg = `${e?.message || ''} ${res?.error || ''} ${e?.name || ''}`.toLowerCase();
+    return msg.includes('timeout') || msg.includes('etimedout') || msg.includes('econnreset') || msg.includes('aborterror');
+  };
+
+  if (fetchRes?.ok && fetchRes.pin) {
+    detail = fetchRes.pin;
+    consecutiveErrors = 0;
+  } else if (fetchRes?.status === 404 || String(fetchRes?.error || '').includes('404') || String(fetchError?.message || '').includes('404')) {
+    isDead = true;
+    fetchError = '404_not_found';
+    consecutiveErrors = 0;
+  } else if (fetchRes?.status === 429 || fetchRes?.code === 429 || String(fetchRes?.error || '').includes('429') || String(fetchError?.message || '').includes('429')) {
+    const now = Date.now();
+    const wasAlreadyInCooldown = now < rateLimitCooldownUntil;
+    rateLimitCooldownUntil = Math.max(rateLimitCooldownUntil, now + 60000);
+    if (!wasAlreadyInCooldown) {
+      consecutiveErrors++;
+      console.warn(`    [429 RATE LIMIT] Pin ${pin.pin_id} received 429. Cooldown initiated for 60s (consecutive error incidents: ${consecutiveErrors}/${CIRCUIT_BREAKER_LIMIT}).`);
+    } else {
+      console.log(`    [429 RATE LIMIT] Pin ${pin.pin_id} received 429 in-flight during active cooldown; incident coalesced.`);
+    }
+  } else if (isTimeoutError(fetchError, fetchRes)) {
+    consecutiveErrors++;
+    console.warn(`    [TIMEOUT/NETWORK] Pin ${pin.pin_id} timed out. (consecutive error incidents: ${consecutiveErrors}/${CIRCUIT_BREAKER_LIMIT}).`);
+  } else {
+    // Individual unparseable pin, non-429, non-timeout failure
+    // Do NOT increment consecutiveErrors to prevent tripping the circuit breaker on isolated malformed pins!
+    console.warn(`    [!] Pin ${pin.pin_id} fetch warning (non-fatal, isolated):`, fetchRes?.error || fetchError?.message || 'Empty response');
   }
 
   // Jitter sleep inside worker thread to maintain natural pacing
@@ -1024,6 +1039,63 @@ async function run() {
 
     console.log(`[*] Target Folder Identified: "${folderRow.name}" (ID: ${folderRow.id})`);
 
+    // -------------------------------------------------------------------------
+    // PHASE 1A: Distributed Parallel SERP Ingestion Across 20 Egress IPs
+    // -------------------------------------------------------------------------
+    const runStartTime = new Date(Date.now() - 60000);
+
+    if (enableSerpHarvest && keywordIdsInput.length > 0) {
+      console.log(`[Phase 1A] Runner ${workerIndex + 1}/${workerTotal}: Ingesting assigned ${keywordIdsInput.length} keywords in parallel...`);
+      for (const kid of keywordIdsInput) {
+        try {
+          console.log(`  [*] [Phase 1A] Harvesting SERP for Keyword ID ${kid}...`);
+          const res = await crawlKeywordSERP(sql, kid, {
+            cookie,
+            max_serp_pins: maxSerpPins,
+            skip_top_enrich: true,
+            force: true
+          });
+          console.log(`  [+] [Phase 1A] Keyword ID ${kid} SERP harvest complete:`, res?.pins_collected || res?.total_pins_processed || 'OK');
+        } catch (err) {
+          console.warn(`  [!] [Phase 1A] Keyword ID ${kid} SERP error:`, err.message);
+        }
+      }
+    } else if (!enableSerpHarvest) {
+      console.log(`[Phase 1A] SERP harvest disabled via ENABLE_SERP_HARVEST=false. Skipping directly to Phase 1B.`);
+    } else {
+      console.log(`[Phase 1A] No keywords assigned to this runner. Waiting for peers at barrier sync...`);
+    }
+
+    // Lightweight Barrier Sync: Wait for peer runners to complete parallel SERP ingestion
+    if (enableSerpHarvest) {
+      console.log(`[Phase 1A] Barrier Sync: Waiting for peer runners to complete parallel SERP ingestion...`);
+      const barrierStart = Date.now();
+      const BARRIER_TIMEOUT_MS = 45000;
+      while (Date.now() - barrierStart < BARRIER_TIMEOUT_MS) {
+        const [pendingRow] = await sql`
+          SELECT COUNT(*)::int as pending
+          FROM keyword_folder_items kfi
+          JOIN tracked_keywords tk ON tk.id = kfi.keyword_id
+          WHERE kfi.folder_id = ${fid}
+            AND tk.is_active = TRUE
+            AND (tk.last_crawled_at IS NULL OR tk.last_crawled_at < ${runStartTime});
+        `;
+        const pendingCount = Number(pendingRow?.pending || 0);
+        if (pendingCount === 0) {
+          console.log(`[Phase 1A] Barrier Sync cleared: 100% of cluster keywords ingested in ${Math.round((Date.now() - barrierStart) / 1000)}s!`);
+          break;
+        }
+        console.log(`  [Phase 1A Sync] ${pendingCount} keyword(s) still harvesting SERP...`);
+        await sleep(2500);
+      }
+      if (Date.now() - barrierStart >= BARRIER_TIMEOUT_MS) {
+        console.warn(`[Phase 1A] Barrier Sync reached 45s timeout limit. Proceeding to Phase 1B with harvested catalog.`);
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // PHASE 1B: Deterministic crc32(pin_id) % workerTotal Pin-Slice Deep Inspection
+    // -------------------------------------------------------------------------
     // Fetch candidate pins across all folder keywords
     let allPins = [];
     if (crawlScope === 'active_serp') {
@@ -1096,13 +1168,21 @@ async function run() {
     const shardsSynced = await flushToStorageShards(enrichedList);
     console.log(`\n✅ Slice ${workerIndex + 1}/${workerTotal} Complete: Inspected ${enrichedList.length} pins | Flushed across ${shardsSynced} shards.`);
 
+    const cachedCount = enrichedList.filter(p => p.from_hydration_cache).length;
+    const fetchedCount = enrichedList.filter(p => !p.from_hydration_cache).length;
+    const deadCount = enrichedList.filter(p => p.is_deleted).length;
+    const deferredCount = myPins.length - enrichedList.length;
+
     if (stepSummaryPath) {
       try {
         let md = `### 📁 Folder Runner Slice ${workerIndex + 1}/${workerTotal} Summary\n\n`;
         md += `- **Folder**: \`${folderRow.name}\` (ID: ${fid})\n`;
-        md += `- **Pins Inspected in Slice**: **${enrichedList.length}**\n`;
+        md += `- **Assigned Slice Pins**: **${myPins.length}**\n`;
+        md += `- **Reused from Fresh Hydration Cache**: **${cachedCount}**\n`;
+        md += `- **Freshly Inspected via Pinterest API**: **${fetchedCount}**\n`;
+        md += `- **Deferred / Failed**: **${deferredCount}**\n`;
         md += `- **Storage Shards Synchronized**: **${shardsSynced}**\n`;
-        md += `- **Dead/404 Pins Flagged**: **${enrichedList.filter(p => p.is_deleted).length}**\n\n`;
+        md += `- **Dead/404 Pins Flagged**: **${deadCount}**\n\n`;
         fs.appendFileSync(stepSummaryPath, md, 'utf8');
       } catch (_) {}
     }
@@ -1127,6 +1207,48 @@ async function run() {
 
     console.log(`[*] Target Keyword Identified: "${kwRow.keyword}" (ID: ${kwRow.id})`);
 
+    // -------------------------------------------------------------------------
+    // PHASE 1A: Single-Keyword SERP Ingestion (Lead Runner Ingests, Peers Sync)
+    // -------------------------------------------------------------------------
+    const runStartTime = new Date(Date.now() - 60000);
+
+    if (enableSerpHarvest) {
+      if (workerIndex === 0) {
+        console.log(`[Phase 1A] Runner 1/${workerTotal} (Lead): Ingesting SERP for "${kwRow.keyword}" (ID: ${kwRow.id})...`);
+        try {
+          const res = await crawlKeywordSERP(sql, kwRow.id, {
+            cookie,
+            max_serp_pins: maxSerpPins,
+            skip_top_enrich: true,
+            force: true
+          });
+          console.log(`[Phase 1A] Lead Runner SERP ingest complete:`, res?.pins_collected || res?.total_pins_processed || 'OK');
+        } catch (err) {
+          console.warn(`[Phase 1A] Lead Runner SERP error:`, err.message);
+        }
+      } else {
+        console.log(`[Phase 1A] Runner ${workerIndex + 1}/${workerTotal}: Waiting for Runner 1 to complete SERP ingestion...`);
+        const barrierStart = Date.now();
+        const BARRIER_TIMEOUT_MS = 35000;
+        while (Date.now() - barrierStart < BARRIER_TIMEOUT_MS) {
+          const [checkRow] = await sql`
+            SELECT last_crawled_at FROM tracked_keywords WHERE id = ${kwRow.id};
+          `;
+          if (checkRow?.last_crawled_at && new Date(checkRow.last_crawled_at) >= runStartTime) {
+            console.log(`[Phase 1A] Barrier Sync cleared: SERP ingested in ${Math.round((Date.now() - barrierStart) / 1000)}s!`);
+            break;
+          }
+          await sleep(2500);
+        }
+        if (Date.now() - barrierStart >= BARRIER_TIMEOUT_MS) {
+          console.warn(`[Phase 1A] Barrier Sync reached 35s timeout limit. Proceeding to Phase 1B.`);
+        }
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // PHASE 1B: Deterministic crc32(pin_id) % workerTotal Pin-Slice Deep Inspection
+    // -------------------------------------------------------------------------
     // Fetch candidate pins according to scope
     let allPins = [];
     if (crawlScope === 'active_serp') {
@@ -1199,14 +1321,22 @@ async function run() {
     const shardsSynced = await flushToStorageShards(enrichedList);
     console.log(`\n✅ Slice ${workerIndex + 1}/${workerTotal} Complete: Inspected ${enrichedList.length} pins | Flushed across ${shardsSynced} shards.`);
 
+    const cachedCount = enrichedList.filter(p => p.from_hydration_cache).length;
+    const fetchedCount = enrichedList.filter(p => !p.from_hydration_cache).length;
+    const deadCount = enrichedList.filter(p => p.is_deleted).length;
+    const deferredCount = myPins.length - enrichedList.length;
+
     // Write to step summary if available
     if (stepSummaryPath) {
       try {
         let md = `### 🧩 Runner Slice ${workerIndex + 1}/${workerTotal} Summary\n\n`;
-        md += `- **Keyword**: \`${kwRow.keyword}\`\n`;
-        md += `- **Pins Inspected in Slice**: **${enrichedList.length}**\n`;
+        md += `- **Keyword**: \`${kwRow.keyword}\` (ID: ${kwRow.id})\n`;
+        md += `- **Assigned Slice Pins**: **${myPins.length}**\n`;
+        md += `- **Reused from Fresh Hydration Cache**: **${cachedCount}**\n`;
+        md += `- **Freshly Inspected via Pinterest API**: **${fetchedCount}**\n`;
+        md += `- **Deferred / Failed**: **${deferredCount}**\n`;
         md += `- **Storage Shards Synchronized**: **${shardsSynced}**\n`;
-        md += `- **Dead/404 Pins Flagged**: **${enrichedList.filter(p => p.is_deleted).length}**\n\n`;
+        md += `- **Dead/404 Pins Flagged**: **${deadCount}**\n\n`;
         fs.appendFileSync(stepSummaryPath, md, 'utf8');
       } catch (_) {}
     }
