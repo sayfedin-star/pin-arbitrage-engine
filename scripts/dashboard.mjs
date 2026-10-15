@@ -1290,7 +1290,7 @@ const server = http.createServer(async (req, res) => {
       const cookie = process.env.PINTEREST_COOKIE || '';
       return sendJson(res, 200, {
         has_cookie: Boolean(cookie && cookie.trim().length > 10),
-        preview: cookie ? (cookie.slice(0, 30) + '...') : null
+        preview: null
       });
     }
 
@@ -1349,7 +1349,7 @@ const server = http.createServer(async (req, res) => {
     // 8E. POST /api/settings/cookie
     if (method === 'POST' && pathname === '/api/settings/cookie') {
       const body = await parseRequestBody(req);
-      const rawCookieVal = String(body.cookie || '').trim();
+      const rawCookieVal = String(body.cookie || '').replace(/[\r\n\0]/g, '').trim();
       const cookieVal = formatPinterestCookie(rawCookieVal);
       process.env.PINTEREST_COOKIE = cookieVal;
 
@@ -1369,7 +1369,7 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, {
         success: true,
         has_cookie: Boolean(cookieVal && cookieVal.length > 10),
-        preview: cookieVal ? (cookieVal.slice(0, 35) + '...') : null
+        preview: null
       });
     }
 

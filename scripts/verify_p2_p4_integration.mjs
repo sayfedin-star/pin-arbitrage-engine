@@ -334,8 +334,8 @@ async function runTests() {
     assert(Boolean(shouldExist), 'Qualified pin exists in pa_pins table');
     assert(!shouldNotExist, 'Unqualified pin was discarded and prevented database bloat');
 
-    // 3.5 Test reEvaluateArchivedPins with rules argument
-    const reEvalResult = await reEvaluateArchivedPins(sql, rules);
+    // 3.5 Test reEvaluateArchivedPins with rules argument (scoped to TEST_COMPETITOR_USERNAME)
+    const reEvalResult = await reEvaluateArchivedPins(sql, rules, TEST_COMPETITOR_USERNAME);
     assert(reEvalResult.ok && reEvalResult.total_evaluated >= 1 && reEvalResult.disqualified_count !== undefined, `reEvaluateArchivedPins evaluated ${reEvalResult.total_evaluated} pins successfully with disqualified count`);
 
     // 3.7 Test formatPin clock skew resilience (negative msDiff handled gracefully)

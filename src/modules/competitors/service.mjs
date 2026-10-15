@@ -5,7 +5,7 @@
  */
 
 import { formatPinterestCookie, sanitizeForJsonb } from '../../utils.mjs';
-import { fetchUserResource, fetchBoardsResource, fetchBoardDetailUnauth, fetchUserActivityPinsResource, fetchBoardFeedResource, sleep, randomJitterMs } from '../../../scripts/lib/pinterest.mjs';
+import { fetchUserResource, fetchBoardsResource, fetchBoardDetailUnauth, fetchUserActivityPinsResource, fetchBoardFeedResource, pinterestFetch, sleep, randomJitterMs } from '../../../scripts/lib/pinterest.mjs';
 import crypto from 'node:crypto';
 import { ingestPinsBatch, getQualificationRules } from '../pinarchive/service.mjs';
 
@@ -34,6 +34,13 @@ export function formatMetric(num, abbrev = false) {
   return val.toLocaleString();
 }
 
+export const RESERVED_PINTEREST_PATHS = new Set([
+  'pin', 'pins', 'search', 'ideas', 'today', 'settings', 'about',
+  'business', 'blog', 'help', 'password', 'login', 'signup',
+  'explore', 'categories', 'news', 'shop', 'topics', 'notifications',
+  'messages', 'edit', 'following', 'followers', 'analytics'
+]);
+
 /**
  * Normalize Pinterest handle or full URL to clean username
  */
@@ -43,12 +50,23 @@ export function normalizePinterestUsername(input) {
   try {
     if (str.startsWith('http://') || str.startsWith('https://')) {
       const url = new URL(str);
-      const parts = url.pathname.split('/').filter(Boolean);
-      if (parts.length > 0) return parts[0].replace(/^@/, '').toLowerCase();
+      if (/(?:^|\.)pinterest\.[a-z.]+$/i.test(url.hostname)) {
+        const parts = url.pathname.split('/').filter(Boolean);
+        if (parts.length > 0) {
+          const candidate = parts[0].replace(/^@+/, '').toLowerCase().trim();
+          if (RESERVED_PINTEREST_PATHS.has(candidate)) return '';
+          if (/^[a-z0-9_.-]{3,64}$/.test(candidate)) return candidate;
+          return '';
+        }
+      }
     }
   } catch (_) {}
-  str = str.replace(/^(?:https?:\/\/)?(?:www\.)?pinterest\.[a-z.]+\/+/i, '');
-  return str.split('?')[0].split('#')[0].split('/')[0].replace(/^@+/, '').trim().toLowerCase();
+
+  str = str.replace(/^(?:https?:\/\/)?(?:[a-z0-9_-]+\.)?pinterest\.[a-z.]+\/+/i, '');
+  const candidate = str.split('?')[0].split('#')[0].split('/')[0].replace(/^@+/, '').trim().toLowerCase();
+  if (RESERVED_PINTEREST_PATHS.has(candidate)) return '';
+  if (/^[a-z0-9_.-]{3,64}$/.test(candidate)) return candidate;
+  return '';
 }
 
 /**
@@ -174,9 +192,13 @@ export async function listCompetitors(sql, { account_type = 'all', search = '', 
 /**
  * Track a new competitor handle
  */
-export async function trackCompetitor(sql, { username, display_name, account_type = 'competitor' }) {
+export async function trackCompetitor(sql, { username, display_name, account_type = 'competitor', is_active = true, ingest_interval = 'daily', auto_archive_winning = true }) {
   const cleanUsername = normalizePinterestUsername(username);
   if (!cleanUsername) throw new Error('Username is required.');
+
+  const metaPayload = {
+    auto_archive_winning: auto_archive_winning !== false
+  };
 
   const [row] = await sql`
     INSERT INTO competitor_profiles (
@@ -184,17 +206,20 @@ export async function trackCompetitor(sql, { username, display_name, account_typ
       display_name,
       account_type,
       is_active,
+      metadata,
       updated_at
     ) VALUES (
       ${cleanUsername},
       ${display_name || cleanUsername},
       ${account_type},
-      TRUE,
+      ${is_active !== false},
+      ${JSON.stringify(metaPayload)}::jsonb,
       NOW()
     )
     ON CONFLICT (username) DO UPDATE SET
       account_type = EXCLUDED.account_type,
-      is_active = TRUE,
+      is_active = EXCLUDED.is_active,
+      metadata = COALESCE(competitor_profiles.metadata, '{}'::jsonb) || EXCLUDED.metadata,
       updated_at = NOW()
     RETURNING *;
   `;
@@ -382,21 +407,51 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
             COALESCE((competitor_history_snapshots.metadata->>'total_repins')::bigint, 0),
             COALESCE((EXCLUDED.metadata->>'total_repins')::bigint, 0)
           ))
-        );
+        )
+      WHERE 
+        competitor_history_snapshots.monthly_reach IS DISTINCT FROM EXCLUDED.monthly_reach
+        OR competitor_history_snapshots.profile_views IS DISTINCT FROM EXCLUDED.profile_views
+        OR competitor_history_snapshots.follower_count IS DISTINCT FROM EXCLUDED.follower_count
+        OR competitor_history_snapshots.total_pins IS DISTINCT FROM EXCLUDED.total_pins
+        OR competitor_history_snapshots.total_boards IS DISTINCT FROM EXCLUDED.total_boards;
     `;
 
-    // Upsert any initial boards discovered directly from unauthenticated profile HTML
+    // Atomic batch upsert for initial boards via jsonb_to_recordset (1 single roundtrip instead of N queries)
     if (Array.isArray(res.initial_boards) && res.initial_boards.length > 0) {
-      for (const b of res.initial_boards) {
-        try {
+      try {
+        const boardsPayload = res.initial_boards.map(b => ({
+          competitor_id: updated.id,
+          board_id: String(b.board_id || ''),
+          name: String(b.name || ''),
+          url: String(b.url || ''),
+          pin_count: Number(b.pin_count || 0),
+          follower_count: Number(b.follower_count || 0),
+          last_pinned_at: b.last_pinned_at ? new Date(b.last_pinned_at).toISOString() : null
+        })).filter(b => b.board_id);
+
+        if (boardsPayload.length > 0) {
           await sql`
             INSERT INTO competitor_boards (
               competitor_id, board_id, name, url, pin_count, follower_count,
               last_pinned_at, updated_at
-            ) VALUES (
-              ${updated.id}, ${b.board_id}, ${b.name}, ${b.url},
-              ${b.pin_count || 0}, ${b.follower_count || 0},
-              ${b.last_pinned_at ? new Date(b.last_pinned_at) : null}, NOW()
+            )
+            SELECT 
+              r.competitor_id,
+              r.board_id,
+              r.name,
+              r.url,
+              r.pin_count,
+              r.follower_count,
+              r.last_pinned_at::timestamptz,
+              NOW()
+            FROM jsonb_to_recordset(${JSON.stringify(boardsPayload)}::jsonb) AS r(
+              competitor_id int,
+              board_id text,
+              name text,
+              url text,
+              pin_count int,
+              follower_count int,
+              last_pinned_at text
             )
             ON CONFLICT (competitor_id, board_id) DO UPDATE SET
               name = EXCLUDED.name,
@@ -404,9 +459,15 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
               pin_count = EXCLUDED.pin_count,
               follower_count = EXCLUDED.follower_count,
               last_pinned_at = COALESCE(EXCLUDED.last_pinned_at, competitor_boards.last_pinned_at),
-              updated_at = NOW();
+              updated_at = NOW()
+            WHERE competitor_boards.name IS DISTINCT FROM EXCLUDED.name
+               OR competitor_boards.pin_count IS DISTINCT FROM EXCLUDED.pin_count
+               OR competitor_boards.follower_count IS DISTINCT FROM EXCLUDED.follower_count
+               OR competitor_boards.last_pinned_at IS DISTINCT FROM EXCLUDED.last_pinned_at;
           `;
-        } catch (_) {}
+        }
+      } catch (boardErr) {
+        console.warn('[syncCompetitorProfile] Batch initial_boards upsert warning:', boardErr?.message || boardErr);
       }
     }
   }
@@ -940,13 +1001,14 @@ export async function syncCompetitorPins(sql, competitorId, username, { mode = '
   // Enforce paused_policy: reject if competitor is inactive
   const safeId = isNaN(numericId) ? -1 : numericId;
   const [profile] = await sql`
-    SELECT id, username, is_active FROM competitor_profiles 
+    SELECT id, username, is_active, metadata FROM competitor_profiles 
     WHERE id = ${safeId} OR LOWER(username) = ${cleanUsername} 
     LIMIT 1;
   `;
   if (profile && profile.is_active === false && String(rules.paused_policy).toLowerCase() === 'reject') {
     return { ok: false, error: `Competitor @${cleanUsername} is paused/inactive and paused_policy is set to 'reject'.` };
   }
+  const shouldAutoArchive = profile?.metadata?.auto_archive_winning !== false;
 
   // Determine pagination depth based on mode (strictly bounds daily mode to rules.early_stop_pages)
   const numMaxPages = (maxPages !== null && maxPages !== undefined && !isNaN(Number(maxPages)) && Number(maxPages) > 0)
@@ -986,8 +1048,7 @@ export async function syncCompetitorPins(sql, competitorId, username, { mode = '
     }
 
     // 2. Filter through 3-tier OR qualification rules & ingest qualified winning pins into pa_pins
-    // Only run during refresh/daily sync; in discovery mode, 20 shards handle deep Relay v3 enrichment!
-    if (pins.length > 0 && mode !== 'discovery') {
+    if (pins.length > 0 && shouldAutoArchive) {
       const ingestRes = await ingestPinsBatch(sql, pins, cleanUsername, { filterQualified: true, rules });
       allQualifiedCount += (ingestRes.added + ingestRes.updated);
     }
@@ -1130,8 +1191,7 @@ export async function syncCompetitorBoardPins(sql, competitorId, username, board
     }
 
     // 2. Filter through 3-tier OR rules & ingest qualified winning pins into pa_pins
-    // Only run during refresh/daily sync; in discovery mode, 20 shards handle deep Relay v3 enrichment!
-    if (pins.length > 0 && mode !== 'discovery') {
+    if (pins.length > 0) {
       const ingestRes = await ingestPinsBatch(sql, pins, cleanUsername, { filterQualified: true, rules });
       allQualifiedCount += (ingestRes.added + ingestRes.updated);
     }
@@ -2282,10 +2342,10 @@ export async function getCompetitorRules(sql, competitorId) {
   if (!row) throw new Error(`Competitor #${numericId} not found.`);
 
   const defaultRules = {
-    tier1_min_saves: 5000,
-    tier2_min_repins: 2500,
-    tier3_fresh_days: 60,
-    tier3_min_saves: 500,
+    tier1_min_saves: 100,
+    tier2_min_repins: 100,
+    tier3_fresh_days: 14,
+    tier3_min_saves: 25,
     articles_only: true,
     auto_pipeline: true
   };
@@ -2306,10 +2366,10 @@ export async function saveCompetitorRules(sql, competitorId, newRules = {}) {
   if (!numericId || isNaN(numericId)) throw new Error('Valid competitorId is required.');
 
   const sanitizedRules = {
-    tier1_min_saves: Math.max(0, Number(newRules.tier1_min_saves) || 5000),
-    tier2_min_repins: Math.max(0, Number(newRules.tier2_min_repins) || 2500),
-    tier3_fresh_days: Math.max(1, Number(newRules.tier3_fresh_days) || 60),
-    tier3_min_saves: Math.max(0, Number(newRules.tier3_min_saves) || 500),
+    tier1_min_saves: Math.max(0, Number(newRules.tier1_min_saves) || 100),
+    tier2_min_repins: Math.max(0, Number(newRules.tier2_min_repins) || 100),
+    tier3_fresh_days: Math.max(1, Number(newRules.tier3_fresh_days) || 14),
+    tier3_min_saves: Math.max(0, Number(newRules.tier3_min_saves) || 25),
     articles_only: Boolean(newRules.articles_only ?? true),
     auto_pipeline: Boolean(newRules.auto_pipeline ?? true)
   };
@@ -2762,10 +2822,13 @@ export async function harvestSinglePinRelatedLive(sql, competitorId, pinId) {
     'accept': 'application/json, text/javascript, */*, q=0.01',
     'accept-language': 'en-US,en;q=0.9',
     'screen-dpr': '1',
+    'sec-ch-ua': '"Not=A?Brand";v="99", "Google Chrome";v="151", "Chromium";v="151"',
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-platform': '"Windows"',
     'x-app-version': '664ee65',
     'x-pinterest-pws-handler': 'www/pin/[id].js',
     'x-requested-with': 'XMLHttpRequest',
-    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',
     'origin': 'https://www.pinterest.com',
     'referer': `https://www.pinterest.com/pin/${cleanPin}/`,
     'sec-fetch-dest': 'empty',
@@ -2773,7 +2836,7 @@ export async function harvestSinglePinRelatedLive(sql, competitorId, pinId) {
     'sec-fetch-site': 'same-origin'
   };
 
-  const res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
+  const res = await pinterestFetch(url, { headers, signal: AbortSignal.timeout(8000) });
   if (!res.ok) {
     if (res.body && !res.bodyUsed) await res.body.cancel().catch(() => {});
     throw new Error(`Pinterest returned HTTP ${res.status}`);

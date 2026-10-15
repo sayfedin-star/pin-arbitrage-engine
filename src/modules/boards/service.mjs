@@ -24,11 +24,13 @@ import {
   fetchBoardDetailUnauth,
   getPinterestXhrHeaders,
   PINTEREST_PAGE_HEADERS,
+  pinterestFetch,
   sleep,
   randomJitterMs,
   safeString
 } from '../../../scripts/lib/pinterest.mjs';
 import { getShardNumberForEntity } from '../fleet/sharding.mjs';
+import { enforceNeonPoolerUrl } from '../sharding/fleet-router.mjs';
 
 /**
  * Parses arbitrary Pinterest board URL or slug into username and slug.
@@ -69,7 +71,7 @@ export async function mirrorTrackedBoardToShard(sql, trackedRecord) {
     `.catch(() => [null]);
 
     if (shardProj?.database_url) {
-      const sSql = neon(shardProj.database_url);
+      const sSql = neon(enforceNeonPoolerUrl(shardProj.database_url));
       await sSql`
         INSERT INTO tracked_boards (
           board_id, url, name, username, competitor_id,
@@ -204,7 +206,7 @@ async function fetchMoreIdeasFromSsr(username, slug) {
   const url = `https://www.pinterest.com/${username}/${slug}/more_ideas/`;
   let res = null;
   try {
-    res = await fetch(url, { headers: PINTEREST_PAGE_HEADERS, signal: AbortSignal.timeout(8000) });
+    res = await pinterestFetch(url, { headers: PINTEREST_PAGE_HEADERS, signal: AbortSignal.timeout(8000) });
     if (!res.ok) {
       if (res.body) await res.body.cancel().catch(() => {});
       return { ok: false, status: res.status, pins: [], nextBookmark: null };
@@ -277,7 +279,7 @@ async function fetchMoreIdeasFromXhr(username, slug, boardId, bookmark = null, c
 
   let res = null;
   try {
-    res = await fetch(endpointUrl, { headers, signal: AbortSignal.timeout(8000) });
+    res = await pinterestFetch(endpointUrl, { headers, signal: AbortSignal.timeout(8000) });
 
     if (res.status === 401 || res.status === 403 || res.status === 429 || res.status === 502 || res.status === 503 || res.status === 504) {
       if (res.body) await res.body.cancel().catch(() => {});
@@ -288,7 +290,7 @@ async function fetchMoreIdeasFromXhr(username, slug, boardId, bookmark = null, c
         retryDelay = Math.max(retryDelay, retrySec * 1000);
       }
       await sleep(retryDelay);
-      res = await fetch(endpointUrl, { headers, signal: AbortSignal.timeout(8000) });
+      res = await pinterestFetch(endpointUrl, { headers, signal: AbortSignal.timeout(8000) });
     }
 
     if (!res.ok) {
@@ -334,15 +336,22 @@ async function fetchBoardTopicSearchIdeas(boardName, cookie = '', limit = 50) {
 
   const headers = {
     'Accept': 'application/json, text/javascript, */*, q=0.01',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'sec-ch-ua': '"Not=A?Brand";v="99", "Google Chrome";v="151", "Chromium";v="151"',
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-platform': '"Windows"',
+    'sec-fetch-dest': 'empty',
+    'sec-fetch-mode': 'cors',
+    'sec-fetch-site': 'same-origin',
     'X-Requested-With': 'XMLHttpRequest',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',
     'x-pinterest-pws-handler': 'www/search/pins.js',
     'referer': `https://www.pinterest.com/search/pins/?q=${searchQuery}`
   };
   if (cookie) headers['Cookie'] = cookie;
 
   try {
-    const res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
+    const res = await pinterestFetch(url, { headers, signal: AbortSignal.timeout(8000) });
     if (!res.ok) {
       if (res.body) await res.body.cancel().catch(() => {});
       return [];
@@ -375,7 +384,7 @@ async function enrichBarePins(pins, limit = 25) {
     await Promise.all(batch.map(async (pin) => {
       try {
         const url = `https://www.pinterest.com/pin/${pin.pin_id}/`;
-        const res = await fetch(url, { headers: PINTEREST_PAGE_HEADERS, signal: AbortSignal.timeout(5000) });
+        const res = await pinterestFetch(url, { headers: PINTEREST_PAGE_HEADERS, signal: AbortSignal.timeout(5000) });
         if (res.ok) {
           const html = await res.text();
           const ext = extractPinData(html, pin.pin_id);

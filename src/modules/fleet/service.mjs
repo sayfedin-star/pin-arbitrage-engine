@@ -7,6 +7,7 @@ import { neon } from '@neondatabase/serverless';
 import { getCompetitorsOverview, listCompetitors, formatMetric } from '../competitors/service.mjs';
 import { getShardNumberForEntity } from './sharding.mjs';
 import { enforceNeonPoolerUrl } from '../sharding/fleet-router.mjs';
+export { enforceNeonPoolerUrl };
 
 export async function getFleetProjects(sql) {
   const rows = await sql`
@@ -53,7 +54,16 @@ export async function registerNewProject(sql, { project_id, project_name, databa
   if (!project_id || !database_url) {
     throw new Error('project_id and database_url are required.');
   }
-
+  let parsedDsn;
+  try {
+    parsedDsn = new URL(database_url);
+  } catch (_) {
+    throw new Error('Invalid database_url format.');
+  }
+  if (!/^postgres(?:ql)?:$/i.test(parsedDsn.protocol) || !parsedDsn.hostname.endsWith('.neon.tech')) {
+    throw new Error('Security Policy Violation: Only *.neon.tech PostgreSQL endpoints are permitted.');
+  }
+  const pooledUrl = enforceNeonPoolerUrl(database_url.trim());
   const [row] = await sql`
     INSERT INTO neon_projects_registry (
       project_id,
@@ -69,7 +79,7 @@ export async function registerNewProject(sql, { project_id, project_name, databa
       ${project_id},
       ${project_name || project_id},
       ${region_id},
-      ${database_url},
+      ${pooledUrl},
       'active',
       FALSE,
       ${assigned_shards},
@@ -81,9 +91,10 @@ export async function registerNewProject(sql, { project_id, project_name, databa
       project_name = EXCLUDED.project_name,
       status = 'active',
       updated_at = NOW()
-    RETURNING *;
+    RETURNING id, project_id, project_name, region_id, status, is_hub, assigned_shards, stats, created_at, updated_at;
   `;
-  return row;
+  const masked = pooledUrl.replace(/(:\/\/[^:]+:)(.*)(@[^@]+$)/, '$1••••••••$3');
+  return { ...row, database_url: masked, masked_url: masked };
 }
 
 /**

@@ -184,14 +184,14 @@ export function isPinQualified(pin, rules) {
  */
 export async function reEvaluateArchivedPins(sql, rules = null, accountUsername = null) {
   const activeRules = rules || (await getQualificationRules(sql));
-  const cleanUser = accountUsername ? String(accountUsername).replace(/^@/, '').trim().toLowerCase() : null;
+  const cleanUser = accountUsername ? String(accountUsername).replace(/^@+/, '').trim().toLowerCase() : null;
   
   // If master ingest is disabled, no pins qualify for active ingestion (read-only evaluation)
   if (activeRules.master_ingest_enabled === false) {
     const [cnt] = await sql`
       SELECT count(*)::int AS total
       FROM pa_pins
-      WHERE (${cleanUser}::text IS NULL OR LOWER(account_username) = ${cleanUser});
+      WHERE (${cleanUser}::text IS NULL OR LOWER(REPLACE(account_username, '@', '')) = ${cleanUser});
     `;
     const total = cnt?.total || 0;
     return {
@@ -209,47 +209,43 @@ export async function reEvaluateArchivedPins(sql, rules = null, accountUsername 
   const t3Days = Number(activeRules.tier3_max_age_days ?? 14);
   const t3Saves = Number(activeRules.tier3_min_saves ?? 25);
 
+  // Single-Pass SARGable CTE: evaluates, counts, and prunes unqualified pins atomically
   const [res] = await sql`
-    SELECT
-      count(*)::int AS total_pins,
-      count(CASE 
-        WHEN saves >= ${t1} 
-          OR repins >= ${t2}
-          OR (
-            created_at_pinterest IS NOT NULL
-            AND (NOW() - created_at_pinterest) >= INTERVAL '0 seconds'
-            AND EXTRACT(EPOCH FROM (NOW() - created_at_pinterest))/86400 <= ${t3Days} 
-            AND saves >= ${t3Saves}
-          )
-        THEN 1 
-      END)::int AS qualified_pins
-    FROM pa_pins
-    WHERE (${cleanUser}::text IS NULL OR LOWER(account_username) = ${cleanUser});
-  `;
-
-  const total = res?.total_pins || 0;
-  const qualified = res?.qualified_pins || 0;
-  const disqualified = Math.max(0, total - qualified);
-
-  let prunedCount = 0;
-  if (disqualified > 0) {
-    const delRes = await sql`
-      DELETE FROM pa_pins
-      WHERE (${cleanUser}::text IS NULL OR LOWER(account_username) = ${cleanUser})
-        AND NOT (
+    WITH target_pins AS (
+      SELECT pin_id, saves, repins, created_at_pinterest
+      FROM pa_pins
+      WHERE (${cleanUser}::text IS NULL OR LOWER(REPLACE(account_username, '@', '')) = ${cleanUser})
+    ),
+    evaluated AS (
+      SELECT
+        pin_id,
+        (
           saves >= ${t1} 
           OR repins >= ${t2}
           OR (
             created_at_pinterest IS NOT NULL
-            AND (NOW() - created_at_pinterest) >= INTERVAL '0 seconds'
-            AND EXTRACT(EPOCH FROM (NOW() - created_at_pinterest))/86400 <= ${t3Days} 
+            AND created_at_pinterest >= NOW() - (${t3Days} * INTERVAL '1 day')
             AND saves >= ${t3Saves}
           )
-        )
-      RETURNING pin_id;
-    `;
-    prunedCount = delRes.length || 0;
-  }
+        ) AS is_qualified
+      FROM target_pins
+    ),
+    deleted AS (
+      DELETE FROM pa_pins p
+      USING evaluated e
+      WHERE p.pin_id = e.pin_id AND e.is_qualified = FALSE
+      RETURNING p.pin_id
+    )
+    SELECT
+      (SELECT count(*)::int FROM target_pins) AS total_pins,
+      (SELECT count(*)::int FROM evaluated WHERE is_qualified = TRUE) AS qualified_pins,
+      (SELECT count(*)::int FROM deleted) AS pruned_pins;
+  `;
+
+  const total = Number(res?.total_pins || 0);
+  const qualified = Number(res?.qualified_pins || 0);
+  const prunedCount = Number(res?.pruned_pins || 0);
+  const disqualified = Math.max(0, total - qualified);
 
   return {
     ok: true,
@@ -717,6 +713,10 @@ export async function listArchivedPins(sql, {
   const boardPattern = board ? `%${board.toLowerCase().trim()}%` : null;
   const isAsc = String(order).toLowerCase() === 'asc';
 
+  // Stage and change filters
+  const stageFilter = stage ? String(stage).trim().toUpperCase() : null;
+  const filterChangedOnly = Boolean(changedOnly);
+
   // Normalize sort column
   let sortColumn = 'saves';
   if (sortBy === 'velocity' || sortBy === 'delta_saves') sortColumn = 'velocity';
@@ -751,7 +751,25 @@ export async function listArchivedPins(sql, {
             )
           )
         ))
-        AND (${accountPattern}::text IS NULL OR COALESCE(LOWER(account_username), '') LIKE ${accountPattern})
+        AND (${accountPattern}::text IS NULL OR COALESCE(LOWER(REPLACE(account_username, '@', '')), '') LIKE ${accountPattern})
+        AND (
+          ${stageFilter}::text IS NULL OR
+          (${stageFilter} = 'DORMANT' AND velocity < 0.5) OR
+          (${stageFilter} = 'COOLING' AND velocity >= 0.5 AND velocity < 2.0) OR
+          (${stageFilter} = 'NEW' AND velocity >= 0.5 AND COALESCE(created_at_pinterest, first_seen_at) >= NOW() - INTERVAL '14 days') OR
+          (${stageFilter} = 'GROWING' AND velocity >= 10.0 AND (COALESCE(created_at_pinterest, first_seen_at) < NOW() - INTERVAL '14 days' OR COALESCE(created_at_pinterest, first_seen_at) IS NULL)) OR
+          (${stageFilter} = 'MATURE' AND velocity >= 2.0 AND velocity < 10.0 AND (COALESCE(created_at_pinterest, first_seen_at) < NOW() - INTERVAL '14 days' OR COALESCE(created_at_pinterest, first_seen_at) IS NULL))
+        )
+        AND (
+          NOT ${filterChangedOnly} OR
+          EXISTS (
+            SELECT 1 FROM pa_pin_metrics m
+            WHERE m.pin_id = pa_pins.pin_id
+              AND m.recorded_at <= NOW() - INTERVAL '6 hours'
+              AND m.recorded_at >= NOW() - INTERVAL '36 hours'
+              AND (pa_pins.saves > m.saves OR pa_pins.repins > m.repins)
+          )
+        )
       ORDER BY
         CASE WHEN ${sortColumn} = 'saves' AND ${isAsc} THEN saves END ASC,
         CASE WHEN ${sortColumn} = 'saves' AND NOT ${isAsc} THEN saves END DESC,
@@ -793,7 +811,25 @@ export async function listArchivedPins(sql, {
             )
           )
         ))
-        AND (${accountPattern}::text IS NULL OR COALESCE(LOWER(account_username), '') LIKE ${accountPattern});
+        AND (${accountPattern}::text IS NULL OR COALESCE(LOWER(REPLACE(account_username, '@', '')), '') LIKE ${accountPattern})
+        AND (
+          ${stageFilter}::text IS NULL OR
+          (${stageFilter} = 'DORMANT' AND velocity < 0.5) OR
+          (${stageFilter} = 'COOLING' AND velocity >= 0.5 AND velocity < 2.0) OR
+          (${stageFilter} = 'NEW' AND velocity >= 0.5 AND COALESCE(created_at_pinterest, first_seen_at) >= NOW() - INTERVAL '14 days') OR
+          (${stageFilter} = 'GROWING' AND velocity >= 10.0 AND (COALESCE(created_at_pinterest, first_seen_at) < NOW() - INTERVAL '14 days' OR COALESCE(created_at_pinterest, first_seen_at) IS NULL)) OR
+          (${stageFilter} = 'MATURE' AND velocity >= 2.0 AND velocity < 10.0 AND (COALESCE(created_at_pinterest, first_seen_at) < NOW() - INTERVAL '14 days' OR COALESCE(created_at_pinterest, first_seen_at) IS NULL))
+        )
+        AND (
+          NOT ${filterChangedOnly} OR
+          EXISTS (
+            SELECT 1 FROM pa_pin_metrics m
+            WHERE m.pin_id = pa_pins.pin_id
+              AND m.recorded_at <= NOW() - INTERVAL '6 hours'
+              AND m.recorded_at >= NOW() - INTERVAL '36 hours'
+              AND (pa_pins.saves > m.saves OR pa_pins.repins > m.repins)
+          )
+        );
     `
   ]);
 
@@ -880,15 +916,8 @@ export async function listArchivedPins(sql, {
     };
   });
 
-  if (stage) {
-    const sUpper = String(stage).toUpperCase();
-    mapped = mapped.filter(p => p.stage === sUpper);
-  }
-
-  if (changedOnly) {
-    mapped = mapped.filter(p => p.delta_saves > 0 || p.delta_repins > 0);
-  }
-
+  // Since SQL has already filtered by stage and changedOnly correctly with SARGable index predicates,
+  // we do not truncate post-LIMIT in JS, preserving correct page lengths and total counts.
   mapped.total = countRow ? countRow.total : mapped.length;
   return mapped;
 }

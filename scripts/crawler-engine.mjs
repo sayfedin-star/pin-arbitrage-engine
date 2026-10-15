@@ -945,7 +945,7 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
     try {
       claimed = await sqlClient`
         WITH batch AS (
-          SELECT cp.id, cp.pin_id, cp.competitor_id, cp.board_name, COALESCE(cp.enrich_attempts, 0)::int AS enrich_attempts, prof.username AS account_username
+          SELECT cp.id, cp.pin_id, cp.competitor_id, cp.board_name, COALESCE(cp.enrich_attempts, 0)::int AS enrich_attempts, prof.username AS account_username, COALESCE((prof.metadata->>'auto_archive_winning')::boolean, true) AS auto_archive_winning
           FROM competitor_pins cp
           JOIN competitor_profiles prof ON prof.id = cp.competitor_id
           WHERE (${compId}::int IS NULL OR cp.competitor_id = ${compId}::int)
@@ -960,7 +960,7 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
             updated_at = NOW()
         FROM batch b
         WHERE cp.id = b.id
-        RETURNING b.id, b.pin_id, b.competitor_id, b.board_name, b.enrich_attempts, b.account_username, cp.claim_token;
+        RETURNING b.id, b.pin_id, b.competitor_id, b.board_name, b.enrich_attempts, b.account_username, b.auto_archive_winning, cp.claim_token;
       `;
     } catch (err) {
       console.error(`[-] [Shard ${shardNumber}] Error claiming batch:`, err.message);
@@ -1157,7 +1157,7 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
               };
 
               // Gate pa_pins (Winning Pins Archive): strictly qualify via active 3-tier rules
-              if (isPinQualified(pinCandidate, qualRules)) {
+              if (item.auto_archive_winning !== false && isPinQualified(pinCandidate, qualRules)) {
                 enrichedPins.push(pinCandidate);
                 metricSnapshots.push({
                   pin_id: item.pin_id,

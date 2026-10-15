@@ -18,7 +18,8 @@ import {
   fetchUniversalPinDossier,
   getPinShardId,
   resolveShardConnection,
-  getFleetShardsMap
+  getFleetShardsMap,
+  enforceNeonPoolerUrl
 } from './modules/sharding/fleet-router.mjs';
 import { fetchPinFromPinterest } from '../scripts/lib/pinterest.mjs';
 
@@ -171,22 +172,33 @@ export function safeWaitUntil(ctx, promise, taskName = 'bg_task', timeoutMs = 25
   }
 }
 
-// Edge Circuit Breaker for Pinterest HTTP 429
+// L0 Isolate-Level Circuit Breaker State + L1 KV Persistence
+let l0PinterestCircuit = { triggered_at: 0, cooldown_seconds: 0, reason: '' };
+
 export async function checkPinterestCircuitBreaker(env) {
+  const now = Date.now();
+  const l0Expires = l0PinterestCircuit.triggered_at + (l0PinterestCircuit.cooldown_seconds * 1000);
+  if (l0Expires > now) {
+    return {
+      active: true,
+      remaining_seconds: Math.max(1, Math.ceil((l0Expires - now) / 1000)),
+      reason: l0PinterestCircuit.reason,
+      triggered_at: l0PinterestCircuit.triggered_at
+    };
+  }
   if (!env?.PIN_ENGINE_KV) return null;
   try {
-    const raw = await env.PIN_ENGINE_KV.get('circuit:pinterest:429', { type: 'json' });
+    const raw = await env.PIN_ENGINE_KV.get('circuit:pinterest:429', { type: 'json', cacheTtl: 30 });
     if (!raw) return null;
-    const now = Date.now();
     const triggeredAt = Number(raw.triggered_at) || 0;
     const cooldownSec = Number(raw.cooldown_seconds) || 900;
     const expiresAt = triggeredAt + (cooldownSec * 1000);
     if (expiresAt > now) {
-      const remainingSec = Math.max(1, Math.ceil((expiresAt - now) / 1000));
+      l0PinterestCircuit = { triggered_at: triggeredAt, cooldown_seconds: cooldownSec, reason: raw.reason || 'HTTP 429/403' };
       return {
         active: true,
-        remaining_seconds: remainingSec,
-        reason: raw.reason || 'HTTP 429 Too Many Requests',
+        remaining_seconds: Math.max(1, Math.ceil((expiresAt - now) / 1000)),
+        reason: l0PinterestCircuit.reason,
         triggered_at: triggeredAt
       };
     }
@@ -194,15 +206,16 @@ export async function checkPinterestCircuitBreaker(env) {
   return null;
 }
 
-export async function tripPinterestCircuitBreaker(env, reason = 'HTTP 429 Too Many Requests', cooldownSeconds = 900) {
+export async function tripPinterestCircuitBreaker(env, reason = 'HTTP 429/403 Rate Limit', cooldownSeconds = 900) {
+  const now = Date.now();
+  l0PinterestCircuit = { triggered_at: now, cooldown_seconds: cooldownSeconds, reason };
   if (!env?.PIN_ENGINE_KV) return;
   try {
-    const payload = JSON.stringify({
-      triggered_at: Date.now(),
-      cooldown_seconds: cooldownSeconds,
-      reason
-    });
-    await env.PIN_ENGINE_KV.put('circuit:pinterest:429', payload, { expirationTtl: cooldownSeconds });
+    await env.PIN_ENGINE_KV.put(
+      'circuit:pinterest:429',
+      JSON.stringify(l0PinterestCircuit),
+      { expirationTtl: cooldownSeconds }
+    );
   } catch (err) {
     console.warn('[circuit:pinterest:429] Failed to trip KV circuit breaker:', redactSecrets(err.message));
   }
@@ -779,11 +792,11 @@ const MAX_CONCURRENT_HUB_FALLBACKS = 6;
 export default {
   async fetch(request, env, ctx) {
     const requestOrigin = request.headers.get('Origin');
-    const dynamicCors = getCorsHeaders(requestOrigin, env);
+    const dynamicCors = getCorsHeaders(requestOrigin, env, request.url);
     setDefaultCorsOrigin(dynamicCors['Access-Control-Allow-Origin']);
 
     if (request.method.toUpperCase() === 'OPTIONS') {
-      return corsOptionsResponse(requestOrigin, env);
+      return corsOptionsResponse(requestOrigin, env, 'GET, POST, DELETE, OPTIONS', request.url);
     }
 
     return requestContextStorage.run({ request, env, ctx, origin: dynamicCors['Access-Control-Allow-Origin'] }, async () => {
@@ -921,7 +934,7 @@ export default {
           } catch (_) {}
         }
         if (!sql && directNeonUrl) {
-          sql = neon(directNeonUrl);
+          sql = neon(enforceNeonPoolerUrl(directNeonUrl));
         }
       }
 
@@ -985,7 +998,7 @@ export default {
         // Fallback: If Hyperdrive TCP check threw an error and directNeonUrl is available, try direct Neon HTTP
         if (usedHyperdrive && directNeonUrl) {
           try {
-            const fallbackSql = neon(directNeonUrl);
+            const fallbackSql = neon(enforceNeonPoolerUrl(directNeonUrl));
             await fallbackSql`SELECT 1 as alive;`;
             return jsonResponse({
               status: 'healthy',
@@ -1033,9 +1046,27 @@ export default {
       }
     }
 
-    // Edge Circuit Breaker Gate for Pinterest Rate Limits (HTTP 429)
-    const isCrawlerEndpoint = pathname === '/api/crawl' || pathname.startsWith('/api/crawl/') || pathname === '/api/keywords/sync' || pathname === '/api/competitors/dispatch-crawl';
-    if (isCrawlerEndpoint && (isMutatingMethod || pathname.startsWith('/api/crawl/dispatch'))) {
+    // Edge Circuit Breaker Gate for Pinterest Rate Limits (HTTP 429 & 403)
+    const isLiveScrapeGet = method === 'GET' && searchParams.get('refresh') === 'true' && (
+      pathname === '/api/competitors/board-detail' ||
+      pathname === '/api/pinarchive/pin-detail' ||
+      pathname.startsWith('/api/pins/')
+    );
+    const isCrawlerEndpoint =
+      pathname === '/api/crawl' ||
+      pathname.startsWith('/api/crawl/') ||
+      pathname === '/api/keywords/sync' ||
+      pathname === '/api/competitors/dispatch-crawl' ||
+      pathname === '/api/competitors/sync' ||
+      pathname === '/api/competitors/sync-boards' ||
+      pathname === '/api/competitors/sync-pins' ||
+      pathname === '/api/competitors/related-pins/harvest-live' ||
+      pathname === '/api/board-ideas/resolve' ||
+      pathname === '/api/board-ideas/sync' ||
+      (pathname.startsWith('/api/pins/') && pathname.endsWith('/sync')) ||
+      isLiveScrapeGet;
+
+    if (isCrawlerEndpoint && (isMutatingMethod || pathname.startsWith('/api/crawl/dispatch') || isLiveScrapeGet)) {
       const cb = await checkPinterestCircuitBreaker(env);
       if (cb?.active) {
         return new Response(JSON.stringify({
@@ -1070,7 +1101,8 @@ export default {
           if (store) store.hyperdriveSql = hyperdriveSql;
         }
         if (directNeonUrl) {
-          const directSql = getCachedShardSql(directNeonUrl, () => neon(directNeonUrl));
+          const pooledDirectUrl = enforceNeonPoolerUrl(directNeonUrl);
+          const directSql = getCachedShardSql(pooledDirectUrl, () => neon(pooledDirectUrl));
           sql = new Proxy(hyperdriveSql, {
             apply(target, thisArg, argArray) {
               try {
@@ -1109,7 +1141,8 @@ export default {
           sql = hyperdriveSql;
         }
       } else if (directNeonUrl) {
-        sql = getCachedShardSql(directNeonUrl, () => neon(directNeonUrl));
+        const pooledDirectUrl = enforceNeonPoolerUrl(directNeonUrl);
+        sql = getCachedShardSql(pooledDirectUrl, () => neon(pooledDirectUrl));
       }
     }
 
@@ -1152,7 +1185,8 @@ export default {
             );
           }
           if (proj && proj.database_url) {
-            targetSql = getCachedShardSql(proj.database_url, () => neon(proj.database_url));
+            const pooledShardUrl = enforceNeonPoolerUrl(proj.database_url);
+            targetSql = getCachedShardSql(pooledShardUrl, () => neon(pooledShardUrl));
             setCachedShardSql(cleanKey, targetSql);
             if (proj.project_id) setCachedShardSql(proj.project_id, targetSql);
             if (proj.project_name) setCachedShardSql(proj.project_name, targetSql);
@@ -2428,11 +2462,22 @@ export default {
         const username = body.username;
         if (!username) return jsonResponse({ error: 'username is required' }, 400);
         const cookie = env.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env.PINTEREST_COOKIE : null);
-        const updated = await syncCompetitorProfile(targetSql, username, cookie);
-        if (updated?.username) {
-          safeWaitUntil(ctx, syncCompetitorAcrossFleet(sql, updated.username), 'syncCompetitorAcrossFleet');
+        try {
+          const updated = await syncCompetitorProfile(targetSql, username, cookie);
+          if (updated?.username) {
+            safeWaitUntil(ctx, syncCompetitorAcrossFleet(sql, updated.username), 'syncCompetitorAcrossFleet');
+          }
+          return jsonResponse({ success: true, profile: updated });
+        } catch (err) {
+          if (err.message && (err.message.includes('429') || err.message.includes('rate limit'))) {
+            safeWaitUntil(ctx, tripPinterestCircuitBreaker(env, 'HTTP 429 Rate Limit in /api/competitors/sync', 900), 'tripPinterestCircuitBreaker');
+            return jsonResponse({ error: 'PINTEREST_RATE_LIMITED', message: err.message }, 429);
+          } else if (err.message && (err.message.includes('403') || err.message.includes('access denied'))) {
+            safeWaitUntil(ctx, tripPinterestCircuitBreaker(env, 'HTTP 403 Forbidden in /api/competitors/sync', 900), 'tripPinterestCircuitBreaker');
+            return jsonResponse({ error: 'PINTEREST_ACCESS_DENIED', message: err.message }, 403);
+          }
+          throw err;
         }
-        return jsonResponse({ success: true, profile: updated });
       }
 
       if (method === 'DELETE' && pathname === '/api/competitors') {
@@ -2929,8 +2974,8 @@ export default {
             monthly_growth: res.monthly_growth || 0,
             pin_count: res.pins_collected || res.pin_count || 0
           }), 'syncKeywordToD1');
-        } else if (res?.status === 429 || (res?.error && typeof res.error === 'string' && res.error.includes('429'))) {
-          safeWaitUntil(ctx, tripPinterestCircuitBreaker(env, 'HTTP 429 Too Many Requests', 900), 'tripPinterestCircuitBreaker');
+        } else if (res?.status === 429 || res?.status === 403 || (res?.error && typeof res.error === 'string' && (res.error.includes('429') || res.error.includes('403')))) {
+          safeWaitUntil(ctx, tripPinterestCircuitBreaker(env, `HTTP ${res?.status || 429} Rate Limit/Block in /api/keywords/sync`, 900), 'tripPinterestCircuitBreaker');
         }
 
         return jsonResponse({ success: true, result: res });
@@ -4516,7 +4561,16 @@ export default {
         invalidateEdgeCache('topics');
         const body = await request.json().catch(() => ({}));
         const account = searchParams.get('account') || searchParams.get('username') || body.account_username || null;
-        const audit = await reEvaluateArchivedPins(targetSql, (body && Object.keys(body).length > 0) ? body : null, account);
+        const hasRuleOverride = Boolean(body && (
+          body.tier1_min_saves !== undefined ||
+          body.tier2_min_repins !== undefined ||
+          body.tier3_max_age_days !== undefined ||
+          body.tier3_min_saves !== undefined ||
+          body.master_ingest_enabled !== undefined ||
+          (body.rules && typeof body.rules === 'object')
+        ));
+        const rulesPayload = hasRuleOverride ? (body.rules || body) : null;
+        const audit = await reEvaluateArchivedPins(targetSql, rulesPayload, account);
         return jsonResponse({ success: true, ...audit });
       }
 

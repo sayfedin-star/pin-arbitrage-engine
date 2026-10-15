@@ -4046,7 +4046,7 @@ export function getDashboardHtml() {
                     <span class="text-[11px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider">Tier 1: Min Saves</span>
                     <i data-lucide="bookmark" class="w-3.5 h-3.5 text-amber-500"></i>
                   </div>
-                  <input type="number" x-model.number="creatorRules.tier1_min_saves" class="w-full h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#0b1120] px-3 text-xs font-bold text-slate-900 dark:text-white" placeholder="5000" />
+                  <input type="number" x-model.number="creatorRules.tier1_min_saves" class="w-full h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#0b1120] px-3 text-xs font-bold text-slate-900 dark:text-white" placeholder="100" />
                   <span class="text-[10px] text-slate-400 mt-1 block">Evergreen high-volume target</span>
                 </div>
 
@@ -4056,7 +4056,7 @@ export function getDashboardHtml() {
                     <span class="text-[11px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider">Tier 2: Min Repins</span>
                     <i data-lucide="repeat" class="w-3.5 h-3.5 text-blue-500"></i>
                   </div>
-                  <input type="number" x-model.number="creatorRules.tier2_min_repins" class="w-full h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#0b1120] px-3 text-xs font-bold text-slate-900 dark:text-white" placeholder="2500" />
+                  <input type="number" x-model.number="creatorRules.tier2_min_repins" class="w-full h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#0b1120] px-3 text-xs font-bold text-slate-900 dark:text-white" placeholder="100" />
                   <span class="text-[10px] text-slate-400 mt-1 block">High distribution virality</span>
                 </div>
 
@@ -4066,7 +4066,7 @@ export function getDashboardHtml() {
                     <span class="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">Tier 3: Max Age (Days)</span>
                     <i data-lucide="sparkles" class="w-3.5 h-3.5 text-emerald-500"></i>
                   </div>
-                  <input type="number" x-model.number="creatorRules.tier3_fresh_days" class="w-full h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#0b1120] px-3 text-xs font-bold text-slate-900 dark:text-white" placeholder="60" />
+                  <input type="number" x-model.number="creatorRules.tier3_fresh_days" class="w-full h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#0b1120] px-3 text-xs font-bold text-slate-900 dark:text-white" placeholder="14" />
                   <span class="text-[10px] text-slate-400 mt-1 block">Fresh breakout window</span>
                 </div>
 
@@ -4076,7 +4076,7 @@ export function getDashboardHtml() {
                     <span class="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">Tier 3: Fresh Min Saves</span>
                     <i data-lucide="zap" class="w-3.5 h-3.5 text-emerald-500"></i>
                   </div>
-                  <input type="number" x-model.number="creatorRules.tier3_min_saves" class="w-full h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#0b1120] px-3 text-xs font-bold text-slate-900 dark:text-white" placeholder="500" />
+                  <input type="number" x-model.number="creatorRules.tier3_min_saves" class="w-full h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#0b1120] px-3 text-xs font-bold text-slate-900 dark:text-white" placeholder="25" />
                   <span class="text-[10px] text-slate-400 mt-1 block">Early breakout acceleration</span>
                 </div>
               </div>
@@ -7667,7 +7667,7 @@ export function getDashboardHtml() {
         </div>
 
         <!-- Conditional Discover Mode Selector (when Discover Pins is checked) -->
-        <div x-show="newCompetitorDiscoverPins" class="p-3.5 rounded-2xl bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-200/60 dark:border-indigo-900/40 space-y-2">
+        <div x-show="newCompetitorDiscoverPins" class="p-3.5 rounded-2xl bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-200/60 dark:border-indigo-900/40 space-y-3">
           <label class="block font-bold text-indigo-900 dark:text-indigo-200">Discovery Mode:</label>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <label class="flex items-center space-x-2 p-2.5 rounded-xl border cursor-pointer transition" :class="newCompetitorDiscoverMode === 'daily' ? 'bg-white dark:bg-indigo-900/40 border-indigo-500 text-indigo-700 dark:text-indigo-300 font-bold shadow-sm' : 'border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'">
@@ -7681,10 +7681,36 @@ export function getDashboardHtml() {
               <input type="radio" value="deep" x-model="newCompetitorDiscoverMode" class="text-indigo-600">
               <div>
                 <div class="text-xs">Deep Audit Sweep</div>
-                <div class="text-[10px] text-slate-500 dark:text-slate-400">Up to 500 pages (History)</div>
+                <div class="text-[10px] text-slate-500 dark:text-slate-400">Up to <span x-text="newCompetitorMaxPages || 500"></span> pages (History)</div>
               </div>
             </label>
           </div>
+
+          <!-- Deep Audit Max Pages Customizer -->
+          <div x-show="newCompetitorDiscoverMode === 'deep'" class="pt-2 border-t border-indigo-200/40 dark:border-indigo-900/40 flex items-center justify-between">
+            <div>
+              <span class="font-bold text-slate-900 dark:text-white block text-xs">Sweep Depth Limit</span>
+              <span class="text-[10px] text-slate-500 dark:text-slate-400 block">Default: 500 pages. Increase for giant accounts.</span>
+            </div>
+            <div class="flex items-center space-x-1.5">
+              <input type="number" min="1" max="10000" step="50" x-model.number="newCompetitorMaxPages" class="w-20 px-2.5 py-1 text-xs font-mono font-bold text-center rounded-lg bg-white dark:bg-slate-950 border border-indigo-300 dark:border-indigo-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="500">
+              <span class="text-[11px] font-mono text-slate-400">pages</span>
+            </div>
+          </div>
+
+          <!-- Ingest to Winning Pins Archive Checkbox -->
+          <label class="flex items-start space-x-3 cursor-pointer pt-2 border-t border-indigo-200/40 dark:border-indigo-900/40">
+            <input type="checkbox" x-model="newCompetitorAutoArchiveWinning" class="mt-0.5 rounded border-indigo-300 dark:border-indigo-700 text-rose-500 focus:ring-rose-500">
+            <div>
+              <span class="font-bold text-slate-900 dark:text-white block flex items-center gap-1.5">
+                <span>📌 Ingest to Winning Pins Archive</span>
+                <span class="text-[10px] font-mono px-1.5 py-0.2 rounded bg-rose-500/10 text-rose-500 border border-rose-500/20">Recommended</span>
+              </span>
+              <span class="text-[11px] text-slate-500 dark:text-slate-400 block mt-0.5">
+                Automatically filters pins during this sweep (&ge;100 saves/repins or fresh viral) and saves them directly into your Winning Pins Archive.
+              </span>
+            </div>
+          </label>
         </div>
 
         <!-- Ingest Interval Selector -->
@@ -8248,10 +8274,10 @@ export function getDashboardHtml() {
 
         // Per-Account Qualification Rules State
         creatorRules: {
-          tier1_min_saves: 5000,
-          tier2_min_repins: 2500,
-          tier3_fresh_days: 60,
-          tier3_min_saves: 500,
+          tier1_min_saves: 100,
+          tier2_min_repins: 100,
+          tier3_fresh_days: 14,
+          tier3_min_saves: 25,
           articles_only: true,
           auto_pipeline: true
         },
@@ -8353,7 +8379,9 @@ export function getDashboardHtml() {
         newCompetitorHandle: '',
         newCompetitorAlsoTrack: true,
         newCompetitorDiscoverPins: true,
-        newCompetitorDiscoverMode: 'daily',
+        newCompetitorDiscoverMode: 'deep',
+        newCompetitorMaxPages: 500,
+        newCompetitorAutoArchiveWinning: true,
         newCompetitorInterval: 'daily',
         isSubmittingCreator: false,
 
@@ -10114,13 +10142,22 @@ export function getDashboardHtml() {
             for (let i = 0; i < this.competitors.length; i++) {
               const c = this.competitors[i];
               this.showToast('Syncing (' + (i + 1) + '/' + this.competitors.length + '): @' + c.username + '...');
-              await fetch(this.getApiUrl('/api/competitors/sync'), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username: c.username })
-              }).catch(() => {});
+              try {
+                const res = await fetch(this.getApiUrl('/api/competitors/sync'), {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ username: c.username })
+                });
+                if (res.status === 429 || res.status === 503) {
+                  this.showToast('⚠️ Rate limit (429) or circuit breaker tripped. Pausing batch sync to protect account.');
+                  break;
+                }
+              } catch (fetchErr) {
+                console.warn('[syncAllCompetitors] Sync failed for @' + c.username, fetchErr);
+              }
               if (i < this.competitors.length - 1) {
-                await new Promise(r => setTimeout(r, 2000));
+                const delay = 2500 + Math.floor(Math.random() * 1500);
+                await new Promise(r => setTimeout(r, delay));
               }
             }
             await this.fetchCompetitors();
@@ -10834,7 +10871,9 @@ export function getDashboardHtml() {
           this.newCompetitorHandle = '';
           this.newCompetitorAlsoTrack = true;
           this.newCompetitorDiscoverPins = true;
-          this.newCompetitorDiscoverMode = 'daily';
+          this.newCompetitorDiscoverMode = 'deep';
+          this.newCompetitorMaxPages = 500;
+          this.newCompetitorAutoArchiveWinning = true;
           this.newCompetitorInterval = 'daily';
           this.isAddCompetitorModalOpen = true;
           this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
@@ -11998,41 +12037,63 @@ export function getDashboardHtml() {
           let raw = (this.newCompetitorHandle || '').trim();
           if (!raw) return;
 
-          // Client-side Pinterest URL or handle parsing
+          // Client-side Pinterest URL or handle parsing with multi-domain support
           let handle = raw;
-          if (handle.includes('pinterest.com/')) {
+          if (/(?:^|\.)pinterest\.[a-z.]+/i.test(handle)) {
             try {
               const parsed = new URL(handle.startsWith('http') ? handle : 'https://' + handle);
               const parts = parsed.pathname.split('/').filter(Boolean);
               if (parts.length > 0) handle = parts[0];
             } catch (_) {
-              handle = handle.split('pinterest.com/')[1].split('/')[0].split('?')[0];
+              const pIdx = handle.indexOf('pinterest.');
+              if (pIdx !== -1) {
+                const sIdx = handle.indexOf('/', pIdx);
+                if (sIdx !== -1) {
+                  handle = handle.substring(sIdx + 1).split('/')[0].split('?')[0];
+                }
+              }
             }
           }
-          handle = handle.replace(/^@+/, '').trim();
-          if (!handle) return;
+          handle = handle.replace(/^@+/, '').trim().toLowerCase();
+
+          const reservedPaths = new Set([
+            'pin', 'pins', 'search', 'ideas', 'today', 'settings', 'about',
+            'business', 'blog', 'help', 'password', 'login', 'signup',
+            'explore', 'categories', 'news', 'shop', 'topics', 'notifications',
+            'messages', 'edit', 'following', 'followers', 'analytics'
+          ]);
+
+          if (!handle || reservedPaths.has(handle) || !/^[a-z0-9_.-]{3,64}$/.test(handle)) {
+            this.showToast('⚠️ Invalid Pinterest creator handle: "' + (handle || raw) + '". Reserved words and invalid formats are not allowed.');
+            return;
+          }
 
           this.isSubmittingCreator = true;
           try {
-            // 1. If also track in Competitors Intelligence
-            if (this.newCompetitorAlsoTrack) {
+            // 1. Ensure competitor profile is registered in database before crawling
+            if (this.newCompetitorAlsoTrack || this.newCompetitorDiscoverPins) {
               const res = await fetch(this.getApiUrl('/api/competitors'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username: handle })
+                body: JSON.stringify({
+                  username: handle,
+                  ingest_interval: this.newCompetitorInterval || 'daily',
+                  is_active: true,
+                  auto_archive_winning: Boolean(this.newCompetitorAutoArchiveWinning)
+                })
               });
               if (res.ok) {
                 this.showToast('✅ Creator @' + handle + ' added to tracking!');
-                // Kick off live profile sync
-                this.syncCompetitor(handle);
+                // Await live profile sync before UI refresh
+                await this.syncCompetitor(handle);
               }
             }
 
             // 2. If discover pins immediately -> Dispatch to 20-Shard GitHub Actions Crawler
             if (this.newCompetitorDiscoverPins) {
               const crawlMode = this.newCompetitorDiscoverMode === 'deep' ? 'discovery' : 'refresh';
-              const maxPages = this.newCompetitorDiscoverMode === 'deep' ? 500 : 3;
-              this.showToast('⚡ Dispatching 20-shard GHA Crawler for @' + handle + ' (' + crawlMode + ' mode)...');
+              const maxPages = this.newCompetitorDiscoverMode === 'deep' ? Math.min(10000, Math.max(1, Number(this.newCompetitorMaxPages) || 500)) : 3;
+              this.showToast('⚡ Dispatching 20-shard GHA Crawler for @' + handle + ' (' + crawlMode + ' mode, ' + maxPages + ' pages)...');
               
               const resPins = await fetch(this.getApiUrl('/api/competitors/dispatch-crawl'), {
                 method: 'POST',
@@ -12040,7 +12101,8 @@ export function getDashboardHtml() {
                 body: JSON.stringify({
                   username: handle,
                   crawl_mode: crawlMode,
-                  max_pages: maxPages
+                  max_pages: maxPages,
+                  auto_archive_winning: Boolean(this.newCompetitorAutoArchiveWinning)
                 })
               });
               if (resPins.ok) {
