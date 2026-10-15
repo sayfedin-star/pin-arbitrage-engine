@@ -7,7 +7,8 @@ import { neon } from '@neondatabase/serverless';
 import { getCompetitorsOverview, listCompetitors, formatMetric } from '../competitors/service.mjs';
 import { getShardNumberForEntity } from './sharding.mjs';
 import { enforceNeonPoolerUrl } from '../sharding/fleet-router.mjs';
-export { enforceNeonPoolerUrl };
+import { maskDatabaseUrl } from '../../utils.mjs';
+export { enforceNeonPoolerUrl, maskDatabaseUrl };
 
 export async function getFleetProjects(sql) {
   const rows = await sql`
@@ -28,11 +29,7 @@ export async function getFleetProjects(sql) {
   `;
 
   return rows.map(r => {
-    const masked = r.database_url
-      ? (r.database_url.includes('@')
-          ? r.database_url.replace(/(:\/\/[^:]+:)(.*)(@[^@]+$)/, '$1••••••••$3')
-          : r.database_url)
-      : '';
+    const masked = maskDatabaseUrl(r.database_url);
     return {
       id: r.id,
       project_id: r.project_id,
@@ -93,7 +90,7 @@ export async function registerNewProject(sql, { project_id, project_name, databa
       updated_at = NOW()
     RETURNING id, project_id, project_name, region_id, status, is_hub, assigned_shards, stats, created_at, updated_at;
   `;
-  const masked = pooledUrl.replace(/(:\/\/[^:]+:)(.*)(@[^@]+$)/, '$1••••••••$3');
+  const masked = maskDatabaseUrl(pooledUrl);
   return { ...row, database_url: masked, masked_url: masked };
 }
 
@@ -825,7 +822,7 @@ export async function getFleetProjectUrl(hubSql, projectId, { allowUnmasked = fa
   if (!proj) {
     throw new Error(`Project ${projectId} not found in fleet registry.`);
   }
-  const maskedUrl = proj.database_url ? proj.database_url.replace(/:([^:@]+)@/, ':••••••••@') : '';
+  const maskedUrl = maskDatabaseUrl(proj.database_url);
   return {
     ok: true,
     project_id: proj.project_id,

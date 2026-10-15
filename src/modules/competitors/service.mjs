@@ -4,7 +4,7 @@
  * and pin catalog ingestion.
  */
 
-import { formatPinterestCookie, sanitizeForJsonb } from '../../utils.mjs';
+import { formatPinterestCookie, sanitizeForJsonb, escapeSqlWildcards } from '../../utils.mjs';
 import { fetchUserResource, fetchBoardsResource, fetchBoardDetailUnauth, fetchUserActivityPinsResource, fetchBoardFeedResource, pinterestFetch, sleep, randomJitterMs } from '../../../scripts/lib/pinterest.mjs';
 import crypto from 'node:crypto';
 import { ingestPinsBatch, getQualificationRules } from '../pinarchive/service.mjs';
@@ -130,7 +130,8 @@ export async function listCompetitors(sql, { account_type = 'all', search = '', 
     let query;
     const lim = Math.max(1, Math.min(isNaN(Number(limit)) ? 50 : Number(limit), 200));
     const off = Math.max(0, isNaN(Number(offset)) ? 0 : Number(offset));
-    const searchPattern = search ? `%${search.toLowerCase().replace('@', '')}%` : null;
+    const cleanSearch = (search && typeof search === 'string' && search.trim()) ? escapeSqlWildcards(search.toLowerCase().replace('@', '').trim()) : null;
+    const searchPattern = cleanSearch ? `%${cleanSearch}%` : null;
 
     if (account_type && account_type !== 'all') {
       if (searchPattern) {
@@ -1048,7 +1049,8 @@ export async function syncCompetitorPins(sql, competitorId, username, { mode = '
     }
 
     // 2. Filter through 3-tier OR qualification rules & ingest qualified winning pins into pa_pins
-    if (pins.length > 0 && shouldAutoArchive) {
+    // Only run during refresh/daily sync; in discovery mode, parallel shards handle deep Relay v3 enrichment!
+    if (pins.length > 0 && mode !== 'discovery' && shouldAutoArchive) {
       const ingestRes = await ingestPinsBatch(sql, pins, cleanUsername, { filterQualified: true, rules });
       allQualifiedCount += (ingestRes.added + ingestRes.updated);
     }
@@ -1196,8 +1198,9 @@ export async function syncCompetitorBoardPins(sql, competitorId, username, board
     }
 
     // 2. Filter through 3-tier OR rules & ingest qualified winning pins into pa_pins
+    // Only run during refresh/daily sync; in discovery mode, parallel shards handle deep Relay v3 enrichment!
     const shouldAutoArchive = compProfile?.metadata?.auto_archive_winning !== false;
-    if (pins.length > 0 && shouldAutoArchive) {
+    if (pins.length > 0 && mode !== 'discovery' && shouldAutoArchive) {
       const ingestRes = await ingestPinsBatch(sql, pins, cleanUsername, { filterQualified: true, rules });
       allQualifiedCount += (ingestRes.added + ingestRes.updated);
     }
@@ -2067,7 +2070,8 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
   const offset = (pNum - 1) * pLim;
 
   const minSavesNum = Math.max(0, parseInt(min_saves, 10) || 0);
-  const searchPattern = search ? `%${search.toLowerCase().trim()}%` : null;
+  const cleanSearch = (search && typeof search === 'string' && search.trim()) ? escapeSqlWildcards(search.toLowerCase().trim()) : null;
+  const searchPattern = cleanSearch ? `%${cleanSearch}%` : null;
   const boardPattern = (board && board.trim()) ? board.trim().toLowerCase() : null;
 
   const boardsRows = await sql`
@@ -2202,7 +2206,8 @@ export async function getTopDestinationUrls(sql, competitorId, {
   const pLim = Math.max(1, Math.min(Number(limit) || 50, 200));
   const pNum = Math.max(1, Number(page) || 1);
   const offset = (pNum - 1) * pLim;
-  const searchPattern = search ? `%${search.toLowerCase().trim()}%` : null;
+  const cleanSearch = (search && typeof search === 'string' && search.trim()) ? escapeSqlWildcards(search.toLowerCase().trim()) : null;
+  const searchPattern = cleanSearch ? `%${cleanSearch}%` : null;
 
   // Double escaped for Neon template literals: \\1, \\., \\?
   const rows = await sql`
@@ -2668,7 +2673,8 @@ export async function getCompetitorRelatedIntersections(sql, competitorId, optio
   const limit = Math.min(Math.max(1, Number(options.limit) || 50), 200);
   const offset = (page - 1) * limit;
   const filter = options.filter || options.ownership_filter || 'all'; // 'all', 'self_only', 'rivals_only'
-  const searchPattern = options.search ? `%${options.search.toLowerCase().trim()}%` : null;
+  const cleanSearch = (options.search && typeof options.search === 'string' && options.search.trim()) ? escapeSqlWildcards(options.search.toLowerCase().trim()) : null;
+  const searchPattern = cleanSearch ? `%${cleanSearch}%` : null;
 
   // Execute stats, paginated rows, and total count concurrently over Neon serverless pipeline
   const [[statsRow], rows, [countRow]] = await Promise.all([

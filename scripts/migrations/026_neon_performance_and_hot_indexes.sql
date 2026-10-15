@@ -4,9 +4,6 @@
 -- Fixes full table scans (Seq Scans), N+1 board overhead, and MVCC page churn.
 -- ============================================================================
 
--- Guard against DDL queue pileups by failing fast after 3 seconds of lock wait
-SET lock_timeout = '3000';
-
 -- 1. Ensure Trigram Extension is Active
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
@@ -34,9 +31,12 @@ ON competitor_pins (competitor_id, enrich_attempts ASC, id ASC)
 WHERE enrichment_status = 'pending';
 
 -- 6. HOT Fillfactor Tuning for High-Churn Tables (Prevents MVCC Page Bloat)
+-- Guard against DDL queue pileups by failing fast after 3 seconds of lock wait specifically on table alters
+SET lock_timeout = '3000';
 ALTER TABLE competitor_history_snapshots SET (fillfactor = 80);
 ALTER TABLE competitor_boards SET (fillfactor = 80);
 ALTER TABLE crawler_shard_heartbeats SET (fillfactor = 70);
+RESET lock_timeout;
 
 -- 7. Register Migration 026 in schema_migrations
 CREATE TABLE IF NOT EXISTS schema_migrations (

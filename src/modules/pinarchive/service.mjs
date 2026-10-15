@@ -9,6 +9,7 @@
  */
 
 import { fetchPinFromPinterest } from '../../../scripts/lib/pinterest.mjs';
+import { escapeSqlWildcards } from '../../utils.mjs';
 
 /**
  * Format numbers with abbreviation (e.g. 12.4K, 1.2M)
@@ -583,7 +584,7 @@ export async function getPinArchiveOverview(sql) {
  * Get topic clusters extracted from AI annotations in Postgres
  */
 export async function getTopicClusters(sql, { minPins = 1, search = '', account = '', limit = 50, offset = 0 } = {}) {
-  const searchPattern = search ? search.trim() : null;
+  const searchPattern = search ? escapeSqlWildcards(search.trim()) : null;
   const cleanAccount = account ? account.toLowerCase().replace(/^@/, '').trim() : null;
   const minNum = Math.max(1, isNaN(Number(minPins)) ? 1 : Number(minPins));
   const lim = Math.max(1, Math.min(isNaN(Number(limit)) ? 50 : Number(limit), 200));
@@ -707,10 +708,14 @@ export async function listArchivedPins(sql, {
   const maxNum = (maxSaves !== null && !isNaN(Number(maxSaves))) ? Number(maxSaves) : null;
   const lim = Math.max(1, Math.min(isNaN(Number(limit)) ? 50 : Number(limit), 1000));
   const off = Math.max(0, isNaN(Number(offset)) ? 0 : Number(offset));
-  const searchPattern = search ? `%${search.toLowerCase().trim()}%` : null;
-  const topicPattern = topic ? `%${topic.toLowerCase().trim()}%` : null;
-  const accountPattern = account ? `%${account.toLowerCase().replace('@', '').trim()}%` : null;
-  const boardPattern = board ? `%${board.toLowerCase().trim()}%` : null;
+  const cleanSearch = (search && typeof search === 'string' && search.trim()) ? escapeSqlWildcards(search.toLowerCase().trim()) : null;
+  const searchPattern = cleanSearch ? `%${cleanSearch}%` : null;
+  const cleanTopic = (topic && typeof topic === 'string' && topic.trim()) ? escapeSqlWildcards(topic.toLowerCase().trim()) : null;
+  const topicPattern = cleanTopic ? `%${cleanTopic}%` : null;
+  const cleanAccount = (account && typeof account === 'string' && account.trim()) ? escapeSqlWildcards(account.toLowerCase().replace('@', '').trim()) : null;
+  const accountPattern = cleanAccount ? `%${cleanAccount}%` : null;
+  const cleanBoard = (board && typeof board === 'string' && board.trim()) ? escapeSqlWildcards(board.toLowerCase().trim()) : null;
+  const boardPattern = cleanBoard ? `%${cleanBoard}%` : null;
   const isAsc = String(order).toLowerCase() === 'asc';
 
   // Stage and change filters

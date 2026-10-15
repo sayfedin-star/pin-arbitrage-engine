@@ -75,3 +75,30 @@ export function sanitizeForJsonb(input, seen = new WeakSet()) {
   }
   return input;
 }
+
+/**
+ * Escapes SQL LIKE / ILIKE wildcard characters (%, _, \) to prevent full table scans
+ * and ensure literal string matching when constructing dynamic pattern queries.
+ */
+export function escapeSqlWildcards(input) {
+  if (!input || typeof input !== 'string') return '';
+  return input.replace(/[\\%_]/g, '\\$&');
+}
+
+/**
+ * Safely masks database credentials in PostgreSQL connection strings
+ * using WHATWG URL parser with regex fallback.
+ */
+export function maskDatabaseUrl(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== 'string') return '';
+  try {
+    const u = new URL(rawUrl);
+    if (u.password) {
+      u.password = '••••••••';
+      return decodeURIComponent(u.toString());
+    }
+    return rawUrl;
+  } catch (_) {
+    return rawUrl.replace(/(:\/\/[^:]+:)(.*)(@[^@]+$)/, '$1••••••••$3');
+  }
+}

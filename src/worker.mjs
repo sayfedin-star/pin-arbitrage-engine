@@ -100,6 +100,7 @@ import {
   getPinDetailWithMetrics,
   deletePinMetricSnapshot
 } from './modules/pinarchive/service.mjs';
+import { escapeSqlWildcards, maskDatabaseUrl } from './utils.mjs';
 
 // Zero-Trust Security & Credential Redaction Sanitizer
 export function redactSecrets(str) {
@@ -888,8 +889,9 @@ export default {
       });
     }
 
-    // 5. Level 4B: Dedicated Board Ideas Radar Studio HTML
-    if (pathLower === '/board-ideas' || pathLower.startsWith('/board-ideas/')) {
+    // 5. Level 4B: Dedicated Board Ideas Radar Studio HTML (/board-idea and /board-ideas)
+    if (pathLower === '/board-ideas' || pathLower.startsWith('/board-ideas/') ||
+        pathLower === '/board-idea' || pathLower.startsWith('/board-idea/')) {
       if (method !== 'GET') {
         return methodNotAllowedResponse('GET, OPTIONS');
       }
@@ -1613,8 +1615,9 @@ export default {
 
         const enriched = await getCachedOrFetch(cacheKey, async () => {
           let rows;
-          if (seedPinId && query) {
-            const qPattern = `%${query.toLowerCase()}%`;
+          const cleanQuery = (query && typeof query === 'string' && query.trim()) ? escapeSqlWildcards(query.toLowerCase().trim()) : null;
+          if (seedPinId && cleanQuery) {
+            const qPattern = `%${cleanQuery}%`;
             rows = sort === 'velocity' ? await targetSql`
               SELECT * FROM candidate_graph_nodes
               WHERE seed_pin_id = ${seedPinId}
@@ -1640,8 +1643,8 @@ export default {
               ORDER BY saves DESC NULLS LAST, daily_velocity DESC
               LIMIT ${limit} OFFSET ${offset};
             `;
-          } else if (query) {
-            const qPattern = `%${query.toLowerCase()}%`;
+          } else if (cleanQuery) {
+            const qPattern = `%${cleanQuery}%`;
             rows = sort === 'velocity' ? await targetSql`
               SELECT * FROM candidate_graph_nodes
               WHERE LOWER(title) LIKE ${qPattern} OR LOWER(domain) LIKE ${qPattern} OR LOWER(COALESCE(ocr_text, '')) LIKE ${qPattern} OR candidate_pin_id LIKE ${qPattern}
@@ -3207,14 +3210,15 @@ export default {
 
         // 2. Graceful Fallback: Neon Postgres Central Hub
         try {
-          const likePattern = `${q.toLowerCase()}%`;
-          const rows = await sql`
+          const cleanQ = (q && typeof q === 'string' && q.trim()) ? escapeSqlWildcards(q.toLowerCase().trim()) : '';
+          const likePattern = `${cleanQ}%`;
+          const rows = cleanQ ? await sql`
             SELECT keyword, COALESCE(target_pin_count, 0) as search_volume, COALESCE(target_pin_count, 0) as pin_count
             FROM tracked_keywords
             WHERE LOWER(keyword) LIKE ${likePattern}
             ORDER BY keyword ASC
             LIMIT 10;
-          `;
+          ` : [];
           if (Array.isArray(rows) && rows.length > 0 && env?.PIN_D1_DB) {
             safeWaitUntil(ctx, Promise.all(rows.map(r => syncKeywordToD1(env, r))), 'syncFallbackKeywordsToD1');
           }
@@ -4465,10 +4469,7 @@ export default {
 
         // Security: Mask database credentials before transmitting to client
         const clientProjects = (Array.isArray(projects) ? projects : []).map(p => {
-          const rawUrl = p.database_url || '';
-          const masked = rawUrl.includes('@')
-            ? rawUrl.replace(/(:\/\/[^:]+:)(.*)(@[^@]+$)/, '$1••••••••$3')
-            : rawUrl;
+          const masked = maskDatabaseUrl(p.database_url || '');
           return {
             ...p,
             database_url: masked,

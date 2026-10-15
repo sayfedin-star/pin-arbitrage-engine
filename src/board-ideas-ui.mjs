@@ -91,6 +91,11 @@ export function getBoardIdeasPageHtml(initialData = {}) {
 
       <!-- Navigation & Actions -->
       <div class="flex items-center space-x-2 sm:space-x-3">
+        <a href="/accounts" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 transition hidden sm:flex items-center space-x-1.5">
+          <i data-lucide="users" class="w-3.5 h-3.5 text-purple-500"></i>
+          <span>Creators</span>
+        </a>
+
         <a href="/keywords" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 transition flex items-center space-x-1.5">
           <i data-lucide="sparkles" class="w-3.5 h-3.5 text-emerald-500"></i>
           <span class="hidden sm:inline">SERP Studio</span>

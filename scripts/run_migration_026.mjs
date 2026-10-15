@@ -44,18 +44,34 @@ async function run() {
 
   // 4. Trigram GIN Indexes
   console.log('[4/7] Creating trigram GIN indexes on pa_pins and competitor_pins...');
-  await sql`
-    CREATE INDEX IF NOT EXISTS idx_pa_pins_trgm_title 
-    ON pa_pins USING gin (LOWER(title) gin_trgm_ops);
-  `;
-  await sql`
-    CREATE INDEX IF NOT EXISTS idx_pa_pins_trgm_board 
-    ON pa_pins USING gin (LOWER(COALESCE(board_name, '')) gin_trgm_ops);
-  `;
-  await sql`
-    CREATE INDEX IF NOT EXISTS idx_cp_pins_trgm_title 
-    ON competitor_pins USING gin (LOWER(title) gin_trgm_ops);
-  `;
+  try {
+    await sql`
+      CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_pa_pins_trgm_title 
+      ON pa_pins USING gin (LOWER(title) gin_trgm_ops);
+    `;
+    await sql`
+      CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_pa_pins_trgm_board 
+      ON pa_pins USING gin (LOWER(COALESCE(board_name, '')) gin_trgm_ops);
+    `;
+    await sql`
+      CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_cp_pins_trgm_title 
+      ON competitor_pins USING gin (LOWER(title) gin_trgm_ops);
+    `;
+  } catch (concurrentErr) {
+    console.log('[-] CONCURRENTLY not supported in current connection mode, falling back to standard index creation...');
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_pa_pins_trgm_title 
+      ON pa_pins USING gin (LOWER(title) gin_trgm_ops);
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_pa_pins_trgm_board 
+      ON pa_pins USING gin (LOWER(COALESCE(board_name, '')) gin_trgm_ops);
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_cp_pins_trgm_title 
+      ON competitor_pins USING gin (LOWER(title) gin_trgm_ops);
+    `;
+  }
 
   // 5. Partial Index on pending queue
   console.log('[5/7] Creating partial index idx_cp_pending_queue_hot...');
