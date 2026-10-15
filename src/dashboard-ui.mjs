@@ -12082,11 +12082,14 @@ export function getDashboardHtml() {
                   auto_archive_winning: Boolean(this.newCompetitorAutoArchiveWinning)
                 })
               });
-              if (res.ok) {
-                this.showToast('✅ Creator @' + handle + ' added to tracking!');
-                // Await live profile sync before UI refresh
-                await this.syncCompetitor(handle);
+              if (!res.ok) {
+                const errData = await res.json().catch(() => ({}));
+                this.showToast('❌ Failed to add creator: ' + (errData.error || res.statusText));
+                return;
               }
+              this.showToast('✅ Creator @' + handle + ' added to tracking!');
+              // Await live profile sync before UI refresh
+              await this.syncCompetitor(handle);
             }
 
             // 2. If discover pins immediately -> Dispatch to 20-Shard GitHub Actions Crawler
@@ -12108,6 +12111,9 @@ export function getDashboardHtml() {
               if (resPins.ok) {
                 const data = await resPins.json();
                 this.showToast('🚀 ' + (data.message || '20-Shard Crawler dispatched on GitHub Actions!'));
+              } else {
+                const errData = await resPins.json().catch(() => ({}));
+                this.showToast('⚠️ Crawler notice: ' + (errData.error || resPins.statusText));
               }
             }
 
