@@ -21,22 +21,45 @@ export const IGNORED_INTERNAL_DOMAINS = [
 ];
 
 export const ECOMMERCE_AND_SOCIAL_DOMAINS = [
+  // Marketplaces & Ecommerce Giants
   'etsy.com',
   'amazon.com',
+  'amazon.co.uk',
   'amzn.to',
   'walmart.com',
   'target.com',
   'ebay.com',
+  'aliexpress.com',
+  'temu.com',
+  'shein.com',
+  // Influencer / Affiliate Shorteners
   'ltks.co',
   'liketoknow.it',
   'shopltk.com',
   'rstyle.me',
   'shopstyle.it',
+  // Social Platforms & Forums
   'youtube.com',
   'youtu.be',
   'instagram.com',
   'tiktok.com',
-  'facebook.com'
+  'facebook.com',
+  'twitter.com',
+  'x.com',
+  'reddit.com',
+  'threads.net',
+  'linkedin.com',
+  'quora.com',
+  'tumblr.com',
+  'medium.com',
+  'wikipedia.org',
+  // Google System / Cloud / Share URLs
+  'google.com',
+  'share.google',
+  'drive.google.com',
+  'docs.google.com',
+  'storage.googleapis.com',
+  'blogger.googleusercontent.com'
 ];
 
 export const BLOCKED_TLD_SUFFIXES = [
@@ -776,7 +799,7 @@ export async function listDomainsIntelligence(sql, {
       *,
       COUNT(*) OVER()::int AS total_filtered_domains,
       SUM(top10_pins) OVER()::int AS global_top10_slots,
-      COUNT(*) FILTER (WHERE age_years IS NOT NULL AND age_years <= 2.0) OVER()::int AS baby_giants_count,
+      COUNT(*) FILTER (WHERE age_years IS NOT NULL AND age_years <= 2.0 AND (top10_pins >= 1 OR total_saves >= 1000)) OVER()::int AS baby_giants_count,
       COUNT(*) FILTER (WHERE accounts_count >= 2) OVER()::int AS multi_account_domains_count,
       ROUND(AVG(pins_per_url) OVER(), 2) AS global_avg_multiplier
     FROM enriched

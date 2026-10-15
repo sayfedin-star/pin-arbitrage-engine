@@ -156,7 +156,7 @@ export function getDomainsPageHtml() {
           <span class="text-xs">🌱</span>
         </div>
         <span class="text-2xl font-bold font-mono text-emerald-600 dark:text-emerald-400" x-text="formatNumber(overview.baby_giants_count)">0</span>
-        <span class="text-[11px] text-slate-400 dark:text-slate-500">Rapid ranking fresh sites</span>
+        <span class="text-[11px] text-slate-400 dark:text-slate-500">&lt; 2y with Top 10 or 1k+ saves</span>
       </div>
 
       <!-- 4. Multi-Account Networks -->
