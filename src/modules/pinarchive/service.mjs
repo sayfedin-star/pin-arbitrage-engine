@@ -1019,12 +1019,20 @@ export async function getPinDetailWithMetrics(sql, pinId, options = {}) {
             domain = EXCLUDED.domain,
             board_name = COALESCE(EXCLUDED.board_name, pa_pins.board_name),
             image_url = COALESCE(EXCLUDED.image_url, pa_pins.image_url),
-            saves = EXCLUDED.saves,
-            repins = EXCLUDED.repins,
-            comments = EXCLUDED.comments,
-            share_count = EXCLUDED.share_count,
-            reactions = EXCLUDED.reactions,
-            annotations = EXCLUDED.annotations,
+            saves = GREATEST(pa_pins.saves, EXCLUDED.saves),
+            repins = GREATEST(pa_pins.repins, EXCLUDED.repins),
+            comments = GREATEST(pa_pins.comments, EXCLUDED.comments),
+            share_count = GREATEST(pa_pins.share_count, EXCLUDED.share_count),
+            reactions = CASE 
+              WHEN jsonb_typeof(EXCLUDED.reactions) = 'object' AND EXCLUDED.reactions <> '{}'::jsonb 
+              THEN EXCLUDED.reactions 
+              ELSE pa_pins.reactions 
+            END,
+            annotations = CASE 
+              WHEN jsonb_typeof(EXCLUDED.annotations) = 'array' AND jsonb_array_length(EXCLUDED.annotations) > 0 
+              THEN EXCLUDED.annotations 
+              ELSE pa_pins.annotations 
+            END,
             is_product = EXCLUDED.is_product,
             last_updated_at = NOW();
         `;

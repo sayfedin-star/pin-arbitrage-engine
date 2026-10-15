@@ -16,7 +16,9 @@ import {
   getDomainDeepDossier,
   fetchAndCacheDomainAge,
   getDatabaseEnrichmentStats,
-  enrichNextUncheckedBatch
+  enrichNextUncheckedBatch,
+  parseAdsTxtMonetization,
+  enrichNextUncheckedAdsBatch
 } from '../src/modules/domains/service.mjs';
 
 if (typeof process.loadEnvFile === 'function') {
@@ -349,6 +351,39 @@ async function runTests() {
     studioHtml.includes('Ad Network & Monetization Profile') &&
     studioHtml.includes('Historical Switch Tracking') &&
     !studioHtml.includes('$40–$65 RPM')
+  );
+
+  // 8.7 HBAgency IAB and OpenRTB detection parser
+  const hbSampleAdsTxt = `managerdomain=hbagency.it\n# HBAgency , first step recipes\n# info@hbagency.it\ngoogle.com, pub-9029649931346083, RESELLER\nappnexus.com, 10850, RESELLER`;
+  const parsedHb = parseAdsTxtMonetization(hbSampleAdsTxt);
+  report(
+    'parseAdsTxtMonetization detects HBAgency managerdomain before falling back to AdSense',
+    parsedHb.network === 'hbagency' &&
+    parsedHb.manager_domain === 'hbagency.it'
+  );
+
+  // 8.8 API: POST /api/domains/enrich-ads-all
+  const enrichAdsAllRes = await worker.fetch(new Request('https://engine.internal/api/domains/enrich-ads-all', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ batch_size: 2, concurrency: 1 })
+  }), mockEnv);
+  const enrichAdsAllData = await enrichAdsAllRes.json();
+  report(
+    'POST /api/domains/enrich-ads-all processes automated batch and returns stats',
+    enrichAdsAllRes.status === 200 &&
+    enrichAdsAllData.success === true &&
+    typeof enrichAdsAllData.stats?.checked_domains === 'number' &&
+    Array.isArray(enrichAdsAllData.results)
+  );
+
+  // 8.9 Studio UI contains Auto-Verify All Ads, Batch Check Ads, and HBAgency options
+  report(
+    'Studio UI contains Auto-Verify All Ads, Batch Check Ads, and HBAgency options',
+    studioHtml.includes('Auto-Verify All Ads') &&
+    studioHtml.includes('Batch Check Ads') &&
+    studioHtml.includes('HBAgency') &&
+    studioHtml.includes('toggleGlobalAdsEnrichment')
   );
 
   console.log('\n================================================================================');

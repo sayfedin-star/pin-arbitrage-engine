@@ -6,7 +6,7 @@
 
 -- 1. Upgrade keyword_pins_snapshots to support Single Unified Timeline
 ALTER TABLE keyword_pins_snapshots 
-ADD COLUMN IF NOT EXISTS is_displaced BOOLEAN DEFAULT FALSE;
+ADD COLUMN IF NOT EXISTS is_displaced BOOLEAN NOT NULL DEFAULT FALSE;
 
 ALTER TABLE keyword_pins_snapshots 
 ADD COLUMN IF NOT EXISTS share_count INT DEFAULT 0;

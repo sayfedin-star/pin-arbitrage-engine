@@ -24,7 +24,8 @@ import {
   normalizeCleanDomain,
   fetchAndCacheDomainAdNetwork,
   enrichMissingAdNetworksBatch,
-  getDatabaseMonetizationStats
+  getDatabaseMonetizationStats,
+  enrichNextUncheckedAdsBatch
 } from './modules/domains/service.mjs';
 import {
   fetchUniversalPinDossier,
@@ -415,10 +416,7 @@ export function verifyApiAuthentication(request, env = {}) {
 }
 
 export const requestContextStorage = new AsyncLocalStorage();
-let currentDefaultOrigin = '*';
-export function setDefaultCorsOrigin(origin) {
-  currentDefaultOrigin = origin || '*';
-}
+export function setDefaultCorsOrigin(_origin) {}
 
 export function jsonResponse(data, status = 200, cacheSeconds = 0, customCors = null) {
   let responsePayload = data;
@@ -447,7 +445,7 @@ export function jsonResponse(data, status = 200, cacheSeconds = 0, customCors = 
   }
 
   const store = requestContextStorage.getStore();
-  const resolvedOrigin = customCors?.['Access-Control-Allow-Origin'] || store?.origin || currentDefaultOrigin;
+  const resolvedOrigin = customCors?.['Access-Control-Allow-Origin'] || store?.origin || '*';
 
   const headers = {
     'Content-Type': 'application/json; charset=utf-8',
@@ -471,7 +469,7 @@ export function jsonResponse(data, status = 200, cacheSeconds = 0, customCors = 
 
 export function methodNotAllowedResponse(allow, customCors = null) {
   const store = requestContextStorage.getStore();
-  const resolvedOrigin = customCors?.['Access-Control-Allow-Origin'] || store?.origin || currentDefaultOrigin || '*';
+  const resolvedOrigin = customCors?.['Access-Control-Allow-Origin'] || store?.origin || '*';
   return new Response(JSON.stringify({
     success: false,
     error: 'METHOD_NOT_ALLOWED',
@@ -809,7 +807,6 @@ export default {
   async fetch(request, env, ctx) {
     const requestOrigin = request.headers.get('Origin');
     const dynamicCors = getCorsHeaders(requestOrigin, env, request.url);
-    setDefaultCorsOrigin(dynamicCors['Access-Control-Allow-Origin']);
 
     if (request.method.toUpperCase() === 'OPTIONS') {
       return corsOptionsResponse(requestOrigin, env, 'GET, POST, DELETE, OPTIONS', request.url);
@@ -3747,39 +3744,44 @@ export default {
             // If no snapshot exists today, insert only if no crawl is active, and inherit current catalog status
             if (!updateResult || updateResult.length === 0) {
               if (!isCrawlInProgress) {
-                const [kwRow] = await sql`
-                  SELECT keyword_id, rank_position, is_displaced 
-                  FROM keyword_serp_current 
-                  WHERE pin_id = ${pinId} 
-                  LIMIT 1;
-                `.catch(() => []);
-                const targetKid = kwRow?.keyword_id || null;
-                const currentDisplaced = kwRow?.is_displaced ?? false;
-                const currentRank = currentDisplaced ? null : (kwRow?.rank_position ?? null);
-
-                if (targetKid) {
-                  await sql`
-                    INSERT INTO keyword_pins_snapshots (
-                      keyword_id, pin_id, rank_position, title, domain, destination_url, image_url,
-                      save_count, repin_count, comment_count, share_count, daily_save_velocity,
-                      snapshot_date, is_displaced, created_at_pinterest, creation_method, metadata, created_at
-                    )
-                    SELECT
-                      ${targetKid}, ${pinId}, ${currentRank}, ${pin.title || ''}, ${pin.domain || ''}, ${pin.link || ''}, ${pin.image_url || ''},
-                      ${Number(pin.saves || 0)}, ${Number(pin.repins || 0)}, ${Number(pin.comments || 0)}, ${Number(pin.share_count || 0)}, 0,
-                      (NOW() AT TIME ZONE 'UTC')::date, ${currentDisplaced},
-                      ${pin.created_at_pinterest ? pin.created_at_pinterest : null}, ${pin.creation_method || 'pinterest_platform'},
-                      ${JSON.stringify(metaToStore)}::jsonb, NOW()
-                    WHERE NOT EXISTS (
+                await sql`
+                  INSERT INTO keyword_pins_snapshots (
+                    keyword_id, pin_id, rank_position, title, domain, destination_url, image_url,
+                    save_count, repin_count, comment_count, share_count, daily_save_velocity,
+                    snapshot_date, is_displaced, created_at_pinterest, creation_method, metadata, created_at
+                  )
+                  SELECT
+                    ksc.keyword_id,
+                    ${pinId},
+                    CASE WHEN COALESCE(ksc.is_displaced, FALSE) THEN NULL ELSE ksc.rank_position END,
+                    ${pin.title || ''},
+                    ${pin.domain || ''},
+                    ${pin.link || ''},
+                    ${pin.image_url || ''},
+                    ${Number(pin.saves || 0)},
+                    ${Number(pin.repins || 0)},
+                    ${Number(pin.comments || 0)},
+                    ${Number(pin.share_count || 0)},
+                    0,
+                    (NOW() AT TIME ZONE 'UTC')::date,
+                    COALESCE(ksc.is_displaced, FALSE),
+                    ${pin.created_at_pinterest ? pin.created_at_pinterest : null},
+                    ${pin.creation_method || 'pinterest_platform'},
+                    ${JSON.stringify(metaToStore)}::jsonb,
+                    NOW()
+                  FROM keyword_serp_current ksc
+                  WHERE ksc.pin_id = ${pinId}
+                    AND NOT EXISTS (
                       SELECT 1 FROM keyword_ignored_pins kip
-                      WHERE kip.keyword_id = ${targetKid} AND kip.pin_id = ${pinId}
+                      WHERE kip.keyword_id = ksc.keyword_id AND kip.pin_id = ${pinId}
                     )
-                    ON CONFLICT (keyword_id, pin_id, snapshot_date) DO UPDATE SET
-                      save_count = GREATEST(keyword_pins_snapshots.save_count, EXCLUDED.save_count),
-                      repin_count = GREATEST(keyword_pins_snapshots.repin_count, EXCLUDED.repin_count),
-                      metadata = COALESCE(keyword_pins_snapshots.metadata, '{}'::jsonb) || EXCLUDED.metadata;
-                  `.catch(() => {});
-                }
+                  ON CONFLICT (keyword_id, pin_id, snapshot_date) DO UPDATE SET
+                    save_count = GREATEST(keyword_pins_snapshots.save_count, EXCLUDED.save_count),
+                    repin_count = GREATEST(keyword_pins_snapshots.repin_count, EXCLUDED.repin_count),
+                    metadata = COALESCE(keyword_pins_snapshots.metadata, '{}'::jsonb) || EXCLUDED.metadata;
+                `.catch(err => {
+                  console.warn(`[Pin Sync Snapshot Warning] Failed inserting snapshot for pin ${pinId}:`, redactSecrets(err?.message || String(err)));
+                });
               } else {
                 console.warn(`[Sync Concurrency Guard] Crawl lease active for pin #${pinId} keywords (${activeCrawlKeywords.map(k=>k.id).join(',')}). Snapshot insertion deferred to active crawler.`);
               }
@@ -4079,6 +4081,9 @@ export default {
         }
         const q = searchParams.get('q') || searchParams.get('term') || searchParams.get('query') || '';
         const mode = searchParams.get('mode') || 'both'; // 'related', 'additions', 'both'
+        if (!['both', 'related', 'additions'].includes(mode)) {
+          return jsonResponse({ success: false, error: 'Invalid mode. Allowed values: both, related, additions' }, 400);
+        }
         if (!q || q.trim().length < 2) {
           return jsonResponse({ success: false, error: 'Query term must be at least 2 characters' }, 400);
         }
@@ -4372,6 +4377,9 @@ export default {
 
         if (method === 'POST' && parts.length === 0) {
           const body = await request.json().catch(() => ({}));
+          if (body.status && !['active', 'archived', 'paused', 'completed'].includes(String(body.status).toLowerCase())) {
+            return jsonResponse({ success: false, error: 'Invalid folder status. Allowed values: active, archived, paused, completed' }, 400);
+          }
           const created = await createFolder(sql, body);
           safeWaitUntil(ctx, syncFolderToD1(env, created), 'syncFolderToD1');
           return jsonResponse({ success: true, folder: created });
@@ -4379,6 +4387,9 @@ export default {
 
         if ((method === 'PUT' || method === 'PATCH') && folderId) {
           const body = await request.json().catch(() => ({}));
+          if (body.status && !['active', 'archived', 'paused', 'completed'].includes(String(body.status).toLowerCase())) {
+            return jsonResponse({ success: false, error: 'Invalid folder status. Allowed values: active, archived, paused, completed' }, 400);
+          }
           const updated = await updateFolder(sql, folderId, body);
           safeWaitUntil(ctx, syncFolderToD1(env, updated), 'syncFolderToD1');
           return jsonResponse({ success: true, folder: updated });
@@ -4917,6 +4928,20 @@ export default {
           const concurrency = Math.max(1, Math.min(Number(body.concurrency) || 3, 5));
           const forceRefresh = Boolean(body.force);
           const result = await enrichNextUncheckedBatch(sql, { batchSize, concurrency, forceRefresh });
+          return jsonResponse({ success: true, ...result });
+        } catch (err) {
+          return jsonResponse({ success: false, error: redactSecrets(err.message) }, 500);
+        }
+      }
+
+      if (method === 'POST' && pathname === '/api/domains/enrich-ads-all') {
+        invalidateEdgeCache('domains:leaderboard');
+        try {
+          const body = await request.json().catch(() => ({}));
+          const batchSize = Math.max(1, Math.min(Number(body.batch_size) || 15, 50));
+          const concurrency = Math.max(1, Math.min(Number(body.concurrency) || 2, 4));
+          const forceRefresh = Boolean(body.force);
+          const result = await enrichNextUncheckedAdsBatch(sql, { batchSize, concurrency, forceRefresh });
           return jsonResponse({ success: true, ...result });
         } catch (err) {
           return jsonResponse({ success: false, error: redactSecrets(err.message) }, 500);

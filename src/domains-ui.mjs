@@ -52,6 +52,40 @@ export function getDomainsPageHtml() {
     ::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.2); border-radius: 9999px; }
     ::-webkit-scrollbar-thumb:hover { background: rgba(148, 163, 184, 0.4); }
   </style>
+  <script>
+(function() {
+  if (typeof window === 'undefined' || window.__paeAuthInterceptorInstalled) return;
+  window.__paeAuthInterceptorInstalled = true;
+  const origFetch = window.fetch.bind(window);
+  window.fetch = async function(input, init) {
+    const urlStr = typeof input === 'string' ? input : (input && input.url ? input.url : '');
+    const isApiCall = urlStr.startsWith('/api/') || urlStr.includes('/api/');
+    let savedKey = '';
+    try { savedKey = localStorage.getItem('pae_admin_api_key') || ''; } catch (_) {}
+    if (isApiCall && savedKey) {
+      init = Object.assign({}, init);
+      const headers = new Headers(init.headers || (typeof input === 'object' && input.headers ? input.headers : undefined));
+      if (!headers.has('x-api-key') && !headers.has('Authorization')) {
+        headers.set('x-api-key', savedKey);
+      }
+      init.headers = headers;
+    }
+    let res = await origFetch(input, init);
+    if (isApiCall && res.status === 401 && typeof window.prompt === 'function') {
+      const entered = window.prompt('🔐 Authentication required. Enter API_SECRET_KEY:');
+      if (entered && entered.trim()) {
+        try { localStorage.setItem('pae_admin_api_key', entered.trim()); } catch (_) {}
+        init = Object.assign({}, init);
+        const retryHeaders = new Headers(init.headers || {});
+        retryHeaders.set('x-api-key', entered.trim());
+        init.headers = retryHeaders;
+        res = await origFetch(input, init);
+      }
+    }
+    return res;
+  };
+})();
+  </script>
 </head>
 <body class="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 min-h-screen antialiased flex flex-col font-sans transition-colors duration-150" x-data="domainsApp()">
 
@@ -192,23 +226,41 @@ export function getDomainsPageHtml() {
           <span class="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider font-mono">Arbitrage Lenses:</span>
           <span class="text-xs text-slate-400 dark:text-slate-500">Quick strategic presets</span>
         </div>
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2 flex-wrap">
           <!-- Verify Entire Database Global Button -->
           <button @click="toggleGlobalEnrichment()"
                   class="px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all flex items-center gap-1.5 shadow-sm"
                   :class="globalEnriching ? 'bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20' : 'bg-gradient-to-r from-sky-500 to-indigo-600 text-white hover:from-sky-600 hover:to-indigo-700 border-transparent'"
                   :title="globalEnriching ? 'Pause global verification queue' : 'Automatically verify WHOIS age for all unverified domains in the entire database'">
             <span :class="{ 'animate-spin': globalEnriching }">🚀</span>
-            <span x-text="globalEnriching ? 'Pause Auto-Verify (' + (globalStats.percent_complete || 0) + '%)' : 'Verify Entire Database'">Verify Entire Database</span>
+            <span x-text="globalEnriching ? 'Pause Auto-Age (' + (globalStats.percent_complete || 0) + '%)' : 'Verify Entire Database'">Verify Entire Database</span>
           </button>
 
-          <!-- Batch Check Visible Domains Button -->
+          <!-- Auto-Verify All Ads Button -->
+          <button @click="toggleGlobalAdsEnrichment()"
+                  class="px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all flex items-center gap-1.5 shadow-sm"
+                  :class="globalAdsEnriching ? 'bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20' : 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white hover:from-emerald-600 hover:to-teal-700 border-transparent'"
+                  :title="globalAdsEnriching ? 'Pause automated ads.txt scan' : 'Automatically scan ads.txt for all unverified domains in the entire database'">
+            <span :class="{ 'animate-spin': globalAdsEnriching }">💰</span>
+            <span x-text="globalAdsEnriching ? 'Pause Auto-Ads (' + (globalAdsStats.percent_complete || 0) + '%)' : 'Auto-Verify All Ads'">Auto-Verify All Ads</span>
+          </button>
+
+          <!-- Batch Check Visible Domains Button (Age) -->
           <button @click="batchEnrichVisible()"
                   :disabled="batchEnriching || globalEnriching"
-                  class="px-3 py-1.5 rounded-xl border border-sky-300 dark:border-sky-800 bg-sky-50 hover:bg-sky-100 dark:bg-sky-950/40 dark:hover:bg-sky-900/60 text-xs font-semibold text-sky-700 dark:text-sky-300 transition-colors flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+                  class="px-2.5 py-1.5 rounded-xl border border-sky-300 dark:border-sky-800 bg-sky-50 hover:bg-sky-100 dark:bg-sky-950/40 dark:hover:bg-sky-900/60 text-xs font-semibold text-sky-700 dark:text-sky-300 transition-colors flex items-center gap-1.5 shadow-sm disabled:opacity-50"
                   title="Check WHOIS age for unverified domains on the current page">
             <span :class="{ 'animate-spin': batchEnriching }">⚡</span>
             <span x-text="batchEnriching ? 'Checking (' + batchProgress.done + '/' + batchProgress.total + ')...' : 'Batch Check Page'">Batch Check Page</span>
+          </button>
+
+          <!-- Batch Check Visible Ads Button (ads.txt) -->
+          <button @click="batchEnrichAdsVisible()"
+                  :disabled="batchAdsEnriching || globalAdsEnriching"
+                  class="px-2.5 py-1.5 rounded-xl border border-emerald-300 dark:border-emerald-800 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/60 text-xs font-semibold text-emerald-700 dark:text-emerald-300 transition-colors flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+                  title="Scan ads.txt for unverified domains on the current page">
+            <span :class="{ 'animate-spin': batchAdsEnriching }">⚡</span>
+            <span x-text="batchAdsEnriching ? 'Checking (' + batchAdsProgress.done + '/' + batchAdsProgress.total + ')...' : 'Batch Check Ads'">Batch Check Ads</span>
           </button>
 
           <button @click="downloadDomainsCsv()"
@@ -280,6 +332,7 @@ export function getDomainsPageHtml() {
             <option value="mediavine">🍇 Mediavine</option>
             <option value="journey">🚀 Journey</option>
             <option value="ezoic">⚡ Ezoic</option>
+            <option value="hbagency">⚡ HBAgency</option>
             <option value="adsense">🟡 AdSense</option>
             <option value="affiliate_only">🛒 Affiliate Only</option>
             <option value="switched">🔄 Switched Networks</option>
@@ -378,6 +431,37 @@ export function getDomainsPageHtml() {
           <div class="w-full bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden">
             <div class="bg-gradient-to-r from-sky-500 via-indigo-500 to-emerald-500 h-full transition-all duration-500"
                  :style="'width: ' + (globalStats.percent_complete || 0) + '%'"></div>
+          </div>
+        </div>
+      </template>
+
+      <!-- Global Ads Verification Active Banner -->
+      <template x-if="globalAdsEnriching">
+        <div class="px-5 py-3 bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-sky-500/10 border-b border-emerald-500/20 flex flex-col gap-2">
+          <div class="flex items-center justify-between text-xs font-mono flex-wrap gap-2">
+            <div class="flex items-center gap-2">
+              <span class="animate-spin text-sm">💰</span>
+              <span class="font-bold text-emerald-800 dark:text-emerald-300">Automated Ads.txt Verification In Progress:</span>
+              <span class="text-slate-600 dark:text-slate-300" x-text="formatNumber(globalAdsStats.checked_domains) + ' / ' + formatNumber(globalAdsStats.total_domains) + ' domains (' + (globalAdsStats.percent_complete || 0) + '%)'"></span>
+            </div>
+            <div class="flex items-center gap-2.5 flex-wrap">
+              <span class="text-purple-600 dark:text-purple-400 font-bold" x-text="'💎 ' + formatNumber(globalAdsStats.raptive_count) + ' Raptive'"></span>
+              <span class="text-rose-600 dark:text-rose-400 font-bold" x-text="'🍇 ' + formatNumber(globalAdsStats.mediavine_count) + ' Mediavine'"></span>
+              <span class="text-sky-600 dark:text-sky-400 font-bold" x-text="'🚀 ' + formatNumber(globalAdsStats.journey_count) + ' Journey'"></span>
+              <span class="text-emerald-600 dark:text-emerald-400 font-bold" x-text="'⚡ ' + formatNumber(globalAdsStats.hbagency_count) + ' HBAgency'"></span>
+              <span class="text-amber-600 dark:text-amber-400 font-bold" x-text="'🟡 ' + formatNumber(globalAdsStats.adsense_count) + ' AdSense'"></span>
+              <span class="text-slate-500 font-mono" x-text="'⏳ ' + formatNumber(globalAdsStats.unchecked_domains) + ' remaining'"></span>
+              <button @click="stopGlobalAdsEnrichment()"
+                      class="px-2.5 py-1 rounded bg-rose-500/10 hover:bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-500/30 text-[11px] font-semibold transition flex items-center gap-1 shadow-sm">
+                <span>⏸️</span>
+                <span>Pause</span>
+              </button>
+            </div>
+          </div>
+          <!-- Animated Progress Bar -->
+          <div class="w-full bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden">
+            <div class="bg-gradient-to-r from-emerald-500 via-teal-500 to-sky-500 h-full transition-all duration-500"
+                 :style="'width: ' + (globalAdsStats.percent_complete || 0) + '%'"></div>
           </div>
         </div>
       </template>
@@ -1094,35 +1178,41 @@ export function getDomainsPageHtml() {
                   </div>
 
                   <!-- Has Switch History -->
-                  <template x-if="dossierData?.ad_info?.previous_ad_network || (dossierData?.ad_info?.network_history && dossierData?.ad_info?.network_history.length > 0)">
+                  <template x-if="dossierData?.ad_info?.previous_ad_network || (Array.isArray(dossierData?.ad_info?.network_history) && dossierData.ad_info.network_history.length > 0)">
                     <div class="space-y-2.5">
-                      <div class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-800 dark:text-amber-300 font-mono flex items-center justify-between">
-                        <div class="flex items-center gap-2">
-                          <span>🚀</span>
-                          <span>Network Migration Detected:</span>
-                          <span class="font-bold uppercase" x-text="dossierData.ad_info.previous_ad_network"></span>
-                          <span>➔</span>
-                          <span class="font-bold uppercase text-emerald-600 dark:text-emerald-400" x-text="dossierData.ad_info.current_ad_network"></span>
-                        </div>
-                        <span class="text-[10px] text-slate-400" x-text="dossierData.ad_info.switched_at ? dossierData.ad_info.switched_at.slice(0, 10) : ''"></span>
-                      </div>
-
-                      <template x-for="(entry, eIdx) in (dossierData?.ad_info?.network_history || [])" :key="eIdx">
-                        <div class="flex items-center gap-3 p-2.5 rounded-lg bg-slate-50 dark:bg-slate-900 text-xs font-mono border border-slate-200 dark:border-slate-800">
-                          <span class="w-5 h-5 rounded-full bg-sky-500/20 text-sky-600 flex items-center justify-center text-[10px] font-bold" x-text="eIdx + 1"></span>
-                          <div class="flex items-center gap-2 flex-1">
-                            <span class="font-bold text-slate-600 dark:text-slate-400" x-text="entry.from_network"></span>
-                            <span class="text-slate-400">➔</span>
-                            <span class="font-bold text-emerald-600 dark:text-emerald-400" x-text="entry.to_network"></span>
+                      <template x-if="dossierData?.ad_info?.previous_ad_network">
+                        <div class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-800 dark:text-amber-300 font-mono flex items-center justify-between">
+                          <div class="flex items-center gap-2">
+                            <span>🚀</span>
+                            <span>Network Migration Detected:</span>
+                            <span class="font-bold uppercase" x-text="dossierData.ad_info.previous_ad_network"></span>
+                            <span>➔</span>
+                            <span class="font-bold uppercase text-emerald-600 dark:text-emerald-400" x-text="dossierData.ad_info.current_ad_network"></span>
                           </div>
-                          <span class="text-[10px] text-slate-400" x-text="entry.switched_at ? entry.switched_at.slice(0, 10) : ''"></span>
+                          <span class="text-[10px] text-slate-400" x-text="dossierData.ad_info.switched_at ? dossierData.ad_info.switched_at.slice(0, 10) : ''"></span>
+                        </div>
+                      </template>
+
+                      <template x-if="Array.isArray(dossierData?.ad_info?.network_history) && dossierData.ad_info.network_history.length > 0">
+                        <div class="space-y-2">
+                          <template x-for="(entry, eIdx) in dossierData.ad_info.network_history" :key="eIdx">
+                            <div class="flex items-center gap-3 p-2.5 rounded-lg bg-slate-50 dark:bg-slate-900 text-xs font-mono border border-slate-200 dark:border-slate-800">
+                              <span class="w-5 h-5 rounded-full bg-sky-500/20 text-sky-600 flex items-center justify-center text-[10px] font-bold" x-text="eIdx + 1"></span>
+                              <div class="flex items-center gap-2 flex-1">
+                                <span class="font-bold text-slate-600 dark:text-slate-400" x-text="entry.from_network"></span>
+                                <span class="text-slate-400">➔</span>
+                                <span class="font-bold text-emerald-600 dark:text-emerald-400" x-text="entry.to_network"></span>
+                              </div>
+                              <span class="text-[10px] text-slate-400" x-text="entry.switched_at ? entry.switched_at.slice(0, 10) : ''"></span>
+                            </div>
+                          </template>
                         </div>
                       </template>
                     </div>
                   </template>
 
                   <!-- No Switch History -->
-                  <template x-if="!dossierData?.ad_info?.previous_ad_network && (!dossierData?.ad_info?.network_history || dossierData?.ad_info?.network_history.length === 0)">
+                  <template x-if="!dossierData?.ad_info?.previous_ad_network && (!Array.isArray(dossierData?.ad_info?.network_history) || dossierData.ad_info.network_history.length === 0)">
                     <div class="p-4 rounded-xl bg-slate-50 dark:bg-slate-900 text-center text-xs text-slate-500 font-mono">
                       <span>No network switch detected yet. Publisher is operating continuously on </span>
                       <span class="font-bold text-slate-900 dark:text-white" x-text="getAdNetworkBadgeText(dossierData?.ad_info?.current_ad_network)"></span>.
@@ -1198,6 +1288,31 @@ export function getDomainsPageHtml() {
           unchecked_domains: 0,
           percent_complete: 0
         },
+        globalAdsEnriching: false,
+        globalAdsStats: {
+          total_domains: 0,
+          checked_domains: 0,
+          total_checked: 0,
+          unchecked_domains: 0,
+          percent_complete: 0,
+          raptive_count: 0,
+          mediavine_count: 0,
+          journey_count: 0,
+          ezoic_count: 0,
+          hbagency_count: 0,
+          monumetric_count: 0,
+          shemedia_count: 0,
+          freestar_count: 0,
+          playwire_count: 0,
+          snigel_count: 0,
+          adsense_count: 0,
+          affiliate_count: 0,
+          protected_count: 0,
+          failed_count: 0,
+          switched_count: 0
+        },
+        batchAdsEnriching: false,
+        batchAdsProgress: { done: 0, total: 0 },
 
         toasts: [],
 
@@ -1205,6 +1320,7 @@ export function getDomainsPageHtml() {
           this.fetchFolders();
           this.loadDomains();
           this.fetchGlobalEnrichStatus();
+          this.fetchGlobalAdsStatus();
         },
 
         toggleTheme() {
@@ -1577,6 +1693,144 @@ export function getDomainsPageHtml() {
           await this.enrichAd(this.dossierDomain, true);
         },
 
+        async batchEnrichAdsVisible() {
+          const unchecked = this.domains.filter(d => (!d.ad_network || d.ad_network === 'unchecked') && !this.enrichingAds[d.domain]);
+          if (unchecked.length === 0) {
+            this.showToast('All visible domains on this page already have ads.txt monetization status!', 'info');
+            return;
+          }
+          this.batchAdsEnriching = true;
+          this.batchAdsProgress = { done: 0, total: unchecked.length };
+          this.showToast('Verifying ads.txt for ' + unchecked.length + ' visible domains in batch...', 'info');
+
+          // Chunk into batches of 6 with safe concurrency
+          const chunks = [];
+          for (let i = 0; i < unchecked.length; i += 6) {
+            chunks.push(unchecked.slice(i, i + 6).map(d => d.domain));
+          }
+
+          for (const chunk of chunks) {
+            chunk.forEach(d => { this.enrichingAds[d] = true; });
+            this.enrichingAds = { ...this.enrichingAds };
+            try {
+              const res = await fetch('/api/domains/enrich-ads', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ domains: chunk })
+              });
+              if (res.ok) {
+                const data = await res.json();
+                if (Array.isArray(data.results)) {
+                  for (const r of data.results) {
+                    const target = this.domains.find(d => d.domain === r.domain);
+                    if (target) {
+                      target.ad_network = r.current_ad_network || r.ad_network;
+                      target.ad_manager_domain = r.ad_manager_domain;
+                      target.primary_pub_id = r.primary_pub_id;
+                      target.previous_ad_network = r.previous_ad_network;
+                      target.ad_switched_at = r.switched_at || r.ad_switched_at;
+                      target.ads_txt_status = r.ads_txt_status;
+                      target.ad_network_history = r.network_history || r.ad_network_history;
+                    }
+                  }
+                }
+              }
+            } catch (_) {}
+            chunk.forEach(d => { delete this.enrichingAds[d]; });
+            this.batchAdsProgress.done = Math.min(this.batchAdsProgress.total, this.batchAdsProgress.done + chunk.length);
+            this.enrichingAds = { ...this.enrichingAds };
+          }
+
+          this.batchAdsEnriching = false;
+          this.fetchGlobalAdsStatus();
+          this.showToast('Batch ads verification complete! Updated ' + this.batchAdsProgress.done + ' domains.', 'success');
+        },
+
+        async fetchGlobalAdsStatus() {
+          try {
+            const res = await fetch('/api/domains/ads-status');
+            if (res.ok) {
+              const data = await res.json();
+              if (data.stats) {
+                this.globalAdsStats = data.stats;
+              }
+            }
+          } catch (_) {}
+        },
+
+        toggleGlobalAdsEnrichment() {
+          if (this.globalAdsEnriching) {
+            this.stopGlobalAdsEnrichment();
+          } else {
+            this.startGlobalAdsEnrichment();
+          }
+        },
+
+        async startGlobalAdsEnrichment() {
+          if (this.globalAdsEnriching) return;
+          this.globalAdsEnriching = true;
+          this.showToast('Starting automated ads.txt verification...', 'info');
+
+          try {
+            await this.fetchGlobalAdsStatus();
+            if (this.globalAdsStats.unchecked_domains === 0) {
+              this.showToast('All domains in the database already have ads.txt verified!', 'success');
+              this.globalAdsEnriching = false;
+              return;
+            }
+
+            while (this.globalAdsEnriching) {
+              const res = await fetch('/api/domains/enrich-ads-all', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ batch_size: 15, concurrency: 3 })
+              });
+
+              if (!res.ok) {
+                throw new Error('HTTP ' + res.status);
+              }
+
+              const data = await res.json();
+              if (data.stats) {
+                this.globalAdsStats = data.stats;
+              }
+
+              // Update any currently visible rows on screen in real time
+              if (Array.isArray(data.results)) {
+                for (const r of data.results) {
+                  const target = this.domains.find(d => d.domain === r.domain);
+                  if (target) {
+                    target.ad_network = r.current_ad_network || r.ad_network;
+                    target.ad_manager_domain = r.ad_manager_domain;
+                    target.primary_pub_id = r.primary_pub_id;
+                    target.previous_ad_network = r.previous_ad_network;
+                    target.ad_switched_at = r.switched_at || r.ad_switched_at;
+                    target.ads_txt_status = r.ads_txt_status;
+                    target.ad_network_history = r.network_history || r.ad_network_history;
+                  }
+                }
+              }
+
+              if (data.is_complete || (this.globalAdsStats.unchecked_domains === 0)) {
+                this.globalAdsEnriching = false;
+                this.showToast('🎉 All domains in database have ads.txt monetization verified!', 'success');
+                break;
+              }
+
+              // Delay between batches to respect target servers and rate limits
+              await new Promise(r => setTimeout(r, 800));
+            }
+          } catch (err) {
+            this.globalAdsEnriching = false;
+            this.showToast('Global ads verification paused: ' + err.message, 'error');
+          }
+        },
+
+        stopGlobalAdsEnrichment() {
+          this.globalAdsEnriching = false;
+          this.showToast('Global ads verification paused. You can resume anytime.', 'info');
+        },
+
         capitalize(str) {
           if (!str) return '';
           return str.charAt(0).toUpperCase() + str.slice(1);
@@ -1589,6 +1843,7 @@ export function getDomainsPageHtml() {
             case 'mediavine': return '🍇 Mediavine';
             case 'journey': return '🚀 Journey';
             case 'ezoic': return '⚡ Ezoic';
+            case 'hbagency': return '⚡ HBAgency';
             case 'monumetric': return '📈 Monumetric';
             case 'shemedia': return '🌸 SheMedia';
             case 'freestar': return '⭐ Freestar';
@@ -1615,6 +1870,8 @@ export function getDomainsPageHtml() {
             case 'journey':
               return 'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-300 border border-sky-300 dark:border-sky-700';
             case 'ezoic':
+              return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700';
+            case 'hbagency':
               return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700';
             case 'monumetric':
               return 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-700';

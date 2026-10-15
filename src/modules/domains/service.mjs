@@ -15,6 +15,9 @@ import {
   fetchAndCacheDomainAdNetwork,
   enrichMissingAdNetworksBatch,
   getDatabaseMonetizationStats,
+  enrichNextUncheckedAdsBatch,
+  normalizeMonetizationRecord,
+  parseAdsTxtMonetization,
   KNOWN_AD_NETWORKS,
   AD_NETWORK_DISPLAY_CONFIG
 } from './ad-network-service.mjs';
@@ -23,6 +26,9 @@ export {
   fetchAndCacheDomainAdNetwork,
   enrichMissingAdNetworksBatch,
   getDatabaseMonetizationStats,
+  enrichNextUncheckedAdsBatch,
+  normalizeMonetizationRecord,
+  parseAdsTxtMonetization,
   KNOWN_AD_NETWORKS,
   AD_NETWORK_DISPLAY_CONFIG
 };
@@ -142,6 +148,11 @@ export async function queryWhoisSocket(cleanDomain) {
   try {
     const net = await import('node:net');
     if (!net || typeof net.createConnection !== 'function') return null;
+    let StringDecoder = null;
+    try {
+      const sd = await import('node:string_decoder');
+      StringDecoder = sd.StringDecoder;
+    } catch (_) {}
 
     const tld = cleanDomain.split('.').pop().toLowerCase();
     const WHOIS_SERVERS = {
@@ -158,21 +169,62 @@ export async function queryWhoisSocket(cleanDomain) {
     };
 
     const host = WHOIS_SERVERS[tld] || `whois.nic.${tld}`;
+    const MAX_BUFFER_BYTES = 64 * 1024; // 64KB protection ceiling
 
     return await new Promise((resolve) => {
-      const socket = net.createConnection(43, host, () => {
-        socket.write(`${cleanDomain}\r\n`);
-      });
+      let resolved = false;
+      let timer = null;
+      let socket = null;
+      const decoder = StringDecoder ? new StringDecoder('utf8') : null;
       let buffer = '';
-      socket.on('data', chunk => {
-        buffer += chunk.toString('utf8');
-      });
-      socket.on('end', () => resolve(buffer));
-      socket.on('error', () => resolve(null));
-      socket.setTimeout(3500, () => {
-        socket.destroy();
-        resolve(buffer || null);
-      });
+
+      const done = (result) => {
+        if (resolved) return;
+        resolved = true;
+        if (timer) {
+          clearTimeout(timer);
+          timer = null;
+        }
+        if (socket) {
+          try {
+            socket.removeAllListeners();
+            socket.destroy();
+          } catch (_) {}
+          socket = null;
+        }
+        resolve(result);
+      };
+
+      timer = setTimeout(() => {
+        done(buffer || null);
+      }, 3500);
+      if (typeof timer.unref === 'function') timer.unref();
+
+      try {
+        socket = net.createConnection(43, host, () => {
+          socket.write(`${cleanDomain}\r\n`);
+        });
+
+        socket.on('data', chunk => {
+          if (buffer.length < MAX_BUFFER_BYTES) {
+            buffer += decoder ? decoder.write(chunk) : chunk.toString('utf8');
+            if (buffer.length >= MAX_BUFFER_BYTES) {
+              done(buffer.slice(0, MAX_BUFFER_BYTES));
+            }
+          }
+        });
+
+        socket.on('end', () => {
+          if (decoder) buffer += decoder.end();
+          done(buffer || null);
+        });
+
+        socket.on('error', () => {
+          done(null);
+        });
+      } catch (_) {
+        done(null);
+      }
     });
   } catch (_) {
     return null;

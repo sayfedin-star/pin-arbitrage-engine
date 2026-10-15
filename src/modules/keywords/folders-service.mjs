@@ -142,6 +142,7 @@ export async function createFolder(sql, {
   color = '#ec4899', 
   icon = 'folder', 
   projectId = 'default', 
+  status = 'active',
   metadata = {} 
 }) {
   const cleanName = String(name || '').trim();
@@ -149,7 +150,12 @@ export async function createFolder(sql, {
     throw new Error('Folder name is required.');
   }
 
-  const cleanMetadata = normalizeFolderMetadata(metadata);
+  const validStatuses = ['active', 'archived', 'paused', 'completed'];
+  const cleanStatus = validStatuses.includes(String(status).toLowerCase())
+    ? String(status).toLowerCase()
+    : 'active';
+
+  const cleanMetadata = { ...normalizeFolderMetadata(metadata), status: cleanStatus };
   const [created] = await sql`
     INSERT INTO keyword_folders (
       name,
@@ -184,6 +190,7 @@ export async function updateFolder(sql, folderId, {
   description, 
   color, 
   icon, 
+  status,
   metadata 
 }) {
   const fid = Number(folderId);
@@ -192,7 +199,14 @@ export async function updateFolder(sql, folderId, {
   const cleanName = name !== undefined ? String(name).trim() : null;
   if (name !== undefined && !cleanName) throw new Error('Folder name cannot be empty');
 
-  const cleanMetadata = metadata !== undefined ? normalizeFolderMetadata(metadata) : null;
+  let cleanMetadata = metadata !== undefined ? normalizeFolderMetadata(metadata) : null;
+  if (status !== undefined) {
+    const validStatuses = ['active', 'archived', 'paused', 'completed'];
+    const cleanStatus = validStatuses.includes(String(status).toLowerCase())
+      ? String(status).toLowerCase()
+      : 'active';
+    cleanMetadata = { ...(cleanMetadata || {}), status: cleanStatus };
+  }
   const [updated] = await sql`
     UPDATE keyword_folders
     SET 
@@ -200,7 +214,10 @@ export async function updateFolder(sql, folderId, {
       description = COALESCE(${description !== undefined ? String(description).trim() : null}, description),
       color = COALESCE(${color !== undefined ? String(color).trim() : null}, color),
       icon = COALESCE(${icon !== undefined ? String(icon).trim() : null}, icon),
-      metadata = COALESCE(${cleanMetadata !== null ? JSON.stringify(cleanMetadata) : null}::jsonb, metadata),
+      metadata = CASE
+        WHEN ${cleanMetadata !== null} THEN COALESCE(metadata, '{}'::jsonb) || ${cleanMetadata !== null ? JSON.stringify(cleanMetadata) : null}::jsonb
+        ELSE metadata
+      END,
       updated_at = NOW()
     WHERE id = ${fid}
     RETURNING *;

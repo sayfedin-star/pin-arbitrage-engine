@@ -49,6 +49,40 @@ export function getCampaignFoldersPageHtml(folderId = '') {
     ::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.2); border-radius: 9999px; }
     ::-webkit-scrollbar-thumb:hover { background: rgba(148, 163, 184, 0.4); }
   </style>
+  <script>
+(function() {
+  if (typeof window === 'undefined' || window.__paeAuthInterceptorInstalled) return;
+  window.__paeAuthInterceptorInstalled = true;
+  const origFetch = window.fetch.bind(window);
+  window.fetch = async function(input, init) {
+    const urlStr = typeof input === 'string' ? input : (input && input.url ? input.url : '');
+    const isApiCall = urlStr.startsWith('/api/') || urlStr.includes('/api/');
+    let savedKey = '';
+    try { savedKey = localStorage.getItem('pae_admin_api_key') || ''; } catch (_) {}
+    if (isApiCall && savedKey) {
+      init = Object.assign({}, init);
+      const headers = new Headers(init.headers || (typeof input === 'object' && input.headers ? input.headers : undefined));
+      if (!headers.has('x-api-key') && !headers.has('Authorization')) {
+        headers.set('x-api-key', savedKey);
+      }
+      init.headers = headers;
+    }
+    let res = await origFetch(input, init);
+    if (isApiCall && res.status === 401 && typeof window.prompt === 'function') {
+      const entered = window.prompt('🔐 Authentication required. Enter API_SECRET_KEY:');
+      if (entered && entered.trim()) {
+        try { localStorage.setItem('pae_admin_api_key', entered.trim()); } catch (_) {}
+        init = Object.assign({}, init);
+        const retryHeaders = new Headers(init.headers || {});
+        retryHeaders.set('x-api-key', entered.trim());
+        init.headers = retryHeaders;
+        res = await origFetch(input, init);
+      }
+    }
+    return res;
+  };
+})();
+  </script>
 </head>
 <body class="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 min-h-screen antialiased flex flex-col font-sans transition-colors duration-150" x-data="foldersApp('${safeFolderId}')">
 

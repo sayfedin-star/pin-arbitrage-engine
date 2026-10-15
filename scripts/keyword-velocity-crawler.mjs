@@ -1508,7 +1508,7 @@ async function run() {
       try {
         let crawlRes = { success: true, crawled_pins: 0, avg_velocity: 0 };
         if (enableSerpHarvest) {
-          crawlRes = await crawlKeywordSERP(sql, kw.id, cookie, { max_serp_pins: maxSerpPins });
+          crawlRes = await crawlKeywordSERP(sql, kw.id, { cookie, max_serp_pins: maxSerpPins });
           if (crawlRes && crawlRes.success) {
             console.log(`  [+] Stage 1 Fast Crawl Success: Crawled ${crawlRes.crawled_pins} pins | Velocity: +${crawlRes.avg_velocity} saves/day`);
           }

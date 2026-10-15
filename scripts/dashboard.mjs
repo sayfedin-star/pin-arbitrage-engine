@@ -29,7 +29,8 @@ import {
   normalizeCleanDomain,
   fetchAndCacheDomainAdNetwork,
   enrichMissingAdNetworksBatch,
-  getDatabaseMonetizationStats
+  getDatabaseMonetizationStats,
+  enrichNextUncheckedAdsBatch
 } from '../src/modules/domains/service.mjs';
 import {
   getCompetitorsOverview,
@@ -2561,6 +2562,19 @@ const server = http.createServer(async (req, res) => {
         const concurrency = Math.max(1, Math.min(Number(body.concurrency) || 3, 5));
         const forceRefresh = Boolean(body.force);
         const result = await enrichNextUncheckedBatch(sql, { batchSize, concurrency, forceRefresh });
+        return sendJson(res, 200, { success: true, ...result });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, error: redactSecrets(err.message) });
+      }
+    }
+
+    if (method === 'POST' && pathname === '/api/domains/enrich-ads-all') {
+      try {
+        const body = await parseJsonBody(req).catch(() => ({}));
+        const batchSize = Math.max(1, Math.min(Number(body.batch_size) || 15, 50));
+        const concurrency = Math.max(1, Math.min(Number(body.concurrency) || 2, 4));
+        const forceRefresh = Boolean(body.force);
+        const result = await enrichNextUncheckedAdsBatch(sql, { batchSize, concurrency, forceRefresh });
         return sendJson(res, 200, { success: true, ...result });
       } catch (err) {
         return sendJson(res, 500, { success: false, error: redactSecrets(err.message) });

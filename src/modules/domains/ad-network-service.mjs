@@ -13,13 +13,18 @@
  */
 
 import { sleep, randomJitterMs } from '../../../scripts/lib/pinterest.mjs';
-import { normalizeCleanDomain } from './service.mjs';
+import {
+  normalizeCleanDomain,
+  IGNORED_INTERNAL_DOMAINS,
+  ECOMMERCE_AND_SOCIAL_DOMAINS
+} from './service.mjs';
 
 export const KNOWN_AD_NETWORKS = {
   RAPTIVE: 'raptive',
   MEDIAVINE: 'mediavine',
   JOURNEY: 'journey',
   EZOIC: 'ezoic',
+  HBAGENCY: 'hbagency',
   MONUMETRIC: 'monumetric',
   SHEMEDIA: 'shemedia',
   FREESTAR: 'freestar',
@@ -42,6 +47,12 @@ export const AD_NETWORK_DISPLAY_CONFIG = {
     label: 'Mediavine',
     badge: '🍇 Mediavine',
     icon: '🍇',
+    colorClasses: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30'
+  },
+  [KNOWN_AD_NETWORKS.HBAGENCY]: {
+    label: 'HBAgency',
+    badge: '⚡ HBAgency',
+    icon: '⚡',
     colorClasses: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30'
   },
   [KNOWN_AD_NETWORKS.JOURNEY]: {
@@ -179,6 +190,9 @@ export function parseAdsTxtContent(rawText) {
     if (lower.includes('snigelweb.com') || lower.includes('snigel.com')) {
       managerDomainsFound.add('snigel.com');
     }
+    if (lower.includes('hbagency.it') || lower.includes('hbagency.com') || lower.includes('hbagency')) {
+      managerDomainsFound.add('hbagency.it');
+    }
 
     if (!trimmed.startsWith('#')) {
       cleanLines.push(trimmed);
@@ -289,7 +303,28 @@ export function parseAdsTxtContent(rawText) {
     };
   }
 
-  // 10. Standalone AdSense (Has DIRECT google.com pub-id without third-party managers)
+  // 10. HBAgency Header Bidding
+  if (managerDomainsFound.has('hbagency.it') || managerDomainsFound.has('hbagency.com') || managerDomainsFound.has('hbagency')) {
+    return {
+      network: KNOWN_AD_NETWORKS.HBAGENCY,
+      manager_domain: 'hbagency.it',
+      primary_pub_id: directPubIds[0] || null,
+      raw_header_snippet: headerSnippet.slice(0, 255) || 'HBAgency Header Bidding'
+    };
+  }
+
+  // 11. Generic Declared Manager Domain (IAB standard managerdomain=...)
+  if (managerDomainsFound.size > 0) {
+    const declaredManager = Array.from(managerDomainsFound)[0];
+    return {
+      network: declaredManager.replace(/\.[a-z]+$/, '').toLowerCase(),
+      manager_domain: declaredManager,
+      primary_pub_id: directPubIds[0] || null,
+      raw_header_snippet: headerSnippet.slice(0, 255) || `Managed by ${declaredManager}`
+    };
+  }
+
+  // 12. Standalone AdSense (Has DIRECT google.com pub-id without third-party managers)
   if (hasAdSense && directPubIds.length > 0) {
     return {
       network: KNOWN_AD_NETWORKS.ADSENSE,
@@ -299,7 +334,7 @@ export function parseAdsTxtContent(rawText) {
     };
   }
 
-  // 11. Empty or zero-line ads.txt ➔ Affiliate / Direct Courses Only
+  // 13. Empty or zero-line ads.txt ➔ Affiliate / Direct Courses Only
   if (cleanLines.length === 0) {
     return {
       network: KNOWN_AD_NETWORKS.AFFILIATE_ONLY,
@@ -309,9 +344,9 @@ export function parseAdsTxtContent(rawText) {
     };
   }
 
-  // 12. Miscellaneous programmatic setup
+  // 14. Miscellaneous programmatic setup
   return {
-    network: KNOWN_AD_NETWORKS.ADSENSE,
+    network: directPubIds.length > 0 ? KNOWN_AD_NETWORKS.ADSENSE : KNOWN_AD_NETWORKS.AFFILIATE_ONLY,
     manager_domain: null,
     primary_pub_id: directPubIds[0] || null,
     raw_header_snippet: headerSnippet.slice(0, 255) || 'Programmatic Display'
@@ -389,6 +424,29 @@ export async function fetchAdsTxt(cleanDomain) {
 }
 
 /**
+ * Ensures network_history is always a parsed Array and not a raw JSON string
+ */
+export function normalizeMonetizationRecord(record) {
+  if (!record) return null;
+  let history = [];
+  if (Array.isArray(record.network_history)) {
+    history = record.network_history;
+  } else if (typeof record.network_history === 'string' && record.network_history.trim()) {
+    try {
+      const parsed = JSON.parse(record.network_history);
+      history = Array.isArray(parsed) ? parsed : [];
+    } catch (_) {
+      history = [];
+    }
+  }
+
+  return {
+    ...record,
+    network_history: history
+  };
+}
+
+/**
  * Fetches, detects network, tracks transitions, and caches results into Neon Postgres.
  */
 export async function fetchAndCacheDomainAdNetwork(sql, rawDomain, { forceRefresh = false } = {}) {
@@ -420,7 +478,7 @@ export async function fetchAndCacheDomainAdNetwork(sql, rawDomain, { forceRefres
     existing.checked_at &&
     (Date.now() - new Date(existing.checked_at).getTime()) < 14 * 86400000 // 14 days TTL
   ) {
-    return existing;
+    return normalizeMonetizationRecord(existing);
   }
 
   // 2. Fetch ads.txt
@@ -449,7 +507,15 @@ export async function fetchAndCacheDomainAdNetwork(sql, rawDomain, { forceRefres
   // 3. Historical Switch Tracking Logic
   let prevNetwork = existing?.previous_ad_network || null;
   let switchedAt = existing?.switched_at || null;
-  let networkHistory = Array.isArray(existing?.network_history) ? [...existing.network_history] : [];
+  let networkHistory = [];
+  if (Array.isArray(existing?.network_history)) {
+    networkHistory = [...existing.network_history];
+  } else if (typeof existing?.network_history === 'string' && existing.network_history.trim()) {
+    try {
+      const parsed = JSON.parse(existing.network_history);
+      if (Array.isArray(parsed)) networkHistory = parsed;
+    } catch (_) {}
+  }
 
   const oldNetwork = existing?.current_ad_network;
   const isMeaningfulOld = oldNetwork && oldNetwork !== 'unchecked' && oldNetwork !== 'failed' && oldNetwork !== 'protected';
@@ -510,9 +576,9 @@ export async function fetchAndCacheDomainAdNetwork(sql, rawDomain, { forceRefres
         checked_at = NOW()
       RETURNING *;
     `;
-    return saved || null;
+    return normalizeMonetizationRecord(saved);
   } catch (err) {
-    return {
+    return normalizeMonetizationRecord({
       domain: cleanDomain,
       current_ad_network: finalNetwork,
       ad_manager_domain: managerDomain,
@@ -523,7 +589,7 @@ export async function fetchAndCacheDomainAdNetwork(sql, rawDomain, { forceRefres
       ads_txt_status: adsTxtStatus,
       raw_header_snippet: headerSnippet,
       checked_at: new Date().toISOString()
-    };
+    });
   }
 }
 
@@ -548,53 +614,231 @@ export async function enrichMissingAdNetworksBatch(sql, candidateDomains = [], m
 }
 
 /**
- * Returns database-wide ad network distribution metrics
+ * Returns database-wide ad network distribution metrics and global progress
  */
 export async function getDatabaseMonetizationStats(sql) {
   try {
     const rows = await sql`
+      WITH all_distinct AS (
+        SELECT LOWER(REGEXP_REPLACE(ksc.domain, '^www\\.', '')) AS clean_domain FROM keyword_serp_current ksc WHERE ksc.domain IS NOT NULL AND ksc.domain <> ''
+        UNION
+        SELECT LOWER(REGEXP_REPLACE(pa.domain, '^www\\.', '')) AS clean_domain FROM pa_pins pa WHERE pa.domain IS NOT NULL AND pa.domain <> ''
+        UNION
+        SELECT LOWER(REGEXP_REPLACE(cp.link_domain, '^www\\.', '')) AS clean_domain FROM competitor_pins cp WHERE cp.link_domain IS NOT NULL AND cp.link_domain <> ''
+      ),
+      filtered_candidates AS (
+        SELECT clean_domain
+        FROM all_distinct
+        WHERE clean_domain IS NOT NULL
+          AND clean_domain <> ''
+          AND clean_domain LIKE '%.%'
+          AND clean_domain NOT LIKE '% %'
+          AND LENGTH(clean_domain) >= 4
+          AND clean_domain <> ALL(${IGNORED_INTERNAL_DOMAINS}::text[])
+          AND clean_domain <> ALL(${ECOMMERCE_AND_SOCIAL_DOMAINS}::text[])
+      ),
+      dmm_agg AS (
+        SELECT
+          COUNT(*)::int AS total_checked,
+          COUNT(*) FILTER (WHERE current_ad_network = 'raptive')::int AS raptive_count,
+          COUNT(*) FILTER (WHERE current_ad_network = 'mediavine')::int AS mediavine_count,
+          COUNT(*) FILTER (WHERE current_ad_network = 'journey')::int AS journey_count,
+          COUNT(*) FILTER (WHERE current_ad_network = 'ezoic')::int AS ezoic_count,
+          COUNT(*) FILTER (WHERE current_ad_network = 'hbagency')::int AS hbagency_count,
+          COUNT(*) FILTER (WHERE current_ad_network = 'monumetric')::int AS monumetric_count,
+          COUNT(*) FILTER (WHERE current_ad_network = 'shemedia')::int AS shemedia_count,
+          COUNT(*) FILTER (WHERE current_ad_network = 'freestar')::int AS freestar_count,
+          COUNT(*) FILTER (WHERE current_ad_network = 'playwire')::int AS playwire_count,
+          COUNT(*) FILTER (WHERE current_ad_network = 'snigel')::int AS snigel_count,
+          COUNT(*) FILTER (WHERE current_ad_network = 'adsense')::int AS adsense_count,
+          COUNT(*) FILTER (WHERE current_ad_network = 'affiliate_only')::int AS affiliate_count,
+          COUNT(*) FILTER (WHERE current_ad_network = 'protected')::int AS protected_count,
+          COUNT(*) FILTER (WHERE current_ad_network = 'failed')::int AS failed_count,
+          COUNT(*) FILTER (WHERE switched_at IS NOT NULL)::int AS switched_count
+        FROM domain_monetization_metadata
+        WHERE current_ad_network IS NOT NULL AND current_ad_network <> 'unchecked'
+      )
       SELECT
-        COUNT(*)::int AS total_checked,
-        COUNT(*) FILTER (WHERE current_ad_network = 'raptive')::int AS raptive_count,
-        COUNT(*) FILTER (WHERE current_ad_network = 'mediavine')::int AS mediavine_count,
-        COUNT(*) FILTER (WHERE current_ad_network = 'journey')::int AS journey_count,
-        COUNT(*) FILTER (WHERE current_ad_network = 'ezoic')::int AS ezoic_count,
-        COUNT(*) FILTER (WHERE current_ad_network = 'monumetric')::int AS monumetric_count,
-        COUNT(*) FILTER (WHERE current_ad_network = 'shemedia')::int AS shemedia_count,
-        COUNT(*) FILTER (WHERE current_ad_network = 'adsense')::int AS adsense_count,
-        COUNT(*) FILTER (WHERE current_ad_network = 'affiliate_only')::int AS affiliate_count,
-        COUNT(*) FILTER (WHERE current_ad_network = 'protected')::int AS protected_count,
-        COUNT(*) FILTER (WHERE switched_at IS NOT NULL)::int AS switched_count
-      FROM domain_monetization_metadata;
+        (SELECT COUNT(*)::int FROM filtered_candidates) AS total_domains,
+        COALESCE(da.total_checked, 0) AS total_checked,
+        COALESCE(da.raptive_count, 0) AS raptive_count,
+        COALESCE(da.mediavine_count, 0) AS mediavine_count,
+        COALESCE(da.journey_count, 0) AS journey_count,
+        COALESCE(da.ezoic_count, 0) AS ezoic_count,
+        COALESCE(da.hbagency_count, 0) AS hbagency_count,
+        COALESCE(da.monumetric_count, 0) AS monumetric_count,
+        COALESCE(da.shemedia_count, 0) AS shemedia_count,
+        COALESCE(da.freestar_count, 0) AS freestar_count,
+        COALESCE(da.playwire_count, 0) AS playwire_count,
+        COALESCE(da.snigel_count, 0) AS snigel_count,
+        COALESCE(da.adsense_count, 0) AS adsense_count,
+        COALESCE(da.affiliate_count, 0) AS affiliate_count,
+        COALESCE(da.protected_count, 0) AS protected_count,
+        COALESCE(da.failed_count, 0) AS failed_count,
+        COALESCE(da.switched_count, 0) AS switched_count
+      FROM dmm_agg da;
     `;
     const r = rows[0] || {};
+    const totalDomains = Number(r.total_domains || 0);
+    const checkedDomains = Number(r.total_checked || 0);
+    const uncheckedDomains = Math.max(0, totalDomains - checkedDomains);
+    const percentComplete = totalDomains > 0 ? Number(((checkedDomains / totalDomains) * 100).toFixed(1)) : 100;
+
     return {
-      total_checked: Number(r.total_checked || 0),
+      total_domains: totalDomains,
+      checked_domains: checkedDomains,
+      total_checked: checkedDomains,
+      unchecked_domains: uncheckedDomains,
+      percent_complete: percentComplete,
       raptive_count: Number(r.raptive_count || 0),
       mediavine_count: Number(r.mediavine_count || 0),
       journey_count: Number(r.journey_count || 0),
       ezoic_count: Number(r.ezoic_count || 0),
+      hbagency_count: Number(r.hbagency_count || 0),
       monumetric_count: Number(r.monumetric_count || 0),
       shemedia_count: Number(r.shemedia_count || 0),
+      freestar_count: Number(r.freestar_count || 0),
+      playwire_count: Number(r.playwire_count || 0),
+      snigel_count: Number(r.snigel_count || 0),
       adsense_count: Number(r.adsense_count || 0),
       affiliate_count: Number(r.affiliate_count || 0),
       protected_count: Number(r.protected_count || 0),
+      failed_count: Number(r.failed_count || 0),
       switched_count: Number(r.switched_count || 0)
     };
   } catch (err) {
     return {
+      total_domains: 0,
+      checked_domains: 0,
       total_checked: 0,
+      unchecked_domains: 0,
+      percent_complete: 0,
       raptive_count: 0,
       mediavine_count: 0,
       journey_count: 0,
       ezoic_count: 0,
+      hbagency_count: 0,
       monumetric_count: 0,
       shemedia_count: 0,
+      freestar_count: 0,
+      playwire_count: 0,
+      snigel_count: 0,
       adsense_count: 0,
       affiliate_count: 0,
       protected_count: 0,
+      failed_count: 0,
       switched_count: 0,
       error: err.message
     };
   }
 }
+
+/**
+ * Automates background priority batch scanning for unchecked ads.txt domains
+ */
+export async function enrichNextUncheckedAdsBatch(sql, { batchSize = 15, concurrency = 2, forceRefresh = false } = {}) {
+  const bSize = Math.max(1, Math.min(Number(batchSize) || 15, 50));
+  const conc = Math.max(1, Math.min(Number(concurrency) || 2, 4));
+
+  const candidateRows = await sql`
+    WITH all_candidates AS (
+      SELECT
+        LOWER(REGEXP_REPLACE(ksc.domain, '^www\\.', '')) AS clean_domain,
+        SUM(CASE WHEN ksc.is_displaced = FALSE THEN GREATEST(1, 101 - ksc.rank_position) ELSE 1 END)::bigint AS visibility_score,
+        SUM(COALESCE(ksc.save_count, 0))::bigint AS total_saves
+      FROM keyword_serp_current ksc
+      WHERE ksc.domain IS NOT NULL AND ksc.domain <> ''
+      GROUP BY clean_domain
+
+      UNION ALL
+
+      SELECT
+        LOWER(REGEXP_REPLACE(pa.domain, '^www\\.', '')) AS clean_domain,
+        0::bigint AS visibility_score,
+        SUM(COALESCE(pa.saves, 0))::bigint AS total_saves
+      FROM pa_pins pa
+      WHERE pa.domain IS NOT NULL AND pa.domain <> ''
+      GROUP BY clean_domain
+
+      UNION ALL
+
+      SELECT
+        LOWER(REGEXP_REPLACE(cp.link_domain, '^www\\.', '')) AS clean_domain,
+        0::bigint AS visibility_score,
+        SUM(COALESCE(cp.save_count, 0))::bigint AS total_saves
+      FROM competitor_pins cp
+      WHERE cp.link_domain IS NOT NULL AND cp.link_domain <> ''
+      GROUP BY clean_domain
+    ),
+    aggregated AS (
+      SELECT
+        clean_domain AS domain,
+        SUM(visibility_score)::bigint AS visibility_score,
+        SUM(total_saves)::bigint AS total_saves
+      FROM all_candidates
+      WHERE clean_domain IS NOT NULL
+        AND clean_domain <> ''
+        AND clean_domain LIKE '%.%'
+        AND clean_domain NOT LIKE '% %'
+        AND LENGTH(clean_domain) >= 4
+        AND clean_domain <> ALL(${IGNORED_INTERNAL_DOMAINS}::text[])
+        AND clean_domain <> ALL(${ECOMMERCE_AND_SOCIAL_DOMAINS}::text[])
+      GROUP BY clean_domain
+    )
+    SELECT agg.domain
+    FROM aggregated agg
+    LEFT JOIN domain_monetization_metadata dmm ON dmm.domain = agg.domain
+    WHERE (
+      ${forceRefresh} = TRUE
+      OR dmm.domain IS NULL
+      OR dmm.current_ad_network = 'unchecked'
+      OR (dmm.current_ad_network = 'failed' AND dmm.checked_at < NOW() - INTERVAL '7 days')
+    )
+    ORDER BY agg.visibility_score DESC, agg.total_saves DESC
+    LIMIT ${bSize};
+  `;
+
+  const domainList = candidateRows
+    .map(r => normalizeCleanDomain(r.domain))
+    .filter(Boolean);
+
+  if (domainList.length === 0) {
+    const stats = await getDatabaseMonetizationStats(sql);
+    return {
+      batch_size: 0,
+      enriched: 0,
+      results: [],
+      stats,
+      is_complete: true
+    };
+  }
+
+  const results = [];
+  for (let i = 0; i < domainList.length; i += conc) {
+    const slice = domainList.slice(i, i + conc);
+    const chunkPromises = slice.map(async (dom) => {
+      try {
+        return await fetchAndCacheDomainAdNetwork(sql, dom, { forceRefresh });
+      } catch (_) {
+        return { domain: dom, current_ad_network: 'failed', ads_txt_status: 'failed' };
+      }
+    });
+    const batchOutputs = await Promise.all(chunkPromises);
+    results.push(...batchOutputs.filter(Boolean));
+    if (i + conc < domainList.length) {
+      await sleep(randomJitterMs(250, 500));
+    }
+  }
+
+  const stats = await getDatabaseMonetizationStats(sql);
+  return {
+    batch_size: domainList.length,
+    enriched: results.length,
+    results,
+    stats,
+    is_complete: stats.unchecked_domains === 0
+  };
+}
+
+export { parseAdsTxtContent as parseAdsTxtMonetization };
+

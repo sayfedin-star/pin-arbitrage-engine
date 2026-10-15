@@ -207,9 +207,9 @@ export async function fetchKeywordRelatedInterests(term, mode = 'both') {
     const relatedPromises = [];
     const additionPromises = [];
 
-    // Resolve ALL official Related Interests and Additions returned by Pinterest
+    // Resolve official Related Interests and Additions returned by Pinterest (capped to respect Cloudflare subrequest limit)
     if (mode === 'both' || mode === 'related') {
-      const relatedList = main.seo_related_objects || [];
+      const relatedList = (main.seo_related_objects || []).slice(0, 12);
       for (const item of relatedList) {
         if (!item.name) continue;
         relatedPromises.push((async () => {
@@ -238,7 +238,7 @@ export async function fetchKeywordRelatedInterests(term, mode = 'both') {
     }
 
     if (mode === 'both' || mode === 'additions') {
-      const pivotsList = main.ideas_pivots || [];
+      const pivotsList = (main.ideas_pivots || []).slice(0, 8);
       for (const pivot of pivotsList) {
         if (!pivot.full_name) continue;
         additionPromises.push((async () => {
@@ -431,8 +431,8 @@ export async function fetchPinterestBatchVelocity(seedQuery, terms = [], country
       }
     }
 
-    // 3. For any terms still missing from prefix_match, fetch in parallel without arbitrary truncation
-    const stillMissing = normalizedTerms.filter(t => !resultMap.has(t) && t.length <= 40 && !t.includes('|'));
+    // 3. For any terms still missing from prefix_match, fetch in parallel (capped at 12 to respect Cloudflare subrequest limits)
+    const stillMissing = normalizedTerms.filter(t => !resultMap.has(t) && t.length <= 40 && !t.includes('|')).slice(0, 12);
     if (stillMissing.length > 0) {
       const missingFetches = stillMissing.map(async (mTerm) => {
         let mRes;

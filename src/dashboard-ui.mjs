@@ -41,6 +41,40 @@ export function getDashboardHtml() {
     ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
     .dark ::-webkit-scrollbar-thumb:hover { background: #334155; }
   </style>
+  <script>
+(function() {
+  if (typeof window === 'undefined' || window.__paeAuthInterceptorInstalled) return;
+  window.__paeAuthInterceptorInstalled = true;
+  const origFetch = window.fetch.bind(window);
+  window.fetch = async function(input, init) {
+    const urlStr = typeof input === 'string' ? input : (input && input.url ? input.url : '');
+    const isApiCall = urlStr.startsWith('/api/') || urlStr.includes('/api/');
+    let savedKey = '';
+    try { savedKey = localStorage.getItem('pae_admin_api_key') || ''; } catch (_) {}
+    if (isApiCall && savedKey) {
+      init = Object.assign({}, init);
+      const headers = new Headers(init.headers || (typeof input === 'object' && input.headers ? input.headers : undefined));
+      if (!headers.has('x-api-key') && !headers.has('Authorization')) {
+        headers.set('x-api-key', savedKey);
+      }
+      init.headers = headers;
+    }
+    let res = await origFetch(input, init);
+    if (isApiCall && res.status === 401 && typeof window.prompt === 'function') {
+      const entered = window.prompt('🔐 Authentication required. Enter API_SECRET_KEY:');
+      if (entered && entered.trim()) {
+        try { localStorage.setItem('pae_admin_api_key', entered.trim()); } catch (_) {}
+        init = Object.assign({}, init);
+        const retryHeaders = new Headers(init.headers || {});
+        retryHeaders.set('x-api-key', entered.trim());
+        init.headers = retryHeaders;
+        res = await origFetch(input, init);
+      }
+    }
+    return res;
+  };
+})();
+  </script>
 </head>
 <body class="bg-slate-50 text-slate-900 dark:bg-[#080d1a] dark:text-slate-100 min-h-screen font-sans selection:bg-rose-500 selection:text-white antialiased transition-colors duration-200">
 

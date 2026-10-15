@@ -62,6 +62,40 @@ export function getKeywordsPageHtml(initialSlug = '') {
   <script>
     window.__INITIAL_KEYWORD_SLUG__ = ${JSON.stringify(String(initialSlug || '')).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029')};
   </script>
+  <script>
+(function() {
+  if (typeof window === 'undefined' || window.__paeAuthInterceptorInstalled) return;
+  window.__paeAuthInterceptorInstalled = true;
+  const origFetch = window.fetch.bind(window);
+  window.fetch = async function(input, init) {
+    const urlStr = typeof input === 'string' ? input : (input && input.url ? input.url : '');
+    const isApiCall = urlStr.startsWith('/api/') || urlStr.includes('/api/');
+    let savedKey = '';
+    try { savedKey = localStorage.getItem('pae_admin_api_key') || ''; } catch (_) {}
+    if (isApiCall && savedKey) {
+      init = Object.assign({}, init);
+      const headers = new Headers(init.headers || (typeof input === 'object' && input.headers ? input.headers : undefined));
+      if (!headers.has('x-api-key') && !headers.has('Authorization')) {
+        headers.set('x-api-key', savedKey);
+      }
+      init.headers = headers;
+    }
+    let res = await origFetch(input, init);
+    if (isApiCall && res.status === 401 && typeof window.prompt === 'function') {
+      const entered = window.prompt('🔐 Authentication required. Enter API_SECRET_KEY:');
+      if (entered && entered.trim()) {
+        try { localStorage.setItem('pae_admin_api_key', entered.trim()); } catch (_) {}
+        init = Object.assign({}, init);
+        const retryHeaders = new Headers(init.headers || {});
+        retryHeaders.set('x-api-key', entered.trim());
+        init.headers = retryHeaders;
+        res = await origFetch(input, init);
+      }
+    }
+    return res;
+  };
+})();
+  </script>
 </head>
 <body class="bg-slate-50 dark:bg-[#070b14] text-slate-900 dark:text-slate-100 min-h-screen font-sans antialiased selection:bg-emerald-500 selection:text-white"
       x-data="keywordStudio()">

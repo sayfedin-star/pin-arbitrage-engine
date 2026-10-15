@@ -828,13 +828,16 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
 
   if (typeof optionsOrCookie === 'string') {
     cookie = optionsOrCookie;
-    options = (maybeOptions && typeof maybeOptions === 'object') ? maybeOptions : {};
-    if (options.force) force = Boolean(options.force);
+    options = (maybeOptions && typeof maybeOptions === 'object') ? { ...maybeOptions } : {};
   } else if (optionsOrCookie && typeof optionsOrCookie === 'object') {
-    options = optionsOrCookie;
+    options = { ...optionsOrCookie };
     if (options.cookie !== undefined) cookie = options.cookie;
-    if (options.force) force = Boolean(options.force);
+  } else if (!optionsOrCookie && maybeOptions && typeof maybeOptions === 'object') {
+    options = { ...maybeOptions };
+    if (options.cookie !== undefined) cookie = options.cookie;
   }
+
+  if (options.force) force = Boolean(options.force);
 
   // 1. Process-local fast-fail check and lock acquisition
   if (activeKeywordCrawls.has(kid) && !force) {
@@ -935,6 +938,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
     let rawGuides = [];
     const seenPagingIds = new Set();
     let organicPinsCollected = 0;
+    let paginationAbortedByHttp = false;
 
     // Deep dynamic pagination: Follow bookmark stream up to maxPages / targetCount
     while (organicPinsCollected < targetCount && page <= maxPages) {
@@ -971,6 +975,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
           if (page === 1) {
             throw new Error(`Pinterest Search API returned HTTP ${res.status}`);
           }
+          paginationAbortedByHttp = true;
           break;
         }
 
@@ -1013,6 +1018,11 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
             : (2500 + Math.floor(Math.random() * 1500));
           await new Promise(r => setTimeout(r, jitter));
         }
+      } catch (fetchErr) {
+        if (page === 1) throw fetchErr;
+        console.warn(`[crawlKeywordSERP] Pagination aborted on page ${page} due to network/fetch error:`, fetchErr?.message);
+        paginationAbortedByHttp = true;
+        break;
       } finally {
         if (res?.body && !res.bodyUsed) {
           await res.body.cancel().catch(() => {});
@@ -1239,12 +1249,18 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
           daysElapsed = Math.max(1, Math.round((todayUtc - baseUtc) / (1000 * 60 * 60 * 24)));
         }
         velocity = Math.round(rawDelta / daysElapsed);
-      } else if (immediateData && String(immediateData.snapshotDate).slice(0, 10) < todayDate.toISOString().slice(0, 10)) {
-        const rawDelta = Math.max(0, confirmedSaves - immediateData.saves);
-        const immDate = new Date(immediateData.snapshotDate);
-        const immUtc = Date.UTC(immDate.getUTCFullYear(), immDate.getUTCMonth(), immDate.getUTCDate());
-        const daysElapsed = Math.max(1, Math.round((todayUtc - immUtc) / (1000 * 60 * 60 * 24)));
-        velocity = Math.round(rawDelta / daysElapsed);
+      } else if (immediateData) {
+        const immDateStr = immediateData.snapshotDate instanceof Date
+          ? immediateData.snapshotDate.toISOString().slice(0, 10)
+          : (immediateData.snapshotDate ? String(immediateData.snapshotDate).slice(0, 10) : '');
+        const todayIsoStr = todayDate.toISOString().slice(0, 10);
+        if (immDateStr && immDateStr < todayIsoStr) {
+          const rawDelta = Math.max(0, confirmedSaves - immediateData.saves);
+          const immDate = new Date(immediateData.snapshotDate);
+          const immUtc = Date.UTC(immDate.getUTCFullYear(), immDate.getUTCMonth(), immDate.getUTCDate());
+          const daysElapsed = Math.max(1, Math.round((todayUtc - immUtc) / (1000 * 60 * 60 * 24)));
+          velocity = Math.round(rawDelta / daysElapsed);
+        }
       }
 
       // Sanity bound to protect against malicious bot-farm spikes
@@ -1418,7 +1434,13 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
             // Recalculate daily save velocity against baseline if saves updated
             const baseSaves = baselineMap.get(p.pin_id);
             if (baseSaves !== undefined && baseSaves !== null) {
-              const newVel = Math.min(25000, Math.max(0, p.save_count - Number(baseSaves)));
+              let daysElapsed = 1;
+              if (baselineSnapshotDate) {
+                const baseUtc = Date.UTC(baselineSnapshotDate.getUTCFullYear(), baselineSnapshotDate.getUTCMonth(), baselineSnapshotDate.getUTCDate());
+                daysElapsed = Math.max(1, Math.round((todayUtc - baseUtc) / (1000 * 60 * 60 * 24)));
+              }
+              const rawDelta = Math.max(0, p.save_count - Number(baseSaves));
+              const newVel = Math.min(25000, Math.round(rawDelta / daysElapsed));
               p.daily_save_velocity = newVel;
               const pIdxInPrepared = preparedPins.indexOf(p);
               if (pIdxInPrepared !== -1) {
@@ -1447,11 +1469,11 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
       : (Number(keywordRow.target_pin_count) || targetCount);
 
     const minRequiredForEviction = Math.max(10, Math.floor(expectedCount * 0.70));
-    const isSuspectedIncompleteCrawl = preparedPins.length < minRequiredForEviction && priorActiveCount >= 10;
+    const isSuspectedIncompleteCrawl = preparedPins.length < minRequiredForEviction || paginationAbortedByHttp;
     const droppedOutList = [];
 
     if (isSuspectedIncompleteCrawl) {
-      console.warn(`[Circuit Breaker] Suspected incomplete SERP crawl for keyword "${keywordRow.keyword}" (got ${preparedPins.length} pins vs ${priorActiveCount} prior, expected ${expectedCount}, min required ${minRequiredForEviction}). Preserving rankings, skipping eviction.`);
+      console.warn(`[Circuit Breaker] Suspected incomplete SERP crawl for keyword "${keywordRow.keyword}" (got ${preparedPins.length} pins vs ${priorActiveCount} prior, expected ${expectedCount}, min required ${minRequiredForEviction}, paginationAborted=${paginationAbortedByHttp}). Preserving rankings, skipping eviction.`);
     } else {
       for (const s of immediateSnapshots) {
         const pid = String(s.pin_id);
@@ -1860,39 +1882,42 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
     }
 
     // Atomic update of tracked_keywords metadata AND release crawl_lock
+    const finalVelocity = isSuspectedIncompleteCrawl ? (Number(keywordRow.avg_daily_velocity) || 0) : avgVelocity;
     txBatch.push(sql`
       UPDATE tracked_keywords SET
         top_pin_id = ${topPin ? topPin.pinId : keywordRow.top_pin_id},
         top_pin_title = ${topPin ? topPin.title : keywordRow.top_pin_title},
         top_pin_image = ${topPin ? topPin.imageUrl : keywordRow.top_pin_image},
-        avg_daily_velocity = ${avgVelocity},
+        avg_daily_velocity = ${finalVelocity},
         last_crawled_at = NOW(),
         updated_at = NOW(),
         metadata = ${JSON.stringify(updatedMetadata)}::jsonb
       WHERE id = ${kid};
     `);
 
-    // Enforce relative 2-snapshot rolling window per keyword on the Hub
-    txBatch.push(sql`
-      WITH ranked_dates AS (
-        SELECT snapshot_date,
-               DENSE_RANK() OVER (ORDER BY snapshot_date DESC) AS dr
-        FROM (
-          SELECT DISTINCT snapshot_date
-          FROM keyword_pins_snapshots
-          WHERE keyword_id = ${kid}
-        ) d
-      ),
-      cutoff AS (
-        SELECT MIN(snapshot_date) AS keep_from_date
-        FROM ranked_dates
-        WHERE dr <= 2
-      )
-      DELETE FROM keyword_pins_snapshots kps
-      USING cutoff c
-      WHERE kps.keyword_id = ${kid}
-        AND kps.snapshot_date < c.keep_from_date;
-    `);
+    // Enforce relative 2-snapshot rolling window per keyword on the Hub ONLY when crawl was complete
+    if (!isSuspectedIncompleteCrawl) {
+      txBatch.push(sql`
+        WITH ranked_dates AS (
+          SELECT snapshot_date,
+                 DENSE_RANK() OVER (ORDER BY snapshot_date DESC) AS dr
+          FROM (
+            SELECT DISTINCT snapshot_date
+            FROM keyword_pins_snapshots
+            WHERE keyword_id = ${kid}
+          ) d
+        ),
+        cutoff AS (
+          SELECT MIN(snapshot_date) AS keep_from_date
+          FROM ranked_dates
+          WHERE dr <= 2
+        )
+        DELETE FROM keyword_pins_snapshots kps
+        USING cutoff c
+        WHERE kps.keyword_id = ${kid}
+          AND kps.snapshot_date < c.keep_from_date;
+      `);
+    }
 
     // Execute atomic transaction in 1 network roundtrip
     await sql.transaction(txBatch);
@@ -2974,6 +2999,9 @@ export async function getPinDeepDossier(sql, pinId, keywordId = null, { forceRef
       const pinResult = await fetchPinFromPinterest(cleanPin);
       if (pinResult?.ok && pinResult.pin) {
         scraped = pinResult.pin;
+        const normalizedAnnotations = Array.isArray(scraped.annotations)
+          ? scraped.annotations.map(a => typeof a === 'string' ? a.trim() : (a && (a.name || a.label) ? String(a.name || a.label).trim() : '')).filter(Boolean)
+          : [];
 
         // Persist scraped details to Hub cache in keyword_serp_current
         if (displacedRow) {
@@ -2999,8 +3027,8 @@ export async function getPinDeepDossier(sql, pinId, keywordId = null, { forceRef
               creator_username = COALESCE(NULLIF(${scraped.creator_username || scraped.pinner?.username || ''}, ''), creator_username),
               board_name = COALESCE(NULLIF(${scraped.board_name || scraped.board?.name || ''}, ''), board_name),
               visual_annotations = CASE 
-                WHEN jsonb_typeof(${JSON.stringify(scraped.annotations || [])}::jsonb) = 'array' AND jsonb_array_length(${JSON.stringify(scraped.annotations || [])}::jsonb) > 0
-                THEN ${JSON.stringify(scraped.annotations || [])}::jsonb
+                WHEN jsonb_typeof(${JSON.stringify(normalizedAnnotations)}::jsonb) = 'array' AND jsonb_array_length(${JSON.stringify(normalizedAnnotations)}::jsonb) > 0
+                THEN ${JSON.stringify(normalizedAnnotations)}::jsonb
                 ELSE visual_annotations
               END,
               dominant_color = COALESCE(${scraped.dominant_color || null}, dominant_color),
@@ -3027,13 +3055,13 @@ export async function getPinDeepDossier(sql, pinId, keywordId = null, { forceRef
                 'description', COALESCE(${scraped.description || ''}::text, metadata->>'description'),
                 'share_count', ${Number(scraped.share_count || 0)},
                 'visual_annotations', CASE
-                  WHEN jsonb_typeof(${JSON.stringify(scraped.annotations || [])}::jsonb) = 'array' AND jsonb_array_length(${JSON.stringify(scraped.annotations || [])}::jsonb) > 0
-                  THEN ${JSON.stringify(scraped.annotations || [])}::jsonb
+                  WHEN jsonb_typeof(${JSON.stringify(normalizedAnnotations)}::jsonb) = 'array' AND jsonb_array_length(${JSON.stringify(normalizedAnnotations)}::jsonb) > 0
+                  THEN ${JSON.stringify(normalizedAnnotations)}::jsonb
                   ELSE COALESCE(metadata->'visual_annotations', '[]'::jsonb)
                 END
               )
             WHERE pin_id = ${cleanPin}
-              ${kid ? sql`AND keyword_id = ${kid}` : sql``};
+              AND (${kid || null}::int IS NULL OR keyword_id = ${kid || null});
           `.catch(() => {});
         }
 
