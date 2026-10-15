@@ -98,7 +98,6 @@ export function getPinDetailPageHtml(pinId = '') {
         <a href="/keywords" class="px-3 py-1.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors">Keywords Radar</a>
         <a href="/keywords/discovery" class="px-3 py-1.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors">Discovery & Autocomplete</a>
         <a href="/folders" class="px-3 py-1.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors">Campaign Folders</a>
-        <a href="/board-ideas" class="px-3 py-1.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors">Board Ideas</a>
         <a href="/" class="px-3 py-1.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors">Creator Archive</a>
       </nav>
     </div>
@@ -754,7 +753,7 @@ export function getPinDetailPageHtml(pinId = '') {
         <span class="text-xs font-mono text-slate-500">Multi-Module Ecosystem Connection</span>
       </div>
 
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         
         <!-- Keyword Rankings Context -->
         <div class="p-4 rounded-xl bg-slate-50 border border-slate-200 flex flex-col justify-between gap-3">
@@ -808,23 +807,6 @@ export function getPinDetailPageHtml(pinId = '') {
             class="px-3 py-2 rounded-lg bg-pink-50 hover:bg-pink-100 text-pink-700 text-xs font-semibold border border-pink-200 text-center transition-colors flex items-center justify-center gap-1"
           >
             <span>🔍 Launch Related Radar</span>
-          </a>
-        </div>
-
-        <!-- Board Ideas Match -->
-        <div class="p-4 rounded-xl bg-slate-50 border border-slate-200 flex flex-col justify-between gap-3">
-          <div class="flex flex-col gap-1.5">
-            <span class="text-[10px] font-mono uppercase text-purple-700 font-bold flex items-center gap-1">
-              <span>💡</span> Board Ideas Studio
-            </span>
-            <div class="text-xs font-semibold text-slate-900">Inferred Strategic Board:</div>
-            <div class="text-[11px] text-purple-700 font-mono truncate font-medium" x-text="dossier?.pillar_4_board_ideas_context?.inferred_board_slug || 'General Board'"></div>
-          </div>
-          <a 
-            :href="dossier?.pillar_4_board_ideas_context?.board_radar_url || '/board-ideas'" 
-            class="px-3 py-2 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-700 text-xs font-semibold border border-purple-200 text-center transition-colors flex items-center justify-center gap-1"
-          >
-            <span>Studio Recommendations →</span>
           </a>
         </div>
 

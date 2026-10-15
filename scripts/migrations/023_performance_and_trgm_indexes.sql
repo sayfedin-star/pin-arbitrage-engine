@@ -13,12 +13,6 @@ ON competitor_profiles USING gin (LOWER(username) gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_cp_trgm_display_name 
 ON competitor_profiles USING gin (LOWER(COALESCE(display_name, '')) gin_trgm_ops);
 
-CREATE INDEX IF NOT EXISTS idx_tb_trgm_url 
-ON tracked_boards USING gin (url gin_trgm_ops);
-
-CREATE INDEX IF NOT EXISTS idx_tb_trgm_name 
-ON tracked_boards USING gin (LOWER(name) gin_trgm_ops);
-
 -- True covering index with payload columns for Index-Only Scan (Heap Fetches = 0)
 DROP INDEX IF EXISTS idx_ksc_active_covering;
 CREATE INDEX IF NOT EXISTS idx_ksc_active_covering 

@@ -590,25 +590,13 @@ export async function fetchVisualSearchLens(sql, pinId, cookie = (typeof process
     try {
       const [row] = await sql`
         SELECT pin_id, title, image_url, domain, save_count
-        FROM board_idea_snapshots
+        FROM keyword_pins_snapshots
         WHERE pin_id = ${cleanPin}
-        ORDER BY snapshot_date DESC
+        ORDER BY created_at DESC
         LIMIT 1;
       `;
       seedPin = row;
     } catch (_) {}
-    if (!seedPin) {
-      try {
-        const [row] = await sql`
-          SELECT pin_id, title, image_url, domain, save_count
-          FROM keyword_pins_snapshots
-          WHERE pin_id = ${cleanPin}
-          ORDER BY created_at DESC
-          LIMIT 1;
-        `;
-        seedPin = row;
-      } catch (_) {}
-    }
     visualSearchCache.set(cleanPin, { matches: dbCached.matches, seed_pin: seedPin, timestamp: Date.now() });
     return { success: true, pin_id: cleanPin, matches: dbCached.matches, seed_pin: seedPin, cached: true };
   }
@@ -632,21 +620,6 @@ export async function fetchVisualSearchLens(sql, pinId, cookie = (typeof process
       pinRow = row;
     } catch (err) {
       console.warn(`[fetchVisualSearchLens] Snapshot lookup warning for pin ${cleanPin}:`, err.message);
-    }
-
-    if (!pinRow) {
-      try {
-        const [boardRow] = await sql`
-          SELECT pin_id, title, image_url, domain, save_count
-          FROM board_idea_snapshots
-          WHERE pin_id = ${cleanPin}
-          ORDER BY snapshot_date DESC
-          LIMIT 1;
-        `;
-        if (boardRow) pinRow = boardRow;
-      } catch (err) {
-        console.warn(`[fetchVisualSearchLens] board_idea_snapshots lookup warning for pin ${cleanPin}:`, err.message);
-      }
     }
 
     if (!pinRow) {

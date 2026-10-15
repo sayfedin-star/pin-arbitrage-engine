@@ -35,24 +35,6 @@ async function testRoutes() {
     console.log('  ✓ [PASS] GET /keywords -> Serves Keywords Fleet Dashboard');
   }
 
-  // 4. /board-idea (singular) -> Serves Board Ideas Radar Studio
-  {
-    const res = await worker.fetch(new Request('https://worker.test/board-idea'), mockEnv);
-    assert.strictEqual(res.status, 200);
-    const html = await res.text();
-    assert(html.includes('Board Ideas Radar'), 'GET /board-idea should contain Board Ideas Radar');
-    console.log('  ✓ [PASS] GET /board-idea -> Serves Board Ideas Radar Studio');
-  }
-
-  // 5. /board-ideas (plural) -> Serves Board Ideas Radar Studio
-  {
-    const res = await worker.fetch(new Request('https://worker.test/board-ideas'), mockEnv);
-    assert.strictEqual(res.status, 200);
-    const html = await res.text();
-    assert(html.includes('Board Ideas Radar'), 'GET /board-ideas should contain Board Ideas Radar');
-    console.log('  ✓ [PASS] GET /board-ideas -> Serves Board Ideas Radar Studio');
-  }
-
   // 6. /related-pins -> Serves Related Pins
   {
     const res = await worker.fetch(new Request('https://worker.test/related-pins'), mockEnv);
@@ -71,7 +53,7 @@ async function testRoutes() {
     console.log('  ✓ [PASS] GET /Related-Pins -> Serves Related Pins');
   }
 
-  // 8. Double-slash robustness (e.g. //accounts, //keywords, //board-idea)
+  // 8. Double-slash robustness (e.g. //accounts, //keywords, //Related-Pins)
   {
     const resAccounts = await worker.fetch(new Request('https://worker.test//accounts'), mockEnv);
     assert.strictEqual(resAccounts.status, 200);
@@ -83,25 +65,17 @@ async function testRoutes() {
     const htmlKeywords = await resKeywords.text();
     assert(htmlKeywords.includes('Keywords Fleet Dashboard'));
 
-    const resBoard = await worker.fetch(new Request('https://worker.test//board-idea'), mockEnv);
-    assert.strictEqual(resBoard.status, 200);
-    const htmlBoard = await resBoard.text();
-    assert(htmlBoard.includes('Board Ideas Radar'));
-
     const resRelated = await worker.fetch(new Request('https://worker.test//Related-Pins'), mockEnv);
     assert.strictEqual(resRelated.status, 200);
     const htmlRelated = await resRelated.text();
     assert(htmlRelated.includes('Related Pins Intelligence'));
-    console.log('  ✓ [PASS] Double-slash routes (//accounts, //keywords, //board-idea, //Related-Pins) normalized to 200 OK');
+    console.log('  ✓ [PASS] Double-slash routes (//accounts, //keywords, //Related-Pins) normalized to 200 OK');
   }
 
   // 9. Method Tampering Immunity (405 Method Not Allowed on mutative verbs)
   {
     const postAccounts = await worker.fetch(new Request('https://worker.test/accounts', { method: 'POST' }), mockEnv);
     assert.strictEqual(postAccounts.status, 405);
-
-    const postBoard = await worker.fetch(new Request('https://worker.test/board-idea', { method: 'POST' }), mockEnv);
-    assert.strictEqual(postBoard.status, 405);
 
     const postKeywords = await worker.fetch(new Request('https://worker.test/keywords', { method: 'POST' }), mockEnv);
     assert.strictEqual(postKeywords.status, 405);

@@ -82,7 +82,6 @@ async function migrateFleet() {
           await sSql`ALTER TABLE pa_pin_metrics SET (fillfactor = 80);`.catch(() => {});
           await sSql`ALTER TABLE competitor_profiles SET (fillfactor = 80);`.catch(() => {});
           await sSql`ALTER TABLE competitor_pins SET (fillfactor = 80);`.catch(() => {});
-          await sSql`ALTER TABLE tracked_boards SET (fillfactor = 80);`.catch(() => {});
           await sSql`ALTER TABLE tracked_keywords SET (fillfactor = 80);`.catch(() => {});
           await sSql`ALTER TABLE candidate_graph_nodes SET (fillfactor = 80);`.catch(() => {});
         }

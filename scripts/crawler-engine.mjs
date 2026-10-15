@@ -37,7 +37,6 @@ import { getQualificationRules, isPinQualified } from '../src/modules/pinarchive
 import { fetchBoardsResource, fetchPinFromPinterest, setDefaultDispatcher, sleep, randomJitterMs } from './lib/pinterest.mjs';
 import { getShardNumberForEntity, getResilientShardNumberForEntity } from '../src/modules/fleet/sharding.mjs';
 import { assertShardSchemaParity } from '../src/modules/fleet/guardrails.mjs';
-import { syncBoardIdeas } from '../src/modules/boards/service.mjs';
 import { enforceNeonPoolerUrl } from '../src/modules/sharding/fleet-router.mjs';
 
 let undiciAgent = null;
@@ -1525,54 +1524,6 @@ async function runDailyScheduledMode(sqlClient, shardSql, shardNumber, shardTota
       await syncCompetitorAcrossFleet(sqlClient, username);
     } catch (_) {}
   }
-  }
-
-  // 5. Tracked Boards Daily Recommendations Sync (Board Ideas Radar)
-  try {
-    const sTot = parseInt(shardTotal, 10) || 99;
-    const sNum = parseInt(shardNumber, 10) || 1;
-    const assignedBoards = await sqlClient`
-      SELECT board_id, name, url, assigned_shard_id
-      FROM tracked_boards
-      WHERE is_active = TRUE
-        AND track_daily = TRUE
-        AND (
-          assigned_shard_id = ${sNum}
-          OR (assigned_shard_id IS NULL AND (abs(hashtext(board_id::text)) % ${sTot} + 1) = ${sNum})
-        )
-        AND (last_scanned_at IS NULL OR last_scanned_at < NOW() - INTERVAL '20 hours')
-      ORDER BY last_scanned_at ASC NULLS FIRST
-      LIMIT 10;
-    `;
-    if (assignedBoards.length > 0) {
-      console.log(`\n[*] [Shard ${shardNumber}] Found ${assignedBoards.length} assigned tracked boards due for daily sync...`);
-      for (const b of assignedBoards) {
-        try {
-          // Immediately backfill unassigned boards to eliminate future multi-shard contention
-          if (b.assigned_shard_id === null || b.assigned_shard_id === undefined) {
-            const trueAssigned = getShardNumberForEntity(b.board_id, shardTotal || 99);
-            await sqlClient`
-              UPDATE tracked_boards
-              SET assigned_shard_id = ${trueAssigned},
-                  updated_at = NOW()
-              WHERE board_id = ${b.board_id};
-            `.catch(() => {});
-          }
-
-          console.log(`    -> Syncing Board Ideas for "${b.name}" (${b.board_id})...`);
-          const syncRes = await syncBoardIdeas(sqlClient, b.board_id, cookie, 1);
-          if (shardSql) {
-            await syncBoardIdeas(shardSql, b.board_id, cookie, 1).catch(() => {});
-          }
-          console.log(`       [✓] Synced ${syncRes.total_synced || 0} recommendations.`);
-        } catch (bErr) {
-          console.warn(`       [!] Board sync warning:`, bErr.message);
-        }
-        await sleep(randomJitterMs(2000, 3500));
-      }
-    }
-  } catch (boardsErr) {
-    console.warn(`[!] Tracked boards sweep warning:`, boardsErr.message);
   }
 
   // Also consume any pending items in queue

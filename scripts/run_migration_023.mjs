@@ -51,18 +51,6 @@ async function run() {
   `;
   console.log('[+] Index idx_cp_trgm_display_name created.');
 
-  await sql`
-    CREATE INDEX IF NOT EXISTS idx_tb_trgm_url 
-    ON tracked_boards USING gin (url gin_trgm_ops);
-  `;
-  console.log('[+] Index idx_tb_trgm_url created.');
-
-  await sql`
-    CREATE INDEX IF NOT EXISTS idx_tb_trgm_name 
-    ON tracked_boards USING gin (LOWER(name) gin_trgm_ops);
-  `;
-  console.log('[+] Index idx_tb_trgm_name created.');
-
   // 3. Create true covering index with payload columns for Index-Only Scan (Heap Fetches = 0)
   await sql`DROP INDEX IF EXISTS idx_ksc_active_covering;`;
   await sql`
@@ -77,7 +65,7 @@ async function run() {
     SELECT indexname, indexdef 
     FROM pg_indexes 
     WHERE schemaname = 'public' 
-      AND indexname IN ('idx_tk_trgm_keyword', 'idx_cp_trgm_username', 'idx_cp_trgm_display_name', 'idx_tb_trgm_url', 'idx_tb_trgm_name', 'idx_ksc_active_covering');
+      AND indexname IN ('idx_tk_trgm_keyword', 'idx_cp_trgm_username', 'idx_cp_trgm_display_name', 'idx_ksc_active_covering');
   `;
   console.log('[+] Verified active indexes in database:', indexes.map(i => i.indexname));
 

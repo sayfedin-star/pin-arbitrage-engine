@@ -83,7 +83,7 @@ async function main() {
     SELECT tablename, indexname, indexdef
     FROM pg_indexes
     WHERE schemaname = 'public'
-      AND tablename IN ('keyword_serp_current', 'pa_pins', 'tracked_boards', 'tracked_keywords', 'universal_master_pins')
+      AND tablename IN ('keyword_serp_current', 'pa_pins', 'tracked_keywords', 'universal_master_pins')
     ORDER BY tablename, indexname;
   `;
   console.log('[*] Auditing Registered Performance & Covering Indexes on Neon Hub:');
@@ -126,24 +126,10 @@ async function main() {
   ));
 
   // -------------------------------------------------------------
-  // Test 3: Board Ideas Radar Recommendations Query (tracked_boards)
+  // Test 3: Trigram GIN Search on tracked_keywords (idx_tk_trgm_keyword)
   // -------------------------------------------------------------
   results.push(await runExplainTest(
-    '3. Board Ideas Radar Recommendations Query (tracked_boards index scan)',
-    () => sql`
-      EXPLAIN (ANALYZE, BUFFERS)
-      SELECT id, competitor_id, name, url, is_active, last_scanned_at
-      FROM tracked_boards
-      WHERE competitor_id = 1 AND is_active = true;
-    `,
-    /idx_tracked_boards_competitor|idx_tracked_boards_active|tracked_boards/i
-  ));
-
-  // -------------------------------------------------------------
-  // Test 4: Trigram GIN Search on tracked_keywords (idx_tk_trgm_keyword)
-  // -------------------------------------------------------------
-  results.push(await runExplainTest(
-    '4. Keyword Trigram GIN Search (idx_tk_trgm_keyword)',
+    '3. Keyword Trigram GIN Search (idx_tk_trgm_keyword)',
     () => sql`
       EXPLAIN (ANALYZE, BUFFERS)
       SELECT id, keyword, category, avg_daily_velocity
@@ -155,21 +141,6 @@ async function main() {
   ));
 
   // -------------------------------------------------------------
-  // Test 5: Tracked Boards Trigram GIN Search (idx_tb_trgm_name)
-  // -------------------------------------------------------------
-  results.push(await runExplainTest(
-    '5. Tracked Boards Trigram GIN Search (idx_tb_trgm_name)',
-    () => sql`
-      EXPLAIN (ANALYZE, BUFFERS)
-      SELECT id, competitor_id, name, url
-      FROM tracked_boards
-      WHERE lower(name) % 'decor'
-      LIMIT 20;
-    `,
-    /idx_tb_trgm_name|Bitmap Index Scan|Seq Scan|tracked_boards/i
-  ));
-
-  // -------------------------------------------------------------
   // Test 6: Optimized View pins_daily_rollups_v2 on Storage Shard 1
   // -------------------------------------------------------------
   try {
@@ -177,7 +148,7 @@ async function main() {
     await preloadNeonRegistry(sql);
     const shardSql = await resolveShardConnection({ hubSql: sql, shardId: 1 });
     results.push(await runExplainTest(
-      '6. Pins Daily Rollups v2 Consolidated View Query (Storage Shard 1)',
+      '4. Pins Daily Rollups v2 Consolidated View Query (Storage Shard 1)',
       () => shardSql`
         EXPLAIN (ANALYZE, BUFFERS)
         SELECT pin_id, snapshot_date, save_count, serp_rankings

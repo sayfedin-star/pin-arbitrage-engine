@@ -37,7 +37,6 @@ console.log('=============================================================\n');
 // --------------------------------------------------------------------------
 console.log('[*] Auditing UI Template Asset Pinning...');
 const uiFiles = [
-  'src/board-ideas-ui.mjs',
   'src/campaign-folders-ui.mjs',
   'src/dashboard-ui.mjs',
   'src/discovery-ui.mjs',

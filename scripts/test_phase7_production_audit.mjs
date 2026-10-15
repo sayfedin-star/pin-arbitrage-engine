@@ -214,7 +214,6 @@ console.log('[AXIS 1] End-to-End Cross-Pillar Flow Audit (< 50ms Benchmark)');
   assert.ok(data3.pillar_1_creator_context, 'Step 3: Pillar 1 context missing');
   assert.ok(data3.pillar_2_keywords_context, 'Step 3: Pillar 2 context missing');
   assert.ok(data3.pillar_3_related_pins_context, 'Step 3: Pillar 3 context missing');
-  assert.ok(data3.pillar_4_board_ideas_context, 'Step 3: Pillar 4 context missing');
 
   // Step 4: Crossover Matrix & Visual Tag Bridges (Pillar 2 / Crossover)
   const req4 = new Request('https://engine.internal/api/folders/42/raw-visual-crossover', {
@@ -343,7 +342,6 @@ console.log('\n[AXIS 3] Final Security Audit, CSP & Zero Secret Leakage Defense'
     { url: 'https://engine.internal/keywords/discovery', expectedType: 'text/html' },
     { url: 'https://engine.internal/pins/1098245059167667976', expectedType: 'text/html' },
     { url: 'https://engine.internal/folders', expectedType: 'text/html' },
-    { url: 'https://engine.internal/board-ideas', expectedType: 'text/html' },
     { url: 'https://engine.internal/api/health', expectedType: 'application/json' },
     { url: 'https://engine.internal/api/pins/1098245059167667976', expectedType: 'application/json' }
   ];

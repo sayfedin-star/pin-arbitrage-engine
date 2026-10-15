@@ -10,7 +10,6 @@ import { neon } from '@neondatabase/serverless';
 import postgres from 'postgres';
 import { getDashboardHtml } from './dashboard-ui.mjs';
 import { getKeywordsPageHtml } from './keywords-ui.mjs';
-import { getBoardIdeasPageHtml } from './board-ideas-ui.mjs';
 import { getDiscoveryPageHtml } from './discovery-ui.mjs';
 import { getPinDetailPageHtml } from './pin-details-ui.mjs';
 import { getCampaignFoldersPageHtml } from './campaign-folders-ui.mjs';
@@ -27,13 +26,6 @@ import { fetchPinFromPinterest } from '../scripts/lib/pinterest.mjs';
 export const RESERVED_KEYWORD_SLUGS = new Set([
   'discovery', 'folders', 'export', 'sync', 'batch', 'api', 'add', 'manage', 'import'
 ]);
-import {
-  resolveBoardIdentity,
-  syncBoardIdeas,
-  getBoardIdeasComparison,
-  listAvailableBoards,
-  deleteTrackedBoard
-} from './modules/boards/service.mjs';
 import {
   getCompetitorsOverview,
   listCompetitors,
@@ -895,18 +887,6 @@ export default {
       });
     }
 
-    // 5. Level 4B: Dedicated Board Ideas Radar Studio HTML (/board-idea and /board-ideas)
-    if (pathLower === '/board-ideas' || pathLower.startsWith('/board-ideas/') ||
-        pathLower === '/board-idea' || pathLower.startsWith('/board-idea/')) {
-      if (method !== 'GET') {
-        return methodNotAllowedResponse('GET, OPTIONS');
-      }
-      return new Response(getBoardIdeasPageHtml(), {
-        status: 200,
-        headers: HTML_HEADERS
-      });
-    }
-
     // Serve Frontend Dashboard HTML for root or any creator handle route (e.g. /wifesrecipesbyme)
     if (!pathLower.startsWith('/api/')) {
       if (method !== 'GET') {
@@ -1069,8 +1049,6 @@ export default {
       pathname === '/api/competitors/sync-boards' ||
       pathname === '/api/competitors/sync-pins' ||
       pathname === '/api/competitors/related-pins/harvest-live' ||
-      pathname === '/api/board-ideas/resolve' ||
-      pathname === '/api/board-ideas/sync' ||
       (pathname.startsWith('/api/pins/') && pathname.endsWith('/sync')) ||
       isLiveScrapeGet;
 
@@ -4738,80 +4716,6 @@ export default {
         if (!snapshotId || !pinId) return jsonResponse({ error: 'snapshot_id and pin_id are required' }, 400);
         const result = await deletePinMetricSnapshot(targetSql, snapshotId, pinId);
         return jsonResponse(result);
-      }
-
-      // Board Ideas Radar API
-      if (method === 'GET' && pathname === '/api/board-ideas/boards') {
-        const cacheKey = buildCanonicalCacheKey('board-ideas:list', {});
-        try {
-          const data = await getCachedOrFetch(cacheKey, async () => {
-            return await listAvailableBoards(targetSql);
-          }, 15000, 60000);
-          return jsonResponse({ success: true, ...data }, 200, 15);
-        } catch (err) {
-          return jsonResponse({ success: false, error: err.message }, 500);
-        }
-      }
-
-      if (method === 'POST' && pathname === '/api/board-ideas/resolve') {
-        invalidateEdgeCache('board-ideas');
-        try {
-          const body = await request.json().catch(() => ({}));
-          const url = body.url || body.board_url || '';
-          if (!url) return jsonResponse({ error: 'url is required' }, 400);
-          const cookie = env.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env.PINTEREST_COOKIE : null) || '';
-          const board = await resolveBoardIdentity(targetSql, url, cookie);
-          return jsonResponse({ success: true, board });
-        } catch (err) {
-          return jsonResponse({ success: false, error: err.message }, 400);
-        }
-      }
-
-      if (method === 'POST' && pathname === '/api/board-ideas/sync') {
-        invalidateEdgeCache('board-ideas');
-        try {
-          const body = await request.json().catch(() => ({}));
-          const boardId = body.board_id;
-          if (!boardId) return jsonResponse({ error: 'board_id is required' }, 400);
-          const maxPages = Number(body.max_pages || 1);
-          const cookie = env.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env.PINTEREST_COOKIE : null) || '';
-          const result = await syncBoardIdeas(targetSql, boardId, cookie, maxPages);
-          return jsonResponse({ success: true, ...result });
-        } catch (err) {
-          return jsonResponse({ success: false, error: err.message }, 500);
-        }
-      }
-
-      if (method === 'GET' && pathname === '/api/board-ideas/details') {
-        try {
-          const boardId = searchParams.get('board_id') || searchParams.get('id');
-          if (!boardId) return jsonResponse({ error: 'board_id is required' }, 400);
-          const cacheKey = buildCanonicalCacheKey('board-ideas:details', { board_id: boardId });
-          const details = await getCachedOrFetch(cacheKey, async () => {
-            return await getBoardIdeasComparison(targetSql, boardId);
-          }, 15000, 60000);
-          return jsonResponse({ success: true, ...details }, 200, 15);
-        } catch (err) {
-          return jsonResponse({ success: false, error: err.message }, 500);
-        }
-      }
-
-      if (method === 'DELETE' && pathname === '/api/board-ideas') {
-        invalidateEdgeCache('board-ideas');
-        try {
-          let boardId = searchParams.get('board_id') || searchParams.get('id');
-          if (!boardId) {
-            try {
-              const body = await request.json().catch(() => ({}));
-              boardId = body.board_id || body.id;
-            } catch (_) {}
-          }
-          if (!boardId) return jsonResponse({ error: 'board_id is required' }, 400);
-          const result = await deleteTrackedBoard(targetSql, boardId);
-          return jsonResponse({ success: true, ...result });
-        } catch (err) {
-          return jsonResponse({ success: false, error: err.message }, 500);
-        }
       }
 
       // Default 404

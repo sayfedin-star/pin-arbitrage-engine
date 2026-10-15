@@ -147,25 +147,6 @@ async function main() {
       console.warn('[-] [fleet-dispatcher] Pending queue check warning:', err.message);
     }
 
-    // Also include shards for active tracked boards (Board Ideas Radar)
-    try {
-      const activeBoards = await sql`
-        SELECT assigned_shard_id, board_id, username
-        FROM tracked_boards
-        WHERE is_active = TRUE AND track_daily = TRUE;
-      `;
-      for (const b of activeBoards) {
-        if (!b) continue;
-        const sNum = b.assigned_shard_id || (b.board_id ? getResilientShardNumberForEntity(b.board_id, shardTotal, quarantinedShards) : 1);
-        if (!shardDistribution.has(sNum)) {
-          shardDistribution.set(sNum, []);
-        }
-        shardDistribution.get(sNum).push(`[board:${b.username || b.board_id}]`);
-      }
-    } catch (err) {
-      console.warn('[-] [fleet-dispatcher] Tracked boards check warning:', err.message);
-    }
-
     activeShards = Array.from(shardDistribution.keys())
       .filter(s => !quarantinedShards.has(s))
       .sort((a, b) => a - b);

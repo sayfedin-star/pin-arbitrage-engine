@@ -3,7 +3,7 @@
  *
  * Automated Verification Suite for Phase 3:
  * - L1 Edge Cache Request method GET wrapping
- * - Full-Suite cache parity across competitors, board-ideas, and pinarchive
+ * - Full-Suite cache parity across competitors and pinarchive
  * - Service layer atomic transactions & deadlock immunity (ORDER BY pin_id ASC)
  * - undici Agent injection & zero static import safety in pinterest.mjs
  * - Shard prewarming and combined shard transactions in fleet crawlers
@@ -63,33 +63,6 @@ assert(
   workerContent.includes("pathname === '/api/competitors/status'") &&
   workerContent.includes("invalidateEdgeCache('competitors')"),
   'POST /api/competitors/status must invalidate competitors cache'
-);
-
-// Board Ideas Radar caching & invalidations
-assert(
-  workerContent.includes("pathname === '/api/board-ideas/boards'") &&
-  workerContent.includes("buildCanonicalCacheKey('board-ideas:list'"),
-  'GET /api/board-ideas/boards must use canonical cache key board-ideas:list'
-);
-assert(
-  workerContent.includes("pathname === '/api/board-ideas/details'") &&
-  workerContent.includes("buildCanonicalCacheKey('board-ideas:details'"),
-  'GET /api/board-ideas/details must use canonical cache key board-ideas:details'
-);
-assert(
-  workerContent.includes("pathname === '/api/board-ideas/resolve'") &&
-  workerContent.includes("invalidateEdgeCache('board-ideas')"),
-  'POST /api/board-ideas/resolve must invalidate board-ideas cache'
-);
-assert(
-  workerContent.includes("pathname === '/api/board-ideas/sync'") &&
-  workerContent.includes("invalidateEdgeCache('board-ideas')"),
-  'POST /api/board-ideas/sync must invalidate board-ideas cache'
-);
-assert(
-  workerContent.includes("pathname === '/api/board-ideas'") &&
-  workerContent.includes("invalidateEdgeCache('board-ideas')"),
-  'DELETE /api/board-ideas must invalidate board-ideas cache'
 );
 
 // PinArchive caching & invalidations

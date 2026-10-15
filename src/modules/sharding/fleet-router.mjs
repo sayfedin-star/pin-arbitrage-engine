@@ -1428,10 +1428,6 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
       seed_pin_id: cleanPinId,
       radar_url: `/api/keywords/visual-search?pin_id=${cleanPinId}`
     },
-    pillar_4_board_ideas_context: {
-      inferred_board_slug: boardSlug,
-      board_radar_url: `/board-ideas?board_slug=${encodeURIComponent(boardSlug)}`
-    },
     daily_trajectory: dailyTrajectory,
     snapshots: enrichedSnapshots
   };

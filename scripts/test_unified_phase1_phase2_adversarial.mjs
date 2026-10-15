@@ -143,8 +143,7 @@ async function runUnifiedChaosAndPenetrationAudit() {
         dossier.creative?.title &&
         dossier.pillar_1_creator_context &&
         dossier.pillar_2_keywords_context &&
-        dossier.pillar_3_related_pins_context &&
-        dossier.pillar_4_board_ideas_context
+        dossier.pillar_3_related_pins_context
       ) {
         validDossierStructureCount++;
       }

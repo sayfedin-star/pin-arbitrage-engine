@@ -29,7 +29,6 @@ async function run() {
     'universal_master_pins',
     'competitor_profiles',
     'competitor_pins',
-    'tracked_boards',
     'tracked_keywords',
     'candidate_graph_nodes'
   ];
@@ -40,7 +39,7 @@ async function run() {
     sql`SET LOCAL lock_timeout = '3000';`,
     ...tables.map(tbl => sql(`ALTER TABLE ${tbl} SET (fillfactor = 80);`))
   ]);
-  console.log('[+] Successfully applied fillfactor = 80 to all 9 tables within transaction.');
+  console.log('[+] Successfully applied fillfactor = 80 to all 8 tables within transaction.');
 
   // Register in schema_migrations
   await sql`

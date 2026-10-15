@@ -475,49 +475,8 @@ CREATE INDEX IF NOT EXISTS idx_kw_guided_capsules_kw ON keyword_guided_capsules(
 CREATE INDEX IF NOT EXISTS idx_kw_guided_capsules_score ON keyword_guided_capsules(keyword_id, score DESC);
 
 -- ------------------------------------------------------------------------------
--- 7. Board Ideas Radar & Sharded TTL Visual Lens Cache (Migration 011)
+-- 7. Sharded TTL Visual Lens Cache (Migration 011)
 -- ------------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS tracked_boards (
-  id SERIAL PRIMARY KEY,
-  board_id VARCHAR(255) UNIQUE NOT NULL,
-  url TEXT NOT NULL,
-  name TEXT NOT NULL,
-  username VARCHAR(255),
-  competitor_id INT REFERENCES competitor_profiles(id) ON DELETE SET NULL,
-  total_pins INT DEFAULT 0,
-  is_active BOOLEAN DEFAULT TRUE,
-  track_daily BOOLEAN DEFAULT TRUE,
-  assigned_shard_id INT,
-  last_scanned_at TIMESTAMPTZ,
-  metadata JSONB DEFAULT '{}'::jsonb,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-CREATE INDEX IF NOT EXISTS idx_tracked_boards_username ON tracked_boards(username);
-CREATE INDEX IF NOT EXISTS idx_tracked_boards_competitor ON tracked_boards(competitor_id);
-CREATE INDEX IF NOT EXISTS idx_tracked_boards_active ON tracked_boards(is_active, last_scanned_at ASC NULLS FIRST);
-
-CREATE TABLE IF NOT EXISTS board_idea_snapshots (
-  id BIGSERIAL PRIMARY KEY,
-  board_id VARCHAR(255) NOT NULL REFERENCES tracked_boards(board_id) ON DELETE CASCADE,
-  pin_id VARCHAR(255) NOT NULL,
-  title TEXT,
-  image_url TEXT,
-  domain VARCHAR(255),
-  destination_url TEXT,
-  save_count BIGINT DEFAULT 0,
-  repin_count INT DEFAULT 0,
-  daily_save_velocity NUMERIC DEFAULT 0,
-  recommendation_rank INT DEFAULT 1,
-  snapshot_date DATE DEFAULT CURRENT_DATE,
-  metadata JSONB DEFAULT '{}'::jsonb,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  CONSTRAINT uq_board_idea_pin_date UNIQUE (board_id, pin_id, snapshot_date)
-);
-CREATE INDEX IF NOT EXISTS idx_board_ideas_lookup ON board_idea_snapshots(board_id, snapshot_date DESC);
-CREATE INDEX IF NOT EXISTS idx_board_ideas_pin_id ON board_idea_snapshots(pin_id);
-CREATE INDEX IF NOT EXISTS idx_board_ideas_velocity ON board_idea_snapshots(board_id, daily_save_velocity DESC);
-
 -- Eliminates In-Memory RAM Caching for Visual Search Lens
 CREATE TABLE IF NOT EXISTS pin_visual_search_cache (
   pin_id VARCHAR(255) PRIMARY KEY,

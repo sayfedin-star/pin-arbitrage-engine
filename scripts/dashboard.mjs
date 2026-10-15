@@ -18,14 +18,6 @@ import { parsePinCandidate, formatPinterestCookie } from './cluster-intelligence
 import { getDashboardHtml } from '../src/dashboard-ui.mjs';
 import { redactSecrets } from '../src/worker.mjs';
 import { getKeywordsPageHtml } from '../src/keywords-ui.mjs';
-import { getBoardIdeasPageHtml } from '../src/board-ideas-ui.mjs';
-import {
-  resolveBoardIdentity,
-  syncBoardIdeas,
-  getBoardIdeasComparison,
-  listAvailableBoards,
-  deleteTrackedBoard
-} from '../src/modules/boards/service.mjs';
 import {
   getCompetitorsOverview,
   listCompetitors,
@@ -2457,86 +2449,10 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, result);
     }
 
-    // Board Ideas Radar API
-    if (method === 'GET' && pathname === '/api/board-ideas/boards') {
-      try {
-        const data = await listAvailableBoards(targetSql);
-        return sendJson(res, 200, { success: true, ...data });
-      } catch (err) {
-        return sendJson(res, 500, { success: false, error: err.message });
-      }
-    }
-
-    if (method === 'POST' && pathname === '/api/board-ideas/resolve') {
-      try {
-        const body = await parseJsonBody(req);
-        const url = body.url || body.board_url || '';
-        if (!url) return sendJson(res, 400, { error: 'url is required' });
-        const cookie = process.env.PINTEREST_COOKIE || '';
-        const board = await resolveBoardIdentity(targetSql, url, cookie);
-        return sendJson(res, 200, { success: true, board });
-      } catch (err) {
-        return sendJson(res, 400, { success: false, error: err.message });
-      }
-    }
-
-    if (method === 'POST' && pathname === '/api/board-ideas/sync') {
-      try {
-        const body = await parseJsonBody(req);
-        const boardId = body.board_id;
-        if (!boardId) return sendJson(res, 400, { error: 'board_id is required' });
-        const maxPages = Number(body.max_pages || 1);
-        const cookie = process.env.PINTEREST_COOKIE || '';
-        const result = await syncBoardIdeas(targetSql, boardId, cookie, maxPages);
-        return sendJson(res, 200, { success: true, ...result });
-      } catch (err) {
-        return sendJson(res, 500, { success: false, error: err.message });
-      }
-    }
-
-    if (method === 'GET' && pathname === '/api/board-ideas/details') {
-      try {
-        const boardId = searchParams.get('board_id') || searchParams.get('id');
-        if (!boardId) return sendJson(res, 400, { error: 'board_id is required' });
-        const details = await getBoardIdeasComparison(targetSql, boardId);
-        return sendJson(res, 200, { success: true, ...details });
-      } catch (err) {
-        return sendJson(res, 500, { success: false, error: err.message });
-      }
-    }
-
-    if (method === 'DELETE' && pathname === '/api/board-ideas') {
-      try {
-        let boardId = searchParams.get('board_id') || searchParams.get('id');
-        if (!boardId) {
-          try {
-            const body = await parseJsonBody(req);
-            boardId = body.board_id || body.id;
-          } catch (_) {}
-        }
-        if (!boardId) return sendJson(res, 400, { error: 'board_id is required' });
-        const result = await deleteTrackedBoard(targetSql, boardId);
-        return sendJson(res, 200, { success: true, ...result });
-      } catch (err) {
-        return sendJson(res, 500, { success: false, error: err.message });
-      }
-    }
-
     // 9. GET or HEAD /keywords or /keywords/:slug -> Dedicated Keywords Studio
     if ((method === 'GET' || method === 'HEAD') && (pathname === '/keywords' || pathname.startsWith('/keywords/'))) {
       const slug = pathname.startsWith('/keywords/') ? decodeURIComponent(pathname.slice('/keywords/'.length)) : '';
       const html = getKeywordsPageHtml(slug);
-      res.writeHead(200, {
-        ...HTML_SECURITY_HEADERS,
-        'Content-Length': Buffer.byteLength(html)
-      });
-      if (method === 'HEAD') return res.end();
-      return res.end(html);
-    }
-
-    // GET or HEAD /board-ideas -> Dedicated Board Ideas Radar Studio
-    if ((method === 'GET' || method === 'HEAD') && pathname === '/board-ideas') {
-      const html = getBoardIdeasPageHtml();
       res.writeHead(200, {
         ...HTML_SECURITY_HEADERS,
         'Content-Length': Buffer.byteLength(html)
