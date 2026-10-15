@@ -91,14 +91,21 @@ export function escapeSqlWildcards(input) {
  */
 export function maskDatabaseUrl(rawUrl) {
   if (!rawUrl || typeof rawUrl !== 'string') return '';
+  const trimmed = rawUrl.trim();
+  if (!trimmed) return '';
   try {
-    const u = new URL(rawUrl);
-    if (u.password) {
+    const u = new URL(trimmed);
+    if (u.password || u.username) {
       u.password = '••••••••';
       return decodeURIComponent(u.toString());
     }
-    return rawUrl;
+    return u.toString();
   } catch (_) {
-    return rawUrl.replace(/(:\/\/[^:]+:)(.*)(@[^@]+$)/, '$1••••••••$3');
+    const masked = trimmed.replace(/(:\/\/[^:/?#\s]+:)([\s\S]*?)(@[^@/?#\s]+)/, '$1••••••••$3');
+    if (masked.includes('••••••••')) return masked;
+    if (trimmed.includes('@')) {
+      return trimmed.replace(/\/\/[\s\S]*?@/, '//••••••••@');
+    }
+    return '[REDACTED_DATABASE_URL]';
   }
 }

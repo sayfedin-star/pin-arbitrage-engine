@@ -11,6 +11,21 @@
  */
 
 import { sleep, randomJitterMs } from '../../../scripts/lib/pinterest.mjs';
+import {
+  fetchAndCacheDomainAdNetwork,
+  enrichMissingAdNetworksBatch,
+  getDatabaseMonetizationStats,
+  KNOWN_AD_NETWORKS,
+  AD_NETWORK_DISPLAY_CONFIG
+} from './ad-network-service.mjs';
+
+export {
+  fetchAndCacheDomainAdNetwork,
+  enrichMissingAdNetworksBatch,
+  getDatabaseMonetizationStats,
+  KNOWN_AD_NETWORKS,
+  AD_NETWORK_DISPLAY_CONFIG
+};
 
 export const IGNORED_INTERNAL_DOMAINS = [
   'pinterest.com',
@@ -628,6 +643,7 @@ export async function listDomainsIntelligence(sql, {
   keywordId = null,
   pillar = 'all',           // 'all' | 'serp' | 'archive' | 'competitors'
   preset = 'all',           // 'all' | 'baby_giants' | 'easy_arbitrage' | 'bleeding_giants' | 'high_multipliers' | 'multi_account'
+  adNetwork = 'all',        // 'all' | 'raptive' | 'mediavine' | 'journey' | 'ezoic' | 'adsense' | 'affiliate_only' | 'switched' | 'unchecked'
   excludeMarketplaces = true,
   minPins = 1,
   sortBy = 'visibility',    // 'visibility' | 'pins_count' | 'avg_rank' | 'saves' | 'velocity' | 'age_asc' | 'arbitrage_score' | 'multiplier'
@@ -766,6 +782,13 @@ export async function listDomainsIntelligence(sql, {
           WHEN drm.registered_at IS NOT NULL THEN ROUND((EXTRACT(EPOCH FROM (NOW() - drm.registered_at)) / 31557600)::numeric, 2)
           ELSE drm.initial_age_years
         END AS age_years,
+        COALESCE(dmm.current_ad_network, 'unchecked') AS ad_network,
+        dmm.ad_manager_domain,
+        dmm.primary_pub_id,
+        dmm.previous_ad_network,
+        dmm.switched_at AS ad_switched_at,
+        dmm.network_history AS ad_network_history,
+        COALESCE(dmm.ads_txt_status, 'pending') AS ads_txt_status,
         ROUND(
           (da.displaced_pins::numeric / GREATEST(1, da.active_serp_pins + da.displaced_pins)) * 100,
           1
@@ -786,6 +809,7 @@ export async function listDomainsIntelligence(sql, {
         ) AS arbitrage_score
       FROM domain_agg da
       LEFT JOIN domain_registry_metadata drm ON drm.domain = da.domain
+      LEFT JOIN domain_monetization_metadata dmm ON dmm.domain = da.domain
       WHERE (
         ${preset} = 'all'
         OR (${preset} = 'baby_giants' AND drm.registered_at >= NOW() - INTERVAL '2 years' AND (da.top10_pins >= 1 OR da.total_saves >= 1000))
@@ -793,6 +817,12 @@ export async function listDomainsIntelligence(sql, {
         OR (${preset} = 'bleeding_giants' AND da.displaced_pins >= 3 AND (da.displaced_pins::numeric / GREATEST(1, da.active_serp_pins + da.displaced_pins)) >= 0.30)
         OR (${preset} = 'high_multipliers' AND da.pins_per_url >= 3.0)
         OR (${preset} = 'multi_account' AND da.accounts_count >= 2)
+      )
+      AND (
+        ${adNetwork} = 'all'
+        OR (${adNetwork} = 'switched' AND dmm.switched_at IS NOT NULL)
+        OR (${adNetwork} = 'unchecked' AND (dmm.current_ad_network IS NULL OR dmm.current_ad_network = 'unchecked'))
+        OR dmm.current_ad_network = ${adNetwork}
       )
     )
     SELECT
@@ -858,10 +888,21 @@ export async function listDomainsIntelligence(sql, {
       age_days: r.age_days != null ? Number(r.age_days) : null,
       age_years: r.age_years != null ? Number(r.age_years) : null,
       age_status: r.age_status || 'unchecked',
+      ad_network: r.ad_network || 'unchecked',
+      ad_manager_domain: r.ad_manager_domain || null,
+      primary_pub_id: r.primary_pub_id || null,
+      previous_ad_network: r.previous_ad_network || null,
+      ad_switched_at: r.ad_switched_at || null,
+      ad_network_history: Array.isArray(r.ad_network_history) ? r.ad_network_history : [],
+      ads_txt_status: r.ads_txt_status || 'pending',
       decay_rate_pct: Number(r.decay_rate_pct || 0),
       arbitrage_score: Number(r.arbitrage_score || 0)
     })),
     missing_age_domains: missingAgeDomains,
+    missing_ad_domains: rows
+      .filter(r => (!r.ad_network || r.ad_network === 'unchecked') && r.domain)
+      .map(r => r.domain)
+      .slice(0, 10),
     page: pNum,
     limit: lim,
     total,
@@ -884,8 +925,9 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
   const fId = folderId && !isNaN(Number(folderId)) ? Number(folderId) : null;
   const kId = keywordId && !isNaN(Number(keywordId)) ? Number(keywordId) : null;
 
-  const [ageInfo, serpPins, archivePins, compPins] = await Promise.all([
+  const [ageInfo, adInfo, serpPins, archivePins, compPins] = await Promise.all([
     fetchAndCacheDomainAge(sql, cleanDomain),
+    fetchAndCacheDomainAdNetwork(sql, cleanDomain).catch(() => null),
     sql`
       SELECT
         ksc.pin_id,
@@ -1139,6 +1181,7 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
     success: true,
     domain: cleanDomain,
     age_info: ageInfo,
+    ad_info: adInfo,
     summary: {
       total_pins: allPins.length,
       unique_urls: moneyUrls.length,

@@ -259,7 +259,7 @@ export function getDomainsPageHtml() {
       </div>
 
       <!-- Filter Controls Grid -->
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 pt-3 border-t border-slate-100 dark:border-slate-800/80">
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 pt-3 border-t border-slate-100 dark:border-slate-800/80">
         <!-- Search Input -->
         <div class="relative">
           <input type="text"
@@ -268,6 +268,23 @@ export function getDomainsPageHtml() {
                  placeholder="Search domain (e.g. tasty)..."
                  class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/40">
           <span class="absolute right-3 top-2.5 text-xs text-slate-400">🔍</span>
+        </div>
+
+        <!-- Ad Network Dropdown -->
+        <div>
+          <select x-model="selectedAdNetwork"
+                  @change="loadDomains(true)"
+                  class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500/40">
+            <option value="all">💰 All Ad Networks</option>
+            <option value="raptive">💎 Raptive</option>
+            <option value="mediavine">🍇 Mediavine</option>
+            <option value="journey">🚀 Journey</option>
+            <option value="ezoic">⚡ Ezoic</option>
+            <option value="adsense">🟡 AdSense</option>
+            <option value="affiliate_only">🛒 Affiliate Only</option>
+            <option value="switched">🔄 Switched Networks</option>
+            <option value="unchecked">❓ Unchecked</option>
+          </select>
         </div>
 
         <!-- Campaign Folder Dropdown -->
@@ -372,6 +389,7 @@ export function getDomainsPageHtml() {
             <tr class="bg-slate-50/80 dark:bg-slate-950/60 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800 font-mono text-[11px] uppercase">
               <th class="py-3 px-4 font-semibold"># & Domain</th>
               <th class="py-3 px-4 font-semibold">Domain Age & Registry</th>
+              <th class="py-3 px-4 font-semibold">Ad Network</th>
               <th class="py-3 px-4 font-semibold">Pins & Multiplier</th>
               <th class="py-3 px-4 font-semibold">SERP Distribution</th>
               <th class="py-3 px-4 font-semibold">Saves & Velocity</th>
@@ -383,7 +401,7 @@ export function getDomainsPageHtml() {
             <!-- Loading Row -->
             <template x-if="loading">
               <tr>
-                <td colspan="7" class="py-12 text-center text-slate-400 font-mono">
+                <td colspan="8" class="py-12 text-center text-slate-400 font-mono">
                   <div class="inline-flex items-center gap-2">
                     <span class="animate-spin text-base">⏳</span>
                     <span>Querying cross-pillar domain authority...</span>
@@ -395,7 +413,7 @@ export function getDomainsPageHtml() {
             <!-- Empty Row -->
             <template x-if="!loading && domains.length === 0">
               <tr>
-                <td colspan="7" class="py-12 text-center text-slate-400">
+                <td colspan="8" class="py-12 text-center text-slate-400">
                   <div class="flex flex-col items-center gap-2">
                     <span class="text-2xl">🔍</span>
                     <span class="font-semibold text-slate-700 dark:text-slate-300">No domains match the selected filters</span>
@@ -492,6 +510,47 @@ export function getDomainsPageHtml() {
                       <span x-text="enrichingDomains[d.domain] ? 'Checking...' : 'Check Age'">Check Age</span>
                     </button>
                   </template>
+                </td>
+
+                <!-- 3. Ad Network & Monetization -->
+                <td class="py-3 px-4">
+                  <div class="flex flex-col gap-1">
+                    <!-- State 1: Recognized Ad Network -->
+                    <template x-if="d.ad_network && d.ad_network !== 'unchecked'">
+                      <div class="flex items-center gap-1.5 flex-wrap">
+                        <span class="inline-flex items-center gap-1 font-mono text-[11px] font-bold px-2 py-0.5 rounded-md shadow-sm w-fit"
+                              :class="getAdNetworkBadgeClasses(d.ad_network)"
+                              :title="d.ad_manager_domain ? 'Managed by: ' + d.ad_manager_domain : 'Ad Network'">
+                          <span x-text="getAdNetworkBadgeText(d.ad_network)"></span>
+                        </span>
+
+                        <!-- Switch Detection Pill -->
+                        <template x-if="d.previous_ad_network">
+                          <span class="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 shrink-0"
+                                :title="'Migrated from ' + d.previous_ad_network + (d.ad_switched_at ? ' on ' + d.ad_switched_at.slice(0, 10) : '')"
+                                x-text="'↗️ Ex-' + capitalize(d.previous_ad_network)"></span>
+                        </template>
+
+                        <!-- Force Re-check Button on hover -->
+                        <button @click.stop="enrichAd(d.domain, true)"
+                                :disabled="enrichingAds[d.domain]"
+                                class="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-[10px] transition"
+                                title="Re-scan ads.txt">
+                          <span :class="{ 'animate-spin': enrichingAds[d.domain] }">🔄</span>
+                        </button>
+                      </div>
+                    </template>
+
+                    <!-- State 2: Unchecked Ad Network -->
+                    <template x-if="!d.ad_network || d.ad_network === 'unchecked'">
+                      <button @click.stop="enrichAd(d.domain)"
+                              :disabled="enrichingAds[d.domain]"
+                              class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-[10px] font-mono border border-slate-200 dark:border-slate-700 transition flex items-center gap-1 disabled:opacity-60 shadow-sm w-fit">
+                        <span :class="{ 'animate-spin': enrichingAds[d.domain] }" x-text="enrichingAds[d.domain] ? '⏳' : '💰'">💰</span>
+                        <span x-text="enrichingAds[d.domain] ? 'Checking...' : 'Check Ads'">Check Ads</span>
+                      </button>
+                    </template>
+                  </div>
                 </td>
 
                 <!-- 3. Pins & Multiplier -->
@@ -688,7 +747,7 @@ export function getDomainsPageHtml() {
           </div>
 
           <!-- WHOIS Summary Strip -->
-          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-2 border-t border-slate-200/80 dark:border-slate-800/80 font-mono text-[11px]">
+          <div class="grid grid-cols-2 sm:grid-cols-5 gap-2.5 pt-2 border-t border-slate-200/80 dark:border-slate-800/80 font-mono text-[11px]">
             <div class="bg-white dark:bg-slate-800/80 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col">
               <span class="text-slate-400 text-[10px] uppercase">Registered</span>
               <span class="font-bold text-slate-800 dark:text-slate-200"
@@ -705,9 +764,15 @@ export function getDomainsPageHtml() {
               <span class="font-bold text-slate-800 dark:text-slate-200" x-text="dossierData?.age_info?.expires_at ? dossierData.age_info.expires_at.slice(0, 10) : '—'"></span>
             </div>
             <div class="bg-white dark:bg-slate-800/80 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col">
-              <span class="text-slate-400 text-[10px] uppercase">Lookup Source</span>
+              <span class="text-slate-400 text-[10px] uppercase">WHOIS Source</span>
               <span class="font-bold text-sky-600 dark:text-sky-400"
                     x-text="dossierData?.age_info?.lookup_source ? dossierData.age_info.lookup_source + (dossierData?.age_info?.lookup_status === 'failed' ? ' (shielded)' : '') : '—'"></span>
+            </div>
+            <div class="bg-white dark:bg-slate-800/80 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col">
+              <span class="text-slate-400 text-[10px] uppercase">Ad Network</span>
+              <span class="font-bold truncate"
+                    :class="getAdNetworkBadgeClasses(dossierData?.ad_info?.current_ad_network)"
+                    x-text="getAdNetworkBadgeText(dossierData?.ad_info?.current_ad_network)"></span>
             </div>
           </div>
 
@@ -751,7 +816,7 @@ export function getDomainsPageHtml() {
           </div>
 
           <!-- Drawer Navigation Tabs -->
-          <div class="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 -mb-6 pb-2 text-xs">
+          <div class="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 -mb-6 pb-2 text-xs flex-wrap">
             <button @click="dossierTab = 'pins'"
                     class="px-3 py-1.5 rounded-lg font-semibold transition"
                     :class="dossierTab === 'pins' ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'">
@@ -771,6 +836,16 @@ export function getDomainsPageHtml() {
                     class="px-3 py-1.5 rounded-lg font-semibold transition"
                     :class="dossierTab === 'accounts' ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'">
               👤 Creators (<span x-text="dossierData?.accounts?.length || 0"></span>)
+            </button>
+            <button @click="dossierTab = 'monetization'"
+                    class="px-3 py-1.5 rounded-lg font-semibold transition flex items-center gap-1.5"
+                    :class="dossierTab === 'monetization' ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'">
+              <span>💰 Ad Network</span>
+              <template x-if="dossierData?.ad_info?.current_ad_network && dossierData?.ad_info?.current_ad_network !== 'unchecked'">
+                <span class="text-[10px] px-1.5 py-0.2 rounded font-mono font-bold"
+                      :class="dossierTab === 'monetization' ? 'bg-white/20 text-white' : getAdNetworkBadgeClasses(dossierData.ad_info.current_ad_network)"
+                      x-text="getAdNetworkBadgeText(dossierData.ad_info.current_ad_network)"></span>
+              </template>
             </button>
           </div>
         </div>
@@ -971,6 +1046,100 @@ export function getDomainsPageHtml() {
                 </template>
               </div>
 
+              <!-- TAB 5: Monetization & Ad Network Intelligence -->
+              <div x-show="dossierTab === 'monetization'" class="space-y-4 font-sans">
+                <!-- Top Status Card -->
+                <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700/80 rounded-2xl p-4 shadow-sm flex flex-col gap-3">
+                  <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                      <span class="text-xl">💰</span>
+                      <div>
+                        <h3 class="text-sm font-bold text-slate-900 dark:text-white">Ad Network & Monetization Profile</h3>
+                        <p class="text-[11px] text-slate-400">IAB ads.txt verification and publisher network classification</p>
+                      </div>
+                    </div>
+                    <button @click="recheckAdsForDossier()"
+                            :disabled="enrichingAds[dossierDomain]"
+                            class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-300 transition flex items-center gap-1 shadow-sm disabled:opacity-60">
+                      <span :class="{ 'animate-spin': enrichingAds[dossierDomain] }">🔄</span>
+                      <span x-text="enrichingAds[dossierDomain] ? 'Scanning...' : 'Re-scan ads.txt'">Re-scan ads.txt</span>
+                    </button>
+                  </div>
+
+                  <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-2 border-t border-slate-200/80 dark:border-slate-800 font-mono text-[11px]">
+                    <div class="bg-slate-50 dark:bg-slate-900/60 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col">
+                      <span class="text-slate-400 text-[10px] uppercase">Active Network</span>
+                      <span class="font-bold text-slate-900 dark:text-white" x-text="getAdNetworkBadgeText(dossierData?.ad_info?.current_ad_network)"></span>
+                    </div>
+                    <div class="bg-slate-50 dark:bg-slate-900/60 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col">
+                      <span class="text-slate-400 text-[10px] uppercase">Manager Domain</span>
+                      <span class="font-bold text-sky-600 dark:text-sky-400 truncate" x-text="dossierData?.ad_info?.ad_manager_domain || 'None (Direct / Affiliate)'"></span>
+                    </div>
+                    <div class="bg-slate-50 dark:bg-slate-900/60 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col">
+                      <span class="text-slate-400 text-[10px] uppercase">Publisher ID</span>
+                      <span class="font-bold text-slate-800 dark:text-slate-200 truncate" x-text="dossierData?.ad_info?.primary_pub_id || '—'"></span>
+                    </div>
+                    <div class="bg-slate-50 dark:bg-slate-900/60 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col">
+                      <span class="text-slate-400 text-[10px] uppercase">ads.txt Status</span>
+                      <span class="font-bold text-emerald-600 dark:text-emerald-400" x-text="dossierData?.ad_info?.ads_txt_status || 'Pending'"></span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Historical Switch Timeline Card -->
+                <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700/80 rounded-2xl p-4 shadow-sm flex flex-col gap-3">
+                  <div class="flex items-center gap-2">
+                    <span class="text-base">🔄</span>
+                    <h4 class="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">Historical Switch Tracking & Migration Audit</h4>
+                  </div>
+
+                  <!-- Has Switch History -->
+                  <template x-if="dossierData?.ad_info?.previous_ad_network || (dossierData?.ad_info?.network_history && dossierData?.ad_info?.network_history.length > 0)">
+                    <div class="space-y-2.5">
+                      <div class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-800 dark:text-amber-300 font-mono flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                          <span>🚀</span>
+                          <span>Network Migration Detected:</span>
+                          <span class="font-bold uppercase" x-text="dossierData.ad_info.previous_ad_network"></span>
+                          <span>➔</span>
+                          <span class="font-bold uppercase text-emerald-600 dark:text-emerald-400" x-text="dossierData.ad_info.current_ad_network"></span>
+                        </div>
+                        <span class="text-[10px] text-slate-400" x-text="dossierData.ad_info.switched_at ? dossierData.ad_info.switched_at.slice(0, 10) : ''"></span>
+                      </div>
+
+                      <template x-for="(entry, eIdx) in (dossierData?.ad_info?.network_history || [])" :key="eIdx">
+                        <div class="flex items-center gap-3 p-2.5 rounded-lg bg-slate-50 dark:bg-slate-900 text-xs font-mono border border-slate-200 dark:border-slate-800">
+                          <span class="w-5 h-5 rounded-full bg-sky-500/20 text-sky-600 flex items-center justify-center text-[10px] font-bold" x-text="eIdx + 1"></span>
+                          <div class="flex items-center gap-2 flex-1">
+                            <span class="font-bold text-slate-600 dark:text-slate-400" x-text="entry.from_network"></span>
+                            <span class="text-slate-400">➔</span>
+                            <span class="font-bold text-emerald-600 dark:text-emerald-400" x-text="entry.to_network"></span>
+                          </div>
+                          <span class="text-[10px] text-slate-400" x-text="entry.switched_at ? entry.switched_at.slice(0, 10) : ''"></span>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+
+                  <!-- No Switch History -->
+                  <template x-if="!dossierData?.ad_info?.previous_ad_network && (!dossierData?.ad_info?.network_history || dossierData?.ad_info?.network_history.length === 0)">
+                    <div class="p-4 rounded-xl bg-slate-50 dark:bg-slate-900 text-center text-xs text-slate-500 font-mono">
+                      <span>No network switch detected yet. Publisher is operating continuously on </span>
+                      <span class="font-bold text-slate-900 dark:text-white" x-text="getAdNetworkBadgeText(dossierData?.ad_info?.current_ad_network)"></span>.
+                    </div>
+                  </template>
+                </div>
+
+                <!-- Raw Diagnostic Snippet -->
+                <template x-if="dossierData?.ad_info?.raw_header_snippet">
+                  <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700/80 rounded-2xl p-4 shadow-sm flex flex-col gap-2">
+                    <span class="text-[10px] font-mono text-slate-400 uppercase">ads.txt Header / Declaration Snippet</span>
+                    <div class="p-3 rounded-xl bg-slate-900 text-slate-300 font-mono text-[11px] whitespace-pre-wrap break-all select-all border border-slate-800"
+                         x-text="dossierData.ad_info.raw_header_snippet"></div>
+                  </div>
+                </template>
+              </div>
+
             </div>
           </template>
         </div>
@@ -1004,6 +1173,7 @@ export function getDomainsPageHtml() {
         selectedFolderId: '',
         selectedPillar: 'all',
         activePreset: 'all',
+        selectedAdNetwork: 'all',
         sortBy: 'visibility',
         excludeMarketplaces: true,
 
@@ -1012,10 +1182,11 @@ export function getDomainsPageHtml() {
         dossierDomain: '',
         dossierLoading: false,
         dossierData: null,
-        dossierTab: 'pins', // 'pins' | 'urls' | 'monopoly' | 'accounts'
+        dossierTab: 'pins', // 'pins' | 'urls' | 'monopoly' | 'accounts' | 'monetization'
 
-        // Age Verification & Batch Progress State
+        // Age & Ad Verification & Batch Progress State
         enrichingDomains: {},
+        enrichingAds: {},
         batchEnriching: false,
         batchProgress: { done: 0, total: 0 },
         globalEnriching: false,
@@ -1109,6 +1280,9 @@ export function getDomainsPageHtml() {
           if (this.selectedFolderId) {
             params.set('folder_id', this.selectedFolderId);
           }
+          if (this.selectedAdNetwork && this.selectedAdNetwork !== 'all') {
+            params.set('ad_network', this.selectedAdNetwork);
+          }
 
           try {
             const res = await fetch('/api/domains?' + params.toString());
@@ -1140,6 +1314,7 @@ export function getDomainsPageHtml() {
           this.selectedFolderId = '';
           this.selectedPillar = 'all';
           this.activePreset = 'all';
+          this.selectedAdNetwork = 'all';
           this.sortBy = 'visibility';
           this.excludeMarketplaces = true;
           this.loadDomains(true);
@@ -1352,6 +1527,120 @@ export function getDomainsPageHtml() {
           await this.enrichAge(this.dossierDomain, true);
         },
 
+        async enrichAd(domain, force = false) {
+          if (!domain || this.enrichingAds[domain]) return;
+          this.enrichingAds[domain] = true;
+          this.enrichingAds = { ...this.enrichingAds };
+          try {
+            const res = await fetch('/api/domains/enrich-ads', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ domain, force })
+            });
+            if (res.ok) {
+              const data = await res.json();
+              const adInfo = data.ad_info || (Array.isArray(data.results) ? data.results[0] : null);
+              if (adInfo) {
+                const target = this.domains.find(d => d.domain === domain);
+                if (target) {
+                  target.ad_network = adInfo.current_ad_network || adInfo.ad_network;
+                  target.ad_manager_domain = adInfo.ad_manager_domain;
+                  target.primary_pub_id = adInfo.primary_pub_id;
+                  target.previous_ad_network = adInfo.previous_ad_network;
+                  target.ad_switched_at = adInfo.switched_at || adInfo.ad_switched_at;
+                  target.ads_txt_status = adInfo.ads_txt_status;
+                  target.ad_network_history = adInfo.network_history || adInfo.ad_network_history;
+                }
+                if (this.dossierData && this.dossierDomain === domain) {
+                  this.dossierData.ad_info = {
+                    ...(this.dossierData.ad_info || {}),
+                    ...adInfo,
+                    current_ad_network: adInfo.current_ad_network || adInfo.ad_network
+                  };
+                }
+                const netLabel = this.getAdNetworkBadgeText(adInfo.current_ad_network || adInfo.ad_network);
+                this.showToast('Resolved monetization for ' + domain + ': ' + netLabel, 'success');
+              }
+            } else {
+              throw new Error('HTTP ' + res.status);
+            }
+          } catch (err) {
+            this.showToast('Failed to check ads for ' + domain + ': ' + err.message, 'error');
+          } finally {
+            delete this.enrichingAds[domain];
+            this.enrichingAds = { ...this.enrichingAds };
+          }
+        },
+
+        async recheckAdsForDossier() {
+          if (!this.dossierDomain) return;
+          await this.enrichAd(this.dossierDomain, true);
+        },
+
+        capitalize(str) {
+          if (!str) return '';
+          return str.charAt(0).toUpperCase() + str.slice(1);
+        },
+
+        getAdNetworkBadgeText(net) {
+          if (!net || net === 'unchecked') return '⏳ Unchecked';
+          switch (net) {
+            case 'raptive': return '💎 Raptive';
+            case 'mediavine': return '🍇 Mediavine';
+            case 'journey': return '🚀 Journey';
+            case 'ezoic': return '⚡ Ezoic';
+            case 'monumetric': return '📈 Monumetric';
+            case 'shemedia': return '🌸 SheMedia';
+            case 'freestar': return '⭐ Freestar';
+            case 'playwire': return '🎮 Playwire';
+            case 'snigel': return '🛡️ Snigel';
+            case 'adsense': return '🟡 AdSense';
+            case 'affiliate_only': return '🛒 Affiliate Only';
+            case 'unmonetized': return '⚪ Direct / None';
+            case 'protected': return '🛡️ Bot Protected';
+            case 'failed': return '❌ Unreachable';
+            default: return this.capitalize(net);
+          }
+        },
+
+        getAdNetworkBadgeClasses(net) {
+          if (!net || net === 'unchecked') {
+            return 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 border border-slate-200 dark:border-slate-700';
+          }
+          switch (net) {
+            case 'raptive':
+              return 'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300 border border-purple-300 dark:border-purple-700';
+            case 'mediavine':
+              return 'bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300 border border-rose-300 dark:border-rose-700';
+            case 'journey':
+              return 'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-300 border border-sky-300 dark:border-sky-700';
+            case 'ezoic':
+              return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700';
+            case 'monumetric':
+              return 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-700';
+            case 'shemedia':
+              return 'bg-pink-100 text-pink-800 dark:bg-pink-900/40 dark:text-pink-300 border border-pink-300 dark:border-pink-700';
+            case 'freestar':
+              return 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 border border-amber-300 dark:border-amber-700';
+            case 'playwire':
+              return 'bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-300 border border-violet-300 dark:border-violet-700';
+            case 'snigel':
+              return 'bg-teal-100 text-teal-800 dark:bg-teal-900/40 dark:text-teal-300 border border-teal-300 dark:border-teal-700';
+            case 'adsense':
+              return 'bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-300 dark:border-amber-800';
+            case 'affiliate_only':
+              return 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300 border border-blue-300 dark:border-blue-700';
+            case 'unmonetized':
+              return 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-300 dark:border-slate-700';
+            case 'protected':
+              return 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400 border border-amber-200 dark:border-amber-800';
+            case 'failed':
+              return 'bg-rose-50 text-rose-700 dark:bg-rose-950/30 dark:text-rose-400 border border-rose-200 dark:border-rose-800';
+            default:
+              return 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 border border-slate-200 dark:border-slate-700';
+          }
+        },
+
         copyToClipboard(text, msg = 'Copied to clipboard!') {
           if (!text) return;
           navigator.clipboard.writeText(text).then(() => {
@@ -1378,6 +1667,9 @@ export function getDomainsPageHtml() {
 
           const headers = [
             'domain',
+            'ad_network',
+            'ad_manager_domain',
+            'previous_ad_network',
             'age_years',
             'age_days',
             'domain_created_at',

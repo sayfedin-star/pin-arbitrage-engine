@@ -26,7 +26,10 @@ import {
   enrichMissingDomainsBatch,
   getDatabaseEnrichmentStats,
   enrichNextUncheckedBatch,
-  normalizeCleanDomain
+  normalizeCleanDomain,
+  fetchAndCacheDomainAdNetwork,
+  enrichMissingAdNetworksBatch,
+  getDatabaseMonetizationStats
 } from '../src/modules/domains/service.mjs';
 import {
   getCompetitorsOverview,
@@ -2468,6 +2471,7 @@ const server = http.createServer(async (req, res) => {
           keywordId: searchParams.get('keyword_id') || '',
           pillar: searchParams.get('pillar') || 'all',
           preset: searchParams.get('preset') || 'all',
+          adNetwork: searchParams.get('ad_network') || 'all',
           excludeMarketplaces: searchParams.get('exclude_marketplaces') !== 'false',
           minPins: Number(searchParams.get('min_pins') || 1),
           sortBy: searchParams.get('sort') || 'visibility',
@@ -2508,6 +2512,34 @@ const server = http.createServer(async (req, res) => {
         if (!clean) return sendJson(res, 400, { success: false, error: 'Invalid domain format' });
         const ageData = await fetchAndCacheDomainAge(sql, clean, { forceRefresh: Boolean(body.force) });
         return sendJson(res, 200, { success: true, age_info: ageData });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, error: redactSecrets(err.message) });
+      }
+    }
+
+    if (method === 'POST' && pathname === '/api/domains/enrich-ads') {
+      try {
+        const body = await parseJsonBody(req).catch(() => ({}));
+        if (Array.isArray(body.domains) && body.domains.length > 0) {
+          const batchLimit = Math.max(1, Math.min(Number(body.limit) || 20, 50));
+          const batchRes = await enrichMissingAdNetworksBatch(sql, body.domains, batchLimit, { forceRefresh: Boolean(body.force) });
+          return sendJson(res, 200, { success: true, ...batchRes });
+        }
+        const singleDomain = body.domain || searchParams.get('domain');
+        if (!singleDomain) return sendJson(res, 400, { error: 'domain or domains[] is required' });
+        const clean = normalizeCleanDomain(singleDomain);
+        if (!clean) return sendJson(res, 400, { success: false, error: 'Invalid domain format' });
+        const adData = await fetchAndCacheDomainAdNetwork(sql, clean, { forceRefresh: Boolean(body.force) });
+        return sendJson(res, 200, { success: true, ad_info: adData });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, error: redactSecrets(err.message) });
+      }
+    }
+
+    if (method === 'GET' && pathname === '/api/domains/ads-status') {
+      try {
+        const stats = await getDatabaseMonetizationStats(sql);
+        return sendJson(res, 200, { success: true, stats });
       } catch (err) {
         return sendJson(res, 500, { success: false, error: redactSecrets(err.message) });
       }

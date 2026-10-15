@@ -21,7 +21,10 @@ import {
   enrichMissingDomainsBatch,
   getDatabaseEnrichmentStats,
   enrichNextUncheckedBatch,
-  normalizeCleanDomain
+  normalizeCleanDomain,
+  fetchAndCacheDomainAdNetwork,
+  enrichMissingAdNetworksBatch,
+  getDatabaseMonetizationStats
 } from './modules/domains/service.mjs';
 import {
   fetchUniversalPinDossier,
@@ -155,20 +158,53 @@ export function timingSafeEqualStr(a, b) {
   return mismatch === 0;
 }
 
-// Bounded Background Task Execution Guard for Cloudflare Worker Isolate Lifecycle
+export async function raceWithTimeout(taskOrFactory, ms, errorMessage = 'Operation timed out') {
+  let timerId;
+  const taskPromise = Promise.resolve().then(() =>
+    typeof taskOrFactory === 'function' ? taskOrFactory() : taskOrFactory
+  );
+  taskPromise.catch(() => {});
+
+  const timeoutPromise = new Promise((_, reject) => {
+    timerId = setTimeout(() => {
+      const err = new Error(errorMessage);
+      err.name = 'TimeoutError';
+      reject(err);
+    }, ms);
+    if (timerId && typeof timerId.unref === 'function') {
+      timerId.unref();
+    }
+  });
+
+  try {
+    return await Promise.race([taskPromise, timeoutPromise]);
+  } finally {
+    if (timerId !== undefined) {
+      clearTimeout(timerId);
+    }
+  }
+}
+
 export function safeWaitUntil(ctx, promise, taskName = 'bg_task', timeoutMs = 25000) {
   if (!promise || typeof promise.then !== 'function') return;
   let timer;
   const timeoutPromise = new Promise((_, reject) => {
     timer = setTimeout(() => reject(new Error(`Background task "${taskName}" timed out after ${timeoutMs}ms`)), timeoutMs);
+    if (timer && typeof timer.unref === 'function') timer.unref();
   });
   const guardedPromise = Promise.race([promise, timeoutPromise])
     .catch(err => {
-      console.error(`[safeWaitUntil] Error in background task "${taskName}":`, redactSecrets(err.message));
+      console.error(`[safeWaitUntil] Error in background task "${taskName}":`, redactSecrets(err?.message || String(err)));
     })
     .finally(() => {
       clearTimeout(timer);
     });
+
+  const store = requestContextStorage?.getStore?.();
+  if (store) {
+    if (!Array.isArray(store.bgPromises)) store.bgPromises = [];
+    store.bgPromises.push(guardedPromise);
+  }
 
   if (ctx && typeof ctx.waitUntil === 'function') {
     ctx.waitUntil(guardedPromise);
@@ -375,37 +411,6 @@ export function verifyApiAuthentication(request, env = {}) {
     return { authorized: isMatch, reason: isMatch ? null : 'Invalid authentication token.' };
   }
 
-  // Same-Origin Browser UI Session Fallback (Allows legitimate web interface buttons to function without lockout)
-  const secFetchSite = request.headers.get('Sec-Fetch-Site') || '';
-  const origin = request.headers.get('Origin') || '';
-  let isSameOrigin = secFetchSite === 'same-origin';
-  const reqHost = (request.headers.get('host') || '').split(':')[0] || new URL(request.url).hostname;
-
-  if (!isSameOrigin && origin) {
-    try {
-      const originHostname = new URL(origin).hostname;
-      if (originHostname === reqHost || 
-          (['localhost', '127.0.0.1'].includes(originHostname) && ['localhost', '127.0.0.1'].includes(reqHost))) {
-        isSameOrigin = true;
-      }
-    } catch (_) {}
-  }
-  if (!isSameOrigin) {
-    const referer = request.headers.get('Referer') || '';
-    if (referer) {
-      try {
-        const refererHostname = new URL(referer).hostname;
-        if (refererHostname === reqHost ||
-            (['localhost', '127.0.0.1'].includes(refererHostname) && ['localhost', '127.0.0.1'].includes(reqHost))) {
-          isSameOrigin = true;
-        }
-      } catch (_) {}
-    }
-  }
-  if (isSameOrigin) {
-    return { authorized: true };
-  }
-
   return { authorized: false, reason: 'Missing authentication credentials (Bearer token or x-api-key required).' };
 }
 
@@ -465,6 +470,8 @@ export function jsonResponse(data, status = 200, cacheSeconds = 0, customCors = 
 }
 
 export function methodNotAllowedResponse(allow, customCors = null) {
+  const store = requestContextStorage.getStore();
+  const resolvedOrigin = customCors?.['Access-Control-Allow-Origin'] || store?.origin || currentDefaultOrigin || '*';
   return new Response(JSON.stringify({
     success: false,
     error: 'METHOD_NOT_ALLOWED',
@@ -474,7 +481,7 @@ export function methodNotAllowedResponse(allow, customCors = null) {
     headers: {
       'Content-Type': 'application/json; charset=utf-8',
       'Allow': allow,
-      'Access-Control-Allow-Origin': customCors?.['Access-Control-Allow-Origin'] || '*',
+      'Access-Control-Allow-Origin': resolvedOrigin,
       'Access-Control-Allow-Methods': allow,
       'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-target-project, x-api-key',
       'X-Content-Type-Options': 'nosniff',
@@ -656,7 +663,7 @@ export async function getCachedOrFetch(key, fetcher, ttlMs = 15000, staleMs = 60
               fetcher(),
               new Promise((_, reject) => setTimeout(() => reject(new Error(`Timeout revalidating ${key}`)), 7500))
             ]);
-            if (fresh && fresh.success !== false) {
+            if (fresh && fresh.success !== false && !fresh.degraded && !fresh._degraded) {
               edgeCache.set(key, {
                 data: fresh,
                 expiresAt: Date.now() + ttlMs,
@@ -718,7 +725,7 @@ export async function getCachedOrFetch(key, fetcher, ttlMs = 15000, staleMs = 60
         fetcher(),
         new Promise((_, reject) => setTimeout(() => reject(new Error(`Timeout fetching ${key}`)), 7500))
       ]);
-      if (fresh && fresh.success !== false) {
+      if (fresh && fresh.success !== false && !fresh.degraded && !fresh._degraded) {
         if (edgeCache.size >= MAX_CACHE_ENTRIES) {
           const oldestKey = edgeCache.keys().next().value;
           if (oldestKey) edgeCache.delete(oldestKey);
@@ -808,7 +815,7 @@ export default {
       return corsOptionsResponse(requestOrigin, env, 'GET, POST, DELETE, OPTIONS', request.url);
     }
 
-    return requestContextStorage.run({ request, env, ctx, origin: dynamicCors['Access-Control-Allow-Origin'] }, async () => {
+    return requestContextStorage.run({ request, env, ctx, origin: dynamicCors['Access-Control-Allow-Origin'], bgPromises: [] }, async () => {
       try {
         const url = new URL(request.url);
       const normalizedPath = normalizePath(url.pathname);
@@ -1410,20 +1417,24 @@ export default {
           return jsonResponse({ error: 'No valid numeric pin IDs provided in payload' }, 400);
         }
 
-        const inserted = [];
-        const chunkSize = 20;
-        for (let i = 0; i < rawSeeds.length; i += chunkSize) {
-          const chunk = rawSeeds.slice(i, i + chunkSize);
-          const chunkResults = await Promise.all(chunk.map(s => targetSql`
-            INSERT INTO cluster_seeds (pin_id, label, is_competitor, created_at)
-            VALUES (${s.pin_id}, ${s.label}, ${s.is_competitor}, NOW())
-            ON CONFLICT (pin_id) DO UPDATE SET
-              label = EXCLUDED.label,
-              is_competitor = EXCLUDED.is_competitor
-            RETURNING pin_id, label, is_competitor, last_crawled_at;
-          `));
-          inserted.push(...chunkResults.flat());
+        const dedupSeedsMap = new Map();
+        for (const s of rawSeeds) {
+          if (s?.pin_id) dedupSeedsMap.set(String(s.pin_id), s);
         }
+        const uniqueSeeds = Array.from(dedupSeedsMap.values());
+        const inserted = await targetSql`
+          INSERT INTO cluster_seeds (pin_id, label, is_competitor, created_at)
+          SELECT u.pin_id, u.label, u.is_competitor, NOW()
+          FROM jsonb_to_recordset(${JSON.stringify(uniqueSeeds)}::jsonb) AS u(
+            pin_id text,
+            label text,
+            is_competitor boolean
+          )
+          ON CONFLICT (pin_id) DO UPDATE SET
+            label = EXCLUDED.label,
+            is_competitor = EXCLUDED.is_competitor
+          RETURNING pin_id, label, is_competitor, last_crawled_at;
+        `;
 
         invalidateEdgeCache('api:overview');
         invalidateEdgeCache('api:seeds');
@@ -2272,18 +2283,31 @@ export default {
 
         for (const item of items) inspectAndCapture(item);
 
-        const capChunkSize = 20;
-        for (let i = 0; i < capturedCapsules.length; i += capChunkSize) {
-          const chunk = capturedCapsules.slice(i, i + capChunkSize);
-          await Promise.all(chunk.map(cap => targetSql`
+        if (capturedCapsules.length > 0) {
+          const dedupCapMap = new Map();
+          for (const cap of capturedCapsules) {
+            if (cap?.normalized_query) dedupCapMap.set(`${cap.seed_pin_id}_${cap.normalized_query}`, cap);
+          }
+          const uniqueCaps = Array.from(dedupCapMap.values());
+          await targetSql`
             INSERT INTO seed_guided_search_capsules (
               seed_pin_id, query_term, normalized_query, image_url, search_url, node_id, discovered_at
-            ) VALUES (
-              ${cap.seed_pin_id}, ${cap.query_term}, ${cap.normalized_query}, ${cap.image_url}, ${cap.search_url}, ${cap.node_id}, NOW()
             )
-            ON CONFLICT (seed_pin_id, normalized_query) DO UPDATE
-            SET image_url = EXCLUDED.image_url, search_url = EXCLUDED.search_url, node_id = EXCLUDED.node_id;
-          `));
+            SELECT
+              u.seed_pin_id, u.query_term, u.normalized_query, u.image_url, u.search_url, u.node_id, NOW()
+            FROM jsonb_to_recordset(${JSON.stringify(uniqueCaps)}::jsonb) AS u(
+              seed_pin_id text,
+              query_term text,
+              normalized_query text,
+              image_url text,
+              search_url text,
+              node_id text
+            )
+            ON CONFLICT (seed_pin_id, normalized_query) DO UPDATE SET
+              image_url = EXCLUDED.image_url,
+              search_url = EXCLUDED.search_url,
+              node_id = EXCLUDED.node_id;
+          `;
         }
 
         const rawCandidates = [];
@@ -2342,50 +2366,70 @@ export default {
           }
         }
 
-        const candChunkSize = 20;
-        for (let i = 0; i < rawCandidates.length; i += candChunkSize) {
-          const chunk = rawCandidates.slice(i, i + candChunkSize);
-          await Promise.all(chunk.map(node => targetSql`
-            INSERT INTO candidate_graph_nodes (
-              seed_pin_id, candidate_pin_id, title,
-              dominant_color, aspect_ratio, saves,
-              repins, save_rate, domain,
-              is_product, ocr_text, extracted_at,
-              pin_created_at, age_days, daily_velocity,
-              provenance_engine, individual_prod_score,
-              recgpt_transition_score, sequence_role,
-              is_recgpt_candidate, visual_entropy_score,
-              image_url, is_video, ingestion_method
-            ) VALUES (
-              ${node.seed_pin_id}, ${node.candidate_pin_id}, ${node.title},
-              ${node.dominant_color}, ${node.aspect_ratio}, ${node.saves},
-              ${node.repins}, ${node.save_rate}, ${node.domain},
-              ${node.is_product}, ${node.ocr_text}, NOW(),
-              ${node.pin_created_at}, ${node.age_days}, ${node.daily_velocity},
-              ${node.provenance_engine}, ${node.individual_prod_score},
-              ${node.recgpt_transition_score}, ${node.sequence_role},
-              ${node.is_recgpt_candidate}, ${node.visual_entropy_score},
-              ${node.image_url}, ${node.is_video}, ${node.ingestion_method}
-            )
-            ON CONFLICT (seed_pin_id, candidate_pin_id) DO UPDATE SET
-              title = EXCLUDED.title,
-              dominant_color = EXCLUDED.dominant_color,
-              saves = GREATEST(candidate_graph_nodes.saves, EXCLUDED.saves),
-              repins = CASE WHEN EXCLUDED.repins > 0 THEN EXCLUDED.repins ELSE candidate_graph_nodes.repins END,
-              save_rate = CASE
-                WHEN EXCLUDED.repins > 0 AND GREATEST(candidate_graph_nodes.saves, EXCLUDED.saves) > 0
-                  THEN ROUND((EXCLUDED.repins::numeric / GREATEST(candidate_graph_nodes.saves, EXCLUDED.saves)::numeric) * 100, 2)
-                WHEN candidate_graph_nodes.repins > 0 AND GREATEST(candidate_graph_nodes.saves, EXCLUDED.saves) > 0
-                  THEN ROUND((candidate_graph_nodes.repins::numeric / GREATEST(candidate_graph_nodes.saves, EXCLUDED.saves)::numeric) * 100, 2)
-                ELSE candidate_graph_nodes.save_rate
-              END,
-              domain = EXCLUDED.domain,
-              is_product = EXCLUDED.is_product,
-              ocr_text = EXCLUDED.ocr_text,
-              extracted_at = NOW(),
-              image_url = EXCLUDED.image_url,
-              is_video = EXCLUDED.is_video;
-          `));
+        if (rawCandidates.length > 0) {
+          const dedupCandMap = new Map();
+          for (const node of rawCandidates) {
+            if (node?.candidate_pin_id) dedupCandMap.set(`${node.seed_pin_id}_${node.candidate_pin_id}`, node);
+          }
+          const uniqueCandidates = Array.from(dedupCandMap.values());
+          const candChunkSize = 250;
+          for (let i = 0; i < uniqueCandidates.length; i += candChunkSize) {
+            const chunk = uniqueCandidates.slice(i, i + candChunkSize);
+            await targetSql`
+              INSERT INTO candidate_graph_nodes (
+                seed_pin_id, candidate_pin_id, title,
+                dominant_color, aspect_ratio, saves,
+                repins, save_rate, domain,
+                is_product, ocr_text, extracted_at,
+                pin_created_at, age_days, daily_velocity,
+                provenance_engine, individual_prod_score,
+                recgpt_transition_score, sequence_role,
+                is_recgpt_candidate, visual_entropy_score,
+                image_url, is_video, ingestion_method
+              )
+              SELECT
+                u.seed_pin_id, u.candidate_pin_id, u.title,
+                u.dominant_color, u.aspect_ratio, u.saves,
+                u.repins, u.save_rate, u.domain,
+                u.is_product, u.ocr_text, NOW(),
+                u.pin_created_at::timestamptz, u.age_days, u.daily_velocity,
+                u.provenance_engine, u.individual_prod_score,
+                u.recgpt_transition_score, u.sequence_role,
+                u.is_recgpt_candidate, u.visual_entropy_score,
+                u.image_url, u.is_video, u.ingestion_method
+              FROM jsonb_to_recordset(${JSON.stringify(chunk)}::jsonb) AS u(
+                seed_pin_id text, candidate_pin_id text, title text,
+                dominant_color text, aspect_ratio text, saves int,
+                repins int, save_rate numeric, domain text,
+                is_product boolean, ocr_text text,
+                pin_created_at text, age_days int, daily_velocity numeric,
+                provenance_engine text, individual_prod_score numeric,
+                recgpt_transition_score numeric, sequence_role text,
+                is_recgpt_candidate boolean, visual_entropy_score numeric,
+                image_url text, is_video boolean, ingestion_method text
+              )
+              ON CONFLICT (seed_pin_id, candidate_pin_id) DO UPDATE SET
+                title = EXCLUDED.title,
+                dominant_color = EXCLUDED.dominant_color,
+                aspect_ratio = EXCLUDED.aspect_ratio,
+                saves = GREATEST(candidate_graph_nodes.saves, EXCLUDED.saves),
+                repins = GREATEST(candidate_graph_nodes.repins, EXCLUDED.repins),
+                save_rate = EXCLUDED.save_rate,
+                domain = EXCLUDED.domain,
+                is_product = EXCLUDED.is_product,
+                ocr_text = COALESCE(NULLIF(EXCLUDED.ocr_text, ''), candidate_graph_nodes.ocr_text),
+                extracted_at = NOW(),
+                pin_created_at = COALESCE(EXCLUDED.pin_created_at, candidate_graph_nodes.pin_created_at),
+                age_days = EXCLUDED.age_days,
+                daily_velocity = GREATEST(candidate_graph_nodes.daily_velocity, EXCLUDED.daily_velocity),
+                provenance_engine = EXCLUDED.provenance_engine,
+                individual_prod_score = EXCLUDED.individual_prod_score,
+                recgpt_transition_score = EXCLUDED.recgpt_transition_score,
+                image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), candidate_graph_nodes.image_url),
+                is_video = EXCLUDED.is_video,
+                ingestion_method = EXCLUDED.ingestion_method;
+            `;
+          }
         }
 
         if (authoritativeCounts) {
@@ -2446,17 +2490,20 @@ export default {
               limit,
               offset
             });
-            return { overview, competitors };
+            const isDegraded = Boolean(overview?._degraded || competitors?._degraded);
+            return { overview, competitors, ...(isDegraded ? { degraded: true } : {}) };
           }, 8000, 30000);
 
-          return jsonResponse({ success: true, ...data }, 200, 8);
+          const isDegraded = Boolean(data?.degraded || data?.overview?._degraded || data?.competitors?._degraded);
+          return jsonResponse({ success: true, ...data }, 200, isDegraded ? 0 : 8);
         } catch (err) {
           console.error('[Competitors Error]', err.message);
           return jsonResponse({
             success: true,
+            degraded: true,
             overview: { tracked_profiles: 0, competitor_count: 0, own_count: 0, combined_reach: 0, total_audience: 0, pins_tracked: 0, top_competitor: null },
             competitors: []
-          }, 200);
+          }, 200, 0);
         }
       }
 
@@ -2896,7 +2943,7 @@ export default {
           return jsonResponse({ success: true, keywords: Array.isArray(keywords) ? keywords : [] }, 200, 8);
         } catch (err) {
           console.error('[Keywords Error]', err.message);
-          return jsonResponse({ success: true, keywords: [] }, 200);
+          return jsonResponse({ success: true, degraded: true, keywords: [] }, 200, 0);
         }
       }
 
@@ -2975,9 +3022,7 @@ export default {
               if (dRes?.body && !dRes.bodyUsed) await dRes.body.cancel().catch(() => {});
             } catch (_) {}
           })();
-          if (ctx && typeof ctx.waitUntil === 'function') {
-            ctx.waitUntil(dispatchPromise);
-          }
+          safeWaitUntil(ctx, dispatchPromise, 'github_workflow_dispatch');
         }
 
         // Asynchronously sync keyword autocomplete to D1 database
@@ -3235,7 +3280,7 @@ export default {
           }
           return jsonResponse({ success: true, source: 'neon_hub', results: rows }, 200, 15);
         } catch (_) {
-          return jsonResponse({ success: true, source: 'empty_fallback', results: [] });
+          return jsonResponse({ success: true, source: 'empty_fallback', results: [], degraded: true }, 200, 0);
         }
       }
 
@@ -3708,31 +3753,33 @@ export default {
                   WHERE pin_id = ${pinId} 
                   LIMIT 1;
                 `.catch(() => []);
-                const targetKid = kwRow?.keyword_id || 1;
+                const targetKid = kwRow?.keyword_id || null;
                 const currentDisplaced = kwRow?.is_displaced ?? false;
                 const currentRank = currentDisplaced ? null : (kwRow?.rank_position ?? null);
 
-                await sql`
-                  INSERT INTO keyword_pins_snapshots (
-                    keyword_id, pin_id, rank_position, title, domain, destination_url, image_url,
-                    save_count, repin_count, comment_count, share_count, daily_save_velocity,
-                    snapshot_date, is_displaced, created_at_pinterest, creation_method, metadata, created_at
-                  )
-                  SELECT
-                    ${targetKid}, ${pinId}, ${currentRank}, ${pin.title || ''}, ${pin.domain || ''}, ${pin.link || ''}, ${pin.image_url || ''},
-                    ${Number(pin.saves || 0)}, ${Number(pin.repins || 0)}, ${Number(pin.comments || 0)}, ${Number(pin.share_count || 0)}, 0,
-                    (NOW() AT TIME ZONE 'UTC')::date, ${currentDisplaced},
-                    ${pin.created_at_pinterest ? pin.created_at_pinterest : null}, ${pin.creation_method || 'pinterest_platform'},
-                    ${JSON.stringify(metaToStore)}::jsonb, NOW()
-                  WHERE NOT EXISTS (
-                    SELECT 1 FROM keyword_ignored_pins kip
-                    WHERE kip.keyword_id = ${targetKid} AND kip.pin_id = ${pinId}
-                  )
-                  ON CONFLICT (keyword_id, pin_id, snapshot_date) DO UPDATE SET
-                    save_count = GREATEST(keyword_pins_snapshots.save_count, EXCLUDED.save_count),
-                    repin_count = GREATEST(keyword_pins_snapshots.repin_count, EXCLUDED.repin_count),
-                    metadata = COALESCE(keyword_pins_snapshots.metadata, '{}'::jsonb) || EXCLUDED.metadata;
-                `.catch(() => {});
+                if (targetKid) {
+                  await sql`
+                    INSERT INTO keyword_pins_snapshots (
+                      keyword_id, pin_id, rank_position, title, domain, destination_url, image_url,
+                      save_count, repin_count, comment_count, share_count, daily_save_velocity,
+                      snapshot_date, is_displaced, created_at_pinterest, creation_method, metadata, created_at
+                    )
+                    SELECT
+                      ${targetKid}, ${pinId}, ${currentRank}, ${pin.title || ''}, ${pin.domain || ''}, ${pin.link || ''}, ${pin.image_url || ''},
+                      ${Number(pin.saves || 0)}, ${Number(pin.repins || 0)}, ${Number(pin.comments || 0)}, ${Number(pin.share_count || 0)}, 0,
+                      (NOW() AT TIME ZONE 'UTC')::date, ${currentDisplaced},
+                      ${pin.created_at_pinterest ? pin.created_at_pinterest : null}, ${pin.creation_method || 'pinterest_platform'},
+                      ${JSON.stringify(metaToStore)}::jsonb, NOW()
+                    WHERE NOT EXISTS (
+                      SELECT 1 FROM keyword_ignored_pins kip
+                      WHERE kip.keyword_id = ${targetKid} AND kip.pin_id = ${pinId}
+                    )
+                    ON CONFLICT (keyword_id, pin_id, snapshot_date) DO UPDATE SET
+                      save_count = GREATEST(keyword_pins_snapshots.save_count, EXCLUDED.save_count),
+                      repin_count = GREATEST(keyword_pins_snapshots.repin_count, EXCLUDED.repin_count),
+                      metadata = COALESCE(keyword_pins_snapshots.metadata, '{}'::jsonb) || EXCLUDED.metadata;
+                  `.catch(() => {});
+                }
               } else {
                 console.warn(`[Sync Concurrency Guard] Crawl lease active for pin #${pinId} keywords (${activeCrawlKeywords.map(k=>k.id).join(',')}). Snapshot insertion deferred to active crawler.`);
               }
@@ -4134,46 +4181,41 @@ export default {
         invalidateEdgeCache('keywords');
         const folderId = body.folder_id ? Number(body.folder_id) : null;
         const category = body.category || 'General';
-        const imported = [];
+        const uniqueValidKeywords = [...new Set(validKeywords)];
+        const imported = await sql`
+          INSERT INTO tracked_keywords (
+            keyword, category, target_pin_count, crawl_pages_limit, inspection_mode, is_active, updated_at
+          )
+          SELECT
+            u.kw, ${category}, 250, 10, 'full_catalog', TRUE, NOW()
+          FROM UNNEST(${uniqueValidKeywords}::text[]) AS u(kw)
+          ON CONFLICT (keyword) DO UPDATE SET
+            target_pin_count = GREATEST(tracked_keywords.target_pin_count, 250),
+            crawl_pages_limit = GREATEST(tracked_keywords.crawl_pages_limit, 10),
+            inspection_mode = 'full_catalog',
+            updated_at = NOW(),
+            is_active = TRUE
+          RETURNING id, keyword, category;
+        `.catch(err => {
+          console.warn('[bulk-import] Database insert error:', redactSecrets(err?.message || 'DB error'));
+          return [];
+        });
 
-        const CHUNK_SIZE = 10;
-        for (let i = 0; i < validKeywords.length; i += CHUNK_SIZE) {
-          const chunk = validKeywords.slice(i, i + CHUNK_SIZE);
-          const settled = await Promise.allSettled(chunk.map(async (cleanKw) => {
-            const [row] = await sql`
-              INSERT INTO tracked_keywords (
-                keyword, category, target_pin_count, crawl_pages_limit, inspection_mode, is_active, updated_at
-              ) VALUES (
-                ${cleanKw}, ${category}, 250, 10, 'full_catalog', TRUE, NOW()
-              )
-              ON CONFLICT (keyword) DO UPDATE SET
-                target_pin_count = GREATEST(tracked_keywords.target_pin_count, 250),
-                crawl_pages_limit = GREATEST(tracked_keywords.crawl_pages_limit, 10),
-                inspection_mode = 'full_catalog',
-                updated_at = NOW(),
-                is_active = TRUE
-              RETURNING id, keyword, category;
-            `;
-            if (row && folderId) {
-              await addKeywordToFolder(sql, folderId, row.id).catch(() => {});
-            }
-            return row;
-          }));
-
-          for (const item of settled) {
-            if (item.status === 'fulfilled' && item.value) {
-              imported.push(item.value);
-            }
+        if (folderId && Array.isArray(imported) && imported.length > 0) {
+          const importedIds = imported.map(r => Number(r.id)).filter(Boolean);
+          if (importedIds.length > 0) {
+            await batchAddKeywordsToFolder(sql, folderId, importedIds).catch(() => {});
           }
         }
 
+        const safeImported = Array.isArray(imported) ? imported : [];
         return jsonResponse({
           success: true,
-          added: imported.length,
-          count: imported.length,
+          added: safeImported.length,
+          count: safeImported.length,
           total_submitted: rawCandidates.length,
           folder_id: folderId,
-          keywords: imported
+          keywords: safeImported
         });
       }
 
@@ -4308,6 +4350,7 @@ export default {
             } catch (_) {}
           }
           let folders = [];
+          let foldersDegraded = false;
           try {
             folders = await listFolders(sql, {
               projectId: searchParams.get('project_id') || 'default'
@@ -4315,11 +4358,16 @@ export default {
           } catch (err) {
             console.warn('[Folders Fallback] listFolders failed:', err.message);
             folders = [];
+            foldersDegraded = true;
           }
           if (Array.isArray(folders) && folders.length > 0) {
             safeWaitUntil(ctx, Promise.all(folders.map(f => syncFolderToD1(env, f))), 'syncAllFoldersToD1');
           }
-          return jsonResponse({ success: true, folders: Array.isArray(folders) ? folders : [] }, 200, 10);
+          return jsonResponse({
+            success: true,
+            folders: Array.isArray(folders) ? folders : [],
+            ...(foldersDegraded ? { degraded: true } : {})
+          }, 200, foldersDegraded ? 0 : 10);
         }
 
         if (method === 'POST' && parts.length === 0) {
@@ -4619,7 +4667,7 @@ export default {
           return jsonResponse({ success: true, overview }, 200, 15);
         } catch (err) {
           console.error('[PinArchive Overview Error]', err.message);
-          return jsonResponse({ success: true, overview: { total_pins: 0, high_velocity_pins: 0, dormant_pins: 0, cooling_pins: 0, mature_pins: 0, growing_pins: 0 } }, 200);
+          return jsonResponse({ success: true, degraded: true, overview: { total_pins: 0, high_velocity_pins: 0, dormant_pins: 0, cooling_pins: 0, mature_pins: 0, growing_pins: 0 } }, 200, 0);
         }
       }
 
@@ -4629,7 +4677,7 @@ export default {
           return jsonResponse({ success: true, rules });
         } catch (err) {
           console.error('[PinArchive Rules Error]', err.message);
-          return jsonResponse({ success: true, rules: {} }, 200);
+          return jsonResponse({ success: true, degraded: true, rules: {} }, 200, 0);
         }
       }
 
@@ -4682,7 +4730,7 @@ export default {
           return jsonResponse({ success: true, topics: Array.isArray(topics) ? topics : [] }, 200, 8);
         } catch (err) {
           console.error('[Topics Error]', err.message);
-          return jsonResponse({ success: true, topics: [] }, 200);
+          return jsonResponse({ success: true, degraded: true, topics: [] }, 200, 0);
         }
       }
 
@@ -4754,6 +4802,7 @@ export default {
             keywordId: searchParams.get('keyword_id') || '',
             pillar: searchParams.get('pillar') || 'all',
             preset: searchParams.get('preset') || 'all',
+            adNetwork: searchParams.get('ad_network') || 'all',
             excludeMarketplaces: searchParams.get('exclude_marketplaces') !== 'false',
             minPins: Number(searchParams.get('min_pins') || 1),
             sortBy: searchParams.get('sort') || 'visibility',
@@ -4771,6 +4820,15 @@ export default {
               ctx,
               enrichMissingDomainsBatch(sql, data.missing_age_domains, 6).then(() => invalidateEdgeCache('domains:leaderboard')),
               'bg_enrich_domain_ages'
+            );
+          }
+
+          // Non-blocking background Ad Network enrichment for unchecked domains on current page
+          if (Array.isArray(data?.missing_ad_domains) && data.missing_ad_domains.length > 0) {
+            safeWaitUntil(
+              ctx,
+              enrichMissingAdNetworksBatch(sql, data.missing_ad_domains, 6).then(() => invalidateEdgeCache('domains:leaderboard')),
+              'bg_enrich_domain_ads'
             );
           }
 
@@ -4808,6 +4866,35 @@ export default {
           if (!clean) return jsonResponse({ success: false, error: 'Invalid domain format' }, 400);
           const ageData = await fetchAndCacheDomainAge(sql, clean, { forceRefresh: Boolean(body.force) });
           return jsonResponse({ success: true, age_info: ageData });
+        } catch (err) {
+          return jsonResponse({ success: false, error: redactSecrets(err.message) }, 500);
+        }
+      }
+
+      if (method === 'POST' && pathname === '/api/domains/enrich-ads') {
+        invalidateEdgeCache('domains:leaderboard');
+        try {
+          const body = await request.json().catch(() => ({}));
+          if (Array.isArray(body.domains) && body.domains.length > 0) {
+            const batchLimit = Math.max(1, Math.min(Number(body.limit) || 20, 50));
+            const batchRes = await enrichMissingAdNetworksBatch(sql, body.domains, batchLimit, { forceRefresh: Boolean(body.force) });
+            return jsonResponse({ success: true, ...batchRes });
+          }
+          const singleDomain = body.domain || searchParams.get('domain');
+          if (!singleDomain) return jsonResponse({ error: 'domain or domains[] is required' }, 400);
+          const clean = normalizeCleanDomain(singleDomain);
+          if (!clean) return jsonResponse({ success: false, error: 'Invalid domain format' }, 400);
+          const adData = await fetchAndCacheDomainAdNetwork(sql, clean, { forceRefresh: Boolean(body.force) });
+          return jsonResponse({ success: true, ad_info: adData });
+        } catch (err) {
+          return jsonResponse({ success: false, error: redactSecrets(err.message) }, 500);
+        }
+      }
+
+      if (method === 'GET' && pathname === '/api/domains/ads-status') {
+        try {
+          const stats = await getDatabaseMonetizationStats(sql);
+          return jsonResponse({ success: true, stats }, 200, 5);
         } catch (err) {
           return jsonResponse({ success: false, error: redactSecrets(err.message) }, 500);
         }
@@ -4858,7 +4945,10 @@ export default {
     } finally {
       const store = requestContextStorage.getStore();
       if (store?.hyperdriveSql && typeof store.hyperdriveSql.end === 'function') {
-        const closePromise = store.hyperdriveSql.end({ timeout: 1 }).catch(() => {});
+        const hyperdriveClient = store.hyperdriveSql;
+        const pendingBg = Array.isArray(store.bgPromises) ? store.bgPromises : [];
+        const closePromise = (pendingBg.length > 0 ? Promise.allSettled(pendingBg) : Promise.resolve())
+          .then(() => hyperdriveClient.end({ timeout: 5 }).catch(() => {}));
         if (ctx && typeof ctx.waitUntil === 'function') {
           ctx.waitUntil(closePromise);
         }

@@ -9,7 +9,28 @@
  * 5. Strict JSON Error Contract (Malformed JSON syntax, unexpected query params, zero HTML 500 pages)
  */
 
+import fs from 'node:fs';
+import path from 'node:path';
 import worker from '../src/worker.mjs';
+
+if (typeof process.loadEnvFile === 'function') {
+  try { process.loadEnvFile(); } catch (_) {}
+} else {
+  const envPath = path.resolve(process.cwd(), '.env');
+  if (fs.existsSync(envPath)) {
+    const content = fs.readFileSync(envPath, 'utf8');
+    for (const line of content.split('\n')) {
+      const trimmed = line.trim();
+      if (trimmed && !trimmed.startsWith('#') && trimmed.includes('=')) {
+        const idx = trimmed.indexOf('=');
+        const k = trimmed.slice(0, idx).trim();
+        let v = trimmed.slice(idx + 1).trim();
+        if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
+        if (!process.env[k]) process.env[k] = v;
+      }
+    }
+  }
+}
 
 async function runAdversarialPenetrationSuite() {
   console.log('='.repeat(80));
@@ -226,7 +247,7 @@ async function runAdversarialPenetrationSuite() {
     // Mock targetSql to observe what clean keywords reach the database query
     const interceptedQueries = [];
     const mockEnvWithSql = {
-      DATABASE_URL: mockEnv.DATABASE_URL
+      DATABASE_URL: process.env.DATABASE_URL || mockEnv.DATABASE_URL
     };
 
     let caughtException = false;

@@ -112,6 +112,7 @@ export async function getCompetitorsOverview(sql) {
   } catch (err) {
     console.warn('[getCompetitorsOverview] Query failed, returning fallback summary:', err.message);
     return {
+      _degraded: true,
       tracked_profiles: 0,
       competitor_count: 0,
       own_count: 0,
@@ -187,7 +188,9 @@ export async function listCompetitors(sql, { account_type = 'all', search = '', 
     }));
   } catch (err) {
     console.warn('[listCompetitors] Query failed, returning fallback empty list:', err.message);
-    return [];
+    const fallback = [];
+    fallback._degraded = true;
+    return fallback;
   }
 }
 

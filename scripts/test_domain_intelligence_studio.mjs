@@ -279,6 +279,78 @@ async function runTests() {
     studioHtml.includes('Registry Withheld / Privacy Shielded')
   );
 
+  // 8. Monetization & Ad Network Intelligence Tests
+  console.log('\n[*] Testing Ad Network & Monetization Intelligence (/api/domains/enrich-ads, /ads-status)...');
+
+  // 8.1 API: GET /api/domains/ads-status
+  const adsStatusRes = await worker.fetch(new Request('https://engine.internal/api/domains/ads-status'), mockEnv);
+  const adsStatusData = await adsStatusRes.json();
+  report(
+    'GET /api/domains/ads-status returns database-wide monetization breakdown',
+    adsStatusRes.status === 200 &&
+    adsStatusData.success === true &&
+    typeof adsStatusData.stats?.total_checked === 'number' &&
+    typeof adsStatusData.stats?.raptive_count === 'number'
+  );
+
+  // 8.2 API: POST /api/domains/enrich-ads (Single domain resolution & caching)
+  const enrichAdsRes = await worker.fetch(new Request('https://engine.internal/api/domains/enrich-ads', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ domain: 'payhip.com' })
+  }), mockEnv);
+  const enrichAdsData = await enrichAdsRes.json();
+  report(
+    'POST /api/domains/enrich-ads resolves single domain monetization metadata',
+    enrichAdsRes.status === 200 &&
+    enrichAdsData.success === true &&
+    enrichAdsData.ad_info?.domain === 'payhip.com' &&
+    typeof enrichAdsData.ad_info?.current_ad_network === 'string'
+  );
+
+  // 8.3 API: POST /api/domains/enrich-ads (Batch domains[])
+  const batchAdsRes = await worker.fetch(new Request('https://engine.internal/api/domains/enrich-ads', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ domains: ['payhip.com', 'saltandlavender.com'], limit: 2 })
+  }), mockEnv);
+  const batchAdsData = await batchAdsRes.json();
+  report(
+    'POST /api/domains/enrich-ads supports batch resolution across multiple domains',
+    batchAdsRes.status === 200 &&
+    batchAdsData.success === true &&
+    typeof batchAdsData.enriched === 'number' &&
+    Array.isArray(batchAdsData.results)
+  );
+
+  // 8.4 Service: listDomainsIntelligence adNetwork filter parameter
+  const filteredAdsList = await listDomainsIntelligence(sql, { limit: 10, adNetwork: 'all' });
+  report(
+    'listDomainsIntelligence populates ad_network, ad_manager_domain, and previous_ad_network fields',
+    Array.isArray(filteredAdsList.domains) &&
+    filteredAdsList.domains.length > 0 &&
+    'ad_network' in filteredAdsList.domains[0] &&
+    'ads_txt_status' in filteredAdsList.domains[0]
+  );
+
+  // 8.5 Deep Dossier includes ad_info
+  const dossierAdCheck = await getDomainDeepDossier(sql, 'saltandlavender.com');
+  report(
+    'getDomainDeepDossier attaches ad_info with publisher metadata',
+    dossierAdCheck.ad_info !== undefined &&
+    dossierAdCheck.ad_info !== null &&
+    (dossierAdCheck.ad_info.current_ad_network === 'mediavine' || typeof dossierAdCheck.ad_info.current_ad_network === 'string')
+  );
+
+  // 8.6 Studio UI contains Ad Network column header, Tab 5, and NO hardcoded RPM text
+  report(
+    'Studio UI contains Ad Network column header, Tab 5 button, and historical switch tracking UI',
+    studioHtml.includes('Ad Network') &&
+    studioHtml.includes('Ad Network & Monetization Profile') &&
+    studioHtml.includes('Historical Switch Tracking') &&
+    !studioHtml.includes('$40–$65 RPM')
+  );
+
   console.log('\n================================================================================');
   console.log(`AUDIT COMPLETE: ${passed} PASSED | ${failed} FAILED`);
   console.log('================================================================================');
