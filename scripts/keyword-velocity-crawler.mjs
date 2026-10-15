@@ -31,7 +31,11 @@ import { crc32 } from '../src/modules/fleet/sharding.mjs';
 let undiciAgent = null;
 try {
   const { Agent } = await import('undici');
-  undiciAgent = new Agent({ keepAliveTimeout: 30000, connections: 50, pipelining: 1 });
+  const candidateAgent = new Agent({ keepAliveTimeout: 30000, connections: 50, pipelining: 1 });
+  // Node 22 built-in fetch uses Undici v6; Undici v8 Agent throws InvalidArgumentError (fetch failed)
+  if (String(process.versions?.undici || '').startsWith('8.')) {
+    undiciAgent = candidateAgent;
+  }
   setDefaultDispatcher(undiciAgent);
 } catch (_) {}
 
@@ -129,7 +133,13 @@ const MAX_SAME_DAY_TTL_MS = 18 * 60 * 60 * 1000; // 18 Hours Maximum Same-Day Ca
  */
 function evaluateHydrationGuard(pin, currentUtcTimestamp = Date.now()) {
   const crawlTime = pin.crawled_at || pin.metadata?.crawled_at || null;
-  if (!crawlTime || pin.save_count == null || Number(pin.save_count) === 0) {
+  const meta = (pin.metadata && typeof pin.metadata === 'object') ? pin.metadata : {};
+  const isDeepHydrated = Boolean(
+    meta.is_deep_hydrated === true ||
+    meta.is_deep_hydrated === 'true' ||
+    (pin.creation_method && pin.creation_method !== 'pinterest_platform')
+  );
+  if (!crawlTime || !isDeepHydrated || pin.save_count == null || Number(pin.save_count) === 0) {
     return { shouldFetch: true, reason: 'unhydrated_pin', reuseTelemetry: null };
   }
 
@@ -315,12 +325,17 @@ async function inspectPin(pin, kw) {
     return null;
   }
 
-  // Authentic Metrics Normalization
-  const authenticSaves = Math.max(
-    Number(pin.save_count || 0),
-    Number(detail?.saves || 0),
-    Number(detail?.save_count || 0)
+  // Authentic Metrics Normalization (overwrites reaction-polluted save_count on first authentic deep hydration)
+  const meta = (pin.metadata && typeof pin.metadata === 'object') ? pin.metadata : {};
+  const wasDeepHydrated = Boolean(
+    meta.is_deep_hydrated === true ||
+    meta.is_deep_hydrated === 'true' ||
+    (pin.creation_method && pin.creation_method !== 'pinterest_platform')
   );
+  const detailSaves = Math.max(Number(detail?.saves || 0), Number(detail?.save_count || 0));
+  const authenticSaves = (!wasDeepHydrated && detailSaves > 0)
+    ? detailSaves
+    : Math.max(Number(pin.save_count || 0), detailSaves);
   const authenticRepins = Math.max(
     Number(pin.repin_count || 0),
     Number(detail?.repins || 0),
@@ -455,7 +470,11 @@ async function flushBatchToHub(pinsChunk, kw) {
     await sql`
       UPDATE keyword_serp_current ksc
       SET 
-        save_count = GREATEST(ksc.save_count, u.authentic_saves::bigint),
+        save_count = CASE
+          WHEN NOT u.from_hydration_cache AND NOT u.is_dead AND u.authentic_saves > 0 AND COALESCE((ksc.metadata->>'is_deep_hydrated')::boolean, false) = false
+          THEN u.authentic_saves::bigint
+          ELSE GREATEST(ksc.save_count, u.authentic_saves::bigint)
+        END,
         repin_count = GREATEST(ksc.repin_count, u.authentic_repins::int),
         comment_count = GREATEST(COALESCE(ksc.comment_count, 0), u.authentic_comments::int),
         share_count = GREATEST(COALESCE(ksc.share_count, 0), u.authentic_shares::int),
@@ -488,6 +507,7 @@ async function flushBatchToHub(pinsChunk, kw) {
           'creation_method', u.method,
           'created_at_pinterest', u.created_at_pinterest,
           'is_deleted', u.is_dead::boolean,
+          'is_deep_hydrated', CASE WHEN u.from_hydration_cache THEN COALESCE((ksc.metadata->>'is_deep_hydrated')::boolean, true) ELSE TRUE END,
           'status', CASE WHEN u.is_dead THEN 'archived_404' ELSE 'active' END
         ),
         crawled_at = CASE WHEN u.from_hydration_cache THEN ksc.crawled_at ELSE NOW() END,
@@ -579,7 +599,11 @@ async function flushBatchToHub(pinsChunk, kw) {
     await sql`
       UPDATE keyword_serp_current ksc
       SET 
-        save_count = GREATEST(ksc.save_count, u.authentic_saves::bigint),
+        save_count = CASE
+          WHEN NOT u.from_hydration_cache AND NOT u.is_dead AND u.authentic_saves > 0 AND COALESCE((ksc.metadata->>'is_deep_hydrated')::boolean, false) = false
+          THEN u.authentic_saves::bigint
+          ELSE GREATEST(ksc.save_count, u.authentic_saves::bigint)
+        END,
         repin_count = GREATEST(ksc.repin_count, u.authentic_repins::int),
         comment_count = GREATEST(COALESCE(ksc.comment_count, 0), u.authentic_comments::int),
         share_count = GREATEST(COALESCE(ksc.share_count, 0), u.authentic_shares::int),
@@ -612,6 +636,7 @@ async function flushBatchToHub(pinsChunk, kw) {
           'creation_method', u.method,
           'created_at_pinterest', u.created_at_pinterest,
           'is_deleted', u.is_dead::boolean,
+          'is_deep_hydrated', CASE WHEN u.from_hydration_cache THEN COALESCE((ksc.metadata->>'is_deep_hydrated')::boolean, true) ELSE TRUE END,
           'status', CASE WHEN u.is_dead THEN 'archived_404' ELSE 'active' END
         ),
         crawled_at = CASE WHEN u.from_hydration_cache THEN ksc.crawled_at ELSE NOW() END,
@@ -935,7 +960,7 @@ async function flushToStorageShards(enrichedPins) {
 
           let timerId;
           const timeoutTask = new Promise((_, reject) => {
-            timerId = setTimeout(() => reject(new Error(`Shard #${shardId} cold-start connection timeout (3500ms limit)`)), 3500);
+            timerId = setTimeout(() => reject(new Error(`Shard #${shardId} cold-start connection timeout (10000ms limit)`)), 10000);
           });
 
           syncTask.catch(() => {});
@@ -954,6 +979,51 @@ async function flushToStorageShards(enrichedPins) {
   }
 
   return shardsSynchronized;
+}
+
+/**
+ * Guarantees 100% of candidate SERP pins are offloaded to the 99 Storage Shards
+ * even if individual live closeup requests are deferred during Stage 2.
+ */
+function buildShardSyncList(candidatePins, enrichedPins, defaultKeywordId = null) {
+  const enrichedMap = new Map();
+  for (const ep of (enrichedPins || [])) {
+    if (ep && ep.pin_id) enrichedMap.set(String(ep.pin_id), ep);
+  }
+  const merged = [];
+  for (const cp of (candidatePins || [])) {
+    if (!cp || !cp.pin_id) continue;
+    const pid = String(cp.pin_id);
+    if (enrichedMap.has(pid)) {
+      merged.push(enrichedMap.get(pid));
+    } else {
+      merged.push({
+        pin_id: pid,
+        creator_username: cp.creator_username || cp.metadata?.pinner?.username || '',
+        board_name: cp.board_name || cp.metadata?.board_name || '',
+        board_slug: (cp.board_name || cp.metadata?.board_name || '').toLowerCase().replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-'),
+        title: cp.title || '',
+        domain: cp.domain || '',
+        destination_url: cp.destination_url || '',
+        image_url: cp.image_url || '',
+        description: cp.description || '',
+        alt_text: cp.metadata?.alt_text || '',
+        dominant_color: cp.dominant_color || '#888888',
+        visual_annotations: Array.isArray(cp.visual_annotations) ? cp.visual_annotations : [],
+        keyword_id: cp.keyword_id || defaultKeywordId || null,
+        rank_position: cp.rank_position,
+        catalog_rank: cp.catalog_rank || cp.rank_position,
+        last_known_rank: cp.last_known_rank,
+        is_displaced: Boolean(cp.is_displaced),
+        save_count: cp.save_count != null ? Number(cp.save_count) : 0,
+        repin_count: cp.repin_count != null ? Number(cp.repin_count) : 0,
+        comment_count: cp.comment_count != null ? Number(cp.comment_count) : 0,
+        share_count: cp.share_count != null ? Number(cp.share_count) : 0,
+        daily_save_velocity: cp.daily_save_velocity != null ? Number(cp.daily_save_velocity) : 0
+      });
+    }
+  }
+  return merged;
 }
 
 /**
@@ -1104,7 +1174,7 @@ async function run() {
           ksc.pin_id, ksc.keyword_id, ksc.rank_position, ksc.last_known_rank, ksc.title, ksc.domain, ksc.destination_url, ksc.image_url,
           ksc.save_count, ksc.repin_count, ksc.daily_save_velocity, ksc.creator_username,
           ksc.board_name, ksc.dominant_color, ksc.visual_annotations, ksc.created_at_pinterest, ksc.creation_method,
-          ksc.crawled_at, ksc.updated_at, FALSE as is_displaced
+          ksc.metadata, ksc.crawled_at, ksc.updated_at, FALSE as is_displaced
         FROM keyword_serp_current ksc
         JOIN keyword_folder_items kfi ON kfi.keyword_id = ksc.keyword_id
         WHERE kfi.folder_id = ${fid} AND ksc.pin_id ~ '^[0-9]+$' AND ksc.is_displaced = FALSE
@@ -1120,7 +1190,7 @@ async function run() {
           ksc.pin_id, ksc.keyword_id, ksc.rank_position, ksc.last_known_rank, ksc.title, ksc.domain, ksc.destination_url, ksc.image_url,
           ksc.save_count, ksc.repin_count, ksc.daily_save_velocity, ksc.creator_username,
           ksc.board_name, ksc.dominant_color, ksc.visual_annotations, ksc.created_at_pinterest, ksc.creation_method,
-          ksc.crawled_at, ksc.updated_at, ksc.is_displaced
+          ksc.metadata, ksc.crawled_at, ksc.updated_at, ksc.is_displaced
         FROM keyword_serp_current ksc
         JOIN keyword_folder_items kfi ON kfi.keyword_id = ksc.keyword_id
         WHERE kfi.folder_id = ${fid} AND ksc.pin_id ~ '^[0-9]+$'
@@ -1165,7 +1235,7 @@ async function run() {
       `Folder Slice ${workerIndex + 1}/${workerTotal}`
     );
 
-    const shardsSynced = await flushToStorageShards(enrichedList);
+    const shardsSynced = await flushToStorageShards(buildShardSyncList(myPins, enrichedList));
     console.log(`\n✅ Slice ${workerIndex + 1}/${workerTotal} Complete: Inspected ${enrichedList.length} pins | Flushed across ${shardsSynced} shards.`);
 
     const cachedCount = enrichedList.filter(p => p.from_hydration_cache).length;
@@ -1254,10 +1324,10 @@ async function run() {
     if (crawlScope === 'active_serp') {
       allPins = await sql`
         SELECT 
-          pin_id, rank_position, last_known_rank, title, domain, destination_url, image_url,
+          pin_id, keyword_id, rank_position, last_known_rank, title, domain, destination_url, image_url,
           save_count, repin_count, daily_save_velocity, creator_username,
           board_name, dominant_color, visual_annotations, created_at_pinterest, creation_method,
-          crawled_at, updated_at, FALSE as is_displaced
+          metadata, crawled_at, updated_at, FALSE as is_displaced
         FROM keyword_serp_current
         WHERE keyword_id = ${kwRow.id} AND pin_id ~ '^[0-9]+$' AND is_displaced = FALSE
           AND NOT EXISTS (
@@ -1269,10 +1339,10 @@ async function run() {
     } else {
       allPins = await sql`
         SELECT 
-          pin_id, rank_position, last_known_rank, title, domain, destination_url, image_url,
+          pin_id, keyword_id, rank_position, last_known_rank, title, domain, destination_url, image_url,
           save_count, repin_count, daily_save_velocity, creator_username,
           board_name, dominant_color, visual_annotations, created_at_pinterest, creation_method,
-          crawled_at, updated_at, is_displaced
+          metadata, crawled_at, updated_at, is_displaced
         FROM keyword_serp_current
         WHERE keyword_id = ${kwRow.id} AND pin_id ~ '^[0-9]+$'
           AND NOT EXISTS (
@@ -1318,7 +1388,7 @@ async function run() {
     );
 
     // Flush to 99 Storage Shards
-    const shardsSynced = await flushToStorageShards(enrichedList);
+    const shardsSynced = await flushToStorageShards(buildShardSyncList(myPins, enrichedList, kwRow.id));
     console.log(`\n✅ Slice ${workerIndex + 1}/${workerTotal} Complete: Inspected ${enrichedList.length} pins | Flushed across ${shardsSynced} shards.`);
 
     const cachedCount = enrichedList.filter(p => p.from_hydration_cache).length;
@@ -1455,7 +1525,8 @@ async function run() {
               SELECT 
                 pin_id, keyword_id, rank_position, last_known_rank, title, domain, destination_url, image_url,
                 save_count, repin_count, daily_save_velocity, creator_username,
-                board_name, dominant_color, visual_annotations, crawled_at, updated_at, FALSE as is_displaced
+                board_name, dominant_color, visual_annotations, created_at_pinterest, creation_method,
+                metadata, crawled_at, updated_at, FALSE as is_displaced
               FROM keyword_serp_current
               WHERE keyword_id = ${kw.id} AND pin_id ~ '^[0-9]+$' AND is_displaced = FALSE
                 AND NOT EXISTS (
@@ -1469,7 +1540,8 @@ async function run() {
               SELECT 
                 pin_id, keyword_id, rank_position, last_known_rank, title, domain, destination_url, image_url,
                 save_count, repin_count, daily_save_velocity, creator_username,
-                board_name, dominant_color, visual_annotations, crawled_at, updated_at, is_displaced
+                board_name, dominant_color, visual_annotations, created_at_pinterest, creation_method,
+                metadata, crawled_at, updated_at, is_displaced
               FROM keyword_serp_current
               WHERE keyword_id = ${kw.id} AND pin_id ~ '^[0-9]+$'
                 AND NOT EXISTS (
@@ -1494,7 +1566,7 @@ async function run() {
             `Keyword "${kw.keyword}"`
           );
 
-          const shardsSynced = await flushToStorageShards(enrichedPins);
+          const shardsSynced = await flushToStorageShards(buildShardSyncList(serpPins, enrichedPins, kw.id));
           console.log(`  [+] Stage 2 Success: Enriched ${enrichedPins.length} pins | Synced across ${shardsSynced} shards.`);
 
           results.push({

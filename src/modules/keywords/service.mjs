@@ -713,7 +713,11 @@ export async function fetchVisualSearchLens(sql, pinId, cookie = (typeof process
           try { domain = new URL(item.link).hostname; } catch (_) {}
         }
 
-        const saves = Number(item.repin_count ?? item.save_count ?? item.aggregated_pin_data?.aggregated_stats?.saves ?? 0);
+        const saves = Math.max(
+          Number(item.aggregated_pin_data?.aggregated_stats?.saves || 0),
+          Number(item.save_count || 0),
+          Number(item.repin_count || 0)
+        );
 
         // Classify visual relationship
         const isSameDomain = Boolean(domain && pinRow?.domain && domain.toLowerCase() === pinRow.domain.toLowerCase());
@@ -1157,11 +1161,10 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
       const destinationUrl = item.link || '';
       const imageUrl = item.images?.['736x']?.url || item.images?.orig?.url || item.images?.['474x']?.url || item.images?.['236x']?.url || null;
       
-      const rawSaves = Number(
-        item.repin_count ?? 
-        item.save_count ?? 
-        item.aggregated_pin_data?.aggregated_stats?.saves ?? 
-        0
+      const rawSaves = Math.max(
+        Number(item.aggregated_pin_data?.aggregated_stats?.saves || 0),
+        Number(item.save_count || 0),
+        Number(item.repin_count || 0)
       );
       
       let reactions = 0;
@@ -1180,9 +1183,8 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
           0
         );
       }
-      // In modern Pinterest search results, public saves are frequently hidden while reactions are exposed.
-      // Prioritize raw saves; fallback cleanly to reactions to prevent misleading 0 saves.
-      const saves = rawSaves > 0 ? rawSaves : reactions;
+      // Strictly keep authentic saves separate from reactions so save_count is never polluted by reaction_counts
+      const saves = rawSaves;
 
       if (!topPin && imageUrl) {
         topPin = { pinId, title, imageUrl };
@@ -1208,7 +1210,6 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
 
       // MONOTONIC SAVE RETENTION GUARD (IN-MEMORY):
       // Lifetime cumulative pin saves can NEVER legitimately drop to 0.
-      // If BaseSearchResource returns 0 or transient reactions, strictly preserve confirmed historical saves.
       const confirmedSaves = Math.max(
         saves,
         Number(immediateData?.saves || 0),
@@ -1364,7 +1365,8 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
           pinner,
           reactions,
           board_name: boardName,
-          alt_text: (item.closeup_unified_description || item.description || '').slice(0, 500)
+          alt_text: (item.closeup_unified_description || item.description || '').slice(0, 500),
+          is_deep_hydrated: false
         }
       });
 
@@ -1388,7 +1390,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
             const enrichedComments = Number(scraped.comments ?? scraped.comment_count ?? p.comment_count);
             const enrichedShares = Number(scraped.shares ?? scraped.share_count ?? 0);
 
-            p.save_count = Math.max(p.save_count, enrichedSaves);
+            p.save_count = enrichedSaves > 0 ? Math.max(p.save_count, enrichedSaves) : p.save_count;
             p.repin_count = Math.max(p.repin_count, enrichedRepins);
             p.comment_count = Math.max(p.comment_count, enrichedComments);
             if (scraped.created_at_pinterest || scraped.created_at) {
@@ -1406,6 +1408,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
               p.visual_annotations = scraped.visual_annotations;
             }
             if (p.metadata) {
+              p.metadata.is_deep_hydrated = true;
               p.metadata.share_count = enrichedShares;
               if (scraped.alt_text || scraped.seo_alt_text) {
                 p.metadata.alt_text = scraped.alt_text || scraped.seo_alt_text;
@@ -1700,7 +1703,10 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
           creation_method = COALESCE(EXCLUDED.creation_method, keyword_serp_current.creation_method),
           metadata = CASE
             WHEN EXCLUDED.metadata IS NOT NULL AND EXCLUDED.metadata != '{}'::jsonb
-            THEN COALESCE(keyword_serp_current.metadata, '{}'::jsonb) || EXCLUDED.metadata
+            THEN COALESCE(keyword_serp_current.metadata, '{}'::jsonb) || EXCLUDED.metadata || jsonb_build_object(
+              'is_deep_hydrated',
+              (COALESCE((keyword_serp_current.metadata->>'is_deep_hydrated')::boolean, false) OR COALESCE((EXCLUDED.metadata->>'is_deep_hydrated')::boolean, false))
+            )
             ELSE keyword_serp_current.metadata
           END,
           crawled_at = COALESCE(EXCLUDED.crawled_at, keyword_serp_current.crawled_at),

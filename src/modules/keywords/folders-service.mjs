@@ -793,6 +793,10 @@ async function _executeFolderCrossover(sql, fid) {
       c.domain,
       c.destination_url,
       c.image_url,
+      c.creator_username,
+      c.board_name,
+      c.visual_annotations,
+      c.creation_method,
       c.save_count,
       c.repin_count,
       c.comment_count,
@@ -877,15 +881,19 @@ async function _executeFolderCrossover(sql, fid) {
       continue;
     }
 
+    const meta = typeof row.metadata === 'object' && row.metadata !== null ? row.metadata : {};
+    const rowVisualAnnotations = Array.isArray(row.visual_annotations) && row.visual_annotations.length > 0
+      ? row.visual_annotations
+      : (Array.isArray(meta.visual_annotations) ? meta.visual_annotations : []);
+
     if (!pinMap.has(pid)) {
-      const meta = typeof row.metadata === 'object' && row.metadata !== null ? row.metadata : {};
       const pinner = meta.pinner || {};
       const cleanTitle = derivePinTitle(
         row.title || meta.title,
         row.destination_url || meta.destination_url || '',
         row.keyword_text || '',
-        meta.board_name || '',
-        Array.isArray(meta.visual_annotations) ? meta.visual_annotations : []
+        row.board_name || meta.board_name || '',
+        rowVisualAnnotations
       );
 
       pinMap.set(pid, {
@@ -898,13 +906,25 @@ async function _executeFolderCrossover(sql, fid) {
         repin_count: Number(row.repin_count || 0),
         comment_count: Number(row.comment_count || 0),
         daily_save_velocity: Number(row.daily_save_velocity || 0),
-        creator_username: pinner.username || '',
-        creator_name: pinner.full_name || '',
+        creator_username: row.creator_username || pinner.username || '',
+        creator_name: pinner.full_name || row.creator_username || '',
         aspect_ratio: meta.aspect_ratio || '2:3',
         format: meta.format || 'ORGANIC PIN',
-        visual_annotations: Array.isArray(meta.visual_annotations) ? meta.visual_annotations : [],
+        visual_annotations: rowVisualAnnotations,
         rankings: []
       });
+    } else {
+      const existingPin = pinMap.get(pid);
+      existingPin.save_count = Math.max(existingPin.save_count, Number(row.save_count || 0));
+      existingPin.repin_count = Math.max(existingPin.repin_count, Number(row.repin_count || 0));
+      existingPin.comment_count = Math.max(existingPin.comment_count, Number(row.comment_count || 0));
+      existingPin.daily_save_velocity = Math.max(existingPin.daily_save_velocity, Number(row.daily_save_velocity || 0));
+      if (!existingPin.creator_username && row.creator_username) {
+        existingPin.creator_username = row.creator_username;
+      }
+      if (rowVisualAnnotations.length > existingPin.visual_annotations.length) {
+        existingPin.visual_annotations = rowVisualAnnotations;
+      }
     }
 
     const pinRecord = pinMap.get(pid);

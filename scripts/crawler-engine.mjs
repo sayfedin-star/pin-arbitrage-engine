@@ -42,7 +42,10 @@ import { enforceNeonPoolerUrl } from '../src/modules/sharding/fleet-router.mjs';
 let undiciAgent = null;
 try {
   const { Agent } = await import('undici');
-  undiciAgent = new Agent({ keepAliveTimeout: 30000, connections: 50, pipelining: 1 });
+  const candidateAgent = new Agent({ keepAliveTimeout: 30000, connections: 50, pipelining: 1 });
+  if (String(process.versions?.undici || '').startsWith('8.')) {
+    undiciAgent = candidateAgent;
+  }
   setDefaultDispatcher(undiciAgent);
 } catch (_) {}
 

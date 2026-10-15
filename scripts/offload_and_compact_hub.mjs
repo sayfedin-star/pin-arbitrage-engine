@@ -402,12 +402,21 @@ async function main() {
   `;
   console.log(`    ✓ Pruned ${deletedSnapshots.length} older snapshot rows from Hub (2 most recent dates preserved per keyword).`);
 
-  // STEP 7: Strip Bloated JSONB Keys from Hub metadata
+  // STEP 6B: Purge displaced rows from keyword_pins_snapshots on Hub (already offloaded to Shards & keyword_serp_current)
+  const purgedDisplacedSnaps = await hubSql`
+    DELETE FROM keyword_pins_snapshots
+    WHERE is_displaced = TRUE
+    RETURNING id;
+  `;
+  console.log(`    ✓ Purged ${purgedDisplacedSnaps.length} displaced snapshot rows from Hub.`);
+
+  // STEP 7: Strip Redundant JSONB Keys from Hub metadata
   console.log('\n[*] Step 7: Stripping Redundant JSONB Keys from Hub Tables...');
   const serpUpdated = await hubSql`
     UPDATE keyword_serp_current
     SET metadata = metadata - 'title' - 'domain' - 'destination_url' - 'image_url' - 'visual_annotations' - 'description' - 'raw_saves' - 'crawled_at' - 'created_at' - 'created_at_pinterest' - 'method' - 'creation_method' - 'rich_metadata' - 'visual_objects'
-    WHERE metadata IS NOT NULL AND metadata != '{}'::jsonb
+    WHERE metadata IS NOT NULL
+      AND metadata ?| array['title','domain','destination_url','image_url','visual_annotations','description','raw_saves','crawled_at','created_at','created_at_pinterest','method','creation_method','rich_metadata','visual_objects']
     RETURNING id;
   `;
   console.log(`    ✓ Stripped heavy JSONB keys from ${serpUpdated.length} rows in keyword_serp_current.`);
@@ -415,7 +424,8 @@ async function main() {
   const snapUpdated = await hubSql`
     UPDATE keyword_pins_snapshots
     SET metadata = metadata - 'title' - 'domain' - 'destination_url' - 'image_url' - 'description' - 'raw_saves' - 'crawled_at' - 'created_at' - 'created_at_pinterest' - 'method' - 'creation_method' - 'rich_metadata' - 'visual_objects'
-    WHERE metadata IS NOT NULL AND metadata != '{}'::jsonb
+    WHERE metadata IS NOT NULL
+      AND metadata ?| array['title','domain','destination_url','image_url','description','raw_saves','crawled_at','created_at','created_at_pinterest','method','creation_method','rich_metadata','visual_objects']
     RETURNING id;
   `;
   console.log(`    ✓ Stripped heavy JSONB keys from ${snapUpdated.length} rows in keyword_pins_snapshots.`);
@@ -440,21 +450,21 @@ async function main() {
   `;
   console.log(`    ✓ Compacted ${competitorCompacted.length} completed competitor pins (freed text payloads).`);
 
-  // STEP 9: Physical Storage Reclamation via VACUUM FULL ANALYZE
+  // STEP 9: Physical Storage Reclamation via VACUUM FULL ANALYZE using Tagged Templates
   console.log('\n[*] Step 9: Reclaiming Physical Storage via VACUUM FULL ANALYZE...');
-  const vacuumTables = [
-    'keyword_pins_snapshots',
-    'keyword_serp_current',
-    'competitor_pins',
-    'pa_pins',
-    'pa_pin_metrics',
-    'tracked_keywords'
+  const vacuumTasks = [
+    ['keyword_pins_snapshots', () => hubSql`VACUUM FULL ANALYZE keyword_pins_snapshots;`],
+    ['keyword_serp_current', () => hubSql`VACUUM FULL ANALYZE keyword_serp_current;`],
+    ['competitor_pins', () => hubSql`VACUUM FULL ANALYZE competitor_pins;`],
+    ['pa_pins', () => hubSql`VACUUM FULL ANALYZE pa_pins;`],
+    ['pa_pin_metrics', () => hubSql`VACUUM FULL ANALYZE pa_pin_metrics;`],
+    ['tracked_keywords', () => hubSql`VACUUM FULL ANALYZE tracked_keywords;`]
   ];
 
-  for (const tbl of vacuumTables) {
+  for (const [tbl, fn] of vacuumTasks) {
     try {
       console.log(`    Executing VACUUM FULL ANALYZE on ${tbl}...`);
-      await hubSql(`VACUUM FULL ANALYZE ${tbl}`);
+      await fn();
       console.log(`    ✓ ${tbl} vacuumed and rewritten successfully.`);
     } catch (err) {
       console.warn(`    ⚠️ VACUUM direct execution error on ${tbl}:`, err.message);

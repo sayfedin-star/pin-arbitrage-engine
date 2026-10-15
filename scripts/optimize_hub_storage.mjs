@@ -50,8 +50,20 @@ export async function optimizeHubStorage(sql) {
     vacuumedTables: []
   };
 
-  // 1. Prune keyword_pins_snapshots using relative 2-snapshot window per keyword
+  // 0. Drop obsolete backup table if still present on Hub
   try {
+    await sql`DROP TABLE IF EXISTS _backup_keyword_displaced_pins;`;
+  } catch (_) {}
+
+  // 1. Prune keyword_pins_snapshots on Hub:
+  //    a) Remove displaced rows (displaced vault is already persisted in keyword_serp_current & 99 Shards)
+  //    b) Enforce strict 2-snapshot rolling window per keyword
+  try {
+    const deletedDisplaced = await sql`
+      DELETE FROM keyword_pins_snapshots
+      WHERE is_displaced = TRUE
+      RETURNING id;
+    `;
     const deleted = await sql`
       WITH ranked_dates AS (
         SELECT keyword_id, snapshot_date,
@@ -74,17 +86,18 @@ export async function optimizeHubStorage(sql) {
         AND kps.snapshot_date < c.keep_from_date
       RETURNING kps.id;
     `;
-    results.prunedSnapshots = deleted.length;
+    results.prunedSnapshots = deletedDisplaced.length + deleted.length;
   } catch (err) {
     console.warn('[optimizeHubStorage] Prune snapshots warning:', err.message);
   }
 
-  // 2. Strip bloated JSONB keys from Hub tables
+  // 2. Strip bloated JSONB keys ONLY on rows that actually contain them (prevents 100% table MVCC churn & WAL history bloat)
   try {
     const serpClean = await sql`
       UPDATE keyword_serp_current
       SET metadata = metadata - 'title' - 'domain' - 'destination_url' - 'image_url' - 'visual_annotations' - 'description' - 'raw_saves' - 'crawled_at' - 'created_at' - 'created_at_pinterest' - 'method' - 'creation_method' - 'rich_metadata' - 'visual_objects'
-      WHERE metadata IS NOT NULL AND metadata != '{}'::jsonb
+      WHERE metadata IS NOT NULL
+        AND metadata ?| array['title','domain','destination_url','image_url','visual_annotations','description','raw_saves','crawled_at','created_at','created_at_pinterest','method','creation_method','rich_metadata','visual_objects']
       RETURNING id;
     `;
     results.cleanedSerpMetadata = serpClean.length;
@@ -92,7 +105,8 @@ export async function optimizeHubStorage(sql) {
     const snapClean = await sql`
       UPDATE keyword_pins_snapshots
       SET metadata = metadata - 'title' - 'domain' - 'destination_url' - 'image_url' - 'description' - 'raw_saves' - 'crawled_at' - 'created_at' - 'created_at_pinterest' - 'method' - 'creation_method' - 'rich_metadata' - 'visual_objects'
-      WHERE metadata IS NOT NULL AND metadata != '{}'::jsonb
+      WHERE metadata IS NOT NULL
+        AND metadata ?| array['title','domain','destination_url','image_url','description','raw_saves','crawled_at','created_at','created_at_pinterest','method','creation_method','rich_metadata','visual_objects']
       RETURNING id;
     `;
     results.cleanedSnapMetadata = snapClean.length;
@@ -122,26 +136,12 @@ export async function optimizeHubStorage(sql) {
     console.warn('[optimizeHubStorage] Compact competitor pins warning:', err.message);
   }
 
-  // 4. Non-blocking VACUUM (ANALYZE) on target tables
-  const targetTables = [
-    'keyword_pins_snapshots',
-    'keyword_serp_current',
-    'competitor_pins',
-    'pa_pins',
-    'tracked_keywords'
-  ];
-
-  for (const tbl of targetTables) {
-    try {
-      await sql(`VACUUM (ANALYZE) ${tbl}`);
-      results.vacuumedTables.push(tbl);
-    } catch (_) {
-      try {
-        await sql(`ANALYZE ${tbl}`);
-        results.vacuumedTables.push(`${tbl} (analyze only)`);
-      } catch (_) {}
-    }
-  }
+  // 4. Non-blocking VACUUM (ANALYZE) on target tables using tagged templates
+  try { await sql`VACUUM (ANALYZE) keyword_pins_snapshots;`; results.vacuumedTables.push('keyword_pins_snapshots'); } catch (_) {}
+  try { await sql`VACUUM (ANALYZE) keyword_serp_current;`; results.vacuumedTables.push('keyword_serp_current'); } catch (_) {}
+  try { await sql`VACUUM (ANALYZE) competitor_pins;`; results.vacuumedTables.push('competitor_pins'); } catch (_) {}
+  try { await sql`VACUUM (ANALYZE) pa_pins;`; results.vacuumedTables.push('pa_pins'); } catch (_) {}
+  try { await sql`VACUUM (ANALYZE) tracked_keywords;`; results.vacuumedTables.push('tracked_keywords'); } catch (_) {}
 
   return results;
 }

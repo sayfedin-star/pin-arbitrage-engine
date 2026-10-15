@@ -29,7 +29,16 @@ export async function pinterestFetch(url, init = {}) {
     ...restInit,
     ...(dispatcher ? { dispatcher } : {})
   };
-  return await fetch(url, fetchOpts);
+  try {
+    return await fetch(url, fetchOpts);
+  } catch (err) {
+    // Fallback to native globalThis.fetch without external dispatcher if Undici v6/v8 mismatch occurs
+    if (dispatcher && String(err?.message || '').toLowerCase().includes('fetch failed')) {
+      defaultDispatcher = null;
+      return await fetch(url, restInit);
+    }
+    throw err;
+  }
 }
 
 export const PINTEREST_PAGE_HEADERS = {
@@ -311,7 +320,16 @@ export function formatPin(pin) {
 
   const annotations = Array.from(annotationsMap.values());
 
-  const saves = parseCleanMetric(
+  const rawRepins = parseCleanMetric(
+    st.repins ??
+    st.repin_count ??
+    pin.repin_count ??
+    pin.repins ??
+    pin.aggregated_pin_data?.repins ??
+    0
+  );
+
+  const rawSaves = parseCleanMetric(
     st.saves ??
     st.save_count ??
     pin.save_count ??
@@ -320,14 +338,8 @@ export function formatPin(pin) {
     0
   );
 
-  const repins = parseCleanMetric(
-    st.repins ??
-    st.repin_count ??
-    pin.repin_count ??
-    pin.repins ??
-    pin.aggregated_pin_data?.repins ??
-    saves
-  );
+  const saves = Math.max(rawSaves, rawRepins);
+  const repins = rawRepins > 0 ? rawRepins : saves;
 
   const comments = parseCleanMetric(
     pin.comment_count ??
