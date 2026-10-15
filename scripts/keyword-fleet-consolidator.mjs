@@ -16,6 +16,7 @@ import { neon } from '@neondatabase/serverless';
 import fs from 'node:fs';
 import { preloadNeonRegistry, resolveShardConnection } from '../src/modules/sharding/fleet-router.mjs';
 import { optimizeHubStorage } from './optimize_hub_storage.mjs';
+import { winsorize } from '../src/modules/keywords/service.mjs';
 
 if (typeof process.loadEnvFile === 'function') {
   try { process.loadEnvFile(); } catch (_) {}
@@ -76,22 +77,34 @@ async function main() {
     const [folderStats] = await sql`
       SELECT 
         COUNT(DISTINCT ksc.pin_id)::int as total_unique_pins,
-        COUNT(DISTINCT ksc.pin_id) FILTER (WHERE ksc.is_displaced = FALSE)::int as active_pins,
+        COUNT(DISTINCT ksc.pin_id) FILTER (WHERE COALESCE(ksc.is_displaced, FALSE) = FALSE)::int as active_pins,
         COUNT(DISTINCT ksc.pin_id) FILTER (WHERE ksc.is_displaced = TRUE)::int as displaced_vault,
         COUNT(DISTINCT ksc.pin_id) FILTER (WHERE ksc.metadata->>'is_deleted' = 'true' OR ksc.metadata->>'status' = 'archived_404')::int as dead_pins,
-        COALESCE(SUM(ksc.save_count), 0)::bigint as total_catalog_saves,
-        COALESCE(ROUND(AVG(ksc.daily_save_velocity), 2), 0) as avg_velocity
+        COALESCE(SUM(ksc.save_count) FILTER (WHERE COALESCE(ksc.is_displaced, FALSE) = FALSE), 0)::bigint as total_catalog_saves
       FROM keyword_serp_current ksc
       JOIN keyword_folder_items kfi ON kfi.keyword_id = ksc.keyword_id
       WHERE kfi.folder_id = ${folder.id};
     `;
+
+    // Fetch active pin velocities to apply winsorize robust averaging
+    const activeVelRows = await sql`
+      SELECT ksc.daily_save_velocity
+      FROM keyword_serp_current ksc
+      JOIN keyword_folder_items kfi ON kfi.keyword_id = ksc.keyword_id
+      WHERE kfi.folder_id = ${folder.id}
+        AND COALESCE(ksc.is_displaced, FALSE) = FALSE;
+    `;
+    const folderVelocities = activeVelRows.map(r => Number(r.daily_save_velocity || 0));
+    const robustFolderVels = winsorize(folderVelocities, 0.95);
+    const avgVelocity = robustFolderVels.length > 0
+      ? Math.round(robustFolderVels.reduce((a, b) => a + b, 0) / robustFolderVels.length)
+      : 0;
 
     const totalUniquePins = Number(folderStats?.total_unique_pins || 0);
     const activePins = Number(folderStats?.active_pins || 0);
     const displacedVault = Number(folderStats?.displaced_vault || 0);
     const deadPins = Number(folderStats?.dead_pins || 0);
     const totalCatalogSaves = Number(folderStats?.total_catalog_saves || 0);
-    const avgVelocity = Number(folderStats?.avg_velocity || 0);
 
     // 3. Mark folder updated_at in Neon to trigger fresh cache on next UI query
     await sql`
@@ -100,13 +113,15 @@ async function main() {
       WHERE id = ${folder.id};
     `;
 
-    // 4. Fetch Top 5 Rising Pins in the Folder
+    // 4. Fetch Top 5 Rising Pins in the Folder (Active only)
     const topRising = await sql`
       SELECT DISTINCT ON (ksc.pin_id)
         ksc.pin_id, ksc.title, ksc.image_url, ksc.daily_save_velocity, ksc.save_count, ksc.domain
       FROM keyword_serp_current ksc
       JOIN keyword_folder_items kfi ON kfi.keyword_id = ksc.keyword_id
-      WHERE kfi.folder_id = ${folder.id} AND ksc.daily_save_velocity > 0
+      WHERE kfi.folder_id = ${folder.id}
+        AND ksc.daily_save_velocity > 0
+        AND COALESCE(ksc.is_displaced, FALSE) = FALSE
       ORDER BY ksc.pin_id, ksc.daily_save_velocity DESC
       LIMIT 5;
     `;
@@ -160,19 +175,29 @@ async function main() {
 
     console.log(`[*] Consolidating keyword: "${kw.keyword}" (ID: ${kw.id})...`);
 
-    // 1. Calculate Active SERP metrics & Save Velocity
+    // 1. Calculate Active SERP metrics & Save Velocity (Active only)
     const [velRow] = await sql`
       SELECT 
-        COUNT(*) as active_count,
-        COALESCE(ROUND(AVG(daily_save_velocity), 2), 0) as avg_velocity,
-        COALESCE(SUM(save_count), 0) as total_active_saves,
-        COALESCE(SUM(repin_count), 0) as total_active_repins
+        COUNT(*) FILTER (WHERE COALESCE(is_displaced, FALSE) = FALSE)::int as active_count,
+        COALESCE(SUM(save_count) FILTER (WHERE COALESCE(is_displaced, FALSE) = FALSE), 0)::bigint as total_active_saves,
+        COALESCE(SUM(repin_count) FILTER (WHERE COALESCE(is_displaced, FALSE) = FALSE), 0)::bigint as total_active_repins
       FROM keyword_serp_current
       WHERE keyword_id = ${kw.id};
     `;
 
+    const pinVelRows = await sql`
+      SELECT daily_save_velocity
+      FROM keyword_serp_current
+      WHERE keyword_id = ${kw.id}
+        AND COALESCE(is_displaced, FALSE) = FALSE;
+    `;
+    const rawVelocities = pinVelRows.map(r => Number(r.daily_save_velocity || 0));
+    const winsorizedVelocities = winsorize(rawVelocities, 0.95);
+    const avgVelocity = winsorizedVelocities.length > 0
+      ? Math.round(winsorizedVelocities.reduce((a, b) => a + b, 0) / winsorizedVelocities.length)
+      : 0;
+
     const activeCount = Number(velRow?.active_count || 0);
-    const avgVelocity = Number(velRow?.avg_velocity || 0);
     const totalActiveSaves = Number(velRow?.total_active_saves || 0);
     const totalActiveRepins = Number(velRow?.total_active_repins || 0);
 
@@ -203,11 +228,12 @@ async function main() {
     const deadPins = Number(snapStats?.dead_pins || 0);
     const totalCatalogSaves = Number(snapStats?.total_catalog_saves || totalActiveSaves);
 
-    // 4. Compute Visual Annotations Crossover & Core Anchors
+    // 4. Compute Visual Annotations Crossover & Core Anchors (Active only)
     const serpPins = await sql`
       SELECT pin_id, title, save_count, repin_count, daily_save_velocity, image_url, visual_annotations
       FROM keyword_serp_current
       WHERE keyword_id = ${kw.id}
+        AND COALESCE(is_displaced, FALSE) = FALSE
       ORDER BY rank_position ASC;
     `;
 

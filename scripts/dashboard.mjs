@@ -212,6 +212,17 @@ function triggerCrawlProcess(seedPinId = null) {
     stdio: ['ignore', 'pipe', 'pipe']
   });
 
+  // 30-minute hard cap to eliminate orphaned zombie crawler processes [C6]
+  const killTimeout = setTimeout(() => {
+    if (crawlState.is_crawling) {
+      console.warn(`[!] Crawler job exceeded 30-minute execution limit. Forcing termination...`);
+      try {
+        child.kill('SIGKILL');
+      } catch (_) {}
+    }
+  }, 30 * 60 * 1000);
+  if (typeof killTimeout.unref === 'function') killTimeout.unref();
+
   child.stdout.on('data', (data) => {
     const line = data.toString().trim();
     if (line) {
@@ -225,6 +236,7 @@ function triggerCrawlProcess(seedPinId = null) {
   });
 
   child.on('close', (code) => {
+    clearTimeout(killTimeout);
     crawlState.is_crawling = false;
     crawlState.completed_at = new Date().toISOString();
     if (code === 0) {
@@ -238,6 +250,7 @@ function triggerCrawlProcess(seedPinId = null) {
   });
 
   child.on('error', (err) => {
+    clearTimeout(killTimeout);
     crawlState.is_crawling = false;
     crawlState.error = err.message;
     crawlState.last_log = `Crawler failed to start: ${err.message}`;

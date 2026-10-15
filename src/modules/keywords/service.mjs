@@ -2944,11 +2944,19 @@ export async function getPinDeepDossier(sql, pinId, keywordId = null, { forceRef
           const shardPromise = shardSql`
             SELECT * FROM universal_master_pins WHERE pin_id = ${cleanPin} LIMIT 1;
           `.catch(() => []);
-          const [sMaster] = await Promise.race([
-            shardPromise,
-            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 650))
-          ]);
-          return sMaster || null;
+          let timerId;
+          const timeoutPromise = new Promise((_, reject) => {
+            timerId = setTimeout(() => reject(new Error('timeout')), 650);
+          });
+          try {
+            const [sMaster] = await Promise.race([
+              shardPromise,
+              timeoutPromise
+            ]);
+            return sMaster || null;
+          } finally {
+            if (timerId) clearTimeout(timerId);
+          }
         }
       } catch (_) {}
       return null;

@@ -1477,6 +1477,25 @@ async function run() {
       process.exit(0);
     }
 
+    let currentLeaseContext = null;
+    const cleanupAndExit = async (signal) => {
+      console.warn(`\n[Graceful Shutdown] Received ${signal}. Releasing active crawl lease...`);
+      if (currentLeaseContext?.leaseToken && currentLeaseContext?.kwId) {
+        try {
+          await sql`
+            UPDATE tracked_keywords
+            SET crawl_lease_token = NULL,
+                crawl_lease_until = NOW()
+            WHERE id = ${currentLeaseContext.kwId} AND crawl_lease_token = ${currentLeaseContext.leaseToken};
+          `;
+          console.log(`[Graceful Shutdown] Released lease for keyword ID ${currentLeaseContext.kwId}`);
+        } catch (_) {}
+      }
+      process.exit(1);
+    };
+    process.once('SIGINT', () => cleanupAndExit('SIGINT'));
+    process.once('SIGTERM', () => cleanupAndExit('SIGTERM'));
+
     const results = [];
     for (let i = 0; i < keywordsToProcess.length; i++) {
       const kw = keywordsToProcess[i];
@@ -1484,6 +1503,7 @@ async function run() {
 
       // Atomic row lease acquisition with 15-minute expiry & strict Fail-Closed policy [CAP-16]
       let leaseToken = null;
+      let heartbeatTimer = null;
       try {
         const [leaseRow] = await sql`
           UPDATE tracked_keywords 
@@ -1504,6 +1524,21 @@ async function run() {
         results.push({ id: kw.id, keyword: kw.keyword, status: 'skipped', error: 'lease_held_by_peer' });
         continue;
       }
+
+      currentLeaseContext = { kwId: kw.id, leaseToken };
+      // 3-minute Heartbeat timer with .unref() [C3 & C7]
+      heartbeatTimer = setInterval(async () => {
+        try {
+          await sql`
+            UPDATE tracked_keywords
+            SET crawl_lease_until = NOW() + INTERVAL '15 minutes'
+            WHERE id = ${kw.id} AND crawl_lease_token = ${leaseToken};
+          `;
+        } catch (hbErr) {
+          console.warn(`  [Heartbeat] Lease renewal warning for keyword ${kw.id}:`, hbErr?.message);
+        }
+      }, 3 * 60 * 1000);
+      if (typeof heartbeatTimer.unref === 'function') heartbeatTimer.unref();
 
       try {
         let crawlRes = { success: true, crawled_pins: 0, avg_velocity: 0 };
@@ -1584,6 +1619,11 @@ async function run() {
         console.error(`  [-] Error crawling "${kw.keyword}":`, err.message);
         results.push({ id: kw.id, keyword: kw.keyword, status: 'error', error: err.message });
       } finally {
+        if (heartbeatTimer) {
+          clearInterval(heartbeatTimer);
+          heartbeatTimer = null;
+        }
+        currentLeaseContext = null;
         if (leaseToken) {
           await sql`
             UPDATE tracked_keywords

@@ -87,9 +87,11 @@ let inflightShardMapPromise = null;
 // Bounded Background Task Execution Guard for Cloudflare Worker Isolate Lifecycle
 export function safeWaitUntil(ctx, promise, taskName = 'bg_task', timeoutMs = 25000) {
   if (!promise || typeof promise.then !== 'function') return;
+  promise.catch(() => {});
   let timer;
   const timeoutPromise = new Promise((_, reject) => {
     timer = setTimeout(() => reject(new Error(`Background task "${taskName}" timed out after ${timeoutMs}ms`)), timeoutMs);
+    if (timer && typeof timer.unref === 'function') timer.unref();
   });
   const guardedPromise = Promise.race([promise, timeoutPromise])
     .catch(err => {
@@ -438,8 +440,11 @@ export async function executeShardQueryWithCircuitBreaker({
       }, timeoutMs);
     });
 
+    const queryPromise = queryFn(shardSql);
+    queryPromise.catch(() => {});
+
     const result = await Promise.race([
-      queryFn(shardSql),
+      queryPromise,
       timeoutPromise
     ]);
 
@@ -546,8 +551,10 @@ export async function prewarmFleetShards({
       let timer = null;
       try {
         const client = await resolveShardConnection({ hubSql, shardId: sid });
+        const queryPromise = client`SELECT 1 as alive;`;
+        queryPromise.catch(() => {});
         await Promise.race([
-          client`SELECT 1 as alive;`,
+          queryPromise,
           new Promise((_, reject) => {
             timer = setTimeout(() => reject(new Error('Pre-warm timeout')), timeoutMs);
           })
@@ -945,10 +952,16 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
       safeWaitUntil(ctx, backfillPromise, 'dossier_shard_backfill');
     } else {
       try {
+        let timerId;
+        const timeoutPromise = new Promise(r => {
+          timerId = setTimeout(r, 1500);
+        });
         await Promise.race([
           backfillPromise,
-          new Promise(r => setTimeout(r, 1500))
-        ]);
+          timeoutPromise
+        ]).finally(() => {
+          if (timerId) clearTimeout(timerId);
+        });
       } catch (_) {}
     }
   }
@@ -1135,10 +1148,16 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
       safeWaitUntil(ctx, repairPromise, 'dossier_read_repair');
     } else {
       try {
+        let timerId;
+        const timeoutPromise = new Promise(r => {
+          timerId = setTimeout(r, 1500);
+        });
         await Promise.race([
           repairPromise,
-          new Promise(r => setTimeout(r, 1500))
-        ]);
+          timeoutPromise
+        ]).finally(() => {
+          if (timerId) clearTimeout(timerId);
+        });
       } catch (_) {}
     }
   }

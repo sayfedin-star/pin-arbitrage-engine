@@ -13,6 +13,7 @@
 
 import crypto from 'node:crypto';
 import { neon } from '@neondatabase/serverless';
+import { crc32 } from '../src/modules/sharding/fleet-router.mjs';
 
 let undiciAgent = null;
 try {
@@ -864,25 +865,28 @@ export async function fetchPinDetails(pinId, baseHeaders) {
  * Seamlessly enriches candidates with authentic Pinterest PinResource metrics
  * Includes concurrency throttling (4 concurrent requests) and jitter to prevent HTTP 429
  */
-export async function enrichCandidatesWithPinMetrics(seedPinId, baseHeaders) {
+export async function enrichCandidatesWithPinMetrics(seedPinId, baseHeaders, candidatesOverride = null) {
   try {
-    const candidatesNeedingEnrichment = await sql`
-      (
-        SELECT candidate_pin_id, saves, daily_velocity
-        FROM candidate_graph_nodes
-        WHERE seed_pin_id = ${seedPinId} AND (repins = 0 OR repins IS NULL)
-        ORDER BY daily_velocity DESC NULLS LAST
-        LIMIT 150
-      )
-      UNION
-      (
-        SELECT candidate_pin_id, saves, daily_velocity
-        FROM candidate_graph_nodes
-        WHERE seed_pin_id = ${seedPinId} AND (repins = 0 OR repins IS NULL)
-        ORDER BY saves DESC NULLS LAST
-        LIMIT 150
-      );
-    `;
+    let candidatesNeedingEnrichment = Array.isArray(candidatesOverride) ? candidatesOverride : null;
+    if (!candidatesNeedingEnrichment) {
+      candidatesNeedingEnrichment = await sql`
+        (
+          SELECT candidate_pin_id, saves, daily_velocity
+          FROM candidate_graph_nodes
+          WHERE seed_pin_id = ${seedPinId} AND (repins = 0 OR repins IS NULL)
+          ORDER BY daily_velocity DESC NULLS LAST
+          LIMIT 150
+        )
+        UNION
+        (
+          SELECT candidate_pin_id, saves, daily_velocity
+          FROM candidate_graph_nodes
+          WHERE seed_pin_id = ${seedPinId} AND (repins = 0 OR repins IS NULL)
+          ORDER BY saves DESC NULLS LAST
+          LIMIT 150
+        );
+      `;
+    }
 
     if (candidatesNeedingEnrichment.length === 0) {
       console.log(`[+] All candidate nodes for seed ${seedPinId} already have authentic metrics.`);
@@ -904,13 +908,15 @@ export async function enrichCandidatesWithPinMetrics(seedPinId, baseHeaders) {
             const repins = Number(pinData.repins || 0);
             const currentSaves = Math.max(Number(candidate.saves || 0), Number(pinData.saves || 0));
             const saveRate = currentSaves > 0 ? Number(((repins / currentSaves) * 100).toFixed(2)) : 0.00;
+            const updatedVelocity = Math.max(Number(candidate.daily_velocity || 0), Math.max(0, currentSaves - Number(candidate.saves || 0)));
 
             await sql`
               UPDATE candidate_graph_nodes
               SET 
                 repins = ${repins},
                 saves = ${currentSaves},
-                save_rate = ${saveRate}
+                save_rate = ${saveRate},
+                daily_velocity = ${updatedVelocity}
               WHERE seed_pin_id = ${seedPinId} 
                 AND candidate_pin_id = ${candidate.candidate_pin_id};
             `;
@@ -1365,6 +1371,19 @@ async function crawlSeed(seed) {
     await enrichCandidatesWithPinMetrics(pinId, baseHeaders);
   }
 
+  // Recompute highSaveTokens with authentic post-enrichment saves [NEW-09]
+  let activeHighSaveTokens = highSaveTokens;
+  try {
+    const freshCandidates = await sql`
+      SELECT title, ocr_text, saves, daily_velocity
+      FROM candidate_graph_nodes
+      WHERE seed_pin_id = ${pinId}
+    `;
+    if (freshCandidates && freshCandidates.length > 0) {
+      activeHighSaveTokens = computeHighSaveTokens(freshCandidates);
+    }
+  } catch (_) {}
+
   // Insert macro cluster metrics snapshot
   console.log(`[*] Recording cluster arbitrage metrics snapshot...`);
   const candidatePoolTotal = (authoritativeCandidateCounts && (
@@ -1392,7 +1411,7 @@ async function crawlSeed(seed) {
       ${productCount},
       ${commercialGapRatio},
       ${JSON.stringify(centroids)},
-      ${JSON.stringify(highSaveTokens)},
+      ${JSON.stringify(activeHighSaveTokens)},
       ${utilitySnapshot ? JSON.stringify(utilitySnapshot) : null},
       NOW()
     );
@@ -1569,7 +1588,7 @@ async function main() {
 
   if (shardIdx !== null && shardTot !== null && !isNaN(shardIdx) && !isNaN(shardTot) && shardTot > 1) {
     const totalAvailable = seedsToProcess.length;
-    seedsToProcess = seedsToProcess.filter((_, idx) => (idx % shardTot) === shardIdx);
+    seedsToProcess = seedsToProcess.filter((s) => (crc32(String(s.pin_id)) % shardTot) === shardIdx);
     console.log(`\n===============================================================`);
     console.log(`🚀 [MATRIX SHARDING ACTIVE] Shard ${shardIdx + 1}/${shardTot}`);
     console.log(`📊 Assigned Seeds: ${seedsToProcess.length} (out of ${totalAvailable} total cluster seeds)`);
@@ -1598,7 +1617,7 @@ async function main() {
       if (seedsNeedingEnrichment.length > 0) {
         let enrichmentSlice = seedsNeedingEnrichment;
         if (shardIdx !== null && shardTot > 1) {
-          enrichmentSlice = seedsNeedingEnrichment.filter((_, idx) => (idx % shardTot) === shardIdx);
+          enrichmentSlice = seedsNeedingEnrichment.filter((s) => (crc32(String(s.seed_pin_id)) % shardTot) === shardIdx);
         }
         if (enrichmentSlice.length === 0) {
           console.log(`[+] Shard ${shardIdx + 1}/${shardTot}: No enrichment seeds assigned. Exiting cleanly.`);
@@ -1626,9 +1645,29 @@ async function main() {
 
   console.log(`[+] Found ${seedsToProcess.length} seed(s) queued for crawling.`);
 
+  let currentSeedLeaseContext = null;
+  const cleanupAndExit = async (signal) => {
+    console.log(`\n[!] Received ${signal}. Terminating cluster intelligence gracefully...`);
+    if (currentSeedLeaseContext?.leaseToken && currentSeedLeaseContext?.pinId) {
+      try {
+        await sqlWithRetry(() => sql`
+          UPDATE cluster_seeds
+          SET crawl_lease_token = NULL,
+              crawl_lease_until = NOW()
+          WHERE pin_id = ${currentSeedLeaseContext.pinId} AND crawl_lease_token = ${currentSeedLeaseContext.leaseToken};
+        `).catch(() => {});
+        console.log(`[Graceful Shutdown] Released lease for seed pin ID ${currentSeedLeaseContext.pinId}`);
+      } catch (_) {}
+    }
+    process.exit(1);
+  };
+  process.once('SIGINT', () => cleanupAndExit('SIGINT'));
+  process.once('SIGTERM', () => cleanupAndExit('SIGTERM'));
+
   for (const seed of seedsToProcess) {
     // Atomic row lease acquisition with 15-minute expiry & strict Fail-Closed policy [CAP-16]
     let leaseToken = null;
+    let heartbeatTimer = null;
     try {
       const [leaseRow] = await sqlWithRetry(() => sql`
         UPDATE cluster_seeds
@@ -1649,11 +1688,27 @@ async function main() {
       continue;
     }
 
+    currentSeedLeaseContext = { pinId: seed.pin_id, leaseToken };
+    heartbeatTimer = setInterval(async () => {
+      try {
+        await sqlWithRetry(() => sql`
+          UPDATE cluster_seeds
+          SET crawl_lease_until = NOW() + INTERVAL '15 minutes'
+          WHERE pin_id = ${seed.pin_id} AND crawl_lease_token = ${leaseToken};
+        `).catch(() => {});
+      } catch (hbErr) {
+        console.warn(`  [Heartbeat] Lease renewal warning for seed ${seed.pin_id}:`, hbErr?.message);
+      }
+    }, 3 * 60 * 1000);
+    if (typeof heartbeatTimer.unref === 'function') heartbeatTimer.unref();
+
     try {
       await crawlSeed(seed);
     } catch (err) {
       console.error(`[-] Error crawling seed ${seed.pin_id}:`, err);
     } finally {
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
+      currentSeedLeaseContext = null;
       if (leaseToken) {
         await sqlWithRetry(() => sql`
           UPDATE cluster_seeds

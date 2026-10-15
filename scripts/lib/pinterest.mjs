@@ -32,8 +32,15 @@ export async function pinterestFetch(url, init = {}) {
   try {
     return await fetch(url, fetchOpts);
   } catch (err) {
-    // Fallback to native globalThis.fetch without external dispatcher if Undici v6/v8 mismatch occurs
-    if (dispatcher && String(err?.message || '').toLowerCase().includes('fetch failed')) {
+    // Restrict fallback strictly to dispatcher mismatch errors (e.g. InvalidArgumentError between undici versions) [D2]
+    // Preserve the connection pool across transient network errors (ETIMEDOUT, ECONNRESET, etc.)
+    const isDispatcherMismatch = dispatcher && (
+      err?.name === 'InvalidArgumentError' ||
+      err?.code === 'UND_ERR_INVALID_ARG' ||
+      String(err?.message || '').toLowerCase().includes('invalid dispatcher') ||
+      String(err?.cause?.message || '').toLowerCase().includes('invalid dispatcher')
+    );
+    if (isDispatcherMismatch) {
       defaultDispatcher = null;
       return await fetch(url, restInit);
     }

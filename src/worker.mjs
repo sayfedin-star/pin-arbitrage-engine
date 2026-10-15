@@ -188,6 +188,7 @@ export async function raceWithTimeout(taskOrFactory, ms, errorMessage = 'Operati
 
 export function safeWaitUntil(ctx, promise, taskName = 'bg_task', timeoutMs = 25000) {
   if (!promise || typeof promise.then !== 'function') return;
+  promise.catch(() => {});
   let timer;
   const timeoutPromise = new Promise((_, reject) => {
     timer = setTimeout(() => reject(new Error(`Background task "${taskName}" timed out after ${timeoutMs}ms`)), timeoutMs);
@@ -657,10 +658,18 @@ export async function getCachedOrFetch(key, fetcher, ttlMs = 15000, staleMs = 60
       if (!inflightPromises.has(key)) {
         const revalPromise = (async () => {
           try {
+            let timerId;
+            const fetchTask = fetcher();
+            fetchTask.catch(() => {});
+            const timeoutPromise = new Promise((_, reject) => {
+              timerId = setTimeout(() => reject(new Error(`Timeout revalidating ${key}`)), 7500);
+            });
             const fresh = await Promise.race([
-              fetcher(),
-              new Promise((_, reject) => setTimeout(() => reject(new Error(`Timeout revalidating ${key}`)), 7500))
-            ]);
+              fetchTask,
+              timeoutPromise
+            ]).finally(() => {
+              if (timerId) clearTimeout(timerId);
+            });
             if (fresh && fresh.success !== false && !fresh.degraded && !fresh._degraded) {
               edgeCache.set(key, {
                 data: fresh,
@@ -719,10 +728,18 @@ export async function getCachedOrFetch(key, fetcher, ttlMs = 15000, staleMs = 60
   // 4. Cache Miss or Force Refresh: Fetch fresh data with single-flight deduplication
   const promise = (async () => {
     try {
+      let timerId;
+      const fetchTask = fetcher();
+      fetchTask.catch(() => {});
+      const timeoutPromise = new Promise((_, reject) => {
+        timerId = setTimeout(() => reject(new Error(`Timeout fetching ${key}`)), 7500);
+      });
       const fresh = await Promise.race([
-        fetcher(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error(`Timeout fetching ${key}`)), 7500))
-      ]);
+        fetchTask,
+        timeoutPromise
+      ]).finally(() => {
+        if (timerId) clearTimeout(timerId);
+      });
       if (fresh && fresh.success !== false && !fresh.degraded && !fresh._degraded) {
         if (edgeCache.size >= MAX_CACHE_ENTRIES) {
           const oldestKey = edgeCache.keys().next().value;
@@ -3892,10 +3909,18 @@ export default {
             if (dossier?.success && (!dossier?.algorithmic_intelligence?.canonical_pin_id || !dossier?.algorithmic_intelligence?.seo_related_interests?.length)) {
               const bgEnrichPromise = (async () => {
                 try {
+                  let timerId;
+                  const liveTask = fetchPinFromPinterest(pinId);
+                  liveTask.catch(() => {});
+                  const timeoutPromise = new Promise((_, reject) => {
+                    timerId = setTimeout(() => reject(new Error('timeout')), 3000);
+                  });
                   const liveRes = await Promise.race([
-                    fetchPinFromPinterest(pinId),
-                    new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000))
-                  ]);
+                    liveTask,
+                    timeoutPromise
+                  ]).finally(() => {
+                    if (timerId) clearTimeout(timerId);
+                  });
                   if (liveRes?.ok && liveRes.pin) {
                     const p = liveRes.pin;
                     const autoMeta = {

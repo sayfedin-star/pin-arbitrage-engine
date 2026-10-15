@@ -87,8 +87,16 @@ if (!globalThis.__crawlerSignalHandlersInstalled) {
               AND claim_token = ANY(${tokens})
               AND enrichment_status = 'processing';
           `;
-          const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Cleanup timed out')), 4000));
-          await Promise.race([cleanupPromise, timeoutPromise]);
+          let timeoutTimer;
+          const timeoutPromise = new Promise((_, reject) => {
+            timeoutTimer = setTimeout(() => reject(new Error('Cleanup timed out')), 4000);
+          });
+          cleanupPromise.catch(() => {});
+          try {
+            await Promise.race([cleanupPromise, timeoutPromise]);
+          } finally {
+            if (timeoutTimer) clearTimeout(timeoutTimer);
+          }
           console.log(`[✓] Released ${ids.length} in-flight pins back to 'pending'.`);
         }
       } catch (e) {
@@ -633,7 +641,14 @@ async function runDiscoveryJob(sqlClient, shardSql, cleanUser, maxPages, cookie,
 
   // Board Distribution Strategy:
   if (crawlMode === 'sharded_boards') {
-    const activeShardsRaw = process.env.ACTIVE_SHARDS ? JSON.parse(process.env.ACTIVE_SHARDS) : null;
+    let activeShardsRaw = null;
+    if (process.env.ACTIVE_SHARDS) {
+      try {
+        activeShardsRaw = JSON.parse(process.env.ACTIVE_SHARDS);
+      } catch (e) {
+        console.warn(`[!] Malformed ACTIVE_SHARDS environment variable; ignoring:`, e.message);
+      }
+    }
     const activeSwarmList = Array.isArray(activeShardsRaw) && activeShardsRaw.length > 0
       ? activeShardsRaw.map(Number)
       : Array.from({ length: parseInt(process.env.SWARM_SIZE || '15', 10) }, (_, i) => i + 1);
@@ -832,7 +847,14 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
         }
       }
 
-      const activeShardsRaw = process.env.ACTIVE_SHARDS ? JSON.parse(process.env.ACTIVE_SHARDS) : null;
+      let activeShardsRaw = null;
+      if (process.env.ACTIVE_SHARDS) {
+        try {
+          activeShardsRaw = JSON.parse(process.env.ACTIVE_SHARDS);
+        } catch (e) {
+          console.warn(`[!] Malformed ACTIVE_SHARDS environment variable; ignoring:`, e.message);
+        }
+      }
       const activeSwarmList = Array.isArray(activeShardsRaw) && activeShardsRaw.length > 0
         ? activeShardsRaw.map(Number)
         : Array.from({ length: parseInt(process.env.SWARM_SIZE || '15', 10) }, (_, i) => i + 1);

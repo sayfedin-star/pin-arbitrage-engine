@@ -46,7 +46,7 @@ on:
         default: ''
 
 concurrency:
-  group: keyword-intelligence-${{ github.workflow }}-${{ github.ref }}-${{ inputs.folder_id != '' && format('folder-{0}', inputs.folder_id) || inputs.target_keyword != '' && inputs.target_keyword || 'all' }}
+  group: keyword-intelligence-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:

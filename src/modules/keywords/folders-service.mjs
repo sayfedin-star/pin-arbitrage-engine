@@ -1240,10 +1240,17 @@ async function _executeFolderCrossover(sql, fid) {
 
   // Parallel fetch with Promise.allSettled to eliminate sequential isolate timeouts (1200ms hard cap)
   const trendResults = await Promise.allSettled(
-    trendsSample.map(kw => Promise.race([
-      fetchPinterestTrends(kw.keyword),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('Trends timeout')), 1200))
-    ]))
+    trendsSample.map(kw => {
+      let timerId;
+      const task = fetchPinterestTrends(kw.keyword);
+      task.catch(() => {});
+      const timeoutPromise = new Promise((_, reject) => {
+        timerId = setTimeout(() => reject(new Error('Trends timeout')), 1200);
+      });
+      return Promise.race([task, timeoutPromise]).finally(() => {
+        if (timerId) clearTimeout(timerId);
+      });
+    })
   );
 
   for (const res of trendResults) {

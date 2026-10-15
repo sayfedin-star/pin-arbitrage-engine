@@ -62,6 +62,7 @@ export async function optimizeHubStorage(sql) {
     const deletedDisplaced = await sql`
       DELETE FROM keyword_pins_snapshots
       WHERE is_displaced = TRUE
+        AND snapshot_date < (NOW() AT TIME ZONE 'UTC')::date - INTERVAL '14 days'
       RETURNING id;
     `;
     const deleted = await sql`
@@ -113,8 +114,25 @@ export async function optimizeHubStorage(sql) {
 
     await sql`
       UPDATE tracked_keywords
-      SET metadata = metadata - 'last_dropped_pins'
-      WHERE metadata ? 'last_dropped_pins';
+      SET metadata = jsonb_set(
+        metadata,
+        '{last_dropped_pins}',
+        COALESCE(
+          (
+            SELECT jsonb_agg(elem)
+            FROM (
+              SELECT elem
+              FROM jsonb_array_elements(metadata->'last_dropped_pins') AS elem
+              ORDER BY (elem->>'dropped_at') DESC NULLS LAST
+              LIMIT 100
+            ) sub
+          ),
+          '[]'::jsonb
+        )
+      )
+      WHERE metadata ? 'last_dropped_pins'
+        AND jsonb_typeof(metadata->'last_dropped_pins') = 'array'
+        AND jsonb_array_length(metadata->'last_dropped_pins') > 100;
     `;
   } catch (err) {
     console.warn('[optimizeHubStorage] Strip metadata warning:', err.message);
