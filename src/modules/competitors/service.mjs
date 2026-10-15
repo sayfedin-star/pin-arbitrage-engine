@@ -1136,18 +1136,23 @@ export async function syncCompetitorBoardPins(sql, competitorId, username, board
   let cleanUsername = normalizePinterestUsername(username);
   let numericId = parseInt(competitorId, 10);
 
+  let compProfile = null;
   if (cleanUsername) {
     try {
-      const [c] = await sql`SELECT id, username FROM competitor_profiles WHERE LOWER(username) = ${cleanUsername} LIMIT 1;`;
+      const [c] = await sql`SELECT id, username, metadata FROM competitor_profiles WHERE LOWER(username) = ${cleanUsername} LIMIT 1;`;
       if (c?.id) {
         numericId = c.id;
         cleanUsername = c.username;
+        compProfile = c;
       }
     } catch (_) {}
   } else if (!cleanUsername && !isNaN(numericId)) {
     try {
-      const [c] = await sql`SELECT id, username FROM competitor_profiles WHERE id = ${numericId} LIMIT 1;`;
-      if (c?.username) cleanUsername = c.username;
+      const [c] = await sql`SELECT id, username, metadata FROM competitor_profiles WHERE id = ${numericId} LIMIT 1;`;
+      if (c?.username) {
+        cleanUsername = c.username;
+        compProfile = c;
+      }
     } catch (_) {}
   }
 
@@ -1191,7 +1196,8 @@ export async function syncCompetitorBoardPins(sql, competitorId, username, board
     }
 
     // 2. Filter through 3-tier OR rules & ingest qualified winning pins into pa_pins
-    if (pins.length > 0) {
+    const shouldAutoArchive = compProfile?.metadata?.auto_archive_winning !== false;
+    if (pins.length > 0 && shouldAutoArchive) {
       const ingestRes = await ingestPinsBatch(sql, pins, cleanUsername, { filterQualified: true, rules });
       allQualifiedCount += (ingestRes.added + ingestRes.updated);
     }
