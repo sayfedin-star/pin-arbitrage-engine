@@ -1529,6 +1529,19 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
     }
 
     const crawledCount = rank - 1;
+    if (crawledCount === 0) {
+      const reason = priorActiveCount > 0 ? 'suspected_soft_block' : 'zero_organic_results';
+      console.warn(`[SERP Integrity Guard] 0 pins collected for "${keywordRow.keyword}" (priorActive=${priorActiveCount}, reason=${reason}). Aborting state mutation.`);
+      return {
+        success: false,
+        incomplete: true,
+        reason,
+        keyword: keywordRow.keyword,
+        crawled_pins: 0,
+        avg_velocity: Number(keywordRow.avg_daily_velocity || 0)
+      };
+    }
+
     // Statistical Winsorization (95th percentile upper clamp) to eliminate bot-farm metric distortion
     const robustVelocities = winsorize(pinVelocities, 0.95);
     const robustTotalVelocity = robustVelocities.reduce((acc, v) => acc + v, 0);
@@ -1539,22 +1552,24 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
     const prevHistory = Array.isArray(baseMetadata.velocity_history) ? [...baseMetadata.velocity_history] : [];
     const todayIso = new Date().toISOString().slice(0, 10);
     const filteredHistory = prevHistory.filter(h => h && h.date !== todayIso);
-    filteredHistory.push({ date: todayIso, velocity: avgVelocity });
-    if (filteredHistory.length > 14) filteredHistory.shift();
+    if (!isSuspectedIncompleteCrawl) {
+      filteredHistory.push({ date: todayIso, velocity: avgVelocity });
+      if (filteredHistory.length > 14) filteredHistory.shift();
+    }
 
     // Build consolidated metadata with dropped out pins record
     const updatedMetadata = {
       ...baseMetadata,
       velocity_history: filteredHistory,
-      last_dropped_pins: droppedOutList,
-      last_crawled_pins_count: crawledCount,
+      last_dropped_pins: isSuspectedIncompleteCrawl ? (baseMetadata.last_dropped_pins || []) : droppedOutList,
+      last_crawled_pins_count: isSuspectedIncompleteCrawl ? (baseMetadata.last_crawled_pins_count || crawledCount) : crawledCount,
       last_crawl_summary: {
         total: crawledCount,
-        climbed: climbedCount,
-        dropped: droppedCount,
-        stable: stableCount,
-        new_entries: newEntryCount,
-        dropped_out: droppedOutList.length
+        climbed: isSuspectedIncompleteCrawl ? (baseMetadata.last_crawl_summary?.climbed || 0) : climbedCount,
+        dropped: isSuspectedIncompleteCrawl ? (baseMetadata.last_crawl_summary?.dropped || 0) : droppedCount,
+        stable: isSuspectedIncompleteCrawl ? (baseMetadata.last_crawl_summary?.stable || 0) : stableCount,
+        new_entries: isSuspectedIncompleteCrawl ? (baseMetadata.last_crawl_summary?.new_entries || 0) : newEntryCount,
+        dropped_out: isSuspectedIncompleteCrawl ? (baseMetadata.last_crawl_summary?.dropped_out || 0) : droppedOutList.length
       }
     };
     delete updatedMetadata.crawl_lock;
@@ -1563,7 +1578,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
     // Bundles all database writes into a single ACID commit (Zero row-lock deadlocks, zero dirty reads)
     const txBatch = [];
 
-    if (preparedPins.length > 0) {
+    if (preparedPins.length > 0 && !isSuspectedIncompleteCrawl) {
       txBatch.push(sql`
         INSERT INTO keyword_pins_snapshots (
           keyword_id,
@@ -1883,19 +1898,24 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
 
     // Atomic update of tracked_keywords metadata AND release crawl_lock
     const finalVelocity = isSuspectedIncompleteCrawl ? (Number(keywordRow.avg_daily_velocity) || 0) : avgVelocity;
+    const lastCrawledAtVal = isSuspectedIncompleteCrawl
+      ? (keywordRow.last_crawled_at ? new Date(keywordRow.last_crawled_at).toISOString() : null)
+      : new Date().toISOString();
+
     txBatch.push(sql`
       UPDATE tracked_keywords SET
-        top_pin_id = ${topPin ? topPin.pinId : keywordRow.top_pin_id},
-        top_pin_title = ${topPin ? topPin.title : keywordRow.top_pin_title},
-        top_pin_image = ${topPin ? topPin.imageUrl : keywordRow.top_pin_image},
+        top_pin_id = ${topPin && !isSuspectedIncompleteCrawl ? topPin.pinId : keywordRow.top_pin_id},
+        top_pin_title = ${topPin && !isSuspectedIncompleteCrawl ? topPin.title : keywordRow.top_pin_title},
+        top_pin_image = ${topPin && !isSuspectedIncompleteCrawl ? topPin.imageUrl : keywordRow.top_pin_image},
         avg_daily_velocity = ${finalVelocity},
-        last_crawled_at = NOW(),
+        last_crawled_at = ${lastCrawledAtVal ? sql`${lastCrawledAtVal}::timestamptz` : sql`NULL`},
         updated_at = NOW(),
         metadata = ${JSON.stringify(updatedMetadata)}::jsonb
       WHERE id = ${kid};
     `);
 
     // Enforce relative 2-snapshot rolling window per keyword on the Hub ONLY when crawl was complete
+    // Strictly preserve displaced snapshots (is_displaced = TRUE) for the 14-day retention window
     if (!isSuspectedIncompleteCrawl) {
       txBatch.push(sql`
         WITH ranked_dates AS (
@@ -1905,6 +1925,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
             SELECT DISTINCT snapshot_date
             FROM keyword_pins_snapshots
             WHERE keyword_id = ${kid}
+              AND COALESCE(is_displaced, FALSE) = FALSE
           ) d
         ),
         cutoff AS (
@@ -1915,6 +1936,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
         DELETE FROM keyword_pins_snapshots kps
         USING cutoff c
         WHERE kps.keyword_id = ${kid}
+          AND COALESCE(kps.is_displaced, FALSE) = FALSE
           AND kps.snapshot_date < c.keep_from_date;
       `);
     }

@@ -215,9 +215,15 @@ function triggerCrawlProcess(seedPinId = null) {
   // 30-minute hard cap to eliminate orphaned zombie crawler processes [C6]
   const killTimeout = setTimeout(() => {
     if (crawlState.is_crawling) {
-      console.warn(`[!] Crawler job exceeded 30-minute execution limit. Forcing termination...`);
+      console.warn(`[!] Crawler job exceeded 30-minute execution limit. Sending SIGTERM for graceful lease release...`);
       try {
-        child.kill('SIGKILL');
+        child.kill('SIGTERM');
+        const forceKill = setTimeout(() => {
+          if (crawlState.is_crawling) {
+            try { child.kill('SIGKILL'); } catch (_) {}
+          }
+        }, 5000);
+        if (typeof forceKill.unref === 'function') forceKill.unref();
       } catch (_) {}
     }
   }, 30 * 60 * 1000);

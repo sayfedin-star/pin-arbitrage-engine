@@ -37,6 +37,8 @@ export async function pinterestFetch(url, init = {}) {
     const isDispatcherMismatch = dispatcher && (
       err?.name === 'InvalidArgumentError' ||
       err?.code === 'UND_ERR_INVALID_ARG' ||
+      err?.cause?.name === 'InvalidArgumentError' ||
+      err?.cause?.code === 'UND_ERR_INVALID_ARG' ||
       String(err?.message || '').toLowerCase().includes('invalid dispatcher') ||
       String(err?.cause?.message || '').toLowerCase().includes('invalid dispatcher')
     );

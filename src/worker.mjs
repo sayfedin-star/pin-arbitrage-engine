@@ -3804,32 +3804,37 @@ export default {
               }
             }
 
-            // C. Shard daily snapshot record
-            const [serpRow] = await sql`
+            // C. Shard daily snapshot record for all keywords associated with pin
+            const serpRows = await sql`
               SELECT keyword_id, rank_position, is_displaced 
               FROM keyword_serp_current 
-              WHERE pin_id = ${pinId} 
-              LIMIT 1;
+              WHERE pin_id = ${pinId};
             `.catch(() => []);
-            const shardKid = serpRow?.keyword_id || null;
-            const shardDisplaced = Boolean(serpRow?.is_displaced ?? false);
-            const shardRank = shardDisplaced ? null : (serpRow?.rank_position ?? null);
+            const targetRows = serpRows.length > 0
+              ? serpRows
+              : [{ keyword_id: null, rank_position: null, is_displaced: false }];
 
-            await shardSql`
-              INSERT INTO pins_daily_snapshots (
-                pin_id, keyword_id, snapshot_date, rank_position, is_displaced, save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity, created_at
-              ) VALUES (
-                ${pinId}, ${shardKid}, (NOW() AT TIME ZONE 'UTC')::date, ${shardRank}, ${shardDisplaced},
-                ${Number(pin.saves || 0)}, ${Number(pin.repins || 0)}, ${Number(pin.comments || 0)}, ${Number(pin.share_count || 0)}, 0, 0, NOW()
-              )
-              ON CONFLICT (pin_id, keyword_id, snapshot_date) DO UPDATE SET
-                rank_position = EXCLUDED.rank_position,
-                is_displaced = EXCLUDED.is_displaced,
-                save_count = GREATEST(pins_daily_snapshots.save_count, EXCLUDED.save_count),
-                repin_count = GREATEST(pins_daily_snapshots.repin_count, EXCLUDED.repin_count),
-                comment_count = GREATEST(pins_daily_snapshots.comment_count, EXCLUDED.comment_count),
-                share_count = GREATEST(pins_daily_snapshots.share_count, EXCLUDED.share_count);
-            `.catch(() => {});
+            for (const sRow of targetRows) {
+              const shardKid = sRow.keyword_id || null;
+              const shardDisplaced = Boolean(sRow.is_displaced ?? false);
+              const shardRank = shardDisplaced ? null : (sRow.rank_position ?? null);
+
+              await shardSql`
+                INSERT INTO pins_daily_snapshots (
+                  pin_id, keyword_id, snapshot_date, rank_position, is_displaced, save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity, created_at
+                ) VALUES (
+                  ${pinId}, ${shardKid}, (NOW() AT TIME ZONE 'UTC')::date, ${shardRank}, ${shardDisplaced},
+                  ${Number(pin.saves || 0)}, ${Number(pin.repins || 0)}, ${Number(pin.comments || 0)}, ${Number(pin.share_count || 0)}, 0, 0, NOW()
+                )
+                ON CONFLICT (pin_id, keyword_id, snapshot_date) DO UPDATE SET
+                  rank_position = EXCLUDED.rank_position,
+                  is_displaced = EXCLUDED.is_displaced,
+                  save_count = GREATEST(pins_daily_snapshots.save_count, EXCLUDED.save_count),
+                  repin_count = GREATEST(pins_daily_snapshots.repin_count, EXCLUDED.repin_count),
+                  comment_count = GREATEST(pins_daily_snapshots.comment_count, EXCLUDED.comment_count),
+                  share_count = GREATEST(pins_daily_snapshots.share_count, EXCLUDED.share_count);
+              `.catch(() => {});
+            }
 
             // Update two-tier modern shard tables (pins_daily_metrics & pin_serp_positions)
             await shardSql`

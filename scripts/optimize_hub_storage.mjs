@@ -73,6 +73,7 @@ export async function optimizeHubStorage(sql) {
           SELECT DISTINCT keyword_id, snapshot_date
           FROM keyword_pins_snapshots
           WHERE keyword_id IS NOT NULL
+            AND COALESCE(is_displaced, FALSE) = FALSE
         ) d
       ),
       cutoff_per_keyword AS (
@@ -84,6 +85,7 @@ export async function optimizeHubStorage(sql) {
       DELETE FROM keyword_pins_snapshots kps
       USING cutoff_per_keyword c
       WHERE kps.keyword_id = c.keyword_id
+        AND COALESCE(kps.is_displaced, FALSE) = FALSE
         AND kps.snapshot_date < c.keep_from_date
       RETURNING kps.id;
     `;

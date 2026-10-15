@@ -871,7 +871,7 @@ export async function enrichCandidatesWithPinMetrics(seedPinId, baseHeaders, can
     if (!candidatesNeedingEnrichment) {
       candidatesNeedingEnrichment = await sql`
         (
-          SELECT candidate_pin_id, saves, daily_velocity
+          SELECT candidate_pin_id, saves, daily_velocity, age_days
           FROM candidate_graph_nodes
           WHERE seed_pin_id = ${seedPinId} AND (repins = 0 OR repins IS NULL)
           ORDER BY daily_velocity DESC NULLS LAST
@@ -879,7 +879,7 @@ export async function enrichCandidatesWithPinMetrics(seedPinId, baseHeaders, can
         )
         UNION
         (
-          SELECT candidate_pin_id, saves, daily_velocity
+          SELECT candidate_pin_id, saves, daily_velocity, age_days
           FROM candidate_graph_nodes
           WHERE seed_pin_id = ${seedPinId} AND (repins = 0 OR repins IS NULL)
           ORDER BY saves DESC NULLS LAST
@@ -908,7 +908,8 @@ export async function enrichCandidatesWithPinMetrics(seedPinId, baseHeaders, can
             const repins = Number(pinData.repins || 0);
             const currentSaves = Math.max(Number(candidate.saves || 0), Number(pinData.saves || 0));
             const saveRate = currentSaves > 0 ? Number(((repins / currentSaves) * 100).toFixed(2)) : 0.00;
-            const updatedVelocity = Math.max(Number(candidate.daily_velocity || 0), Math.max(0, currentSaves - Number(candidate.saves || 0)));
+            const ageDays = Math.max(1, Number(candidate.age_days || 180));
+            const updatedVelocity = Math.min(1000.0, Math.max(Number(candidate.daily_velocity || 0), Number((currentSaves / ageDays).toFixed(2))));
 
             await sql`
               UPDATE candidate_graph_nodes
@@ -1375,7 +1376,7 @@ async function crawlSeed(seed) {
   let activeHighSaveTokens = highSaveTokens;
   try {
     const freshCandidates = await sql`
-      SELECT title, ocr_text, saves, daily_velocity
+      SELECT title, ocr_text, saves, repins, save_rate, daily_velocity
       FROM candidate_graph_nodes
       WHERE seed_pin_id = ${pinId}
     `;
