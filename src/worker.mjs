@@ -4796,7 +4796,8 @@ export default {
         try {
           const body = await request.json().catch(() => ({}));
           if (Array.isArray(body.domains) && body.domains.length > 0) {
-            const batchRes = await enrichMissingDomainsBatch(sql, body.domains, 15);
+            const batchLimit = Math.max(1, Math.min(Number(body.limit) || 50, 50));
+            const batchRes = await enrichMissingDomainsBatch(sql, body.domains, batchLimit, { forceRefresh: Boolean(body.force) });
             return jsonResponse({ success: true, ...batchRes });
           }
           const singleDomain = body.domain || searchParams.get('domain');

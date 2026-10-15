@@ -187,6 +187,25 @@ async function runTests() {
     nullCheck.corrected_age === null && Number(nullCheck.vulnerable_postgres_greatest) === 1
   );
 
+  // 5.3 Multi-Tier Resolver: Verify ccTLD (.me) resolves cleanly (longevitylifestyle.me)
+  const ccTldRes = await fetchAndCacheDomainAge(sql, 'longevitylifestyle.me', { forceRefresh: false });
+  report(
+    'Multi-Tier Resolver resolves ccTLD longevitylifestyle.me without Unverified status',
+    ccTldRes !== null && ccTldRes.lookup_status === 'resolved' && ccTldRes.age_years >= 3.0
+  );
+
+  // 5.4 Batch Age Enrichment API: POST /api/domains/enrich-age with domains[]
+  const batchRes = await worker.fetch(new Request('https://engine.internal/api/domains/enrich-age', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ domains: ['longevitylifestyle.me', topDomain], limit: 2 })
+  }), mockEnv);
+  const batchData = await batchRes.json();
+  report(
+    'POST /api/domains/enrich-age supports batch domains[] array',
+    batchRes.status === 200 && batchData.success === true && typeof batchData.enriched === 'number'
+  );
+
   // 6. Direct Service & Database Integrity Check
   console.log('\n[*] Testing Direct Service Query Engine & SQL Index Usability...');
   const directList = await listDomainsIntelligence(sql, { limit: 10, sortBy: 'visibility' });

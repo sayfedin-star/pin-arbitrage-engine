@@ -98,6 +98,50 @@ export function escapeSqlLike(str) {
 }
 
 /**
+ * Direct Socket WHOIS for ccTLDs (.me, .co, .io, .ai, etc.)
+ */
+export async function queryWhoisSocket(cleanDomain) {
+  try {
+    const net = await import('node:net');
+    if (!net || typeof net.createConnection !== 'function') return null;
+
+    const tld = cleanDomain.split('.').pop().toLowerCase();
+    const WHOIS_SERVERS = {
+      me: 'whois.nic.me',
+      co: 'whois.nic.co',
+      io: 'whois.nic.io',
+      ai: 'whois.nic.ai',
+      ca: 'whois.cira.ca',
+      uk: 'whois.nic.uk',
+      de: 'whois.denic.de',
+      fr: 'whois.nic.fr',
+      app: 'whois.nic.google',
+      dev: 'whois.nic.google'
+    };
+
+    const host = WHOIS_SERVERS[tld] || `whois.nic.${tld}`;
+
+    return await new Promise((resolve) => {
+      const socket = net.createConnection(43, host, () => {
+        socket.write(`${cleanDomain}\r\n`);
+      });
+      let buffer = '';
+      socket.on('data', chunk => {
+        buffer += chunk.toString('utf8');
+      });
+      socket.on('end', () => resolve(buffer));
+      socket.on('error', () => resolve(null));
+      socket.setTimeout(3500, () => {
+        socket.destroy();
+        resolve(buffer || null);
+      });
+    });
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
  * Fetch-Once Domain Age & WHOIS Registration Resolver
  * Primary: https://api.domainee.dev/v1/tools/domain-age-checker?domain=http://<domain>/
  * Fallback: https://rdap.org/domain/<domain>
@@ -133,7 +177,7 @@ export async function fetchAndCacheDomainAge(sql, rawDomain, { forceRefresh = fa
           )
         LIMIT 1;
       `;
-      if (cached) {
+      if (cached && (cached.lookup_status === 'resolved' || !forceRefresh)) {
         return {
           ...cached,
           age_days: cached.age_days != null ? Number(cached.age_days) : null,
@@ -150,39 +194,23 @@ export async function fetchAndCacheDomainAge(sql, rawDomain, { forceRefresh = fa
   let ageYears = null;
   let source = 'domainee';
 
-  // 1. Primary Lookup: api.domainee.dev
-  try {
-    const apiUrl = `https://api.domainee.dev/v1/tools/domain-age-checker?domain=${encodeURIComponent(`http://${cleanDomain}/`)}`;
-    const res = await fetch(apiUrl, {
-      headers: {
-        'Accept': 'application/json',
-        'User-Agent': 'Mozilla/5.0 (compatible; PinArbitrageEngine/1.0)'
-      },
-      signal: AbortSignal.timeout(8000)
-    });
+  const tld = cleanDomain.split('.').pop();
 
-    if (res.ok) {
-      const payload = await res.json();
-      const d = payload?.data || payload;
-      if (payload?.ok !== false && d?.created) {
-        created = d.created;
-        updated = d.updated || null;
-        expires = d.expires || null;
-        ageDays = Number(d.ageDays) > 0 ? Math.round(Number(d.ageDays)) : null;
-        ageYears = Number(d.ageYears) > 0 ? Number(Number(d.ageYears).toFixed(2)) : null;
-      }
-    } else if (res.body) {
-      await res.body.cancel().catch(() => {});
-    }
-  } catch (_) {}
+  // Tier 1: Direct Authoritative Registry RDAP (Sub-second latency, zero Cloudflare blocking)
+  let directRdapUrl = null;
+  if (tld === 'com') directRdapUrl = `https://rdap.verisign.com/com/v1/domain/${encodeURIComponent(cleanDomain)}`;
+  else if (tld === 'net') directRdapUrl = `https://rdap.verisign.com/net/v1/domain/${encodeURIComponent(cleanDomain)}`;
+  else if (tld === 'org') directRdapUrl = `https://rdap.publicinterestregistry.org/rdap/domain/${encodeURIComponent(cleanDomain)}`;
+  else if (['info', 'pro', 'mobi', 'live', 'life'].includes(tld)) directRdapUrl = `https://rdap.identitydigital.services/rdap/domain/${encodeURIComponent(cleanDomain)}`;
 
-  // 2. Automatic Fallback: Official IANA/ICANN RDAP
-  if (!created) {
+  if (directRdapUrl) {
     try {
-      const rdapUrl = `https://rdap.org/domain/${encodeURIComponent(cleanDomain)}`;
-      const rdapRes = await fetch(rdapUrl, {
-        headers: { 'Accept': 'application/rdap+json, application/json' },
-        signal: AbortSignal.timeout(8000)
+      const rdapRes = await fetch(directRdapUrl, {
+        headers: {
+          'Accept': 'application/rdap+json, application/json',
+          'User-Agent': 'Mozilla/5.0 (compatible; PinArbitrageEngine/1.0)'
+        },
+        signal: AbortSignal.timeout(6000)
       });
       if (rdapRes.ok) {
         const rdap = await rdapRes.json();
@@ -194,10 +222,92 @@ export async function fetchAndCacheDomainAge(sql, rawDomain, { forceRefresh = fa
           created = regEvent.eventDate;
           updated = updEvent?.eventDate || null;
           expires = expEvent?.eventDate || null;
-          source = 'rdap';
+          source = (tld === 'com' || tld === 'net') ? 'verisign' : (tld === 'org' ? 'pir' : 'identity_digital');
         }
       } else if (rdapRes.body) {
         await rdapRes.body.cancel().catch(() => {});
+      }
+    } catch (_) {}
+  }
+
+  // Tier 2: Direct Socket WHOIS for ccTLDs (.me, .co, .io, .ai, etc.)
+  if (!created) {
+    try {
+      const whoisRaw = await queryWhoisSocket(cleanDomain);
+      if (whoisRaw) {
+        const regMatch = whoisRaw.match(/(?:Creation Date|Created On|Registration Time|Registered on|registered):\s*([^\r\n]+)/i);
+        const updMatch = whoisRaw.match(/(?:Updated Date|Last Updated On|Last Modified):\s*([^\r\n]+)/i);
+        const expMatch = whoisRaw.match(/(?:Registry Expiry Date|Registrar Registration Expiration Date|Expiration Date|Expires on):\s*([^\r\n]+)/i);
+        if (regMatch?.[1]) {
+          const parsed = new Date(regMatch[1].trim());
+          if (!isNaN(parsed.getTime())) {
+            created = parsed.toISOString();
+            updated = (updMatch?.[1] && !isNaN(new Date(updMatch[1].trim()).getTime())) ? new Date(updMatch[1].trim()).toISOString() : null;
+            expires = (expMatch?.[1] && !isNaN(new Date(expMatch[1].trim()).getTime())) ? new Date(expMatch[1].trim()).toISOString() : null;
+            source = 'whois_socket';
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  // Tier 3: Primary Multi-TLD Resolver Gateway (api.domainee.dev)
+  if (!created) {
+    try {
+      const apiUrl = `https://api.domainee.dev/v1/tools/domain-age-checker?domain=${encodeURIComponent(`http://${cleanDomain}/`)}`;
+      const res = await fetch(apiUrl, {
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (compatible; PinArbitrageEngine/1.0)'
+        },
+        signal: AbortSignal.timeout(6000)
+      });
+
+      if (res.ok) {
+        const payload = await res.json();
+        const d = payload?.data || payload;
+        if (payload?.ok !== false && d?.created) {
+          created = d.created;
+          updated = d.updated || null;
+          expires = d.expires || null;
+          ageDays = Number(d.ageDays) > 0 ? Math.round(Number(d.ageDays)) : null;
+          ageYears = Number(d.ageYears) > 0 ? Number(Number(d.ageYears).toFixed(2)) : null;
+          source = 'domainee';
+        }
+      } else if (res.body) {
+        await res.body.cancel().catch(() => {});
+      }
+    } catch (_) {}
+  }
+
+  // Tier 4: Certificate Transparency Logs (crt.sh) - Crucial for privacy-protected domains
+  if (!created) {
+    try {
+      const crtUrl = `https://crt.sh/?q=${encodeURIComponent(cleanDomain)}&output=json`;
+      const crtRes = await fetch(crtUrl, {
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (compatible; PinArbitrageEngine/1.0)'
+        },
+        signal: AbortSignal.timeout(7000)
+      });
+      if (crtRes.ok) {
+        const certs = await crtRes.json();
+        if (Array.isArray(certs) && certs.length > 0) {
+          const nowMs = Date.now();
+          const validDates = certs
+            .map(c => c.not_before)
+            .filter(Boolean)
+            .map(d => new Date(d).getTime())
+            .filter(t => !isNaN(t) && t >= 1356998400000 && t <= nowMs) // 2013 onwards
+            .sort((a, b) => a - b);
+          if (validDates.length > 0) {
+            created = new Date(validDates[0]).toISOString();
+            source = 'crt_sh';
+          }
+        }
+      } else if (crtRes.body) {
+        await crtRes.body.cancel().catch(() => {});
       }
     } catch (_) {}
   }
@@ -241,13 +351,14 @@ export async function fetchAndCacheDomainAge(sql, rawDomain, { forceRefresh = fa
         NOW()
       )
       ON CONFLICT (domain) DO UPDATE SET
-        registered_at = COALESCE(EXCLUDED.registered_at, domain_registry_metadata.registered_at),
+        registered_at = CASE WHEN EXCLUDED.lookup_status = 'resolved' THEN EXCLUDED.registered_at ELSE domain_registry_metadata.registered_at END,
         updated_at_whois = COALESCE(EXCLUDED.updated_at_whois, domain_registry_metadata.updated_at_whois),
         expires_at = COALESCE(EXCLUDED.expires_at, domain_registry_metadata.expires_at),
-        initial_age_days = COALESCE(EXCLUDED.initial_age_days, domain_registry_metadata.initial_age_days),
-        initial_age_years = COALESCE(EXCLUDED.initial_age_years, domain_registry_metadata.initial_age_years),
-        lookup_source = EXCLUDED.lookup_source,
+        initial_age_days = CASE WHEN EXCLUDED.lookup_status = 'resolved' THEN EXCLUDED.initial_age_days ELSE domain_registry_metadata.initial_age_days END,
+        initial_age_years = CASE WHEN EXCLUDED.lookup_status = 'resolved' THEN EXCLUDED.initial_age_years ELSE domain_registry_metadata.initial_age_years END,
+        lookup_source = CASE WHEN EXCLUDED.lookup_status = 'resolved' THEN EXCLUDED.lookup_source ELSE domain_registry_metadata.lookup_source END,
         lookup_status = CASE
+          WHEN EXCLUDED.lookup_status = 'resolved' THEN 'resolved'
           WHEN domain_registry_metadata.lookup_status = 'resolved' THEN 'resolved'
           ELSE EXCLUDED.lookup_status
         END,
@@ -290,19 +401,19 @@ export async function fetchAndCacheDomainAge(sql, rawDomain, { forceRefresh = fa
 /**
  * Enriches a bounded batch of unchecked domains with safe jitter
  */
-export async function enrichMissingDomainsBatch(sql, candidateDomains = [], maxBatch = 8) {
+export async function enrichMissingDomainsBatch(sql, candidateDomains = [], maxBatch = 8, { forceRefresh = false } = {}) {
   if (!Array.isArray(candidateDomains)) return { enriched: 0, results: [] };
-  const safeMax = Math.max(1, Math.min(Number(maxBatch) || 8, 30));
+  const safeMax = Math.max(1, Math.min(Number(maxBatch) || 8, 50));
   const safeCandidates = candidateDomains.slice(0, 100);
   const unique = [...new Set(safeCandidates.map(normalizeCleanDomain).filter(Boolean))].slice(0, safeMax);
   if (unique.length === 0) return { enriched: 0, results: [] };
 
   const results = [];
   for (let i = 0; i < unique.length; i++) {
-    const res = await fetchAndCacheDomainAge(sql, unique[i]);
+    const res = await fetchAndCacheDomainAge(sql, unique[i], { forceRefresh });
     if (res) results.push(res);
     if (i < unique.length - 1) {
-      await sleep(randomJitterMs(500, 1100));
+      await sleep(randomJitterMs(350, 750));
     }
   }
   return { enriched: results.length, results };

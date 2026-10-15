@@ -123,13 +123,16 @@ export function getDomainsPageHtml() {
     <!-- TOP 5 EXECUTIVE KPI CARDS -->
     <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
       <!-- 1. Total Ranked Domains -->
-      <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 flex flex-col gap-1 shadow-sm">
+      <div @click="setPreset('all')"
+           class="bg-white dark:bg-slate-900 border rounded-2xl p-4 flex flex-col gap-1 shadow-sm cursor-pointer transition-all hover:border-sky-500/50"
+           :class="activePreset === 'all' ? 'border-sky-500 ring-2 ring-sky-500/20' : 'border-slate-200 dark:border-slate-800'"
+           title="Click to reset filters and view all domains">
         <div class="flex items-center justify-between text-slate-500 dark:text-slate-400">
           <span class="text-[10px] font-mono uppercase tracking-wider">Ranked Domains</span>
           <span class="text-xs">🌐</span>
         </div>
         <span class="text-2xl font-bold font-mono text-slate-900 dark:text-white" x-text="formatNumber(overview.total_domains)">0</span>
-        <span class="text-[11px] text-slate-400 dark:text-slate-500">Indexed sites in database</span>
+        <span class="text-[11px] text-slate-400 dark:text-slate-500">Indexed sites (Click to reset)</span>
       </div>
 
       <!-- 2. Top-10 SERP Monopoly -->
@@ -169,13 +172,16 @@ export function getDomainsPageHtml() {
       </div>
 
       <!-- 5. Avg Pin-to-URL Multiplier -->
-      <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 flex flex-col gap-1 shadow-sm">
+      <div @click="setPreset(activePreset === 'high_multipliers' ? 'all' : 'high_multipliers')"
+           class="bg-white dark:bg-slate-900 border rounded-2xl p-4 flex flex-col gap-1 shadow-sm cursor-pointer transition-all hover:border-amber-500/50"
+           :class="activePreset === 'high_multipliers' ? 'border-amber-500 ring-2 ring-amber-500/20' : 'border-slate-200 dark:border-slate-800'"
+           title="Click to filter by High Multipliers (>= 3.0x pins/URL)">
         <div class="flex items-center justify-between text-slate-500 dark:text-slate-400">
-          <span class="text-[10px] font-mono uppercase tracking-wider">Avg Pin / URL</span>
+          <span class="text-[10px] font-mono uppercase tracking-wider text-amber-600 dark:text-amber-400">Avg Pin / URL</span>
           <span class="text-xs">🔁</span>
         </div>
-        <span class="text-2xl font-bold font-mono text-sky-600 dark:text-sky-400" x-text="(overview.avg_pins_per_url || 1.0) + 'x'">1.0x</span>
-        <span class="text-[11px] text-slate-400 dark:text-slate-500">Average creative re-use</span>
+        <span class="text-2xl font-bold font-mono text-amber-600 dark:text-amber-400" x-text="(overview.avg_pins_per_url || 1.0) + 'x'">1.0x</span>
+        <span class="text-[11px] text-slate-400 dark:text-slate-500">Click for High Multipliers (&gt;= 3x)</span>
       </div>
     </div>
 
@@ -187,6 +193,15 @@ export function getDomainsPageHtml() {
           <span class="text-xs text-slate-400 dark:text-slate-500">Quick strategic presets</span>
         </div>
         <div class="flex items-center gap-2">
+          <!-- Batch Check Visible Domains Button -->
+          <button @click="batchEnrichVisible()"
+                  :disabled="batchEnriching"
+                  class="px-3 py-1.5 rounded-xl border border-sky-300 dark:border-sky-800 bg-sky-50 hover:bg-sky-100 dark:bg-sky-950/40 dark:hover:bg-sky-900/60 text-xs font-semibold text-sky-700 dark:text-sky-300 transition-colors flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+                  title="Check WHOIS age for all unverified domains on the current page">
+            <span :class="{ 'animate-spin': batchEnriching }">⚡</span>
+            <span x-text="batchEnriching ? 'Checking (' + batchProgress.done + '/' + batchProgress.total + ')...' : 'Batch Check Page'">Batch Check Page</span>
+          </button>
+
           <button @click="downloadDomainsCsv()"
                   class="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700/60 text-xs font-semibold text-slate-700 dark:text-slate-200 transition-colors flex items-center gap-1.5 shadow-sm">
             <span>📥</span>
@@ -366,13 +381,26 @@ export function getDomainsPageHtml() {
                          loading="lazy"
                          onerror="this.onerror=null; this.style.display='none'">
                     <div class="flex flex-col min-w-0">
-                      <div class="flex items-center gap-1.5">
+                      <div class="flex items-center gap-1.5 flex-wrap">
                         <span class="font-bold text-slate-900 dark:text-white truncate group-hover:text-sky-600 dark:group-hover:text-sky-400 transition-colors" x-text="d.domain"></span>
+                        <!-- Smart Badges -->
+                        <template x-if="d.age_years !== null && d.age_years <= 2.0 && d.top10_pins >= 1">
+                          <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 shrink-0" title="Baby Giant: < 2 Years with Top-10 Pins">🌱 Baby Giant</span>
+                        </template>
+                        <template x-if="d.accounts_count >= 3">
+                          <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20 shrink-0" :title="'PBN Network: ' + d.accounts_count + ' accounts pushing traffic'">🕸️ PBN</span>
+                        </template>
+                        <template x-if="d.pins_per_url >= 3.0">
+                          <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 shrink-0" :title="'High Multiplier: ' + d.pins_per_url + 'x pins/URL'">⚡ Multi</span>
+                        </template>
+                        <template x-if="d.displaced_pins >= 3 && d.decay_rate_pct >= 30">
+                          <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 shrink-0" :title="'Bleeding Giant: ' + d.decay_rate_pct + '% displacement'">🩸 Bleeding</span>
+                        </template>
                         <a :href="safeUrl('https://' + d.domain)"
                            target="_blank"
                            rel="noopener noreferrer"
                            @click.stop
-                           class="text-slate-400 hover:text-slate-700 dark:hover:text-white"
+                           class="text-slate-400 hover:text-slate-700 dark:hover:text-white text-xs shrink-0"
                            title="Visit website in new tab">
                           ↗
                         </a>
@@ -392,7 +420,7 @@ export function getDomainsPageHtml() {
                               'bg-sky-500/10 text-sky-700 dark:text-sky-400 border border-sky-500/30': d.age_years > 2.0 && d.age_years <= 5.0,
                               'bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/30': d.age_years > 5.0
                             }"
-                            :title="d.domain_created_at ? 'Registered: ' + d.domain_created_at.slice(0, 10) : 'Age'">
+                            :title="d.domain_created_at ? 'Registered: ' + d.domain_created_at.slice(0, 10) + ' (' + (d.lookup_source || 'whois') + ')' : 'Age'">
                         <span x-text="d.age_years <= 2.0 ? '🌱' : (d.age_years <= 5.0 ? '🏢' : '🏛️')"></span>
                         <span x-text="d.age_years + 'y (' + formatNumber(d.age_days) + 'd)'"></span>
                       </span>
@@ -401,8 +429,10 @@ export function getDomainsPageHtml() {
                   </template>
                   <template x-if="d.age_years === null || d.age_years === undefined">
                     <button @click.stop="enrichAge(d.domain)"
-                            class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-[10px] font-mono border border-slate-200 dark:border-slate-700 transition flex items-center gap-1">
-                      <span>🔍</span> Check Age
+                            :disabled="enrichingDomains[d.domain]"
+                            class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-[10px] font-mono border border-slate-200 dark:border-slate-700 transition flex items-center gap-1 disabled:opacity-60 shadow-sm">
+                      <span :class="{ 'animate-spin': enrichingDomains[d.domain] }" x-text="enrichingDomains[d.domain] ? '⏳' : '🔍'">🔍</span>
+                      <span x-text="enrichingDomains[d.domain] ? 'Checking...' : 'Check Age'">Check Age</span>
                     </button>
                   </template>
                 </td>
@@ -548,23 +578,50 @@ export function getDomainsPageHtml() {
                    loading="lazy"
                    onerror="this.onerror=null; this.style.display='none'">
               <div>
-                <div class="flex items-center gap-2">
+                <div class="flex items-center gap-2 flex-wrap">
                   <h2 class="text-lg font-bold text-slate-900 dark:text-white font-mono" x-text="dossierDomain"></h2>
                   <a :href="safeUrl('https://' + dossierDomain)"
                      target="_blank"
                      rel="noopener noreferrer"
-                     class="text-xs text-sky-600 hover:underline">
+                     class="text-xs text-sky-600 hover:underline shrink-0">
                     Visit ↗
+                  </a>
+                  <!-- SEO Spy Shortcuts -->
+                  <span class="text-slate-300 dark:text-slate-700">•</span>
+                  <a :href="safeUrl('https://www.similarweb.com/website/' + dossierDomain)"
+                     target="_blank"
+                     rel="noopener noreferrer"
+                     class="text-[11px] font-mono text-slate-500 hover:text-sky-600 dark:hover:text-sky-400 hover:underline shrink-0"
+                     title="View traffic and geography on Similarweb">
+                    Similarweb ↗
+                  </a>
+                  <span class="text-slate-300 dark:text-slate-700">•</span>
+                  <a :href="safeUrl('https://web.archive.org/web/*/' + dossierDomain)"
+                     target="_blank"
+                     rel="noopener noreferrer"
+                     class="text-[11px] font-mono text-slate-500 hover:text-sky-600 dark:hover:text-sky-400 hover:underline shrink-0"
+                     title="View historical archive on Wayback Machine">
+                    Wayback ↗
+                  </a>
+                  <span class="text-slate-300 dark:text-slate-700">•</span>
+                  <a :href="safeUrl('https://www.google.com/search?q=site%3A' + encodeURIComponent(dossierDomain))"
+                     target="_blank"
+                     rel="noopener noreferrer"
+                     class="text-[11px] font-mono text-slate-500 hover:text-sky-600 dark:hover:text-sky-400 hover:underline shrink-0"
+                     title="View Google indexation (site:domain)">
+                    Google Site ↗
                   </a>
                 </div>
                 <div class="text-xs text-slate-400">Deep Domain Dossier & Cross-Pillar Forensic Audit</div>
               </div>
             </div>
 
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 shrink-0">
               <button @click="recheckAgeForDossier()"
-                      class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-300 transition flex items-center gap-1 shadow-sm">
-                <span>🔄</span> Re-check Age
+                      :disabled="enrichingDomains[dossierDomain]"
+                      class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-300 transition flex items-center gap-1 shadow-sm disabled:opacity-60">
+                <span :class="{ 'animate-spin': enrichingDomains[dossierDomain] }">🔄</span>
+                <span x-text="enrichingDomains[dossierDomain] ? 'Checking...' : 'Re-check Age'">Re-check Age</span>
               </button>
               <button @click="closeDossier()"
                       class="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 hover:text-slate-900 dark:hover:text-white flex items-center justify-center text-sm font-bold transition">
@@ -674,18 +731,30 @@ export function getDomainsPageHtml() {
                         <div class="flex items-center gap-2 text-[10px] text-slate-400 font-mono mt-0.5">
                           <span x-text="'Pin #' + p.pin_id"></span>
                           <span class="text-slate-300 dark:text-slate-600">•</span>
-                          <span class="text-purple-600 dark:text-purple-400" x-text="p.creator_username ? '@' + p.creator_username : 'Unknown'"></span>
+                          <template x-if="p.creator_username">
+                            <a :href="safeUrl('/?competitor=@' + p.creator_username)"
+                               target="_blank"
+                               class="text-purple-600 dark:text-purple-400 hover:underline"
+                               :title="'Inspect creator @' + p.creator_username"
+                               x-text="'@' + p.creator_username"></a>
+                          </template>
+                          <template x-if="!p.creator_username">
+                            <span class="text-slate-400">Unknown</span>
+                          </template>
                           <span class="text-slate-300 dark:text-slate-600">•</span>
                           <span class="text-emerald-600 dark:text-emerald-400 font-bold" x-text="formatNumber(p.saves) + ' saves'"></span>
                         </div>
-                        <!-- SERP Appearances Badges -->
+                        <!-- SERP Appearances Badges (Clickable) -->
                         <div class="flex items-center gap-1.5 flex-wrap mt-1.5">
-                          <template x-for="app in (p.serp_appearances || []).slice(0, 3)" :key="app.keyword_id">
-                            <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-700 dark:text-sky-300 border border-sky-500/20"
-                                  :title="'Keyword: ' + app.keyword_name">
+                          <template x-for="app in (p.serp_appearances || []).slice(0, 4)" :key="app.keyword_id">
+                            <a :href="safeUrl('/keywords/' + encodeURIComponent(app.keyword_name))"
+                               target="_blank"
+                               class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-sky-500/10 hover:bg-sky-500/20 text-sky-700 dark:text-sky-300 border border-sky-500/20 transition-colors inline-flex items-center gap-1"
+                               :title="'Open SERP Radar for: ' + app.keyword_name">
                               <span x-text="app.rank_position ? '#' + app.rank_position : 'Displaced'" class="font-bold"></span>
-                              <span class="text-slate-400 truncate max-w-[120px] inline-block align-bottom" x-text="app.keyword_name"></span>
-                            </span>
+                              <span class="text-slate-500 dark:text-slate-400 truncate max-w-[130px]" x-text="app.keyword_name"></span>
+                              <span class="text-[9px]">↗</span>
+                            </a>
                           </template>
                         </div>
                       </div>
@@ -704,12 +773,24 @@ export function getDomainsPageHtml() {
 
               <!-- TAB 2: Money Articles & Multipliers -->
               <div x-show="dossierTab === 'urls'" class="space-y-4">
+                <div class="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
+                  <div class="text-xs text-slate-500 font-mono" x-text="(dossierData.money_urls?.length || 0) + ' articles discovered'"></div>
+                  <button @click="copyAllArticleUrls()"
+                          class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold font-mono transition flex items-center gap-1 shadow-sm">
+                    <span>📋</span> Copy All Article URLs
+                  </button>
+                </div>
                 <template x-for="art in dossierData.money_urls" :key="art.clean_slug">
                   <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700/80 rounded-xl p-4 flex flex-col gap-3 shadow-sm">
                     <div class="flex items-start justify-between gap-3">
                       <div class="flex flex-col min-w-0">
-                        <div class="flex items-center gap-2">
+                        <div class="flex items-center gap-2 flex-wrap">
                           <span class="text-sm font-bold font-mono text-slate-900 dark:text-white truncate" x-text="art.clean_slug"></span>
+                          <button @click="copyToClipboard(art.sample_url || art.clean_slug, 'Copied article URL!')"
+                                  class="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-xs px-1.5 py-0.5 rounded hover:bg-slate-100 dark:hover:bg-slate-700"
+                                  title="Copy URL">
+                            📋
+                          </button>
                           <a :href="safeUrl(art.sample_url)"
                              target="_blank"
                              rel="noopener noreferrer"
@@ -861,6 +942,11 @@ export function getDomainsPageHtml() {
         dossierData: null,
         dossierTab: 'pins', // 'pins' | 'urls' | 'monopoly' | 'accounts'
 
+        // Age Verification & Batch Progress State
+        enrichingDomains: {},
+        batchEnriching: false,
+        batchProgress: { done: 0, total: 0 },
+
         toasts: [],
 
         init() {
@@ -984,13 +1070,15 @@ export function getDomainsPageHtml() {
           window.scrollTo({ top: 0, behavior: 'smooth' });
         },
 
-        async enrichAge(domain) {
+        async enrichAge(domain, force = false) {
+          if (!domain || this.enrichingDomains[domain]) return;
+          this.enrichingDomains[domain] = true;
+          this.enrichingDomains = { ...this.enrichingDomains };
           try {
-            this.showToast('Checking WHOIS age for ' + domain + '...', 'info');
             const res = await fetch('/api/domains/enrich-age', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ domain })
+              body: JSON.stringify({ domain, force })
             });
             if (res.ok) {
               const data = await res.json();
@@ -1001,13 +1089,73 @@ export function getDomainsPageHtml() {
                   target.age_days = data.age_info.age_days;
                   target.domain_created_at = data.age_info.registered_at;
                   target.age_status = data.age_info.lookup_status;
+                  target.lookup_source = data.age_info.lookup_source;
                 }
-                this.showToast('Resolved age: ' + (data.age_info.age_years || 'Unknown') + ' years', 'success');
+                if (this.dossierData && this.dossierDomain === domain) {
+                  this.dossierData.age_info = data.age_info;
+                }
+                const ageLabel = data.age_info.age_years != null ? data.age_info.age_years + 'y' : 'Checked';
+                this.showToast('Resolved ' + domain + ': ' + ageLabel + ' (' + (data.age_info.lookup_source || 'whois') + ')', 'success');
               }
+            } else {
+              throw new Error('HTTP ' + res.status);
             }
           } catch (err) {
-            this.showToast('Failed to enrich age: ' + err.message, 'error');
+            this.showToast('Failed to check age for ' + domain + ': ' + err.message, 'error');
+          } finally {
+            delete this.enrichingDomains[domain];
+            this.enrichingDomains = { ...this.enrichingDomains };
           }
+        },
+
+        async batchEnrichVisible() {
+          const unchecked = this.domains.filter(d => (d.age_years === null || d.age_years === undefined) && !this.enrichingDomains[d.domain]);
+          if (unchecked.length === 0) {
+            this.showToast('All visible domains on this page are already verified!', 'info');
+            return;
+          }
+          this.batchEnriching = true;
+          this.batchProgress = { done: 0, total: unchecked.length };
+          this.showToast('Verifying ' + unchecked.length + ' visible domains in batch...', 'info');
+
+          // Chunk into batches of 8 with safe jitter
+          const chunks = [];
+          for (let i = 0; i < unchecked.length; i += 8) {
+            chunks.push(unchecked.slice(i, i + 8).map(d => d.domain));
+          }
+
+          for (const chunk of chunks) {
+            chunk.forEach(d => { this.enrichingDomains[d] = true; });
+            this.enrichingDomains = { ...this.enrichingDomains };
+            try {
+              const res = await fetch('/api/domains/enrich-age', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ domains: chunk })
+              });
+              if (res.ok) {
+                const data = await res.json();
+                if (Array.isArray(data.results)) {
+                  for (const r of data.results) {
+                    const target = this.domains.find(d => d.domain === r.domain);
+                    if (target) {
+                      target.age_years = r.age_years;
+                      target.age_days = r.age_days;
+                      target.domain_created_at = r.registered_at;
+                      target.age_status = r.lookup_status;
+                      target.lookup_source = r.lookup_source;
+                    }
+                  }
+                }
+              }
+            } catch (_) {}
+            chunk.forEach(d => { delete this.enrichingDomains[d]; });
+            this.batchProgress.done = Math.min(this.batchProgress.total, this.batchProgress.done + chunk.length);
+            this.enrichingDomains = { ...this.enrichingDomains };
+          }
+
+          this.batchEnriching = false;
+          this.showToast('Batch verification complete! Updated ' + this.batchProgress.done + ' domains.', 'success');
         },
 
         async openDossier(domain) {
@@ -1035,23 +1183,25 @@ export function getDomainsPageHtml() {
 
         async recheckAgeForDossier() {
           if (!this.dossierDomain) return;
-          this.showToast('Refreshing WHOIS for ' + this.dossierDomain + '...', 'info');
-          try {
-            const res = await fetch('/api/domains/enrich-age', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ domain: this.dossierDomain, force: true })
-            });
-            if (res.ok) {
-              const data = await res.json();
-              if (data.age_info && this.dossierData) {
-                this.dossierData.age_info = data.age_info;
-                this.showToast('Updated WHOIS age!', 'success');
-              }
-            }
-          } catch (err) {
-            this.showToast('WHOIS refresh failed: ' + err.message, 'error');
+          await this.enrichAge(this.dossierDomain, true);
+        },
+
+        copyToClipboard(text, msg = 'Copied to clipboard!') {
+          if (!text) return;
+          navigator.clipboard.writeText(text).then(() => {
+            this.showToast(msg, 'success');
+          }).catch(() => {
+            this.showToast('Could not copy to clipboard', 'warning');
+          });
+        },
+
+        copyAllArticleUrls() {
+          if (!this.dossierData?.money_urls?.length) {
+            this.showToast('No articles available to copy', 'warning');
+            return;
           }
+          const urls = this.dossierData.money_urls.map(u => u.sample_url || ('https://' + this.dossierDomain + u.clean_slug)).join('\\n');
+          this.copyToClipboard(urls, 'Copied ' + this.dossierData.money_urls.length + ' article URLs to clipboard!');
         },
 
         downloadDomainsCsv() {
