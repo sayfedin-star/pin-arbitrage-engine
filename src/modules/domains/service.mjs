@@ -420,6 +420,183 @@ export async function enrichMissingDomainsBatch(sql, candidateDomains = [], maxB
 }
 
 /**
+ * Global Database Enrichment Statistics:
+ * Returns aggregate count of total valid unique domains, checked, resolved, failed, and percent complete.
+ */
+export async function getDatabaseEnrichmentStats(sql) {
+  try {
+    const [stats] = await sql`
+      WITH all_domains AS (
+        SELECT DISTINCT LOWER(REGEXP_REPLACE(domain, '^www\\.', '')) AS clean_domain
+        FROM keyword_serp_current
+        WHERE domain IS NOT NULL AND domain <> ''
+        UNION
+        SELECT DISTINCT LOWER(REGEXP_REPLACE(domain, '^www\\.', '')) AS clean_domain
+        FROM universal_master_pins
+        WHERE domain IS NOT NULL AND domain <> ''
+        UNION
+        SELECT DISTINCT LOWER(REGEXP_REPLACE(cp.link_domain, '^www\\.', '')) AS clean_domain
+        FROM competitor_pins cp
+        WHERE cp.link_domain IS NOT NULL AND cp.link_domain <> ''
+      ),
+      valid_domains AS (
+        SELECT clean_domain
+        FROM all_domains
+        WHERE clean_domain IS NOT NULL
+          AND clean_domain <> ''
+          AND clean_domain LIKE '%.%'
+          AND clean_domain NOT LIKE '% %'
+          AND LENGTH(clean_domain) >= 4
+          AND clean_domain <> ALL(${IGNORED_INTERNAL_DOMAINS}::text[])
+          AND clean_domain <> ALL(${ECOMMERCE_AND_SOCIAL_DOMAINS}::text[])
+      )
+      SELECT
+        COUNT(*)::int AS total_domains,
+        COUNT(drm.domain)::int AS checked_domains,
+        COUNT(drm.domain) FILTER (WHERE drm.lookup_status = 'resolved')::int AS resolved_domains,
+        COUNT(drm.domain) FILTER (WHERE drm.lookup_status = 'failed')::int AS failed_domains,
+        (COUNT(*) - COUNT(drm.domain))::int AS unchecked_domains,
+        ROUND((COUNT(drm.domain)::numeric / GREATEST(1, COUNT(*))) * 100, 1) AS percent_complete
+      FROM valid_domains vd
+      LEFT JOIN domain_registry_metadata drm ON drm.domain = vd.clean_domain;
+    `;
+    return {
+      total_domains: Number(stats?.total_domains || 0),
+      checked_domains: Number(stats?.checked_domains || 0),
+      resolved_domains: Number(stats?.resolved_domains || 0),
+      failed_domains: Number(stats?.failed_domains || 0),
+      unchecked_domains: Number(stats?.unchecked_domains || 0),
+      percent_complete: Number(stats?.percent_complete || 0)
+    };
+  } catch (err) {
+    return {
+      total_domains: 0,
+      checked_domains: 0,
+      resolved_domains: 0,
+      failed_domains: 0,
+      unchecked_domains: 0,
+      percent_complete: 0,
+      error: err.message
+    };
+  }
+}
+
+/**
+ * Enriches the next priority batch of unchecked domains in the database:
+ * Selects domains ordered by visibility_score DESC and total_saves DESC,
+ * resolves them using the multi-tier engine with safe concurrency and jitter.
+ */
+export async function enrichNextUncheckedBatch(sql, { batchSize = 20, concurrency = 3, forceRefresh = false } = {}) {
+  const lim = Math.max(1, Math.min(Number(batchSize) || 20, 50));
+  const conc = Math.max(1, Math.min(Number(concurrency) || 3, 5));
+
+  const candidateRows = await sql`
+    WITH all_candidates AS (
+      SELECT
+        LOWER(REGEXP_REPLACE(ksc.domain, '^www\\.', '')) AS clean_domain,
+        SUM(GREATEST(0, (51 - COALESCE(ksc.rank_position, 50))))::bigint AS visibility_score,
+        SUM(COALESCE(ksc.save_count, 0))::bigint AS total_saves
+      FROM keyword_serp_current ksc
+      WHERE ksc.domain IS NOT NULL AND ksc.domain <> ''
+      GROUP BY clean_domain
+
+      UNION ALL
+
+      SELECT
+        LOWER(REGEXP_REPLACE(ump.domain, '^www\\.', '')) AS clean_domain,
+        0::bigint AS visibility_score,
+        0::bigint AS total_saves
+      FROM universal_master_pins ump
+      WHERE ump.domain IS NOT NULL AND ump.domain <> ''
+      GROUP BY clean_domain
+
+      UNION ALL
+
+      SELECT
+        LOWER(REGEXP_REPLACE(cp.link_domain, '^www\\.', '')) AS clean_domain,
+        0::bigint AS visibility_score,
+        SUM(COALESCE(cp.save_count, 0))::bigint AS total_saves
+      FROM competitor_pins cp
+      WHERE cp.link_domain IS NOT NULL AND cp.link_domain <> ''
+      GROUP BY clean_domain
+    ),
+    aggregated AS (
+      SELECT
+        clean_domain AS domain,
+        SUM(visibility_score)::bigint AS visibility_score,
+        SUM(total_saves)::bigint AS total_saves
+      FROM all_candidates
+      WHERE clean_domain IS NOT NULL
+        AND clean_domain <> ''
+        AND clean_domain LIKE '%.%'
+        AND clean_domain NOT LIKE '% %'
+        AND LENGTH(clean_domain) >= 4
+        AND clean_domain <> ALL(${IGNORED_INTERNAL_DOMAINS}::text[])
+        AND clean_domain <> ALL(${ECOMMERCE_AND_SOCIAL_DOMAINS}::text[])
+      GROUP BY clean_domain
+    )
+    SELECT agg.domain
+    FROM aggregated agg
+    LEFT JOIN domain_registry_metadata drm ON drm.domain = agg.domain
+    WHERE (
+      ${forceRefresh} = TRUE
+      OR drm.domain IS NULL
+      OR (drm.lookup_status = 'failed' AND drm.checked_at < NOW() - INTERVAL '30 days')
+    )
+    ORDER BY agg.visibility_score DESC, agg.total_saves DESC
+    LIMIT ${lim};
+  `;
+
+  const domainList = candidateRows
+    .map(r => normalizeCleanDomain(r.domain))
+    .filter(Boolean);
+
+  if (domainList.length === 0) {
+    const stats = await getDatabaseEnrichmentStats(sql);
+    return {
+      batch_size: 0,
+      enriched: 0,
+      resolved: 0,
+      failed: 0,
+      results: [],
+      stats,
+      is_complete: true
+    };
+  }
+
+  const results = [];
+  for (let i = 0; i < domainList.length; i += conc) {
+    const slice = domainList.slice(i, i + conc);
+    const chunkPromises = slice.map(async (dom) => {
+      try {
+        return await fetchAndCacheDomainAge(sql, dom, { forceRefresh });
+      } catch (_) {
+        return { domain: dom, lookup_status: 'failed', age_years: null };
+      }
+    });
+    const batchOutputs = await Promise.all(chunkPromises);
+    results.push(...batchOutputs.filter(Boolean));
+    if (i + conc < domainList.length) {
+      await sleep(randomJitterMs(250, 500));
+    }
+  }
+
+  const resolved = results.filter(r => r.lookup_status === 'resolved').length;
+  const failed = results.filter(r => r.lookup_status === 'failed').length;
+  const stats = await getDatabaseEnrichmentStats(sql);
+
+  return {
+    batch_size: domainList.length,
+    enriched: results.length,
+    resolved,
+    failed,
+    results,
+    stats,
+    is_complete: stats.unchecked_domains === 0
+  };
+}
+
+/**
  * Top-Level Executive KPIs + Paginated Domain Leaderboard
  */
 export async function listDomainsIntelligence(sql, {

@@ -193,11 +193,20 @@ export function getDomainsPageHtml() {
           <span class="text-xs text-slate-400 dark:text-slate-500">Quick strategic presets</span>
         </div>
         <div class="flex items-center gap-2">
+          <!-- Verify Entire Database Global Button -->
+          <button @click="toggleGlobalEnrichment()"
+                  class="px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all flex items-center gap-1.5 shadow-sm"
+                  :class="globalEnriching ? 'bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20' : 'bg-gradient-to-r from-sky-500 to-indigo-600 text-white hover:from-sky-600 hover:to-indigo-700 border-transparent'"
+                  :title="globalEnriching ? 'Pause global verification queue' : 'Automatically verify WHOIS age for all unverified domains in the entire database'">
+            <span :class="{ 'animate-spin': globalEnriching }">🚀</span>
+            <span x-text="globalEnriching ? 'Pause Auto-Verify (' + (globalStats.percent_complete || 0) + '%)' : 'Verify Entire Database'">Verify Entire Database</span>
+          </button>
+
           <!-- Batch Check Visible Domains Button -->
           <button @click="batchEnrichVisible()"
-                  :disabled="batchEnriching"
+                  :disabled="batchEnriching || globalEnriching"
                   class="px-3 py-1.5 rounded-xl border border-sky-300 dark:border-sky-800 bg-sky-50 hover:bg-sky-100 dark:bg-sky-950/40 dark:hover:bg-sky-900/60 text-xs font-semibold text-sky-700 dark:text-sky-300 transition-colors flex items-center gap-1.5 shadow-sm disabled:opacity-50"
-                  title="Check WHOIS age for all unverified domains on the current page">
+                  title="Check WHOIS age for unverified domains on the current page">
             <span :class="{ 'animate-spin': batchEnriching }">⚡</span>
             <span x-text="batchEnriching ? 'Checking (' + batchProgress.done + '/' + batchProgress.total + ')...' : 'Batch Check Page'">Batch Check Page</span>
           </button>
@@ -328,6 +337,34 @@ export function getDomainsPageHtml() {
         <div class="text-xs text-slate-400 font-mono" x-text="'Page ' + currentPage + ' of ' + totalPages"></div>
       </div>
 
+      <!-- Global Verification Active Banner -->
+      <template x-if="globalEnriching">
+        <div class="px-5 py-3 bg-gradient-to-r from-sky-500/10 via-indigo-500/10 to-emerald-500/10 border-b border-sky-500/20 flex flex-col gap-2">
+          <div class="flex items-center justify-between text-xs font-mono flex-wrap gap-2">
+            <div class="flex items-center gap-2">
+              <span class="animate-spin text-sm">🚀</span>
+              <span class="font-bold text-sky-800 dark:text-sky-300">Global Verification In Progress:</span>
+              <span class="text-slate-600 dark:text-slate-300" x-text="formatNumber(globalStats.checked_domains) + ' / ' + formatNumber(globalStats.total_domains) + ' domains (' + (globalStats.percent_complete || 0) + '%)'"></span>
+            </div>
+            <div class="flex items-center gap-3">
+              <span class="text-emerald-700 dark:text-emerald-400 font-bold" x-text="'🌱 ' + formatNumber(globalStats.resolved_domains) + ' resolved'"></span>
+              <span class="text-amber-700 dark:text-amber-400 font-bold" x-text="'🔒 ' + formatNumber(globalStats.failed_domains) + ' shielded'"></span>
+              <span class="text-slate-500 font-mono" x-text="'⏳ ' + formatNumber(globalStats.unchecked_domains) + ' remaining'"></span>
+              <button @click="stopGlobalEnrichment()"
+                      class="px-2.5 py-1 rounded bg-rose-500/10 hover:bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-500/30 text-[11px] font-semibold transition flex items-center gap-1 shadow-sm">
+                <span>⏸️</span>
+                <span>Pause</span>
+              </button>
+            </div>
+          </div>
+          <!-- Animated Progress Bar -->
+          <div class="w-full bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden">
+            <div class="bg-gradient-to-r from-sky-500 via-indigo-500 to-emerald-500 h-full transition-all duration-500"
+                 :style="'width: ' + (globalStats.percent_complete || 0) + '%'"></div>
+          </div>
+        </div>
+      </template>
+
       <!-- Table Element -->
       <div class="overflow-x-auto">
         <table class="w-full text-left text-xs border-collapse">
@@ -412,6 +449,7 @@ export function getDomainsPageHtml() {
 
                 <!-- 2. Domain Age & Registry -->
                 <td class="py-3 px-4">
+                  <!-- State 1: Resolved Age -->
                   <template x-if="d.age_years !== null && d.age_years !== undefined">
                     <div class="flex flex-col gap-0.5">
                       <span class="inline-flex items-center gap-1 font-mono text-[11px] font-bold px-2 py-0.5 rounded-md w-fit"
@@ -427,7 +465,26 @@ export function getDomainsPageHtml() {
                       <span class="text-[10px] text-slate-400 font-mono" x-text="d.domain_created_at ? 'Reg: ' + d.domain_created_at.slice(0, 10) : ''"></span>
                     </div>
                   </template>
-                  <template x-if="d.age_years === null || d.age_years === undefined">
+
+                  <!-- State 2: Checked & Privacy Shielded / Redacted Date -->
+                  <template x-if="(d.age_years === null || d.age_years === undefined) && d.age_status === 'failed'">
+                    <div class="flex items-center gap-1.5" @click.stop>
+                      <span class="inline-flex items-center gap-1 font-mono text-[10px] font-semibold px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20"
+                            title="Checked via WHOIS/RDAP: Registry withholds public registration date or is privacy-shielded">
+                        <span>🔒</span>
+                        <span>Redacted / Shielded</span>
+                      </span>
+                      <button @click.stop="enrichAge(d.domain, true)"
+                              :disabled="enrichingDomains[d.domain]"
+                              class="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-[11px] transition"
+                              title="Force Re-check WHOIS/RDAP">
+                        <span :class="{ 'animate-spin': enrichingDomains[d.domain] }">🔄</span>
+                      </button>
+                    </div>
+                  </template>
+
+                  <!-- State 3: Unchecked Domain -->
+                  <template x-if="(d.age_years === null || d.age_years === undefined) && d.age_status !== 'failed'">
                     <button @click.stop="enrichAge(d.domain)"
                             :disabled="enrichingDomains[d.domain]"
                             class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-[10px] font-mono border border-slate-200 dark:border-slate-700 transition flex items-center gap-1 disabled:opacity-60 shadow-sm">
@@ -634,11 +691,14 @@ export function getDomainsPageHtml() {
           <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-2 border-t border-slate-200/80 dark:border-slate-800/80 font-mono text-[11px]">
             <div class="bg-white dark:bg-slate-800/80 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col">
               <span class="text-slate-400 text-[10px] uppercase">Registered</span>
-              <span class="font-bold text-slate-800 dark:text-slate-200" x-text="dossierData?.age_info?.registered_at ? dossierData.age_info.registered_at.slice(0, 10) : 'Unknown'"></span>
+              <span class="font-bold text-slate-800 dark:text-slate-200"
+                    x-text="dossierData?.age_info?.registered_at ? dossierData.age_info.registered_at.slice(0, 10) : (dossierData?.age_info?.lookup_status === 'failed' ? '🔒 Redacted' : 'Unknown')"></span>
             </div>
             <div class="bg-white dark:bg-slate-800/80 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col">
               <span class="text-slate-400 text-[10px] uppercase">Age</span>
-              <span class="font-bold text-emerald-600 dark:text-emerald-400" x-text="dossierData?.age_info?.age_years != null ? dossierData.age_info.age_years + 'y (' + dossierData.age_info.age_days + 'd)' : 'Unverified'"></span>
+              <span class="font-bold"
+                    :class="dossierData?.age_info?.age_years != null ? 'text-emerald-600 dark:text-emerald-400' : (dossierData?.age_info?.lookup_status === 'failed' ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400')"
+                    x-text="dossierData?.age_info?.age_years != null ? dossierData.age_info.age_years + 'y (' + dossierData.age_info.age_days + 'd)' : (dossierData?.age_info?.lookup_status === 'failed' ? 'Withheld by Registry' : 'Unverified')"></span>
             </div>
             <div class="bg-white dark:bg-slate-800/80 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col">
               <span class="text-slate-400 text-[10px] uppercase">Expires</span>
@@ -646,9 +706,21 @@ export function getDomainsPageHtml() {
             </div>
             <div class="bg-white dark:bg-slate-800/80 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col">
               <span class="text-slate-400 text-[10px] uppercase">Lookup Source</span>
-              <span class="font-bold text-sky-600 dark:text-sky-400" x-text="dossierData?.age_info?.lookup_source || '—'"></span>
+              <span class="font-bold text-sky-600 dark:text-sky-400"
+                    x-text="dossierData?.age_info?.lookup_source ? dossierData.age_info.lookup_source + (dossierData?.age_info?.lookup_status === 'failed' ? ' (shielded)' : '') : '—'"></span>
             </div>
           </div>
+
+          <!-- Privacy Shielded Explanatory Note -->
+          <template x-if="dossierData?.age_info?.lookup_status === 'failed'">
+            <div class="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-800 dark:text-amber-300 flex items-start gap-2 font-mono">
+              <span class="text-sm shrink-0">ℹ️</span>
+              <div>
+                <span class="font-bold">Registry Withheld / Privacy Shielded:</span>
+                <span> This domain was queried across Direct Authoritative RDAP, WHOIS Port 43, and Certificate Transparency, but the registry or parent platform redacted the public creation date.</span>
+              </div>
+            </div>
+          </template>
 
           <!-- Dossier High-Level Stats Cards -->
           <div class="grid grid-cols-3 sm:grid-cols-6 gap-2 pt-1 font-mono text-center">
@@ -946,12 +1018,22 @@ export function getDomainsPageHtml() {
         enrichingDomains: {},
         batchEnriching: false,
         batchProgress: { done: 0, total: 0 },
+        globalEnriching: false,
+        globalStats: {
+          total_domains: 0,
+          checked_domains: 0,
+          resolved_domains: 0,
+          failed_domains: 0,
+          unchecked_domains: 0,
+          percent_complete: 0
+        },
 
         toasts: [],
 
         init() {
           this.fetchFolders();
           this.loadDomains();
+          this.fetchGlobalEnrichStatus();
         },
 
         toggleTheme() {
@@ -1109,9 +1191,9 @@ export function getDomainsPageHtml() {
         },
 
         async batchEnrichVisible() {
-          const unchecked = this.domains.filter(d => (d.age_years === null || d.age_years === undefined) && !this.enrichingDomains[d.domain]);
+          const unchecked = this.domains.filter(d => (!d.age_status || d.age_status === 'unchecked') && !this.enrichingDomains[d.domain]);
           if (unchecked.length === 0) {
-            this.showToast('All visible domains on this page are already verified!', 'info');
+            this.showToast('All visible domains on this page are already checked (resolved or privacy-shielded)!', 'info');
             return;
           }
           this.batchEnriching = true;
@@ -1155,7 +1237,91 @@ export function getDomainsPageHtml() {
           }
 
           this.batchEnriching = false;
+          this.fetchGlobalEnrichStatus();
           this.showToast('Batch verification complete! Updated ' + this.batchProgress.done + ' domains.', 'success');
+        },
+
+        async fetchGlobalEnrichStatus() {
+          try {
+            const res = await fetch('/api/domains/enrich-status');
+            if (res.ok) {
+              const data = await res.json();
+              if (data.stats) {
+                this.globalStats = data.stats;
+              }
+            }
+          } catch (_) {}
+        },
+
+        toggleGlobalEnrichment() {
+          if (this.globalEnriching) {
+            this.stopGlobalEnrichment();
+          } else {
+            this.startGlobalEnrichment();
+          }
+        },
+
+        async startGlobalEnrichment() {
+          if (this.globalEnriching) return;
+          this.globalEnriching = true;
+          this.showToast('Starting automated database verification...', 'info');
+
+          try {
+            await this.fetchGlobalEnrichStatus();
+            if (this.globalStats.unchecked_domains === 0) {
+              this.showToast('All domains in the database are already verified!', 'success');
+              this.globalEnriching = false;
+              return;
+            }
+
+            while (this.globalEnriching) {
+              const res = await fetch('/api/domains/enrich-all', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ batch_size: 25, concurrency: 4 })
+              });
+
+              if (!res.ok) {
+                throw new Error('HTTP ' + res.status);
+              }
+
+              const data = await res.json();
+              if (data.stats) {
+                this.globalStats = data.stats;
+              }
+
+              // Update any currently visible rows on screen in real time
+              if (Array.isArray(data.results)) {
+                for (const r of data.results) {
+                  const target = this.domains.find(d => d.domain === r.domain);
+                  if (target) {
+                    target.age_years = r.age_years;
+                    target.age_days = r.age_days;
+                    target.domain_created_at = r.registered_at;
+                    target.age_status = r.lookup_status;
+                    target.lookup_source = r.lookup_source;
+                  }
+                }
+              }
+
+              if (data.is_complete || (this.globalStats.unchecked_domains === 0)) {
+                this.globalEnriching = false;
+                this.showToast('🎉 All domains in database are fully verified!', 'success');
+                break;
+              }
+
+              // Small delay between batches to respect rate limits
+              await new Promise(r => setTimeout(r, 600));
+            }
+          } catch (err) {
+            this.globalEnriching = false;
+            this.showToast('Global verification paused: ' + err.message, 'error');
+          }
+        },
+
+        stopGlobalEnrichment() {
+          this.globalEnriching = false;
+          this.showToast('Global verification paused. You can resume anytime.', 'info');
         },
 
         async openDossier(domain) {

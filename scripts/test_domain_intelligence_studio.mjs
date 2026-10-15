@@ -14,7 +14,9 @@ import {
   escapeSqlLike,
   listDomainsIntelligence,
   getDomainDeepDossier,
-  fetchAndCacheDomainAge
+  fetchAndCacheDomainAge,
+  getDatabaseEnrichmentStats,
+  enrichNextUncheckedBatch
 } from '../src/modules/domains/service.mjs';
 
 if (typeof process.loadEnvFile === 'function') {
@@ -218,6 +220,63 @@ async function runTests() {
   report(
     'getDomainDeepDossier groups Money URLs and counts pin creative variations',
     Array.isArray(directDossier.money_urls)
+  );
+
+  // 7. Global Database Verification & Privacy-Shielded Status Tests
+  console.log('\n[*] Testing Global Database Verification & Failed/Redacted WHOIS Indicators...');
+
+  // 7.1 Service: getDatabaseEnrichmentStats returns accurate aggregate counts
+  const globalStats = await getDatabaseEnrichmentStats(sql);
+  report(
+    'getDatabaseEnrichmentStats computes database-wide progress and checked counts',
+    typeof globalStats.total_domains === 'number' &&
+    globalStats.total_domains > 0 &&
+    typeof globalStats.checked_domains === 'number' &&
+    typeof globalStats.percent_complete === 'number'
+  );
+
+  // 7.2 API: GET /api/domains/enrich-status returns global statistics
+  const enrichStatusRes = await worker.fetch(new Request('https://engine.internal/api/domains/enrich-status', {
+    method: 'GET'
+  }), mockEnv);
+  const enrichStatusData = await enrichStatusRes.json();
+  report(
+    'GET /api/domains/enrich-status serves global progress telemetry',
+    enrichStatusRes.status === 200 &&
+    enrichStatusData.success === true &&
+    typeof enrichStatusData.stats?.total_domains === 'number'
+  );
+
+  // 7.3 API: POST /api/domains/enrich-all processes automated batch queue
+  const enrichAllRes = await worker.fetch(new Request('https://engine.internal/api/domains/enrich-all', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ batch_size: 2, concurrency: 2 })
+  }), mockEnv);
+  const enrichAllData = await enrichAllRes.json();
+  report(
+    'POST /api/domains/enrich-all processes prioritized batch without manual intervention',
+    enrichAllRes.status === 200 &&
+    enrichAllData.success === true &&
+    typeof enrichAllData.batch_size === 'number' &&
+    typeof enrichAllData.stats?.checked_domains === 'number'
+  );
+
+  // 7.4 UI: Studio HTML contains Verify Entire Database button and Global Banner
+  const studioHtml = await worker.fetch(new Request('https://engine.internal/domains', {
+    method: 'GET'
+  }), mockEnv).then(r => r.text());
+  report(
+    'Studio UI contains Verify Entire Database button & Global Verification Banner',
+    studioHtml.includes('Verify Entire Database') &&
+    studioHtml.includes('Global Verification In Progress')
+  );
+
+  // 7.5 UI: Studio HTML contains 3-State Redacted / Shielded Badge
+  report(
+    'Studio UI contains 3-State Redacted / Shielded Badge for withheld registry WHOIS',
+    studioHtml.includes('Redacted / Shielded') &&
+    studioHtml.includes('Registry Withheld / Privacy Shielded')
   );
 
   console.log('\n================================================================================');

@@ -19,6 +19,8 @@ import {
   getDomainDeepDossier,
   fetchAndCacheDomainAge,
   enrichMissingDomainsBatch,
+  getDatabaseEnrichmentStats,
+  enrichNextUncheckedBatch,
   normalizeCleanDomain
 } from './modules/domains/service.mjs';
 import {
@@ -4806,6 +4808,29 @@ export default {
           if (!clean) return jsonResponse({ success: false, error: 'Invalid domain format' }, 400);
           const ageData = await fetchAndCacheDomainAge(sql, clean, { forceRefresh: Boolean(body.force) });
           return jsonResponse({ success: true, age_info: ageData });
+        } catch (err) {
+          return jsonResponse({ success: false, error: redactSecrets(err.message) }, 500);
+        }
+      }
+
+      if (method === 'GET' && pathname === '/api/domains/enrich-status') {
+        try {
+          const stats = await getDatabaseEnrichmentStats(sql);
+          return jsonResponse({ success: true, stats }, 200, 5);
+        } catch (err) {
+          return jsonResponse({ success: false, error: redactSecrets(err.message) }, 500);
+        }
+      }
+
+      if (method === 'POST' && pathname === '/api/domains/enrich-all') {
+        invalidateEdgeCache('domains:leaderboard');
+        try {
+          const body = await request.json().catch(() => ({}));
+          const batchSize = Math.max(1, Math.min(Number(body.batch_size) || 20, 50));
+          const concurrency = Math.max(1, Math.min(Number(body.concurrency) || 3, 5));
+          const forceRefresh = Boolean(body.force);
+          const result = await enrichNextUncheckedBatch(sql, { batchSize, concurrency, forceRefresh });
+          return jsonResponse({ success: true, ...result });
         } catch (err) {
           return jsonResponse({ success: false, error: redactSecrets(err.message) }, 500);
         }

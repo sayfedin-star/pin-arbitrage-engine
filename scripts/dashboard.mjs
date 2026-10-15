@@ -24,6 +24,8 @@ import {
   getDomainDeepDossier,
   fetchAndCacheDomainAge,
   enrichMissingDomainsBatch,
+  getDatabaseEnrichmentStats,
+  enrichNextUncheckedBatch,
   normalizeCleanDomain
 } from '../src/modules/domains/service.mjs';
 import {
@@ -2506,6 +2508,28 @@ const server = http.createServer(async (req, res) => {
         if (!clean) return sendJson(res, 400, { success: false, error: 'Invalid domain format' });
         const ageData = await fetchAndCacheDomainAge(sql, clean, { forceRefresh: Boolean(body.force) });
         return sendJson(res, 200, { success: true, age_info: ageData });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, error: redactSecrets(err.message) });
+      }
+    }
+
+    if (method === 'GET' && pathname === '/api/domains/enrich-status') {
+      try {
+        const stats = await getDatabaseEnrichmentStats(sql);
+        return sendJson(res, 200, { success: true, stats });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, error: redactSecrets(err.message) });
+      }
+    }
+
+    if (method === 'POST' && pathname === '/api/domains/enrich-all') {
+      try {
+        const body = await parseJsonBody(req).catch(() => ({}));
+        const batchSize = Math.max(1, Math.min(Number(body.batch_size) || 20, 50));
+        const concurrency = Math.max(1, Math.min(Number(body.concurrency) || 3, 5));
+        const forceRefresh = Boolean(body.force);
+        const result = await enrichNextUncheckedBatch(sql, { batchSize, concurrency, forceRefresh });
+        return sendJson(res, 200, { success: true, ...result });
       } catch (err) {
         return sendJson(res, 500, { success: false, error: redactSecrets(err.message) });
       }
