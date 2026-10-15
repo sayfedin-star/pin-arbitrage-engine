@@ -40,6 +40,7 @@ const uiFiles = [
   'src/campaign-folders-ui.mjs',
   'src/dashboard-ui.mjs',
   'src/discovery-ui.mjs',
+  'src/domains-ui.mjs',
   'src/keywords-ui.mjs',
   'src/pin-details-ui.mjs'
 ];
@@ -86,7 +87,7 @@ for (const file of uiFiles) {
 }
 
 // Verify safeUrl implementation in relevant templates
-const safeUrlFiles = ['src/dashboard-ui.mjs', 'src/keywords-ui.mjs', 'src/pin-details-ui.mjs'];
+const safeUrlFiles = ['src/dashboard-ui.mjs', 'src/keywords-ui.mjs', 'src/pin-details-ui.mjs', 'src/domains-ui.mjs'];
 for (const file of safeUrlFiles) {
   const content = fs.readFileSync(path.join(rootDir, file), 'utf8');
   check(`${file}: Declares safeUrl method`, content.includes('safeUrl(url)'), 'Must define safeUrl helper');
@@ -96,7 +97,7 @@ for (const file of safeUrlFiles) {
 // 3. CSV Formula Injection (DDE) Defense (CAP-49)
 // --------------------------------------------------------------------------
 console.log('\n[*] Auditing CSV Formula Injection Protections...');
-const csvExportFiles = ['src/dashboard-ui.mjs', 'src/keywords-ui.mjs', 'src/campaign-folders-ui.mjs'];
+const csvExportFiles = ['src/dashboard-ui.mjs', 'src/keywords-ui.mjs', 'src/campaign-folders-ui.mjs', 'src/domains-ui.mjs'];
 for (const file of csvExportFiles) {
   const content = fs.readFileSync(path.join(rootDir, file), 'utf8');
   check(`${file}: Declares sanitizeCsvCell method`, content.includes('sanitizeCsvCell(val)'), 'Must declare sanitizeCsvCell');

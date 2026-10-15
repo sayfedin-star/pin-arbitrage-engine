@@ -13,6 +13,14 @@ import { getKeywordsPageHtml } from './keywords-ui.mjs';
 import { getDiscoveryPageHtml } from './discovery-ui.mjs';
 import { getPinDetailPageHtml } from './pin-details-ui.mjs';
 import { getCampaignFoldersPageHtml } from './campaign-folders-ui.mjs';
+import { getDomainsPageHtml } from './domains-ui.mjs';
+import {
+  listDomainsIntelligence,
+  getDomainDeepDossier,
+  fetchAndCacheDomainAge,
+  enrichMissingDomainsBatch,
+  normalizeCleanDomain
+} from './modules/domains/service.mjs';
 import {
   fetchUniversalPinDossier,
   getPinShardId,
@@ -24,7 +32,7 @@ import { fetchPinFromPinterest } from '../scripts/lib/pinterest.mjs';
 
 // Reserved Keyword Slugs (Defends against route swallowing on /keywords/:slug)
 export const RESERVED_KEYWORD_SLUGS = new Set([
-  'discovery', 'folders', 'export', 'sync', 'batch', 'api', 'add', 'manage', 'import'
+  'discovery', 'folders', 'export', 'sync', 'batch', 'api', 'add', 'manage', 'import', 'domains'
 ]);
 import {
   getCompetitorsOverview,
@@ -848,6 +856,17 @@ export default {
       });
     }
 
+    // Level 4B: Dedicated Domain Intelligence & SERP Monopoly Studio (/domains)
+    if (pathLower === '/domains' || pathLower.startsWith('/domains/')) {
+      if (method !== 'GET') {
+        return methodNotAllowedResponse('GET, OPTIONS');
+      }
+      return new Response(getDomainsPageHtml(), {
+        status: 200,
+        headers: HTML_HEADERS
+      });
+    }
+
     // 4. Level 1A & Level 2: Keywords Dashboard (/keywords) & SERP Radar (/keywords/:slug)
     if (pathLower === '/keywords' || pathLower.startsWith('/keywords/')) {
       if (method !== 'GET') {
@@ -868,6 +887,12 @@ export default {
         if (slugLower === 'folders') {
           const folderId = segments[2] || '';
           return new Response(getCampaignFoldersPageHtml(decodeURIComponent(folderId)), {
+            status: 200,
+            headers: HTML_HEADERS
+          });
+        }
+        if (slugLower === 'domains') {
+          return new Response(getDomainsPageHtml(), {
             status: 200,
             headers: HTML_HEADERS
           });
@@ -4716,6 +4741,73 @@ export default {
         if (!snapshotId || !pinId) return jsonResponse({ error: 'snapshot_id and pin_id are required' }, 400);
         const result = await deletePinMetricSnapshot(targetSql, snapshotId, pinId);
         return jsonResponse(result);
+      }
+
+      // Domain Intelligence & SERP Monopoly API
+      if (method === 'GET' && pathname === '/api/domains') {
+        try {
+          const cacheParams = {
+            search: searchParams.get('search') || '',
+            folderId: searchParams.get('folder_id') || '',
+            keywordId: searchParams.get('keyword_id') || '',
+            pillar: searchParams.get('pillar') || 'all',
+            preset: searchParams.get('preset') || 'all',
+            excludeMarketplaces: searchParams.get('exclude_marketplaces') !== 'false',
+            minPins: Number(searchParams.get('min_pins') || 1),
+            sortBy: searchParams.get('sort') || 'visibility',
+            page: Number(searchParams.get('page') || 1),
+            limit: clampLimit(searchParams.get('limit'), 50, 200)
+          };
+          const cacheKey = buildCanonicalCacheKey('domains:leaderboard', cacheParams);
+          const data = await getCachedOrFetch(cacheKey, async () => {
+            return await listDomainsIntelligence(sql, cacheParams);
+          }, 15000, 60000);
+
+          // Non-blocking background WHOIS/Age enrichment for unchecked domains on current page
+          if (Array.isArray(data?.missing_age_domains) && data.missing_age_domains.length > 0) {
+            safeWaitUntil(
+              ctx,
+              enrichMissingDomainsBatch(sql, data.missing_age_domains, 6).then(() => invalidateEdgeCache('domains:leaderboard')),
+              'bg_enrich_domain_ages'
+            );
+          }
+
+          return jsonResponse({ success: true, ...data }, 200, 15);
+        } catch (err) {
+          return jsonResponse({ success: false, error: redactSecrets(err.message) }, 500);
+        }
+      }
+
+      if (method === 'GET' && pathname === '/api/domains/dossier') {
+        const domain = searchParams.get('domain');
+        if (!domain) return jsonResponse({ error: 'domain query parameter is required' }, 400);
+        try {
+          const folderId = searchParams.get('folder_id') || null;
+          const keywordId = searchParams.get('keyword_id') || null;
+          const dossier = await getDomainDeepDossier(sql, domain, { folderId, keywordId });
+          return jsonResponse(dossier, 200, 30);
+        } catch (err) {
+          return jsonResponse({ success: false, error: redactSecrets(err.message) }, 400);
+        }
+      }
+
+      if (method === 'POST' && pathname === '/api/domains/enrich-age') {
+        invalidateEdgeCache('domains:leaderboard');
+        try {
+          const body = await request.json().catch(() => ({}));
+          if (Array.isArray(body.domains) && body.domains.length > 0) {
+            const batchRes = await enrichMissingDomainsBatch(sql, body.domains, 15);
+            return jsonResponse({ success: true, ...batchRes });
+          }
+          const singleDomain = body.domain || searchParams.get('domain');
+          if (!singleDomain) return jsonResponse({ error: 'domain or domains[] is required' }, 400);
+          const clean = normalizeCleanDomain(singleDomain);
+          if (!clean) return jsonResponse({ success: false, error: 'Invalid domain format' }, 400);
+          const ageData = await fetchAndCacheDomainAge(sql, clean, { forceRefresh: Boolean(body.force) });
+          return jsonResponse({ success: true, age_info: ageData });
+        } catch (err) {
+          return jsonResponse({ success: false, error: redactSecrets(err.message) }, 500);
+        }
       }
 
       // Default 404

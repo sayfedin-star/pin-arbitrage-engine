@@ -169,6 +169,15 @@ export function getDashboardHtml() {
           <span class="px-2 py-0.5 rounded-full text-[11px] font-mono font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" x-text="keywords.length"></span>
         </a>
 
+        <!-- Domain Radar (/domains - Dedicated Studio) -->
+        <a href="/domains" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900/60 hover:text-slate-900 dark:hover:text-slate-200 transition">
+          <div class="flex items-center space-x-2.5">
+            <i data-lucide="globe" class="w-4 h-4 text-sky-500"></i>
+            <span>Domain Radar</span>
+          </div>
+          <span class="px-1.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-sky-500/10 text-sky-700 dark:text-sky-400 border border-sky-500/20">WHOIS</span>
+        </a>
+
         <!-- Related Pins Tab -->
         <button @click="switchTab('related_pins'); isMobileMenuOpen = false" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition" :class="(currentTab === 'related_pins' || currentTab === 'seeds' || currentTab === 'intersections' || currentTab === 'explorer') ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 font-bold border border-rose-500/20' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900/60'">
           <div class="flex items-center space-x-2.5">
@@ -318,6 +327,15 @@ export function getDashboardHtml() {
             <span>Keywords Fleet</span>
           </div>
           <span class="px-2 py-0.5 rounded-full text-[11px] font-mono font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" x-text="keywords.length"></span>
+        </a>
+
+        <!-- Domain Radar (/domains - Dedicated Studio) -->
+        <a href="/domains" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900/60 hover:text-slate-900 dark:hover:text-slate-200 transition">
+          <div class="flex items-center space-x-2.5">
+            <i data-lucide="globe" class="w-4 h-4 text-sky-500"></i>
+            <span>Domain Radar</span>
+          </div>
+          <span class="px-1.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-sky-500/10 text-sky-700 dark:text-sky-400 border border-sky-500/20">WHOIS</span>
         </a>
 
         <!-- Related Pins Tab (/related-pins) -->
@@ -8370,7 +8388,7 @@ export function getDashboardHtml() {
             if (f === 'accounts' || f === 'creators' || f === 'pinarchive') return 'creators_archive';
             if (f === 'related-pins' || f === 'related_pins' || f === 'seeds' || f === 'intersections') return 'related_pins';
             if (f === 'fleet') return 'fleet';
-            if (f && !['api', 'fleet', 'settings', 'admin', 'health', 'favicon.ico', 'robots.txt', 'index.html', 'assets', 'static', 'pin', 'related_pins', 'related-pins', 'intersections', 'archive', 'explorer', 'accounts', 'creators', 'pinarchive', 'board-idea', 'board-ideas', 'keywords', 'overview', 'home', 'dashboard'].includes(f)) {
+            if (f && !['api', 'fleet', 'settings', 'admin', 'health', 'favicon.ico', 'robots.txt', 'index.html', 'assets', 'static', 'pin', 'related_pins', 'related-pins', 'intersections', 'archive', 'explorer', 'accounts', 'creators', 'pinarchive', 'board-idea', 'board-ideas', 'keywords', 'overview', 'home', 'dashboard', 'domains'].includes(f)) {
               return 'creators_archive';
             }
           }
@@ -10161,7 +10179,7 @@ export function getDashboardHtml() {
             const RESERVED_SYSTEM_SLUGS = new Set([
               'api', 'fleet', 'settings', 'admin', 'health', 'favicon.ico', 
               'robots.txt', 'index.html', 'assets', 'static', 'pin', 'related_pins', 'related-pins', 'relatedpins', 'intersections', 'archive', 'explorer',
-              'accounts', 'creators', 'creator', 'pinarchive', 'keywords', 'keyword', 'board-idea', 'board-ideas', 'overview', 'home', 'dashboard'
+              'accounts', 'creators', 'creator', 'pinarchive', 'keywords', 'keyword', 'board-idea', 'board-ideas', 'overview', 'home', 'dashboard', 'domains'
             ]);
             const CREATOR_SUB_TABS = {
               'links': 'top_urls',

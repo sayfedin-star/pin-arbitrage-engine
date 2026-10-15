@@ -5,6 +5,7 @@ import { getKeywordsPageHtml } from '../src/keywords-ui.mjs';
 import { getDiscoveryPageHtml } from '../src/discovery-ui.mjs';
 import { getPinDetailPageHtml } from '../src/pin-details-ui.mjs';
 import { getCampaignFoldersPageHtml } from '../src/campaign-folders-ui.mjs';
+import { getDomainsPageHtml } from '../src/domains-ui.mjs';
 
 function validateHtml(name, html) {
   const scriptMatches = html.match(/<script[\s\S]*?<\/script>/gi) || [];
@@ -40,9 +41,10 @@ const ok2 = validateHtml('getKeywordsPageHtml', getKeywordsPageHtml());
 const ok4 = validateHtml('getDiscoveryPageHtml', getDiscoveryPageHtml());
 const ok5 = validateHtml('getPinDetailPageHtml', getPinDetailPageHtml('1098245059167667976'));
 const ok6 = validateHtml('getCampaignFoldersPageHtml', getCampaignFoldersPageHtml());
+const ok7 = validateHtml('getDomainsPageHtml', getDomainsPageHtml());
 
-if (ok1 && ok2 && ok4 && ok5 && ok6) {
-  console.log('[+] ALL inline scripts in all 5 suites have 100% valid JavaScript syntax!');
+if (ok1 && ok2 && ok4 && ok5 && ok6 && ok7) {
+  console.log('[+] ALL inline scripts in all 6 suites have 100% valid JavaScript syntax!');
 } else {
   process.exit(1);
 }

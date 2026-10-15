@@ -18,6 +18,14 @@ import { parsePinCandidate, formatPinterestCookie } from './cluster-intelligence
 import { getDashboardHtml } from '../src/dashboard-ui.mjs';
 import { redactSecrets } from '../src/worker.mjs';
 import { getKeywordsPageHtml } from '../src/keywords-ui.mjs';
+import { getDomainsPageHtml } from '../src/domains-ui.mjs';
+import {
+  listDomainsIntelligence,
+  getDomainDeepDossier,
+  fetchAndCacheDomainAge,
+  enrichMissingDomainsBatch,
+  normalizeCleanDomain
+} from '../src/modules/domains/service.mjs';
 import {
   getCompetitorsOverview,
   listCompetitors,
@@ -2449,7 +2457,71 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, result);
     }
 
-    // 9. GET or HEAD /keywords or /keywords/:slug -> Dedicated Keywords Studio
+    // Domain Intelligence & SERP Monopoly API
+    if (method === 'GET' && pathname === '/api/domains') {
+      try {
+        const cacheParams = {
+          search: searchParams.get('search') || '',
+          folderId: searchParams.get('folder_id') || '',
+          keywordId: searchParams.get('keyword_id') || '',
+          pillar: searchParams.get('pillar') || 'all',
+          preset: searchParams.get('preset') || 'all',
+          excludeMarketplaces: searchParams.get('exclude_marketplaces') !== 'false',
+          minPins: Number(searchParams.get('min_pins') || 1),
+          sortBy: searchParams.get('sort') || 'visibility',
+          page: Number(searchParams.get('page') || 1),
+          limit: Math.max(1, Math.min(Number(searchParams.get('limit') || 50), 200))
+        };
+        const data = await listDomainsIntelligence(sql, cacheParams);
+        return sendJson(res, 200, { success: true, ...data });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, error: redactSecrets(err.message) });
+      }
+    }
+
+    if (method === 'GET' && pathname === '/api/domains/dossier') {
+      const domain = searchParams.get('domain');
+      if (!domain) return sendJson(res, 400, { error: 'domain query parameter is required' });
+      try {
+        const folderId = searchParams.get('folder_id') || null;
+        const keywordId = searchParams.get('keyword_id') || null;
+        const dossier = await getDomainDeepDossier(sql, domain, { folderId, keywordId });
+        return sendJson(res, 200, dossier);
+      } catch (err) {
+        return sendJson(res, 400, { success: false, error: redactSecrets(err.message) });
+      }
+    }
+
+    if (method === 'POST' && pathname === '/api/domains/enrich-age') {
+      try {
+        const body = await parseJsonBody(req).catch(() => ({}));
+        if (Array.isArray(body.domains) && body.domains.length > 0) {
+          const batchRes = await enrichMissingDomainsBatch(sql, body.domains, 15);
+          return sendJson(res, 200, { success: true, ...batchRes });
+        }
+        const singleDomain = body.domain || searchParams.get('domain');
+        if (!singleDomain) return sendJson(res, 400, { error: 'domain or domains[] is required' });
+        const clean = normalizeCleanDomain(singleDomain);
+        if (!clean) return sendJson(res, 400, { success: false, error: 'Invalid domain format' });
+        const ageData = await fetchAndCacheDomainAge(sql, clean, { forceRefresh: Boolean(body.force) });
+        return sendJson(res, 200, { success: true, age_info: ageData });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, error: redactSecrets(err.message) });
+      }
+    }
+
+    // 9. GET or HEAD /domains or /domains/* -> Dedicated Domain Intelligence Studio
+    if ((method === 'GET' || method === 'HEAD') && (pathname === '/domains' || pathname.startsWith('/domains/'))) {
+      const html = getDomainsPageHtml();
+      res.writeHead(200, {
+        ...HTML_SECURITY_HEADERS,
+        'Content-Length': Buffer.byteLength(html)
+      });
+      if (method === 'HEAD') return res.end();
+      return res.end(html);
+    }
+
+    // 10. GET or HEAD /keywords or /keywords/:slug -> Dedicated Keywords Studio
     if ((method === 'GET' || method === 'HEAD') && (pathname === '/keywords' || pathname.startsWith('/keywords/'))) {
       const slug = pathname.startsWith('/keywords/') ? decodeURIComponent(pathname.slice('/keywords/'.length)) : '';
       const html = getKeywordsPageHtml(slug);

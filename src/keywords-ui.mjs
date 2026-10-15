@@ -144,6 +144,14 @@ export function getKeywordsPageHtml(initialSlug = '') {
           <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-pink-500/20 text-pink-600 dark:text-pink-300 font-mono" x-text="folders.length"></span>
         </a>
 
+        <!-- Domain Radar Studio Link (Level 4B) -->
+        <a href="/domains"
+           class="px-3 py-1.5 rounded-xl text-xs font-bold bg-sky-500/10 hover:bg-sky-500/20 dark:bg-sky-950/30 dark:hover:bg-sky-900/40 border border-sky-500/30 text-sky-600 dark:text-sky-400 transition flex items-center space-x-1.5 cursor-pointer">
+          <i data-lucide="globe" class="w-3.5 h-3.5 text-sky-500"></i>
+          <span class="hidden sm:inline">Domain Radar</span>
+          <span class="sm:hidden">Domains</span>
+        </a>
+
         <a href="/accounts" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 transition hidden sm:flex items-center space-x-1.5">
           <i data-lucide="users" class="w-3.5 h-3.5 text-purple-500"></i>
           <span>Creators</span>

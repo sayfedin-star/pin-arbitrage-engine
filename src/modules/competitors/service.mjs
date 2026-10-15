@@ -39,7 +39,7 @@ export const RESERVED_PINTEREST_PATHS = new Set([
   'business', 'blog', 'help', 'password', 'login', 'signup',
   'explore', 'categories', 'news', 'shop', 'topics', 'notifications',
   'messages', 'edit', 'following', 'followers', 'analytics',
-  'board-idea', 'board-ideas'
+  'board-idea', 'board-ideas', 'domains'
 ]);
 
 /**
