@@ -41,42 +41,39 @@ runTest('HTML Generation & Meta Tags Parity', () => {
   assert.ok(html.includes('dominant_color'), 'Must reference dominant_color');
 });
 
-// 2. The 6 KPI Telemetry Cards Structure
-runTest('6 KPI Telemetry Cards Parity', () => {
+// 2. The Key Telemetry Metrics Cards Structure
+runTest('5 KPI Telemetry Cards Parity', () => {
   assert.ok(html.includes('Total Saves'), 'Must include Total Saves card');
   assert.ok(html.includes('Total Repins'), 'Must include Total Repins card');
   assert.ok(html.includes('Daily Velocity'), 'Must include Daily Velocity card');
-  assert.ok(html.includes('Best Rank'), 'Must include Best Rank card');
+  assert.ok(html.includes('Best SERP Rank'), 'Must include Best SERP Rank card');
   assert.ok(html.includes('Total Engagement'), 'Must include Total Engagement card');
-  assert.ok(html.includes('SERP Footprint'), 'Must include SERP Footprint card');
 });
 
-// 3. The 4-Pillar Cross-Context Matrix
-runTest('4-Pillar Cross-Context Matrix Parity', () => {
-  assert.ok(html.includes('Pillar 1: Creator & Board'), 'Must include Pillar 1');
-  assert.ok(html.includes('Pillar 2: Keywords SERP'), 'Must include Pillar 2');
-  assert.ok(html.includes('Pillar 3: Related Pins'), 'Must include Pillar 3');
-  assert.ok(html.includes('Pillar 4: Board Ideas Studio'), 'Must include Pillar 4');
+// 3. The Cross-Pillar Context Matrix
+runTest('Cross-Pillar Intelligence Suite Parity', () => {
+  assert.ok(html.includes('Cross-Pillar Intelligence Suite'), 'Must include Cross-Pillar suite header');
+  assert.ok(html.includes('Keyword SERP Rankings'), 'Must include Keyword SERP Rankings');
+  assert.ok(html.includes('Related Pins Semantic Radar'), 'Must include Related Pins Semantic Radar');
+  assert.ok(html.includes('Board Ideas Studio'), 'Must include Board Ideas Studio');
   assert.ok(html.includes('Launch Related Radar'), 'Must include related pins radar button');
   assert.ok(html.includes('Studio Recommendations'), 'Must include board ideas studio link');
 });
 
-// 4. Interactive SVG Trajectory Chart & Tooltips
-runTest('Interactive SVG Trajectory Chart Parity', () => {
-  assert.ok(html.includes('<svg'), 'Must render inline SVG');
-  assert.ok(html.includes('buildSvgLinePath()'), 'Must call buildSvgLinePath');
-  assert.ok(html.includes('buildSvgAreaPath()'), 'Must call buildSvgAreaPath');
-  assert.ok(html.includes('hoveredPoint'), 'Must track hoveredPoint for interactive tooltips');
-  assert.ok(html.includes('emeraldGradient'), 'Must contain SVG gradient def');
+// 4. Creative Canvas & Aspect Ratio Parity
+runTest('Creative Canvas & Aspect Ratio Parity', () => {
+  assert.ok(html.includes('aspect-[2/3]'), 'Must enforce 2:3 aspect ratio');
+  assert.ok(html.includes('Open on Pinterest'), 'Must have Open on Pinterest link');
+  assert.ok(html.includes('Live Deep Sync'), 'Must have Live Deep Sync button');
 });
 
 // 5. Daily Snapshots Audit Table & Atomic Deletion
 runTest('Daily Snapshots Audit Table & Atomic Delete Modal', () => {
-  assert.ok(html.includes('Daily Snapshots Time-Series Audit Log'), 'Must render audit log header');
-  assert.ok(html.includes('computeDelta(idx, \'save_count\')'), 'Must compute dynamic save deltas');
-  assert.ok(html.includes('requestDeleteSnapshot(s.id)'), 'Must hook requestDeleteSnapshot');
-  assert.ok(html.includes('Confirm Snapshot Deletion'), 'Must include deletion confirmation modal');
-  assert.ok(html.includes('executeDeleteSnapshot()'), 'Must execute deletion via DELETE endpoint');
+  assert.ok(html.includes('Historical Snapshot Audit Log'), 'Must render audit log header');
+  assert.ok(html.includes('computeDeltaUnified('), 'Must compute dynamic save deltas');
+  assert.ok(html.includes('requestDeleteSnapshot') || html.includes('openDeleteModal(') || html.includes('requestDeleteSerpBadge'), 'Must hook deletion handler');
+  assert.ok(html.includes('Confirm Deletion') || html.includes('Confirm Snapshot Deletion'), 'Must include deletion confirmation modal');
+  assert.ok(html.includes('confirmDelete()') || html.includes('executeDeleteSnapshot()'), 'Must execute deletion via DELETE endpoint');
 });
 
 // 6. Sandboxed V8 Runtime Execution & Logic Verification

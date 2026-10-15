@@ -20,7 +20,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="referrer" content="no-referrer">
+  <meta name="referrer" content="same-origin">
   <title>Keyword Intelligence & Velocity | Pinterest SERP Radar Studio</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -64,7 +64,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
   </script>
 </head>
 <body class="bg-slate-50 dark:bg-[#070b14] text-slate-900 dark:text-slate-100 min-h-screen font-sans antialiased selection:bg-emerald-500 selection:text-white"
-      x-data="keywordStudio()" x-init="init()">
+      x-data="keywordStudio()">
 
   <!-- Toast Notification -->
   <div x-show="toast.show" x-cloak

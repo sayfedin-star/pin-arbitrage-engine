@@ -49,7 +49,7 @@ export function getDiscoveryPageHtml() {
     ::-webkit-scrollbar-thumb:hover { background: rgba(148, 163, 184, 0.4); }
   </style>
 </head>
-<body class="bg-slate-950 text-slate-100 min-h-screen antialiased flex flex-col font-sans" x-data="discoveryApp()" x-init="init()">
+<body class="bg-slate-950 text-slate-100 min-h-screen antialiased flex flex-col font-sans" x-data="discoveryApp()">
 
   <!-- Toast Notification Container -->
   <div 

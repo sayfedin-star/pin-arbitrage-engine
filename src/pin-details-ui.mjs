@@ -20,7 +20,7 @@ export function getPinDetailPageHtml(pinId = '') {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="referrer" content="no-referrer">
+  <meta name="referrer" content="same-origin">
   <title>Universal Pin Dossier ${escapedPinId} | Pinterest Arbitrage Intelligence</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -56,7 +56,7 @@ export function getPinDetailPageHtml(pinId = '') {
     ::-webkit-scrollbar-thumb:hover { background: rgba(100, 116, 139, 0.6); }
   </style>
 </head>
-<body class="bg-[#f8fafc] text-slate-800 min-h-screen antialiased flex flex-col font-sans" x-data="pinDetailApp('${safePinId}')" x-init="init()">
+<body class="bg-[#f8fafc] text-slate-800 min-h-screen antialiased flex flex-col font-sans" x-data="pinDetailApp('${safePinId}')">
 
   <!-- Toast Notification Container -->
   <div 
@@ -103,7 +103,7 @@ export function getPinDetailPageHtml(pinId = '') {
       </nav>
     </div>
 
-    <div class="flex items-center gap-2.5">
+    <div class="flex items-center gap-2.5 flex-shrink-0">
       <button 
         @click="triggerLiveDeepSync()" 
         :disabled="isSyncing"
@@ -115,7 +115,7 @@ export function getPinDetailPageHtml(pinId = '') {
       <a :href="'https://www.pinterest.com/pin/' + pinId + '/'" target="_blank" rel="noopener noreferrer" class="px-3 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 text-xs font-semibold border border-red-200 transition-colors flex items-center gap-1.5">
         <span>↗</span> Open on Pinterest
       </a>
-      <button @click="loadDossier()" class="px-3 py-1.5 rounded-lg bg-white hover:bg-slate-100 text-slate-700 text-xs font-medium border border-slate-300 transition-colors flex items-center gap-1.5 shadow-2xs">
+      <button @click="loadDossier(true)" class="px-3 py-1.5 rounded-lg bg-white hover:bg-slate-100 text-slate-700 text-xs font-medium border border-slate-300 transition-colors flex items-center gap-1.5 shadow-2xs">
         <span :class="loading ? 'animate-spin' : ''">🔄</span> Refresh
       </button>
     </div>
@@ -130,21 +130,23 @@ export function getPinDetailPageHtml(pinId = '') {
     </div>
   </div>
 
-  <!-- Error / Not Found Fallback -->
+  <!-- Error / Not Found / Cold Shard Fallback -->
   <div x-show="!loading && (!dossier || !dossier.success)" class="flex-1 flex items-center justify-center p-12" x-cloak>
     <div class="bg-white border border-slate-200 rounded-2xl max-w-md w-full p-8 text-center flex flex-col items-center gap-4 shadow-sm">
-      <div class="w-14 h-14 rounded-full bg-red-50 border border-red-200 flex items-center justify-center text-2xl text-red-600">
-        ⚠️
+      <div 
+        class="w-14 h-14 rounded-full flex items-center justify-center text-2xl"
+        :class="isShardWarming ? 'bg-amber-50 border border-amber-200 text-amber-600' : 'bg-red-50 border border-red-200 text-red-600'"
+      >
+        <span x-text="isShardWarming ? '⏳' : '⚠️'"></span>
       </div>
       <div>
-        <h2 class="text-base font-bold text-slate-900">Pin Telemetry Not Found</h2>
-        <p class="text-xs text-slate-600 mt-1">
-          Pin <span class="font-mono text-pink-600 font-semibold" x-text="'#' + pinId"></span> is either offline, not yet crawled, or its storage shard is cold.
-        </p>
+        <h2 class="text-base font-bold text-slate-900" x-text="isShardWarming ? 'Storage Shard Warming Up' : 'Pin Telemetry Not Found'"></h2>
+        <p class="text-xs text-slate-600 mt-1" x-text="isShardWarming ? 'The Neon Serverless Shard containing this pin is waking up from scale-to-zero cold sleep. Please retry in a few seconds.' : 'Pin #' + pinId + ' is either offline, not yet crawled, or does not exist.'"></p>
       </div>
       <div class="flex items-center gap-3 pt-2">
-        <button @click="loadDossier()" class="px-4 py-2 rounded-lg bg-pink-600 hover:bg-pink-700 text-white text-xs font-semibold transition-colors">
-          Retry Shard Fetch
+        <button @click="loadDossier(true)" class="px-4 py-2 rounded-lg bg-pink-600 hover:bg-pink-700 text-white text-xs font-semibold transition-colors flex items-center gap-1.5 shadow-2xs">
+          <span>🔄</span>
+          <span x-text="isShardWarming ? 'Retry Shard Fetch' : 'Try Force Refresh'"></span>
         </button>
         <a href="/keywords" class="px-4 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium transition-colors">
           Return to Radar
@@ -168,6 +170,7 @@ export function getPinDetailPageHtml(pinId = '') {
             :src="dossier?.creative?.image_url || 'https://via.placeholder.com/600x900?text=Pin+Image'" 
             :alt="dossier?.creative?.title || 'Pin Creative'" 
             class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+            referrerpolicy="no-referrer"
             loading="lazy"
           >
           <!-- Floating Shard & Aspect Ratio Badges -->
@@ -421,6 +424,7 @@ export function getPinDetailPageHtml(pinId = '') {
                   :src="dossier?.algorithmic_intelligence?.origin_pinner?.image_url || 'https://s.pinimg.com/images/user/default_75.png'" 
                   class="w-10 h-10 rounded-full object-cover border border-slate-300 bg-white"
                   alt="Origin Pinner"
+                  referrerpolicy="no-referrer"
                 >
                 <div class="flex flex-col overflow-hidden">
                   <div class="text-xs font-bold text-slate-900 truncate" x-text="dossier?.algorithmic_intelligence?.origin_pinner?.full_name || dossier?.algorithmic_intelligence?.origin_pinner?.username || 'Direct / First Uploader'"></div>
@@ -644,7 +648,7 @@ export function getPinDetailPageHtml(pinId = '') {
               <span>10 Algorithmic Semantic Interests await deep telemetry sync from Pinterest.</span>
             </div>
             <button 
-              @click="triggerDeepSync()" 
+              @click="triggerLiveDeepSync()" 
               :disabled="isSyncing"
               class="px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-xs font-mono font-semibold shadow-2xs transition-colors flex items-center gap-1 whitespace-nowrap"
             >
@@ -706,7 +710,7 @@ export function getPinDetailPageHtml(pinId = '') {
       <div class="bg-white border border-slate-200 rounded-xl p-4 flex flex-col justify-between shadow-2xs">
         <div class="text-[11px] font-mono text-slate-500 flex items-center justify-between">
           <span>Total Saves</span>
-          <span class="text-emerald-700 text-[10px] font-semibold" x-text="computeDeltaUnified(0, 'save_count') > 0 ? '+' + computeDeltaUnified(0, 'save_count') + ' 24h' : ''"></span>
+          <span class="text-emerald-700 text-[10px] font-semibold" x-text="computeDeltaUnified(0, 'save_count') > 0 ? '+' + formatNumber(computeDeltaUnified(0, 'save_count')) + ' 24h' : ''"></span>
         </div>
         <div class="text-2xl font-bold font-mono text-emerald-700 mt-2" x-text="formatNumber(peakSaves())"></div>
         <div class="text-[10px] text-slate-500 font-mono mt-1">Authentic Saves</div>
@@ -715,7 +719,7 @@ export function getPinDetailPageHtml(pinId = '') {
       <div class="bg-white border border-slate-200 rounded-xl p-4 flex flex-col justify-between shadow-2xs">
         <div class="text-[11px] font-mono text-slate-500 flex items-center justify-between">
           <span>Total Repins</span>
-          <span class="text-pink-700 text-[10px] font-semibold" x-text="computeDeltaUnified(0, 'repin_count') > 0 ? '+' + computeDeltaUnified(0, 'repin_count') + ' 24h' : ''"></span>
+          <span class="text-pink-700 text-[10px] font-semibold" x-text="computeDeltaUnified(0, 'repin_count') > 0 ? '+' + formatNumber(computeDeltaUnified(0, 'repin_count')) + ' 24h' : ''"></span>
         </div>
         <div class="text-2xl font-bold font-mono text-pink-700 mt-2" x-text="formatNumber(peakRepins())"></div>
         <div class="text-[10px] text-slate-500 font-mono mt-1">Viral Shares</div>
@@ -979,6 +983,7 @@ export function getPinDetailPageHtml(pinId = '') {
       return {
         pinId,
         loading: true,
+        isShardWarming: false,
         dossier: null,
         _cachedDateMap: null,
         deleteModalOpen: false,
@@ -1014,24 +1019,32 @@ export function getPinDetailPageHtml(pinId = '') {
           }, 3500);
         },
 
-        async loadDossier() {
+        async loadDossier(forceRefresh = false) {
           this.loading = true;
           try {
-            const res = await fetch('/api/pins/' + encodeURIComponent(this.pinId));
+            const qs = forceRefresh ? ('?refresh=true&_ts=' + Date.now()) : ('?_ts=' + Date.now());
+            const res = await fetch('/api/pins/' + encodeURIComponent(this.pinId) + qs, {
+              cache: 'no-store',
+              headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
+              signal: (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') ? AbortSignal.timeout(12000) : undefined
+            });
             if (res.ok) {
               const data = await res.json();
               this.dossier = data;
+              this.isShardWarming = false;
               this.rebuildDateMapCache();
             } else {
               this.dossier = null;
               this._cachedDateMap = null;
-              this.showToast('Pin not found or shard offline.', 'error');
+              this.isShardWarming = (res.status === 503);
+              this.showToast(res.status === 503 ? 'Pin storage shard is warming up from sleep. Please retry in a few seconds.' : 'Pin not found or shard offline.', 'error');
             }
           } catch (e) {
             console.error('Error fetching pin dossier:', e);
             this.dossier = null;
             this._cachedDateMap = null;
-            this.showToast('Network error loading pin dossier', 'error');
+            this.isShardWarming = false;
+            this.showToast(e?.name === 'TimeoutError' ? 'Request timed out — storage shard may be warming up' : 'Network error loading pin dossier', 'error');
           } finally {
             this.loading = false;
           }
@@ -1251,7 +1264,9 @@ export function getPinDetailPageHtml(pinId = '') {
         },
 
         computeDeltaUnified(currentIdx, field = 'save_count') {
-          const traj = this.dossier?.daily_trajectory || [];
+          const traj = (this.dossier?.daily_trajectory && this.dossier.daily_trajectory.length > 0)
+            ? this.dossier.daily_trajectory
+            : this.synthesizeDailyTrajectoryFromSnapshots();
           if (!traj[currentIdx]) return 0;
           return this.computeDeltaByDate(traj[currentIdx].snapshot_date, field);
         },
@@ -1369,7 +1384,7 @@ export function getPinDetailPageHtml(pinId = '') {
               if (res.ok && data.success) {
                 this.showToast('Keyword rank "' + keywordName + '" removed for ' + date);
                 this.deleteModalOpen = false;
-                await this.loadDossier();
+                await this.loadDossier(true);
               } else {
                 this.showToast(data.message || 'Error removing keyword rank', 'error');
               }
@@ -1382,7 +1397,7 @@ export function getPinDetailPageHtml(pinId = '') {
               if (res.ok && data.success) {
                 this.showToast('All data for ' + date + ' deleted successfully');
                 this.deleteModalOpen = false;
-                await this.loadDossier();
+                await this.loadDossier(true);
               } else {
                 this.showToast(data.message || 'Error deleting day', 'error');
               }
@@ -1395,7 +1410,7 @@ export function getPinDetailPageHtml(pinId = '') {
               if (res.ok && data.success) {
                 this.showToast('Snapshot #' + snapshotId + ' deleted successfully');
                 this.deleteModalOpen = false;
-                await this.loadDossier();
+                await this.loadDossier(true);
               } else {
                 this.showToast(data.message || 'Error deleting snapshot', 'error');
               }

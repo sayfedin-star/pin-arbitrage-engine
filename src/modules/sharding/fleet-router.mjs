@@ -404,11 +404,12 @@ export async function executeShardQueryWithCircuitBreaker({
   shardSql,
   queryFn,
   fallbackFn = null,
-  timeoutMs = 2500
+  timeoutMs = 2500,
+  batchId = null
 }) {
   let cb = circuitBreakers.get(shardId);
   if (!cb) {
-    cb = { state: 'CLOSED', failures: 0, nextAttempt: 0 };
+    cb = { state: 'CLOSED', failures: 0, nextAttempt: 0, _failedBatches: new Set() };
     circuitBreakers.set(shardId, cb);
   }
   const now = Date.now();
@@ -446,11 +447,31 @@ export async function executeShardQueryWithCircuitBreaker({
     clearTimeout(timeoutTimer);
     cb.state = 'CLOSED';
     cb.failures = 0;
+    if (cb._failedBatches) cb._failedBatches.clear();
     circuitBreakers.set(shardId, cb);
     return result;
   } catch (err) {
     clearTimeout(timeoutTimer);
-    cb.failures++;
+
+    // Coalesce concurrent failures: if queries belong to the same batchId/request, only increment failures once
+    let shouldIncrement = true;
+    if (batchId) {
+      if (!cb._failedBatches) cb._failedBatches = new Set();
+      if (cb._failedBatches.has(batchId)) {
+        shouldIncrement = false;
+      } else {
+        cb._failedBatches.add(batchId);
+        if (cb._failedBatches.size > 50) {
+          const oldest = cb._failedBatches.values().next().value;
+          cb._failedBatches.delete(oldest);
+        }
+      }
+    }
+
+    if (shouldIncrement) {
+      cb.failures++;
+    }
+
     if (cb.failures >= CIRCUIT_FAILURE_THRESHOLD || cb.state === 'HALF_OPEN') {
       cb.state = 'OPEN';
       cb.nextAttempt = now + CIRCUIT_COOLDOWN_MS;
@@ -628,21 +649,22 @@ export async function getFolderCrossoverSynopsis(hubSql, folderId) {
  * @param {string|number} options.pinId - Pinterest Pin Snowflake ID
  * @returns {Promise<object>} Unified Pin Dossier
  */
-export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null }) {
+export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env = null }) {
   const cleanPinId = String(pinId || '').trim();
   if (!cleanPinId) throw new Error('Pin ID is required');
 
   const shardId = getPinShardId(cleanPinId, 99);
   let shardSql;
   try {
-    shardSql = await resolveShardConnection({ hubSql, shardId });
+    shardSql = await resolveShardConnection({ hubSql, shardId, env });
   } catch (_) {
     shardSql = hubSql; // Graceful degradation to Hub
   }
 
   // 1 & 2. Ultra-Low Latency Parallel Scatter-Gather (t=0 concurrent dispatch)
-  // Concurrently fires Shard queries (with 650ms circuit breaker) and Hub queries.
+  // Concurrently fires Shard queries (with 2500ms circuit breaker) and Hub queries.
   let shardErrorReason = null;
+  const dossierBatchId = `dossier_batch_${cleanPinId}_${Date.now()}_${Math.random()}`;
   const [
     initialMaster,
     initialSnapshots,
@@ -665,7 +687,8 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null }) {
         shardErrorReason = info?.reason || 'SHARD_UNAVAILABLE';
         return null;
       },
-      timeoutMs: 650
+      timeoutMs: 2500,
+      batchId: dossierBatchId
     }),
     executeShardQueryWithCircuitBreaker({
       shardId,
@@ -743,7 +766,8 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null }) {
         return rows;
       },
       fallbackFn: async () => [],
-      timeoutMs: 650
+      timeoutMs: 2500,
+      batchId: dossierBatchId
     }),
     hubSql`
       SELECT 

@@ -497,7 +497,7 @@ export function corsOptionsResponse(requestOrigin = null, env = {}, allow = 'GET
 
 export const HTML_HEADERS = {
   'Content-Type': 'text/html; charset=utf-8',
-  'Cache-Control': 'private, max-age=120, stale-while-revalidate=600',
+  'Cache-Control': 'private, no-cache, no-transform, max-age=0, must-revalidate',
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'DENY',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
@@ -636,12 +636,12 @@ export function buildCanonicalCacheKey(prefix, params = {}) {
   return sortedEntries.length > 0 ? `${prefix}?${sortedEntries.join('&')}` : prefix;
 }
 
-export async function getCachedOrFetch(key, fetcher, ttlMs = 15000, staleMs = 60000) {
+export async function getCachedOrFetch(key, fetcher, ttlMs = 15000, staleMs = 60000, { forceRefresh = false } = {}) {
   const now = Date.now();
   const cached = edgeCache.get(key);
 
-  // 1. L0 In-Memory Cache Check
-  if (cached) {
+  // 1. L0 In-Memory Cache Check (bypassed on forceRefresh)
+  if (!forceRefresh && cached) {
     if (now < cached.expiresAt) {
       return cached.data;
     }
@@ -654,19 +654,21 @@ export async function getCachedOrFetch(key, fetcher, ttlMs = 15000, staleMs = 60
               fetcher(),
               new Promise((_, reject) => setTimeout(() => reject(new Error(`Timeout revalidating ${key}`)), 7500))
             ]);
-            edgeCache.set(key, {
-              data: fresh,
-              expiresAt: Date.now() + ttlMs,
-              staleUntil: Date.now() + ttlMs + staleMs
-            });
-            if (l1Cache) {
-              const cacheUrl = `https://edge-cache.internal/${encodeURIComponent(key)}`;
-              const cacheReq = new Request(cacheUrl, { method: 'GET' });
-              const cacheHeaders = {
-                'Content-Type': 'application/json',
-                'Cache-Control': `public, max-age=${Math.floor(ttlMs / 1000)}, stale-while-revalidate=${Math.floor(staleMs / 1000)}`
-              };
-              await l1Cache.put(cacheReq, new Response(JSON.stringify(fresh), { headers: cacheHeaders })).catch(() => {});
+            if (fresh && fresh.success !== false) {
+              edgeCache.set(key, {
+                data: fresh,
+                expiresAt: Date.now() + ttlMs,
+                staleUntil: Date.now() + ttlMs + staleMs
+              });
+              if (l1Cache) {
+                const cacheUrl = `https://edge-cache.internal/${encodeURIComponent(key)}`;
+                const cacheReq = new Request(cacheUrl, { method: 'GET' });
+                const cacheHeaders = {
+                  'Content-Type': 'application/json',
+                  'Cache-Control': `public, max-age=${Math.floor(ttlMs / 1000)}, stale-while-revalidate=${Math.floor(staleMs / 1000)}`
+                };
+                await l1Cache.put(cacheReq, new Response(JSON.stringify(fresh), { headers: cacheHeaders })).catch(() => {});
+              }
             }
           } catch (_) {} finally {
             inflightPromises.delete(key);
@@ -688,8 +690,8 @@ export async function getCachedOrFetch(key, fetcher, ttlMs = 15000, staleMs = 60
     return await inflightPromises.get(key);
   }
 
-  // 3. L1 Edge Cache (Cache API) Lookup
-  if (l1Cache) {
+  // 3. L1 Edge Cache (Cache API) Lookup (bypassed on forceRefresh)
+  if (!forceRefresh && l1Cache) {
     try {
       const cacheUrl = `https://edge-cache.internal/${encodeURIComponent(key)}`;
       const cacheReq = new Request(cacheUrl, { method: 'GET' });
@@ -707,39 +709,41 @@ export async function getCachedOrFetch(key, fetcher, ttlMs = 15000, staleMs = 60
     } catch (_) {}
   }
 
-  // 4. Cache Miss: Fetch fresh data with single-flight deduplication
+  // 4. Cache Miss or Force Refresh: Fetch fresh data with single-flight deduplication
   const promise = (async () => {
     try {
       const fresh = await Promise.race([
         fetcher(),
         new Promise((_, reject) => setTimeout(() => reject(new Error(`Timeout fetching ${key}`)), 7500))
       ]);
-      if (edgeCache.size >= MAX_CACHE_ENTRIES) {
-        const oldestKey = edgeCache.keys().next().value;
-        if (oldestKey) edgeCache.delete(oldestKey);
-      }
-      edgeCache.set(key, {
-        data: fresh,
-        expiresAt: Date.now() + ttlMs,
-        staleUntil: Date.now() + ttlMs + staleMs
-      });
+      if (fresh && fresh.success !== false) {
+        if (edgeCache.size >= MAX_CACHE_ENTRIES) {
+          const oldestKey = edgeCache.keys().next().value;
+          if (oldestKey) edgeCache.delete(oldestKey);
+        }
+        edgeCache.set(key, {
+          data: fresh,
+          expiresAt: Date.now() + ttlMs,
+          staleUntil: Date.now() + ttlMs + staleMs
+        });
 
-      // Write to L1 Edge Cache with Cache-Control
-      if (l1Cache) {
-        try {
-          const cacheUrl = `https://edge-cache.internal/${encodeURIComponent(key)}`;
-          const cacheReq = new Request(cacheUrl, { method: 'GET' });
-          const cacheHeaders = {
-            'Content-Type': 'application/json',
-            'Cache-Control': `public, max-age=${Math.floor(ttlMs / 1000)}, stale-while-revalidate=${Math.floor(staleMs / 1000)}`
-          };
-          const putPromise = l1Cache.put(cacheReq, new Response(JSON.stringify(fresh), { headers: cacheHeaders })).catch(() => {});
-          const store = requestContextStorage?.getStore?.();
-          const ctx = store?.ctx;
-          if (ctx && typeof ctx.waitUntil === 'function') {
-            safeWaitUntil(ctx, putPromise, `l1_cache_put_${key}`);
-          }
-        } catch (_) {}
+        // Write to L1 Edge Cache with Cache-Control
+        if (l1Cache) {
+          try {
+            const cacheUrl = `https://edge-cache.internal/${encodeURIComponent(key)}`;
+            const cacheReq = new Request(cacheUrl, { method: 'GET' });
+            const cacheHeaders = {
+              'Content-Type': 'application/json',
+              'Cache-Control': `public, max-age=${Math.floor(ttlMs / 1000)}, stale-while-revalidate=${Math.floor(staleMs / 1000)}`
+            };
+            const putPromise = l1Cache.put(cacheReq, new Response(JSON.stringify(fresh), { headers: cacheHeaders })).catch(() => {});
+            const store = requestContextStorage?.getStore?.();
+            const ctx = store?.ctx;
+            if (ctx && typeof ctx.waitUntil === 'function') {
+              safeWaitUntil(ctx, putPromise, `l1_cache_put_${key}`);
+            }
+          } catch (_) {}
+        }
       }
 
       return fresh;
@@ -782,8 +786,10 @@ export function invalidateEdgeCache(prefix = '') {
       if (ctx && typeof ctx.waitUntil === 'function') {
         safeWaitUntil(ctx, allDel, `l1_cache_evict_${prefix || 'all'}`);
       }
+      return allDel;
     } catch (_) {}
   }
+  return Promise.resolve();
 }
 
 // Adaptive Bulkhead Isolation for Central Hub Protection (Anti-Cascading Meltdown)
@@ -3339,8 +3345,8 @@ export default {
         const keywordId = Number(searchParams.get('keyword_id') || 0) || null;
         const forceRefresh = searchParams.get('refresh') === 'true';
         const cacheKey = buildCanonicalCacheKey('keywords:pin-dossier', { pin_id: pinId, keyword_id: keywordId || '' });
-        if (forceRefresh) invalidateEdgeCache(cacheKey);
-        const result = await getCachedOrFetch(cacheKey, () => getPinDeepDossier(sql, pinId, keywordId, { forceRefresh }), 30000, 120000);
+        if (forceRefresh) await invalidateEdgeCache(cacheKey);
+        const result = await getCachedOrFetch(cacheKey, () => getPinDeepDossier(sql, pinId, keywordId, { forceRefresh }), 30000, 120000, { forceRefresh });
         return jsonResponse(result, 200, 15);
       }
 
@@ -3370,10 +3376,51 @@ export default {
             }, 400);
           }
           const shardId = getPinShardId(pinId, 99);
-          const shardSql = await resolveShardConnection({ hubSql: sql, shardId }).catch(() => targetSql);
+          const shardSql = await resolveShardConnection({ hubSql: sql, shardId, env }).catch(() => targetSql);
+
+          // 1. Fetch snapshot metadata to identify date and keyword before deletion
+          const [hubSnap] = await sql`
+            SELECT snapshot_date, keyword_id FROM keyword_pins_snapshots WHERE id = ${snapshotId} LIMIT 1;
+          `.catch(() => []);
+          const [shardSnap] = await shardSql`
+            SELECT snapshot_date, keyword_id FROM pins_daily_snapshots WHERE id = ${snapshotId} LIMIT 1;
+          `.catch(() => []);
+          const targetDate = hubSnap?.snapshot_date || shardSnap?.snapshot_date;
+          const targetKwId = hubSnap?.keyword_id || shardSnap?.keyword_id;
+
+          // 2. Delete from single-row snapshot tables on Shard and Hub
           await shardSql`DELETE FROM pins_daily_snapshots WHERE id = ${snapshotId};`.catch(() => {});
-          await shardSql`DELETE FROM keyword_pins_snapshots WHERE id = ${snapshotId};`.catch(() => {});
-          invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
+          await sql`DELETE FROM keyword_pins_snapshots WHERE id = ${snapshotId};`.catch(() => {});
+
+          // 3. Clean Two-Tier Shard tables (pins_daily_metrics & pin_serp_positions)
+          if (targetDate) {
+            if (targetKwId) {
+              await shardSql`
+                DELETE FROM pin_serp_positions
+                WHERE pin_id = ${pinId} AND snapshot_date = ${targetDate}::date AND keyword_id = ${targetKwId};
+              `.catch(() => {});
+            }
+            // Check if any other snapshots remain on that date for this pin
+            const [remHub] = await sql`
+              SELECT id FROM keyword_pins_snapshots WHERE pin_id = ${pinId} AND snapshot_date = ${targetDate}::date LIMIT 1;
+            `.catch(() => []);
+            const [remShard] = await shardSql`
+              SELECT id FROM pins_daily_snapshots WHERE pin_id = ${pinId} AND snapshot_date = ${targetDate}::date LIMIT 1;
+            `.catch(() => []);
+            if (!remHub && !remShard) {
+              await shardSql`
+                DELETE FROM pins_daily_metrics
+                WHERE pin_id = ${pinId} AND snapshot_date = ${targetDate}::date;
+              `.catch(() => {});
+              await shardSql`
+                DELETE FROM pin_serp_positions
+                WHERE pin_id = ${pinId} AND snapshot_date = ${targetDate}::date;
+              `.catch(() => {});
+            }
+          }
+
+          await invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
+          await invalidateEdgeCache(buildCanonicalCacheKey('pin:dossier', { pin_id: pinId }));
           return jsonResponse({ success: true, deleted_snapshot_id: snapshotId, pin_id: pinId });
         }
 
@@ -3406,7 +3453,7 @@ export default {
           }
 
           const shardId = getPinShardId(pinId, 99);
-          const shardSql = await resolveShardConnection({ hubSql: sql, shardId }).catch(() => targetSql);
+          const shardSql = await resolveShardConnection({ hubSql: sql, shardId, env }).catch(() => targetSql);
 
           // Delete from Two-Tier positions table on shard
           await shardSql`
@@ -3457,7 +3504,7 @@ export default {
           }
 
           const shardId = getPinShardId(pinId, 99);
-          const shardSql = await resolveShardConnection({ hubSql: sql, shardId }).catch(() => targetSql);
+          const shardSql = await resolveShardConnection({ hubSql: sql, shardId, env }).catch(() => targetSql);
 
           // Delete metrics and positions from shard
           await shardSql`
@@ -3514,7 +3561,7 @@ export default {
             }
             const pin = pinResult.pin;
             const shardId = getPinShardId(pinId, 99);
-            const shardSql = await resolveShardConnection({ hubSql: sql, shardId }).catch(() => targetSql);
+            const shardSql = await resolveShardConnection({ hubSql: sql, shardId, env }).catch(() => targetSql);
 
             const metaToStore = {
               alt_text: pin.alt_text || pin.seo_title || '',
@@ -3643,6 +3690,7 @@ export default {
                 creation_method = CASE WHEN ${pin.creation_method}::text <> '' THEN ${pin.creation_method}::text ELSE creation_method END,
                 metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify(metaToStore)}::jsonb
               WHERE pin_id = ${pinId}
+                AND snapshot_date = (NOW() AT TIME ZONE 'UTC')::date
               RETURNING id;
             `.catch(() => []);
 
@@ -3712,8 +3760,38 @@ export default {
                 share_count = GREATEST(pins_daily_snapshots.share_count, EXCLUDED.share_count);
             `.catch(() => {});
 
+            // Update two-tier modern shard tables (pins_daily_metrics & pin_serp_positions)
+            await shardSql`
+              INSERT INTO pins_daily_metrics (
+                pin_id, snapshot_date, save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity, updated_at
+              ) VALUES (
+                ${pinId}, (NOW() AT TIME ZONE 'UTC')::date, ${Number(pin.saves || 0)}, ${Number(pin.repins || 0)},
+                ${Number(pin.comments || 0)}, ${Number(pin.share_count || 0)}, 0, 0, NOW()
+              )
+              ON CONFLICT (pin_id, snapshot_date) DO UPDATE SET
+                save_count = GREATEST(pins_daily_metrics.save_count, EXCLUDED.save_count),
+                repin_count = GREATEST(pins_daily_metrics.repin_count, EXCLUDED.repin_count),
+                comment_count = GREATEST(pins_daily_metrics.comment_count, EXCLUDED.comment_count),
+                share_count = GREATEST(pins_daily_metrics.share_count, EXCLUDED.share_count),
+                updated_at = NOW();
+            `.catch(() => {});
+
+            if (shardKid != null) {
+              await shardSql`
+                INSERT INTO pin_serp_positions (
+                  pin_id, keyword_id, snapshot_date, rank_position, is_displaced, updated_at
+                ) VALUES (
+                  ${pinId}, ${shardKid}, (NOW() AT TIME ZONE 'UTC')::date, ${shardRank}, ${shardDisplaced}, NOW()
+                )
+                ON CONFLICT (pin_id, keyword_id, snapshot_date) DO UPDATE SET
+                  rank_position = EXCLUDED.rank_position,
+                  is_displaced = EXCLUDED.is_displaced,
+                  updated_at = NOW();
+              `.catch(() => {});
+            }
+
             // D. Refreshed dossier
-            const refreshedDossier = await fetchUniversalPinDossier({ hubSql: sql, pinId, ctx });
+            const refreshedDossier = await fetchUniversalPinDossier({ hubSql: sql, pinId, ctx, env });
             invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
 
             return jsonResponse({
@@ -3749,12 +3827,12 @@ export default {
             const forceRefresh = searchParams.get('refresh') === 'true';
             const dossierCacheKey = buildCanonicalCacheKey('pin:dossier', { pin_id: pinId });
             if (forceRefresh) {
-              invalidateEdgeCache(dossierCacheKey);
+              await invalidateEdgeCache(dossierCacheKey);
             }
 
             const dossier = await getCachedOrFetch(dossierCacheKey, async () => {
-              return await fetchUniversalPinDossier({ hubSql: sql, pinId, ctx });
-            }, 30000, 120000);
+              return await fetchUniversalPinDossier({ hubSql: sql, pinId, ctx, env });
+            }, 30000, 120000, { forceRefresh });
 
             // Non-Blocking Background Auto-Enrichment via safeWaitUntil (0ms user wait)
             if (dossier?.success && (!dossier?.algorithmic_intelligence?.canonical_pin_id || !dossier?.algorithmic_intelligence?.seo_related_interests?.length)) {
@@ -3829,11 +3907,12 @@ export default {
 
             if (!dossier || !dossier.pin_id || !dossier.success) {
               invalidateEdgeCache(dossierCacheKey);
+              const isUnavailable = dossier?.error === 'SHARD_UNAVAILABLE' || dossier?.circuit_broken || dossier?.is_degraded;
               return jsonResponse({
                 success: false,
-                error: 'NOT_FOUND',
-                message: dossier?.message || `Pin dossier not found for pin_id: ${pinId}`
-              }, 404);
+                error: isUnavailable ? 'SHARD_UNAVAILABLE' : 'NOT_FOUND',
+                message: dossier?.message || (isUnavailable ? `Pin storage shard is currently cold/unavailable. Please retry.` : `Pin dossier not found for pin_id: ${pinId}`)
+              }, isUnavailable ? 503 : 404);
             }
             return jsonResponse(dossier, 200, 15);
           } catch (err) {

@@ -55,7 +55,7 @@ export function getBoardIdeasPageHtml(initialData = {}) {
   </style>
 </head>
 <body class="bg-slate-50 dark:bg-[#070913] text-slate-900 dark:text-slate-100 min-h-screen font-sans antialiased selection:bg-purple-500 selection:text-white"
-      x-data="boardIdeasStudio()" x-init="init()">
+      x-data="boardIdeasStudio()">
 
   <!-- Toast Notification -->
   <div x-show="toast.show" x-cloak
