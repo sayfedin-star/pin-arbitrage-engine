@@ -136,11 +136,11 @@ function evaluateHydrationGuard(pin, currentUtcTimestamp = Date.now()) {
   const meta = (pin.metadata && typeof pin.metadata === 'object') ? pin.metadata : {};
   const isDeepHydrated = Boolean(
     meta.is_deep_hydrated === true ||
-    meta.is_deep_hydrated === 'true' ||
-    (pin.creation_method && pin.creation_method !== 'pinterest_platform')
+    meta.is_deep_hydrated === 'true'
   );
-  if (!crawlTime || !isDeepHydrated || pin.save_count == null || Number(pin.save_count) === 0) {
-    return { shouldFetch: true, reason: 'unhydrated_pin', reuseTelemetry: null };
+  const hasRichTreasures = Boolean(meta.image_signature || meta.canonical_pin_id || meta.board_pin_count);
+  if (!crawlTime || !isDeepHydrated || !hasRichTreasures || pin.save_count == null || Number(pin.save_count) === 0) {
+    return { shouldFetch: true, reason: 'unhydrated_or_missing_treasures', reuseTelemetry: null };
   }
 
   const lastCrawlMs = new Date(crawlTime).getTime();
@@ -410,6 +410,40 @@ async function inspectPin(pin, kw) {
   for (const t of cleanNewAnnotations) mergedTagsSet.add(t);
   const finalAnnotations = Array.from(mergedTagsSet).slice(0, 15);
 
+  const extraMeta = {
+    description: String(description || '').slice(0, 1000),
+    seo_title: detail?.seo_title || meta.seo_title || '',
+    seo_description: detail?.seo_description || meta.seo_description || '',
+    canonical_pin_id: detail?.canonical_pin_id || meta.canonical_pin_id || null,
+    canonical_pin_url: detail?.canonical_pin_url || meta.canonical_pin_url || null,
+    seo_canonical_url: detail?.seo_canonical_url || meta.seo_canonical_url || '',
+    aggregated_pin_data_id: detail?.aggregated_pin_data_id || meta.aggregated_pin_data_id || null,
+    domain_official_user: detail?.domain_official_user?.username ? detail.domain_official_user : (meta.domain_official_user || null),
+    board_id: detail?.board_id || meta.board_id || null,
+    board_url: detail?.board_url || meta.board_url || null,
+    board_pin_count: Number(detail?.board_pin_count || meta.board_pin_count || 0),
+    board_order_modified_at: detail?.board_order_modified_at || meta.board_order_modified_at || null,
+    board_cover_url: detail?.board_cover_url || meta.board_cover_url || null,
+    board_thumbnail_url: detail?.board_thumbnail_url || meta.board_thumbnail_url || null,
+    image_signature: detail?.image_signature || meta.image_signature || '',
+    image_dimensions: detail?.image_dimensions || meta.image_dimensions || null,
+    rich_metadata: detail?.rich_metadata || meta.rich_metadata || null,
+    article_published_at: detail?.article_published_at || detail?.rich_metadata?.article_published_at || meta.article_published_at || null,
+    seo_related_interests: Array.isArray(detail?.seo_related_interests) && detail.seo_related_interests.length > 0 ? detail.seo_related_interests : (meta.seo_related_interests || []),
+    category_breadcrumbs: Array.isArray(detail?.category_breadcrumbs) && detail.category_breadcrumbs.length > 0 ? detail.category_breadcrumbs : (meta.category_breadcrumbs || []),
+    visual_objects: Array.isArray(detail?.visual_objects) && detail.visual_objects.length > 0 ? detail.visual_objects : (meta.visual_objects || []),
+    golden_set_interest: detail?.golden_set_interest || meta.golden_set_interest || null,
+    is_repin: Boolean(detail?.is_repin ?? meta.is_repin ?? false),
+    origin_pinner: detail?.origin_pinner || meta.origin_pinner || null,
+    pinner: detail?.creator_username ? {
+      username: detail.creator_username,
+      full_name: detail.creator_name || meta.pinner?.full_name || '',
+      follower_count: Number(detail.creator_followers || meta.pinner?.follower_count || 0),
+      image_small_url: detail.creator_avatar_url || meta.pinner?.image_small_url || null,
+      is_verified_merchant: Boolean(detail.creator_is_verified_merchant || meta.pinner?.is_verified_merchant)
+    } : (meta.pinner || null)
+  };
+
   return {
     pin_id: pin.pin_id,
     creator_username: creator,
@@ -435,7 +469,8 @@ async function inspectPin(pin, kw) {
     rank_position: pin.rank_position,
     keyword_id: pin.keyword_id || kw?.id || null,
     is_deleted: isDead,
-    from_hydration_cache: false
+    from_hydration_cache: false,
+    extra_meta: extraMeta
   };
 }
 
@@ -463,7 +498,8 @@ async function flushBatchToHub(pinsChunk, kw) {
     description: String(p.description || '').slice(0, 500),
     alt_text: String(p.alt_text || '').slice(0, 500),
     is_dead: Boolean(p.is_deleted),
-    visual_annotations: Array.isArray(p.visual_annotations) ? p.visual_annotations : []
+    visual_annotations: Array.isArray(p.visual_annotations) ? p.visual_annotations : [],
+    extra_meta: (p.extra_meta && typeof p.extra_meta === 'object') ? p.extra_meta : {}
   })));
 
   if (isFolder) {
@@ -498,7 +534,7 @@ async function flushBatchToHub(pinsChunk, kw) {
           THEN u.visual_annotations 
           ELSE ksc.visual_annotations 
         END,
-        metadata = COALESCE(ksc.metadata, '{}'::jsonb) || jsonb_build_object(
+        metadata = COALESCE(ksc.metadata, '{}'::jsonb) || COALESCE(u.extra_meta, '{}'::jsonb) || jsonb_build_object(
           'alt_text', u.alt_text,
           'share_count', u.authentic_shares::int,
           'dominant_color', u.dominant_color,
@@ -528,7 +564,8 @@ async function flushBatchToHub(pinsChunk, kw) {
         description text,
         alt_text text,
         is_dead boolean,
-        visual_annotations jsonb
+        visual_annotations jsonb,
+        extra_meta jsonb
       )
       WHERE ksc.pin_id = u.pin_id
         AND ksc.keyword_id IN (
@@ -555,7 +592,7 @@ async function flushBatchToHub(pinsChunk, kw) {
         END,
         created_at_pinterest = CASE WHEN u.created_at_pinterest::timestamptz IS NOT NULL THEN u.created_at_pinterest::timestamptz ELSE kps.created_at_pinterest END,
         creation_method = CASE WHEN u.method <> '' THEN u.method ELSE kps.creation_method END,
-        metadata = COALESCE(kps.metadata, '{}'::jsonb) || jsonb_build_object(
+        metadata = COALESCE(kps.metadata, '{}'::jsonb) || COALESCE(u.extra_meta, '{}'::jsonb) || jsonb_build_object(
           'alt_text', u.alt_text,
           'share_count', u.authentic_shares::int,
           'dominant_color', u.dominant_color,
@@ -587,7 +624,8 @@ async function flushBatchToHub(pinsChunk, kw) {
         description text,
         alt_text text,
         is_dead boolean,
-        visual_annotations jsonb
+        visual_annotations jsonb,
+        extra_meta jsonb
       )
       WHERE kps.pin_id = u.pin_id
         AND kps.keyword_id IN (
@@ -627,7 +665,7 @@ async function flushBatchToHub(pinsChunk, kw) {
           THEN u.visual_annotations 
           ELSE ksc.visual_annotations 
         END,
-        metadata = COALESCE(ksc.metadata, '{}'::jsonb) || jsonb_build_object(
+        metadata = COALESCE(ksc.metadata, '{}'::jsonb) || COALESCE(u.extra_meta, '{}'::jsonb) || jsonb_build_object(
           'alt_text', u.alt_text,
           'share_count', u.authentic_shares::int,
           'dominant_color', u.dominant_color,
@@ -657,7 +695,8 @@ async function flushBatchToHub(pinsChunk, kw) {
         description text,
         alt_text text,
         is_dead boolean,
-        visual_annotations jsonb
+        visual_annotations jsonb,
+        extra_meta jsonb
       )
       WHERE ksc.pin_id = u.pin_id AND ksc.keyword_id = ${kw.id};
     `;
@@ -681,7 +720,7 @@ async function flushBatchToHub(pinsChunk, kw) {
         END,
         created_at_pinterest = CASE WHEN u.created_at_pinterest::timestamptz IS NOT NULL THEN u.created_at_pinterest::timestamptz ELSE kps.created_at_pinterest END,
         creation_method = CASE WHEN u.method <> '' THEN u.method ELSE kps.creation_method END,
-        metadata = COALESCE(kps.metadata, '{}'::jsonb) || jsonb_build_object(
+        metadata = COALESCE(kps.metadata, '{}'::jsonb) || COALESCE(u.extra_meta, '{}'::jsonb) || jsonb_build_object(
           'alt_text', u.alt_text,
           'share_count', u.authentic_shares::int,
           'dominant_color', u.dominant_color,
@@ -713,7 +752,8 @@ async function flushBatchToHub(pinsChunk, kw) {
         description text,
         alt_text text,
         is_dead boolean,
-        visual_annotations jsonb
+        visual_annotations jsonb,
+        extra_meta jsonb
       )
       WHERE kps.pin_id = u.pin_id AND kps.keyword_id = ${kw.id}
         AND kps.snapshot_date = (NOW() AT TIME ZONE 'UTC')::date;
@@ -1434,28 +1474,23 @@ async function run() {
         WHERE LOWER(keyword) = ${targetKeyword};
       `;
       if (keywordsToProcess.length === 0) {
-        const defaultTargetPins = maxSerpPins || 50;
-        const defaultPages = Math.min(10, Math.max(2, Math.ceil(defaultTargetPins / 25)));
+        const defaultTarget = maxSerpPins || 50;
+        const defaultPages = Math.max(1, Math.ceil(defaultTarget / 25));
         const [newRow] = await sql`
           INSERT INTO tracked_keywords (keyword, category, target_pin_count, crawl_pages_limit, inspection_mode, is_active)
-          VALUES (${targetKeyword}, 'General', ${defaultTargetPins}, ${defaultPages}, 'full_catalog', TRUE)
+          VALUES (${targetKeyword}, 'General', ${defaultTarget}, ${defaultPages}, 'full_catalog', TRUE)
           ON CONFLICT (keyword) DO UPDATE SET
             is_active = TRUE,
-            target_pin_count = COALESCE(tracked_keywords.target_pin_count, EXCLUDED.target_pin_count),
-            crawl_pages_limit = COALESCE(tracked_keywords.crawl_pages_limit, EXCLUDED.crawl_pages_limit),
-            inspection_mode = 'full_catalog',
             updated_at = NOW()
           RETURNING *;
         `;
         keywordsToProcess = [newRow];
       } else {
         const existingKw = keywordsToProcess[0];
-        if (!existingKw.is_active || existingKw.inspection_mode !== 'full_catalog') {
+        if (!existingKw.is_active) {
           const [updatedRow] = await sql`
             UPDATE tracked_keywords 
-            SET is_active = TRUE, 
-                inspection_mode = 'full_catalog', 
-                updated_at = NOW()
+            SET is_active = TRUE, updated_at = NOW()
             WHERE id = ${existingKw.id}
             RETURNING *;
           `;

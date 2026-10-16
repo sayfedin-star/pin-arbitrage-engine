@@ -98,18 +98,18 @@ export async function optimizeHubStorage(sql) {
   try {
     const serpClean = await sql`
       UPDATE keyword_serp_current
-      SET metadata = metadata - 'title' - 'domain' - 'destination_url' - 'image_url' - 'visual_annotations' - 'description' - 'raw_saves' - 'crawled_at' - 'created_at' - 'created_at_pinterest' - 'method' - 'creation_method' - 'rich_metadata' - 'visual_objects'
+      SET metadata = metadata - 'title' - 'domain' - 'destination_url' - 'image_url' - 'visual_annotations' - 'raw_saves' - 'crawled_at' - 'created_at' - 'created_at_pinterest' - 'method' - 'creation_method'
       WHERE metadata IS NOT NULL
-        AND metadata ?| array['title','domain','destination_url','image_url','visual_annotations','description','raw_saves','crawled_at','created_at','created_at_pinterest','method','creation_method','rich_metadata','visual_objects']
+        AND metadata ?| array['title','domain','destination_url','image_url','visual_annotations','raw_saves','crawled_at','created_at','created_at_pinterest','method','creation_method']
       RETURNING id;
     `;
     results.cleanedSerpMetadata = serpClean.length;
 
     const snapClean = await sql`
       UPDATE keyword_pins_snapshots
-      SET metadata = metadata - 'title' - 'domain' - 'destination_url' - 'image_url' - 'description' - 'raw_saves' - 'crawled_at' - 'created_at' - 'created_at_pinterest' - 'method' - 'creation_method' - 'rich_metadata' - 'visual_objects'
+      SET metadata = metadata - 'title' - 'domain' - 'destination_url' - 'image_url' - 'raw_saves' - 'crawled_at' - 'created_at' - 'created_at_pinterest' - 'method' - 'creation_method'
       WHERE metadata IS NOT NULL
-        AND metadata ?| array['title','domain','destination_url','image_url','description','raw_saves','crawled_at','created_at','created_at_pinterest','method','creation_method','rich_metadata','visual_objects']
+        AND metadata ?| array['title','domain','destination_url','image_url','raw_saves','crawled_at','created_at','created_at_pinterest','method','creation_method']
       RETURNING id;
     `;
     results.cleanedSnapMetadata = snapClean.length;

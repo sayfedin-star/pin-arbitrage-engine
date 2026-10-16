@@ -461,8 +461,15 @@ export function formatPin(pin) {
       altText ||
       ''
     ),
-    description: safeString(pin.description || pin.articleBody || pin.unauth_on_page_description),
-    alt_text: altText,
+    description: safeString(
+      pin.closeupUnifiedDescription ||
+      pin.closeup_unified_description ||
+      pin.unauthOnPageDescription ||
+      pin.unauth_on_page_description ||
+      pin.description ||
+      pin.articleBody
+    ),
+    grid_description: safeString(pin.description || pin.gridDescription || ''),
     seo_title: seoTitle,
     seo_description: seoDescription,
     link: safeString(cleanLink || rawLink || pin.link || pin.url),
@@ -523,8 +530,13 @@ export function formatPin(pin) {
       site_name: safeString(pin.richMetadata.siteName || ''),
       title: safeString(pin.richMetadata.title || ''),
       description: safeString(pin.richMetadata.description || ''),
-      url: safeString(pin.richMetadata.url || '')
+      url: safeString(pin.richMetadata.url || ''),
+      article_published_at: pin.article_published_at || pin.richMetadata.article?.datePublished || null,
+      type: pin.richMetadata.type || (pin.richMetadata.article ? 'article' : null)
     } : null),
+    article_published_at: pin.article_published_at || pin.rich_metadata?.article_published_at || null,
+    aggregated_pin_data_id: pin.aggregated_pin_data_id || pin.aggregatedPinData?.entityId || null,
+    golden_set_interest: pin.golden_set_interest || null,
     seo_canonical_url: safeString(pin.pinJoin?.seoCanonicalUrl || pin.seo_canonical_url || ''),
     seo_canonical_domain: safeString(pin.pinJoin?.seoCanonicalDomain || pin.seo_canonical_domain || 'www.pinterest.com'),
     canonical_pin_id: pin.canonical_pin_id || pin.canonical_pin?.entity_id || pin.pinJoin?.canonicalPin?.entityId || (pin.seo_canonical_url ? safeString(pin.seo_canonical_url).replace(/[^0-9]/g, '') : null),
@@ -571,7 +583,16 @@ export function extractPinData(rawHtml, pinId) {
         if (v3.altText) mergedRelayPin.altText = v3.altText;
         if (v3.title) mergedRelayPin.title = v3.title;
         if (v3.gridTitle && !mergedRelayPin.title) mergedRelayPin.title = v3.gridTitle;
-        if (v3.description) mergedRelayPin.description = v3.description;
+
+        if (v3.closeupUnifiedDescription) mergedRelayPin.closeupUnifiedDescription = v3.closeupUnifiedDescription;
+        if (v3.unauthOnPageDescription) mergedRelayPin.unauthOnPageDescription = v3.unauthOnPageDescription;
+        if (v3.description && (!mergedRelayPin.description || v3.description.length > mergedRelayPin.description.length)) {
+          mergedRelayPin.description = v3.description;
+        }
+        if (v3.gridDescription && !mergedRelayPin.description) {
+          mergedRelayPin.description = v3.gridDescription;
+        }
+
         if (v3.seoTitle) mergedRelayPin.seoTitle = v3.seoTitle;
         if (v3.seoDescription) mergedRelayPin.seoDescription = v3.seoDescription;
         if (v3.link) mergedRelayPin.link = v3.link;
@@ -583,77 +604,128 @@ export function extractPinData(rawHtml, pinId) {
         if (v3.creationMethod || v3.creation_method) mergedRelayPin.creation_method = v3.creationMethod || v3.creation_method;
         if (v3.attribution?.provider_name) mergedRelayPin.provider_name = v3.attribution.provider_name;
 
-        // Algorithmic, Lineage & Domain Authority signals
-        if (v3.isRepin !== undefined) mergedRelayPin.isRepin = Boolean(v3.isRepin);
-        if (v3.originPinner) mergedRelayPin.originPinner = v3.originPinner;
-        if (v3.nativeCreator) mergedRelayPin.nativeCreator = v3.nativeCreator;
-        if (v3.linkDomain) mergedRelayPin.linkDomain = v3.linkDomain;
+        if (v3.aggregatedPinData?.entityId) {
+          mergedRelayPin.aggregated_pin_data_id = String(v3.aggregatedPinData.entityId);
+        }
+
+        if (v3.isRepin !== undefined && v3.isRepin !== null) mergedRelayPin.isRepin = Boolean(v3.isRepin);
+        if (v3.originPinner) mergedRelayPin.originPinner = { ...(mergedRelayPin.originPinner || {}), ...v3.originPinner };
+        if (v3.nativeCreator) mergedRelayPin.nativeCreator = { ...(mergedRelayPin.nativeCreator || {}), ...v3.nativeCreator };
+
+        if (v3.linkDomain || v3.closeupUnifiedAttribution || v3.closeupAttribution) {
+          const prevLd = mergedRelayPin.linkDomain || {};
+          const prevOff = prevLd.officialUser || {};
+          const nextOff = v3.linkDomain?.officialUser || {};
+          const unifiedAttr = v3.closeupUnifiedAttribution || {};
+          const closeAttr = v3.closeupAttribution || {};
+
+          mergedRelayPin.linkDomain = {
+            ...prevLd,
+            ...(v3.linkDomain || {}),
+            name: v3.linkDomain?.name || prevLd.name || v3.domain || mergedRelayPin.domain || '',
+            officialUser: {
+              ...prevOff,
+              ...nextOff,
+              entityId: nextOff.entityId || prevOff.entityId || unifiedAttr.entityId || closeAttr.entityId || null,
+              username: nextOff.username || prevOff.username || unifiedAttr.username || closeAttr.username || '',
+              fullName: nextOff.fullName || prevOff.fullName || unifiedAttr.fullName || closeAttr.fullName || nextOff.firstName || prevOff.firstName || '',
+              followerCount: Math.max(Number(prevOff.followerCount || 0), Number(nextOff.followerCount || 0), Number(unifiedAttr.followerCount || 0)),
+              imageMediumUrl: nextOff.imageMediumUrl || prevOff.imageMediumUrl || unifiedAttr.imageMediumUrl || null,
+              isVerifiedMerchant: Boolean(prevOff.isVerifiedMerchant || nextOff.isVerifiedMerchant || unifiedAttr.isVerifiedMerchant)
+            }
+          };
+        }
+
         if (v3.imageSignature) mergedRelayPin.imageSignature = v3.imageSignature;
-        if (v3.seoNoindexReason !== undefined) mergedRelayPin.seoNoindexReason = v3.seoNoindexReason;
-        if (v3.isGoLinkless !== undefined) mergedRelayPin.isGoLinkless = Boolean(v3.isGoLinkless);
+        if (v3.seoNoindexReason !== undefined && v3.seoNoindexReason !== null) mergedRelayPin.seoNoindexReason = v3.seoNoindexReason;
+        if (v3.isGoLinkless !== undefined && v3.isGoLinkless !== null) mergedRelayPin.isGoLinkless = Boolean(v3.isGoLinkless);
         if (v3.utmLink) mergedRelayPin.utmLink = v3.utmLink;
         if (v3.trackedLink) mergedRelayPin.trackedLink = v3.trackedLink;
-        if (v3.topInterest !== undefined) mergedRelayPin.topInterest = v3.topInterest;
+        if (v3.topInterest !== undefined && v3.topInterest !== null) mergedRelayPin.topInterest = v3.topInterest;
         if (v3.unauthOnPageTitle) mergedRelayPin.unauthOnPageTitle = v3.unauthOnPageTitle;
-        if (v3.unauthOnPageDescription) mergedRelayPin.unauthOnPageDescription = v3.unauthOnPageDescription;
         if (v3.closeupUnifiedTitle) mergedRelayPin.closeupUnifiedTitle = v3.closeupUnifiedTitle;
-        if (v3.closeupUnifiedDescription) mergedRelayPin.closeupUnifiedDescription = v3.closeupUnifiedDescription;
-        if (v3.images_orig) mergedRelayPin.images_orig = v3.images_orig;
 
-        if (v3.pinner && v3.pinner.username) {
+        if (v3.images_orig || v3.images_736x || v3.images_564x) {
+          const prevOrig = mergedRelayPin.images_orig || {};
+          const incomingOrig = v3.images_orig || {};
+          const fallbackDim = v3.images_736x || v3.images_564x || {};
+          mergedRelayPin.images_orig = {
+            ...prevOrig,
+            ...incomingOrig,
+            url: incomingOrig.url || prevOrig.url || fallbackDim.url || '',
+            width: Number(incomingOrig.width || prevOrig.width || fallbackDim.width || 0) || null,
+            height: Number(incomingOrig.height || prevOrig.height || fallbackDim.height || 0) || null
+          };
+        }
+
+        if (v3.pinner) {
+          const prevPinner = mergedRelayPin.pinner || {};
           mergedRelayPin.pinner = {
-            username: v3.pinner.username,
-            full_name: v3.pinner.fullName || v3.pinner.full_name || '',
-            image_url: v3.pinner.imageMediumUrl || v3.pinner.imageSmallUrl || '',
-            follower_count: v3.pinner.followerCount || 0,
-            is_verified_merchant: Boolean(v3.pinner.isVerifiedMerchant || v3.pinner.is_verified_merchant)
+            username: v3.pinner.username || prevPinner.username || '',
+            full_name: v3.pinner.fullName || v3.pinner.full_name || prevPinner.full_name || '',
+            image_url: v3.pinner.imageMediumUrl || v3.pinner.imageSmallUrl || prevPinner.image_url || '',
+            follower_count: Math.max(Number(prevPinner.follower_count || 0), Number(v3.pinner.followerCount || v3.pinner.follower_count || 0)),
+            is_verified_merchant: Boolean(prevPinner.is_verified_merchant || v3.pinner.isVerifiedMerchant || v3.pinner.is_verified_merchant),
+            domain_verified: Boolean(prevPinner.domain_verified || v3.pinner.domainVerified)
           };
         }
 
         if (v3.richMetadata) {
+          const prevRich = mergedRelayPin.rich_metadata || {};
+          const rawPubDate = v3.richMetadata.article?.datePublished || v3.richMetadata.datePublished || prevRich.article_published_at || null;
+          let cleanPubIso = prevRich.article_published_at || null;
+          if (rawPubDate) {
+            const pd = new Date(rawPubDate);
+            if (!isNaN(pd.getTime())) cleanPubIso = pd.toISOString();
+          }
           mergedRelayPin.rich_metadata = {
-            site_name: v3.richMetadata.siteName || '',
-            title: v3.richMetadata.title || '',
-            description: v3.richMetadata.description || '',
-            url: v3.richMetadata.url || ''
+            site_name: v3.richMetadata.siteName || prevRich.site_name || '',
+            title: v3.richMetadata.title || v3.richMetadata.article?.name || prevRich.title || '',
+            description: v3.richMetadata.description || prevRich.description || '',
+            url: v3.richMetadata.url || prevRich.url || '',
+            article_published_at: cleanPubIso,
+            type: v3.richSummary?.typeName || prevRich.type || (v3.richMetadata.article ? 'article' : null)
           };
+          if (cleanPubIso) mergedRelayPin.article_published_at = cleanPubIso;
         }
-        if (Array.isArray(v3.visualObjects)) {
+
+        if (Array.isArray(v3.visualObjects) && v3.visualObjects.length > 0) {
           mergedRelayPin.visual_objects = v3.visualObjects;
         }
 
         if (v3.board) {
-          const rawBoardUrl = v3.board.url || '';
+          const prevBoard = mergedRelayPin.board || {};
+          const rawBoardUrl = v3.board.url || prevBoard.url || '';
           const urlParts = rawBoardUrl.split('/').filter(Boolean);
           const inferredUsername = urlParts[0] || '';
-          const inferredBoardName = v3.board.name || (urlParts[1] ? urlParts[1].replace(/[-_]/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) : 'Board');
+          const inferredBoardName = urlParts[1] ? urlParts[1].replace(/[-_]/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) : 'Board';
 
           mergedRelayPin.board = {
-            id: v3.board.entityId || v3.board.id || null,
-            name: v3.board.name || inferredBoardName,
-            url: v3.board.url || null,
-            pin_count: v3.board.pinCount || v3.board.pin_count || 0,
-            section_count: v3.board.sectionCount || v3.board.section_count || 0,
-            board_order_modified_at: v3.board.boardOrderModifiedAt || v3.board.board_order_modified_at || null,
-            image_cover_url: v3.board.imageCoverUrl || v3.board.coverImageSpec_236x?.url || null,
-            image_thumbnail_url: v3.board.imageThumbnailUrl || null
+            id: v3.board.entityId || prevBoard.id || v3.board.id || null,
+            name: v3.board.name || prevBoard.name || inferredBoardName,
+            url: rawBoardUrl || null,
+            pin_count: Math.max(Number(prevBoard.pin_count || 0), Number(v3.board.pinCount || v3.board.pin_count || 0)),
+            section_count: Math.max(Number(prevBoard.section_count || 0), Number(v3.board.sectionCount || v3.board.section_count || 0)),
+            board_order_modified_at: v3.board.boardOrderModifiedAt || v3.board.board_order_modified_at || prevBoard.board_order_modified_at || null,
+            image_cover_url: v3.board.imageCoverHdUrl || v3.board.imageCoverUrl || v3.board.coverImageSpec_236x?.url || prevBoard.image_cover_url || null,
+            image_thumbnail_url: v3.board.imageThumbnailUrl || prevBoard.image_thumbnail_url || null,
+            is_collaborative: Boolean(prevBoard.is_collaborative || v3.board.isCollaborative)
           };
 
           if ((!mergedRelayPin.pinner || !mergedRelayPin.pinner.username) && inferredUsername) {
             mergedRelayPin.pinner = {
+              ...(mergedRelayPin.pinner || {}),
               username: inferredUsername,
-              full_name: v3.pinner?.fullName || v3.pinner?.full_name || inferredUsername,
-              image_url: v3.pinner?.imageMediumUrl || v3.pinner?.imageSmallUrl || '',
-              follower_count: v3.pinner?.followerCount || 0,
-              is_verified_merchant: Boolean(v3.pinner?.isVerifiedMerchant || v3.pinner?.is_verified_merchant)
+              full_name: mergedRelayPin.pinner?.full_name || inferredUsername
             };
           }
         }
 
         if (v3.closeupAttribution) {
           mergedRelayPin.closeup_attribution = {
-            full_name: v3.closeupAttribution.fullName || v3.closeupAttribution.firstName || '',
-            id: v3.closeupAttribution.id || ''
+            full_name: v3.closeupAttribution.fullName || v3.closeupAttribution.firstName || mergedRelayPin.closeup_attribution?.full_name || '',
+            username: v3.closeupAttribution.username || mergedRelayPin.closeup_attribution?.username || '',
+            id: v3.closeupAttribution.id || mergedRelayPin.closeup_attribution?.id || ''
           };
         }
 
@@ -690,7 +762,7 @@ export function extractPinData(rawHtml, pinId) {
         }
 
         const imgOrig = v3.images_orig?.url || v3.images_736x?.url || v3.imageLargeUrl || v3.images?.orig?.url;
-        if (imgOrig) mergedRelayPin.image_url = imgOrig;
+        if (imgOrig && !mergedRelayPin.image_url) mergedRelayPin.image_url = imgOrig;
 
         if (v3.isEligibleForPdp || (Array.isArray(v3.shoppingFlags) && v3.shoppingFlags.length > 0) || v3.isProduct || v3.priceValue) {
           mergedRelayPin.is_product = true;
@@ -720,10 +792,25 @@ export function extractPinData(rawHtml, pinId) {
             ];
           }
           if (Array.isArray(v3.pinJoin.seoRelatedInterests)) {
-            mergedRelayPin.pinJoin.seoRelatedInterests = [
-              ...(mergedRelayPin.pinJoin.seoRelatedInterests || []),
-              ...v3.pinJoin.seoRelatedInterests
-            ];
+            const existingRel = mergedRelayPin.pinJoin.seoRelatedInterests || [];
+            const seenRel = new Set(existingRel.map(i => String(i?.url || i?.name || '').toLowerCase()));
+            for (const item of v3.pinJoin.seoRelatedInterests) {
+              const key = String(item?.url || item?.name || '').toLowerCase();
+              if (key && !seenRel.has(key)) {
+                seenRel.add(key);
+                existingRel.push(item);
+              }
+            }
+            mergedRelayPin.pinJoin.seoRelatedInterests = existingRel;
+          }
+          if (v3.pinJoin.interestForGoldenSet) {
+            const gs = v3.pinJoin.interestForGoldenSet;
+            mergedRelayPin.golden_set_interest = {
+              interest_id: gs.interestId ? String(gs.interestId) : null,
+              name: gs.name || '',
+              pin_count: Array.isArray(gs.pinIds) ? gs.pinIds.length : 0,
+              sample_pin_ids: Array.isArray(gs.pinIds) ? gs.pinIds.slice(0, 25) : []
+            };
           }
           if (Array.isArray(v3.pinJoin.seoBreadcrumbs)) {
             mergedRelayPin.pinJoin.seoBreadcrumbs = v3.pinJoin.seoBreadcrumbs;

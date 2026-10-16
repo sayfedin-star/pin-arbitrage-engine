@@ -1443,6 +1443,33 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
               if (scraped.alt_text || scraped.seo_alt_text) {
                 p.metadata.alt_text = scraped.alt_text || scraped.seo_alt_text;
               }
+              if (scraped.description) p.metadata.description = String(scraped.description).slice(0, 1000);
+              if (scraped.seo_title) p.metadata.seo_title = scraped.seo_title;
+              if (scraped.seo_description) p.metadata.seo_description = scraped.seo_description;
+              if (scraped.canonical_pin_id) p.metadata.canonical_pin_id = scraped.canonical_pin_id;
+              if (scraped.canonical_pin_url) p.metadata.canonical_pin_url = scraped.canonical_pin_url;
+              if (scraped.seo_canonical_url) p.metadata.seo_canonical_url = scraped.seo_canonical_url;
+              if (scraped.aggregated_pin_data_id) p.metadata.aggregated_pin_data_id = scraped.aggregated_pin_data_id;
+              if (scraped.domain_official_user?.username) p.metadata.domain_official_user = scraped.domain_official_user;
+              if (scraped.board_pin_count) p.metadata.board_pin_count = Number(scraped.board_pin_count);
+              if (scraped.board_order_modified_at) p.metadata.board_order_modified_at = scraped.board_order_modified_at;
+              if (scraped.board_url) p.metadata.board_url = scraped.board_url;
+              if (scraped.board_cover_url) p.metadata.board_cover_url = scraped.board_cover_url;
+              if (scraped.board_thumbnail_url) p.metadata.board_thumbnail_url = scraped.board_thumbnail_url;
+              if (scraped.image_signature) p.metadata.image_signature = scraped.image_signature;
+              if (scraped.image_dimensions) p.metadata.image_dimensions = scraped.image_dimensions;
+              if (scraped.rich_metadata) p.metadata.rich_metadata = scraped.rich_metadata;
+              if (scraped.article_published_at) p.metadata.article_published_at = scraped.article_published_at;
+              if (Array.isArray(scraped.seo_related_interests) && scraped.seo_related_interests.length > 0) {
+                p.metadata.seo_related_interests = scraped.seo_related_interests;
+              }
+              if (Array.isArray(scraped.category_breadcrumbs) && scraped.category_breadcrumbs.length > 0) {
+                p.metadata.category_breadcrumbs = scraped.category_breadcrumbs;
+              }
+              if (Array.isArray(scraped.visual_objects) && scraped.visual_objects.length > 0) {
+                p.metadata.visual_objects = scraped.visual_objects;
+              }
+              if (scraped.golden_set_interest) p.metadata.golden_set_interest = scraped.golden_set_interest;
             }
 
             // Recalculate daily save velocity against baseline if saves updated
@@ -1478,10 +1505,10 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
     // PHASE 3: DYNAMIC SERP CIRCUIT BREAKER
     // Supporting niche keywords with only 20-30 pins: calculate expectedCount dynamically
     const priorActiveCount = immediateSnapshots.length;
-    const targetQuota = Math.max(10, Number(targetCount) || Number(keywordRow.target_pin_count) || 50);
-    const expectedCount = (priorActiveCount > 0 && priorActiveCount < targetQuota)
-      ? priorActiveCount
-      : targetQuota;
+    const effectiveTarget = targetCount || Number(keywordRow.target_pin_count) || 50;
+    const expectedCount = priorActiveCount > 0
+      ? Math.min(effectiveTarget, priorActiveCount)
+      : effectiveTarget;
 
     const minRequiredForEviction = Math.max(10, Math.floor(expectedCount * 0.70));
     const isSuspectedIncompleteCrawl = preparedPins.length < minRequiredForEviction || paginationAbortedByHttp;

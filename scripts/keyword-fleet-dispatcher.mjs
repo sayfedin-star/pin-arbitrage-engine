@@ -181,10 +181,10 @@ async function main() {
           WHERE LOWER(keyword) = ${kwStr};
         `;
         if (row) {
-          if (!row.is_active || row.inspection_mode !== 'full_catalog') {
+          if (!row.is_active) {
             await sql`
               UPDATE tracked_keywords 
-              SET is_active = TRUE, inspection_mode = 'full_catalog', updated_at = NOW()
+              SET is_active = TRUE, updated_at = NOW()
               WHERE id = ${row.id};
             `;
           }
@@ -197,9 +197,6 @@ async function main() {
             VALUES (${kwStr}, 'General', ${defaultTargetPins}, ${defaultPages}, 'full_catalog', TRUE)
             ON CONFLICT (keyword) DO UPDATE SET
               is_active = TRUE,
-              target_pin_count = COALESCE(tracked_keywords.target_pin_count, EXCLUDED.target_pin_count),
-              crawl_pages_limit = COALESCE(tracked_keywords.crawl_pages_limit, EXCLUDED.crawl_pages_limit),
-              inspection_mode = 'full_catalog',
               updated_at = NOW()
             RETURNING id, keyword, category, target_pin_count;
           `;
@@ -287,10 +284,10 @@ async function main() {
       WHERE LOWER(keyword) = ${singleKeyword};
     `;
     if (kwRow) {
-      if (!kwRow.is_active || kwRow.inspection_mode !== 'full_catalog') {
+      if (!kwRow.is_active) {
         await sql`
           UPDATE tracked_keywords 
-          SET is_active = TRUE, inspection_mode = 'full_catalog', updated_at = NOW()
+          SET is_active = TRUE, updated_at = NOW()
           WHERE id = ${kwRow.id};
         `;
       }
@@ -303,9 +300,6 @@ async function main() {
         VALUES (${singleKeyword}, 'General', ${defaultTargetPins}, ${defaultPages}, 'full_catalog', TRUE)
         ON CONFLICT (keyword) DO UPDATE SET
           is_active = TRUE,
-          target_pin_count = COALESCE(tracked_keywords.target_pin_count, EXCLUDED.target_pin_count),
-          crawl_pages_limit = COALESCE(tracked_keywords.crawl_pages_limit, EXCLUDED.crawl_pages_limit),
-          inspection_mode = 'full_catalog',
           updated_at = NOW()
         RETURNING id, keyword, category, target_pin_count;
       `;
