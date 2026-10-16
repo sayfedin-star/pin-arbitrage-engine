@@ -183,7 +183,12 @@ export async function listKeywords(sql, { search = '', limit = 1000, offset = 0 
     const pattern = `%${search.toLowerCase().trim()}%`;
     return await sql`
       WITH paged_keywords AS (
-        SELECT *
+        SELECT 
+          id, keyword, category, target_pin_count, refresh_interval_hours,
+          last_crawled_at, top_pin_id, top_pin_title, top_pin_image,
+          avg_daily_velocity, is_active, tags,
+          (COALESCE(metadata, '{}'::jsonb) - 'last_dropped_pins' - 'popular_pins') AS metadata,
+          created_at, updated_at, crawl_pages_limit, inspection_mode, canonical_keyword
         FROM tracked_keywords
         WHERE LOWER(keyword) LIKE ${pattern}
         ORDER BY created_at DESC
@@ -193,6 +198,8 @@ export async function listKeywords(sql, { search = '', limit = 1000, offset = 0 
         SELECT keyword_id, COUNT(*)::int AS cnt
         FROM keyword_serp_current
         WHERE keyword_id IN (SELECT id FROM paged_keywords)
+          AND is_displaced = FALSE
+          AND rank_position IS NOT NULL
         GROUP BY keyword_id
       ),
       folder_map AS (
@@ -225,7 +232,12 @@ export async function listKeywords(sql, { search = '', limit = 1000, offset = 0 
   } else {
     return await sql`
       WITH paged_keywords AS (
-        SELECT *
+        SELECT 
+          id, keyword, category, target_pin_count, refresh_interval_hours,
+          last_crawled_at, top_pin_id, top_pin_title, top_pin_image,
+          avg_daily_velocity, is_active, tags,
+          (COALESCE(metadata, '{}'::jsonb) - 'last_dropped_pins' - 'popular_pins') AS metadata,
+          created_at, updated_at, crawl_pages_limit, inspection_mode, canonical_keyword
         FROM tracked_keywords
         ORDER BY created_at DESC
         LIMIT ${lim} OFFSET ${off}
@@ -234,6 +246,8 @@ export async function listKeywords(sql, { search = '', limit = 1000, offset = 0 
         SELECT keyword_id, COUNT(*)::int AS cnt
         FROM keyword_serp_current
         WHERE keyword_id IN (SELECT id FROM paged_keywords)
+          AND is_displaced = FALSE
+          AND rank_position IS NOT NULL
         GROUP BY keyword_id
       ),
       folder_map AS (

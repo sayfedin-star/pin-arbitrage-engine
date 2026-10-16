@@ -581,11 +581,11 @@ function getCachedShardSql(key, factory) {
 
 export function createHyperdriveClient(connectionString, customOpts = {}) {
   const pSql = postgres(connectionString, {
-    max: 5,
+    max: 3,
     fetch_types: false,
     prepare: false,
     idle_timeout: 5,
-    connect_timeout: 10,
+    connect_timeout: 3,
     ...customOpts
   });
   pSql.transaction = async (queriesOrFn) => {
@@ -2948,7 +2948,7 @@ export default {
               limit,
               offset
             });
-          }, 8000, 30000);
+          }, 30000, 120000);
 
           if (Array.isArray(keywords) && keywords.length > 0 && env?.PIN_D1_DB) {
             safeWaitUntil(ctx, syncKeywordsBatchToD1(env, keywords), 'syncKeywordsBatchToD1');

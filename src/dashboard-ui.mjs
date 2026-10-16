@@ -1448,7 +1448,7 @@ export function getDashboardHtml() {
             </div>
           </div>
           <div class="mt-2.5 flex items-baseline space-x-1.5">
-            <span class="text-2xl font-black text-emerald-600 dark:text-emerald-400 font-mono" x-text="(keywords.length || 93) + ' Queries'"></span>
+            <span class="text-2xl font-black text-emerald-600 dark:text-emerald-400 font-mono" x-text="keywords.length + ' Queries'"></span>
           </div>
           <div class="mt-2 flex items-center justify-between text-[10.5px]">
             <span class="text-slate-500">32.5k Pins Monitored</span>
