@@ -213,20 +213,16 @@ async function main() {
     console.log(`  [+] Central Hub Updated: Avg Velocity = +${avgVelocity} saves/day | Active Pins = ${activeCount}`);
 
     // 3. Catalog & Vault Telemetry
-    const [snapStats] = await sql`
-      SELECT 
-        COUNT(DISTINCT pin_id) as total_catalog,
-        COUNT(DISTINCT pin_id) FILTER (WHERE is_displaced = true) as displaced_vault,
-        COUNT(DISTINCT pin_id) FILTER (WHERE metadata->>'is_deleted' = 'true' OR metadata->>'status' = 'archived_404') as dead_pins,
-        COALESCE(SUM(save_count), 0) as total_catalog_saves
-      FROM keyword_pins_snapshots
+    const [displacedStats] = await sql`
+      SELECT COUNT(DISTINCT pin_id) as displaced_vault
+      FROM keyword_displaced_index
       WHERE keyword_id = ${kw.id};
-    `;
+    `.catch(() => [{ displaced_vault: 0 }]);
 
-    const totalCatalog = Number(snapStats?.total_catalog || activeCount);
-    const displacedVault = Number(snapStats?.displaced_vault || 0);
-    const deadPins = Number(snapStats?.dead_pins || 0);
-    const totalCatalogSaves = Number(snapStats?.total_catalog_saves || totalActiveSaves);
+    const displacedVault = Number(displacedStats?.displaced_vault || 0);
+    const totalCatalog = activeCount + displacedVault;
+    const deadPins = 0;
+    const totalCatalogSaves = totalActiveSaves;
 
     // 4. Compute Visual Annotations Crossover & Core Anchors (Active only)
     const serpPins = await sql`

@@ -230,7 +230,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
 
         <div class="flex flex-wrap items-center gap-2">
           <!-- Refresh Hub Button -->
-          <button @click="fetchKeywords()" :disabled="isKeywordsLoading"
+          <button @click="fetchKeywords(true)" :disabled="isKeywordsLoading"
                   class="px-3.5 py-2 rounded-2xl text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/80 dark:hover:bg-slate-700/80 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition flex items-center space-x-1.5 shadow-xs cursor-pointer active:scale-95"
                   title="Sync with Neon Central Hub">
             <i data-lucide="refresh-cw" class="w-3.5 h-3.5" :class="isKeywordsLoading ? 'animate-spin text-emerald-500' : 'text-slate-400'"></i>
@@ -6529,10 +6529,11 @@ export function getKeywordsPageHtml(initialSlug = '') {
           return k;
         },
 
-        async fetchKeywords() {
+        async fetchKeywords(forceRefresh = false) {
           this.isKeywordsLoading = true;
           try {
-            const res = await fetch(this.getApiUrl('/api/keywords?limit=1000'));
+            const refreshParam = forceRefresh ? '&refresh=true' : '';
+            const res = await fetch(this.getApiUrl('/api/keywords?limit=1000' + refreshParam));
             if (!res.ok) throw new Error('HTTP ' + res.status);
             const data = await res.json();
             const raw = Array.isArray(data.keywords) ? data.keywords : [];
@@ -7185,7 +7186,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
               this.selectedKeyword = null;
               this.selectedKeywordDetails = null;
             }
-            await this.fetchKeywords();
+            await this.fetchKeywords(true);
             if (this.keywords.length > 0 && !this.selectedKeyword) {
               this.selectKeyword(this.keywords[0]);
             }

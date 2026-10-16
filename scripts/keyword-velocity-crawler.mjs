@@ -482,6 +482,8 @@ async function flushBatchToHub(pinsChunk, kw) {
   if (!pinsChunk || pinsChunk.length === 0) return;
   const isFolder = Boolean(kw?.folder_id);
 
+  // Zero-Bloat Hub Flush: Only update active SERP columns and slim flags on Hub;
+  // heavy extra_meta, descriptions, and time-series snapshots go strictly to the 99 Shards via flushToStorageShards!
   const payloadJson = JSON.stringify(pinsChunk.map(p => ({
     pin_id: String(p.pin_id),
     authentic_saves: Number(p.save_count || 0),
@@ -495,11 +497,11 @@ async function flushBatchToHub(pinsChunk, kw) {
     dominant_color: String(p.dominant_color || '#888888'),
     created_at_pinterest: p.created_at_pinterest || null,
     method: String(p.creation_method || p.method || 'pinterest_platform'),
-    description: String(p.description || '').slice(0, 500),
-    alt_text: String(p.alt_text || '').slice(0, 500),
+    description: '',
+    alt_text: '',
     is_dead: Boolean(p.is_deleted),
     visual_annotations: Array.isArray(p.visual_annotations) ? p.visual_annotations : [],
-    extra_meta: (p.extra_meta && typeof p.extra_meta === 'object') ? p.extra_meta : {}
+    extra_meta: {}
   })));
 
   if (isFolder) {
@@ -574,65 +576,30 @@ async function flushBatchToHub(pinsChunk, kw) {
     `;
 
     await sql`
-      UPDATE keyword_pins_snapshots kps
+      UPDATE keyword_displaced_index kdi
       SET
-        save_count = GREATEST(kps.save_count, u.authentic_saves::bigint),
-        repin_count = GREATEST(kps.repin_count, u.authentic_repins::int),
-        comment_count = GREATEST(kps.comment_count, u.authentic_comments::int),
-        share_count = GREATEST(COALESCE(kps.share_count, 0), u.authentic_shares::int),
+        save_count = GREATEST(kdi.save_count, u.authentic_saves::bigint),
+        repin_count = GREATEST(kdi.repin_count, u.authentic_repins::int),
+        comment_count = GREATEST(kdi.comment_count, u.authentic_comments::int),
+        share_count = GREATEST(COALESCE(kdi.share_count, 0), u.authentic_shares::int),
         daily_save_velocity = CASE 
-          WHEN u.daily_save_velocity > 0 THEN GREATEST(COALESCE(kps.daily_save_velocity, 0), u.daily_save_velocity::numeric)
-          ELSE kps.daily_save_velocity 
+          WHEN u.daily_save_velocity > 0 THEN GREATEST(COALESCE(kdi.daily_save_velocity, 0), u.daily_save_velocity::numeric)
+          ELSE kdi.daily_save_velocity 
         END,
-        vacuum_opportunity_score = CASE 
-          WHEN COALESCE(kps.last_known_rank, kps.rank_position, 100) <= 5 THEN 85
-          WHEN COALESCE(kps.last_known_rank, kps.rank_position, 100) <= 15 THEN 75
-          WHEN COALESCE(kps.last_known_rank, kps.rank_position, 100) <= 50 THEN 60
-          ELSE 45
-        END,
-        created_at_pinterest = CASE WHEN u.created_at_pinterest::timestamptz IS NOT NULL THEN u.created_at_pinterest::timestamptz ELSE kps.created_at_pinterest END,
-        creation_method = CASE WHEN u.method <> '' THEN u.method ELSE kps.creation_method END,
-        metadata = COALESCE(kps.metadata, '{}'::jsonb) || jsonb_strip_nulls(COALESCE(u.extra_meta, '{}'::jsonb)) || jsonb_build_object(
-          'alt_text', u.alt_text,
-          'share_count', u.authentic_shares::int,
-          'dominant_color', u.dominant_color,
-          'board_name', u.board,
-          'method', u.method,
-          'creation_method', u.method,
-          'created_at_pinterest', u.created_at_pinterest,
-          'is_deleted', u.is_dead::boolean,
-          'status', CASE WHEN u.is_dead THEN 'archived_404' ELSE 'active' END,
-          'visual_annotations', CASE 
-            WHEN jsonb_typeof(u.visual_annotations) = 'array' AND jsonb_array_length(u.visual_annotations) > 0 
-            THEN u.visual_annotations 
-            ELSE COALESCE(kps.metadata->'visual_annotations', '[]'::jsonb) 
-          END
-        )
+        updated_at = NOW()
       FROM jsonb_to_recordset(${payloadJson}::jsonb) AS u(
         pin_id text,
         authentic_saves bigint,
         authentic_repins int,
         authentic_comments int,
         authentic_shares int,
-        daily_save_velocity numeric,
-        from_hydration_cache boolean,
-        creator text,
-        board text,
-        dominant_color text,
-        created_at_pinterest text,
-        method text,
-        description text,
-        alt_text text,
-        is_dead boolean,
-        visual_annotations jsonb,
-        extra_meta jsonb
+        daily_save_velocity numeric
       )
-      WHERE kps.pin_id = u.pin_id
-        AND kps.keyword_id IN (
+      WHERE kdi.pin_id = u.pin_id
+        AND kdi.keyword_id IN (
           SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${kw.folder_id}
-        )
-        AND kps.snapshot_date = (NOW() AT TIME ZONE 'UTC')::date;
-    `;
+        );
+    `.catch(() => {});
   } else {
     await sql`
       UPDATE keyword_serp_current ksc
@@ -702,62 +669,27 @@ async function flushBatchToHub(pinsChunk, kw) {
     `;
 
     await sql`
-      UPDATE keyword_pins_snapshots kps
+      UPDATE keyword_displaced_index kdi
       SET
-        save_count = GREATEST(kps.save_count, u.authentic_saves::bigint),
-        repin_count = GREATEST(kps.repin_count, u.authentic_repins::int),
-        comment_count = GREATEST(kps.comment_count, u.authentic_comments::int),
-        share_count = GREATEST(COALESCE(kps.share_count, 0), u.authentic_shares::int),
+        save_count = GREATEST(kdi.save_count, u.authentic_saves::bigint),
+        repin_count = GREATEST(kdi.repin_count, u.authentic_repins::int),
+        comment_count = GREATEST(kdi.comment_count, u.authentic_comments::int),
+        share_count = GREATEST(COALESCE(kdi.share_count, 0), u.authentic_shares::int),
         daily_save_velocity = CASE 
-          WHEN u.daily_save_velocity > 0 THEN GREATEST(COALESCE(kps.daily_save_velocity, 0), u.daily_save_velocity::numeric)
-          ELSE kps.daily_save_velocity 
+          WHEN u.daily_save_velocity > 0 THEN GREATEST(COALESCE(kdi.daily_save_velocity, 0), u.daily_save_velocity::numeric)
+          ELSE kdi.daily_save_velocity 
         END,
-        vacuum_opportunity_score = CASE 
-          WHEN COALESCE(kps.last_known_rank, kps.rank_position, 100) <= 5 THEN 85
-          WHEN COALESCE(kps.last_known_rank, kps.rank_position, 100) <= 15 THEN 75
-          WHEN COALESCE(kps.last_known_rank, kps.rank_position, 100) <= 50 THEN 60
-          ELSE 45
-        END,
-        created_at_pinterest = CASE WHEN u.created_at_pinterest::timestamptz IS NOT NULL THEN u.created_at_pinterest::timestamptz ELSE kps.created_at_pinterest END,
-        creation_method = CASE WHEN u.method <> '' THEN u.method ELSE kps.creation_method END,
-        metadata = COALESCE(kps.metadata, '{}'::jsonb) || jsonb_strip_nulls(COALESCE(u.extra_meta, '{}'::jsonb)) || jsonb_build_object(
-          'alt_text', u.alt_text,
-          'share_count', u.authentic_shares::int,
-          'dominant_color', u.dominant_color,
-          'board_name', u.board,
-          'method', u.method,
-          'creation_method', u.method,
-          'created_at_pinterest', u.created_at_pinterest,
-          'is_deleted', u.is_dead::boolean,
-          'status', CASE WHEN u.is_dead THEN 'archived_404' ELSE 'active' END,
-          'visual_annotations', CASE 
-            WHEN jsonb_typeof(u.visual_annotations) = 'array' AND jsonb_array_length(u.visual_annotations) > 0 
-            THEN u.visual_annotations 
-            ELSE COALESCE(kps.metadata->'visual_annotations', '[]'::jsonb) 
-          END
-        )
+        updated_at = NOW()
       FROM jsonb_to_recordset(${payloadJson}::jsonb) AS u(
         pin_id text,
         authentic_saves bigint,
         authentic_repins int,
         authentic_comments int,
         authentic_shares int,
-        daily_save_velocity numeric,
-        from_hydration_cache boolean,
-        creator text,
-        board text,
-        dominant_color text,
-        created_at_pinterest text,
-        method text,
-        description text,
-        alt_text text,
-        is_dead boolean,
-        visual_annotations jsonb,
-        extra_meta jsonb
+        daily_save_velocity numeric
       )
-      WHERE kps.pin_id = u.pin_id AND kps.keyword_id = ${kw.id}
-        AND kps.snapshot_date = (NOW() AT TIME ZONE 'UTC')::date;
-    `;
+      WHERE kdi.pin_id = u.pin_id AND kdi.keyword_id = ${kw.id};
+    `.catch(() => {});
   }
 }
 
@@ -1226,19 +1158,37 @@ async function run() {
       `;
     } else {
       allPins = await sql`
-        SELECT DISTINCT ON (ksc.pin_id)
-          ksc.pin_id, ksc.keyword_id, ksc.rank_position, ksc.last_known_rank, ksc.title, ksc.domain, ksc.destination_url, ksc.image_url,
-          ksc.save_count, ksc.repin_count, ksc.daily_save_velocity, ksc.creator_username,
-          ksc.board_name, ksc.dominant_color, ksc.visual_annotations, ksc.created_at_pinterest, ksc.creation_method,
-          ksc.metadata, ksc.crawled_at, ksc.updated_at, ksc.is_displaced
-        FROM keyword_serp_current ksc
-        JOIN keyword_folder_items kfi ON kfi.keyword_id = ksc.keyword_id
-        WHERE kfi.folder_id = ${fid} AND ksc.pin_id ~ '^[0-9]+$'
-          AND NOT EXISTS (
-            SELECT 1 FROM keyword_ignored_pins kip
-            WHERE kip.keyword_id = ksc.keyword_id AND kip.pin_id = ksc.pin_id
-          )
-        ORDER BY ksc.pin_id, ksc.is_displaced ASC, ksc.rank_position ASC NULLS LAST;
+        SELECT DISTINCT ON (pin_id) *
+        FROM (
+          SELECT 
+            ksc.pin_id, ksc.keyword_id, ksc.rank_position, ksc.last_known_rank, ksc.title, ksc.domain, ksc.destination_url, ksc.image_url,
+            ksc.save_count, ksc.repin_count, ksc.daily_save_velocity, ksc.creator_username,
+            ksc.board_name, ksc.dominant_color, ksc.visual_annotations, ksc.created_at_pinterest, ksc.creation_method,
+            ksc.metadata, ksc.crawled_at, ksc.updated_at, ksc.is_displaced
+          FROM keyword_serp_current ksc
+          JOIN keyword_folder_items kfi ON kfi.keyword_id = ksc.keyword_id
+          WHERE kfi.folder_id = ${fid} AND ksc.pin_id ~ '^[0-9]+$'
+            AND NOT EXISTS (
+              SELECT 1 FROM keyword_ignored_pins kip
+              WHERE kip.keyword_id = ksc.keyword_id AND kip.pin_id = ksc.pin_id
+            )
+
+          UNION ALL
+
+          SELECT
+            kdi.pin_id, kdi.keyword_id, NULL as rank_position, kdi.last_known_rank, '' as title, '' as domain, '' as destination_url, '' as image_url,
+            kdi.save_count, kdi.repin_count, kdi.daily_save_velocity, '' as creator_username,
+            '' as board_name, '#888888' as dominant_color, '[]'::jsonb as visual_annotations, NULL as created_at_pinterest, 'pinterest_platform' as creation_method,
+            '{}'::jsonb as metadata, kdi.updated_at as crawled_at, kdi.updated_at, TRUE as is_displaced
+          FROM keyword_displaced_index kdi
+          JOIN keyword_folder_items kfi ON kfi.keyword_id = kdi.keyword_id
+          WHERE kfi.folder_id = ${fid} AND kdi.pin_id ~ '^[0-9]+$'
+            AND NOT EXISTS (
+              SELECT 1 FROM keyword_ignored_pins kip
+              WHERE kip.keyword_id = kdi.keyword_id AND kip.pin_id = kdi.pin_id
+            )
+        ) combined_pins
+        ORDER BY pin_id, is_displaced ASC, rank_position ASC NULLS LAST;
       `;
     }
 
@@ -1378,18 +1328,35 @@ async function run() {
       `;
     } else {
       allPins = await sql`
-        SELECT 
-          pin_id, keyword_id, rank_position, last_known_rank, title, domain, destination_url, image_url,
-          save_count, repin_count, daily_save_velocity, creator_username,
-          board_name, dominant_color, visual_annotations, created_at_pinterest, creation_method,
-          metadata, crawled_at, updated_at, is_displaced
-        FROM keyword_serp_current
-        WHERE keyword_id = ${kwRow.id} AND pin_id ~ '^[0-9]+$'
-          AND NOT EXISTS (
-            SELECT 1 FROM keyword_ignored_pins kip
-            WHERE kip.keyword_id = ${kwRow.id} AND kip.pin_id = keyword_serp_current.pin_id
-          )
-        ORDER BY is_displaced ASC, rank_position ASC NULLS LAST;
+        SELECT DISTINCT ON (pin_id) *
+        FROM (
+          SELECT 
+            pin_id, keyword_id, rank_position, last_known_rank, title, domain, destination_url, image_url,
+            save_count, repin_count, daily_save_velocity, creator_username,
+            board_name, dominant_color, visual_annotations, created_at_pinterest, creation_method,
+            metadata, crawled_at, updated_at, is_displaced
+          FROM keyword_serp_current
+          WHERE keyword_id = ${kwRow.id} AND pin_id ~ '^[0-9]+$'
+            AND NOT EXISTS (
+              SELECT 1 FROM keyword_ignored_pins kip
+              WHERE kip.keyword_id = ${kwRow.id} AND kip.pin_id = keyword_serp_current.pin_id
+            )
+
+          UNION ALL
+
+          SELECT
+            kdi.pin_id, kdi.keyword_id, NULL as rank_position, kdi.last_known_rank, '' as title, '' as domain, '' as destination_url, '' as image_url,
+            kdi.save_count, kdi.repin_count, kdi.daily_save_velocity, '' as creator_username,
+            '' as board_name, '#888888' as dominant_color, '[]'::jsonb as visual_annotations, NULL as created_at_pinterest, 'pinterest_platform' as creation_method,
+            '{}'::jsonb as metadata, kdi.updated_at as crawled_at, kdi.updated_at, TRUE as is_displaced
+          FROM keyword_displaced_index kdi
+          WHERE kdi.keyword_id = ${kwRow.id} AND kdi.pin_id ~ '^[0-9]+$'
+            AND NOT EXISTS (
+              SELECT 1 FROM keyword_ignored_pins kip
+              WHERE kip.keyword_id = ${kwRow.id} AND kip.pin_id = kdi.pin_id
+            )
+        ) combined_pins
+        ORDER BY pin_id, is_displaced ASC, rank_position ASC NULLS LAST;
       `;
     }
 
@@ -1611,18 +1578,35 @@ async function run() {
             `;
           } else {
             allKeywordPins = await sql`
-              SELECT 
-                pin_id, keyword_id, rank_position, last_known_rank, title, domain, destination_url, image_url,
-                save_count, repin_count, daily_save_velocity, creator_username,
-                board_name, dominant_color, visual_annotations, created_at_pinterest, creation_method,
-                metadata, crawled_at, updated_at, is_displaced
-              FROM keyword_serp_current
-              WHERE keyword_id = ${kw.id} AND pin_id ~ '^[0-9]+$'
-                AND NOT EXISTS (
-                  SELECT 1 FROM keyword_ignored_pins kip
-                  WHERE kip.keyword_id = ${kw.id} AND kip.pin_id = keyword_serp_current.pin_id
-                )
-              ORDER BY is_displaced ASC, rank_position ASC NULLS LAST;
+              SELECT DISTINCT ON (pin_id) *
+              FROM (
+                SELECT 
+                  pin_id, keyword_id, rank_position, last_known_rank, title, domain, destination_url, image_url,
+                  save_count, repin_count, daily_save_velocity, creator_username,
+                  board_name, dominant_color, visual_annotations, created_at_pinterest, creation_method,
+                  metadata, crawled_at, updated_at, is_displaced
+                FROM keyword_serp_current
+                WHERE keyword_id = ${kw.id} AND pin_id ~ '^[0-9]+$'
+                  AND NOT EXISTS (
+                    SELECT 1 FROM keyword_ignored_pins kip
+                    WHERE kip.keyword_id = ${kw.id} AND kip.pin_id = keyword_serp_current.pin_id
+                  )
+
+                UNION ALL
+
+                SELECT
+                  kdi.pin_id, kdi.keyword_id, NULL as rank_position, kdi.last_known_rank, '' as title, '' as domain, '' as destination_url, '' as image_url,
+                  kdi.save_count, kdi.repin_count, kdi.daily_save_velocity, '' as creator_username,
+                  '' as board_name, '#888888' as dominant_color, '[]'::jsonb as visual_annotations, NULL as created_at_pinterest, 'pinterest_platform' as creation_method,
+                  '{}'::jsonb as metadata, kdi.updated_at as crawled_at, kdi.updated_at, TRUE as is_displaced
+                FROM keyword_displaced_index kdi
+                WHERE kdi.keyword_id = ${kw.id} AND kdi.pin_id ~ '^[0-9]+$'
+                  AND NOT EXISTS (
+                    SELECT 1 FROM keyword_ignored_pins kip
+                    WHERE kip.keyword_id = ${kw.id} AND kip.pin_id = kdi.pin_id
+                  )
+              ) combined_pins
+              ORDER BY pin_id, is_displaced ASC, rank_position ASC NULLS LAST;
             `;
           }
 
@@ -1630,7 +1614,7 @@ async function run() {
           if (crawlScope === 'active_serp') {
             serpPins = (maxSerpPins > 0) ? allKeywordPins.slice(0, maxSerpPins) : allKeywordPins;
           } else {
-            serpPins = (maxCatalogInspect > 0) ? allKeywordPins.slice(0, maxCatalogInspect) : allKeywordPins.slice(0, maxSerpPins || 50);
+            serpPins = (maxCatalogInspect > 0) ? allKeywordPins.slice(0, maxCatalogInspect) : allKeywordPins;
           }
           console.log(`  [*] Keyword Catalog: ${allKeywordPins.length} total pins (${allKeywordPins.filter(p => !p.is_displaced).length} active + ${allKeywordPins.filter(p => p.is_displaced).length} vault). Inspecting ${serpPins.length} pins...`);
 

@@ -529,6 +529,10 @@ export async function getDatabaseEnrichmentStats(sql) {
         SELECT DISTINCT LOWER(REGEXP_REPLACE(cp.link_domain, '^www\\.', '')) AS clean_domain
         FROM competitor_pins cp
         WHERE cp.link_domain IS NOT NULL AND cp.link_domain <> ''
+        UNION
+        SELECT DISTINCT domain AS clean_domain
+        FROM domain_registry_metadata
+        WHERE domain IS NOT NULL AND domain <> ''
       ),
       valid_domains AS (
         SELECT clean_domain
@@ -771,6 +775,25 @@ export async function listDomainsIntelligence(sql, {
       WHERE ${includeArchiveAndComp} = TRUE
         AND (${pillar} IN ('all', 'competitors'))
         AND cp.link_domain IS NOT NULL AND cp.link_domain <> ''
+
+      UNION ALL
+
+      -- Base Pillar 0: Preserved Domain Registry Metadata (Guarantees all 2,703 discovered domains remain visible with WHOIS & ads.txt)
+      SELECT
+        drm.domain AS clean_domain,
+        'reg_' || drm.domain AS pin_id,
+        NULL::int AS keyword_id,
+        NULL::int AS active_rank,
+        TRUE AS is_displaced,
+        0::bigint AS saves,
+        0::bigint AS repins,
+        0::numeric AS velocity,
+        '' AS username,
+        '/' AS url_slug
+      FROM domain_registry_metadata drm
+      WHERE ${includeArchiveAndComp} = TRUE
+        AND (${pillar} IN ('all', 'serp'))
+        AND drm.domain IS NOT NULL AND drm.domain <> ''
     ),
     deduped_pins AS (
       SELECT
@@ -794,10 +817,10 @@ export async function listDomainsIntelligence(sql, {
     domain_agg AS (
       SELECT
         dp.clean_domain AS domain,
-        COUNT(DISTINCT dp.pin_id)::int AS total_pins,
+        COALESCE(NULLIF(COUNT(DISTINCT dp.pin_id) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%')), 0), 1)::int AS total_pins,
         GREATEST(1, COUNT(DISTINCT dp.url_slug) FILTER (WHERE dp.url_slug IS NOT NULL AND dp.url_slug <> '/'))::int AS unique_urls,
         ROUND(
-          COUNT(DISTINCT dp.pin_id)::numeric /
+          COALESCE(NULLIF(COUNT(DISTINCT dp.pin_id) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%')), 0), 1)::numeric /
           GREATEST(1, COUNT(DISTINCT dp.url_slug) FILTER (WHERE dp.url_slug IS NOT NULL AND dp.url_slug <> '/')),
           2
         ) AS pins_per_url,
@@ -805,7 +828,7 @@ export async function listDomainsIntelligence(sql, {
         COUNT(DISTINCT dp.pin_id) FILTER (WHERE dp.best_serp_rank <= 3)::int AS top3_pins,
         COUNT(DISTINCT dp.pin_id) FILTER (WHERE dp.best_serp_rank <= 10)::int AS top10_pins,
         COUNT(DISTINCT dp.pin_id) FILTER (WHERE dp.best_serp_rank > 10 AND dp.best_serp_rank <= 50)::int AS rank_11_50_pins,
-        COUNT(DISTINCT dp.pin_id) FILTER (WHERE dp.is_displaced_only = TRUE)::int AS displaced_pins,
+        COUNT(DISTINCT dp.pin_id) FILTER (WHERE dp.is_displaced_only = TRUE AND NOT (dp.pin_id LIKE 'reg_%'))::int AS displaced_pins,
         MIN(dp.best_serp_rank)::int AS best_rank,
         ROUND(AVG(dp.best_serp_rank), 1) AS avg_rank,
         ROUND(

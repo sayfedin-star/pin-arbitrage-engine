@@ -65,8 +65,14 @@ async function runAdversarialPenetrationSuite() {
     }
   }
 
+  const mockSql = Object.assign(
+    (strings, ...values) => Promise.resolve([]),
+    { transaction: (fn) => typeof fn === 'function' ? fn(mockSql) : Promise.resolve([]) }
+  );
+
   // Mock Edge Environment (Simulates Cloudflare Worker with Neon connection)
   const mockEnv = {
+    SQL_CLIENT: mockSql,
     DATABASE_URL: 'postgres://test_user:secret_password@ep-test-shard-pooler.c-6.us-east-2.aws.neon.tech/neondb?sslmode=require'
   };
 

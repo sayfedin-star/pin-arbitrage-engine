@@ -562,6 +562,15 @@ export async function syncKeywordsCatalogToD1(env, keywords, options = {}) {
     }
 
     if (isFullCatalog) {
+      if (Array.isArray(keywords) && keywords.length > 0) {
+        const validIds = keywords.map(k => Number(k.id)).filter(Boolean);
+        if (validIds.length > 0) {
+          // Purge any orphan/zombie keywords in D1 edge catalog that no longer exist in Neon Hub
+          const idListStr = validIds.join(',');
+          await env.PIN_D1_DB.prepare(`DELETE FROM edge_keywords_catalog WHERE id NOT IN (${idListStr})`).run().catch(() => {});
+        }
+      }
+
       await env.PIN_D1_DB.prepare(`
         INSERT INTO edge_keywords_meta (key, value, updated_at)
         VALUES (?, ?, datetime('now'))
@@ -3532,6 +3541,10 @@ export default {
             DELETE FROM keyword_pins_snapshots
             WHERE keyword_id = ${keywordId} AND pin_id = ${pinId};
           `.catch(() => {});
+          await sql`
+            DELETE FROM keyword_displaced_index
+            WHERE keyword_id = ${keywordId} AND pin_id = ${pinId};
+          `.catch(() => {});
 
           return jsonResponse({
             success: true,
@@ -4052,67 +4065,9 @@ export default {
               WHERE pin_id = ${pinId};
             `.catch(() => {});
 
-            // B2. Hub keyword_pins_snapshots
-            // Telemetry metrics update only
-            const updateResult = await sql`
-              UPDATE keyword_pins_snapshots SET
-                save_count = GREATEST(save_count, ${Number(pin.saves || 0)}),
-                repin_count = GREATEST(repin_count, ${Number(pin.repins || 0)}),
-                comment_count = GREATEST(comment_count, ${Number(pin.comments || 0)}),
-                share_count = GREATEST(COALESCE(share_count, 0), ${Number(pin.share_count || 0)}),
-                created_at_pinterest = CASE WHEN ${pin.created_at_pinterest}::timestamptz IS NOT NULL THEN ${pin.created_at_pinterest}::timestamptz ELSE created_at_pinterest END,
-                creation_method = CASE WHEN ${pin.creation_method}::text <> '' THEN ${pin.creation_method}::text ELSE creation_method END,
-                metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify(metaToStore)}::jsonb
-              WHERE pin_id = ${pinId}
-                AND snapshot_date = (NOW() AT TIME ZONE 'UTC')::date
-              RETURNING id;
-            `.catch(() => []);
-
-            // If no snapshot exists today, insert only if no crawl is active, and inherit current catalog status
-            if (!updateResult || updateResult.length === 0) {
-              if (!isCrawlInProgress) {
-                await sql`
-                  INSERT INTO keyword_pins_snapshots (
-                    keyword_id, pin_id, rank_position, title, domain, destination_url, image_url,
-                    save_count, repin_count, comment_count, share_count, daily_save_velocity,
-                    snapshot_date, is_displaced, created_at_pinterest, creation_method, metadata, created_at
-                  )
-                  SELECT
-                    ksc.keyword_id,
-                    ${pinId},
-                    CASE WHEN COALESCE(ksc.is_displaced, FALSE) THEN NULL ELSE ksc.rank_position END,
-                    ${pin.title || ''},
-                    ${pin.domain || ''},
-                    ${pin.link || ''},
-                    ${pin.image_url || ''},
-                    ${Number(pin.saves || 0)},
-                    ${Number(pin.repins || 0)},
-                    ${Number(pin.comments || 0)},
-                    ${Number(pin.share_count || 0)},
-                    0,
-                    (NOW() AT TIME ZONE 'UTC')::date,
-                    COALESCE(ksc.is_displaced, FALSE),
-                    ${pin.created_at_pinterest ? pin.created_at_pinterest : null},
-                    ${pin.creation_method || 'pinterest_platform'},
-                    ${JSON.stringify(metaToStore)}::jsonb,
-                    NOW()
-                  FROM keyword_serp_current ksc
-                  WHERE ksc.pin_id = ${pinId}
-                    AND NOT EXISTS (
-                      SELECT 1 FROM keyword_ignored_pins kip
-                      WHERE kip.keyword_id = ksc.keyword_id AND kip.pin_id = ${pinId}
-                    )
-                  ON CONFLICT (keyword_id, pin_id, snapshot_date) DO UPDATE SET
-                    save_count = GREATEST(keyword_pins_snapshots.save_count, EXCLUDED.save_count),
-                    repin_count = GREATEST(keyword_pins_snapshots.repin_count, EXCLUDED.repin_count),
-                    metadata = COALESCE(keyword_pins_snapshots.metadata, '{}'::jsonb) || EXCLUDED.metadata;
-                `.catch(err => {
-                  console.warn(`[Pin Sync Snapshot Warning] Failed inserting snapshot for pin ${pinId}:`, redactSecrets(err?.message || String(err)));
-                });
-              } else {
-                console.warn(`[Sync Concurrency Guard] Crawl lease active for pin #${pinId} keywords (${activeCrawlKeywords.map(k=>k.id).join(',')}). Snapshot insertion deferred to active crawler.`);
-              }
-            }
+            // B2. Hub keyword_pins_snapshots bypass:
+            // Daily snapshots and historical pin telemetry are strictly routed to the 99 Storage Shards
+            // in step C below (pins_daily_snapshots) to preserve the Central Hub under 40 MB.
 
             // C. Shard daily snapshot record for all keywords associated with pin
             const serpRows = await sql`
@@ -4278,20 +4233,13 @@ export default {
                       visual_annotations: p.annotations?.map(a => a.name) || []
                     };
 
-                    await Promise.allSettled([
-                      sql`
-                        UPDATE keyword_serp_current SET
-                          metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify(autoMeta)}::jsonb,
-                          destination_url = CASE WHEN ${p.link || ''}::text <> '' THEN ${p.link}::text ELSE destination_url END,
-                          updated_at = NOW()
-                        WHERE pin_id = ${pinId};
-                      `,
-                      sql`
-                        UPDATE keyword_pins_snapshots SET
-                          metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify(autoMeta)}::jsonb
-                        WHERE pin_id = ${pinId};
-                      `
-                    ]);
+                    await sql`
+                      UPDATE keyword_serp_current SET
+                        metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify(autoMeta)}::jsonb,
+                        destination_url = CASE WHEN ${p.link || ''}::text <> '' THEN ${p.link}::text ELSE destination_url END,
+                        updated_at = NOW()
+                      WHERE pin_id = ${pinId};
+                    `.catch(() => {});
                     invalidateEdgeCache(dossierCacheKey);
                   }
                 } catch (_) {}

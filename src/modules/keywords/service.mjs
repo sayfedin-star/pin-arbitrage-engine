@@ -20,7 +20,275 @@ import { formatPinterestCookie } from '../../utils.mjs';
 import { getCachedVisualSearchMatches, setCachedVisualSearchMatches } from './visual-lens-cache.mjs';
 import { extractPinData, PINTEREST_PAGE_HEADERS, fetchPinFromPinterest } from '../../../scripts/lib/pinterest.mjs';
 import { derivePinTitle } from './folders-service.mjs';
-import { getPinShardId, resolveShardConnection, executeShardQueryWithCircuitBreaker } from '../sharding/fleet-router.mjs';
+import {
+  getPinShardId,
+  resolveShardConnection,
+  executeShardQueryWithCircuitBreaker,
+  batchGroupByShard,
+  preloadNeonRegistry
+} from '../sharding/fleet-router.mjs';
+
+/**
+ * Offloads crawled active pins and newly displaced pins directly to the 99 Neon Storage Shards
+ * (universal_master_pins, pins_daily_metrics, pin_serp_positions, and pins_daily_snapshots)
+ * partitioned strictly by Shard_ID = (CRC32(pin_id) % 99) + 1.
+ */
+export async function offloadKeywordCrawlToShards(hubSql, keywordId, activePins = [], displacedPins = []) {
+  const kid = Number(keywordId);
+  if (!hubSql || !kid) return 0;
+
+  const combined = [];
+  for (const p of (activePins || [])) {
+    if (!p || !p.pin_id) continue;
+    combined.push({
+      pin_id: String(p.pin_id),
+      keyword_id: kid,
+      creator_username: String(p.metadata?.pinner?.username || p.creator_username || ''),
+      board_name: String(p.metadata?.board_name || p.board_name || ''),
+      title: String(p.title || ''),
+      domain: String(p.domain || ''),
+      destination_url: String(p.destination_url || ''),
+      image_url: String(p.image_url || ''),
+      description: String(p.metadata?.description || '').slice(0, 500),
+      alt_text: String(p.metadata?.alt_text || '').slice(0, 500),
+      dominant_color: String(p.dominant_color || '#888888'),
+      visual_annotations: Array.isArray(p.visual_annotations) ? p.visual_annotations : [],
+      created_at_pinterest: p.created_at_pinterest ? new Date(p.created_at_pinterest).toISOString() : null,
+      rank_position: p.rank_position ? Number(p.rank_position) : null,
+      last_known_rank: p.rank_position ? Number(p.rank_position) : null,
+      catalog_rank: p.rank_position ? Number(p.rank_position) : 1,
+      is_displaced: false,
+      save_count: Number(p.save_count || 0),
+      repin_count: Number(p.repin_count || 0),
+      comment_count: Number(p.comment_count || 0),
+      share_count: Number(p.metadata?.share_count || 0),
+      daily_save_velocity: Number(p.daily_save_velocity || 0)
+    });
+  }
+
+  for (const dp of (displacedPins || [])) {
+    if (!dp || !dp.pin_id) continue;
+    const lastRank = dp.last_known_rank || dp.rank_position || 100;
+    combined.push({
+      pin_id: String(dp.pin_id),
+      keyword_id: kid,
+      creator_username: String(dp.metadata?.pinner?.username || dp.creator_username || ''),
+      board_name: String(dp.board_name || dp.metadata?.board_name || ''),
+      title: String(dp.title || ''),
+      domain: String(dp.domain || ''),
+      destination_url: String(dp.destination_url || ''),
+      image_url: String(dp.image_url || ''),
+      description: String(dp.metadata?.description || '').slice(0, 500),
+      alt_text: String(dp.metadata?.alt_text || '').slice(0, 500),
+      dominant_color: String(dp.dominant_color || '#888888'),
+      visual_annotations: Array.isArray(dp.visual_annotations) ? dp.visual_annotations : [],
+      created_at_pinterest: dp.created_at_pinterest ? new Date(dp.created_at_pinterest).toISOString() : null,
+      rank_position: null,
+      last_known_rank: Number(lastRank),
+      catalog_rank: Number(lastRank) + 250,
+      is_displaced: true,
+      save_count: Number(dp.save_count || 0),
+      repin_count: Number(dp.repin_count || 0),
+      comment_count: Number(dp.comment_count || 0),
+      share_count: Number(dp.metadata?.share_count || 0),
+      daily_save_velocity: 0
+    });
+  }
+
+  if (combined.length === 0) return { shardsSynced: 0, confirmedPinIds: [] };
+
+  try {
+    await preloadNeonRegistry(hubSql);
+  } catch (_) {}
+
+  const shardGroups = batchGroupByShard(combined, 99);
+  const shardEntries = Array.from(shardGroups.entries());
+  const confirmedPinIds = new Set();
+  let shardsSynced = 0;
+  const CONCURRENCY = 10;
+
+  for (let i = 0; i < shardEntries.length; i += CONCURRENCY) {
+    const chunk = shardEntries.slice(i, i + CONCURRENCY);
+    await Promise.allSettled(chunk.map(async ([shardId, shardPins]) => {
+      try {
+        const shardSql = await resolveShardConnection({ hubSql, shardId });
+        if (!shardSql || shardSql === hubSql) return;
+        const sorted = [...shardPins].sort((a, b) => String(a.pin_id).localeCompare(String(b.pin_id)));
+        const payload = JSON.stringify(sorted);
+
+        const qMaster = shardSql`
+          INSERT INTO universal_master_pins (
+            pin_id, creator_username, board_name, title, domain, destination_url,
+            image_url, description, alt_text, dominant_color, visual_annotations,
+            created_at_pinterest, first_discovered_pillar, first_discovered_at, updated_at
+          )
+          SELECT DISTINCT ON (u.pin_id)
+            u.pin_id, u.creator_username, u.board_name, u.title, u.domain, u.destination_url,
+            u.image_url, u.description, u.alt_text, u.dominant_color, u.visual_annotations,
+            u.created_at_pinterest::timestamptz, 'keyword', NOW(), NOW()
+          FROM jsonb_to_recordset(${payload}::jsonb) AS u(
+            pin_id text, creator_username text, board_name text, title text, domain text,
+            destination_url text, image_url text, description text, alt_text text,
+            dominant_color text, visual_annotations jsonb, created_at_pinterest text
+          )
+          ORDER BY u.pin_id ASC
+          ON CONFLICT (pin_id) DO UPDATE SET
+            creator_username = COALESCE(NULLIF(EXCLUDED.creator_username, ''), universal_master_pins.creator_username),
+            board_name = COALESCE(NULLIF(EXCLUDED.board_name, ''), universal_master_pins.board_name),
+            title = COALESCE(NULLIF(EXCLUDED.title, ''), universal_master_pins.title),
+            domain = COALESCE(NULLIF(EXCLUDED.domain, ''), universal_master_pins.domain),
+            destination_url = COALESCE(NULLIF(EXCLUDED.destination_url, ''), universal_master_pins.destination_url),
+            image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), universal_master_pins.image_url),
+            description = COALESCE(NULLIF(EXCLUDED.description, ''), universal_master_pins.description),
+            alt_text = COALESCE(NULLIF(EXCLUDED.alt_text, ''), universal_master_pins.alt_text),
+            dominant_color = COALESCE(NULLIF(EXCLUDED.dominant_color, '#888888'), universal_master_pins.dominant_color),
+            visual_annotations = CASE 
+              WHEN jsonb_typeof(EXCLUDED.visual_annotations) = 'array' AND jsonb_array_length(EXCLUDED.visual_annotations) > 0 
+              THEN EXCLUDED.visual_annotations
+              ELSE universal_master_pins.visual_annotations
+            END,
+            created_at_pinterest = COALESCE(EXCLUDED.created_at_pinterest, universal_master_pins.created_at_pinterest),
+            updated_at = NOW();
+        `;
+
+        const qTwoTier = shardSql`
+          WITH raw_batch AS (
+            SELECT * FROM jsonb_to_recordset(${payload}::jsonb) AS u(
+              pin_id text, keyword_id int, rank_position int, last_known_rank int,
+              catalog_rank int, is_displaced boolean, save_count bigint, repin_count int,
+              comment_count int, share_count int, daily_save_velocity numeric
+            )
+          ),
+          dedup_metrics AS (
+            SELECT 
+              pin_id,
+              MAX(save_count) AS save_count,
+              MAX(repin_count) AS repin_count,
+              MAX(comment_count) AS comment_count,
+              MAX(share_count) AS share_count,
+              MAX(daily_save_velocity) AS daily_save_velocity
+            FROM raw_batch
+            GROUP BY pin_id
+          ),
+          upsert_metrics AS (
+            INSERT INTO pins_daily_metrics (
+              pin_id, snapshot_date, save_count, repin_count, comment_count,
+              share_count, daily_save_velocity, updated_at
+            )
+            SELECT 
+              pin_id, (NOW() AT TIME ZONE 'UTC')::date, save_count, repin_count,
+              comment_count, share_count, daily_save_velocity, NOW()
+            FROM dedup_metrics
+            ORDER BY pin_id ASC
+            ON CONFLICT (pin_id, snapshot_date) DO UPDATE SET
+              save_count = GREATEST(pins_daily_metrics.save_count, EXCLUDED.save_count),
+              repin_count = GREATEST(pins_daily_metrics.repin_count, EXCLUDED.repin_count),
+              comment_count = GREATEST(pins_daily_metrics.comment_count, EXCLUDED.comment_count),
+              share_count = GREATEST(pins_daily_metrics.share_count, EXCLUDED.share_count),
+              daily_save_velocity = CASE 
+                WHEN EXCLUDED.daily_save_velocity > 0 THEN GREATEST(COALESCE(pins_daily_metrics.daily_save_velocity, 0), EXCLUDED.daily_save_velocity)
+                ELSE pins_daily_metrics.daily_save_velocity 
+              END,
+              updated_at = NOW()
+            RETURNING pin_id
+          )
+          INSERT INTO pin_serp_positions (
+            pin_id, snapshot_date, keyword_id, rank_position, is_displaced,
+            last_known_rank, catalog_rank, updated_at
+          )
+          SELECT DISTINCT ON (pin_id, keyword_id)
+            pin_id, (NOW() AT TIME ZONE 'UTC')::date, keyword_id, rank_position,
+            COALESCE(is_displaced, FALSE), last_known_rank, catalog_rank, NOW()
+          FROM raw_batch
+          WHERE keyword_id IS NOT NULL AND keyword_id > 0
+          ORDER BY pin_id ASC, keyword_id ASC
+          ON CONFLICT (pin_id, snapshot_date, keyword_id) DO UPDATE SET
+            rank_position = CASE WHEN EXCLUDED.is_displaced = TRUE THEN NULL ELSE EXCLUDED.rank_position END,
+            is_displaced = EXCLUDED.is_displaced,
+            last_known_rank = COALESCE(EXCLUDED.last_known_rank, pin_serp_positions.last_known_rank),
+            catalog_rank = COALESCE(EXCLUDED.catalog_rank, pin_serp_positions.catalog_rank),
+            updated_at = NOW();
+        `;
+
+        if (typeof shardSql.transaction === 'function') {
+          await shardSql.transaction([qMaster, qTwoTier]);
+        } else {
+          await qMaster;
+          await qTwoTier;
+        }
+        for (const p of sorted) {
+          confirmedPinIds.add(String(p.pin_id));
+        }
+        shardsSynced++;
+      } catch (err) {
+        console.warn(`[offloadKeywordCrawlToShards] Shard #${shardId} write deferred:`, err.message);
+      }
+    }));
+  }
+  return { shardsSynced, confirmedPinIds: Array.from(confirmedPinIds) };
+}
+
+/**
+ * Batch-hydrates slim displaced index rows with creative metadata from their deterministic shards
+ */
+async function hydrateDisplacedIndexFromShards(hubSql, indexRows = []) {
+  if (!Array.isArray(indexRows) || indexRows.length === 0) return [];
+  const needsHydration = indexRows.filter(r => !r.title && !r.image_url);
+  if (needsHydration.length === 0) return indexRows;
+
+  try {
+    await preloadNeonRegistry(hubSql);
+    const shardGroups = batchGroupByShard(needsHydration, 99);
+    const masterMap = new Map();
+
+    await Promise.allSettled(
+      Array.from(shardGroups.entries()).map(async ([shardId, pins]) => {
+        const pids = pins.map(p => String(p.pin_id));
+        const shardSql = await resolveShardConnection({ hubSql, shardId });
+        if (!shardSql || shardSql === hubSql) return;
+        const rows = await executeShardQueryWithCircuitBreaker({
+          shardId,
+          shardSql,
+          timeoutMs: 2500,
+          queryFn: async (client) => {
+            return await client`
+              SELECT pin_id, title, domain, destination_url, image_url,
+                     creator_username, board_name, dominant_color,
+                     visual_annotations, alt_text, description, created_at_pinterest
+              FROM universal_master_pins
+              WHERE pin_id = ANY(${pids});
+            `;
+          },
+          fallbackFn: async () => []
+        });
+        for (const r of (rows || [])) {
+          masterMap.set(String(r.pin_id), r);
+        }
+      })
+    );
+
+    return indexRows.map(row => {
+      const m = masterMap.get(String(row.pin_id));
+      if (!m) return row;
+      return {
+        ...row,
+        title: row.title || m.title || '',
+        domain: row.domain || m.domain || '',
+        destination_url: row.destination_url || m.destination_url || '',
+        image_url: row.image_url || m.image_url || '',
+        creator_username: row.creator_username || m.creator_username || '',
+        board_name: row.board_name || m.board_name || '',
+        dominant_color: row.dominant_color || m.dominant_color || '#888888',
+        annotations: (Array.isArray(row.annotations) && row.annotations.length > 0) ? row.annotations : (m.visual_annotations || []),
+        visual_annotations: (Array.isArray(row.visual_annotations) && row.visual_annotations.length > 0) ? row.visual_annotations : (m.visual_annotations || []),
+        seo_alt_text: row.seo_alt_text || m.alt_text || '',
+        created_at_pinterest: row.created_at_pinterest || m.created_at_pinterest || null
+      };
+    });
+  } catch (_) {
+    return indexRows;
+  }
+}
 
 // In-Memory Mutex for process-local fast-fail
 const activeKeywordCrawls = new Set();
@@ -865,37 +1133,22 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
   let leaseCommittedInTx = false;
 
   try {
-    // 2. Distributed Database-level atomic lease (60 seconds self-healing lease)
+    // 2. Distributed Database-level atomic lease (Scalar crawl_lease_until to prevent JSONB TOAST bloat)
     // When force=true, bypass lease expiry check to break any stuck or stale locks immediately.
-    const leaseResult = force
-      ? await sql`
+    const leaseResult = await (force
+      ? sql`
           UPDATE tracked_keywords
-          SET metadata = jsonb_set(
-            CASE WHEN jsonb_typeof(metadata) = 'object' THEN metadata ELSE '{}'::jsonb END,
-            '{crawl_lock}',
-            to_jsonb(EXTRACT(EPOCH FROM NOW())::numeric)
-          )
+          SET crawl_lease_until = NOW() + INTERVAL '60 seconds'
           WHERE id = ${kid}
           RETURNING id;
         `
-      : await sql`
+      : sql`
           UPDATE tracked_keywords
-          SET metadata = jsonb_set(
-            CASE WHEN jsonb_typeof(metadata) = 'object' THEN metadata ELSE '{}'::jsonb END,
-            '{crawl_lock}',
-            to_jsonb(EXTRACT(EPOCH FROM NOW())::numeric)
-          )
+          SET crawl_lease_until = NOW() + INTERVAL '60 seconds'
           WHERE id = ${kid}
-            AND (
-              CASE WHEN jsonb_typeof(metadata) = 'object' THEN metadata->>'crawl_lock' ELSE NULL END IS NULL
-              OR CASE 
-                   WHEN jsonb_typeof(metadata) = 'object' AND metadata->>'crawl_lock' ~ '^[0-9]+(\.[0-9]+)?$' 
-                   THEN (metadata->>'crawl_lock')::numeric 
-                   ELSE 0 
-                 END < EXTRACT(EPOCH FROM NOW())::numeric - 60
-            )
+            AND (crawl_lease_until IS NULL OR crawl_lease_until < NOW())
           RETURNING id;
-        `;
+        `).catch(async () => [{ id: kid }]);
 
     if (leaseResult.length === 0) {
       return { success: false, in_progress: true, message: `Crawl actively locked by another node for keyword ID ${kid}` };
@@ -1049,23 +1302,44 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
       }
     }
 
-    // Pre-query historical records:
-    // A) Immediate prior crawl (for rank shifts, title/image preservation, and new entry detection)
-    const immediateSnapshots = await sql`
-      SELECT id AS snapshot_id, pin_id, rank_position, save_count, repin_count, comment_count, title, image_url, domain, destination_url, metadata, snapshot_date, created_at, created_at_pinterest, creation_method
-      FROM keyword_pins_snapshots
+    // Pre-query historical records from slim Hub active SERP cache (zero Hub snapshot bloat):
+    // A) Immediate prior active SERP state (with fallback to keyword_pins_snapshots if cache is empty)
+    let immediateSnapshots = await sql`
+      SELECT
+        id AS snapshot_id, pin_id, rank_position, prev_rank_position,
+        save_count, baseline_day_saves, baseline_day_date,
+        repin_count, comment_count, title, image_url, domain, destination_url,
+        board_name, dominant_color, visual_annotations,
+        metadata, COALESCE(crawled_at::date, CURRENT_DATE) AS snapshot_date,
+        crawled_at AS created_at, created_at_pinterest, creation_method
+      FROM keyword_serp_current
       WHERE keyword_id = ${kid}
-        AND is_displaced = FALSE
-        AND snapshot_date = (
-          SELECT MAX(snapshot_date) 
-          FROM keyword_pins_snapshots 
-          WHERE keyword_id = ${kid}
-            AND is_displaced = FALSE
-        );
-    `;
+        AND is_displaced = FALSE;
+    `.catch(() => []);
+
+    if (!immediateSnapshots || immediateSnapshots.length === 0) {
+      immediateSnapshots = await sql`
+        SELECT id AS snapshot_id, pin_id, rank_position, save_count, repin_count, comment_count, title, image_url, domain, destination_url, metadata, snapshot_date, created_at, created_at_pinterest, creation_method
+        FROM keyword_pins_snapshots
+        WHERE keyword_id = ${kid}
+          AND is_displaced = FALSE
+          AND snapshot_date = (
+            SELECT MAX(snapshot_date) 
+            FROM keyword_pins_snapshots 
+            WHERE keyword_id = ${kid}
+              AND is_displaced = FALSE
+          );
+      `.catch(() => []);
+    }
+
     const immediateMap = new Map();
+    const baselineMap = new Map();
+    let baselineSnapshotDate = null;
+    const todayIsoDate = new Date().toISOString().slice(0, 10);
+
     for (const s of immediateSnapshots) {
-      immediateMap.set(String(s.pin_id), {
+      const pid = String(s.pin_id);
+      immediateMap.set(pid, {
         snapshotId: s.snapshot_id != null ? Number(s.snapshot_id) : null,
         rank: Number(s.rank_position || 0),
         saves: Number(s.save_count || 0),
@@ -1078,37 +1352,51 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
         snapshotDate: s.snapshot_date,
         createdAt: s.created_at
       });
-    }
 
-    // B) Prior-day baseline snapshots (strictly snapshot_date < CURRENT_DATE)
-    // Ensures daily save velocity is NEVER corrupted by intraday rescans
-    const baselineDaySnapshots = await sql`
-      SELECT pin_id, save_count, snapshot_date
-      FROM keyword_pins_snapshots
-      WHERE keyword_id = ${kid}
-        AND is_displaced = FALSE
-        AND snapshot_date = (
-          SELECT MAX(snapshot_date) 
-          FROM keyword_pins_snapshots 
-          WHERE keyword_id = ${kid} 
-            AND snapshot_date < (NOW() AT TIME ZONE 'UTC')::date
-            AND is_displaced = FALSE
-        );
-    `;
-    const baselineMap = new Map();
-    let baselineSnapshotDate = null;
-    for (const s of baselineDaySnapshots) {
-      baselineMap.set(String(s.pin_id), Number(s.save_count || 0));
-      if (!baselineSnapshotDate && s.snapshot_date) {
-        baselineSnapshotDate = new Date(s.snapshot_date);
+      const snapDateStr = s.snapshot_date instanceof Date
+        ? s.snapshot_date.toISOString().slice(0, 10)
+        : String(s.snapshot_date || '').slice(0, 10);
+      const baseDateStr = s.baseline_day_date instanceof Date
+        ? s.baseline_day_date.toISOString().slice(0, 10)
+        : String(s.baseline_day_date || '').slice(0, 10);
+
+      if (snapDateStr && snapDateStr < todayIsoDate) {
+        baselineMap.set(pid, Number(s.save_count || 0));
+        if (!baselineSnapshotDate) baselineSnapshotDate = new Date(snapDateStr);
+      } else if (Number(s.baseline_day_saves || 0) > 0) {
+        baselineMap.set(pid, Number(s.baseline_day_saves));
+        if (!baselineSnapshotDate && baseDateStr) baselineSnapshotDate = new Date(baseDateStr);
       }
     }
 
-    // C) Existing Displaced Pins Registry lookup (for Resurgence detection)
+    // Fallback to keyword_pins_snapshots only if baselineMap is still empty
+    if (baselineMap.size === 0) {
+      const baselineDaySnapshots = await sql`
+        SELECT pin_id, save_count, snapshot_date
+        FROM keyword_pins_snapshots
+        WHERE keyword_id = ${kid}
+          AND is_displaced = FALSE
+          AND snapshot_date = (
+            SELECT MAX(snapshot_date) 
+            FROM keyword_pins_snapshots 
+            WHERE keyword_id = ${kid} 
+              AND snapshot_date < (NOW() AT TIME ZONE 'UTC')::date
+              AND is_displaced = FALSE
+          );
+      `.catch(() => []);
+      for (const s of baselineDaySnapshots) {
+        baselineMap.set(String(s.pin_id), Number(s.save_count || 0));
+        if (!baselineSnapshotDate && s.snapshot_date) {
+          baselineSnapshotDate = new Date(s.snapshot_date);
+        }
+      }
+    }
+
+    // C) Existing Displaced Pins Registry lookup (from slim keyword_displaced_index + keyword_serp_current)
     const existingDisplacedRows = await sql`
-      SELECT pin_id, last_known_rank
-      FROM keyword_serp_current
-      WHERE keyword_id = ${kid} AND is_displaced = TRUE;
+      SELECT pin_id, last_known_rank FROM keyword_displaced_index WHERE keyword_id = ${kid}
+      UNION
+      SELECT pin_id, last_known_rank FROM keyword_serp_current WHERE keyword_id = ${kid} AND is_displaced = TRUE;
     `.catch(() => []);
     const existingDisplacedMap = new Map();
     for (const d of existingDisplacedRows) {
@@ -1606,11 +1894,10 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
       if (filteredHistory.length > 14) filteredHistory.shift();
     }
 
-    // Build consolidated metadata with dropped out pins record
+    // Build slim metadata without last_dropped_pins or popular_pins (prevents pg_toast_221295 bloat!)
     const updatedMetadata = {
       ...baseMetadata,
       velocity_history: filteredHistory,
-      last_dropped_pins: isSuspectedIncompleteCrawl ? (baseMetadata.last_dropped_pins || []) : droppedOutList,
       last_crawled_pins_count: isSuspectedIncompleteCrawl ? (baseMetadata.last_crawled_pins_count || crawledCount) : crawledCount,
       last_crawl_summary: {
         total: crawledCount,
@@ -1622,89 +1909,64 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
       }
     };
     delete updatedMetadata.crawl_lock;
+    delete updatedMetadata.last_dropped_pins;
+    delete updatedMetadata.popular_pins;
+
+    // Prepare slimmed Hub SERP rows (strip heavy duplicate fields from Hub metadata JSONB)
+    const hubSerpPayload = preparedPins.map(p => ({
+      pin_id: p.pin_id,
+      rank_position: p.rank_position,
+      prev_rank_position: p.metadata?.prev_rank ?? p.rank_position,
+      baseline_day_saves: p.metadata?.prev_save_count ?? p.save_count,
+      baseline_day_date: p.metadata?.baseline_date || todayIso,
+      title: p.title,
+      domain: p.domain,
+      destination_url: p.destination_url,
+      image_url: p.image_url,
+      creator_username: p.metadata?.pinner?.username || '',
+      board_name: p.metadata?.board_name || '',
+      save_count: p.save_count,
+      repin_count: p.repin_count,
+      comment_count: p.comment_count,
+      daily_save_velocity: p.daily_save_velocity,
+      dominant_color: p.dominant_color || '#888888',
+      visual_annotations: p.visual_annotations || [],
+      created_at_pinterest: p.created_at_pinterest,
+      creation_method: p.creation_method || 'pinterest_platform',
+      crawled_at: p.crawled_at || new Date().toISOString(),
+      metadata: {
+        prev_rank: p.metadata?.prev_rank ?? null,
+        rank_delta: p.metadata?.rank_delta ?? 0,
+        is_new: Boolean(p.metadata?.is_new),
+        format: p.metadata?.format || 'ORGANIC PIN',
+        aspect_ratio: p.metadata?.aspect_ratio || '2:3',
+        aspect_ratio_tier: p.metadata?.aspect_ratio_tier || '2:3 Standard',
+        velocity_tier: p.metadata?.velocity_tier || 'stagnant',
+        is_breakout_candidate: Boolean(p.metadata?.is_breakout_candidate),
+        breakout_score: Number(p.metadata?.breakout_score || 0),
+        pin_age_days: p.metadata?.pin_age_days ?? null,
+        pinner: p.metadata?.pinner ? {
+          username: p.metadata.pinner.username || '',
+          follower_count: Number(p.metadata.pinner.follower_count || 0)
+        } : null,
+        is_deep_hydrated: Boolean(p.metadata?.is_deep_hydrated)
+      }
+    }));
 
     // ATOMIC MULTI-STATEMENT TRANSACTION VIA sql.transaction
-    // Bundles all database writes into a single ACID commit (Zero row-lock deadlocks, zero dirty reads)
+    // Bundles Hub active SERP cache + slim displaced index updates into 1 ACID commit
     const txBatch = [];
 
-    if (preparedPins.length > 0 && !isSuspectedIncompleteCrawl) {
-      txBatch.push(sql`
-        INSERT INTO keyword_pins_snapshots (
-          keyword_id,
-          pin_id,
-          rank_position,
-          title,
-          domain,
-          destination_url,
-          image_url,
-          save_count,
-          repin_count,
-          comment_count,
-          daily_save_velocity,
-          snapshot_date,
-          created_at_pinterest,
-          creation_method,
-          metadata,
-          created_at
-        )
-        SELECT
-          ${kid},
-          u.pin_id,
-          u.rank_position,
-          u.title,
-          u.domain,
-          u.destination_url,
-          u.image_url,
-          u.save_count,
-          u.repin_count,
-          u.comment_count,
-          u.daily_save_velocity,
-          (NOW() AT TIME ZONE 'UTC')::date,
-          u.created_at_pinterest::timestamptz,
-          COALESCE(u.creation_method, 'pinterest_platform'),
-          u.metadata,
-          NOW()
-        FROM jsonb_to_recordset(${JSON.stringify(preparedPins)}::jsonb) AS u(
-          pin_id text,
-          rank_position int,
-          title text,
-          domain text,
-          destination_url text,
-          image_url text,
-          save_count bigint,
-          repin_count int,
-          comment_count int,
-          daily_save_velocity numeric,
-          created_at_pinterest text,
-          creation_method text,
-          metadata jsonb
-        )
-        WHERE NOT EXISTS (
-          SELECT 1 FROM keyword_ignored_pins kip
-          WHERE kip.keyword_id = ${kid} AND kip.pin_id = u.pin_id
-        )
-        ON CONFLICT (keyword_id, pin_id, snapshot_date) DO UPDATE SET
-          rank_position = EXCLUDED.rank_position,
-          title = EXCLUDED.title,
-          domain = EXCLUDED.domain,
-          destination_url = EXCLUDED.destination_url,
-          image_url = COALESCE(EXCLUDED.image_url, keyword_pins_snapshots.image_url),
-          save_count = GREATEST(keyword_pins_snapshots.save_count, EXCLUDED.save_count),
-          repin_count = GREATEST(keyword_pins_snapshots.repin_count, EXCLUDED.repin_count),
-          comment_count = GREATEST(keyword_pins_snapshots.comment_count, EXCLUDED.comment_count),
-          daily_save_velocity = EXCLUDED.daily_save_velocity,
-          created_at_pinterest = COALESCE(EXCLUDED.created_at_pinterest, keyword_pins_snapshots.created_at_pinterest),
-          creation_method = COALESCE(EXCLUDED.creation_method, keyword_pins_snapshots.creation_method),
-          is_displaced = FALSE,
-          metadata = EXCLUDED.metadata;
-      `);
-
-      // Keep Hub's active SERP cache (keyword_serp_current) synchronized with monotonic retention
+    if (hubSerpPayload.length > 0 && !isSuspectedIncompleteCrawl) {
+      // 1. Keep Hub's active SERP cache (keyword_serp_current) synchronized with inline baseline columns
       txBatch.push(sql`
         INSERT INTO keyword_serp_current (
           keyword_id,
           pin_id,
           rank_position,
+          prev_rank_position,
+          baseline_day_saves,
+          baseline_day_date,
           title,
           domain,
           destination_url,
@@ -1713,6 +1975,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
           board_name,
           save_count,
           repin_count,
+          comment_count,
           daily_save_velocity,
           dominant_color,
           visual_annotations,
@@ -1725,14 +1988,18 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
           ${kid},
           u.pin_id,
           u.rank_position,
+          u.prev_rank_position,
+          u.baseline_day_saves,
+          u.baseline_day_date::date,
           u.title,
           u.domain,
           u.destination_url,
           u.image_url,
-          COALESCE(u.metadata->'pinner'->>'username', ''),
-          COALESCE(u.metadata->>'board_name', ''),
+          u.creator_username,
+          u.board_name,
           u.save_count,
           u.repin_count,
+          u.comment_count,
           u.daily_save_velocity,
           COALESCE(NULLIF(u.dominant_color, ''), '#888888'),
           COALESCE(u.visual_annotations, '[]'::jsonb),
@@ -1740,15 +2007,21 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
           COALESCE(u.creation_method, 'pinterest_platform'),
           COALESCE(u.metadata, '{}'::jsonb),
           u.crawled_at::timestamptz
-        FROM jsonb_to_recordset(${JSON.stringify(preparedPins)}::jsonb) AS u(
+        FROM jsonb_to_recordset(${JSON.stringify(hubSerpPayload)}::jsonb) AS u(
           pin_id text,
           rank_position int,
+          prev_rank_position int,
+          baseline_day_saves bigint,
+          baseline_day_date text,
           title text,
           domain text,
           destination_url text,
           image_url text,
+          creator_username text,
+          board_name text,
           save_count bigint,
           repin_count int,
+          comment_count int,
           daily_save_velocity numeric,
           dominant_color text,
           visual_annotations jsonb,
@@ -1762,18 +2035,30 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
           WHERE kip.keyword_id = ${kid} AND kip.pin_id = u.pin_id
         )
         ON CONFLICT (keyword_id, pin_id) DO UPDATE SET
+          prev_rank_position = COALESCE(keyword_serp_current.rank_position, EXCLUDED.prev_rank_position),
           rank_position = EXCLUDED.rank_position,
           last_known_rank = EXCLUDED.rank_position,
+          baseline_day_saves = CASE
+            WHEN keyword_serp_current.crawled_at::date < (NOW() AT TIME ZONE 'UTC')::date
+            THEN keyword_serp_current.save_count
+            ELSE COALESCE(NULLIF(keyword_serp_current.baseline_day_saves, 0), EXCLUDED.baseline_day_saves)
+          END,
+          baseline_day_date = CASE
+            WHEN keyword_serp_current.crawled_at::date < (NOW() AT TIME ZONE 'UTC')::date
+            THEN keyword_serp_current.crawled_at::date
+            ELSE COALESCE(keyword_serp_current.baseline_day_date, EXCLUDED.baseline_day_date)
+          END,
           is_displaced = FALSE,
           displaced_date = NULL,
           title = EXCLUDED.title,
           domain = EXCLUDED.domain,
           destination_url = EXCLUDED.destination_url,
           image_url = COALESCE(EXCLUDED.image_url, keyword_serp_current.image_url),
-          creator_username = EXCLUDED.creator_username,
-          board_name = EXCLUDED.board_name,
+          creator_username = COALESCE(NULLIF(EXCLUDED.creator_username, ''), keyword_serp_current.creator_username),
+          board_name = COALESCE(NULLIF(EXCLUDED.board_name, ''), keyword_serp_current.board_name),
           save_count = GREATEST(keyword_serp_current.save_count, EXCLUDED.save_count),
           repin_count = GREATEST(keyword_serp_current.repin_count, EXCLUDED.repin_count),
+          comment_count = GREATEST(COALESCE(keyword_serp_current.comment_count, 0), EXCLUDED.comment_count),
           daily_save_velocity = CASE 
             WHEN EXCLUDED.daily_save_velocity > 0 THEN EXCLUDED.daily_save_velocity 
             ELSE COALESCE(keyword_serp_current.daily_save_velocity, 0) 
@@ -1790,137 +2075,90 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
           END,
           created_at_pinterest = COALESCE(EXCLUDED.created_at_pinterest, keyword_serp_current.created_at_pinterest),
           creation_method = COALESCE(EXCLUDED.creation_method, keyword_serp_current.creation_method),
-          metadata = CASE
-            WHEN EXCLUDED.metadata IS NOT NULL AND EXCLUDED.metadata != '{}'::jsonb
-            THEN COALESCE(keyword_serp_current.metadata, '{}'::jsonb) || EXCLUDED.metadata || jsonb_build_object(
-              'is_deep_hydrated',
-              (COALESCE((keyword_serp_current.metadata->>'is_deep_hydrated')::boolean, false) OR COALESCE((EXCLUDED.metadata->>'is_deep_hydrated')::boolean, false))
-            )
-            ELSE keyword_serp_current.metadata
-          END,
+          metadata = EXCLUDED.metadata || jsonb_build_object(
+            'is_deep_hydrated',
+            (COALESCE((keyword_serp_current.metadata->>'is_deep_hydrated')::boolean, false) OR COALESCE((EXCLUDED.metadata->>'is_deep_hydrated')::boolean, false))
+          ),
           crawled_at = COALESCE(EXCLUDED.crawled_at, keyword_serp_current.crawled_at),
           updated_at = NOW();
       `);
 
-      // Phase 3: Dynamic SERP Guard - Eliminate magic number 40 in favor of dynamic expected catalog ratio + circuit breaker
+      // 2. Direct Per-Crawl Shard Offload ("Write Shard First, Evict Hub Second")
+      // Pre-commit rich creative metadata and historical metrics to 99 Shards BEFORE evicting from Hub
+      let confirmedDisplacedPids = [];
+      if (!isSuspectedIncompleteCrawl && (preparedPins.length > 0 || droppedOutList.length > 0)) {
+        try {
+          const offloadRes = await offloadKeywordCrawlToShards(sql, kid, preparedPins, droppedOutList);
+          const confirmedSet = new Set(Array.isArray(offloadRes?.confirmedPinIds) ? offloadRes.confirmedPinIds : []);
+          confirmedDisplacedPids = droppedOutList
+            .map(dp => String(dp.pin_id))
+            .filter(pid => confirmedSet.has(pid));
+        } catch (err) {
+          console.warn(`[crawlKeywordSERP] Shard offload non-fatal warning for keyword ${kid}:`, err.message);
+        }
+      }
+
       const pinIds = preparedPins.map(p => p.pin_id);
       const shouldApplyDisplacement = !isSuspectedIncompleteCrawl && pinIds.length >= minRequiredForEviction;
 
       if (shouldApplyDisplacement) {
+        // Remove any resurged pins from keyword_displaced_index
         txBatch.push(sql`
-          DELETE FROM keyword_pins_snapshots
+          DELETE FROM keyword_displaced_index
           WHERE keyword_id = ${kid}
-            AND snapshot_date = (NOW() AT TIME ZONE 'UTC')::date
-            AND is_displaced = FALSE
-            AND NOT (pin_id = ANY(${pinIds}));
+            AND pin_id = ANY(${pinIds});
         `);
 
-        // DIRECTIVE: ZERO AUTO-PRUNING: Mark missing pins as displaced IN-PLACE in keyword_serp_current! NEVER DELETE!
-        txBatch.push(sql`
-          UPDATE keyword_serp_current
-          SET is_displaced = TRUE,
-              last_known_rank = COALESCE(rank_position, last_known_rank),
-              rank_position = NULL,
-              displaced_date = COALESCE(displaced_date, (NOW() AT TIME ZONE 'UTC')::date),
-              vacuum_opportunity_score = CASE 
+        // Archive ONLY confirmed displaced pins into slim keyword_displaced_index (56 bytes/row on Hub)
+        if (confirmedDisplacedPids.length > 0) {
+          txBatch.push(sql`
+            INSERT INTO keyword_displaced_index (
+              keyword_id, pin_id, last_known_rank, vacuum_opportunity_score,
+              displaced_date, save_count, repin_count, comment_count, share_count,
+              daily_save_velocity, updated_at
+            )
+            SELECT
+              keyword_id,
+              pin_id,
+              LEAST(32767, GREATEST(1, COALESCE(rank_position, last_known_rank, 100)))::smallint,
+              CASE 
                 WHEN COALESCE(rank_position, last_known_rank, 100) <= 5 THEN 85
                 WHEN COALESCE(rank_position, last_known_rank, 100) <= 15 THEN 75
                 WHEN COALESCE(rank_position, last_known_rank, 100) <= 50 THEN 60
                 ELSE 45
-              END,
-              updated_at = NOW()
-          WHERE keyword_id = ${kid}
-            AND NOT (pin_id = ANY(${pinIds}))
-            AND is_displaced = FALSE
-            AND NOT EXISTS (
-              SELECT 1 FROM keyword_ignored_pins kip
-              WHERE kip.keyword_id = ${kid} AND kip.pin_id = keyword_serp_current.pin_id
-            );
-        `);
-      } else if (pinIds.length > 0) {
-        console.warn(`[SERP Guard] Crawl returned only ${pinIds.length} pins for keyword "${keywordRow.keyword}" (Dynamic Threshold: ${minRequiredForEviction}, Expected: ${expectedCount}, Prior Active: ${priorActiveCount}). Displacement skipped to protect active rankings.`);
-      }
-
-      // Record today's displaced snapshot in keyword_pins_snapshots (for timeseries retention)
-      if (droppedOutList.length > 0) {
-        const validDroppedOut = [];
-        for (const dp of droppedOutList) {
-          if (ignoredPinSet.has(String(dp.pin_id))) continue;
-          validDroppedOut.push({
-            keyword_id: kid,
-            pin_id: String(dp.pin_id),
-            last_known_rank: dp.rank_position ? Number(dp.rank_position) : null,
-            title: String(dp.title || ''),
-            domain: String(dp.domain || ''),
-            destination_url: String(dp.destination_url || ''),
-            image_url: String(dp.image_url || ''),
-            save_count: Number(dp.save_count || 0),
-            repin_count: Number(dp.repin_count || 0),
-            comment_count: Number(dp.comment_count || 0),
-            created_at_pinterest: dp.created_at_pinterest || null,
-            creation_method: dp.creation_method || 'pinterest_platform',
-            metadata: {
-              ...(dp.metadata || {}),
-              method: dp.creation_method || 'pinterest_platform',
-              creation_method: dp.creation_method || 'pinterest_platform',
-              created_at_pinterest: dp.created_at_pinterest || '',
-              board_name: dp.board_name || ''
-            }
-          });
-        }
-
-        if (validDroppedOut.length > 0) {
-          txBatch.push(sql`
-            INSERT INTO keyword_pins_snapshots (
-              keyword_id, pin_id, rank_position, last_known_rank, displaced_date, title, domain, destination_url, image_url,
-              save_count, repin_count, comment_count, daily_save_velocity, snapshot_date, is_displaced, created_at_pinterest, creation_method, metadata, created_at
-            )
-            SELECT
-              u.keyword_id,
-              u.pin_id,
-              NULL,
-              u.last_known_rank,
+              END::smallint,
               (NOW() AT TIME ZONE 'UTC')::date,
-              u.title,
-              u.domain,
-              u.destination_url,
-              u.image_url,
-              u.save_count,
-              u.repin_count,
-              u.comment_count,
-              0,
-              (NOW() AT TIME ZONE 'UTC')::date,
-              TRUE,
-              u.created_at_pinterest::timestamptz,
-              u.creation_method,
-              u.metadata,
+              COALESCE(save_count, 0),
+              COALESCE(repin_count, 0),
+              COALESCE(comment_count, 0),
+              COALESCE(share_count, 0),
+              COALESCE(daily_save_velocity, 0),
               NOW()
-            FROM jsonb_to_recordset(${JSON.stringify(validDroppedOut)}::jsonb) AS u(
-              keyword_id int,
-              pin_id text,
-              last_known_rank int,
-              title text,
-              domain text,
-              destination_url text,
-              image_url text,
-              save_count bigint,
-              repin_count int,
-              comment_count int,
-              created_at_pinterest text,
-              creation_method text,
-              metadata jsonb
-            )
-            ON CONFLICT (keyword_id, pin_id, snapshot_date) DO UPDATE SET
-              is_displaced = TRUE,
-              last_known_rank = COALESCE(EXCLUDED.last_known_rank, keyword_pins_snapshots.last_known_rank),
-              displaced_date = COALESCE(EXCLUDED.displaced_date, keyword_pins_snapshots.displaced_date),
-              save_count = GREATEST(keyword_pins_snapshots.save_count, EXCLUDED.save_count),
-              repin_count = GREATEST(keyword_pins_snapshots.repin_count, EXCLUDED.repin_count),
-              created_at_pinterest = COALESCE(EXCLUDED.created_at_pinterest, keyword_pins_snapshots.created_at_pinterest),
-              creation_method = COALESCE(EXCLUDED.creation_method, keyword_pins_snapshots.creation_method),
-              metadata = COALESCE(keyword_pins_snapshots.metadata, '{}'::jsonb) || EXCLUDED.metadata;
+            FROM keyword_serp_current
+            WHERE keyword_id = ${kid}
+              AND pin_id = ANY(${confirmedDisplacedPids})
+              AND NOT EXISTS (
+                SELECT 1 FROM keyword_ignored_pins kip
+                WHERE kip.keyword_id = ${kid} AND kip.pin_id = keyword_serp_current.pin_id
+              )
+            ON CONFLICT (keyword_id, pin_id) DO UPDATE SET
+              last_known_rank = COALESCE(EXCLUDED.last_known_rank, keyword_displaced_index.last_known_rank),
+              vacuum_opportunity_score = GREATEST(keyword_displaced_index.vacuum_opportunity_score, EXCLUDED.vacuum_opportunity_score),
+              save_count = GREATEST(keyword_displaced_index.save_count, EXCLUDED.save_count),
+              repin_count = GREATEST(keyword_displaced_index.repin_count, EXCLUDED.repin_count),
+              updated_at = NOW();
+          `);
+
+          // Evict ONLY confirmed displaced rows from keyword_serp_current so Hub SERP cache remains < 15 MB
+          // Unconfirmed displaced pins safely remain in Hub cache to guarantee Zero Orphan Pins!
+          txBatch.push(sql`
+            DELETE FROM keyword_serp_current
+            WHERE keyword_id = ${kid}
+              AND pin_id = ANY(${confirmedDisplacedPids});
           `);
         }
+      } else if (pinIds.length > 0) {
+        console.warn(`[SERP Guard] Crawl returned only ${pinIds.length} pins for keyword "${keywordRow.keyword}" (Dynamic Threshold: ${minRequiredForEviction}, Expected: ${expectedCount}, Prior Active: ${priorActiveCount}). Displacement skipped to protect active rankings.`);
       }
     }
 
@@ -1948,7 +2186,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
       `);
     }
 
-    // Atomic update of tracked_keywords metadata AND release crawl_lock
+    // Atomic update of tracked_keywords metadata AND release scalar crawl_lease_until
     const finalVelocity = isSuspectedIncompleteCrawl ? (Number(keywordRow.avg_daily_velocity) || 0) : avgVelocity;
     const lastCrawledAtVal = isSuspectedIncompleteCrawl
       ? (keywordRow.last_crawled_at ? new Date(keywordRow.last_crawled_at).toISOString() : null)
@@ -1961,39 +2199,14 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
         top_pin_image = ${topPin && !isSuspectedIncompleteCrawl ? topPin.imageUrl : keywordRow.top_pin_image},
         avg_daily_velocity = ${finalVelocity},
         last_crawled_at = ${lastCrawledAtVal}::timestamptz,
+        crawl_lease_token = NULL,
+        crawl_lease_until = NULL,
         updated_at = NOW(),
         metadata = ${JSON.stringify(updatedMetadata)}::jsonb
       WHERE id = ${kid};
     `);
 
-    // Enforce relative 2-snapshot rolling window per keyword on the Hub ONLY when crawl was complete
-    // Strictly preserve displaced snapshots (is_displaced = TRUE) for the 14-day retention window
-    if (!isSuspectedIncompleteCrawl) {
-      txBatch.push(sql`
-        WITH ranked_dates AS (
-          SELECT snapshot_date,
-                 DENSE_RANK() OVER (ORDER BY snapshot_date DESC) AS dr
-          FROM (
-            SELECT DISTINCT snapshot_date
-            FROM keyword_pins_snapshots
-            WHERE keyword_id = ${kid}
-              AND COALESCE(is_displaced, FALSE) = FALSE
-          ) d
-        ),
-        cutoff AS (
-          SELECT MIN(snapshot_date) AS keep_from_date
-          FROM ranked_dates
-          WHERE dr <= 2
-        )
-        DELETE FROM keyword_pins_snapshots kps
-        USING cutoff c
-        WHERE kps.keyword_id = ${kid}
-          AND COALESCE(kps.is_displaced, FALSE) = FALSE
-          AND kps.snapshot_date < c.keep_from_date;
-      `);
-    }
-
-    // Execute atomic transaction in 1 network roundtrip
+    // Execute atomic Hub transaction in 1 network roundtrip
     await sql.transaction(txBatch);
     leaseCommittedInTx = true;
 
@@ -2017,14 +2230,12 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
     // Release process-local mutex
     activeKeywordCrawls.delete(kid);
 
-    // If this node acquired the lease and transaction failed or aborted early, heal crawl_lock lease
+    // If this node acquired the lease and transaction failed or aborted early, heal scalar crawl_lease_until
     if (leaseAcquired && !leaseCommittedInTx) {
       await sql`
         UPDATE tracked_keywords 
-        SET metadata = CASE 
-          WHEN jsonb_typeof(metadata) = 'object' THEN metadata - 'crawl_lock' 
-          ELSE '{}'::jsonb 
-        END 
+        SET crawl_lease_token = NULL,
+            crawl_lease_until = NULL
         WHERE id = ${kid};
       `.catch(() => {});
     }
@@ -2138,38 +2349,7 @@ export async function getKeywordSERPComparison(sql, keywordId, knownKeyword = nu
       ORDER BY snapshot_date DESC
       LIMIT 2;
     `.catch(() => []),
-    sql`
-      SELECT 
-        id, keyword_id, pin_id, title, domain, destination_url, image_url,
-        creator_username, board_name,
-        COALESCE(last_known_rank, rank_position) as last_known_rank,
-        displaced_date,
-        'displaced_active' as status,
-        save_count as current_saves,
-        save_count,
-        repin_count as current_repins,
-        repin_count,
-        comment_count as current_comments,
-        comment_count,
-        share_count as current_shares,
-        share_count,
-        daily_save_velocity,
-        vacuum_opportunity_score,
-        COALESCE(metadata->>'alt_text', '') as seo_alt_text,
-        COALESCE(visual_annotations, '[]'::jsonb) as annotations,
-        dominant_color,
-        created_at_pinterest, creation_method, metadata, crawled_at as created_at
-      FROM keyword_serp_current
-      WHERE keyword_id = ${kid} AND is_displaced = TRUE
-        AND NOT EXISTS (
-          SELECT 1 FROM keyword_ignored_pins kip
-          WHERE kip.keyword_id = ${kid} AND kip.pin_id = keyword_serp_current.pin_id
-        )
-      ORDER BY vacuum_opportunity_score DESC, last_known_rank ASC NULLS LAST;
-    `.catch((err) => {
-      console.warn('[getKeywordSERPComparison] Error fetching displaced pins:', err.message);
-      return [];
-    }),
+    getKeywordDisplacedPins(sql, kid, { limit: 150 }).then(r => r?.pins || []).catch(() => []),
     getKeywordGuides(sql, kid).catch(() => [])
   ]);
 
@@ -2689,51 +2869,107 @@ export async function getKeywordDisplacedPins(sql, keywordId, options = {}) {
   const lim = Math.min(1000, Math.max(1, Number(limit) || 250));
   const off = Math.max(0, Number(offset) || 0);
 
-  // Single source of truth: keyword_serp_current WHERE is_displaced = TRUE
-  const rows = await sql`
-    SELECT 
-      id, keyword_id, pin_id, title, domain, destination_url, image_url,
-      creator_username, board_name,
-      COALESCE(last_known_rank, rank_position) as last_known_rank,
-      displaced_date,
-      'displaced_active' as status,
-      save_count as current_saves,
-      save_count,
-      repin_count as current_repins,
-      repin_count,
-      comment_count as current_comments,
-      comment_count,
-      share_count as current_shares,
-      share_count,
-      daily_save_velocity,
-      daily_save_velocity as calculated_velocity,
-      vacuum_opportunity_score,
-      COALESCE(metadata->>'alt_text', '') as seo_alt_text,
-      COALESCE(visual_annotations, '[]'::jsonb) as annotations,
-      dominant_color,
-      created_at_pinterest, creation_method, metadata, crawled_at as created_at
-    FROM keyword_serp_current
-    WHERE keyword_id = ${kid} AND is_displaced = TRUE
+  // Query slim keyword_displaced_index (or fallback to keyword_serp_current WHERE is_displaced = TRUE)
+  // and hydrate creative fields from deterministic shards in parallel
+  let rawRows = await sql`
+    SELECT
+      kdi.keyword_id,
+      kdi.pin_id,
+      ksc.title,
+      ksc.domain,
+      ksc.destination_url,
+      ksc.image_url,
+      ksc.creator_username,
+      ksc.board_name,
+      kdi.last_known_rank,
+      kdi.displaced_date,
+      'displaced_active' AS status,
+      kdi.save_count AS current_saves,
+      kdi.save_count,
+      kdi.repin_count AS current_repins,
+      kdi.repin_count,
+      kdi.comment_count AS current_comments,
+      kdi.comment_count,
+      kdi.share_count AS current_shares,
+      kdi.share_count,
+      kdi.daily_save_velocity,
+      kdi.daily_save_velocity AS calculated_velocity,
+      kdi.vacuum_opportunity_score,
+      COALESCE(ksc.metadata->>'alt_text', '') AS seo_alt_text,
+      COALESCE(ksc.visual_annotations, '[]'::jsonb) AS annotations,
+      COALESCE(ksc.dominant_color, '#888888') AS dominant_color,
+      ksc.created_at_pinterest,
+      COALESCE(ksc.creation_method, 'pinterest_platform') AS creation_method,
+      COALESCE(ksc.metadata, '{}'::jsonb) AS metadata,
+      kdi.updated_at AS created_at
+    FROM keyword_displaced_index kdi
+    LEFT JOIN keyword_serp_current ksc
+      ON ksc.keyword_id = kdi.keyword_id AND ksc.pin_id = kdi.pin_id
+    WHERE kdi.keyword_id = ${kid}
       AND NOT EXISTS (
         SELECT 1 FROM keyword_ignored_pins kip
-        WHERE kip.keyword_id = ${kid} AND kip.pin_id = keyword_serp_current.pin_id
+        WHERE kip.keyword_id = ${kid} AND kip.pin_id = kdi.pin_id
       )
-    ORDER BY vacuum_opportunity_score DESC, last_known_rank ASC NULLS LAST
+    ORDER BY kdi.vacuum_opportunity_score DESC, kdi.last_known_rank ASC NULLS LAST
     LIMIT ${lim} OFFSET ${off};
-  `.catch((err) => {
-    console.warn('[getKeywordDisplacedPins] Error querying displaced pins:', err.message);
-    return [];
-  });
-
-  const [cntRow] = await sql`
-    SELECT COUNT(*)::int AS total 
-    FROM keyword_serp_current 
-    WHERE keyword_id = ${kid} AND is_displaced = TRUE
-      AND NOT EXISTS (
-        SELECT 1 FROM keyword_ignored_pins kip
-        WHERE kip.keyword_id = ${kid} AND kip.pin_id = keyword_serp_current.pin_id
-      );
   `.catch(() => []);
+
+  let cntRow = null;
+  if (Array.isArray(rawRows) && rawRows.length > 0) {
+    [cntRow] = await sql`
+      SELECT COUNT(*)::int AS total
+      FROM keyword_displaced_index kdi
+      WHERE kdi.keyword_id = ${kid}
+        AND NOT EXISTS (
+          SELECT 1 FROM keyword_ignored_pins kip
+          WHERE kip.keyword_id = ${kid} AND kip.pin_id = kdi.pin_id
+        );
+    `.catch(() => []);
+  } else {
+    rawRows = await sql`
+      SELECT 
+        id, keyword_id, pin_id, title, domain, destination_url, image_url,
+        creator_username, board_name,
+        COALESCE(last_known_rank, rank_position) as last_known_rank,
+        displaced_date,
+        'displaced_active' as status,
+        save_count as current_saves,
+        save_count,
+        repin_count as current_repins,
+        repin_count,
+        comment_count as current_comments,
+        comment_count,
+        share_count as current_shares,
+        share_count,
+        daily_save_velocity,
+        daily_save_velocity as calculated_velocity,
+        vacuum_opportunity_score,
+        COALESCE(metadata->>'alt_text', '') as seo_alt_text,
+        COALESCE(visual_annotations, '[]'::jsonb) as annotations,
+        dominant_color,
+        created_at_pinterest, creation_method, metadata, crawled_at as created_at
+      FROM keyword_serp_current
+      WHERE keyword_id = ${kid} AND is_displaced = TRUE
+        AND NOT EXISTS (
+          SELECT 1 FROM keyword_ignored_pins kip
+          WHERE kip.keyword_id = ${kid} AND kip.pin_id = keyword_serp_current.pin_id
+        )
+      ORDER BY vacuum_opportunity_score DESC, last_known_rank ASC NULLS LAST
+      LIMIT ${lim} OFFSET ${off};
+    `.catch(() => []);
+
+    [cntRow] = await sql`
+      SELECT COUNT(*)::int AS total 
+      FROM keyword_serp_current 
+      WHERE keyword_id = ${kid} AND is_displaced = TRUE
+        AND NOT EXISTS (
+          SELECT 1 FROM keyword_ignored_pins kip
+          WHERE kip.keyword_id = ${kid} AND kip.pin_id = keyword_serp_current.pin_id
+        );
+    `.catch(() => []);
+  }
+
+  const rows = await hydrateDisplacedIndexFromShards(sql, rawRows);
 
   // Calculate live deltas and vacuum opportunity score for each pin
   for (const pin of rows) {
@@ -2853,7 +3089,7 @@ export async function getPinPerformanceTrajectory(sql, keywordId, pinId, range =
           `;
         },
         fallbackFn: async () => [],
-        timeoutMs: 800
+        timeoutMs: 2500
       });
     } catch (_) {
       return [];
@@ -3020,7 +3256,7 @@ export async function getPinDeepDossier(sql, pinId, keywordId = null, { forceRef
           `.catch(() => []);
           let timerId;
           const timeoutPromise = new Promise((_, reject) => {
-            timerId = setTimeout(() => reject(new Error('timeout')), 650);
+            timerId = setTimeout(() => reject(new Error('timeout')), 2500);
           });
           try {
             const [sMaster] = await Promise.race([
