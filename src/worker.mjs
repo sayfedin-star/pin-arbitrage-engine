@@ -3475,6 +3475,20 @@ export default {
         await sql`DELETE FROM keyword_folder_items WHERE keyword_id = ANY(${targetIds});`.catch(() => {});
         await sql`DELETE FROM tracked_keywords WHERE id = ANY(${targetIds});`;
 
+        // 5. Invalidate Edge Memory Cache & Purge from Edge D1 Catalog
+        await invalidateEdgeCache('keywords');
+        if (env?.PIN_D1_DB && targetIds.length > 0) {
+          try {
+            await ensureEdgeKeywordsCatalogTable(env);
+            for (const tid of targetIds) {
+              await env.PIN_D1_DB.prepare("DELETE FROM edge_keywords_catalog WHERE id = ?").bind(Number(tid)).run().catch(() => {});
+            }
+            await env.PIN_D1_DB.prepare("DELETE FROM edge_keywords_meta WHERE key = 'catalog_status'").run().catch(() => {});
+          } catch (d1Err) {
+            console.warn('[DELETE /api/keywords] D1 eviction error:', redactSecrets(d1Err?.message));
+          }
+        }
+
         return jsonResponse({ success: true, deleted_ids: targetIds });
       }
 

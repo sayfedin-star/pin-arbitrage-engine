@@ -244,10 +244,9 @@ async function runAdversarialPenetrationSuite() {
       body: JSON.stringify({ keywords: poisonedPayload })
     });
 
-    // Mock targetSql to observe what clean keywords reach the database query
-    const interceptedQueries = [];
+    // Use isolated mockEnv so adversarial penetration test NEVER writes poisoned test keywords to production database
     const mockEnvWithSql = {
-      DATABASE_URL: process.env.DATABASE_URL || mockEnv.DATABASE_URL
+      ...mockEnv
     };
 
     let caughtException = false;
