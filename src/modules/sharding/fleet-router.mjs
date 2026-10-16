@@ -1118,12 +1118,12 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
             )
             SELECT
               u.pin_id, u.snapshot_date::date, u.keyword_id, u.rank_position, u.is_displaced, u.rank_position,
-              CASE WHEN u.is_displaced THEN 101 ELSE COALESCE(u.rank_position, 1) END, u.created_at::timestamptz
+              CASE WHEN u.is_displaced THEN (COALESCE(u.rank_position, 1) + 250) ELSE COALESCE(u.rank_position, 1) END, u.created_at::timestamptz
             FROM jsonb_to_recordset(${JSON.stringify(positionRows)}::jsonb) AS u(
               pin_id text, snapshot_date text, keyword_id int, rank_position int, is_displaced boolean, created_at text
             )
             ON CONFLICT (pin_id, snapshot_date, keyword_id) DO UPDATE SET
-              rank_position = COALESCE(EXCLUDED.rank_position, pin_serp_positions.rank_position),
+              rank_position = CASE WHEN EXCLUDED.is_displaced = TRUE THEN NULL ELSE EXCLUDED.rank_position END,
               is_displaced = COALESCE(EXCLUDED.is_displaced, pin_serp_positions.is_displaced),
               updated_at = NOW();
           `);
@@ -1280,7 +1280,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
       rank_position: sc.rank_position ?? null,
       last_known_rank: sc.last_known_rank ?? null,
       is_displaced: Boolean(sc.is_displaced),
-      catalog_rank: sc.is_displaced ? 101 : (sc.rank_position || 1),
+      catalog_rank: sc.is_displaced ? ((Number(sc.last_known_rank) || 1) + 250) : (Number(sc.rank_position) || 1),
       velocity: Number(sc.daily_save_velocity || 0)
     }));
 

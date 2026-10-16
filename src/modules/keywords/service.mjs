@@ -1725,7 +1725,10 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
           board_name = EXCLUDED.board_name,
           save_count = GREATEST(keyword_serp_current.save_count, EXCLUDED.save_count),
           repin_count = GREATEST(keyword_serp_current.repin_count, EXCLUDED.repin_count),
-          daily_save_velocity = EXCLUDED.daily_save_velocity,
+          daily_save_velocity = CASE 
+            WHEN EXCLUDED.daily_save_velocity > 0 THEN EXCLUDED.daily_save_velocity 
+            ELSE COALESCE(keyword_serp_current.daily_save_velocity, 0) 
+          END,
           dominant_color = CASE 
             WHEN EXCLUDED.dominant_color IS NOT NULL AND EXCLUDED.dominant_color != '#888888' 
             THEN EXCLUDED.dominant_color 

@@ -349,7 +349,7 @@ async function inspectPin(pin, kw) {
   const prevSaves = Number(pin.save_count || 0);
   let computedVelocity = Number(pin.daily_save_velocity || 0);
 
-  if (detail && authenticSaves > prevSaves && prevSaves >= 0) {
+  if (detail && authenticSaves > prevSaves && prevSaves > 0) {
     const rawDelta = authenticSaves - prevSaves;
     const lastTimestamp = pin.crawled_at || pin.metadata?.crawled_at || null;
     if (lastTimestamp) {
@@ -909,7 +909,7 @@ async function flushToStorageShards(enrichedPins) {
                 NOW()
               FROM dedup_positions
               ON CONFLICT (pin_id, snapshot_date, keyword_id) DO UPDATE SET
-                rank_position = COALESCE(EXCLUDED.rank_position, pin_serp_positions.rank_position),
+                rank_position = CASE WHEN EXCLUDED.is_displaced = TRUE THEN NULL ELSE EXCLUDED.rank_position END,
                 is_displaced = COALESCE(EXCLUDED.is_displaced, FALSE),
                 last_known_rank = COALESCE(EXCLUDED.last_known_rank, pin_serp_positions.last_known_rank),
                 catalog_rank = COALESCE(EXCLUDED.catalog_rank, pin_serp_positions.catalog_rank),
@@ -1485,7 +1485,7 @@ async function run() {
           await sql`
             UPDATE tracked_keywords
             SET crawl_lease_token = NULL,
-                crawl_lease_until = NOW()
+                crawl_lease_until = NULL
             WHERE id = ${currentLeaseContext.kwId} AND crawl_lease_token = ${currentLeaseContext.leaseToken};
           `;
           console.log(`[Graceful Shutdown] Released lease for keyword ID ${currentLeaseContext.kwId}`);
@@ -1628,7 +1628,7 @@ async function run() {
           await sql`
             UPDATE tracked_keywords
             SET crawl_lease_token = NULL,
-                crawl_lease_until = NOW()
+                crawl_lease_until = NULL
             WHERE id = ${kw.id} AND crawl_lease_token = ${leaseToken};
           `.catch(() => {});
         }

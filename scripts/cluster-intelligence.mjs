@@ -1654,7 +1654,7 @@ async function main() {
         await sqlWithRetry(() => sql`
           UPDATE cluster_seeds
           SET crawl_lease_token = NULL,
-              crawl_lease_until = NOW()
+              crawl_lease_until = NULL
           WHERE pin_id = ${currentSeedLeaseContext.pinId} AND crawl_lease_token = ${currentSeedLeaseContext.leaseToken};
         `).catch(() => {});
         console.log(`[Graceful Shutdown] Released lease for seed pin ID ${currentSeedLeaseContext.pinId}`);
@@ -1714,7 +1714,7 @@ async function main() {
         await sqlWithRetry(() => sql`
           UPDATE cluster_seeds
           SET crawl_lease_token = NULL,
-              crawl_lease_until = NOW()
+              crawl_lease_until = NULL
           WHERE pin_id = ${seed.pin_id} AND crawl_lease_token = ${leaseToken};
         `).catch(() => {});
       }
