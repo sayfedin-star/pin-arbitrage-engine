@@ -182,12 +182,24 @@ function createMockD1() {
             });
             return { success: true };
           }
+          if (q.includes('DELETE FROM edge_keywords_catalog WHERE id NOT IN')) {
+            const match = q.match(/NOT IN \(([^)]+)\)/);
+            if (match) {
+              const keepIds = new Set(match[1].split(',').map(s => Number(s.trim())));
+              for (const [id] of tables.edge_keywords_catalog.entries()) {
+                if (!keepIds.has(Number(id))) {
+                  tables.edge_keywords_catalog.delete(id);
+                }
+              }
+            }
+            return { success: true };
+          }
           if (q.includes('DELETE FROM edge_keywords_catalog WHERE id = ?')) {
             const id = Number(this._bound[0]);
             tables.edge_keywords_catalog.delete(id);
             return { success: true };
           }
-          if (q.includes('DELETE FROM edge_keywords_catalog')) {
+          if (q.trim() === 'DELETE FROM edge_keywords_catalog') {
             tables.edge_keywords_catalog.clear();
             return { success: true };
           }
