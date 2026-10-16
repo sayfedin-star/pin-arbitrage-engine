@@ -1131,6 +1131,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
 
   let leaseAcquired = false;
   let leaseCommittedInTx = false;
+  const leaseToken = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : '00000000-0000-0000-0000-000000000000';
 
   try {
     // 2. Distributed Database-level atomic lease (Scalar crawl_lease_until to prevent JSONB TOAST bloat)
@@ -1138,13 +1139,15 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
     const leaseResult = await (force
       ? sql`
           UPDATE tracked_keywords
-          SET crawl_lease_until = NOW() + INTERVAL '60 seconds'
+          SET crawl_lease_token = ${leaseToken}::uuid,
+              crawl_lease_until = NOW() + INTERVAL '60 seconds'
           WHERE id = ${kid}
           RETURNING id;
         `
       : sql`
           UPDATE tracked_keywords
-          SET crawl_lease_until = NOW() + INTERVAL '60 seconds'
+          SET crawl_lease_token = ${leaseToken}::uuid,
+              crawl_lease_until = NOW() + INTERVAL '60 seconds'
           WHERE id = ${kid}
             AND (crawl_lease_until IS NULL OR crawl_lease_until < NOW())
           RETURNING id;
@@ -2146,6 +2149,13 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
               vacuum_opportunity_score = GREATEST(keyword_displaced_index.vacuum_opportunity_score, EXCLUDED.vacuum_opportunity_score),
               save_count = GREATEST(keyword_displaced_index.save_count, EXCLUDED.save_count),
               repin_count = GREATEST(keyword_displaced_index.repin_count, EXCLUDED.repin_count),
+              comment_count = GREATEST(keyword_displaced_index.comment_count, EXCLUDED.comment_count),
+              share_count = GREATEST(keyword_displaced_index.share_count, EXCLUDED.share_count),
+              daily_save_velocity = CASE
+                WHEN EXCLUDED.daily_save_velocity > 0 THEN EXCLUDED.daily_save_velocity
+                ELSE keyword_displaced_index.daily_save_velocity
+              END,
+              displaced_date = EXCLUDED.displaced_date,
               updated_at = NOW();
           `);
 
@@ -2236,7 +2246,8 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
         UPDATE tracked_keywords 
         SET crawl_lease_token = NULL,
             crawl_lease_until = NULL
-        WHERE id = ${kid};
+        WHERE id = ${kid}
+          AND (crawl_lease_token = ${leaseToken}::uuid OR crawl_lease_until < NOW());
       `.catch(() => {});
     }
   }
@@ -2372,7 +2383,7 @@ export async function getKeywordSERPComparison(sql, keywordId, knownKeyword = nu
     `.catch(() => []);
   }
 
-  if (currentPins.length === 0 && (!dates || dates.length === 0)) {
+  if (currentPins.length === 0 && (!dates || dates.length === 0) && !keyword.last_crawled_at) {
     return {
       status: 'never_crawled',
       keyword,
@@ -2871,6 +2882,7 @@ export async function getKeywordDisplacedPins(sql, keywordId, options = {}) {
 
   // Query slim keyword_displaced_index (or fallback to keyword_serp_current WHERE is_displaced = TRUE)
   // and hydrate creative fields from deterministic shards in parallel
+  let isKdiActive = true;
   let rawRows = await sql`
     SELECT
       kdi.keyword_id,
@@ -2912,10 +2924,13 @@ export async function getKeywordDisplacedPins(sql, keywordId, options = {}) {
       )
     ORDER BY kdi.vacuum_opportunity_score DESC, kdi.last_known_rank ASC NULLS LAST
     LIMIT ${lim} OFFSET ${off};
-  `.catch(() => []);
+  `.catch(() => {
+    isKdiActive = false;
+    return null;
+  });
 
   let cntRow = null;
-  if (Array.isArray(rawRows) && rawRows.length > 0) {
+  if (isKdiActive && Array.isArray(rawRows)) {
     [cntRow] = await sql`
       SELECT COUNT(*)::int AS total
       FROM keyword_displaced_index kdi
@@ -2924,7 +2939,7 @@ export async function getKeywordDisplacedPins(sql, keywordId, options = {}) {
           SELECT 1 FROM keyword_ignored_pins kip
           WHERE kip.keyword_id = ${kid} AND kip.pin_id = kdi.pin_id
         );
-    `.catch(() => []);
+    `.catch(() => [{ total: 0 }]);
   } else {
     rawRows = await sql`
       SELECT 
@@ -2966,7 +2981,7 @@ export async function getKeywordDisplacedPins(sql, keywordId, options = {}) {
           SELECT 1 FROM keyword_ignored_pins kip
           WHERE kip.keyword_id = ${kid} AND kip.pin_id = keyword_serp_current.pin_id
         );
-    `.catch(() => []);
+    `.catch(() => [{ total: 0 }]);
   }
 
   const rows = await hydrateDisplacedIndexFromShards(sql, rawRows);

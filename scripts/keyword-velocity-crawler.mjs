@@ -497,11 +497,11 @@ async function flushBatchToHub(pinsChunk, kw) {
     dominant_color: String(p.dominant_color || '#888888'),
     created_at_pinterest: p.created_at_pinterest || null,
     method: String(p.creation_method || p.method || 'pinterest_platform'),
-    description: '',
-    alt_text: '',
+    description: String(p.description || '').slice(0, 500),
+    alt_text: String(p.alt_text || '').slice(0, 500),
     is_dead: Boolean(p.is_deleted),
     visual_annotations: Array.isArray(p.visual_annotations) ? p.visual_annotations : [],
-    extra_meta: {}
+    extra_meta: (p.extra_meta && typeof p.extra_meta === 'object') ? p.extra_meta : {}
   })));
 
   if (isFolder) {
@@ -537,7 +537,7 @@ async function flushBatchToHub(pinsChunk, kw) {
           ELSE ksc.visual_annotations 
         END,
         metadata = COALESCE(ksc.metadata, '{}'::jsonb) || jsonb_strip_nulls(COALESCE(u.extra_meta, '{}'::jsonb)) || jsonb_build_object(
-          'alt_text', u.alt_text,
+          'alt_text', CASE WHEN u.alt_text <> '' THEN u.alt_text ELSE COALESCE(ksc.metadata->>'alt_text', '') END,
           'share_count', u.authentic_shares::int,
           'dominant_color', u.dominant_color,
           'board_name', u.board,
@@ -633,7 +633,7 @@ async function flushBatchToHub(pinsChunk, kw) {
           ELSE ksc.visual_annotations 
         END,
         metadata = COALESCE(ksc.metadata, '{}'::jsonb) || jsonb_strip_nulls(COALESCE(u.extra_meta, '{}'::jsonb)) || jsonb_build_object(
-          'alt_text', u.alt_text,
+          'alt_text', CASE WHEN u.alt_text <> '' THEN u.alt_text ELSE COALESCE(ksc.metadata->>'alt_text', '') END,
           'share_count', u.authentic_shares::int,
           'dominant_color', u.dominant_color,
           'board_name', u.board,
