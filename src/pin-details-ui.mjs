@@ -13,7 +13,7 @@
  */
 
 export function getPinDetailPageHtml(pinId = '') {
-  const safePinId = String(pinId || '').replace(/[^0-9]/g, '').slice(0, 32);
+  const safePinId = String(pinId || '').trim().replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 128);
   const escapedPinId = safePinId.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   return `<!DOCTYPE html>
 <html lang="en">
@@ -121,7 +121,7 @@ export function getPinDetailPageHtml(pinId = '') {
           <div>
             <div class="text-sm font-bold tracking-tight text-slate-900 flex items-center gap-2">
               Universal Pin Dossier
-              <span class="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-pink-50 text-pink-700 border border-pink-200 font-semibold" x-text="'#' + pinId"></span>
+              <span class="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-pink-50 text-pink-700 border border-pink-200 font-semibold" x-text="isNaN(Number(pinId)) ? pinId : '#' + pinId"></span>
             </div>
             <div class="text-[11px] text-slate-500 font-mono">Deterministic Fleet Shard Inspection</div>
           </div>
@@ -175,7 +175,7 @@ export function getPinDetailPageHtml(pinId = '') {
       </div>
       <div>
         <h2 class="text-base font-bold text-slate-900" x-text="isShardWarming ? 'Storage Shard Warming Up' : 'Pin Telemetry Not Found'"></h2>
-        <p class="text-xs text-slate-600 mt-1" x-text="isShardWarming ? 'The Neon Serverless Shard containing this pin is waking up from scale-to-zero cold sleep. Please retry in a few seconds.' : 'Pin #' + pinId + ' is either offline, not yet crawled, or does not exist.'"></p>
+        <p class="text-xs text-slate-600 mt-1" x-text="isShardWarming ? 'The Neon Serverless Shard containing this pin is waking up from scale-to-zero cold sleep. Please retry in a few seconds.' : 'Pin ' + (isNaN(Number(pinId)) ? pinId : '#' + pinId) + ' is either offline, not yet crawled, or does not exist.'"></p>
       </div>
       <div class="flex items-center gap-3 pt-2">
         <button @click="loadDossier(true)" class="px-4 py-2 rounded-lg bg-pink-600 hover:bg-pink-700 text-white text-xs font-semibold transition-colors flex items-center gap-1.5 shadow-2xs">

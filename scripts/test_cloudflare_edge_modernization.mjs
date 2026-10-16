@@ -48,7 +48,8 @@ function createMockD1() {
   const tables = {
     search_autocomplete_index: new Map(),
     edge_campaign_folders: new Map(),
-    edge_keywords_catalog: new Map()
+    edge_keywords_catalog: new Map(),
+    edge_keywords_meta: new Map()
   };
 
   return {
@@ -108,6 +109,12 @@ function createMockD1() {
               return { results: filtered, success: true };
             }
             return { results: list, success: true };
+          }
+
+          if (q.includes('FROM edge_keywords_meta')) {
+            const key = this._bound[0] || 'catalog_status';
+            const row = tables.edge_keywords_meta.get(key);
+            return { results: row ? [{ value: row.value }] : [], success: true };
           }
 
           return { results: [], success: true };
@@ -182,6 +189,15 @@ function createMockD1() {
           }
           if (q.includes('DELETE FROM edge_keywords_catalog')) {
             tables.edge_keywords_catalog.clear();
+            return { success: true };
+          }
+          if (q.includes('INTO edge_keywords_meta')) {
+            const [key, val] = this._bound;
+            tables.edge_keywords_meta.set(String(key), { value: val });
+            return { success: true };
+          }
+          if (q.includes('DELETE FROM edge_keywords_meta')) {
+            tables.edge_keywords_meta.clear();
             return { success: true };
           }
           return { success: true };
@@ -555,7 +571,7 @@ async function runModernizationTests() {
       resCold.status === 200 && dataCold.source === 'neon_hub'
     );
 
-    // 6.2 Sync keywords catalog into D1
+    // 6.2 Sync keywords catalog into D1 with full catalog warming
     await syncKeywordsCatalogToD1(env, [
       {
         id: 201,
@@ -579,7 +595,7 @@ async function runModernizationTests() {
         is_active: true,
         folders: []
       }
-    ]);
+    ], { isFullCatalog: true });
 
     // 6.3 Read keywords from D1 edge database (sub-5ms)
     const reqWarm = new Request('https://worker.test/api/keywords');
@@ -608,6 +624,23 @@ async function runModernizationTests() {
     assert(
       'GET /api/keywords after eviction triggers auto-warming fallback to Neon Hub',
       resAfterEvict.status === 200 && dataAfterEvict.source === 'neon_hub'
+    );
+
+    // 6.6 Alphanumeric Pinterest Pin ID Support (/pins/:pin_id & /api/pins/:pin_id)
+    const modernPinId = 'e1_AfqPShwoOyKyIt-VSPHlFYBo0DOJ2QWF9JGGnTNs6nihpSiLo6sl';
+    const reqPinHtml = new Request(`https://worker.test/pins/${modernPinId}`);
+    const resPinHtml = await worker.fetch(reqPinHtml, env);
+    const htmlText = await resPinHtml.text();
+    assert(
+      'GET /pins/:pin_id preserves alphanumeric Pinterest ID cleanly without numeric truncation',
+      resPinHtml.status === 200 && htmlText.includes(modernPinId) && !htmlText.includes('#102966')
+    );
+
+    const reqPinApi = new Request(`https://worker.test/api/pins/${modernPinId}`);
+    const resPinApi = await worker.fetch(reqPinApi, env);
+    assert(
+      'GET /api/pins/:pin_id accepts alphanumeric Pinterest ID without 400 INVALID_PIN_ID',
+      resPinApi.status !== 400
     );
   }
 

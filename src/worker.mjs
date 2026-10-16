@@ -386,6 +386,13 @@ export async function ensureEdgeKeywordsCatalogTable(env) {
     `).run().catch(() => {});
     await env.PIN_D1_DB.prepare(`CREATE INDEX IF NOT EXISTS idx_edge_keywords_kw ON edge_keywords_catalog(keyword)`).run().catch(() => {});
     await env.PIN_D1_DB.prepare(`CREATE INDEX IF NOT EXISTS idx_edge_keywords_created ON edge_keywords_catalog(created_at DESC)`).run().catch(() => {});
+    await env.PIN_D1_DB.prepare(`
+      CREATE TABLE IF NOT EXISTS edge_keywords_meta (
+        key TEXT PRIMARY KEY,
+        value TEXT,
+        updated_at TEXT DEFAULT (datetime('now'))
+      )
+    `).run().catch(() => {});
     isEdgeKeywordsTableReady = true;
   } catch (err) {
     console.warn('[ensureEdgeKeywordsCatalogTable] Non-fatal init error:', redactSecrets(err.message));
@@ -396,6 +403,22 @@ export async function readKeywordsFromD1(env, { search = '', limit = 1000, offse
   if (!env?.PIN_D1_DB) return null;
   await ensureEdgeKeywordsCatalogTable(env);
   try {
+    // 1. Verify that D1 edge catalog has been fully warmed and seeded
+    let meta = null;
+    try {
+      const metaRow = await env.PIN_D1_DB.prepare(
+        "SELECT value FROM edge_keywords_meta WHERE key = ? LIMIT 1"
+      ).bind('catalog_status').first();
+      if (metaRow?.value) {
+        meta = JSON.parse(metaRow.value);
+      }
+    } catch (_) {}
+
+    // If edge catalog hasn't completed a full warm, treat as cold to allow Neon Hub to seed it
+    if (!meta || !meta.is_warmed) {
+      return null;
+    }
+
     const lim = Math.max(1, Math.min(parseInt(limit, 10) || 1000, 1000));
     const off = Math.max(0, parseInt(offset, 10) || 0);
 
@@ -416,15 +439,23 @@ export async function readKeywordsFromD1(env, { search = '', limit = 1000, offse
       `).bind(lim, off).all();
     }
 
-    if (!queryRes || !Array.isArray(queryRes.results)) return [];
-    if (queryRes.results.length === 0) return [];
+    if (!queryRes || !Array.isArray(queryRes.results)) return null;
+    if (queryRes.results.length === 0) {
+      if (!search && off === 0) return null;
+      return [];
+    }
+
+    // If requesting full catalog without search filter and results are fewer than expected synced count, re-warm
+    if (!search && off === 0 && lim >= meta.count && queryRes.results.length < meta.count) {
+      return null;
+    }
 
     return queryRes.results.map(row => {
-      let meta = {};
+      let m = {};
       if (typeof row.metadata === 'string') {
-        try { meta = JSON.parse(row.metadata); } catch (_) { meta = {}; }
+        try { m = JSON.parse(row.metadata); } catch (_) { m = {}; }
       } else if (row.metadata && typeof row.metadata === 'object') {
-        meta = row.metadata;
+        m = row.metadata;
       }
 
       let fldrs = [];
@@ -444,7 +475,7 @@ export async function readKeywordsFromD1(env, { search = '', limit = 1000, offse
         crawl_pages_limit: Number(row.crawl_pages_limit || 2),
         snapshots_count: Number(row.snapshots_count || 0),
         total_pins_count: Number(row.total_pins_count || 0),
-        metadata: meta,
+        metadata: m,
         folders: fldrs
       };
     });
@@ -454,9 +485,10 @@ export async function readKeywordsFromD1(env, { search = '', limit = 1000, offse
   }
 }
 
-export async function syncKeywordsCatalogToD1(env, keywords) {
+export async function syncKeywordsCatalogToD1(env, keywords, options = {}) {
   if (!env?.PIN_D1_DB || !Array.isArray(keywords) || keywords.length === 0) return;
   await ensureEdgeKeywordsCatalogTable(env);
+  const isFullCatalog = options.isFullCatalog ?? (keywords.length >= 20);
   try {
     const CHUNK_SIZE = 50;
     for (let i = 0; i < keywords.length; i += CHUNK_SIZE) {
@@ -528,6 +560,16 @@ export async function syncKeywordsCatalogToD1(env, keywords) {
         await env.PIN_D1_DB.batch(stmts);
       }
     }
+
+    if (isFullCatalog) {
+      await env.PIN_D1_DB.prepare(`
+        INSERT INTO edge_keywords_meta (key, value, updated_at)
+        VALUES (?, ?, datetime('now'))
+        ON CONFLICT(key) DO UPDATE SET
+          value = excluded.value,
+          updated_at = excluded.updated_at
+      `).bind('catalog_status', JSON.stringify({ is_warmed: true, count: keywords.length, synced_at: new Date().toISOString() })).run().catch(() => {});
+    }
   } catch (err) {
     console.warn('[syncKeywordsCatalogToD1] Non-fatal catalog D1 sync error:', redactSecrets(err.message));
   }
@@ -541,6 +583,7 @@ export async function evictKeywordsCatalogFromD1(env, keywordId = null) {
       await env.PIN_D1_DB.prepare("DELETE FROM edge_keywords_catalog WHERE id = ?").bind(Number(keywordId)).run();
     } else {
       await env.PIN_D1_DB.prepare("DELETE FROM edge_keywords_catalog").run();
+      await env.PIN_D1_DB.prepare("DELETE FROM edge_keywords_meta WHERE key = 'catalog_status'").run().catch(() => {});
     }
   } catch (err) {
     console.warn('[evictKeywordsCatalogFromD1] Non-fatal D1 eviction error:', redactSecrets(err.message));
@@ -551,6 +594,14 @@ export function clampLimit(val, fallback = 50, max = 1000) {
   const n = parseInt(val, 10);
   if (isNaN(n) || n <= 0) return fallback;
   return Math.min(n, max);
+}
+
+export function isValidPinId(pinId) {
+  if (!pinId || typeof pinId !== 'string') return false;
+  const clean = pinId.trim();
+  if (clean.length < 10 || clean.length > 128) return false;
+  if (/^(undefined|null|nan)$/i.test(clean)) return false;
+  return /^[a-zA-Z0-9][a-zA-Z0-9_-]{9,127}$/.test(clean);
 }
 
 export function getCorsHeaders(requestOrigin = null, env = {}) {
@@ -1060,9 +1111,9 @@ export default {
       }
       const segments = normalizedPath.split('/').filter(Boolean);
       const rawPinId = segments[1] || '';
-      const cleanPinId = String(rawPinId).replace(/[^0-9]/g, '').slice(0, 32);
-      if (!cleanPinId) {
-        return jsonResponse({ success: false, error: 'INVALID_PIN_ID', message: 'Pin ID must be numeric' }, 400);
+      const cleanPinId = String(rawPinId).trim().replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 128);
+      if (!cleanPinId || !isValidPinId(cleanPinId)) {
+        return jsonResponse({ success: false, error: 'INVALID_PIN_ID', message: 'Pin ID is required (alphanumeric, 10-128 chars)' }, 400);
       }
       return new Response(getPinDetailPageHtml(cleanPinId), {
         status: 200,
@@ -3138,9 +3189,10 @@ export default {
         const search = searchParams.get('search') || '';
         const limit = clampLimit(searchParams.get('limit'), 1000, 1000);
         const offset = Math.max(0, parseInt(searchParams.get('offset'), 10) || 0);
+        const forceRefresh = searchParams.get('refresh') === 'true';
 
         // 1. Check D1 Edge Keywords Catalog first (Sub-5ms Edge Reads)
-        if (env?.PIN_D1_DB) {
+        if (!forceRefresh && env?.PIN_D1_DB) {
           try {
             const d1Keywords = await readKeywordsFromD1(env, { search, limit, offset });
             if (Array.isArray(d1Keywords) && d1Keywords.length > 0) {
@@ -3161,6 +3213,14 @@ export default {
           offset
         });
 
+        if (forceRefresh) {
+          if (env?.PIN_D1_DB) {
+            await evictKeywordsCatalogFromD1(env).catch(() => {});
+          }
+          await invalidateEdgeCache('keywords');
+          await invalidateEdgeCache(cacheKey);
+        }
+
         try {
           const keywords = await getCachedOrFetch(cacheKey, async () => {
             return await listKeywords(sql, {
@@ -3168,10 +3228,22 @@ export default {
               limit,
               offset
             });
-          }, 30000, 120000);
+          }, 30000, 120000, { forceRefresh });
 
           if (Array.isArray(keywords) && keywords.length > 0 && env?.PIN_D1_DB) {
-            safeWaitUntil(ctx, syncKeywordsCatalogToD1(env, keywords), 'syncKeywordsCatalogToD1');
+            if (!search && limit >= 1000) {
+              safeWaitUntil(ctx, syncKeywordsCatalogToD1(env, keywords, { isFullCatalog: true }), 'syncKeywordsCatalogToD1');
+            } else if (!search) {
+              // Partial query (e.g. limit=5): don't seed D1 partially; fetch and warm full catalog in background
+              safeWaitUntil(ctx, (async () => {
+                try {
+                  const fullCatalog = await listKeywords(sql, { limit: 1000 });
+                  await syncKeywordsCatalogToD1(env, fullCatalog, { isFullCatalog: true });
+                } catch (_) {}
+              })(), 'warmFullKeywordsCatalogToD1');
+            } else {
+              safeWaitUntil(ctx, syncKeywordsCatalogToD1(env, keywords, { isFullCatalog: false }), 'syncKeywordsCatalogToD1');
+            }
             safeWaitUntil(ctx, syncKeywordsBatchToD1(env, keywords), 'syncKeywordsBatchToD1');
           }
 
@@ -3420,8 +3492,8 @@ export default {
           if (!keywordId || isNaN(keywordId)) {
             return jsonResponse({ success: false, error: 'BAD_REQUEST', message: 'Valid numeric keywordId is required' }, 400);
           }
-          if (!pinId || !/^\d{10,30}$/.test(pinId)) {
-            return jsonResponse({ success: false, error: 'INVALID_PIN_ID', message: 'Valid numeric pinId is required' }, 400);
+          if (!pinId || !isValidPinId(pinId)) {
+            return jsonResponse({ success: false, error: 'INVALID_PIN_ID', message: 'Valid pinId is required (alphanumeric, 10-128 chars)' }, 400);
           }
 
           invalidateEdgeCache('keywords');
@@ -3657,11 +3729,11 @@ export default {
               message: 'Valid numeric snapshot_id is required'
             }, 400);
           }
-          if (!pinId || !/^\d{10,30}$/.test(pinId)) {
+          if (!pinId || !isValidPinId(pinId)) {
             return jsonResponse({
               success: false,
               error: 'INVALID_PIN_ID',
-              message: 'Pin ID must be a valid numeric Snowflake identifier (10-30 digits)'
+              message: 'Pin ID must be a valid identifier (alphanumeric, 10-128 chars)'
             }, 400);
           }
           const shardId = getPinShardId(pinId, 99);
@@ -3718,11 +3790,11 @@ export default {
           if (method !== 'DELETE') {
             return methodNotAllowedResponse('DELETE, OPTIONS');
           }
-          if (!pinId || !/^\d{10,30}$/.test(pinId)) {
+          if (!pinId || !isValidPinId(pinId)) {
             return jsonResponse({
               success: false,
               error: 'INVALID_PIN_ID',
-              message: 'Pin ID must be a valid numeric Snowflake identifier (10-30 digits)'
+              message: 'Pin ID must be a valid identifier (alphanumeric, 10-128 chars)'
             }, 400);
           }
 
@@ -3776,11 +3848,11 @@ export default {
           if (method !== 'DELETE') {
             return methodNotAllowedResponse('DELETE, OPTIONS');
           }
-          if (!pinId || !/^\d{10,30}$/.test(pinId)) {
+          if (!pinId || !isValidPinId(pinId)) {
             return jsonResponse({
               success: false,
               error: 'INVALID_PIN_ID',
-              message: 'Pin ID must be a valid numeric Snowflake identifier (10-30 digits)'
+              message: 'Pin ID must be a valid identifier (alphanumeric, 10-128 chars)'
             }, 400);
           }
           const snapshotDate = String(parts[2] || searchParams.get('snapshot_date') || '').trim();
@@ -3831,11 +3903,11 @@ export default {
           if (method !== 'POST') {
             return methodNotAllowedResponse('POST, OPTIONS');
           }
-          if (!pinId || !/^\d{10,30}$/.test(pinId)) {
+          if (!pinId || !isValidPinId(pinId)) {
             return jsonResponse({
               success: false,
               error: 'INVALID_PIN_ID',
-              message: 'Pin ID must be a valid numeric Snowflake identifier (10-30 digits)'
+              message: 'Pin ID must be a valid identifier (alphanumeric, 10-128 chars)'
             }, 400);
           }
           try {
@@ -4117,11 +4189,11 @@ export default {
           if (method !== 'GET') {
             return methodNotAllowedResponse('GET, OPTIONS');
           }
-          if (!pinId || !/^\d{10,30}$/.test(pinId)) {
+          if (!pinId || !isValidPinId(pinId)) {
             return jsonResponse({
               success: false,
               error: 'INVALID_PIN_ID',
-              message: 'Pin ID must be a valid numeric Snowflake identifier (10-30 digits)'
+              message: 'Pin ID must be a valid identifier (alphanumeric, 10-128 chars)'
             }, 400);
           }
           try {

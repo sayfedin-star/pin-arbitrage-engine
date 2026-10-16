@@ -360,7 +360,7 @@ export function formatPin(pin) {
   );
 
   const pinId = String(pin.id || pin.pin_id || pin.node_id || '').trim();
-  if (!pinId || pinId === 'undefined' || pinId === 'null' || pinId.startsWith('-') || !/^\d+$/.test(pinId)) return null;
+  if (!pinId || pinId === 'undefined' || pinId === 'null' || pinId.startsWith('-') || !/^[a-zA-Z0-9][a-zA-Z0-9_-]{9,127}$/.test(pinId)) return null;
 
   // Created at date & velocity calculation (safely handling malformed dates and clock skew)
   const createdRaw = pin.created_at || pin.created_at_pinterest || pin.createdAt;
@@ -836,7 +836,7 @@ export function extractPinData(rawHtml, pinId) {
 export async function fetchPinFromPinterest(pinId, cookieOrOptions = null, maybeOptions = {}) {
   try {
     const cleanId = String(pinId || '').trim();
-    if (!cleanId || cleanId.startsWith('-') || !/^\d+$/.test(cleanId)) {
+    if (!cleanId || cleanId.startsWith('-') || !/^[a-zA-Z0-9][a-zA-Z0-9_-]{9,127}$/.test(cleanId)) {
       return { ok: false, status: 400, error: 'invalid_pin_id' };
     }
     const opts = (typeof cookieOrOptions === 'object' && cookieOrOptions !== null)

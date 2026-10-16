@@ -45,3 +45,11 @@ CREATE TABLE IF NOT EXISTS edge_keywords_catalog (
 CREATE INDEX IF NOT EXISTS idx_edge_keywords_kw ON edge_keywords_catalog(keyword);
 CREATE INDEX IF NOT EXISTS idx_edge_keywords_created ON edge_keywords_catalog(created_at DESC);
 
+-- UI Keywords Catalog Metadata (Warming status & fleet count tracker)
+CREATE TABLE IF NOT EXISTS edge_keywords_meta (
+  key TEXT PRIMARY KEY,
+  value TEXT,
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
+

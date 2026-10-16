@@ -1343,8 +1343,13 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
   }
 
   if (!canonicalPinId && seoCanonicalUrl) {
-    const m = String(seoCanonicalUrl).match(/\d{10,30}/);
-    if (m) canonicalPinId = m[0];
+    const urlMatch = String(seoCanonicalUrl).match(/\/pin\/([a-zA-Z0-9_-]+)/);
+    if (urlMatch) {
+      canonicalPinId = urlMatch[1];
+    } else {
+      const m = String(seoCanonicalUrl).match(/[a-zA-Z0-9_-]{10,128}/);
+      if (m) canonicalPinId = m[0];
+    }
   }
   if (!canonicalPinUrl && canonicalPinId) {
     canonicalPinUrl = `https://www.pinterest.com/pin/${canonicalPinId}/`;
