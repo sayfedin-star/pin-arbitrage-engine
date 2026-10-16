@@ -2107,7 +2107,7 @@ const server = http.createServer(async (req, res) => {
       const body = await parseJsonBody(req).catch(() => ({}));
       const targetKw = body.target_keyword || body.keyword || '';
       const folderIdInput = body.folder_id ? String(body.folder_id).trim() : '';
-      const maxPinsInput = String(body.max_pins || '250');
+      const maxPinsInput = String(body.max_pins || '50');
       const maxSerpPinsInput = String(body.max_serp_pins || body.max_pins || maxPinsInput);
       const maxCatalogInspectInput = String(body.max_catalog_inspect || '0');
       const enableSerpHarvestInput = String(body.enable_serp_harvest ?? (folderIdInput ? 'false' : 'true'));
@@ -2169,8 +2169,8 @@ const server = http.createServer(async (req, res) => {
       }
       const body = await parseJsonBody(req).catch(() => ({}));
       const crawlScopeInput = String(body.crawl_scope || 'all_pins');
-      const maxPinsInput = String(body.max_pins || '250');
-      const maxSerpPinsInput = String(body.max_serp_pins || body.max_pins || '250');
+      const maxPinsInput = String(body.max_pins || '50');
+      const maxSerpPinsInput = String(body.max_serp_pins || body.max_pins || '50');
       const maxCatalogInspectInput = String(body.max_catalog_inspect || '0');
       const enableSerpHarvestInput = String(body.enable_serp_harvest ?? 'false');
 

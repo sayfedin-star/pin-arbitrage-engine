@@ -61,7 +61,7 @@ async function main() {
   const envSerpPins = process.env.MAX_SERP_PINS?.trim() || process.env.MAX_PINS?.trim();
   const maxSerpPins = (envSerpPins && !isNaN(parseInt(envSerpPins, 10)))
     ? Math.max(25, Math.min(1000, parseInt(envSerpPins, 10)))
-    : (appSettings.max_serp_pins || appSettings.default_max_pins || 250);
+    : (appSettings.max_serp_pins || appSettings.default_max_pins || 50);
 
   const envCatalogInspect = process.env.MAX_CATALOG_INSPECT?.trim();
   const maxCatalogInspect = (envCatalogInspect !== undefined && envCatalogInspect !== '' && !isNaN(parseInt(envCatalogInspect, 10)))
@@ -181,23 +181,24 @@ async function main() {
           WHERE LOWER(keyword) = ${kwStr};
         `;
         if (row) {
-          if (row.target_pin_count < 250) {
+          if (!row.is_active || row.inspection_mode !== 'full_catalog') {
             await sql`
               UPDATE tracked_keywords 
-              SET is_active = TRUE, target_pin_count = 250, crawl_pages_limit = 10, inspection_mode = 'full_catalog', updated_at = NOW()
+              SET is_active = TRUE, inspection_mode = 'full_catalog', updated_at = NOW()
               WHERE id = ${row.id};
             `;
-            row.target_pin_count = 250;
           }
         } else {
           console.log(`  [+] Auto-registering new keyword: "${kwStr}"`);
+          const defaultTargetPins = maxSerpPins || 50;
+          const defaultPages = Math.min(10, Math.max(2, Math.ceil(defaultTargetPins / 25)));
           [row] = await sql`
             INSERT INTO tracked_keywords (keyword, category, target_pin_count, crawl_pages_limit, inspection_mode, is_active)
-            VALUES (${kwStr}, 'General', 250, 10, 'full_catalog', TRUE)
+            VALUES (${kwStr}, 'General', ${defaultTargetPins}, ${defaultPages}, 'full_catalog', TRUE)
             ON CONFLICT (keyword) DO UPDATE SET
               is_active = TRUE,
-              target_pin_count = GREATEST(tracked_keywords.target_pin_count, 250),
-              crawl_pages_limit = GREATEST(tracked_keywords.crawl_pages_limit, 10),
+              target_pin_count = COALESCE(tracked_keywords.target_pin_count, EXCLUDED.target_pin_count),
+              crawl_pages_limit = COALESCE(tracked_keywords.crawl_pages_limit, EXCLUDED.crawl_pages_limit),
               inspection_mode = 'full_catalog',
               updated_at = NOW()
             RETURNING id, keyword, category, target_pin_count;
@@ -286,23 +287,24 @@ async function main() {
       WHERE LOWER(keyword) = ${singleKeyword};
     `;
     if (kwRow) {
-      if (kwRow.target_pin_count < 250) {
+      if (!kwRow.is_active || kwRow.inspection_mode !== 'full_catalog') {
         await sql`
           UPDATE tracked_keywords 
-          SET is_active = TRUE, target_pin_count = 250, crawl_pages_limit = 10, inspection_mode = 'full_catalog', updated_at = NOW()
+          SET is_active = TRUE, inspection_mode = 'full_catalog', updated_at = NOW()
           WHERE id = ${kwRow.id};
         `;
-        kwRow.target_pin_count = 250;
       }
     } else {
       console.log(`  [+] Auto-registering keyword: "${singleKeyword}"...`);
+      const defaultTargetPins = maxSerpPins || 50;
+      const defaultPages = Math.min(10, Math.max(2, Math.ceil(defaultTargetPins / 25)));
       [kwRow] = await sql`
         INSERT INTO tracked_keywords (keyword, category, target_pin_count, crawl_pages_limit, inspection_mode, is_active)
-        VALUES (${singleKeyword}, 'General', 250, 10, 'full_catalog', TRUE)
+        VALUES (${singleKeyword}, 'General', ${defaultTargetPins}, ${defaultPages}, 'full_catalog', TRUE)
         ON CONFLICT (keyword) DO UPDATE SET
           is_active = TRUE,
-          target_pin_count = GREATEST(tracked_keywords.target_pin_count, 250),
-          crawl_pages_limit = GREATEST(tracked_keywords.crawl_pages_limit, 10),
+          target_pin_count = COALESCE(tracked_keywords.target_pin_count, EXCLUDED.target_pin_count),
+          crawl_pages_limit = COALESCE(tracked_keywords.crawl_pages_limit, EXCLUDED.crawl_pages_limit),
           inspection_mode = 'full_catalog',
           updated_at = NOW()
         RETURNING id, keyword, category, target_pin_count;

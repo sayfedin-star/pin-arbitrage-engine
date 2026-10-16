@@ -20,12 +20,12 @@ on:
           - active_serp
         default: 'all_pins'
       max_pins:
-        description: 'Target pins count to harvest per keyword (default: 250, up to 1000)'
+        description: 'Target pins count to harvest per keyword (default: 50, up to 1000)'
         required: false
         type: string
-        default: '250'
+        default: '50'
       max_serp_pins:
-        description: 'Live Search Discovery Quota (default: 250, up to 1000)'
+        description: 'Live Search Discovery Quota (default: 50, up to 1000)'
         required: false
         type: string
         default: ''
@@ -90,7 +90,7 @@ jobs:
           TARGET_KEYWORD: ${{ inputs.target_keyword }}
           FOLDER_ID: ${{ inputs.folder_id }}
           CRAWL_SCOPE: ${{ inputs.crawl_scope || 'all_pins' }}
-          MAX_PINS: ${{ inputs.max_pins || '250' }}
+          MAX_PINS: ${{ inputs.max_pins || '50' }}
           MAX_SERP_PINS: ${{ inputs.max_serp_pins || inputs.max_pins || '' }}
           MAX_CATALOG_INSPECT: ${{ inputs.max_catalog_inspect }}
           ENABLE_SERP_HARVEST: ${{ inputs.enable_serp_harvest }}

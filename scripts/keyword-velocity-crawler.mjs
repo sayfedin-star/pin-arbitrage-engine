@@ -66,7 +66,7 @@ const stepSummaryPath = process.env.GITHUB_STEP_SUMMARY || null;
 const envSerpPins = process.env.MAX_SERP_PINS?.trim() || process.env.MAX_PINS?.trim();
 const maxSerpPins = (envSerpPins && !isNaN(parseInt(envSerpPins, 10)))
   ? Math.max(25, Math.min(1000, parseInt(envSerpPins, 10)))
-  : 250;
+  : 50;
 
 const envCatalogInspect = process.env.MAX_CATALOG_INSPECT?.trim();
 const maxCatalogInspect = (envCatalogInspect !== undefined && envCatalogInspect !== '' && !isNaN(parseInt(envCatalogInspect, 10)))
@@ -1434,13 +1434,15 @@ async function run() {
         WHERE LOWER(keyword) = ${targetKeyword};
       `;
       if (keywordsToProcess.length === 0) {
+        const defaultTargetPins = maxSerpPins || 50;
+        const defaultPages = Math.min(10, Math.max(2, Math.ceil(defaultTargetPins / 25)));
         const [newRow] = await sql`
           INSERT INTO tracked_keywords (keyword, category, target_pin_count, crawl_pages_limit, inspection_mode, is_active)
-          VALUES (${targetKeyword}, 'General', 250, 10, 'full_catalog', TRUE)
+          VALUES (${targetKeyword}, 'General', ${defaultTargetPins}, ${defaultPages}, 'full_catalog', TRUE)
           ON CONFLICT (keyword) DO UPDATE SET
             is_active = TRUE,
-            target_pin_count = GREATEST(tracked_keywords.target_pin_count, 250),
-            crawl_pages_limit = GREATEST(tracked_keywords.crawl_pages_limit, 10),
+            target_pin_count = COALESCE(tracked_keywords.target_pin_count, EXCLUDED.target_pin_count),
+            crawl_pages_limit = COALESCE(tracked_keywords.crawl_pages_limit, EXCLUDED.crawl_pages_limit),
             inspection_mode = 'full_catalog',
             updated_at = NOW()
           RETURNING *;
@@ -1448,12 +1450,10 @@ async function run() {
         keywordsToProcess = [newRow];
       } else {
         const existingKw = keywordsToProcess[0];
-        if (!existingKw.is_active || existingKw.target_pin_count < 250 || existingKw.inspection_mode !== 'full_catalog') {
+        if (!existingKw.is_active || existingKw.inspection_mode !== 'full_catalog') {
           const [updatedRow] = await sql`
             UPDATE tracked_keywords 
             SET is_active = TRUE, 
-                target_pin_count = GREATEST(target_pin_count, 250), 
-                crawl_pages_limit = GREATEST(crawl_pages_limit, 10), 
                 inspection_mode = 'full_catalog', 
                 updated_at = NOW()
             WHERE id = ${existingKw.id}

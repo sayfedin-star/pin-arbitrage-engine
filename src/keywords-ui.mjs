@@ -4470,6 +4470,15 @@ export function getKeywordsPageHtml(initialSlug = '') {
 
             <!-- Depth Presets Grid -->
             <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <button type="button" @click="settingsCrawlPages = 2; settingsMaxPins = 50; settingsMaxSerpPins = 50"
+                      class="p-2.5 rounded-xl border text-left transition cursor-pointer"
+                      :class="settingsCrawlPages === 2 ? 'bg-indigo-500/10 border-indigo-500 text-indigo-600 dark:text-indigo-400 font-bold' : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'">
+                <div class="text-xs font-black flex items-center justify-between">
+                  <span>2 Pages</span>
+                  <span class="text-[9px] px-1 rounded bg-emerald-500/20 text-emerald-500">Rec</span>
+                </div>
+                <div class="text-[10px] opacity-75">~50 Pins (Elite 50)</div>
+              </button>
               <button type="button" @click="settingsCrawlPages = 4; settingsMaxPins = 100; settingsMaxSerpPins = 100"
                       class="p-2.5 rounded-xl border text-left transition cursor-pointer"
                       :class="settingsCrawlPages === 4 ? 'bg-indigo-500/10 border-indigo-500 text-indigo-600 dark:text-indigo-400 font-bold' : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'">
@@ -4479,10 +4488,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
               <button type="button" @click="settingsCrawlPages = 10; settingsMaxPins = 250; settingsMaxSerpPins = 250"
                       class="p-2.5 rounded-xl border text-left transition cursor-pointer"
                       :class="settingsCrawlPages === 10 ? 'bg-indigo-500/10 border-indigo-500 text-indigo-600 dark:text-indigo-400 font-bold' : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'">
-                <div class="text-xs font-black flex items-center justify-between">
-                  <span>10 Pages</span>
-                  <span class="text-[9px] px-1 rounded bg-emerald-500/20 text-emerald-500">Rec</span>
-                </div>
+                <div class="text-xs font-black">10 Pages</div>
                 <div class="text-[10px] opacity-75">~250 Pins (Deep)</div>
               </button>
               <button type="button" @click="settingsCrawlPages = 20; settingsMaxPins = 500; settingsMaxSerpPins = 500"
@@ -4490,12 +4496,6 @@ export function getKeywordsPageHtml(initialSlug = '') {
                       :class="settingsCrawlPages === 20 ? 'bg-indigo-500/10 border-indigo-500 text-indigo-600 dark:text-indigo-400 font-bold' : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'">
                 <div class="text-xs font-black">20 Pages</div>
                 <div class="text-[10px] opacity-75">~500 Pins (Wide)</div>
-              </button>
-              <button type="button" @click="settingsCrawlPages = 30; settingsMaxPins = 750; settingsMaxSerpPins = 750"
-                      class="p-2.5 rounded-xl border text-left transition cursor-pointer"
-                      :class="settingsCrawlPages === 30 ? 'bg-indigo-500/10 border-indigo-500 text-indigo-600 dark:text-indigo-400 font-bold' : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'">
-                <div class="text-xs font-black">30 Pages</div>
-                <div class="text-[10px] opacity-75">Max Exhaustion</div>
               </button>
             </div>
 
@@ -5225,9 +5225,9 @@ export function getKeywordsPageHtml(initialSlug = '') {
         // Engine & Crawl Depth Settings State
         isSettingsModalOpen: false,
         settingsTargetKeyword: null,
-        settingsCrawlPages: 10,
-        settingsMaxPins: 250,
-        settingsMaxSerpPins: 250,
+        settingsCrawlPages: 2,
+        settingsMaxPins: 50,
+        settingsMaxSerpPins: 50,
         settingsMaxCatalogInspect: 0,
         settingsEnableSerpHarvest: true,
         settingsCrawlScope: 'all_pins',
@@ -5240,9 +5240,9 @@ export function getKeywordsPageHtml(initialSlug = '') {
         settingsApplyGlobal: true,
         settingsLoading: false,
         appSettings: {
-          default_crawl_pages: 10,
-          default_max_pins: 250,
-          max_serp_pins: 250,
+          default_crawl_pages: 2,
+          default_max_pins: 50,
+          max_serp_pins: 50,
           max_catalog_inspect: 0,
           enable_serp_harvest: true,
           default_crawl_scope: 'all_pins',
@@ -6815,8 +6815,8 @@ export function getKeywordsPageHtml(initialSlug = '') {
               const data = await res.json();
               if (data.success && data.settings) {
                 this.appSettings = { ...this.appSettings, ...data.settings };
-                this.settingsCrawlPages = Number(data.settings.default_crawl_pages || 10);
-                this.settingsMaxSerpPins = Number(data.settings.max_serp_pins || data.settings.default_max_pins || 250);
+                this.settingsCrawlPages = Number(data.settings.default_crawl_pages || 2);
+                this.settingsMaxSerpPins = Number(data.settings.max_serp_pins || data.settings.default_max_pins || 50);
                 this.settingsMaxPins = this.settingsMaxSerpPins;
                 this.settingsMaxCatalogInspect = data.settings.max_catalog_inspect !== undefined ? Number(data.settings.max_catalog_inspect) : 0;
                 this.settingsEnableSerpHarvest = data.settings.enable_serp_harvest !== undefined ? Boolean(data.settings.enable_serp_harvest) : true;
@@ -6838,8 +6838,8 @@ export function getKeywordsPageHtml(initialSlug = '') {
           const target = kw || (this.viewModeLevel === 'serp_studio' ? (this.selectedKeyword || this.selectedKeywordDetails?.keyword) : null);
           this.settingsTargetKeyword = target;
           if (target) {
-            this.settingsCrawlPages = Number(target.crawl_pages_limit || this.appSettings.default_crawl_pages || 10);
-            this.settingsMaxSerpPins = Number(target.target_pin_count || this.appSettings.max_serp_pins || this.appSettings.default_max_pins || 250);
+            this.settingsCrawlPages = Number(target.crawl_pages_limit || this.appSettings.default_crawl_pages || 2);
+            this.settingsMaxSerpPins = Number(target.target_pin_count || this.appSettings.max_serp_pins || this.appSettings.default_max_pins || 50);
             this.settingsMaxPins = this.settingsMaxSerpPins;
             this.settingsMaxCatalogInspect = Number(this.appSettings.max_catalog_inspect !== undefined ? this.appSettings.max_catalog_inspect : 0);
             this.settingsEnableSerpHarvest = this.appSettings.enable_serp_harvest !== undefined ? Boolean(this.appSettings.enable_serp_harvest) : true;
@@ -6847,8 +6847,8 @@ export function getKeywordsPageHtml(initialSlug = '') {
             this.settingsInspectionMode = target.inspection_mode || this.appSettings.default_inspection_mode || 'full_catalog';
             this.settingsApplyGlobal = false;
           } else {
-            this.settingsCrawlPages = Number(this.appSettings.default_crawl_pages || 10);
-            this.settingsMaxSerpPins = Number(this.appSettings.max_serp_pins || this.appSettings.default_max_pins || 250);
+            this.settingsCrawlPages = Number(this.appSettings.default_crawl_pages || 2);
+            this.settingsMaxSerpPins = Number(this.appSettings.max_serp_pins || this.appSettings.default_max_pins || 50);
             this.settingsMaxPins = this.settingsMaxSerpPins;
             this.settingsMaxCatalogInspect = Number(this.appSettings.max_catalog_inspect !== undefined ? this.appSettings.max_catalog_inspect : 0);
             this.settingsEnableSerpHarvest = this.appSettings.enable_serp_harvest !== undefined ? Boolean(this.appSettings.enable_serp_harvest) : true;

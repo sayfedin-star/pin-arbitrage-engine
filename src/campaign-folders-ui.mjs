@@ -1459,7 +1459,7 @@ export function getCampaignFoldersPageHtml(folderId = '') {
             <span class="text-xs font-mono text-indigo-600 dark:text-indigo-400 font-bold" x-text="folderSettings.max_pins + ' pins/KW'"></span>
           </label>
           <div class="grid grid-cols-4 gap-2">
-            <template x-for="q in ['100', '250', '500', '1000']" :key="q">
+            <template x-for="q in ['50', '100', '250', '500']" :key="q">
               <button type="button" @click="folderSettings.max_pins = q; folderSettings.max_serp_pins = q"
                       class="px-2.5 py-1.5 rounded-xl text-xs font-mono font-medium border text-center transition"
                       :class="folderSettings.max_pins === q 
@@ -1570,8 +1570,8 @@ export function getCampaignFoldersPageHtml(folderId = '') {
           description: '',
           color: '#6366f1',
           enable_serp_harvest: true,
-          max_pins: '250',
-          max_serp_pins: '250',
+          max_pins: '50',
+          max_serp_pins: '50',
           crawl_scope: 'all_pins',
           max_catalog_inspect: '0'
         },
@@ -1911,8 +1911,8 @@ export function getCampaignFoldersPageHtml(folderId = '') {
             description: this.activeFolder.description || '',
             color: this.activeFolder.color || '#6366f1',
             enable_serp_harvest: meta.enable_serp_harvest !== undefined ? Boolean(meta.enable_serp_harvest) : true,
-            max_pins: String(meta.max_pins || '250'),
-            max_serp_pins: String(meta.max_serp_pins || meta.max_pins || '250'),
+            max_pins: String(meta.max_pins || '50'),
+            max_serp_pins: String(meta.max_serp_pins || meta.max_pins || '50'),
             crawl_scope: String(meta.crawl_scope || 'all_pins'),
             max_catalog_inspect: String(meta.max_catalog_inspect || '0'),
           };
@@ -1999,7 +1999,7 @@ export function getCampaignFoldersPageHtml(folderId = '') {
             const harvest = this.folderSettings?.enable_serp_harvest !== undefined
               ? Boolean(this.folderSettings.enable_serp_harvest)
               : (meta.enable_serp_harvest !== undefined ? Boolean(meta.enable_serp_harvest) : true);
-            const maxPins = String(this.folderSettings?.max_pins || meta.max_pins || '250');
+            const maxPins = String(this.folderSettings?.max_pins || meta.max_pins || '50');
             const maxSerpPins = String(this.folderSettings?.max_serp_pins || meta.max_serp_pins || maxPins);
             const crawlScope = String(this.folderSettings?.crawl_scope || meta.crawl_scope || 'all_pins');
             const maxCatalogInspect = String(this.folderSettings?.max_catalog_inspect || meta.max_catalog_inspect || '0');

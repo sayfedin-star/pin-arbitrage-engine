@@ -3011,7 +3011,7 @@ export default {
         if (autoDispatch && token && res?.success) {
           const repo = (typeof env !== 'undefined' && env?.GITHUB_REPOSITORY) || (typeof process !== 'undefined' ? process.env?.GITHUB_REPOSITORY : null) || 'sayfedin-star/pin-arbitrage-engine';
           const targetKw = res.keyword || body.target_keyword || body.keyword || resolvedKw?.keyword || '';
-          const maxPinsInput = String(body.max_pins || resolvedKw?.target_pin_count || '250');
+          const maxPinsInput = String(body.max_pins || resolvedKw?.target_pin_count || '50');
           const crawlScopeInput = String(body.crawl_scope || 'all_pins');
           const cleanToken = String(token).replace(/^(token|Bearer)\s+/i, '').replace(/^["']|["']$/g, '').trim();
           const authHeader = cleanToken.startsWith('ghp_') ? `token ${cleanToken}` : `Bearer ${cleanToken}`;
@@ -4222,11 +4222,11 @@ export default {
             keyword, category, target_pin_count, crawl_pages_limit, inspection_mode, is_active, updated_at
           )
           SELECT
-            u.kw, ${category}, 250, 10, 'full_catalog', TRUE, NOW()
+            u.kw, ${category}, 50, 2, 'full_catalog', TRUE, NOW()
           FROM UNNEST(${uniqueValidKeywords}::text[]) AS u(kw)
           ON CONFLICT (keyword) DO UPDATE SET
-            target_pin_count = GREATEST(tracked_keywords.target_pin_count, 250),
-            crawl_pages_limit = GREATEST(tracked_keywords.crawl_pages_limit, 10),
+            target_pin_count = COALESCE(tracked_keywords.target_pin_count, 50),
+            crawl_pages_limit = COALESCE(tracked_keywords.crawl_pages_limit, 2),
             inspection_mode = 'full_catalog',
             updated_at = NOW(),
             is_active = TRUE
@@ -4287,8 +4287,8 @@ export default {
         const body = await request.json().catch(() => ({}));
         const folderMeta = normalizeFolderMetadata(folderRow?.metadata);
         const crawlScopeInput = String(body.crawl_scope || folderMeta.crawl_scope || 'all_pins');
-        const maxPinsInput = String(body.max_pins || folderMeta.max_pins || '250');
-        const maxSerpPinsInput = String(body.max_serp_pins || body.max_pins || folderMeta.max_serp_pins || '250');
+        const maxPinsInput = String(body.max_pins || folderMeta.max_pins || '50');
+        const maxSerpPinsInput = String(body.max_serp_pins || body.max_pins || folderMeta.max_serp_pins || '50');
         const maxCatalogInspectInput = String(body.max_catalog_inspect || folderMeta.max_catalog_inspect || '0');
         const enableSerpHarvestInput = String(body.enable_serp_harvest ?? folderMeta.enable_serp_harvest ?? 'true');
 
@@ -4445,7 +4445,7 @@ export default {
         const body = await request.json().catch(() => ({}));
         const targetKw = body.target_keyword || body.keyword || '';
         const folderIdInput = body.folder_id ? String(body.folder_id).trim() : '';
-        const maxPinsInput = String(body.max_pins || '250');
+        const maxPinsInput = String(body.max_pins || '50');
         const maxSerpPinsInput = String(body.max_serp_pins || body.max_pins || maxPinsInput);
         const maxCatalogInspectInput = String(body.max_catalog_inspect || '0');
         const enableSerpHarvestInput = String(body.enable_serp_harvest ?? 'true');

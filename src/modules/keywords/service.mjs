@@ -275,9 +275,9 @@ export async function listKeywords(sql, { search = '', limit = 1000, offset = 0 
 export async function getAppSettings(sql) {
   const defaultSettings = {
     enable_serp_harvest: true,
-    default_crawl_pages: 10,
-    default_max_pins: 250,
-    max_serp_pins: 250,
+    default_crawl_pages: 2,
+    default_max_pins: 50,
+    max_serp_pins: 50,
     max_catalog_inspect: 0,
     default_crawl_scope: 'all_pins',
     default_inspection_mode: 'full_catalog',
@@ -435,8 +435,8 @@ export async function resolveKeywordBySlug(sql, slug, autoCreate = true) {
       ) VALUES (
         ${normalized},
         'Organic Search',
-        250,
-        10,
+        50,
+        2,
         'full_catalog',
         TRUE,
         NOW(),
@@ -1464,9 +1464,10 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
     // PHASE 3: DYNAMIC SERP CIRCUIT BREAKER
     // Supporting niche keywords with only 20-30 pins: calculate expectedCount dynamically
     const priorActiveCount = immediateSnapshots.length;
-    const expectedCount = priorActiveCount > 0
-      ? Math.min(Number(keywordRow.target_pin_count) || targetCount, priorActiveCount)
-      : (Number(keywordRow.target_pin_count) || targetCount);
+    const targetQuota = Math.max(10, Number(targetCount) || Number(keywordRow.target_pin_count) || 50);
+    const expectedCount = (priorActiveCount > 0 && priorActiveCount < targetQuota)
+      ? priorActiveCount
+      : targetQuota;
 
     const minRequiredForEviction = Math.max(10, Math.floor(expectedCount * 0.70));
     const isSuspectedIncompleteCrawl = preparedPins.length < minRequiredForEviction || paginationAbortedByHttp;
