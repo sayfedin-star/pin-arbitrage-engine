@@ -599,9 +599,8 @@ export function clampLimit(val, fallback = 50, max = 1000) {
 export function isValidPinId(pinId) {
   if (!pinId || typeof pinId !== 'string') return false;
   const clean = pinId.trim();
-  if (clean.length < 10 || clean.length > 128) return false;
-  if (/^(undefined|null|nan)$/i.test(clean)) return false;
-  return /^[a-zA-Z0-9][a-zA-Z0-9_-]{9,127}$/.test(clean);
+  // Strictly numeric Snowflake ID (10 to 30 digits), no encrypted e1_ tokens
+  return /^\d{10,30}$/.test(clean);
 }
 
 export function getCorsHeaders(requestOrigin = null, env = {}) {
@@ -1111,9 +1110,9 @@ export default {
       }
       const segments = normalizedPath.split('/').filter(Boolean);
       const rawPinId = segments[1] || '';
-      const cleanPinId = String(rawPinId).trim().replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 128);
+      const cleanPinId = String(rawPinId).trim();
       if (!cleanPinId || !isValidPinId(cleanPinId)) {
-        return jsonResponse({ success: false, error: 'INVALID_PIN_ID', message: 'Pin ID is required (alphanumeric, 10-128 chars)' }, 400);
+        return jsonResponse({ success: false, error: 'INVALID_PIN_ID', message: 'Pin ID is required (numeric Snowflake, 10-30 digits)' }, 400);
       }
       return new Response(getPinDetailPageHtml(cleanPinId), {
         status: 200,
@@ -3493,7 +3492,7 @@ export default {
             return jsonResponse({ success: false, error: 'BAD_REQUEST', message: 'Valid numeric keywordId is required' }, 400);
           }
           if (!pinId || !isValidPinId(pinId)) {
-            return jsonResponse({ success: false, error: 'INVALID_PIN_ID', message: 'Valid pinId is required (alphanumeric, 10-128 chars)' }, 400);
+            return jsonResponse({ success: false, error: 'INVALID_PIN_ID', message: 'Valid pinId is required (numeric Snowflake, 10-30 digits)' }, 400);
           }
 
           invalidateEdgeCache('keywords');
@@ -3733,7 +3732,7 @@ export default {
             return jsonResponse({
               success: false,
               error: 'INVALID_PIN_ID',
-              message: 'Pin ID must be a valid identifier (alphanumeric, 10-128 chars)'
+              message: 'Pin ID must be a valid identifier (numeric Snowflake, 10-30 digits)'
             }, 400);
           }
           const shardId = getPinShardId(pinId, 99);
@@ -4193,7 +4192,7 @@ export default {
             return jsonResponse({
               success: false,
               error: 'INVALID_PIN_ID',
-              message: 'Pin ID must be a valid identifier (alphanumeric, 10-128 chars)'
+              message: 'Pin ID must be a valid identifier (numeric Snowflake, 10-30 digits)'
             }, 400);
           }
           try {

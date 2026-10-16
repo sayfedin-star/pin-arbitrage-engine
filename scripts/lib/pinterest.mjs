@@ -470,6 +470,7 @@ export function formatPin(pin) {
       pin.articleBody
     ),
     grid_description: safeString(pin.description || pin.gridDescription || ''),
+    alt_text: altText,
     seo_title: seoTitle,
     seo_description: seoDescription,
     link: safeString(cleanLink || rawLink || pin.link || pin.url),

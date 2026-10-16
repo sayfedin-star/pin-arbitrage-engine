@@ -534,7 +534,7 @@ async function flushBatchToHub(pinsChunk, kw) {
           THEN u.visual_annotations 
           ELSE ksc.visual_annotations 
         END,
-        metadata = COALESCE(ksc.metadata, '{}'::jsonb) || COALESCE(u.extra_meta, '{}'::jsonb) || jsonb_build_object(
+        metadata = COALESCE(ksc.metadata, '{}'::jsonb) || jsonb_strip_nulls(COALESCE(u.extra_meta, '{}'::jsonb)) || jsonb_build_object(
           'alt_text', u.alt_text,
           'share_count', u.authentic_shares::int,
           'dominant_color', u.dominant_color,
@@ -592,7 +592,7 @@ async function flushBatchToHub(pinsChunk, kw) {
         END,
         created_at_pinterest = CASE WHEN u.created_at_pinterest::timestamptz IS NOT NULL THEN u.created_at_pinterest::timestamptz ELSE kps.created_at_pinterest END,
         creation_method = CASE WHEN u.method <> '' THEN u.method ELSE kps.creation_method END,
-        metadata = COALESCE(kps.metadata, '{}'::jsonb) || COALESCE(u.extra_meta, '{}'::jsonb) || jsonb_build_object(
+        metadata = COALESCE(kps.metadata, '{}'::jsonb) || jsonb_strip_nulls(COALESCE(u.extra_meta, '{}'::jsonb)) || jsonb_build_object(
           'alt_text', u.alt_text,
           'share_count', u.authentic_shares::int,
           'dominant_color', u.dominant_color,
@@ -665,7 +665,7 @@ async function flushBatchToHub(pinsChunk, kw) {
           THEN u.visual_annotations 
           ELSE ksc.visual_annotations 
         END,
-        metadata = COALESCE(ksc.metadata, '{}'::jsonb) || COALESCE(u.extra_meta, '{}'::jsonb) || jsonb_build_object(
+        metadata = COALESCE(ksc.metadata, '{}'::jsonb) || jsonb_strip_nulls(COALESCE(u.extra_meta, '{}'::jsonb)) || jsonb_build_object(
           'alt_text', u.alt_text,
           'share_count', u.authentic_shares::int,
           'dominant_color', u.dominant_color,
@@ -720,7 +720,7 @@ async function flushBatchToHub(pinsChunk, kw) {
         END,
         created_at_pinterest = CASE WHEN u.created_at_pinterest::timestamptz IS NOT NULL THEN u.created_at_pinterest::timestamptz ELSE kps.created_at_pinterest END,
         creation_method = CASE WHEN u.method <> '' THEN u.method ELSE kps.creation_method END,
-        metadata = COALESCE(kps.metadata, '{}'::jsonb) || COALESCE(u.extra_meta, '{}'::jsonb) || jsonb_build_object(
+        metadata = COALESCE(kps.metadata, '{}'::jsonb) || jsonb_strip_nulls(COALESCE(u.extra_meta, '{}'::jsonb)) || jsonb_build_object(
           'alt_text', u.alt_text,
           'share_count', u.authentic_shares::int,
           'dominant_color', u.dominant_color,
@@ -1393,8 +1393,11 @@ async function run() {
       `;
     }
 
-    // Deterministic sort to ensure identical order across all 20 runners
+    // Deterministic sort to ensure identical order across all 20 runners (prioritizing numeric pins)
     allPins.sort((a, b) => {
+      const isNumA = /^[0-9]+$/.test(a.pin_id);
+      const isNumB = /^[0-9]+$/.test(b.pin_id);
+      if (isNumA !== isNumB) return isNumA ? -1 : 1;
       const rA = Number(a.rank_position) || Number(a.last_known_rank) || 9999;
       const rB = Number(b.rank_position) || Number(b.last_known_rank) || 9999;
       if (rA !== rB) return rA - rB;
@@ -1461,11 +1464,12 @@ async function run() {
     await sql`ALTER TABLE tracked_keywords ADD COLUMN IF NOT EXISTS crawl_lease_token UUID;`.catch(() => {});
     await sql`ALTER TABLE tracked_keywords ADD COLUMN IF NOT EXISTS crawl_lease_until TIMESTAMPTZ;`.catch(() => {});
 
+    const activeIds = keywordIdsInput.length > 0 ? keywordIdsInput : (keywordIdInput ? [keywordIdInput] : []);
     let keywordsToProcess = [];
-    if (keywordIdsInput.length > 0) {
+    if (activeIds.length > 0) {
       keywordsToProcess = await sql`
         SELECT * FROM tracked_keywords 
-        WHERE id = ANY(${keywordIdsInput}) AND is_active = TRUE
+        WHERE id = ANY(${activeIds}) AND is_active = TRUE
         ORDER BY last_crawled_at ASC NULLS FIRST;
       `;
     } else if (targetKeyword) {
@@ -1626,7 +1630,7 @@ async function run() {
           if (crawlScope === 'active_serp') {
             serpPins = (maxSerpPins > 0) ? allKeywordPins.slice(0, maxSerpPins) : allKeywordPins;
           } else {
-            serpPins = (maxCatalogInspect > 0) ? allKeywordPins.slice(0, maxCatalogInspect) : allKeywordPins;
+            serpPins = (maxCatalogInspect > 0) ? allKeywordPins.slice(0, maxCatalogInspect) : allKeywordPins.slice(0, maxSerpPins || 50);
           }
           console.log(`  [*] Keyword Catalog: ${allKeywordPins.length} total pins (${allKeywordPins.filter(p => !p.is_displaced).length} active + ${allKeywordPins.filter(p => p.is_displaced).length} vault). Inspecting ${serpPins.length} pins...`);
 

@@ -713,10 +713,12 @@ export async function fetchVisualSearchLens(sql, pinId, cookie = (typeof process
       const seedWords = (pinRow?.title || '').toLowerCase().split(/\s+/).filter(w => w.length > 3);
 
       for (const item of rawResults) {
-        if (!item || !item.id || item.type !== 'pin' || item.format === 'Related Interests') continue;
-        const id = String(item.id).trim();
-        if (seen.has(id)) continue;
-        seen.add(id);
+        if (!item || item.type !== 'pin' || item.format === 'Related Interests') continue;
+        const cleanMatchId = [item?.id, item?.root_pin_id, item?.orig_pin_id, item?.aggregated_pin_data?.id]
+          .map(v => String(v || '').trim())
+          .find(v => /^\d{10,30}$/.test(v));
+        if (!cleanMatchId || seen.has(cleanMatchId)) continue;
+        seen.add(cleanMatchId);
 
         const title = extractPinTitle(item);
         if (title === 'Explore featured boards') continue;
@@ -750,7 +752,7 @@ export async function fetchVisualSearchLens(sql, pinId, cookie = (typeof process
         }
 
         matches.push({
-          pin_id: id,
+          pin_id: cleanMatchId,
           title,
           image_url: img,
           domain,
@@ -1003,10 +1005,13 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
         rawResults = rawResults.concat(pageItems);
 
         for (const it of pageItems) {
-          if (!it || !it.id || it.type !== 'pin') continue;
+          if (!it || it.type !== 'pin') continue;
           if (excludeBoardsAndSuggestions && (it.format === 'Related Interests' || it.format === 'board')) continue;
           if (excludePromoted && isCommercialOrAdPin(it)) continue;
-          const pid = String(it.id);
+          const pid = [it?.id, it?.root_pin_id, it?.orig_pin_id, it?.aggregated_pin_data?.id]
+            .map(v => String(v || '').trim())
+            .find(v => /^\d{10,30}$/.test(v));
+          if (!pid) continue;
           if (excludeIgnoredPins && ignoredPinSet.has(pid)) continue;
           if (!seenPagingIds.has(pid)) {
             seenPagingIds.add(pid);
@@ -1158,10 +1163,12 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
     const seenPinIds = new Set();
 
     for (const item of rawResults) {
-      if (!item || !item.id || item.type !== 'pin') continue;
+      if (!item || item.type !== 'pin') continue;
       if (excludeBoardsAndSuggestions && (item.format === 'Related Interests' || item.format === 'board')) continue;
       if (excludePromoted && isCommercialOrAdPin(item)) continue;
-      const pinId = String(item.id).trim().slice(0, 255);
+      const pinId = [item?.id, item?.root_pin_id, item?.orig_pin_id, item?.aggregated_pin_data?.id]
+        .map(v => String(v || '').trim())
+        .find(v => /^\d{10,30}$/.test(v));
       if (!pinId || seenPinIds.has(pinId)) continue;
       if (excludeIgnoredPins && ignoredPinSet.has(pinId)) continue;
       if (preparedPins.length >= targetCount) break;

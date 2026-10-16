@@ -626,21 +626,29 @@ async function runModernizationTests() {
       resAfterEvict.status === 200 && dataAfterEvict.source === 'neon_hub'
     );
 
-    // 6.6 Alphanumeric Pinterest Pin ID Support (/pins/:pin_id & /api/pins/:pin_id)
-    const modernPinId = 'e1_AfqPShwoOyKyIt-VSPHlFYBo0DOJ2QWF9JGGnTNs6nihpSiLo6sl';
-    const reqPinHtml = new Request(`https://worker.test/pins/${modernPinId}`);
+    // 6.6 Snowflake Numeric Pin ID Enforcement (/pins/:pin_id & /api/pins/:pin_id)
+    const validSnowflakeId = '275704808435366101';
+    const reqPinHtml = new Request(`https://worker.test/pins/${validSnowflakeId}`);
     const resPinHtml = await worker.fetch(reqPinHtml, env);
     const htmlText = await resPinHtml.text();
     assert(
-      'GET /pins/:pin_id preserves alphanumeric Pinterest ID cleanly without numeric truncation',
-      resPinHtml.status === 200 && htmlText.includes(modernPinId) && !htmlText.includes('#102966')
+      'GET /pins/:pin_id serves valid numeric Snowflake Pin ID cleanly',
+      resPinHtml.status === 200 && htmlText.includes(validSnowflakeId)
     );
 
-    const reqPinApi = new Request(`https://worker.test/api/pins/${modernPinId}`);
+    const reqPinApi = new Request(`https://worker.test/api/pins/${validSnowflakeId}`);
     const resPinApi = await worker.fetch(reqPinApi, env);
     assert(
-      'GET /api/pins/:pin_id accepts alphanumeric Pinterest ID without 400 INVALID_PIN_ID',
+      'GET /api/pins/:pin_id accepts numeric Snowflake ID without 400 INVALID_PIN_ID',
       resPinApi.status !== 400
+    );
+
+    const e1Token = 'e1_AfqPShwoOyKyIt-VSPHlFYBo0DOJ2QWF9JGGnTNs6nihpSiLo6sl';
+    const reqE1Api = new Request(`https://worker.test/api/pins/${e1Token}`);
+    const resE1Api = await worker.fetch(reqE1Api, env);
+    assert(
+      'GET /api/pins/:pin_id strictly rejects non-numeric e1_ tokens with 400 INVALID_PIN_ID',
+      resE1Api.status === 400
     );
   }
 
