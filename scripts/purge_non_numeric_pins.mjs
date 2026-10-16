@@ -79,8 +79,8 @@ async function main() {
       SELECT DISTINCT ON (keyword_id)
         keyword_id, pin_id, title, image_url
       FROM keyword_serp_current
-      WHERE is_displaced = FALSE AND rank_position = 1
-      ORDER BY keyword_id, rank_position ASC
+      WHERE pin_id ~ '^[0-9]+$'
+      ORDER BY keyword_id, COALESCE(rank_position, last_known_rank, 9999) ASC, save_count DESC
     )
     UPDATE tracked_keywords tk
     SET top_pin_id = ta.pin_id,
@@ -90,6 +90,12 @@ async function main() {
     FROM top_active ta
     WHERE tk.id = ta.keyword_id
       AND (tk.top_pin_id IS NULL OR tk.top_pin_id !~ '^[0-9]+$');
+  `;
+  // Clear any remaining orphan top_pin_id that still has non-numeric value
+  await sql`
+    UPDATE tracked_keywords
+    SET top_pin_id = NULL
+    WHERE top_pin_id IS NOT NULL AND top_pin_id !~ '^[0-9]+$';
   `;
   console.log('[+] tracked_keywords top_pin_id updated to valid active numeric pins.');
 
