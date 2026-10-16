@@ -242,6 +242,7 @@ export async function fetchAndCacheDomainAge(sql, rawDomain, { forceRefresh = fa
 
   if (!forceRefresh) {
     try {
+      const referenceTime = new Date(Math.floor(Date.now() / 3600000) * 3600000).toISOString();
       const [cached] = await sql`
         SELECT
           domain,
@@ -252,18 +253,18 @@ export async function fetchAndCacheDomainAge(sql, rawDomain, { forceRefresh = fa
           lookup_status,
           checked_at,
           CASE
-            WHEN registered_at IS NOT NULL THEN GREATEST(1, FLOOR(EXTRACT(EPOCH FROM (NOW() - registered_at)) / 86400))::int
+            WHEN registered_at IS NOT NULL THEN GREATEST(1, FLOOR(EXTRACT(EPOCH FROM (${referenceTime}::timestamptz - registered_at)) / 86400))::int
             ELSE initial_age_days
           END AS age_days,
           CASE
-            WHEN registered_at IS NOT NULL THEN ROUND((EXTRACT(EPOCH FROM (NOW() - registered_at)) / 31557600)::numeric, 2)
+            WHEN registered_at IS NOT NULL THEN ROUND((EXTRACT(EPOCH FROM (${referenceTime}::timestamptz - registered_at)) / 31557600)::numeric, 2)
             ELSE initial_age_years
           END AS age_years
         FROM domain_registry_metadata
         WHERE domain = ${cleanDomain}
           AND (
             lookup_status = 'resolved'
-            OR (lookup_status = 'failed' AND checked_at > NOW() - INTERVAL '3 days')
+            OR (lookup_status = 'failed' AND checked_at > ${referenceTime}::timestamptz - INTERVAL '3 days')
           )
         LIMIT 1;
       `;
@@ -710,6 +711,7 @@ export async function listDomainsIntelligence(sql, {
   const off = (pNum - 1) * lim;
   const searchPattern = search ? `%${escapeSqlLike(search)}%` : null;
   const includeArchiveAndComp = (fId === null && kId === null);
+  const referenceTime = new Date(Math.floor(Date.now() / 3600000) * 3600000).toISOString();
 
   const rows = await sql`
     WITH raw_occurrences AS (
@@ -827,11 +829,11 @@ export async function listDomainsIntelligence(sql, {
         drm.expires_at AS domain_expires_at,
         drm.lookup_status AS age_status,
         CASE
-          WHEN drm.registered_at IS NOT NULL THEN GREATEST(1, FLOOR(EXTRACT(EPOCH FROM (NOW() - drm.registered_at)) / 86400))::int
+          WHEN drm.registered_at IS NOT NULL THEN GREATEST(1, FLOOR(EXTRACT(EPOCH FROM (${referenceTime}::timestamptz - drm.registered_at)) / 86400))::int
           ELSE drm.initial_age_days
         END AS age_days,
         CASE
-          WHEN drm.registered_at IS NOT NULL THEN ROUND((EXTRACT(EPOCH FROM (NOW() - drm.registered_at)) / 31557600)::numeric, 2)
+          WHEN drm.registered_at IS NOT NULL THEN ROUND((EXTRACT(EPOCH FROM (${referenceTime}::timestamptz - drm.registered_at)) / 31557600)::numeric, 2)
           ELSE drm.initial_age_years
         END AS age_years,
         COALESCE(dmm.current_ad_network, 'unchecked') AS ad_network,
@@ -851,7 +853,7 @@ export async function listDomainsIntelligence(sql, {
             GREATEST(
               0.25,
               COALESCE(
-                CASE WHEN drm.registered_at IS NOT NULL THEN (EXTRACT(EPOCH FROM (NOW() - drm.registered_at)) / 31557600)::numeric ELSE NULL END,
+                CASE WHEN drm.registered_at IS NOT NULL THEN (EXTRACT(EPOCH FROM (${referenceTime}::timestamptz - drm.registered_at)) / 31557600)::numeric ELSE NULL END,
                 drm.initial_age_years,
                 2.5
               )
@@ -864,7 +866,7 @@ export async function listDomainsIntelligence(sql, {
       LEFT JOIN domain_monetization_metadata dmm ON dmm.domain = da.domain
       WHERE (
         ${preset} = 'all'
-        OR (${preset} = 'baby_giants' AND drm.registered_at >= NOW() - INTERVAL '2 years' AND (da.top10_pins >= 1 OR da.total_saves >= 1000))
+        OR (${preset} = 'baby_giants' AND drm.registered_at >= ${referenceTime}::timestamptz - INTERVAL '2 years' AND (da.top10_pins >= 1 OR da.total_saves >= 1000))
         OR (${preset} = 'easy_arbitrage' AND da.total_pins <= 25 AND (da.top10_pins >= 1 OR da.avg_velocity >= 5))
         OR (${preset} = 'bleeding_giants' AND da.displaced_pins >= 3 AND (da.displaced_pins::numeric / GREATEST(1, da.active_serp_pins + da.displaced_pins)) >= 0.30)
         OR (${preset} = 'high_multipliers' AND da.pins_per_url >= 3.0)

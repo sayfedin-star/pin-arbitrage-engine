@@ -11,7 +11,9 @@ import worker, {
   tripPinterestCircuitBreaker,
   syncFolderToD1,
   deleteFolderFromD1,
-  syncKeywordToD1
+  syncKeywordToD1,
+  syncKeywordsCatalogToD1,
+  evictKeywordsCatalogFromD1
 } from '../src/worker.mjs';
 import { resolveShardConnection, getFleetShardsMap, preloadNeonRegistry } from '../src/modules/sharding/fleet-router.mjs';
 
@@ -45,10 +47,19 @@ function createMockKV() {
 function createMockD1() {
   const tables = {
     search_autocomplete_index: new Map(),
-    edge_campaign_folders: new Map()
+    edge_campaign_folders: new Map(),
+    edge_keywords_catalog: new Map()
   };
 
   return {
+    async batch(stmts) {
+      if (Array.isArray(stmts)) {
+        for (const s of stmts) {
+          if (s && typeof s.run === 'function') await s.run();
+        }
+      }
+      return [];
+    },
     prepare(sqlQuery) {
       return {
         _bound: [],
@@ -89,6 +100,16 @@ function createMockD1() {
             return { results: list, success: true };
           }
 
+          if (q.includes('FROM edge_keywords_catalog')) {
+            const list = Array.from(tables.edge_keywords_catalog.values());
+            if (q.includes('WHERE LOWER(keyword) LIKE ?')) {
+              const pattern = String(this._bound[0] || '').replace(/%/g, '').toLowerCase();
+              const filtered = list.filter(k => k.keyword.toLowerCase().includes(pattern));
+              return { results: filtered, success: true };
+            }
+            return { results: list, success: true };
+          }
+
           return { results: [], success: true };
         },
         async run() {
@@ -119,6 +140,48 @@ function createMockD1() {
               pin_count: pinCount,
               last_synced_at: lastSyncedAt
             });
+            return { success: true };
+          }
+          if (q.includes('INTO edge_keywords_catalog')) {
+            const [
+              id, keyword, category, targetPinCount, refreshInterval,
+              lastCrawledAt, topPinId, topPinTitle, topPinImage,
+              avgVelocity, isActive, tags, metadata,
+              createdAt, updatedAt, crawlPagesLimit, inspectionMode,
+              canonicalKeyword, snapshotsCount, totalPinsCount, folders
+            ] = this._bound;
+            tables.edge_keywords_catalog.set(Number(id), {
+              id: Number(id),
+              keyword: String(keyword),
+              category: String(category),
+              target_pin_count: targetPinCount,
+              refresh_interval_hours: refreshInterval,
+              last_crawled_at: lastCrawledAt,
+              top_pin_id: topPinId,
+              top_pin_title: topPinTitle,
+              top_pin_image: topPinImage,
+              avg_daily_velocity: avgVelocity,
+              is_active: isActive,
+              tags,
+              metadata,
+              created_at: createdAt,
+              updated_at: updatedAt,
+              crawl_pages_limit: crawlPagesLimit,
+              inspection_mode: inspectionMode,
+              canonical_keyword: canonicalKeyword,
+              snapshots_count: snapshotsCount,
+              total_pins_count: totalPinsCount,
+              folders
+            });
+            return { success: true };
+          }
+          if (q.includes('DELETE FROM edge_keywords_catalog WHERE id = ?')) {
+            const id = Number(this._bound[0]);
+            tables.edge_keywords_catalog.delete(id);
+            return { success: true };
+          }
+          if (q.includes('DELETE FROM edge_keywords_catalog')) {
+            tables.edge_keywords_catalog.clear();
             return { success: true };
           }
           return { success: true };
@@ -157,8 +220,8 @@ function createMockSql() {
     }
     if (query.includes('FROM tracked_keywords') || query.includes('FROM keywords')) {
       return [
-        { keyword: 'sourdough bread', search_volume: 45000, pin_count: 120 },
-        { keyword: 'sourdough starter', search_volume: 32000, pin_count: 95 }
+        { id: 1, keyword: 'sourdough bread', category: 'General', target_pin_count: 50, is_active: true, search_volume: 45000, pin_count: 120 },
+        { id: 2, keyword: 'sourdough starter', category: 'General', target_pin_count: 50, is_active: true, search_volume: 32000, pin_count: 95 }
       ];
     }
     return [];
@@ -466,6 +529,85 @@ async function runModernizationTests() {
     assert(
       'Folder successfully removed from D1 edge storage',
       dataAfterDel.folders?.length === 0 || dataAfterDel.source !== 'd1_edge'
+    );
+  }
+
+  // =========================================================================
+  // 6. CLOUDFLARE D1 DATABASE: KEYWORDS CATALOG EDGE READS & AUTO-WARMING
+  // =========================================================================
+  console.log('\n[AXIS 6] Cloudflare D1 Database: Keywords Catalog Sub-5ms Reads & Auto-Warming');
+
+  {
+    const d1 = createMockD1();
+    const mockSql = createMockSql();
+    const env = {
+      PIN_D1_DB: d1,
+      DATABASE_URL: 'postgres://dummy@neon.tech/db',
+      SQL_CLIENT: mockSql
+    };
+
+    // 6.1 Cold-Start: when D1 is empty, /api/keywords falls back cleanly to Neon Hub
+    const reqCold = new Request('https://worker.test/api/keywords');
+    const resCold = await worker.fetch(reqCold, env);
+    const dataCold = await resCold.json();
+    assert(
+      'GET /api/keywords on cold D1 falls back to Neon Hub (source: neon_hub)',
+      resCold.status === 200 && dataCold.source === 'neon_hub'
+    );
+
+    // 6.2 Sync keywords catalog into D1
+    await syncKeywordsCatalogToD1(env, [
+      {
+        id: 201,
+        keyword: 'slow cooker dinner recipes',
+        category: 'Food & Drink',
+        target_pin_count: 50,
+        refresh_interval_hours: 24,
+        top_pin_title: 'Easy Slow Cooker Dinners',
+        avg_daily_velocity: '12.4',
+        is_active: true,
+        folders: [{ id: 1, name: 'Crockpot', color: '#06b6d4' }]
+      },
+      {
+        id: 202,
+        keyword: 'healthy winter meal prep',
+        category: 'Health',
+        target_pin_count: 50,
+        refresh_interval_hours: 24,
+        top_pin_title: 'Meal Prep Ideas for Winter',
+        avg_daily_velocity: '8.1',
+        is_active: true,
+        folders: []
+      }
+    ]);
+
+    // 6.3 Read keywords from D1 edge database (sub-5ms)
+    const reqWarm = new Request('https://worker.test/api/keywords');
+    const resWarm = await worker.fetch(reqWarm, env);
+    const dataWarm = await resWarm.json();
+    assert(
+      'GET /api/keywords serves directly from D1 edge database (source: d1_edge)',
+      resWarm.status === 200 && dataWarm.source === 'd1_edge' && dataWarm.keywords?.length >= 2,
+      JSON.stringify(dataWarm)
+    );
+
+    // 6.4 Search filtering in D1 edge catalog
+    const reqSearch = new Request('https://worker.test/api/keywords?search=cooker');
+    const resSearch = await worker.fetch(reqSearch, env);
+    const dataSearch = await resSearch.json();
+    assert(
+      'GET /api/keywords?search=cooker filters correctly at D1 edge',
+      resSearch.status === 200 && dataSearch.source === 'd1_edge' && dataSearch.keywords?.length === 1 && dataSearch.keywords[0].keyword === 'slow cooker dinner recipes'
+    );
+
+    // 6.5 Eviction from D1 edge catalog
+    await evictKeywordsCatalogFromD1(env);
+    const reqAfterEvict = new Request('https://worker.test/api/keywords');
+    const resAfterEvict = await worker.fetch(reqAfterEvict, env);
+    const dataAfterEvict = await resAfterEvict.json();
+    assert(
+      'GET /api/keywords after eviction triggers auto-warming fallback to Neon Hub',
+      resAfterEvict.status === 200 && dataAfterEvict.source === 'neon_hub'
     );
   }
 

@@ -354,6 +354,199 @@ export async function syncKeywordsBatchToD1(env, keywords) {
   }
 }
 
+let isEdgeKeywordsTableReady = false;
+
+export async function ensureEdgeKeywordsCatalogTable(env) {
+  if (isEdgeKeywordsTableReady || !env?.PIN_D1_DB) return;
+  try {
+    await env.PIN_D1_DB.prepare(`
+      CREATE TABLE IF NOT EXISTS edge_keywords_catalog (
+        id INTEGER PRIMARY KEY,
+        keyword TEXT NOT NULL,
+        category TEXT DEFAULT 'General',
+        target_pin_count INTEGER DEFAULT 50,
+        refresh_interval_hours INTEGER DEFAULT 24,
+        last_crawled_at TEXT,
+        top_pin_id TEXT,
+        top_pin_title TEXT,
+        top_pin_image TEXT,
+        avg_daily_velocity REAL DEFAULT 0,
+        is_active INTEGER DEFAULT 1,
+        tags TEXT DEFAULT '{}',
+        metadata TEXT DEFAULT '{}',
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now')),
+        crawl_pages_limit INTEGER DEFAULT 2,
+        inspection_mode TEXT DEFAULT 'full_catalog',
+        canonical_keyword TEXT,
+        snapshots_count INTEGER DEFAULT 0,
+        total_pins_count INTEGER DEFAULT 0,
+        folders TEXT DEFAULT '[]'
+      )
+    `).run().catch(() => {});
+    await env.PIN_D1_DB.prepare(`CREATE INDEX IF NOT EXISTS idx_edge_keywords_kw ON edge_keywords_catalog(keyword)`).run().catch(() => {});
+    await env.PIN_D1_DB.prepare(`CREATE INDEX IF NOT EXISTS idx_edge_keywords_created ON edge_keywords_catalog(created_at DESC)`).run().catch(() => {});
+    isEdgeKeywordsTableReady = true;
+  } catch (err) {
+    console.warn('[ensureEdgeKeywordsCatalogTable] Non-fatal init error:', redactSecrets(err.message));
+  }
+}
+
+export async function readKeywordsFromD1(env, { search = '', limit = 1000, offset = 0 } = {}) {
+  if (!env?.PIN_D1_DB) return null;
+  await ensureEdgeKeywordsCatalogTable(env);
+  try {
+    const lim = Math.max(1, Math.min(parseInt(limit, 10) || 1000, 1000));
+    const off = Math.max(0, parseInt(offset, 10) || 0);
+
+    let queryRes;
+    if (search && search.trim()) {
+      const pattern = `%${search.trim().toLowerCase()}%`;
+      queryRes = await env.PIN_D1_DB.prepare(`
+        SELECT * FROM edge_keywords_catalog 
+        WHERE LOWER(keyword) LIKE ? 
+        ORDER BY created_at DESC 
+        LIMIT ? OFFSET ?
+      `).bind(pattern, lim, off).all();
+    } else {
+      queryRes = await env.PIN_D1_DB.prepare(`
+        SELECT * FROM edge_keywords_catalog 
+        ORDER BY created_at DESC 
+        LIMIT ? OFFSET ?
+      `).bind(lim, off).all();
+    }
+
+    if (!queryRes || !Array.isArray(queryRes.results)) return [];
+    if (queryRes.results.length === 0) return [];
+
+    return queryRes.results.map(row => {
+      let meta = {};
+      if (typeof row.metadata === 'string') {
+        try { meta = JSON.parse(row.metadata); } catch (_) { meta = {}; }
+      } else if (row.metadata && typeof row.metadata === 'object') {
+        meta = row.metadata;
+      }
+
+      let fldrs = [];
+      if (typeof row.folders === 'string') {
+        try { fldrs = JSON.parse(row.folders); } catch (_) { fldrs = []; }
+      } else if (Array.isArray(row.folders)) {
+        fldrs = row.folders;
+      }
+
+      return {
+        ...row,
+        id: Number(row.id),
+        target_pin_count: Number(row.target_pin_count || 50),
+        refresh_interval_hours: Number(row.refresh_interval_hours || 24),
+        avg_daily_velocity: String(row.avg_daily_velocity || '0.00'),
+        is_active: Boolean(row.is_active),
+        crawl_pages_limit: Number(row.crawl_pages_limit || 2),
+        snapshots_count: Number(row.snapshots_count || 0),
+        total_pins_count: Number(row.total_pins_count || 0),
+        metadata: meta,
+        folders: fldrs
+      };
+    });
+  } catch (err) {
+    console.warn('[readKeywordsFromD1] Read error (falling back to Neon):', redactSecrets(err.message));
+    return null;
+  }
+}
+
+export async function syncKeywordsCatalogToD1(env, keywords) {
+  if (!env?.PIN_D1_DB || !Array.isArray(keywords) || keywords.length === 0) return;
+  await ensureEdgeKeywordsCatalogTable(env);
+  try {
+    const CHUNK_SIZE = 50;
+    for (let i = 0; i < keywords.length; i += CHUNK_SIZE) {
+      const slice = keywords.slice(i, i + CHUNK_SIZE);
+      const stmts = [];
+      for (const k of slice) {
+        if (!k || !k.id || !k.keyword) continue;
+        const id = Number(k.id);
+        const keyword = String(k.keyword).trim();
+        const category = String(k.category || 'General');
+        const targetPinCount = Number(k.target_pin_count || 50);
+        const refreshInterval = Number(k.refresh_interval_hours || 24);
+        const lastCrawledAt = k.last_crawled_at ? new Date(k.last_crawled_at).toISOString() : null;
+        const topPinId = k.top_pin_id ? String(k.top_pin_id) : null;
+        const topPinTitle = k.top_pin_title ? String(k.top_pin_title) : null;
+        const topPinImage = k.top_pin_image ? String(k.top_pin_image) : null;
+        const avgVelocity = Number(k.avg_daily_velocity || 0);
+        const isActive = k.is_active === false ? 0 : 1;
+        const tags = typeof k.tags === 'string' ? k.tags : JSON.stringify(k.tags || {});
+        const metadata = typeof k.metadata === 'string' ? k.metadata : JSON.stringify(k.metadata || {});
+        const createdAt = k.created_at ? new Date(k.created_at).toISOString() : new Date().toISOString();
+        const updatedAt = k.updated_at ? new Date(k.updated_at).toISOString() : new Date().toISOString();
+        const crawlPagesLimit = Number(k.crawl_pages_limit || 2);
+        const inspectionMode = String(k.inspection_mode || 'full_catalog');
+        const canonicalKeyword = k.canonical_keyword ? String(k.canonical_keyword) : null;
+        const snapshotsCount = Number(k.snapshots_count || 0);
+        const totalPinsCount = Number(k.total_pins_count || 0);
+        const folders = typeof k.folders === 'string' ? k.folders : JSON.stringify(k.folders || []);
+
+        stmts.push(
+          env.PIN_D1_DB.prepare(`
+            INSERT INTO edge_keywords_catalog (
+              id, keyword, category, target_pin_count, refresh_interval_hours,
+              last_crawled_at, top_pin_id, top_pin_title, top_pin_image,
+              avg_daily_velocity, is_active, tags, metadata,
+              created_at, updated_at, crawl_pages_limit, inspection_mode,
+              canonical_keyword, snapshots_count, total_pins_count, folders
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+              keyword = excluded.keyword,
+              category = excluded.category,
+              target_pin_count = excluded.target_pin_count,
+              refresh_interval_hours = excluded.refresh_interval_hours,
+              last_crawled_at = excluded.last_crawled_at,
+              top_pin_id = excluded.top_pin_id,
+              top_pin_title = excluded.top_pin_title,
+              top_pin_image = excluded.top_pin_image,
+              avg_daily_velocity = excluded.avg_daily_velocity,
+              is_active = excluded.is_active,
+              tags = excluded.tags,
+              metadata = excluded.metadata,
+              updated_at = excluded.updated_at,
+              crawl_pages_limit = excluded.crawl_pages_limit,
+              inspection_mode = excluded.inspection_mode,
+              canonical_keyword = excluded.canonical_keyword,
+              snapshots_count = excluded.snapshots_count,
+              total_pins_count = excluded.total_pins_count,
+              folders = excluded.folders
+          `).bind(
+            id, keyword, category, targetPinCount, refreshInterval,
+            lastCrawledAt, topPinId, topPinTitle, topPinImage,
+            avgVelocity, isActive, tags, metadata,
+            createdAt, updatedAt, crawlPagesLimit, inspectionMode,
+            canonicalKeyword, snapshotsCount, totalPinsCount, folders
+          )
+        );
+      }
+      if (stmts.length > 0) {
+        await env.PIN_D1_DB.batch(stmts);
+      }
+    }
+  } catch (err) {
+    console.warn('[syncKeywordsCatalogToD1] Non-fatal catalog D1 sync error:', redactSecrets(err.message));
+  }
+}
+
+export async function evictKeywordsCatalogFromD1(env, keywordId = null) {
+  if (!env?.PIN_D1_DB) return;
+  await ensureEdgeKeywordsCatalogTable(env);
+  try {
+    if (keywordId) {
+      await env.PIN_D1_DB.prepare("DELETE FROM edge_keywords_catalog WHERE id = ?").bind(Number(keywordId)).run();
+    } else {
+      await env.PIN_D1_DB.prepare("DELETE FROM edge_keywords_catalog").run();
+    }
+  } catch (err) {
+    console.warn('[evictKeywordsCatalogFromD1] Non-fatal D1 eviction error:', redactSecrets(err.message));
+  }
+}
+
 export function clampLimit(val, fallback = 50, max = 1000) {
   const n = parseInt(val, 10);
   if (isNaN(n) || n <= 0) return fallback;
@@ -810,9 +1003,20 @@ export function invalidateEdgeCache(prefix = '') {
       if (ctx && typeof ctx.waitUntil === 'function') {
         safeWaitUntil(ctx, allDel, `l1_cache_evict_${prefix || 'all'}`);
       }
-      return allDel;
     } catch (_) {}
   }
+
+  const store = requestContextStorage?.getStore?.();
+  const env = store?.env;
+  const ctx = store?.ctx;
+  if ((!prefix || prefix.startsWith('keywords')) && env?.PIN_D1_DB) {
+    if (ctx && typeof ctx.waitUntil === 'function') {
+      safeWaitUntil(ctx, evictKeywordsCatalogFromD1(env), 'd1_evict_keywords_catalog');
+    } else {
+      evictKeywordsCatalogFromD1(env).catch(() => {});
+    }
+  }
+
   return Promise.resolve();
 }
 
@@ -2935,6 +3139,22 @@ export default {
         const limit = clampLimit(searchParams.get('limit'), 1000, 1000);
         const offset = Math.max(0, parseInt(searchParams.get('offset'), 10) || 0);
 
+        // 1. Check D1 Edge Keywords Catalog first (Sub-5ms Edge Reads)
+        if (env?.PIN_D1_DB) {
+          try {
+            const d1Keywords = await readKeywordsFromD1(env, { search, limit, offset });
+            if (Array.isArray(d1Keywords) && d1Keywords.length > 0) {
+              return jsonResponse({
+                success: true,
+                keywords: d1Keywords,
+                source: 'd1_edge'
+              }, 200, 15);
+            }
+          } catch (d1Err) {
+            console.warn('[D1 Keywords Read Error]', redactSecrets(d1Err.message));
+          }
+        }
+
         const cacheKey = buildCanonicalCacheKey('keywords:hub', {
           search,
           limit,
@@ -2951,10 +3171,15 @@ export default {
           }, 30000, 120000);
 
           if (Array.isArray(keywords) && keywords.length > 0 && env?.PIN_D1_DB) {
+            safeWaitUntil(ctx, syncKeywordsCatalogToD1(env, keywords), 'syncKeywordsCatalogToD1');
             safeWaitUntil(ctx, syncKeywordsBatchToD1(env, keywords), 'syncKeywordsBatchToD1');
           }
 
-          return jsonResponse({ success: true, keywords: Array.isArray(keywords) ? keywords : [] }, 200, 8);
+          return jsonResponse({
+            success: true,
+            keywords: Array.isArray(keywords) ? keywords : [],
+            source: 'neon_hub'
+          }, 200, 8);
         } catch (err) {
           console.error('[Keywords Error]', err.message);
           return jsonResponse({ success: true, degraded: true, keywords: [] }, 200, 0);
