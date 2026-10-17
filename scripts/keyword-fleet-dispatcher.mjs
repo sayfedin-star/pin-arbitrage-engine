@@ -355,7 +355,7 @@ async function main() {
   if (stepSummaryPath) {
     try {
       let md = `## 🚀 Stage 0: Dynamic Fleet Orchestrator & Dispatcher\n\n`;
-      md += `> **Fleet Mode**: \`${summaryDetails.mode}\` | **Tasks Dispatched**: **${matrixTasks.length}** (Max Concurrent Runners: **20**) | **Pre-Warmed Shards**: **${prewarmedCount}**\n\n`;
+      md += `> **Fleet Mode**: \`${summaryDetails.mode}\` | **Tasks Dispatched**: **${matrixTasks.length}** (Max Concurrent Runners: **20**) | **Pre-Warming**: \`JIT 80% Autonomous Shard Pulse\`\n\n`;
 
       if (mode === 'folder_pin_partition') {
         md += `### 📁 Folder Cluster True Distributed SERP & Pin Partition\n\n`;

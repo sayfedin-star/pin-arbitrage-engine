@@ -46,6 +46,22 @@ export function crc32(str) {
 }
 
 /**
+ * Safely parses SQLite datetime strings (e.g. "YYYY-MM-DD HH:MM:SS") to UTC milliseconds.
+ * Prevents V8 / Node local timezone skew and strict engine NaN errors.
+ * @param {string|number|Date} val
+ * @returns {number} Epoch timestamp in ms (UTC)
+ */
+export function parseD1DateMs(val) {
+  if (!val) return 0;
+  if (typeof val === 'number') return val;
+  if (val instanceof Date) return val.getTime();
+  const s = String(val).trim();
+  const iso = s.includes('T') ? (s.endsWith('Z') ? s : s + 'Z') : s.replace(' ', 'T') + 'Z';
+  const t = new Date(iso).getTime();
+  return isNaN(t) ? (new Date(val).getTime() || 0) : t;
+}
+
+/**
  * 1. Deterministic Pin Shard ID Resolution
  * Computes the 1-based shard ID (1 to totalShards) for any given Pinterest Pin ID.
  *
@@ -676,7 +692,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
         `SELECT pin_id, title, domain, destination_url, image_url, creator_username, board_name, dominant_color, visual_annotations, seo_alt_text, description, metadata, created_at_pinterest, updated_at FROM edge_pins_metadata WHERE pin_id = ? LIMIT 1`
       ).bind(cleanPinId).first();
       if (row) {
-        const rowUpdatedAtMs = row.updated_at ? new Date(row.updated_at).getTime() : 0;
+        const rowUpdatedAtMs = parseD1DateMs(row.updated_at);
         const isFresh = (Date.now() - rowUpdatedAtMs) < (12 * 60 * 60 * 1000);
         if (isFresh) {
           let parsedAnnotations = [];

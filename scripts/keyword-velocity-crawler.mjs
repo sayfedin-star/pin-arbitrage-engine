@@ -500,25 +500,34 @@ async function flushBatchToHub(pinsChunk, kw) {
 
   // Zero-Bloat Hub Flush: Only update active SERP columns and slim flags on Hub;
   // heavy extra_meta, descriptions, and time-series snapshots go strictly to the 99 Shards via flushToStorageShards!
-  const payloadJson = JSON.stringify(pinsChunk.map(p => ({
-    pin_id: String(p.pin_id),
-    authentic_saves: Number(p.save_count || 0),
-    authentic_repins: Number(p.repin_count || 0),
-    authentic_comments: Number(p.comment_count || 0),
-    authentic_shares: Number(p.share_count || 0),
-    daily_save_velocity: Number(p.daily_save_velocity || 0),
-    from_hydration_cache: Boolean(p.from_hydration_cache),
-    creator: String(p.creator_username || ''),
-    board: String(p.board_name || ''),
-    dominant_color: String(p.dominant_color || '#888888'),
-    created_at_pinterest: p.created_at_pinterest || null,
-    method: String(p.creation_method || p.method || 'pinterest_platform'),
-    description: String(p.description || ''),
-    alt_text: String(p.alt_text || ''),
-    is_dead: Boolean(p.is_deleted),
-    visual_annotations: Array.isArray(p.visual_annotations) ? p.visual_annotations : [],
-    extra_meta: (p.extra_meta && typeof p.extra_meta === 'object') ? p.extra_meta : {}
-  })));
+  const payloadJson = JSON.stringify(pinsChunk.map(p => {
+    const rawMeta = (p.extra_meta && typeof p.extra_meta === 'object') ? p.extra_meta : {};
+    const imgSig = rawMeta.image_signature ? String(rawMeta.image_signature).trim() : null;
+    const canId = rawMeta.canonical_pin_id ? String(rawMeta.canonical_pin_id).trim() : null;
+    let bCount = null;
+    if (rawMeta.board_pin_count != null && !isNaN(Number(rawMeta.board_pin_count))) {
+      bCount = Number(rawMeta.board_pin_count);
+    }
+    return {
+      pin_id: String(p.pin_id),
+      authentic_saves: Number(p.save_count || 0),
+      authentic_repins: Number(p.repin_count || 0),
+      authentic_comments: Number(p.comment_count || 0),
+      authentic_shares: Number(p.share_count || 0),
+      daily_save_velocity: Number(p.daily_save_velocity || 0),
+      from_hydration_cache: Boolean(p.from_hydration_cache),
+      creator: String(p.creator_username || ''),
+      board: String(p.board_name || ''),
+      dominant_color: String(p.dominant_color || '#888888'),
+      created_at_pinterest: p.created_at_pinterest || null,
+      method: String(p.creation_method || p.method || 'pinterest_platform'),
+      is_dead: Boolean(p.is_deleted),
+      visual_annotations: Array.isArray(p.visual_annotations) ? p.visual_annotations : [],
+      image_sig: imgSig || null,
+      canonical_pin_id: canId || null,
+      board_pin_count: bCount
+    };
+  }));
 
   if (isFolder) {
     await sql`
@@ -552,25 +561,15 @@ async function flushBatchToHub(pinsChunk, kw) {
           THEN u.visual_annotations 
           ELSE ksc.visual_annotations 
         END,
-        metadata = ((CASE WHEN jsonb_typeof(ksc.metadata) = 'object' THEN ksc.metadata ELSE '{}'::jsonb END) - 'description' - 'alt_text' - 'rich_metadata' - 'visual_objects' - 'seo_related_interests') || jsonb_build_object(
+        metadata = ((CASE WHEN jsonb_typeof(ksc.metadata) = 'object' THEN ksc.metadata ELSE '{}'::jsonb END) - 'description' - 'alt_text' - 'rich_metadata' - 'visual_objects' - 'seo_related_interests' - 'method' - 'creation_method' - 'share_count' - 'dominant_color' - 'board_name') || jsonb_strip_nulls(jsonb_build_object(
           'is_deleted', u.is_dead::boolean,
           'is_deep_hydrated', CASE WHEN u.from_hydration_cache THEN COALESCE((ksc.metadata->>'is_deep_hydrated')::boolean, true) ELSE TRUE END,
           'has_treasures', TRUE,
           'status', CASE WHEN u.is_dead THEN 'archived_404' ELSE 'active' END,
-          'image_signature', COALESCE(NULLIF(u.extra_meta->>'image_signature', ''), ksc.metadata->>'image_signature', ''),
-          'canonical_pin_id', COALESCE(NULLIF(u.extra_meta->>'canonical_pin_id', ''), ksc.metadata->>'canonical_pin_id', ''),
-          'board_pin_count', CASE 
-            WHEN (u.extra_meta->>'board_pin_count') IS NOT NULL AND (u.extra_meta->>'board_pin_count') ~ '^[0-9]+$' 
-            THEN (u.extra_meta->>'board_pin_count')::int 
-            ELSE COALESCE((ksc.metadata->>'board_pin_count')::int, 0) 
-          END,
-          'share_count', u.authentic_shares::int,
-          'dominant_color', u.dominant_color,
-          'board_name', u.board,
-          'method', u.method,
-          'creation_method', u.method,
-          'created_at_pinterest', u.created_at_pinterest
-        ),
+          'image_signature', NULLIF(COALESCE(u.image_sig, ksc.metadata->>'image_signature'), ''),
+          'canonical_pin_id', NULLIF(COALESCE(u.canonical_pin_id, ksc.metadata->>'canonical_pin_id'), ''),
+          'board_pin_count', COALESCE(u.board_pin_count, (ksc.metadata->>'board_pin_count')::int)
+        )),
         crawled_at = CASE WHEN u.from_hydration_cache THEN ksc.crawled_at ELSE NOW() END,
         updated_at = NOW()
       FROM jsonb_to_recordset(${payloadJson}::jsonb) AS u(
@@ -586,11 +585,11 @@ async function flushBatchToHub(pinsChunk, kw) {
         dominant_color text,
         created_at_pinterest text,
         method text,
-        description text,
-        alt_text text,
         is_dead boolean,
         visual_annotations jsonb,
-        extra_meta jsonb
+        image_sig text,
+        canonical_pin_id text,
+        board_pin_count int
       )
       WHERE ksc.pin_id = u.pin_id
         AND ksc.keyword_id IN (
@@ -655,25 +654,15 @@ async function flushBatchToHub(pinsChunk, kw) {
           THEN u.visual_annotations 
           ELSE ksc.visual_annotations 
         END,
-        metadata = ((CASE WHEN jsonb_typeof(ksc.metadata) = 'object' THEN ksc.metadata ELSE '{}'::jsonb END) - 'description' - 'alt_text' - 'rich_metadata' - 'visual_objects' - 'seo_related_interests') || jsonb_build_object(
+        metadata = ((CASE WHEN jsonb_typeof(ksc.metadata) = 'object' THEN ksc.metadata ELSE '{}'::jsonb END) - 'description' - 'alt_text' - 'rich_metadata' - 'visual_objects' - 'seo_related_interests' - 'method' - 'creation_method' - 'share_count' - 'dominant_color' - 'board_name') || jsonb_strip_nulls(jsonb_build_object(
           'is_deleted', u.is_dead::boolean,
           'is_deep_hydrated', CASE WHEN u.from_hydration_cache THEN COALESCE((ksc.metadata->>'is_deep_hydrated')::boolean, true) ELSE TRUE END,
           'has_treasures', TRUE,
           'status', CASE WHEN u.is_dead THEN 'archived_404' ELSE 'active' END,
-          'image_signature', COALESCE(NULLIF(u.extra_meta->>'image_signature', ''), ksc.metadata->>'image_signature', ''),
-          'canonical_pin_id', COALESCE(NULLIF(u.extra_meta->>'canonical_pin_id', ''), ksc.metadata->>'canonical_pin_id', ''),
-          'board_pin_count', CASE 
-            WHEN (u.extra_meta->>'board_pin_count') IS NOT NULL AND (u.extra_meta->>'board_pin_count') ~ '^[0-9]+$' 
-            THEN (u.extra_meta->>'board_pin_count')::int 
-            ELSE COALESCE((ksc.metadata->>'board_pin_count')::int, 0) 
-          END,
-          'share_count', u.authentic_shares::int,
-          'dominant_color', u.dominant_color,
-          'board_name', u.board,
-          'method', u.method,
-          'creation_method', u.method,
-          'created_at_pinterest', u.created_at_pinterest
-        ),
+          'image_signature', NULLIF(COALESCE(u.image_sig, ksc.metadata->>'image_signature'), ''),
+          'canonical_pin_id', NULLIF(COALESCE(u.canonical_pin_id, ksc.metadata->>'canonical_pin_id'), ''),
+          'board_pin_count', COALESCE(u.board_pin_count, (ksc.metadata->>'board_pin_count')::int)
+        )),
         crawled_at = CASE WHEN u.from_hydration_cache THEN ksc.crawled_at ELSE NOW() END,
         updated_at = NOW()
       FROM jsonb_to_recordset(${payloadJson}::jsonb) AS u(
@@ -689,11 +678,11 @@ async function flushBatchToHub(pinsChunk, kw) {
         dominant_color text,
         created_at_pinterest text,
         method text,
-        description text,
-        alt_text text,
         is_dead boolean,
         visual_annotations jsonb,
-        extra_meta jsonb
+        image_sig text,
+        canonical_pin_id text,
+        board_pin_count int
       )
       WHERE ksc.pin_id = u.pin_id AND ksc.keyword_id = ${kw.id};
     `;
@@ -1069,7 +1058,7 @@ async function inspectPinsConcurrently(pins, kw, label = 'Worker') {
         const targetShardIds = new Set();
         for (const targetPin of pins) {
           if (targetPin && targetPin.pin_id && /^\d+$/.test(String(targetPin.pin_id))) {
-            const sid = Number(BigInt(targetPin.pin_id) % 99n) + 1;
+            const sid = getPinShardId(targetPin.pin_id, 99);
             targetShardIds.add(sid);
           }
         }

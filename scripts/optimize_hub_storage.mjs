@@ -114,6 +114,17 @@ export async function optimizeHubStorage(sql) {
         await Promise.allSettled(chunk.map(async ([shardId, pins]) => {
           try {
             const shardSql = await resolveShardConnection({ hubSql: sql, shardId });
+            const sanitizeMeta = (raw) => {
+              if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+              const clean = {};
+              for (const [k, v] of Object.entries(raw)) {
+                if (v !== null && v !== undefined && v !== '') {
+                  clean[k] = v;
+                }
+              }
+              return clean;
+            };
+
             const payload = JSON.stringify(pins.map(p => ({
               pin_id: String(p.pin_id),
               keyword_id: Number(p.keyword_id || 0),
@@ -128,7 +139,7 @@ export async function optimizeHubStorage(sql) {
               dominant_color: String(p.dominant_color || '#888888'),
               visual_annotations: Array.isArray(p.visual_annotations) ? p.visual_annotations : [],
               created_at_pinterest: p.created_at_pinterest ? new Date(p.created_at_pinterest).toISOString() : null,
-              metadata: (p.metadata && typeof p.metadata === 'object') ? p.metadata : {},
+              metadata: sanitizeMeta(p.metadata),
               last_known_rank: p.last_known_rank ? Number(p.last_known_rank) : (p.rank_position ? Number(p.rank_position) : null),
               save_count: Number(p.save_count || 0),
               repin_count: Number(p.repin_count || 0),
@@ -157,17 +168,25 @@ export async function optimizeHubStorage(sql) {
               )
               ORDER BY u.pin_id ASC
               ON CONFLICT (pin_id) DO UPDATE SET
+                creator_username = COALESCE(NULLIF(EXCLUDED.creator_username, ''), universal_master_pins.creator_username),
+                board_name = COALESCE(NULLIF(EXCLUDED.board_name, ''), universal_master_pins.board_name),
                 title = COALESCE(NULLIF(EXCLUDED.title, ''), universal_master_pins.title),
                 domain = COALESCE(NULLIF(EXCLUDED.domain, ''), universal_master_pins.domain),
                 destination_url = COALESCE(NULLIF(EXCLUDED.destination_url, ''), universal_master_pins.destination_url),
                 image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), universal_master_pins.image_url),
                 description = COALESCE(NULLIF(EXCLUDED.description, ''), universal_master_pins.description),
                 alt_text = COALESCE(NULLIF(EXCLUDED.alt_text, ''), universal_master_pins.alt_text),
+                dominant_color = COALESCE(NULLIF(EXCLUDED.dominant_color, ''), universal_master_pins.dominant_color),
+                visual_annotations = CASE 
+                  WHEN jsonb_typeof(EXCLUDED.visual_annotations) = 'array' AND jsonb_array_length(EXCLUDED.visual_annotations) > 0 
+                  THEN EXCLUDED.visual_annotations 
+                  ELSE universal_master_pins.visual_annotations 
+                END,
                 created_at_pinterest = COALESCE(EXCLUDED.created_at_pinterest, universal_master_pins.created_at_pinterest),
                 metadata = CASE 
                   WHEN EXCLUDED.metadata IS NOT NULL AND EXCLUDED.metadata <> '{}'::jsonb 
-                  THEN universal_master_pins.metadata || EXCLUDED.metadata 
-                  ELSE universal_master_pins.metadata 
+                  THEN COALESCE(universal_master_pins.metadata, '{}'::jsonb) || jsonb_strip_nulls(EXCLUDED.metadata)
+                  ELSE COALESCE(universal_master_pins.metadata, '{}'::jsonb)
                 END,
                 updated_at = NOW();
             `;
@@ -437,9 +456,9 @@ export async function optimizeHubStorage(sql) {
   try {
     const serpClean = await sql`
       UPDATE keyword_serp_current
-      SET metadata = metadata - 'title' - 'domain' - 'destination_url' - 'image_url' - 'raw_saves' - 'crawled_at' - 'created_at' - 'method' - 'description' - 'alt_text' - 'rich_metadata' - 'visual_objects' - 'seo_related_interests'
+      SET metadata = metadata - 'title' - 'domain' - 'destination_url' - 'image_url' - 'raw_saves' - 'crawled_at' - 'created_at' - 'method' - 'creation_method' - 'share_count' - 'dominant_color' - 'board_name' - 'description' - 'alt_text' - 'rich_metadata' - 'visual_objects' - 'seo_related_interests'
       WHERE metadata IS NOT NULL
-        AND metadata ?| array['title','domain','destination_url','image_url','raw_saves','crawled_at','created_at','method','description','alt_text','rich_metadata','visual_objects','seo_related_interests']
+        AND metadata ?| array['title','domain','destination_url','image_url','raw_saves','crawled_at','created_at','method','creation_method','share_count','dominant_color','board_name','description','alt_text','rich_metadata','visual_objects','seo_related_interests']
       RETURNING id;
     `;
     results.cleanedSerpMetadata = serpClean.length;

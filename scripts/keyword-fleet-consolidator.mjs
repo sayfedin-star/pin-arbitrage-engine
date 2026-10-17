@@ -352,6 +352,17 @@ async function main() {
     console.warn('[!] Hub Storage maintenance non-fatal warning:', optErr.message);
   }
 
+  // 6. Hub Sequential Table Vacuum & Statistics Refresh (Consolidator isolated run)
+  try {
+    console.log('[*] Executing Hub Sequential Table Vacuum & Statistics Refresh...');
+    await sql`VACUUM (ANALYZE) keyword_serp_current;`.catch(() => {});
+    await sql`VACUUM (ANALYZE) keyword_displaced_index;`.catch(() => {});
+    await sql`VACUUM (ANALYZE) tracked_keywords;`.catch(() => {});
+    console.log('  ✓ Hub Tables Vacuumed and Statistics Refreshed.');
+  } catch (vacErr) {
+    console.warn('[!] Hub Vacuum non-fatal warning:', vacErr.message);
+  }
+
   // Write to GITHUB_STEP_SUMMARY
   if (stepSummaryPath) {
     try {
