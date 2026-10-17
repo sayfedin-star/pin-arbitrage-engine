@@ -310,6 +310,160 @@ export function getDomainsPageHtml() {
         </button>
       </div>
 
+      <!-- Composable Modular Filter Builder (Age / Rank / Saves / Size + AND/OR Logic Switch) -->
+      <div class="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex flex-col gap-2.5">
+        <div class="flex items-center justify-between flex-wrap gap-2">
+          <div class="flex items-center gap-2">
+            <span class="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider font-mono">🎛️ Custom Modular Filters:</span>
+            <span class="text-[11px] text-slate-400 dark:text-slate-500">Combine Age, SERP Rank, Saves & Pin Size independently</span>
+          </div>
+
+          <!-- AND / OR Logic Mode Toggle -->
+          <div class="inline-flex items-center rounded-xl p-0.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+            <button @click="setLogicMode('and')"
+                    type="button"
+                    class="px-2.5 py-1 rounded-lg text-[11px] font-mono font-bold transition-all flex items-center gap-1"
+                    :class="logicMode === 'and' ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
+                    title="Match ALL selected modular conditions simultaneously (Intersection)">
+              <span>🔗</span>
+              <span>AND (كل الشروط)</span>
+            </button>
+            <button @click="setLogicMode('or')"
+                    type="button"
+                    class="px-2.5 py-1 rounded-lg text-[11px] font-mono font-bold transition-all flex items-center gap-1"
+                    :class="logicMode === 'or' ? 'bg-amber-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
+                    title="Match ANY of the selected modular conditions (Union)">
+              <span>⚡</span>
+              <span>OR (أي شرط)</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <!-- 1. Independent Domain Age Filter -->
+          <div>
+            <select x-model="ageFilter"
+                    @change="applyModularFilter()"
+                    class="w-full bg-slate-50 dark:bg-slate-800 border rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/40 font-medium"
+                    :class="ageFilter !== 'all' ? 'border-emerald-500 ring-1 ring-emerald-500/30 bg-emerald-500/5' : 'border-slate-200 dark:border-slate-700'">
+              <option value="all">🌱 Age: Any Domain Age</option>
+              <option value="le_0_5">🌱 Age: &lt;= 6 Months (Ultra-New)</option>
+              <option value="le_1">🌱 Age: &lt;= 1 Year</option>
+              <option value="le_2">🌱 Age: &lt;= 2 Years (Baby Giant Age)</option>
+              <option value="le_3">🏢 Age: &lt;= 3 Years</option>
+              <option value="le_5">🏢 Age: &lt;= 5 Years</option>
+              <option value="gt_5">🏛️ Age: &gt; 5 Years (Established)</option>
+              <option value="verified">✅ Age: Verified WHOIS Only</option>
+              <option value="unchecked">❓ Age: Unchecked Only</option>
+            </select>
+          </div>
+
+          <!-- 2. Independent SERP Rank Filter -->
+          <div>
+            <select x-model="rankFilter"
+                    @change="applyModularFilter()"
+                    class="w-full bg-slate-50 dark:bg-slate-800 border rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500/40 font-medium"
+                    :class="rankFilter !== 'all' ? 'border-sky-500 ring-1 ring-sky-500/30 bg-sky-500/5' : 'border-slate-200 dark:border-slate-700'">
+              <option value="all">🎯 Rank: Any SERP Position</option>
+              <option value="top3">🥇 Rank: Top 3 Winners</option>
+              <option value="top5">🏆 Rank: Top 5 Leaders</option>
+              <option value="top10">🎯 Rank: Top 10 (Page 1)</option>
+              <option value="top20">📈 Rank: Top 20</option>
+              <option value="top50">🌐 Rank: Any SERP Ranked (Top 50)</option>
+              <option value="displaced">📉 Rank: Has Displaced Pins</option>
+              <option value="bleeding">🩸 Rank: Bleeding (&gt;= 30% Displaced)</option>
+            </select>
+          </div>
+
+          <!-- 3. Independent Saves & Velocity Filter -->
+          <div>
+            <select x-model="savesFilter"
+                    @change="applyModularFilter()"
+                    class="w-full bg-slate-50 dark:bg-slate-800 border rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500/40 font-medium"
+                    :class="savesFilter !== 'all' ? 'border-amber-500 ring-1 ring-amber-500/30 bg-amber-500/5' : 'border-slate-200 dark:border-slate-700'">
+              <option value="all">🔥 Saves: Any Save Volume</option>
+              <option value="ge_500">🔥 Saves: &gt;= 500 Saves</option>
+              <option value="ge_1k">🔥 Saves: &gt;= 1,000 Saves (1k+)</option>
+              <option value="ge_5k">🔥 Saves: &gt;= 5,000 Saves (5k+)</option>
+              <option value="ge_10k">🔥 Saves: &gt;= 10,000 Saves (10k+)</option>
+              <option value="ge_50k">🔥 Saves: &gt;= 50,000 Saves (50k+)</option>
+              <option value="ge_100k">🔥 Saves: &gt;= 100,000 Saves (100k+)</option>
+              <option value="ge_500k">🔥 Saves: &gt;= 500,000 Saves (500k+)</option>
+              <option value="vel_5">⚡ Velocity: &gt;= +5 Saves/Day</option>
+              <option value="vel_20">🚀 Velocity: &gt;= +20 Saves/Day</option>
+            </select>
+          </div>
+
+          <!-- 4. Independent Pin Count & URL Multiplier Filter -->
+          <div>
+            <select x-model="sizeFilter"
+                    @change="applyModularFilter()"
+                    class="w-full bg-slate-50 dark:bg-slate-800 border rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500/40 font-medium"
+                    :class="sizeFilter !== 'all' ? 'border-purple-500 ring-1 ring-purple-500/30 bg-purple-500/5' : 'border-slate-200 dark:border-slate-700'">
+              <option value="all">📌 Size: Any Pins / Multiplier</option>
+              <option value="pins_le_25">🚀 Size: &lt;= 25 Pins (Easy Micro)</option>
+              <option value="pins_le_100">📌 Size: &lt;= 100 Pins</option>
+              <option value="pins_ge_100">📌 Size: &gt;= 100 Pins</option>
+              <option value="pins_ge_500">📦 Size: &gt;= 500 Pins (Authority)</option>
+              <option value="mult_ge_2">🔁 Multiplier: &gt;= 2.0x Pins/URL</option>
+              <option value="mult_ge_3">🔁 Multiplier: &gt;= 3.0x Pins/URL</option>
+              <option value="mult_ge_5">🔁 Multiplier: &gt;= 5.0x Pins/URL</option>
+              <option value="multi_acct">🕸️ Accounts: &gt;= 2 Accounts</option>
+              <option value="pbn_3">🕸️ Accounts: &gt;= 3 Accounts (PBN)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Active Filter Chips Strip -->
+        <template x-if="hasActiveFilters()">
+          <div class="flex items-center justify-between flex-wrap gap-2 pt-2">
+            <div class="flex items-center gap-1.5 flex-wrap text-[11px] font-mono">
+              <span class="text-slate-400">Active:</span>
+              <template x-if="activePreset !== 'all'">
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-sky-500/10 text-sky-700 dark:text-sky-300 border border-sky-500/20">
+                  <span x-text="'Preset: ' + activePreset"></span>
+                  <button @click="activePreset = 'all'; loadDomains(true)" class="hover:text-rose-500 font-bold">✕</button>
+                </span>
+              </template>
+              <template x-if="ageFilter !== 'all'">
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20">
+                  <span x-text="'Age: ' + ageFilter"></span>
+                  <button @click="ageFilter = 'all'; loadDomains(true)" class="hover:text-rose-500 font-bold">✕</button>
+                </span>
+              </template>
+              <template x-if="rankFilter !== 'all'">
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-sky-500/10 text-sky-700 dark:text-sky-300 border border-sky-500/20">
+                  <span x-text="(ageFilter !== 'all' ? logicMode.toUpperCase() + ' ' : '') + 'Rank: ' + rankFilter"></span>
+                  <button @click="rankFilter = 'all'; loadDomains(true)" class="hover:text-rose-500 font-bold">✕</button>
+                </span>
+              </template>
+              <template x-if="savesFilter !== 'all'">
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20">
+                  <span x-text="((ageFilter !== 'all' || rankFilter !== 'all') ? logicMode.toUpperCase() + ' ' : '') + 'Saves: ' + savesFilter"></span>
+                  <button @click="savesFilter = 'all'; loadDomains(true)" class="hover:text-rose-500 font-bold">✕</button>
+                </span>
+              </template>
+              <template x-if="sizeFilter !== 'all'">
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-purple-500/10 text-purple-700 dark:text-purple-300 border border-purple-500/20">
+                  <span x-text="((ageFilter !== 'all' || rankFilter !== 'all' || savesFilter !== 'all') ? logicMode.toUpperCase() + ' ' : '') + 'Size: ' + sizeFilter"></span>
+                  <button @click="sizeFilter = 'all'; loadDomains(true)" class="hover:text-rose-500 font-bold">✕</button>
+                </span>
+              </template>
+              <template x-if="selectedAdNetwork !== 'all'">
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-teal-500/10 text-teal-700 dark:text-teal-300 border border-teal-500/20">
+                  <span x-text="'Ads: ' + selectedAdNetwork"></span>
+                  <button @click="selectedAdNetwork = 'all'; loadDomains(true)" class="hover:text-rose-500 font-bold">✕</button>
+                </span>
+              </template>
+            </div>
+            <button @click="resetFilters()"
+                    class="text-xs font-semibold text-rose-600 dark:text-rose-400 hover:underline font-mono">
+              ✕ Reset All Filters
+            </button>
+          </div>
+        </template>
+      </div>
+
       <!-- Filter Controls Grid -->
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 pt-3 border-t border-slate-100 dark:border-slate-800/80">
         <!-- Search Input -->
@@ -470,14 +624,24 @@ export function getDomainsPageHtml() {
       <div class="overflow-x-auto">
         <table class="w-full text-left text-xs border-collapse">
           <thead>
-            <tr class="bg-slate-50/80 dark:bg-slate-950/60 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800 font-mono text-[11px] uppercase">
+            <tr class="bg-slate-50/80 dark:bg-slate-950/60 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800 font-mono text-[11px] uppercase select-none">
               <th class="py-3 px-4 font-semibold"># & Domain</th>
-              <th class="py-3 px-4 font-semibold">Domain Age & Registry</th>
+              <th @click="toggleSortColumn('age_asc')" class="py-3 px-4 font-semibold cursor-pointer hover:text-sky-600 dark:hover:text-sky-400 transition-colors">
+                Domain Age & Registry <span x-show="sortBy === 'age_asc' || sortBy === 'age_desc'" x-text="sortBy === 'age_asc' ? '↑' : '↓'"></span>
+              </th>
               <th class="py-3 px-4 font-semibold">Ad Network</th>
-              <th class="py-3 px-4 font-semibold">Pins & Multiplier</th>
-              <th class="py-3 px-4 font-semibold">SERP Distribution</th>
-              <th class="py-3 px-4 font-semibold">Saves & Velocity</th>
-              <th class="py-3 px-4 font-semibold">Arbitrage & Accounts</th>
+              <th @click="toggleSortColumn('pins_count')" class="py-3 px-4 font-semibold cursor-pointer hover:text-sky-600 dark:hover:text-sky-400 transition-colors">
+                Pins & Multiplier <span x-show="sortBy === 'pins_count' || sortBy === 'multiplier'" x-text="'↓'"></span>
+              </th>
+              <th @click="toggleSortColumn('visibility')" class="py-3 px-4 font-semibold cursor-pointer hover:text-sky-600 dark:hover:text-sky-400 transition-colors">
+                SERP Distribution <span x-show="sortBy === 'visibility' || sortBy === 'avg_rank'" x-text="'↓'"></span>
+              </th>
+              <th @click="toggleSortColumn('saves')" class="py-3 px-4 font-semibold cursor-pointer hover:text-sky-600 dark:hover:text-sky-400 transition-colors">
+                Saves & Velocity <span x-show="sortBy === 'saves' || sortBy === 'velocity'" x-text="'↓'"></span>
+              </th>
+              <th @click="toggleSortColumn('arbitrage_score')" class="py-3 px-4 font-semibold cursor-pointer hover:text-sky-600 dark:hover:text-sky-400 transition-colors">
+                Arbitrage & Accounts <span x-show="sortBy === 'arbitrage_score'" x-text="'↓'"></span>
+              </th>
               <th class="py-3 px-4 text-right font-semibold">Actions</th>
             </tr>
           </thead>
@@ -523,14 +687,14 @@ export function getDomainsPageHtml() {
                       <div class="flex items-center gap-1.5 flex-wrap">
                         <span class="font-bold text-slate-900 dark:text-white truncate group-hover:text-sky-600 dark:group-hover:text-sky-400 transition-colors" x-text="d.domain"></span>
                         <!-- Smart Badges -->
-                        <template x-if="d.age_years !== null && d.age_years <= 2.0 && d.top10_pins >= 1">
-                          <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 shrink-0" title="Baby Giant: < 2 Years with Top-10 Pins">🌱 Baby Giant</span>
+                        <template x-if="d.age_years !== null && d.age_years <= 2.0 && (d.top10_pins >= 1 || d.total_saves >= 1000)">
+                          <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 shrink-0" title="Baby Giant: <= 2 Years with Top-10 Pins or 1k+ Saves">🌱 Baby Giant</span>
                         </template>
-                        <template x-if="d.accounts_count >= 3">
-                          <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20 shrink-0" :title="'PBN Network: ' + d.accounts_count + ' accounts pushing traffic'">🕸️ PBN</span>
+                        <template x-if="d.accounts_count >= 2">
+                          <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20 shrink-0" :title="'Multi-Account Network: ' + d.accounts_count + ' accounts pushing traffic'" x-text="'🕸️ ' + d.accounts_count + ' Accts'"></span>
                         </template>
                         <template x-if="d.pins_per_url >= 3.0">
-                          <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 shrink-0" :title="'High Multiplier: ' + d.pins_per_url + 'x pins/URL'">⚡ Multi</span>
+                          <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 shrink-0" :title="'High URL Multiplier: ' + d.pins_per_url + 'x pins/URL'" x-text="'🔁 ' + d.pins_per_url + 'x URL'"></span>
                         </template>
                         <template x-if="d.displaced_pins >= 3 && d.decay_rate_pct >= 30">
                           <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 shrink-0" :title="'Bleeding Giant: ' + d.decay_rate_pct + '% displacement'">🩸 Bleeding</span>
@@ -654,20 +818,32 @@ export function getDomainsPageHtml() {
 
                 <!-- 4. SERP Distribution -->
                 <td class="py-3 px-4">
-                  <div class="flex flex-col gap-1">
-                    <div class="flex items-center gap-2 text-[11px] font-mono">
-                      <span class="text-emerald-600 dark:text-emerald-400 font-bold" title="Top 3 Pins" x-text="'🥇 ' + d.top3_pins"></span>
-                      <span class="text-sky-600 dark:text-sky-400 font-bold" title="Top 10 Pins" x-text="'🎯 ' + d.top10_pins"></span>
-                      <template x-if="d.displaced_pins > 0">
-                        <span class="text-rose-600 dark:text-rose-400 font-bold" :title="'Displaced: ' + d.decay_rate_pct + '%'" x-text="'📉 ' + d.displaced_pins"></span>
-                      </template>
+                  <template x-if="d.active_serp_pins > 0 || d.displaced_pins > 0">
+                    <div class="flex flex-col gap-1">
+                      <div class="flex items-center gap-2 text-[11px] font-mono">
+                        <span class="text-emerald-600 dark:text-emerald-400 font-bold" title="Top 3 Pins" x-text="'🥇 ' + d.top3_pins"></span>
+                        <span class="text-sky-600 dark:text-sky-400 font-bold" title="Top 10 Pins" x-text="'🎯 ' + d.top10_pins"></span>
+                        <template x-if="d.displaced_pins > 0">
+                          <span class="text-rose-600 dark:text-rose-400 font-bold" :title="'Displaced: ' + d.decay_rate_pct + '%'" x-text="'📉 ' + d.displaced_pins"></span>
+                        </template>
+                      </div>
+                      <div class="text-[10px] text-slate-400 font-mono flex items-center gap-2">
+                        <span x-text="'Avg #' + (d.avg_rank || '—')"></span>
+                        <span class="text-slate-300 dark:text-slate-700">|</span>
+                        <span class="text-sky-600 dark:text-sky-400 font-semibold" x-text="'Vis: ' + d.visibility_score"></span>
+                      </div>
                     </div>
-                    <div class="text-[10px] text-slate-400 font-mono flex items-center gap-2">
-                      <span x-text="'Avg #' + (d.avg_rank || '—')"></span>
-                      <span class="text-slate-300 dark:text-slate-700">|</span>
-                      <span class="text-sky-600 dark:text-sky-400 font-semibold" x-text="'Vis: ' + d.visibility_score"></span>
+                  </template>
+                  <template x-if="!d.active_serp_pins && !d.displaced_pins">
+                    <div class="flex flex-col gap-0.5 font-mono">
+                      <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700 w-fit"
+                            title="This domain was discovered via Competitor Profiles (P1) or PinArchive (P4) and has no tracked SERP keywords yet">
+                        <span>📦</span>
+                        <span>Catalog / Archive Only</span>
+                      </span>
+                      <span class="text-[9px] text-slate-400">No SERP keyword tracked yet</span>
                     </div>
-                  </div>
+                  </template>
                 </td>
 
                 <!-- 5. Saves & Velocity -->
@@ -1264,6 +1440,11 @@ export function getDomainsPageHtml() {
         selectedPillar: 'all',
         activePreset: 'all',
         selectedAdNetwork: 'all',
+        ageFilter: 'all',
+        rankFilter: 'all',
+        savesFilter: 'all',
+        sizeFilter: 'all',
+        logicMode: 'and',
         sortBy: 'visibility',
         excludeMarketplaces: true,
 
@@ -1399,6 +1580,21 @@ export function getDomainsPageHtml() {
           if (this.selectedAdNetwork && this.selectedAdNetwork !== 'all') {
             params.set('ad_network', this.selectedAdNetwork);
           }
+          if (this.ageFilter && this.ageFilter !== 'all') {
+            params.set('age_filter', this.ageFilter);
+          }
+          if (this.rankFilter && this.rankFilter !== 'all') {
+            params.set('rank_filter', this.rankFilter);
+          }
+          if (this.savesFilter && this.savesFilter !== 'all') {
+            params.set('saves_filter', this.savesFilter);
+          }
+          if (this.sizeFilter && this.sizeFilter !== 'all') {
+            params.set('size_filter', this.sizeFilter);
+          }
+          if (this.logicMode) {
+            params.set('logic_mode', this.logicMode);
+          }
 
           try {
             const res = await fetch('/api/domains?' + params.toString());
@@ -1418,6 +1614,48 @@ export function getDomainsPageHtml() {
 
         setPreset(preset) {
           this.activePreset = preset;
+          if (preset === 'all') {
+            this.ageFilter = 'all';
+            this.rankFilter = 'all';
+            this.savesFilter = 'all';
+            this.sizeFilter = 'all';
+          }
+          this.loadDomains(true);
+        },
+
+        setLogicMode(mode) {
+          this.logicMode = mode === 'or' ? 'or' : 'and';
+          this.loadDomains(true);
+        },
+
+        applyModularFilter() {
+          // If the user customizes modular filters, release any conflicting preset lock so modular AND/OR rules govern freely
+          if (this.activePreset !== 'all') {
+            this.activePreset = 'all';
+          }
+          this.loadDomains(true);
+        },
+
+        hasActiveFilters() {
+          return (
+            this.activePreset !== 'all' ||
+            this.ageFilter !== 'all' ||
+            this.rankFilter !== 'all' ||
+            this.savesFilter !== 'all' ||
+            this.sizeFilter !== 'all' ||
+            this.selectedAdNetwork !== 'all' ||
+            this.selectedPillar !== 'all' ||
+            Boolean(this.selectedFolderId) ||
+            Boolean(this.searchQuery && this.searchQuery.trim())
+          );
+        },
+
+        toggleSortColumn(col) {
+          if (col === 'age_asc') {
+            this.sortBy = this.sortBy === 'age_asc' ? 'age_desc' : 'age_asc';
+          } else {
+            this.sortBy = col;
+          }
           this.loadDomains(true);
         },
 
@@ -1431,6 +1669,11 @@ export function getDomainsPageHtml() {
           this.selectedPillar = 'all';
           this.activePreset = 'all';
           this.selectedAdNetwork = 'all';
+          this.ageFilter = 'all';
+          this.rankFilter = 'all';
+          this.savesFilter = 'all';
+          this.sizeFilter = 'all';
+          this.logicMode = 'and';
           this.sortBy = 'visibility';
           this.excludeMarketplaces = true;
           this.loadDomains(true);

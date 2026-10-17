@@ -701,9 +701,14 @@ export async function listDomainsIntelligence(sql, {
   pillar = 'all',           // 'all' | 'serp' | 'archive' | 'competitors'
   preset = 'all',           // 'all' | 'baby_giants' | 'easy_arbitrage' | 'bleeding_giants' | 'high_multipliers' | 'multi_account'
   adNetwork = 'all',        // 'all' | 'raptive' | 'mediavine' | 'journey' | 'ezoic' | 'adsense' | 'affiliate_only' | 'switched' | 'unchecked'
+  ageFilter = 'all',        // 'all' | 'le_0_5' | 'le_1' | 'le_2' | 'le_3' | 'le_5' | 'gt_5' | 'verified' | 'unchecked'
+  rankFilter = 'all',       // 'all' | 'top3' | 'top5' | 'top10' | 'top20' | 'top50' | 'displaced' | 'bleeding'
+  savesFilter = 'all',      // 'all' | 'ge_500' | 'ge_1k' | 'ge_5k' | 'ge_10k' | 'ge_50k' | 'ge_100k' | 'ge_500k' | 'vel_5' | 'vel_20'
+  sizeFilter = 'all',       // 'all' | 'pins_le_25' | 'pins_le_100' | 'pins_ge_100' | 'pins_ge_500' | 'mult_ge_2' | 'mult_ge_3' | 'mult_ge_5' | 'multi_acct' | 'pbn_3'
+  logicMode = 'and',        // 'and' | 'or'
   excludeMarketplaces = true,
   minPins = 1,
-  sortBy = 'visibility',    // 'visibility' | 'pins_count' | 'avg_rank' | 'saves' | 'velocity' | 'age_asc' | 'arbitrage_score' | 'multiplier'
+  sortBy = 'visibility',    // 'visibility' | 'pins_count' | 'avg_rank' | 'saves' | 'velocity' | 'age_asc' | 'age_desc' | 'arbitrage_score' | 'multiplier'
   page = 1,
   limit = 50
 } = {}) {
@@ -901,6 +906,71 @@ export async function listDomainsIntelligence(sql, {
         OR (${adNetwork} = 'unchecked' AND (dmm.current_ad_network IS NULL OR dmm.current_ad_network = 'unchecked'))
         OR dmm.current_ad_network = ${adNetwork}
       )
+    ),
+    modular_evaluated AS (
+      SELECT
+        e.*,
+        CASE
+          WHEN ${ageFilter} = 'le_0_5' THEN (e.age_years IS NOT NULL AND e.age_years <= 0.5)
+          WHEN ${ageFilter} = 'le_1' THEN (e.age_years IS NOT NULL AND e.age_years <= 1.0)
+          WHEN ${ageFilter} = 'le_2' THEN (e.age_years IS NOT NULL AND e.age_years <= 2.0)
+          WHEN ${ageFilter} = 'le_3' THEN (e.age_years IS NOT NULL AND e.age_years <= 3.0)
+          WHEN ${ageFilter} = 'le_5' THEN (e.age_years IS NOT NULL AND e.age_years <= 5.0)
+          WHEN ${ageFilter} = 'gt_5' THEN (e.age_years IS NOT NULL AND e.age_years > 5.0)
+          WHEN ${ageFilter} = 'verified' THEN (e.age_years IS NOT NULL)
+          WHEN ${ageFilter} = 'unchecked' THEN (e.age_years IS NULL)
+          ELSE TRUE
+        END AS age_match,
+        CASE
+          WHEN ${rankFilter} = 'top3' THEN (e.top3_pins >= 1 OR (e.best_rank IS NOT NULL AND e.best_rank <= 3))
+          WHEN ${rankFilter} = 'top5' THEN (e.best_rank IS NOT NULL AND e.best_rank <= 5)
+          WHEN ${rankFilter} = 'top10' THEN (e.top10_pins >= 1 OR (e.best_rank IS NOT NULL AND e.best_rank <= 10))
+          WHEN ${rankFilter} = 'top20' THEN (e.best_rank IS NOT NULL AND e.best_rank <= 20)
+          WHEN ${rankFilter} = 'top50' THEN (e.active_serp_pins >= 1)
+          WHEN ${rankFilter} = 'displaced' THEN (e.displaced_pins >= 1)
+          WHEN ${rankFilter} = 'bleeding' THEN (e.displaced_pins >= 3 AND e.decay_rate_pct >= 30.0)
+          ELSE TRUE
+        END AS rank_match,
+        CASE
+          WHEN ${savesFilter} = 'ge_500' THEN (e.total_saves >= 500)
+          WHEN ${savesFilter} = 'ge_1k' THEN (e.total_saves >= 1000)
+          WHEN ${savesFilter} = 'ge_5k' THEN (e.total_saves >= 5000)
+          WHEN ${savesFilter} = 'ge_10k' THEN (e.total_saves >= 10000)
+          WHEN ${savesFilter} = 'ge_50k' THEN (e.total_saves >= 50000)
+          WHEN ${savesFilter} = 'ge_100k' THEN (e.total_saves >= 100000)
+          WHEN ${savesFilter} = 'ge_500k' THEN (e.total_saves >= 500000)
+          WHEN ${savesFilter} = 'vel_5' THEN (e.avg_velocity >= 5.0)
+          WHEN ${savesFilter} = 'vel_20' THEN (e.avg_velocity >= 20.0)
+          ELSE TRUE
+        END AS saves_match,
+        CASE
+          WHEN ${sizeFilter} = 'pins_le_25' THEN (e.total_pins <= 25)
+          WHEN ${sizeFilter} = 'pins_le_100' THEN (e.total_pins <= 100)
+          WHEN ${sizeFilter} = 'pins_ge_100' THEN (e.total_pins >= 100)
+          WHEN ${sizeFilter} = 'pins_ge_500' THEN (e.total_pins >= 500)
+          WHEN ${sizeFilter} = 'mult_ge_2' THEN (e.pins_per_url >= 2.0)
+          WHEN ${sizeFilter} = 'mult_ge_3' THEN (e.pins_per_url >= 3.0)
+          WHEN ${sizeFilter} = 'mult_ge_5' THEN (e.pins_per_url >= 5.0)
+          WHEN ${sizeFilter} = 'multi_acct' THEN (e.accounts_count >= 2)
+          WHEN ${sizeFilter} = 'pbn_3' THEN (e.accounts_count >= 3)
+          ELSE TRUE
+        END AS size_match
+      FROM enriched e
+    ),
+    modular_filtered AS (
+      SELECT *
+      FROM modular_evaluated
+      WHERE (
+        CASE
+          WHEN ${logicMode} = 'or' AND (${ageFilter} <> 'all' OR ${rankFilter} <> 'all' OR ${savesFilter} <> 'all' OR ${sizeFilter} <> 'all') THEN (
+            (${ageFilter} <> 'all' AND age_match)
+            OR (${rankFilter} <> 'all' AND rank_match)
+            OR (${savesFilter} <> 'all' AND saves_match)
+            OR (${sizeFilter} <> 'all' AND size_match)
+          )
+          ELSE (age_match AND rank_match AND saves_match AND size_match)
+        END
+      )
     )
     SELECT
       *,
@@ -909,7 +979,7 @@ export async function listDomainsIntelligence(sql, {
       COUNT(*) FILTER (WHERE age_years IS NOT NULL AND age_years <= 2.0 AND (top10_pins >= 1 OR total_saves >= 1000)) OVER()::int AS baby_giants_count,
       COUNT(*) FILTER (WHERE accounts_count >= 2) OVER()::int AS multi_account_domains_count,
       ROUND(AVG(pins_per_url) OVER(), 2) AS global_avg_multiplier
-    FROM enriched
+    FROM modular_filtered
     ORDER BY
       CASE WHEN ${sortBy} = 'visibility' THEN visibility_score END DESC NULLS LAST,
       CASE WHEN ${sortBy} = 'pins_count' THEN total_pins END DESC NULLS LAST,
@@ -917,6 +987,7 @@ export async function listDomainsIntelligence(sql, {
       CASE WHEN ${sortBy} = 'saves' THEN total_saves END DESC NULLS LAST,
       CASE WHEN ${sortBy} = 'velocity' THEN avg_velocity END DESC NULLS LAST,
       CASE WHEN ${sortBy} = 'age_asc' THEN age_days END ASC NULLS LAST,
+      CASE WHEN ${sortBy} = 'age_desc' THEN age_days END DESC NULLS LAST,
       CASE WHEN ${sortBy} = 'arbitrage_score' THEN arbitrage_score END DESC NULLS LAST,
       CASE WHEN ${sortBy} = 'multiplier' THEN pins_per_url END DESC NULLS LAST,
       visibility_score DESC, total_saves DESC
