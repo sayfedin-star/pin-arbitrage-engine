@@ -30,6 +30,8 @@ export const DEFAULT_QUALIFICATION_RULES = {
   id: 1,
   tier1_min_saves: 100,
   tier2_min_repins: 100,
+  tier2_min_velocity: 3.5,
+  tier2_max_age_days: 60,
   tier3_max_age_days: 14,
   tier3_min_saves: 25,
   master_ingest_enabled: true,
@@ -51,6 +53,8 @@ export async function getQualificationRules(sql) {
         id: 1,
         tier1_min_saves: Number(row.tier1_min_saves ?? 100),
         tier2_min_repins: Number(row.tier2_min_repins ?? 100),
+        tier2_min_velocity: Number(row.tier2_min_velocity ?? 3.5),
+        tier2_max_age_days: Number(row.tier2_max_age_days ?? 60),
         tier3_max_age_days: Number(row.tier3_max_age_days ?? 14),
         tier3_min_saves: Number(row.tier3_min_saves ?? 25),
         master_ingest_enabled: Boolean(row.master_ingest_enabled ?? true),
@@ -74,6 +78,8 @@ export async function updateQualificationRules(sql, rules = {}) {
   const current = await getQualificationRules(sql);
   const t1Saves = Math.max(0, Number(rules.tier1_min_saves ?? current.tier1_min_saves ?? 100));
   const t2Repins = Math.max(0, Number(rules.tier2_min_repins ?? current.tier2_min_repins ?? 100));
+  const t2Vel = Math.max(0.1, Number(rules.tier2_min_velocity ?? current.tier2_min_velocity ?? 3.5));
+  const t2Days = Math.max(1, Number(rules.tier2_max_age_days ?? current.tier2_max_age_days ?? 60));
   const t3Days = Math.max(1, Number(rules.tier3_max_age_days ?? current.tier3_max_age_days ?? 14));
   const t3Saves = Math.max(0, Number(rules.tier3_min_saves ?? current.tier3_min_saves ?? 25));
   const masterEnabled = rules.master_ingest_enabled !== undefined 
@@ -90,6 +96,8 @@ export async function updateQualificationRules(sql, rules = {}) {
       id,
       tier1_min_saves,
       tier2_min_repins,
+      tier2_min_velocity,
+      tier2_max_age_days,
       tier3_max_age_days,
       tier3_min_saves,
       master_ingest_enabled,
@@ -103,6 +111,8 @@ export async function updateQualificationRules(sql, rules = {}) {
       1,
       ${t1Saves},
       ${t2Repins},
+      ${t2Vel},
+      ${t2Days},
       ${t3Days},
       ${t3Saves},
       ${masterEnabled},
@@ -116,6 +126,8 @@ export async function updateQualificationRules(sql, rules = {}) {
     ON CONFLICT (id) DO UPDATE SET
       tier1_min_saves = EXCLUDED.tier1_min_saves,
       tier2_min_repins = EXCLUDED.tier2_min_repins,
+      tier2_min_velocity = EXCLUDED.tier2_min_velocity,
+      tier2_max_age_days = EXCLUDED.tier2_max_age_days,
       tier3_max_age_days = EXCLUDED.tier3_max_age_days,
       tier3_min_saves = EXCLUDED.tier3_min_saves,
       master_ingest_enabled = EXCLUDED.master_ingest_enabled,
@@ -142,6 +154,12 @@ export function qualifyPin(pin, rules = DEFAULT_QUALIFICATION_RULES) {
   if (!rules || rules.master_ingest_enabled === false) {
     return { qualified: false, matchedTier: null };
   }
+
+  // Strict product filtering if configured in active rules
+  if ((rules.articles_only === true || rules.exclude_product_pins === true) && Boolean(pin.is_product)) {
+    return { qualified: false, matchedTier: null };
+  }
+
   const saves = Number(pin.saves || 0);
   const repins = Number(pin.repins || 0);
 
@@ -161,8 +179,14 @@ export function qualifyPin(pin, rules = DEFAULT_QUALIFICATION_RULES) {
     return { qualified: true, matchedTier: 'tier1' };
   }
 
-  // Tier 2: High Virality (Repins Distribution)
-  if (repins >= Number(rules.tier2_min_repins ?? 100)) {
+  // Tier 2: Sustained Virality & Velocity Breakout (Age <= 60d AND saves/age >= min_velocity, OR repins >= min_repins)
+  const minVelocity = Number(rules.tier2_min_velocity ?? 3.5);
+  const maxVelocityAge = Number(rules.tier2_max_age_days ?? 60);
+  const pinVelocity = Number(pin.velocity || (!isNaN(ageDays) && ageDays > 0 ? (saves / ageDays) : 0));
+  if (
+    repins >= Number(rules.tier2_min_repins ?? 100) ||
+    (!isNaN(ageDays) && ageDays > 0 && ageDays <= maxVelocityAge && (pinVelocity >= minVelocity || (saves >= 50 && pinVelocity >= 2.0)))
+  ) {
     return { qualified: true, matchedTier: 'tier2' };
   }
 
@@ -207,6 +231,8 @@ export async function reEvaluateArchivedPins(sql, rules = null, accountUsername 
 
   const t1 = Number(activeRules.tier1_min_saves ?? 100);
   const t2 = Number(activeRules.tier2_min_repins ?? 100);
+  const t2Vel = Number(activeRules.tier2_min_velocity ?? 3.5);
+  const t2Days = Number(activeRules.tier2_max_age_days ?? 60);
   const t3Days = Number(activeRules.tier3_max_age_days ?? 14);
   const t3Saves = Number(activeRules.tier3_min_saves ?? 25);
 
@@ -223,6 +249,11 @@ export async function reEvaluateArchivedPins(sql, rules = null, accountUsername 
         (
           saves >= ${t1} 
           OR repins >= ${t2}
+          OR (
+            created_at_pinterest IS NOT NULL
+            AND created_at_pinterest >= NOW() - (${t2Days} * INTERVAL '1 day')
+            AND (saves::numeric / GREATEST(0.1, EXTRACT(EPOCH FROM (NOW() - created_at_pinterest)) / 86400.0)) >= ${t2Vel}
+          )
           OR (
             created_at_pinterest IS NOT NULL
             AND created_at_pinterest >= NOW() - (${t3Days} * INTERVAL '1 day')

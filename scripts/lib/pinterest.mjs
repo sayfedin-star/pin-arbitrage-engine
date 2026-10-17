@@ -348,7 +348,7 @@ export function formatPin(pin) {
   );
 
   const saves = Math.max(rawSaves, rawRepins);
-  const repins = rawRepins > 0 ? rawRepins : saves;
+  const repins = rawRepins;
 
   const comments = parseCleanMetric(
     pin.comment_count ??
@@ -889,7 +889,7 @@ export function extractPinData(rawHtml, pinId) {
             image_url: rawImg,
             created_at: ld.datePublished || null,
             saves,
-            repins: saves,
+            repins: 0,
             comments,
           });
         }

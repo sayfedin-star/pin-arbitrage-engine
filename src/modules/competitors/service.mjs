@@ -520,7 +520,7 @@ export async function getCompetitorBoards(sql, competitorId, { username = '' } =
       SELECT 
         COALESCE(NULLIF(TRIM(board_name), ''), 'General') AS name,
         COUNT(*)::int AS pin_count,
-        COALESCE(MAX(save_count), 0)::int AS follower_count,
+        0::int AS follower_count,
         MAX(created_at_pinterest) AS last_pinned_at,
         MIN(created_at_pinterest) AS created_at
       FROM competitor_pins
@@ -1086,7 +1086,7 @@ export async function syncCompetitorPins(sql, competitorId, username, { mode = '
           trim(cp.board_name),
           'https://www.pinterest.com/' || ${cleanUsername} || '/' || lower(regexp_replace(trim(cp.board_name), '[^a-zA-Z0-9]+', '-', 'g')) || '/',
           count(*)::int,
-          coalesce(max(cp.save_count), 0)::int,
+          0::int,
           max(cp.created_at_pinterest),
           min(cp.created_at_pinterest),
           NOW()
@@ -1336,7 +1336,7 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
         SELECT 
           COALESCE(NULLIF(TRIM(board_name), ''), 'General') AS name,
           COUNT(*)::int AS pin_count,
-          COALESCE(MAX(saves), 0)::int AS follower_count,
+          0::int AS follower_count,
           MAX(created_at_pinterest) AS last_pinned_at,
           MIN(created_at_pinterest) AS created_at
         FROM pa_pins
@@ -1366,7 +1366,7 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
         SELECT 
           COALESCE(NULLIF(TRIM(board_name), ''), 'General') AS name,
           COUNT(*)::int AS pin_count,
-          COALESCE(MAX(save_count), 0)::int AS follower_count,
+          0::int AS follower_count,
           MAX(created_at_pinterest) AS last_pinned_at,
           MIN(created_at_pinterest) AS created_at
         FROM competitor_pins
@@ -1636,11 +1636,14 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
     };
   }
 
-  // 5. Compute Pinning Velocity
+  // 5. Compute Pinning Velocity & Output Cadence (Primary source: competitor_pins full catalog)
   let pinningVelocity = '0.0';
   let pinsAdded = 0;
   let daysSpan = 1;
   let pacingEstimate = 0;
+  let winningPinsCount = 0;
+  let winningHitRatePct = 0.0;
+  let pinsPerWinner = null;
 
   if (snapshots.length >= 2) {
     const earliest = snapshots[0];
@@ -1651,54 +1654,79 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
     pinsAdded = Math.max(0, (Number(latest.total_pins) || 0) - (Number(earliest.total_pins) || 0));
     pinningVelocity = (pinsAdded / daysSpan).toFixed(1);
     pacingEstimate = Math.round((pinsAdded / daysSpan) * 30);
-  } else if (cleanUsername) {
+  } else if (compId || cleanUsername) {
     try {
-      const [pinStats] = await sql`
-        SELECT 
-          COUNT(*)::int AS cnt,
-          MIN(COALESCE(created_at_pinterest, first_seen_at)) AS earliest,
-          MAX(COALESCE(created_at_pinterest, first_seen_at)) AS latest
-        FROM pa_pins
-        WHERE LOWER(REPLACE(account_username, '@', '')) = ${cleanUsername};
+      const [velocityStats] = await sql`
+        WITH valid_catalog AS (
+          SELECT
+            cp.pin_id,
+            cp.save_count,
+            CASE
+              WHEN cp.created_at_pinterest IS NOT NULL
+               AND cp.created_at_pinterest >= '2010-01-01'::timestamptz
+               AND cp.created_at_pinterest <= NOW() + INTERVAL '10 minutes'
+              THEN LEAST(cp.created_at_pinterest, NOW())
+              ELSE NULL
+            END AS clean_ts,
+            (pa.pin_id IS NOT NULL) AS is_winner
+          FROM competitor_pins cp
+          LEFT JOIN pa_pins pa ON pa.pin_id = cp.pin_id
+          WHERE (${compId}::int IS NULL OR cp.competitor_id = ${compId}::int)
+            AND (${cleanUsername}::text IS NULL OR LOWER(REPLACE(COALESCE(cp.account_username, ''), '@', '')) = ${cleanUsername})
+        )
+        SELECT
+          COUNT(*)::int AS total_catalog_pins,
+          COUNT(*) FILTER (WHERE clean_ts IS NOT NULL)::int AS dated_pins_count,
+          COUNT(*) FILTER (WHERE is_winner)::int AS winning_pins_count,
+          COUNT(*) FILTER (WHERE clean_ts >= NOW() - INTERVAL '30 days')::int AS pins_last_30d,
+          MIN(clean_ts) AS earliest_pin_at,
+          MAX(clean_ts) AS latest_pin_at,
+          GREATEST(1.0, EXTRACT(EPOCH FROM (MAX(clean_ts) - MIN(clean_ts))) / 86400.0) AS span_days
+        FROM valid_catalog;
       `;
-      if (pinStats && pinStats.cnt > 0) {
-        pinsAdded = pinStats.cnt;
-        daysSpan = pinStats.earliest && pinStats.latest ? Math.max(1, Math.round((new Date(pinStats.latest).getTime() - new Date(pinStats.earliest).getTime()) / 86400000)) : 1;
-        pinningVelocity = (pinsAdded / daysSpan).toFixed(1);
-        pacingEstimate = Math.round((pinsAdded / daysSpan) * 30);
-      }
-    } catch (_) {}
-  }
 
-  if (pinningVelocity === '0.0' && compId) {
-    try {
-      const [rawStats] = await sql`
-        SELECT 
-          COUNT(*)::int AS cnt,
-          MIN(COALESCE(created_at_pinterest, first_seen_at)) AS earliest,
-          MAX(COALESCE(created_at_pinterest, first_seen_at)) AS latest
-        FROM competitor_pins
-        WHERE competitor_id = ${compId};
-      `;
-      if (rawStats && rawStats.cnt > 0) {
-        pinsAdded = rawStats.cnt;
-        daysSpan = rawStats.earliest && rawStats.latest ? Math.max(1, Math.round((new Date(rawStats.latest).getTime() - new Date(rawStats.earliest).getTime()) / 86400000)) : 1;
-        pinningVelocity = (pinsAdded / daysSpan).toFixed(1);
-        pacingEstimate = Math.round((pinsAdded / daysSpan) * 30);
+      if (velocityStats && Number(velocityStats.total_catalog_pins) > 0) {
+        const totalCatalog = Number(velocityStats.total_catalog_pins || 0);
+        const datedCount = Number(velocityStats.dated_pins_count || 0);
+        winningPinsCount = Number(velocityStats.winning_pins_count || 0);
+        daysSpan = Math.max(1, Math.round(Number(velocityStats.span_days || 1)));
+        pinsAdded = totalCatalog;
+
+        pinningVelocity = datedCount > 0
+          ? (datedCount / Number(velocityStats.span_days)).toFixed(1)
+          : (totalCatalog > 0 ? (totalCatalog / daysSpan).toFixed(1) : '0.0');
+
+        pacingEstimate = Math.round(Number(pinningVelocity) * 30);
+        winningHitRatePct = totalCatalog > 0 ? Number(((winningPinsCount / totalCatalog) * 100).toFixed(1)) : 0.0;
+        pinsPerWinner = winningPinsCount > 0 ? Number((totalCatalog / winningPinsCount).toFixed(1)) : null;
       }
     } catch (_) {}
   }
 
   let latestPinDateStr = '—';
-  if (cleanUsername) {
-    const [latestPin] = await sql`
-      SELECT MAX(created_at_pinterest) AS max_date
-      FROM pa_pins
-      WHERE LOWER(REPLACE(account_username, '@', '')) = ${cleanUsername};
-    `;
-    if (latestPin && latestPin.max_date) {
-      latestPinDateStr = new Date(latestPin.max_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-    }
+  if (compId) {
+    try {
+      const [latestPin] = await sql`
+        SELECT MAX(created_at_pinterest) AS max_date
+        FROM competitor_pins
+        WHERE competitor_id = ${compId} AND created_at_pinterest IS NOT NULL;
+      `;
+      if (latestPin && latestPin.max_date) {
+        latestPinDateStr = new Date(latestPin.max_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      }
+    } catch (_) {}
+  }
+  if (latestPinDateStr === '—' && cleanUsername) {
+    try {
+      const [latestPaPin] = await sql`
+        SELECT MAX(created_at_pinterest) AS max_date
+        FROM pa_pins
+        WHERE LOWER(REPLACE(account_username, '@', '')) = ${cleanUsername};
+      `;
+      if (latestPaPin && latestPaPin.max_date) {
+        latestPinDateStr = new Date(latestPaPin.max_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      }
+    } catch (_) {}
   }
   if (latestPinDateStr === '—' && profile.last_synced_at) {
     latestPinDateStr = new Date(profile.last_synced_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -1853,7 +1881,10 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
       pins_per_day: pinningVelocity,
       pins_added: pinsAdded,
       days_span: daysSpan,
-      pacing_estimate: pacingEstimate
+      pacing_estimate: pacingEstimate,
+      winning_pins_count: winningPinsCount,
+      winning_hit_rate_pct: winningHitRatePct,
+      pins_per_winner: pinsPerWinner
     },
     deltas,
     snapshots: snapshots.map(s => ({
@@ -2359,6 +2390,9 @@ export async function getCompetitorRules(sql, competitorId) {
   const defaultRules = {
     tier1_min_saves: 100,
     tier2_min_repins: 100,
+    tier2_min_velocity: 3.5,
+    tier2_max_age_days: 60,
+    tier2_min_shares: 15,
     tier3_fresh_days: 14,
     tier3_min_saves: 25,
     articles_only: true,
@@ -2383,6 +2417,9 @@ export async function saveCompetitorRules(sql, competitorId, newRules = {}) {
   const sanitizedRules = {
     tier1_min_saves: Math.max(0, Number(newRules.tier1_min_saves) || 100),
     tier2_min_repins: Math.max(0, Number(newRules.tier2_min_repins) || 100),
+    tier2_min_velocity: Math.max(0, Number(newRules.tier2_min_velocity) || 3.5),
+    tier2_max_age_days: Math.max(1, Number(newRules.tier2_max_age_days) || 60),
+    tier2_min_shares: Math.max(0, Number(newRules.tier2_min_shares) || 15),
     tier3_fresh_days: Math.max(1, Number(newRules.tier3_fresh_days) || 14),
     tier3_min_saves: Math.max(0, Number(newRules.tier3_min_saves) || 25),
     articles_only: Boolean(newRules.articles_only ?? true),
@@ -2410,6 +2447,14 @@ export async function reEvaluateCompetitorPins(sql, competitorId) {
   if (!numericId || isNaN(numericId)) throw new Error('Valid competitorId is required.');
 
   const { rules, username } = await getCompetitorRules(sql, numericId);
+
+  const minSaves = Number(rules.tier1_min_saves) || 100;
+  const minRepins = Number(rules.tier2_min_repins) || 100;
+  const minVelocity = Number(rules.tier2_min_velocity) || 3.5;
+  const maxAgeDays = Number(rules.tier2_max_age_days) || 60;
+  const freshDays = Number(rules.tier3_fresh_days) || 14;
+  const freshMinSaves = Number(rules.tier3_min_saves) || 25;
+  const articlesOnly = rules.articles_only ?? true;
 
   // Fetch all pins from competitor_pins meeting the 3-tier rules
   const qualifiedPins = await sql`
@@ -2439,14 +2484,21 @@ export async function reEvaluateCompetitorPins(sql, competitorId) {
     FROM competitor_pins cp
     WHERE cp.competitor_id = ${numericId}
       AND (
-        cp.save_count >= ${rules.tier1_min_saves}
-        OR cp.repin_count >= ${rules.tier2_min_repins}
+        cp.save_count >= ${minSaves}
+        OR cp.repin_count >= ${minRepins}
         OR (
-          cp.created_at_pinterest >= NOW() - (${rules.tier3_fresh_days} || ' days')::interval
-          AND cp.save_count >= ${rules.tier3_min_saves}
+          cp.created_at_pinterest >= NOW() - (${freshDays} || ' days')::interval
+          AND cp.save_count >= ${freshMinSaves}
+        )
+        OR (
+          cp.created_at_pinterest >= NOW() - (${maxAgeDays} || ' days')::interval
+          AND (
+            (cp.save_count::numeric / GREATEST(0.1, EXTRACT(EPOCH FROM (NOW() - cp.created_at_pinterest)) / 86400)) >= ${minVelocity}
+            OR (cp.save_count >= 50 AND (cp.save_count::numeric / GREATEST(0.1, EXTRACT(EPOCH FROM (NOW() - cp.created_at_pinterest)) / 86400)) >= 2.0)
+          )
         )
       )
-      AND (${rules.articles_only} = FALSE OR (cp.is_product IS NULL OR cp.is_product = FALSE));
+      AND (${articlesOnly} = FALSE OR (cp.is_product IS NULL OR cp.is_product = FALSE));
   `;
 
   let upsertedCount = 0;
@@ -2494,6 +2546,164 @@ export async function reEvaluateCompetitorPins(sql, competitorId) {
     username,
     qualified_count: upsertedCount,
     rules
+  };
+}
+
+/**
+ * Zero-HTTP Reconciliation Pipeline
+ * Reconciles catalog pins from competitor_pins into pa_pins based on 3-tier qualification rules (including Tier 2 sustained velocity).
+ * Resolves the discrepancy where pins accumulating saves/momentum in the catalog were left trapped in competitor_pins.
+ * Can run for a specific competitor (by numeric ID or username) or across the entire database.
+ */
+export async function reconcileQualifiedCatalogPins(sql, competitorIdOrUsername = null) {
+  if (!sql) throw new Error('Database client (sql) is required.');
+
+  // If specific competitor requested, resolve it
+  let compFilter = sql``;
+  let numericId = null;
+  let username = null;
+
+  if (competitorIdOrUsername) {
+    const raw = String(competitorIdOrUsername).trim();
+    if (/^\d+$/.test(raw)) {
+      numericId = Number(raw);
+      const [c] = await sql`SELECT id, username FROM competitor_profiles WHERE id = ${numericId} LIMIT 1;`;
+      if (c) username = c.username;
+    } else {
+      const cleanUser = normalizePinterestUsername(raw);
+      if (cleanUser) {
+        const [c] = await sql`SELECT id, username FROM competitor_profiles WHERE LOWER(username) = ${cleanUser} LIMIT 1;`;
+        if (c) {
+          numericId = c.id;
+          username = c.username;
+        }
+      }
+    }
+    if (numericId) {
+      compFilter = sql`AND cp.competitor_id = ${numericId}`;
+    }
+  }
+
+  // Load competitor-specific rules if single competitor, otherwise Pa rules
+  let rules = null;
+  if (numericId) {
+    try {
+      const compRules = await getCompetitorRules(sql, numericId);
+      rules = compRules?.rules;
+    } catch (_) {}
+  }
+  if (!rules) {
+    try {
+      rules = await getQualificationRules(sql);
+    } catch (_) {
+      rules = {
+        tier1_min_saves: 100,
+        tier2_min_repins: 100,
+        tier2_min_velocity: 3.5,
+        tier2_max_age_days: 60,
+        tier3_fresh_days: 14,
+        tier3_min_saves: 25,
+        articles_only: true
+      };
+    }
+  }
+
+  const minSaves = Number(rules.tier1_min_saves ?? rules.min_saves) || 100;
+  const minRepins = Number(rules.tier2_min_repins ?? rules.min_repins) || 100;
+  const minVelocity = Number(rules.tier2_min_velocity) || 3.5;
+  const maxAgeDays = Number(rules.tier2_max_age_days) || 60;
+  const freshDays = Number(rules.tier3_fresh_days ?? rules.fresh_days) || 14;
+  const freshMinSaves = Number(rules.tier3_min_saves ?? rules.fresh_min_saves) || 25;
+  const articlesOnly = rules.articles_only ?? true;
+
+  const runReconcileQuery = async (includeDeletedCheck) => {
+    const deletedFilter = includeDeletedCheck ? sql`AND (cp.is_deleted IS NULL OR cp.is_deleted = FALSE)` : sql``;
+    return await sql`
+      WITH candidate_pins AS (
+        SELECT 
+          cp.pin_id,
+          COALESCE(prof.username, 'unknown') AS account_username,
+          COALESCE(cp.title, '') AS title,
+          COALESCE(cp.description, '') AS description,
+          COALESCE(cp.destination_url, '') AS link,
+          COALESCE(cp.link_domain, '') AS domain,
+          COALESCE(cp.board_name, 'General') AS board_name,
+          COALESCE(cp.image_url, '') AS image_url,
+          '#888888' AS dominant_color,
+          COALESCE(cp.save_count, 0) AS saves,
+          COALESCE(cp.repin_count, 0) AS repins,
+          COALESCE(cp.comment_count, 0) AS comments,
+          0::bigint AS share_count,
+          '{}'::jsonb AS reactions,
+          ROUND((COALESCE(cp.save_count, 0)::numeric / GREATEST(0.1, EXTRACT(EPOCH FROM (NOW() - COALESCE(cp.created_at_pinterest, cp.first_seen_at, NOW()))) / 86400)), 2) AS velocity,
+          '[]'::jsonb AS annotations,
+          false AS is_video,
+          COALESCE(cp.is_product, false) AS is_product,
+          COALESCE(cp.created_at_pinterest, cp.first_seen_at, NOW()) AS created_at_pinterest,
+          COALESCE(cp.first_seen_at, NOW()) AS first_seen_at,
+          NOW() AS last_updated_at,
+          COALESCE(cp.title, '') AS alt_text
+        FROM competitor_pins cp
+        LEFT JOIN competitor_profiles prof ON cp.competitor_id = prof.id
+        WHERE 1=1
+          ${deletedFilter}
+          ${compFilter}
+          AND (
+            cp.save_count >= ${minSaves}
+            OR cp.repin_count >= ${minRepins}
+            OR (
+              cp.created_at_pinterest >= NOW() - (${freshDays} || ' days')::interval
+              AND cp.save_count >= ${freshMinSaves}
+            )
+            OR (
+              cp.created_at_pinterest >= NOW() - (${maxAgeDays} || ' days')::interval
+              AND (
+                (cp.save_count::numeric / GREATEST(0.1, EXTRACT(EPOCH FROM (NOW() - cp.created_at_pinterest)) / 86400)) >= ${minVelocity}
+                OR (cp.save_count >= 50 AND (cp.save_count::numeric / GREATEST(0.1, EXTRACT(EPOCH FROM (NOW() - cp.created_at_pinterest)) / 86400)) >= 2.0)
+              )
+            )
+          )
+          AND (${articlesOnly} = FALSE OR (cp.is_product IS NULL OR cp.is_product = FALSE))
+      )
+      INSERT INTO pa_pins (
+        pin_id, account_username, title, description, link, domain,
+        board_name, image_url, dominant_color, saves, repins, comments,
+        share_count, reactions, velocity, annotations, is_video, is_product,
+        created_at_pinterest, first_seen_at, last_updated_at, alt_text
+      )
+      SELECT 
+        c.pin_id, c.account_username, c.title, c.description, c.link, c.domain,
+        c.board_name, c.image_url, c.dominant_color, c.saves, c.repins, c.comments,
+        c.share_count, c.reactions, c.velocity, c.annotations, c.is_video, c.is_product,
+        c.created_at_pinterest, c.first_seen_at, c.last_updated_at, c.alt_text
+      FROM candidate_pins c
+      ON CONFLICT (pin_id) DO UPDATE SET
+        saves = GREATEST(pa_pins.saves, EXCLUDED.saves),
+        repins = GREATEST(pa_pins.repins, EXCLUDED.repins),
+        comments = GREATEST(pa_pins.comments, EXCLUDED.comments),
+        velocity = CASE WHEN EXCLUDED.velocity > 0 THEN EXCLUDED.velocity ELSE pa_pins.velocity END,
+        is_product = (pa_pins.is_product OR EXCLUDED.is_product),
+        last_updated_at = NOW()
+      RETURNING pin_id;
+    `;
+  };
+
+  let reconciled = [];
+  try {
+    reconciled = await runReconcileQuery(true);
+  } catch (err) {
+    if (err.message && err.message.includes('is_deleted')) {
+      reconciled = await runReconcileQuery(false);
+    } else {
+      throw err;
+    }
+  }
+
+  return {
+    ok: true,
+    competitor_id: numericId,
+    username,
+    promoted_or_updated: reconciled.length
   };
 }
 

@@ -30,7 +30,9 @@ import {
   syncCompetitorBoards,
   syncCompetitorProfile,
   getCompetitorBoards,
-  resolveLocalCompetitorId
+  resolveLocalCompetitorId,
+  getCompetitorRules,
+  reconcileQualifiedCatalogPins
 } from '../src/modules/competitors/service.mjs';
 import { syncCompetitorAcrossFleet } from '../src/modules/fleet/service.mjs';
 import { getQualificationRules, isPinQualified } from '../src/modules/pinarchive/service.mjs';
@@ -258,13 +260,13 @@ export async function bulkUpdateCompetitorPins(sqlClient, updates) {
           save_count = GREATEST(cp.save_count, x.saves),
           repin_count = GREATEST(cp.repin_count, x.repins),
           comment_count = GREATEST(cp.comment_count, x.comments),
-          alt_text = CASE WHEN x.status IN ('completed', 'failed') THEN NULL ELSE COALESCE(cp.alt_text, x.alt_text) END,
+          alt_text = CASE WHEN x.alt_text IS NOT NULL AND x.alt_text <> '' THEN x.alt_text ELSE cp.alt_text END,
           is_product = (cp.is_product OR COALESCE(x.is_product, false)),
           destination_url = CASE WHEN (cp.destination_url IS NULL OR cp.destination_url = '') AND x.destination_url <> '' THEN x.destination_url ELSE cp.destination_url END,
           link_domain = CASE WHEN (cp.link_domain IS NULL OR cp.link_domain = '') AND x.link_domain <> '' THEN x.link_domain ELSE cp.link_domain END,
           title = CASE WHEN (cp.title IS NULL OR cp.title = '') AND x.title <> '' THEN x.title ELSE cp.title END,
-          description = CASE WHEN x.status IN ('completed', 'failed') THEN NULL ELSE (CASE WHEN (cp.description IS NULL OR cp.description = '') AND x.description <> '' THEN x.description ELSE cp.description END) END,
-          metadata = CASE WHEN x.status IN ('completed', 'failed') THEN '{}'::jsonb ELSE cp.metadata END,
+          description = CASE WHEN x.description IS NOT NULL AND x.description <> '' THEN x.description ELSE cp.description END,
+          metadata = COALESCE(cp.metadata, '{}'::jsonb),
           image_url = CASE WHEN (cp.image_url IS NULL OR cp.image_url = '') AND x.image_url <> '' THEN x.image_url ELSE cp.image_url END,
           claim_token = NULL,
           last_seen_at = NOW(),
@@ -285,6 +287,59 @@ export async function bulkUpdateCompetitorPins(sqlClient, updates) {
     return res.length;
   } catch (err) {
     console.warn(`[bulkUpdateCompetitorPins] Warning:`, err.message);
+    return 0;
+  }
+}
+
+/**
+ * Cross-Shard Shard Pin Synchronization
+ * Updates pins on the fleet shard database using the natural unique key (competitor_id, pin_id).
+ * Guarantees zero ID mismatch between Hub auto-incrementing serials and Shard serials.
+ */
+export async function bulkSyncCompetitorPinsToShard(shardSql, shardCompId, statusUpdates) {
+  if (!shardSql || !shardCompId || !Array.isArray(statusUpdates) || statusUpdates.length === 0) return 0;
+
+  const validUpdates = statusUpdates.filter(u => u && u.pin_id);
+  if (validUpdates.length === 0) return 0;
+
+  const uniqueMap = new Map();
+  for (const u of validUpdates) {
+    uniqueMap.set(String(u.pin_id), u);
+  }
+  const sorted = Array.from(uniqueMap.values()).sort((a, b) => String(a.pin_id).localeCompare(String(b.pin_id)));
+
+  try {
+    const res = await shardSql`
+      UPDATE competitor_pins AS cp
+      SET enrichment_status = x.status,
+          enrich_attempts = COALESCE(x.enrich_attempts, cp.enrich_attempts, 0),
+          save_count = GREATEST(cp.save_count, x.saves),
+          repin_count = GREATEST(cp.repin_count, x.repins),
+          comment_count = GREATEST(cp.comment_count, x.comments),
+          alt_text = CASE WHEN x.alt_text IS NOT NULL AND x.alt_text <> '' THEN x.alt_text ELSE cp.alt_text END,
+          is_product = (cp.is_product OR COALESCE(x.is_product, false)),
+          destination_url = CASE WHEN (cp.destination_url IS NULL OR cp.destination_url = '') AND x.destination_url <> '' THEN x.destination_url ELSE cp.destination_url END,
+          link_domain = CASE WHEN (cp.link_domain IS NULL OR cp.link_domain = '') AND x.link_domain <> '' THEN x.link_domain ELSE cp.link_domain END,
+          title = CASE WHEN (cp.title IS NULL OR cp.title = '') AND x.title <> '' THEN x.title ELSE cp.title END,
+          description = CASE WHEN x.description IS NOT NULL AND x.description <> '' THEN x.description ELSE cp.description END,
+          metadata = COALESCE(cp.metadata, '{}'::jsonb),
+          image_url = CASE WHEN (cp.image_url IS NULL OR cp.image_url = '') AND x.image_url <> '' THEN x.image_url ELSE cp.image_url END,
+          last_seen_at = NOW(),
+          updated_at = NOW()
+      FROM (
+        SELECT * FROM jsonb_to_recordset(${JSON.stringify(sanitizeForJsonb(sorted))}::jsonb) AS u(
+          pin_id VARCHAR(64), status VARCHAR(32), enrich_attempts INT, saves INT, repins INT, comments INT, alt_text TEXT,
+          is_product BOOLEAN, destination_url TEXT, link_domain VARCHAR(255), title TEXT, description TEXT, image_url TEXT
+        )
+        ORDER BY pin_id ASC
+      ) AS x
+      WHERE cp.competitor_id = ${shardCompId}
+        AND cp.pin_id = x.pin_id
+      RETURNING cp.pin_id;
+    `;
+    return res.length;
+  } catch (err) {
+    console.warn(`[bulkSyncCompetitorPinsToShard] Warning:`, err.message);
     return 0;
   }
 }
@@ -731,6 +786,16 @@ async function runDiscoveryJob(sqlClient, shardSql, cleanUser, maxPages, cookie,
     await syncCompetitorAcrossFleet(sqlClient, cleanUser);
   } catch (_) {}
 
+  // Stage 1 Sweeper: Immediately reconcile and archive any winning pins discovered in initial feed
+  try {
+    const recon = await reconcileQualifiedCatalogPins(sqlClient, compId);
+    if (recon?.promoted_or_updated > 0) {
+      console.log(`[*] [Stage 1 Reconciliation] Reconciled and archived ${recon.promoted_or_updated} qualified pins into pa_pins directly from catalog.`);
+    }
+  } catch (rErr) {
+    console.warn(`[!] [Stage 1 Reconciliation] Warning:`, rErr.message);
+  }
+
   // Check pending count
   let pendingCount = 0;
   try {
@@ -811,9 +876,40 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
   console.log(`   Lock Model: Monotonic ORDER BY cp.id ASC FOR UPDATE OF cp SKIP LOCKED`);
   console.log(`================================================================\n`);
 
-  // Fetch active 3-tier qualification rules (T1: saves>=100, T2: repins>=100, T3: fresh viral)
-  const qualRules = await getQualificationRules(sqlClient);
-  console.log(`[*] [Shard ${sNum}] Qualification Rules Active: Tier 1 Saves >= ${qualRules.tier1_min_saves}, Tier 2 Repins >= ${qualRules.tier2_min_repins}, Tier 3 Fresh <= ${qualRules.tier3_max_age_days}d & Saves >= ${qualRules.tier3_min_saves}`);
+  // Resolve local surrogate ID on Shard database using canonical natural key (username)
+  let shardCompId = null;
+  if (shardSql && cleanUser) {
+    try {
+      shardCompId = await resolveLocalCompetitorId(shardSql, cleanUser);
+      if (!shardCompId) {
+        const [sprov] = await shardSql`
+          INSERT INTO competitor_profiles (username, display_name, account_type, is_active, updated_at)
+          VALUES (${cleanUser}, ${cleanUser}, 'competitor', TRUE, NOW())
+          ON CONFLICT (username) DO UPDATE SET updated_at = NOW()
+          RETURNING id;
+        `;
+        shardCompId = sprov?.id || null;
+      }
+    } catch (sErr) {
+      console.warn(`[!] [Shard ${sNum}] Warning resolving local competitor profile on shardSql:`, sErr.message);
+    }
+  }
+
+  // Fetch active 3-tier qualification rules (prioritize competitor-specific rules if set)
+  let qualRules = null;
+  if (compId) {
+    try {
+      const compRulesObj = await getCompetitorRules(sqlClient, compId);
+      if (compRulesObj?.rules) {
+        qualRules = compRulesObj.rules;
+        console.log(`[*] [Shard ${sNum}] Loaded custom competitor qualification rules for @${cleanUser || compId}`);
+      }
+    } catch (_) {}
+  }
+  if (!qualRules) {
+    qualRules = await getQualificationRules(sqlClient);
+  }
+  console.log(`[*] [Shard ${sNum}] Qualification Rules Active: Tier 1 Saves >= ${qualRules.tier1_min_saves}, Tier 2 Repins >= ${qualRules.tier2_min_repins}, Tier 2 Velocity >= ${qualRules.tier2_min_velocity || 3.5}/d, Tier 3 Fresh <= ${qualRules.tier3_fresh_days || qualRules.tier3_max_age_days || 14}d & Saves >= ${qualRules.tier3_min_saves}`);
 
   // Register initial shard heartbeat
   if (compId) {
@@ -1193,6 +1289,7 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
 
               statusUpdates.push({
                 id: item.id,
+                pin_id: item.pin_id,
                 claim_token: item.claim_token,
                 status: 'completed',
                 enrich_attempts: currentAttempts,
@@ -1220,6 +1317,7 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
               if (isHardFail) {
                 statusUpdates.push({
                   id: item.id,
+                  pin_id: item.pin_id,
                   claim_token: item.claim_token,
                   status: 'failed',
                   enrich_attempts: currentAttempts,
@@ -1242,6 +1340,7 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
                 const attemptsToRecord = isRateLimit ? Number(item.enrich_attempts || 0) : currentAttempts;
                 statusUpdates.push({
                   id: item.id,
+                  pin_id: item.pin_id,
                   claim_token: item.claim_token,
                   status: 'pending',
                   enrich_attempts: attemptsToRecord,
@@ -1269,6 +1368,7 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
             const isHardFail = (currentAttempts >= 3);
             statusUpdates.push({
               id: item.id,
+              pin_id: item.pin_id,
               claim_token: item.claim_token,
               status: isHardFail ? 'failed' : 'pending',
               enrich_attempts: currentAttempts,
@@ -1298,6 +1398,7 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
         for (let r = nextIdx; r < claimed.length; r++) {
           statusUpdates.push({
             id: claimed[r].id,
+            pin_id: claimed[r].pin_id,
             claim_token: claimed[r].claim_token,
             status: 'pending',
             enrich_attempts: Number(claimed[r].enrich_attempts || 0),
@@ -1348,7 +1449,13 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
       }
 
       if (statusUpdates.length > 0) {
-        await bulkUpdateCompetitorPins(sqlClient, statusUpdates);
+        const hubCommit = bulkUpdateCompetitorPins(sqlClient, statusUpdates);
+        const shardCommit = (shardSql && shardCompId)
+          ? bulkSyncCompetitorPinsToShard(shardSql, shardCompId, statusUpdates)
+          : Promise.resolve(0);
+
+        await Promise.allSettled([hubCommit, shardCommit]);
+
         completedCount = statusUpdates.filter(s => s.status === 'completed').length;
         winningPinsArchivedCount = enrichedPins.length;
         const failedCount = statusUpdates.filter(s => s.status === 'failed').length;
@@ -1427,6 +1534,20 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
 
       if (isRollupLeader) {
         console.log(`[*] [Shard ${sNum}] Rollup Leader: Synchronizing true enriched totals in competitor_history_snapshots...`);
+
+        // Stage 2 Sweeper: Reconcile all catalog pins against qualification rules (including late-blooming pins)
+        try {
+          const recon = await reconcileQualifiedCatalogPins(sqlClient, compId);
+          if (recon?.promoted_or_updated > 0) {
+            console.log(`[*] [Stage 2 Reconciliation Sweeper] Reconciled and archived ${recon.promoted_or_updated} qualified pins into pa_pins.`);
+          }
+          if (shardSql) {
+            await reconcileQualifiedCatalogPins(shardSql, shardCompId || cleanUser).catch(() => {});
+          }
+        } catch (rErr) {
+          console.warn(`[!] [Stage 2 Reconciliation Sweeper] Warning:`, rErr.message);
+        }
+
         await syncEnrichedSnapshotTotals(sqlClient, compId, cleanUser);
         await sqlClient`
           UPDATE competitor_profiles
@@ -1437,6 +1558,16 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
     } else {
       console.log(`[*] [Shard ${sNum}] Finished processing. ${remainingShards} peer shards still active. Snapshot rollup deferred.`);
     }
+  }
+
+  // Shard Completion Reconciliation: reconcile this shard's enriched pins if any
+  if (compId && totalEnriched > 0) {
+    try {
+      const recon = await reconcileQualifiedCatalogPins(sqlClient, compId);
+      if (recon?.promoted_or_updated > 0) {
+        console.log(`[*] [Shard ${sNum} Sweeper] Reconciled ${recon.promoted_or_updated} newly qualified pins into pa_pins.`);
+      }
+    } catch (_) {}
   }
 
   console.log(`\n================================================================`);
