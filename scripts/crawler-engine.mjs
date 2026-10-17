@@ -310,32 +310,40 @@ export async function bulkSyncCompetitorPinsToShard(shardSql, shardCompId, statu
 
   try {
     const res = await shardSql`
-      UPDATE competitor_pins AS cp
-      SET enrichment_status = x.status,
-          enrich_attempts = COALESCE(x.enrich_attempts, cp.enrich_attempts, 0),
-          save_count = GREATEST(cp.save_count, x.saves),
-          repin_count = GREATEST(cp.repin_count, x.repins),
-          comment_count = GREATEST(cp.comment_count, x.comments),
-          alt_text = CASE WHEN x.alt_text IS NOT NULL AND x.alt_text <> '' THEN x.alt_text ELSE cp.alt_text END,
-          is_product = (cp.is_product OR COALESCE(x.is_product, false)),
-          destination_url = CASE WHEN (cp.destination_url IS NULL OR cp.destination_url = '') AND x.destination_url <> '' THEN x.destination_url ELSE cp.destination_url END,
-          link_domain = CASE WHEN (cp.link_domain IS NULL OR cp.link_domain = '') AND x.link_domain <> '' THEN x.link_domain ELSE cp.link_domain END,
-          title = CASE WHEN (cp.title IS NULL OR cp.title = '') AND x.title <> '' THEN x.title ELSE cp.title END,
-          description = CASE WHEN x.description IS NOT NULL AND x.description <> '' THEN x.description ELSE cp.description END,
-          metadata = COALESCE(cp.metadata, '{}'::jsonb),
-          image_url = CASE WHEN (cp.image_url IS NULL OR cp.image_url = '') AND x.image_url <> '' THEN x.image_url ELSE cp.image_url END,
-          last_seen_at = NOW(),
-          updated_at = NOW()
-      FROM (
-        SELECT * FROM jsonb_to_recordset(${JSON.stringify(sanitizeForJsonb(sorted))}::jsonb) AS u(
-          pin_id VARCHAR(64), status VARCHAR(32), enrich_attempts INT, saves INT, repins INT, comments INT, alt_text TEXT,
-          is_product BOOLEAN, destination_url TEXT, link_domain VARCHAR(255), title TEXT, description TEXT, image_url TEXT
-        )
-        ORDER BY pin_id ASC
-      ) AS x
-      WHERE cp.competitor_id = ${shardCompId}
-        AND cp.pin_id = x.pin_id
-      RETURNING cp.pin_id;
+      INSERT INTO competitor_pins (
+        competitor_id, pin_id, enrichment_status, enrich_attempts, save_count, repin_count, comment_count,
+        alt_text, is_product, destination_url, link_domain, title, description, image_url,
+        board_name, created_at_pinterest, first_seen_at, last_seen_at, updated_at
+      )
+      SELECT 
+        ${shardCompId}, x.pin_id, x.status, COALESCE(x.enrich_attempts, 1), COALESCE(x.saves, 0), COALESCE(x.repins, 0), COALESCE(x.comments, 0),
+        x.alt_text, COALESCE(x.is_product, false), COALESCE(x.destination_url, ''), COALESCE(x.link_domain, ''),
+        COALESCE(x.title, ''), COALESCE(x.description, ''), COALESCE(x.image_url, ''), COALESCE(x.board_name, ''),
+        x.created_at_pinterest, NOW(), NOW(), NOW()
+      FROM jsonb_to_recordset(${JSON.stringify(sanitizeForJsonb(sorted))}::jsonb) AS x(
+        pin_id VARCHAR(64), status VARCHAR(32), enrich_attempts INT, saves INT, repins INT, comments INT, alt_text TEXT,
+        is_product BOOLEAN, destination_url TEXT, link_domain VARCHAR(255), title TEXT, description TEXT, image_url TEXT,
+        board_name VARCHAR(255), created_at_pinterest TIMESTAMPTZ
+      )
+      ORDER BY x.pin_id ASC
+      ON CONFLICT (competitor_id, pin_id) DO UPDATE SET
+        enrichment_status = EXCLUDED.enrichment_status,
+        enrich_attempts = COALESCE(EXCLUDED.enrich_attempts, competitor_pins.enrich_attempts, 0),
+        save_count = GREATEST(competitor_pins.save_count, EXCLUDED.save_count),
+        repin_count = GREATEST(competitor_pins.repin_count, EXCLUDED.repin_count),
+        comment_count = GREATEST(competitor_pins.comment_count, EXCLUDED.comment_count),
+        alt_text = COALESCE(NULLIF(EXCLUDED.alt_text, ''), competitor_pins.alt_text),
+        is_product = (competitor_pins.is_product OR EXCLUDED.is_product),
+        destination_url = CASE WHEN EXCLUDED.destination_url <> '' THEN EXCLUDED.destination_url ELSE competitor_pins.destination_url END,
+        link_domain = CASE WHEN EXCLUDED.link_domain <> '' THEN EXCLUDED.link_domain ELSE competitor_pins.link_domain END,
+        title = CASE WHEN EXCLUDED.title <> '' THEN EXCLUDED.title ELSE competitor_pins.title END,
+        description = CASE WHEN EXCLUDED.description <> '' THEN EXCLUDED.description ELSE competitor_pins.description END,
+        image_url = CASE WHEN EXCLUDED.image_url <> '' THEN EXCLUDED.image_url ELSE competitor_pins.image_url END,
+        board_name = CASE WHEN EXCLUDED.board_name <> '' THEN EXCLUDED.board_name ELSE competitor_pins.board_name END,
+        created_at_pinterest = COALESCE(EXCLUDED.created_at_pinterest, competitor_pins.created_at_pinterest),
+        last_seen_at = NOW(),
+        updated_at = NOW()
+      RETURNING pin_id;
     `;
     return res.length;
   } catch (err) {
@@ -1302,7 +1310,9 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
                 link_domain: pin.domain || '',
                 title: pin.title || '',
                 description: pin.description || '',
-                image_url: pin.image_url || ''
+                image_url: pin.image_url || '',
+                board_name: item.board_name || pin.board_name || '',
+                created_at_pinterest: createdAtPinterest ? new Date(createdAtPinterest).toISOString() : null
               });
             } else {
               const isRateLimit = (fetchRes.status === 429);
@@ -1330,7 +1340,9 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
                   link_domain: '',
                   title: '',
                   description: '',
-                  image_url: ''
+                  image_url: '',
+                  board_name: item.board_name || '',
+                  created_at_pinterest: item.created_at_pinterest ? new Date(item.created_at_pinterest).toISOString() : null
                 });
                 if (currentAttempts >= 3) {
                   console.warn(`[!] [Shard ${shardNumber}] Pin ${item.pin_id} permanently failed after ${currentAttempts} attempts. Marked as 'failed' to prevent infinite loop.`);
@@ -1353,7 +1365,9 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
                   link_domain: '',
                   title: '',
                   description: '',
-                  image_url: ''
+                  image_url: '',
+                  board_name: item.board_name || '',
+                  created_at_pinterest: item.created_at_pinterest ? new Date(item.created_at_pinterest).toISOString() : null
                 });
 
                 if (isRateLimit) {
@@ -1381,7 +1395,9 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
               link_domain: '',
               title: '',
               description: '',
-              image_url: ''
+              image_url: '',
+              board_name: item.board_name || '',
+              created_at_pinterest: item.created_at_pinterest ? new Date(item.created_at_pinterest).toISOString() : null
             });
           }
 
@@ -1411,7 +1427,9 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
             link_domain: '',
             title: '',
             description: '',
-            image_url: ''
+            image_url: '',
+            board_name: claimed[r].board_name || '',
+            created_at_pinterest: claimed[r].created_at_pinterest ? new Date(claimed[r].created_at_pinterest).toISOString() : null
           });
         }
         console.warn(`[!] [Shard ${shardNumber}] Re-queued unpicked pins due to 429. Backing off 15s...`);

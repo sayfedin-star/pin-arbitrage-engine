@@ -6141,7 +6141,7 @@ export function getDashboardHtml() {
                   <i data-lucide="users" class="w-4 h-4 text-emerald-500"></i>
                 </div>
                 <span class="text-2xl font-black text-emerald-600 dark:text-emerald-400 font-mono block" x-text="formatNumber(creatorBoardsTotalFollowers)"></span>
-                <span class="text-[11px] text-slate-500 mt-1 block">Total board subscribers</span>
+                <span class="text-[11px] text-slate-500 mt-1 block">Verified profile reach</span>
               </div>
 
               <div class="bg-white dark:bg-[#0d1526] rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 shadow-2xs">
@@ -9093,7 +9093,9 @@ export function getDashboardHtml() {
         },
 
         get creatorBoardsTotalFollowers() {
-          return (this.activeCreatorBoards || []).reduce((acc, b) => acc + (Number(b.follower_count) || 0), 0);
+          const accountFollowers = Number(this.activeCreator?.follower_count || 0);
+          const maxBoardFollowers = Math.max(0, ...(this.activeCreatorBoards || []).map(b => Number(b.follower_count) || 0));
+          return accountFollowers > 0 ? accountFollowers : maxBoardFollowers;
         },
 
         get creatorBoardsMaxPins() {

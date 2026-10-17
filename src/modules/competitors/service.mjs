@@ -1654,36 +1654,52 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
     pinsAdded = Math.max(0, (Number(latest.total_pins) || 0) - (Number(earliest.total_pins) || 0));
     pinningVelocity = (pinsAdded / daysSpan).toFixed(1);
     pacingEstimate = Math.round((pinsAdded / daysSpan) * 30);
-  } else if (compId || cleanUsername) {
+  } else if (compId) {
     try {
-      const [velocityStats] = await sql`
-        WITH valid_catalog AS (
+      const runCatalogStats = async (includeDeleted) => {
+        const delFilter = includeDeleted ? sql`AND (cp.is_deleted IS NULL OR cp.is_deleted = FALSE)` : sql``;
+        return await sql`
+          WITH valid_catalog AS (
+            SELECT
+              cp.pin_id,
+              cp.save_count,
+              CASE
+                WHEN cp.created_at_pinterest IS NOT NULL
+                 AND cp.created_at_pinterest >= '2010-01-01'::timestamptz
+                 AND cp.created_at_pinterest <= NOW() + INTERVAL '10 minutes'
+                THEN LEAST(cp.created_at_pinterest, NOW())
+                ELSE NULL
+              END AS clean_ts,
+              (pa.pin_id IS NOT NULL) AS is_winner
+            FROM competitor_pins cp
+            LEFT JOIN pa_pins pa ON pa.pin_id = cp.pin_id
+            WHERE cp.competitor_id = ${compId}
+              ${delFilter}
+          )
           SELECT
-            cp.pin_id,
-            cp.save_count,
-            CASE
-              WHEN cp.created_at_pinterest IS NOT NULL
-               AND cp.created_at_pinterest >= '2010-01-01'::timestamptz
-               AND cp.created_at_pinterest <= NOW() + INTERVAL '10 minutes'
-              THEN LEAST(cp.created_at_pinterest, NOW())
-              ELSE NULL
-            END AS clean_ts,
-            (pa.pin_id IS NOT NULL) AS is_winner
-          FROM competitor_pins cp
-          LEFT JOIN pa_pins pa ON pa.pin_id = cp.pin_id
-          WHERE (${compId}::int IS NULL OR cp.competitor_id = ${compId}::int)
-            AND (${cleanUsername}::text IS NULL OR LOWER(REPLACE(COALESCE(cp.account_username, ''), '@', '')) = ${cleanUsername})
-        )
-        SELECT
-          COUNT(*)::int AS total_catalog_pins,
-          COUNT(*) FILTER (WHERE clean_ts IS NOT NULL)::int AS dated_pins_count,
-          COUNT(*) FILTER (WHERE is_winner)::int AS winning_pins_count,
-          COUNT(*) FILTER (WHERE clean_ts >= NOW() - INTERVAL '30 days')::int AS pins_last_30d,
-          MIN(clean_ts) AS earliest_pin_at,
-          MAX(clean_ts) AS latest_pin_at,
-          GREATEST(1.0, EXTRACT(EPOCH FROM (MAX(clean_ts) - MIN(clean_ts))) / 86400.0) AS span_days
-        FROM valid_catalog;
-      `;
+            COUNT(*)::int AS total_catalog_pins,
+            COUNT(*) FILTER (WHERE clean_ts IS NOT NULL)::int AS dated_pins_count,
+            COUNT(*) FILTER (WHERE is_winner)::int AS winning_pins_count,
+            COUNT(*) FILTER (WHERE clean_ts >= NOW() - INTERVAL '30 days')::int AS pins_last_30d,
+            MIN(clean_ts) AS earliest_pin_at,
+            MAX(clean_ts) AS latest_pin_at,
+            GREATEST(1.0, EXTRACT(EPOCH FROM (MAX(clean_ts) - MIN(clean_ts))) / 86400.0) AS span_days
+          FROM valid_catalog;
+        `;
+      };
+
+      let velocityStats = null;
+      try {
+        const [row] = await runCatalogStats(true);
+        velocityStats = row;
+      } catch (vErr) {
+        if (vErr.message && vErr.message.includes('is_deleted')) {
+          const [row] = await runCatalogStats(false);
+          velocityStats = row;
+        } else {
+          throw vErr;
+        }
+      }
 
       if (velocityStats && Number(velocityStats.total_catalog_pins) > 0) {
         const totalCatalog = Number(velocityStats.total_catalog_pins || 0);
@@ -2480,7 +2496,7 @@ export async function reEvaluateCompetitorPins(sql, competitorId) {
       cp.created_at_pinterest,
       NOW() AS first_seen_at,
       NOW() AS last_updated_at,
-      cp.title AS alt_text
+      COALESCE(NULLIF(cp.alt_text, ''), cp.title, '') AS alt_text
     FROM competitor_pins cp
     WHERE cp.competitor_id = ${numericId}
       AND (
@@ -2529,6 +2545,13 @@ export async function reEvaluateCompetitorPins(sql, competitorId) {
         )
         ORDER BY x.pin_id ASC
         ON CONFLICT (pin_id) DO UPDATE SET
+          title = CASE WHEN EXCLUDED.title <> '' THEN EXCLUDED.title ELSE pa_pins.title END,
+          description = CASE WHEN EXCLUDED.description <> '' THEN EXCLUDED.description ELSE pa_pins.description END,
+          link = CASE WHEN EXCLUDED.link <> '' THEN EXCLUDED.link ELSE pa_pins.link END,
+          domain = CASE WHEN EXCLUDED.domain <> '' THEN EXCLUDED.domain ELSE pa_pins.domain END,
+          board_name = CASE WHEN EXCLUDED.board_name <> '' THEN EXCLUDED.board_name ELSE pa_pins.board_name END,
+          image_url = CASE WHEN EXCLUDED.image_url <> '' THEN EXCLUDED.image_url ELSE pa_pins.image_url END,
+          alt_text = COALESCE(NULLIF(EXCLUDED.alt_text, ''), pa_pins.alt_text),
           saves = GREATEST(pa_pins.saves, EXCLUDED.saves),
           repins = GREATEST(pa_pins.repins, EXCLUDED.repins),
           comments = GREATEST(pa_pins.comments, EXCLUDED.comments),
@@ -2642,7 +2665,7 @@ export async function reconcileQualifiedCatalogPins(sql, competitorIdOrUsername 
           COALESCE(cp.created_at_pinterest, cp.first_seen_at, NOW()) AS created_at_pinterest,
           COALESCE(cp.first_seen_at, NOW()) AS first_seen_at,
           NOW() AS last_updated_at,
-          COALESCE(cp.title, '') AS alt_text
+          COALESCE(NULLIF(cp.alt_text, ''), cp.title, '') AS alt_text
         FROM competitor_pins cp
         LEFT JOIN competitor_profiles prof ON cp.competitor_id = prof.id
         WHERE 1=1
@@ -2678,6 +2701,13 @@ export async function reconcileQualifiedCatalogPins(sql, competitorIdOrUsername 
         c.created_at_pinterest, c.first_seen_at, c.last_updated_at, c.alt_text
       FROM candidate_pins c
       ON CONFLICT (pin_id) DO UPDATE SET
+        title = CASE WHEN EXCLUDED.title <> '' THEN EXCLUDED.title ELSE pa_pins.title END,
+        description = CASE WHEN EXCLUDED.description <> '' THEN EXCLUDED.description ELSE pa_pins.description END,
+        link = CASE WHEN EXCLUDED.link <> '' THEN EXCLUDED.link ELSE pa_pins.link END,
+        domain = CASE WHEN EXCLUDED.domain <> '' THEN EXCLUDED.domain ELSE pa_pins.domain END,
+        board_name = CASE WHEN EXCLUDED.board_name <> '' THEN EXCLUDED.board_name ELSE pa_pins.board_name END,
+        image_url = CASE WHEN EXCLUDED.image_url <> '' THEN EXCLUDED.image_url ELSE pa_pins.image_url END,
+        alt_text = COALESCE(NULLIF(EXCLUDED.alt_text, ''), pa_pins.alt_text),
         saves = GREATEST(pa_pins.saves, EXCLUDED.saves),
         repins = GREATEST(pa_pins.repins, EXCLUDED.repins),
         comments = GREATEST(pa_pins.comments, EXCLUDED.comments),
