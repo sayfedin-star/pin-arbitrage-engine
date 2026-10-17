@@ -444,20 +444,16 @@ export async function optimizeHubStorage(sql) {
     console.warn('[optimizeHubStorage] Strip metadata warning:', err.message);
   }
 
-  // 4. Compact completed/failed competitor pins queue
+  // 4. Purge completed/failed competitor pins queue (data resides in Shards / D1)
   try {
-    const compacted = await sql`
-      UPDATE competitor_pins
-      SET description = NULL,
-          alt_text = NULL,
-          metadata = '{}'::jsonb
+    const purged = await sql`
+      DELETE FROM competitor_pins
       WHERE enrichment_status IN ('completed', 'failed')
-        AND (description IS NOT NULL OR alt_text IS NOT NULL OR (metadata IS NOT NULL AND metadata != '{}'::jsonb))
       RETURNING id;
     `;
-    results.compactedCompetitors = compacted.length;
+    results.compactedCompetitors = purged.length;
   } catch (err) {
-    console.warn('[optimizeHubStorage] Compact competitor pins warning:', err.message);
+    console.warn('[optimizeHubStorage] Purge competitor pins warning:', err.message);
   }
 
   // 5. Non-blocking VACUUM (ANALYZE) on target Hub tables

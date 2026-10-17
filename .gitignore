@@ -30,3 +30,4 @@ scratch/
 *credentials*
 *secret*
 scripts/populate_neon_fleet.mjs
+.wrangler/

@@ -562,15 +562,6 @@ export async function syncKeywordsCatalogToD1(env, keywords, options = {}) {
     }
 
     if (isFullCatalog) {
-      if (Array.isArray(keywords) && keywords.length > 0) {
-        const validIds = keywords.map(k => Number(k.id)).filter(Boolean);
-        if (validIds.length > 0) {
-          // Purge any orphan/zombie keywords in D1 edge catalog that no longer exist in Neon Hub
-          const idListStr = validIds.join(',');
-          await env.PIN_D1_DB.prepare(`DELETE FROM edge_keywords_catalog WHERE id NOT IN (${idListStr})`).run().catch(() => {});
-        }
-      }
-
       await env.PIN_D1_DB.prepare(`
         INSERT INTO edge_keywords_meta (key, value, updated_at)
         VALUES (?, ?, datetime('now'))
@@ -3307,7 +3298,8 @@ export default {
           cookie, 
           force,
           crawl_pages: crawlPages,
-          max_pins: maxPins
+          max_pins: maxPins,
+          env
         });
 
         // Trigger Stage 2 Deep Crawler in GitHub Actions asynchronously (< 3s edge response preserved)
@@ -3484,20 +3476,6 @@ export default {
         await sql`DELETE FROM keyword_folder_items WHERE keyword_id = ANY(${targetIds});`.catch(() => {});
         await sql`DELETE FROM tracked_keywords WHERE id = ANY(${targetIds});`;
 
-        // 5. Invalidate Edge Memory Cache & Purge from Edge D1 Catalog
-        await invalidateEdgeCache('keywords');
-        if (env?.PIN_D1_DB && targetIds.length > 0) {
-          try {
-            await ensureEdgeKeywordsCatalogTable(env);
-            for (const tid of targetIds) {
-              await env.PIN_D1_DB.prepare("DELETE FROM edge_keywords_catalog WHERE id = ?").bind(Number(tid)).run().catch(() => {});
-            }
-            await env.PIN_D1_DB.prepare("DELETE FROM edge_keywords_meta WHERE key = 'catalog_status'").run().catch(() => {});
-          } catch (d1Err) {
-            console.warn('[DELETE /api/keywords] D1 eviction error:', redactSecrets(d1Err?.message));
-          }
-        }
-
         return jsonResponse({ success: true, deleted_ids: targetIds });
       }
 
@@ -3539,10 +3517,6 @@ export default {
           `;
           await sql`
             DELETE FROM keyword_pins_snapshots
-            WHERE keyword_id = ${keywordId} AND pin_id = ${pinId};
-          `.catch(() => {});
-          await sql`
-            DELETE FROM keyword_displaced_index
             WHERE keyword_id = ${keywordId} AND pin_id = ${pinId};
           `.catch(() => {});
 
@@ -3625,7 +3599,7 @@ export default {
         const pinId = searchParams.get('pin_id');
         if (!pinId) return jsonResponse({ error: 'pin_id is required' }, 400);
         const cookie = env.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env.PINTEREST_COOKIE : null);
-        const result = await fetchVisualSearchLens(sql, pinId, cookie);
+        const result = await fetchVisualSearchLens(sql, pinId, cookie, env);
         return jsonResponse(result, result.success ? 200 : 500);
       }
 
@@ -3660,9 +3634,10 @@ export default {
           slug: slug || ''
         });
 
+        const forceRefresh = searchParams.get('refresh') === 'true';
         const result = await getCachedOrFetch(cacheKey, async () => {
-          return await getKeywordSERPComparison(sql, keywordId, resolved);
-        }, 12000, 45000);
+          return await getKeywordSERPComparison(sql, keywordId, resolved, { env, forceRefresh });
+        }, 12000, 45000, { forceRefresh });
 
         return jsonResponse({ success: true, ...result }, 200, 10);
       }
@@ -3711,9 +3686,10 @@ export default {
         const limit = clampLimit(searchParams.get('limit'), 100, 1000);
         const offset = Math.max(0, parseInt(searchParams.get('offset'), 10) || 0);
         const cacheKey = buildCanonicalCacheKey('keywords:displaced', { keyword_id: keywordId, status, limit, offset });
+        const forceRefresh = searchParams.get('refresh') === 'true';
         const result = await getCachedOrFetch(cacheKey, async () => {
-          return await getKeywordDisplacedPins(sql, keywordId, { status, limit, offset });
-        }, 30000, 120000);
+          return await getKeywordDisplacedPins(sql, keywordId, { status, limit, offset, env, forceRefresh });
+        }, 30000, 120000, { forceRefresh });
         return jsonResponse(result, 200, 15);
       }
 
@@ -3722,7 +3698,8 @@ export default {
         if (!pinId) return jsonResponse({ error: 'pin_id is required' }, 400);
         const keywordId = Number(searchParams.get('keyword_id') || 0) || null;
         const range = searchParams.get('range') || 'all';
-        const result = await getPinPerformanceTrajectory(sql, keywordId, pinId, range);
+        const forceRefresh = searchParams.get('refresh') === 'true';
+        const result = await getPinPerformanceTrajectory(sql, keywordId, pinId, range, { env, forceRefresh });
         return jsonResponse(result);
       }
 
@@ -3733,7 +3710,7 @@ export default {
         const forceRefresh = searchParams.get('refresh') === 'true';
         const cacheKey = buildCanonicalCacheKey('keywords:pin-dossier', { pin_id: pinId, keyword_id: keywordId || '' });
         if (forceRefresh) await invalidateEdgeCache(cacheKey);
-        const result = await getCachedOrFetch(cacheKey, () => getPinDeepDossier(sql, pinId, keywordId, { forceRefresh }), 30000, 120000, { forceRefresh });
+        const result = await getCachedOrFetch(cacheKey, () => getPinDeepDossier(sql, pinId, keywordId, { forceRefresh, env }), 30000, 120000, { forceRefresh });
         return jsonResponse(result, 200, 15);
       }
 
@@ -4065,9 +4042,67 @@ export default {
               WHERE pin_id = ${pinId};
             `.catch(() => {});
 
-            // B2. Hub keyword_pins_snapshots bypass:
-            // Daily snapshots and historical pin telemetry are strictly routed to the 99 Storage Shards
-            // in step C below (pins_daily_snapshots) to preserve the Central Hub under 40 MB.
+            // B2. Hub keyword_pins_snapshots
+            // Telemetry metrics update only
+            const updateResult = await sql`
+              UPDATE keyword_pins_snapshots SET
+                save_count = GREATEST(save_count, ${Number(pin.saves || 0)}),
+                repin_count = GREATEST(repin_count, ${Number(pin.repins || 0)}),
+                comment_count = GREATEST(comment_count, ${Number(pin.comments || 0)}),
+                share_count = GREATEST(COALESCE(share_count, 0), ${Number(pin.share_count || 0)}),
+                created_at_pinterest = CASE WHEN ${pin.created_at_pinterest}::timestamptz IS NOT NULL THEN ${pin.created_at_pinterest}::timestamptz ELSE created_at_pinterest END,
+                creation_method = CASE WHEN ${pin.creation_method}::text <> '' THEN ${pin.creation_method}::text ELSE creation_method END,
+                metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify(metaToStore)}::jsonb
+              WHERE pin_id = ${pinId}
+                AND snapshot_date = (NOW() AT TIME ZONE 'UTC')::date
+              RETURNING id;
+            `.catch(() => []);
+
+            // If no snapshot exists today, insert only if no crawl is active, and inherit current catalog status
+            if (!updateResult || updateResult.length === 0) {
+              if (!isCrawlInProgress) {
+                await sql`
+                  INSERT INTO keyword_pins_snapshots (
+                    keyword_id, pin_id, rank_position, title, domain, destination_url, image_url,
+                    save_count, repin_count, comment_count, share_count, daily_save_velocity,
+                    snapshot_date, is_displaced, created_at_pinterest, creation_method, metadata, created_at
+                  )
+                  SELECT
+                    ksc.keyword_id,
+                    ${pinId},
+                    CASE WHEN COALESCE(ksc.is_displaced, FALSE) THEN NULL ELSE ksc.rank_position END,
+                    ${pin.title || ''},
+                    ${pin.domain || ''},
+                    ${pin.link || ''},
+                    ${pin.image_url || ''},
+                    ${Number(pin.saves || 0)},
+                    ${Number(pin.repins || 0)},
+                    ${Number(pin.comments || 0)},
+                    ${Number(pin.share_count || 0)},
+                    0,
+                    (NOW() AT TIME ZONE 'UTC')::date,
+                    COALESCE(ksc.is_displaced, FALSE),
+                    ${pin.created_at_pinterest ? pin.created_at_pinterest : null},
+                    ${pin.creation_method || 'pinterest_platform'},
+                    ${JSON.stringify(metaToStore)}::jsonb,
+                    NOW()
+                  FROM keyword_serp_current ksc
+                  WHERE ksc.pin_id = ${pinId}
+                    AND NOT EXISTS (
+                      SELECT 1 FROM keyword_ignored_pins kip
+                      WHERE kip.keyword_id = ksc.keyword_id AND kip.pin_id = ${pinId}
+                    )
+                  ON CONFLICT (keyword_id, pin_id, snapshot_date) DO UPDATE SET
+                    save_count = GREATEST(keyword_pins_snapshots.save_count, EXCLUDED.save_count),
+                    repin_count = GREATEST(keyword_pins_snapshots.repin_count, EXCLUDED.repin_count),
+                    metadata = COALESCE(keyword_pins_snapshots.metadata, '{}'::jsonb) || EXCLUDED.metadata;
+                `.catch(err => {
+                  console.warn(`[Pin Sync Snapshot Warning] Failed inserting snapshot for pin ${pinId}:`, redactSecrets(err?.message || String(err)));
+                });
+              } else {
+                console.warn(`[Sync Concurrency Guard] Crawl lease active for pin #${pinId} keywords (${activeCrawlKeywords.map(k=>k.id).join(',')}). Snapshot insertion deferred to active crawler.`);
+              }
+            }
 
             // C. Shard daily snapshot record for all keywords associated with pin
             const serpRows = await sql`
@@ -4233,13 +4268,20 @@ export default {
                       visual_annotations: p.annotations?.map(a => a.name) || []
                     };
 
-                    await sql`
-                      UPDATE keyword_serp_current SET
-                        metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify(autoMeta)}::jsonb,
-                        destination_url = CASE WHEN ${p.link || ''}::text <> '' THEN ${p.link}::text ELSE destination_url END,
-                        updated_at = NOW()
-                      WHERE pin_id = ${pinId};
-                    `.catch(() => {});
+                    await Promise.allSettled([
+                      sql`
+                        UPDATE keyword_serp_current SET
+                          metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify(autoMeta)}::jsonb,
+                          destination_url = CASE WHEN ${p.link || ''}::text <> '' THEN ${p.link}::text ELSE destination_url END,
+                          updated_at = NOW()
+                        WHERE pin_id = ${pinId};
+                      `,
+                      sql`
+                        UPDATE keyword_pins_snapshots SET
+                          metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify(autoMeta)}::jsonb
+                        WHERE pin_id = ${pinId};
+                      `
+                    ]);
                     invalidateEdgeCache(dossierCacheKey);
                   }
                 } catch (_) {}
@@ -5102,11 +5144,6 @@ export default {
             pillar: searchParams.get('pillar') || 'all',
             preset: searchParams.get('preset') || 'all',
             adNetwork: searchParams.get('ad_network') || 'all',
-            ageFilter: searchParams.get('age_filter') || 'all',
-            rankFilter: searchParams.get('rank_filter') || 'all',
-            savesFilter: searchParams.get('saves_filter') || 'all',
-            sizeFilter: searchParams.get('size_filter') || 'all',
-            logicMode: searchParams.get('logic_mode') === 'or' ? 'or' : 'and',
             excludeMarketplaces: searchParams.get('exclude_marketplaces') !== 'false',
             minPins: Number(searchParams.get('min_pins') || 1),
             sortBy: searchParams.get('sort') || 'visibility',
