@@ -54,11 +54,13 @@ export async function ensureEdgePinsMetadataTable(env) {
         visual_annotations TEXT DEFAULT '[]',
         seo_alt_text TEXT DEFAULT '',
         description TEXT DEFAULT '',
+        metadata TEXT DEFAULT '{}',
         created_at_pinterest TEXT,
         updated_at TEXT DEFAULT (datetime('now'))
       )
     `).run().catch(() => {});
     await env.PIN_D1_DB.prepare(`CREATE INDEX IF NOT EXISTS idx_edge_pins_domain ON edge_pins_metadata(domain)`).run().catch(() => {});
+    await env.PIN_D1_DB.prepare(`ALTER TABLE edge_pins_metadata ADD COLUMN metadata TEXT DEFAULT '{}'`).run().catch(() => {});
     isEdgePinsMetadataReady = true;
   } catch (_) {}
 }
@@ -90,12 +92,15 @@ export async function syncPinsBatchToD1(env, pins = []) {
         const annotationsArr = Array.isArray(p.visual_annotations)
           ? p.visual_annotations
           : (Array.isArray(p.annotations) ? p.annotations : []);
+        const metaObj = (p.metadata && typeof p.metadata === 'object')
+          ? p.metadata
+          : ((p.extra_meta && typeof p.extra_meta === 'object') ? p.extra_meta : {});
         return env.PIN_D1_DB.prepare(`
           INSERT INTO edge_pins_metadata (
             pin_id, title, domain, destination_url, image_url,
             creator_username, board_name, dominant_color, visual_annotations,
-            seo_alt_text, description, created_at_pinterest, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            seo_alt_text, description, metadata, created_at_pinterest, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(pin_id) DO UPDATE SET
             title = CASE WHEN excluded.title <> '' THEN excluded.title ELSE edge_pins_metadata.title END,
             domain = CASE WHEN excluded.domain <> '' THEN excluded.domain ELSE edge_pins_metadata.domain END,
@@ -107,6 +112,7 @@ export async function syncPinsBatchToD1(env, pins = []) {
             visual_annotations = CASE WHEN excluded.visual_annotations <> '[]' THEN excluded.visual_annotations ELSE edge_pins_metadata.visual_annotations END,
             seo_alt_text = CASE WHEN excluded.seo_alt_text <> '' THEN excluded.seo_alt_text ELSE edge_pins_metadata.seo_alt_text END,
             description = CASE WHEN excluded.description <> '' THEN excluded.description ELSE edge_pins_metadata.description END,
+            metadata = CASE WHEN excluded.metadata <> '{}' AND excluded.metadata <> '' THEN excluded.metadata ELSE edge_pins_metadata.metadata END,
             created_at_pinterest = COALESCE(excluded.created_at_pinterest, edge_pins_metadata.created_at_pinterest),
             updated_at = excluded.updated_at
         `).bind(
@@ -119,8 +125,9 @@ export async function syncPinsBatchToD1(env, pins = []) {
           String(p.board_name || p.metadata?.board_name || ''),
           String(p.dominant_color || '#888888'),
           JSON.stringify(annotationsArr),
-          String(p.seo_alt_text || p.alt_text || p.metadata?.alt_text || '').slice(0, 500),
-          String(p.description || p.metadata?.description || '').slice(0, 500),
+          String(p.seo_alt_text || p.alt_text || p.metadata?.alt_text || ''),
+          String(p.description || p.metadata?.description || ''),
+          JSON.stringify(metaObj),
           p.created_at_pinterest ? new Date(p.created_at_pinterest).toISOString() : null,
           nowIso
         );
@@ -152,7 +159,7 @@ export async function hydratePinsFromD1(env, pinIds = []) {
       const placeholders = slice.map(() => '?').join(',');
       stmts.push(
         env.PIN_D1_DB.prepare(
-          `SELECT pin_id, title, domain, destination_url, image_url, creator_username, board_name, dominant_color, visual_annotations, seo_alt_text, description, created_at_pinterest FROM edge_pins_metadata WHERE pin_id IN (${placeholders})`
+          `SELECT pin_id, title, domain, destination_url, image_url, creator_username, board_name, dominant_color, visual_annotations, seo_alt_text, description, metadata, created_at_pinterest FROM edge_pins_metadata WHERE pin_id IN (${placeholders})`
         ).bind(...slice)
       );
     }
@@ -166,8 +173,15 @@ export async function hydratePinsFromD1(env, pinIds = []) {
         } else if (typeof r.visual_annotations === 'string' && r.visual_annotations.trim()) {
           try { parsedAnnotations = JSON.parse(r.visual_annotations); } catch (_) {}
         }
+        let parsedMeta = {};
+        if (typeof r.metadata === 'string' && r.metadata.trim()) {
+          try { parsedMeta = JSON.parse(r.metadata); } catch (_) {}
+        } else if (r.metadata && typeof r.metadata === 'object') {
+          parsedMeta = r.metadata;
+        }
         map.set(String(r.pin_id), {
           ...r,
+          metadata: parsedMeta,
           visual_annotations: Array.isArray(parsedAnnotations) ? parsedAnnotations : [],
           alt_text: r.seo_alt_text || ''
         });

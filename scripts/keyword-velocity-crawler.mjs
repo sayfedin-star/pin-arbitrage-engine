@@ -25,8 +25,23 @@ import { neon } from '@neondatabase/serverless';
 import fs from 'fs';
 import { crawlKeywordSERP } from '../src/modules/keywords/service.mjs';
 import { fetchPinFromPinterest, setDefaultDispatcher } from './lib/pinterest.mjs';
-import { batchGroupByShard, resolveShardConnection, preloadNeonRegistry } from '../src/modules/sharding/fleet-router.mjs';
+import { batchGroupByShard, resolveShardConnection, preloadNeonRegistry, getPinShardId } from '../src/modules/sharding/fleet-router.mjs';
 import { crc32 } from '../src/modules/fleet/sharding.mjs';
+
+const activeTargetShards = new Set();
+let crawlerKeepAlive = null;
+
+function registerTargetShards(pins) {
+  if (!pins || !Array.isArray(pins)) return;
+  for (const p of pins) {
+    if (p && p.pin_id) {
+      try {
+        const sid = getPinShardId(p.pin_id, 99);
+        activeTargetShards.add(sid);
+      } catch (_) {}
+    }
+  }
+}
 
 let undiciAgent = null;
 try {
@@ -234,7 +249,8 @@ async function inspectPin(pin, kw) {
       is_displaced: Boolean(pin.is_displaced),
       keyword_id: pin.keyword_id || kw?.id || null,
       is_deleted: false,
-      from_hydration_cache: true
+      from_hydration_cache: true,
+      extra_meta: (pin.metadata && typeof pin.metadata === 'object') ? pin.metadata : (pin.extra_meta || {})
     };
   }
 
@@ -497,8 +513,8 @@ async function flushBatchToHub(pinsChunk, kw) {
     dominant_color: String(p.dominant_color || '#888888'),
     created_at_pinterest: p.created_at_pinterest || null,
     method: String(p.creation_method || p.method || 'pinterest_platform'),
-    description: String(p.description || '').slice(0, 500),
-    alt_text: String(p.alt_text || '').slice(0, 500),
+    description: String(p.description || ''),
+    alt_text: String(p.alt_text || ''),
     is_dead: Boolean(p.is_deleted),
     visual_annotations: Array.isArray(p.visual_annotations) ? p.visual_annotations : [],
     extra_meta: (p.extra_meta && typeof p.extra_meta === 'object') ? p.extra_meta : {}
@@ -536,7 +552,8 @@ async function flushBatchToHub(pinsChunk, kw) {
           THEN u.visual_annotations 
           ELSE ksc.visual_annotations 
         END,
-        metadata = COALESCE(ksc.metadata, '{}'::jsonb) || jsonb_strip_nulls(COALESCE(u.extra_meta, '{}'::jsonb)) || jsonb_build_object(
+        metadata = (CASE WHEN jsonb_typeof(ksc.metadata) = 'object' THEN ksc.metadata ELSE '{}'::jsonb END) || jsonb_strip_nulls(COALESCE(u.extra_meta, '{}'::jsonb)) || jsonb_build_object(
+          'description', CASE WHEN u.description <> '' THEN u.description ELSE COALESCE(ksc.metadata->>'description', '') END,
           'alt_text', CASE WHEN u.alt_text <> '' THEN u.alt_text ELSE COALESCE(ksc.metadata->>'alt_text', '') END,
           'share_count', u.authentic_shares::int,
           'dominant_color', u.dominant_color,
@@ -632,7 +649,8 @@ async function flushBatchToHub(pinsChunk, kw) {
           THEN u.visual_annotations 
           ELSE ksc.visual_annotations 
         END,
-        metadata = COALESCE(ksc.metadata, '{}'::jsonb) || jsonb_strip_nulls(COALESCE(u.extra_meta, '{}'::jsonb)) || jsonb_build_object(
+        metadata = (CASE WHEN jsonb_typeof(ksc.metadata) = 'object' THEN ksc.metadata ELSE '{}'::jsonb END) || jsonb_strip_nulls(COALESCE(u.extra_meta, '{}'::jsonb)) || jsonb_build_object(
+          'description', CASE WHEN u.description <> '' THEN u.description ELSE COALESCE(ksc.metadata->>'description', '') END,
           'alt_text', CASE WHEN u.alt_text <> '' THEN u.alt_text ELSE COALESCE(ksc.metadata->>'alt_text', '') END,
           'share_count', u.authentic_shares::int,
           'dominant_color', u.dominant_color,
@@ -747,10 +765,12 @@ async function flushToStorageShards(enrichedPins) {
               domain: String(sp.domain || ''),
               destination_url: String(sp.destination_url || ''),
               image_url: String(sp.image_url || ''),
-              description: String(sp.description || '').slice(0, 500),
-              alt_text: String(sp.alt_text || '').slice(0, 500),
+              description: String(sp.description || ''),
+              alt_text: String(sp.alt_text || ''),
               dominant_color: String(sp.dominant_color || '#888888'),
               visual_annotations: sp.visual_annotations || [],
+              created_at_pinterest: sp.created_at_pinterest ? new Date(sp.created_at_pinterest).toISOString() : null,
+              metadata: (sp.extra_meta && typeof sp.extra_meta === 'object') ? sp.extra_meta : (sp.metadata || {}),
               keyword_id: Number(sp.keyword_id || 0),
               rank_position: sp.rank_position ? Number(sp.rank_position) : null,
               save_count: sp.save_count != null ? Number(sp.save_count) : null,
@@ -763,21 +783,26 @@ async function flushToStorageShards(enrichedPins) {
               catalog_rank: sp.catalog_rank ? Number(sp.catalog_rank) : (sp.rank_position ? Number(sp.rank_position) : null)
             })));
 
+            // 0. Ensure metadata column exists on Shard (Self-Healing Migration)
+            await shardSql`
+              ALTER TABLE universal_master_pins ADD COLUMN IF NOT EXISTS metadata jsonb DEFAULT '{}'::jsonb;
+            `.catch(() => {});
+
             // 1. Master Pin Record Upsert (Deduplicated on pin_id)
             const q1 = shardSql`
               INSERT INTO universal_master_pins (
                 pin_id, creator_username, board_name, board_slug, title, domain, destination_url,
-                image_url, description, alt_text, dominant_color, visual_annotations,
+                image_url, description, alt_text, dominant_color, visual_annotations, created_at_pinterest, metadata,
                 first_discovered_pillar, first_discovered_at, updated_at
               )
               SELECT DISTINCT ON (u.pin_id)
                 u.pin_id, u.creator_username, u.board_name, u.board_slug, u.title, u.domain, u.destination_url,
-                u.image_url, u.description, u.alt_text, u.dominant_color, u.visual_annotations,
+                u.image_url, u.description, u.alt_text, u.dominant_color, u.visual_annotations, u.created_at_pinterest::timestamptz, u.metadata,
                 'keyword', NOW(), NOW()
               FROM jsonb_to_recordset(${shardPayload}::jsonb) AS u(
                 pin_id text, creator_username text, board_name text, board_slug text, title text, domain text,
                 destination_url text, image_url text, description text, alt_text text, dominant_color text,
-                visual_annotations jsonb
+                visual_annotations jsonb, created_at_pinterest text, metadata jsonb
               )
               ORDER BY u.pin_id ASC, u.title DESC NULLS LAST
               ON CONFLICT (pin_id) DO UPDATE SET
@@ -795,6 +820,8 @@ async function flushToStorageShards(enrichedPins) {
                   THEN EXCLUDED.visual_annotations
                   ELSE universal_master_pins.visual_annotations
                 END,
+                created_at_pinterest = COALESCE(EXCLUDED.created_at_pinterest, universal_master_pins.created_at_pinterest),
+                metadata = (CASE WHEN jsonb_typeof(universal_master_pins.metadata) = 'object' THEN universal_master_pins.metadata ELSE '{}'::jsonb END) || COALESCE(EXCLUDED.metadata, '{}'::jsonb),
                 updated_at = NOW();
             `;
 
@@ -928,6 +955,10 @@ async function flushToStorageShards(enrichedPins) {
               await q2;
               await q3;
             }
+
+            // 4. Post-write query statistics refresh & maintenance
+            await shardSql`VACUUM (ANALYZE) universal_master_pins;`.catch(() => {});
+            await shardSql`VACUUM (ANALYZE) pins_daily_metrics;`.catch(() => {});
           })();
 
           let timerId;
@@ -982,6 +1013,8 @@ function buildShardSyncList(candidatePins, enrichedPins, defaultKeywordId = null
         alt_text: cp.metadata?.alt_text || '',
         dominant_color: cp.dominant_color || '#888888',
         visual_annotations: Array.isArray(cp.visual_annotations) ? cp.visual_annotations : [],
+        created_at_pinterest: cp.created_at_pinterest || null,
+        extra_meta: (cp.metadata && typeof cp.metadata === 'object') ? cp.metadata : {},
         keyword_id: cp.keyword_id || defaultKeywordId || null,
         rank_position: cp.rank_position,
         catalog_rank: cp.catalog_rank || cp.rank_position,
@@ -1060,6 +1093,22 @@ async function run() {
   console.log(`[Config] Worker Slot:     ${workerIndex + 1} / ${workerTotal}`);
   console.log(`[Config] Target Keyword:  "${targetKeyword || '<AUTO-RESOLVE>'}"`);
   console.log(`[Config] Crawl Scope:     ${crawlScope}`);
+
+  // Initialize In-Crawler Keep-Alive Heartbeat (every 3.5 min / 210s) to prevent Neon compute scale-to-zero
+  crawlerKeepAlive = setInterval(async () => {
+    if (activeTargetShards.size === 0) return;
+    const shards = Array.from(activeTargetShards);
+    await Promise.allSettled(
+      shards.map(async (shardId) => {
+        try {
+          const shardConn = await resolveShardConnection({ hubSql: sql, shardId });
+          await shardConn`SELECT 1;`;
+        } catch (_) {}
+      })
+    );
+  }, 210000);
+  if (typeof crawlerKeepAlive.unref === 'function') crawlerKeepAlive.unref();
+  process.on('exit', () => { if (crawlerKeepAlive) clearInterval(crawlerKeepAlive); });
 
   if (mode === 'folder_pin_partition') {
     // =========================================================================
@@ -1212,6 +1261,7 @@ async function run() {
       return String(a.pin_id).localeCompare(String(b.pin_id));
     });
 
+    registerTargetShards(myPins);
     console.log(`[*] Total Unique Folder Pins: ${allPins.length} | Worker Slice: ${myPins.length} pins assigned`);
 
     if (myPins.length === 0) {
@@ -1384,6 +1434,7 @@ async function run() {
       if (rA !== rB) return rA - rB;
       return String(a.pin_id).localeCompare(String(b.pin_id));
     });
+    registerTargetShards(myPins);
     console.log(`[*] Total Catalog Pins: ${allPins.length} | Worker Slice: ${myPins.length} pins assigned`);
 
     if (myPins.length === 0) {
@@ -1616,6 +1667,7 @@ async function run() {
           } else {
             serpPins = (maxCatalogInspect > 0) ? allKeywordPins.slice(0, maxCatalogInspect) : allKeywordPins;
           }
+          registerTargetShards(serpPins);
           console.log(`  [*] Keyword Catalog: ${allKeywordPins.length} total pins (${allKeywordPins.filter(p => !p.is_displaced).length} active + ${allKeywordPins.filter(p => p.is_displaced).length} vault). Inspecting ${serpPins.length} pins...`);
 
           const enrichedPins = await inspectPinsConcurrently(

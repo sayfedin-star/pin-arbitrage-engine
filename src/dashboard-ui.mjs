@@ -10352,6 +10352,49 @@ export function getDashboardHtml() {
             }
           }, 3000);
 
+          // Operator Session Keep-Alive Heartbeat (4-min interval) to keep Neon compute instances warm while tab is active
+          if (this._sessionHeartbeatInterval) clearInterval(this._sessionHeartbeatInterval);
+          this._sessionHeartbeatInterval = setInterval(() => {
+            if (typeof document === 'undefined' || !document.hidden) {
+              fetch('/api/fleet/keep-alive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).catch(() => {});
+            }
+          }, 240000);
+
+          // Smart Prefetch on Hover (120ms debounce) for Pin Dossier & Target Shard pre-warming
+          if (typeof document !== 'undefined' && !window.__paeHoverPrefetchInstalled) {
+            window.__paeHoverPrefetchInstalled = true;
+            let hoverPrefetchTimer = null;
+            const prefetchCache = new Set();
+            document.addEventListener('mouseover', (e) => {
+              const pinCard = e.target.closest('[data-pin-id], a[href*="/pin/"], a[href*="/pins/"]');
+              if (!pinCard) {
+                if (hoverPrefetchTimer) { clearTimeout(hoverPrefetchTimer); hoverPrefetchTimer = null; }
+                return;
+              }
+              let pid = pinCard.getAttribute('data-pin-id');
+              if (!pid && pinCard.href) {
+                const parts = pinCard.href.split('/pin/');
+                if (parts[1]) pid = parts[1].split(/[?#/]/)[0];
+                if (!pid) {
+                  const parts2 = pinCard.href.split('/pins/');
+                  if (parts2[1]) pid = parts2[1].split(/[?#/]/)[0];
+                }
+              }
+              if (pid && pid.length >= 10 && !isNaN(Number(pid)) && !prefetchCache.has(pid)) {
+                if (hoverPrefetchTimer) clearTimeout(hoverPrefetchTimer);
+                hoverPrefetchTimer = setTimeout(() => {
+                  prefetchCache.add(pid);
+                  fetch('/api/pins/' + pid + '?prefetch=true', { method: 'GET' }).catch(() => {});
+                }, 120);
+              }
+            });
+            document.addEventListener('mouseout', (e) => {
+              if (e.target.closest('[data-pin-id], a[href*="/pin/"], a[href*="/pins/"]')) {
+                if (hoverPrefetchTimer) { clearTimeout(hoverPrefetchTimer); hoverPrefetchTimer = null; }
+              }
+            });
+          }
+
           this.$nextTick(() => {
             if (window.lucide) window.lucide.createIcons();
           });

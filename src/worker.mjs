@@ -5278,6 +5278,42 @@ export default {
         }
       }
 
+      // 19. Fleet Keep-Alive & Shard Pre-Warming Ping API
+      if (pathname === '/api/fleet/keep-alive') {
+        if (method !== 'POST' && method !== 'GET') {
+          return methodNotAllowedResponse('GET, POST, OPTIONS');
+        }
+
+        let shardIdsToPing = [];
+        if (method === 'POST') {
+          const body = await request.json().catch(() => ({}));
+          if (Array.isArray(body.shards)) {
+            shardIdsToPing = body.shards.map(s => Number(s)).filter(s => s >= 1 && s <= 99);
+          }
+        }
+        const qShard = searchParams.get('shard') || searchParams.get('shard_id');
+        if (qShard && !isNaN(Number(qShard))) {
+          shardIdsToPing.push(Number(qShard));
+        }
+
+        if (shardIdsToPing.length > 0) {
+          const uniqueShards = Array.from(new Set(shardIdsToPing)).slice(0, 10);
+          safeWaitUntil(ctx, Promise.allSettled(uniqueShards.map(async (sid) => {
+            try {
+              const shardSql = await resolveShardConnection({ hubSql: sql, shardId: sid });
+              await shardSql`SELECT 1;`;
+            } catch (_) {}
+          })), 'fleet_keep_alive_shards');
+        }
+
+        return jsonResponse({
+          success: true,
+          alive: true,
+          timestamp: Date.now(),
+          shards_pinged: shardIdsToPing.length
+        }, 200, 0);
+      }
+
       // Default 404
       return jsonResponse({
         success: false,

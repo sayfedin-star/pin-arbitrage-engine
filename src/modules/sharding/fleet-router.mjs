@@ -668,8 +668,30 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     shardSql = hubSql; // Graceful degradation to Hub
   }
 
+  // Tier 1: Check Cloudflare D1 edge database (3.4ms latency)
+  let d1Record = null;
+  if (env?.PIN_D1_DB) {
+    try {
+      const row = await env.PIN_D1_DB.prepare(
+        `SELECT pin_id, title, domain, destination_url, image_url, creator_username, board_name, dominant_color, visual_annotations, seo_alt_text, description, metadata, created_at_pinterest FROM edge_pins_metadata WHERE pin_id = ? LIMIT 1`
+      ).bind(cleanPinId).first();
+      if (row) {
+        let parsedAnnotations = [];
+        try { parsedAnnotations = typeof row.visual_annotations === 'string' ? JSON.parse(row.visual_annotations) : (row.visual_annotations || []); } catch (_) {}
+        let parsedMeta = {};
+        try { parsedMeta = typeof row.metadata === 'string' ? JSON.parse(row.metadata) : (row.metadata || {}); } catch (_) {}
+        d1Record = {
+          ...row,
+          metadata: parsedMeta,
+          visual_annotations: parsedAnnotations,
+          alt_text: row.seo_alt_text || ''
+        };
+      }
+    } catch (_) {}
+  }
+
   // 1 & 2. Ultra-Low Latency Parallel Scatter-Gather (t=0 concurrent dispatch)
-  // Concurrently fires Shard queries (with 2500ms circuit breaker) and Hub queries.
+  // Concurrently fires Shard queries (with 5500ms scale-to-zero safe timeout) and Hub queries.
   let shardErrorReason = null;
   const dossierBatchId = `dossier_batch_${cleanPinId}_${Date.now()}_${Math.random()}`;
   const [
@@ -683,7 +705,10 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
       shardSql,
       queryFn: async (sqlClient) => {
         const [row] = await sqlClient`
-          SELECT *
+          SELECT 
+            pin_id, creator_username, board_id, board_name, board_slug, title, domain, destination_url,
+            image_url, description, alt_text, dominant_color, visual_annotations, created_at_pinterest,
+            first_discovered_pillar, first_discovered_at, updated_at, metadata
           FROM universal_master_pins
           WHERE pin_id = ${cleanPinId}
           LIMIT 1;
@@ -692,9 +717,9 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
       },
       fallbackFn: async (info) => {
         shardErrorReason = info?.reason || 'SHARD_UNAVAILABLE';
-        return null;
+        return d1Record || null;
       },
-      timeoutMs: 2500,
+      timeoutMs: 5500,
       batchId: dossierBatchId
     }),
     executeShardQueryWithCircuitBreaker({
@@ -773,7 +798,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
         return rows;
       },
       fallbackFn: async () => [],
-      timeoutMs: 2500,
+      timeoutMs: 5500,
       batchId: dossierBatchId
     }),
     hubSql`
@@ -805,7 +830,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     `.catch(() => [])
   ]);
 
-  let masterRecord = initialMaster;
+  let masterRecord = initialMaster || d1Record;
   let snapshots = initialSnapshots;
   const hubSerpRows = Array.isArray(hubSerpRowsRaw) ? hubSerpRowsRaw : [];
   const hubSnapshots = Array.isArray(hubSnapshotsRaw) ? hubSnapshotsRaw : [];
@@ -1316,8 +1341,9 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
   const creatorUsername = masterRecord?.creator_username || '';
   const boardName = masterRecord?.board_name || '';
   const boardSlug = masterRecord?.board_slug || boardName.toLowerCase().replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-');
-  // Collect all available metadata objects across historical snapshots & SERP occurrences
+  // Collect all available metadata objects across Shard master record, historical snapshots & SERP occurrences
   const allMetas = [
+    ...(masterRecord?.metadata ? [masterRecord.metadata] : []),
     ...(snapRows || []).map(s => s.metadata).filter(Boolean),
     ...(hubSerpRows || []).map(s => s.metadata).filter(Boolean)
   ];
@@ -1359,7 +1385,59 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
   }
   const isCanonicalRoot = canonicalPinId ? (String(canonicalPinId) === String(cleanPinId)) : true;
 
-  const snapMeta = { ...(hubSerpRows[0]?.metadata || {}), ...(hubHistoricalSnap?.metadata || {}) };
+  // Primary source of algorithmic treasures is the Shard master record metadata
+  const snapMeta = { 
+    ...(masterRecord?.metadata || {}), 
+    ...(hubSerpRows[0]?.metadata || {}), 
+    ...(hubHistoricalSnap?.metadata || {}) 
+  };
+
+  // Tier 1 Edge Mirror: Write-through fresh shard metadata to Cloudflare D1 asynchronously
+  if (env?.PIN_D1_DB && masterRecord) {
+    const d1WritePromise = (async () => {
+      try {
+        const fullMetaObj = { ...snapMeta, ...(masterRecord.metadata || {}) };
+        await env.PIN_D1_DB.prepare(`
+          INSERT INTO edge_pins_metadata (
+            pin_id, title, domain, destination_url, image_url,
+            creator_username, board_name, dominant_color, visual_annotations,
+            seo_alt_text, description, metadata, created_at_pinterest, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+          ON CONFLICT(pin_id) DO UPDATE SET
+            title = CASE WHEN excluded.title <> '' THEN excluded.title ELSE edge_pins_metadata.title END,
+            domain = CASE WHEN excluded.domain <> '' THEN excluded.domain ELSE edge_pins_metadata.domain END,
+            destination_url = CASE WHEN excluded.destination_url <> '' THEN excluded.destination_url ELSE edge_pins_metadata.destination_url END,
+            image_url = CASE WHEN excluded.image_url <> '' THEN excluded.image_url ELSE edge_pins_metadata.image_url END,
+            creator_username = CASE WHEN excluded.creator_username <> '' THEN excluded.creator_username ELSE edge_pins_metadata.creator_username END,
+            board_name = CASE WHEN excluded.board_name <> '' THEN excluded.board_name ELSE edge_pins_metadata.board_name END,
+            dominant_color = CASE WHEN excluded.dominant_color <> '#888888' THEN excluded.dominant_color ELSE edge_pins_metadata.dominant_color END,
+            visual_annotations = CASE WHEN excluded.visual_annotations <> '[]' THEN excluded.visual_annotations ELSE edge_pins_metadata.visual_annotations END,
+            seo_alt_text = CASE WHEN excluded.seo_alt_text <> '' THEN excluded.seo_alt_text ELSE edge_pins_metadata.seo_alt_text END,
+            description = CASE WHEN excluded.description <> '' THEN excluded.description ELSE edge_pins_metadata.description END,
+            metadata = CASE WHEN excluded.metadata <> '{}' AND excluded.metadata <> '' THEN excluded.metadata ELSE edge_pins_metadata.metadata END,
+            created_at_pinterest = COALESCE(excluded.created_at_pinterest, edge_pins_metadata.created_at_pinterest),
+            updated_at = excluded.updated_at
+        `).bind(
+          String(masterRecord.pin_id),
+          String(masterRecord.title || ''),
+          String(masterRecord.domain || ''),
+          String(masterRecord.destination_url || ''),
+          String(masterRecord.image_url || ''),
+          String(masterRecord.creator_username || ''),
+          String(masterRecord.board_name || ''),
+          String(masterRecord.dominant_color || '#888888'),
+          JSON.stringify(finalVisualAnnotations),
+          String(masterRecord.alt_text || ''),
+          String(masterRecord.description || ''),
+          JSON.stringify(fullMetaObj),
+          masterRecord.created_at_pinterest ? new Date(masterRecord.created_at_pinterest).toISOString() : null
+        ).run();
+      } catch (_) {}
+    })();
+    if (ctx && typeof ctx.waitUntil === 'function') {
+      safeWaitUntil(ctx, d1WritePromise, `d1_sync_${cleanPinId}`);
+    }
+  }
 
   const algorithmicIntelligence = {
     is_repin: Boolean(snapMeta.is_repin ?? false),

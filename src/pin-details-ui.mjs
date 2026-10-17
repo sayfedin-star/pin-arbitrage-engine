@@ -482,12 +482,17 @@ export function getPinDetailPageHtml(pinId = '') {
                 <span class="text-[10px] text-slate-500 font-mono">Verified Host</span>
               </div>
               <div class="flex items-center gap-2.5 mt-1">
-                <div class="w-10 h-10 rounded-full bg-blue-100 border border-blue-200 flex items-center justify-center text-base text-blue-700 font-bold">
-                  🏷️
+                <div class="w-10 h-10 rounded-full bg-blue-100 border border-blue-200 flex items-center justify-center text-base text-blue-700 font-bold overflow-hidden shrink-0">
+                  <template x-if="dossier?.algorithmic_intelligence?.domain_official_user?.image_url">
+                    <img :src="dossier.algorithmic_intelligence.domain_official_user.image_url" class="w-full h-full object-cover" referrerpolicy="no-referrer">
+                  </template>
+                  <template x-if="!dossier?.algorithmic_intelligence?.domain_official_user?.image_url">
+                    <span>🏷️</span>
+                  </template>
                 </div>
                 <div class="flex flex-col overflow-hidden">
-                  <div class="text-xs font-bold text-slate-900 truncate" x-text="dossier?.algorithmic_intelligence?.rich_metadata?.site_name || dossier?.creative?.domain || 'Domain Host'"></div>
-                  <div class="text-[11px] text-blue-700 font-mono truncate" x-text="dossier?.creative?.domain"></div>
+                  <div class="text-xs font-bold text-slate-900 truncate" x-text="dossier?.algorithmic_intelligence?.domain_official_user?.full_name || dossier?.algorithmic_intelligence?.rich_metadata?.site_name || dossier?.creative?.domain || 'Domain Host'"></div>
+                  <div class="text-[11px] text-blue-700 font-mono truncate" x-text="dossier?.algorithmic_intelligence?.domain_official_user?.username ? '@' + dossier.algorithmic_intelligence.domain_official_user.username : dossier?.creative?.domain"></div>
                 </div>
               </div>
             </div>
@@ -707,6 +712,12 @@ export function getPinDetailPageHtml(pinId = '') {
             <div class="text-xs font-bold text-slate-900 leading-snug" x-text="dossier?.algorithmic_intelligence?.rich_metadata?.title || dossier?.creative?.title"></div>
             <p class="text-[11px] text-slate-600 leading-relaxed" x-text="dossier?.algorithmic_intelligence?.rich_metadata?.description || dossier?.creative?.description"></p>
           </div>
+          <template x-if="dossier?.algorithmic_intelligence?.rich_metadata?.article?.published_time || dossier?.algorithmic_intelligence?.article_published_at">
+            <div class="pt-1.5 border-t border-slate-200 flex items-center justify-between text-[11px] font-mono">
+              <span class="text-slate-500">Published Date:</span>
+              <span class="text-emerald-700 font-semibold" x-text="formatDate(dossier?.algorithmic_intelligence?.rich_metadata?.article?.published_time || dossier?.algorithmic_intelligence?.article_published_at)"></span>
+            </div>
+          </template>
           <div class="pt-2 border-t border-slate-200 flex items-center justify-between text-[11px] font-mono">
             <span class="text-slate-500">Canonical Cluster:</span>
             <a 
@@ -1445,6 +1456,16 @@ export function getPinDetailPageHtml(pinId = '') {
 
         formatNumber(n) {
           return Number(n || 0).toLocaleString();
+        },
+
+        formatDate(d) {
+          if (!d) return '—';
+          try {
+            const dt = new Date(d);
+            return isNaN(dt.getTime()) ? String(d) : dt.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+          } catch (_) {
+            return String(d);
+          }
         }
       };
     }

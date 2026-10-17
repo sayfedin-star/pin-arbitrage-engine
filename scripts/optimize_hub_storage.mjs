@@ -425,9 +425,9 @@ export async function optimizeHubStorage(sql) {
   try {
     const serpClean = await sql`
       UPDATE keyword_serp_current
-      SET metadata = metadata - 'title' - 'domain' - 'destination_url' - 'image_url' - 'visual_annotations' - 'description' - 'alt_text' - 'raw_saves' - 'crawled_at' - 'created_at' - 'created_at_pinterest' - 'method' - 'creation_method' - 'rich_metadata' - 'visual_objects'
+      SET metadata = metadata - 'title' - 'domain' - 'destination_url' - 'image_url' - 'raw_saves' - 'crawled_at' - 'created_at' - 'method'
       WHERE metadata IS NOT NULL
-        AND metadata ?| array['title','domain','destination_url','image_url','visual_annotations','description','alt_text','raw_saves','crawled_at','created_at','created_at_pinterest','method','creation_method','rich_metadata','visual_objects']
+        AND metadata ?| array['title','domain','destination_url','image_url','raw_saves','crawled_at','created_at','method']
       RETURNING id;
     `;
     results.cleanedSerpMetadata = serpClean.length;
