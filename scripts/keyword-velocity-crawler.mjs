@@ -426,22 +426,25 @@ async function inspectPin(pin, kw) {
   for (const t of cleanNewAnnotations) mergedTagsSet.add(t);
   const finalAnnotations = Array.from(mergedTagsSet).slice(0, 15);
 
+  const rawBoardCount = detail?.board_pin_count != null ? Number(detail.board_pin_count) : (meta.board_pin_count != null ? Number(meta.board_pin_count) : null);
+  const validBoardCount = (rawBoardCount != null && !isNaN(rawBoardCount) && rawBoardCount > 0) ? rawBoardCount : null;
+
   const extraMeta = {
-    description: String(description || ''),
-    seo_title: detail?.seo_title || meta.seo_title || '',
-    seo_description: detail?.seo_description || meta.seo_description || '',
+    description: description ? String(description).trim() : null,
+    seo_title: (detail?.seo_title || meta.seo_title || '').trim() || null,
+    seo_description: (detail?.seo_description || meta.seo_description || '').trim() || null,
     canonical_pin_id: detail?.canonical_pin_id || meta.canonical_pin_id || null,
     canonical_pin_url: detail?.canonical_pin_url || meta.canonical_pin_url || null,
-    seo_canonical_url: detail?.seo_canonical_url || meta.seo_canonical_url || '',
+    seo_canonical_url: (detail?.seo_canonical_url || meta.seo_canonical_url || '').trim() || null,
     aggregated_pin_data_id: detail?.aggregated_pin_data_id || meta.aggregated_pin_data_id || null,
     domain_official_user: detail?.domain_official_user?.username ? detail.domain_official_user : (meta.domain_official_user || null),
     board_id: detail?.board_id || meta.board_id || null,
     board_url: detail?.board_url || meta.board_url || null,
-    board_pin_count: Number(detail?.board_pin_count || meta.board_pin_count || 0),
+    board_pin_count: validBoardCount,
     board_order_modified_at: detail?.board_order_modified_at || meta.board_order_modified_at || null,
     board_cover_url: detail?.board_cover_url || meta.board_cover_url || null,
     board_thumbnail_url: detail?.board_thumbnail_url || meta.board_thumbnail_url || null,
-    image_signature: detail?.image_signature || meta.image_signature || '',
+    image_signature: (detail?.image_signature || meta.image_signature || '').trim() || null,
     image_dimensions: detail?.image_dimensions || meta.image_dimensions || null,
     rich_metadata: detail?.rich_metadata || meta.rich_metadata || null,
     article_published_at: detail?.article_published_at || detail?.rich_metadata?.article_published_at || meta.article_published_at || null,
@@ -746,6 +749,18 @@ async function flushToStorageShards(enrichedPins) {
           const syncTask = (async () => {
             const shardSql = await resolveShardConnection({ hubSql: sql, shardId });
             const sortedPins = [...shardPins].sort((a, b) => String(a.pin_id).localeCompare(String(b.pin_id)));
+            const sanitizeShardMeta = (raw) => {
+              if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+              const clean = {};
+              for (const [k, v] of Object.entries(raw)) {
+                if (v === null || v === undefined || v === '') continue;
+                if (Array.isArray(v) && v.length === 0) continue;
+                if (k === 'board_pin_count' && (Number(v) === 0 || isNaN(Number(v)))) continue;
+                clean[k] = v;
+              }
+              return clean;
+            };
+
             const shardPayload = JSON.stringify(sortedPins.map(sp => ({
               pin_id: String(sp.pin_id),
               creator_username: String(sp.creator_username || ''),
@@ -760,7 +775,7 @@ async function flushToStorageShards(enrichedPins) {
               dominant_color: String(sp.dominant_color || '#888888'),
               visual_annotations: sp.visual_annotations || [],
               created_at_pinterest: sp.created_at_pinterest ? new Date(sp.created_at_pinterest).toISOString() : null,
-              metadata: (sp.extra_meta && typeof sp.extra_meta === 'object') ? sp.extra_meta : (sp.metadata || {}),
+              metadata: sanitizeShardMeta((sp.extra_meta && typeof sp.extra_meta === 'object') ? sp.extra_meta : sp.metadata),
               keyword_id: Number(sp.keyword_id || 0),
               rank_position: sp.rank_position ? Number(sp.rank_position) : null,
               save_count: sp.save_count != null ? Number(sp.save_count) : null,
@@ -799,14 +814,14 @@ async function flushToStorageShards(enrichedPins) {
                 image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), universal_master_pins.image_url),
                 description = COALESCE(NULLIF(EXCLUDED.description, ''), universal_master_pins.description),
                 alt_text = COALESCE(NULLIF(EXCLUDED.alt_text, ''), universal_master_pins.alt_text),
-                dominant_color = COALESCE(EXCLUDED.dominant_color, universal_master_pins.dominant_color),
+                dominant_color = COALESCE(NULLIF(EXCLUDED.dominant_color, ''), universal_master_pins.dominant_color),
                 visual_annotations = CASE 
                   WHEN jsonb_typeof(EXCLUDED.visual_annotations) = 'array' AND jsonb_array_length(EXCLUDED.visual_annotations) > 0 
                   THEN EXCLUDED.visual_annotations
                   ELSE universal_master_pins.visual_annotations
                 END,
                 created_at_pinterest = COALESCE(EXCLUDED.created_at_pinterest, universal_master_pins.created_at_pinterest),
-                metadata = (CASE WHEN jsonb_typeof(universal_master_pins.metadata) = 'object' THEN universal_master_pins.metadata ELSE '{}'::jsonb END) || COALESCE(EXCLUDED.metadata, '{}'::jsonb),
+                metadata = (CASE WHEN jsonb_typeof(universal_master_pins.metadata) = 'object' THEN universal_master_pins.metadata ELSE '{}'::jsonb END) || jsonb_strip_nulls(COALESCE(EXCLUDED.metadata, '{}'::jsonb)),
                 updated_at = NOW();
             `;
 

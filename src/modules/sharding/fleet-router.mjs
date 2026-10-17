@@ -711,37 +711,44 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
   }
 
   // 1 & 2. Ultra-Low Latency Parallel Scatter-Gather (t=0 concurrent dispatch)
-  // Concurrently fires Shard queries (with 5500ms scale-to-zero safe timeout) and Hub queries.
   let shardErrorReason = null;
   const dossierBatchId = `dossier_batch_${cleanPinId}_${Date.now()}_${Math.random()}`;
+
+  // Tier 1 Edge Shield bypass: If D1 record is fresh and contains rich metadata, bypass Shard master query completely
+  const hasValidD1 = Boolean(d1Record && (d1Record.metadata?.has_treasures || d1Record.description || d1Record.title));
+
+  const masterPromise = hasValidD1
+    ? Promise.resolve(d1Record)
+    : executeShardQueryWithCircuitBreaker({
+        shardId,
+        shardSql,
+        queryFn: async (sqlClient) => {
+          const [row] = await sqlClient`
+            SELECT 
+              pin_id, creator_username, board_id, board_name, board_slug, title, domain, destination_url,
+              image_url, description, alt_text, dominant_color, visual_annotations, created_at_pinterest,
+              first_discovered_pillar, first_discovered_at, updated_at, metadata
+            FROM universal_master_pins
+            WHERE pin_id = ${cleanPinId}
+            LIMIT 1;
+          `;
+          return row || null;
+        },
+        fallbackFn: async (info) => {
+          shardErrorReason = info?.reason || 'SHARD_UNAVAILABLE';
+          return d1Record || null;
+        },
+        timeoutMs: 5500,
+        batchId: dossierBatchId
+      });
+
   const [
     initialMaster,
     initialSnapshots,
     hubSerpRowsRaw,
     hubSnapshotsRaw
   ] = await Promise.all([
-    executeShardQueryWithCircuitBreaker({
-      shardId,
-      shardSql,
-      queryFn: async (sqlClient) => {
-        const [row] = await sqlClient`
-          SELECT 
-            pin_id, creator_username, board_id, board_name, board_slug, title, domain, destination_url,
-            image_url, description, alt_text, dominant_color, visual_annotations, created_at_pinterest,
-            first_discovered_pillar, first_discovered_at, updated_at, metadata
-          FROM universal_master_pins
-          WHERE pin_id = ${cleanPinId}
-          LIMIT 1;
-        `;
-        return row || null;
-      },
-      fallbackFn: async (info) => {
-        shardErrorReason = info?.reason || 'SHARD_UNAVAILABLE';
-        return d1Record || null;
-      },
-      timeoutMs: 5500,
-      batchId: dossierBatchId
-    }),
+    masterPromise,
     executeShardQueryWithCircuitBreaker({
       shardId,
       shardSql,
@@ -948,8 +955,9 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     .filter(t => t.length >= 2 && !/^not[\s-_]?given$/i.test(t))
     .slice(0, 15);
 
-  // Auto-Backfill or Update target shard with complete metadata & Set Union annotations
-  if (shardSql && shardSql !== hubSql && masterRecord) {
+  // Auto-Backfill: ONLY run if the record was completely missing from the shard & D1, and was synthesized from Hub
+  const shouldBackfillShard = !initialMaster && !d1Record && shardSql && shardSql !== hubSql && masterRecord;
+  if (shouldBackfillShard) {
     const backfillPromise = (async () => {
       try {
         await shardSql`
@@ -1405,18 +1413,25 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
   }
   const isCanonicalRoot = canonicalPinId ? (String(canonicalPinId) === String(cleanPinId)) : true;
 
-  // Primary source of algorithmic treasures is the Shard master record metadata
+  const cleanMeta = (obj) => {
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return {};
+    return Object.fromEntries(
+      Object.entries(obj).filter(([_, v]) => v !== '' && v !== null && v !== undefined)
+    );
+  };
+
+  // Supreme priority: Shard masterRecord metadata ALWAYS overrides Hub metadata
   const snapMeta = { 
-    ...(masterRecord?.metadata || {}), 
-    ...(hubSerpRows[0]?.metadata || {}), 
-    ...(hubHistoricalSnap?.metadata || {}) 
+    ...cleanMeta(hubHistoricalSnap?.metadata), 
+    ...cleanMeta(hubSerpRows[0]?.metadata), 
+    ...cleanMeta(masterRecord?.metadata) 
   };
 
   // Tier 1 Edge Mirror: Write-through fresh shard metadata to Cloudflare D1 asynchronously
   if (env?.PIN_D1_DB && masterRecord) {
     const d1WritePromise = (async () => {
       try {
-        const fullMetaObj = { ...snapMeta, ...(masterRecord.metadata || {}) };
+        const fullMetaObj = { ...snapMeta, ...cleanMeta(masterRecord.metadata) };
         await env.PIN_D1_DB.prepare(`
           INSERT INTO edge_pins_metadata (
             pin_id, title, domain, destination_url, image_url,

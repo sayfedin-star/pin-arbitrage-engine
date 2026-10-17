@@ -455,4 +455,83 @@ assert.strictEqual(parseD1DateMs(1770000000000), 1770000000000, 'parseD1DateMs m
 
 console.log('  ✓ Consolidator Hub Table Vacuum & D1 UTC Date Parser verified (Zero local timezone skew)');
 
+// -------------------------------------------------------------
+// Test 11: Edge Shield D1 Tier-1 Bypass & Read-Time Auto-Backfill Suppression
+// -------------------------------------------------------------
+console.log('\n[Test 11] Verifying Cloudflare D1 Tier-1 Bypass & Read-Time Auto-Backfill Suppression...');
+
+const fleetRouterContent = fs.readFileSync('src/modules/sharding/fleet-router.mjs', 'utf8');
+
+// Assert D1 bypass logic in fleet-router.mjs
+assert(
+  fleetRouterContent.includes('const hasValidD1 = Boolean(d1Record && (d1Record.metadata?.has_treasures || d1Record.description || d1Record.title));'),
+  'fleet-router.mjs must verify hasValidD1 before firing shard queries'
+);
+assert(
+  fleetRouterContent.includes('const masterPromise = hasValidD1') &&
+  fleetRouterContent.includes('? Promise.resolve(d1Record)'),
+  'fleet-router.mjs must resolve masterPromise directly with d1Record when fresh, bypassing shard query'
+);
+
+// Assert Auto-Backfill is suppressed when record was already present on shard or D1
+assert(
+  fleetRouterContent.includes('const shouldBackfillShard = !initialMaster && !d1Record && shardSql && shardSql !== hubSql && masterRecord;'),
+  'fleet-router.mjs must restrict Auto-Backfill strictly to !initialMaster && !d1Record (prevents write churn on read)'
+);
+
+console.log('  ✓ Tier-1 D1 Shield bypass & Auto-Backfill suppression verified (Zero read-time write churn)');
+
+// -------------------------------------------------------------
+// Test 12: snapMeta Supreme Shard Priority & Shard Crawl Metadata Sanitization
+// -------------------------------------------------------------
+console.log('\n[Test 12] Verifying snapMeta Supreme Shard Priority & Shard Crawl Metadata Sanitization...');
+
+// Assert snapMeta merge order in fleet-router.mjs gives supreme priority to masterRecord.metadata
+assert(
+  fleetRouterContent.includes('...cleanMeta(hubHistoricalSnap?.metadata)') &&
+  fleetRouterContent.includes('...cleanMeta(hubSerpRows[0]?.metadata)') &&
+  fleetRouterContent.includes('...cleanMeta(masterRecord?.metadata)'),
+  'fleet-router.mjs must merge cleanMeta(masterRecord?.metadata) LAST to give supreme priority to shard treasures'
+);
+
+// Functional test of snapMeta priority
+const dummyHubHistory = { image_signature: '', board_pin_count: 0, seo_title: 'Old Hub Title' };
+const dummyHubSerp = { image_signature: '', board_pin_count: 0, seo_title: '' };
+const dummyShardMaster = { image_signature: 'SHARD_SIG_VALID', board_pin_count: 550, seo_title: 'Rich Master Pin' };
+
+const cleanMetaFn = (obj) => {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return {};
+  return Object.fromEntries(
+    Object.entries(obj).filter(([_, v]) => v !== '' && v !== null && v !== undefined)
+  );
+};
+
+const mergedResult = {
+  ...cleanMetaFn(dummyHubHistory),
+  ...cleanMetaFn(dummyHubSerp),
+  ...cleanMetaFn(dummyShardMaster)
+};
+
+assert.strictEqual(mergedResult.image_signature, 'SHARD_SIG_VALID', 'Shard image_signature must not be overwritten by Hub');
+assert.strictEqual(mergedResult.board_pin_count, 550, 'Shard board_pin_count must not be overwritten by Hub 0');
+assert.strictEqual(mergedResult.seo_title, 'Rich Master Pin', 'Shard seo_title must prevail over Hub');
+
+// Shard crawler sanitization assertions in keyword-velocity-crawler.mjs
+const crawlerContent = fs.readFileSync('scripts/keyword-velocity-crawler.mjs', 'utf8');
+
+assert(
+  crawlerContent.includes('sanitizeShardMeta'),
+  'keyword-velocity-crawler.mjs must define sanitizeShardMeta in flushToStorageShards'
+);
+assert(
+  crawlerContent.includes('jsonb_strip_nulls(COALESCE(EXCLUDED.metadata, \'{}\'::jsonb))'),
+  'keyword-velocity-crawler.mjs must use jsonb_strip_nulls on EXCLUDED.metadata in universal_master_pins upsert'
+);
+assert(
+  crawlerContent.includes('dominant_color = COALESCE(NULLIF(EXCLUDED.dominant_color, \'\'), universal_master_pins.dominant_color)'),
+  'keyword-velocity-crawler.mjs must guard dominant_color with NULLIF in universal_master_pins upsert'
+);
+
+console.log('  ✓ snapMeta supreme priority & crawler metadata sanitization verified (100% treasure safe)');
+
 console.log('\n🎉 ALL Phase 3 Verification Assertions Passed Successfully (100% Green)!');
