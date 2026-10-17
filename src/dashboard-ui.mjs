@@ -1,3 +1,5 @@
+import { getEdgeShieldClientScript } from './edge-shield-client.mjs';
+
 export function getDashboardHtml() {
   return `<!DOCTYPE html>
 <html lang="en" :class="isDark ? 'dark' : ''" x-data="dashboardApp()" x-init="initDashboard()">
@@ -1149,7 +1151,7 @@ export function getDashboardHtml() {
       <!-- VIEW 1: PIN CARDS GRID VIEW -->
       <div x-show="!isLoadingBoardPins && boardPinsViewMode === 'grid' && paginatedBoardPins.length > 0" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         <template x-for="p in paginatedBoardPins" :key="p.pin_id || p.id">
-          <div class="group relative flex flex-col rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] overflow-hidden shadow-xs hover:shadow-md hover:border-rose-500/40 dark:hover:border-rose-500/40 transition-all duration-200">
+          <div :data-pin-id="p.pin_id || p.id" class="group relative flex flex-col rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] overflow-hidden shadow-xs hover:shadow-md hover:border-rose-500/40 dark:hover:border-rose-500/40 transition-all duration-200">
             
             <!-- Pin Image Container -->
             <div class="relative h-64 w-full overflow-hidden bg-slate-100 dark:bg-slate-900 cursor-pointer" @click="openPinPage(p)">
@@ -1262,7 +1264,7 @@ export function getDashboardHtml() {
             </thead>
             <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono">
               <template x-for="p in paginatedBoardPins" :key="p.pin_id || p.id">
-                <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition">
+                <tr :data-pin-id="p.pin_id || p.id" class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition">
                   
                   <!-- Thumbnail -->
                   <td class="py-2.5 px-4 w-14">
@@ -3952,7 +3954,7 @@ export function getDashboardHtml() {
           <!-- VIEW MODE 1: CARDS GRID VIEW -->
           <div x-show="pinarchiveViewMode === 'grid'" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             <template x-for="pin in pinarchivePins" :key="pin.pin_id">
-              <div class="bg-slate-50 dark:bg-slate-900/60 rounded-2xl border border-slate-200/80 dark:border-slate-800 overflow-hidden shadow-sm hover:border-indigo-500/50 transition flex flex-col justify-between">
+              <div :data-pin-id="pin.pin_id" class="bg-slate-50 dark:bg-slate-900/60 rounded-2xl border border-slate-200/80 dark:border-slate-800 overflow-hidden shadow-sm hover:border-indigo-500/50 transition flex flex-col justify-between">
                 <div>
                   <div class="relative aspect-[2/3] bg-slate-200 dark:bg-slate-800 overflow-hidden group cursor-pointer" @click="openPinDossier(pin)">
                     <img :src="pin.image_url" loading="lazy" class="w-full h-full object-cover group-hover:scale-105 transition duration-300">
@@ -4022,7 +4024,7 @@ export function getDashboardHtml() {
               </thead>
               <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono">
                 <template x-for="pin in pinarchivePins" :key="pin.pin_id">
-                  <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition">
+                  <tr :data-pin-id="pin.pin_id" class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition">
                     <td class="py-2 px-3 w-14">
                       <img :src="pin.image_url" class="w-10 h-14 rounded-lg object-cover border border-slate-200 dark:border-slate-700 cursor-pointer hover:opacity-80 transition" @click="openPinDossier(pin)">
                     </td>
@@ -10352,49 +10354,6 @@ export function getDashboardHtml() {
             }
           }, 3000);
 
-          // Operator Session Keep-Alive Heartbeat (4-min interval) to keep Neon compute instances warm while tab is active
-          if (this._sessionHeartbeatInterval) clearInterval(this._sessionHeartbeatInterval);
-          this._sessionHeartbeatInterval = setInterval(() => {
-            if (typeof document === 'undefined' || !document.hidden) {
-              fetch('/api/fleet/keep-alive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).catch(() => {});
-            }
-          }, 240000);
-
-          // Smart Prefetch on Hover (120ms debounce) for Pin Dossier & Target Shard pre-warming
-          if (typeof document !== 'undefined' && !window.__paeHoverPrefetchInstalled) {
-            window.__paeHoverPrefetchInstalled = true;
-            let hoverPrefetchTimer = null;
-            const prefetchCache = new Set();
-            document.addEventListener('mouseover', (e) => {
-              const pinCard = e.target.closest('[data-pin-id], a[href*="/pin/"], a[href*="/pins/"]');
-              if (!pinCard) {
-                if (hoverPrefetchTimer) { clearTimeout(hoverPrefetchTimer); hoverPrefetchTimer = null; }
-                return;
-              }
-              let pid = pinCard.getAttribute('data-pin-id');
-              if (!pid && pinCard.href) {
-                const parts = pinCard.href.split('/pin/');
-                if (parts[1]) pid = parts[1].split(/[?#/]/)[0];
-                if (!pid) {
-                  const parts2 = pinCard.href.split('/pins/');
-                  if (parts2[1]) pid = parts2[1].split(/[?#/]/)[0];
-                }
-              }
-              if (pid && pid.length >= 10 && !isNaN(Number(pid)) && !prefetchCache.has(pid)) {
-                if (hoverPrefetchTimer) clearTimeout(hoverPrefetchTimer);
-                hoverPrefetchTimer = setTimeout(() => {
-                  prefetchCache.add(pid);
-                  fetch('/api/pins/' + pid + '?prefetch=true', { method: 'GET' }).catch(() => {});
-                }, 120);
-              }
-            });
-            document.addEventListener('mouseout', (e) => {
-              if (e.target.closest('[data-pin-id], a[href*="/pin/"], a[href*="/pins/"]')) {
-                if (hoverPrefetchTimer) { clearTimeout(hoverPrefetchTimer); hoverPrefetchTimer = null; }
-              }
-            });
-          }
-
           this.$nextTick(() => {
             if (window.lucide) window.lucide.createIcons();
           });
@@ -12876,6 +12835,7 @@ export function getDashboardHtml() {
       };
     }
   </script>
+  ${getEdgeShieldClientScript()}
 </body>
 </html>`;
 }

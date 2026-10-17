@@ -13,6 +13,8 @@
  * - Dark / Light Mode with instant hydration.
  */
 
+import { getEdgeShieldClientScript } from './edge-shield-client.mjs';
+
 export function getDomainsPageHtml() {
   return `<!DOCTYPE html>
 <html lang="en">
@@ -1127,7 +1129,7 @@ export function getDomainsPageHtml() {
               <!-- TAB 1: Ranked Pins -->
               <div x-show="dossierTab === 'pins'" class="space-y-3">
                 <template x-for="p in dossierData.ranked_pins" :key="p.pin_id">
-                  <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700/80 rounded-xl p-3 flex items-center justify-between gap-3 shadow-sm hover:border-sky-500/50 transition">
+                  <div :data-pin-id="p.pin_id" class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700/80 rounded-xl p-3 flex items-center justify-between gap-3 shadow-sm hover:border-sky-500/50 transition">
                     <div class="flex items-center gap-3 min-w-0">
                       <img :src="p.image_url"
                            class="w-12 h-16 rounded-lg object-cover bg-slate-200 dark:bg-slate-700 shrink-0"
@@ -1220,7 +1222,8 @@ export function getDomainsPageHtml() {
                     <!-- Creative Pin Variations Thumbnails Gallery -->
                     <div class="grid grid-cols-4 sm:grid-cols-6 gap-2 pt-2 border-t border-slate-100 dark:border-slate-700/60">
                       <template x-for="p in art.pins" :key="p.pin_id">
-                        <a :href="safeUrl('/pin/' + p.pin_id)"
+                        <a :data-pin-id="p.pin_id"
+                           :href="safeUrl('/pin/' + p.pin_id)"
                            target="_blank"
                            class="group relative rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-900 aspect-[2/3]">
                           <img :src="p.image_url"
@@ -2207,6 +2210,7 @@ export function getDomainsPageHtml() {
       };
     }
   </script>
+  ${getEdgeShieldClientScript()}
 </body>
 </html>`;
 }

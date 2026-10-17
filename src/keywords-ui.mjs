@@ -14,6 +14,8 @@
  * - Force-bypass self-healing locks (Zero crawl_lock lockout)
  */
 
+import { getEdgeShieldClientScript } from './edge-shield-client.mjs';
+
 export function getKeywordsPageHtml(initialSlug = '') {
   return `<!DOCTYPE html>
 <html lang="en" class="dark">
@@ -1682,7 +1684,8 @@ export function getKeywordsPageHtml(initialSlug = '') {
               </thead>
               <tbody class="divide-y divide-slate-100 dark:divide-slate-800/80 text-xs">
                 <template x-for="(pin, idx) in paginatedPins" :key="pin.pin_id">
-                  <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition group cursor-pointer"
+                  <tr :data-pin-id="pin.pin_id"
+                      class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition group cursor-pointer"
                       @click="openPinInspector(pin)">
                     
                     <!-- Checkbox -->
@@ -1904,7 +1907,8 @@ export function getKeywordsPageHtml(initialSlug = '') {
         <template x-if="!isDetailsLoading && filteredPins && filteredPins.length > 0 && viewMode === 'cards'">
           <div class="p-5 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
             <template x-for="pin in paginatedPins" :key="pin.pin_id">
-              <div @click="openPinInspector(pin)"
+              <div :data-pin-id="pin.pin_id"
+                   @click="openPinInspector(pin)"
                    class="p-4 rounded-3xl bg-slate-50/70 dark:bg-slate-900/40 border border-slate-200/80 dark:border-slate-800 hover:border-emerald-500/40 transition group cursor-pointer flex flex-col justify-between space-y-3.5">
                 
                 <div class="space-y-3">
@@ -2482,7 +2486,8 @@ export function getKeywordsPageHtml(initialSlug = '') {
 
             <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3.5">
               <template x-for="p in (trendsData?.popular_pins || [])" :key="p.pin_id || p.id">
-                <div @click="openPinInspector({ pin_id: p.pin_id || p.id, title: p.title, image_url: p.image_url, domain: p.domain, save_count: p.save_count, repin_count: p.repin_count })"
+                <div :data-pin-id="p.pin_id || p.id"
+                     @click="openPinInspector({ pin_id: p.pin_id || p.id, title: p.title, image_url: p.image_url, domain: p.domain, save_count: p.save_count, repin_count: p.repin_count })"
                      class="group rounded-2xl bg-slate-50/80 dark:bg-slate-900/50 border border-slate-200/80 dark:border-slate-800 hover:border-blue-500/50 overflow-hidden transition cursor-pointer flex flex-col justify-between">
                   
                   <div class="relative aspect-[2/3] bg-slate-200 dark:bg-slate-800 overflow-hidden">
@@ -3160,7 +3165,8 @@ export function getKeywordsPageHtml(initialSlug = '') {
               </thead>
               <tbody class="divide-y divide-slate-100 dark:divide-slate-800/80 text-xs">
                 <template x-for="(pin, idx) in filteredDisplacedPins" :key="pin.pin_id">
-                  <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition group cursor-pointer"
+                  <tr :data-pin-id="pin.pin_id"
+                      class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition group cursor-pointer"
                       @click="openPinInspector(pin)">
                     
                     <td class="py-3.5 px-3 text-center" @click.stop>
@@ -3298,7 +3304,8 @@ export function getKeywordsPageHtml(initialSlug = '') {
         <template x-if="!isDisplacedLoading && filteredDisplacedPins && filteredDisplacedPins.length > 0 && viewMode === 'cards'">
           <div class="p-5 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
             <template x-for="pin in filteredDisplacedPins" :key="pin.pin_id">
-              <div @click="openPinInspector(pin)"
+              <div :data-pin-id="pin.pin_id"
+                   @click="openPinInspector(pin)"
                    class="p-4 rounded-3xl bg-slate-50/70 dark:bg-slate-900/40 border border-slate-200/80 dark:border-slate-800 hover:border-rose-500/40 transition group cursor-pointer flex flex-col justify-between space-y-3.5">
                 
                 <div class="space-y-3">
@@ -7758,6 +7765,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
       };
     }
   </script>
+  ${getEdgeShieldClientScript()}
 </body>
 </html>`;
 }

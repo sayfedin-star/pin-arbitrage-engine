@@ -123,10 +123,12 @@ export async function optimizeHubStorage(sql) {
               domain: String(p.domain || ''),
               destination_url: String(p.destination_url || ''),
               image_url: String(p.image_url || ''),
-              description: String(p.metadata?.description || '').slice(0, 500),
-              alt_text: String(p.metadata?.alt_text || '').slice(0, 500),
+              description: String(p.metadata?.description || ''),
+              alt_text: String(p.metadata?.alt_text || ''),
               dominant_color: String(p.dominant_color || '#888888'),
               visual_annotations: Array.isArray(p.visual_annotations) ? p.visual_annotations : [],
+              created_at_pinterest: p.created_at_pinterest ? new Date(p.created_at_pinterest).toISOString() : null,
+              metadata: (p.metadata && typeof p.metadata === 'object') ? p.metadata : {},
               last_known_rank: p.last_known_rank ? Number(p.last_known_rank) : (p.rank_position ? Number(p.rank_position) : null),
               save_count: Number(p.save_count || 0),
               repin_count: Number(p.repin_count || 0),
@@ -140,16 +142,18 @@ export async function optimizeHubStorage(sql) {
               INSERT INTO universal_master_pins (
                 pin_id, creator_username, board_name, title, domain, destination_url,
                 image_url, description, alt_text, dominant_color, visual_annotations,
+                created_at_pinterest, metadata,
                 first_discovered_pillar, first_discovered_at, updated_at
               )
               SELECT DISTINCT ON (u.pin_id)
                 u.pin_id, u.creator_username, u.board_name, u.title, u.domain, u.destination_url,
                 u.image_url, u.description, u.alt_text, u.dominant_color, u.visual_annotations,
+                u.created_at_pinterest::timestamptz, u.metadata,
                 'keyword', NOW(), NOW()
               FROM jsonb_to_recordset(${payload}::jsonb) AS u(
                 pin_id text, creator_username text, board_name text, title text, domain text,
                 destination_url text, image_url text, description text, alt_text text,
-                dominant_color text, visual_annotations jsonb
+                dominant_color text, visual_annotations jsonb, created_at_pinterest text, metadata jsonb
               )
               ORDER BY u.pin_id ASC
               ON CONFLICT (pin_id) DO UPDATE SET
@@ -157,6 +161,14 @@ export async function optimizeHubStorage(sql) {
                 domain = COALESCE(NULLIF(EXCLUDED.domain, ''), universal_master_pins.domain),
                 destination_url = COALESCE(NULLIF(EXCLUDED.destination_url, ''), universal_master_pins.destination_url),
                 image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), universal_master_pins.image_url),
+                description = COALESCE(NULLIF(EXCLUDED.description, ''), universal_master_pins.description),
+                alt_text = COALESCE(NULLIF(EXCLUDED.alt_text, ''), universal_master_pins.alt_text),
+                created_at_pinterest = COALESCE(EXCLUDED.created_at_pinterest, universal_master_pins.created_at_pinterest),
+                metadata = CASE 
+                  WHEN EXCLUDED.metadata IS NOT NULL AND EXCLUDED.metadata <> '{}'::jsonb 
+                  THEN universal_master_pins.metadata || EXCLUDED.metadata 
+                  ELSE universal_master_pins.metadata 
+                END,
                 updated_at = NOW();
             `;
 
@@ -425,9 +437,9 @@ export async function optimizeHubStorage(sql) {
   try {
     const serpClean = await sql`
       UPDATE keyword_serp_current
-      SET metadata = metadata - 'title' - 'domain' - 'destination_url' - 'image_url' - 'raw_saves' - 'crawled_at' - 'created_at' - 'method'
+      SET metadata = metadata - 'title' - 'domain' - 'destination_url' - 'image_url' - 'raw_saves' - 'crawled_at' - 'created_at' - 'method' - 'description' - 'alt_text' - 'rich_metadata' - 'visual_objects' - 'seo_related_interests'
       WHERE metadata IS NOT NULL
-        AND metadata ?| array['title','domain','destination_url','image_url','raw_saves','crawled_at','created_at','method']
+        AND metadata ?| array['title','domain','destination_url','image_url','raw_saves','crawled_at','created_at','method','description','alt_text','rich_metadata','visual_objects','seo_related_interests']
       RETURNING id;
     `;
     results.cleanedSerpMetadata = serpClean.length;

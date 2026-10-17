@@ -4207,7 +4207,7 @@ export default {
             }
 
             const dossier = await getCachedOrFetch(dossierCacheKey, async () => {
-              return await fetchUniversalPinDossier({ hubSql: sql, pinId, ctx, env });
+              return await fetchUniversalPinDossier({ hubSql: sql, pinId, ctx, env, bypassEdgeCache: forceRefresh });
             }, 30000, 120000, { forceRefresh });
 
             // Non-Blocking Background Auto-Enrichment via safeWaitUntil (0ms user wait)

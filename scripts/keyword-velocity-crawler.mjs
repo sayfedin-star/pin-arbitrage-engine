@@ -153,7 +153,7 @@ function evaluateHydrationGuard(pin, currentUtcTimestamp = Date.now()) {
     meta.is_deep_hydrated === true ||
     meta.is_deep_hydrated === 'true'
   );
-  const hasRichTreasures = Boolean(meta.image_signature || meta.canonical_pin_id || meta.board_pin_count);
+  const hasRichTreasures = Boolean(meta.has_treasures === true || meta.image_signature || meta.canonical_pin_id || meta.board_pin_count);
   if (!crawlTime || !isDeepHydrated || !hasRichTreasures || pin.save_count == null || Number(pin.save_count) === 0) {
     return { shouldFetch: true, reason: 'unhydrated_or_missing_treasures', reuseTelemetry: null };
   }
@@ -427,7 +427,7 @@ async function inspectPin(pin, kw) {
   const finalAnnotations = Array.from(mergedTagsSet).slice(0, 15);
 
   const extraMeta = {
-    description: String(description || '').slice(0, 1000),
+    description: String(description || ''),
     seo_title: detail?.seo_title || meta.seo_title || '',
     seo_description: detail?.seo_description || meta.seo_description || '',
     canonical_pin_id: detail?.canonical_pin_id || meta.canonical_pin_id || null,
@@ -552,18 +552,24 @@ async function flushBatchToHub(pinsChunk, kw) {
           THEN u.visual_annotations 
           ELSE ksc.visual_annotations 
         END,
-        metadata = (CASE WHEN jsonb_typeof(ksc.metadata) = 'object' THEN ksc.metadata ELSE '{}'::jsonb END) || jsonb_strip_nulls(COALESCE(u.extra_meta, '{}'::jsonb)) || jsonb_build_object(
-          'description', CASE WHEN u.description <> '' THEN u.description ELSE COALESCE(ksc.metadata->>'description', '') END,
-          'alt_text', CASE WHEN u.alt_text <> '' THEN u.alt_text ELSE COALESCE(ksc.metadata->>'alt_text', '') END,
+        metadata = ((CASE WHEN jsonb_typeof(ksc.metadata) = 'object' THEN ksc.metadata ELSE '{}'::jsonb END) - 'description' - 'alt_text' - 'rich_metadata' - 'visual_objects' - 'seo_related_interests') || jsonb_build_object(
+          'is_deleted', u.is_dead::boolean,
+          'is_deep_hydrated', CASE WHEN u.from_hydration_cache THEN COALESCE((ksc.metadata->>'is_deep_hydrated')::boolean, true) ELSE TRUE END,
+          'has_treasures', TRUE,
+          'status', CASE WHEN u.is_dead THEN 'archived_404' ELSE 'active' END,
+          'image_signature', COALESCE(NULLIF(u.extra_meta->>'image_signature', ''), ksc.metadata->>'image_signature', ''),
+          'canonical_pin_id', COALESCE(NULLIF(u.extra_meta->>'canonical_pin_id', ''), ksc.metadata->>'canonical_pin_id', ''),
+          'board_pin_count', CASE 
+            WHEN (u.extra_meta->>'board_pin_count') IS NOT NULL AND (u.extra_meta->>'board_pin_count') ~ '^[0-9]+$' 
+            THEN (u.extra_meta->>'board_pin_count')::int 
+            ELSE COALESCE((ksc.metadata->>'board_pin_count')::int, 0) 
+          END,
           'share_count', u.authentic_shares::int,
           'dominant_color', u.dominant_color,
           'board_name', u.board,
           'method', u.method,
           'creation_method', u.method,
-          'created_at_pinterest', u.created_at_pinterest,
-          'is_deleted', u.is_dead::boolean,
-          'is_deep_hydrated', CASE WHEN u.from_hydration_cache THEN COALESCE((ksc.metadata->>'is_deep_hydrated')::boolean, true) ELSE TRUE END,
-          'status', CASE WHEN u.is_dead THEN 'archived_404' ELSE 'active' END
+          'created_at_pinterest', u.created_at_pinterest
         ),
         crawled_at = CASE WHEN u.from_hydration_cache THEN ksc.crawled_at ELSE NOW() END,
         updated_at = NOW()
@@ -649,18 +655,24 @@ async function flushBatchToHub(pinsChunk, kw) {
           THEN u.visual_annotations 
           ELSE ksc.visual_annotations 
         END,
-        metadata = (CASE WHEN jsonb_typeof(ksc.metadata) = 'object' THEN ksc.metadata ELSE '{}'::jsonb END) || jsonb_strip_nulls(COALESCE(u.extra_meta, '{}'::jsonb)) || jsonb_build_object(
-          'description', CASE WHEN u.description <> '' THEN u.description ELSE COALESCE(ksc.metadata->>'description', '') END,
-          'alt_text', CASE WHEN u.alt_text <> '' THEN u.alt_text ELSE COALESCE(ksc.metadata->>'alt_text', '') END,
+        metadata = ((CASE WHEN jsonb_typeof(ksc.metadata) = 'object' THEN ksc.metadata ELSE '{}'::jsonb END) - 'description' - 'alt_text' - 'rich_metadata' - 'visual_objects' - 'seo_related_interests') || jsonb_build_object(
+          'is_deleted', u.is_dead::boolean,
+          'is_deep_hydrated', CASE WHEN u.from_hydration_cache THEN COALESCE((ksc.metadata->>'is_deep_hydrated')::boolean, true) ELSE TRUE END,
+          'has_treasures', TRUE,
+          'status', CASE WHEN u.is_dead THEN 'archived_404' ELSE 'active' END,
+          'image_signature', COALESCE(NULLIF(u.extra_meta->>'image_signature', ''), ksc.metadata->>'image_signature', ''),
+          'canonical_pin_id', COALESCE(NULLIF(u.extra_meta->>'canonical_pin_id', ''), ksc.metadata->>'canonical_pin_id', ''),
+          'board_pin_count', CASE 
+            WHEN (u.extra_meta->>'board_pin_count') IS NOT NULL AND (u.extra_meta->>'board_pin_count') ~ '^[0-9]+$' 
+            THEN (u.extra_meta->>'board_pin_count')::int 
+            ELSE COALESCE((ksc.metadata->>'board_pin_count')::int, 0) 
+          END,
           'share_count', u.authentic_shares::int,
           'dominant_color', u.dominant_color,
           'board_name', u.board,
           'method', u.method,
           'creation_method', u.method,
-          'created_at_pinterest', u.created_at_pinterest,
-          'is_deleted', u.is_dead::boolean,
-          'is_deep_hydrated', CASE WHEN u.from_hydration_cache THEN COALESCE((ksc.metadata->>'is_deep_hydrated')::boolean, true) ELSE TRUE END,
-          'status', CASE WHEN u.is_dead THEN 'archived_404' ELSE 'active' END
+          'created_at_pinterest', u.created_at_pinterest
         ),
         crawled_at = CASE WHEN u.from_hydration_cache THEN ksc.crawled_at ELSE NOW() END,
         updated_at = NOW()
@@ -735,17 +747,6 @@ async function flushToStorageShards(enrichedPins) {
   let shardsSynchronized = 0;
 
   const shardEntries = Array.from(shardGroups.entries());
-
-  // Parallel prewarming pulse (SELECT 1) across affected shards to eliminate cold-start latencies
-  await Promise.allSettled(
-    shardEntries.map(async ([shardId]) => {
-      try {
-        const prewarmSql = await resolveShardConnection({ hubSql: sql, shardId });
-        await prewarmSql`SELECT 1;`;
-      } catch (_) {}
-    })
-  );
-
   const SHARD_CONCURRENCY = 10;
 
   for (let i = 0; i < shardEntries.length; i += SHARD_CONCURRENCY) {
@@ -782,11 +783,6 @@ async function flushToStorageShards(enrichedPins) {
               last_known_rank: sp.last_known_rank ? Number(sp.last_known_rank) : null,
               catalog_rank: sp.catalog_rank ? Number(sp.catalog_rank) : (sp.rank_position ? Number(sp.rank_position) : null)
             })));
-
-            // 0. Ensure metadata column exists on Shard (Self-Healing Migration)
-            await shardSql`
-              ALTER TABLE universal_master_pins ADD COLUMN IF NOT EXISTS metadata jsonb DEFAULT '{}'::jsonb;
-            `.catch(() => {});
 
             // 1. Master Pin Record Upsert (Deduplicated on pin_id)
             const q1 = shardSql`
@@ -955,10 +951,6 @@ async function flushToStorageShards(enrichedPins) {
               await q2;
               await q3;
             }
-
-            // 4. Post-write query statistics refresh & maintenance
-            await shardSql`VACUUM (ANALYZE) universal_master_pins;`.catch(() => {});
-            await shardSql`VACUUM (ANALYZE) pins_daily_metrics;`.catch(() => {});
           })();
 
           let timerId;
@@ -1041,6 +1033,7 @@ async function inspectPinsConcurrently(pins, kw, label = 'Worker') {
   let currentBatch = [];
   let completedCount = 0;
   const total = pins.length;
+  let jitPrewarmFired = false;
 
   console.log(`  [*] ${label}: Inspecting ${total} pins with Concurrency: ${CONCURRENCY}, Hub Batch: ${BATCH_SIZE}...`);
 
@@ -1070,6 +1063,30 @@ async function inspectPinsConcurrently(pins, kw, label = 'Worker') {
       console.warn(`    [!] Pin #${p.pin_id} inspect error:`, err.message);
     } finally {
       completedCount++;
+      if (!jitPrewarmFired && total > 5 && (completedCount / total) >= 0.8) {
+        jitPrewarmFired = true;
+        // JIT Pre-warming pulse (SELECT 1) across target shards 3-5s before flushToStorageShards
+        const targetShardIds = new Set();
+        for (const targetPin of pins) {
+          if (targetPin && targetPin.pin_id && /^\d+$/.test(String(targetPin.pin_id))) {
+            const sid = Number(BigInt(targetPin.pin_id) % 99n) + 1;
+            targetShardIds.add(sid);
+          }
+        }
+        if (targetShardIds.size > 0) {
+          (async () => {
+            try {
+              await preloadNeonRegistry(sql);
+              await Promise.allSettled(Array.from(targetShardIds).map(async (shardId) => {
+                try {
+                  const prewarmSql = await resolveShardConnection({ hubSql: sql, shardId });
+                  await prewarmSql`SELECT 1;`;
+                } catch (_) {}
+              }));
+            } catch (_) {}
+          })().catch(() => {});
+        }
+      }
       if (completedCount % 50 === 0 || completedCount === total) {
         console.log(`  [Progress] ${label}: Inspected ${completedCount}/${total} pins (${Math.round((completedCount / total) * 100)}%)...`);
       }

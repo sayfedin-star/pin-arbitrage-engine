@@ -656,7 +656,7 @@ export async function getFolderCrossoverSynopsis(hubSql, folderId) {
  * @param {string|number} options.pinId - Pinterest Pin Snowflake ID
  * @returns {Promise<object>} Unified Pin Dossier
  */
-export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env = null }) {
+export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env = null, bypassEdgeCache = false }) {
   const cleanPinId = String(pinId || '').trim();
   if (!cleanPinId) throw new Error('Pin ID is required');
 
@@ -668,24 +668,28 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     shardSql = hubSql; // Graceful degradation to Hub
   }
 
-  // Tier 1: Check Cloudflare D1 edge database (3.4ms latency)
+  // Tier 1: Check Cloudflare D1 edge database (3.4ms latency) with 12h TTL freshness guard
   let d1Record = null;
-  if (env?.PIN_D1_DB) {
+  if (env?.PIN_D1_DB && !bypassEdgeCache) {
     try {
       const row = await env.PIN_D1_DB.prepare(
-        `SELECT pin_id, title, domain, destination_url, image_url, creator_username, board_name, dominant_color, visual_annotations, seo_alt_text, description, metadata, created_at_pinterest FROM edge_pins_metadata WHERE pin_id = ? LIMIT 1`
+        `SELECT pin_id, title, domain, destination_url, image_url, creator_username, board_name, dominant_color, visual_annotations, seo_alt_text, description, metadata, created_at_pinterest, updated_at FROM edge_pins_metadata WHERE pin_id = ? LIMIT 1`
       ).bind(cleanPinId).first();
       if (row) {
-        let parsedAnnotations = [];
-        try { parsedAnnotations = typeof row.visual_annotations === 'string' ? JSON.parse(row.visual_annotations) : (row.visual_annotations || []); } catch (_) {}
-        let parsedMeta = {};
-        try { parsedMeta = typeof row.metadata === 'string' ? JSON.parse(row.metadata) : (row.metadata || {}); } catch (_) {}
-        d1Record = {
-          ...row,
-          metadata: parsedMeta,
-          visual_annotations: parsedAnnotations,
-          alt_text: row.seo_alt_text || ''
-        };
+        const rowUpdatedAtMs = row.updated_at ? new Date(row.updated_at).getTime() : 0;
+        const isFresh = (Date.now() - rowUpdatedAtMs) < (12 * 60 * 60 * 1000);
+        if (isFresh) {
+          let parsedAnnotations = [];
+          try { parsedAnnotations = typeof row.visual_annotations === 'string' ? JSON.parse(row.visual_annotations) : (row.visual_annotations || []); } catch (_) {}
+          let parsedMeta = {};
+          try { parsedMeta = typeof row.metadata === 'string' ? JSON.parse(row.metadata) : (row.metadata || {}); } catch (_) {}
+          d1Record = {
+            ...row,
+            metadata: parsedMeta,
+            visual_annotations: parsedAnnotations,
+            alt_text: row.seo_alt_text || ''
+          };
+        }
       }
     } catch (_) {}
   }

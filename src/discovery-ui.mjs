@@ -5,6 +5,8 @@
  * AbortController race-guard, and bulk campaign folder assignment.
  */
 
+import { getEdgeShieldClientScript } from './edge-shield-client.mjs';
+
 export function getDiscoveryPageHtml() {
   return `<!DOCTYPE html>
 <html lang="en" class="dark">
@@ -1405,6 +1407,7 @@ export function getDiscoveryPageHtml() {
       };
     }
   </script>
+  ${getEdgeShieldClientScript()}
 </body>
 </html>`;
 }

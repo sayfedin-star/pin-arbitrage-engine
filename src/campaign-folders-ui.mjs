@@ -6,6 +6,8 @@
  * Supports Full 1,788 Unique Pins pagination, advanced sorting, and Light/Dark Mode toggle.
  */
 
+import { getEdgeShieldClientScript } from './edge-shield-client.mjs';
+
 export function getCampaignFoldersPageHtml(folderId = '') {
   // Sanitize folderId against script/attribute injection
   const rawId = String(folderId || '').trim();
@@ -330,7 +332,7 @@ export function getCampaignFoldersPageHtml(folderId = '') {
             </thead>
             <tbody class="divide-y divide-slate-200 dark:divide-slate-800/60 text-slate-700 dark:text-slate-300">
               <template x-for="(sp, idx) in paginatedPins()" :key="sp.pin_id">
-                <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                <tr :data-pin-id="sp.pin_id" class="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
                   <td class="p-3.5 text-center font-mono text-slate-400 dark:text-slate-500 text-[11px]" x-text="(currentPage - 1) * pageSize + idx + 1"></td>
                   <td class="p-3.5">
                     <div class="flex items-center gap-3">
@@ -2545,6 +2547,7 @@ export function getCampaignFoldersPageHtml(folderId = '') {
       };
     }
   </script>
+  ${getEdgeShieldClientScript()}
 </body>
 </html>`;
 }

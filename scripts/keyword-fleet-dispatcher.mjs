@@ -17,49 +17,6 @@
 import { neon } from '@neondatabase/serverless';
 import fs from 'node:fs';
 import { getAppSettings, safeNormalizeMetadata } from '../src/modules/keywords/service.mjs';
-import { resolveShardConnection, getPinShardId, preloadNeonRegistry } from '../src/modules/sharding/fleet-router.mjs';
-
-/**
- * Proactively pre-warms target storage shards in parallel to absorb cold-start latency
- * before runners begin parallel phase 1B execution.
- */
-async function prewarmTargetShards(candidatePinIds) {
-  if (!candidatePinIds || candidatePinIds.length === 0) return 0;
-  try {
-    await preloadNeonRegistry(sql);
-    const uniqueShards = Array.from(new Set(
-      candidatePinIds
-        .filter(pid => pid && /^[0-9]+$/.test(String(pid)))
-        .map(pid => getPinShardId(pid, 99))
-    ));
-
-    if (uniqueShards.length === 0) return 0;
-    console.log(`\n[*] Stage 0 Proactive Shard Pre-Warming: Pinging ${uniqueShards.length} target shards in parallel...`);
-    const results = await Promise.allSettled(
-      uniqueShards.map(async (shardId) => {
-        let timer;
-        const timeoutPromise = new Promise((_, reject) => {
-          timer = setTimeout(() => reject(new Error('Pre-warm timeout')), 4500);
-        });
-        const pingPromise = (async () => {
-          const shardSql = await resolveShardConnection({ hubSql: sql, shardId });
-          await shardSql`SELECT 1;`;
-        })();
-        try {
-          return await Promise.race([pingPromise, timeoutPromise]);
-        } finally {
-          if (timer) clearTimeout(timer);
-        }
-      })
-    );
-    const warmed = results.filter(r => r.status === 'fulfilled').length;
-    console.log(`[+] Stage 0 Pre-Warming Complete: ${warmed}/${uniqueShards.length} shards warmed and ready.`);
-    return warmed;
-  } catch (err) {
-    console.warn(`[!] Stage 0 Pre-Warming note (non-blocking): ${err.message}`);
-    return 0;
-  }
-}
 
 // Auto-load .env in local environments
 if (typeof process.loadEnvFile === 'function') {
@@ -377,49 +334,6 @@ async function main() {
       keywordId: kwRow.id,
       runnersAssigned: matrixTasks.length
     };
-  }
-
-  // ===========================================================================
-  // STAGE 0.5: PROACTIVE SHARD FLEET PRE-WARMING
-  // ===========================================================================
-  let prewarmedCount = 0;
-  try {
-    let prewarmPinIds = [];
-    if (rawFolderId) {
-      const fid = parseInt(rawFolderId, 10);
-      const rows = await sql`
-        SELECT pin_id FROM keyword_serp_current ksc
-        JOIN keyword_folder_items kfi ON kfi.keyword_id = ksc.keyword_id
-        WHERE kfi.folder_id = ${fid} AND ksc.pin_id ~ '^[0-9]+$'
-        LIMIT 500;
-      `;
-      prewarmPinIds = rows.map(r => r.pin_id);
-    } else if (mode === 'keyword_sweep') {
-      const activeKwIds = matrixTasks.map(t => t.keyword_id).filter(Boolean);
-      if (activeKwIds.length > 0) {
-        const rows = await sql`
-          SELECT pin_id FROM keyword_serp_current
-          WHERE keyword_id = ANY(${activeKwIds}) AND pin_id ~ '^[0-9]+$'
-          LIMIT 500;
-        `;
-        prewarmPinIds = rows.map(r => r.pin_id);
-      }
-    } else {
-      const singleKwId = matrixTasks[0]?.keyword_id;
-      if (singleKwId) {
-        const rows = await sql`
-          SELECT pin_id FROM keyword_serp_current
-          WHERE keyword_id = ${singleKwId} AND pin_id ~ '^[0-9]+$'
-          LIMIT 500;
-        `;
-        prewarmPinIds = rows.map(r => r.pin_id);
-      }
-    }
-    if (prewarmPinIds.length > 0) {
-      prewarmedCount = await prewarmTargetShards(prewarmPinIds);
-    }
-  } catch (pwErr) {
-    console.warn(`[!] Pre-warming check note (non-blocking): ${pwErr.message}`);
   }
 
   // ===========================================================================

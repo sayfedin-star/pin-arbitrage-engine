@@ -12,6 +12,8 @@
  * - Dynamic time-series audit log with atomic snapshot deletion
  */
 
+import { getEdgeShieldClientScript } from './edge-shield-client.mjs';
+
 export function getPinDetailPageHtml(pinId = '') {
   const safePinId = String(pinId || '').trim().replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 128);
   const escapedPinId = safePinId.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
@@ -1470,6 +1472,7 @@ export function getPinDetailPageHtml(pinId = '') {
       };
     }
   </script>
+  ${getEdgeShieldClientScript()}
 </body>
 </html>`;
 }
