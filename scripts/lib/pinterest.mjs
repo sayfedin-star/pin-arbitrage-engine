@@ -915,11 +915,12 @@ export function extractPinData(rawHtml, pinId) {
     } catch (_) {}
   }
 
+  let fallbackFormatted = null;
   if (mergedRelayPin && (mergedRelayPin.id || Object.keys(mergedRelayPin).length > 0)) {
     if (!mergedRelayPin.id) mergedRelayPin.id = pinId;
-    const formatted = formatPin(mergedRelayPin);
-    if (formatted && (formatted.title || formatted.image_url || formatted.description || formatted.saves >= 0)) {
-      return formatted;
+    fallbackFormatted = formatPin(mergedRelayPin);
+    if (fallbackFormatted && fallbackFormatted.saves > 0) {
+      return fallbackFormatted;
     }
   }
 
@@ -941,17 +942,26 @@ export function extractPinData(rawHtml, pinId) {
           ld.headline || ld.name || ld.articleBody || ld.description || rawImg || ld.url || saves > 0 || comments > 0
         );
         if (hasValidContent) {
-          return formatPin({
+          const ldFormatted = formatPin({
             id: pinId,
-            title: ld.headline || ld.name || '',
-            description: ld.articleBody || ld.description || '',
-            link: ld.url || '',
-            image_url: rawImg,
-            created_at: ld.datePublished || null,
-            saves,
-            repins: 0,
-            comments,
+            title: ld.headline || ld.name || fallbackFormatted?.title || '',
+            description: ld.articleBody || ld.description || fallbackFormatted?.description || '',
+            link: ld.url || fallbackFormatted?.link || '',
+            image_url: rawImg || fallbackFormatted?.image_url || '',
+            created_at: ld.datePublished || fallbackFormatted?.created_at || null,
+            saves: Math.max(saves, fallbackFormatted?.saves || 0),
+            repins: fallbackFormatted?.repins || 0,
+            comments: Math.max(comments, fallbackFormatted?.comments || 0),
           });
+          if (fallbackFormatted) {
+            return {
+              ...fallbackFormatted,
+              ...ldFormatted,
+              saves: Math.max(ldFormatted.saves, fallbackFormatted.saves || 0),
+              comments: Math.max(ldFormatted.comments, fallbackFormatted.comments || 0)
+            };
+          }
+          return ldFormatted;
         }
       }
     } catch (_) {}
@@ -965,17 +975,28 @@ export function extractPinData(rawHtml, pinId) {
   const imgMeta = html.match(/property="og:image"\s+content="([^"]*)"/i);
 
   if (saveMeta || repinMeta || titleMeta || imgMeta) {
-    return formatPin({
+    const metaSaves = saveMeta ? parseInt(saveMeta[1], 10) : 0;
+    const metaRepins = repinMeta ? parseInt(repinMeta[1], 10) : 0;
+    const metaFormatted = formatPin({
       id: pinId,
-      saves: saveMeta ? parseInt(saveMeta[1], 10) : 0,
-      repins: repinMeta ? parseInt(repinMeta[1], 10) : 0,
-      title: titleMeta ? titleMeta[1] : '',
-      description: descMeta ? descMeta[1] : '',
-      image_url: imgMeta ? imgMeta[1] : '',
+      saves: Math.max(metaSaves, fallbackFormatted?.saves || 0),
+      repins: Math.max(metaRepins, fallbackFormatted?.repins || 0),
+      title: (titleMeta ? titleMeta[1] : '') || fallbackFormatted?.title || '',
+      description: (descMeta ? descMeta[1] : '') || fallbackFormatted?.description || '',
+      image_url: (imgMeta ? imgMeta[1] : '') || fallbackFormatted?.image_url || '',
     });
+    if (fallbackFormatted) {
+      return {
+        ...fallbackFormatted,
+        ...metaFormatted,
+        saves: Math.max(metaFormatted.saves, fallbackFormatted.saves || 0),
+        repins: Math.max(metaFormatted.repins, fallbackFormatted.repins || 0)
+      };
+    }
+    return metaFormatted;
   }
 
-  return null;
+  return fallbackFormatted;
 }
 
 /**

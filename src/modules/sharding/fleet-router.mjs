@@ -735,7 +735,9 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
   const dossierBatchId = `dossier_batch_${cleanPinId}_${Date.now()}_${Math.random()}`;
 
   // Tier 1 Edge Shield bypass: If D1 record is fresh and contains rich metadata, bypass Shard master query completely
-  const hasValidD1 = Boolean(d1Record && (d1Record.metadata?.has_treasures || d1Record.description || d1Record.title));
+  const hasValidD1 = Boolean(
+    d1Record && (d1Record.metadata?.has_treasures || d1Record.metadata?.canonical_pin_id || (Array.isArray(d1Record.metadata?.seo_related_interests) && d1Record.metadata.seo_related_interests.length > 0))
+  );
 
   const masterPromise = hasValidD1
     ? Promise.resolve(d1Record)
@@ -855,9 +857,9 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
         sc.creator_username, sc.board_name, sc.save_count, sc.repin_count,
         COALESCE(sc.comment_count, 0) as comment_count,
         COALESCE(sc.share_count, 0) as share_count,
-        COALESCE(sc.reaction_count, 0) as reaction_count,
+        0 as reaction_count,
         sc.daily_save_velocity, sc.dominant_color, sc.visual_annotations,
-        sc.rank_position, sc.last_known_rank, sc.is_displaced, sc.metadata,
+        sc.rank_position, sc.prev_rank_position, sc.last_known_rank, sc.is_displaced, sc.metadata,
         COALESCE(sc.crawled_at, sc.updated_at) as crawled_at,
         sc.updated_at,
         sc.baseline_day_saves, sc.baseline_day_date,
@@ -865,7 +867,27 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
       FROM keyword_serp_current sc
       LEFT JOIN tracked_keywords tk ON tk.id = sc.keyword_id
       WHERE sc.pin_id = ${cleanPinId}
-      ORDER BY sc.save_count DESC;
+      UNION ALL
+      SELECT 
+        kdi.keyword_id, kdi.pin_id, '' as title, '' as domain, '' as destination_url, '' as image_url,
+        '' as creator_username, '' as board_name, kdi.save_count, kdi.repin_count,
+        COALESCE(kdi.comment_count, 0) as comment_count,
+        COALESCE(kdi.share_count, 0) as share_count,
+        0 as reaction_count,
+        kdi.daily_save_velocity, '#888888' as dominant_color, '[]'::jsonb as visual_annotations,
+        NULL::int as rank_position, NULL::int as prev_rank_position, kdi.last_known_rank,
+        TRUE as is_displaced, '{}'::jsonb as metadata,
+        kdi.updated_at as crawled_at, kdi.updated_at,
+        NULL::bigint as baseline_day_saves, NULL::date as baseline_day_date,
+        tk.keyword AS keyword_name
+      FROM keyword_displaced_index kdi
+      LEFT JOIN tracked_keywords tk ON tk.id = kdi.keyword_id
+      WHERE kdi.pin_id = ${cleanPinId}
+        AND NOT EXISTS (
+          SELECT 1 FROM keyword_serp_current sc2
+          WHERE sc2.pin_id = kdi.pin_id AND sc2.keyword_id = kdi.keyword_id
+        )
+      ORDER BY save_count DESC;
     `.catch(() => []),
     hubSql`
       SELECT 
@@ -1147,6 +1169,34 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
         metadata: sc.metadata || {}
       };
       snapshotMap.set(dedupKey, livePoint);
+
+      if (sc.baseline_day_date && sc.baseline_day_saves != null) {
+        const baseDateStr = sc.baseline_day_date instanceof Date
+          ? sc.baseline_day_date.toISOString().slice(0, 10)
+          : String(sc.baseline_day_date).slice(0, 10);
+        if (baseDateStr && baseDateStr < todayUtc) {
+          const baseKey = `${baseDateStr}_${sc.keyword_id || 'global'}`;
+          if (!snapshotMap.has(baseKey)) {
+            snapshotMap.set(baseKey, {
+              pin_id: cleanPinId,
+              keyword_id: sc.keyword_id,
+              keyword_name: sc.keyword_name,
+              snapshot_date: baseDateStr,
+              rank_position: sc.prev_rank_position ?? sc.rank_position ?? null,
+              last_known_rank: sc.last_known_rank ?? null,
+              is_displaced: Boolean(sc.is_displaced),
+              save_count: Number(sc.baseline_day_saves || 0),
+              repin_count: 0,
+              comment_count: 0,
+              share_count: 0,
+              reaction_count: 0,
+              daily_save_velocity: 0,
+              created_at: baseDateStr + 'T00:00:00.000Z',
+              metadata: {}
+            });
+          }
+        }
+      }
     }
   }
 
@@ -1437,7 +1487,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     const diff = curr.save_count - prev.save_count;
 
     if (diff > 0) {
-      curr.daily_save_velocity = Math.round((diff / elapsedDays) * 10) / 10;
+      curr.daily_save_velocity = Math.max(Number(curr.daily_save_velocity || 0), Math.round((diff / elapsedDays) * 10) / 10);
     } else if (diff === 0) {
       if (elapsedDays >= 1 && (!curr.daily_save_velocity || curr.daily_save_velocity === 0)) {
         curr.daily_save_velocity = 0;

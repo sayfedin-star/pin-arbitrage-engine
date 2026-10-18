@@ -1101,7 +1101,7 @@ export function getPinDetailPageHtml(pinId = '') {
           try {
             const d = new Date(isoStr);
             if (isNaN(d.getTime())) return String(isoStr).slice(0, 10);
-            return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+            return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' });
           } catch (_) { return String(isoStr).slice(0, 10); }
         },
 

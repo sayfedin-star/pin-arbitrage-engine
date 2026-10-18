@@ -464,7 +464,8 @@ const fleetRouterContent = fs.readFileSync('src/modules/sharding/fleet-router.mj
 
 // Assert D1 bypass logic in fleet-router.mjs
 assert(
-  fleetRouterContent.includes('const hasValidD1 = Boolean(d1Record && (d1Record.metadata?.has_treasures || d1Record.description || d1Record.title));'),
+  fleetRouterContent.includes('const hasValidD1 = Boolean(') &&
+  fleetRouterContent.includes('d1Record.metadata?.has_treasures || d1Record.metadata?.canonical_pin_id'),
   'fleet-router.mjs must verify hasValidD1 before firing shard queries'
 );
 assert(

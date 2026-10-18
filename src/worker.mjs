@@ -1745,6 +1745,13 @@ export default {
         invalidateEdgeCache('api:recgpt-playbook');
         invalidateEdgeCache('api:cluster-telemetry');
         invalidateEdgeCache('api:guided-search');
+        if (env?.PIN_ENGINE_KV && pinIds.length > 0) {
+          const evictions = pinIds.flatMap(pid => [
+            env.PIN_ENGINE_KV.delete(`dossier:pin:${pid}`).catch(() => {}),
+            env.PIN_ENGINE_KV.delete(`traj:pin:${pid}`).catch(() => {})
+          ]);
+          safeWaitUntil(ctx, Promise.all(evictions), 'kv_delete_seeds_cache');
+        }
         return jsonResponse({
           success: true,
           deleted_count: pinIds.length,
@@ -1773,6 +1780,13 @@ export default {
         invalidateEdgeCache('api:recgpt-playbook');
         invalidateEdgeCache('api:cluster-telemetry');
         invalidateEdgeCache('api:guided-search');
+        if (env?.PIN_ENGINE_KV && pinId) {
+          const evictions = [
+            env.PIN_ENGINE_KV.delete(`dossier:pin:${pinId}`).catch(() => {}),
+            env.PIN_ENGINE_KV.delete(`traj:pin:${pinId}`).catch(() => {})
+          ];
+          safeWaitUntil(ctx, Promise.all(evictions), 'kv_delete_seed_cache');
+        }
         return jsonResponse({ success: true, deleted_pin_id: pinId, purged_database: purgeData });
       }
 
@@ -4128,15 +4142,20 @@ export default {
               `.catch(() => {});
 
               if (shardKid != null) {
+                const shardLastKnown = sRow.last_known_rank ?? sRow.rank_position ?? null;
+                const shardCatalogRank = shardDisplaced ? ((Number(shardLastKnown || 50) + 100)) : (shardRank ?? shardLastKnown ?? null);
                 await shardSql`
                   INSERT INTO pin_serp_positions (
-                    pin_id, keyword_id, snapshot_date, rank_position, is_displaced, updated_at
+                    pin_id, snapshot_date, keyword_id, rank_position, is_displaced, last_known_rank, catalog_rank, updated_at
                   ) VALUES (
-                    ${pinId}, ${shardKid}, (NOW() AT TIME ZONE 'UTC')::date, ${shardRank}, ${shardDisplaced}, NOW()
+                    ${pinId}, (NOW() AT TIME ZONE 'UTC')::date, ${shardKid}, ${shardRank}, ${shardDisplaced},
+                    ${shardLastKnown}, ${shardCatalogRank}, NOW()
                   )
-                  ON CONFLICT (pin_id, keyword_id, snapshot_date) DO UPDATE SET
-                    rank_position = EXCLUDED.rank_position,
-                    is_displaced = EXCLUDED.is_displaced,
+                  ON CONFLICT (pin_id, snapshot_date, keyword_id) DO UPDATE SET
+                    rank_position = CASE WHEN EXCLUDED.is_displaced = TRUE THEN NULL ELSE EXCLUDED.rank_position END,
+                    is_displaced = COALESCE(EXCLUDED.is_displaced, FALSE),
+                    last_known_rank = COALESCE(EXCLUDED.last_known_rank, pin_serp_positions.last_known_rank),
+                    catalog_rank = COALESCE(EXCLUDED.catalog_rank, pin_serp_positions.catalog_rank),
                     updated_at = NOW();
                 `.catch(() => {});
               }
@@ -4162,6 +4181,12 @@ export default {
             // D. Refreshed dossier
             const refreshedDossier = await fetchUniversalPinDossier({ hubSql: sql, pinId, ctx, env, bypassEdgeCache: true });
             invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
+            invalidateEdgeCache(`pin:trajectory?pin_id=${pinId}`);
+            if (env?.PIN_ENGINE_KV) {
+              const p1 = env.PIN_ENGINE_KV.delete(`dossier:pin:${pinId}`).catch(() => {});
+              const p2 = env.PIN_ENGINE_KV.delete(`traj:pin:${pinId}`).catch(() => {});
+              safeWaitUntil(ctx, Promise.all([p1, p2]), `kv_sync_evict_${pinId}`);
+            }
 
             return jsonResponse({
               success: true,

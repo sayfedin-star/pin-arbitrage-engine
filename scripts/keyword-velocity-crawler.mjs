@@ -567,6 +567,7 @@ async function flushBatchToHub(pinsChunk, kw) {
         comment_count = GREATEST(COALESCE(ksc.comment_count, 0), u.authentic_comments::int),
         share_count = GREATEST(COALESCE(ksc.share_count, 0), u.authentic_shares::int),
         daily_save_velocity = CASE 
+          WHEN NOT u.from_hydration_cache AND u.daily_save_velocity IS NOT NULL THEN u.daily_save_velocity::numeric
           WHEN u.daily_save_velocity > 0 THEN GREATEST(COALESCE(ksc.daily_save_velocity, 0), u.daily_save_velocity::numeric)
           ELSE ksc.daily_save_velocity 
         END,

@@ -1311,10 +1311,10 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
 
   let leaseAcquired = false;
   let leaseCommittedInTx = false;
+  const skipLeaseRelease = Boolean(options?.skip_lease_release);
 
   try {
     const callerLeaseToken = options.lease_token || null;
-    const skipLeaseRelease = Boolean(options.skip_lease_release);
     const leaseResult = await (callerLeaseToken
       ? sql`
           UPDATE tracked_keywords
@@ -1632,6 +1632,8 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
     let topPin = null;
     let totalVelocity = 0;
     const pinVelocities = [];
+    const todayDate = new Date();
+    const todayUtc = Date.UTC(todayDate.getUTCFullYear(), todayDate.getUTCMonth(), todayDate.getUTCDate());
     let climbedCount = 0;
     let droppedCount = 0;
     let stableCount = 0;
@@ -1719,10 +1721,12 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
 
       // MONOTONIC SAVE RETENTION GUARD (IN-MEMORY):
       // Lifetime cumulative pin saves can NEVER legitimately drop to 0.
+      const baseEntryForPin = baselineMap.get(pinId);
+      const baseSavesForPin = (baseEntryForPin && typeof baseEntryForPin === 'object') ? Number(baseEntryForPin.saves || 0) : Number(baseEntryForPin || 0);
       const confirmedSaves = Math.max(
         saves,
         Number(immediateData?.saves || 0),
-        Number(baselineMap.get(pinId) || 0),
+        baseSavesForPin,
         Number(globalSavesMap.get(pinId) || 0)
       );
       const confirmedRepins = Math.max(
@@ -1738,12 +1742,9 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
       // 24h Daily Save Velocity is evaluated against previous day's baseline
       // Time-Normalized: Divides delta by pure UTC calendar days to prevent intraday hour bias or multi-day velocity inflation
       let velocity = 0;
-      const todayDate = new Date();
       if (baselineMap.has(pinId)) {
-        const baseEntry = baselineMap.get(pinId);
-        const baseSaves = (baseEntry && typeof baseEntry === 'object') ? Number(baseEntry.saves || 0) : Number(baseEntry || 0);
-        const baseDateStr = (baseEntry && typeof baseEntry === 'object') ? baseEntry.date : null;
-        const rawDelta = Math.max(0, confirmedSaves - baseSaves);
+        const baseDateStr = (baseEntryForPin && typeof baseEntryForPin === 'object') ? baseEntryForPin.date : null;
+        const rawDelta = Math.max(0, confirmedSaves - baseSavesForPin);
         let daysElapsed = 1;
         if (baseDateStr) {
           const baseDate = new Date(baseDateStr);
@@ -1869,7 +1870,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
           baseline_snapshot_id: immediateData?.snapshotId ?? null,
           baseline_date: immediateData?.snapshotDate ? (immediateData.snapshotDate instanceof Date ? immediateData.snapshotDate.toISOString().slice(0, 10) : String(immediateData.snapshotDate).slice(0, 10)) : null,
           is_new: isNew,
-          prev_save_count: baselineMap.get(pinId) ?? (immediateData ? immediateData.saves : confirmedSaves),
+          prev_save_count: baselineMap.has(pinId) ? baseSavesForPin : (immediateData ? immediateData.saves : confirmedSaves),
           format,
           aspect_ratio: aspectRatio,
           aspect_ratio_tier: aspectRatioTier,
@@ -1964,14 +1965,16 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
             }
 
             // Recalculate daily save velocity against baseline if saves updated
-            const baseSaves = baselineMap.get(p.pin_id);
-            if (baseSaves !== undefined && baseSaves !== null) {
+            const baseEntry = baselineMap.get(p.pin_id);
+            if (baseEntry !== undefined && baseEntry !== null) {
+              const baseSavesNum = (typeof baseEntry === 'object') ? Number(baseEntry.saves || 0) : Number(baseEntry || 0);
+              const baseDateRaw = (typeof baseEntry === 'object' && baseEntry.date) ? new Date(baseEntry.date) : baselineSnapshotDate;
               let daysElapsed = 1;
-              if (baselineSnapshotDate) {
-                const baseUtc = Date.UTC(baselineSnapshotDate.getUTCFullYear(), baselineSnapshotDate.getUTCMonth(), baselineSnapshotDate.getUTCDate());
+              if (baseDateRaw && !isNaN(baseDateRaw.getTime())) {
+                const baseUtc = Date.UTC(baseDateRaw.getUTCFullYear(), baseDateRaw.getUTCMonth(), baseDateRaw.getUTCDate());
                 daysElapsed = Math.max(1, Math.round((todayUtc - baseUtc) / (1000 * 60 * 60 * 24)));
               }
-              const rawDelta = Math.max(0, p.save_count - Number(baseSaves));
+              const rawDelta = Math.max(0, p.save_count - baseSavesNum);
               const newVel = Math.min(25000, Math.round(rawDelta / daysElapsed));
               p.daily_save_velocity = newVel;
               const pIdxInPrepared = preparedPins.indexOf(p);
@@ -1979,7 +1982,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
                 pinVelocities[pIdxInPrepared] = newVel;
               }
               if (p.metadata) {
-                p.metadata.prev_save_count = baseSaves;
+                p.metadata.prev_save_count = baseSavesNum;
                 if (newVel >= 50) p.metadata.velocity_tier = 'explosive';
                 else if (newVel >= 10) p.metadata.velocity_tier = 'trending';
                 else if (newVel > 0) p.metadata.velocity_tier = 'steady';
@@ -2277,7 +2280,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
               'is_deep_hydrated',
               (COALESCE((keyword_serp_current.metadata->>'is_deep_hydrated')::boolean, false) OR COALESCE((EXCLUDED.metadata->>'is_deep_hydrated')::boolean, false))
             ),
-          crawled_at = COALESCE(keyword_serp_current.crawled_at, EXCLUDED.crawled_at),
+          crawled_at = COALESCE(EXCLUDED.crawled_at, keyword_serp_current.crawled_at),
           updated_at = NOW();
       `);
 
@@ -3296,15 +3299,17 @@ export async function getPinPerformanceTrajectory(sql, keywordId, pinId, range =
         try {
           const serpRows = kid
             ? await sql`
-                SELECT pin_id, rank_position, save_count, repin_count, comment_count, share_count, reaction_count,
-                       daily_save_velocity, updated_at as snapshot_date
+                SELECT pin_id, rank_position, save_count, repin_count, COALESCE(comment_count, 0) AS comment_count,
+                       COALESCE(share_count, 0) AS share_count, 0 AS reaction_count,
+                       daily_save_velocity, COALESCE(crawled_at, updated_at) AS snapshot_date
                 FROM keyword_serp_current
                 WHERE keyword_id = ${kid} AND pin_id = ${cleanPin}
                 LIMIT 1;
               `
             : await sql`
-                SELECT pin_id, rank_position, save_count, repin_count, comment_count, share_count, reaction_count,
-                       daily_save_velocity, updated_at as snapshot_date
+                SELECT pin_id, rank_position, save_count, repin_count, COALESCE(comment_count, 0) AS comment_count,
+                       COALESCE(share_count, 0) AS share_count, 0 AS reaction_count,
+                       daily_save_velocity, COALESCE(crawled_at, updated_at) AS snapshot_date
                 FROM keyword_serp_current
                 WHERE pin_id = ${cleanPin}
                 ORDER BY updated_at DESC
@@ -3314,18 +3319,18 @@ export async function getPinPerformanceTrajectory(sql, keywordId, pinId, range =
 
           const displacedRows = kid
             ? await sql`
-                SELECT pin_id, last_rank as rank_position, last_saves as save_count, 0 as repin_count, 0 as comment_count,
-                       0 as share_count, 0 as reaction_count, daily_save_velocity, last_checked_at as snapshot_date
+                SELECT pin_id, last_known_rank AS rank_position, save_count, repin_count, COALESCE(comment_count, 0) AS comment_count,
+                       COALESCE(share_count, 0) AS share_count, 0 AS reaction_count, daily_save_velocity, updated_at AS snapshot_date
                 FROM keyword_displaced_index
                 WHERE keyword_id = ${kid} AND pin_id = ${cleanPin}
                 LIMIT 1;
               `
             : await sql`
-                SELECT pin_id, last_rank as rank_position, last_saves as save_count, 0 as repin_count, 0 as comment_count,
-                       0 as share_count, 0 as reaction_count, daily_save_velocity, last_checked_at as snapshot_date
+                SELECT pin_id, last_known_rank AS rank_position, save_count, repin_count, COALESCE(comment_count, 0) AS comment_count,
+                       COALESCE(share_count, 0) AS share_count, 0 AS reaction_count, daily_save_velocity, updated_at AS snapshot_date
                 FROM keyword_displaced_index
                 WHERE pin_id = ${cleanPin}
-                ORDER BY last_checked_at DESC
+                ORDER BY updated_at DESC
                 LIMIT 1;
               `;
           return displacedRows || [];
