@@ -1,3 +1,7 @@
+---
+trigger: always_on
+---
+
 # Adversarial Forensic Audit & Zero-Landmine Directives
 
 ## 1. Ban on Blind Trust in Mocks & Syntax Checks (The Day-2 Invariant)

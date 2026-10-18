@@ -1,0 +1,36 @@
+---
+trigger: always_on
+---
+
+# Pin Arbitrage Engine (PAE) Permanent Architectural Invariants
+
+Refer to `PROJECT_CHARTER_AND_DIRECTIVES.md` for full context. The following rules are PERMANENT, IMMUTABLE, and MUST NEVER BE VIOLATED across any conversation, task, or refactor:
+
+## 1. Strict Unauthenticated / Guest Scraping Invariant (NO LOGGED-IN COOKIES)
+- **Zero Logged-In User Cookies:** Pin details (`fetchPinFromPinterest`) MUST NEVER use authenticated cookies (`_auth=1`). Authenticated user cookies cause Pinterest to replace public aggregate counters (total saves/repins) with current-viewer state zeroes (`saves: 0`).
+- **Guest Session Fingerprinting:** Queries must run strictly as unauthenticated / guest sessions (`_auth=0` or zero login cookies) while sending complete browser headers (`priority: "u=0, i"`, `upgrade-insecure-requests: 1`, `accept`, `accept-language`, modern desktop `User-Agent`).
+- **SSR & PinResource Fallback:** Extract pin metadata from embedded SSR JSON (`__PWS_DATA__`) and use `PinResource/get/?data=...` as a fast fallback.
+- **Deep 48-Field Extraction:** Always preserve carousel detection (`method === 'carousel'`), affiliate/arbitrage links (`utmLink`, `trackedLink`), and real-time creator audience (`closeupUnifiedAttribution.followerCount`).
+
+## 2. Neon Serverless Distributed Sharding (Hub vs 99 Shards)
+- **Central Hub Authority:** Stores active keyword state (`tracked_keywords`), real-time SERP rankings (`keyword_serp_current`), monitored competitors (`competitor_pins`), and PinArchive (`pa_pins`).
+- **99 Storage Shards Authority:** Houses `universal_master_pins` and all historical time-series snapshots (`pins_daily_metrics`, `pin_serp_positions`). Handled exclusively via `fleet-router.mjs`.
+- **Zero Historical Writes to Hub:** Never write historical daily snapshots directly into the Central Hub in application code.
+
+## 3. Four-Pillar Sync Parity (Live Deep Sync)
+- Any pin refresh or live sync MUST synchronously update all applicable pillars:
+  1. `universal_master_pins` on the designated Storage Shard.
+  2. `keyword_serp_current` on the Central Hub.
+  3. `competitor_pins` on the Central Hub (if pin belongs to a tracked competitor).
+  4. `pa_pins` on the Central Hub (if pin is archived in PinArchive).
+  5. `pins_daily_metrics` on the Shard, with today's snapshot preserving reaction count and velocity.
+
+## 4. Edge Caching & D1/KV Eviction Integrity
+- **D1 Stale Ghosting Prevention:** `fleet-router.mjs` caches pin metadata in Cloudflare D1 `edge_pins_metadata` for 12 hours. Any live sync MUST execute:
+  `DELETE FROM edge_pins_metadata WHERE pin_id = ?` on D1 immediately to ensure subsequent page refreshes do not display stale data.
+- **KV SERP Eviction:** Evict `serp:comp:${kid}` from `PIN_ENGINE_KV` alongside individual dossier keys (`dossier:pin:*`, `traj:pin:*`).
+
+## 5. Defensive SQL & UI Resiliency
+- **Anti-22007 Timestamp Guard:** Never pass empty strings `""` to PostgreSQL `::timestamptz`. Sanitize dates with `safeIsoDate()` or pass explicit `null`.
+- **No Error Swallowing on DDL/DML:** Never swallow SQL syntax or non-existent column errors with `.catch(() => {})`.
+- **UI AbortSignal Protection:** All frontend mutation fetches MUST use `AbortSignal.timeout(15000)` and check `res.ok` before decoding JSON to survive 502/504 errors cleanly.

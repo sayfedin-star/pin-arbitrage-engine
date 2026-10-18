@@ -1368,21 +1368,28 @@ export function getPinDetailPageHtml(pinId = '') {
           this.showToast('Triggering Live Pinterest Deep Sync (48 fields)...');
           try {
             const res = await fetch('/api/pins/' + encodeURIComponent(this.pinId) + '/sync', {
-              method: 'POST'
+              method: 'POST',
+              signal: AbortSignal.timeout(15000)
             });
-            const data = await res.json();
-            if (res.ok && data.success) {
+            let data = null;
+            const contentType = res.headers.get('content-type') || '';
+            if (contentType.includes('application/json')) {
+              data = await res.json().catch(() => null);
+            }
+            if (res.ok && data?.success) {
               if (data.dossier) {
                 this.dossier = data.dossier;
                 this.rebuildDateMapCache();
               }
               this.showToast('Live Deep Sync completed! All 48 parameters updated.');
             } else {
-              this.showToast(data.message || 'Deep Sync error from Pinterest', 'error');
+              const errMsg = data?.message || data?.error || (res.status === 504 ? 'Pinterest timeout (504 Gateway Timeout)' : ('Deep Sync error (' + res.status + ')'));
+              this.showToast(errMsg, 'error');
             }
           } catch (e) {
             console.error('Error during deep sync:', e);
-            this.showToast('Network error during deep sync: ' + e.message, 'error');
+            const isTimeout = e.name === 'TimeoutError' || e.message?.includes('timeout') || e.message?.includes('aborted');
+            this.showToast(isTimeout ? 'Deep Sync timed out after 15s. Pinterest may be throttling requests.' : ('Network error during deep sync: ' + e.message), 'error');
           } finally {
             this.isSyncing = false;
           }

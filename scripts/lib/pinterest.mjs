@@ -59,6 +59,11 @@ export const PINTEREST_PAGE_HEADERS = {
   'sec-ch-ua': '"Not=A?Brand";v="99", "Google Chrome";v="151", "Chromium";v="151"',
   'sec-ch-ua-mobile': '?0',
   'sec-ch-ua-platform': '"Windows"',
+  'sec-fetch-dest': 'document',
+  'sec-fetch-mode': 'navigate',
+  'sec-fetch-site': 'none',
+  'sec-fetch-user': '?1',
+  'priority': 'u=0, i',
   'upgrade-insecure-requests': '1',
   'Cache-Control': 'no-cache',
 };
@@ -1002,6 +1007,43 @@ export function extractPinData(rawHtml, pinId) {
 /**
  * Fetch a single pin HTML and parse it.
  */
+/**
+ * Fetch authentic individual pin details from Pinterest PinResource JSON endpoint.
+ * Serves as a fast, clean, unauthenticated fallback if HTML scraping is rate-limited or fails.
+ */
+export async function fetchPinFromPinResource(pinId, dispatcher = null) {
+  try {
+    const cleanId = String(pinId || '').trim();
+    if (!cleanId) return null;
+    const optionsObj = { id: cleanId, field_set_key: 'detailed' };
+    const targetUrl = `https://www.pinterest.com/resource/PinResource/get/?data=${encodeURIComponent(JSON.stringify({ options: optionsObj, context: {} }))}`;
+    const res = await pinterestFetch(targetUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',
+        'Accept': 'application/json, text/javascript, */*, q=0.01',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-Pinterest-PWS-Handler': 'www/pin/[id].js',
+        'Referer': `https://www.pinterest.com/pin/${cleanId}/`
+      },
+      signal: AbortSignal.timeout(6000),
+      dispatcher
+    });
+    if (!res.ok) {
+      if (res.body) await res.body.cancel().catch(() => {});
+      return null;
+    }
+    const json = await res.json().catch(() => null);
+    const pinData = json?.resource_response?.data;
+    if (pinData && (pinData.id || pinData.title || pinData.link || pinData.images)) {
+      return formatPin(pinData);
+    }
+    return null;
+  } catch (_) {
+    return null;
+  }
+}
+
 export async function fetchPinFromPinterest(pinId, cookieOrOptions = null, maybeOptions = {}) {
   try {
     const cleanId = String(pinId || '').trim();
@@ -1014,7 +1056,7 @@ export async function fetchPinFromPinterest(pinId, cookieOrOptions = null, maybe
     const dispatcher = opts.dispatcher || defaultDispatcher;
 
     const url = `https://www.pinterest.com/pin/${cleanId}/`;
-    // Pin details MUST always be queried anonymously (zero cookies)
+    // Pin details MUST always be queried anonymously (zero login cookies)
     // to guarantee Pinterest serves public aggregate stats (saves/repins) instead of viewer-state zeroes
     const headers = { ...PINTEREST_PAGE_HEADERS };
     let res = await pinterestFetch(url, {
@@ -1026,13 +1068,15 @@ export async function fetchPinFromPinterest(pinId, cookieOrOptions = null, maybe
 
     if (res.status === 401 || res.status === 403 || res.status === 429 || res.status === 502 || res.status === 503 || res.status === 504) {
       if (res.body) await res.body.cancel().catch(() => {});
-      let retryDelay = exponentialBackoffWithFullJitter(1, 2500, 8000);
+      let retryDelay = exponentialBackoffWithFullJitter(1, 1500, 3500);
       if (res.status === 429) {
         const retrySec = parseRetryAfterSeconds(res.headers.get('retry-after'), 3);
-        if (retrySec > 30) {
+        if (retrySec > 15) {
+          const fallbackPin = await fetchPinFromPinResource(cleanId, dispatcher);
+          if (fallbackPin) return { ok: true, pin: fallbackPin };
           return { ok: false, status: 429, retryAfter: retrySec };
         }
-        retryDelay = Math.max(retryDelay, retrySec * 1000);
+        retryDelay = Math.min(Math.max(retryDelay, retrySec * 1000), 4000);
       }
       await sleep(retryDelay);
       res = await pinterestFetch(url, { headers: PINTEREST_PAGE_HEADERS, redirect: 'follow', signal: AbortSignal.timeout(8000), dispatcher });
@@ -1040,12 +1084,21 @@ export async function fetchPinFromPinterest(pinId, cookieOrOptions = null, maybe
 
     if (!res.ok) {
       if (res.body) await res.body.cancel().catch(() => {});
+      const fallbackPin = await fetchPinFromPinResource(cleanId, dispatcher);
+      if (fallbackPin) return { ok: true, pin: fallbackPin };
+
       const resRetryAfter = res.status === 429 ? parseRetryAfterSeconds(res.headers.get('retry-after'), 15) : undefined;
       return { ok: false, status: res.status, retryAfter: resRetryAfter };
     }
     const html = await res.text();
     const parsed = extractPinData(html, pinId);
-    return parsed ? { ok: true, pin: parsed } : { ok: false, status: 200, error: 'parse_failed' };
+    if (parsed) return { ok: true, pin: parsed };
+
+    // Graceful fallback to PinResource JSON endpoint if HTML parsing failed
+    const fallbackPin = await fetchPinFromPinResource(cleanId, dispatcher);
+    if (fallbackPin) return { ok: true, pin: fallbackPin };
+
+    return { ok: false, status: 200, error: 'parse_failed' };
   } catch (err) {
     return { ok: false, error: err.message };
   }

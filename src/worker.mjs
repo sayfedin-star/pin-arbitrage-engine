@@ -3801,8 +3801,9 @@ export default {
           const targetDate = hubSnap?.snapshot_date || shardSnap?.snapshot_date;
           const targetKwId = hubSnap?.keyword_id || shardSnap?.keyword_id;
 
-          // 2. Delete from single-row snapshot tables on Hub
+          // 2. Delete from single-row snapshot tables on Hub and Shard
           await sql`DELETE FROM keyword_pins_snapshots WHERE id = ${snapshotId};`.catch(() => {});
+          await shardSql`DELETE FROM pins_daily_snapshots WHERE id = ${snapshotId};`.catch(() => {});
 
           // 3. Clean Two-Tier Shard tables (pins_daily_metrics & pin_serp_positions)
           if (targetDate) {
@@ -4023,6 +4024,13 @@ export default {
               metaToStore[k] = v;
             }
 
+            const cleanCreatedAtIso = (() => {
+              const rawDate = pin.created_at_pinterest || pin.created_at;
+              if (!rawDate) return null;
+              const d = new Date(rawDate);
+              return isNaN(d.getTime()) ? null : d.toISOString();
+            })();
+
             // A. Master pin record on target shard
             await shardSql`
               INSERT INTO universal_master_pins (
@@ -4042,7 +4050,7 @@ export default {
                 ${pin.alt_text || pin.seo_title || ''},
                 ${pin.dominant_color || '#888888'},
                 ${JSON.stringify(pin.annotations?.map(a => a.name) || [])}::jsonb,
-                ${pin.created_at_pinterest ? new Date(pin.created_at_pinterest).toISOString() : null}::timestamptz,
+                ${cleanCreatedAtIso}::timestamptz,
                 ${JSON.stringify(metaToStore)}::jsonb,
                 'live_sync',
                 NOW(),
@@ -4099,7 +4107,7 @@ export default {
                   THEN ${JSON.stringify(pin.annotations?.map(a => a.name) || [])}::jsonb 
                   ELSE visual_annotations 
                 END,
-                created_at_pinterest = CASE WHEN ${pin.created_at_pinterest}::timestamptz IS NOT NULL THEN ${pin.created_at_pinterest}::timestamptz ELSE created_at_pinterest END,
+                created_at_pinterest = COALESCE(${cleanCreatedAtIso}::timestamptz, created_at_pinterest),
                 creation_method = CASE WHEN ${pin.creation_method || ''}::text <> '' THEN ${pin.creation_method}::text ELSE creation_method END,
                 metadata = CASE 
                   WHEN jsonb_typeof(metadata) = 'object' THEN metadata || ${JSON.stringify(metaToStore)}::jsonb 
@@ -4107,6 +4115,43 @@ export default {
                 END,
                 crawled_at = NOW(),
                 updated_at = NOW()
+              WHERE pin_id = ${pinId};
+            `.catch(() => {});
+
+            // B2. Hub competitor_pins (Pillar 1 synchronization if pin belongs to a tracked competitor)
+            await sql`
+              UPDATE competitor_pins SET
+                save_count = GREATEST(save_count, ${Number(pin.saves || 0)}::int),
+                repin_count = GREATEST(repin_count, ${Number(pin.repins || 0)}::int),
+                comment_count = GREATEST(COALESCE(comment_count, 0), ${Number(pin.comments || 0)}::int),
+                title = CASE WHEN ${pin.title || ''}::text <> '' THEN ${pin.title}::text ELSE title END,
+                description = CASE WHEN ${pin.description || ''}::text <> '' THEN ${pin.description}::text ELSE description END,
+                link_domain = CASE WHEN ${pin.domain || ''}::text <> '' THEN ${pin.domain}::text ELSE link_domain END,
+                destination_url = CASE WHEN ${pin.link || ''}::text <> '' THEN ${pin.link}::text ELSE destination_url END,
+                board_name = CASE WHEN ${pin.board_name || ''}::text <> '' THEN ${pin.board_name}::text ELSE board_name END,
+                image_url = CASE WHEN ${pin.image_url || ''}::text <> '' THEN ${pin.image_url}::text ELSE image_url END,
+                created_at_pinterest = COALESCE(${cleanCreatedAtIso}::timestamptz, created_at_pinterest),
+                last_synced_at = NOW()
+              WHERE pin_id = ${pinId};
+            `.catch(() => {});
+
+            // B3. Hub pa_pins (Pillar 4 synchronization if pin is archived in PinArchive)
+            await sql`
+              UPDATE pa_pins SET
+                saves = GREATEST(saves, ${Number(pin.saves || 0)}::bigint),
+                repins = GREATEST(repins, ${Number(pin.repins || 0)}::bigint),
+                comments = GREATEST(COALESCE(comments, 0), ${Number(pin.comments || 0)}::int),
+                share_count = GREATEST(COALESCE(share_count, 0), ${Number(pin.share_count || 0)}::bigint),
+                title = CASE WHEN ${pin.title || ''}::text <> '' THEN ${pin.title}::text ELSE title END,
+                description = CASE WHEN ${pin.description || ''}::text <> '' THEN ${pin.description}::text ELSE description END,
+                link = CASE WHEN ${pin.link || ''}::text <> '' THEN ${pin.link}::text ELSE link END,
+                domain = CASE WHEN ${pin.domain || ''}::text <> '' THEN ${pin.domain}::text ELSE domain END,
+                board_name = CASE WHEN ${pin.board_name || ''}::text <> '' THEN ${pin.board_name}::text ELSE board_name END,
+                image_url = CASE WHEN ${pin.image_url || ''}::text <> '' THEN ${pin.image_url}::text ELSE image_url END,
+                dominant_color = CASE WHEN ${pin.dominant_color || ''}::text <> '' THEN ${pin.dominant_color}::text ELSE dominant_color END,
+                reactions = CASE WHEN ${JSON.stringify(pin.reactions || {})}::jsonb <> '{}'::jsonb THEN ${JSON.stringify(pin.reactions || {})}::jsonb ELSE reactions END,
+                created_at_pinterest = COALESCE(${cleanCreatedAtIso}::timestamptz, created_at_pinterest),
+                last_updated_at = NOW()
               WHERE pin_id = ${pinId};
             `.catch(() => {});
 
@@ -4129,8 +4174,8 @@ export default {
               LIMIT 1;
             `.catch(() => []);
 
-            let syncVelocity = 0;
             const newSaves = Number(pin.saves || 0);
+            let syncVelocity = Number(pin.velocity || 0);
             if (prevShardMetric && prevShardMetric.snapshot_date) {
               const prevDate = new Date(prevShardMetric.snapshot_date);
               const todayDate = new Date();
@@ -4143,6 +4188,18 @@ export default {
                 syncVelocity = Number(prevShardMetric.daily_save_velocity);
               }
             }
+
+            // B4. Hub keyword_pins_snapshots (Strictly constrain today's snapshot update on Central Hub)
+            await sql`
+              UPDATE keyword_pins_snapshots SET
+                save_count = GREATEST(save_count, ${newSaves}::bigint),
+                repin_count = GREATEST(repin_count, ${Number(pin.repins || 0)}::int),
+                comment_count = GREATEST(COALESCE(comment_count, 0), ${Number(pin.comments || 0)}::int),
+                share_count = GREATEST(COALESCE(share_count, 0), ${Number(pin.share_count || 0)}::int),
+                daily_save_velocity = GREATEST(daily_save_velocity, ${syncVelocity}::numeric),
+                updated_at = NOW()
+              WHERE pin_id = ${pinId} AND snapshot_date = (NOW() AT TIME ZONE 'UTC')::date;
+            `.catch(() => {});
 
             for (const sRow of targetRows) {
               const shardKid = sRow.keyword_id || null;
@@ -4170,19 +4227,27 @@ export default {
               }
             }
 
+            const totalReactions = Number(
+              pin.total_reaction_count ??
+              (pin.reactions && typeof pin.reactions === 'object'
+                ? Object.values(pin.reactions).reduce((acc, v) => acc + (Number(v) || 0), 0)
+                : 0)
+            );
+
             // Update two-tier modern shard tables (pins_daily_metrics)
             await shardSql`
               INSERT INTO pins_daily_metrics (
                 pin_id, snapshot_date, save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity, updated_at
               ) VALUES (
                 ${pinId}, (NOW() AT TIME ZONE 'UTC')::date, ${newSaves}, ${Number(pin.repins || 0)},
-                ${Number(pin.comments || 0)}, ${Number(pin.share_count || 0)}, 0, ${syncVelocity}, NOW()
+                ${Number(pin.comments || 0)}, ${Number(pin.share_count || 0)}, ${totalReactions}, ${syncVelocity}, NOW()
               )
               ON CONFLICT (pin_id, snapshot_date) DO UPDATE SET
                 save_count = GREATEST(pins_daily_metrics.save_count, EXCLUDED.save_count),
                 repin_count = GREATEST(pins_daily_metrics.repin_count, EXCLUDED.repin_count),
                 comment_count = GREATEST(pins_daily_metrics.comment_count, EXCLUDED.comment_count),
                 share_count = GREATEST(pins_daily_metrics.share_count, EXCLUDED.share_count),
+                reaction_count = GREATEST(pins_daily_metrics.reaction_count, EXCLUDED.reaction_count),
                 daily_save_velocity = GREATEST(pins_daily_metrics.daily_save_velocity, EXCLUDED.daily_save_velocity),
                 updated_at = NOW();
             `.catch(() => {});
@@ -4191,9 +4256,16 @@ export default {
             const refreshedDossier = await fetchUniversalPinDossier({ hubSql: sql, pinId, ctx, env, bypassEdgeCache: true });
             invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
             invalidateEdgeCache(`pin:trajectory?pin_id=${pinId}`);
+            if (env?.PIN_D1_DB) {
+              safeWaitUntil(ctx, env.PIN_D1_DB.prepare('DELETE FROM edge_pins_metadata WHERE pin_id = ?').bind(pinId).run().catch(() => {}), `d1_evict_${pinId}`);
+            }
             if (env?.PIN_ENGINE_KV) {
               const associatedKids = [...new Set(targetRows.map(r => r.keyword_id).filter(Boolean))];
-              const evictions = getPinKvKeysToEvict(pinId, associatedKids).map(k => env.PIN_ENGINE_KV.delete(k).catch(() => {}));
+              const serpKeys = associatedKids.map(kid => `serp:comp:${kid}`);
+              const evictions = [
+                ...getPinKvKeysToEvict(pinId, associatedKids),
+                ...serpKeys
+              ].map(k => env.PIN_ENGINE_KV.delete(k).catch(() => {}));
               safeWaitUntil(ctx, Promise.all(evictions), `kv_sync_evict_${pinId}`);
             }
 
