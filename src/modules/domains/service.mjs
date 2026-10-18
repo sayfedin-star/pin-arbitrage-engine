@@ -245,7 +245,10 @@ export async function queryWhoisHttpsRdap(cleanDomain) {
       },
       signal: AbortSignal.timeout(6000)
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      if (res.body && !res.bodyUsed) await res.body.cancel().catch(() => {});
+      return null;
+    }
     const data = await res.json();
     if (!data) return null;
 
@@ -1013,7 +1016,9 @@ export async function listDomainsIntelligence(sql, {
       FROM enriched e
     ),
     modular_filtered AS (
-      SELECT *
+      SELECT
+        *,
+        ROW_NUMBER() OVER (ORDER BY visibility_score DESC, total_saves DESC) AS top5_rn
       FROM modular_evaluated
       WHERE (
         CASE
@@ -1031,6 +1036,7 @@ export async function listDomainsIntelligence(sql, {
       *,
       COUNT(*) OVER()::int AS total_filtered_domains,
       SUM(top10_pins) OVER()::int AS global_top10_slots,
+      SUM(CASE WHEN top5_rn <= 5 THEN top10_pins ELSE 0 END) OVER()::int AS top5_global_slots,
       COUNT(*) FILTER (WHERE age_years IS NOT NULL AND age_years <= 2.0 AND (top10_pins >= 1 OR total_saves >= 1000)) OVER()::int AS baby_giants_count,
       COUNT(*) FILTER (WHERE accounts_count >= 2) OVER()::int AS multi_account_domains_count,
       ROUND(AVG(pins_per_url) OVER(), 2) AS global_avg_multiplier
@@ -1050,9 +1056,11 @@ export async function listDomainsIntelligence(sql, {
   `;
 
   const total = rows[0]?.total_filtered_domains || 0;
-  const globalTop10 = Math.max(1, rows[0]?.global_top10_slots || 1);
-  const top5Share = rows.slice(0, 5).reduce((acc, r) => acc + Number(r.top10_pins || 0), 0);
-  const top5MonopolyPct = isNaN(top5Share / globalTop10) ? 0 : Number(Math.min(100, Math.max(0, (top5Share / globalTop10) * 100)).toFixed(1));
+  const globalTop10 = Math.max(1, Number(rows[0]?.global_top10_slots || 1));
+  const top5Share = rows[0]?.top5_global_slots !== undefined
+    ? Number(rows[0].top5_global_slots)
+    : rows.slice(0, 5).reduce((acc, r) => acc + Number(r.top10_pins || 0), 0);
+  const top5MonopolyPct = Number(Math.min(100, Math.max(0, (top5Share / globalTop10) * 100)).toFixed(1));
 
   const missingAgeDomains = rows
     .filter(r => !r.age_status && r.domain)
@@ -1428,7 +1436,9 @@ export async function listDomainsIntelligenceFast(sql, options = {}) {
           FROM rollup_src r
         ),
         modular_filtered AS (
-          SELECT *
+          SELECT
+            *,
+            ROW_NUMBER() OVER (ORDER BY visibility_score DESC, total_saves DESC) AS top5_rn
           FROM modular_evaluated
           WHERE (
             CASE
@@ -1446,6 +1456,7 @@ export async function listDomainsIntelligenceFast(sql, options = {}) {
           *,
           COUNT(*) OVER()::int AS total_filtered_domains,
           SUM(top10_pins) OVER()::int AS global_top10_slots,
+          SUM(CASE WHEN top5_rn <= 5 THEN top10_pins ELSE 0 END) OVER()::int AS top5_global_slots,
           COUNT(*) FILTER (WHERE age_years IS NOT NULL AND age_years <= 2.0 AND (top10_pins >= 1 OR total_saves >= 1000)) OVER()::int AS baby_giants_count,
           COUNT(*) FILTER (WHERE accounts_count >= 2) OVER()::int AS multi_account_domains_count,
           ROUND(AVG(pins_per_url) OVER(), 2) AS global_avg_multiplier
@@ -1466,9 +1477,11 @@ export async function listDomainsIntelligenceFast(sql, options = {}) {
 
       if (rows && rows.length > 0) {
         const total = rows[0]?.total_filtered_domains || 0;
-        const globalTop10 = Math.max(1, rows[0]?.global_top10_slots || 1);
-        const top5Share = rows.slice(0, 5).reduce((acc, r) => acc + Number(r.top10_pins || 0), 0);
-        const top5MonopolyPct = isNaN(top5Share / globalTop10) ? 0 : Number(Math.min(100, Math.max(0, (top5Share / globalTop10) * 100)).toFixed(1));
+        const globalTop10 = Math.max(1, Number(rows[0]?.global_top10_slots || 1));
+        const top5Share = rows[0]?.top5_global_slots !== undefined
+          ? Number(rows[0].top5_global_slots)
+          : rows.slice(0, 5).reduce((acc, r) => acc + Number(r.top10_pins || 0), 0);
+        const top5MonopolyPct = Number(Math.min(100, Math.max(0, (top5Share / globalTop10) * 100)).toFixed(1));
 
         return {
           overview: {
@@ -1515,9 +1528,12 @@ export async function listDomainsIntelligenceFast(sql, options = {}) {
           missing_age_domains: rows.filter(r => !r.age_status && r.domain).map(r => r.domain).slice(0, 8),
           cached: true
         };
+      } else {
+        refreshDomainIntelligenceRollup(sql).catch(() => {});
       }
     } catch (fastErr) {
       console.warn(`[listDomainsIntelligenceFast] Rollup query fallback:`, fastErr.message);
+      refreshDomainIntelligenceRollup(sql).catch(() => {});
     }
   }
 

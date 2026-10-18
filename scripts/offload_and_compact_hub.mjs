@@ -709,6 +709,7 @@ export async function runOffloadAndCompact(hubSql, { forceCompact = FORCE_COMPAC
     UPDATE competitor_pins
     SET description = NULL,
         alt_text = NULL,
+        enrichment_status = 'compacted',
         metadata = '{}'::jsonb
     WHERE enrichment_status IN ('completed', 'failed')
       AND (description IS NOT NULL OR alt_text IS NOT NULL OR (metadata IS NOT NULL AND metadata != '{}'::jsonb))

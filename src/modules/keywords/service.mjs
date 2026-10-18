@@ -1132,21 +1132,12 @@ export async function fetchVisualSearchLens(sql, pinId, cookie = (typeof process
       }
     }
 
-    // Determine high-relevance search query. NEVER query raw numeric pin ID as text.
-    let searchQueryStr = (pinRow?.title && !/^\d+$/.test(pinRow.title.trim())) ? pinRow.title.trim() : '';
-    if (!searchQueryStr && pinRow?.domain) {
-      searchQueryStr = pinRow.domain;
-    }
-    if (!searchQueryStr) {
-      return { success: true, pin_id: cleanPin, seed_pin: pinRow, matches: [] };
-    }
-
-    const searchQuery = encodeURIComponent(searchQueryStr);
     let rawResults = [];
     let matchProvenance = 'visual_live_lens';
 
-    // 1. Attempt Pinterest's native VisualLiveSearchResource if cookie is provided
+    // 1. Attempt Pinterest's native VisualLiveSearchResource first (requires only pin_id, not title)
     if (cookie && String(cookie).trim()) {
+      let vRes;
       try {
         const visualUrl = `https://www.pinterest.com/resource/VisualLiveSearchResource/get/?source_url=%2Fpin%2F${cleanPin}%2F&data=%7B%22options%22%3A%7B%22pin_id%22%3A%22${cleanPin}%22%7D%2C%22context%22%3A%7B%7D%7D`;
         const vHeaders = getPinterestHeaders({
@@ -1156,16 +1147,18 @@ export async function fetchVisualSearchLens(sql, pinId, cookie = (typeof process
             'x-pinterest-pws-handler': 'www/pin/[id].js'
           }
         });
-        const vRes = await fetch(visualUrl, { headers: vHeaders, signal: AbortSignal.timeout(8000) });
+        vRes = await fetch(visualUrl, { headers: vHeaders, signal: AbortSignal.timeout(8000) });
         if (vRes.ok) {
           const vData = await vRes.json();
           rawResults = vData?.resource_response?.data?.results || [];
         }
+      } catch (_) {
+      } finally {
         if (vRes?.body && !vRes.bodyUsed) await vRes.body.cancel().catch(() => {});
-      } catch (_) {}
+      }
     }
 
-    // 2. Fallback to contextual text search if visual live search returns no results
+    // 2. Fallback to contextual text search ONLY if visual live search returned no results
     if (!rawResults || rawResults.length === 0) {
       matchProvenance = 'contextual_text_fallback';
       let searchQueryStr = (pinRow?.title && !/^\d+$/.test(pinRow.title.trim())) ? pinRow.title.trim() : '';

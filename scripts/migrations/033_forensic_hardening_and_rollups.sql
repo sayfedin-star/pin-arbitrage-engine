@@ -9,9 +9,13 @@ CREATE INDEX IF NOT EXISTS idx_crawler_shard_heartbeats_active
   ON crawler_shard_heartbeats (competitor_id, status)
   WHERE status IN ('crawling_boards', 'enriching');
 
--- 2. إضافة عمود وفهرس اللوحات السريع board_slug على جداول المنافسين
+-- 2. إضافة عمود وفهرس اللوحات السريع board_slug وفهرس تغطية النطاقات على جداول المنافسين
 ALTER TABLE competitor_pins ADD COLUMN IF NOT EXISTS board_slug VARCHAR(255);
 CREATE INDEX IF NOT EXISTS idx_cp_board_slug ON competitor_pins(competitor_id, board_slug);
+CREATE INDEX IF NOT EXISTS idx_cp_domain_rollup_covering 
+  ON competitor_pins (LOWER(REGEXP_REPLACE(link_domain, '^www\.', '')))
+  INCLUDE (pin_id, competitor_id, save_count, repin_count, destination_url)
+  WHERE link_domain IS NOT NULL AND link_domain <> '';
 
 -- 3. إنشاء جدول التجميع المادي الدائم لاستوديو النطاقات (Central Metadata Hub)
 CREATE TABLE IF NOT EXISTS domain_intelligence_rollup (
@@ -25,27 +29,40 @@ CREATE TABLE IF NOT EXISTS domain_intelligence_rollup (
   displaced_pins INT NOT NULL DEFAULT 0,
   best_rank INT,
   avg_rank NUMERIC(5,2),
-  visibility_score BIGINT NOT NULL DEFAULT 0,
+  visibility_score NUMERIC(12,2) NOT NULL DEFAULT 0,
   total_saves BIGINT NOT NULL DEFAULT 0,
-  avg_saves NUMERIC(10,2) NOT NULL DEFAULT 0,
+  avg_saves NUMERIC(12,2) NOT NULL DEFAULT 0,
   total_repins BIGINT NOT NULL DEFAULT 0,
-  avg_velocity NUMERIC(8,2) NOT NULL DEFAULT 0,
+  avg_velocity NUMERIC(10,2) NOT NULL DEFAULT 0,
   pins_per_url NUMERIC(6,2) NOT NULL DEFAULT 1.0,
   accounts_count INT NOT NULL DEFAULT 1,
   sample_accounts JSONB NOT NULL DEFAULT '[]'::jsonb,
   ad_network VARCHAR(64) DEFAULT 'unchecked',
   ad_manager_domain VARCHAR(255),
+  primary_pub_id VARCHAR(128),
   previous_ad_network VARCHAR(64),
+  ad_switched_at TIMESTAMPTZ,
+  ad_network_history JSONB NOT NULL DEFAULT '[]'::jsonb,
+  ads_txt_status VARCHAR(32) DEFAULT 'pending',
   ad_provider VARCHAR(64),
   age_days INT,
-  age_years NUMERIC(4,1),
+  age_years NUMERIC(5,2),
   age_status VARCHAR(32) DEFAULT 'unchecked',
   domain_created_at TIMESTAMPTZ,
   domain_expires_at TIMESTAMPTZ,
   lookup_status VARCHAR(32) DEFAULT 'pending',
-  arbitrage_score NUMERIC(5,1) DEFAULT 0,
+  decay_rate_pct NUMERIC(5,1) NOT NULL DEFAULT 0,
+  arbitrage_score NUMERIC(10,2) DEFAULT 0,
+  refreshed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE domain_intelligence_rollup ADD COLUMN IF NOT EXISTS primary_pub_id VARCHAR(128);
+ALTER TABLE domain_intelligence_rollup ADD COLUMN IF NOT EXISTS ad_switched_at TIMESTAMPTZ;
+ALTER TABLE domain_intelligence_rollup ADD COLUMN IF NOT EXISTS ad_network_history JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE domain_intelligence_rollup ADD COLUMN IF NOT EXISTS ads_txt_status VARCHAR(32) DEFAULT 'pending';
+ALTER TABLE domain_intelligence_rollup ADD COLUMN IF NOT EXISTS decay_rate_pct NUMERIC(5,1) NOT NULL DEFAULT 0;
+ALTER TABLE domain_intelligence_rollup ADD COLUMN IF NOT EXISTS refreshed_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 
 CREATE INDEX IF NOT EXISTS idx_dir_vis_saves ON domain_intelligence_rollup(visibility_score DESC, total_saves DESC);
 CREATE INDEX IF NOT EXISTS idx_dir_top10 ON domain_intelligence_rollup(top10_pins DESC);
@@ -106,11 +123,13 @@ BEGIN
   END IF;
 END $$;
 
--- 5. إنشاء العرض الشامل الموحد pins_daily_snapshots لكافة الحقول المطلوبة
+-- 5. إنشاء العرض الشامل الموحد pins_daily_snapshots لكافة الحقول المطلوبة مع عمودي id و competitor_id للتوافق العكسي
 CREATE OR REPLACE VIEW pins_daily_snapshots AS
 SELECT 
+  (('x' || SUBSTR(MD5(m.pin_id || '_' || m.snapshot_date::text || '_' || COALESCE(p.keyword_id::text, '0')), 1, 15))::bit(60)::bigint) AS id,
   m.pin_id,
   p.keyword_id,
+  NULL::int AS competitor_id,
   p.rank_position,
   COALESCE(p.is_displaced, FALSE) AS is_displaced,
   p.last_known_rank,
@@ -130,3 +149,4 @@ LEFT JOIN pin_serp_positions p
 INSERT INTO schema_migrations (version, name, applied_at)
 VALUES ('033', '033_forensic_hardening_and_rollups', NOW())
 ON CONFLICT (version) DO NOTHING;
+

@@ -1986,7 +1986,7 @@ export async function upsertCompetitorPins(sql, competitorId, pins) {
       link_domain: p.domain || '',
       destination_url: p.link || '',
       board_name: p.board_name || '',
-      board_slug: (p.board_name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
+      board_slug: (p.board_name || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, ''),
       image_url: p.image_url || '',
       save_count: Math.max(0, Number(p.saves) || 0),
       repin_count: Math.max(0, Number(p.repins) || 0),
@@ -2015,7 +2015,7 @@ export async function upsertCompetitorPins(sql, competitorId, pins) {
       )
       SELECT 
         ${competitorId}, x.pin_id, x.title, x.description, x.link_domain,
-        x.destination_url, x.board_name, COALESCE(NULLIF(x.board_slug, ''), LOWER(REGEXP_REPLACE(REGEXP_REPLACE(x.board_name, '[^a-zA-Z0-9]+', '-', 'g'), '^-|-$', '', 'g'))), x.image_url, x.save_count, x.repin_count,
+        x.destination_url, x.board_name, COALESCE(NULLIF(x.board_slug, ''), LOWER(REGEXP_REPLACE(REGEXP_REPLACE(x.board_name, '[^[:alnum:]]+', '-', 'g'), '^-|-$', '', 'g'))), x.image_url, x.save_count, x.repin_count,
         x.comment_count, x.is_product, x.created_at_pinterest, NOW(), NOW(), 'pending'
       FROM jsonb_to_recordset(${JSON.stringify(sortedPins)}::jsonb) AS x(
         pin_id VARCHAR(64), title TEXT, description TEXT, link_domain VARCHAR(255),
@@ -2142,7 +2142,8 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
   const cleanSearch = (search && typeof search === 'string' && search.trim()) ? escapeSqlWildcards(search.toLowerCase().trim()) : null;
   const searchPattern = cleanSearch ? `%${cleanSearch}%` : null;
   const boardPattern = (board && board.trim()) ? board.trim().toLowerCase() : null;
-  const boardSlugPattern = boardPattern ? boardPattern.replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') : null;
+  const rawSlug = boardPattern ? boardPattern.replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '') : null;
+  const boardSlugPattern = (rawSlug && rawSlug.length > 0) ? rawSlug : null;
 
   const boardsPromise = sql`
     SELECT DISTINCT board_name, COUNT(*)::int as count
@@ -2183,7 +2184,7 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
       AND (${searchPattern}::text IS NULL OR LOWER(cp.title) LIKE ${searchPattern} OR LOWER(COALESCE(cp.description, '')) LIKE ${searchPattern})
       AND (
         ${boardPattern}::text IS NULL OR 
-        cp.board_slug = ${boardSlugPattern} OR
+        (${boardSlugPattern}::text IS NOT NULL AND cp.board_slug = ${boardSlugPattern}) OR
         LOWER(TRIM(cp.board_name)) = ${boardPattern} OR
         REPLACE(LOWER(TRIM(cp.board_name)), '-', ' ') = REPLACE(${boardPattern}, '-', ' ') OR
         REPLACE(LOWER(TRIM(cp.board_name)), ' ', '-') = REPLACE(${boardPattern}, ' ', '-') OR
@@ -2220,7 +2221,7 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
       AND (${searchPattern}::text IS NULL OR LOWER(cp.title) LIKE ${searchPattern} OR LOWER(COALESCE(cp.description, '')) LIKE ${searchPattern})
       AND (
         ${boardPattern}::text IS NULL OR 
-        cp.board_slug = ${boardSlugPattern} OR
+        (${boardSlugPattern}::text IS NOT NULL AND cp.board_slug = ${boardSlugPattern}) OR
         LOWER(TRIM(cp.board_name)) = ${boardPattern} OR
         REPLACE(LOWER(TRIM(cp.board_name)), '-', ' ') = REPLACE(${boardPattern}, '-', ' ') OR
         REPLACE(LOWER(TRIM(cp.board_name)), ' ', '-') = REPLACE(${boardPattern}, ' ', '-') OR

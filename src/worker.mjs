@@ -16,6 +16,7 @@ import { getCampaignFoldersPageHtml } from './campaign-folders-ui.mjs';
 import { getDomainsPageHtml } from './domains-ui.mjs';
 import {
   listDomainsIntelligence,
+  listDomainsIntelligenceFast,
   getDomainDeepDossier,
   fetchAndCacheDomainAge,
   enrichMissingDomainsBatch,
@@ -864,41 +865,13 @@ export function createHyperdriveClient(connectionString, customOpts = {}) {
     ...customOpts
   });
   pSql.transaction = async (queriesOrFn) => {
-    return await pSql.begin(async (tx) => {
-      if (typeof queriesOrFn === 'function') {
+    if (typeof queriesOrFn === 'function') {
+      return await pSql.begin(async (tx) => {
         const res = await queriesOrFn(tx);
-        if (Array.isArray(res)) {
-          const results = [];
-          for (const q of res) {
-            if (q && q.strings && q.args) {
-              results.push(await tx(q.strings, ...q.args));
-            } else if (typeof q === 'function') {
-              results.push(await q(tx));
-            } else if (q && typeof q.then === 'function') {
-              results.push(await q);
-            } else {
-              results.push(await tx(q));
-            }
-          }
-          return results;
-        }
-        return res;
-      }
-      const queries = Array.isArray(queriesOrFn) ? queriesOrFn : [queriesOrFn];
-      const results = [];
-      for (const q of queries) {
-        if (q && q.strings && q.args) {
-          results.push(await tx(q.strings, ...q.args));
-        } else if (typeof q === 'function') {
-          results.push(await q(tx));
-        } else if (q && typeof q.then === 'function') {
-          results.push(await q);
-        } else {
-          results.push(await tx(q));
-        }
-      }
-      return results;
-    });
+        return Array.isArray(res) ? await Promise.all(res) : res;
+      });
+    }
+    return await Promise.all(Array.isArray(queriesOrFn) ? queriesOrFn : [queriesOrFn]);
   };
   return pSql;
 }
@@ -3347,8 +3320,9 @@ export default {
         const res = await crawlKeywordSERP(sql, keywordId, { 
           cookie, 
           force,
-          crawl_pages: crawlPages,
+          crawl_pages: Math.min(2, Number(crawlPages) || 2),
           max_pins: maxPins,
+          skip_top_enrich: true,
           env
         });
 
@@ -5286,7 +5260,7 @@ export default {
           };
           const cacheKey = buildCanonicalCacheKey('domains:leaderboard', cacheParams);
           const data = await getCachedOrFetch(cacheKey, async () => {
-            return await listDomainsIntelligence(sql, cacheParams);
+            return await listDomainsIntelligenceFast(sql, cacheParams);
           }, 15000, 60000);
 
           // Non-blocking background WHOIS/Age enrichment for unchecked domains on current page

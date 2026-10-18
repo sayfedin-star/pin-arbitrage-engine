@@ -304,6 +304,9 @@ export async function bulkSyncCompetitorPinsToShard(shardSql, shardCompId, statu
 
   const uniqueMap = new Map();
   for (const u of validUpdates) {
+    if (!u.board_slug && u.board_name) {
+      u.board_slug = String(u.board_name).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '');
+    }
     uniqueMap.set(String(u.pin_id), u);
   }
   const sorted = Array.from(uniqueMap.values()).sort((a, b) => String(a.pin_id).localeCompare(String(b.pin_id)));
@@ -319,7 +322,7 @@ export async function bulkSyncCompetitorPinsToShard(shardSql, shardCompId, statu
         ${shardCompId}, x.pin_id, x.status, COALESCE(x.enrich_attempts, 1), COALESCE(x.saves, 0), COALESCE(x.repins, 0), COALESCE(x.comments, 0),
         x.alt_text, COALESCE(x.is_product, false), COALESCE(x.destination_url, ''), COALESCE(x.link_domain, ''),
         COALESCE(x.title, ''), COALESCE(x.description, ''), COALESCE(x.image_url, ''), COALESCE(x.board_name, ''),
-        COALESCE(NULLIF(x.board_slug, ''), LOWER(REGEXP_REPLACE(REGEXP_REPLACE(x.board_name, '[^a-zA-Z0-9]+', '-', 'g'), '^-|-$', '', 'g'))),
+        COALESCE(NULLIF(x.board_slug, ''), LOWER(REGEXP_REPLACE(REGEXP_REPLACE(x.board_name, '[^[:alnum:]]+', '-', 'g'), '^-|-$', '', 'g'))),
         x.created_at_pinterest, NOW(), NOW(), NOW()
       FROM jsonb_to_recordset(${JSON.stringify(sanitizeForJsonb(sorted))}::jsonb) AS x(
         pin_id VARCHAR(64), status VARCHAR(32), enrich_attempts INT, saves INT, repins INT, comments INT, alt_text TEXT,
@@ -333,7 +336,10 @@ export async function bulkSyncCompetitorPinsToShard(shardSql, shardCompId, statu
         save_count = GREATEST(competitor_pins.save_count, EXCLUDED.save_count),
         repin_count = GREATEST(competitor_pins.repin_count, EXCLUDED.repin_count),
         comment_count = GREATEST(competitor_pins.comment_count, EXCLUDED.comment_count),
-        alt_text = COALESCE(NULLIF(EXCLUDED.alt_text, ''), competitor_pins.alt_text),
+        alt_text = CASE 
+          WHEN competitor_pins.enrichment_status = 'compacted' THEN competitor_pins.alt_text 
+          ELSE COALESCE(NULLIF(EXCLUDED.alt_text, ''), competitor_pins.alt_text) 
+        END,
         is_product = (competitor_pins.is_product OR EXCLUDED.is_product),
         destination_url = CASE WHEN EXCLUDED.destination_url <> '' THEN EXCLUDED.destination_url ELSE competitor_pins.destination_url END,
         link_domain = CASE WHEN EXCLUDED.link_domain <> '' THEN EXCLUDED.link_domain ELSE competitor_pins.link_domain END,

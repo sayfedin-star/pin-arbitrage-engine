@@ -7,6 +7,8 @@
  * - Guarantees zero Akamai / Cedexis bot fingerprint anomaly detection
  */
 
+import { formatPinterestCookie } from '../../utils.mjs';
+
 export const CANONICAL_FINGERPRINT = {
   CHROME_VERSION: '131.0.0.0',
   CHROME_MAJOR: '131',
@@ -18,6 +20,8 @@ export const CANONICAL_FINGERPRINT = {
  * Returns standard unified Pinterest headers
  * @param {object} [options]
  * @param {string} [options.cookie]
+ * @param {string} [options.referer]
+ * @param {object} [options.extra]
  * @param {object} [options.extraHeaders]
  * @returns {Record<string, string>}
  */
@@ -26,6 +30,7 @@ export function getStandardPinterestHeaders(options = {}) {
     'User-Agent': CANONICAL_FINGERPRINT.USER_AGENT,
     'X-App-Version': CANONICAL_FINGERPRINT.APP_VERSION,
     'Accept': 'application/json, text/javascript, */*, q=0.01',
+    'Accept-Language': 'en-US,en;q=0.9',
     'X-Requested-With': 'XMLHttpRequest',
     'Sec-Ch-Ua': `"Google Chrome";v="${CANONICAL_FINGERPRINT.CHROME_MAJOR}", "Chromium";v="${CANONICAL_FINGERPRINT.CHROME_MAJOR}", "Not_A Brand";v="24"`,
     'Sec-Ch-Ua-Mobile': '?0',
@@ -35,17 +40,25 @@ export function getStandardPinterestHeaders(options = {}) {
     'Sec-Fetch-Site': 'same-origin'
   };
 
-  const cookieVal = options.cookie || (typeof process !== 'undefined' ? process.env?.PINTEREST_COOKIE : null);
-  if (cookieVal && String(cookieVal).trim()) {
-    headers['Cookie'] = String(cookieVal).trim();
+  if (options.referer && typeof options.referer === 'string') {
+    headers['Referer'] = options.referer;
   }
 
-  if (options.extraHeaders && typeof options.extraHeaders === 'object') {
-    Object.assign(headers, options.extraHeaders);
+  const cookieVal = options.cookie !== undefined
+    ? options.cookie
+    : (typeof process !== 'undefined' ? process.env?.PINTEREST_COOKIE : null);
+  if (cookieVal && String(cookieVal).trim()) {
+    headers['Cookie'] = formatPinterestCookie(String(cookieVal).trim());
+  }
+
+  const customHeaders = options.extraHeaders || options.extra;
+  if (customHeaders && typeof customHeaders === 'object') {
+    Object.assign(headers, customHeaders);
   }
 
   return headers;
 }
 
 export const getPinterestHeaders = getStandardPinterestHeaders;
+
 

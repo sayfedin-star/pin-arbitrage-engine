@@ -1173,7 +1173,7 @@ async function crawlSeed(seed) {
         const rawTitle = pinObj.title || pinObj.grid_title || pinObj.auto_alt_text || '';
         const rawDomain = pinObj.domain || pinObj.link_domain?.id || '';
         const rawDesc = typeof pinObj.description === 'string' ? pinObj.description : '';
-        if (!isCulinaryCandidate(rawTitle, rawDomain, rawDesc)) {
+        if ((seedClusterType === 'BAKERY_DESSERT' || seedClusterType === 'CULINARY') && !isCulinaryCandidate(rawTitle, rawDomain, rawDesc)) {
           continue;
         }
 
