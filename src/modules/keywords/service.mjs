@@ -220,7 +220,8 @@ export async function offloadKeywordCrawlToShards(hubSql, keywordId, activePins 
       repin_count: Number(p.repin_count || 0),
       comment_count: Number(p.comment_count || 0),
       share_count: Number(p.metadata?.share_count || 0),
-      daily_save_velocity: Number(p.daily_save_velocity || 0)
+      daily_save_velocity: Number(p.daily_save_velocity || 0),
+      metadata: p.metadata || {}
     });
   }
 
@@ -249,7 +250,8 @@ export async function offloadKeywordCrawlToShards(hubSql, keywordId, activePins 
       repin_count: Number(dp.repin_count || 0),
       comment_count: Number(dp.comment_count || 0),
       share_count: Number(dp.metadata?.share_count || 0),
-      daily_save_velocity: 0
+      daily_save_velocity: 0,
+      metadata: dp.metadata || {}
     });
   }
 
@@ -281,16 +283,16 @@ export async function offloadKeywordCrawlToShards(hubSql, keywordId, activePins 
           INSERT INTO universal_master_pins (
             pin_id, creator_username, board_name, title, domain, destination_url,
             image_url, description, alt_text, dominant_color, visual_annotations,
-            created_at_pinterest, first_discovered_pillar, first_discovered_at, updated_at
+            created_at_pinterest, first_discovered_pillar, first_discovered_at, metadata, updated_at
           )
           SELECT DISTINCT ON (u.pin_id)
             u.pin_id, u.creator_username, u.board_name, u.title, u.domain, u.destination_url,
             u.image_url, u.description, u.alt_text, u.dominant_color, u.visual_annotations,
-            u.created_at_pinterest::timestamptz, 'keyword', NOW(), NOW()
+            u.created_at_pinterest::timestamptz, 'keyword', NOW(), COALESCE(u.metadata, '{}'::jsonb), NOW()
           FROM jsonb_to_recordset(${payload}::jsonb) AS u(
             pin_id text, creator_username text, board_name text, title text, domain text,
             destination_url text, image_url text, description text, alt_text text,
-            dominant_color text, visual_annotations jsonb, created_at_pinterest text
+            dominant_color text, visual_annotations jsonb, created_at_pinterest text, metadata jsonb
           )
           ORDER BY u.pin_id ASC
           ON CONFLICT (pin_id) DO UPDATE SET
@@ -309,6 +311,11 @@ export async function offloadKeywordCrawlToShards(hubSql, keywordId, activePins 
               ELSE universal_master_pins.visual_annotations
             END,
             created_at_pinterest = COALESCE(EXCLUDED.created_at_pinterest, universal_master_pins.created_at_pinterest),
+            metadata = CASE 
+              WHEN EXCLUDED.metadata IS NOT NULL AND EXCLUDED.metadata != '{}'::jsonb 
+              THEN COALESCE(universal_master_pins.metadata, '{}'::jsonb) || EXCLUDED.metadata 
+              ELSE universal_master_pins.metadata 
+            END,
             updated_at = NOW();
         `;
 
@@ -2134,6 +2141,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
       creation_method: p.creation_method || 'pinterest_platform',
       crawled_at: p.crawled_at || null,
       metadata: {
+        ...(p.metadata || {}),
         prev_rank: p.metadata?.prev_rank ?? null,
         rank_delta: p.metadata?.rank_delta ?? 0,
         is_new: Boolean(p.metadata?.is_new),
@@ -2148,7 +2156,11 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
           username: p.metadata.pinner.username || '',
           follower_count: Number(p.metadata.pinner.follower_count || 0)
         } : null,
-        is_deep_hydrated: Boolean(p.metadata?.is_deep_hydrated)
+        is_deep_hydrated: Boolean(p.metadata?.is_deep_hydrated),
+        has_treasures: Boolean(p.metadata?.is_deep_hydrated || p.metadata?.has_treasures),
+        image_signature: p.metadata?.image_signature || undefined,
+        canonical_pin_id: p.metadata?.canonical_pin_id || undefined,
+        board_pin_count: p.metadata?.board_pin_count || undefined
       }
     }));
 
