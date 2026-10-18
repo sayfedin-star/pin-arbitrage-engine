@@ -54,10 +54,11 @@ async function main() {
   const resequencedResult = await sql`
     WITH resequenced AS (
       SELECT
-        id,
+        keyword_id,
+        pin_id,
         ROW_NUMBER() OVER (
           PARTITION BY keyword_id
-          ORDER BY rank_position ASC NULLS LAST, save_count DESC, id ASC
+          ORDER BY rank_position ASC NULLS LAST, save_count DESC, pin_id ASC
         )::int AS new_rank
       FROM keyword_serp_current
       WHERE is_displaced = FALSE
@@ -67,7 +68,8 @@ async function main() {
         last_known_rank = r.new_rank,
         updated_at = NOW()
     FROM resequenced r
-    WHERE ksc.id = r.id
+    WHERE ksc.keyword_id = r.keyword_id
+      AND ksc.pin_id = r.pin_id
       AND ksc.rank_position IS DISTINCT FROM r.new_rank;
   `;
   console.log(`[+] Resequencing complete.`);

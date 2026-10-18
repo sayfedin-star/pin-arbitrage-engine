@@ -82,6 +82,14 @@ async function runUnifiedChaosAndPenetrationAudit() {
 
     // Create a mock Hub SQL client with sample data for E2E traversal
     const mockHubSql = async (strings, ...values) => {
+      for (const val of values) {
+        if (typeof val === 'number' && Number.isNaN(val)) {
+          throw new Error('FATAL MOCK ASSERTION: SQL parameter evaluated to NaN');
+        }
+        if (val !== null && typeof val === 'object' && val.constructor === Object && !strings.join('?').includes('::json')) {
+          throw new Error('FATAL MOCK ASSERTION: Plain JS Object passed as raw SQL parameter without JSON serialization');
+        }
+      }
       const q = strings.join('?');
       if (q.includes('neon_projects_registry')) {
         return [{

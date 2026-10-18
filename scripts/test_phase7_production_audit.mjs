@@ -63,6 +63,14 @@ console.log('[AXIS 1] End-to-End Cross-Pillar Flow Audit (< 50ms Benchmark)');
   const shardDsn = 'postgres://user:pass@ep-shard-compute.c-6.us-east-2.aws.neon.tech/db';
 
   const mockSql = async (strings, ...values) => {
+    for (const val of values) {
+      if (typeof val === 'number' && Number.isNaN(val)) {
+        throw new Error('FATAL MOCK ASSERTION: SQL parameter evaluated to NaN');
+      }
+      if (val !== null && typeof val === 'object' && val.constructor === Object && !Array.isArray(strings) && !strings.join('?').includes('::json')) {
+        throw new Error('FATAL MOCK ASSERTION: Plain JS Object passed as raw SQL parameter without JSON serialization');
+      }
+    }
     const q = Array.isArray(strings) ? strings.join('?') : String(strings || '');
 
     if (q.includes('neon_projects_registry')) {

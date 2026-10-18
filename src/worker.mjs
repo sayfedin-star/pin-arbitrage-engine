@@ -36,6 +36,9 @@ import {
 } from './modules/sharding/fleet-router.mjs';
 import { fetchPinFromPinterest } from '../scripts/lib/pinterest.mjs';
 
+export const requestContextStorage = new AsyncLocalStorage();
+globalThis.__requestContextStorage = requestContextStorage;
+
 // Reserved Keyword Slugs (Defends against route swallowing on /keywords/:slug)
 export const RESERVED_KEYWORD_SLUGS = new Set([
   'discovery', 'folders', 'export', 'sync', 'batch', 'api', 'add', 'manage', 'import', 'domains'
@@ -659,8 +662,6 @@ export function verifyApiAuthentication(request, env = {}) {
   return { authorized: false, reason: 'Missing authentication credentials (Bearer token or x-api-key required).' };
 }
 
-export const requestContextStorage = new AsyncLocalStorage();
-globalThis.__requestContextStorage = requestContextStorage;
 export function setDefaultCorsOrigin(_origin) {}
 
 export function jsonResponse(data, status = 200, cacheSeconds = 0, customCors = null) {
@@ -1748,7 +1749,9 @@ export default {
         if (env?.PIN_ENGINE_KV && pinIds.length > 0) {
           const evictions = pinIds.flatMap(pid => [
             env.PIN_ENGINE_KV.delete(`dossier:pin:${pid}`).catch(() => {}),
-            env.PIN_ENGINE_KV.delete(`traj:pin:${pid}`).catch(() => {})
+            env.PIN_ENGINE_KV.delete(`dossier:pin:${pid}:0`).catch(() => {}),
+            env.PIN_ENGINE_KV.delete(`traj:pin:${pid}`).catch(() => {}),
+            env.PIN_ENGINE_KV.delete(`traj:pin:${pid}:0`).catch(() => {})
           ]);
           safeWaitUntil(ctx, Promise.all(evictions), 'kv_delete_seeds_cache');
         }
@@ -1783,7 +1786,9 @@ export default {
         if (env?.PIN_ENGINE_KV && pinId) {
           const evictions = [
             env.PIN_ENGINE_KV.delete(`dossier:pin:${pinId}`).catch(() => {}),
-            env.PIN_ENGINE_KV.delete(`traj:pin:${pinId}`).catch(() => {})
+            env.PIN_ENGINE_KV.delete(`dossier:pin:${pinId}:0`).catch(() => {}),
+            env.PIN_ENGINE_KV.delete(`traj:pin:${pinId}`).catch(() => {}),
+            env.PIN_ENGINE_KV.delete(`traj:pin:${pinId}:0`).catch(() => {})
           ];
           safeWaitUntil(ctx, Promise.all(evictions), 'kv_delete_seed_cache');
         }
@@ -4183,9 +4188,20 @@ export default {
             invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
             invalidateEdgeCache(`pin:trajectory?pin_id=${pinId}`);
             if (env?.PIN_ENGINE_KV) {
-              const p1 = env.PIN_ENGINE_KV.delete(`dossier:pin:${pinId}`).catch(() => {});
-              const p2 = env.PIN_ENGINE_KV.delete(`traj:pin:${pinId}`).catch(() => {});
-              safeWaitUntil(ctx, Promise.all([p1, p2]), `kv_sync_evict_${pinId}`);
+              const evictions = [
+                env.PIN_ENGINE_KV.delete(`dossier:pin:${pinId}`).catch(() => {}),
+                env.PIN_ENGINE_KV.delete(`dossier:pin:${pinId}:0`).catch(() => {}),
+                env.PIN_ENGINE_KV.delete(`traj:pin:${pinId}`).catch(() => {}),
+                env.PIN_ENGINE_KV.delete(`traj:pin:${pinId}:0`).catch(() => {})
+              ];
+              const associatedKids = [...new Set(targetRows.map(r => r.keyword_id).filter(Boolean))];
+              for (const kid of associatedKids) {
+                evictions.push(
+                  env.PIN_ENGINE_KV.delete(`dossier:pin:${pinId}:${kid}`).catch(() => {}),
+                  env.PIN_ENGINE_KV.delete(`traj:pin:${pinId}:${kid}`).catch(() => {})
+                );
+              }
+              safeWaitUntil(ctx, Promise.all(evictions), `kv_sync_evict_${pinId}`);
             }
 
             return jsonResponse({

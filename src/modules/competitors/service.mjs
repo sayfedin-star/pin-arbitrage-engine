@@ -2788,7 +2788,9 @@ export async function resolveLocalCompetitorId(sql, competitorIdentifier, { expe
   }
 }
 
-export const resolveNumericCompetitorId = resolveLocalCompetitorId;
+export async function resolveNumericCompetitorId(sql, competitorId) {
+  return resolveLocalCompetitorId(sql, competitorId);
+}
 
 /**
  * Get registered seed pins for an account along with discovered related candidate counts.

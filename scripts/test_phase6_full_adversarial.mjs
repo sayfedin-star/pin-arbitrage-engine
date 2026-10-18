@@ -281,7 +281,7 @@ console.log('[AXIS 1] Level 1A Executive Keywords Dashboard & Kinetic Delta Tele
   assert.strictEqual(app.getKeywordRepinDelta(null), 0);
   assert.strictEqual(app.getKeywordSaveDelta({}), 0);
   assert.strictEqual(app.getKeywordRepinDelta({}), 0);
-  assert.strictEqual(app.getKeywordSaveDelta({ saves_delta_24h: 'invalid' }), 0 ? 0 : NaN ? 0 : 0); // safe check
+  assert.strictEqual(app.getKeywordSaveDelta({ saves_delta_24h: 'invalid' }), 0); // safe check
 
   recordTest('Axis 1', '1.3 Kinetic Delta Badges Resilience & Corrupted Metadata Defense', 'PASS', performance.now() - t0,
     'Verified saves and repins delta extractions with zero crash on empty, corrupted, or fallback inputs');

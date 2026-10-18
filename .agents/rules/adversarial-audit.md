@@ -26,5 +26,11 @@
 - **COALESCE Precedence:** On updates of real-time telemetry (like `crawled_at`), fresh incoming values MUST take precedence: `COALESCE(EXCLUDED.crawled_at, existing.crawled_at)`.
 - **Velocity Ratchet Symmetry:** When updating `daily_save_velocity`, ensure live/un-cached crawls can adjust velocity downward if saves slowed: `WHEN NOT u.from_hydration_cache AND u.daily_save_velocity IS NOT NULL THEN u.daily_save_velocity::numeric`. Do not trap velocity in an eternal monotonic `GREATEST` ratchet unless explicitly intended.
 
-## 6. Mandatory Static Audit Command
+## 6. Architectural Invariants & Fail-Safe Sharding
+- **Zero Historical Writes to Central Hub:** Direct `INSERT INTO keyword_pins_snapshots` is strictly forbidden on the Central Hub in application code; all daily time-series rows must be routed exclusively to Storage Shards via `fleet-router.mjs`.
+- **Composite Key Constraint on Shard Snapshots:** `pins_daily_snapshots` has a composite primary unique constraint `(pin_id, keyword_id, snapshot_date)`. Never write `ON CONFLICT (pin_id, snapshot_date)` without `keyword_id`.
+- **KV Key Parity & Invalidation Tandem:** Pin dossiers and trajectories can be accessed with or without a keyword ID (`dossier:pin:${pinId}` and `dossier:pin:${pinId}:${kid}`). Any cache invalidation must purge both formats to prevent stale reads.
+
+## 7. Mandatory Static Audit Command
 - Before any commit or task completion, always execute `npm run check` and `npm test`. Both must pass with zero warnings and zero violations.
+

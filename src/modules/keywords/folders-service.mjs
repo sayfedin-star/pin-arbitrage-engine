@@ -802,7 +802,6 @@ async function _executeFolderCrossover(sql, fid) {
   // 2. Query Live Active Catalog from keyword_serp_current for all folder keywords (Migration 019)
   let pinRows = await sql`
     SELECT 
-      c.id,
       c.keyword_id,
       c.pin_id,
       c.rank_position,

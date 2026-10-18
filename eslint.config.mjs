@@ -31,6 +31,10 @@ export default [
     rules: {
       'no-undef': 'error',
       'no-redeclare': 'error',
+      'no-dupe-keys': 'error',
+      'no-dupe-class-members': 'error',
+      'no-use-before-define': ['error', { functions: false, classes: true, variables: true }],
+      'no-constant-condition': ['error', { checkLoops: false }],
       'no-constant-binary-expression': 'error',
       'no-unreachable': 'error',
       'no-self-assign': 'error',
@@ -62,6 +66,10 @@ export default [
     rules: {
       'no-undef': 'error',
       'no-redeclare': 'error',
+      'no-dupe-keys': 'error',
+      'no-dupe-class-members': 'error',
+      'no-use-before-define': ['error', { functions: false, classes: true, variables: true }],
+      'no-constant-condition': ['error', { checkLoops: false }],
       'no-constant-binary-expression': 'error',
       'no-unreachable': 'error',
       'no-self-assign': 'error',
