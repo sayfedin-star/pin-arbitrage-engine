@@ -1503,7 +1503,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
     // A) Immediate prior active SERP state (with fallback to keyword_pins_snapshots if cache is empty)
     let immediateSnapshots = await sql`
       SELECT
-        id AS snapshot_id, pin_id, rank_position, prev_rank_position,
+        NULL::int AS snapshot_id, pin_id, rank_position, prev_rank_position,
         save_count, baseline_day_saves, baseline_day_date,
         repin_count, comment_count, title, image_url, domain, destination_url,
         board_name, dominant_color, visual_annotations,
@@ -3181,7 +3181,7 @@ export async function getKeywordDisplacedPins(sql, keywordId, options = {}) {
   } else {
     rawRows = await sql`
       SELECT 
-        id, keyword_id, pin_id, title, domain, destination_url, image_url,
+        keyword_id, pin_id, title, domain, destination_url, image_url,
         creator_username, board_name,
         COALESCE(last_known_rank, rank_position) as last_known_rank,
         displaced_date,
@@ -3549,7 +3549,7 @@ export async function getPinDeepDossier(sql, pinId, keywordId = null, { forceRef
     // 1. keyword_serp_current
     (kid ? sql`
       SELECT 
-        id, keyword_id, pin_id, title, domain, destination_url, image_url,
+        keyword_id, pin_id, title, domain, destination_url, image_url,
         creator_username, board_name, last_known_rank, rank_position, displaced_date,
         is_displaced, save_count, save_count as current_saves,
         repin_count, repin_count as current_repins,
@@ -3563,7 +3563,7 @@ export async function getPinDeepDossier(sql, pinId, keywordId = null, { forceRef
       WHERE keyword_id = ${kid} AND pin_id = ${cleanPin};
     ` : sql`
       SELECT 
-        id, keyword_id, pin_id, title, domain, destination_url, image_url,
+        keyword_id, pin_id, title, domain, destination_url, image_url,
         creator_username, board_name, last_known_rank, rank_position, displaced_date,
         is_displaced, save_count, save_count as current_saves,
         repin_count, repin_count as current_repins,
@@ -3634,7 +3634,7 @@ export async function getPinDeepDossier(sql, pinId, keywordId = null, { forceRef
   if (!displacedRow && kid) {
     const [fallbackRow] = await sql`
       SELECT 
-        id, keyword_id, pin_id, title, domain, destination_url, image_url,
+        keyword_id, pin_id, title, domain, destination_url, image_url,
         creator_username, board_name, last_known_rank, rank_position, displaced_date,
         is_displaced, save_count, save_count as current_saves,
         repin_count, repin_count as current_repins,
@@ -3711,7 +3711,7 @@ export async function getPinDeepDossier(sql, pinId, keywordId = null, { forceRef
               share_count = GREATEST(COALESCE(share_count, 0), ${Number(scraped.share_count || 0)}::int),
               crawled_at = NOW(),
               updated_at = NOW()
-            WHERE id = ${displacedRow.id};
+            WHERE keyword_id = ${displacedRow.keyword_id} AND pin_id = ${cleanPin};
           `.catch(() => {});
         }
 

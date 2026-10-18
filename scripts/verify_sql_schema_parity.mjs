@@ -204,6 +204,27 @@ for (const file of filesToScan) {
         }
       }
 
+      // Unaliased Column Guard: Detect unaliased 'id' on tables with composite keys and no 'id' column
+      if (!validCols.has('id')) {
+        const isSingleTableQuery = (
+          (new RegExp(`\\bFROM\\s+${tableName}\\b`, 'i').test(query) || new RegExp(`\\bUPDATE\\s+${tableName}\\b`, 'i').test(query)) &&
+          !/\bJOIN\b/i.test(query)
+        );
+        if (isSingleTableQuery) {
+          const hasIdSelect = /\bSELECT\s+(?:DISTINCT\s+)?id\b/i.test(query) ||
+                              /,\s*id\s*,/i.test(query) ||
+                              /\bid\s*AS\s+snapshot_id\b/i.test(query);
+          const hasIdWhere = /\bWHERE\s+id\s*=/i.test(query) || /\bAND\s+id\s*=/i.test(query);
+
+          if (hasIdSelect || hasIdWhere) {
+            console.error(`🚨 [SCHEMA LANDMINE] Unaliased column 'id' does NOT exist on table '${tableName}'`);
+            console.error(`   File: ${file}:${line}`);
+            console.error(`   Fix:  '${tableName}' uses composite key and has NO 'id' column.\n`);
+            violationCount++;
+          }
+        }
+      }
+
       // Check EXCLUDED.column scoped strictly to INSERT INTO ${tableName} ... ON CONFLICT ... DO UPDATE SET clause
       const insertClauseRegex = new RegExp(
         `\\bINSERT\\s+INTO\\s+${tableName}\\b[\\s\\S]*?\\bON\\s+CONFLICT[\\s\\S]*?\\bDO\\s+UPDATE\\s+SET\\s+([\\s\\S]*?)(?:\\bRETURNING\\b|\\bSELECT\\b|\\bINSERT\\b|\\bWITH\\b|;|\\)\\s*,|\\)\\s*SELECT|$)`,
