@@ -78,7 +78,12 @@ async function main() {
       SELECT 
         COUNT(DISTINCT ksc.pin_id)::int as total_unique_pins,
         COUNT(DISTINCT ksc.pin_id) FILTER (WHERE COALESCE(ksc.is_displaced, FALSE) = FALSE)::int as active_pins,
-        COUNT(DISTINCT ksc.pin_id) FILTER (WHERE ksc.is_displaced = TRUE)::int as displaced_vault,
+        COALESCE((
+          SELECT COUNT(DISTINCT kdi.pin_id)::int
+          FROM keyword_displaced_index kdi
+          JOIN keyword_folder_items kfi2 ON kfi2.keyword_id = kdi.keyword_id
+          WHERE kfi2.folder_id = ${folder.id}
+        ), 0)::int as displaced_vault,
         COUNT(DISTINCT ksc.pin_id) FILTER (WHERE ksc.metadata->>'is_deleted' = 'true' OR ksc.metadata->>'status' = 'archived_404')::int as dead_pins,
         COALESCE(SUM(ksc.save_count) FILTER (WHERE COALESCE(ksc.is_displaced, FALSE) = FALSE), 0)::bigint as total_catalog_saves
       FROM keyword_serp_current ksc
@@ -221,7 +226,13 @@ async function main() {
 
     const displacedVault = Number(displacedStats?.displaced_vault || 0);
     const totalCatalog = activeCount + displacedVault;
-    const deadPins = 0;
+    const [deadStats] = await sql`
+      SELECT COUNT(DISTINCT pin_id)::int as dead_pins
+      FROM keyword_serp_current
+      WHERE keyword_id = ${kw.id}
+        AND (metadata->>'is_deleted' = 'true' OR metadata->>'status' = 'archived_404');
+    `.catch(() => [{ dead_pins: 0 }]);
+    const deadPins = Number(deadStats?.dead_pins || 0);
     const totalCatalogSaves = totalActiveSaves;
 
     // 4. Compute Visual Annotations Crossover & Core Anchors (Active only)

@@ -49,11 +49,15 @@ async function migrateFleet() {
         // 1. Column additions
         await sSql`ALTER TABLE competitor_pins ADD COLUMN IF NOT EXISTS is_product BOOLEAN DEFAULT FALSE;`;
         await sSql`ALTER TABLE competitor_pins ADD COLUMN IF NOT EXISTS alt_text TEXT;`;
-        await sSql`ALTER TABLE pa_pins ADD COLUMN IF NOT EXISTS alt_text TEXT;`;
+        if (proj.is_hub) {
+          await sSql`ALTER TABLE pa_pins ADD COLUMN IF NOT EXISTS alt_text TEXT;`.catch(() => {});
+        }
 
         // 2. Indexes
         await sSql`CREATE INDEX IF NOT EXISTS idx_competitor_pins_is_product ON competitor_pins(competitor_id, is_product) WHERE is_product = TRUE;`;
-        await sSql`CREATE INDEX IF NOT EXISTS idx_pa_pins_is_product ON pa_pins(is_product) WHERE is_product = TRUE;`;
+        if (proj.is_hub) {
+          await sSql`CREATE INDEX IF NOT EXISTS idx_pa_pins_is_product ON pa_pins(is_product) WHERE is_product = TRUE;`.catch(() => {});
+        }
         await sSql`CREATE INDEX IF NOT EXISTS idx_competitor_pins_comp_board ON competitor_pins(competitor_id, board_name);`;
 
         // 3. Backfill is_product

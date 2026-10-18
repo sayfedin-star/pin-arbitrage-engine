@@ -580,7 +580,7 @@ export async function getDatabaseEnrichmentStats(sql) {
         WHERE domain IS NOT NULL AND domain <> ''
         UNION
         SELECT DISTINCT LOWER(REGEXP_REPLACE(domain, '^www\\.', '')) AS clean_domain
-        FROM universal_master_pins
+        FROM pa_pins
         WHERE domain IS NOT NULL AND domain <> ''
         UNION
         SELECT DISTINCT LOWER(REGEXP_REPLACE(cp.link_domain, '^www\\.', '')) AS clean_domain
@@ -655,11 +655,11 @@ export async function enrichNextUncheckedBatch(sql, { batchSize = 20, concurrenc
       UNION ALL
 
       SELECT
-        LOWER(REGEXP_REPLACE(ump.domain, '^www\\.', '')) AS clean_domain,
+        LOWER(REGEXP_REPLACE(pa.domain, '^www\\.', '')) AS clean_domain,
         0::bigint AS visibility_score,
-        0::bigint AS total_saves
-      FROM universal_master_pins ump
-      WHERE ump.domain IS NOT NULL AND ump.domain <> ''
+        SUM(COALESCE(pa.saves, 0))::bigint AS total_saves
+      FROM pa_pins pa
+      WHERE pa.domain IS NOT NULL AND pa.domain <> ''
       GROUP BY clean_domain
 
       UNION ALL
@@ -1175,6 +1175,22 @@ export async function refreshDomainIntelligenceRollup(sql) {
         FROM competitor_pins cp
         LEFT JOIN competitor_profiles cprof ON cprof.id = cp.competitor_id
         WHERE cp.link_domain IS NOT NULL AND cp.link_domain <> ''
+
+        UNION ALL
+
+        SELECT
+          LOWER(REGEXP_REPLACE(TRIM(drm.domain), '^www\\.', '')) AS clean_domain,
+          'reg_' || drm.domain AS pin_id,
+          NULL::int AS keyword_id,
+          NULL::int AS active_rank,
+          TRUE AS is_displaced,
+          0::bigint AS saves,
+          0::bigint AS repins,
+          0::numeric AS velocity,
+          '' AS username,
+          '/' AS url_slug
+        FROM domain_registry_metadata drm
+        WHERE drm.domain IS NOT NULL AND drm.domain <> '' AND drm.domain LIKE '%.%'
       ),
       dedup_pins AS (
         SELECT
@@ -1196,14 +1212,18 @@ export async function refreshDomainIntelligenceRollup(sql) {
       domain_agg AS (
         SELECT
           dp.clean_domain AS domain,
-          COUNT(DISTINCT dp.pin_id)::int AS total_pins,
-          COUNT(DISTINCT dp.url_slug)::int AS unique_urls,
-          ROUND(COUNT(DISTINCT dp.pin_id)::numeric / GREATEST(1, COUNT(DISTINCT dp.url_slug)), 2) AS pins_per_url,
+          COALESCE(COUNT(DISTINCT dp.pin_id) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%')), 0)::int AS total_pins,
+          GREATEST(1, COUNT(DISTINCT dp.url_slug) FILTER (WHERE dp.url_slug IS NOT NULL AND dp.url_slug <> '/'))::int AS unique_urls,
+          ROUND(
+            COALESCE(NULLIF(COUNT(DISTINCT dp.pin_id) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%')), 0), 1)::numeric / 
+            GREATEST(1, COUNT(DISTINCT dp.url_slug) FILTER (WHERE dp.url_slug IS NOT NULL AND dp.url_slug <> '/')), 
+            2
+          ) AS pins_per_url,
           COUNT(dp.pin_id) FILTER (WHERE dp.active_rank IS NOT NULL)::int AS active_serp_pins,
           COUNT(dp.pin_id) FILTER (WHERE dp.active_rank <= 3)::int AS top3_pins,
           COUNT(dp.pin_id) FILTER (WHERE dp.active_rank <= 10)::int AS top10_pins,
           COUNT(dp.pin_id) FILTER (WHERE dp.active_rank BETWEEN 11 AND 50)::int AS rank_11_50_pins,
-          COUNT(dp.pin_id) FILTER (WHERE dp.is_displaced = TRUE)::int AS displaced_pins,
+          COUNT(dp.pin_id) FILTER (WHERE dp.is_displaced = TRUE AND NOT (dp.pin_id LIKE 'reg_%'))::int AS displaced_pins,
           MIN(dp.active_rank) AS best_rank,
           ROUND(AVG(dp.active_rank), 1) AS avg_rank,
           ROUND(

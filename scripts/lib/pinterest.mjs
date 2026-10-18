@@ -1581,7 +1581,7 @@ export async function fetchBoardDetailUnauth(username, boardSlugOrName, options 
   }
   const cleanSlug = rawBoard
     .toLowerCase()
-    .replace(/[^\w\s-]/g, '')
+    .replace(/[^\p{L}\p{N}\s-]+/gu, '')
     .trim()
     .replace(/\s+/g, '-')
     .replace(/-+/g, '-');

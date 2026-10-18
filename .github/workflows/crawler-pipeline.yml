@@ -117,6 +117,7 @@ jobs:
       - name: 5. Execute Discovery Job
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PINTEREST_COOKIE: ${{ secrets.PINTEREST_COOKIE }}
           TARGET_ACCOUNT: ${{ inputs.target_account }}
           TARGET_BOARDS: ${{ inputs.target_boards }}
           CRAWL_MODE: ${{ inputs.crawl_mode || 'sharded_boards' }}
@@ -173,6 +174,7 @@ jobs:
       - name: 5. Execute Distributed Shard Engine
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PINTEREST_COOKIE: ${{ secrets.PINTEREST_COOKIE }}
           TARGET_ACCOUNT: ${{ inputs.target_account }}
           TARGET_BOARDS: ${{ inputs.target_boards }}
           CRAWL_MODE: ${{ inputs.crawl_mode || 'sharded_boards' }}

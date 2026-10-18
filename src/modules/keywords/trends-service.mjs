@@ -541,37 +541,45 @@ export async function fetchPinterestTrends(term, country = 'US', force = false) 
       let primaryCounts = [];
       let matchedTerm = cleanTerm;
 
-      if (prefixRes.status === 'fulfilled' && prefixRes.value.ok) {
-        try {
-          const prefixData = await prefixRes.value.json();
-          if (Array.isArray(prefixData) && prefixData.length > 0) {
-            // Find best match or default to first
-            const exact = prefixData.find(p => p.term?.toLowerCase() === cleanTerm) || prefixData[0];
-            primaryCounts = Array.isArray(exact.counts) ? exact.counts : [];
-            matchedTerm = exact.term || cleanTerm;
-          }
-        } catch (_) {}
+      if (prefixRes.status === 'fulfilled') {
+        if (prefixRes.value.ok) {
+          try {
+            const prefixData = await prefixRes.value.json();
+            if (Array.isArray(prefixData) && prefixData.length > 0) {
+              // Find best match or default to first
+              const exact = prefixData.find(p => p.term?.toLowerCase() === cleanTerm) || prefixData[0];
+              primaryCounts = Array.isArray(exact.counts) ? exact.counts : [];
+              matchedTerm = exact.term || cleanTerm;
+            }
+          } catch (_) {}
+        } else if (prefixRes.value.body) {
+          await prefixRes.value.body.cancel().catch(() => {});
+        }
       }
 
       let relatedTrends = [];
-      if (relatedRes.status === 'fulfilled' && relatedRes.value.ok) {
-        try {
-          const relatedData = await relatedRes.value.json();
-          if (Array.isArray(relatedData)) {
-            relatedTrends = relatedData.map(r => ({
-              term: r.term,
-              counts: Array.isArray(r.counts) ? r.counts : [],
-              hasPrediction: Boolean(r.hasPrediction)
-            }));
-            // If primary counts not found in prefix_match, check related
-            if (primaryCounts.length === 0) {
-              const exactInRelated = relatedData.find(r => r.term?.toLowerCase() === cleanTerm);
-              if (exactInRelated && Array.isArray(exactInRelated.counts)) {
-                primaryCounts = exactInRelated.counts;
+      if (relatedRes.status === 'fulfilled') {
+        if (relatedRes.value.ok) {
+          try {
+            const relatedData = await relatedRes.value.json();
+            if (Array.isArray(relatedData)) {
+              relatedTrends = relatedData.map(r => ({
+                term: r.term,
+                counts: Array.isArray(r.counts) ? r.counts : [],
+                hasPrediction: Boolean(r.hasPrediction)
+              }));
+              // If primary counts not found in prefix_match, check related
+              if (primaryCounts.length === 0) {
+                const exactInRelated = relatedData.find(r => r.term?.toLowerCase() === cleanTerm);
+                if (exactInRelated && Array.isArray(exactInRelated.counts)) {
+                  primaryCounts = exactInRelated.counts;
+                }
               }
             }
-          }
-        } catch (_) {}
+          } catch (_) {}
+        } else if (relatedRes.value.body) {
+          await relatedRes.value.body.cancel().catch(() => {});
+        }
       }
 
       // Calculate Peak and Momentum metrics strictly from real data
@@ -609,48 +617,52 @@ export async function fetchPinterestTrends(term, country = 'US', force = false) 
 
       // Extract live official Pinterest Demographics distribution if available
       let demographics = null;
-      if (demoRes.status === 'fulfilled' && demoRes.value.ok) {
-        try {
-          const demoJson = await demoRes.value.json();
-          const termDist = demoJson?.term_distributions?.[cleanTerm] || demoJson?.term_distributions?.[matchedTerm];
-          if (termDist && (termDist.age_distribution || termDist.gender_distribution)) {
-            const ageDist = termDist.age_distribution || {};
-            const genderDist = termDist.gender_distribution || {};
+      if (demoRes.status === 'fulfilled') {
+        if (demoRes.value.ok) {
+          try {
+            const demoJson = await demoRes.value.json();
+            const termDist = demoJson?.term_distributions?.[cleanTerm] || demoJson?.term_distributions?.[matchedTerm];
+            if (termDist && (termDist.age_distribution || termDist.gender_distribution)) {
+              const ageDist = termDist.age_distribution || {};
+              const genderDist = termDist.gender_distribution || {};
 
-            const parsePct = (val) => Math.round(Number(val || 0) * 100);
-            const formatDisplayPct = (pct) => {
-              if (pct < 5 && pct > 0) return '<5%';
-              if (pct === 0) return '0%';
-              return `${pct}%`;
-            };
-
-            const femalePct = parsePct(genderDist.female);
-            const malePct = parsePct(genderDist.male);
-            const unspecifiedPct = parsePct(genderDist.unspecified);
-
-            const ageGroups = ['18-24', '25-34', '35-44', '45-49', '50-54', '55-64', '65+'];
-            const ageList = ageGroups.map(group => {
-              const pct = parsePct(ageDist[group]);
-              return {
-                group,
-                pct,
-                display_pct: formatDisplayPct(pct)
+              const parsePct = (val) => Math.round(Number(val || 0) * 100);
+              const formatDisplayPct = (pct) => {
+                if (pct < 5 && pct > 0) return '<5%';
+                if (pct === 0) return '0%';
+                return `${pct}%`;
               };
-            });
 
-            demographics = {
-              gender: {
-                female_pct: femalePct,
-                female_display: formatDisplayPct(femalePct),
-                male_pct: malePct,
-                male_display: formatDisplayPct(malePct),
-                unspecified_pct: unspecifiedPct,
-                unspecified_display: formatDisplayPct(unspecifiedPct)
-              },
-              age: ageList
-            };
-          }
-        } catch (_) {}
+              const femalePct = parsePct(genderDist.female);
+              const malePct = parsePct(genderDist.male);
+              const unspecifiedPct = parsePct(genderDist.unspecified);
+
+              const ageGroups = ['18-24', '25-34', '35-44', '45-49', '50-54', '55-64', '65+'];
+              const ageList = ageGroups.map(group => {
+                const pct = parsePct(ageDist[group]);
+                return {
+                  group,
+                  pct,
+                  display_pct: formatDisplayPct(pct)
+                };
+              });
+
+              demographics = {
+                gender: {
+                  female_pct: femalePct,
+                  female_display: formatDisplayPct(femalePct),
+                  male_pct: malePct,
+                  male_display: formatDisplayPct(malePct),
+                  unspecified_pct: unspecifiedPct,
+                  unspecified_display: formatDisplayPct(unspecifiedPct)
+                },
+                age: ageList
+              };
+            }
+          } catch (_) {}
+        } else if (demoRes.value.body) {
+          await demoRes.value.body.cancel().catch(() => {});
+        }
       }
 
       const resultData = {
@@ -787,7 +799,10 @@ export async function fetchPinterestTrendsPopularPins(sql, term, country = 'US',
 
   try {
     const res = await fetch(url, { headers, signal: AbortSignal.timeout(7000) });
-    if (!res.ok) return { success: false, error: `Pinterest returned HTTP ${res.status}` };
+    if (!res.ok) {
+      if (res.body) await res.body.cancel().catch(() => {});
+      return { success: false, error: `Pinterest returned HTTP ${res.status}` };
+    }
     const data = await res.json();
     const rawResults = data?.resource_response?.data?.results || [];
 

@@ -3544,7 +3544,7 @@ export default {
             console.warn('[Tombstone] Failed to record ignored pin:', err.message);
           });
 
-          // Manual Deletion Only Directive: remove from unified keyword catalog & keyword snapshots
+          // Manual Deletion Only Directive: remove from unified keyword catalog & keyword snapshots & displaced vault
           const delRes = await sql`
             DELETE FROM keyword_serp_current
             WHERE keyword_id = ${keywordId} AND pin_id = ${pinId}
@@ -3554,6 +3554,20 @@ export default {
             DELETE FROM keyword_pins_snapshots
             WHERE keyword_id = ${keywordId} AND pin_id = ${pinId};
           `.catch(() => {});
+          await sql`
+            DELETE FROM keyword_displaced_index
+            WHERE keyword_id = ${keywordId} AND pin_id = ${pinId};
+          `.catch(() => {});
+
+          if (env?.PIN_ENGINE_KV) {
+            const evictions = getPinKvKeysToEvict(pinId, [keywordId]).map(k => env.PIN_ENGINE_KV.delete(k).catch(() => {}));
+            evictions.push(
+              env.PIN_ENGINE_KV.delete(`serp:comp:${keywordId}`).catch(() => {}),
+              env.PIN_ENGINE_KV.delete(`displaced:kw:${keywordId}:50:0`).catch(() => {}),
+              env.PIN_ENGINE_KV.delete(`displaced:kw:${keywordId}:100:0`).catch(() => {})
+            );
+            safeWaitUntil(ctx, Promise.all(evictions), 'kv_delete_keyword_pin_cache');
+          }
 
           return jsonResponse({
             success: true,
