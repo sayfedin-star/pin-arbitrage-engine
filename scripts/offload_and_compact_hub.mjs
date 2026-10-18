@@ -554,35 +554,7 @@ export async function runOffloadAndCompact(hubSql, { forceCompact = FORCE_COMPAC
               updated_at = NOW();
           `;
 
-          // 2. Legacy backward-compatible pins_daily_snapshots on shard
-          const qLegacy = shardSql`
-            INSERT INTO pins_daily_snapshots (
-              pin_id, keyword_id, rank_position, save_count, repin_count, comment_count,
-              share_count, reaction_count, daily_save_velocity, snapshot_date, is_displaced, created_at
-            )
-            SELECT DISTINCT ON (u.pin_id, u.keyword_id, u.snapshot_date)
-              u.pin_id, u.keyword_id, u.rank_position, u.save_count, u.repin_count, u.comment_count,
-              u.share_count, u.reaction_count, u.daily_save_velocity, u.snapshot_date, u.is_displaced, u.created_at
-            FROM jsonb_to_recordset(${payload}::jsonb) AS u(
-              pin_id text, keyword_id int, rank_position int, save_count int, repin_count int, comment_count int,
-              share_count int, reaction_count int, daily_save_velocity numeric, snapshot_date date, is_displaced boolean,
-              created_at timestamptz
-            )
-            WHERE NOT EXISTS (
-              SELECT 1 FROM pins_daily_snapshots pds
-              WHERE pds.pin_id = u.pin_id 
-                AND pds.snapshot_date = u.snapshot_date 
-                AND COALESCE(pds.keyword_id, 0) = COALESCE(u.keyword_id, 0)
-            )
-            ORDER BY u.pin_id ASC, u.keyword_id ASC, u.snapshot_date ASC;
-          `;
-
-          if (typeof shardSql.transaction === 'function') {
-            await shardSql.transaction([qTwoTier, qLegacy]);
-          } else {
-            await qTwoTier;
-            await qLegacy;
-          }
+          await qTwoTier;
         }, shardId);
         snapshotShardsUpdated++;
       } catch (err) {

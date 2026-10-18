@@ -17,6 +17,7 @@
  */
 
 import { formatPinterestCookie } from '../../utils.mjs';
+import { getPinterestHeaders } from '../shared/pinterest-headers.mjs';
 import { getCachedVisualSearchMatches, setCachedVisualSearchMatches } from './visual-lens-cache.mjs';
 import { extractPinData, PINTEREST_PAGE_HEADERS, fetchPinFromPinterest } from '../../../scripts/lib/pinterest.mjs';
 import { derivePinTitle } from './folders-service.mjs';
@@ -1141,28 +1142,65 @@ export async function fetchVisualSearchLens(sql, pinId, cookie = (typeof process
     }
 
     const searchQuery = encodeURIComponent(searchQueryStr);
-    const url = `https://www.pinterest.com/resource/BaseSearchResource/get/?source_url=%2Fsearch%2Fpins%2F%3Fq%3D${searchQuery}&data=%7B%22options%22%3A%7B%22query%22%3A%22${searchQuery}%22%2C%22scope%22%3A%22pins%22%2C%22page_size%22%3A20%7D%2C%22context%22%3A%7B%7D%7D`;
+    let rawResults = [];
+    let matchProvenance = 'visual_live_lens';
 
-    const headers = {
-      'Accept': 'application/json, text/javascript, */*, q=0.01',
-      'X-Requested-With': 'XMLHttpRequest',
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
-      'x-pinterest-pws-handler': 'www/search/pins.js',
-      'referer': `https://www.pinterest.com/search/pins/?q=${searchQuery}`
-    };
+    // 1. Attempt Pinterest's native VisualLiveSearchResource if cookie is provided
     if (cookie && String(cookie).trim()) {
-      headers['Cookie'] = formatPinterestCookie(cookie);
+      try {
+        const visualUrl = `https://www.pinterest.com/resource/VisualLiveSearchResource/get/?source_url=%2Fpin%2F${cleanPin}%2F&data=%7B%22options%22%3A%7B%22pin_id%22%3A%22${cleanPin}%22%7D%2C%22context%22%3A%7B%7D%7D`;
+        const vHeaders = getPinterestHeaders({
+          cookie,
+          referer: `https://www.pinterest.com/pin/${cleanPin}/`,
+          extra: {
+            'x-pinterest-pws-handler': 'www/pin/[id].js'
+          }
+        });
+        const vRes = await fetch(visualUrl, { headers: vHeaders, signal: AbortSignal.timeout(8000) });
+        if (vRes.ok) {
+          const vData = await vRes.json();
+          rawResults = vData?.resource_response?.data?.results || [];
+        }
+        if (vRes?.body && !vRes.bodyUsed) await vRes.body.cancel().catch(() => {});
+      } catch (_) {}
     }
 
-    let res;
-    try {
-      res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
-      if (!res.ok) {
-        return { success: false, pin_id: cleanPin, matches: [], error: `Visual Search returned HTTP ${res.status}` };
+    // 2. Fallback to contextual text search if visual live search returns no results
+    if (!rawResults || rawResults.length === 0) {
+      matchProvenance = 'contextual_text_fallback';
+      let searchQueryStr = (pinRow?.title && !/^\d+$/.test(pinRow.title.trim())) ? pinRow.title.trim() : '';
+      if (!searchQueryStr && pinRow?.domain) {
+        searchQueryStr = pinRow.domain;
       }
-      const data = await res.json();
-      const rawResults = data?.resource_response?.data?.results || [];
+      if (!searchQueryStr) {
+        return { success: true, pin_id: cleanPin, seed_pin: pinRow, matches: [] };
+      }
 
+      const searchQuery = encodeURIComponent(searchQueryStr);
+      const url = `https://www.pinterest.com/resource/BaseSearchResource/get/?source_url=%2Fsearch%2Fpins%2F%3Fq%3D${searchQuery}&data=%7B%22options%22%3A%7B%22query%22%3A%22${searchQuery}%22%2C%22scope%22%3A%22pins%22%2C%22page_size%22%3A20%7D%2C%22context%22%3A%7B%7D%7D`;
+      const headers = getPinterestHeaders({
+        cookie,
+        referer: `https://www.pinterest.com/search/pins/?q=${searchQuery}`,
+        extra: {
+          'x-pinterest-pws-handler': 'www/search/pins.js'
+        }
+      });
+
+      let res;
+      try {
+        res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
+        if (res.ok) {
+          const data = await res.json();
+          rawResults = data?.resource_response?.data?.results || [];
+        }
+      } catch (err) {
+        console.warn(`[fetchVisualSearchLens] Contextual search fallback error:`, err.message);
+      } finally {
+        if (res?.body && !res.bodyUsed) await res.body.cancel().catch(() => {});
+      }
+    }
+
+    try {
       const matches = [];
       const seen = new Set([cleanPin]);
       const seedWords = (pinRow?.title || '').toLowerCase().split(/\s+/).filter(w => w.length > 3);
@@ -1214,7 +1252,8 @@ export async function fetchVisualSearchLens(sql, pinId, cookie = (typeof process
           destination_url: item.link || '',
           save_count: saves,
           similarity_type: similarityType,
-          similarity_badge: similarityBadge
+          similarity_badge: similarityBadge,
+          provenance: matchProvenance
         });
       }
 
@@ -1239,10 +1278,6 @@ export async function fetchVisualSearchLens(sql, pinId, cookie = (typeof process
     } catch (err) {
       console.warn(`[!] fetchVisualSearchLens error for pin ${cleanPin}:`, err.message);
       return { success: false, pin_id: cleanPin, matches: [], error: err.message };
-    } finally {
-      if (res?.body && !res.bodyUsed) {
-        await res.body.cancel().catch(() => {});
-      }
     }
   })();
 
@@ -1322,7 +1357,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
 
   try {
     const callerLeaseToken = options.lease_token || null;
-    const leaseResult = await (callerLeaseToken
+    const leaseQuery = callerLeaseToken
       ? sql`
           UPDATE tracked_keywords
           SET crawl_lease_until = GREATEST(COALESCE(crawl_lease_until, NOW()), NOW() + INTERVAL '15 minutes')
@@ -1343,7 +1378,20 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
             WHERE id = ${kid}
               AND (crawl_lease_until IS NULL OR crawl_lease_until < NOW())
             RETURNING id;
-          `)).catch(async () => [{ id: kid }]);
+          `);
+
+    let leaseResult;
+    try {
+      leaseResult = await leaseQuery;
+    } catch (lErr) {
+      if (lErr.message && (lErr.message.includes('crawl_lease_until') || lErr.message.includes('column') || lErr.message.includes('does not exist'))) {
+        console.warn(`[crawlKeywordSERP] crawl_lease_until column missing, proceeding without database lease: ${lErr.message}`);
+        leaseResult = [{ id: kid }];
+      } else {
+        console.error(`[crawlKeywordSERP] Database error acquiring lease for keyword ID ${kid}:`, lErr.message);
+        throw lErr;
+      }
+    }
 
     if (leaseResult.length === 0) {
       return { success: false, in_progress: true, message: `Crawl actively locked by another node for keyword ID ${kid}` };

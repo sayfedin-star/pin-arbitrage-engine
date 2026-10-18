@@ -1446,6 +1446,9 @@ export default {
                     return await target.transaction(queriesOrFn);
                   } catch (err) {
                     console.warn(`[Hyperdrive Tx Fallback] Tx failed (${redactSecrets(err.message)}). Degrading to direct Neon HTTP tx.`);
+                    if (typeof queriesOrFn === 'function') {
+                      return await queriesOrFn(directSql);
+                    }
                     return await directSql.transaction(queriesOrFn);
                   }
                 };
@@ -3329,7 +3332,7 @@ export default {
       if (method === 'POST' && pathname === '/api/keywords/sync') {
         invalidateEdgeCache('keywords');
         const body = await request.json().catch(() => ({}));
-        let keywordId = Number(body.keyword_id);
+        let keywordId = Number(body.keyword_id || body.id);
         const slug = body.slug || body.keyword;
         let resolvedKw = null;
         if (!keywordId && slug) {
@@ -3395,7 +3398,18 @@ export default {
           safeWaitUntil(ctx, tripPinterestCircuitBreaker(env, `HTTP ${res?.status || 429} Rate Limit/Block in /api/keywords/sync`, 900), 'tripPinterestCircuitBreaker');
         }
 
-        return jsonResponse({ success: true, result: res });
+        return jsonResponse({
+          success: true,
+          status: res?.success ? 'success' : 'accepted',
+          keyword_id: keywordId,
+          result: {
+            success: res?.success ?? true,
+            status: res?.success ? 'completed' : 'accepted',
+            crawled_pins: res?.crawled_pins ?? res?.pins_collected ?? (res?.success ? 1 : 0),
+            message: res?.message || (res?.success ? 'Dispatched and synchronized successfully' : 'Dispatched asynchronously'),
+            ...res
+          }
+        });
       }
 
       if (method === 'GET' && pathname === '/api/settings') {
@@ -3799,8 +3813,7 @@ export default {
           const targetDate = hubSnap?.snapshot_date || shardSnap?.snapshot_date;
           const targetKwId = hubSnap?.keyword_id || shardSnap?.keyword_id;
 
-          // 2. Delete from single-row snapshot tables on Shard and Hub
-          await shardSql`DELETE FROM pins_daily_snapshots WHERE id = ${snapshotId};`.catch(() => {});
+          // 2. Delete from single-row snapshot tables on Hub
           await sql`DELETE FROM keyword_pins_snapshots WHERE id = ${snapshotId};`.catch(() => {});
 
           // 3. Clean Two-Tier Shard tables (pins_daily_metrics & pin_serp_positions)
@@ -3816,7 +3829,7 @@ export default {
               SELECT id FROM keyword_pins_snapshots WHERE pin_id = ${pinId} AND snapshot_date = ${targetDate}::date LIMIT 1;
             `.catch(() => []);
             const [remShard] = await shardSql`
-              SELECT id FROM pins_daily_snapshots WHERE pin_id = ${pinId} AND snapshot_date = ${targetDate}::date LIMIT 1;
+              SELECT pin_id FROM pin_serp_positions WHERE pin_id = ${pinId} AND snapshot_date = ${targetDate}::date LIMIT 1;
             `.catch(() => []);
             if (!remHub && !remShard) {
               await shardSql`
@@ -3876,12 +3889,6 @@ export default {
             WHERE pin_id = ${pinId} AND snapshot_date = ${snapshotDate}::date AND keyword_id = ${kwId};
           `.catch(() => {});
 
-          // Delete from legacy shard table
-          await shardSql`
-            DELETE FROM pins_daily_snapshots
-            WHERE pin_id = ${pinId} AND snapshot_date = ${snapshotDate}::date AND keyword_id = ${kwId};
-          `.catch(() => {});
-
           // Delete from Hub snapshots
           await sql`
             DELETE FROM keyword_pins_snapshots
@@ -3933,12 +3940,6 @@ export default {
 
           await shardSql`
             DELETE FROM pin_serp_positions
-            WHERE pin_id = ${pinId} AND snapshot_date = ${snapshotDate}::date;
-          `.catch(() => {});
-
-          // Delete from legacy shard table
-          await shardSql`
-            DELETE FROM pins_daily_snapshots
             WHERE pin_id = ${pinId} AND snapshot_date = ${snapshotDate}::date;
           `.catch(() => {});
 
@@ -4160,23 +4161,7 @@ export default {
               const shardDisplaced = Boolean(sRow.is_displaced ?? false);
               const shardRank = shardDisplaced ? null : (sRow.rank_position ?? null);
 
-              await shardSql`
-                INSERT INTO pins_daily_snapshots (
-                  pin_id, keyword_id, snapshot_date, rank_position, is_displaced, save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity, created_at
-                ) VALUES (
-                  ${pinId}, ${shardKid}, (NOW() AT TIME ZONE 'UTC')::date, ${shardRank}, ${shardDisplaced},
-                  ${newSaves}, ${Number(pin.repins || 0)}, ${Number(pin.comments || 0)}, ${Number(pin.share_count || 0)}, 0, ${syncVelocity}, NOW()
-                )
-                ON CONFLICT (pin_id, keyword_id, snapshot_date) DO UPDATE SET
-                  rank_position = EXCLUDED.rank_position,
-                  is_displaced = EXCLUDED.is_displaced,
-                  save_count = GREATEST(pins_daily_snapshots.save_count, EXCLUDED.save_count),
-                  repin_count = GREATEST(pins_daily_snapshots.repin_count, EXCLUDED.repin_count),
-                  comment_count = GREATEST(pins_daily_snapshots.comment_count, EXCLUDED.comment_count),
-                  share_count = GREATEST(pins_daily_snapshots.share_count, EXCLUDED.share_count),
-                  daily_save_velocity = GREATEST(pins_daily_snapshots.daily_save_velocity, EXCLUDED.daily_save_velocity);
-              `.catch(() => {});
-
+              // Write to pin_serp_positions (pins_daily_snapshots is a consolidated VIEW)
               if (shardKid != null) {
                 const shardLastKnown = sRow.last_known_rank ?? sRow.rank_position ?? null;
                 const shardCatalogRank = shardDisplaced ? ((Number(shardLastKnown || 50) + 100)) : (shardRank ?? shardLastKnown ?? null);

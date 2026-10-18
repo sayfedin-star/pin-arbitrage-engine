@@ -1650,10 +1650,12 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
     const latest = snapshots[snapshots.length - 1];
     const dEarliest = new Date(earliest.recorded_date || earliest.created_at).getTime();
     const dLatest = new Date(latest.recorded_date || latest.created_at).getTime();
-    daysSpan = Math.max(1, Math.round((dLatest - dEarliest) / 86400000));
+    const rawSpan = (!isNaN(dEarliest) && !isNaN(dLatest)) ? Math.round((dLatest - dEarliest) / 86400000) : 1;
+    daysSpan = Math.max(1, (!isNaN(rawSpan) && isFinite(rawSpan)) ? rawSpan : 1);
     pinsAdded = Math.max(0, (Number(latest.total_pins) || 0) - (Number(earliest.total_pins) || 0));
-    pinningVelocity = (pinsAdded / daysSpan).toFixed(1);
-    pacingEstimate = Math.round((pinsAdded / daysSpan) * 30);
+    const safeVelocity = (isNaN(pinsAdded / daysSpan) || !isFinite(pinsAdded / daysSpan)) ? 0 : (pinsAdded / daysSpan);
+    pinningVelocity = safeVelocity.toFixed(1);
+    pacingEstimate = Math.round(safeVelocity * 30);
   } else if (compId) {
     try {
       const runCatalogStats = async (includeDeleted) => {
@@ -1705,14 +1707,17 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
         const totalCatalog = Number(velocityStats.total_catalog_pins || 0);
         const datedCount = Number(velocityStats.dated_pins_count || 0);
         winningPinsCount = Number(velocityStats.winning_pins_count || 0);
-        daysSpan = Math.max(1, Math.round(Number(velocityStats.span_days || 1)));
+        const rawSpan = Number(velocityStats.span_days);
+        const safeSpan = Math.max(1.0, (!isNaN(rawSpan) && isFinite(rawSpan)) ? rawSpan : 1.0);
+        daysSpan = Math.max(1, Math.round(safeSpan));
         pinsAdded = totalCatalog;
 
-        pinningVelocity = datedCount > 0
-          ? (datedCount / Number(velocityStats.span_days)).toFixed(1)
-          : (totalCatalog > 0 ? (totalCatalog / daysSpan).toFixed(1) : '0.0');
+        const calcVelocity = datedCount > 0
+          ? (datedCount / safeSpan)
+          : (totalCatalog > 0 ? (totalCatalog / daysSpan) : 0);
 
-        pacingEstimate = Math.round(Number(pinningVelocity) * 30);
+        pinningVelocity = (!isNaN(calcVelocity) && isFinite(calcVelocity)) ? calcVelocity.toFixed(1) : '0.0';
+        pacingEstimate = Math.round((Number(pinningVelocity) || 0) * 30);
         winningHitRatePct = totalCatalog > 0 ? Number(((winningPinsCount / totalCatalog) * 100).toFixed(1)) : 0.0;
         pinsPerWinner = winningPinsCount > 0 ? Number((totalCatalog / winningPinsCount).toFixed(1)) : null;
       }
@@ -1981,6 +1986,7 @@ export async function upsertCompetitorPins(sql, competitorId, pins) {
       link_domain: p.domain || '',
       destination_url: p.link || '',
       board_name: p.board_name || '',
+      board_slug: (p.board_name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
       image_url: p.image_url || '',
       save_count: Math.max(0, Number(p.saves) || 0),
       repin_count: Math.max(0, Number(p.repins) || 0),
@@ -2004,25 +2010,30 @@ export async function upsertCompetitorPins(sql, competitorId, pins) {
     await sql`
       INSERT INTO competitor_pins (
         competitor_id, pin_id, title, description, link_domain,
-        destination_url, board_name, image_url, save_count, repin_count,
+        destination_url, board_name, board_slug, image_url, save_count, repin_count,
         comment_count, is_product, created_at_pinterest, first_seen_at, last_seen_at, enrichment_status
       )
       SELECT 
         ${competitorId}, x.pin_id, x.title, x.description, x.link_domain,
-        x.destination_url, x.board_name, x.image_url, x.save_count, x.repin_count,
+        x.destination_url, x.board_name, COALESCE(NULLIF(x.board_slug, ''), LOWER(REGEXP_REPLACE(REGEXP_REPLACE(x.board_name, '[^a-zA-Z0-9]+', '-', 'g'), '^-|-$', '', 'g'))), x.image_url, x.save_count, x.repin_count,
         x.comment_count, x.is_product, x.created_at_pinterest, NOW(), NOW(), 'pending'
       FROM jsonb_to_recordset(${JSON.stringify(sortedPins)}::jsonb) AS x(
         pin_id VARCHAR(64), title TEXT, description TEXT, link_domain VARCHAR(255),
-        destination_url TEXT, board_name VARCHAR(255), image_url TEXT,
+        destination_url TEXT, board_name VARCHAR(255), board_slug VARCHAR(255), image_url TEXT,
         save_count INT, repin_count INT, comment_count INT, is_product BOOLEAN, created_at_pinterest TIMESTAMPTZ
       )
       ORDER BY x.pin_id ASC
       ON CONFLICT (competitor_id, pin_id) DO UPDATE SET
         title = CASE WHEN EXCLUDED.title <> '' THEN EXCLUDED.title ELSE competitor_pins.title END,
-        description = CASE WHEN EXCLUDED.description <> '' THEN EXCLUDED.description ELSE competitor_pins.description END,
+        description = CASE 
+          WHEN competitor_pins.enrichment_status = 'compacted' THEN competitor_pins.description 
+          WHEN EXCLUDED.description <> '' THEN EXCLUDED.description 
+          ELSE competitor_pins.description 
+        END,
         destination_url = CASE WHEN EXCLUDED.destination_url <> '' THEN EXCLUDED.destination_url ELSE competitor_pins.destination_url END,
         link_domain = CASE WHEN EXCLUDED.link_domain <> '' THEN EXCLUDED.link_domain ELSE competitor_pins.link_domain END,
         board_name = CASE WHEN EXCLUDED.board_name <> '' THEN EXCLUDED.board_name ELSE competitor_pins.board_name END,
+        board_slug = CASE WHEN EXCLUDED.board_slug <> '' THEN EXCLUDED.board_slug ELSE competitor_pins.board_slug END,
         image_url = CASE WHEN EXCLUDED.image_url <> '' THEN EXCLUDED.image_url ELSE competitor_pins.image_url END,
         save_count = GREATEST(competitor_pins.save_count, EXCLUDED.save_count),
         repin_count = GREATEST(competitor_pins.repin_count, EXCLUDED.repin_count),
@@ -2040,15 +2051,22 @@ export async function upsertCompetitorPins(sql, competitorId, pins) {
         await sql`
           INSERT INTO competitor_pins (
             competitor_id, pin_id, title, description, link_domain,
-            destination_url, board_name, image_url, save_count, repin_count,
+            destination_url, board_name, board_slug, image_url, save_count, repin_count,
             comment_count, is_product, created_at_pinterest, first_seen_at, last_seen_at, enrichment_status
           ) VALUES (
             ${competitorId}, ${p.pin_id}, ${p.title}, ${p.description}, ${p.link_domain},
-            ${p.destination_url}, ${p.board_name}, ${p.image_url}, ${p.save_count}, ${p.repin_count},
+            ${p.destination_url}, ${p.board_name}, ${p.board_slug || null}, ${p.image_url}, ${p.save_count}, ${p.repin_count},
             ${p.comment_count}, ${p.is_product}, ${p.created_at_pinterest ? new Date(p.created_at_pinterest) : null},
             NOW(), NOW(), 'pending'
           )
           ON CONFLICT (competitor_id, pin_id) DO UPDATE SET
+            title = CASE WHEN EXCLUDED.title <> '' THEN EXCLUDED.title ELSE competitor_pins.title END,
+            description = CASE 
+              WHEN competitor_pins.enrichment_status = 'compacted' THEN competitor_pins.description 
+              WHEN EXCLUDED.description <> '' THEN EXCLUDED.description 
+              ELSE competitor_pins.description 
+            END,
+            board_slug = COALESCE(EXCLUDED.board_slug, competitor_pins.board_slug),
             save_count = GREATEST(competitor_pins.save_count, EXCLUDED.save_count),
             repin_count = GREATEST(competitor_pins.repin_count, EXCLUDED.repin_count),
             is_product = (competitor_pins.is_product OR EXCLUDED.is_product),
@@ -2124,8 +2142,9 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
   const cleanSearch = (search && typeof search === 'string' && search.trim()) ? escapeSqlWildcards(search.toLowerCase().trim()) : null;
   const searchPattern = cleanSearch ? `%${cleanSearch}%` : null;
   const boardPattern = (board && board.trim()) ? board.trim().toLowerCase() : null;
+  const boardSlugPattern = boardPattern ? boardPattern.replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') : null;
 
-  const boardsRows = await sql`
+  const boardsPromise = sql`
     SELECT DISTINCT board_name, COUNT(*)::int as count
     FROM competitor_pins
     WHERE competitor_id = ${numericId} AND board_name IS NOT NULL AND board_name <> ''
@@ -2133,7 +2152,7 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
     ORDER BY count DESC;
   `;
 
-  const rows = await sql`
+  const rowsPromise = sql`
     SELECT 
       cp.id,
       cp.competitor_id,
@@ -2164,6 +2183,7 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
       AND (${searchPattern}::text IS NULL OR LOWER(cp.title) LIKE ${searchPattern} OR LOWER(COALESCE(cp.description, '')) LIKE ${searchPattern})
       AND (
         ${boardPattern}::text IS NULL OR 
+        cp.board_slug = ${boardSlugPattern} OR
         LOWER(TRIM(cp.board_name)) = ${boardPattern} OR
         REPLACE(LOWER(TRIM(cp.board_name)), '-', ' ') = REPLACE(${boardPattern}, '-', ' ') OR
         REPLACE(LOWER(TRIM(cp.board_name)), ' ', '-') = REPLACE(${boardPattern}, ' ', '-') OR
@@ -2191,7 +2211,7 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
     LIMIT ${pLim} OFFSET ${offset};
   `;
 
-  const [countRow] = await sql`
+  const countPromise = sql`
     SELECT COUNT(*)::int as total
     FROM competitor_pins cp
     LEFT JOIN pa_pins pa ON pa.pin_id = cp.pin_id
@@ -2200,6 +2220,7 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
       AND (${searchPattern}::text IS NULL OR LOWER(cp.title) LIKE ${searchPattern} OR LOWER(COALESCE(cp.description, '')) LIKE ${searchPattern})
       AND (
         ${boardPattern}::text IS NULL OR 
+        cp.board_slug = ${boardSlugPattern} OR
         LOWER(TRIM(cp.board_name)) = ${boardPattern} OR
         REPLACE(LOWER(TRIM(cp.board_name)), '-', ' ') = REPLACE(${boardPattern}, '-', ' ') OR
         REPLACE(LOWER(TRIM(cp.board_name)), ' ', '-') = REPLACE(${boardPattern}, ' ', '-') OR
@@ -2217,6 +2238,12 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
         COALESCE(cp.link_domain ILIKE '%etsy%' OR cp.link_domain ILIKE '%shopify%' OR cp.link_domain ILIKE '%amazon%' OR cp.destination_url ILIKE '%/listing/%' OR cp.destination_url ILIKE '%/product/%' OR cp.destination_url ILIKE '%/item/%' OR cp.destination_url ILIKE '%gumroad.com%', false) = FALSE
       ));
   `;
+
+  const [boardsRows, rows, [countRow]] = await Promise.all([
+    boardsPromise,
+    rowsPromise,
+    countPromise
+  ]);
 
   const total = countRow ? countRow.total : 0;
   const total_pages = Math.ceil(total / pLim);

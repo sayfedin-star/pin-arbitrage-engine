@@ -1253,42 +1253,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
 
         const txQueries = [];
 
-        txQueries.push(shardSql`
-          INSERT INTO pins_daily_snapshots (
-            pin_id, keyword_id, snapshot_date, rank_position, is_displaced,
-            save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity, created_at
-          )
-          SELECT
-            u.pin_id,
-            u.keyword_id,
-            u.snapshot_date::date,
-            u.rank_position,
-            u.is_displaced,
-            u.save_count,
-            u.repin_count,
-            u.comment_count,
-            u.share_count,
-            u.reaction_count,
-            u.daily_save_velocity,
-            u.created_at::timestamptz
-          FROM jsonb_to_recordset(${JSON.stringify(repairPayload)}::jsonb) AS u(
-            pin_id text,
-            keyword_id int,
-            snapshot_date text,
-            rank_position int,
-            is_displaced boolean,
-            save_count bigint,
-            repin_count int,
-            comment_count int,
-            share_count int,
-            reaction_count int,
-            daily_save_velocity numeric,
-            created_at text
-          )
-          ON CONFLICT (pin_id, keyword_id, snapshot_date) DO NOTHING;
-        `);
-
-        // Two-Tier Shard Read-Repair: Hydrate pins_daily_metrics
+        // Two-Tier Shard Read-Repair: Hydrate pins_daily_metrics (Note: pins_daily_snapshots is a consolidated VIEW)
         const metricsMap = new Map();
         for (const s of repairPayload) {
           const d = s.snapshot_date;

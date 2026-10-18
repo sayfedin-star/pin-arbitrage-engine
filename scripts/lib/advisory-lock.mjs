@@ -10,9 +10,67 @@
  * unreliable across distributed queries.
  *
  * For robust, fail-closed concurrency coordination, use the atomic row lease functions
- * (`tryAcquireKeywordLease`, `tryAcquireSeedLease`) which leverage `UPDATE ... RETURNING`
- * with cryptographic lease tokens (`gen_random_uuid()`) and time-bounded expiration.
+ * (`acquireAtomicRowLease`, `tryAcquireKeywordLease`, `tryAcquireSeedLease`) which leverage
+ * `UPDATE ... RETURNING` with cryptographic lease tokens (`crypto.randomUUID()`) and time-bounded expiration.
  */
+
+/**
+ * Universal Atomic Row Lease Engine
+ * Explicitly guards against dynamic SQL injection while supporting all lease-coordinated tables.
+ *
+ * @param {Function} sql - Neon SQL tagged template instance
+ * @param {'tracked_keywords'|'competitor_profiles'|'cluster_seeds'} tableName
+ * @param {number|string} rowId - Primary key (numeric id for keywords/profiles, pin_id for cluster_seeds)
+ * @param {number} [leaseMinutes=15] - Expiration duration in minutes
+ * @returns {Promise<string|null>} UUID lease token if acquired, null if held by another worker
+ */
+export async function acquireAtomicRowLease(sql, tableName, rowId, leaseMinutes = 15) {
+  const token = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : (await import('crypto')).randomUUID();
+  const mins = Math.max(1, Math.min(120, parseInt(leaseMinutes, 10) || 15));
+
+  try {
+    let rows = [];
+    switch (tableName) {
+      case 'tracked_keywords':
+        rows = await sql`
+          UPDATE tracked_keywords
+          SET crawl_lease_token = ${token}::uuid,
+              crawl_lease_until = NOW() + (${mins} * INTERVAL '1 minute')
+          WHERE id = ${Number(rowId)}
+            AND (crawl_lease_until IS NULL OR crawl_lease_until < NOW())
+          RETURNING crawl_lease_token;
+        `;
+        break;
+      case 'competitor_profiles':
+        rows = await sql`
+          UPDATE competitor_profiles
+          SET crawl_lease_token = ${token}::uuid,
+              crawl_lease_until = NOW() + (${mins} * INTERVAL '1 minute')
+          WHERE id = ${Number(rowId)}
+            AND (crawl_lease_until IS NULL OR crawl_lease_until < NOW())
+          RETURNING crawl_lease_token;
+        `;
+        break;
+      case 'cluster_seeds':
+        rows = await sql`
+          UPDATE cluster_seeds
+          SET crawl_lease_token = ${token}::uuid,
+              crawl_lease_until = NOW() + (${mins} * INTERVAL '1 minute')
+          WHERE pin_id = ${String(rowId)}
+            AND (crawl_lease_until IS NULL OR crawl_lease_until < NOW())
+          RETURNING crawl_lease_token;
+        `;
+        break;
+      default:
+        throw new Error(`[RowLease] Unsupported lease table: ${tableName}`);
+    }
+
+    return rows?.[0]?.crawl_lease_token ? token : null;
+  } catch (err) {
+    console.warn(`[RowLease] Warning acquiring lease on ${tableName} for ${rowId}:`, err.message);
+    return null;
+  }
+}
 
 /**
  * Attempts to acquire an atomic row lease on a tracked keyword.
@@ -24,20 +82,7 @@
  * @returns {Promise<string|null>} Lease token UUID or null
  */
 export async function tryAcquireKeywordLease(sql, keywordId, leaseMinutes = 15) {
-  try {
-    const [res] = await sql`
-      UPDATE tracked_keywords 
-      SET crawl_lease_token = gen_random_uuid(),
-          crawl_lease_until = NOW() + (${leaseMinutes} || ' minutes')::interval
-      WHERE id = ${keywordId} 
-        AND (crawl_lease_until IS NULL OR crawl_lease_until < NOW())
-      RETURNING crawl_lease_token;
-    `;
-    return res?.crawl_lease_token || null;
-  } catch (err) {
-    console.warn(`[RowLease] Warning acquiring lease for keyword ${keywordId}:`, err.message);
-    return null;
-  }
+  return acquireAtomicRowLease(sql, 'tracked_keywords', keywordId, leaseMinutes);
 }
 
 /**
@@ -55,7 +100,7 @@ export async function releaseKeywordLease(sql, keywordId, leaseToken) {
       UPDATE tracked_keywords 
       SET crawl_lease_token = NULL,
           crawl_lease_until = NOW()
-      WHERE id = ${keywordId} AND crawl_lease_token = ${leaseToken}
+      WHERE id = ${Number(keywordId)} AND crawl_lease_token = ${leaseToken}::uuid
       RETURNING id;
     `;
     return Boolean(res);
@@ -74,20 +119,7 @@ export async function releaseKeywordLease(sql, keywordId, leaseToken) {
  * @returns {Promise<string|null>} Lease token UUID or null
  */
 export async function tryAcquireSeedLease(sql, seedPinId, leaseMinutes = 15) {
-  try {
-    const [res] = await sql`
-      UPDATE cluster_seeds
-      SET crawl_lease_token = gen_random_uuid(),
-          crawl_lease_until = NOW() + (${leaseMinutes} || ' minutes')::interval
-      WHERE pin_id = ${seedPinId}
-        AND (crawl_lease_until IS NULL OR crawl_lease_until < NOW())
-      RETURNING crawl_lease_token;
-    `;
-    return res?.crawl_lease_token || null;
-  } catch (err) {
-    console.warn(`[RowLease] Warning acquiring lease for seed ${seedPinId}:`, err.message);
-    return null;
-  }
+  return acquireAtomicRowLease(sql, 'cluster_seeds', seedPinId, leaseMinutes);
 }
 
 /**
@@ -105,7 +137,7 @@ export async function releaseSeedLease(sql, seedPinId, leaseToken) {
       UPDATE cluster_seeds
       SET crawl_lease_token = NULL,
           crawl_lease_until = NOW()
-      WHERE pin_id = ${seedPinId} AND crawl_lease_token = ${leaseToken}
+      WHERE pin_id = ${String(seedPinId)} AND crawl_lease_token = ${leaseToken}::uuid
       RETURNING pin_id;
     `;
     return Boolean(res);
@@ -128,52 +160,5 @@ export async function tryAcquireAdvisoryXactLock(sql, lockKey) {
   } catch (err) {
     console.warn(`[AdvisoryLock] Warning acquiring lock for "${lockKey}":`, err.message);
     return false;
-  }
-}
-
-/**
- * Legacy session advisory lock (Retained for backward compatibility).
- * WARNING: Not recommended over stateless Neon HTTP connections.
- */
-export async function tryAcquireAdvisorySessionLock(sql, lockKey) {
-  try {
-    const [res] = await sql`
-      SELECT pg_try_advisory_lock(hashtext(${String(lockKey)})) AS acquired;
-    `;
-    return Boolean(res?.acquired);
-  } catch (err) {
-    console.warn(`[AdvisoryLock] Warning acquiring session lock for "${lockKey}":`, err.message);
-    return false;
-  }
-}
-
-/**
- * Legacy session advisory unlock.
- */
-export async function releaseAdvisorySessionLock(sql, lockKey) {
-  try {
-    const [res] = await sql`
-      SELECT pg_advisory_unlock(hashtext(${String(lockKey)})) AS unlocked;
-    `;
-    return Boolean(res?.unlocked);
-  } catch (err) {
-    console.warn(`[AdvisoryLock] Warning releasing session lock for "${lockKey}":`, err.message);
-    return false;
-  }
-}
-
-/**
- * Higher-order lock guard using session advisory locks.
- */
-export async function withAdvisoryLock(sql, lockKey, workFn) {
-  const acquired = await tryAcquireAdvisorySessionLock(sql, lockKey);
-  if (!acquired) {
-    return { executed: false, skipped: true, reason: 'locked_by_peer_worker' };
-  }
-  try {
-    const result = await workFn();
-    return { executed: true, skipped: false, result };
-  } finally {
-    await releaseAdvisorySessionLock(sql, lockKey).catch(() => {});
   }
 }

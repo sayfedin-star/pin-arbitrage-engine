@@ -313,17 +313,18 @@ export async function bulkSyncCompetitorPinsToShard(shardSql, shardCompId, statu
       INSERT INTO competitor_pins (
         competitor_id, pin_id, enrichment_status, enrich_attempts, save_count, repin_count, comment_count,
         alt_text, is_product, destination_url, link_domain, title, description, image_url,
-        board_name, created_at_pinterest, first_seen_at, last_seen_at, updated_at
+        board_name, board_slug, created_at_pinterest, first_seen_at, last_seen_at, updated_at
       )
       SELECT 
         ${shardCompId}, x.pin_id, x.status, COALESCE(x.enrich_attempts, 1), COALESCE(x.saves, 0), COALESCE(x.repins, 0), COALESCE(x.comments, 0),
         x.alt_text, COALESCE(x.is_product, false), COALESCE(x.destination_url, ''), COALESCE(x.link_domain, ''),
         COALESCE(x.title, ''), COALESCE(x.description, ''), COALESCE(x.image_url, ''), COALESCE(x.board_name, ''),
+        COALESCE(NULLIF(x.board_slug, ''), LOWER(REGEXP_REPLACE(REGEXP_REPLACE(x.board_name, '[^a-zA-Z0-9]+', '-', 'g'), '^-|-$', '', 'g'))),
         x.created_at_pinterest, NOW(), NOW(), NOW()
       FROM jsonb_to_recordset(${JSON.stringify(sanitizeForJsonb(sorted))}::jsonb) AS x(
         pin_id VARCHAR(64), status VARCHAR(32), enrich_attempts INT, saves INT, repins INT, comments INT, alt_text TEXT,
         is_product BOOLEAN, destination_url TEXT, link_domain VARCHAR(255), title TEXT, description TEXT, image_url TEXT,
-        board_name VARCHAR(255), created_at_pinterest TIMESTAMPTZ
+        board_name VARCHAR(255), board_slug VARCHAR(255), created_at_pinterest TIMESTAMPTZ
       )
       ORDER BY x.pin_id ASC
       ON CONFLICT (competitor_id, pin_id) DO UPDATE SET
@@ -337,9 +338,14 @@ export async function bulkSyncCompetitorPinsToShard(shardSql, shardCompId, statu
         destination_url = CASE WHEN EXCLUDED.destination_url <> '' THEN EXCLUDED.destination_url ELSE competitor_pins.destination_url END,
         link_domain = CASE WHEN EXCLUDED.link_domain <> '' THEN EXCLUDED.link_domain ELSE competitor_pins.link_domain END,
         title = CASE WHEN EXCLUDED.title <> '' THEN EXCLUDED.title ELSE competitor_pins.title END,
-        description = CASE WHEN EXCLUDED.description <> '' THEN EXCLUDED.description ELSE competitor_pins.description END,
+        description = CASE 
+          WHEN competitor_pins.enrichment_status = 'compacted' THEN competitor_pins.description 
+          WHEN EXCLUDED.description <> '' THEN EXCLUDED.description 
+          ELSE competitor_pins.description 
+        END,
         image_url = CASE WHEN EXCLUDED.image_url <> '' THEN EXCLUDED.image_url ELSE competitor_pins.image_url END,
         board_name = CASE WHEN EXCLUDED.board_name <> '' THEN EXCLUDED.board_name ELSE competitor_pins.board_name END,
+        board_slug = COALESCE(EXCLUDED.board_slug, competitor_pins.board_slug),
         created_at_pinterest = COALESCE(EXCLUDED.created_at_pinterest, competitor_pins.created_at_pinterest),
         last_seen_at = NOW(),
         updated_at = NOW()
@@ -970,17 +976,23 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
       console.log(`🚀 [SHARDED BOARD MATRIX] Shard ${sNum}/${sTot} (Swarm Slot ${effectiveSwarmIndex + 1}/${effectiveSwarmTotal}): Assigned ${assignedBoards.length} of ${allBoards.length} total boards.`);
       
       let boardHeartbeatTimer = null;
+      let isHeartbeating = false;
       if (assignedBoards.length > 0 && compId) {
-        // Continuous 15s heartbeat during board harvesting to prevent peer timeout misdetection on deep multi-page boards
+        // Continuous 60s heartbeat during board harvesting with re-entrancy lock
         boardHeartbeatTimer = setInterval(async () => {
+          if (isHeartbeating) return;
+          isHeartbeating = true;
           try {
             await sqlClient`
               UPDATE crawler_shard_heartbeats
               SET updated_at = NOW()
               WHERE competitor_id = ${compId} AND shard_number = ${sNum} AND status = 'crawling_boards';
             `;
-          } catch (_) {}
-        }, 15000);
+          } catch (_) {
+          } finally {
+            isHeartbeating = false;
+          }
+        }, 60000);
       }
 
       try {
@@ -1207,8 +1219,11 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
     activeBatchToRelease = claimed;
     sqlClientForCleanup = sqlClient;
 
-    // Start 20s lease-touch timer so in-flight pins are never mistaken as stale by peer shards
+    // Start 60s lease-touch timer with re-entrancy lock
+    let isTouchingLease = false;
     const leaseTouchTimer = setInterval(async () => {
+      if (isTouchingLease) return;
+      isTouchingLease = true;
       try {
         const ids = claimed.map(c => Number(c.id)).sort((a, b) => a - b);
         const tokens = claimed.map(c => c.claim_token).filter(Boolean);
@@ -1221,8 +1236,11 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
               AND enrichment_status = 'processing';
           `;
         }
-      } catch (_) {}
-    }, 20000);
+      } catch (_) {
+      } finally {
+        isTouchingLease = false;
+      }
+    }, 60000);
 
     let completedCount = 0;
     let rateLimitHit = false;
@@ -1258,8 +1276,16 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
               const annotations = Array.isArray(pin.annotations) ? pin.annotations : [];
               const dominantColor = pin.dominant_color || '#e60023';
               const altText = pin.alt_text || pin.seo_alt_text || '';
-              const velocity = Number(pin.velocity || 0);
+              let velocity = Number(pin.velocity || 0);
               const createdAtPinterest = pin.created_at_pinterest || pin.created_at || null;
+
+              if ((!velocity || velocity <= 0) && saves > 0 && createdAtPinterest) {
+                const cTime = new Date(createdAtPinterest).getTime();
+                if (!isNaN(cTime)) {
+                  const elapsedDays = Math.max(1, Math.round((Date.now() - cTime) / 86400000));
+                  velocity = Math.round((saves / elapsedDays) * 10) / 10;
+                }
+              }
 
               const pinCandidate = {
                 pin_id: item.pin_id,

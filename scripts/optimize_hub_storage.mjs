@@ -398,34 +398,6 @@ export async function optimizeHubStorage(sql) {
                 updated_at = NOW();
             `;
 
-            // Backward compatible pins_daily_snapshots
-            await shardSql`
-              INSERT INTO pins_daily_snapshots (
-                pin_id, keyword_id, rank_position, save_count, repin_count, comment_count,
-                share_count, reaction_count, daily_save_velocity, snapshot_date, is_displaced, created_at
-              )
-              SELECT DISTINCT ON (u.pin_id, u.keyword_id, u.snapshot_date)
-                u.pin_id, u.keyword_id, u.rank_position, u.save_count, u.repin_count, u.comment_count,
-                u.share_count, u.reaction_count, u.daily_save_velocity, u.snapshot_date, u.is_displaced, u.created_at
-              FROM jsonb_to_recordset(${payload}::jsonb) AS u(
-                pin_id text, keyword_id int, rank_position int, save_count int, repin_count int, comment_count int,
-                share_count int, reaction_count int, daily_save_velocity numeric, snapshot_date date, is_displaced boolean,
-                created_at timestamptz
-              )
-              ON CONFLICT (pin_id, keyword_id, snapshot_date) DO UPDATE SET
-                rank_position = COALESCE(EXCLUDED.rank_position, pins_daily_snapshots.rank_position),
-                save_count = GREATEST(pins_daily_snapshots.save_count, EXCLUDED.save_count),
-                repin_count = GREATEST(pins_daily_snapshots.repin_count, EXCLUDED.repin_count),
-                comment_count = GREATEST(pins_daily_snapshots.comment_count, EXCLUDED.comment_count),
-                share_count = GREATEST(pins_daily_snapshots.share_count, EXCLUDED.share_count),
-                reaction_count = GREATEST(pins_daily_snapshots.reaction_count, EXCLUDED.reaction_count),
-                daily_save_velocity = CASE 
-                  WHEN EXCLUDED.daily_save_velocity > 0 THEN GREATEST(COALESCE(pins_daily_snapshots.daily_save_velocity, 0), EXCLUDED.daily_save_velocity)
-                  ELSE pins_daily_snapshots.daily_save_velocity 
-                END,
-                is_displaced = EXCLUDED.is_displaced;
-            `;
-
             for (const s of shardSnaps) {
               if (s.id) confirmedSnapshotIds.push(s.id);
             }
@@ -475,16 +447,21 @@ export async function optimizeHubStorage(sql) {
     console.warn('[optimizeHubStorage] Strip metadata warning:', err.message);
   }
 
-  // 4. Purge completed/failed competitor pins queue (data resides in Shards / D1)
+  // 4. Compact completed/failed competitor pins queue (strips heavy text while retaining skeletal index to prevent re-crawl loop)
   try {
-    const purged = await sql`
-      DELETE FROM competitor_pins
+    const compacted = await sql`
+      UPDATE competitor_pins
+      SET description = NULL,
+          alt_text = NULL,
+          enrichment_status = 'compacted',
+          updated_at = NOW()
       WHERE enrichment_status IN ('completed', 'failed')
+        AND updated_at < NOW() - INTERVAL '7 days'
       RETURNING id;
     `;
-    results.compactedCompetitors = purged.length;
+    results.compactedCompetitors = compacted.length;
   } catch (err) {
-    console.warn('[optimizeHubStorage] Purge competitor pins warning:', err.message);
+    console.warn('[optimizeHubStorage] Compact competitor pins warning:', err.message);
   }
 
   // 5. Non-blocking VACUUM (ANALYZE) on target Hub tables

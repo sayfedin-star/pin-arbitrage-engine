@@ -313,10 +313,19 @@ export function classifySequenceRole(title = '', description = '', ocrText = '',
   const titleLower = (title || '').toLowerCase();
   const fullText = `${title || ''} ${description || ''} ${ocrText || ''}`.toLowerCase();
 
+  const isCommercial = /\b(buy|shop|sale|deal|discount|price|order|coupon|store|etsy|amazon|product)\b/i.test(fullText);
+  const isActionableGuide = /\b(how to|guide|tutorial|steps|step by step|diy|tips|ideas|checklist|routine|plan)\b/i.test(fullText);
   const isDessertOrBake = /\b(muffin|muffins|cake|cakes|cookie|cookies|brownie|brownies|roll|rolls|cinnamon|pie|pies|tart|bread|cupcake|cupcakes|donut|donuts|pastry|pastries|bake|baking|dessert|sweet|chocolate|caramel|snickerdoodle|pumpkin spice|cheesecake)\b/i.test(fullText);
   const isBeverageOrPairing = /\b(latte|coffee|cider|tea|drink|frosting|glaze|syrup|drizzle|dip|cream cheese|icing)\b/i.test(fullText);
   const isSnackBites = /\b(bites|truffle|truffles|energy bite|snack|crescent|mini|treat|treats|crispie|krispie)\b/i.test(fullText);
   const isSavoryDinner = /\b(chicken|turkey|pork|beef|steak|salmon|cod|meatloaf|dinner|casserole|roast|pasta|meat|soup|stew)\b/i.test(fullText);
+
+  if (isCommercial) {
+    return 'COMMERCIAL_TRANSACTION_HERO';
+  }
+  if (isActionableGuide) {
+    return 'ACTIONABLE_PILLAR_GUIDE';
+  }
 
   // If cluster is Bakery/Dessert (or candidate has strong dessert tokens)
   if (clusterType === 'BAKERY_DESSERT' || isDessertOrBake) {
@@ -439,8 +448,8 @@ export function parsePinCandidate(pin, seedPinId, parentEntity = null, utilityWe
 
   const domain = cleanString(pin.domain) || cleanString(pin.link_domain?.id) || 'Uploaded by user';
 
-  // Strict pre-classification check: reject furniture, apparel, decor, etc.
-  if (!isCulinaryCandidate(title, domain, pin.description || '')) {
+  // Pre-classification check: reject non-culinary candidates only if cluster is culinary
+  if ((seedClusterType === 'BAKERY_DESSERT' || seedClusterType === 'CULINARY') && !isCulinaryCandidate(title, domain, pin.description || '')) {
     return null;
   }
 
@@ -448,10 +457,16 @@ export function parsePinCandidate(pin, seedPinId, parentEntity = null, utilityWe
 
   let aspectRatio = 0.560;
   if (pin.story_pin_data?.metadata?.canvas_aspect_ratio) {
-    aspectRatio = Number(Number(pin.story_pin_data.metadata.canvas_aspect_ratio).toFixed(3));
+    const parsedRatio = Number(pin.story_pin_data.metadata.canvas_aspect_ratio);
+    if (!isNaN(parsedRatio) && isFinite(parsedRatio) && parsedRatio > 0) {
+      aspectRatio = Number(parsedRatio.toFixed(3));
+    }
   } else if (pin.images?.orig?.width && pin.images?.orig?.height) {
-    // Unified standard: width / height (e.g. 1000/1778 = 0.562 for 9:16 portrait)
-    aspectRatio = Number((pin.images.orig.width / pin.images.orig.height).toFixed(3));
+    const w = Number(pin.images.orig.width);
+    const h = Number(pin.images.orig.height);
+    if (!isNaN(w) && !isNaN(h) && h > 0) {
+      aspectRatio = Number((w / h).toFixed(3));
+    }
   }
 
   const saves = Number(pin.aggregated_pin_data?.aggregated_stats?.saves ?? (pin.repin_count || 0));
@@ -545,7 +560,13 @@ export function parsePinCandidate(pin, seedPinId, parentEntity = null, utilityWe
   let isRecgptCandidate = false;
 
   let baseAffinity = 0;
-  if (sequenceRole === 'DESSERT_HERO') {
+  if (sequenceRole === 'COMMERCIAL_TRANSACTION_HERO') {
+    baseAffinity = 95.0;
+    isRecgptCandidate = true;
+  } else if (sequenceRole === 'ACTIONABLE_PILLAR_GUIDE') {
+    baseAffinity = 94.0;
+    isRecgptCandidate = true;
+  } else if (sequenceRole === 'DESSERT_HERO') {
     baseAffinity = 95.0;
     isRecgptCandidate = true;
   } else if (sequenceRole === 'SESSION_FINISHER') {
@@ -896,7 +917,7 @@ export async function enrichCandidatesWithPinMetrics(seedPinId, baseHeaders, can
     console.log(`[*] Auto-enriching ${candidatesNeedingEnrichment.length} candidates with authentic PinResource metrics...`);
 
     const concurrency = 4;
-    let enrichedCount = 0;
+    const enrichedBatch = [];
 
     for (let i = 0; i < candidatesNeedingEnrichment.length; i += concurrency) {
       const chunk = candidatesNeedingEnrichment.slice(i, i + concurrency);
@@ -911,17 +932,14 @@ export async function enrichCandidatesWithPinMetrics(seedPinId, baseHeaders, can
             const ageDays = Math.max(1, Number(candidate.age_days || 180));
             const updatedVelocity = Math.min(1000.0, Math.max(Number(candidate.daily_velocity || 0), Number((currentSaves / ageDays).toFixed(2))));
 
-            await sql`
-              UPDATE candidate_graph_nodes
-              SET 
-                repins = ${repins},
-                saves = ${currentSaves},
-                save_rate = ${saveRate},
-                daily_velocity = ${updatedVelocity}
-              WHERE seed_pin_id = ${seedPinId} 
-                AND candidate_pin_id = ${candidate.candidate_pin_id};
-            `;
-            enrichedCount++;
+            enrichedBatch.push({
+              seed_pin_id: String(seedPinId),
+              candidate_pin_id: String(candidate.candidate_pin_id),
+              repins,
+              saves: currentSaves,
+              save_rate: saveRate,
+              daily_velocity: updatedVelocity
+            });
           }
         } catch (pinErr) {
           // Individual failure absorbed gracefully
@@ -932,7 +950,24 @@ export async function enrichCandidatesWithPinMetrics(seedPinId, baseHeaders, can
       await sleep(350);
     }
 
-    console.log(`[+] Successfully enriched ${enrichedCount}/${candidatesNeedingEnrichment.length} candidates with authentic Pinterest repin counts.`);
+    if (enrichedBatch.length > 0) {
+      // Single bulk batch commit via jsonb_to_recordset replacing individual UPDATE round-trips
+      await sql`
+        UPDATE candidate_graph_nodes cgn
+        SET 
+          repins = x.repins,
+          saves = x.saves,
+          save_rate = x.save_rate,
+          daily_velocity = x.daily_velocity
+        FROM jsonb_to_recordset(${JSON.stringify(enrichedBatch)}::jsonb) AS x(
+          seed_pin_id text, candidate_pin_id text, repins int, saves bigint, save_rate numeric, daily_velocity numeric
+        )
+        WHERE cgn.seed_pin_id = x.seed_pin_id 
+          AND cgn.candidate_pin_id = x.candidate_pin_id;
+      `;
+    }
+
+    console.log(`[+] Successfully enriched ${enrichedBatch.length}/${candidatesNeedingEnrichment.length} candidates with authentic Pinterest repin counts.`);
   } catch (err) {
     console.warn(`[!] Deep enrichment encountered non-fatal error: ${err.message}`);
   }

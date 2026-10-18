@@ -466,9 +466,9 @@ export async function syncCompetitorAcrossFleet(hubSql, competitorUsernameOrId, 
 export async function syncFleetDatabases(hubSql, { targetProjectId = null } = {}) {
   const profiles = await hubSql`SELECT * FROM competitor_profiles WHERE is_active = TRUE;`;
   const boards = await hubSql`SELECT * FROM competitor_boards;`;
-  const pins = await hubSql`SELECT * FROM pa_pins;`;
-  const metrics = await hubSql`SELECT * FROM pa_pin_metrics;`;
   const [rules] = await hubSql`SELECT * FROM pa_qualification_rules WHERE id = 1;`;
+  const [{ count: pinsCount }] = await hubSql`SELECT COUNT(*)::int AS count FROM pa_pins;`.catch(() => [{ count: 0 }]);
+  const [{ count: metricsCount }] = await hubSql`SELECT COUNT(*)::int AS count FROM pa_pin_metrics;`.catch(() => [{ count: 0 }]);
 
   let query = hubSql`
     SELECT project_id, project_name, database_url
@@ -497,26 +497,51 @@ export async function syncFleetDatabases(hubSql, { targetProjectId = null } = {}
         await sSql`ALTER TABLE competitor_pins ADD COLUMN IF NOT EXISTS alt_text TEXT;`.catch(() => {});
         await sSql`ALTER TABLE pa_pins ADD COLUMN IF NOT EXISTS alt_text TEXT;`.catch(() => {});
 
-        // 1. Sync Profiles
-        await Promise.all(profiles.map(p => {
-          const tagsArray = Array.isArray(p.tags) ? p.tags : [];
-          return sSql`
+        // 1. Sync Profiles in batch via jsonb_to_recordset
+        if (profiles.length > 0) {
+          const profilePayload = profiles.map(p => ({
+            username: p.username,
+            display_name: p.display_name || '',
+            avatar_url: p.avatar_url || '',
+            bio: p.bio || '',
+            website_url: p.website_url || '',
+            account_type: p.account_type || 'competitor',
+            monthly_reach: Number(p.monthly_reach || 0),
+            reach_delta_7d: Number(p.reach_delta_7d || 0),
+            profile_views: Number(p.profile_views || 0),
+            views_delta_7d: Number(p.views_delta_7d || 0),
+            total_pins: Number(p.total_pins || 0),
+            total_boards: Number(p.total_boards || 0),
+            follower_count: Number(p.follower_count || 0),
+            following_count: Number(p.following_count || 0),
+            activity_status: p.activity_status || 'active',
+            is_active: Boolean(p.is_active),
+            tags: Array.isArray(p.tags) ? p.tags : [],
+            metadata: JSON.stringify(p.metadata || {}),
+            last_harvest_metadata: JSON.stringify(p.last_harvest_metadata || {}),
+            last_synced_at: p.last_synced_at ? new Date(p.last_synced_at).toISOString() : null
+          }));
+
+          await sSql`
             INSERT INTO competitor_profiles (
               username, display_name, avatar_url, bio, website_url,
               account_type, monthly_reach, reach_delta_7d, profile_views,
               views_delta_7d, total_pins, total_boards, follower_count,
               following_count, activity_status, is_active, tags,
               metadata, last_harvest_metadata, last_synced_at, updated_at
-            ) VALUES (
-              ${p.username}, ${p.display_name}, ${p.avatar_url}, ${p.bio}, ${p.website_url},
-              ${p.account_type || 'competitor'}, ${p.monthly_reach || 0}, ${p.reach_delta_7d || 0},
-              ${p.profile_views || 0}, ${p.views_delta_7d || 0}, ${p.total_pins || 0},
-              ${p.total_boards || 0}, ${p.follower_count || 0}, ${p.following_count || 0},
-              ${p.activity_status || 'active'}, ${p.is_active},
-              ${tagsArray},
-              ${JSON.stringify(p.metadata || {})}::jsonb,
-              ${JSON.stringify(p.last_harvest_metadata || {})}::jsonb,
-              ${p.last_synced_at}, NOW()
+            )
+            SELECT
+              x.username, x.display_name, x.avatar_url, x.bio, x.website_url,
+              x.account_type, x.monthly_reach, x.reach_delta_7d, x.profile_views,
+              x.views_delta_7d, x.total_pins, x.total_boards, x.follower_count,
+              x.following_count, x.activity_status, x.is_active, x.tags,
+              x.metadata::jsonb, x.last_harvest_metadata::jsonb, x.last_synced_at::timestamptz, NOW()
+            FROM jsonb_to_recordset(${JSON.stringify(profilePayload)}::jsonb) AS x(
+              username text, display_name text, avatar_url text, bio text, website_url text,
+              account_type text, monthly_reach bigint, reach_delta_7d bigint, profile_views bigint,
+              views_delta_7d bigint, total_pins int, total_boards int, follower_count int,
+              following_count int, activity_status text, is_active boolean, tags text[],
+              metadata text, last_harvest_metadata text, last_synced_at text
             )
             ON CONFLICT (username) DO UPDATE SET
               display_name = EXCLUDED.display_name,
@@ -539,7 +564,7 @@ export async function syncFleetDatabases(hubSql, { targetProjectId = null } = {}
               last_synced_at = EXCLUDED.last_synced_at,
               updated_at = NOW();
           `;
-        }));
+        }
 
         // 2. Map Profile IDs
         const shardProfiles = await sSql`SELECT id, username FROM competitor_profiles;`;
@@ -556,38 +581,42 @@ export async function syncFleetDatabases(hubSql, { targetProjectId = null } = {}
           validBoardItems.push({
             competitor_id: targetCompId,
             board_id: b.board_id,
-            name: b.name,
-            url: b.url,
+            name: b.name || '',
+            url: b.url || '',
             pin_count: b.pin_count || 0,
             follower_count: b.follower_count || 0,
-            last_pinned_at: b.last_pinned_at,
+            last_pinned_at: b.last_pinned_at ? new Date(b.last_pinned_at).toISOString() : null,
             metadata: JSON.stringify(b.metadata || {})
           });
         }
 
-        // 4. Batch Sync Boards
-        const CHUNK_SIZE = 25;
-        for (let i = 0; i < validBoardItems.length; i += CHUNK_SIZE) {
-          const chunk = validBoardItems.slice(i, i + CHUNK_SIZE);
-          await Promise.all(chunk.map(item => sSql`
-            INSERT INTO competitor_boards (
-              competitor_id, board_id, name, url, pin_count, follower_count,
-              last_pinned_at, metadata, updated_at
-            ) VALUES (
-              ${item.competitor_id}, ${item.board_id}, ${item.name}, ${item.url},
-              ${item.pin_count}, ${item.follower_count},
-              ${item.last_pinned_at}, ${item.metadata}::jsonb,
-              NOW()
-            )
-            ON CONFLICT (competitor_id, board_id) DO UPDATE SET
-              name = EXCLUDED.name,
-              url = EXCLUDED.url,
-              pin_count = EXCLUDED.pin_count,
-              follower_count = EXCLUDED.follower_count,
-              last_pinned_at = EXCLUDED.last_pinned_at,
-              metadata = EXCLUDED.metadata,
-              updated_at = NOW();
-          `));
+        // 4. Batch Sync Boards via jsonb_to_recordset
+        if (validBoardItems.length > 0) {
+          const CHUNK_SIZE = 100;
+          for (let i = 0; i < validBoardItems.length; i += CHUNK_SIZE) {
+            const chunk = validBoardItems.slice(i, i + CHUNK_SIZE);
+            await sSql`
+              INSERT INTO competitor_boards (
+                competitor_id, board_id, name, url, pin_count, follower_count,
+                last_pinned_at, metadata, updated_at
+              )
+              SELECT
+                x.competitor_id, x.board_id, x.name, x.url, x.pin_count, x.follower_count,
+                x.last_pinned_at::timestamptz, x.metadata::jsonb, NOW()
+              FROM jsonb_to_recordset(${JSON.stringify(chunk)}::jsonb) AS x(
+                competitor_id int, board_id text, name text, url text, pin_count int, follower_count int,
+                last_pinned_at text, metadata text
+              )
+              ON CONFLICT (competitor_id, board_id) DO UPDATE SET
+                name = EXCLUDED.name,
+                url = EXCLUDED.url,
+                pin_count = EXCLUDED.pin_count,
+                follower_count = EXCLUDED.follower_count,
+                last_pinned_at = EXCLUDED.last_pinned_at,
+                metadata = EXCLUDED.metadata,
+                updated_at = NOW();
+            `;
+          }
         }
 
         // Purge any synthetic duplicate boards on shard and recount distinct boards
@@ -696,49 +725,72 @@ export async function syncFleetDatabases(hubSql, { targetProjectId = null } = {}
           `;
         }
 
-        // 7. Sync pa_pins (Winning Pins Archive)
-        if (pins.length > 0) {
-          const PIN_CHUNK = 50;
-          for (let pIdx = 0; pIdx < pins.length; pIdx += PIN_CHUNK) {
-            const pBatch = pins.slice(pIdx, pIdx + PIN_CHUNK);
-            await Promise.all(pBatch.map(p => sSql`
-              INSERT INTO pa_pins (
-                pin_id, account_username, title, description, link, domain,
-                board_name, image_url, dominant_color, saves, repins, comments,
-                share_count, reactions, velocity, annotations, is_video, is_product,
-                created_at_pinterest, first_seen_at, last_updated_at
-              ) VALUES (
-                ${p.pin_id}, ${p.account_username}, ${p.title}, ${p.description},
-                ${p.link}, ${p.domain}, ${p.board_name}, ${p.image_url},
-                ${p.dominant_color}, ${p.saves || 0}, ${p.repins || 0}, ${p.comments || 0},
-                ${p.share_count || 0}, ${JSON.stringify(p.reactions || {})}::jsonb,
-                ${p.velocity || 0}, ${JSON.stringify(p.annotations || [])}::jsonb,
-                ${p.is_video || false}, ${p.is_product || false},
-                ${p.created_at_pinterest}, ${p.first_seen_at || new Date()}, ${p.last_updated_at || new Date()}
-              )
-              ON CONFLICT (pin_id) DO UPDATE SET
-                saves = GREATEST(pa_pins.saves, EXCLUDED.saves),
-                repins = GREATEST(pa_pins.repins, EXCLUDED.repins),
-                velocity = EXCLUDED.velocity,
-                last_updated_at = NOW();
-            `));
-          }
-        }
+        // 7. Stream Sync pa_pins (Winning Pins Archive) in keyset batches of 100
+        let lastPinId = '';
+        while (true) {
+          const pBatch = await hubSql`
+            SELECT pin_id, account_username, title, description, link, domain,
+                   board_name, image_url, dominant_color, saves, repins, comments,
+                   share_count, reactions, velocity, annotations, is_video, is_product,
+                   created_at_pinterest, first_seen_at, last_updated_at
+            FROM pa_pins
+            WHERE pin_id > ${lastPinId}
+            ORDER BY pin_id ASC
+            LIMIT 100;
+          `;
+          if (!pBatch || pBatch.length === 0) break;
+          lastPinId = pBatch[pBatch.length - 1].pin_id;
 
-        // 8. Sync pa_pin_metrics (Time-series snapshots)
-        if (metrics.length > 0) {
-          const METRIC_CHUNK = 50;
-          for (let mIdx = 0; mIdx < metrics.length; mIdx += METRIC_CHUNK) {
-            const mBatch = metrics.slice(mIdx, mIdx + METRIC_CHUNK);
-            await Promise.all(mBatch.map(m => sSql`
-              INSERT INTO pa_pin_metrics (
-                pin_id, recorded_at, saves, repins, comments
-              ) VALUES (
-                ${m.pin_id}, ${m.recorded_at}, ${m.saves || 0}, ${m.repins || 0}, ${m.comments || 0}
-              )
-              ON CONFLICT (pin_id, recorded_at) DO NOTHING;
-            `));
-          }
+          const pCleaned = pBatch.map(p => ({
+            pin_id: p.pin_id,
+            account_username: p.account_username || '',
+            title: p.title || '',
+            description: p.description || '',
+            link: p.link || '',
+            domain: p.domain || '',
+            board_name: p.board_name || '',
+            image_url: p.image_url || '',
+            dominant_color: p.dominant_color || '#888888',
+            saves: Number(p.saves || 0),
+            repins: Number(p.repins || 0),
+            comments: Number(p.comments || 0),
+            share_count: Number(p.share_count || 0),
+            reactions: JSON.stringify(p.reactions || {}),
+            velocity: Number(p.velocity || 0),
+            annotations: JSON.stringify(p.annotations || []),
+            is_video: Boolean(p.is_video),
+            is_product: Boolean(p.is_product),
+            created_at_pinterest: p.created_at_pinterest ? new Date(p.created_at_pinterest).toISOString() : null,
+            first_seen_at: p.first_seen_at ? new Date(p.first_seen_at).toISOString() : new Date().toISOString(),
+            last_updated_at: p.last_updated_at ? new Date(p.last_updated_at).toISOString() : new Date().toISOString()
+          }));
+
+          await sSql`
+            INSERT INTO pa_pins (
+              pin_id, account_username, title, description, link, domain,
+              board_name, image_url, dominant_color, saves, repins, comments,
+              share_count, reactions, velocity, annotations, is_video, is_product,
+              created_at_pinterest, first_seen_at, last_updated_at
+            )
+            SELECT
+              x.pin_id, x.account_username, x.title, x.description, x.link, x.domain,
+              x.board_name, x.image_url, x.dominant_color, x.saves, x.repins, x.comments,
+              x.share_count, x.reactions::jsonb, x.velocity, x.annotations::jsonb, x.is_video, x.is_product,
+              x.created_at_pinterest::timestamptz, x.first_seen_at::timestamptz, x.last_updated_at::timestamptz
+            FROM jsonb_to_recordset(${JSON.stringify(pCleaned)}::jsonb) AS x(
+              pin_id text, account_username text, title text, description text, link text, domain text,
+              board_name text, image_url text, dominant_color text, saves bigint, repins int, comments int,
+              share_count int, reactions text, velocity numeric, annotations text, is_video boolean, is_product boolean,
+              created_at_pinterest text, first_seen_at text, last_updated_at text
+            )
+            ON CONFLICT (pin_id) DO UPDATE SET
+              saves = GREATEST(pa_pins.saves, EXCLUDED.saves),
+              repins = GREATEST(pa_pins.repins, EXCLUDED.repins),
+              velocity = EXCLUDED.velocity,
+              last_updated_at = NOW();
+          `;
+
+          if (pBatch.length < 100) break;
         }
 
         // 9. Update stats in neon_projects_registry on Hub
@@ -774,8 +826,8 @@ export async function syncFleetDatabases(hubSql, { targetProjectId = null } = {}
     successful_shards: successfulShards,
     profiles_count: profiles.length,
     boards_count: boards.length,
-    pins_count: pins.length,
-    metrics_count: metrics.length
+    pins_count: Number(pinsCount || 0),
+    metrics_count: Number(metricsCount || 0)
   };
 }
 

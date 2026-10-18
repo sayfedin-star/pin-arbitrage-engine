@@ -389,17 +389,25 @@ async function inspectPin(pin, kw) {
     const baseDateRaw = pin.baseline_day_date || pin.crawled_at || pin.metadata?.crawled_at || null;
     if (rawDelta > 0) {
       if (baseDateRaw) {
-        const elapsedDays = Math.max(1, Math.round((Date.now() - new Date(baseDateRaw).getTime()) / (1000 * 60 * 60 * 24)));
+        const parsedBaseMs = new Date(baseDateRaw).getTime();
+        const elapsedDays = Number.isFinite(parsedBaseMs)
+          ? Math.max(1, Math.round((Date.now() - parsedBaseMs) / 86400000))
+          : 1;
         computedVelocity = Math.min(25000, Math.round(rawDelta / elapsedDays));
       } else {
         computedVelocity = Math.min(25000, rawDelta);
       }
     } else if (baseDateRaw) {
-      const baseIso = new Date(baseDateRaw).toISOString().slice(0, 10);
-      const todayIso = new Date().toISOString().slice(0, 10);
-      if (baseIso < todayIso) {
-        computedVelocity = 0;
-      }
+      try {
+        const parsedBase = new Date(baseDateRaw);
+        if (!isNaN(parsedBase.getTime())) {
+          const baseIso = parsedBase.toISOString().slice(0, 10);
+          const todayIso = new Date().toISOString().slice(0, 10);
+          if (baseIso < todayIso) {
+            computedVelocity = 0;
+          }
+        }
+      } catch (_) {}
     }
   }
 
@@ -647,7 +655,9 @@ async function flushBatchToHub(pinsChunk, kw) {
         AND kdi.keyword_id IN (
           SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${kw.folder_id}
         );
-    `.catch(() => {});
+    `.catch(err => {
+      console.warn('[DisplacedIndex] Folder kdi update warning:', err.message);
+    });
   } else {
     await sql`
       UPDATE keyword_serp_current ksc
@@ -735,7 +745,9 @@ async function flushBatchToHub(pinsChunk, kw) {
         daily_save_velocity numeric
       )
       WHERE kdi.pin_id = u.pin_id AND kdi.keyword_id = ${kw.id};
-    `.catch(() => {});
+    `.catch(err => {
+      console.warn('[DisplacedIndex] Single kw kdi update warning:', err.message);
+    });
   }
 }
 
@@ -938,58 +950,18 @@ async function flushToStorageShards(enrichedPins) {
                 updated_at = NOW();
             `;
 
-            // 3. Legacy Backward-Compatible Snapshots (Deduplicated on pin_id, keyword_id)
-            const q3 = shardSql`
-              INSERT INTO pins_daily_snapshots (
-                pin_id, keyword_id, rank_position, save_count, repin_count, comment_count,
-                share_count, daily_save_velocity, snapshot_date, created_at
-              )
-              SELECT DISTINCT ON (u.pin_id, u.keyword_id)
-                u.pin_id, u.keyword_id, u.rank_position, u.save_count, u.repin_count, u.comment_count,
-                u.share_count, u.daily_save_velocity, (NOW() AT TIME ZONE 'UTC')::date, NOW()
-              FROM jsonb_to_recordset(${shardPayload}::jsonb) AS u(
-                pin_id text, keyword_id int, rank_position int, save_count bigint, repin_count int, comment_count int,
-                share_count int, daily_save_velocity numeric
-              )
-              ORDER BY u.pin_id ASC, u.keyword_id ASC, u.rank_position ASC NULLS LAST
-              ON CONFLICT (pin_id, keyword_id, snapshot_date) DO UPDATE SET
-                rank_position = COALESCE(EXCLUDED.rank_position, pins_daily_snapshots.rank_position),
-                save_count = GREATEST(pins_daily_snapshots.save_count, EXCLUDED.save_count),
-                repin_count = GREATEST(pins_daily_snapshots.repin_count, EXCLUDED.repin_count),
-                comment_count = GREATEST(pins_daily_snapshots.comment_count, EXCLUDED.comment_count),
-                share_count = GREATEST(pins_daily_snapshots.share_count, EXCLUDED.share_count),
-                daily_save_velocity = CASE 
-                WHEN EXCLUDED.daily_save_velocity > 0 THEN GREATEST(COALESCE(pins_daily_snapshots.daily_save_velocity, 0), EXCLUDED.daily_save_velocity)
-                ELSE pins_daily_snapshots.daily_save_velocity 
-              END,
-              created_at = NOW();
-            `;
-
+            // 3. Two-Tier Storage Commit: pins_daily_metrics (q1) and pin_serp_positions (q2)
+            // (Note: pins_daily_snapshots is a consolidated VIEW backed by q1 & q2)
             if (typeof shardSql.transaction === 'function') {
-              try {
-                await shardSql.transaction([q1, q2, q3]);
-              } catch (txErr) {
-                console.warn(`    [Shard ${shardId} q3 Fallback] Retrying core Two-Tier transaction [q1, q2]: ${txErr.message}`);
-                await shardSql.transaction([q1, q2]);
-              }
+              await shardSql.transaction([q1, q2]);
             } else if (typeof shardSql.begin === 'function') {
-              try {
-                await shardSql.begin(async (tx) => {
-                  await tx(q1.strings, ...q1.args);
-                  await tx(q2.strings, ...q2.args);
-                  await tx(q3.strings, ...q3.args);
-                });
-              } catch (txErr) {
-                console.warn(`    [Shard ${shardId} q3 Fallback] Retrying core Two-Tier begin [q1, q2]: ${txErr.message}`);
-                await shardSql.begin(async (tx) => {
-                  await tx(q1.strings, ...q1.args);
-                  await tx(q2.strings, ...q2.args);
-                });
-              }
+              await shardSql.begin(async (tx) => {
+                await tx(q1.strings, ...q1.args);
+                await tx(q2.strings, ...q2.args);
+              });
             } else {
               await q1;
               await q2;
-              await q3.catch(() => {});
             }
           })();
 
