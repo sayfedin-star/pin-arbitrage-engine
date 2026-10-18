@@ -660,6 +660,7 @@ export function verifyApiAuthentication(request, env = {}) {
 }
 
 export const requestContextStorage = new AsyncLocalStorage();
+globalThis.__requestContextStorage = requestContextStorage;
 export function setDefaultCorsOrigin(_origin) {}
 
 export function jsonResponse(data, status = 200, cacheSeconds = 0, customCors = null) {
@@ -805,10 +806,8 @@ const shardSqlCache = new Map();
 function setCachedShardSql(key, client) {
   if (!key || !client) return;
   if (shardSqlCache.has(key)) {
-    shardSqlCache.set(key, client);
-    return;
-  }
-  if (shardSqlCache.size >= 128) {
+    shardSqlCache.delete(key);
+  } else if (shardSqlCache.size >= 128) {
     const oldestKey = shardSqlCache.keys().next().value;
     if (oldestKey) shardSqlCache.delete(oldestKey);
   }
@@ -816,7 +815,12 @@ function setCachedShardSql(key, client) {
 }
 
 function getCachedShardSql(key, factory) {
-  if (shardSqlCache.has(key)) return shardSqlCache.get(key);
+  if (shardSqlCache.has(key)) {
+    const client = shardSqlCache.get(key);
+    shardSqlCache.delete(key);
+    shardSqlCache.set(key, client);
+    return client;
+  }
   const client = factory();
   setCachedShardSql(key, client);
   return client;
@@ -1506,9 +1510,14 @@ export default {
                 }
                 activeHubFallbacks++;
                 console.warn(`[Shard Read Fallback] Shard read query failed (${redactSecrets(err.message)}). Safely degrading to Hub (Bulkhead: ${activeHubFallbacks}/${MAX_CONCURRENT_HUB_FALLBACKS}).`);
-                return Reflect.apply(sql, thisArg, argArray).finally(() => {
+                try {
+                  return Promise.resolve(Reflect.apply(sql, thisArg, argArray)).finally(() => {
+                    activeHubFallbacks--;
+                  });
+                } catch (fallbackSyncErr) {
                   activeHubFallbacks--;
-                });
+                  throw fallbackSyncErr;
+                }
               }
               console.error(`[Split-Brain Guard] Write mutation rejected because shard is unreachable (${redactSecrets(err.message)}).`);
               const splitBrainError = new Error(`Shard database '${cleanKey}' is temporarily unreachable. Write mutation rejected to prevent split-brain desynchronization.`);
@@ -4062,68 +4071,6 @@ export default {
               WHERE pin_id = ${pinId};
             `.catch(() => {});
 
-            // B2. Hub keyword_pins_snapshots
-            // Telemetry metrics update only
-            const updateResult = await sql`
-              UPDATE keyword_pins_snapshots SET
-                save_count = GREATEST(save_count, ${Number(pin.saves || 0)}),
-                repin_count = GREATEST(repin_count, ${Number(pin.repins || 0)}),
-                comment_count = GREATEST(comment_count, ${Number(pin.comments || 0)}),
-                share_count = GREATEST(COALESCE(share_count, 0), ${Number(pin.share_count || 0)}),
-                created_at_pinterest = CASE WHEN ${pin.created_at_pinterest}::timestamptz IS NOT NULL THEN ${pin.created_at_pinterest}::timestamptz ELSE created_at_pinterest END,
-                creation_method = CASE WHEN ${pin.creation_method}::text <> '' THEN ${pin.creation_method}::text ELSE creation_method END,
-                metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify(metaToStore)}::jsonb
-              WHERE pin_id = ${pinId}
-                AND snapshot_date = (NOW() AT TIME ZONE 'UTC')::date
-              RETURNING id;
-            `.catch(() => []);
-
-            // If no snapshot exists today, insert only if no crawl is active, and inherit current catalog status
-            if (!updateResult || updateResult.length === 0) {
-              if (!isCrawlInProgress) {
-                await sql`
-                  INSERT INTO keyword_pins_snapshots (
-                    keyword_id, pin_id, rank_position, title, domain, destination_url, image_url,
-                    save_count, repin_count, comment_count, share_count, daily_save_velocity,
-                    snapshot_date, is_displaced, created_at_pinterest, creation_method, metadata, created_at
-                  )
-                  SELECT
-                    ksc.keyword_id,
-                    ${pinId},
-                    CASE WHEN COALESCE(ksc.is_displaced, FALSE) THEN NULL ELSE ksc.rank_position END,
-                    ${pin.title || ''},
-                    ${pin.domain || ''},
-                    ${pin.link || ''},
-                    ${pin.image_url || ''},
-                    ${Number(pin.saves || 0)},
-                    ${Number(pin.repins || 0)},
-                    ${Number(pin.comments || 0)},
-                    ${Number(pin.share_count || 0)},
-                    0,
-                    (NOW() AT TIME ZONE 'UTC')::date,
-                    COALESCE(ksc.is_displaced, FALSE),
-                    ${pin.created_at_pinterest ? pin.created_at_pinterest : null},
-                    ${pin.creation_method || 'pinterest_platform'},
-                    ${JSON.stringify(metaToStore)}::jsonb,
-                    NOW()
-                  FROM keyword_serp_current ksc
-                  WHERE ksc.pin_id = ${pinId}
-                    AND NOT EXISTS (
-                      SELECT 1 FROM keyword_ignored_pins kip
-                      WHERE kip.keyword_id = ksc.keyword_id AND kip.pin_id = ${pinId}
-                    )
-                  ON CONFLICT (keyword_id, pin_id, snapshot_date) DO UPDATE SET
-                    save_count = GREATEST(keyword_pins_snapshots.save_count, EXCLUDED.save_count),
-                    repin_count = GREATEST(keyword_pins_snapshots.repin_count, EXCLUDED.repin_count),
-                    metadata = COALESCE(keyword_pins_snapshots.metadata, '{}'::jsonb) || EXCLUDED.metadata;
-                `.catch(err => {
-                  console.warn(`[Pin Sync Snapshot Warning] Failed inserting snapshot for pin ${pinId}:`, redactSecrets(err?.message || String(err)));
-                });
-              } else {
-                console.warn(`[Sync Concurrency Guard] Crawl lease active for pin #${pinId} keywords (${activeCrawlKeywords.map(k=>k.id).join(',')}). Snapshot insertion deferred to active crawler.`);
-              }
-            }
-
             // C. Shard daily snapshot record for all keywords associated with pin
             const serpRows = await sql`
               SELECT keyword_id, rank_position, is_displaced 
@@ -4133,6 +4080,30 @@ export default {
             const targetRows = serpRows.length > 0
               ? serpRows
               : [{ keyword_id: null, rank_position: null, is_displaced: false }];
+
+            // Get baseline from shard pins_daily_metrics to preserve or compute velocity
+            const [prevShardMetric] = await shardSql`
+              SELECT save_count, snapshot_date, daily_save_velocity
+              FROM pins_daily_metrics
+              WHERE pin_id = ${pinId} AND snapshot_date < (NOW() AT TIME ZONE 'UTC')::date
+              ORDER BY snapshot_date DESC
+              LIMIT 1;
+            `.catch(() => []);
+
+            let syncVelocity = 0;
+            const newSaves = Number(pin.saves || 0);
+            if (prevShardMetric && prevShardMetric.snapshot_date) {
+              const prevDate = new Date(prevShardMetric.snapshot_date);
+              const todayDate = new Date();
+              const elapsedDays = Math.max(1, Math.round((todayDate - prevDate) / 86400000));
+              const prevSaves = Number(prevShardMetric.save_count || 0);
+              const diff = newSaves - prevSaves;
+              if (diff > 0) {
+                syncVelocity = Math.round((diff / elapsedDays) * 10) / 10;
+              } else if (diff === 0 && Number(prevShardMetric.daily_save_velocity) > 0) {
+                syncVelocity = Number(prevShardMetric.daily_save_velocity);
+              }
+            }
 
             for (const sRow of targetRows) {
               const shardKid = sRow.keyword_id || null;
@@ -4144,7 +4115,7 @@ export default {
                   pin_id, keyword_id, snapshot_date, rank_position, is_displaced, save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity, created_at
                 ) VALUES (
                   ${pinId}, ${shardKid}, (NOW() AT TIME ZONE 'UTC')::date, ${shardRank}, ${shardDisplaced},
-                  ${Number(pin.saves || 0)}, ${Number(pin.repins || 0)}, ${Number(pin.comments || 0)}, ${Number(pin.share_count || 0)}, 0, 0, NOW()
+                  ${newSaves}, ${Number(pin.repins || 0)}, ${Number(pin.comments || 0)}, ${Number(pin.share_count || 0)}, 0, ${syncVelocity}, NOW()
                 )
                 ON CONFLICT (pin_id, keyword_id, snapshot_date) DO UPDATE SET
                   rank_position = EXCLUDED.rank_position,
@@ -4152,42 +4123,44 @@ export default {
                   save_count = GREATEST(pins_daily_snapshots.save_count, EXCLUDED.save_count),
                   repin_count = GREATEST(pins_daily_snapshots.repin_count, EXCLUDED.repin_count),
                   comment_count = GREATEST(pins_daily_snapshots.comment_count, EXCLUDED.comment_count),
-                  share_count = GREATEST(pins_daily_snapshots.share_count, EXCLUDED.share_count);
+                  share_count = GREATEST(pins_daily_snapshots.share_count, EXCLUDED.share_count),
+                  daily_save_velocity = GREATEST(pins_daily_snapshots.daily_save_velocity, EXCLUDED.daily_save_velocity);
               `.catch(() => {});
+
+              if (shardKid != null) {
+                await shardSql`
+                  INSERT INTO pin_serp_positions (
+                    pin_id, keyword_id, snapshot_date, rank_position, is_displaced, updated_at
+                  ) VALUES (
+                    ${pinId}, ${shardKid}, (NOW() AT TIME ZONE 'UTC')::date, ${shardRank}, ${shardDisplaced}, NOW()
+                  )
+                  ON CONFLICT (pin_id, keyword_id, snapshot_date) DO UPDATE SET
+                    rank_position = EXCLUDED.rank_position,
+                    is_displaced = EXCLUDED.is_displaced,
+                    updated_at = NOW();
+                `.catch(() => {});
+              }
             }
 
-            // Update two-tier modern shard tables (pins_daily_metrics & pin_serp_positions)
+            // Update two-tier modern shard tables (pins_daily_metrics)
             await shardSql`
               INSERT INTO pins_daily_metrics (
                 pin_id, snapshot_date, save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity, updated_at
               ) VALUES (
-                ${pinId}, (NOW() AT TIME ZONE 'UTC')::date, ${Number(pin.saves || 0)}, ${Number(pin.repins || 0)},
-                ${Number(pin.comments || 0)}, ${Number(pin.share_count || 0)}, 0, 0, NOW()
+                ${pinId}, (NOW() AT TIME ZONE 'UTC')::date, ${newSaves}, ${Number(pin.repins || 0)},
+                ${Number(pin.comments || 0)}, ${Number(pin.share_count || 0)}, 0, ${syncVelocity}, NOW()
               )
               ON CONFLICT (pin_id, snapshot_date) DO UPDATE SET
                 save_count = GREATEST(pins_daily_metrics.save_count, EXCLUDED.save_count),
                 repin_count = GREATEST(pins_daily_metrics.repin_count, EXCLUDED.repin_count),
                 comment_count = GREATEST(pins_daily_metrics.comment_count, EXCLUDED.comment_count),
                 share_count = GREATEST(pins_daily_metrics.share_count, EXCLUDED.share_count),
+                daily_save_velocity = GREATEST(pins_daily_metrics.daily_save_velocity, EXCLUDED.daily_save_velocity),
                 updated_at = NOW();
             `.catch(() => {});
 
-            if (shardKid != null) {
-              await shardSql`
-                INSERT INTO pin_serp_positions (
-                  pin_id, keyword_id, snapshot_date, rank_position, is_displaced, updated_at
-                ) VALUES (
-                  ${pinId}, ${shardKid}, (NOW() AT TIME ZONE 'UTC')::date, ${shardRank}, ${shardDisplaced}, NOW()
-                )
-                ON CONFLICT (pin_id, keyword_id, snapshot_date) DO UPDATE SET
-                  rank_position = EXCLUDED.rank_position,
-                  is_displaced = EXCLUDED.is_displaced,
-                  updated_at = NOW();
-              `.catch(() => {});
-            }
-
             // D. Refreshed dossier
-            const refreshedDossier = await fetchUniversalPinDossier({ hubSql: sql, pinId, ctx, env });
+            const refreshedDossier = await fetchUniversalPinDossier({ hubSql: sql, pinId, ctx, env, bypassEdgeCache: true });
             invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
 
             return jsonResponse({
@@ -4229,6 +4202,11 @@ export default {
             const dossier = await getCachedOrFetch(dossierCacheKey, async () => {
               return await fetchUniversalPinDossier({ hubSql: sql, pinId, ctx, env, bypassEdgeCache: forceRefresh });
             }, 30000, 120000, { forceRefresh });
+
+            // Edge cache poisoning guard: If dossier has 0 snapshots or failed, invalidate cache so future calls re-fetch
+            if (!dossier?.success || (!dossier?.daily_trajectory?.length && !dossier?.snapshots?.length)) {
+              invalidateEdgeCache(dossierCacheKey);
+            }
 
             // Non-Blocking Background Auto-Enrichment via safeWaitUntil (0ms user wait)
             if (dossier?.success && (!dossier?.algorithmic_intelligence?.canonical_pin_id || !dossier?.algorithmic_intelligence?.seo_related_interests?.length)) {
@@ -4302,6 +4280,10 @@ export default {
                     const dbTasks = [
                       sql`
                         UPDATE keyword_serp_current SET
+                          save_count = GREATEST(save_count, ${Number(p.saves || p.save_count || 0)}),
+                          repin_count = GREATEST(repin_count, ${Number(p.repins || p.repin_count || 0)}),
+                          comment_count = GREATEST(COALESCE(comment_count, 0), ${Number(p.comments || p.comment_count || 0)}),
+                          share_count = GREATEST(COALESCE(share_count, 0), ${Number(p.share_count || 0)}),
                           visual_annotations = CASE 
                             WHEN jsonb_typeof(${JSON.stringify(p.annotations?.map(a => a.name) || [])}::jsonb) = 'array' AND jsonb_array_length(${JSON.stringify(p.annotations?.map(a => a.name) || [])}::jsonb) > 0 
                             THEN ${JSON.stringify(p.annotations?.map(a => a.name) || [])}::jsonb 
@@ -4317,14 +4299,6 @@ export default {
                           END,
                           destination_url = CASE WHEN ${p.link || ''}::text <> '' THEN ${p.link}::text ELSE destination_url END,
                           updated_at = NOW()
-                        WHERE pin_id = ${pinId};
-                      `,
-                      sql`
-                        UPDATE keyword_pins_snapshots SET
-                          metadata = CASE 
-                            WHEN jsonb_typeof(metadata) = 'object' THEN metadata || ${JSON.stringify(autoMeta)}::jsonb 
-                            ELSE ${JSON.stringify(autoMeta)}::jsonb 
-                          END
                         WHERE pin_id = ${pinId};
                       `
                     ];
@@ -4372,6 +4346,24 @@ export default {
                             END,
                             created_at_pinterest = COALESCE(EXCLUDED.created_at_pinterest, universal_master_pins.created_at_pinterest),
                             metadata = universal_master_pins.metadata || EXCLUDED.metadata,
+                            updated_at = NOW();
+                        `.catch(() => {}),
+                        shardSql`
+                          INSERT INTO pins_daily_metrics (
+                            pin_id, snapshot_date, save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity, updated_at
+                          ) VALUES (
+                            ${pinId}, (NOW() AT TIME ZONE 'UTC')::date,
+                            ${Number(p.saves || p.save_count || 0)},
+                            ${Number(p.repins || p.repin_count || 0)},
+                            ${Number(p.comments || p.comment_count || 0)},
+                            ${Number(p.share_count || 0)},
+                            0, 0, NOW()
+                          )
+                          ON CONFLICT (pin_id, snapshot_date) DO UPDATE SET
+                            save_count = GREATEST(pins_daily_metrics.save_count, EXCLUDED.save_count),
+                            repin_count = GREATEST(pins_daily_metrics.repin_count, EXCLUDED.repin_count),
+                            comment_count = GREATEST(pins_daily_metrics.comment_count, EXCLUDED.comment_count),
+                            share_count = GREATEST(pins_daily_metrics.share_count, EXCLUDED.share_count),
                             updated_at = NOW();
                         `.catch(() => {})
                       );

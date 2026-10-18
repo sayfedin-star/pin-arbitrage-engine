@@ -223,9 +223,9 @@ export async function optimizeHubStorage(sql) {
           WHERE is_displaced = TRUE AND pin_id = ANY(${confirmedPinIds})
           ON CONFLICT (keyword_id, pin_id) DO UPDATE SET
             last_known_rank = COALESCE(EXCLUDED.last_known_rank, keyword_displaced_index.last_known_rank),
-            vacuum_opportunity_score = GREATEST(keyword_displaced_index.vacuum_opportunity_score, EXCLUDED.vacuum_opportunity_score),
-            save_count = GREATEST(keyword_displaced_index.save_count, EXCLUDED.save_count),
-            repin_count = GREATEST(keyword_displaced_index.repin_count, EXCLUDED.repin_count),
+            vacuum_opportunity_score = GREATEST(COALESCE(keyword_displaced_index.vacuum_opportunity_score, 0), COALESCE(EXCLUDED.vacuum_opportunity_score, 0)),
+            save_count = GREATEST(COALESCE(keyword_displaced_index.save_count, 0), COALESCE(EXCLUDED.save_count, 0)),
+            repin_count = GREATEST(COALESCE(keyword_displaced_index.repin_count, 0), COALESCE(EXCLUDED.repin_count, 0)),
             updated_at = NOW();
         `;
 
@@ -412,7 +412,7 @@ export async function optimizeHubStorage(sql) {
                 share_count int, reaction_count int, daily_save_velocity numeric, snapshot_date date, is_displaced boolean,
                 created_at timestamptz
               )
-              ON CONFLICT (pin_id, snapshot_date) DO UPDATE SET
+              ON CONFLICT (pin_id, keyword_id, snapshot_date) DO UPDATE SET
                 rank_position = COALESCE(EXCLUDED.rank_position, pins_daily_snapshots.rank_position),
                 save_count = GREATEST(pins_daily_snapshots.save_count, EXCLUDED.save_count),
                 repin_count = GREATEST(pins_daily_snapshots.repin_count, EXCLUDED.repin_count),

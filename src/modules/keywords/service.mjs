@@ -1313,22 +1313,30 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
   let leaseCommittedInTx = false;
 
   try {
-    // 2. Distributed Database-level atomic lease (Scalar crawl_lease_until to prevent JSONB TOAST bloat)
-    // When force=true, bypass lease expiry check to break any stuck or stale locks immediately.
-    const leaseResult = await (force
+    const callerLeaseToken = options.lease_token || null;
+    const skipLeaseRelease = Boolean(options.skip_lease_release);
+    const leaseResult = await (callerLeaseToken
       ? sql`
           UPDATE tracked_keywords
-          SET crawl_lease_until = NOW() + INTERVAL '60 seconds'
+          SET crawl_lease_until = GREATEST(COALESCE(crawl_lease_until, NOW()), NOW() + INTERVAL '15 minutes')
           WHERE id = ${kid}
+            AND (crawl_lease_token = ${callerLeaseToken} OR crawl_lease_until IS NULL OR crawl_lease_until < NOW())
           RETURNING id;
         `
-      : sql`
-          UPDATE tracked_keywords
-          SET crawl_lease_until = NOW() + INTERVAL '60 seconds'
-          WHERE id = ${kid}
-            AND (crawl_lease_until IS NULL OR crawl_lease_until < NOW())
-          RETURNING id;
-        `).catch(async () => [{ id: kid }]);
+      : (force
+        ? sql`
+            UPDATE tracked_keywords
+            SET crawl_lease_until = GREATEST(COALESCE(crawl_lease_until, NOW()), NOW() + INTERVAL '60 seconds')
+            WHERE id = ${kid}
+            RETURNING id;
+          `
+        : sql`
+            UPDATE tracked_keywords
+            SET crawl_lease_until = NOW() + INTERVAL '60 seconds'
+            WHERE id = ${kid}
+              AND (crawl_lease_until IS NULL OR crawl_lease_until < NOW())
+            RETURNING id;
+          `)).catch(async () => [{ id: kid }]);
 
     if (leaseResult.length === 0) {
       return { success: false, in_progress: true, message: `Crawl actively locked by another node for keyword ID ${kid}` };
@@ -1543,11 +1551,11 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
         : String(s.baseline_day_date || '').slice(0, 10);
 
       if (snapDateStr && snapDateStr < todayIsoDate) {
-        baselineMap.set(pid, Number(s.save_count || 0));
+        baselineMap.set(pid, { saves: Number(s.save_count || 0), date: snapDateStr });
         if (!baselineSnapshotDate) baselineSnapshotDate = new Date(snapDateStr);
-      } else if (Number(s.baseline_day_saves || 0) > 0) {
-        baselineMap.set(pid, Number(s.baseline_day_saves));
-        if (!baselineSnapshotDate && baseDateStr) baselineSnapshotDate = new Date(baseDateStr);
+      } else if (s.baseline_day_saves !== null && s.baseline_day_saves !== undefined && baseDateStr) {
+        baselineMap.set(pid, { saves: Number(s.baseline_day_saves || 0), date: baseDateStr });
+        if (!baselineSnapshotDate) baselineSnapshotDate = new Date(baseDateStr);
       }
     }
 
@@ -1567,7 +1575,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
           );
       `.catch(() => []);
       for (const s of baselineDaySnapshots) {
-        baselineMap.set(String(s.pin_id), Number(s.save_count || 0));
+        baselineMap.set(String(s.pin_id), { saves: Number(s.save_count || 0), date: s.snapshot_date });
         if (!baselineSnapshotDate && s.snapshot_date) {
           baselineSnapshotDate = new Date(s.snapshot_date);
         }
@@ -1731,11 +1739,17 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
       // Time-Normalized: Divides delta by pure UTC calendar days to prevent intraday hour bias or multi-day velocity inflation
       let velocity = 0;
       const todayDate = new Date();
-      const todayUtc = Date.UTC(todayDate.getUTCFullYear(), todayDate.getUTCMonth(), todayDate.getUTCDate());
       if (baselineMap.has(pinId)) {
-        const rawDelta = Math.max(0, confirmedSaves - baselineMap.get(pinId));
+        const baseEntry = baselineMap.get(pinId);
+        const baseSaves = (baseEntry && typeof baseEntry === 'object') ? Number(baseEntry.saves || 0) : Number(baseEntry || 0);
+        const baseDateStr = (baseEntry && typeof baseEntry === 'object') ? baseEntry.date : null;
+        const rawDelta = Math.max(0, confirmedSaves - baseSaves);
         let daysElapsed = 1;
-        if (baselineSnapshotDate) {
+        if (baseDateStr) {
+          const baseDate = new Date(baseDateStr);
+          const baseUtc = Date.UTC(baseDate.getUTCFullYear(), baseDate.getUTCMonth(), baseDate.getUTCDate());
+          daysElapsed = Math.max(1, Math.round((todayUtc - baseUtc) / (1000 * 60 * 60 * 24)));
+        } else if (baselineSnapshotDate) {
           const baseUtc = Date.UTC(baselineSnapshotDate.getUTCFullYear(), baselineSnapshotDate.getUTCMonth(), baselineSnapshotDate.getUTCDate());
           daysElapsed = Math.max(1, Math.round((todayUtc - baseUtc) / (1000 * 60 * 60 * 24)));
         }
@@ -1890,14 +1904,14 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
         try {
           const detail = await fetchPinFromPinterest(p.pin_id, cookie);
           const scraped = detail?.pin || detail;
-          if (scraped && (scraped.saves || scraped.save_count || scraped.repins || scraped.repin_count)) {
+          if (scraped && (scraped.pin_id || scraped.id || scraped.title || scraped.saves !== undefined)) {
             p.crawled_at = new Date().toISOString();
-            const enrichedSaves = Number(scraped.saves ?? scraped.save_count ?? p.save_count);
-            const enrichedRepins = Number(scraped.repins ?? scraped.repin_count ?? p.repin_count);
-            const enrichedComments = Number(scraped.comments ?? scraped.comment_count ?? p.comment_count);
+            const enrichedSaves = Number(scraped.saves ?? scraped.save_count ?? p.save_count ?? 0);
+            const enrichedRepins = Number(scraped.repins ?? scraped.repin_count ?? p.repin_count ?? 0);
+            const enrichedComments = Number(scraped.comments ?? scraped.comment_count ?? p.comment_count ?? 0);
             const enrichedShares = Number(scraped.shares ?? scraped.share_count ?? 0);
 
-            p.save_count = enrichedSaves > 0 ? Math.max(p.save_count, enrichedSaves) : p.save_count;
+            p.save_count = enrichedSaves >= 0 ? Math.max(p.save_count, enrichedSaves) : p.save_count;
             p.repin_count = Math.max(p.repin_count, enrichedRepins);
             p.comment_count = Math.max(p.comment_count, enrichedComments);
             if (scraped.created_at_pinterest || scraped.created_at) {
@@ -2115,7 +2129,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
       visual_annotations: p.visual_annotations || [],
       created_at_pinterest: p.created_at_pinterest,
       creation_method: p.creation_method || 'pinterest_platform',
-      crawled_at: p.crawled_at || new Date().toISOString(),
+      crawled_at: p.crawled_at || null,
       metadata: {
         prev_rank: p.metadata?.prev_rank ?? null,
         rank_delta: p.metadata?.rank_delta ?? 0,
@@ -2221,13 +2235,13 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
           rank_position = EXCLUDED.rank_position,
           last_known_rank = EXCLUDED.rank_position,
           baseline_day_saves = CASE
-            WHEN keyword_serp_current.crawled_at::date < (NOW() AT TIME ZONE 'UTC')::date
+            WHEN (keyword_serp_current.crawled_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date
             THEN keyword_serp_current.save_count
             ELSE COALESCE(NULLIF(keyword_serp_current.baseline_day_saves, 0), EXCLUDED.baseline_day_saves)
           END,
           baseline_day_date = CASE
-            WHEN keyword_serp_current.crawled_at::date < (NOW() AT TIME ZONE 'UTC')::date
-            THEN keyword_serp_current.crawled_at::date
+            WHEN (keyword_serp_current.crawled_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date
+            THEN (keyword_serp_current.crawled_at AT TIME ZONE 'UTC')::date
             ELSE COALESCE(keyword_serp_current.baseline_day_date, EXCLUDED.baseline_day_date)
           END,
           is_displaced = FALSE,
@@ -2238,9 +2252,9 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
           image_url = COALESCE(EXCLUDED.image_url, keyword_serp_current.image_url),
           creator_username = COALESCE(NULLIF(EXCLUDED.creator_username, ''), keyword_serp_current.creator_username),
           board_name = COALESCE(NULLIF(EXCLUDED.board_name, ''), keyword_serp_current.board_name),
-          save_count = GREATEST(keyword_serp_current.save_count, EXCLUDED.save_count),
-          repin_count = GREATEST(keyword_serp_current.repin_count, EXCLUDED.repin_count),
-          comment_count = GREATEST(COALESCE(keyword_serp_current.comment_count, 0), EXCLUDED.comment_count),
+          save_count = GREATEST(COALESCE(keyword_serp_current.save_count, 0), COALESCE(EXCLUDED.save_count, 0)),
+          repin_count = GREATEST(COALESCE(keyword_serp_current.repin_count, 0), COALESCE(EXCLUDED.repin_count, 0)),
+          comment_count = GREATEST(COALESCE(keyword_serp_current.comment_count, 0), COALESCE(EXCLUDED.comment_count, 0)),
           daily_save_velocity = CASE 
             WHEN EXCLUDED.daily_save_velocity > 0 THEN EXCLUDED.daily_save_velocity 
             ELSE COALESCE(keyword_serp_current.daily_save_velocity, 0) 
@@ -2257,11 +2271,13 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
           END,
           created_at_pinterest = COALESCE(EXCLUDED.created_at_pinterest, keyword_serp_current.created_at_pinterest),
           creation_method = COALESCE(EXCLUDED.creation_method, keyword_serp_current.creation_method),
-          metadata = EXCLUDED.metadata || jsonb_build_object(
-            'is_deep_hydrated',
-            (COALESCE((keyword_serp_current.metadata->>'is_deep_hydrated')::boolean, false) OR COALESCE((EXCLUDED.metadata->>'is_deep_hydrated')::boolean, false))
-          ),
-          crawled_at = COALESCE(EXCLUDED.crawled_at, keyword_serp_current.crawled_at),
+          metadata = (CASE WHEN jsonb_typeof(keyword_serp_current.metadata) = 'object' THEN keyword_serp_current.metadata ELSE '{}'::jsonb END)
+            || EXCLUDED.metadata
+            || jsonb_build_object(
+              'is_deep_hydrated',
+              (COALESCE((keyword_serp_current.metadata->>'is_deep_hydrated')::boolean, false) OR COALESCE((EXCLUDED.metadata->>'is_deep_hydrated')::boolean, false))
+            ),
+          crawled_at = COALESCE(keyword_serp_current.crawled_at, EXCLUDED.crawled_at),
           updated_at = NOW();
       `);
 
@@ -2364,8 +2380,8 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
         top_pin_image = ${topPin && !isSuspectedIncompleteCrawl ? topPin.imageUrl : keywordRow.top_pin_image},
         avg_daily_velocity = ${finalVelocity},
         last_crawled_at = ${lastCrawledAtVal}::timestamptz,
-        crawl_lease_token = NULL,
-        crawl_lease_until = NULL,
+        crawl_lease_token = CASE WHEN ${skipLeaseRelease} THEN crawl_lease_token ELSE NULL END,
+        crawl_lease_until = CASE WHEN ${skipLeaseRelease} THEN crawl_lease_until ELSE NULL END,
         updated_at = NOW(),
         metadata = ${JSON.stringify(updatedMetadata)}::jsonb
       WHERE id = ${kid};
@@ -2414,7 +2430,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
     activeKeywordCrawls.delete(kid);
 
     // If this node acquired the lease and transaction failed or aborted early, heal scalar crawl_lease_until
-    if (leaseAcquired && !leaseCommittedInTx) {
+    if (leaseAcquired && !leaseCommittedInTx && !skipLeaseRelease) {
       await sql`
         UPDATE tracked_keywords 
         SET crawl_lease_token = NULL,
@@ -3273,33 +3289,84 @@ export async function getPinPerformanceTrajectory(sql, keywordId, pinId, range =
   else if (range === '14d') intervalDays = 14;
   else if (range === '30d') intervalDays = 30;
 
-  // 1. Hub Query (Relative rolling 2-snapshot baseline cache)
+  // 1. Hub Query (Active SERP or displaced state + rolling snapshots)
   const hubPromise = (async () => {
     try {
-      if (kid) {
-        return await sql`
-          SELECT DISTINCT ON (snapshot_date)
-            pin_id, rank_position, save_count, repin_count, comment_count, share_count, reaction_count,
-            daily_save_velocity, snapshot_date
-          FROM keyword_pins_snapshots
-          WHERE keyword_id = ${kid} AND pin_id = ${cleanPin}
-          ORDER BY snapshot_date ASC, created_at DESC;
-        `;
-      }
-      return await sql`
-        SELECT DISTINCT ON (snapshot_date)
-          pin_id, rank_position, save_count, repin_count, comment_count, share_count, reaction_count,
-          daily_save_velocity, snapshot_date
-        FROM keyword_pins_snapshots
-        WHERE pin_id = ${cleanPin}
-        ORDER BY snapshot_date ASC, created_at DESC;
-      `;
+      const activeHubPromise = (async () => {
+        try {
+          const serpRows = kid
+            ? await sql`
+                SELECT pin_id, rank_position, save_count, repin_count, comment_count, share_count, reaction_count,
+                       daily_save_velocity, updated_at as snapshot_date
+                FROM keyword_serp_current
+                WHERE keyword_id = ${kid} AND pin_id = ${cleanPin}
+                LIMIT 1;
+              `
+            : await sql`
+                SELECT pin_id, rank_position, save_count, repin_count, comment_count, share_count, reaction_count,
+                       daily_save_velocity, updated_at as snapshot_date
+                FROM keyword_serp_current
+                WHERE pin_id = ${cleanPin}
+                ORDER BY updated_at DESC
+                LIMIT 1;
+              `;
+          if (serpRows && serpRows.length > 0) return serpRows;
+
+          const displacedRows = kid
+            ? await sql`
+                SELECT pin_id, last_rank as rank_position, last_saves as save_count, 0 as repin_count, 0 as comment_count,
+                       0 as share_count, 0 as reaction_count, daily_save_velocity, last_checked_at as snapshot_date
+                FROM keyword_displaced_index
+                WHERE keyword_id = ${kid} AND pin_id = ${cleanPin}
+                LIMIT 1;
+              `
+            : await sql`
+                SELECT pin_id, last_rank as rank_position, last_saves as save_count, 0 as repin_count, 0 as comment_count,
+                       0 as share_count, 0 as reaction_count, daily_save_velocity, last_checked_at as snapshot_date
+                FROM keyword_displaced_index
+                WHERE pin_id = ${cleanPin}
+                ORDER BY last_checked_at DESC
+                LIMIT 1;
+              `;
+          return displacedRows || [];
+        } catch (_) {
+          return [];
+        }
+      })();
+
+      const snapshotsPromise = (async () => {
+        try {
+          if (kid) {
+            return await sql`
+              SELECT DISTINCT ON (snapshot_date)
+                pin_id, rank_position, save_count, repin_count, comment_count, share_count, reaction_count,
+                daily_save_velocity, snapshot_date
+              FROM keyword_pins_snapshots
+              WHERE keyword_id = ${kid} AND pin_id = ${cleanPin}
+              ORDER BY snapshot_date ASC, created_at DESC;
+            `;
+          }
+          return await sql`
+            SELECT DISTINCT ON (snapshot_date)
+              pin_id, rank_position, save_count, repin_count, comment_count, share_count, reaction_count,
+              daily_save_velocity, snapshot_date
+            FROM keyword_pins_snapshots
+            WHERE pin_id = ${cleanPin}
+            ORDER BY snapshot_date ASC, created_at DESC;
+          `;
+        } catch (_) {
+          return [];
+        }
+      })();
+
+      const [activeRows, snapshotRows] = await Promise.all([activeHubPromise, snapshotsPromise]);
+      return [...(snapshotRows || []), ...(activeRows || [])];
     } catch (_) {
       return [];
     }
   })();
 
-  // 2. Shard Query (Full 90-day distributed time-series archive)
+  // 2. Shard Query (Full distributed time-series archive)
   const shardPromise = (async () => {
     try {
       const shardId = getPinShardId(cleanPin, 99);
@@ -3315,7 +3382,8 @@ export async function getPinPerformanceTrajectory(sql, keywordId, pinId, range =
                 share_count, reaction_count, daily_save_velocity, updated_at
               FROM pins_daily_rollups_v2
               WHERE pin_id = ${cleanPin}
-              ORDER BY snapshot_date ASC;
+              ORDER BY snapshot_date ASC
+              LIMIT 365;
             `;
             if (rollups && rollups.length > 0) return rollups;
           } catch (_) {}
@@ -3325,7 +3393,8 @@ export async function getPinPerformanceTrajectory(sql, keywordId, pinId, range =
               share_count, reaction_count, daily_save_velocity, created_at
             FROM pins_daily_snapshots
             WHERE pin_id = ${cleanPin}
-            ORDER BY snapshot_date ASC;
+            ORDER BY snapshot_date ASC
+            LIMIT 365;
           `;
         },
         fallbackFn: async () => [],
@@ -3424,7 +3493,7 @@ export async function getPinPerformanceTrajectory(sql, keywordId, pinId, range =
     snapshots
   };
 
-  if (env?.PIN_ENGINE_KV && snapshots.length >= 0) {
+  if (env?.PIN_ENGINE_KV && snapshots.length > 0) {
     try {
       await env.PIN_ENGINE_KV.put(trajKvKey, JSON.stringify(trajResult), { expirationTtl: 21600 });
     } catch (_) {}
@@ -3832,8 +3901,8 @@ export async function getPinDeepDossier(sql, pinId, keywordId = null, { forceRef
     deltas: {
       saves_24h: Number(displacedRow?.delta_saves_24h || 0),
       repins_24h: Number(displacedRow?.delta_repins_24h || 0),
-      shares_24h: Number(shares > 0 ? Math.round(shares * 0.28) : 0),
-      reactions_24h: Number(reactions > 0 ? Math.round(reactions * 0.28) : 0)
+      shares_24h: Number(displacedRow?.delta_shares_24h || 0),
+      reactions_24h: Number(displacedRow?.delta_reactions_24h || 0)
     },
     reactions_breakdown: (typeof scraped?.reactions === 'object' && scraped?.reactions) ? scraped.reactions : (latestSnapshot?.metadata?.reactions || {}),
     trajectory

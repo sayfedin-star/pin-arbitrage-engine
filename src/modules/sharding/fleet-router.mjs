@@ -117,6 +117,13 @@ export function safeWaitUntil(ctx, promise, taskName = 'bg_task', timeoutMs = 25
       clearTimeout(timer);
     });
 
+  const storage = globalThis.__requestContextStorage;
+  const store = storage?.getStore?.();
+  if (store) {
+    if (!Array.isArray(store.bgPromises)) store.bgPromises = [];
+    store.bgPromises.push(guardedPromise);
+  }
+
   if (ctx && typeof ctx.waitUntil === 'function') {
     ctx.waitUntil(guardedPromise);
   }
@@ -145,12 +152,40 @@ export async function warmGlobalShardMap(hubSql, env = null) {
 }
 
 export const shardSqlClients = new Map(); // dsn -> neon client
+export const MAX_SHARD_SQL_CLIENTS = 48;
+
+export function getCachedShardSqlClient(dsn) {
+  if (!shardSqlClients.has(dsn)) return null;
+  const client = shardSqlClients.get(dsn);
+  shardSqlClients.delete(dsn);
+  shardSqlClients.set(dsn, client);
+  return client;
+}
+
+export function setCachedShardSqlClient(dsn, client) {
+  if (shardSqlClients.has(dsn)) {
+    shardSqlClients.delete(dsn);
+  } else if (shardSqlClients.size >= MAX_SHARD_SQL_CLIENTS) {
+    const oldestKey = shardSqlClients.keys().next().value;
+    if (oldestKey) shardSqlClients.delete(oldestKey);
+  }
+  shardSqlClients.set(dsn, client);
+}
+
+export function getOrCreateShardSqlClient(pooledDsn) {
+  let client = getCachedShardSqlClient(pooledDsn);
+  if (!client) {
+    client = neon(pooledDsn);
+    setCachedShardSqlClient(pooledDsn, client);
+  }
+  return client;
+}
 
 /**
  * Test helper: Register in-memory SQL client for a DSN
  */
 export function _setShardSqlClient(dsn, client) {
-  shardSqlClients.set(enforceNeonPoolerUrl(dsn), client);
+  setCachedShardSqlClient(enforceNeonPoolerUrl(dsn), client);
 }
 
 // Circuit Breaker State per Shard
@@ -231,10 +266,7 @@ export async function resolveShardConnection({ hubSql, shardId, dsnTemplate = nu
       .replace(/{SHARD_NAME}/g, shardName);
     
     const pooledDsn = enforceNeonPoolerUrl(computedDsn);
-    if (!shardSqlClients.has(pooledDsn)) {
-      shardSqlClients.set(pooledDsn, neon(pooledDsn));
-    }
-    return shardSqlClients.get(pooledDsn);
+    return getOrCreateShardSqlClient(pooledDsn);
   }
 
   // 2. Ultra-Fast In-Memory Lookup (0ms execution time from globalShardMap)
@@ -243,10 +275,7 @@ export async function resolveShardConnection({ hubSql, shardId, dsnTemplate = nu
     const cachedEntry = globalShardMap.get(cleanId);
     if (cachedEntry?.database_url && (now - (cachedEntry.cachedAt || 0) < SHARD_MAP_TTL_MS)) {
       const pooledDsn = enforceNeonPoolerUrl(cachedEntry.database_url);
-      if (!shardSqlClients.has(pooledDsn)) {
-        shardSqlClients.set(pooledDsn, neon(pooledDsn));
-      }
-      return shardSqlClients.get(pooledDsn);
+      return getOrCreateShardSqlClient(pooledDsn);
     }
   }
 
@@ -257,10 +286,7 @@ export async function resolveShardConnection({ hubSql, shardId, dsnTemplate = nu
       const cachedEntry = globalShardMap.get(cleanId);
       if (cachedEntry?.database_url) {
         const pooledDsn = enforceNeonPoolerUrl(cachedEntry.database_url);
-        if (!shardSqlClients.has(pooledDsn)) {
-          shardSqlClients.set(pooledDsn, neon(pooledDsn));
-        }
-        return shardSqlClients.get(pooledDsn);
+        return getOrCreateShardSqlClient(pooledDsn);
       }
     }
   }
@@ -277,10 +303,7 @@ export async function resolveShardConnection({ hubSql, shardId, dsnTemplate = nu
         globalShardMap.set(cleanId, { ...match, cachedAt: now });
         globalShardMapLastFetched = now;
         const pooledDsn = enforceNeonPoolerUrl(match.database_url);
-        if (!shardSqlClients.has(pooledDsn)) {
-          shardSqlClients.set(pooledDsn, neon(pooledDsn));
-        }
-        return shardSqlClients.get(pooledDsn);
+        return getOrCreateShardSqlClient(pooledDsn);
       }
     }
   }
@@ -306,10 +329,7 @@ export async function resolveShardConnection({ hubSql, shardId, dsnTemplate = nu
   globalShardMapLastFetched = now;
 
   const pooledDsn = enforceNeonPoolerUrl(row.database_url);
-  if (!shardSqlClients.has(pooledDsn)) {
-    shardSqlClients.set(pooledDsn, neon(pooledDsn));
-  }
-  return shardSqlClients.get(pooledDsn);
+  return getOrCreateShardSqlClient(pooledDsn);
 }
 
 /**
@@ -833,8 +853,14 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
       SELECT 
         sc.keyword_id, sc.pin_id, sc.title, sc.domain, sc.destination_url, sc.image_url,
         sc.creator_username, sc.board_name, sc.save_count, sc.repin_count,
+        COALESCE(sc.comment_count, 0) as comment_count,
+        COALESCE(sc.share_count, 0) as share_count,
+        COALESCE(sc.reaction_count, 0) as reaction_count,
         sc.daily_save_velocity, sc.dominant_color, sc.visual_annotations,
         sc.rank_position, sc.last_known_rank, sc.is_displaced, sc.metadata,
+        COALESCE(sc.crawled_at, sc.updated_at) as crawled_at,
+        sc.updated_at,
+        sc.baseline_day_saves, sc.baseline_day_date,
         tk.keyword AS keyword_name
       FROM keyword_serp_current sc
       LEFT JOIN tracked_keywords tk ON tk.id = sc.keyword_id
@@ -1090,6 +1116,38 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     if (!sDate) continue;
     const dedupKey = `${sDate}_${s.keyword_id || 'global'}`;
     snapshotMap.set(dedupKey, s);
+  }
+
+  // Synthesize live in-memory SERP points for today from Hub active catalog if crawled today (read-time only, no DB writes)
+  const todayUtc = new Date().toISOString().slice(0, 10);
+  for (const sc of hubSerpRows) {
+    const crawlDate = sc.crawled_at || sc.updated_at;
+    const isToday = crawlDate && (
+      (crawlDate instanceof Date ? crawlDate.toISOString().slice(0, 10) : String(crawlDate).slice(0, 10)) === todayUtc ||
+      (Date.now() - new Date(crawlDate).getTime() < 86400000)
+    );
+    if (isToday) {
+      const dedupKey = `${todayUtc}_${sc.keyword_id || 'global'}`;
+      const existing = snapshotMap.get(dedupKey);
+      const livePoint = {
+        pin_id: cleanPinId,
+        keyword_id: sc.keyword_id,
+        keyword_name: sc.keyword_name,
+        snapshot_date: todayUtc,
+        rank_position: sc.rank_position ?? sc.last_known_rank ?? null,
+        last_known_rank: sc.last_known_rank ?? null,
+        is_displaced: Boolean(sc.is_displaced),
+        save_count: Math.max(Number(sc.save_count || 0), Number(existing?.save_count || 0)),
+        repin_count: Math.max(Number(sc.repin_count || 0), Number(existing?.repin_count || 0)),
+        comment_count: Math.max(Number(sc.comment_count || 0), Number(existing?.comment_count || 0)),
+        share_count: Math.max(Number(sc.share_count || 0), Number(existing?.share_count || 0)),
+        reaction_count: Math.max(Number(sc.reaction_count || 0), Number(existing?.reaction_count || 0)),
+        daily_save_velocity: (sc.daily_save_velocity !== undefined && sc.daily_save_velocity !== null) ? Number(sc.daily_save_velocity) : (existing?.daily_save_velocity || 0),
+        created_at: sc.updated_at || new Date().toISOString(),
+        metadata: sc.metadata || {}
+      };
+      snapshotMap.set(dedupKey, livePoint);
+    }
   }
 
   // Merge Hub snapshots with LWW and collect missing snapshots for Shard Read-Repair
@@ -1371,9 +1429,19 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     }
   }
   for (let i = 1; i < chronoDays.length; i++) {
-    const diff = chronoDays[i].save_count - chronoDays[i - 1].save_count;
-    if (diff >= 0) {
-      chronoDays[i].daily_save_velocity = diff;
+    const prev = chronoDays[i - 1];
+    const curr = chronoDays[i];
+    const prevDate = new Date(prev.snapshot_date);
+    const currDate = new Date(curr.snapshot_date);
+    const elapsedDays = Math.max(1, Math.round((currDate - prevDate) / 86400000));
+    const diff = curr.save_count - prev.save_count;
+
+    if (diff > 0) {
+      curr.daily_save_velocity = Math.round((diff / elapsedDays) * 10) / 10;
+    } else if (diff === 0) {
+      if (elapsedDays >= 1 && (!curr.daily_save_velocity || curr.daily_save_velocity === 0)) {
+        curr.daily_save_velocity = 0;
+      }
     }
   }
 
@@ -1611,6 +1679,11 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
       canonical_pin_id: canonicalPinId,
       canonical_pin_url: canonicalPinUrl,
       is_canonical_root: isCanonicalRoot,
+      save_count: Number(dailyTrajectory[0]?.save_count ?? hubSerpRows[0]?.save_count ?? masterRecord?.save_count ?? 0),
+      repin_count: Number(dailyTrajectory[0]?.repin_count ?? hubSerpRows[0]?.repin_count ?? masterRecord?.repin_count ?? 0),
+      comment_count: Number(dailyTrajectory[0]?.comment_count ?? hubSerpRows[0]?.comment_count ?? 0),
+      share_count: Number(dailyTrajectory[0]?.share_count ?? hubSerpRows[0]?.share_count ?? 0),
+      daily_save_velocity: Number(dailyTrajectory[0]?.daily_save_velocity ?? hubSerpRows[0]?.daily_save_velocity ?? 0),
       first_discovered_pillar: masterRecord?.first_discovered_pillar || 'keyword',
       is_deleted: Boolean(masterRecord?.is_deleted || hubHistoricalSnap?.metadata?.is_deleted || (hubHistoricalSnap?.metadata?.status === 'archived_404'))
     },

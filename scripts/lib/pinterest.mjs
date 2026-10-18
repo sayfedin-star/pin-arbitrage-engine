@@ -205,19 +205,41 @@ export function parseCleanMetric(val, fallback = 0) {
   return isNaN(num) || !isFinite(num) ? fallback : Math.max(0, Math.round(num));
 }
 
+function isPinCandidate(o) {
+  if (!o || typeof o !== 'object') return false;
+  return Boolean(
+    o.title !== undefined ||
+    o.description !== undefined ||
+    o.images ||
+    o.images_orig ||
+    o.aggregated_pin_data ||
+    o.aggregatedStats ||
+    o.aggregatedPinData ||
+    o.board ||
+    o.pinner ||
+    o.save_count !== undefined ||
+    o.saveCount !== undefined ||
+    o.repin_count !== undefined ||
+    o.repinCount !== undefined ||
+    o.pinJoin
+  );
+}
+
 /**
  * Recursively search a Pinterest JSON/Redux/Relay object tree for a pin matching pinId.
  */
 export function findPinInTree(obj, pinId, depth = 0) {
   if (depth > 20 || !obj || typeof obj !== 'object') return null;
+  const pIdStr = String(pinId);
   if (
-    String(obj.id) === String(pinId) &&
-    (obj.aggregated_pin_data || obj.aggregatedStats || obj.repin_count !== undefined || obj.repinCount !== undefined)
+    (String(obj.id) === pIdStr || String(obj.entityId) === pIdStr) &&
+    isPinCandidate(obj)
   ) {
     return obj;
   }
-  if (String(obj.entityId) === String(pinId)) return obj;
-  if (obj[pinId] && typeof obj[pinId] === 'object') return obj[pinId];
+  if (obj[pIdStr] && isPinCandidate(obj[pIdStr])) {
+    return obj[pIdStr];
+  }
   for (const key of Object.keys(obj)) {
     const found = findPinInTree(obj[key], pinId, depth + 1);
     if (found) return found;
@@ -332,18 +354,34 @@ export function formatPin(pin) {
   const rawRepins = parseCleanMetric(
     st.repins ??
     st.repin_count ??
+    st.repinCount ??
     pin.repin_count ??
+    pin.repinCount ??
     pin.repins ??
     pin.aggregated_pin_data?.repins ??
+    pin.aggregatedStats?.repins ??
+    pin.aggregatedStats?.repin_count ??
+    pin.aggregatedPinData?.aggregatedStats?.repins ??
+    pin.done_count ??
+    pin.doneCount ??
+    pin.canonicalPin?.repinCount ??
+    pin.canonicalPin?.repin_count ??
     0
   );
 
   const rawSaves = parseCleanMetric(
     st.saves ??
     st.save_count ??
+    st.saveCount ??
     pin.save_count ??
+    pin.saveCount ??
     pin.saves ??
     pin.aggregated_pin_data?.saves ??
+    pin.aggregatedStats?.saves ??
+    pin.aggregatedStats?.save_count ??
+    pin.aggregatedPinData?.aggregatedStats?.saves ??
+    pin.canonicalPin?.saveCount ??
+    pin.canonicalPin?.save_count ??
     0
   );
 
@@ -355,7 +393,18 @@ export function formatPin(pin) {
     pin.commentCount ??
     pin.comments ??
     st.comment_count ??
+    st.commentCount ??
     pin.aggregated_pin_data?.comment_count ??
+    pin.aggregatedStats?.comments ??
+    pin.aggregatedPinData?.commentCount ??
+    0
+  );
+
+  const shareCount = parseCleanMetric(
+    pin.share_count ??
+    pin.shareCount ??
+    st.share_count ??
+    st.shareCount ??
     0
   );
 
@@ -494,7 +543,7 @@ export function formatPin(pin) {
     saves,
     repins,
     comments,
-    share_count: parseCleanMetric(pin.share_count || 0),
+    share_count: shareCount,
     reactions: pin.reaction_counts || pin.reactions || {},
     annotations,
     tags: annotations.map(a => a.name),
@@ -827,19 +876,16 @@ export function extractPinData(rawHtml, pinId) {
     } catch (_) {}
   }
 
-  if (mergedRelayPin && (mergedRelayPin.id || Object.keys(mergedRelayPin).length > 0)) {
-    if (!mergedRelayPin.id) mergedRelayPin.id = pinId;
-    const formatted = formatPin(mergedRelayPin);
-    if (formatted) return formatted;
-  }
-
   // 2. Prefetched Queries
   const prefetchMatch = html.match(/__PWS_RELAY_PREFETCHED_QUERIES__\s*=\s*([\s\S]*?);<\/script>/i);
   if (prefetchMatch) {
     try {
       const data = JSON.parse(prefetchMatch[1]);
       const found = findPinInTree(data, pinId);
-      if (found) return formatPin(found);
+      if (found) {
+        if (!mergedRelayPin) mergedRelayPin = { ...found };
+        else mergedRelayPin = { ...found, ...mergedRelayPin };
+      }
     } catch (_) {}
   }
 
@@ -849,7 +895,10 @@ export function extractPinData(rawHtml, pinId) {
     try {
       const data = JSON.parse(pwsMatch[1]);
       const found = findPinInTree(data, pinId);
-      if (found) return formatPin(found);
+      if (found) {
+        if (!mergedRelayPin) mergedRelayPin = { ...found };
+        else mergedRelayPin = { ...found, ...mergedRelayPin };
+      }
     } catch (_) {}
   }
 
@@ -859,8 +908,19 @@ export function extractPinData(rawHtml, pinId) {
     try {
       const data = JSON.parse(block[1]);
       const found = findPinInTree(data, pinId);
-      if (found) return formatPin(found);
+      if (found) {
+        if (!mergedRelayPin) mergedRelayPin = { ...found };
+        else mergedRelayPin = { ...found, ...mergedRelayPin };
+      }
     } catch (_) {}
+  }
+
+  if (mergedRelayPin && (mergedRelayPin.id || Object.keys(mergedRelayPin).length > 0)) {
+    if (!mergedRelayPin.id) mergedRelayPin.id = pinId;
+    const formatted = formatPin(mergedRelayPin);
+    if (formatted && (formatted.title || formatted.image_url || formatted.description || formatted.saves >= 0)) {
+      return formatted;
+    }
   }
 
   // 5. JSON-LD fallback

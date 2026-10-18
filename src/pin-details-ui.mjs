@@ -1150,24 +1150,24 @@ export function getPinDetailPageHtml(pinId = '') {
         },
 
         peakSaves() {
-          if (this.dossier?.daily_trajectory?.[0]?.save_count != null) {
-            return this.dossier.daily_trajectory[0].save_count;
-          }
-          return this.latestSnapshot()?.save_count || this.dossier?.creative?.save_count || 0;
+          const dtSaves = this.dossier?.daily_trajectory?.[0]?.save_count;
+          const snapSaves = this.latestSnapshot()?.save_count;
+          const crSaves = this.dossier?.creative?.save_count;
+          return Math.max(Number(dtSaves || 0), Number(snapSaves || 0), Number(crSaves || 0));
         },
 
         peakRepins() {
-          if (this.dossier?.daily_trajectory?.[0]?.repin_count != null) {
-            return this.dossier.daily_trajectory[0].repin_count;
-          }
-          return this.latestSnapshot()?.repin_count || 0;
+          const dtRepins = this.dossier?.daily_trajectory?.[0]?.repin_count;
+          const snapRepins = this.latestSnapshot()?.repin_count;
+          const crRepins = this.dossier?.creative?.repin_count;
+          return Math.max(Number(dtRepins || 0), Number(snapRepins || 0), Number(crRepins || 0));
         },
 
         peakVelocity() {
-          if (this.dossier?.daily_trajectory?.[0]?.daily_save_velocity != null) {
-            return this.dossier.daily_trajectory[0].daily_save_velocity;
-          }
-          return this.latestSnapshot()?.daily_save_velocity || 0;
+          const dtVel = this.dossier?.daily_trajectory?.[0]?.daily_save_velocity;
+          const snapVel = this.latestSnapshot()?.daily_save_velocity;
+          const crVel = this.dossier?.creative?.daily_save_velocity;
+          return Math.max(Number(dtVel || 0), Number(snapVel || 0), Number(crVel || 0));
         },
 
         peakRank() {
@@ -1272,6 +1272,14 @@ export function getPinDetailPageHtml(pinId = '') {
           const counts = new Map();
           for (const d of traj) {
             for (const k of (d.ranking_keywords || [])) {
+              if (k.keyword) {
+                counts.set(k.keyword, (counts.get(k.keyword) || 0) + 1);
+              }
+            }
+          }
+          if (counts.size === 0) {
+            const pillarKws = this.dossier?.pillar_2_keywords_context?.ranking_keywords || [];
+            for (const k of pillarKws) {
               if (k.keyword) {
                 counts.set(k.keyword, (counts.get(k.keyword) || 0) + 1);
               }
@@ -1458,16 +1466,6 @@ export function getPinDetailPageHtml(pinId = '') {
 
         formatNumber(n) {
           return Number(n || 0).toLocaleString();
-        },
-
-        formatDate(d) {
-          if (!d) return '—';
-          try {
-            const dt = new Date(d);
-            return isNaN(dt.getTime()) ? String(d) : dt.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
-          } catch (_) {
-            return String(d);
-          }
         }
       };
     }
