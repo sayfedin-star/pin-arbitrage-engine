@@ -18,7 +18,9 @@ import {
   getDatabaseEnrichmentStats,
   enrichNextUncheckedBatch,
   parseAdsTxtMonetization,
-  enrichNextUncheckedAdsBatch
+  enrichNextUncheckedAdsBatch,
+  detectMarketingAngle,
+  generateDomainArbitrageBlueprint
 } from '../src/modules/domains/service.mjs';
 
 if (typeof process.loadEnvFile === 'function') {
@@ -384,6 +386,116 @@ async function runTests() {
     studioHtml.includes('Batch Check Ads') &&
     studioHtml.includes('HBAgency') &&
     studioHtml.includes('toggleGlobalAdsEnrichment')
+  );
+
+  // ============================================================================
+  // 9. Algorithmic Competitive Espionage & 6-Pillar Radar Verification (Level 4C)
+  // ============================================================================
+  console.log('\n[*] Testing Algorithmic Espionage & 6-Pillar Radar Engine...');
+
+  // 9.1 Pillar 2: Unit Test detectMarketingAngle
+  const angle1 = detectMarketingAngle({ title: 'Easy 15-Minute Chicken Dinner' });
+  const angle2 = detectMarketingAngle({ title: 'Keto Low Carb Cheesy Skillet' });
+  const angle3 = detectMarketingAngle({ title: 'Crockpot Family Casserole Meal Prep' });
+  report(
+    'detectMarketingAngle identifies Quick & Easy, Keto Diet, and Family Budget angles',
+    angle1.angle.includes('Quick & Easy') &&
+    angle2.angle.includes('Diet & Keto') &&
+    angle3.angle.includes('Family & Budget')
+  );
+
+  // 9.2 Pillar 1, 3, 4, 5: getDomainDeepDossier 6-Pillar Enrichment
+  const espionageDossier = await getDomainDeepDossier(sql, 'nourishyourglow.com');
+  report(
+    'getDomainDeepDossier compiles 6-pillar intelligence structure',
+    espionageDossier.success === true &&
+    espionageDossier.visual_dna !== undefined &&
+    Array.isArray(espionageDossier.visual_dna.visual_tags_cloud) &&
+    Array.isArray(espionageDossier.visual_dna.dominant_colors_palette) &&
+    Array.isArray(espionageDossier.keyword_monopoly) &&
+    Array.isArray(espionageDossier.money_urls) &&
+    Array.isArray(espionageDossier.accounts)
+  );
+
+  // Pillar 1: Carpet Bombing & Slot Domination
+  const topKwMonopoly = espionageDossier.keyword_monopoly[0];
+  report(
+    'Pillar 1: Keyword Monopoly classifies Carpet Bombing strategy & slot attribution',
+    topKwMonopoly !== undefined &&
+    ['URL_FLOODING', 'TOPIC_CLUSTER', 'HYBRID_FLOODING', 'SINGLE_SLOT'].includes(topKwMonopoly.strategy) &&
+    typeof topKwMonopoly.serp_share_pct === 'number' &&
+    Array.isArray(topKwMonopoly.slots) &&
+    topKwMonopoly.top_slot_attribution !== null
+  );
+
+  // Pillar 2: Multi-Angle Creative Multiplier
+  const topArticle = espionageDossier.money_urls[0];
+  report(
+    'Pillar 2: Money URLs track creative pin multiplier and marketing angle intent tags',
+    topArticle !== undefined &&
+    Array.isArray(topArticle.angles_targeted) &&
+    Array.isArray(topArticle.pins) &&
+    topArticle.pins[0]?.detected_angle !== undefined &&
+    topArticle.pins[0]?.intent_tag !== undefined
+  );
+
+  // Pillar 3: Visual DNA
+  report(
+    'Pillar 3: Visual DNA extracts Computer Vision tags cloud and dominant palette',
+    espionageDossier.visual_dna.visual_tags_cloud.length > 0 &&
+    espionageDossier.visual_dna.dominant_colors_palette.length > 0 &&
+    typeof espionageDossier.visual_dna.dominant_colors_palette[0].percentage === 'number'
+  );
+
+  // Pillar 4: P2P Sybil Network
+  const topAccount = espionageDossier.accounts[0];
+  report(
+    'Pillar 4: Accounts classify Primary Brand vs Satellite Creators & sister domains',
+    topAccount !== undefined &&
+    ['PRIMARY_BRAND', 'SATELLITE_CREATOR'].includes(topAccount.role) &&
+    Array.isArray(topAccount.sister_domains)
+  );
+
+  // Pillar 5: Decaying Monopoly & listDomainsIntelligence preset
+  const decayingLeaderboard = await listDomainsIntelligence(sql, { preset: 'decaying_monopoly', limit: 10 });
+  report(
+    'Pillar 5: listDomainsIntelligence supports decaying_monopoly preset lens',
+    Array.isArray(decayingLeaderboard.domains) &&
+    decayingLeaderboard.domains.every(d => d.top10_pins >= 1 && d.total_saves >= 3000)
+  );
+
+  // Pillar 6: Service & API - One-Click Arbitrage Attack Blueprint
+  const blueprintService = await generateDomainArbitrageBlueprint(sql, 'nourishyourglow.com');
+  report(
+    'Pillar 6 Service: generateDomainArbitrageBlueprint outputs complete attack plan',
+    blueprintService.success === true &&
+    Array.isArray(blueprintService.top_articles) &&
+    blueprintService.top_articles.length > 0 &&
+    Array.isArray(blueprintService.title_blueprints) &&
+    blueprintService.title_blueprints.length === 3 &&
+    Array.isArray(blueprintService.visual_tags_checklist) &&
+    typeof blueprintService.markdown_blueprint === 'string' &&
+    blueprintService.markdown_blueprint.includes('⚡ Tactical Arbitrage Attack Blueprint')
+  );
+
+  const blueprintApiRes = await worker.fetch(new Request('https://engine.internal/api/domains/blueprint?domain=nourishyourglow.com'), mockEnv);
+  const blueprintApiData = await blueprintApiRes.json();
+  report(
+    'Pillar 6 API: GET /api/domains/blueprint serves valid attack plan JSON',
+    blueprintApiRes.status === 200 &&
+    blueprintApiData.success === true &&
+    Array.isArray(blueprintApiData.top_articles)
+  );
+
+  // 9.4 Studio UI: Contains 6-Pillar Intelligence Controls
+  report(
+    'Studio UI contains Decaying Monopoly lens, Visual DNA tab, Attack Plan button and modal',
+    studioHtml.includes('Decaying Monopoly (افتراس فوري)') &&
+    studioHtml.includes('🧬 Visual DNA') &&
+    studioHtml.includes('Attack Plan') &&
+    studioHtml.includes('isBlueprintModalOpen') &&
+    studioHtml.includes('openBlueprintModal') &&
+    studioHtml.includes('copyBlueprintMarkdown')
   );
 
   console.log('\n================================================================================');

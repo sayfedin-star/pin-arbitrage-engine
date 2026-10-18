@@ -310,6 +310,12 @@ export function getDomainsPageHtml() {
                 :class="activePreset === 'multi_account' ? 'bg-purple-600 text-white shadow-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700'">
           <span>🕸️</span> Multi-Account Networks
         </button>
+
+        <button @click="setPreset('decaying_monopoly')"
+                class="px-3 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5"
+                :class="activePreset === 'decaying_monopoly' ? 'bg-rose-600 text-white shadow-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700'">
+          <span>⚡</span> Decaying Monopoly (افتراس فوري)
+        </button>
       </div>
 
       <!-- Composable Modular Filter Builder (Age / Rank / Saves / Size + AND/OR Logic Switch) -->
@@ -995,6 +1001,12 @@ export function getDomainsPageHtml() {
             </div>
 
             <div class="flex items-center gap-2 shrink-0">
+              <button @click="openBlueprintModal(dossierDomain)"
+                      class="px-3 py-1.5 rounded-lg bg-gradient-to-r from-amber-500 to-rose-600 hover:from-amber-600 hover:to-rose-700 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-md shadow-rose-500/20 active:scale-95"
+                      title="Generate instant 6-pillar Arbitrage Attack Blueprint">
+                <span>⚡</span>
+                <span>Attack Plan</span>
+              </button>
               <button @click="recheckAgeForDossier()"
                       :disabled="enrichingDomains[dossierDomain]"
                       class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-300 transition flex items-center gap-1 shadow-sm disabled:opacity-60">
@@ -1099,6 +1111,11 @@ export function getDomainsPageHtml() {
                     :class="dossierTab === 'accounts' ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'">
               👤 Creators (<span x-text="dossierData?.accounts?.length || 0"></span>)
             </button>
+            <button @click="dossierTab = 'visual_dna'"
+                    class="px-3 py-1.5 rounded-lg font-semibold transition flex items-center gap-1.5"
+                    :class="dossierTab === 'visual_dna' ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'">
+              <span>🧬 Visual DNA</span>
+            </button>
             <button @click="dossierTab = 'monetization'"
                     class="px-3 py-1.5 rounded-lg font-semibold transition flex items-center gap-1.5"
                     :class="dossierTab === 'monetization' ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'">
@@ -1136,8 +1153,16 @@ export function getDomainsPageHtml() {
                            loading="lazy"
                            onerror="this.onerror=null; this.src='https://placehold.co/80x120?text=Pin'">
                       <div class="flex flex-col min-w-0">
-                        <span class="text-xs font-bold text-slate-900 dark:text-white truncate" x-text="p.title"></span>
-                        <div class="flex items-center gap-2 text-[10px] text-slate-400 font-mono mt-0.5">
+                        <div class="flex items-center gap-2 flex-wrap">
+                          <span class="text-xs font-bold text-slate-900 dark:text-white truncate" x-text="p.title"></span>
+                          <template x-if="p.is_vulnerable">
+                            <span class="px-1.5 py-0.5 rounded text-[9px] font-bold font-mono bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30 shrink-0"
+                                  title="Decaying Monopoly: High Saves + Stale Velocity. Vulnerable to Fresh Pin Overhaul!">
+                              ⚡ Decaying Monopoly
+                            </span>
+                          </template>
+                        </div>
+                        <div class="flex items-center gap-2 text-[10px] text-slate-400 font-mono mt-0.5 flex-wrap">
                           <span x-text="'Pin #' + p.pin_id"></span>
                           <span class="text-slate-300 dark:text-slate-600">•</span>
                           <template x-if="p.creator_username">
@@ -1152,6 +1177,18 @@ export function getDomainsPageHtml() {
                           </template>
                           <span class="text-slate-300 dark:text-slate-600">•</span>
                           <span class="text-emerald-600 dark:text-emerald-400 font-bold" x-text="formatNumber(p.saves) + ' saves'"></span>
+                          <template x-if="p.dominant_color">
+                            <span class="inline-flex items-center gap-1 text-[9px]">
+                              <span>•</span>
+                              <span class="w-2 h-2 rounded-full border border-slate-400/40 inline-block" :style="'background-color: ' + p.dominant_color"></span>
+                              <span x-text="p.dominant_color"></span>
+                            </span>
+                          </template>
+                          <template x-if="Array.isArray(p.visual_annotations) && p.visual_annotations.length > 0">
+                            <span class="text-[9px] text-slate-500 dark:text-slate-400 truncate max-w-[150px]"
+                                  :title="p.visual_annotations.join(', ')"
+                                  x-text="'• 🏷️ ' + p.visual_annotations.slice(0, 2).join(', ')"></span>
+                          </template>
                         </div>
                         <!-- SERP Appearances Badges (Clickable) -->
                         <div class="flex items-center gap-1.5 flex-wrap mt-1.5">
@@ -1207,7 +1244,7 @@ export function getDomainsPageHtml() {
                             Open Article ↗
                           </a>
                         </div>
-                        <div class="flex items-center gap-2 text-xs font-mono text-slate-400 mt-1">
+                        <div class="flex items-center gap-2 text-xs font-mono text-slate-400 mt-1 flex-wrap">
                           <span class="font-bold text-amber-600 dark:text-amber-400" x-text="art.pins_count + ' creative pins'"></span>
                           <span>•</span>
                           <span class="text-emerald-600 dark:text-emerald-400 font-bold" x-text="formatNumber(art.total_saves) + ' saves'"></span>
@@ -1215,11 +1252,25 @@ export function getDomainsPageHtml() {
                             <span>•</span>
                             <span class="text-sky-600 dark:text-sky-400 font-bold" x-text="'Best Rank #' + art.best_rank"></span>
                           </template>
+                          <template x-if="art.is_vulnerable">
+                            <span>•</span>
+                            <span class="text-rose-600 dark:text-rose-400 font-bold">⚡ Vulnerable</span>
+                          </template>
                         </div>
+                        <!-- Targeted Marketing Angles -->
+                        <template x-if="Array.isArray(art.angles_targeted) && art.angles_targeted.length > 0">
+                          <div class="flex items-center gap-1.5 flex-wrap mt-2">
+                            <span class="text-[10px] font-mono text-slate-400 uppercase font-bold">Search Intents:</span>
+                            <template x-for="ang in art.angles_targeted" :key="ang">
+                              <span class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700/80 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-600"
+                                    x-text="'🎯 ' + ang"></span>
+                            </template>
+                          </div>
+                        </template>
                       </div>
                     </div>
 
-                    <!-- Creative Pin Variations Thumbnails Gallery -->
+                    <!-- Creative Pin Variations Thumbnails Gallery (Pillar 2) -->
                     <div class="grid grid-cols-4 sm:grid-cols-6 gap-2 pt-2 border-t border-slate-100 dark:border-slate-700/60">
                       <template x-for="p in art.pins" :key="p.pin_id">
                         <a :data-pin-id="p.pin_id"
@@ -1230,6 +1281,11 @@ export function getDomainsPageHtml() {
                                class="w-full h-full object-cover group-hover:scale-105 transition-transform"
                                loading="lazy"
                                onerror="this.onerror=null; this.src='https://placehold.co/80x120?text=Pin'">
+                          <!-- Marketing Intent Badge Overlay -->
+                          <template x-if="p.intent_tag">
+                            <div class="absolute top-1 left-1 px-1 py-0.5 rounded text-[8px] font-bold font-mono bg-black/75 text-amber-300 truncate max-w-[90%] shadow-sm"
+                                 x-text="p.intent_tag"></div>
+                          </template>
                           <div class="absolute bottom-0 inset-x-0 bg-slate-950/80 p-1 text-[9px] font-mono text-white flex items-center justify-between">
                             <span x-text="p.best_rank ? '#' + p.best_rank : '—'"></span>
                             <span class="text-emerald-400" x-text="p.saves + 's'"></span>
@@ -1244,30 +1300,71 @@ export function getDomainsPageHtml() {
               <!-- TAB 3: Keyword Monopoly Matrix -->
               <div x-show="dossierTab === 'monopoly'" class="space-y-3">
                 <template x-for="kw in dossierData.keyword_monopoly" :key="kw.keyword_id">
-                  <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700/80 rounded-xl p-3.5 flex items-center justify-between gap-3 shadow-sm">
-                    <div class="flex flex-col min-w-0">
-                      <div class="flex items-center gap-2">
-                        <span class="text-xs font-bold text-slate-900 dark:text-white" x-text="kw.keyword_name"></span>
-                        <a :href="safeUrl('/keywords/' + encodeURIComponent(kw.keyword_name))"
-                           target="_blank"
-                           class="text-[10px] text-sky-600 hover:underline font-mono">
-                          SERP Radar ↗
-                        </a>
+                  <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700/80 rounded-xl p-3.5 flex flex-col gap-2.5 shadow-sm">
+                    <div class="flex items-start justify-between gap-3">
+                      <div class="flex flex-col min-w-0">
+                        <div class="flex items-center gap-2 flex-wrap">
+                          <span class="text-xs font-bold text-slate-900 dark:text-white" x-text="kw.keyword_name"></span>
+                          <a :href="safeUrl('/keywords/' + encodeURIComponent(kw.keyword_name))"
+                             target="_blank"
+                             class="text-[10px] text-sky-600 hover:underline font-mono">
+                            SERP Radar ↗
+                          </a>
+                          <!-- Strategy Badge (Pillar 1) -->
+                          <template x-if="kw.strategy === 'URL_FLOODING'">
+                            <span class="text-[10px] font-mono px-2 py-0.5 rounded-full font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30"
+                                  title="URL Creative Flooding: The competitor launched multiple creative pins pointing to the exact same article!">
+                              💣 URL Flooding (1 Article, Multi-Pin)
+                            </span>
+                          </template>
+                          <template x-if="kw.strategy === 'TOPIC_CLUSTER'">
+                            <span class="text-[10px] font-mono px-2 py-0.5 rounded-full font-bold bg-sky-500/15 text-sky-700 dark:text-sky-300 border border-sky-500/30"
+                                  title="Topic Cluster: The competitor dominates this keyword through distinct specialized articles!">
+                              🌳 Topic Cluster (<span x-text="kw.unique_urls_count"></span> Articles)
+                            </span>
+                          </template>
+                          <template x-if="kw.strategy === 'HYBRID_FLOODING'">
+                            <span class="text-[10px] font-mono px-2 py-0.5 rounded-full font-bold bg-purple-500/15 text-purple-700 dark:text-purple-300 border border-purple-500/30">
+                              ⚡ Hybrid Domination
+                            </span>
+                          </template>
+                          <!-- Decaying Monopoly Warning (Pillar 5) -->
+                          <template x-if="kw.is_decaying_monopoly">
+                            <span class="text-[10px] font-mono px-2 py-0.5 rounded font-bold bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30"
+                                  title="Decaying Monopoly: Competitor holds top slots with stagnant velocity. High vulnerability to fresh pin takeover!">
+                              ⚡ Decaying Monopoly (Vulnerable)
+                            </span>
+                          </template>
+                        </div>
+
+                        <!-- Slot Positions -->
+                        <div class="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                          <span class="text-[10px] font-mono font-bold text-slate-500 uppercase">Positions:</span>
+                          <template x-for="r in kw.ranks" :key="r">
+                            <span class="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded"
+                                  :class="r <= 3 ? 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30' : (r <= 10 ? 'bg-sky-500/15 text-sky-700 dark:text-sky-400 border border-sky-500/30' : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300')"
+                                  x-text="'#' + r"></span>
+                          </template>
+                        </div>
                       </div>
-                      <div class="flex items-center gap-1.5 mt-1.5 flex-wrap">
-                        <span class="text-[10px] font-mono font-bold text-slate-500 uppercase">Positions:</span>
-                        <template x-for="r in kw.ranks" :key="r">
-                          <span class="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded"
-                                :class="r <= 3 ? 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30' : (r <= 10 ? 'bg-sky-500/15 text-sky-700 dark:text-sky-400 border border-sky-500/30' : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300')"
-                                x-text="'#' + r"></span>
-                        </template>
+
+                      <div class="flex flex-col items-end shrink-0 font-mono text-xs">
+                        <span class="font-bold text-sky-600 dark:text-sky-400" x-text="kw.active_slots + ' slots (' + kw.serp_share_pct + '% SERP)'"></span>
+                        <span class="text-[10px] text-emerald-600 dark:text-emerald-400" x-text="formatNumber(kw.total_saves) + ' saves'"></span>
                       </div>
                     </div>
 
-                    <div class="flex flex-col items-end shrink-0 font-mono text-xs">
-                      <span class="font-bold text-sky-600 dark:text-sky-400" x-text="kw.active_slots + ' slots held'"></span>
-                      <span class="text-[10px] text-emerald-600 dark:text-emerald-400" x-text="formatNumber(kw.total_saves) + ' saves'"></span>
-                    </div>
+                    <!-- Top Slot Traffic Attribution -->
+                    <template x-if="kw.top_slot_attribution">
+                      <div class="pt-2 border-t border-slate-100 dark:border-slate-700/60 text-[10px] font-mono text-slate-500 flex items-center justify-between flex-wrap gap-2">
+                        <div class="flex items-center gap-1.5 min-w-0">
+                          <span class="font-bold text-amber-600 dark:text-amber-400">🏆 Top Slot Driver:</span>
+                          <span class="font-bold text-slate-800 dark:text-slate-200" x-text="'Rank #' + kw.top_slot_attribution.rank_position"></span>
+                          <span class="text-slate-400 truncate max-w-[240px]" x-text="'(' + kw.top_slot_attribution.title + ')'"></span>
+                        </div>
+                        <span class="font-bold text-emerald-600 dark:text-emerald-400" x-text="formatNumber(kw.top_slot_attribution.saves) + ' saves (' + Math.round((kw.top_slot_attribution.saves / Math.max(1, kw.total_saves)) * 100) + '%)'"></span>
+                      </div>
+                    </template>
                   </div>
                 </template>
               </div>
@@ -1275,36 +1372,55 @@ export function getDomainsPageHtml() {
               <!-- TAB 4: Associated Pinterest Accounts -->
               <div x-show="dossierTab === 'accounts'" class="space-y-3">
                 <template x-for="acc in dossierData.accounts" :key="acc.username">
-                  <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700/80 rounded-xl p-3.5 flex items-center justify-between gap-3 shadow-sm">
-                    <div class="flex items-center gap-3 min-w-0">
-                      <div class="w-9 h-9 rounded-full bg-purple-500/10 border border-purple-500/30 flex items-center justify-center text-purple-600 dark:text-purple-400 font-bold font-mono text-xs shrink-0">
-                        @
-                      </div>
-                      <div class="flex flex-col min-w-0">
-                        <a :href="safeUrl('https://pinterest.com/' + acc.username)"
-                           target="_blank"
-                           rel="noopener noreferrer"
-                           class="text-xs font-bold text-slate-900 dark:text-white hover:text-sky-600 transition truncate"
-                           x-text="'@' + acc.username"></a>
-                        <div class="flex items-center gap-2 text-[10px] text-slate-400 font-mono">
-                          <span x-text="acc.pins_count + ' pins linked'"></span>
-                          <span>•</span>
-                          <span class="text-sky-600 dark:text-sky-400" x-text="acc.top10_count + ' top-10 slots'"></span>
+                  <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700/80 rounded-xl p-3.5 flex flex-col gap-2.5 shadow-sm">
+                    <div class="flex items-center justify-between gap-3">
+                      <div class="flex items-center gap-3 min-w-0">
+                        <div class="w-9 h-9 rounded-full flex items-center justify-center font-bold font-mono text-xs shrink-0"
+                             :class="acc.role === 'PRIMARY_BRAND' ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30' : 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/30'">
+                          <span x-text="acc.role === 'PRIMARY_BRAND' ? '👑' : '@'"></span>
                         </div>
+                        <div class="flex flex-col min-w-0">
+                          <div class="flex items-center gap-2 flex-wrap">
+                            <a :href="safeUrl('https://pinterest.com/' + acc.username)"
+                               target="_blank"
+                               rel="noopener noreferrer"
+                               class="text-xs font-bold text-slate-900 dark:text-white hover:text-sky-600 transition truncate"
+                               x-text="'@' + acc.username"></a>
+                            <span class="text-[9px] font-mono px-2 py-0.5 rounded-full font-bold"
+                                  :class="acc.role === 'PRIMARY_BRAND' ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30' : 'bg-purple-500/15 text-purple-700 dark:text-purple-300 border border-purple-500/30'"
+                                  x-text="acc.role === 'PRIMARY_BRAND' ? '👑 Primary Brand Account' : '🛰️ Satellite / Ghost Creator'"></span>
+                          </div>
+                          <div class="flex items-center gap-2 text-[10px] text-slate-400 font-mono mt-0.5">
+                            <span x-text="acc.pins_count + ' pins linked'"></span>
+                            <span>•</span>
+                            <span class="text-sky-600 dark:text-sky-400" x-text="acc.top10_count + ' top-10 slots'"></span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div class="flex items-center gap-3 shrink-0">
+                        <div class="text-right font-mono text-xs">
+                          <div class="font-bold text-emerald-600 dark:text-emerald-400" x-text="formatNumber(acc.total_saves)"></div>
+                          <div class="text-[10px] text-slate-400">total saves</div>
+                        </div>
+                        <a :href="safeUrl('/?tab=competitors&action=track&creator=' + encodeURIComponent(acc.username))"
+                           target="_blank"
+                           class="px-2.5 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold shadow-sm transition">
+                          + Track
+                        </a>
                       </div>
                     </div>
 
-                    <div class="flex items-center gap-3 shrink-0">
-                      <div class="text-right font-mono text-xs">
-                        <div class="font-bold text-emerald-600 dark:text-emerald-400" x-text="formatNumber(acc.total_saves)"></div>
-                        <div class="text-[10px] text-slate-400">total saves</div>
+                    <!-- Cross-Domain Sybil Footprint (Pillar 4) -->
+                    <template x-if="Array.isArray(acc.sister_domains) && acc.sister_domains.length > 0">
+                      <div class="pt-2 border-t border-slate-100 dark:border-slate-700/60 flex items-center gap-1.5 flex-wrap text-[10px] font-mono">
+                        <span class="text-amber-600 dark:text-amber-400 font-bold">⚠️ Sybil Sister Domains Fingerprint:</span>
+                        <template x-for="sd in acc.sister_domains" :key="sd.domain">
+                          <span class="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-800 dark:text-amber-300 border border-amber-500/20"
+                                x-text="sd.domain + ' (' + sd.pins_count + ' pins)'"></span>
+                        </template>
                       </div>
-                      <a :href="safeUrl('/?tab=competitors&action=track&creator=' + encodeURIComponent(acc.username))"
-                         target="_blank"
-                         class="px-2.5 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold shadow-sm transition">
-                        + Track
-                      </a>
-                    </div>
+                    </template>
                   </div>
                 </template>
               </div>
@@ -1407,6 +1523,78 @@ export function getDomainsPageHtml() {
                          x-text="dossierData.ad_info.raw_header_snippet"></div>
                   </div>
                 </template>
+              <!-- TAB 6: Visual DNA & Computer Vision Reverse-Engineering -->
+              <div x-show="dossierTab === 'visual_dna'" class="space-y-4 font-sans">
+                <!-- Top Overview Card -->
+                <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700/80 rounded-2xl p-4 shadow-sm flex flex-col gap-3">
+                  <div class="flex items-center gap-2">
+                    <span class="text-xl">🧬</span>
+                    <div>
+                      <h3 class="text-sm font-bold text-slate-900 dark:text-white">Reverse-Engineered Visual DNA</h3>
+                      <p class="text-[11px] text-slate-400">Pinterest Computer Vision annotations cloud, dominant color palette & winning design signals</p>
+                    </div>
+                  </div>
+
+                  <!-- Visual Tags Cloud -->
+                  <div class="pt-2 border-t border-slate-100 dark:border-slate-700/60">
+                    <div class="flex items-center justify-between mb-2">
+                      <span class="text-[11px] font-bold uppercase tracking-wider font-mono text-slate-700 dark:text-slate-300">
+                        🏷️ Top Computer Vision Object Annotations (AI Eye)
+                      </span>
+                      <span class="text-[10px] text-slate-400 font-mono">Elements Pinterest AI identifies in images</span>
+                    </div>
+                    <div class="flex items-center gap-2 flex-wrap">
+                      <template x-for="t in (dossierData?.visual_dna?.visual_tags_cloud || [])" :key="t.tag">
+                        <span class="px-2.5 py-1 rounded-lg text-xs font-mono font-medium bg-sky-500/10 text-sky-700 dark:text-sky-300 border border-sky-500/20 flex items-center gap-1.5 shadow-sm">
+                          <span x-text="t.tag"></span>
+                          <span class="px-1.5 py-0.2 rounded-full bg-sky-500/20 text-[9px] font-bold" x-text="t.count + 'x'"></span>
+                        </span>
+                      </template>
+                      <template x-if="!dossierData?.visual_dna?.visual_tags_cloud?.length">
+                        <span class="text-xs text-slate-400 italic">No visual annotations indexed yet for this domain.</span>
+                      </template>
+                    </div>
+                  </div>
+
+                  <!-- Dominant Color Palette -->
+                  <div class="pt-3 border-t border-slate-100 dark:border-slate-700/60">
+                    <div class="flex items-center justify-between mb-2">
+                      <span class="text-[11px] font-bold uppercase tracking-wider font-mono text-slate-700 dark:text-slate-300">
+                        🎨 Dominant Color Palette Distribution
+                      </span>
+                      <span class="text-[10px] text-slate-400 font-mono">HEX color breakdown across creative pins</span>
+                    </div>
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 font-mono text-xs">
+                      <template x-for="col in (dossierData?.visual_dna?.dominant_colors_palette || [])" :key="col.color">
+                        <div class="p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 flex items-center gap-3">
+                          <span class="w-7 h-7 rounded-lg border border-slate-300 dark:border-slate-600 shrink-0 shadow-sm" :style="'background-color: ' + col.color"></span>
+                          <div class="flex flex-col min-w-0">
+                            <span class="font-bold text-slate-800 dark:text-slate-200 uppercase truncate" x-text="col.color"></span>
+                            <span class="text-[10px] text-slate-400" x-text="col.count + ' pins (' + col.percentage + '%)'"></span>
+                          </div>
+                        </div>
+                      </template>
+                    </div>
+                  </div>
+
+                  <!-- High-Converting Title Keywords -->
+                  <div class="pt-3 border-t border-slate-100 dark:border-slate-700/60">
+                    <div class="flex items-center justify-between mb-2">
+                      <span class="text-[11px] font-bold uppercase tracking-wider font-mono text-slate-700 dark:text-slate-300">
+                        ✍️ Winning SEO Title Semantic Keywords
+                      </span>
+                      <span class="text-[10px] text-slate-400 font-mono">Most frequent high-CTR title tokens</span>
+                    </div>
+                    <div class="flex items-center gap-1.5 flex-wrap">
+                      <template x-for="w in (dossierData?.visual_dna?.top_title_keywords || [])" :key="w.word">
+                        <span class="px-2 py-0.5 rounded-md text-[11px] font-mono font-bold bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20">
+                          <span x-text="w.word"></span>
+                          <span class="text-[9px] text-amber-500 font-normal" x-text="'(' + w.count + ')'"></span>
+                        </span>
+                      </template>
+                    </div>
+                  </div>
+                </div>
               </div>
 
             </div>
@@ -1414,6 +1602,183 @@ export function getDomainsPageHtml() {
         </div>
 
       </div>
+    </div>
+  </div>
+
+  <!-- TACTICAL ARBITRAGE ATTACK BLUEPRINT MODAL (PILLAR 6) -->
+  <div x-show="isBlueprintModalOpen"
+       x-cloak
+       class="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-4 sm:p-6"
+       @keydown.escape.window="closeBlueprintModal()">
+    <!-- Backdrop -->
+    <div x-show="isBlueprintModalOpen"
+         x-transition:enter="ease-out duration-200"
+         x-transition:enter-start="opacity-0"
+         x-transition:enter-end="opacity-100"
+         x-transition:leave="ease-in duration-150"
+         x-transition:leave-start="opacity-100"
+         x-transition:leave-end="opacity-0"
+         class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm"
+         @click="closeBlueprintModal()"></div>
+
+    <!-- Modal Panel -->
+    <div x-show="isBlueprintModalOpen"
+         x-transition:enter="ease-out duration-300"
+         x-transition:enter-start="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
+         x-transition:enter-end="opacity-100 translate-y-0 sm:scale-100"
+         x-transition:leave="ease-in duration-200"
+         x-transition:leave-start="opacity-100 translate-y-0 sm:scale-100"
+         x-transition:leave-end="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
+         class="relative bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden z-10">
+
+      <!-- Modal Header -->
+      <div class="px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-950/50 flex items-center justify-between gap-4">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-2xl bg-gradient-to-br from-amber-500 to-rose-600 flex items-center justify-center text-white text-lg font-bold shadow-md shadow-rose-500/20">
+            ⚡
+          </div>
+          <div>
+            <div class="flex items-center gap-2">
+              <h2 class="text-base font-bold text-slate-900 dark:text-white font-mono" x-text="blueprintData?.domain || 'Generating Blueprint...'"></h2>
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-bold font-mono bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30">
+                Arbitrage Attack Plan
+              </span>
+            </div>
+            <p class="text-xs text-slate-500 dark:text-slate-400">Algorithmic competitive blueprint: clone & outrank top money articles</p>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <button @click="copyBlueprintMarkdown()"
+                  :disabled="!blueprintData"
+                  class="px-3 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold font-mono transition flex items-center gap-1.5 shadow-sm disabled:opacity-50">
+            <span>📋</span>
+            <span>Copy Markdown</span>
+          </button>
+          <button @click="exportBlueprintJson()"
+                  :disabled="!blueprintData"
+                  class="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold font-mono transition flex items-center gap-1.5 border border-slate-200 dark:border-slate-700 disabled:opacity-50">
+            <span>📥</span>
+            <span>JSON</span>
+          </button>
+          <button @click="closeBlueprintModal()"
+                  class="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 hover:text-slate-900 dark:hover:text-white flex items-center justify-center text-sm font-bold transition">
+            ✕
+          </button>
+        </div>
+      </div>
+
+      <!-- Modal Body -->
+      <div class="p-6 overflow-y-auto space-y-5">
+        <!-- Loading -->
+        <template x-if="blueprintLoading">
+          <div class="py-20 text-center text-slate-400 font-mono flex flex-col items-center justify-center gap-2">
+            <span class="animate-spin text-2xl">⚡</span>
+            <span>Computing 6-Pillar Arbitrage Attack Blueprint...</span>
+          </div>
+        </template>
+
+        <template x-if="!blueprintLoading && blueprintData">
+          <div class="space-y-5 font-sans">
+            <!-- 1. Top Target Articles (Pillar 6 & Pillar 2) -->
+            <div class="bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 space-y-3">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <span class="text-base">🎯</span>
+                  <h3 class="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-white font-mono">1. Top Target Articles to Clone & Outrank</h3>
+                </div>
+                <span class="text-[11px] text-slate-400 font-mono">Ranked by traffic velocity and monopoly slots</span>
+              </div>
+
+              <div class="space-y-2.5">
+                <template x-for="art in blueprintData.top_articles" :key="art.slug">
+                  <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3 flex flex-col gap-2 shadow-sm">
+                    <div class="flex items-start justify-between gap-3">
+                      <div class="flex items-center gap-2 flex-wrap min-w-0">
+                        <span class="w-5 h-5 rounded-full bg-rose-500/15 text-rose-600 dark:text-rose-400 font-mono text-[11px] font-bold flex items-center justify-center" x-text="art.priority"></span>
+                        <span class="font-mono text-xs font-bold text-slate-900 dark:text-white truncate" x-text="art.slug"></span>
+                        <template x-if="art.is_vulnerable">
+                          <span class="px-1.5 py-0.2 rounded text-[9px] font-bold font-mono bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30">
+                            ⚡ CRITICAL VULNERABLE
+                          </span>
+                        </template>
+                      </div>
+                      <div class="flex items-center gap-3 shrink-0 font-mono text-xs">
+                        <span class="text-emerald-600 dark:text-emerald-400 font-bold" x-text="formatNumber(art.total_saves) + ' saves'"></span>
+                        <span class="text-sky-600 dark:text-sky-400 font-bold" x-text="'#' + art.best_rank"></span>
+                      </div>
+                    </div>
+
+                    <div class="flex items-center justify-between gap-2 flex-wrap text-[11px] pt-1 border-t border-slate-100 dark:border-slate-800">
+                      <div class="flex items-center gap-1.5 flex-wrap">
+                        <span class="text-slate-400 font-mono">Keywords:</span>
+                        <template x-for="kw in art.target_keywords" :key="kw">
+                          <span class="px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-700 dark:text-sky-300 font-mono text-[10px]" x-text="kw"></span>
+                        </template>
+                      </div>
+                      <div class="flex items-center gap-1.5 flex-wrap">
+                        <span class="text-slate-400 font-mono">Angle Used:</span>
+                        <template x-for="ang in art.angles_used_by_competitor" :key="ang">
+                          <span class="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono text-[10px]" x-text="ang"></span>
+                        </template>
+                      </div>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </div>
+
+            <!-- 2. Winning Title Formulas & Visual Tags (Pillars 3 & 6) -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <!-- Title Blueprints -->
+              <div class="bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 space-y-2.5">
+                <div class="flex items-center gap-2">
+                  <span class="text-base">✍️</span>
+                  <h3 class="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-white font-mono">2. Winning Title Blueprint Formulas</h3>
+                </div>
+                <div class="space-y-2">
+                  <template x-for="(t, idx) in blueprintData.title_blueprints" :key="idx">
+                    <div class="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 font-mono text-xs flex items-center justify-between gap-2 shadow-sm">
+                      <span class="text-slate-800 dark:text-slate-200" x-text="t"></span>
+                      <button @click="copyToClipboard(t, 'Copied title formula!')" class="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-xs">📋</button>
+                    </div>
+                  </template>
+                </div>
+              </div>
+
+              <!-- Computer Vision Tags -->
+              <div class="bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 space-y-2.5">
+                <div class="flex items-center gap-2">
+                  <span class="text-base">🧬</span>
+                  <h3 class="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-white font-mono">3. Pinterest Computer Vision Targets</h3>
+                </div>
+                <div class="flex items-center gap-1.5 flex-wrap">
+                  <template x-for="tag in blueprintData.visual_tags_checklist" :key="tag.tag">
+                    <span class="px-2 py-1 rounded-lg bg-sky-500/10 text-sky-700 dark:text-sky-300 font-mono text-xs border border-sky-500/20 flex items-center gap-1 shadow-sm">
+                      <span x-text="tag.tag"></span>
+                      <span class="text-[9px] text-sky-500" x-text="'(' + tag.count + 'x)'"></span>
+                    </span>
+                  </template>
+                </div>
+              </div>
+            </div>
+
+            <!-- 3. Deployment Multiplier Strategy (Pillar 2 & 5) -->
+            <div class="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 font-mono text-xs text-amber-900 dark:text-amber-300 space-y-2">
+              <div class="font-bold flex items-center gap-2">
+                <span>🚀</span>
+                <span>Recommended 3-Pin Multiplier Strategy:</span>
+              </div>
+              <ul class="space-y-1 text-[11px] list-disc list-inside">
+                <li><strong>Pin 1 (Speed & Convenience):</strong> 15-Minute Easy Prep angle targeting time-constrained searchers.</li>
+                <li><strong>Pin 2 (Dietary Modification):</strong> Healthy/Keto/Low-Carb angle capturing specialized dietary intent.</li>
+                <li><strong>Pin 3 (Family & Budget):</strong> Family-friendly crowd-pleaser / bulk meal-prep angle.</li>
+              </ul>
+            </div>
+          </div>
+        </template>
+      </div>
+
     </div>
   </div>
 
@@ -1456,7 +1821,12 @@ export function getDomainsPageHtml() {
         dossierDomain: '',
         dossierLoading: false,
         dossierData: null,
-        dossierTab: 'pins', // 'pins' | 'urls' | 'monopoly' | 'accounts' | 'monetization'
+        dossierTab: 'pins', // 'pins' | 'urls' | 'monopoly' | 'accounts' | 'visual_dna' | 'monetization'
+
+        // Arbitrage Attack Blueprint Modal State (Pillar 6)
+        isBlueprintModalOpen: false,
+        blueprintLoading: false,
+        blueprintData: null,
 
         // Age & Ad Verification & Batch Progress State
         enrichingDomains: {},
@@ -1882,6 +2252,52 @@ export function getDomainsPageHtml() {
         closeDossier() {
           this.isDossierOpen = false;
           this.dossierData = null;
+        },
+
+        async openBlueprintModal(domain) {
+          if (!domain) return;
+          this.blueprintLoading = true;
+          this.isBlueprintModalOpen = true;
+          this.blueprintData = null;
+
+          try {
+            const res = await fetch('/api/domains/blueprint?domain=' + encodeURIComponent(domain));
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            this.blueprintData = await res.json();
+          } catch (err) {
+            this.showToast('Failed to generate Attack Blueprint: ' + err.message, 'error');
+          } finally {
+            this.blueprintLoading = false;
+          }
+        },
+
+        closeBlueprintModal() {
+          this.isBlueprintModalOpen = false;
+          this.blueprintData = null;
+        },
+
+        copyBlueprintMarkdown() {
+          if (!this.blueprintData?.markdown_blueprint) return;
+          navigator.clipboard.writeText(this.blueprintData.markdown_blueprint).then(() => {
+            this.showToast('📋 Attack Blueprint copied to clipboard in Markdown format!', 'success');
+          }).catch(() => {
+            this.showToast('Failed to copy to clipboard', 'error');
+          });
+        },
+
+        exportBlueprintJson() {
+          if (!this.blueprintData) return;
+          const jsonStr = JSON.stringify(this.blueprintData, null, 2);
+          const blob = new Blob([jsonStr], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'blueprint_' + (this.blueprintData.domain || 'attack') + '.json';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          this.showToast('📥 Downloaded Blueprint JSON!', 'success');
         },
 
         async recheckAgeForDossier() {

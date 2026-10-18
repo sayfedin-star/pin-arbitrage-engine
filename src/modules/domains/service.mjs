@@ -899,6 +899,7 @@ export async function listDomainsIntelligence(sql, {
         OR (${preset} = 'bleeding_giants' AND da.displaced_pins >= 3 AND (da.displaced_pins::numeric / GREATEST(1, da.active_serp_pins + da.displaced_pins)) >= 0.30)
         OR (${preset} = 'high_multipliers' AND da.pins_per_url >= 3.0)
         OR (${preset} = 'multi_account' AND da.accounts_count >= 2)
+        OR (${preset} = 'decaying_monopoly' AND da.top10_pins >= 1 AND da.total_saves >= 3000 AND (da.avg_velocity <= 3.0 OR (da.displaced_pins::numeric / GREATEST(1, da.active_serp_pins + da.displaced_pins)) >= 0.25))
       )
       AND (
         ${adNetwork} = 'all'
@@ -1059,12 +1060,62 @@ export async function listDomainsIntelligence(sql, {
 }
 
 /**
- * Deep Dossier for a Specific Domain:
- * 1. Live WHOIS / Age check via fetchAndCacheDomainAge
- * 2. All Ranked Pins & SERP Positions across Keywords
- * 3. Top Money URLs (Grouped by article slug with all creative pin variations)
- * 4. Keyword Monopoly Matrix (Keywords where this domain holds multiple slots)
- * 5. Associated Pinterest Creator Accounts
+ * Detects marketing angle and search intent based on title, keywords, and visual annotations
+ */
+export function detectMarketingAngle({ title = '', keywords = [], annotations = [] } = {}) {
+  const combined = `${title || ''} ${(Array.isArray(keywords) ? keywords.join(' ') : '')} ${(Array.isArray(annotations) ? annotations.join(' ') : '')}`.toLowerCase();
+
+  if (/\b(keto|low carb|healthy|diet|clean eating|gluten[- ]free|gf|whole30|paleo|sugar free|macro|calorie|slimming)\b/i.test(combined)) {
+    return {
+      angle: 'Diet & Keto / Healthy',
+      intent_tag: 'Diet / Low-Carb',
+      badge_color: 'emerald'
+    };
+  }
+  if (/\b(easy|quick|minute|min|simple|fast|lazy|instant|speedy|30 min|15 min|20 min|10 min|5 min)\b/i.test(combined)) {
+    return {
+      angle: 'Quick & Easy / 15-Min',
+      intent_tag: 'Speed & Simplicity',
+      badge_color: 'amber'
+    };
+  }
+  if (/\b(family|kid|children|budget|cheap|crockpot|slow cooker|casserole|sheet pan|freezer|meal prep|weeknight|bulk|one pot|frugal)\b/i.test(combined)) {
+    return {
+      angle: 'Family & Budget Meal',
+      intent_tag: 'Budget & Family',
+      badge_color: 'sky'
+    };
+  }
+  if (/\b(melt|cheesy|cheese|garlic|butter|bacon|cream|creamy|smothered|baked|restaurant|crispy|parmesan|steakhouse|sauce|skillet|gourmet)\b/i.test(combined)) {
+    return {
+      angle: 'Gourmet Skillet & Comfort',
+      intent_tag: 'Comfort & Indulgence',
+      badge_color: 'rose'
+    };
+  }
+  if (/\b(party|potluck|holiday|anniversary|sunday dinner|crowd|game day|bbq|summer|thanksgiving|christmas|easter)\b/i.test(combined)) {
+    return {
+      angle: 'Entertaining & Crowd Pleaser',
+      intent_tag: 'Entertaining / Party',
+      badge_color: 'purple'
+    };
+  }
+
+  return {
+    angle: 'Classic & Evergreen Recipe',
+    intent_tag: 'Evergreen Classic',
+    badge_color: 'slate'
+  };
+}
+
+/**
+ * Deep Forensic Dossier for a Specific Domain:
+ * 1. Live WHOIS / Age check via fetchAndCacheDomainAge & Ads.txt Monetization Profile
+ * 2. All Ranked Pins & SERP Positions across Keywords with Vulnerability Radar
+ * 3. Top Money URLs with Multi-Angle Creative Multiplier Breakdown
+ * 4. Keyword Monopoly Matrix (Carpet Bombing: URL Flooding vs Topic Cluster)
+ * 5. P2P Sybil Network (Primary Brand vs Satellite Creators & Cross-Domain Footprint)
+ * 6. Reverse-Engineered Visual DNA (Computer Vision Annotations Cloud & Palette)
  */
 export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, keywordId = null } = {}) {
   const cleanDomain = normalizeCleanDomain(rawDomain);
@@ -1095,7 +1146,8 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
         COALESCE(ksc.daily_save_velocity, 0)::numeric AS velocity,
         ksc.dominant_color,
         ksc.visual_annotations,
-        ksc.created_at_pinterest
+        ksc.created_at_pinterest,
+        COALESCE(ksc.metadata, '{}'::jsonb) AS metadata
       FROM keyword_serp_current ksc
       LEFT JOIN tracked_keywords tk ON tk.id = ksc.keyword_id
       WHERE LOWER(REGEXP_REPLACE(ksc.domain, '^www\\.', '')) = ${cleanDomain}
@@ -1157,28 +1209,49 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
       }
     }
 
+    let parsedAnnotations = [];
+    if (Array.isArray(row.visual_annotations)) {
+      parsedAnnotations = row.visual_annotations;
+    } else if (typeof row.visual_annotations === 'string') {
+      try { parsedAnnotations = JSON.parse(row.visual_annotations); } catch (_) {}
+    }
+
+    let parsedMeta = {};
+    if (row.metadata && typeof row.metadata === 'object') {
+      parsedMeta = row.metadata;
+    } else if (typeof row.metadata === 'string') {
+      try { parsedMeta = JSON.parse(row.metadata); } catch (_) {}
+    }
+
+    let cleanSlug = '/';
+    if (row.destination_url) {
+      try {
+        const u = new URL(row.destination_url.startsWith('http') ? row.destination_url : `https://${row.destination_url}`);
+        cleanSlug = (u.pathname.replace(/\/+$/, '') || '/').toLowerCase();
+      } catch (_) {}
+    }
+
     if (!pinsMap.has(pid)) {
-      let cleanSlug = '/';
-      if (row.destination_url) {
-        try {
-          const u = new URL(row.destination_url.startsWith('http') ? row.destination_url : `https://${row.destination_url}`);
-          cleanSlug = u.pathname.replace(/\/+$/, '') || '/';
-        } catch (_) {}
-      }
       pinsMap.set(pid, {
         pin_id: pid,
         title: row.title || `Pin #${pid}`,
         destination_url: row.destination_url || '',
-        clean_slug: cleanSlug.toLowerCase(),
+        clean_slug: cleanSlug,
         image_url: row.image_url || '',
         creator_username: cleanUser,
         board_name: row.board_name || '',
         saves: Number(row.saves || 0),
         repins: Number(row.repins || 0),
         velocity: Number(row.velocity || 0),
+        dominant_color: row.dominant_color || '#888888',
+        visual_annotations: parsedAnnotations,
+        metadata: parsedMeta,
+        aspect_ratio: parsedMeta.aspect_ratio || '2:3',
         created_at_pinterest: row.created_at_pinterest || null,
         best_rank: null,
         is_displaced: false,
+        is_vulnerable: false,
+        vulnerability_score: 0,
         serp_appearances: [],
         pillars: new Set([sourcePillar])
       });
@@ -1192,10 +1265,13 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
       if (!existing.creator_username && cleanUser) existing.creator_username = cleanUser;
       if ((!existing.destination_url || existing.clean_slug === '/') && row.destination_url) {
         existing.destination_url = row.destination_url;
-        try {
-          const u = new URL(row.destination_url.startsWith('http') ? row.destination_url : `https://${row.destination_url}`);
-          existing.clean_slug = (u.pathname.replace(/\/+$/, '') || '/').toLowerCase();
-        } catch (_) {}
+        existing.clean_slug = cleanSlug;
+      }
+      if (parsedAnnotations.length > 0 && existing.visual_annotations.length === 0) {
+        existing.visual_annotations = parsedAnnotations;
+      }
+      if (row.dominant_color && existing.dominant_color === '#888888') {
+        existing.dominant_color = row.dominant_color;
       }
       existing.pillars.add(sourcePillar);
     }
@@ -1209,6 +1285,21 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
       if (row.is_displaced && pEntry.best_rank === null) {
         pEntry.is_displaced = true;
       }
+
+      // Pillar 5: Freshness Gap & Decaying Monopoly Calculation
+      let vulnScore = 0;
+      if (activeRank !== null && activeRank <= 10) {
+        const s = Number(row.saves || 0);
+        const v = Number(row.velocity || 0);
+        if (s >= 10000 && v <= 1.0) vulnScore = 95;
+        else if (s >= 5000 && v <= 2.0) vulnScore = 88;
+        else if (s >= 3000 && v <= 3.0) vulnScore = 78;
+        else if (s >= 1000 && v <= 1.0) vulnScore = 65;
+        else if (s >= 500 && v <= 0.5) vulnScore = 40;
+      }
+      pEntry.vulnerability_score = Math.max(pEntry.vulnerability_score || 0, vulnScore);
+      pEntry.is_vulnerable = pEntry.vulnerability_score >= 70;
+
       pEntry.serp_appearances.push({
         keyword_id: Number(row.keyword_id),
         keyword_name: row.keyword_name || `Keyword #${row.keyword_id}`,
@@ -1226,11 +1317,40 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
           displaced_slots: 0,
           best_rank: null,
           ranks: [],
-          total_saves: 0
+          total_saves: 0,
+          unique_urls: new Set(),
+          slots_detail: [],
+          is_decaying_monopoly: false
         });
       }
       const kwEntry = keywordMatrixMap.get(kwKey);
       kwEntry.total_saves += Number(row.saves || 0);
+      if (row.destination_url) {
+        kwEntry.unique_urls.add(cleanSlug);
+      }
+
+      const slotDetail = {
+        pin_id: pid,
+        rank_position: activeRank,
+        last_known_rank: row.last_known_rank ? Number(row.last_known_rank) : null,
+        is_displaced: Boolean(row.is_displaced),
+        saves: Number(row.saves || 0),
+        velocity: Number(row.velocity || 0),
+        title: row.title || `Pin #${pid}`,
+        destination_url: row.destination_url || '',
+        clean_slug: cleanSlug,
+        image_url: row.image_url || '',
+        creator_username: cleanUser,
+        dominant_color: pEntry.dominant_color,
+        visual_annotations: pEntry.visual_annotations,
+        is_vulnerable: pEntry.is_vulnerable
+      };
+      kwEntry.slots_detail.push(slotDetail);
+
+      if (slotDetail.is_vulnerable) {
+        kwEntry.is_decaying_monopoly = true;
+      }
+
       if (activeRank !== null) {
         kwEntry.active_slots++;
         kwEntry.ranks.push(activeRank);
@@ -1249,7 +1369,7 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
     for (const r of compPins) registerPin(r, 'competitors');
   }
 
-  // 2. Finalize Pins & Group by Money Article URLs
+  // 2. Finalize Pins & Group by Money Article URLs (Pillar 2: Creative Multiplier)
   const urlGroupsMap = new Map();
   const allPins = Array.from(pinsMap.values()).map(p => {
     if (p.creator_username && accountsMap.has(p.creator_username)) {
@@ -1269,7 +1389,8 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
         total_repins: 0,
         best_rank: null,
         keywords_set: new Set(),
-        pins: []
+        pins: [],
+        angles_targeted: new Set()
       });
     }
     const uGroup = urlGroupsMap.get(slugKey);
@@ -1282,6 +1403,15 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
     for (const sa of p.serp_appearances) {
       if (sa.keyword_name) uGroup.keywords_set.add(sa.keyword_name);
     }
+
+    // Detect Marketing Angle for this Pin
+    const angleInfo = detectMarketingAngle({
+      title: p.title,
+      keywords: Array.from(uGroup.keywords_set),
+      annotations: p.visual_annotations
+    });
+    uGroup.angles_targeted.add(angleInfo.angle);
+
     uGroup.pins.push({
       pin_id: p.pin_id,
       title: p.title,
@@ -1289,7 +1419,14 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
       saves: p.saves,
       velocity: p.velocity,
       best_rank: p.best_rank,
-      creator_username: p.creator_username
+      creator_username: p.creator_username,
+      dominant_color: p.dominant_color,
+      visual_annotations: p.visual_annotations,
+      is_vulnerable: p.is_vulnerable,
+      vulnerability_score: p.vulnerability_score,
+      detected_angle: angleInfo.angle,
+      intent_tag: angleInfo.intent_tag,
+      badge_color: angleInfo.badge_color
     });
 
     return {
@@ -1314,16 +1451,149 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
       total_repins: u.total_repins,
       best_rank: u.best_rank,
       keywords: Array.from(u.keywords_set),
+      angles_targeted: Array.from(u.angles_targeted),
+      angle_multiplier: u.angles_targeted.size,
+      is_vulnerable: u.pins.some(p => p.is_vulnerable),
       pins: u.pins.sort((a, b) => b.saves - a.saves)
     }))
     .sort((a, b) => b.pins_count - a.pins_count || b.total_saves - a.total_saves);
 
+  // 3. Pillar 1: Carpet Bombing & Slot Domination Analysis
   const keywordMonopoly = Array.from(keywordMatrixMap.values())
-    .map(k => ({
-      ...k,
-      ranks: k.ranks.sort((a, b) => a - b)
-    }))
+    .map(k => {
+      const uniqueCount = k.unique_urls.size;
+      let strategy = 'SINGLE_SLOT';
+      let strategyLabel = 'Single Slot';
+      if (k.active_slots > 1 && uniqueCount === 1) {
+        strategy = 'URL_FLOODING';
+        strategyLabel = 'URL Creative Flooding';
+      } else if (k.active_slots > 1 && (k.active_slots / Math.max(1, uniqueCount)) >= 1.5) {
+        strategy = 'HYBRID_FLOODING';
+        strategyLabel = 'Hybrid Domination';
+      } else if (uniqueCount > 1) {
+        strategy = 'TOPIC_CLUSTER';
+        strategyLabel = 'Topic Cluster';
+      }
+
+      const sortedSlots = k.slots_detail.sort((a, b) => (a.rank_position || 999) - (b.rank_position || 999) || b.saves - a.saves);
+      const topSlot = sortedSlots.reduce((max, s) => s.saves > (max?.saves || 0) ? s : max, sortedSlots[0] || null);
+
+      return {
+        keyword_id: k.keyword_id,
+        keyword_name: k.keyword_name,
+        active_slots: k.active_slots,
+        displaced_slots: k.displaced_slots,
+        best_rank: k.best_rank,
+        ranks: k.ranks.sort((a, b) => a - b),
+        total_saves: k.total_saves,
+        unique_urls_count: uniqueCount,
+        strategy,
+        strategy_label: strategyLabel,
+        serp_share_pct: Number(((k.active_slots / 50) * 100).toFixed(1)),
+        is_decaying_monopoly: k.is_decaying_monopoly,
+        top_slot_attribution: topSlot,
+        slots: sortedSlots
+      };
+    })
     .sort((a, b) => b.active_slots - a.active_slots || (a.best_rank || 999) - (b.best_rank || 999));
+
+  // 4. Pillar 4: P2P Sybil Network & Ghost Creators Tracking
+  const accountUsernames = Array.from(accountsMap.keys()).filter(Boolean);
+  const brandRoot = cleanDomain.split('.')[0].replace(/[^a-z0-9]/g, '');
+
+  let crossFootprintRows = [];
+  if (accountUsernames.length > 0) {
+    try {
+      crossFootprintRows = await sql`
+        SELECT
+          LOWER(REPLACE(COALESCE(creator_username, ''), '@', '')) AS username,
+          LOWER(REGEXP_REPLACE(domain, '^www\\.', '')) AS cross_domain,
+          COUNT(DISTINCT pin_id)::int AS pins_count
+        FROM keyword_serp_current
+        WHERE LOWER(REPLACE(COALESCE(creator_username, ''), '@', '')) = ANY(${accountUsernames})
+          AND domain IS NOT NULL AND domain <> ''
+          AND LOWER(REGEXP_REPLACE(domain, '^www\\.', '')) <> ${cleanDomain}
+        GROUP BY 1, 2
+        ORDER BY 3 DESC
+        LIMIT 60;
+      `;
+    } catch (_) {}
+  }
+
+  const crossMap = new Map();
+  for (const r of crossFootprintRows) {
+    if (!crossMap.has(r.username)) crossMap.set(r.username, []);
+    crossMap.get(r.username).push({ domain: r.cross_domain, pins_count: r.pins_count });
+  }
+
+  const accountsList = Array.from(accountsMap.values()).map(acc => {
+    const isBrand = acc.username === brandRoot ||
+                    acc.username.includes(brandRoot) ||
+                    (brandRoot.length > 3 && brandRoot.includes(acc.username)) ||
+                    (acc.pins_count / Math.max(1, allPins.length)) >= 0.4;
+    const sisterDomains = crossMap.get(acc.username) || [];
+    return {
+      ...acc,
+      role: isBrand ? 'PRIMARY_BRAND' : 'SATELLITE_CREATOR',
+      role_label: isBrand ? 'Primary Brand Account' : 'Satellite / Ghost Creator',
+      sister_domains: sisterDomains,
+      is_sybil_ring: sisterDomains.length > 0
+    };
+  }).sort((a, b) => (b.role === 'PRIMARY_BRAND' ? 1 : 0) - (a.role === 'PRIMARY_BRAND' ? 1 : 0) || b.total_saves - a.total_saves);
+
+  // 5. Pillar 3: Reverse-Engineered Visual DNA Profile
+  const tagFreq = new Map();
+  const colorFreq = new Map();
+  const aspectFreq = new Map();
+  const titleWords = new Map();
+  const STOP_WORDS = new Set(['the', 'and', 'for', 'with', 'in', 'of', 'to', 'a', 'on', 'easy', 'recipe', 'recipes', 'how', 'make', 'best', 'that']);
+
+  for (const p of allPins) {
+    if (Array.isArray(p.visual_annotations)) {
+      for (const t of p.visual_annotations) {
+        const cleanTag = String(t || '').trim();
+        if (cleanTag) tagFreq.set(cleanTag, (tagFreq.get(cleanTag) || 0) + 1);
+      }
+    }
+    const c = (p.dominant_color || '').trim().toLowerCase();
+    if (c && c.startsWith('#')) {
+      colorFreq.set(c, (colorFreq.get(c) || 0) + 1);
+    }
+    const ar = p.aspect_ratio || '2:3';
+    aspectFreq.set(ar, (aspectFreq.get(ar) || 0) + 1);
+
+    const words = String(p.title || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(w => w.length > 2 && !STOP_WORDS.has(w));
+    for (const w of words) {
+      titleWords.set(w, (titleWords.get(w) || 0) + 1);
+    }
+  }
+
+  const visualTagsCloud = Array.from(tagFreq.entries())
+    .map(([tag, count]) => ({ tag, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 15);
+
+  const totalColorPins = Math.max(1, allPins.length);
+  const dominantColorsPalette = Array.from(colorFreq.entries())
+    .map(([color, count]) => ({
+      color,
+      count,
+      percentage: Math.round((count / totalColorPins) * 100)
+    }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 6);
+
+  const topTitleKeywords = Array.from(titleWords.entries())
+    .map(([word, count]) => ({ word, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 10);
+
+  const visualDna = {
+    visual_tags_cloud: visualTagsCloud,
+    dominant_colors_palette: dominantColorsPalette,
+    aspect_ratios: Object.fromEntries(aspectFreq),
+    top_title_keywords: topTitleKeywords
+  };
 
   return {
     success: true,
@@ -1336,11 +1606,124 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
       pins_per_url: moneyUrls.length > 0 ? Number((allPins.length / moneyUrls.length).toFixed(2)) : 1,
       ranked_keywords_count: keywordMonopoly.length,
       total_saves: allPins.reduce((acc, p) => acc + p.saves, 0),
-      accounts_count: accountsMap.size
+      accounts_count: accountsMap.size,
+      vulnerable_pins_count: allPins.filter(p => p.is_vulnerable).length,
+      decaying_monopoly_count: keywordMonopoly.filter(k => k.is_decaying_monopoly).length,
+      sybil_accounts_count: accountsList.filter(a => a.role === 'SATELLITE_CREATOR').length,
+      sister_domains_count: new Set(crossFootprintRows.map(r => r.cross_domain)).size
     },
     ranked_pins: allPins,
     money_urls: moneyUrls,
     keyword_monopoly: keywordMonopoly,
-    accounts: Array.from(accountsMap.values()).sort((a, b) => b.total_saves - a.total_saves)
+    accounts: accountsList,
+    visual_dna: visualDna
+  };
+}
+
+/**
+ * Pillar 6: Generates the One-Click Arbitrage Attack Blueprint
+ */
+export async function generateDomainArbitrageBlueprint(sql, rawDomain) {
+  const dossier = await getDomainDeepDossier(sql, rawDomain);
+  const cleanDomain = dossier.domain;
+
+  // 1. Top 5 Target Articles to Clone & Outrank
+  const topArticles = (dossier.money_urls || [])
+    .slice(0, 5)
+    .map((art, idx) => {
+      const primaryKeywords = (art.keywords || []).slice(0, 3);
+      const angles = (art.angles_targeted && art.angles_targeted.length > 0)
+        ? art.angles_targeted
+        : ['Classic Recipe'];
+
+      return {
+        priority: idx + 1,
+        slug: art.clean_slug,
+        sample_url: art.sample_url,
+        total_saves: art.total_saves,
+        creative_pins_count: art.pins_count,
+        best_rank: art.best_rank,
+        is_vulnerable: Boolean(art.is_vulnerable),
+        target_keywords: primaryKeywords,
+        angles_used_by_competitor: angles,
+        recommended_counter_angles: [
+          'Quick 15-Min Prep Angle',
+          'Diet/Keto/Low-Carb Modification Angle',
+          'Budget-Friendly Family Meal-Prep Angle'
+        ]
+      };
+    });
+
+  // 2. High-Converting Title Formula Blueprints
+  const topKw = dossier.visual_dna?.top_title_keywords?.slice(0, 3).map(k => k.word) || ['Chicken', 'Dinner', 'Easy'];
+  const titleBlueprints = [
+    `The Best ${topKw[0] ? topKw[0].charAt(0).toUpperCase() + topKw[0].slice(1) : 'Recipe'} (Ready In Under 20 Minutes)`,
+    `Ultra-Crispy ${topKw.slice(0, 2).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')} That Everyone Will Love`,
+    `5 Easy ${topKw[0] ? topKw[0].charAt(0).toUpperCase() + topKw[0].slice(1) : 'Meal'} Ideas For Weeknight Dinners`
+  ];
+
+  // 3. Visual DNA Tags to Feed Pinterest Computer Vision Algorithm
+  const visualTagsChecklist = (dossier.visual_dna?.visual_tags_cloud || []).slice(0, 10);
+
+  // 4. Color Strategy
+  const colorPalette = (dossier.visual_dna?.dominant_colors_palette || []).slice(0, 4);
+
+  // 5. Build Markdown Blueprint
+  const mdLines = [
+    `# ⚡ Tactical Arbitrage Attack Blueprint: ${cleanDomain}`,
+    `Generated on: ${new Date().toISOString().slice(0, 10)} | Domain Age: ${dossier.age_info?.age_years != null ? dossier.age_info.age_years + 'y' : 'Unknown'} | Ad Network: ${dossier.ad_info?.current_ad_network || 'Direct'}`,
+    '',
+    `## 📊 Executive Threat Assessment`,
+    `- **Total Tracked Pins:** ${dossier.summary.total_pins} pins across ${dossier.summary.unique_urls} articles`,
+    `- **Creative Multiplier:** ${dossier.summary.pins_per_url}x pins per article`,
+    `- **Decaying Monopoly Slots:** ${dossier.summary.decaying_monopoly_count} vulnerable keywords ready for fresh pin takeover`,
+    `- **P2P Creator Network:** ${dossier.summary.accounts_count} creators (${dossier.summary.sybil_accounts_count} satellite/sybil accounts)`,
+    '',
+    `## 🎯 Top 5 Target Articles to Clone & Outrank`,
+    '| # | Article Slug | Saves | Best Rank | Vulnerability | Primary Keywords | Recommended Angles |',
+    '|---|---|---|---|---|---|---|'
+  ];
+
+  for (const a of topArticles) {
+    const vulnBadge = a.is_vulnerable ? '⚡ CRITICAL VULNERABLE' : 'Normal';
+    const kwStr = a.target_keywords.join(', ') || '—';
+    const angleStr = a.angles_used_by_competitor.join(', ') || 'Classic';
+    mdLines.push(`| ${a.priority} | \`${a.slug}\` | ${Number(a.total_saves).toLocaleString()} | #${a.best_rank || '—'} | ${vulnBadge} | ${kwStr} | ${angleStr} |`);
+  }
+
+  mdLines.push('', `## 🧬 Pinterest Computer Vision Tags to Include (Alt-Text & Image Elements)`);
+  mdLines.push('Include these visual concepts in your image pins so Pinterest AI matches your pin with the #1 slot:');
+  for (const t of visualTagsChecklist) {
+    mdLines.push(`- **${t.tag}** (Detected ${t.count}x in competitor top pins)`);
+  }
+
+  mdLines.push('', `## 🎨 Winning Color Palette`);
+  for (const c of colorPalette) {
+    mdLines.push(`- \`${c.color}\` (${c.percentage}% of competitor pins)`);
+  }
+
+  mdLines.push('', `## ✍️ High-Converting Title Formulas`);
+  for (const t of titleBlueprints) {
+    mdLines.push(`1. \`${t}\``);
+  }
+
+  mdLines.push('', `## 🚀 Recommended Deployment Plan`);
+  mdLines.push('1. Write 1 in-depth comprehensive guide covering the top 5 article topics above.');
+  mdLines.push('2. Deploy **3 distinct creative pin variations** per article (Multiplier: 3.0x):');
+  mdLines.push('   - Pin 1: Quick & 15-Minute Angle targeting speed-conscious searchers.');
+  mdLines.push('   - Pin 2: Diet/Keto/Low-Carb Modification Angle targeting health searchers.');
+  mdLines.push('   - Pin 3: Family/Budget/One-Pot Angle targeting household cooks.');
+  mdLines.push('3. Launch pins using high-contrast images embedding the visual tags above to steal rank within 72 hours.');
+
+  return {
+    success: true,
+    domain: cleanDomain,
+    generated_at: new Date().toISOString(),
+    top_articles: topArticles,
+    title_blueprints: titleBlueprints,
+    visual_tags_checklist: visualTagsChecklist,
+    color_palette: colorPalette,
+    recommended_multiplier: 3,
+    markdown_blueprint: mdLines.join('\n')
   };
 }

@@ -25,7 +25,8 @@ import {
   fetchAndCacheDomainAdNetwork,
   enrichMissingAdNetworksBatch,
   getDatabaseMonetizationStats,
-  enrichNextUncheckedAdsBatch
+  enrichNextUncheckedAdsBatch,
+  generateDomainArbitrageBlueprint
 } from './modules/domains/service.mjs';
 import {
   fetchUniversalPinDossier,
@@ -5335,6 +5336,17 @@ export default {
           const keywordId = searchParams.get('keyword_id') || null;
           const dossier = await getDomainDeepDossier(sql, domain, { folderId, keywordId });
           return jsonResponse(dossier, 200, 30);
+        } catch (err) {
+          return jsonResponse({ success: false, error: redactSecrets(err.message) }, 400);
+        }
+      }
+
+      if (method === 'GET' && pathname === '/api/domains/blueprint') {
+        const domain = searchParams.get('domain');
+        if (!domain) return jsonResponse({ error: 'domain query parameter is required' }, 400);
+        try {
+          const blueprint = await generateDomainArbitrageBlueprint(sql, domain);
+          return jsonResponse(blueprint, 200, 30);
         } catch (err) {
           return jsonResponse({ success: false, error: redactSecrets(err.message) }, 400);
         }
