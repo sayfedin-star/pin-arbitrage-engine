@@ -3927,7 +3927,7 @@ export default {
             const shardId = getPinShardId(pinId, 99);
             const shardSql = await resolveShardConnection({ hubSql: sql, shardId, env }).catch(() => targetSql);
 
-            const metaToStore = {
+            const rawMetaToStore = {
               alt_text: pin.alt_text || pin.seo_title || '',
               description: pin.description || '',
               board_name: pin.board_name || '',
@@ -3967,11 +3967,20 @@ export default {
               visual_annotations: pin.annotations?.map(a => a.name) || []
             };
 
+            const metaToStore = {};
+            for (const [k, v] of Object.entries(rawMetaToStore)) {
+              if (v === null || v === undefined || v === '') continue;
+              if (Array.isArray(v) && v.length === 0) continue;
+              if (typeof v === 'object' && Object.keys(v).length === 0) continue;
+              metaToStore[k] = v;
+            }
+
             // A. Master pin record on target shard
             await shardSql`
               INSERT INTO universal_master_pins (
                 pin_id, creator_username, board_name, title, domain, destination_url,
                 image_url, description, alt_text, dominant_color, visual_annotations,
+                created_at_pinterest, metadata,
                 first_discovered_pillar, first_discovered_at, updated_at
               ) VALUES (
                 ${pinId},
@@ -3985,6 +3994,8 @@ export default {
                 ${pin.alt_text || pin.seo_title || ''},
                 ${pin.dominant_color || '#888888'},
                 ${JSON.stringify(pin.annotations?.map(a => a.name) || [])}::jsonb,
+                ${pin.created_at_pinterest ? new Date(pin.created_at_pinterest).toISOString() : null}::timestamptz,
+                ${JSON.stringify(metaToStore)}::jsonb,
                 'live_sync',
                 NOW(),
                 NOW()
@@ -3999,7 +4010,13 @@ export default {
                 description = COALESCE(NULLIF(EXCLUDED.description, ''), universal_master_pins.description),
                 alt_text = COALESCE(NULLIF(EXCLUDED.alt_text, ''), universal_master_pins.alt_text),
                 dominant_color = COALESCE(NULLIF(EXCLUDED.dominant_color, ''), universal_master_pins.dominant_color),
-                visual_annotations = EXCLUDED.visual_annotations,
+                visual_annotations = CASE 
+                  WHEN jsonb_typeof(EXCLUDED.visual_annotations) = 'array' AND jsonb_array_length(EXCLUDED.visual_annotations) > 0 
+                  THEN EXCLUDED.visual_annotations 
+                  ELSE universal_master_pins.visual_annotations 
+                END,
+                created_at_pinterest = COALESCE(EXCLUDED.created_at_pinterest, universal_master_pins.created_at_pinterest),
+                metadata = universal_master_pins.metadata || EXCLUDED.metadata,
                 updated_at = NOW();
             `.catch(() => {});
 
@@ -4036,7 +4053,10 @@ export default {
                 END,
                 created_at_pinterest = CASE WHEN ${pin.created_at_pinterest}::timestamptz IS NOT NULL THEN ${pin.created_at_pinterest}::timestamptz ELSE created_at_pinterest END,
                 creation_method = CASE WHEN ${pin.creation_method || ''}::text <> '' THEN ${pin.creation_method}::text ELSE creation_method END,
-                metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify(metaToStore)}::jsonb,
+                metadata = CASE 
+                  WHEN jsonb_typeof(metadata) = 'object' THEN metadata || ${JSON.stringify(metaToStore)}::jsonb 
+                  ELSE ${JSON.stringify(metaToStore)}::jsonb 
+                END,
                 crawled_at = NOW(),
                 updated_at = NOW()
               WHERE pin_id = ${pinId};
@@ -4228,7 +4248,7 @@ export default {
                   });
                   if (liveRes?.ok && liveRes.pin) {
                     const p = liveRes.pin;
-                    const autoMeta = {
+                    const rawAutoMeta = {
                       alt_text: p.alt_text || p.seo_title || '',
                       description: p.description || '',
                       board_name: p.board_name || '',
@@ -4268,20 +4288,96 @@ export default {
                       visual_annotations: p.annotations?.map(a => a.name) || []
                     };
 
-                    await Promise.allSettled([
+                    const autoMeta = {};
+                    for (const [k, v] of Object.entries(rawAutoMeta)) {
+                      if (v === null || v === undefined || v === '') continue;
+                      if (Array.isArray(v) && v.length === 0) continue;
+                      if (typeof v === 'object' && Object.keys(v).length === 0) continue;
+                      autoMeta[k] = v;
+                    }
+
+                    const shardId = getPinShardId(pinId, 99);
+                    const shardSql = await resolveShardConnection({ hubSql: sql, shardId, env }).catch(() => null);
+
+                    const dbTasks = [
                       sql`
                         UPDATE keyword_serp_current SET
-                          metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify(autoMeta)}::jsonb,
+                          visual_annotations = CASE 
+                            WHEN jsonb_typeof(${JSON.stringify(p.annotations?.map(a => a.name) || [])}::jsonb) = 'array' AND jsonb_array_length(${JSON.stringify(p.annotations?.map(a => a.name) || [])}::jsonb) > 0 
+                            THEN ${JSON.stringify(p.annotations?.map(a => a.name) || [])}::jsonb 
+                            ELSE visual_annotations 
+                          END,
+                          creator_username = CASE WHEN ${p.creator_username || p.pinner?.username || ''}::text <> '' THEN ${p.creator_username || p.pinner?.username}::text ELSE creator_username END,
+                          board_name = CASE WHEN ${p.board_name || ''}::text <> '' THEN ${p.board_name}::text ELSE board_name END,
+                          dominant_color = CASE WHEN ${p.dominant_color || ''}::text <> '' THEN ${p.dominant_color}::text ELSE dominant_color END,
+                          created_at_pinterest = CASE WHEN ${p.created_at_pinterest || null}::timestamptz IS NOT NULL THEN ${p.created_at_pinterest}::timestamptz ELSE created_at_pinterest END,
+                          metadata = CASE 
+                            WHEN jsonb_typeof(metadata) = 'object' THEN metadata || ${JSON.stringify(autoMeta)}::jsonb 
+                            ELSE ${JSON.stringify(autoMeta)}::jsonb 
+                          END,
                           destination_url = CASE WHEN ${p.link || ''}::text <> '' THEN ${p.link}::text ELSE destination_url END,
                           updated_at = NOW()
                         WHERE pin_id = ${pinId};
                       `,
                       sql`
                         UPDATE keyword_pins_snapshots SET
-                          metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify(autoMeta)}::jsonb
+                          metadata = CASE 
+                            WHEN jsonb_typeof(metadata) = 'object' THEN metadata || ${JSON.stringify(autoMeta)}::jsonb 
+                            ELSE ${JSON.stringify(autoMeta)}::jsonb 
+                          END
                         WHERE pin_id = ${pinId};
                       `
-                    ]);
+                    ];
+
+                    if (shardSql && shardSql !== sql) {
+                      dbTasks.push(
+                        shardSql`
+                          INSERT INTO universal_master_pins (
+                            pin_id, creator_username, board_name, title, domain, destination_url,
+                            image_url, description, alt_text, dominant_color, visual_annotations,
+                            created_at_pinterest, metadata,
+                            first_discovered_pillar, first_discovered_at, updated_at
+                          ) VALUES (
+                            ${pinId},
+                            ${p.creator_username || p.pinner?.username || ''},
+                            ${p.board_name || ''},
+                            ${p.title || ''},
+                            ${p.domain || ''},
+                            ${p.link || ''},
+                            ${p.image_url || ''},
+                            ${p.description || ''},
+                            ${p.alt_text || p.seo_title || ''},
+                            ${p.dominant_color || '#888888'},
+                            ${JSON.stringify(p.annotations?.map(a => a.name) || [])}::jsonb,
+                            ${p.created_at_pinterest ? new Date(p.created_at_pinterest).toISOString() : null}::timestamptz,
+                            ${JSON.stringify(autoMeta)}::jsonb,
+                            'auto_enrich',
+                            NOW(),
+                            NOW()
+                          )
+                          ON CONFLICT (pin_id) DO UPDATE SET
+                            creator_username = COALESCE(NULLIF(EXCLUDED.creator_username, ''), universal_master_pins.creator_username),
+                            board_name = COALESCE(NULLIF(EXCLUDED.board_name, ''), universal_master_pins.board_name),
+                            title = COALESCE(NULLIF(EXCLUDED.title, ''), universal_master_pins.title),
+                            domain = COALESCE(NULLIF(EXCLUDED.domain, ''), universal_master_pins.domain),
+                            destination_url = COALESCE(NULLIF(EXCLUDED.destination_url, ''), universal_master_pins.destination_url),
+                            image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), universal_master_pins.image_url),
+                            description = COALESCE(NULLIF(EXCLUDED.description, ''), universal_master_pins.description),
+                            alt_text = COALESCE(NULLIF(EXCLUDED.alt_text, ''), universal_master_pins.alt_text),
+                            dominant_color = COALESCE(NULLIF(EXCLUDED.dominant_color, ''), universal_master_pins.dominant_color),
+                            visual_annotations = CASE 
+                              WHEN jsonb_typeof(EXCLUDED.visual_annotations) = 'array' AND jsonb_array_length(EXCLUDED.visual_annotations) > 0 
+                              THEN EXCLUDED.visual_annotations 
+                              ELSE universal_master_pins.visual_annotations 
+                            END,
+                            created_at_pinterest = COALESCE(EXCLUDED.created_at_pinterest, universal_master_pins.created_at_pinterest),
+                            metadata = universal_master_pins.metadata || EXCLUDED.metadata,
+                            updated_at = NOW();
+                        `.catch(() => {})
+                      );
+                    }
+
+                    await Promise.allSettled(dbTasks);
                     invalidateEdgeCache(dossierCacheKey);
                   }
                 } catch (_) {}

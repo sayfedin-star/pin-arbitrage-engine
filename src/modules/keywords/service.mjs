@@ -3719,20 +3719,47 @@ export async function getPinDeepDossier(sql, pinId, keywordId = null, { forceRef
   }
 
   // 5. Build consolidated 48-parameter Dossier (Trajectory already retrieved in parallel)
-  const title = displacedRow?.title || latestSnapshot?.title || scraped?.title || shardRow?.title || 'Untitled Pin';
-  const altText = displacedRow?.seo_alt_text || scraped?.alt_text || scraped?.seo_alt_text || latestSnapshot?.metadata?.alt_text || shardRow?.alt_text || '';
-  const description = scraped?.description || displacedRow?.metadata?.description || latestSnapshot?.metadata?.description || shardRow?.description || '';
+  function normalizeMeta(raw) {
+    if (!raw) return {};
+    if (typeof raw === 'string') {
+      try { return normalizeMeta(JSON.parse(raw)); } catch (_) { return {}; }
+    }
+    if (Array.isArray(raw)) {
+      let merged = {};
+      for (const item of raw) merged = { ...merged, ...normalizeMeta(item) };
+      return merged;
+    }
+    if (typeof raw === 'object') return raw;
+    return {};
+  }
 
-  const annotations = (displacedRow?.annotations && Array.isArray(displacedRow.annotations) && displacedRow.annotations.length > 0)
-    ? displacedRow.annotations
-    : (scraped?.annotations && Array.isArray(scraped.annotations) && scraped.annotations.length > 0)
-      ? scraped.annotations
-      : (shardRow?.visual_annotations && Array.isArray(shardRow.visual_annotations) && shardRow.visual_annotations.length > 0)
-        ? shardRow.visual_annotations
-        : (latestSnapshot?.metadata?.visual_annotations || []);
+  const dMeta = normalizeMeta(displacedRow?.metadata);
+  const sMeta = normalizeMeta(shardRow?.metadata);
+  const snapMeta = normalizeMeta(latestSnapshot?.metadata);
+  const mergedMeta = { ...dMeta, ...snapMeta, ...sMeta };
 
-  const dominantColor = displacedRow?.dominant_color || scraped?.dominant_color || latestSnapshot?.metadata?.dominant_color || shardRow?.dominant_color || '#b47732';
-  const createdAt = displacedRow?.created_at_pinterest || scraped?.created_at_pinterest || latestSnapshot?.metadata?.created_at || shardRow?.created_at_pinterest || null;
+  const title = displacedRow?.title || latestSnapshot?.title || scraped?.title || shardRow?.title || mergedMeta.seo_title || 'Untitled Pin';
+  const altText = displacedRow?.seo_alt_text || scraped?.alt_text || scraped?.seo_alt_text || shardRow?.alt_text || mergedMeta.alt_text || latestSnapshot?.metadata?.alt_text || '';
+  const description = scraped?.description || shardRow?.description || mergedMeta.description || latestSnapshot?.metadata?.description || '';
+
+  const allAnnoSet = new Set();
+  const addAnnos = (raw) => {
+    if (!raw) return;
+    const arr = Array.isArray(raw) ? raw : (typeof raw === 'string' ? [raw] : []);
+    for (const a of arr) {
+      const name = typeof a === 'string' ? a.trim() : (a?.name || a?.label || a?.display_label || a?.term || a?.title || '').trim();
+      if (name && name.length >= 2 && !/^not[\s-_]?given$/i.test(name)) allAnnoSet.add(name);
+    }
+  };
+  addAnnos(displacedRow?.annotations);
+  addAnnos(scraped?.annotations);
+  addAnnos(shardRow?.visual_annotations);
+  addAnnos(mergedMeta.visual_annotations);
+  addAnnos(snapMeta.visual_annotations);
+  const annotations = Array.from(allAnnoSet);
+
+  const dominantColor = displacedRow?.dominant_color || scraped?.dominant_color || shardRow?.dominant_color || mergedMeta.dominant_color || '#b47732';
+  const createdAt = displacedRow?.created_at_pinterest || scraped?.created_at_pinterest || shardRow?.created_at_pinterest || mergedMeta.created_at_pinterest || mergedMeta.created_at || null;
   const saves = Math.max(Number(scraped?.saves || 0), Number(displacedRow?.current_saves || 0), Number(latestSnapshot?.save_count || 0), Number(shardRow?.save_count || 0));
   const repins = Math.max(Number(scraped?.repins || 0), Number(displacedRow?.current_repins || 0), Number(latestSnapshot?.repin_count || 0), Number(shardRow?.repin_count || 0));
   const comments = Math.max(Number(scraped?.comments || 0), Number(displacedRow?.current_comments || 0), Number(latestSnapshot?.comment_count || 0));
@@ -3740,24 +3767,24 @@ export async function getPinDeepDossier(sql, pinId, keywordId = null, { forceRef
   const reactions = Math.max(Number(displacedRow?.current_reactions || 0), (typeof scraped?.reactions === 'object' ? Object.values(scraped.reactions).reduce((a, b) => a + Number(b || 0), 0) : 0), Number(latestSnapshot?.reaction_count || 0));
   const velocity = Number(displacedRow?.daily_save_velocity || latestSnapshot?.daily_save_velocity || 0);
 
-  const creatorUsername = displacedRow?.creator_username || displacedRow?.account_username || scraped?.creator_username || scraped?.pinner?.username || latestSnapshot?.metadata?.pinner?.username || shardRow?.creator_username || '';
-  const creatorFullName = scraped?.creator_name || scraped?.pinner?.full_name || latestSnapshot?.metadata?.pinner?.full_name || '';
-  const creatorFollowers = Number(scraped?.creator_followers || scraped?.pinner?.follower_count || latestSnapshot?.metadata?.pinner?.follower_count || 0);
-  const creatorAvatar = scraped?.creator_avatar_url || scraped?.pinner?.image_url || latestSnapshot?.metadata?.pinner?.image_small_url || null;
-  const creatorIsMerchant = Boolean(scraped?.creator_is_verified_merchant || scraped?.pinner?.is_verified_merchant || latestSnapshot?.metadata?.pinner?.is_verified_merchant || false);
+  const creatorUsername = displacedRow?.creator_username || displacedRow?.account_username || scraped?.creator_username || scraped?.pinner?.username || mergedMeta.pinner?.username || shardRow?.creator_username || '';
+  const creatorFullName = scraped?.creator_name || scraped?.pinner?.full_name || mergedMeta.pinner?.full_name || '';
+  const creatorFollowers = Number(scraped?.creator_followers || scraped?.pinner?.follower_count || mergedMeta.pinner?.follower_count || 0);
+  const creatorAvatar = scraped?.creator_avatar_url || scraped?.pinner?.image_url || mergedMeta.pinner?.image_small_url || null;
+  const creatorIsMerchant = Boolean(scraped?.creator_is_verified_merchant || scraped?.pinner?.is_verified_merchant || mergedMeta.pinner?.is_verified_merchant || false);
 
-  const boardName = displacedRow?.board_name || latestSnapshot?.metadata?.board_name || scraped?.board_name || scraped?.board?.name || shardRow?.board_name || '';
+  const boardName = displacedRow?.board_name || mergedMeta.board_name || scraped?.board_name || scraped?.board?.name || shardRow?.board_name || '';
   const boardUrl = scraped?.board_url || scraped?.board?.url || (creatorUsername && boardName ? `https://www.pinterest.com/${creatorUsername}/${boardName.toLowerCase().replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-')}/` : null);
-  const boardPinCount = Number(scraped?.board_pin_count || scraped?.board?.pin_count || latestSnapshot?.metadata?.board_pin_count || 0);
+  const boardPinCount = Number(scraped?.board_pin_count || scraped?.board?.pin_count || mergedMeta.board_pin_count || 0);
 
-  const isRepin = Boolean(scraped?.is_repin || latestSnapshot?.metadata?.is_repin || false);
-  const originPinner = scraped?.origin_pinner || latestSnapshot?.metadata?.origin_pinner || null;
-  const isIndexedGoogle = !(scraped?.seo_noindex_reason || latestSnapshot?.metadata?.seo_noindex_reason);
-  const isGoLinkless = Boolean(scraped?.is_go_linkless || latestSnapshot?.metadata?.is_go_linkless || false);
-  const categoryBreadcrumbs = scraped?.category_breadcrumbs || latestSnapshot?.metadata?.category_breadcrumbs || [];
-  const imageDimensions = scraped?.image_dimensions || latestSnapshot?.metadata?.image_dimensions || null;
-  const imageSignature = displacedRow?.image_signature || scraped?.image_signature || latestSnapshot?.metadata?.image_signature || `sig_${cleanPin.slice(-8)}`;
-  const creationMethod = displacedRow?.creation_method || scraped?.creation_method || latestSnapshot?.creation_method || latestSnapshot?.metadata?.method || 'pinterest_platform';
+  const isRepin = Boolean(scraped?.is_repin || mergedMeta.is_repin || false);
+  const originPinner = scraped?.origin_pinner || mergedMeta.origin_pinner || null;
+  const isIndexedGoogle = !(scraped?.seo_noindex_reason || mergedMeta.seo_noindex_reason);
+  const isGoLinkless = Boolean(scraped?.is_go_linkless || mergedMeta.is_go_linkless || false);
+  const categoryBreadcrumbs = scraped?.category_breadcrumbs || mergedMeta.category_breadcrumbs || [];
+  const imageDimensions = scraped?.image_dimensions || mergedMeta.image_dimensions || null;
+  const imageSignature = displacedRow?.image_signature || scraped?.image_signature || mergedMeta.image_signature || `sig_${cleanPin.slice(-8)}`;
+  const creationMethod = displacedRow?.creation_method || scraped?.creation_method || latestSnapshot?.creation_method || mergedMeta.creation_method || mergedMeta.method || 'pinterest_platform';
 
   const dossierPayload = {
     success: true,

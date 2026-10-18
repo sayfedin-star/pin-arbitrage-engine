@@ -727,7 +727,8 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
             SELECT 
               pin_id, creator_username, board_id, board_name, board_slug, title, domain, destination_url,
               image_url, description, alt_text, dominant_color, visual_annotations, created_at_pinterest,
-              first_discovered_pillar, first_discovered_at, updated_at, metadata
+              first_discovered_pillar, first_discovered_at, updated_at,
+              COALESCE(metadata, '{}'::jsonb) AS metadata
             FROM universal_master_pins
             WHERE pin_id = ${cleanPinId}
             LIMIT 1;
@@ -865,40 +866,79 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     .sort((a, b) => (Boolean(b.metadata) - Boolean(a.metadata)) || (Number(b.save_count || 0) - Number(a.save_count || 0)))
     .slice(0, 10);
 
+  // Helper to safely parse and unwrap metadata from JSON string, object, or array of strings/objects
+  function normalizeMetadata(raw) {
+    if (!raw) return {};
+    if (typeof raw === 'string') {
+      try {
+        return normalizeMetadata(JSON.parse(raw));
+      } catch (_) {
+        return {};
+      }
+    }
+    if (Array.isArray(raw)) {
+      let merged = {};
+      for (const item of raw) {
+        merged = { ...merged, ...normalizeMetadata(item) };
+      }
+      return merged;
+    }
+    if (typeof raw === 'object') {
+      const clean = {};
+      for (const [k, v] of Object.entries(raw)) {
+        if (v !== '' && v !== null && v !== undefined) {
+          clean[k] = v;
+        }
+      }
+      return clean;
+    }
+    return {};
+  }
+
   // Helper to safely parse visual annotations
   function normalizeVisualAnnotations(raw) {
     if (!raw) return [];
-    if (Array.isArray(raw)) return raw;
-    if (typeof raw === 'string') {
+    let list = [];
+    if (Array.isArray(raw)) {
+      list = raw;
+    } else if (typeof raw === 'string') {
       try {
         const parsed = JSON.parse(raw);
-        return Array.isArray(parsed) ? parsed : [];
+        list = Array.isArray(parsed) ? parsed : [];
       } catch (_) {
-        return [];
+        list = [];
       }
     }
-    return [];
+    return list.map(a => typeof a === 'string' ? a : (a?.name || a?.label || '')).filter(Boolean);
   }
+
+  // Parse metadata across all active sources
+  const topHubMeta = normalizeMetadata(hubSerpRows[0]?.metadata);
+  let hubHistoricalSnap = (snapRows && snapRows.length > 0) ? snapRows[0] : null;
+  const snapMetaObj = normalizeMetadata(hubHistoricalSnap?.metadata);
+  const shardMetaObj = normalizeMetadata(masterRecord?.metadata);
 
   // Compute Mathematical Set Union of Visual Annotations across all sources
   const unionSet = new Set();
   for (const tag of normalizeVisualAnnotations(masterRecord?.visual_annotations)) {
     if (tag && typeof tag === 'string' && tag.trim()) unionSet.add(tag.trim());
   }
+  for (const tag of normalizeVisualAnnotations(shardMetaObj?.visual_annotations)) {
+    if (tag && typeof tag === 'string' && tag.trim()) unionSet.add(tag.trim());
+  }
   for (const row of hubSerpRows) {
     for (const tag of normalizeVisualAnnotations(row.visual_annotations)) {
       if (tag && typeof tag === 'string' && tag.trim()) unionSet.add(tag.trim());
     }
+    const rMeta = normalizeMetadata(row.metadata);
+    for (const tag of normalizeVisualAnnotations(rMeta.visual_annotations)) {
+      if (tag && typeof tag === 'string' && tag.trim()) unionSet.add(tag.trim());
+    }
   }
-
-  // Historical snapshot recovery for rich algorithmic metadata, alt_text, description, or further annotations
-  let hubHistoricalSnap = null;
-  if (snapRows && snapRows.length > 0) {
-    hubHistoricalSnap = snapRows[0];
-    for (const sRow of snapRows) {
-      for (const tag of normalizeVisualAnnotations(sRow.metadata?.visual_annotations)) {
-        if (tag && typeof tag === 'string' && tag.trim()) unionSet.add(tag.trim());
-      }
+  for (const sRow of snapRows) {
+    const sMeta = normalizeMetadata(sRow.metadata);
+    for (const tag of normalizeVisualAnnotations(sMeta.visual_annotations)) {
+      if (tag && typeof tag === 'string' && tag.trim()) unionSet.add(tag.trim());
     }
   }
 
@@ -908,46 +948,54 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
       const topRow = hubSerpRows[0];
       masterRecord = {
         pin_id: topRow.pin_id,
-        title: topRow.title,
-        domain: topRow.domain,
-        destination_url: topRow.destination_url,
+        title: topRow.title || topHubMeta.seo_title || '',
+        domain: topRow.domain || topHubMeta.seo_canonical_domain || '',
+        destination_url: topRow.destination_url || topHubMeta.tracked_link || topHubMeta.utm_link || '',
         image_url: topRow.image_url,
-        creator_username: topRow.creator_username || topRow.metadata?.pinner?.username || '',
-        board_name: topRow.board_name || topRow.metadata?.board_name || '',
+        creator_username: topRow.creator_username || topHubMeta.pinner?.username || topHubMeta.domain_official_user?.username || '',
+        board_name: topRow.board_name || topHubMeta.board_name || '',
         save_count: topRow.save_count,
         repin_count: topRow.repin_count,
         daily_save_velocity: topRow.daily_save_velocity,
-        dominant_color: topRow.dominant_color || topRow.metadata?.dominant_color || '#888888',
-        alt_text: topRow.metadata?.alt_text || hubHistoricalSnap?.metadata?.alt_text || '',
-        description: topRow.metadata?.description || hubHistoricalSnap?.metadata?.description || '',
-        visual_annotations: Array.from(unionSet)
+        dominant_color: topRow.dominant_color || topHubMeta.dominant_color || '#888888',
+        alt_text: topHubMeta.alt_text || snapMetaObj.alt_text || '',
+        description: topHubMeta.description || snapMetaObj.description || '',
+        created_at_pinterest: topRow.created_at_pinterest || topHubMeta.created_at_pinterest || snapMetaObj.created_at_pinterest || null,
+        visual_annotations: Array.from(unionSet),
+        metadata: { ...topHubMeta, ...snapMetaObj }
       };
     } else if (hubHistoricalSnap) {
       masterRecord = {
         pin_id: hubHistoricalSnap.pin_id,
-        title: hubHistoricalSnap.title,
-        domain: hubHistoricalSnap.domain,
-        destination_url: hubHistoricalSnap.destination_url,
+        title: hubHistoricalSnap.title || snapMetaObj.seo_title || '',
+        domain: hubHistoricalSnap.domain || snapMetaObj.seo_canonical_domain || '',
+        destination_url: hubHistoricalSnap.destination_url || snapMetaObj.tracked_link || snapMetaObj.utm_link || '',
         image_url: hubHistoricalSnap.image_url,
-        creator_username: hubHistoricalSnap.metadata?.pinner?.username || '',
-        board_name: hubHistoricalSnap.metadata?.board_name || '',
+        creator_username: snapMetaObj.pinner?.username || '',
+        board_name: snapMetaObj.board_name || '',
         save_count: hubHistoricalSnap.save_count,
         repin_count: hubHistoricalSnap.repin_count,
         daily_save_velocity: hubHistoricalSnap.daily_save_velocity,
-        dominant_color: hubHistoricalSnap.metadata?.dominant_color || '#888888',
-        alt_text: hubHistoricalSnap.metadata?.alt_text || '',
-        description: hubHistoricalSnap.metadata?.description || '',
-        visual_annotations: Array.from(unionSet)
+        dominant_color: snapMetaObj.dominant_color || '#888888',
+        alt_text: snapMetaObj.alt_text || '',
+        description: snapMetaObj.description || '',
+        created_at_pinterest: hubHistoricalSnap.created_at_pinterest || snapMetaObj.created_at_pinterest || null,
+        visual_annotations: Array.from(unionSet),
+        metadata: snapMetaObj
       };
     }
   } else {
-    // Shard record exists: enrich missing alt_text or description if recovered from Hub
+    // Shard record exists: enrich missing alt_text, description, or created_at_pinterest if recovered from Hub
     if (!masterRecord.alt_text) {
-      masterRecord.alt_text = hubSerpRows[0]?.metadata?.alt_text || hubHistoricalSnap?.metadata?.alt_text || '';
+      masterRecord.alt_text = shardMetaObj.alt_text || topHubMeta.alt_text || snapMetaObj.alt_text || '';
     }
     if (!masterRecord.description) {
-      masterRecord.description = hubSerpRows[0]?.metadata?.description || hubHistoricalSnap?.metadata?.description || '';
+      masterRecord.description = shardMetaObj.description || topHubMeta.description || snapMetaObj.description || '';
     }
+    if (!masterRecord.created_at_pinterest) {
+      masterRecord.created_at_pinterest = shardMetaObj.created_at_pinterest || hubSerpRows[0]?.created_at_pinterest || topHubMeta.created_at_pinterest || snapMetaObj.created_at_pinterest || null;
+    }
+    masterRecord.metadata = { ...topHubMeta, ...snapMetaObj, ...shardMetaObj };
   }
 
   const finalVisualAnnotations = Array.from(unionSet)
@@ -955,16 +1003,18 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     .filter(t => t.length >= 2 && !/^not[\s-_]?given$/i.test(t))
     .slice(0, 15);
 
-  // Auto-Backfill: ONLY run if the record was completely missing from the shard & D1, and was synthesized from Hub
+  // Auto-Backfill / Write-Through: Ensure shard has the latest rich treasures
   const shouldBackfillShard = !initialMaster && !d1Record && shardSql && shardSql !== hubSql && masterRecord;
+
   if (shouldBackfillShard) {
     const backfillPromise = (async () => {
       try {
+        const enrichedMetaToSave = { ...topHubMeta, ...snapMetaObj, ...shardMetaObj };
         await shardSql`
           INSERT INTO universal_master_pins (
             pin_id, creator_username, board_name, title, domain, destination_url,
             image_url, description, alt_text, dominant_color, visual_annotations,
-            first_discovered_pillar, first_discovered_at, updated_at
+            created_at_pinterest, metadata, first_discovered_pillar, first_discovered_at, updated_at
           ) VALUES (
             ${cleanPinId},
             ${masterRecord.creator_username || ''},
@@ -977,6 +1027,8 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
             ${masterRecord.alt_text || ''},
             ${masterRecord.dominant_color || '#888888'},
             ${JSON.stringify(finalVisualAnnotations)}::jsonb,
+            ${masterRecord.created_at_pinterest ? new Date(masterRecord.created_at_pinterest).toISOString() : null}::timestamptz,
+            ${JSON.stringify(enrichedMetaToSave)}::jsonb,
             'keyword',
             NOW(),
             NOW()
@@ -993,6 +1045,8 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
               WHEN jsonb_typeof(EXCLUDED.visual_annotations) = 'array' AND jsonb_array_length(EXCLUDED.visual_annotations) > 0 THEN EXCLUDED.visual_annotations 
               ELSE universal_master_pins.visual_annotations 
             END,
+            created_at_pinterest = COALESCE(EXCLUDED.created_at_pinterest, universal_master_pins.created_at_pinterest),
+            metadata = universal_master_pins.metadata || EXCLUDED.metadata,
             updated_at = NOW();
         `;
       } catch (backfillErr) {
@@ -1371,9 +1425,9 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
   const boardSlug = masterRecord?.board_slug || boardName.toLowerCase().replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-');
   // Collect all available metadata objects across Shard master record, historical snapshots & SERP occurrences
   const allMetas = [
-    ...(masterRecord?.metadata ? [masterRecord.metadata] : []),
-    ...(snapRows || []).map(s => s.metadata).filter(Boolean),
-    ...(hubSerpRows || []).map(s => s.metadata).filter(Boolean)
+    ...(masterRecord?.metadata ? [normalizeMetadata(masterRecord.metadata)] : []),
+    ...(snapRows || []).map(s => normalizeMetadata(s.metadata)).filter(Boolean),
+    ...(hubSerpRows || []).map(s => normalizeMetadata(s.metadata)).filter(Boolean)
   ];
   
   let canonicalPinId = null;
@@ -1414,9 +1468,10 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
   const isCanonicalRoot = canonicalPinId ? (String(canonicalPinId) === String(cleanPinId)) : true;
 
   const cleanMeta = (obj) => {
-    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return {};
+    const normalized = normalizeMetadata(obj);
+    if (!normalized || typeof normalized !== 'object' || Array.isArray(normalized)) return {};
     return Object.fromEntries(
-      Object.entries(obj).filter(([_, v]) => v !== '' && v !== null && v !== undefined)
+      Object.entries(normalized).filter(([_, v]) => v !== '' && v !== null && v !== undefined)
     );
   };
 
@@ -1426,6 +1481,19 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     ...cleanMeta(hubSerpRows[0]?.metadata), 
     ...cleanMeta(masterRecord?.metadata) 
   };
+
+  // Backfill description and alt_text on masterRecord if empty
+  if (masterRecord) {
+    if (!masterRecord.description && snapMeta.description) {
+      masterRecord.description = snapMeta.description;
+    }
+    if (!masterRecord.alt_text && snapMeta.alt_text) {
+      masterRecord.alt_text = snapMeta.alt_text;
+    }
+    if (!masterRecord.created_at_pinterest && (snapMeta.created_at_pinterest || snapMeta.created_at)) {
+      masterRecord.created_at_pinterest = snapMeta.created_at_pinterest || snapMeta.created_at;
+    }
+  }
 
   // Tier 1 Edge Mirror: Write-through fresh shard metadata to Cloudflare D1 asynchronously
   if (env?.PIN_D1_DB && masterRecord) {
