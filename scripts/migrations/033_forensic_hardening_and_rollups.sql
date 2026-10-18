@@ -69,7 +69,33 @@ CREATE INDEX IF NOT EXISTS idx_dir_top10 ON domain_intelligence_rollup(top10_pin
 CREATE INDEX IF NOT EXISTS idx_dir_ad_network ON domain_intelligence_rollup(ad_network);
 CREATE INDEX IF NOT EXISTS idx_dir_age_status ON domain_intelligence_rollup(age_status);
 
--- 4. ترحيل البيانات التاريخية بأمان قبل تحويل pins_daily_snapshots إلى View
+-- 4. ضمان وجود الجداول الأساسية لنظام التخزين الثنائي Two-Tier Storage
+CREATE TABLE IF NOT EXISTS pins_daily_metrics (
+  pin_id VARCHAR(64) NOT NULL,
+  snapshot_date DATE NOT NULL,
+  save_count BIGINT NOT NULL DEFAULT 0,
+  repin_count INT NOT NULL DEFAULT 0,
+  comment_count INT NOT NULL DEFAULT 0,
+  share_count INT NOT NULL DEFAULT 0,
+  reaction_count INT NOT NULL DEFAULT 0,
+  daily_save_velocity NUMERIC(10,2) NOT NULL DEFAULT 0,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (pin_id, snapshot_date)
+);
+
+CREATE TABLE IF NOT EXISTS pin_serp_positions (
+  pin_id VARCHAR(64) NOT NULL,
+  snapshot_date DATE NOT NULL,
+  keyword_id INT NOT NULL,
+  rank_position INT,
+  is_displaced BOOLEAN NOT NULL DEFAULT FALSE,
+  last_known_rank INT,
+  catalog_rank INT DEFAULT 100,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (pin_id, snapshot_date, keyword_id)
+);
+
+-- 5. ترحيل البيانات التاريخية بأمان قبل تحويل pins_daily_snapshots إلى View
 DO $$
 BEGIN
   IF EXISTS (
@@ -84,14 +110,15 @@ BEGIN
     SELECT 
       pin_id,
       snapshot_date,
-      save_count,
-      COALESCE(repin_count, 0),
-      COALESCE(comment_count, 0),
-      COALESCE(share_count, 0),
-      COALESCE(reaction_count, 0),
-      COALESCE(daily_save_velocity, 0),
-      COALESCE(created_at, NOW())
+      MAX(save_count) AS save_count,
+      MAX(COALESCE(repin_count, 0)) AS repin_count,
+      MAX(COALESCE(comment_count, 0)) AS comment_count,
+      MAX(COALESCE(share_count, 0)) AS share_count,
+      MAX(COALESCE(reaction_count, 0)) AS reaction_count,
+      MAX(COALESCE(daily_save_velocity, 0)) AS daily_save_velocity,
+      MAX(COALESCE(created_at, NOW())) AS updated_at
     FROM pins_daily_snapshots
+    GROUP BY pin_id, snapshot_date
     ON CONFLICT (pin_id, snapshot_date) DO UPDATE SET
       save_count = GREATEST(pins_daily_metrics.save_count, EXCLUDED.save_count),
       repin_count = GREATEST(pins_daily_metrics.repin_count, EXCLUDED.repin_count),
@@ -107,13 +134,14 @@ BEGIN
       pin_id,
       snapshot_date,
       keyword_id,
-      rank_position,
-      COALESCE(is_displaced, FALSE),
-      rank_position AS last_known_rank,
-      COALESCE(rank_position, 100) AS catalog_rank,
-      COALESCE(created_at, NOW())
+      MIN(rank_position) AS rank_position,
+      BOOL_OR(COALESCE(is_displaced, FALSE)) AS is_displaced,
+      MIN(rank_position) AS last_known_rank,
+      MIN(COALESCE(rank_position, 100)) AS catalog_rank,
+      MAX(COALESCE(created_at, NOW())) AS updated_at
     FROM pins_daily_snapshots
     WHERE keyword_id IS NOT NULL AND keyword_id > 0
+    GROUP BY pin_id, snapshot_date, keyword_id
     ON CONFLICT (pin_id, snapshot_date, keyword_id) DO UPDATE SET
       rank_position = COALESCE(EXCLUDED.rank_position, pin_serp_positions.rank_position),
       updated_at = NOW();
