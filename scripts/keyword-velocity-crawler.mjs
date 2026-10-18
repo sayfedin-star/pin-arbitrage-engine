@@ -1072,7 +1072,7 @@ async function inspectPinsConcurrently(pins, kw, label = 'Worker') {
         // JIT Pre-warming pulse (SELECT 1) across target shards 3-5s before flushToStorageShards
         const targetShardIds = new Set();
         for (const targetPin of pins) {
-          if (targetPin && targetPin.pin_id && /^\d+$/.test(String(targetPin.pin_id))) {
+          if (targetPin && targetPin.pin_id && /^(?:\d+|e1_[A-Za-z0-9_-]+)$/.test(String(targetPin.pin_id))) {
             const sid = getPinShardId(targetPin.pin_id, 99);
             targetShardIds.add(sid);
           }

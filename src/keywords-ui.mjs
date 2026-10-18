@@ -6588,9 +6588,6 @@ export function getKeywordsPageHtml(initialSlug = '') {
                 if (updateHistory) {
                   window.history.pushState(null, '', '/keywords/' + encodeURIComponent(cleanSlug));
                 }
-                if (data.status === 'never_crawled' || (data.current_pins && data.current_pins.length === 0)) {
-                  this.rescanKeyword(data.keyword.id, true);
-                }
               } else {
                 throw new Error(data.error || 'Could not resolve keyword');
               }
@@ -6643,10 +6640,6 @@ export function getKeywordsPageHtml(initialSlug = '') {
 
             this.selectedKeywordDetails = data;
             this.rebuildPinCaches();
-
-            if (data.status === 'never_crawled') {
-              this.rescanKeyword(kw.id, true);
-            }
           } catch (err) {
             if (err.name === 'AbortError') return;
             if (currentReqId === this.detailRequestId) {
@@ -7163,16 +7156,22 @@ export function getKeywordsPageHtml(initialSlug = '') {
               throw new Error(errPayload.message || errPayload.error || ('HTTP ' + res.status));
             }
             const data = await res.json();
-            const count = data.result?.crawled_pins || maxPins;
-            this.showToast('SERP updated: ' + count + ' pins indexed!', 'success');
-
-            await this.fetchKeywords();
-            if (this.selectedKeyword && this.selectedKeyword.id === id) {
-              await this.selectKeyword(this.selectedKeyword, false);
+            const count = Number(data.result?.crawled_pins ?? (data.result?.pins_collected || 0));
+            if (data.result?.success && count > 0) {
+              this.showToast('SERP updated: ' + count + ' pins indexed!', 'success');
+              await this.fetchKeywords();
+              if (this.selectedKeyword && this.selectedKeyword.id === id) {
+                await this.selectKeyword(this.selectedKeyword, false);
+              }
+              // DOUBLE-TRIGGER: Automatically dispatch GitHub Actions 20-runner Fleet pipeline in background
+              this.triggerWorkflow(false);
+            } else {
+              const reason = data.result?.reason === 'zero_organic_results'
+                ? '0 organic pins found on Pinterest (check cookie/query)'
+                : (data.result?.reason || data.result?.message || 'No pins indexed');
+              this.showToast('Crawl completed: ' + reason, 'warning');
+              await this.fetchKeywords();
             }
-
-            // DOUBLE-TRIGGER: Automatically dispatch GitHub Actions 20-runner Fleet pipeline in background
-            this.triggerWorkflow(false);
           } catch (err) {
             this.showToast('Crawl error: ' + err.message, 'error');
           } finally {

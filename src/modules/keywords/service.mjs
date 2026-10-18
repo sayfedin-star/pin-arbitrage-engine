@@ -1164,7 +1164,7 @@ export async function fetchVisualSearchLens(sql, pinId, cookie = (typeof process
         if (!item || item.type !== 'pin' || item.format === 'Related Interests') continue;
         const cleanMatchId = [item?.id, item?.root_pin_id, item?.orig_pin_id, item?.aggregated_pin_data?.id]
           .map(v => String(v || '').trim())
-          .find(v => /^\d{10,30}$/.test(v));
+          .find(v => /^(?:\d{10,30}|e1_[A-Za-z0-9_-]{15,90})$/.test(v));
         if (!cleanMatchId || seen.has(cleanMatchId)) continue;
         seen.add(cleanMatchId);
 
@@ -1357,7 +1357,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
     )));
     const targetCount = configuredTargetPins;
     // Replenishment Guard: Dynamic maxPages ensures excluded ads/boards/tombstone never starve targetCount
-    const maxPages = Math.min(40, Math.max(configuredPages, Math.ceil(targetCount / 15)));
+    const maxPages = Math.min(40, Math.max(configuredPages, Math.ceil(targetCount / 12)));
 
     // Resolve Filtration Exceptions from options -> app_settings -> default true
     const appSettings = await getAppSettings(sql);
@@ -1380,6 +1380,9 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
       'x-pinterest-pws-handler': 'www/search/pins.js',
       'referer': `https://www.pinterest.com/search/pins/?q=${query}`
     };
+    if (cookie && String(cookie).trim()) {
+      headers['Cookie'] = formatPinterestCookie(cookie);
+    }
 
     let rawResults = [];
     let bookmark = null;
@@ -1407,7 +1410,6 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
 
       let res;
       try {
-        // Anonymous request yields unpersonalized SERP rankings and full pin_join.visual_annotation computer-vision taxonomy
         res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
         if (res.status === 401 || res.status === 403 || res.status === 429) {
           if (res?.body && !res.bodyUsed) await res.body.cancel().catch(() => {});
@@ -1443,7 +1445,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
           if (excludePromoted && isCommercialOrAdPin(it)) continue;
           const pid = [it?.id, it?.root_pin_id, it?.orig_pin_id, it?.aggregated_pin_data?.id]
             .map(v => String(v || '').trim())
-            .find(v => /^\d{10,30}$/.test(v));
+            .find(v => /^(?:\d{10,30}|e1_[A-Za-z0-9_-]{15,90})$/.test(v));
           if (!pid) continue;
           if (excludeIgnoredPins && ignoredPinSet.has(pid)) continue;
           if (!seenPagingIds.has(pid)) {
@@ -1636,7 +1638,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
       if (excludePromoted && isCommercialOrAdPin(item)) continue;
       const pinId = [item?.id, item?.root_pin_id, item?.orig_pin_id, item?.aggregated_pin_data?.id]
         .map(v => String(v || '').trim())
-        .find(v => /^\d{10,30}$/.test(v));
+        .find(v => /^(?:\d{10,30}|e1_[A-Za-z0-9_-]{15,90})$/.test(v));
       if (!pinId || seenPinIds.has(pinId)) continue;
       if (excludeIgnoredPins && ignoredPinSet.has(pinId)) continue;
       if (preparedPins.length >= targetCount) break;
