@@ -746,7 +746,7 @@ export async function syncCompetitorBoards(sql, competitorId, username, cookie =
           COALESCE(x.metadata, '{}'::jsonb),
           COALESCE(x.created_at, NOW()),
           NOW()
-        FROM jsonb_to_recordset(${JSON.stringify(chunk)}::jsonb) AS x(
+        FROM jsonb_to_recordset(${typeof sql.json === 'function' ? sql.json(chunk) : JSON.stringify(chunk)}::jsonb) AS x(
           board_id VARCHAR(64),
           name VARCHAR(255),
           url TEXT,
@@ -2020,7 +2020,7 @@ export async function upsertCompetitorPins(sql, competitorId, pins) {
         ${competitorId}, x.pin_id, x.title, x.description, x.link_domain,
         x.destination_url, x.board_name, COALESCE(NULLIF(x.board_slug, ''), LOWER(REGEXP_REPLACE(REGEXP_REPLACE(x.board_name, '[^[:alnum:]]+', '-', 'g'), '^-|-$', '', 'g'))), x.image_url, x.save_count, x.repin_count,
         x.comment_count, x.is_product, x.created_at_pinterest, NOW(), NOW(), 'pending'
-      FROM jsonb_to_recordset(${JSON.stringify(sanitizeForJsonb(sortedPins))}::jsonb) AS x(
+      FROM jsonb_to_recordset(${typeof sql.json === 'function' ? sql.json(sanitizeForJsonb(sortedPins)) : JSON.stringify(sanitizeForJsonb(sortedPins))}::jsonb) AS x(
         pin_id VARCHAR(64), title TEXT, description TEXT, link_domain VARCHAR(255),
         destination_url TEXT, board_name VARCHAR(255), board_slug VARCHAR(255), image_url TEXT,
         save_count INT, repin_count INT, comment_count INT, is_product BOOLEAN, created_at_pinterest TIMESTAMPTZ
@@ -2646,7 +2646,7 @@ export async function reEvaluateCompetitorPins(sql, competitorId) {
           x.board_name, x.image_url, x.dominant_color, x.saves, x.repins, x.comments,
           x.share_count, x.reactions, x.velocity, x.annotations, x.is_video, x.is_product,
           x.created_at_pinterest, x.first_seen_at, x.last_updated_at, x.alt_text
-        FROM jsonb_to_recordset(${JSON.stringify(batch)}::jsonb) AS x(
+        FROM jsonb_to_recordset(${typeof sql.json === 'function' ? sql.json(batch) : JSON.stringify(batch)}::jsonb) AS x(
           pin_id character varying, account_username character varying, title text, description text, link text, domain character varying,
           board_name character varying, image_url text, dominant_color character varying, saves bigint, repins bigint, comments integer,
           share_count bigint, reactions jsonb, velocity numeric, annotations jsonb, is_video boolean, is_product boolean,

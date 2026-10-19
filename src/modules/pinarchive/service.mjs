@@ -400,7 +400,7 @@ export async function ingestPinsBatch(sql, pins, accountUsername = null, { filte
   }
   const dedupedPins = Array.from(pinMap.values());
 
-  const jsonPayload = JSON.stringify(dedupedPins.map(p => ({
+  const payloadArray = dedupedPins.map(p => ({
     pin_id: p.pinId,
     account_username: cleanAccount,
     title: p.title || '',
@@ -420,7 +420,8 @@ export async function ingestPinsBatch(sql, pins, accountUsername = null, { filte
     is_video: Boolean(p.isVideo),
     is_product: Boolean(p.isProduct),
     created_at_pinterest: p.createdAtPinterest || null
-  })));
+  }));
+  const jsonPayload = JSON.stringify(payloadArray);
 
   try {
     const buildPinsQuery = (db) => db`
@@ -471,7 +472,7 @@ export async function ingestPinsBatch(sql, pins, accountUsername = null, { filte
         NOW()
       FROM (
         SELECT *
-        FROM jsonb_to_recordset(${jsonPayload}::jsonb) AS raw(
+        FROM jsonb_to_recordset(${typeof db.json === 'function' ? db.json(payloadArray) : jsonPayload}::jsonb) AS raw(
           pin_id text,
           account_username text,
           title text,
@@ -532,7 +533,7 @@ export async function ingestPinsBatch(sql, pins, accountUsername = null, { filte
         GREATEST(u.comments, COALESCE(p.comments, 0))
       FROM (
         SELECT *
-        FROM jsonb_to_recordset(${jsonPayload}::jsonb) AS raw(
+        FROM jsonb_to_recordset(${typeof db.json === 'function' ? db.json(payloadArray) : jsonPayload}::jsonb) AS raw(
           pin_id text,
           saves bigint,
           repins int,

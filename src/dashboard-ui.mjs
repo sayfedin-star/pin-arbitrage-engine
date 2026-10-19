@@ -4336,39 +4336,50 @@ export function getDashboardHtml() {
                 <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
               </a>
 
-              <!-- ⚡ Fast Refresh -->
+              <!-- Fast Refresh -->
               <button @click="fastRefreshCompetitorAction(activeCreator)" :disabled="fastRefreshingCompetitorId === activeCreator.id" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 text-xs font-semibold text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 transition shadow-2xs cursor-pointer disabled:opacity-50" title="Instant live refresh of saves/repins for all winning archived pins directly from Pinterest">
                 <i data-lucide="zap" class="w-3.5 h-3.5" :class="fastRefreshingCompetitorId === activeCreator.id ? 'animate-spin' : ''"></i>
-                <span x-text="fastRefreshingCompetitorId === activeCreator.id ? 'Refreshing...' : '⚡ Fast Refresh'"></span>
+                <span x-text="fastRefreshingCompetitorId === activeCreator.id ? 'Refreshing...' : 'Fast Refresh'"></span>
               </button>
 
-              <!-- 📋 Discover Full Catalog -->
+              <!-- Discover Full Catalog -->
               <button @click="discoverFullCatalogAction(activeCreator)" :disabled="discoveringCatalogCompetitorId === activeCreator.id" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-purple-500/30 bg-purple-500/10 px-3 text-xs font-semibold text-purple-600 dark:text-purple-400 hover:bg-purple-500/20 transition shadow-2xs cursor-pointer disabled:opacity-50" title="Exhaustive crawl of all pins until the end of the creator's feed (ignores early-stop)">
                 <i data-lucide="library" class="w-3.5 h-3.5" :class="discoveringCatalogCompetitorId === activeCreator.id ? 'animate-bounce' : ''"></i>
-                <span x-text="discoveringCatalogCompetitorId === activeCreator.id ? 'Discovering...' : '📋 Discover Full Catalog'"></span>
+                <span x-text="discoveringCatalogCompetitorId === activeCreator.id ? 'Discovering...' : 'Discover Full Catalog'"></span>
               </button>
 
-              <!-- 🏛️ Audit Sweep Now -->
+              <!-- Audit Sweep Now -->
               <button @click="auditSweepCompetitorAction(activeCreator)" :disabled="auditSweepingCompetitorId === activeCreator.id" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-indigo-500/30 bg-indigo-500/10 px-3 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-500/20 transition shadow-2xs cursor-pointer disabled:opacity-50" title="Comprehensive audit sweep: profile reach, monotonic checks, boards inventory, destination URLs">
                 <i data-lucide="shield-check" class="w-3.5 h-3.5" :class="auditSweepingCompetitorId === activeCreator.id ? 'animate-spin' : ''"></i>
-                <span x-text="auditSweepingCompetitorId === activeCreator.id ? 'Auditing...' : '🏛️ Audit Sweep Now'"></span>
+                <span x-text="auditSweepingCompetitorId === activeCreator.id ? 'Auditing...' : 'Audit Sweep Now'"></span>
               </button>
 
-              <!-- 🔄 Sync Profile -->
+              <!-- Sync Profile -->
               <button @click="syncCompetitor(activeCreator.username)" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 transition shadow-2xs cursor-pointer" title="Sync profile reach, followers, and boards breakdown">
                 <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
-                <span>🔄 Sync Profile</span>
+                <span>Sync Profile</span>
               </button>
 
               <!-- GHA Distributed Matrix Crawler -->
-              <button @click="openGhaCrawlerModal(activeCreator)" :disabled="isDispatchingGitHubCrawl" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white px-4 text-xs font-bold transition shadow-md cursor-pointer disabled:opacity-50" title="Launch 20-Shard Parallel Matrix Crawler on GitHub Actions (Distributed IP Egress & 100% Reliability)">
-                <i data-lucide="zap" class="w-3.5 h-3.5" :class="isDispatchingGitHubCrawl ? 'animate-spin' : ''"></i>
-                <span x-text="isDispatchingGitHubCrawl ? 'Dispatching...' : '⚡ Harvest Pins (GHA)'"></span>
+              <button @click="openGhaCrawlerModal(activeCreator)" :disabled="isDispatchingGitHubCrawl" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white px-3.5 text-xs font-bold transition shadow-md cursor-pointer disabled:opacity-50" title="Launch 20-Shard Parallel Matrix Crawler on GitHub Actions (Distributed IP Egress & 100% Reliability)">
+                <i data-lucide="cpu" class="w-3.5 h-3.5" :class="isDispatchingGitHubCrawl ? 'animate-spin' : ''"></i>
+                <span x-text="isDispatchingGitHubCrawl ? 'Dispatching...' : 'Harvest Pins (GHA)'"></span>
               </button>
 
               <!-- Pause / Resume -->
-              <button @click="toggleCompetitorStatus(activeCreator)" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0d1526] px-3 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition shadow-2xs cursor-pointer">
-                <span x-text="activeCreator.is_active === false ? '▶ Resume' : '⏸ Pause'"></span>
+              <button @click="toggleCompetitorStatus(activeCreator)" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0d1526] px-3 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition shadow-2xs cursor-pointer" :title="activeCreator.is_active === false ? 'Resume Ingestion' : 'Pause Ingestion'">
+                <template x-if="activeCreator.is_active === false">
+                  <span class="inline-flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><polygon points="6 3 20 12 6 21 6 3"/></svg>
+                    <span>Resume</span>
+                  </span>
+                </template>
+                <template x-if="activeCreator.is_active !== false">
+                  <span class="inline-flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><rect x="14" y="4" width="4" height="16" rx="1"/><rect x="6" y="4" width="4" height="16" rx="1"/></svg>
+                    <span>Pause</span>
+                  </span>
+                </template>
               </button>
             </div>
           </div>
@@ -5159,20 +5170,20 @@ export function getDashboardHtml() {
 
               <!-- Action buttons -->
               <div class="flex items-center gap-2 flex-wrap">
-                <!-- 📋 Discover Full Catalog -->
+                <!-- Discover Full Catalog -->
                 <button type="button" @click="discoverFullCatalogAction(activeCreator)" :disabled="discoveringCatalogCompetitorId === activeCreator.id" class="px-3.5 py-2 text-xs font-bold rounded-xl border border-purple-500/30 bg-purple-500/10 text-purple-600 dark:text-purple-400 hover:bg-purple-500/20 transition flex items-center gap-1.5 cursor-pointer shadow-2xs disabled:opacity-50" title="Discover full catalog (crawls all pages until end of feed without early-stop)">
                   <i data-lucide="library" class="w-3.5 h-3.5" :class="discoveringCatalogCompetitorId === activeCreator.id ? 'animate-bounce' : ''"></i>
-                  <span x-text="discoveringCatalogCompetitorId === activeCreator.id ? 'Discovering...' : '📋 Discover Full Catalog'"></span>
+                  <span x-text="discoveringCatalogCompetitorId === activeCreator.id ? 'Discovering...' : 'Discover Full Catalog'"></span>
                 </button>
-                <!-- ⚡ Fast Refresh -->
+                <!-- Fast Refresh -->
                 <button type="button" @click="fastRefreshCompetitorAction(activeCreator)" :disabled="fastRefreshingCompetitorId === activeCreator.id" class="px-3 py-2 text-xs font-bold rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 transition flex items-center gap-1.5 cursor-pointer shadow-2xs disabled:opacity-50" title="Instant live refresh of saves/repins for all winning archived pins from Pinterest">
                   <i data-lucide="zap" class="w-3.5 h-3.5" :class="fastRefreshingCompetitorId === activeCreator.id ? 'animate-spin' : ''"></i>
-                  <span x-text="fastRefreshingCompetitorId === activeCreator.id ? 'Refreshing...' : '⚡ Fast Refresh'"></span>
+                  <span x-text="fastRefreshingCompetitorId === activeCreator.id ? 'Refreshing...' : 'Fast Refresh'"></span>
                 </button>
-                <!-- 🏛️ Audit Sweep Now -->
+                <!-- Audit Sweep Now -->
                 <button type="button" @click="auditSweepCompetitorAction(activeCreator)" :disabled="auditSweepingCompetitorId === activeCreator.id" class="px-3 py-2 text-xs font-bold rounded-xl border border-indigo-500/30 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-500/20 transition flex items-center gap-1.5 cursor-pointer shadow-2xs disabled:opacity-50" title="Comprehensive audit sweep: profile reach, monotonic checks, boards inventory, destination URLs">
                   <i data-lucide="shield-check" class="w-3.5 h-3.5" :class="auditSweepingCompetitorId === activeCreator.id ? 'animate-spin' : ''"></i>
-                  <span x-text="auditSweepingCompetitorId === activeCreator.id ? 'Auditing...' : '🏛️ Audit Sweep Now'"></span>
+                  <span x-text="auditSweepingCompetitorId === activeCreator.id ? 'Auditing...' : 'Audit Sweep Now'"></span>
                 </button>
                 <!-- Refresh Local Table -->
                 <button type="button" @click="fetchCreatorAllPins()" class="px-3 py-2 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0d1526] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition flex items-center gap-1.5 cursor-pointer shadow-2xs">
@@ -5181,8 +5192,8 @@ export function getDashboardHtml() {
                 </button>
                 <!-- GHA Crawler -->
                 <button type="button" @click="openGhaCrawlerModal(activeCreator)" :disabled="isDispatchingGitHubCrawl" class="px-4 py-2 text-xs font-bold rounded-xl bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white transition flex items-center gap-2 cursor-pointer shadow-sm active:scale-95 disabled:opacity-50" title="Harvest creator pins using 20 parallel GitHub Actions runner shards">
-                  <i data-lucide="zap" class="w-4 h-4" :class="isDispatchingGitHubCrawl ? 'animate-spin' : ''"></i>
-                  <span x-text="isDispatchingGitHubCrawl ? 'Dispatching...' : '⚡ Harvest via GitHub Actions (20 Shards)'"></span>
+                  <i data-lucide="cpu" class="w-4 h-4" :class="isDispatchingGitHubCrawl ? 'animate-spin' : ''"></i>
+                  <span x-text="isDispatchingGitHubCrawl ? 'Dispatching...' : 'Harvest via GitHub Actions (20 Shards)'"></span>
                 </button>
               </div>
             </div>
