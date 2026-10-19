@@ -36,7 +36,7 @@ import {
 } from '../src/modules/competitors/service.mjs';
 import { syncCompetitorAcrossFleet } from '../src/modules/fleet/service.mjs';
 import { getQualificationRules, isPinQualified } from '../src/modules/pinarchive/service.mjs';
-import { fetchBoardsResource, fetchPinFromPinterest, setDefaultDispatcher, sleep, randomJitterMs } from './lib/pinterest.mjs';
+import { fetchBoardsResource, fetchPinFromPinterest, fetchPinFromPinResource, setDefaultDispatcher, sleep, randomJitterMs } from './lib/pinterest.mjs';
 import { getShardNumberForEntity, getResilientShardNumberForEntity } from '../src/modules/fleet/sharding.mjs';
 import { assertShardSchemaParity } from '../src/modules/fleet/guardrails.mjs';
 import { enforceNeonPoolerUrl } from '../src/modules/sharding/fleet-router.mjs';
@@ -1686,11 +1686,26 @@ async function runDailyScheduledMode(sqlClient, shardSql, shardNumber, shardTota
         try {
           const fetchRes = await fetchPinFromPinterest(p.pin_id, cookie);
           if (fetchRes.ok && fetchRes.pin) {
-            const fresh = fetchRes.pin;
-            const freshSaves = Math.max(0, Number(fresh.saves || fresh.save_count || p.saves || 0));
-            const freshRepins = Math.max(0, Number(fresh.repins || fresh.repin_count || p.repins || 0));
+            let fresh = fetchRes.pin;
+            const prevSaves = Math.max(0, Number(p.saves || 0));
+            const prevRepins = Math.max(0, Number(p.repins || 0));
+            let rawFreshSaves = Math.max(0, Number(fresh.saves || fresh.save_count || 0));
+            let rawFreshRepins = Math.max(0, Number(fresh.repins || fresh.repin_count || 0));
+
+            // Anomaly shield: If fresh saves plunged or collapsed to repins, fallback to PinResource JSON
+            if (rawFreshSaves < prevSaves * 0.8 || (rawFreshSaves === rawFreshRepins && rawFreshRepins > 50)) {
+              const resPin = await fetchPinFromPinResource(p.pin_id);
+              if (resPin && resPin.saves > 0) {
+                fresh = { ...fresh, ...resPin };
+                rawFreshSaves = Math.max(rawFreshSaves, Number(resPin.saves || 0));
+                rawFreshRepins = Math.max(rawFreshRepins, Number(resPin.repins || 0));
+              }
+            }
+
+            // Monotonic non-decreasing protection on time-series telemetry
+            const freshSaves = Math.max(prevSaves, rawFreshSaves);
+            const freshRepins = Math.max(prevRepins, rawFreshRepins);
             const freshComments = Math.max(0, Number(fresh.comments || fresh.comment_count || p.comments || 0));
-            const prevSaves = Number(p.saves || 0);
             const deltaSaves = Math.max(0, freshSaves - prevSaves);
 
             await sqlClient`

@@ -1992,7 +1992,7 @@ export async function upsertCompetitorPins(sql, competitorId, pins) {
       repin_count: Math.max(0, Number(p.repins) || 0),
       comment_count: Math.max(0, Number(p.comments) || 0),
       is_product: Boolean(p.is_product),
-      created_at_pinterest: p.created_at_pinterest ? new Date(p.created_at_pinterest).toISOString() : null
+      created_at_pinterest: (p.created_at_pinterest && !isNaN(new Date(p.created_at_pinterest).getTime())) ? new Date(p.created_at_pinterest).toISOString() : null
     });
   }
 
@@ -2017,7 +2017,7 @@ export async function upsertCompetitorPins(sql, competitorId, pins) {
         ${competitorId}, x.pin_id, x.title, x.description, x.link_domain,
         x.destination_url, x.board_name, COALESCE(NULLIF(x.board_slug, ''), LOWER(REGEXP_REPLACE(REGEXP_REPLACE(x.board_name, '[^[:alnum:]]+', '-', 'g'), '^-|-$', '', 'g'))), x.image_url, x.save_count, x.repin_count,
         x.comment_count, x.is_product, x.created_at_pinterest, NOW(), NOW(), 'pending'
-      FROM jsonb_to_recordset(${JSON.stringify(sortedPins)}::jsonb) AS x(
+      FROM jsonb_to_recordset(${JSON.stringify(sanitizeForJsonb(sortedPins))}::jsonb) AS x(
         pin_id VARCHAR(64), title TEXT, description TEXT, link_domain VARCHAR(255),
         destination_url TEXT, board_name VARCHAR(255), board_slug VARCHAR(255), image_url TEXT,
         save_count INT, repin_count INT, comment_count INT, is_product BOOLEAN, created_at_pinterest TIMESTAMPTZ
@@ -2081,6 +2081,58 @@ export async function upsertCompetitorPins(sql, competitorId, pins) {
 }
 
 /**
+ * Auto-hydrates competitor_pins from pa_pins if competitor_pins inventory is empty.
+ * Guarantees zero "0 total pins" display for tracked creators.
+ */
+export async function autoHydrateCompetitorPinsFromArchive(sql, competitorId, username) {
+  if (!competitorId || !username) return 0;
+  const cleanUser = String(username).replace(/^@/, '').trim().toLowerCase();
+  try {
+    const result = await sql`
+      INSERT INTO competitor_pins (
+        competitor_id, pin_id, title, description, link_domain,
+        destination_url, board_name, board_slug, image_url, save_count, repin_count,
+        comment_count, is_product, created_at_pinterest, first_seen_at, last_seen_at, enrichment_status
+      )
+      SELECT 
+        ${competitorId},
+        p.pin_id,
+        COALESCE(p.title, ''),
+        COALESCE(p.description, ''),
+        COALESCE(NULLIF(p.domain, ''), ''),
+        COALESCE(NULLIF(p.link, ''), ''),
+        COALESCE(p.board_name, ''),
+        LOWER(REGEXP_REPLACE(REGEXP_REPLACE(COALESCE(p.board_name, ''), '[^[:alnum:]]+', '-', 'g'), '^-|-$', '', 'g')),
+        COALESCE(p.image_url, ''),
+        COALESCE(p.saves, 0)::int,
+        COALESCE(p.repins, 0)::int,
+        COALESCE(p.comments, 0)::int,
+        COALESCE(p.is_product, false),
+        p.created_at_pinterest,
+        COALESCE(p.first_seen_at, NOW()),
+        NOW(),
+        'completed'
+      FROM pa_pins p
+      WHERE p.account_username ILIKE ${cleanUser}
+      ON CONFLICT (competitor_id, pin_id) DO UPDATE SET
+        title = CASE WHEN EXCLUDED.title <> '' THEN EXCLUDED.title ELSE competitor_pins.title END,
+        destination_url = CASE WHEN EXCLUDED.destination_url <> '' THEN EXCLUDED.destination_url ELSE competitor_pins.destination_url END,
+        link_domain = CASE WHEN EXCLUDED.link_domain <> '' THEN EXCLUDED.link_domain ELSE competitor_pins.link_domain END,
+        board_name = CASE WHEN EXCLUDED.board_name <> '' THEN EXCLUDED.board_name ELSE competitor_pins.board_name END,
+        save_count = GREATEST(competitor_pins.save_count, EXCLUDED.save_count),
+        repin_count = GREATEST(competitor_pins.repin_count, EXCLUDED.repin_count),
+        comment_count = GREATEST(competitor_pins.comment_count, EXCLUDED.comment_count),
+        is_product = (competitor_pins.is_product OR EXCLUDED.is_product),
+        last_seen_at = NOW();
+    `;
+    return result.count || 0;
+  } catch (err) {
+    console.warn(`[autoHydrateCompetitorPinsFromArchive] Warning:`, err.message);
+    return 0;
+  }
+}
+
+/**
  * List all creator pins from competitor_pins inventory with rich filtering, sorting, and pagination
  */
 export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
@@ -2132,6 +2184,19 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
 
   if (!numericId) {
     return { pins: [], total: 0, page: 1, limit, total_pages: 0, boards: [] };
+  }
+
+  // Auto-hydration guarantee: If competitor_pins has 0 rows for this competitor,
+  // but pa_pins contains pins for this account, auto-hydrate them immediately so UI is never 0!
+  if (cleanUsername) {
+    try {
+      const [{ count: currentCount }] = await sql`
+        SELECT COUNT(*)::int AS count FROM competitor_pins WHERE competitor_id = ${numericId};
+      `;
+      if (currentCount === 0) {
+        await autoHydrateCompetitorPinsFromArchive(sql, numericId, cleanUsername);
+      }
+    } catch (_) {}
   }
 
   const pNum = Math.max(1, parseInt(page, 10) || 1);
@@ -2281,6 +2346,19 @@ export async function getTopDestinationUrls(sql, competitorId, {
 } = {}) {
   const numericId = await resolveNumericCompetitorId(sql, competitorId);
   if (!numericId || isNaN(numericId)) throw new Error('Valid competitorId is required.');
+
+  // Auto-hydration check if competitor_pins inventory is empty
+  try {
+    const [{ count: currentCount }] = await sql`
+      SELECT COUNT(*)::int AS count FROM competitor_pins WHERE competitor_id = ${numericId};
+    `;
+    if (currentCount === 0) {
+      const [comp] = await sql`SELECT username FROM competitor_profiles WHERE id = ${numericId};`;
+      if (comp?.username) {
+        await autoHydrateCompetitorPinsFromArchive(sql, numericId, comp.username);
+      }
+    }
+  } catch (_) {}
 
   const pLim = Math.max(1, Math.min(Number(limit) || 50, 200));
   const pNum = Math.max(1, Number(page) || 1);

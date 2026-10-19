@@ -569,6 +569,54 @@ export async function ingestPinsBatch(sql, pins, accountUsername = null, { filte
       if (r.is_inserted) addedCount++;
       else updatedCount++;
     }
+
+    if (cleanAccount) {
+      try {
+        const [comp] = await sql`SELECT id FROM competitor_profiles WHERE LOWER(username) = ${cleanAccount} LIMIT 1;`;
+        if (comp?.id) {
+          await sql`
+            INSERT INTO competitor_pins (
+              competitor_id, pin_id, title, description, link_domain,
+              destination_url, board_name, board_slug, image_url, save_count, repin_count,
+              comment_count, is_product, created_at_pinterest, first_seen_at, last_seen_at, enrichment_status
+            )
+            SELECT 
+              ${comp.id},
+              u.pin_id,
+              COALESCE(u.title, ''),
+              COALESCE(u.description, ''),
+              COALESCE(NULLIF(u.domain, ''), ''),
+              COALESCE(NULLIF(u.link, ''), ''),
+              COALESCE(u.board_name, ''),
+              LOWER(REGEXP_REPLACE(REGEXP_REPLACE(COALESCE(u.board_name, ''), '[^[:alnum:]]+', '-', 'g'), '^-|-$', '', 'g')),
+              COALESCE(u.image_url, ''),
+              COALESCE(u.saves, 0)::int,
+              COALESCE(u.repins, 0)::int,
+              COALESCE(u.comments, 0)::int,
+              COALESCE(u.is_product, false),
+              u.created_at_pinterest::timestamptz,
+              NOW(),
+              NOW(),
+              'completed'
+            FROM jsonb_to_recordset(${jsonPayload}::jsonb) AS u(
+              pin_id text, title text, description text, domain text, link text,
+              board_name text, image_url text, saves bigint, repins int,
+              comments int, is_product boolean, created_at_pinterest text
+            )
+            ON CONFLICT (competitor_id, pin_id) DO UPDATE SET
+              title = CASE WHEN EXCLUDED.title <> '' THEN EXCLUDED.title ELSE competitor_pins.title END,
+              destination_url = CASE WHEN EXCLUDED.destination_url <> '' THEN EXCLUDED.destination_url ELSE competitor_pins.destination_url END,
+              link_domain = CASE WHEN EXCLUDED.link_domain <> '' THEN EXCLUDED.link_domain ELSE competitor_pins.link_domain END,
+              board_name = CASE WHEN EXCLUDED.board_name <> '' THEN EXCLUDED.board_name ELSE competitor_pins.board_name END,
+              save_count = GREATEST(competitor_pins.save_count, EXCLUDED.save_count),
+              repin_count = GREATEST(competitor_pins.repin_count, EXCLUDED.repin_count),
+              comment_count = GREATEST(competitor_pins.comment_count, EXCLUDED.comment_count),
+              is_product = (competitor_pins.is_product OR EXCLUDED.is_product),
+              last_seen_at = NOW();
+          `.catch(() => {});
+        }
+      } catch (_) {}
+    }
   } catch (batchErr) {
     console.warn('[ingestPinsBatch] Bulk ingest batch warning:', batchErr.message);
   }

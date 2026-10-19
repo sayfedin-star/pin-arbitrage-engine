@@ -382,15 +382,20 @@ export function formatPin(pin) {
     pin.saveCount ??
     pin.saves ??
     pin.aggregated_pin_data?.saves ??
+    pin.aggregated_pin_data?.save_count ??
+    pin.aggregated_pin_data?.aggregated_stats?.saves ??
+    pin.aggregated_pin_data?.aggregated_stats?.save_count ??
     pin.aggregatedStats?.saves ??
     pin.aggregatedStats?.save_count ??
     pin.aggregatedPinData?.aggregatedStats?.saves ??
+    pin.aggregatedPinData?.saveCount ??
     pin.canonicalPin?.saveCount ??
     pin.canonicalPin?.save_count ??
     0
   );
 
-  const saves = Math.max(rawSaves, rawRepins);
+  const hasExplicitSaves = rawSaves > 0;
+  const saves = hasExplicitSaves ? Math.max(rawSaves, rawRepins) : rawRepins;
   const repins = rawRepins;
 
   const comments = parseCleanMetric(
@@ -546,6 +551,7 @@ export function formatPin(pin) {
     is_video: Boolean(pin.is_video || pin.isVideo || pin.video_status),
     is_product: isProduct,
     saves,
+    has_explicit_saves: hasExplicitSaves,
     repins,
     comments,
     share_count: shareCount,
@@ -659,8 +665,23 @@ export function extractPinData(rawHtml, pinId) {
         if (v3.creationMethod || v3.creation_method) mergedRelayPin.creation_method = v3.creationMethod || v3.creation_method;
         if (v3.attribution?.provider_name) mergedRelayPin.provider_name = v3.attribution.provider_name;
 
-        if (v3.aggregatedPinData?.entityId) {
-          mergedRelayPin.aggregated_pin_data_id = String(v3.aggregatedPinData.entityId);
+        if (v3.aggregatedPinData) {
+          if (v3.aggregatedPinData.entityId) {
+            mergedRelayPin.aggregated_pin_data_id = String(v3.aggregatedPinData.entityId);
+          }
+          const prevApd = mergedRelayPin.aggregatedPinData || {};
+          const prevStats = prevApd.aggregatedStats || {};
+          const nextStats = v3.aggregatedPinData.aggregatedStats || {};
+          mergedRelayPin.aggregatedPinData = {
+            ...prevApd,
+            ...v3.aggregatedPinData,
+            aggregatedStats: {
+              ...prevStats,
+              ...nextStats,
+              saves: Math.max(Number(prevStats.saves || 0), Number(nextStats.saves || 0)),
+              save_count: Math.max(Number(prevStats.save_count || prevStats.saves || 0), Number(nextStats.save_count || nextStats.saves || 0))
+            }
+          };
         }
 
         if (v3.isRepin !== undefined && v3.isRepin !== null) mergedRelayPin.isRepin = Boolean(v3.isRepin);
@@ -784,11 +805,11 @@ export function extractPinData(rawHtml, pinId) {
           };
         }
 
-        const saves = v3.saveCount ?? v3.aggregatedStats?.saves ?? v3.aggregatedPinData?.aggregatedStats?.saves;
-        if (saves !== undefined && saves !== null) {
+        const saves = v3.saveCount ?? v3.save_count ?? v3.aggregatedStats?.saves ?? v3.aggregatedStats?.saveCount ?? v3.aggregatedPinData?.aggregatedStats?.saves ?? v3.aggregatedPinData?.saveCount;
+        if (saves !== undefined && saves !== null && Number(saves) > 0) {
           mergedRelayPin.saves = Math.max(mergedRelayPin.saves || 0, Number(saves));
         }
-        const repins = v3.repinCount ?? v3.aggregatedStats?.repins ?? v3.aggregatedPinData?.aggregatedStats?.repins;
+        const repins = v3.repinCount ?? v3.repin_count ?? v3.aggregatedStats?.repins ?? v3.aggregatedPinData?.aggregatedStats?.repins;
         if (repins !== undefined && repins !== null) {
           mergedRelayPin.repins = Math.max(mergedRelayPin.repins || 0, Number(repins));
         }
@@ -973,8 +994,8 @@ export function extractPinData(rawHtml, pinId) {
   }
 
   // 6. OpenGraph Meta Tags fallback
-  const saveMeta = html.match(/property="pinterest:saves"\s+content="(\d+)"/i) || html.match(/name="pinterest:saves"\s+content="(\d+)"/i);
-  const repinMeta = html.match(/property="pinterest:repins"\s+content="(\d+)"/i) || html.match(/name="pinterest:repins"\s+content="(\d+)"/i);
+  const saveMeta = html.match(/(?:property|name)="pinterest(?:app)?:saves"\s+content="(\d+)"/i);
+  const repinMeta = html.match(/(?:property|name)="pinterest(?:app)?:repins"\s+content="(\d+)"/i);
   const titleMeta = html.match(/property="og:title"\s+content="([^"]*)"/i);
   const descMeta = html.match(/property="og:description"\s+content="([^"]*)"/i);
   const imgMeta = html.match(/property="og:image"\s+content="([^"]*)"/i);
@@ -1091,7 +1112,28 @@ export async function fetchPinFromPinterest(pinId, cookieOrOptions = null, maybe
       return { ok: false, status: res.status, retryAfter: resRetryAfter };
     }
     const html = await res.text();
-    const parsed = extractPinData(html, pinId);
+    let parsed = extractPinData(html, pinId);
+
+    // Self-healing: if parsed lacks explicit saves or saves equals repins while repins > 50,
+    // verify with PinResource JSON endpoint which guarantees authentic public aggregate counts
+    const isSuspicious = !parsed || parsed.saves === 0 || (!parsed.has_explicit_saves && parsed.repins > 0) || (parsed.saves <= parsed.repins && parsed.repins > 50);
+    if (isSuspicious) {
+      const fallbackPin = await fetchPinFromPinResource(cleanId, dispatcher);
+      if (fallbackPin && fallbackPin.saves > 0) {
+        if (!parsed) {
+          parsed = fallbackPin;
+        } else {
+          parsed = {
+            ...parsed,
+            ...fallbackPin,
+            saves: Math.max(parsed.saves || 0, fallbackPin.saves || 0),
+            repins: Math.max(parsed.repins || 0, fallbackPin.repins || 0),
+            has_explicit_saves: true
+          };
+        }
+      }
+    }
+
     if (parsed) return { ok: true, pin: parsed };
 
     // Graceful fallback to PinResource JSON endpoint if HTML parsing failed
