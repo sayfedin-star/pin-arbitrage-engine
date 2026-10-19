@@ -3888,12 +3888,7 @@ export function getDashboardHtml() {
                       </button>
                     </td>
                     <td class="py-3 px-3 text-center">
-                      <template x-if="c.is_active === false">
-                        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 whitespace-nowrap" title="Ingestion is paused for this profile">⏸ Paused</span>
-                      </template>
-                      <template x-if="c.is_active !== false">
-                        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 whitespace-nowrap" x-text="'• ' + (c.activity_status || '1d ago')"></span>
-                      </template>
+                      <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 whitespace-nowrap" x-text="'• ' + (c.activity_status || '1d ago')"></span>
                     </td>
                     <td class="py-3 px-3 text-center">
                       <div class="flex items-center justify-center space-x-1">
@@ -3915,7 +3910,12 @@ export function getDashboardHtml() {
                         </button>
                         <!-- Pause / Resume Toggle -->
                         <button @click="toggleCompetitorStatus(c)" class="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition cursor-pointer" :title="c.is_active === false ? 'Resume Ingestion' : 'Pause Ingestion'">
-                          <i :data-lucide="c.is_active === false ? 'play' : 'pause'" class="w-3.5 h-3.5" :class="c.is_active === false ? 'text-emerald-500' : 'text-slate-400 hover:text-amber-500'"></i>
+                          <template x-if="c.is_active === false">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-emerald-500 hover:scale-110 transition-transform" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 3 20 12 6 21 6 3"/></svg>
+                          </template>
+                          <template x-if="c.is_active !== false">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-slate-400 hover:text-amber-500 hover:scale-110 transition-transform" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="14" y="4" width="4" height="16" rx="1"/><rect x="6" y="4" width="4" height="16" rx="1"/></svg>
+                          </template>
                         </button>
                         <!-- Sync Live Profile -->
                         <button @click="syncCompetitor(c.username)" class="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400 hover:text-emerald-500 transition cursor-pointer" title="Sync live profile">
@@ -10871,21 +10871,33 @@ export function getDashboardHtml() {
 
         async bulkToggleSelectedStatus(activeStatus) {
           if (!this.selectedCompetitorIds.length) return;
+          const selectedSet = new Set(this.selectedCompetitorIds.map(Number));
+          const count = this.selectedCompetitorIds.length;
+
+          // 1. Instant optimistic reactive update across array
+          this.competitors = (this.competitors || []).map(comp => {
+            if (selectedSet.has(Number(comp.id))) {
+              return { ...comp, is_active: activeStatus };
+            }
+            return comp;
+          });
+          if (this.activeCreator && selectedSet.has(Number(this.activeCreator.id))) {
+            this.activeCreator = { ...this.activeCreator, is_active: activeStatus };
+          }
+          this.showToast(activeStatus ? ('▶ Resumed ingestion for ' + count + ' profiles.') : ('⏸ Paused ingestion for ' + count + ' profiles.'));
+
+          // 2. Persist to backend in background
           try {
             for (const cid of this.selectedCompetitorIds) {
-              const comp = (this.competitors || []).find(c => Number(c.id) === Number(cid));
-              if (comp) {
-                await fetch(this.getApiUrl('/api/competitors/status'), {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ id: cid, is_active: activeStatus })
-                });
-              }
+              await fetch(this.getApiUrl('/api/competitors/status'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: cid, is_active: activeStatus })
+              }).catch(() => {});
             }
             await this.fetchCompetitors();
-            this.showToast('Updated status for ' + this.selectedCompetitorIds.length + ' competitors.');
           } catch (e) {
-            this.showToast('Error toggling status: ' + e.message);
+            console.error('bulkToggleSelectedStatus error:', e);
           }
         },
 
@@ -12618,28 +12630,51 @@ export function getDashboardHtml() {
 
         async toggleCompetitorStatus(creator) {
           if (!creator) return;
-          const newStatus = creator.is_active === false;
+          const oldStatus = creator.is_active !== false;
+          const newStatus = !oldStatus;
           const targetId = creator.id || creator.username;
+
+          // 1. Instant optimistic reactive update across array
+          creator.is_active = newStatus;
+          this.competitors = (this.competitors || []).map(c => {
+            if ((creator.id && c.id === creator.id) || (c.username && creator.username && c.username.toLowerCase() === creator.username.toLowerCase())) {
+              return { ...c, is_active: newStatus };
+            }
+            return c;
+          });
+          if (this.activeCreator && ((creator.id && this.activeCreator.id === creator.id) || (this.activeCreator.username && creator.username && this.activeCreator.username.toLowerCase() === creator.username.toLowerCase()))) {
+            this.activeCreator = { ...this.activeCreator, is_active: newStatus };
+          }
+          this.showToast(newStatus ? '▶ Ingestion resumed.' : '⏸ Ingestion paused.');
+
+          // 2. Persist to backend
           try {
             const res = await fetch(this.getApiUrl('/api/competitors/status'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ id: targetId, is_active: newStatus })
             });
-            if (res.ok) {
-              creator.is_active = newStatus;
-              if (this.activeCreator && (this.activeCreator.id === creator.id || this.activeCreator.username === creator.username)) {
-                this.activeCreator.is_active = newStatus;
-              }
-              const existing = (this.competitors || []).find(c => c.id === creator.id || c.username === creator.username);
-              if (existing) existing.is_active = newStatus;
-              this.showToast(newStatus ? '✅ Competitor resumed.' : '⏸ Competitor paused.');
-            } else {
+            if (!res.ok) {
+              // Rollback
+              creator.is_active = oldStatus;
+              this.competitors = (this.competitors || []).map(c => {
+                if ((creator.id && c.id === creator.id) || (c.username && creator.username && c.username.toLowerCase() === creator.username.toLowerCase())) {
+                  return { ...c, is_active: oldStatus };
+                }
+                return c;
+              });
               this.showToast('Failed to update status', 'error');
             }
           } catch (e) {
-            console.error('toggleCompetitorStatus error:', e);
-            this.showToast('Error updating competitor status', 'error');
+            // Rollback
+            creator.is_active = oldStatus;
+            this.competitors = (this.competitors || []).map(c => {
+              if ((creator.id && c.id === creator.id) || (c.username && creator.username && c.username.toLowerCase() === creator.username.toLowerCase())) {
+                return { ...c, is_active: oldStatus };
+              }
+              return c;
+            });
+            this.showToast('Error updating status: ' + e.message, 'error');
           }
         },
 
