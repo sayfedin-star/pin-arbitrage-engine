@@ -32,15 +32,17 @@ BEGIN
     NEW.repins := GREATEST(NEW.repins, prev_max_repins);
   END IF;
 
-  -- 3. Cross-check against master pa_pins table to prevent drops below established records
-  SELECT COALESCE(saves, 0), COALESCE(repins, 0)
-  INTO pa_pin_saves, pa_pin_repins
-  FROM pa_pins
-  WHERE pin_id = NEW.pin_id;
+  -- 3. Cross-check against master pa_pins table to prevent drops below established records ONLY for current/recent snapshots
+  IF NEW.recorded_at >= NOW() - INTERVAL '2 hours' THEN
+    SELECT COALESCE(saves, 0), COALESCE(repins, 0)
+    INTO pa_pin_saves, pa_pin_repins
+    FROM pa_pins
+    WHERE pin_id = NEW.pin_id;
 
-  IF pa_pin_saves > 0 THEN
-    NEW.saves := GREATEST(NEW.saves, pa_pin_saves);
-    NEW.repins := GREATEST(NEW.repins, pa_pin_repins);
+    IF pa_pin_saves > 0 THEN
+      NEW.saves := GREATEST(NEW.saves, pa_pin_saves);
+      NEW.repins := GREATEST(NEW.repins, pa_pin_repins);
+    END IF;
   END IF;
 
   RETURN NEW;

@@ -1130,10 +1130,11 @@ export async function fetchPinFromPinterest(pinId, cookieOrOptions = null, maybe
           parsed = fallbackPin;
         } else {
           parsed = {
-            ...parsed,
             ...fallbackPin,
+            ...parsed,
             saves: Math.max(parsed.saves || 0, fallbackPin.saves || 0),
             repins: Math.max(parsed.repins || 0, fallbackPin.repins || 0),
+            comments: Math.max(parsed.comments || 0, fallbackPin.comments || 0),
             has_explicit_saves: true
           };
         }

@@ -3687,8 +3687,8 @@ export function getDashboardHtml() {
             <span class="text-2xl font-extrabold text-slate-900 dark:text-white font-mono" x-text="competitorsOverview.tracked_profiles || competitors.length"></span>
           </div>
           <div class="mt-1 text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-between">
-            <span x-text="(competitorsOverview.own_count || 0) + ' own'"></span>
-            <span x-text="(competitorsOverview.competitor_count || competitors.length) + ' competitors'"></span>
+            <span x-text="(competitorsOverview.active_count ?? competitors.filter(c => c.is_active !== false).length) + ' active'"></span>
+            <span x-text="(competitorsOverview.paused_count ?? competitors.filter(c => c.is_active === false).length) + ' paused'"></span>
           </div>
         </div>
 
@@ -3893,23 +3893,23 @@ export function getDashboardHtml() {
                     <td class="py-3 px-3 text-center">
                       <div class="flex items-center justify-center space-x-1">
                         <!-- Inspect Dossier -->
-                        <button @click="openCreatorDossier(c)" class="p-1.5 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 transition cursor-pointer" title="Inspect Creator Dossier (Analytics, Pins & URLs)">
+                        <button @click.stop="openCreatorDossier(c)" class="p-1.5 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 transition cursor-pointer" title="Inspect Creator Dossier (Analytics, Pins & URLs)">
                           <i data-lucide="eye" class="w-3.5 h-3.5"></i>
                         </button>
                         <!-- ⚡ Fast Refresh -->
-                        <button @click="fastRefreshCompetitorAction(c)" :disabled="fastRefreshingCompetitorId === c.id" class="p-1.5 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-950/40 text-slate-400 hover:text-amber-500 transition cursor-pointer disabled:opacity-50" title="⚡ Fast Refresh (Instant live update of winning archived pins from Pinterest)">
+                        <button @click.stop="fastRefreshCompetitorAction(c)" :disabled="fastRefreshingCompetitorId === c.id" class="p-1.5 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-950/40 text-slate-400 hover:text-amber-500 transition cursor-pointer disabled:opacity-50" title="⚡ Fast Refresh (Instant live update of winning archived pins from Pinterest)">
                           <i data-lucide="zap" class="w-3.5 h-3.5" :class="fastRefreshingCompetitorId === c.id ? 'animate-spin text-amber-500' : ''"></i>
                         </button>
                         <!-- 📋 Discover Full Catalog -->
-                        <button @click="discoverFullCatalogAction(c)" :disabled="discoveringCatalogCompetitorId === c.id" class="p-1.5 rounded-lg hover:bg-purple-100 dark:hover:bg-purple-950/40 text-slate-400 hover:text-purple-500 transition cursor-pointer disabled:opacity-50" title="📋 Discover Full Catalog (Crawl all pages to end of feed without early-stop)">
+                        <button @click.stop="discoverFullCatalogAction(c)" :disabled="discoveringCatalogCompetitorId === c.id" class="p-1.5 rounded-lg hover:bg-purple-100 dark:hover:bg-purple-950/40 text-slate-400 hover:text-purple-500 transition cursor-pointer disabled:opacity-50" title="📋 Discover Full Catalog (Crawl all pages to end of feed without early-stop)">
                           <i data-lucide="library" class="w-3.5 h-3.5" :class="discoveringCatalogCompetitorId === c.id ? 'animate-bounce text-purple-500' : ''"></i>
                         </button>
                         <!-- 🏛️ Audit Sweep Now -->
-                        <button @click="auditSweepCompetitorAction(c)" :disabled="auditSweepingCompetitorId === c.id" class="p-1.5 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-950/40 text-slate-400 hover:text-indigo-500 transition cursor-pointer disabled:opacity-50" title="🏛️ Audit Sweep Now (Sync profile reach, boards, monotonic metrics, destination URLs)">
+                        <button @click.stop="auditSweepCompetitorAction(c)" :disabled="auditSweepingCompetitorId === c.id" class="p-1.5 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-950/40 text-slate-400 hover:text-indigo-500 transition cursor-pointer disabled:opacity-50" title="🏛️ Audit Sweep Now (Sync profile reach, boards, monotonic metrics, destination URLs)">
                           <i data-lucide="shield-check" class="w-3.5 h-3.5" :class="auditSweepingCompetitorId === c.id ? 'animate-spin text-indigo-500' : ''"></i>
                         </button>
                         <!-- Pause / Resume Toggle -->
-                        <button @click="toggleCompetitorStatus(c)" class="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition cursor-pointer" :title="c.is_active === false ? 'Resume Ingestion' : 'Pause Ingestion'">
+                        <button @click.stop="toggleCompetitorStatus(c)" class="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition cursor-pointer" :title="c.is_active === false ? 'Resume Ingestion' : 'Pause Ingestion'">
                           <template x-if="c.is_active === false">
                             <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-emerald-500 hover:scale-110 transition-transform" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 3 20 12 6 21 6 3"/></svg>
                           </template>
@@ -3918,11 +3918,11 @@ export function getDashboardHtml() {
                           </template>
                         </button>
                         <!-- Sync Live Profile -->
-                        <button @click="syncCompetitor(c.username)" class="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400 hover:text-emerald-500 transition cursor-pointer" title="Sync live profile">
+                        <button @click.stop="syncCompetitor(c.username)" class="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400 hover:text-emerald-500 transition cursor-pointer" title="Sync live profile">
                           <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
                         </button>
                         <!-- Delete Competitor -->
-                        <button @click="deleteCompetitor(c.id)" class="p-1.5 rounded-lg hover:bg-rose-100 dark:hover:bg-rose-950/40 text-slate-400 hover:text-rose-500 transition cursor-pointer" title="Delete competitor">
+                        <button @click.stop="deleteCompetitor(c.id)" class="p-1.5 rounded-lg hover:bg-rose-100 dark:hover:bg-rose-950/40 text-slate-400 hover:text-rose-500 transition cursor-pointer" title="Delete competitor">
                           <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
                         </button>
                       </div>
@@ -3934,9 +3934,9 @@ export function getDashboardHtml() {
                 <tr>
                   <td></td>
                   <td class="py-3 px-3 font-sans" x-text="'Totals (' + filteredCompetitors.length + ')'"></td>
-                  <td class="py-3 px-3 text-right text-emerald-600 dark:text-emerald-400" x-text="formatNumber(competitorsOverview.combined_reach)"></td>
-                  <td class="py-3 px-3 text-right text-sky-600 dark:text-sky-400" x-text="formatNumber(competitorsOverview.total_audience)"></td>
-                  <td class="py-3 px-3 text-right text-amber-600 dark:text-amber-400" x-text="formatNumber(competitorsOverview.pins_tracked)"></td>
+                  <td class="py-3 px-3 text-right text-emerald-600 dark:text-emerald-400" x-text="formatNumber(filteredCompetitorsReach)"></td>
+                  <td class="py-3 px-3 text-right text-sky-600 dark:text-sky-400" x-text="formatNumber(filteredCompetitorsAudience)"></td>
+                  <td class="py-3 px-3 text-right text-amber-600 dark:text-amber-400" x-text="formatNumber(filteredCompetitorsPins)"></td>
                   <td colspan="3"></td>
                 </tr>
               </tfoot>
@@ -8905,6 +8905,18 @@ export function getDashboardHtml() {
           return list;
         },
 
+        get filteredCompetitorsReach() {
+          return (this.filteredCompetitors || []).reduce((acc, c) => acc + (Number(c.monthly_reach) || 0), 0);
+        },
+
+        get filteredCompetitorsAudience() {
+          return (this.filteredCompetitors || []).reduce((acc, c) => acc + (Number(c.profile_views || c.follower_count) || 0), 0);
+        },
+
+        get filteredCompetitorsPins() {
+          return (this.filteredCompetitors || []).reduce((acc, c) => acc + (Number(c.total_pins) || 0), 0);
+        },
+
         get availableCreatorMonths() {
           const set = new Set();
           for (const s of (this.activeCreatorSnapshots || [])) {
@@ -10679,7 +10691,7 @@ export function getDashboardHtml() {
             });
             const data = await res.json();
             if (res.ok && data.success) {
-              const refreshed = data.refreshed_pins_count ?? data.total_refreshed ?? 0;
+              const refreshed = data.refreshed_count ?? data.refreshed_pins_count ?? data.total_refreshed ?? 0;
               this.showToast('⚡ Fast refresh complete for @' + username + ': ' + refreshed + ' archived pins updated with live metrics!');
               await this.fetchCompetitors();
               if (this.activeCreator && (this.activeCreator.id === compId || (this.activeCreator.username || '').replace(/^@+/, '') === username)) {
@@ -10716,9 +10728,9 @@ export function getDashboardHtml() {
             });
             const data = await res.json();
             if (res.ok && data.success) {
-              const fetched = data.pinsFetched ?? data.total_fetched ?? 0;
-              const qualified = data.qualifiedIngested ?? data.qualified_count ?? 0;
-              const pages = data.pagesCrawled ?? 0;
+              const fetched = data.total_fetched ?? data.crawled ?? data.pinsFetched ?? 0;
+              const qualified = data.qualified ?? data.qualified_archived ?? data.qualifiedIngested ?? 0;
+              const pages = data.pages_crawled ?? data.pagesCrawled ?? 0;
               this.showToast('📋 Full Catalog Discovered: ' + fetched + ' pins retrieved across ' + pages + ' pages (' + qualified + ' qualified into PinArchive)!');
               await this.fetchCompetitors();
               if (this.activeCreator && (this.activeCreator.id === compId || (this.activeCreator.username || '').replace(/^@+/, '') === username)) {
@@ -10751,8 +10763,11 @@ export function getDashboardHtml() {
             });
             const data = await res.json();
             if (res.ok && data.success) {
-              const s = data.stats || {};
-              this.showToast('🏛️ Audit Sweep Complete for @' + username + '! ' + (s.total_pins_audited || 0) + ' pins audited, ' + (s.boards_synced || 0) + ' boards synced, 0 metric dips.');
+              const s = data.stats || data;
+              const pinsAudited = s.total_pins_inventory ?? s.total_pins_audited ?? 0;
+              const boardsSynced = s.boards_synced ?? 0;
+              const dipsHealed = s.monotonic_dips_healed ?? 0;
+              this.showToast('🏛️ Audit Sweep Complete for @' + username + '! ' + pinsAudited + ' pins audited, ' + boardsSynced + ' boards synced, ' + dipsHealed + ' metric dips healed.');
               await this.fetchCompetitors();
               if (this.activeCreator && (this.activeCreator.id === compId || (this.activeCreator.username || '').replace(/^@+/, '') === username)) {
                 await this.fetchCreatorProfile(this.activeCreator);
@@ -10784,7 +10799,9 @@ export function getDashboardHtml() {
             });
             const data = await res.json();
             if (res.ok && data.success) {
-              this.showToast('⚡ Bulk Fast Refresh complete for ' + (data.creators_refreshed || this.selectedCompetitorIds.length) + ' creators (' + (data.total_refreshed || 0) + ' pins updated)!');
+              const refreshedPins = data.total_refreshed ?? (data.results ? data.results.reduce((a, b) => a + (b.refreshed_count || 0), 0) : 0);
+              const refreshedCreators = data.creators_refreshed || (data.results ? data.results.filter(r => r.ok).length : this.selectedCompetitorIds.length);
+              this.showToast('⚡ Bulk Fast Refresh complete for ' + refreshedCreators + ' creators (' + refreshedPins + ' pins updated)!');
               await this.fetchCompetitors();
             } else {
               this.showToast('❌ Bulk Fast Refresh failed: ' + (data.error || 'Failed'));
@@ -10841,7 +10858,9 @@ export function getDashboardHtml() {
             });
             const data = await res.json();
             if (res.ok && data.success) {
-              this.showToast('🏛️ Bulk Audit Sweep complete for ' + (data.creators_audited || this.selectedCompetitorIds.length) + ' creators!');
+              const auditedCreators = data.creators_audited || (data.results ? data.results.filter(r => r.ok).length : this.selectedCompetitorIds.length);
+              const totalPins = data.total_pins_audited ?? (data.results ? data.results.reduce((a, b) => a + (b.total_pins_inventory || 0), 0) : 0);
+              this.showToast('🏛️ Bulk Audit Sweep complete for ' + auditedCreators + ' creators (' + totalPins + ' pins verified)!');
               await this.fetchCompetitors();
             } else {
               this.showToast('❌ Bulk Audit Sweep failed: ' + (data.error || 'Failed'));
@@ -12645,6 +12664,10 @@ export function getDashboardHtml() {
           if (this.activeCreator && ((creator.id && this.activeCreator.id === creator.id) || (this.activeCreator.username && creator.username && this.activeCreator.username.toLowerCase() === creator.username.toLowerCase()))) {
             this.activeCreator = { ...this.activeCreator, is_active: newStatus };
           }
+          if (this.competitorsOverview) {
+            this.competitorsOverview.active_count = (this.competitors || []).filter(c => c.is_active !== false).length;
+            this.competitorsOverview.paused_count = (this.competitors || []).filter(c => c.is_active === false).length;
+          }
           this.showToast(newStatus ? '▶ Ingestion resumed.' : '⏸ Ingestion paused.');
 
           // 2. Persist to backend
@@ -12663,6 +12686,10 @@ export function getDashboardHtml() {
                 }
                 return c;
               });
+              if (this.competitorsOverview) {
+                this.competitorsOverview.active_count = (this.competitors || []).filter(c => c.is_active !== false).length;
+                this.competitorsOverview.paused_count = (this.competitors || []).filter(c => c.is_active === false).length;
+              }
               this.showToast('Failed to update status', 'error');
             }
           } catch (e) {
@@ -12674,6 +12701,10 @@ export function getDashboardHtml() {
               }
               return c;
             });
+            if (this.competitorsOverview) {
+              this.competitorsOverview.active_count = (this.competitors || []).filter(c => c.is_active !== false).length;
+              this.competitorsOverview.paused_count = (this.competitors || []).filter(c => c.is_active === false).length;
+            }
             this.showToast('Error updating status: ' + e.message, 'error');
           }
         },

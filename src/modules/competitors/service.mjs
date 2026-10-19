@@ -78,20 +78,21 @@ export async function getCompetitorsOverview(sql) {
     const totalsRes = await sql`
       SELECT
         COUNT(*)::int AS total_profiles,
+        COUNT(CASE WHEN is_active = TRUE THEN 1 END)::int AS active_count,
+        COUNT(CASE WHEN is_active = FALSE THEN 1 END)::int AS paused_count,
         COUNT(CASE WHEN account_type = 'competitor' THEN 1 END)::int AS competitor_count,
         COUNT(CASE WHEN account_type = 'own' THEN 1 END)::int AS own_count,
         COALESCE(SUM(monthly_reach), 0)::bigint AS combined_reach,
         COALESCE(SUM(profile_views), 0)::bigint AS total_audience,
         COALESCE(SUM(total_pins), 0)::int AS total_pins_tracked
-      FROM competitor_profiles
-      WHERE is_active = TRUE;
+      FROM competitor_profiles;
     `;
     const totals = totalsRes?.[0] || {};
 
     const topProfileRes = await sql`
       SELECT username, monthly_reach
       FROM competitor_profiles
-      WHERE is_active = TRUE AND monthly_reach > 0
+      WHERE monthly_reach > 0
       ORDER BY monthly_reach DESC
       LIMIT 1;
     `;
@@ -99,6 +100,8 @@ export async function getCompetitorsOverview(sql) {
 
     return {
       tracked_profiles: totals.total_profiles || 0,
+      active_count: totals.active_count || 0,
+      paused_count: totals.paused_count || 0,
       competitor_count: totals.competitor_count || 0,
       own_count: totals.own_count || 0,
       combined_reach: Number(totals.combined_reach || 0),
@@ -3378,6 +3381,16 @@ export async function fastRefreshCompetitorArchivedPins(sql, competitorIdOrUsern
             WHERE competitor_id = ${numericId} AND pin_id = ${pin.pin_id};
           `;
         }
+
+        // 4. Update keyword_serp_current if present for full 4-pillar parity
+        await sql`
+          UPDATE keyword_serp_current
+          SET
+            save_count = GREATEST(keyword_serp_current.save_count, ${live.saves}),
+            repin_count = GREATEST(keyword_serp_current.repin_count, ${live.repins || 0}),
+            crawled_at = NOW()
+          WHERE pin_id = ${pin.pin_id};
+        `;
 
         refreshedCount++;
         results.push({ pin_id: pin.pin_id, saves: live.saves, repins: live.repins });

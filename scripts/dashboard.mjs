@@ -1744,11 +1744,22 @@ const server = http.createServer(async (req, res) => {
       try {
         if (Array.isArray(competitor_ids) && competitor_ids.length > 0) {
           const results = [];
+          let totalRefreshed = 0;
           for (const cId of competitor_ids) {
-            const r = await fastRefreshCompetitorArchivedPins(targetSql, cId);
-            results.push({ id: cId, ...r });
+            try {
+              const r = await fastRefreshCompetitorArchivedPins(targetSql, cId);
+              totalRefreshed += (r.refreshed_count || 0);
+              results.push({ id: cId, ...r });
+            } catch (itemErr) {
+              results.push({ id: cId, ok: false, error: itemErr.message });
+            }
           }
-          return sendJson(res, 200, { success: true, results });
+          return sendJson(res, 200, {
+            success: true,
+            creators_refreshed: results.filter(r => r.ok).length,
+            total_refreshed: totalRefreshed,
+            results
+          });
         }
         if (!username && !competitor_id) return sendJson(res, 400, { error: 'username or competitor_id is required' });
         const result = await fastRefreshCompetitorArchivedPins(targetSql, competitor_id || username, body);
@@ -1765,11 +1776,25 @@ const server = http.createServer(async (req, res) => {
       try {
         if (Array.isArray(competitor_ids) && competitor_ids.length > 0) {
           const results = [];
+          let totalPinsAudited = 0;
+          let totalBoardsSynced = 0;
           for (const cId of competitor_ids) {
-            const r = await auditSweepCompetitor(targetSql, cId);
-            results.push({ id: cId, ...r });
+            try {
+              const r = await auditSweepCompetitor(targetSql, cId);
+              totalPinsAudited += (r.total_pins_inventory || 0);
+              totalBoardsSynced += (r.boards_synced || 0);
+              results.push({ id: cId, ...r });
+            } catch (itemErr) {
+              results.push({ id: cId, ok: false, error: itemErr.message });
+            }
           }
-          return sendJson(res, 200, { success: true, results });
+          return sendJson(res, 200, {
+            success: true,
+            creators_audited: results.filter(r => r.ok).length,
+            total_pins_audited: totalPinsAudited,
+            total_boards_synced: totalBoardsSynced,
+            results
+          });
         }
         if (!username && !competitor_id) return sendJson(res, 400, { error: 'username or competitor_id is required' });
         const result = await auditSweepCompetitor(targetSql, competitor_id || username, body);
