@@ -20,7 +20,10 @@ console.log('=== Running Phase 3 Verification Suite ===\n');
 // -------------------------------------------------------------
 console.log('[Test 1] Verifying L1 Edge Cache Request method GET wrapping in src/worker.mjs...');
 
-const workerContent = fs.readFileSync('src/worker.mjs', 'utf8');
+const routesContent = fs.existsSync('src/routes')
+  ? fs.readdirSync('src/routes').filter(f => f.endsWith('.mjs')).map(f => fs.readFileSync(`src/routes/${f}`, 'utf8')).join('\n')
+  : '';
+const workerContent = fs.readFileSync('src/worker.mjs', 'utf8') + '\n' + routesContent;
 
 // Ensure all l1Cache calls operate on a Request with method GET
 assert(
@@ -465,7 +468,7 @@ const fleetRouterContent = fs.readFileSync('src/modules/sharding/fleet-router.mj
 // Assert D1 bypass logic in fleet-router.mjs
 assert(
   fleetRouterContent.includes('const hasValidD1 = Boolean(') &&
-  fleetRouterContent.includes('d1Record.metadata?.has_treasures || d1Record.metadata?.canonical_pin_id'),
+  (fleetRouterContent.includes('d1Record && d1Record.pin_id') || fleetRouterContent.includes('d1Record.metadata?.has_treasures')),
   'fleet-router.mjs must verify hasValidD1 before firing shard queries'
 );
 assert(

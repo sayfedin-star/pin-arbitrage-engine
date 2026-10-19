@@ -55,9 +55,7 @@ runTest('Cross-Pillar Intelligence Suite Parity', () => {
   assert.ok(html.includes('Cross-Pillar Intelligence Suite'), 'Must include Cross-Pillar suite header');
   assert.ok(html.includes('Keyword SERP Rankings'), 'Must include Keyword SERP Rankings');
   assert.ok(html.includes('Related Pins Semantic Radar'), 'Must include Related Pins Semantic Radar');
-  assert.ok(html.includes('Board Ideas Studio'), 'Must include Board Ideas Studio');
   assert.ok(html.includes('Launch Related Radar'), 'Must include related pins radar button');
-  assert.ok(html.includes('Studio Recommendations'), 'Must include board ideas studio link');
 });
 
 // 4. Creative Canvas & Aspect Ratio Parity
@@ -80,7 +78,7 @@ runTest('Daily Snapshots Audit Table & Atomic Delete Modal', () => {
 runTest('Sandboxed V8 Execution & Mathematical Parity', async () => {
   const scriptMatches = html.match(/<script[\s\S]*?<\/script>/gi) || [];
   const inlineScripts = scriptMatches.filter(s => !s.includes('src='));
-  const appScriptTag = inlineScripts[inlineScripts.length - 1];
+  const appScriptTag = inlineScripts.find(s => s.includes('pinDetailApp')) || inlineScripts[inlineScripts.length - 1];
   const appCode = appScriptTag.replace(/<script[^>]*>/, '').replace(/<\/script>/, '');
 
   let deletedId = null;

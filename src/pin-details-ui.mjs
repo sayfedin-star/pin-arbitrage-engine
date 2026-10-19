@@ -1149,6 +1149,52 @@ export function getPinDetailPageHtml(pinId = '') {
           return this.dossier?.snapshots?.[0] || null;
         },
 
+        chronologicalSnapshots() {
+          return [...(this.dossier?.snapshots || [])].reverse();
+        },
+
+        computeChartPoints() {
+          const snaps = this.chronologicalSnapshots();
+          if (snaps.length < 2) return [];
+
+          const values = snaps.map(s => (isFinite(Number(s.save_count)) ? Math.max(0, Number(s.save_count)) : 0));
+          const minY = Math.min(...values);
+          const maxY = Math.max(...values);
+          const rangeY = (maxY - minY) || 1;
+
+          const width = 800;
+          const height = 180;
+          const padX = 40;
+          const padY = 30;
+
+          return snaps.map((s, i) => {
+            const x = padX + (i / (snaps.length - 1)) * (width - 2 * padX);
+            const val = isFinite(Number(s.save_count)) ? Math.max(0, Number(s.save_count)) : 0;
+            const y = (maxY === minY)
+              ? (height / 2)
+              : ((height - padY) - ((val - minY) / rangeY) * (height - 2 * padY));
+            return { x, y, snapshot: s };
+          });
+        },
+
+        buildSvgLinePath() {
+          const points = this.computeChartPoints();
+          if (!points.length) return '';
+          return points.reduce((acc, p, i) => {
+            return i === 0 ? 'M ' + p.x.toFixed(1) + ' ' + p.y.toFixed(1) : acc + ' L ' + p.x.toFixed(1) + ' ' + p.y.toFixed(1);
+          }, '');
+        },
+
+        buildSvgAreaPath() {
+          const points = this.computeChartPoints();
+          if (!points.length) return '';
+          const lineD = this.buildSvgLinePath();
+          const lastPoint = points[points.length - 1];
+          const firstPoint = points[0];
+          const bottomY = 150;
+          return lineD + ' L ' + lastPoint.x.toFixed(1) + ' ' + bottomY + ' L ' + firstPoint.x.toFixed(1) + ' ' + bottomY + ' Z';
+        },
+
         peakSaves() {
           const dtSaves = this.dossier?.daily_trajectory?.[0]?.save_count;
           const snapSaves = this.latestSnapshot()?.save_count;
@@ -1316,6 +1362,13 @@ export function getPinDetailPageHtml(pinId = '') {
         },
 
         computeDelta(currentIdx, field = 'save_count') {
+          if (Array.isArray(this.dossier?.snapshots) && this.dossier.snapshots.length > 0 && !this.dossier?.daily_trajectory) {
+            const snaps = this.dossier.snapshots;
+            if (currentIdx >= snaps.length - 1) return 0;
+            const current = isFinite(Number(snaps[currentIdx]?.[field])) ? Number(snaps[currentIdx][field]) : 0;
+            const previous = isFinite(Number(snaps[currentIdx + 1]?.[field])) ? Number(snaps[currentIdx + 1][field]) : 0;
+            return current - previous;
+          }
           return this.computeDeltaUnified(currentIdx, field);
         },
 
@@ -1468,7 +1521,28 @@ export function getPinDetailPageHtml(pinId = '') {
         },
 
         async executeDeleteSnapshot() {
-          return this.confirmDelete();
+          if (!this.snapshotToDelete || this.isDeleting) return;
+          this.isDeleting = true;
+          try {
+            const res = await fetch('/api/pins/' + encodeURIComponent(this.pinId) + '/snapshots/' + this.snapshotToDelete, {
+              method: 'DELETE'
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+              if (this.dossier?.snapshots) {
+                this.dossier.snapshots = this.dossier.snapshots.filter(s => s.id !== this.snapshotToDelete);
+              }
+              this.showToast('Snapshot #' + this.snapshotToDelete + ' deleted successfully');
+              this.deleteModalOpen = false;
+              this.snapshotToDelete = null;
+            } else {
+              this.showToast(data.message || 'Error deleting snapshot', 'error');
+            }
+          } catch (e) {
+            this.showToast('Error deleting snapshot: ' + e.message, 'error');
+          } finally {
+            this.isDeleting = false;
+          }
         },
 
         formatNumber(n) {

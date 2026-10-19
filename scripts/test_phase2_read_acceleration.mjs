@@ -286,7 +286,7 @@ async function runPhase2Verification() {
     assert.strictEqual(snapshotsQueried, false, 'keyword_pins_snapshots must NOT be queried when active rows exist');
   });
 
-  await testAsync('getKeywordPins falls back to keyword_pins_snapshots when keyword_serp_current is empty', async () => {
+  await testAsync('getKeywordPins returns empty array when keyword_serp_current is empty (zero Hub snapshots)', async () => {
     let serpCurrentQueried = false;
     let snapshotsQueried = false;
 
@@ -306,9 +306,9 @@ async function runPhase2Verification() {
     };
 
     const pins = await getKeywordPins(mockSql, 99);
-    assert.strictEqual(pins.length, 1, 'Must retrieve legacy pin from fallback');
-    assert.strictEqual(serpCurrentQueried, true, 'keyword_serp_current must be checked first');
-    assert.strictEqual(snapshotsQueried, true, 'keyword_pins_snapshots must be queried on fallback');
+    assert.strictEqual(pins.length, 0, 'Must return empty array');
+    assert.strictEqual(serpCurrentQueried, true, 'keyword_serp_current must be checked');
+    assert.strictEqual(snapshotsQueried, false, 'keyword_pins_snapshots must NOT be queried on Hub');
   });
 
   console.log('\n' + '='.repeat(80));

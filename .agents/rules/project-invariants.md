@@ -32,5 +32,43 @@ Refer to `PROJECT_CHARTER_AND_DIRECTIVES.md` for full context. The following rul
 
 ## 5. Defensive SQL & UI Resiliency
 - **Anti-22007 Timestamp Guard:** Never pass empty strings `""` to PostgreSQL `::timestamptz`. Sanitize dates with `safeIsoDate()` or pass explicit `null`.
-- **No Error Swallowing on DDL/DML:** Never swallow SQL syntax or non-existent column errors with `.catch(() => {})`.
+- **No Error Swallowing on DDL/DML:** Never swallow SQL syntax or non-existent column errors with `.catch(() => {})`. All database operations must log errors explicitly.
 - **UI AbortSignal Protection:** All frontend mutation fetches MUST use `AbortSignal.timeout(15000)` and check `res.ok` before decoding JSON to survive 502/504 errors cleanly.
+
+## 6. Absolute Zero-Snapshot Hub Invariant (NO SNAPSHOT WRITES OR READS ON HUB)
+- **Zero Snapshot Writes to Central Hub:** Application code MUST NEVER insert or update historical daily snapshots (`keyword_pins_snapshots`, `pa_pin_metrics`) on the Central Hub. All daily time-series metrics belong exclusively to the 99 Storage Shards (`pins_daily_metrics`, `pin_serp_positions`).
+- **Zero Snapshot Reads from Central Hub:** All trajectory graphs, PinArchive velocity charts, and historical rank queries MUST read exclusively from the Storage Shards via deterministic `(crc32(pin_id) % 99) + 1` or D1/KV edge cache.
+- **Hub Operational State Only:** The Hub is strictly an ultra-slim operational state catalog ($\le 25\text{ MB}$). `keyword_displaced_index` stores numeric indicators + `domain VARCHAR(128)` ONLY; it MUST NEVER store creative metadata (`title`, `image_url`, `description`).
+
+## 7. Single-Operator & Safe Prefetching (NO BACKGROUND LIVE CRAWLS ON HOVER)
+- **Single-Operator Profile:** The platform is engineered for a single operator ($\le 6$ hours/day). All databases must scale to zero after 5 minutes of inactivity.
+- **Safe Hover Prefetch:** `mouseover` prefetching in `edge-shield-client.mjs` MUST be served strictly from Cloudflare D1 / KV cache in $< 3\text{ms}$.
+- **Prefetch Live Crawl Ban:** `GET /api/pins/:id` MUST inspect `searchParams.get('prefetch') === 'true'`. When true, it MUST NEVER trigger background live Pinterest scraping (`bgEnrichPromise`) and MUST NEVER wake up Shard databases.
+
+## 8. Hyperdrive Atomic Query Builders (NO RAW PROMISE.ALL TRANSACTIONS)
+- **Lazy Query Builders:** In `postgres.js`, raw query promises `sql\`...\`` created outside a transaction execute against the connection pool. To guarantee single-connection atomic execution, all multi-statement transactions MUST use Lazy Query Builders:
+  ```javascript
+  const builders = [
+    (db) => db`INSERT INTO ...`,
+    (db) => db`DELETE FROM ...`
+  ];
+  if (typeof sql.begin === 'function') {
+    await sql.begin(async (tx) => { for (const b of builders) await b(tx); });
+  } else if (typeof sql.transaction === 'function') {
+    await sql.transaction(builders.map(b => b(sql)));
+  }
+  ```
+
+## 9. Cloudflare Edge & Subrequest Concurrency Shield
+- **Pagination Required:** Displaced pin listings and historical SERP tables must paginate at $\le 30$ pins per page. Never request 150 pins in a single unbounded burst.
+- **Concurrency Semaphore:** Any scatter-gather hydration from Shards must be capped at $\le 4$ parallel connections with `AbortSignal.timeout(2000)`.
+- **D1 Read-Through:** D1 `edge_pins_metadata` must always be consulted first. Shard queries are executed only for cache misses, with results lazily backfilled to D1.
+
+## 10. Mandatory In-Code Explanatory Comments (INVARIANT TAGGING)
+- **The "WHY" Requirement:** Every modified or created function, transaction, and query MUST include explanatory in-line comments detailing the architectural rationale.
+- **Invariant Tags:** Critical code blocks must be preceded by standardized uppercase invariant tags:
+  - `// [INVARIANT: ZERO-HUB-SNAPSHOTS]`
+  - `// [INVARIANT: DETERMINISTIC-CRC32-SHARDING]`
+  - `// [INVARIANT: HYPERDRIVE-ATOMIC-BUILDER]`
+  - `// [INVARIANT: SAFE-PREFETCH-EDGE-ONLY]`
+- **Preserve Existing Documentation:** Never wipe or strip existing docstrings or inline comments during refactoring.

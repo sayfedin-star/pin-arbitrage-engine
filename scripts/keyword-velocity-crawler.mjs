@@ -582,7 +582,7 @@ async function flushBatchToHub(pinsChunk, kw) {
         creator_username = CASE WHEN u.creator <> '' THEN u.creator ELSE ksc.creator_username END,
         board_name = CASE WHEN u.board <> '' THEN u.board ELSE ksc.board_name END,
         dominant_color = CASE WHEN u.dominant_color <> '' THEN u.dominant_color ELSE ksc.dominant_color END,
-        created_at_pinterest = CASE WHEN u.created_at_pinterest::timestamptz IS NOT NULL THEN u.created_at_pinterest::timestamptz ELSE ksc.created_at_pinterest END,
+        created_at_pinterest = CASE WHEN NULLIF(TRIM(u.created_at_pinterest), '')::timestamptz IS NOT NULL THEN NULLIF(TRIM(u.created_at_pinterest), '')::timestamptz ELSE ksc.created_at_pinterest END,
         creation_method = CASE WHEN u.method <> '' THEN u.method ELSE ksc.creation_method END,
         vacuum_opportunity_score = CASE 
           WHEN COALESCE(ksc.last_known_rank, ksc.rank_position, 100) <= 5 THEN 85
@@ -678,7 +678,7 @@ async function flushBatchToHub(pinsChunk, kw) {
         creator_username = CASE WHEN u.creator <> '' THEN u.creator ELSE ksc.creator_username END,
         board_name = CASE WHEN u.board <> '' THEN u.board ELSE ksc.board_name END,
         dominant_color = CASE WHEN u.dominant_color <> '' THEN u.dominant_color ELSE ksc.dominant_color END,
-        created_at_pinterest = CASE WHEN u.created_at_pinterest::timestamptz IS NOT NULL THEN u.created_at_pinterest::timestamptz ELSE ksc.created_at_pinterest END,
+        created_at_pinterest = CASE WHEN NULLIF(TRIM(u.created_at_pinterest), '')::timestamptz IS NOT NULL THEN NULLIF(TRIM(u.created_at_pinterest), '')::timestamptz ELSE ksc.created_at_pinterest END,
         creation_method = CASE WHEN u.method <> '' THEN u.method ELSE ksc.creation_method END,
         vacuum_opportunity_score = CASE 
           WHEN COALESCE(ksc.last_known_rank, ksc.rank_position, 100) <= 5 THEN 85
@@ -833,7 +833,7 @@ async function flushToStorageShards(enrichedPins) {
               )
               SELECT DISTINCT ON (u.pin_id)
                 u.pin_id, u.creator_username, u.board_name, u.board_slug, u.title, u.domain, u.destination_url,
-                u.image_url, u.description, u.alt_text, u.dominant_color, u.visual_annotations, u.created_at_pinterest::timestamptz, u.metadata,
+                u.image_url, u.description, u.alt_text, u.dominant_color, u.visual_annotations, NULLIF(TRIM(u.created_at_pinterest), '')::timestamptz, u.metadata,
                 'keyword', NOW(), NOW()
               FROM jsonb_to_recordset(${shardPayload}::jsonb) AS u(
                 pin_id text, creator_username text, board_name text, board_slug text, title text, domain text,
@@ -1001,35 +1001,47 @@ function buildShardSyncList(candidatePins, enrichedPins, defaultKeywordId = null
   for (const cp of (candidatePins || [])) {
     if (!cp || !cp.pin_id) continue;
     const pid = String(cp.pin_id);
-    if (enrichedMap.has(pid)) {
-      merged.push(enrichedMap.get(pid));
+    const enriched = enrichedMap.get(pid);
+    const basePin = enriched ? { ...enriched } : {
+      pin_id: pid,
+      creator_username: cp.creator_username || cp.metadata?.pinner?.username || '',
+      board_name: cp.board_name || cp.metadata?.board_name || '',
+      board_slug: (cp.board_name || cp.metadata?.board_name || '').toLowerCase().replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-'),
+      title: cp.title || '',
+      domain: cp.domain || '',
+      destination_url: cp.destination_url || '',
+      image_url: cp.image_url || '',
+      description: cp.description || '',
+      alt_text: cp.metadata?.alt_text || '',
+      dominant_color: cp.dominant_color || '#888888',
+      visual_annotations: Array.isArray(cp.visual_annotations) ? cp.visual_annotations : [],
+      created_at_pinterest: cp.created_at_pinterest || null,
+      extra_meta: (cp.metadata && typeof cp.metadata === 'object') ? cp.metadata : {},
+      keyword_id: cp.keyword_id || defaultKeywordId || null,
+      rank_position: cp.rank_position,
+      catalog_rank: cp.catalog_rank || cp.rank_position,
+      last_known_rank: cp.last_known_rank,
+      is_displaced: Boolean(cp.is_displaced),
+      save_count: cp.save_count != null ? Number(cp.save_count) : 0,
+      repin_count: cp.repin_count != null ? Number(cp.repin_count) : 0,
+      comment_count: cp.comment_count != null ? Number(cp.comment_count) : 0,
+      share_count: cp.share_count != null ? Number(cp.share_count) : 0,
+      daily_save_velocity: cp.daily_save_velocity != null ? Number(cp.daily_save_velocity) : 0
+    };
+
+    if (Array.isArray(cp.folder_positions) && cp.folder_positions.length > 0) {
+      for (const pos of cp.folder_positions) {
+        merged.push({
+          ...basePin,
+          keyword_id: pos.keyword_id || basePin.keyword_id,
+          rank_position: pos.rank_position ?? (pos.is_displaced ? null : basePin.rank_position),
+          catalog_rank: pos.is_displaced ? ((Number(pos.last_known_rank || 50) + 100)) : (pos.rank_position ?? basePin.catalog_rank),
+          last_known_rank: pos.last_known_rank ?? basePin.last_known_rank,
+          is_displaced: Boolean(pos.is_displaced)
+        });
+      }
     } else {
-      merged.push({
-        pin_id: pid,
-        creator_username: cp.creator_username || cp.metadata?.pinner?.username || '',
-        board_name: cp.board_name || cp.metadata?.board_name || '',
-        board_slug: (cp.board_name || cp.metadata?.board_name || '').toLowerCase().replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-'),
-        title: cp.title || '',
-        domain: cp.domain || '',
-        destination_url: cp.destination_url || '',
-        image_url: cp.image_url || '',
-        description: cp.description || '',
-        alt_text: cp.metadata?.alt_text || '',
-        dominant_color: cp.dominant_color || '#888888',
-        visual_annotations: Array.isArray(cp.visual_annotations) ? cp.visual_annotations : [],
-        created_at_pinterest: cp.created_at_pinterest || null,
-        extra_meta: (cp.metadata && typeof cp.metadata === 'object') ? cp.metadata : {},
-        keyword_id: cp.keyword_id || defaultKeywordId || null,
-        rank_position: cp.rank_position,
-        catalog_rank: cp.catalog_rank || cp.rank_position,
-        last_known_rank: cp.last_known_rank,
-        is_displaced: Boolean(cp.is_displaced),
-        save_count: cp.save_count != null ? Number(cp.save_count) : 0,
-        repin_count: cp.repin_count != null ? Number(cp.repin_count) : 0,
-        comment_count: cp.comment_count != null ? Number(cp.comment_count) : 0,
-        share_count: cp.share_count != null ? Number(cp.share_count) : 0,
-        daily_save_velocity: cp.daily_save_velocity != null ? Number(cp.daily_save_velocity) : 0
-      });
+      merged.push(basePin);
     }
   }
   return merged;
@@ -1221,25 +1233,47 @@ async function run() {
     let allPins = [];
     if (crawlScope === 'active_serp') {
       allPins = await sql`
-        SELECT DISTINCT ON (ksc.pin_id)
-          ksc.pin_id, ksc.keyword_id, ksc.rank_position, ksc.last_known_rank, ksc.title, ksc.domain, ksc.destination_url, ksc.image_url,
-          ksc.save_count, ksc.repin_count, ksc.daily_save_velocity, ksc.creator_username,
-          ksc.board_name, ksc.dominant_color, ksc.visual_annotations, ksc.created_at_pinterest, ksc.creation_method,
-          ksc.metadata, ksc.crawled_at, ksc.updated_at, FALSE as is_displaced,
-          ksc.baseline_day_saves, ksc.baseline_day_date
-        FROM keyword_serp_current ksc
-        JOIN keyword_folder_items kfi ON kfi.keyword_id = ksc.keyword_id
-        WHERE kfi.folder_id = ${fid} AND ksc.pin_id ~ '^[0-9]+$' AND ksc.is_displaced = FALSE
-          AND NOT EXISTS (
-            SELECT 1 FROM keyword_ignored_pins kip
-            WHERE kip.keyword_id = ksc.keyword_id AND kip.pin_id = ksc.pin_id
-          )
-        ORDER BY ksc.pin_id, ksc.rank_position ASC NULLS LAST;
+        WITH folder_ksc AS (
+          SELECT 
+            ksc.pin_id, ksc.keyword_id, ksc.rank_position, ksc.last_known_rank, ksc.title, ksc.domain, ksc.destination_url, ksc.image_url,
+            ksc.save_count, ksc.repin_count, ksc.daily_save_velocity, ksc.creator_username,
+            ksc.board_name, ksc.dominant_color, ksc.visual_annotations, ksc.created_at_pinterest, ksc.creation_method,
+            ksc.metadata, ksc.crawled_at, ksc.updated_at, FALSE as is_displaced,
+            ksc.baseline_day_saves, ksc.baseline_day_date
+          FROM keyword_serp_current ksc
+          JOIN keyword_folder_items kfi ON kfi.keyword_id = ksc.keyword_id
+          WHERE kfi.folder_id = ${fid} AND ksc.pin_id ~ '^[0-9]+$' AND ksc.is_displaced = FALSE
+            AND NOT EXISTS (
+              SELECT 1 FROM keyword_ignored_pins kip
+              WHERE kip.keyword_id = ksc.keyword_id AND kip.pin_id = ksc.pin_id
+            )
+        ),
+        aggregated_positions AS (
+          SELECT 
+            pin_id,
+            jsonb_agg(jsonb_build_object(
+              'keyword_id', keyword_id,
+              'rank_position', rank_position,
+              'is_displaced', is_displaced,
+              'last_known_rank', last_known_rank
+            )) AS folder_positions
+          FROM folder_ksc
+          GROUP BY pin_id
+        )
+        SELECT DISTINCT ON (f.pin_id)
+          f.pin_id, f.keyword_id, f.rank_position, f.last_known_rank, f.title, f.domain, f.destination_url, f.image_url,
+          f.save_count, f.repin_count, f.daily_save_velocity, f.creator_username,
+          f.board_name, f.dominant_color, f.visual_annotations, f.created_at_pinterest, f.creation_method,
+          f.metadata, f.crawled_at, f.updated_at, f.is_displaced,
+          f.baseline_day_saves, f.baseline_day_date,
+          ap.folder_positions
+        FROM folder_ksc f
+        JOIN aggregated_positions ap ON ap.pin_id = f.pin_id
+        ORDER BY f.pin_id, f.rank_position ASC NULLS LAST;
       `;
     } else {
       allPins = await sql`
-        SELECT DISTINCT ON (pin_id) *
-        FROM (
+        WITH combined_pins AS (
           SELECT 
             ksc.pin_id, ksc.keyword_id, ksc.rank_position, ksc.last_known_rank, ksc.title, ksc.domain, ksc.destination_url, ksc.image_url,
             ksc.save_count, ksc.repin_count, ksc.daily_save_velocity, ksc.creator_username,
@@ -1257,7 +1291,7 @@ async function run() {
           UNION ALL
 
           SELECT
-            kdi.pin_id, kdi.keyword_id, NULL as rank_position, kdi.last_known_rank, '' as title, '' as domain, '' as destination_url, '' as image_url,
+            kdi.pin_id, kdi.keyword_id, NULL as rank_position, kdi.last_known_rank, '' as title, COALESCE(kdi.domain, '') as domain, '' as destination_url, '' as image_url,
             kdi.save_count, kdi.repin_count, kdi.daily_save_velocity, '' as creator_username,
             '' as board_name, '#888888' as dominant_color, '[]'::jsonb as visual_annotations, NULL as created_at_pinterest, 'pinterest_platform' as creation_method,
             '{}'::jsonb as metadata, kdi.updated_at as crawled_at, kdi.updated_at, TRUE as is_displaced,
@@ -1269,8 +1303,29 @@ async function run() {
               SELECT 1 FROM keyword_ignored_pins kip
               WHERE kip.keyword_id = kdi.keyword_id AND kip.pin_id = kdi.pin_id
             )
-        ) combined_pins
-        ORDER BY pin_id, is_displaced ASC, rank_position ASC NULLS LAST;
+        ),
+        aggregated_positions AS (
+          SELECT 
+            pin_id,
+            jsonb_agg(jsonb_build_object(
+              'keyword_id', keyword_id,
+              'rank_position', rank_position,
+              'is_displaced', is_displaced,
+              'last_known_rank', last_known_rank
+            )) AS folder_positions
+          FROM combined_pins
+          GROUP BY pin_id
+        )
+        SELECT DISTINCT ON (cp.pin_id)
+          cp.pin_id, cp.keyword_id, cp.rank_position, cp.last_known_rank, cp.title, cp.domain, cp.destination_url, cp.image_url,
+          cp.save_count, cp.repin_count, cp.daily_save_velocity, cp.creator_username,
+          cp.board_name, cp.dominant_color, cp.visual_annotations, cp.created_at_pinterest, cp.creation_method,
+          cp.metadata, cp.crawled_at, cp.updated_at, cp.is_displaced,
+          cp.baseline_day_saves, cp.baseline_day_date,
+          ap.folder_positions
+        FROM combined_pins cp
+        JOIN aggregated_positions ap ON ap.pin_id = cp.pin_id
+        ORDER BY cp.pin_id, cp.is_displaced ASC, cp.rank_position ASC NULLS LAST;
       `;
     }
 

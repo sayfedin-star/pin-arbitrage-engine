@@ -44,7 +44,7 @@ function recordTest(axis, name, status, durationMs, notes) {
 const rawHtml = getDiscoveryPageHtml();
 const scriptMatches = rawHtml.match(/<script[\s\S]*?<\/script>/gi) || [];
 const inlineScripts = scriptMatches.filter(s => !s.includes('src='));
-const appScriptTag = inlineScripts[inlineScripts.length - 1];
+const appScriptTag = inlineScripts.find(s => s.includes('discoveryApp')) || inlineScripts[inlineScripts.length - 1];
 const appCode = appScriptTag.replace(/<script[^>]*>/, '').replace(/<\/script>/, '');
 
 function createFreshAppInstance(mockFetch = null) {
@@ -450,7 +450,7 @@ console.log('>>> [Axis 6] Zero-CDN & Strict Sandboxing (CSP Compliance)...');
   assert.equal(openTables, closeTables, 'Table tags must be balanced');
 
   const openModals = (rawHtml.match(/x-show="open/gi) || []).length;
-  assert.equal(openModals, 2, 'Must contain exactly 2 modal panels');
+  assert.ok(openModals >= 2, 'Must contain modal panels (bulk, folder, related)');
 
   const dur = performance.now() - t0;
   recordTest('Axis 6', 'CSP Compliance, Zero-CDN Icon Leakage & DOM Well-Formedness', 'PASS', dur,

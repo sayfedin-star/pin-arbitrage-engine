@@ -146,7 +146,8 @@ export function escapeSqlLike(str) {
  */
 export async function queryWhoisSocket(cleanDomain) {
   try {
-    const net = await import('node:net');
+    const netPkg = ['node:', 'net'].join('');
+    const net = await import(/* webpackIgnore: true */ netPkg).catch(() => null);
     if (!net || typeof net.createConnection !== 'function') return null;
     let StringDecoder = null;
     try {
@@ -587,6 +588,10 @@ export async function getDatabaseEnrichmentStats(sql) {
         FROM competitor_pins cp
         WHERE cp.link_domain IS NOT NULL AND cp.link_domain <> ''
         UNION
+        SELECT DISTINCT LOWER(REGEXP_REPLACE(kdi.domain, '^www\\.', '')) AS clean_domain
+        FROM keyword_displaced_index kdi
+        WHERE kdi.domain IS NOT NULL AND kdi.domain <> ''
+        UNION
         SELECT DISTINCT domain AS clean_domain
         FROM domain_registry_metadata
         WHERE domain IS NOT NULL AND domain <> ''
@@ -670,6 +675,16 @@ export async function enrichNextUncheckedBatch(sql, { batchSize = 20, concurrenc
         SUM(COALESCE(cp.save_count, 0))::bigint AS total_saves
       FROM competitor_pins cp
       WHERE cp.link_domain IS NOT NULL AND cp.link_domain <> ''
+      GROUP BY clean_domain
+
+      UNION ALL
+
+      SELECT
+        LOWER(REGEXP_REPLACE(kdi.domain, '^www\\.', '')) AS clean_domain,
+        SUM(GREATEST(0, (51 - COALESCE(kdi.last_known_rank, 50))))::bigint AS visibility_score,
+        SUM(COALESCE(kdi.save_count, 0))::bigint AS total_saves
+      FROM keyword_displaced_index kdi
+      WHERE kdi.domain IS NOT NULL AND kdi.domain <> ''
       GROUP BY clean_domain
     ),
     aggregated AS (
@@ -840,6 +855,26 @@ export async function listDomainsIntelligence(sql, {
 
       UNION ALL
 
+      -- Displaced Pillar: keyword_displaced_index
+      SELECT
+        LOWER(REGEXP_REPLACE(kdi.domain, '^www\\.', '')) AS clean_domain,
+        kdi.pin_id,
+        kdi.keyword_id,
+        kdi.last_known_rank AS active_rank,
+        TRUE AS is_displaced,
+        COALESCE(kdi.save_count, 0)::bigint AS saves,
+        COALESCE(kdi.repin_count, 0)::bigint AS repins,
+        COALESCE(kdi.daily_save_velocity, 0)::numeric AS velocity,
+        '' AS username,
+        '/' AS url_slug
+      FROM keyword_displaced_index kdi
+      WHERE (${pillar} IN ('all', 'serp', 'displaced'))
+        AND kdi.domain IS NOT NULL AND kdi.domain <> ''
+        AND (${fId}::int IS NULL OR kdi.keyword_id IN (SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${fId}))
+        AND (${kId}::int IS NULL OR kdi.keyword_id = ${kId})
+
+      UNION ALL
+
       -- Base Pillar 0: Preserved Domain Registry Metadata (Guarantees all 2,703 discovered domains remain visible with WHOIS & ads.txt)
       SELECT
         drm.domain AS clean_domain,
@@ -894,8 +929,12 @@ export async function listDomainsIntelligence(sql, {
         MIN(dp.best_serp_rank)::int AS best_rank,
         ROUND(AVG(dp.best_serp_rank), 1) AS avg_rank,
         ROUND(
-          SUM(CASE WHEN dp.best_serp_rank IS NOT NULL THEN (101 - LEAST(100, dp.best_serp_rank)) / 100.0 ELSE 0 END)::numeric,
-          2
+          (
+            (COUNT(DISTINCT dp.pin_id) FILTER (WHERE dp.best_serp_rank <= 3) * 100) +
+            (COUNT(DISTINCT dp.pin_id) FILTER (WHERE dp.best_serp_rank > 3 AND dp.best_serp_rank <= 10) * 45) +
+            (COUNT(DISTINCT dp.pin_id) FILTER (WHERE dp.best_serp_rank > 10 AND dp.best_serp_rank <= 50) * 12)
+          )::numeric,
+          1
         ) AS visibility_score,
         SUM(dp.saves)::bigint AS total_saves,
         ROUND(AVG(dp.saves))::bigint AS avg_saves,
@@ -1175,6 +1214,23 @@ export async function refreshDomainIntelligenceRollup(sql) {
         FROM competitor_pins cp
         LEFT JOIN competitor_profiles cprof ON cprof.id = cp.competitor_id
         WHERE cp.link_domain IS NOT NULL AND cp.link_domain <> ''
+
+        UNION ALL
+
+        -- Displaced Pillar: keyword_displaced_index
+        SELECT
+          LOWER(REGEXP_REPLACE(kdi.domain, '^www\\.', '')) AS clean_domain,
+          kdi.pin_id,
+          kdi.keyword_id,
+          kdi.last_known_rank AS active_rank,
+          TRUE AS is_displaced,
+          COALESCE(kdi.save_count, 0)::bigint AS saves,
+          COALESCE(kdi.repin_count, 0)::bigint AS repins,
+          COALESCE(kdi.daily_save_velocity, 0)::numeric AS velocity,
+          '' AS username,
+          '/' AS url_slug
+        FROM keyword_displaced_index kdi
+        WHERE kdi.domain IS NOT NULL AND kdi.domain <> ''
 
         UNION ALL
 
@@ -1546,6 +1602,14 @@ export async function listDomainsIntelligenceFast(sql, options = {}) {
             arbitrage_score: Number(r.arbitrage_score || 0)
           })),
           missing_age_domains: rows.filter(r => !r.age_status && r.domain).map(r => r.domain).slice(0, 8),
+          missing_ad_domains: rows
+            .filter(r => (!r.ad_network || r.ad_network === 'unchecked') && r.domain)
+            .map(r => r.domain)
+            .slice(0, 10),
+          page,
+          limit,
+          total,
+          total_pages: Math.max(1, Math.ceil(total / limit)),
           cached: true
         };
       } else {
@@ -1625,7 +1689,7 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
   const fId = folderId && !isNaN(Number(folderId)) ? Number(folderId) : null;
   const kId = keywordId && !isNaN(Number(keywordId)) ? Number(keywordId) : null;
 
-  const [ageInfo, adInfo, serpPins, archivePins, compPins] = await Promise.all([
+  const [ageInfo, adInfo, serpPins, archivePins, compPins, displacedPins] = await Promise.all([
     fetchAndCacheDomainAge(sql, cleanDomain),
     fetchAndCacheDomainAdNetwork(sql, cleanDomain).catch(() => null),
     sql`
@@ -1692,6 +1756,35 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
       WHERE LOWER(REGEXP_REPLACE(cp.link_domain, '^www\\.', '')) = ${cleanDomain}
       ORDER BY cp.save_count DESC
       LIMIT 200;
+    `.catch(() => []),
+    sql`
+      SELECT
+        kdi.pin_id,
+        kdi.keyword_id,
+        tk.keyword AS keyword_name,
+        NULL::int AS rank_position,
+        kdi.last_known_rank,
+        TRUE AS is_displaced,
+        kdi.displaced_date,
+        '' AS title,
+        '' AS destination_url,
+        '' AS image_url,
+        '' AS creator_username,
+        '' AS board_name,
+        COALESCE(kdi.save_count, 0)::bigint AS saves,
+        COALESCE(kdi.repin_count, 0)::bigint AS repins,
+        COALESCE(kdi.daily_save_velocity, 0)::numeric AS velocity,
+        NULL AS dominant_color,
+        '[]'::jsonb AS visual_annotations,
+        NULL::timestamptz AS created_at_pinterest,
+        '{}'::jsonb AS metadata
+      FROM keyword_displaced_index kdi
+      LEFT JOIN tracked_keywords tk ON tk.id = kdi.keyword_id
+      WHERE LOWER(REGEXP_REPLACE(kdi.domain, '^www\\.', '')) = ${cleanDomain}
+        AND (${fId}::int IS NULL OR kdi.keyword_id IN (SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${fId}))
+        AND (${kId}::int IS NULL OR kdi.keyword_id = ${kId})
+      ORDER BY kdi.save_count DESC
+      LIMIT 100;
     `.catch(() => [])
   ]);
 
@@ -1777,7 +1870,7 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
       existing.pillars.add(sourcePillar);
     }
 
-    if (sourcePillar === 'serp' && row.keyword_id) {
+    if ((sourcePillar === 'serp' || sourcePillar === 'displaced') && row.keyword_id) {
       const pEntry = pinsMap.get(pid);
       const activeRank = !row.is_displaced && row.rank_position ? Number(row.rank_position) : null;
       if (activeRank !== null && (pEntry.best_rank === null || activeRank < pEntry.best_rank)) {
@@ -1865,6 +1958,7 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
   };
 
   for (const r of serpPins) registerPin(r, 'serp');
+  for (const r of displacedPins) registerPin(r, 'displaced');
   if (!fId && !kId) {
     for (const r of archivePins) registerPin(r, 'archive');
     for (const r of compPins) registerPin(r, 'competitors');

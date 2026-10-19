@@ -829,42 +829,9 @@ async function _executeFolderCrossover(sql, fid) {
     ORDER BY c.save_count DESC, c.daily_save_velocity DESC;
   `;
 
-  // Fallback to historical keyword_pins_snapshots only if keyword_serp_current has no rows (legacy keywords)
-  if (!pinRows || pinRows.length === 0) {
-    pinRows = await sql`
-      WITH ranked_snaps AS (
-        SELECT 
-          s.id,
-          s.keyword_id,
-          s.pin_id,
-          s.rank_position,
-          s.title,
-          s.domain,
-          s.destination_url,
-          s.image_url,
-          s.save_count,
-          s.repin_count,
-          s.comment_count,
-          s.daily_save_velocity,
-          s.snapshot_date,
-          s.metadata,
-          tk.keyword as keyword_text,
-          ROW_NUMBER() OVER(
-            PARTITION BY s.keyword_id, s.pin_id 
-            ORDER BY s.snapshot_date DESC, s.id DESC
-          ) as rn
-        FROM keyword_pins_snapshots s
-        JOIN tracked_keywords tk ON tk.id = s.keyword_id
-        WHERE s.keyword_id = ANY(${keywordIds})
-          AND s.rank_position IS NOT NULL
-          AND s.rank_position >= 1
-          AND (s.is_displaced IS FALSE OR s.is_displaced IS NULL)
-      )
-      SELECT *
-      FROM ranked_snaps
-      WHERE rn = 1
-      ORDER BY save_count DESC, daily_save_velocity DESC;
-    `;
+  // [INVARIANT: ZERO-HUB-SNAPSHOTS] Fallback to empty array; Central Hub holds zero historical snapshots
+  if (!pinRows) {
+    pinRows = [];
   }
 
   // 3. Query Guided Search Capsules for all folder keywords

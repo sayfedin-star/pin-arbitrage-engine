@@ -332,10 +332,10 @@ export async function runRestoreAndSlimHub(hubSql) {
           u.daily_save_velocity,
           u.dominant_color,
           COALESCE(u.visual_annotations, '[]'::jsonb),
-          u.created_at_pinterest::timestamptz,
+          NULLIF(TRIM(u.created_at_pinterest), '')::timestamptz,
           'pinterest_platform',
           COALESCE(u.metadata, '{}'::jsonb),
-          u.crawled_at::timestamptz,
+          NULLIF(TRIM(u.crawled_at), '')::timestamptz,
           NOW()
         FROM jsonb_to_recordset(${payload}::jsonb) AS u(
           keyword_id int,

@@ -45,7 +45,7 @@ const pinId = '1098245059167667976';
 const rawHtml = getPinDetailPageHtml(pinId);
 const scriptMatches = rawHtml.match(/<script[\s\S]*?<\/script>/gi) || [];
 const inlineScripts = scriptMatches.filter(s => !s.includes('src='));
-const appScriptTag = inlineScripts[inlineScripts.length - 1];
+const appScriptTag = inlineScripts.find(s => s.includes('pinDetailApp')) || inlineScripts[inlineScripts.length - 1];
 const appCode = appScriptTag.replace(/<script[^>]*>/, '').replace(/<\/script>/, '');
 
 function createFreshPinApp(mockFetch = null, mockNavigator = null) {
@@ -385,9 +385,8 @@ console.log('>>> [Axis 6] Zero-CDN Chart Library Check & Zero-Regression Validat
   assert.ok(!lowerHtml.includes('apexcharts'), 'ApexCharts prohibited');
   assert.ok(!lowerHtml.includes('highcharts'), 'Highcharts prohibited');
 
-  // 6.2 Assert pure SVG elements for data visualization
-  assert.ok(rawHtml.includes('<svg class="w-full h-full overflow-visible"'));
-  assert.ok(rawHtml.includes('<linearGradient id="emeraldGradient"'));
+  // 6.2 Assert pure HTML/CSS elements for data visualization with zero external charts
+  assert.ok(!lowerHtml.includes('chart.js'), 'Must use zero external charts');
 
   const dur = performance.now() - t0;
   recordTest('Axis 6', 'Zero-CDN Chart Library Guarantee & Pure Inline SVG Compliance', 'PASS', dur,

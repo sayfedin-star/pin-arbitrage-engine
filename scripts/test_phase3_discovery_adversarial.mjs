@@ -77,7 +77,7 @@ runTest('Inline Script Parsing & Execution in Sandboxed V8 Context', () => {
   const inlineScripts = scriptMatches.filter(s => !s.includes('src='));
   assert.ok(inlineScripts.length >= 2, 'Must have tailwind config script and app logic script');
 
-  const appScriptTag = inlineScripts[inlineScripts.length - 1];
+  const appScriptTag = inlineScripts.find(s => s.includes('discoveryApp')) || inlineScripts[inlineScripts.length - 1];
   const code = appScriptTag.replace(/<script[^>]*>/, '').replace(/<\/script>/, '');
 
   const sandbox = {

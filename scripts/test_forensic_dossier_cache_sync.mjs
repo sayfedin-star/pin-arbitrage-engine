@@ -37,6 +37,13 @@ import {
   CIRCUIT_FAILURE_THRESHOLD
 } from '../src/modules/sharding/fleet-router.mjs';
 
+function readWorkerAndRoutes() {
+  const routesContent = fs.existsSync('src/routes')
+    ? fs.readdirSync('src/routes').filter(f => f.endsWith('.mjs')).map(f => fs.readFileSync(`src/routes/${f}`, 'utf8')).join('\n')
+    : '';
+  return fs.readFileSync('src/worker.mjs', 'utf8') + '\n' + routesContent;
+}
+
 async function runForensicAudit() {
   console.log('='.repeat(80));
   console.log('   🔍 DEEP FORENSIC AUDIT & ADVERSARIAL CACHE/SHARD VERIFICATION');
@@ -115,18 +122,18 @@ async function runForensicAudit() {
   // =========================================================================
   console.log('\n[SCENARIO 2] Auditing Live Deep Sync Historical Date Isolation...');
   {
-    const workerContent = fs.readFileSync('src/worker.mjs', 'utf8');
+    const workerContent = readWorkerAndRoutes();
 
     // Extract the entire POST /api/pins/:pin_id/sync route
     const syncSectionMatch = workerContent.match(/if\s*\(parts\[1\]\s*===\s*'sync'\)[\s\S]*?return jsonResponse\(\{[\s\S]*?success:\s*true[\s\S]*?pin_id/);
     const syncCode = syncSectionMatch ? syncSectionMatch[0] : '';
 
-    const hasSnapshotDateFilter = syncCode.includes('AND snapshot_date = (NOW() AT TIME ZONE \'UTC\')::date');
+    const hasZeroHubSnapshots = syncCode.includes('[INVARIANT: ZERO-HUB-SNAPSHOTS]') && !syncCode.includes('UPDATE keyword_pins_snapshots');
     record(
       'Scenario 2',
-      'UPDATE keyword_pins_snapshots strictly constrains snapshot_date to UTC today',
-      hasSnapshotDateFilter === true,
-      'Missing UTC date filter in UPDATE query'
+      'Central Hub snapshots are purged from sync; strictly offloaded to Shards',
+      hasZeroHubSnapshots === true,
+      'Hub snapshot update detected (violates ZERO-HUB-SNAPSHOTS)'
     );
 
     // Verify it also updates two-tier tables
@@ -144,7 +151,7 @@ async function runForensicAudit() {
   // =========================================================================
   console.log('\n[SCENARIO 3] Auditing Two-Tier Shard Sync NULL Keyword Immunity...');
   {
-    const workerContent = fs.readFileSync('src/worker.mjs', 'utf8');
+    const workerContent = readWorkerAndRoutes();
 
     // In pin_serp_positions, keyword_id is NOT NULL in PK (pin_id, snapshot_date, keyword_id).
     // Verify that inserting into pin_serp_positions is safely guarded when shardKid is null.
@@ -163,22 +170,21 @@ async function runForensicAudit() {
   // =========================================================================
   console.log('\n[SCENARIO 4] Auditing Zero Zombie Resurrection on Snapshot Deletion...');
   {
-    const workerContent = fs.readFileSync('src/worker.mjs', 'utf8');
+    const workerContent = readWorkerAndRoutes();
 
     // Check DELETE /api/pins/:pin_id/snapshots/:snapshot_id
-    const deleteSnapshotMatch = workerContent.match(/if\s*\(parts\[1\]\s*===\s*'snapshots'\)[\s\S]*?return jsonResponse\(\{ success: true, deleted_snapshot_id: snapshotId/);
+    const deleteSnapshotMatch = workerContent.match(/if\s*\(parts\[1\]\s*===\s*'snapshots'\)[\s\S]*?return jsonResponse\(\{ success: true, deleted_snapshot/);
     const deleteCode = deleteSnapshotMatch ? deleteSnapshotMatch[0] : '';
 
-    const deletesFromHub = deleteCode.includes('DELETE FROM keyword_pins_snapshots WHERE id = ${snapshotId}');
-    const deletesFromShard = deleteCode.includes('DELETE FROM pins_daily_snapshots WHERE id = ${snapshotId}');
+    const deletesDirectlyFromShard = deleteCode.includes('DELETE FROM pins_daily_metrics') && deleteCode.includes('DELETE FROM pin_serp_positions');
     const cleansTwoTierMetrics = deleteCode.includes('DELETE FROM pins_daily_metrics') && deleteCode.includes('snapshot_date = ${targetDate}::date');
     const cleansTwoTierPositions = deleteCode.includes('DELETE FROM pin_serp_positions');
     const invalidatesCanonicalCache = deleteCode.includes('buildCanonicalCacheKey(\'pin:dossier\', { pin_id: pinId })');
 
     record(
       'Scenario 4',
-      'Deletes single-row snapshots from both Hub and Shard tables',
-      deletesFromHub && deletesFromShard
+      'Deletes single-row snapshots directly from Shard base tables (Zero View Deletion)',
+      deletesDirectlyFromShard === true
     );
 
     record(
@@ -241,7 +247,7 @@ async function runForensicAudit() {
     );
 
     // Verify GET /api/pins/:pin_id returns 503 for cold shard vs 404 for missing pin
-    const workerContent = fs.readFileSync('src/worker.mjs', 'utf8');
+    const workerContent = readWorkerAndRoutes();
     const dossierRoute = workerContent.match(/if\s*\(!dossier\s*\|\|\s*!dossier\.pin_id\s*\|\|\s*!dossier\.success\)[\s\S]*?return jsonResponse[\s\S]*?isUnavailable \? 503 : 404\);/);
     record(
       'Scenario 5',

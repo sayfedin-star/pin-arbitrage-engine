@@ -10485,13 +10485,18 @@ export function getDashboardHtml() {
 
           // Background fleet & telemetry refresh (does not block instant SPA hydration)
           this.refreshAll().catch((err) => console.error('refreshAll background error:', err));
+          // [INVARIANT: SINGLE-OPERATOR-SCALE-TO-ZERO] Single-shot initial check; avoid 3s polling loop while idle
           this.pollCrawlStatus();
-          if (this._crawlStatusInterval) clearInterval(this._crawlStatusInterval);
-          this._crawlStatusInterval = setInterval(() => {
-            if (typeof document === 'undefined' || !document.hidden) {
-              this.pollCrawlStatus();
-            }
-          }, 3000);
+
+          if (typeof document !== 'undefined') {
+            document.addEventListener('visibilitychange', () => {
+              if (document.hidden) {
+                this.stopCrawlPolling();
+              } else if (this.crawlStatus && this.crawlStatus.is_crawling) {
+                this.startCrawlPolling();
+              }
+            });
+          }
 
           this.$nextTick(() => {
             if (window.lucide) window.lucide.createIcons();
@@ -11455,6 +11460,7 @@ export function getDashboardHtml() {
               this.crawlStatus.is_crawling = true;
               this.crawlElapsed = 0;
               this.startElapsedTimer();
+              this.startCrawlPolling();
               this.showToast('Background crawl started!');
             }
           } catch (e) {
@@ -11465,12 +11471,34 @@ export function getDashboardHtml() {
         startElapsedTimer() {
           if (this.crawlTimer) clearInterval(this.crawlTimer);
           this.crawlTimer = setInterval(() => {
-            if (this.crawlStatus.is_crawling) {
+            if (this.crawlStatus && this.crawlStatus.is_crawling) {
               this.crawlElapsed++;
             } else {
               clearInterval(this.crawlTimer);
+              this.crawlTimer = null;
             }
           }, 1000);
+        },
+
+        startCrawlPolling() {
+          // [INVARIANT: SINGLE-OPERATOR-SCALE-TO-ZERO] Only poll while crawl is actively executing
+          this.stopCrawlPolling();
+          this._crawlStatusInterval = setInterval(() => {
+            if (typeof document === 'undefined' || !document.hidden) {
+              if (this.crawlStatus && this.crawlStatus.is_crawling) {
+                this.pollCrawlStatus();
+              } else {
+                this.stopCrawlPolling();
+              }
+            }
+          }, 3000);
+        },
+
+        stopCrawlPolling() {
+          if (this._crawlStatusInterval) {
+            clearInterval(this._crawlStatusInterval);
+            this._crawlStatusInterval = null;
+          }
         },
 
         async pollCrawlStatus() {
@@ -11481,7 +11509,11 @@ export function getDashboardHtml() {
             if (res.ok) {
               const prevCrawling = this.crawlStatus.is_crawling;
               this.crawlStatus = await res.json();
-              if (prevCrawling && !this.crawlStatus.is_crawling) {
+              if (this.crawlStatus && this.crawlStatus.is_crawling) {
+                if (!this._crawlStatusInterval) this.startCrawlPolling();
+                if (!this.crawlTimer) this.startElapsedTimer();
+              } else if (prevCrawling && !this.crawlStatus.is_crawling) {
+                this.stopCrawlPolling();
                 await this.refreshAll();
                 if (this.activeDossierSeed) {
                   await this.openSeedDossier(this.activeDossierSeed);

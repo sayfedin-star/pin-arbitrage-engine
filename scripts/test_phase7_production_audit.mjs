@@ -84,9 +84,9 @@ console.log('[AXIS 1] End-to-End Cross-Pillar Flow Audit (< 50ms Benchmark)');
     }
 
     if (q.includes('INSERT INTO tracked_keywords')) {
-      const kw = values[0] || 'mock keyword';
-      const cat = values[1] || 'General';
-      return [{ id: Math.floor(Math.random() * 1000) + 1, keyword: kw, category: cat }];
+      const kwList = values.find(v => Array.isArray(v)) || [values[0] || 'mock keyword'];
+      const cat = typeof values[0] === 'string' ? values[0] : 'General';
+      return kwList.map((kw, idx) => ({ id: idx + 1, keyword: kw, category: cat }));
     }
 
     if (q.includes('keyword_folder_items') && q.includes('INSERT')) {

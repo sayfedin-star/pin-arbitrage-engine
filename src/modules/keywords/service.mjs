@@ -21,6 +21,7 @@ import { getPinterestHeaders } from '../shared/pinterest-headers.mjs';
 import { getCachedVisualSearchMatches, setCachedVisualSearchMatches } from './visual-lens-cache.mjs';
 import { extractPinData, PINTEREST_PAGE_HEADERS, fetchPinFromPinterest } from '../../../scripts/lib/pinterest.mjs';
 import { derivePinTitle } from './folders-service.mjs';
+import { calculateDailyVelocity } from '../../lib/math.mjs';
 import {
   getPinShardId,
   resolveShardConnection,
@@ -397,7 +398,7 @@ export async function offloadKeywordCrawlToShards(hubSql, keywordId, activePins 
 /**
  * Batch-hydrates slim displaced index rows with creative metadata from their deterministic shards
  */
-async function hydrateDisplacedIndexFromShards(hubSql, indexRows = [], env = null) {
+async function hydrateDisplacedIndexFromShards(hubSql, indexRows = [], env = null, skipShardHydration = false) {
   if (!Array.isArray(indexRows) || indexRows.length === 0) return [];
   const needsHydration = indexRows.filter(r => !r.title && !r.image_url);
   if (needsHydration.length === 0) return indexRows;
@@ -415,9 +416,9 @@ async function hydrateDisplacedIndexFromShards(hubSql, indexRows = [], env = nul
       }
     }
 
-    // 2. Only query Neon Shards for pins that were not found in Cloudflare D1
+    // 2. Only query Neon Shards for pins that were not found in Cloudflare D1 (bypassed if skipShardHydration=true)
     const stillMissing = needsHydration.filter(r => !masterMap.has(String(r.pin_id)));
-    if (stillMissing.length > 0) {
+    if (!skipShardHydration && stillMissing.length > 0) {
       await preloadNeonRegistry(hubSql, env);
       const shardGroups = batchGroupByShard(stillMissing, 99);
       const newlyHydratedFromShards = [];
@@ -1060,9 +1061,9 @@ export async function fetchVisualSearchLens(sql, pinId, cookie = (typeof process
     try {
       const [row] = await sql`
         SELECT pin_id, title, image_url, domain, save_count
-        FROM keyword_pins_snapshots
+        FROM keyword_serp_current
         WHERE pin_id = ${cleanPin}
-        ORDER BY created_at DESC
+        ORDER BY updated_at DESC
         LIMIT 1;
       `;
       seedPin = row;
@@ -1077,19 +1078,19 @@ export async function fetchVisualSearchLens(sql, pinId, cookie = (typeof process
   }
 
   const promise = (async () => {
-    // Look up pin details from snapshot if available to construct visual seed query
+    // Look up pin details from active catalog to construct visual seed query
     let pinRow = null;
     try {
       const [row] = await sql`
         SELECT pin_id, title, image_url, domain, save_count
-        FROM keyword_pins_snapshots
+        FROM keyword_serp_current
         WHERE pin_id = ${cleanPin}
-        ORDER BY created_at DESC
+        ORDER BY updated_at DESC
         LIMIT 1;
       `;
       pinRow = row;
     } catch (err) {
-      console.warn(`[fetchVisualSearchLens] Snapshot lookup warning for pin ${cleanPin}:`, err.message);
+      console.warn(`[fetchVisualSearchLens] Active SERP lookup warning for pin ${cleanPin}:`, err.message);
     }
 
     if (!pinRow) {
@@ -1555,27 +1556,12 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
         AND is_displaced = FALSE;
     `.catch(() => []);
 
-    if (!immediateSnapshots || immediateSnapshots.length === 0) {
-      immediateSnapshots = await sql`
-        SELECT id AS snapshot_id, pin_id, rank_position, save_count, repin_count, comment_count, title, image_url, domain, destination_url, metadata, snapshot_date, created_at, created_at_pinterest, creation_method
-        FROM keyword_pins_snapshots
-        WHERE keyword_id = ${kid}
-          AND is_displaced = FALSE
-          AND snapshot_date = (
-            SELECT MAX(snapshot_date) 
-            FROM keyword_pins_snapshots 
-            WHERE keyword_id = ${kid}
-              AND is_displaced = FALSE
-          );
-      `.catch(() => []);
-    }
-
     const immediateMap = new Map();
     const baselineMap = new Map();
     let baselineSnapshotDate = null;
     const todayIsoDate = new Date().toISOString().slice(0, 10);
 
-    for (const s of immediateSnapshots) {
+    for (const s of (immediateSnapshots || [])) {
       const pid = String(s.pin_id);
       immediateMap.set(pid, {
         snapshotId: s.snapshot_id != null ? Number(s.snapshot_id) : null,
@@ -1607,29 +1593,6 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
       }
     }
 
-    // Fallback to keyword_pins_snapshots only if baselineMap is still empty
-    if (baselineMap.size === 0) {
-      const baselineDaySnapshots = await sql`
-        SELECT pin_id, save_count, snapshot_date
-        FROM keyword_pins_snapshots
-        WHERE keyword_id = ${kid}
-          AND is_displaced = FALSE
-          AND snapshot_date = (
-            SELECT MAX(snapshot_date) 
-            FROM keyword_pins_snapshots 
-            WHERE keyword_id = ${kid} 
-              AND snapshot_date < (NOW() AT TIME ZONE 'UTC')::date
-              AND is_displaced = FALSE
-          );
-      `.catch(() => []);
-      for (const s of baselineDaySnapshots) {
-        baselineMap.set(String(s.pin_id), { saves: Number(s.save_count || 0), date: s.snapshot_date });
-        if (!baselineSnapshotDate && s.snapshot_date) {
-          baselineSnapshotDate = new Date(s.snapshot_date);
-        }
-      }
-    }
-
     // C) Existing Displaced Pins Registry lookup (from slim keyword_displaced_index + keyword_serp_current)
     const existingDisplacedRows = await sql`
       SELECT pin_id, last_known_rank FROM keyword_displaced_index WHERE keyword_id = ${kid}
@@ -1649,10 +1612,9 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
     if (discoveredPids.length > 0) {
       const [histRows, dispRows] = await Promise.all([
         sql`
-          SELECT pin_id, MAX(save_count) AS max_saves, MAX(repin_count) AS max_repins
-          FROM keyword_pins_snapshots
-          WHERE pin_id = ANY(${discoveredPids})
-          GROUP BY pin_id;
+          SELECT pin_id, save_count AS max_saves, repin_count AS max_repins
+          FROM keyword_displaced_index
+          WHERE pin_id = ANY(${discoveredPids});
         `.catch(() => []),
         sql`
           SELECT pin_id, save_count AS current_saves, repin_count AS current_repins
@@ -1788,32 +1750,30 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
       );
 
       // 24h Daily Save Velocity is evaluated against previous day's baseline
-      // Time-Normalized: Divides delta by pure UTC calendar days to prevent intraday hour bias or multi-day velocity inflation
+      // Time-Normalized: Divides delta by pure UTC calendar days via calculateDailyVelocity SSOT
       let velocity = 0;
       if (baselineMap.has(pinId)) {
         const baseDateStr = (baseEntryForPin && typeof baseEntryForPin === 'object') ? baseEntryForPin.date : null;
-        const rawDelta = Math.max(0, confirmedSaves - baseSavesForPin);
-        let daysElapsed = 1;
-        if (baseDateStr) {
-          const baseDate = new Date(baseDateStr);
-          const baseUtc = Date.UTC(baseDate.getUTCFullYear(), baseDate.getUTCMonth(), baseDate.getUTCDate());
-          daysElapsed = Math.max(1, Math.round((todayUtc - baseUtc) / (1000 * 60 * 60 * 24)));
-        } else if (baselineSnapshotDate) {
-          const baseUtc = Date.UTC(baselineSnapshotDate.getUTCFullYear(), baselineSnapshotDate.getUTCMonth(), baselineSnapshotDate.getUTCDate());
-          daysElapsed = Math.max(1, Math.round((todayUtc - baseUtc) / (1000 * 60 * 60 * 24)));
-        }
-        velocity = Math.round(rawDelta / daysElapsed);
+        velocity = calculateDailyVelocity({
+          currentSaves: confirmedSaves,
+          baselineSaves: baseSavesForPin,
+          currentDate: todayDate,
+          baselineDate: baseDateStr || baselineSnapshotDate,
+          maxCap: 25000
+        });
       } else if (immediateData) {
         const immDateStr = immediateData.snapshotDate instanceof Date
           ? immediateData.snapshotDate.toISOString().slice(0, 10)
           : (immediateData.snapshotDate ? String(immediateData.snapshotDate).slice(0, 10) : '');
         const todayIsoStr = todayDate.toISOString().slice(0, 10);
         if (immDateStr && immDateStr < todayIsoStr) {
-          const rawDelta = Math.max(0, confirmedSaves - immediateData.saves);
-          const immDate = new Date(immediateData.snapshotDate);
-          const immUtc = Date.UTC(immDate.getUTCFullYear(), immDate.getUTCMonth(), immDate.getUTCDate());
-          const daysElapsed = Math.max(1, Math.round((todayUtc - immUtc) / (1000 * 60 * 60 * 24)));
-          velocity = Math.round(rawDelta / daysElapsed);
+          velocity = calculateDailyVelocity({
+            currentSaves: confirmedSaves,
+            baselineSaves: immediateData.saves,
+            currentDate: todayDate,
+            baselineDate: immediateData.snapshotDate,
+            maxCap: 25000
+          });
         }
       }
 
@@ -2182,7 +2142,6 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
       creation_method: p.creation_method || 'pinterest_platform',
       crawled_at: p.crawled_at || null,
       metadata: {
-        ...(p.metadata || {}),
         prev_rank: p.metadata?.prev_rank ?? null,
         rank_delta: p.metadata?.rank_delta ?? 0,
         is_new: Boolean(p.metadata?.is_new),
@@ -2211,7 +2170,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
 
     if (hubSerpPayload.length > 0 && !isSuspectedIncompleteCrawl) {
       // 1. Keep Hub's active SERP cache (keyword_serp_current) synchronized with inline baseline columns
-      txBatch.push(sql`
+      txBatch.push((db) => db`
         INSERT INTO keyword_serp_current (
           keyword_id,
           pin_id,
@@ -2343,22 +2302,23 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
 
       if (shouldApplyDisplacement) {
         // Remove any resurged pins from keyword_displaced_index
-        txBatch.push(sql`
+        txBatch.push((db) => db`
           DELETE FROM keyword_displaced_index
           WHERE keyword_id = ${kid}
             AND pin_id = ANY(${pinIds});
         `);
 
         // Archive displaced pins into slim keyword_displaced_index (56 bytes/row on Hub)
-        txBatch.push(sql`
+        txBatch.push((db) => db`
           INSERT INTO keyword_displaced_index (
-            keyword_id, pin_id, last_known_rank, vacuum_opportunity_score,
+            keyword_id, pin_id, domain, last_known_rank, vacuum_opportunity_score,
             displaced_date, save_count, repin_count, comment_count, share_count,
             daily_save_velocity, updated_at
           )
           SELECT
             keyword_id,
             pin_id,
+            domain,
             LEAST(32767, GREATEST(1, COALESCE(rank_position, last_known_rank, 100)))::smallint,
             CASE 
               WHEN COALESCE(rank_position, last_known_rank, 100) <= 5 THEN 85
@@ -2381,6 +2341,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
               WHERE kip.keyword_id = ${kid} AND kip.pin_id = keyword_serp_current.pin_id
             )
           ON CONFLICT (keyword_id, pin_id) DO UPDATE SET
+            domain = COALESCE(EXCLUDED.domain, keyword_displaced_index.domain),
             last_known_rank = COALESCE(EXCLUDED.last_known_rank, keyword_displaced_index.last_known_rank),
             vacuum_opportunity_score = GREATEST(keyword_displaced_index.vacuum_opportunity_score, EXCLUDED.vacuum_opportunity_score),
             save_count = GREATEST(keyword_displaced_index.save_count, EXCLUDED.save_count),
@@ -2389,7 +2350,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
         `);
 
         // Evict displaced rows from keyword_serp_current so Hub SERP cache remains < 15 MB
-        txBatch.push(sql`
+        txBatch.push((db) => db`
           DELETE FROM keyword_serp_current
           WHERE keyword_id = ${kid}
             AND (is_displaced = TRUE OR NOT (pin_id = ANY(${pinIds})));
@@ -2400,7 +2361,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
     }
 
     if (preparedGuides.length > 0) {
-      txBatch.push(sql`
+      txBatch.push((db) => db`
         INSERT INTO keyword_guided_capsules (
           keyword_id, term, display_label, score, dominant_color, display_order, discovered_at
         )
@@ -2429,7 +2390,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
       ? (keywordRow.last_crawled_at ? new Date(keywordRow.last_crawled_at).toISOString() : null)
       : new Date().toISOString();
 
-    txBatch.push(sql`
+    txBatch.push((db) => db`
       UPDATE tracked_keywords SET
         top_pin_id = ${topPin && !isSuspectedIncompleteCrawl ? topPin.pinId : keywordRow.top_pin_id},
         top_pin_title = ${topPin && !isSuspectedIncompleteCrawl ? topPin.title : keywordRow.top_pin_title},
@@ -2443,8 +2404,21 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
       WHERE id = ${kid};
     `);
 
-    // Execute atomic Hub transaction in 1 network roundtrip
-    await sql.transaction(txBatch);
+    // [INVARIANT: HYPERDRIVE-ATOMIC-BUILDER]
+    // Execute atomic Hub transaction in 1 atomic transaction / single roundtrip
+    if (typeof sql.begin === 'function') {
+      await sql.begin(async (tx) => {
+        for (const builder of txBatch) {
+          await (typeof builder === 'function' ? builder(tx) : builder);
+        }
+      });
+    } else if (typeof sql.transaction === 'function') {
+      await sql.transaction(txBatch.map(b => typeof b === 'function' ? b(sql) : b));
+    } else {
+      for (const builder of txBatch) {
+        await (typeof builder === 'function' ? builder(sql) : builder);
+      }
+    }
     leaseCommittedInTx = true;
 
     // Route 100% of static creative metadata & historical time-series (active + displaced) directly to the 99 Shards + D1
@@ -2521,32 +2495,8 @@ export async function getKeywordPins(sql, keywordId) {
     ORDER BY rank_position ASC;
   `.catch(() => []);
 
-  if (activeRows && activeRows.length > 0) {
-    return activeRows;
-  }
-
-  // 2. Resilient Fallback to historical keyword_pins_snapshots for legacy keywords or test fixtures
-  return await sql`
-    SELECT *
-    FROM keyword_pins_snapshots
-    WHERE keyword_id = ${kid}
-      AND is_displaced = FALSE
-      AND NOT EXISTS (
-        SELECT 1 FROM keyword_ignored_pins kip
-        WHERE kip.keyword_id = ${kid} AND kip.pin_id = keyword_pins_snapshots.pin_id
-      )
-      AND snapshot_date = (
-        SELECT MAX(snapshot_date)
-        FROM keyword_pins_snapshots
-        WHERE keyword_id = ${kid}
-          AND is_displaced = FALSE
-          AND NOT EXISTS (
-            SELECT 1 FROM keyword_ignored_pins kip
-            WHERE kip.keyword_id = ${kid} AND kip.pin_id = keyword_pins_snapshots.pin_id
-          )
-      )
-    ORDER BY rank_position ASC;
-  `;
+  // [INVARIANT: ZERO-HUB-SNAPSHOTS] Central Hub holds zero historical snapshots; active catalog is SSOT
+  return activeRows || [];
 }
 
 /**
@@ -2614,15 +2564,9 @@ export async function getKeywordSERPComparison(sql, keywordId, knownKeyword = nu
         )
       ORDER BY rank_position ASC;
     `.catch(() => []),
-    sql`
-      SELECT DISTINCT snapshot_date
-      FROM keyword_pins_snapshots
-      WHERE keyword_id = ${kid}
-        AND (is_displaced IS FALSE OR is_displaced IS NULL)
-      ORDER BY snapshot_date DESC
-      LIMIT 2;
-    `.catch(() => []),
-    getKeywordDisplacedPins(sql, kid, { limit: 150, env }).then(r => r?.pins || []).catch(() => []),
+    // [INVARIANT: ZERO-HUB-SNAPSHOTS] Central Hub holds zero historical snapshots
+    Promise.resolve([]),
+    getKeywordDisplacedPins(sql, kid, { limit: 24, env, skipShardHydration: true }).then(r => r?.pins || []).catch(() => []),
     getKeywordGuides(sql, kid).catch(() => [])
   ]);
 
@@ -2630,22 +2574,14 @@ export async function getKeywordSERPComparison(sql, keywordId, knownKeyword = nu
   if (!keyword) throw new Error(`Keyword ID ${kid} not found`);
 
   let droppedOutPins = droppedOutPinsRaw || [];
-
-  const latestDate = dates?.[0]?.snapshot_date || (activeCatalogPins?.[0]?.crawled_at ? new Date(activeCatalogPins[0].crawled_at).toISOString().slice(0, 10) : null);
-  let currentPins = Array.isArray(activeCatalogPins) && activeCatalogPins.length > 0 ? activeCatalogPins : [];
-  if (currentPins.length === 0 && latestDate) {
-    currentPins = await sql`
-      SELECT kps.*, ksc.visual_annotations, ksc.dominant_color
-      FROM keyword_pins_snapshots kps
-      LEFT JOIN keyword_serp_current ksc ON ksc.keyword_id = kps.keyword_id AND ksc.pin_id = kps.pin_id
-      WHERE kps.keyword_id = ${kid}
-        AND kps.snapshot_date = ${latestDate}
-        AND kps.is_displaced = FALSE
-      ORDER BY kps.rank_position ASC;
-    `.catch(() => []);
+  if (droppedOutPins.length === 0 && Array.isArray(keyword.metadata?.last_dropped_pins) && keyword.metadata.last_dropped_pins.length > 0) {
+    droppedOutPins = keyword.metadata.last_dropped_pins;
   }
 
-  if (currentPins.length === 0 && (!dates || dates.length === 0)) {
+  const latestDate = activeCatalogPins?.[0]?.crawled_at ? new Date(activeCatalogPins[0].crawled_at).toISOString().slice(0, 10) : null;
+  let currentPins = Array.isArray(activeCatalogPins) && activeCatalogPins.length > 0 ? activeCatalogPins : [];
+
+  if (currentPins.length === 0) {
     return {
       status: 'never_crawled',
       keyword,
@@ -2657,27 +2593,6 @@ export async function getKeywordSERPComparison(sql, keywordId, knownKeyword = nu
       velocity_chart: { points: [], explosive: 0, trending: 0, steady: 0, stagnant: 0 },
       stats: { total: 0, climbed: 0, dropped: 0, stable: 0, new_entries: 0, dropped_out: 0 }
     };
-  }
-
-  if (droppedOutPins.length === 0 && dates.length > 1) {
-    const prevDate = dates[1].snapshot_date;
-    droppedOutPins = await sql`
-      SELECT *
-      FROM keyword_pins_snapshots
-      WHERE keyword_id = ${kid}
-        AND snapshot_date = ${prevDate}
-        AND is_displaced = FALSE
-        AND pin_id NOT IN (
-          SELECT pin_id
-          FROM keyword_pins_snapshots
-          WHERE keyword_id = ${kid}
-            AND snapshot_date = ${latestDate}
-            AND is_displaced = FALSE
-        )
-      ORDER BY rank_position ASC;
-    `.catch(() => []);
-  } else if (droppedOutPins.length === 0 && Array.isArray(keyword.metadata?.last_dropped_pins) && keyword.metadata.last_dropped_pins.length > 0) {
-    droppedOutPins = keyword.metadata.last_dropped_pins;
   }
 
   // Calculate summary stats and build velocity chart data
@@ -3149,7 +3064,7 @@ export async function getKeywordDisplacedPins(sql, keywordId, options = {}) {
   const kid = Number(keywordId);
   if (!kid) throw new Error('Valid keyword ID is required');
 
-  const { status = 'ALL', limit = 250, offset = 0, env = null, forceRefresh = false } = options;
+  const { status = 'ALL', limit = 250, offset = 0, env = null, forceRefresh = false, skipShardHydration = false } = options;
   const lim = Math.min(1000, Math.max(1, Number(limit) || 250));
   const off = Math.max(0, Number(offset) || 0);
 
@@ -3170,7 +3085,7 @@ export async function getKeywordDisplacedPins(sql, keywordId, options = {}) {
       kdi.keyword_id,
       kdi.pin_id,
       ksc.title,
-      ksc.domain,
+      COALESCE(kdi.domain, ksc.domain) AS domain,
       ksc.destination_url,
       ksc.image_url,
       ksc.creator_username,
@@ -3263,7 +3178,7 @@ export async function getKeywordDisplacedPins(sql, keywordId, options = {}) {
     `.catch(() => []);
   }
 
-  const rows = await hydrateDisplacedIndexFromShards(sql, rawRows, env);
+  const rows = await hydrateDisplacedIndexFromShards(sql, rawRows, env, skipShardHydration);
 
   // Calculate live deltas and vacuum opportunity score for each pin
   for (const pin of rows) {
@@ -3392,30 +3307,8 @@ export async function getPinPerformanceTrajectory(sql, keywordId, pinId, range =
         }
       })();
 
-      const snapshotsPromise = (async () => {
-        try {
-          if (kid) {
-            return await sql`
-              SELECT DISTINCT ON (snapshot_date)
-                pin_id, rank_position, save_count, repin_count, comment_count, share_count, reaction_count,
-                daily_save_velocity, snapshot_date
-              FROM keyword_pins_snapshots
-              WHERE keyword_id = ${kid} AND pin_id = ${cleanPin}
-              ORDER BY snapshot_date ASC, created_at DESC;
-            `;
-          }
-          return await sql`
-            SELECT DISTINCT ON (snapshot_date)
-              pin_id, rank_position, save_count, repin_count, comment_count, share_count, reaction_count,
-              daily_save_velocity, snapshot_date
-            FROM keyword_pins_snapshots
-            WHERE pin_id = ${cleanPin}
-            ORDER BY snapshot_date ASC, created_at DESC;
-          `;
-        } catch (_) {
-          return [];
-        }
-      })();
+      // [INVARIANT: ZERO-HUB-SNAPSHOTS] Central Hub holds zero historical snapshots
+      const snapshotsPromise = Promise.resolve([]);
 
       const [activeRows, snapshotRows] = await Promise.all([activeHubPromise, snapshotsPromise]);
       return [...(snapshotRows || []), ...(activeRows || [])];
@@ -3619,16 +3512,8 @@ export async function getPinDeepDossier(sql, pinId, keywordId = null, { forceRef
       LIMIT 1;
     `).catch(() => []),
 
-    // 2. keyword_pins_snapshots
-    (kid ? sql`
-      SELECT * FROM keyword_pins_snapshots 
-      WHERE keyword_id = ${kid} AND pin_id = ${cleanPin}
-      ORDER BY snapshot_date DESC LIMIT 1;
-    ` : sql`
-      SELECT * FROM keyword_pins_snapshots 
-      WHERE pin_id = ${cleanPin}
-      ORDER BY snapshot_date DESC LIMIT 1;
-    `).catch(() => []),
+    // [INVARIANT: ZERO-HUB-SNAPSHOTS] Central Hub holds zero historical snapshots
+    Promise.resolve([]),
 
     // 3. D1 Edge Lookup first (< 3ms), then Shard master pin fallback with 2500ms timeout
     (async () => {
@@ -3692,15 +3577,8 @@ export async function getPinDeepDossier(sql, pinId, keywordId = null, { forceRef
     displacedRow = fallbackRow || null;
   }
 
-  let latestSnapshot = snapshotRows?.[0] || null;
-  if (!latestSnapshot && kid) {
-    const [sRow] = await sql`
-      SELECT * FROM keyword_pins_snapshots 
-      WHERE pin_id = ${cleanPin}
-      ORDER BY snapshot_date DESC LIMIT 1;
-    `.catch(() => []);
-    latestSnapshot = sRow || null;
-  }
+  // [INVARIANT: ZERO-HUB-SNAPSHOTS] Snapshot metrics are derived from Shard trajectory
+  const latestSnapshot = (Array.isArray(trajectory) && trajectory.length > 0) ? trajectory[trajectory.length - 1] : null;
 
   // 4. Smart Dynamic On-Demand Scrape Trigger:
   // Only scrape if explicitly requested via forceRefresh
@@ -3753,28 +3631,6 @@ export async function getPinDeepDossier(sql, pinId, keywordId = null, { forceRef
               crawled_at = NOW(),
               updated_at = NOW()
             WHERE keyword_id = ${displacedRow.keyword_id} AND pin_id = ${cleanPin};
-          `.catch(() => {});
-        }
-
-        // Also persist verified metrics to keyword_pins_snapshots
-        if (latestSnapshot) {
-          await sql`
-            UPDATE keyword_pins_snapshots SET
-              save_count = GREATEST(save_count, ${Number(scraped.saves || 0)}),
-              repin_count = GREATEST(repin_count, ${Number(scraped.repins || 0)}),
-              comment_count = GREATEST(comment_count, ${Number(scraped.comments || 0)}),
-              metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
-                'alt_text', COALESCE(${scraped.alt_text || scraped.seo_alt_text || ''}::text, metadata->>'alt_text'),
-                'description', COALESCE(${scraped.description || ''}::text, metadata->>'description'),
-                'share_count', ${Number(scraped.share_count || 0)},
-                'visual_annotations', CASE
-                  WHEN jsonb_typeof(${JSON.stringify(normalizedAnnotations)}::jsonb) = 'array' AND jsonb_array_length(${JSON.stringify(normalizedAnnotations)}::jsonb) > 0
-                  THEN ${JSON.stringify(normalizedAnnotations)}::jsonb
-                  ELSE COALESCE(metadata->'visual_annotations', '[]'::jsonb)
-                END
-              )
-            WHERE pin_id = ${cleanPin}
-              AND (${kid || null}::int IS NULL OR keyword_id = ${kid || null});
           `.catch(() => {});
         }
 

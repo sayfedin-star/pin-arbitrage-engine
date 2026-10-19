@@ -712,20 +712,16 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
         `SELECT pin_id, title, domain, destination_url, image_url, creator_username, board_name, dominant_color, visual_annotations, seo_alt_text, description, metadata, created_at_pinterest, updated_at FROM edge_pins_metadata WHERE pin_id = ? LIMIT 1`
       ).bind(cleanPinId).first();
       if (row) {
-        const rowUpdatedAtMs = parseD1DateMs(row.updated_at);
-        const isFresh = (Date.now() - rowUpdatedAtMs) < (12 * 60 * 60 * 1000);
-        if (isFresh) {
-          let parsedAnnotations = [];
-          try { parsedAnnotations = typeof row.visual_annotations === 'string' ? JSON.parse(row.visual_annotations) : (row.visual_annotations || []); } catch (_) {}
-          let parsedMeta = {};
-          try { parsedMeta = typeof row.metadata === 'string' ? JSON.parse(row.metadata) : (row.metadata || {}); } catch (_) {}
-          d1Record = {
-            ...row,
-            metadata: parsedMeta,
-            visual_annotations: parsedAnnotations,
-            alt_text: row.seo_alt_text || ''
-          };
-        }
+        let parsedAnnotations = [];
+        try { parsedAnnotations = typeof row.visual_annotations === 'string' ? JSON.parse(row.visual_annotations) : (row.visual_annotations || []); } catch (_) {}
+        let parsedMeta = {};
+        try { parsedMeta = typeof row.metadata === 'string' ? JSON.parse(row.metadata) : (row.metadata || {}); } catch (_) {}
+        d1Record = {
+          ...row,
+          metadata: parsedMeta,
+          visual_annotations: parsedAnnotations,
+          alt_text: row.seo_alt_text || ''
+        };
       }
     } catch (_) {}
   }
@@ -734,10 +730,8 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
   let shardErrorReason = null;
   const dossierBatchId = `dossier_batch_${cleanPinId}_${Date.now()}_${Math.random()}`;
 
-  // Tier 1 Edge Shield bypass: If D1 record is fresh and contains rich metadata, bypass Shard master query completely
-  const hasValidD1 = Boolean(
-    d1Record && (d1Record.metadata?.has_treasures || d1Record.metadata?.canonical_pin_id || (Array.isArray(d1Record.metadata?.seo_related_interests) && d1Record.metadata.seo_related_interests.length > 0))
-  );
+  // [INVARIANT: PERMANENT-D1-METADATA] Static pin creative metadata in D1 is permanent and bypasses Shard master query
+  const hasValidD1 = Boolean(d1Record && d1Record.pin_id);
 
   const masterPromise = hasValidD1
     ? Promise.resolve(d1Record)
@@ -889,21 +883,8 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
         )
       ORDER BY save_count DESC;
     `.catch(() => []),
-    hubSql`
-      SELECT 
-        kps.id, kps.pin_id, kps.title, kps.domain, kps.destination_url, kps.image_url,
-        kps.snapshot_date, kps.rank_position, kps.last_known_rank, kps.is_displaced,
-        kps.save_count, kps.repin_count, kps.comment_count,
-        0 as share_count, 0 as reaction_count, kps.daily_save_velocity,
-        kps.keyword_id, NULL as competitor_id,
-        kps.created_at_pinterest, kps.creation_method, kps.metadata, kps.created_at,
-        tk.keyword AS keyword_name
-      FROM keyword_pins_snapshots kps
-      LEFT JOIN tracked_keywords tk ON tk.id = kps.keyword_id
-      WHERE kps.pin_id = ${cleanPinId}
-      ORDER BY kps.snapshot_date DESC, kps.created_at DESC
-      LIMIT 90;
-    `.catch(() => [])
+    // [INVARIANT: ZERO-HUB-SNAPSHOTS] Central Hub has no historical snapshot tables; time series lives strictly on Shards
+    Promise.resolve([])
   ]);
 
   let masterRecord = initialMaster || d1Record;
@@ -1282,7 +1263,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
               share_count = GREATEST(pins_daily_metrics.share_count, EXCLUDED.share_count),
               reaction_count = GREATEST(pins_daily_metrics.reaction_count, EXCLUDED.reaction_count),
               daily_save_velocity = CASE 
-                WHEN EXCLUDED.daily_save_velocity > 0 THEN EXCLUDED.daily_save_velocity 
+                WHEN EXCLUDED.daily_save_velocity IS NOT NULL THEN EXCLUDED.daily_save_velocity 
                 ELSE pins_daily_metrics.daily_save_velocity 
               END,
               updated_at = NOW();
@@ -1723,6 +1704,88 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     },
     daily_trajectory: dailyTrajectory,
     snapshots: enrichedSnapshots
+  };
+}
+
+/**
+ * Fast Edge Dossier Resolver
+ * [INVARIANT: SAFE-PREFETCH-EDGE-ONLY]
+ * Returns pin data strictly from Cloudflare D1 or KV edge cache in < 3ms.
+ * Never executes live Pinterest scraping or Shard queries.
+ *
+ * @param {string|number} pinId
+ * @param {object} env - Cloudflare environment bindings
+ * @returns {Promise<object>}
+ */
+export async function getFastEdgeDossier(pinId, env) {
+  const cleanPinId = String(pinId || '').trim();
+  if (!cleanPinId) {
+    return { success: false, error: 'INVALID_PIN_ID', message: 'Pin ID is required' };
+  }
+
+  // 1. Try KV Cache first (< 1ms)
+  if (env?.PIN_ENGINE_KV) {
+    try {
+      const kvKey = `pin:dossier?pin_id=${cleanPinId}`;
+      const kvData = await env.PIN_ENGINE_KV.get(kvKey, 'json');
+      if (kvData) {
+        return { ...kvData, source: 'edge_kv' };
+      }
+    } catch (_) {}
+  }
+
+  // 2. Try Cloudflare D1 edge mirror (< 3.5ms)
+  if (env?.PIN_D1_DB) {
+    try {
+      const row = await env.PIN_D1_DB.prepare(
+        `SELECT pin_id, title, domain, destination_url, image_url, creator_username, board_name, dominant_color, visual_annotations, seo_alt_text, description, metadata, created_at_pinterest, updated_at FROM edge_pins_metadata WHERE pin_id = ? LIMIT 1`
+      ).bind(cleanPinId).first();
+      if (row) {
+        let parsedAnnotations = [];
+        try { parsedAnnotations = typeof row.visual_annotations === 'string' ? JSON.parse(row.visual_annotations) : (row.visual_annotations || []); } catch (_) {}
+        let parsedMeta = {};
+        try { parsedMeta = typeof row.metadata === 'string' ? JSON.parse(row.metadata) : (row.metadata || {}); } catch (_) {}
+
+        return {
+          success: true,
+          pin_id: cleanPinId,
+          source: 'edge_d1',
+          creative: {
+            title: row.title || `Pin ${cleanPinId}`,
+            description: row.description || '',
+            alt_text: row.seo_alt_text || '',
+            destination_url: row.destination_url || '',
+            domain: row.domain || 'pinterest.com',
+            image_url: row.image_url || '',
+            dominant_color: row.dominant_color || '#888888',
+            visual_annotations: parsedAnnotations,
+            created_at_pinterest: row.created_at_pinterest || null,
+            canonical_pin_id: parsedMeta.canonical_pin_id || null,
+            canonical_pin_url: parsedMeta.canonical_pin_url || null,
+            save_count: Number(parsedMeta.save_count || 0),
+            repin_count: Number(parsedMeta.repin_count || 0)
+          },
+          algorithmic_intelligence: {
+            canonical_pin_id: parsedMeta.canonical_pin_id || null,
+            canonical_pin_url: parsedMeta.canonical_pin_url || null,
+            seo_related_interests: Array.isArray(parsedMeta.seo_related_interests) ? parsedMeta.seo_related_interests : []
+          },
+          pillar_1_creator_context: {
+            creator_username: row.creator_username || '',
+            board_name: row.board_name || ''
+          },
+          daily_trajectory: [],
+          snapshots: []
+        };
+      }
+    } catch (_) {}
+  }
+
+  return {
+    success: false,
+    not_cached: true,
+    error: 'NOT_IN_EDGE_CACHE',
+    message: `Pin ${cleanPinId} not found in edge cache. Perform non-prefetch fetch to hydrate.`
   };
 }
 

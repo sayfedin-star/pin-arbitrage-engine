@@ -109,3 +109,53 @@ export function maskDatabaseUrl(rawUrl) {
     return '[REDACTED_DATABASE_URL]';
   }
 }
+
+/**
+ * Culinary Color Name Mapper
+ */
+export function getCulinaryColorName(hex) {
+  if (!hex || typeof hex !== 'string') return 'Culinary Accent';
+  const cleanHex = hex.replace('#', '').toLowerCase();
+  if (cleanHex.length < 6) return 'Culinary Accent';
+
+  const r = parseInt(cleanHex.substring(0, 2), 16);
+  const g = parseInt(cleanHex.substring(2, 4), 16);
+  const b = parseInt(cleanHex.substring(4, 6), 16);
+
+  const max = Math.max(r, g, b) / 255;
+  const min = Math.min(r, g, b) / 255;
+  const delta = max - min;
+  const l = (max + min) / 2;
+  let h = 0;
+
+  if (delta !== 0) {
+    if (max === r / 255) h = ((g / 255 - b / 255) / delta) % 6;
+    else if (max === g / 255) h = (b / 255 - r / 255) / delta + 2;
+    else h = (r / 255 - g / 255) / delta + 4;
+    h = Math.round(h * 60);
+    if (h < 0) h += 360;
+  }
+
+  // Refined Culinary & Dessert/Bakery Boundaries
+  if (l >= 0.82) return 'Whipped Vanilla / Glaze Cream';
+  if (l <= 0.18) return 'Charred Espresso / Dark Truffle';
+  if (h >= 345 || h <= 10) return 'Cranberry Glaze / Red Reduction';
+  if (h > 10 && h <= 30 && l < 0.38) return 'Toasted Cinnamon / Dutch Cocoa';
+  if (h > 10 && h <= 32 && l >= 0.38 && l < 0.55) return 'Roasted Pumpkin / Warm Amber';
+  if (h > 32 && h <= 55 && l >= 0.40) return 'Golden Brioche / Honey Glaze';
+  if (h > 10 && h <= 45 && l < 0.45) return 'Caramelized Pecan / Spice Crumble';
+  if (h > 55 && h <= 165) return 'Fresh Herb / Sage Infusion';
+  if (h > 165 && h <= 260) return 'Nordic Sea Salt / Steel Cookware';
+  
+  return 'Artisan Blend / Culinary Accent';
+}
+
+/**
+ * Human-readable age formatter
+ */
+export function formatAge(days) {
+  const d = Number(days || 1);
+  if (d < 30) return `${d}d ago`;
+  if (d < 365) return `${Math.floor(d / 30)}mo ago`;
+  return `${(d / 365).toFixed(1)}y ago`;
+}

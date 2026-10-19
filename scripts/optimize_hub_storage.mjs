@@ -159,7 +159,7 @@ export async function optimizeHubStorage(sql) {
               SELECT DISTINCT ON (u.pin_id)
                 u.pin_id, u.creator_username, u.board_name, u.title, u.domain, u.destination_url,
                 u.image_url, u.description, u.alt_text, u.dominant_color, u.visual_annotations,
-                u.created_at_pinterest::timestamptz, u.metadata,
+                NULLIF(TRIM(u.created_at_pinterest), '')::timestamptz, u.metadata,
                 'keyword', NOW(), NOW()
               FROM jsonb_to_recordset(${payload}::jsonb) AS u(
                 pin_id text, creator_username text, board_name text, title text, domain text,

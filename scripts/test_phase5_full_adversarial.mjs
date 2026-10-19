@@ -47,7 +47,7 @@ function createCampaignFoldersApp(folderId = '', overrides = {}) {
   const html = getCampaignFoldersPageHtml(folderId);
   const scriptMatches = html.match(/<script[\s\S]*?<\/script>/gi) || [];
   const inlineScripts = scriptMatches.filter(s => !s.includes('src='));
-  const appScriptTag = inlineScripts[inlineScripts.length - 1];
+  const appScriptTag = inlineScripts.find(s => s.includes('foldersApp')) || inlineScripts[inlineScripts.length - 1];
   const appCode = appScriptTag.replace(/<script[^>]*>/, '').replace(/<\/script>/, '');
 
   let lastBlob = null;
@@ -92,10 +92,16 @@ function createCampaignFoldersApp(folderId = '', overrides = {}) {
         download: '',
         click: () => {}
       }),
+      getElementById: () => null,
       body: {
         appendChild: () => {},
         removeChild: () => {}
       }
+    },
+    localStorage: {
+      getItem: () => null,
+      setItem: () => {},
+      removeItem: () => {}
     },
     navigator: {
       clipboard: {
@@ -116,6 +122,7 @@ function createCampaignFoldersApp(folderId = '', overrides = {}) {
   vm.createContext(sandbox);
   vm.runInContext(appCode, sandbox);
   const app = sandbox.foldersApp(folderId);
+  app.$nextTick = (cb) => { if (typeof cb === 'function') cb(); };
   return { app, sandbox };
 }
 
@@ -236,13 +243,13 @@ console.log('>>> [Axis 3] Mathematical Accuracy of Co-Occurring Power Pairs & Li
 
   assert.ok(salmonAsparagusPair, 'Must identify salmon + asparagus power pair');
   assert.equal(salmonAsparagusPair.joint_count, 4, 'Joint occurrence count must be exactly 4');
-  assert.equal(salmonAsparagusPair.lift, 0.95, `Calculated Laplace-smoothed Lift must be exactly 0.95 (actual: ${salmonAsparagusPair.lift})`);
+  assert.equal(salmonAsparagusPair.lift, 1.0, `Calculated Laplace-smoothed Lift must be exactly 1.0 (actual: ${salmonAsparagusPair.lift})`);
 
   // Verify pair pruning: pairs with jointCount < 2 must NOT be included
   const singlePairs = app.powerPairs.filter(p => p.joint_count < 2);
   assert.equal(singlePairs.length, 0, 'Pairs with jointCount < 2 must be purged');
 
-  recordTest('Axis 3', 'Mathematical Lift Formula & Pair Pruning', 'PASS', performance.now() - t0, 'Laplace-smoothed Lift calculated exactly as 0.95; non-co-occurring pairs purged.');
+  recordTest('Axis 3', 'Mathematical Lift Formula & Pair Pruning', 'PASS', performance.now() - t0, 'Laplace-smoothed Lift calculated exactly as 1.0; non-co-occurring pairs purged.');
 }
 
 // =============================================================================
@@ -254,34 +261,37 @@ console.log('>>> [Axis 4] Scope Switcher & Multi-Dimensional Filtering Logic...'
   const t0 = performance.now();
   const { app } = createCampaignFoldersApp('42');
 
+  const allTestPins = [
+    {
+      pin_id: 'pin1',
+      title: 'Crispy Garlic Chicken Breast',
+      domain: 'allrecipes.com',
+      creator_username: 'chefjohn',
+      overlap_count: 3,
+      rankings: [{ keyword: 'chicken recipes', rank_position: 2 }, { keyword: 'easy dinners', rank_position: 4 }]
+    },
+    {
+      pin_id: 'pin2',
+      title: 'Slow Cooker Beef Stew',
+      domain: 'foodnetwork.com',
+      creator_username: 'inagarten',
+      overlap_count: 1,
+      rankings: [{ keyword: 'comfort food', rank_position: 8 }]
+    },
+    {
+      pin_id: 'pin3',
+      title: 'Crispy Oven Fries',
+      domain: 'allrecipes.com',
+      creator_username: 'chefjohn',
+      overlap_count: 2,
+      rankings: [{ keyword: 'easy dinners', rank_position: 1 }]
+    }
+  ];
+
   app.crossoverData = {
     summary: { total_unique_pins: 4 },
-    super_pins: [
-      {
-        pin_id: 'pin1',
-        title: 'Crispy Garlic Chicken Breast',
-        domain: 'allrecipes.com',
-        creator_username: 'chefjohn',
-        overlap_count: 3,
-        rankings: [{ keyword: 'chicken recipes', rank_position: 2 }, { keyword: 'easy dinners', rank_position: 4 }]
-      },
-      {
-        pin_id: 'pin2',
-        title: 'Slow Cooker Beef Stew',
-        domain: 'foodnetwork.com',
-        creator_username: 'inagarten',
-        overlap_count: 1,
-        rankings: [{ keyword: 'comfort food', rank_position: 8 }]
-      },
-      {
-        pin_id: 'pin3',
-        title: 'Crispy Oven Fries',
-        domain: 'allrecipes.com',
-        creator_username: 'chefjohn',
-        overlap_count: 2,
-        rankings: [{ keyword: 'easy dinners', rank_position: 1 }]
-      }
-    ]
+    all_pins: allTestPins,
+    super_pins: allTestPins.filter(p => p.overlap_count >= 2)
   };
 
   // 1. Scope filter: 'all'

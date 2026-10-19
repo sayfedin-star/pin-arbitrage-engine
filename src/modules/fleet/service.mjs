@@ -228,36 +228,7 @@ export async function syncCompetitorAcrossFleet(hubSql, competitorUsernameOrId, 
       SELECT * FROM competitor_boards WHERE competitor_id = ${p.id};
     `;
 
-    // 1. Fetch winning pins ONCE before entering any loop (eliminates 99 redundant Hub queries)
-    const compPins = await hubSql`
-      SELECT * FROM pa_pins
-      WHERE LOWER(account_username) = ${p.username.toLowerCase()}
-      ORDER BY saves DESC
-      LIMIT 100;
-    `;
-
-    const pinRecords = compPins.map(cp => ({
-      pin_id: cp.pin_id,
-      account_username: cp.account_username,
-      title: cp.title || '',
-      description: cp.description || '',
-      link: cp.link || '',
-      domain: cp.domain || '',
-      board_name: cp.board_name || '',
-      image_url: cp.image_url || '',
-      dominant_color: cp.dominant_color || '#888888',
-      saves: Number(cp.saves || 0),
-      repins: Number(cp.repins || 0),
-      comments: Number(cp.comments || 0),
-      share_count: Number(cp.share_count || 0),
-      reactions: cp.reactions || {},
-      velocity: Number(cp.velocity || 0),
-      annotations: cp.annotations || [],
-      is_video: Boolean(cp.is_video),
-      is_product: Boolean(cp.is_product),
-      created_at_pinterest: cp.created_at_pinterest ? new Date(cp.created_at_pinterest).toISOString() : null,
-      first_seen_at: cp.first_seen_at ? new Date(cp.first_seen_at).toISOString() : new Date().toISOString()
-    }));
+    // [INVARIANT: PA-PINS-CENTRAL-HUB-ONLY] pa_pins is exclusively maintained on Central Hub; zero shard replication.
 
     const tagsArray = Array.isArray(p.tags) ? p.tags : [];
 
@@ -406,33 +377,7 @@ export async function syncCompetitorAcrossFleet(hubSql, competitorUsernameOrId, 
           `.catch(() => {});
         }
 
-        // Bulk replicate creator winning pins from pa_pins to shard
-        if (pinRecords.length > 0) {
-          await sSql`
-            INSERT INTO pa_pins (
-              pin_id, account_username, title, description, link, domain,
-              board_name, image_url, dominant_color, saves, repins, comments,
-              share_count, reactions, velocity, annotations, is_video, is_product,
-              created_at_pinterest, first_seen_at, last_updated_at
-            )
-            SELECT
-              x.pin_id, x.account_username, x.title, x.description, x.link, x.domain,
-              x.board_name, x.image_url, x.dominant_color, x.saves, x.repins, x.comments,
-              x.share_count, x.reactions, x.velocity, x.annotations, x.is_video, x.is_product,
-              x.created_at_pinterest::timestamptz, x.first_seen_at::timestamptz, NOW()
-            FROM jsonb_to_recordset(${JSON.stringify(pinRecords)}::jsonb) AS x(
-              pin_id varchar, account_username varchar, title text, description text, link text, domain varchar,
-              board_name varchar, image_url text, dominant_color varchar, saves bigint, repins bigint, comments int,
-              share_count bigint, reactions jsonb, velocity numeric, annotations jsonb, is_video boolean, is_product boolean,
-              created_at_pinterest text, first_seen_at text
-            )
-            ON CONFLICT (pin_id) DO UPDATE SET
-              saves = GREATEST(pa_pins.saves, EXCLUDED.saves),
-              repins = GREATEST(pa_pins.repins, EXCLUDED.repins),
-              velocity = EXCLUDED.velocity,
-              last_updated_at = NOW();
-          `;
-        }
+        // [INVARIANT: PA-PINS-CENTRAL-HUB-ONLY] pa_pins is maintained exclusively on Central Hub; zero shard replication.
 
         syncedShards++;
       } catch (sErr) {
@@ -725,78 +670,12 @@ export async function syncFleetDatabases(hubSql, { targetProjectId = null } = {}
           `;
         }
 
-        // 7. Stream Sync pa_pins (Winning Pins Archive) in keyset batches of 100
-        let lastPinId = '';
-        while (true) {
-          const pBatch = await hubSql`
-            SELECT pin_id, account_username, title, description, link, domain,
-                   board_name, image_url, dominant_color, saves, repins, comments,
-                   share_count, reactions, velocity, annotations, is_video, is_product,
-                   created_at_pinterest, first_seen_at, last_updated_at
-            FROM pa_pins
-            WHERE pin_id > ${lastPinId}
-            ORDER BY pin_id ASC
-            LIMIT 100;
-          `;
-          if (!pBatch || pBatch.length === 0) break;
-          lastPinId = pBatch[pBatch.length - 1].pin_id;
-
-          const pCleaned = pBatch.map(p => ({
-            pin_id: p.pin_id,
-            account_username: p.account_username || '',
-            title: p.title || '',
-            description: p.description || '',
-            link: p.link || '',
-            domain: p.domain || '',
-            board_name: p.board_name || '',
-            image_url: p.image_url || '',
-            dominant_color: p.dominant_color || '#888888',
-            saves: Number(p.saves || 0),
-            repins: Number(p.repins || 0),
-            comments: Number(p.comments || 0),
-            share_count: Number(p.share_count || 0),
-            reactions: JSON.stringify(p.reactions || {}),
-            velocity: Number(p.velocity || 0),
-            annotations: JSON.stringify(p.annotations || []),
-            is_video: Boolean(p.is_video),
-            is_product: Boolean(p.is_product),
-            created_at_pinterest: p.created_at_pinterest ? new Date(p.created_at_pinterest).toISOString() : null,
-            first_seen_at: p.first_seen_at ? new Date(p.first_seen_at).toISOString() : new Date().toISOString(),
-            last_updated_at: p.last_updated_at ? new Date(p.last_updated_at).toISOString() : new Date().toISOString()
-          }));
-
-          await sSql`
-            INSERT INTO pa_pins (
-              pin_id, account_username, title, description, link, domain,
-              board_name, image_url, dominant_color, saves, repins, comments,
-              share_count, reactions, velocity, annotations, is_video, is_product,
-              created_at_pinterest, first_seen_at, last_updated_at
-            )
-            SELECT
-              x.pin_id, x.account_username, x.title, x.description, x.link, x.domain,
-              x.board_name, x.image_url, x.dominant_color, x.saves, x.repins, x.comments,
-              x.share_count, x.reactions::jsonb, x.velocity, x.annotations::jsonb, x.is_video, x.is_product,
-              x.created_at_pinterest::timestamptz, x.first_seen_at::timestamptz, x.last_updated_at::timestamptz
-            FROM jsonb_to_recordset(${JSON.stringify(pCleaned)}::jsonb) AS x(
-              pin_id text, account_username text, title text, description text, link text, domain text,
-              board_name text, image_url text, dominant_color text, saves bigint, repins int, comments int,
-              share_count int, reactions text, velocity numeric, annotations text, is_video boolean, is_product boolean,
-              created_at_pinterest text, first_seen_at text, last_updated_at text
-            )
-            ON CONFLICT (pin_id) DO UPDATE SET
-              saves = GREATEST(pa_pins.saves, EXCLUDED.saves),
-              repins = GREATEST(pa_pins.repins, EXCLUDED.repins),
-              velocity = EXCLUDED.velocity,
-              last_updated_at = NOW();
-          `;
-
-          if (pBatch.length < 100) break;
-        }
+        // [INVARIANT: PA-PINS-CENTRAL-HUB-ONLY] pa_pins is maintained exclusively on Central Hub; zero shard replication.
 
         // 9. Update stats in neon_projects_registry on Hub
         const [cnt] = await sSql`SELECT COUNT(*)::int as c FROM competitor_profiles;`;
         const [bCnt] = await sSql`SELECT COUNT(*)::int as c FROM competitor_boards;`;
-        const [pCnt] = await sSql`SELECT COUNT(*)::int as c FROM pa_pins;`;
+        const [pCnt] = await sSql`SELECT COUNT(*)::int as c FROM universal_master_pins;`.catch(() => [{ c: 0 }]);
         await hubSql`
           UPDATE neon_projects_registry
           SET stats = jsonb_set(
