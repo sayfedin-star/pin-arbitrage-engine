@@ -66,7 +66,9 @@ import {
   addCompetitorSeeds,
   deleteCompetitorSeed,
   getCompetitorRelatedIntersections,
-  harvestSinglePinRelatedLive
+  harvestSinglePinRelatedLive,
+  fastRefreshCompetitorArchivedPins,
+  auditSweepCompetitor
 } from './modules/competitors/service.mjs';
 import {
   listKeywords,
@@ -1355,6 +1357,8 @@ export default {
       pathname === '/api/competitors/sync' ||
       pathname === '/api/competitors/sync-boards' ||
       pathname === '/api/competitors/sync-pins' ||
+      pathname === '/api/competitors/fast-refresh' ||
+      pathname === '/api/competitors/audit-sweep' ||
       pathname === '/api/competitors/related-pins/harvest-live' ||
       (pathname.startsWith('/api/pins/') && pathname.endsWith('/sync')) ||
       isLiveScrapeGet;
@@ -2897,6 +2901,50 @@ export default {
         return jsonResponse({ success: true, ...result });
       }
 
+      if (method === 'POST' && pathname === '/api/competitors/fast-refresh') {
+        invalidateEdgeCache('competitors');
+        const body = await request.json().catch(() => ({}));
+        const { competitor_id, username, competitor_ids } = body;
+        try {
+          if (Array.isArray(competitor_ids) && competitor_ids.length > 0) {
+            const results = [];
+            for (const cId of competitor_ids) {
+              const r = await fastRefreshCompetitorArchivedPins(targetSql, cId);
+              results.push({ id: cId, ...r });
+            }
+            return jsonResponse({ success: true, results });
+          }
+          if (!username && !competitor_id) return jsonResponse({ error: 'username or competitor_id is required' }, 400);
+          const result = await fastRefreshCompetitorArchivedPins(targetSql, competitor_id || username, body);
+          if (!result.ok) return jsonResponse({ success: false, ...result }, 400);
+          return jsonResponse({ success: true, ...result });
+        } catch (err) {
+          return jsonResponse({ success: false, error: err.message }, 500);
+        }
+      }
+
+      if (method === 'POST' && pathname === '/api/competitors/audit-sweep') {
+        invalidateEdgeCache('competitors');
+        const body = await request.json().catch(() => ({}));
+        const { competitor_id, username, competitor_ids } = body;
+        try {
+          if (Array.isArray(competitor_ids) && competitor_ids.length > 0) {
+            const results = [];
+            for (const cId of competitor_ids) {
+              const r = await auditSweepCompetitor(targetSql, cId);
+              results.push({ id: cId, ...r });
+            }
+            return jsonResponse({ success: true, results });
+          }
+          if (!username && !competitor_id) return jsonResponse({ error: 'username or competitor_id is required' }, 400);
+          const result = await auditSweepCompetitor(targetSql, competitor_id || username, body);
+          if (!result.ok) return jsonResponse({ success: false, ...result }, 400);
+          return jsonResponse({ success: true, ...result });
+        } catch (err) {
+          return jsonResponse({ success: false, error: err.message }, 500);
+        }
+      }
+
       if (method === 'GET' && pathname === '/api/competitors/detail') {
         const username = searchParams.get('username') || searchParams.get('account');
         const id = searchParams.get('id') || searchParams.get('competitor_id');
@@ -2960,7 +3008,7 @@ export default {
       }
 
       if (method === 'GET' && pathname === '/api/competitors/top-urls') {
-        const id = searchParams.get('id') || searchParams.get('competitor_id');
+        const id = searchParams.get('id') || searchParams.get('competitor_id') || searchParams.get('username') || searchParams.get('account');
         if (!id) return jsonResponse({ error: 'competitor_id is required' }, 400);
         try {
           const shardKey = reqProjectId || 'hub';
@@ -2984,7 +3032,7 @@ export default {
       }
 
       if (method === 'GET' && pathname === '/api/competitors/rules') {
-        const id = searchParams.get('id') || searchParams.get('competitor_id');
+        const id = searchParams.get('id') || searchParams.get('competitor_id') || searchParams.get('username') || searchParams.get('account');
         if (!id) return jsonResponse({ error: 'competitor_id is required' }, 400);
         try {
           const result = await getCompetitorRules(targetSql, id);

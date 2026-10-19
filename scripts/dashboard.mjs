@@ -52,7 +52,9 @@ import {
   addCompetitorSeeds,
   deleteCompetitorSeed,
   getCompetitorRelatedIntersections,
-  harvestSinglePinRelatedLive
+  harvestSinglePinRelatedLive,
+  fastRefreshCompetitorArchivedPins,
+  auditSweepCompetitor
 } from '../src/modules/competitors/service.mjs';
 import {
   listKeywords,
@@ -1736,6 +1738,48 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { success: true, ...result });
     }
 
+    if (method === 'POST' && pathname === '/api/competitors/fast-refresh') {
+      const body = await parseJsonBody(req);
+      const { competitor_id, username, competitor_ids } = body;
+      try {
+        if (Array.isArray(competitor_ids) && competitor_ids.length > 0) {
+          const results = [];
+          for (const cId of competitor_ids) {
+            const r = await fastRefreshCompetitorArchivedPins(targetSql, cId);
+            results.push({ id: cId, ...r });
+          }
+          return sendJson(res, 200, { success: true, results });
+        }
+        if (!username && !competitor_id) return sendJson(res, 400, { error: 'username or competitor_id is required' });
+        const result = await fastRefreshCompetitorArchivedPins(targetSql, competitor_id || username, body);
+        if (!result.ok) return sendJson(res, 400, { success: false, ...result });
+        return sendJson(res, 200, { success: true, ...result });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, error: err.message });
+      }
+    }
+
+    if (method === 'POST' && pathname === '/api/competitors/audit-sweep') {
+      const body = await parseJsonBody(req);
+      const { competitor_id, username, competitor_ids } = body;
+      try {
+        if (Array.isArray(competitor_ids) && competitor_ids.length > 0) {
+          const results = [];
+          for (const cId of competitor_ids) {
+            const r = await auditSweepCompetitor(targetSql, cId);
+            results.push({ id: cId, ...r });
+          }
+          return sendJson(res, 200, { success: true, results });
+        }
+        if (!username && !competitor_id) return sendJson(res, 400, { error: 'username or competitor_id is required' });
+        const result = await auditSweepCompetitor(targetSql, competitor_id || username, body);
+        if (!result.ok) return sendJson(res, 400, { success: false, ...result });
+        return sendJson(res, 200, { success: true, ...result });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, error: err.message });
+      }
+    }
+
     if (method === 'GET' && pathname === '/api/competitors/detail') {
       const idOrUser = searchParams.get('id') || searchParams.get('username') || searchParams.get('account');
       if (!idOrUser) return sendJson(res, 400, { error: 'id or username is required' });
@@ -1769,7 +1813,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'GET' && pathname === '/api/competitors/top-urls') {
-      const id = searchParams.get('id') || searchParams.get('competitor_id');
+      const id = searchParams.get('id') || searchParams.get('competitor_id') || searchParams.get('username') || searchParams.get('account');
       if (!id) return sendJson(res, 400, { error: 'competitor_id is required' });
       try {
         const result = await getTopDestinationUrls(targetSql, id, {
@@ -1786,7 +1830,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'GET' && pathname === '/api/competitors/rules') {
-      const id = searchParams.get('id') || searchParams.get('competitor_id');
+      const id = searchParams.get('id') || searchParams.get('competitor_id') || searchParams.get('username') || searchParams.get('account');
       if (!id) return sendJson(res, 400, { error: 'competitor_id is required' });
       try {
         const result = await getCompetitorRules(targetSql, id);

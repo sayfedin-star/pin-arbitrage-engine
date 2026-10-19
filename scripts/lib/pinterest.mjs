@@ -1032,24 +1032,30 @@ export function extractPinData(rawHtml, pinId) {
  * Fetch authentic individual pin details from Pinterest PinResource JSON endpoint.
  * Serves as a fast, clean, unauthenticated fallback if HTML scraping is rate-limited or fails.
  */
-export async function fetchPinFromPinResource(pinId, dispatcher = null) {
+export async function fetchPinFromPinResource(pinId, dispatcher = defaultDispatcher) {
   try {
     const cleanId = String(pinId || '').trim();
     if (!cleanId) return null;
     const optionsObj = { id: cleanId, field_set_key: 'detailed' };
     const targetUrl = `https://www.pinterest.com/resource/PinResource/get/?data=${encodeURIComponent(JSON.stringify({ options: optionsObj, context: {} }))}`;
-    const res = await pinterestFetch(targetUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',
-        'Accept': 'application/json, text/javascript, */*, q=0.01',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'X-Requested-With': 'XMLHttpRequest',
-        'X-Pinterest-PWS-Handler': 'www/pin/[id].js',
-        'Referer': `https://www.pinterest.com/pin/${cleanId}/`
-      },
+    const headers = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',
+      'Accept': 'application/json, text/javascript, */*, q=0.01',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'X-Requested-With': 'XMLHttpRequest',
+      'X-Pinterest-PWS-Handler': 'www/pin/[id].js',
+      'Referer': `https://www.pinterest.com/pin/${cleanId}/`
+    };
+    let res = await pinterestFetch(targetUrl, {
+      headers,
       signal: AbortSignal.timeout(6000),
       dispatcher
     });
+    if (res.status === 429 || res.status === 502 || res.status === 503) {
+      if (res.body) await res.body.cancel().catch(() => {});
+      await sleep(randomJitterMs(1500, 3000));
+      res = await pinterestFetch(targetUrl, { headers, signal: AbortSignal.timeout(6000), dispatcher });
+    }
     if (!res.ok) {
       if (res.body) await res.body.cancel().catch(() => {});
       return null;

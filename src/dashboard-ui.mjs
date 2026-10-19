@@ -3792,12 +3792,50 @@ export function getDashboardHtml() {
             </div>
           </div>
 
+          <!-- Bulk Action Toolbar -->
+          <div x-show="selectedCompetitorIds.length > 0" x-transition class="mb-3 p-3 rounded-2xl bg-gradient-to-r from-purple-900/30 via-indigo-900/30 to-slate-900/50 border border-purple-500/30 backdrop-blur-md flex flex-wrap items-center justify-between gap-3 shadow-lg">
+            <div class="flex items-center gap-2 pl-1">
+              <span class="flex h-6 w-6 items-center justify-center rounded-lg bg-purple-500/20 text-purple-400 font-bold text-xs">✓</span>
+              <span class="text-xs font-bold text-white font-mono" x-text="selectedCompetitorIds.length + ' Profile(s) Selected'"></span>
+              <button @click="clearSelectedCompetitors()" class="text-[11px] text-slate-400 hover:text-white underline ml-2 cursor-pointer">Deselect All</button>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap">
+              <!-- ⚡ Fast Refresh -->
+              <button @click="bulkFastRefreshSelected()" :disabled="isBulkFastRefreshing" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shadow-sm" title="Fast Refresh live Pinterest saves & repins for all archived pins across selected creators">
+                <i data-lucide="zap" class="w-3.5 h-3.5" :class="isBulkFastRefreshing ? 'animate-spin' : ''"></i>
+                <span x-text="isBulkFastRefreshing ? 'Refreshing...' : '⚡ Fast Refresh'"></span>
+              </button>
+              <!-- 📋 Discover Full Catalog -->
+              <button @click="bulkDiscoverFullCatalogSelected()" :disabled="isBulkDiscoveringCatalog" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/40 transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shadow-sm" title="Discover full catalog (crawls all pages until end of feed) for selected creators">
+                <i data-lucide="library" class="w-3.5 h-3.5" :class="isBulkDiscoveringCatalog ? 'animate-bounce' : ''"></i>
+                <span x-text="isBulkDiscoveringCatalog ? 'Discovering...' : '📋 Discover Full Catalog'"></span>
+              </button>
+              <!-- 🏛️ Audit Sweep Now -->
+              <button @click="bulkAuditSweepSelected()" :disabled="isBulkAuditSweeping" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/40 transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shadow-sm" title="Comprehensive audit sweep: profile reach, monotonic checks, boards inventory, destination URLs">
+                <i data-lucide="shield-check" class="w-3.5 h-3.5" :class="isBulkAuditSweeping ? 'animate-spin' : ''"></i>
+                <span x-text="isBulkAuditSweeping ? 'Auditing...' : '🏛️ Audit Sweep Now'"></span>
+              </button>
+              <!-- Pause -->
+              <button @click="bulkToggleSelectedStatus(false)" class="px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700 transition cursor-pointer" title="Pause ingestion for selected creators">
+                <span>⏸ Pause</span>
+              </button>
+              <!-- Resume -->
+              <button @click="bulkToggleSelectedStatus(true)" class="px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700 transition cursor-pointer" title="Resume ingestion for selected creators">
+                <span>▶ Resume</span>
+              </button>
+              <!-- Delete -->
+              <button @click="bulkDeleteSelectedCompetitors()" class="px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 transition cursor-pointer" title="Delete selected competitors">
+                <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+              </button>
+            </div>
+          </div>
+
           <!-- Competitor Table -->
           <div class="overflow-x-auto">
             <table class="w-full text-left text-xs">
               <thead>
                 <tr class="border-b border-slate-200 dark:border-slate-800/80 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                  <th class="py-3 px-3 w-8"><input type="checkbox" class="rounded border-slate-300 dark:border-slate-700 text-purple-600"></th>
+                  <th class="py-3 px-3 w-8"><input type="checkbox" :checked="isAllCompetitorsSelected" @change="toggleSelectAllCompetitors()" class="rounded border-slate-300 dark:border-slate-700 text-purple-600 cursor-pointer"></th>
                   <th class="py-3 px-3">Profile</th>
                   <th class="py-3 px-3 text-right">Monthly Reach</th>
                   <th class="py-3 px-3 text-right">Profile Views</th>
@@ -3810,7 +3848,7 @@ export function getDashboardHtml() {
               <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono">
                 <template x-for="c in filteredCompetitors" :key="c.id">
                   <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition">
-                    <td class="py-3 px-3"><input type="checkbox" class="rounded border-slate-300 dark:border-slate-700 text-purple-600"></td>
+                    <td class="py-3 px-3"><input type="checkbox" :checked="selectedCompetitorIds.includes(Number(c.id))" @change="toggleSelectCompetitor(c.id)" class="rounded border-slate-300 dark:border-slate-700 text-purple-600 cursor-pointer"></td>
                     <td class="py-3 px-3 font-sans">
                       <div class="flex items-center space-x-2.5 cursor-pointer" @click="openCreatorDossier(c)">
                         <img :src="c.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=64&h=64&fit=crop&crop=face'" class="w-8 h-8 rounded-full object-cover border border-slate-200 dark:border-slate-700 hover:scale-105 transition">
@@ -3850,16 +3888,28 @@ export function getDashboardHtml() {
                     </td>
                     <td class="py-3 px-3 text-center">
                       <div class="flex items-center justify-center space-x-1">
-                        <button @click="openCreatorDossier(c)" class="p-1.5 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 transition" title="Inspect Creator Dossier (Analytics & Pins)">
+                        <!-- Inspect Dossier -->
+                        <button @click="openCreatorDossier(c)" class="p-1.5 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 transition cursor-pointer" title="Inspect Creator Dossier (Analytics, Pins & URLs)">
                           <i data-lucide="eye" class="w-3.5 h-3.5"></i>
                         </button>
-                        <button @click="harvestCompetitorPinsAction(c, 'daily')" :disabled="harvestingCompetitorId === c.id" class="p-1.5 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-950/40 text-slate-400 hover:text-indigo-500 transition" title="Harvest Pins (Early-Stop 3 Pages - ~150 latest pins)">
-                          <i data-lucide="download" class="w-3.5 h-3.5" :class="harvestingCompetitorId === c.id ? 'animate-bounce text-indigo-500' : ''"></i>
+                        <!-- ⚡ Fast Refresh -->
+                        <button @click="fastRefreshCompetitorAction(c)" :disabled="fastRefreshingCompetitorId === c.id" class="p-1.5 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-950/40 text-slate-400 hover:text-amber-500 transition cursor-pointer disabled:opacity-50" title="⚡ Fast Refresh (Instant live update of winning archived pins from Pinterest)">
+                          <i data-lucide="zap" class="w-3.5 h-3.5" :class="fastRefreshingCompetitorId === c.id ? 'animate-spin text-amber-500' : ''"></i>
                         </button>
-                        <button @click="syncCompetitor(c.username)" class="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400 hover:text-emerald-500 transition" title="Sync live profile">
+                        <!-- 📋 Discover Full Catalog -->
+                        <button @click="discoverFullCatalogAction(c)" :disabled="discoveringCatalogCompetitorId === c.id" class="p-1.5 rounded-lg hover:bg-purple-100 dark:hover:bg-purple-950/40 text-slate-400 hover:text-purple-500 transition cursor-pointer disabled:opacity-50" title="📋 Discover Full Catalog (Crawl all pages to end of feed without early-stop)">
+                          <i data-lucide="library" class="w-3.5 h-3.5" :class="discoveringCatalogCompetitorId === c.id ? 'animate-bounce text-purple-500' : ''"></i>
+                        </button>
+                        <!-- 🏛️ Audit Sweep Now -->
+                        <button @click="auditSweepCompetitorAction(c)" :disabled="auditSweepingCompetitorId === c.id" class="p-1.5 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-950/40 text-slate-400 hover:text-indigo-500 transition cursor-pointer disabled:opacity-50" title="🏛️ Audit Sweep Now (Sync profile reach, boards, monotonic metrics, destination URLs)">
+                          <i data-lucide="shield-check" class="w-3.5 h-3.5" :class="auditSweepingCompetitorId === c.id ? 'animate-spin text-indigo-500' : ''"></i>
+                        </button>
+                        <!-- Sync Live Profile -->
+                        <button @click="syncCompetitor(c.username)" class="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400 hover:text-emerald-500 transition cursor-pointer" title="Sync live profile">
                           <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
                         </button>
-                        <button @click="deleteCompetitor(c.id)" class="p-1.5 rounded-lg hover:bg-rose-100 dark:hover:bg-rose-950/40 text-slate-400 hover:text-rose-500 transition" title="Delete competitor">
+                        <!-- Delete Competitor -->
+                        <button @click="deleteCompetitor(c.id)" class="p-1.5 rounded-lg hover:bg-rose-100 dark:hover:bg-rose-950/40 text-slate-400 hover:text-rose-500 transition cursor-pointer" title="Delete competitor">
                           <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
                         </button>
                       </div>
@@ -4273,16 +4323,37 @@ export function getDashboardHtml() {
                 <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
               </a>
 
+              <!-- ⚡ Fast Refresh -->
+              <button @click="fastRefreshCompetitorAction(activeCreator)" :disabled="fastRefreshingCompetitorId === activeCreator.id" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 text-xs font-semibold text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 transition shadow-2xs cursor-pointer disabled:opacity-50" title="Instant live refresh of saves/repins for all winning archived pins directly from Pinterest">
+                <i data-lucide="zap" class="w-3.5 h-3.5" :class="fastRefreshingCompetitorId === activeCreator.id ? 'animate-spin' : ''"></i>
+                <span x-text="fastRefreshingCompetitorId === activeCreator.id ? 'Refreshing...' : '⚡ Fast Refresh'"></span>
+              </button>
+
+              <!-- 📋 Discover Full Catalog -->
+              <button @click="discoverFullCatalogAction(activeCreator)" :disabled="discoveringCatalogCompetitorId === activeCreator.id" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-purple-500/30 bg-purple-500/10 px-3 text-xs font-semibold text-purple-600 dark:text-purple-400 hover:bg-purple-500/20 transition shadow-2xs cursor-pointer disabled:opacity-50" title="Exhaustive crawl of all pins until the end of the creator's feed (ignores early-stop)">
+                <i data-lucide="library" class="w-3.5 h-3.5" :class="discoveringCatalogCompetitorId === activeCreator.id ? 'animate-bounce' : ''"></i>
+                <span x-text="discoveringCatalogCompetitorId === activeCreator.id ? 'Discovering...' : '📋 Discover Full Catalog'"></span>
+              </button>
+
+              <!-- 🏛️ Audit Sweep Now -->
+              <button @click="auditSweepCompetitorAction(activeCreator)" :disabled="auditSweepingCompetitorId === activeCreator.id" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-indigo-500/30 bg-indigo-500/10 px-3 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-500/20 transition shadow-2xs cursor-pointer disabled:opacity-50" title="Comprehensive audit sweep: profile reach, monotonic checks, boards inventory, destination URLs">
+                <i data-lucide="shield-check" class="w-3.5 h-3.5" :class="auditSweepingCompetitorId === activeCreator.id ? 'animate-spin' : ''"></i>
+                <span x-text="auditSweepingCompetitorId === activeCreator.id ? 'Auditing...' : '🏛️ Audit Sweep Now'"></span>
+              </button>
+
+              <!-- 🔄 Sync Profile -->
               <button @click="syncCompetitor(activeCreator.username)" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 transition shadow-2xs cursor-pointer" title="Sync profile reach, followers, and boards breakdown">
                 <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
                 <span>🔄 Sync Profile</span>
               </button>
 
+              <!-- GHA Distributed Matrix Crawler -->
               <button @click="openGhaCrawlerModal(activeCreator)" :disabled="isDispatchingGitHubCrawl" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white px-4 text-xs font-bold transition shadow-md cursor-pointer disabled:opacity-50" title="Launch 20-Shard Parallel Matrix Crawler on GitHub Actions (Distributed IP Egress & 100% Reliability)">
                 <i data-lucide="zap" class="w-3.5 h-3.5" :class="isDispatchingGitHubCrawl ? 'animate-spin' : ''"></i>
-                <span x-text="isDispatchingGitHubCrawl ? 'Dispatching...' : '⚡ Harvest Pins (GitHub Actions 20 Shards)'"></span>
+                <span x-text="isDispatchingGitHubCrawl ? 'Dispatching...' : '⚡ Harvest Pins (GHA)'"></span>
               </button>
 
+              <!-- Pause / Resume -->
               <button @click="toggleCompetitorStatus(activeCreator)" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0d1526] px-3 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition shadow-2xs cursor-pointer">
                 <span x-text="activeCreator.is_active === false ? '▶ Resume' : '⏸ Pause'"></span>
               </button>
@@ -5072,11 +5143,28 @@ export function getDashboardHtml() {
               </div>
 
               <!-- Action buttons -->
-              <div class="flex items-center gap-2">
+              <div class="flex items-center gap-2 flex-wrap">
+                <!-- 📋 Discover Full Catalog -->
+                <button type="button" @click="discoverFullCatalogAction(activeCreator)" :disabled="discoveringCatalogCompetitorId === activeCreator.id" class="px-3.5 py-2 text-xs font-bold rounded-xl border border-purple-500/30 bg-purple-500/10 text-purple-600 dark:text-purple-400 hover:bg-purple-500/20 transition flex items-center gap-1.5 cursor-pointer shadow-2xs disabled:opacity-50" title="Discover full catalog (crawls all pages until end of feed without early-stop)">
+                  <i data-lucide="library" class="w-3.5 h-3.5" :class="discoveringCatalogCompetitorId === activeCreator.id ? 'animate-bounce' : ''"></i>
+                  <span x-text="discoveringCatalogCompetitorId === activeCreator.id ? 'Discovering...' : '📋 Discover Full Catalog'"></span>
+                </button>
+                <!-- ⚡ Fast Refresh -->
+                <button type="button" @click="fastRefreshCompetitorAction(activeCreator)" :disabled="fastRefreshingCompetitorId === activeCreator.id" class="px-3 py-2 text-xs font-bold rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 transition flex items-center gap-1.5 cursor-pointer shadow-2xs disabled:opacity-50" title="Instant live refresh of saves/repins for all winning archived pins from Pinterest">
+                  <i data-lucide="zap" class="w-3.5 h-3.5" :class="fastRefreshingCompetitorId === activeCreator.id ? 'animate-spin' : ''"></i>
+                  <span x-text="fastRefreshingCompetitorId === activeCreator.id ? 'Refreshing...' : '⚡ Fast Refresh'"></span>
+                </button>
+                <!-- 🏛️ Audit Sweep Now -->
+                <button type="button" @click="auditSweepCompetitorAction(activeCreator)" :disabled="auditSweepingCompetitorId === activeCreator.id" class="px-3 py-2 text-xs font-bold rounded-xl border border-indigo-500/30 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-500/20 transition flex items-center gap-1.5 cursor-pointer shadow-2xs disabled:opacity-50" title="Comprehensive audit sweep: profile reach, monotonic checks, boards inventory, destination URLs">
+                  <i data-lucide="shield-check" class="w-3.5 h-3.5" :class="auditSweepingCompetitorId === activeCreator.id ? 'animate-spin' : ''"></i>
+                  <span x-text="auditSweepingCompetitorId === activeCreator.id ? 'Auditing...' : '🏛️ Audit Sweep Now'"></span>
+                </button>
+                <!-- Refresh Local Table -->
                 <button type="button" @click="fetchCreatorAllPins()" class="px-3 py-2 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0d1526] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition flex items-center gap-1.5 cursor-pointer shadow-2xs">
                   <i data-lucide="refresh-cw" class="w-3.5 h-3.5" :class="isLoadingAllPins ? 'animate-spin text-indigo-500' : ''"></i>
                   <span>Refresh</span>
                 </button>
+                <!-- GHA Crawler -->
                 <button type="button" @click="openGhaCrawlerModal(activeCreator)" :disabled="isDispatchingGitHubCrawl" class="px-4 py-2 text-xs font-bold rounded-xl bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white transition flex items-center gap-2 cursor-pointer shadow-sm active:scale-95 disabled:opacity-50" title="Harvest creator pins using 20 parallel GitHub Actions runner shards">
                   <i data-lucide="zap" class="w-4 h-4" :class="isDispatchingGitHubCrawl ? 'animate-spin' : ''"></i>
                   <span x-text="isDispatchingGitHubCrawl ? 'Dispatching...' : '⚡ Harvest via GitHub Actions (20 Shards)'"></span>
@@ -8633,6 +8721,13 @@ export function getDashboardHtml() {
         competitors: [],
         competitorFilter: 'all',
         competitorSearch: '',
+        selectedCompetitorIds: [],
+        isBulkFastRefreshing: false,
+        isBulkDiscoveringCatalog: false,
+        isBulkAuditSweeping: false,
+        fastRefreshingCompetitorId: null,
+        discoveringCatalogCompetitorId: null,
+        auditSweepingCompetitorId: null,
         isAddCompetitorModalOpen: false,
         newCompetitorHandle: '',
         newCompetitorAlsoTrack: true,
@@ -10514,6 +10609,263 @@ export function getDashboardHtml() {
           link.click();
           document.body.removeChild(link);
           URL.revokeObjectURL(url);
+        },
+
+        toggleSelectCompetitor(id) {
+          if (id === undefined || id === null) return;
+          const numId = Number(id);
+          const idx = this.selectedCompetitorIds.indexOf(numId);
+          if (idx >= 0) {
+            this.selectedCompetitorIds.splice(idx, 1);
+          } else {
+            this.selectedCompetitorIds.push(numId);
+          }
+        },
+
+        get isAllCompetitorsSelected() {
+          if (!this.filteredCompetitors || this.filteredCompetitors.length === 0) return false;
+          const filteredIds = this.filteredCompetitors.map(c => Number(c.id));
+          return filteredIds.length > 0 && filteredIds.every(id => this.selectedCompetitorIds.includes(id));
+        },
+
+        toggleSelectAllCompetitors() {
+          if (!this.filteredCompetitors || this.filteredCompetitors.length === 0) return;
+          const filteredIds = this.filteredCompetitors.map(c => Number(c.id));
+          const allSelected = filteredIds.every(id => this.selectedCompetitorIds.includes(id));
+          if (allSelected) {
+            this.selectedCompetitorIds = this.selectedCompetitorIds.filter(id => !filteredIds.includes(id));
+          } else {
+            const set = new Set([...this.selectedCompetitorIds, ...filteredIds]);
+            this.selectedCompetitorIds = Array.from(set);
+          }
+        },
+
+        clearSelectedCompetitors() {
+          this.selectedCompetitorIds = [];
+        },
+
+        async fastRefreshCompetitorAction(competitor) {
+          if (!competitor) return;
+          const compId = competitor.id;
+          const username = (competitor.username || '').replace(/^@+/, '').trim();
+          this.fastRefreshingCompetitorId = compId;
+          this.showToast('⚡ Fast refreshing archived pins for @' + username + ' directly from Pinterest...');
+          try {
+            const res = await fetch(this.getApiUrl('/api/competitors/fast-refresh'), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ competitor_id: compId, username })
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+              const refreshed = data.refreshed_pins_count ?? data.total_refreshed ?? 0;
+              this.showToast('⚡ Fast refresh complete for @' + username + ': ' + refreshed + ' archived pins updated with live metrics!');
+              await this.fetchCompetitors();
+              if (this.activeCreator && (this.activeCreator.id === compId || (this.activeCreator.username || '').replace(/^@+/, '') === username)) {
+                await this.fetchCreatorPins(this.activeCreator);
+                await this.fetchCreatorAllPins();
+              }
+            } else {
+              this.showToast('❌ Fast refresh failed: ' + (data.error || 'Server error'));
+            }
+          } catch (e) {
+            this.showToast('❌ Fast refresh network error: ' + e.message);
+          } finally {
+            this.fastRefreshingCompetitorId = null;
+            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+          }
+        },
+
+        async discoverFullCatalogAction(competitor) {
+          if (!competitor) return;
+          const compId = competitor.id;
+          const username = (competitor.username || '').replace(/^@+/, '').trim();
+          this.discoveringCatalogCompetitorId = compId;
+          this.showToast('📋 Starting Full Catalog Discovery for @' + username + ' (crawling all pages to end of feed)...');
+          try {
+            const res = await fetch(this.getApiUrl('/api/competitors/sync-pins'), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                competitor_id: compId,
+                username,
+                mode: 'all',
+                max_pages: 100
+              })
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+              const fetched = data.pinsFetched ?? data.total_fetched ?? 0;
+              const qualified = data.qualifiedIngested ?? data.qualified_count ?? 0;
+              const pages = data.pagesCrawled ?? 0;
+              this.showToast('📋 Full Catalog Discovered: ' + fetched + ' pins retrieved across ' + pages + ' pages (' + qualified + ' qualified into PinArchive)!');
+              await this.fetchCompetitors();
+              if (this.activeCreator && (this.activeCreator.id === compId || (this.activeCreator.username || '').replace(/^@+/, '') === username)) {
+                await this.fetchCreatorAllPins();
+                await this.fetchCreatorPins(this.activeCreator);
+                await this.fetchCreatorBoards(this.activeCreator);
+              }
+            } else {
+              this.showToast('❌ Discover catalog failed: ' + (data.error || 'Server error'));
+            }
+          } catch (e) {
+            this.showToast('❌ Discover catalog network error: ' + e.message);
+          } finally {
+            this.discoveringCatalogCompetitorId = null;
+            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+          }
+        },
+
+        async auditSweepCompetitorAction(competitor) {
+          if (!competitor) return;
+          const compId = competitor.id;
+          const username = (competitor.username || '').replace(/^@+/, '').trim();
+          this.auditSweepingCompetitorId = compId;
+          this.showToast('🏛️ Starting Comprehensive Audit Sweep for @' + username + '...');
+          try {
+            const res = await fetch(this.getApiUrl('/api/competitors/audit-sweep'), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ competitor_id: compId, username })
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+              const s = data.stats || {};
+              this.showToast('🏛️ Audit Sweep Complete for @' + username + '! ' + (s.total_pins_audited || 0) + ' pins audited, ' + (s.boards_synced || 0) + ' boards synced, 0 metric dips.');
+              await this.fetchCompetitors();
+              if (this.activeCreator && (this.activeCreator.id === compId || (this.activeCreator.username || '').replace(/^@+/, '') === username)) {
+                await this.fetchCreatorProfile(this.activeCreator);
+                await this.fetchCreatorPins(this.activeCreator);
+                await this.fetchCreatorAllPins();
+                await this.fetchCreatorBoards(this.activeCreator);
+                await this.fetchCreatorTopUrls();
+              }
+            } else {
+              this.showToast('❌ Audit sweep failed: ' + (data.error || 'Server error'));
+            }
+          } catch (e) {
+            this.showToast('❌ Audit sweep network error: ' + e.message);
+          } finally {
+            this.auditSweepingCompetitorId = null;
+            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+          }
+        },
+
+        async bulkFastRefreshSelected() {
+          if (!this.selectedCompetitorIds.length) return;
+          this.isBulkFastRefreshing = true;
+          this.showToast('⚡ Bulk Fast Refreshing ' + this.selectedCompetitorIds.length + ' creators...');
+          try {
+            const res = await fetch(this.getApiUrl('/api/competitors/fast-refresh'), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ competitor_ids: this.selectedCompetitorIds })
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+              this.showToast('⚡ Bulk Fast Refresh complete for ' + (data.creators_refreshed || this.selectedCompetitorIds.length) + ' creators (' + (data.total_refreshed || 0) + ' pins updated)!');
+              await this.fetchCompetitors();
+            } else {
+              this.showToast('❌ Bulk Fast Refresh failed: ' + (data.error || 'Failed'));
+            }
+          } catch (e) {
+            this.showToast('❌ Bulk Fast Refresh network error: ' + e.message);
+          } finally {
+            this.isBulkFastRefreshing = false;
+            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+          }
+        },
+
+        async bulkDiscoverFullCatalogSelected() {
+          if (!this.selectedCompetitorIds.length) return;
+          this.isBulkDiscoveringCatalog = true;
+          const count = this.selectedCompetitorIds.length;
+          this.showToast('📋 Starting Full Catalog Discovery for ' + count + ' creators...');
+          try {
+            for (let i = 0; i < this.selectedCompetitorIds.length; i++) {
+              const cid = this.selectedCompetitorIds[i];
+              const comp = (this.competitors || []).find(c => Number(c.id) === Number(cid));
+              if (!comp) continue;
+              this.showToast('📋 Discovering catalog (' + (i + 1) + '/' + count + '): @' + comp.username + '...');
+              try {
+                await fetch(this.getApiUrl('/api/competitors/sync-pins'), {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ competitor_id: cid, username: comp.username, mode: 'all', max_pages: 100 })
+                });
+              } catch (err) {
+                console.warn('[bulkDiscoverFullCatalogSelected] Failed for', comp.username, err);
+              }
+              if (i < this.selectedCompetitorIds.length - 1) {
+                await new Promise(r => setTimeout(r, 2000));
+              }
+            }
+            this.showToast('📋 Bulk Full Catalog Discovery finished!');
+            await this.fetchCompetitors();
+          } finally {
+            this.isBulkDiscoveringCatalog = false;
+            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+          }
+        },
+
+        async bulkAuditSweepSelected() {
+          if (!this.selectedCompetitorIds.length) return;
+          this.isBulkAuditSweeping = true;
+          this.showToast('🏛️ Bulk Audit Sweeping ' + this.selectedCompetitorIds.length + ' creators...');
+          try {
+            const res = await fetch(this.getApiUrl('/api/competitors/audit-sweep'), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ competitor_ids: this.selectedCompetitorIds })
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+              this.showToast('🏛️ Bulk Audit Sweep complete for ' + (data.creators_audited || this.selectedCompetitorIds.length) + ' creators!');
+              await this.fetchCompetitors();
+            } else {
+              this.showToast('❌ Bulk Audit Sweep failed: ' + (data.error || 'Failed'));
+            }
+          } catch (e) {
+            this.showToast('❌ Bulk Audit Sweep network error: ' + e.message);
+          } finally {
+            this.isBulkAuditSweeping = false;
+            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+          }
+        },
+
+        async bulkDeleteSelectedCompetitors() {
+          if (!this.selectedCompetitorIds.length) return;
+          if (!confirm('Are you sure you want to stop tracking ' + this.selectedCompetitorIds.length + ' selected competitors?')) return;
+          try {
+            for (const cid of this.selectedCompetitorIds) {
+              await fetch(this.getApiUrl('/api/competitors?id=' + cid), { method: 'DELETE' });
+            }
+            this.selectedCompetitorIds = [];
+            await this.fetchCompetitors();
+            this.showToast('Selected competitors removed.');
+          } catch (e) {
+            this.showToast('Error deleting competitors: ' + e.message);
+          }
+        },
+
+        async bulkToggleSelectedStatus(activeStatus) {
+          if (!this.selectedCompetitorIds.length) return;
+          try {
+            for (const cid of this.selectedCompetitorIds) {
+              const comp = (this.competitors || []).find(c => Number(c.id) === Number(cid));
+              if (comp) {
+                await fetch(this.getApiUrl('/api/competitors/status'), {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ id: cid, is_active: activeStatus })
+                });
+              }
+            }
+            await this.fetchCompetitors();
+            this.showToast('Updated status for ' + this.selectedCompetitorIds.length + ' competitors.');
+          } catch (e) {
+            this.showToast('Error toggling status: ' + e.message);
+          }
         },
 
         openBoardsModal(competitor) {

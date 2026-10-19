@@ -9,17 +9,38 @@ AS $$
 DECLARE
   prev_max_saves BIGINT;
   prev_max_repins BIGINT;
+  pa_pin_saves BIGINT;
+  pa_pin_repins BIGINT;
 BEGIN
+  -- 1. On UPDATE, never allow saves or repins to drop below OLD values
+  IF TG_OP = 'UPDATE' THEN
+    NEW.saves := GREATEST(COALESCE(OLD.saves, 0), COALESCE(NEW.saves, 0));
+    NEW.repins := GREATEST(COALESCE(OLD.repins, 0), COALESCE(NEW.repins, 0));
+    NEW.comments := GREATEST(COALESCE(OLD.comments, 0), COALESCE(NEW.comments, 0));
+  END IF;
+
+  -- 2. Query highest historical snapshot for this pin prior to or at this timestamp
   SELECT COALESCE(MAX(saves), 0), COALESCE(MAX(repins), 0)
   INTO prev_max_saves, prev_max_repins
   FROM pa_pin_metrics
-  WHERE pin_id = NEW.pin_id AND recorded_at < NEW.recorded_at;
+  WHERE pin_id = NEW.pin_id 
+    AND recorded_at <= NEW.recorded_at
+    AND (TG_OP = 'INSERT' OR id <> NEW.id);
 
-  IF prev_max_saves > 0 AND NEW.saves < prev_max_saves THEN
-    NEW.saves := prev_max_saves;
+  IF prev_max_saves > 0 THEN
+    NEW.saves := GREATEST(NEW.saves, prev_max_saves);
+    NEW.repins := GREATEST(NEW.repins, prev_max_repins);
   END IF;
-  IF prev_max_repins > 0 AND NEW.repins < prev_max_repins THEN
-    NEW.repins := prev_max_repins;
+
+  -- 3. Cross-check against master pa_pins table to prevent drops below established records
+  SELECT COALESCE(saves, 0), COALESCE(repins, 0)
+  INTO pa_pin_saves, pa_pin_repins
+  FROM pa_pins
+  WHERE pin_id = NEW.pin_id;
+
+  IF pa_pin_saves > 0 THEN
+    NEW.saves := GREATEST(NEW.saves, pa_pin_saves);
+    NEW.repins := GREATEST(NEW.repins, pa_pin_repins);
   END IF;
 
   RETURN NEW;

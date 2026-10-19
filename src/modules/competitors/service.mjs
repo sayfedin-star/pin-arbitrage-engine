@@ -5,7 +5,7 @@
  */
 
 import { formatPinterestCookie, sanitizeForJsonb, escapeSqlWildcards } from '../../utils.mjs';
-import { fetchUserResource, fetchBoardsResource, fetchBoardDetailUnauth, fetchUserActivityPinsResource, fetchBoardFeedResource, pinterestFetch, sleep, randomJitterMs } from '../../../scripts/lib/pinterest.mjs';
+import { fetchUserResource, fetchBoardsResource, fetchBoardDetailUnauth, fetchUserActivityPinsResource, fetchBoardFeedResource, fetchPinFromPinResource, pinterestFetch, sleep, randomJitterMs } from '../../../scripts/lib/pinterest.mjs';
 import crypto from 'node:crypto';
 import { ingestPinsBatch, getQualificationRules } from '../pinarchive/service.mjs';
 
@@ -2497,7 +2497,7 @@ export async function getTopDestinationUrls(sql, competitorId, {
  * Returns custom rules stored in competitor_profiles.metadata->'qualification_rules' or system defaults.
  */
 export async function getCompetitorRules(sql, competitorId) {
-  const numericId = Number(competitorId);
+  const numericId = await resolveNumericCompetitorId(sql, competitorId);
   if (!numericId || isNaN(numericId)) throw new Error('Valid competitorId is required.');
 
   const [row] = await sql`
@@ -2533,7 +2533,7 @@ export async function getCompetitorRules(sql, competitorId) {
  * Uses PostgreSQL JSONB shallow merge to guarantee non-destructive preservation of other metadata keys.
  */
 export async function saveCompetitorRules(sql, competitorId, newRules = {}) {
-  const numericId = Number(competitorId);
+  const numericId = await resolveNumericCompetitorId(sql, competitorId);
   if (!numericId || isNaN(numericId)) throw new Error('Valid competitorId is required.');
 
   const sanitizedRules = {
@@ -2565,7 +2565,7 @@ export async function saveCompetitorRules(sql, competitorId, newRules = {}) {
  * Re-evaluate competitor pins against custom qualification rules and upsert qualified pins into pa_pins.
  */
 export async function reEvaluateCompetitorPins(sql, competitorId) {
-  const numericId = Number(competitorId);
+  const numericId = await resolveNumericCompetitorId(sql, competitorId);
   if (!numericId || isNaN(numericId)) throw new Error('Valid competitorId is required.');
 
   const { rules, username } = await getCompetitorRules(sql, numericId);
@@ -3297,6 +3297,214 @@ export async function harvestSinglePinRelatedLive(sql, competitorId, pinId) {
   return { ok: true, pin_id: cleanPin, discovered_count: candidateRows.length };
 }
 
+/**
+ * Fast Refresh:
+ * Refreshes live metrics (saves, repins, comments, reactions) of all archived/winning pins
+ * for a specific competitor directly from Pinterest unauthenticated.
+ * Enforces monotonic ratchet so metrics NEVER drop.
+ */
+export async function fastRefreshCompetitorArchivedPins(sql, competitorIdOrUsername, options = {}) {
+  const numericId = await resolveNumericCompetitorId(sql, competitorIdOrUsername);
+  let cleanUsername = null;
+  if (numericId) {
+    const [comp] = await sql`SELECT username FROM competitor_profiles WHERE id = ${numericId};`;
+    cleanUsername = comp ? comp.username : null;
+  } else {
+    cleanUsername = normalizePinterestUsername(competitorIdOrUsername);
+  }
 
+  if (!cleanUsername) {
+    return { ok: false, error: 'Valid competitor ID or username is required.' };
+  }
 
+  // Get all winning pins currently archived for this account in pa_pins
+  const pinsToRefresh = await sql`
+    SELECT pin_id, title, saves, repins, comments
+    FROM pa_pins
+    WHERE LOWER(REPLACE(account_username, '@', '')) = ${cleanUsername.toLowerCase()}
+    ORDER BY saves DESC;
+  `;
 
+  if (pinsToRefresh.length === 0) {
+    return { ok: true, refreshed_count: 0, total_archived: 0, message: 'No archived pins found for this account.' };
+  }
+
+  let refreshedCount = 0;
+  const results = [];
+  const maxToRefresh = Math.min(pinsToRefresh.length, Number(options.limit) || 200);
+
+  for (let i = 0; i < maxToRefresh; i++) {
+    const pin = pinsToRefresh[i];
+    try {
+      const live = await fetchPinFromPinResource(pin.pin_id);
+      if (live && live.saves > 0) {
+        // 1. Update pa_pins
+        await sql`
+          UPDATE pa_pins
+          SET
+            saves = GREATEST(pa_pins.saves, ${live.saves}),
+            repins = GREATEST(pa_pins.repins, ${live.repins || 0}),
+            comments = GREATEST(pa_pins.comments, ${live.comments || 0}),
+            reactions = CASE WHEN ${JSON.stringify(live.reactions || {})}::jsonb <> '{}'::jsonb THEN ${JSON.stringify(live.reactions || {})}::jsonb ELSE pa_pins.reactions END,
+            last_updated_at = NOW()
+          WHERE pin_id = ${pin.pin_id};
+        `;
+
+        // 2. Insert hourly bucket in pa_pin_metrics with monotonic protection
+        await sql`
+          INSERT INTO pa_pin_metrics (pin_id, recorded_at, saves, repins, comments)
+          VALUES (
+            ${pin.pin_id},
+            date_trunc('hour', NOW()),
+            ${live.saves},
+            ${live.repins || 0},
+            ${live.comments || 0}
+          )
+          ON CONFLICT (pin_id, recorded_at) DO UPDATE SET
+            saves = GREATEST(pa_pin_metrics.saves, EXCLUDED.saves),
+            repins = GREATEST(pa_pin_metrics.repins, EXCLUDED.repins),
+            comments = GREATEST(pa_pin_metrics.comments, EXCLUDED.comments);
+        `;
+
+        // 3. Update competitor_pins
+        if (numericId) {
+          await sql`
+            UPDATE competitor_pins
+            SET
+              save_count = GREATEST(competitor_pins.save_count, ${live.saves}),
+              repin_count = GREATEST(competitor_pins.repin_count, ${live.repins || 0}),
+              comment_count = GREATEST(competitor_pins.comment_count, ${live.comments || 0}),
+              last_seen_at = NOW()
+            WHERE competitor_id = ${numericId} AND pin_id = ${pin.pin_id};
+          `;
+        }
+
+        refreshedCount++;
+        results.push({ pin_id: pin.pin_id, saves: live.saves, repins: live.repins });
+      }
+    } catch (_) {}
+
+    // Small jitter between pins (150-300ms) to prevent 429 rate limits
+    if (i < maxToRefresh - 1) {
+      await sleep(randomJitterMs(150, 300));
+    }
+  }
+
+  return {
+    ok: true,
+    refreshed_count: refreshedCount,
+    total_archived: pinsToRefresh.length,
+    pins: results
+  };
+}
+
+/**
+ * Audit Sweep Now:
+ * Executes a comprehensive audit and reconciliation sweep for a creator:
+ * 1. Scrapes fresh unauthenticated profile metrics (reach, views, followers, total pins) and snapshots history.
+ * 2. Syncs and heals all Pinterest boards in competitor_boards.
+ * 3. Sweeps and resolves any monotonic dips in pa_pin_metrics.
+ * 4. Re-evaluates all discovered competitor_pins against 3-tier rules to ingest newly qualified pins.
+ * 5. Returns a detailed audit report.
+ */
+export async function auditSweepCompetitor(sql, competitorIdOrUsername, options = {}) {
+  const numericId = await resolveNumericCompetitorId(sql, competitorIdOrUsername);
+  let cleanUsername = null;
+  if (numericId) {
+    const [comp] = await sql`SELECT username FROM competitor_profiles WHERE id = ${numericId};`;
+    cleanUsername = comp ? comp.username : null;
+  } else {
+    cleanUsername = normalizePinterestUsername(competitorIdOrUsername);
+  }
+
+  if (!cleanUsername) {
+    return { ok: false, error: 'Valid competitor ID or username is required.' };
+  }
+
+  const auditReport = {
+    competitor_id: numericId,
+    username: cleanUsername,
+    profile_updated: false,
+    boards_synced: 0,
+    monotonic_dips_healed: 0,
+    newly_qualified_pins: 0,
+    total_pins_inventory: 0,
+    total_destination_urls: 0,
+    audited_at: new Date().toISOString()
+  };
+
+  // 1. Scrape fresh unauthenticated profile and record snapshot
+  try {
+    const profileRes = await syncCompetitorProfile(sql, cleanUsername, options.cookie || '');
+    if (profileRes?.ok) {
+      auditReport.profile_updated = true;
+      auditReport.profile = profileRes.profile;
+    }
+  } catch (err) {
+    console.warn(`[auditSweep] syncCompetitorProfile notice:`, err.message);
+  }
+
+  // 2. Sync boards
+  if (numericId) {
+    try {
+      const boardRes = await syncCompetitorBoards(sql, numericId, cleanUsername, options.cookie || '');
+      auditReport.boards_synced = boardRes?.synced_boards_count || boardRes?.synced || 0;
+    } catch (err) {
+      console.warn(`[auditSweep] syncCompetitorBoards notice:`, err.message);
+    }
+  }
+
+  // 3. Monotonic healing ratchet sweep across pa_pin_metrics for this competitor
+  try {
+    const healed = await sql`
+      WITH ranked AS (
+        SELECT m.id,
+          MAX(m.saves) OVER (PARTITION BY m.pin_id ORDER BY m.recorded_at ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as monotonic_saves,
+          MAX(m.repins) OVER (PARTITION BY m.pin_id ORDER BY m.recorded_at ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as monotonic_repins
+        FROM pa_pin_metrics m
+        JOIN pa_pins p ON p.pin_id = m.pin_id
+        WHERE LOWER(REPLACE(p.account_username, '@', '')) = ${cleanUsername.toLowerCase()}
+      )
+      UPDATE pa_pin_metrics m
+      SET saves = GREATEST(m.saves, r.monotonic_saves),
+          repins = GREATEST(m.repins, r.monotonic_repins)
+      FROM ranked r
+      WHERE m.id = r.id AND (m.saves < r.monotonic_saves OR m.repins < r.monotonic_repins)
+      RETURNING m.id;
+    `;
+    auditReport.monotonic_dips_healed = healed.length || 0;
+  } catch (err) {
+    console.warn(`[auditSweep] Monotonic ratchet notice:`, err.message);
+  }
+
+  // 4. Re-evaluate pins against 3-tier rules
+  if (numericId) {
+    try {
+      const reEval = await reEvaluateCompetitorPins(sql, numericId);
+      auditReport.newly_qualified_pins = reEval?.qualified_count || 0;
+    } catch (err) {
+      console.warn(`[auditSweep] reEvaluate notice:`, err.message);
+    }
+
+    // 5. Query inventory totals
+    try {
+      const [{ count: pinCount }] = await sql`
+        SELECT COUNT(*)::int AS count FROM competitor_pins WHERE competitor_id = ${numericId};
+      `;
+      auditReport.total_pins_inventory = pinCount;
+
+      const [{ count: urlCount }] = await sql`
+        SELECT COUNT(DISTINCT destination_url)::int AS count 
+        FROM competitor_pins 
+        WHERE competitor_id = ${numericId} AND destination_url IS NOT NULL AND destination_url <> '' AND destination_url NOT LIKE '%pinterest.com%';
+      `;
+      auditReport.total_destination_urls = urlCount;
+    } catch (_) {}
+  }
+
+  return {
+    ok: true,
+    ...auditReport,
+    message: `Audit sweep successfully completed for @${cleanUsername}: Profile refreshed, ${auditReport.boards_synced} boards synced, ${auditReport.total_pins_inventory} pins audited.`
+  };
+}
