@@ -3780,6 +3780,7 @@ export function getDashboardHtml() {
               <button @click="competitorFilter = 'all'" class="px-3 py-1.5 rounded-lg transition" :class="competitorFilter === 'all' ? 'bg-white dark:bg-[#0b1120] text-slate-900 dark:text-white shadow-sm font-bold' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'">All Profiles</button>
               <button @click="competitorFilter = 'own'" class="px-3 py-1.5 rounded-lg transition" :class="competitorFilter === 'own' ? 'bg-white dark:bg-[#0b1120] text-slate-900 dark:text-white shadow-sm font-bold' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'">👤 My Accounts</button>
               <button @click="competitorFilter = 'competitor'" class="px-3 py-1.5 rounded-lg transition" :class="competitorFilter === 'competitor' ? 'bg-white dark:bg-[#0b1120] text-slate-900 dark:text-white shadow-sm font-bold' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'">🎯 Competitors</button>
+              <button @click="competitorFilter = 'paused'" class="px-3 py-1.5 rounded-lg transition" :class="competitorFilter === 'paused' ? 'bg-white dark:bg-[#0b1120] text-amber-600 dark:text-amber-400 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'">⏸ Paused</button>
             </div>
 
             <!-- Search Bar -->
@@ -3847,7 +3848,7 @@ export function getDashboardHtml() {
               </thead>
               <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono">
                 <template x-for="c in filteredCompetitors" :key="c.id">
-                  <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition">
+                  <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition" :class="c.is_active === false ? 'opacity-75 bg-amber-500/[0.03] dark:bg-amber-500/[0.05]' : ''">
                     <td class="py-3 px-3"><input type="checkbox" :checked="selectedCompetitorIds.includes(Number(c.id))" @change="toggleSelectCompetitor(c.id)" class="rounded border-slate-300 dark:border-slate-700 text-purple-600 cursor-pointer"></td>
                     <td class="py-3 px-3 font-sans">
                       <div class="flex items-center space-x-2.5 cursor-pointer" @click="openCreatorDossier(c)">
@@ -3856,6 +3857,9 @@ export function getDashboardHtml() {
                           <div class="font-bold text-slate-900 dark:text-white hover:text-purple-600 dark:hover:text-purple-400 flex items-center space-x-1">
                             <span x-text="'@' + c.username"></span>
                             <i data-lucide="external-link" class="w-3 h-3 text-slate-400"></i>
+                            <template x-if="c.is_active === false">
+                              <span class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 whitespace-nowrap">⏸ Paused</span>
+                            </template>
                             <template x-if="c._shard_name && selectedProject === 'all'">
                               <span class="text-[9px] font-mono px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20" x-text="c._shard_name.replace('pin-arbitrage-', '')"></span>
                             </template>
@@ -3884,7 +3888,12 @@ export function getDashboardHtml() {
                       </button>
                     </td>
                     <td class="py-3 px-3 text-center">
-                      <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30" x-text="'• ' + (c.activity_status || '1d ago')"></span>
+                      <template x-if="c.is_active === false">
+                        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 whitespace-nowrap" title="Ingestion is paused for this profile">⏸ Paused</span>
+                      </template>
+                      <template x-if="c.is_active !== false">
+                        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 whitespace-nowrap" x-text="'• ' + (c.activity_status || '1d ago')"></span>
+                      </template>
                     </td>
                     <td class="py-3 px-3 text-center">
                       <div class="flex items-center justify-center space-x-1">
@@ -3903,6 +3912,10 @@ export function getDashboardHtml() {
                         <!-- 🏛️ Audit Sweep Now -->
                         <button @click="auditSweepCompetitorAction(c)" :disabled="auditSweepingCompetitorId === c.id" class="p-1.5 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-950/40 text-slate-400 hover:text-indigo-500 transition cursor-pointer disabled:opacity-50" title="🏛️ Audit Sweep Now (Sync profile reach, boards, monotonic metrics, destination URLs)">
                           <i data-lucide="shield-check" class="w-3.5 h-3.5" :class="auditSweepingCompetitorId === c.id ? 'animate-spin text-indigo-500' : ''"></i>
+                        </button>
+                        <!-- Pause / Resume Toggle -->
+                        <button @click="toggleCompetitorStatus(c)" class="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition cursor-pointer" :title="c.is_active === false ? 'Resume Ingestion' : 'Pause Ingestion'">
+                          <i :data-lucide="c.is_active === false ? 'play' : 'pause'" class="w-3.5 h-3.5" :class="c.is_active === false ? 'text-emerald-500' : 'text-slate-400 hover:text-amber-500'"></i>
                         </button>
                         <!-- Sync Live Profile -->
                         <button @click="syncCompetitor(c.username)" class="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400 hover:text-emerald-500 transition cursor-pointer" title="Sync live profile">
@@ -4379,6 +4392,8 @@ export function getDashboardHtml() {
                     <h1 class="text-xl sm:text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white" x-text="(activeCreator.username || '').replace(/^@+/, '')"></h1>
                     <span class="rounded-full bg-purple-500/10 px-2.5 py-0.5 text-[11px] font-bold text-purple-600 dark:text-purple-400 border border-purple-500/20" x-text="activeCreator.account_type === 'own' ? '🎯 Own Account' : '🎯 Competitor'"></span>
                     <span class="rounded-full bg-rose-500/10 px-2.5 py-0.5 text-[11px] font-semibold text-rose-600 dark:text-rose-400 border border-rose-500/20">General</span>
+                    <span x-show="activeCreator.is_active === false" class="rounded-full bg-amber-500/15 px-2.5 py-0.5 text-[11px] font-bold text-amber-600 dark:text-amber-400 border border-amber-500/30">⏸ Ingest Paused</span>
+                    <span x-show="activeCreator.is_active !== false" class="rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-[11px] font-bold text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">🟢 Active Ingest</span>
                   </div>
 
                   <div class="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
@@ -8875,7 +8890,13 @@ export function getDashboardHtml() {
         get filteredCompetitors() {
           let list = this.competitors || [];
           if (this.competitorFilter && this.competitorFilter !== 'all') {
-            list = list.filter(c => c.account_type === this.competitorFilter);
+            if (this.competitorFilter === 'paused') {
+              list = list.filter(c => c.is_active === false);
+            } else if (this.competitorFilter === 'active') {
+              list = list.filter(c => c.is_active !== false);
+            } else {
+              list = list.filter(c => c.account_type === this.competitorFilter);
+            }
           }
           if (this.competitorSearch) {
             const q = this.competitorSearch.toLowerCase().replace('@', '');
