@@ -527,9 +527,9 @@ export async function ingestPinsBatch(sql, pins, accountUsername = null, { filte
       SELECT
         u.pin_id,
         date_trunc('hour', NOW()),
-        u.saves,
-        u.repins,
-        u.comments
+        GREATEST(u.saves, COALESCE(p.saves, 0)),
+        GREATEST(u.repins, COALESCE(p.repins, 0)),
+        GREATEST(u.comments, COALESCE(p.comments, 0))
       FROM (
         SELECT *
         FROM jsonb_to_recordset(${jsonPayload}::jsonb) AS raw(
@@ -540,6 +540,7 @@ export async function ingestPinsBatch(sql, pins, accountUsername = null, { filte
         )
         ORDER BY raw.pin_id ASC
       ) u
+      LEFT JOIN pa_pins p ON p.pin_id = u.pin_id
       ON CONFLICT (pin_id, recorded_at) DO UPDATE SET
         saves = GREATEST(pa_pin_metrics.saves, EXCLUDED.saves),
         repins = GREATEST(pa_pin_metrics.repins, EXCLUDED.repins),
@@ -1127,10 +1128,20 @@ export async function getPinDetailWithMetrics(sql, pinId, options = {}) {
           `;
         } catch (_) {}
 
-        // Record live metric snapshot
+        // Record live metric snapshot with monotonic ratchet protection
         await sql`
           INSERT INTO pa_pin_metrics (pin_id, recorded_at, saves, repins, comments)
-          VALUES (${cleanId}, NOW(), ${live.saves || 0}, ${live.repins || 0}, ${live.comments || 0});
+          VALUES (
+            ${cleanId},
+            date_trunc('hour', NOW()),
+            GREATEST(${live.saves || 0}, COALESCE((SELECT saves FROM pa_pins WHERE pin_id = ${cleanId}), 0)),
+            GREATEST(${live.repins || 0}, COALESCE((SELECT repins FROM pa_pins WHERE pin_id = ${cleanId}), 0)),
+            GREATEST(${live.comments || 0}, COALESCE((SELECT comments FROM pa_pins WHERE pin_id = ${cleanId}), 0))
+          )
+          ON CONFLICT (pin_id, recorded_at) DO UPDATE SET
+            saves = GREATEST(pa_pin_metrics.saves, EXCLUDED.saves),
+            repins = GREATEST(pa_pin_metrics.repins, EXCLUDED.repins),
+            comments = GREATEST(pa_pin_metrics.comments, EXCLUDED.comments);
         `;
 
         const [refreshed] = await sql`SELECT * FROM pa_pins WHERE pin_id = ${cleanId} LIMIT 1;`;

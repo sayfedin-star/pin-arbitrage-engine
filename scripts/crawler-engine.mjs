@@ -214,11 +214,17 @@ async function bulkInsertMetrics(sqlClient, metrics) {
   try {
     await sqlClient`
       INSERT INTO pa_pin_metrics (pin_id, recorded_at, saves, repins, comments)
-      SELECT pin_id, date_trunc('hour', NOW()), saves, repins, comments
+      SELECT 
+        x.pin_id, 
+        date_trunc('hour', NOW()), 
+        GREATEST(x.saves, COALESCE(p.saves, 0)), 
+        GREATEST(x.repins, COALESCE(p.repins, 0)), 
+        GREATEST(x.comments, COALESCE(p.comments, 0))
       FROM jsonb_to_recordset(${JSON.stringify(cleanMetrics)}::jsonb) AS x(
         pin_id VARCHAR(64), saves BIGINT, repins BIGINT, comments INT
       )
-      ORDER BY pin_id ASC
+      LEFT JOIN pa_pins p ON p.pin_id = x.pin_id
+      ORDER BY x.pin_id ASC
       ON CONFLICT (pin_id, recorded_at) DO UPDATE SET
         saves = GREATEST(pa_pin_metrics.saves, EXCLUDED.saves),
         repins = GREATEST(pa_pin_metrics.repins, EXCLUDED.repins),
