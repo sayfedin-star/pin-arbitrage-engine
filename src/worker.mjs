@@ -191,17 +191,21 @@ export function getPinKvKeysToEvict(pinId, associatedKids = []) {
   const keys = new Set([
     `dossier:pin:${pid}`,
     `dossier:pin:${pid}:0`,
+    `pin:dossier:${pid}`,
+    `pin:dossier?pin_id=${pid}`,
     `traj:pin:${pid}`,
     `traj:pin:${pid}:0`,
     `traj:pin:${pid}:all`,
     `traj:pin:${pid}:7d`,
     `traj:pin:${pid}:14d`,
-    `traj:pin:${pid}:30d`
+    `traj:pin:${pid}:30d`,
+    `pin:trajectory?pin_id=${pid}`
   ]);
   for (const kid of associatedKids) {
     if (kid != null && kid !== 0) {
       keys.add(`dossier:pin:${pid}:${kid}`);
       keys.add(`traj:pin:${pid}:${kid}`);
+      keys.add(`serp:comp:${kid}`);
     }
   }
   return [...keys];
@@ -730,7 +734,7 @@ function getCachedShardSql(key, factory) {
 
 export function createHyperdriveClient(connectionString, customOpts = {}) {
   const pSql = postgres(connectionString, {
-    max: 3,
+    max: 1,
     fetch_types: false,
     prepare: false,
     idle_timeout: 5,
@@ -757,7 +761,10 @@ export function createHyperdriveClient(connectionString, customOpts = {}) {
         });
       }
     }
-    return await Promise.all(Array.isArray(queriesOrFn) ? queriesOrFn : [queriesOrFn]);
+    // [INVARIANT: HYPERDRIVE-ATOMIC-BUILDER] Always enforce BEGIN/COMMIT boundary even on array fallbacks
+    return await pSql.begin(async (tx) => {
+      return await Promise.all(Array.isArray(queriesOrFn) ? queriesOrFn : [queriesOrFn]);
+    });
   };
   return pSql;
 }
@@ -1194,31 +1201,6 @@ export default {
         is_configured: Boolean(cookie && cookie.trim().length > 10),
         source: 'cloudflare_env'
       });
-    }
-
-    if (pathname === '/api/fleet/keep-alive') {
-      if (method !== 'POST' && method !== 'GET') {
-        return methodNotAllowedResponse('GET, POST, OPTIONS');
-      }
-      let shardIdsToPing = [];
-      if (method === 'POST') {
-        const body = await request.clone().json().catch(() => ({}));
-        if (Array.isArray(body.shards)) {
-          shardIdsToPing = body.shards.map(s => Number(s)).filter(s => s >= 1 && s <= 99);
-        }
-      }
-      const qShard = searchParams.get('shard') || searchParams.get('shard_id');
-      if (qShard && !isNaN(Number(qShard))) {
-        shardIdsToPing.push(Number(qShard));
-      }
-      if (shardIdsToPing.length === 0) {
-        return jsonResponse({
-          success: true,
-          alive: true,
-          timestamp: Date.now(),
-          shards_pinged: 0
-        }, 200, 0);
-      }
     }
 
     let sql = env?.SQL_CLIENT;

@@ -73,6 +73,7 @@ export async function optimizeHubStorage(sql) {
         comment_count INT DEFAULT 0,
         share_count INT DEFAULT 0,
         daily_save_velocity NUMERIC(10,2) DEFAULT 0,
+        domain VARCHAR(128),
         updated_at TIMESTAMPTZ DEFAULT NOW(),
         PRIMARY KEY (keyword_id, pin_id)
       );
@@ -80,6 +81,10 @@ export async function optimizeHubStorage(sql) {
     await sql`
       CREATE INDEX IF NOT EXISTS idx_kdi_kw_score
       ON keyword_displaced_index (keyword_id, vacuum_opportunity_score DESC, last_known_rank ASC NULLS LAST);
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_kdi_domain
+      ON keyword_displaced_index (domain) WHERE domain IS NOT NULL AND domain <> '';
     `;
   } catch (_) {}
 
@@ -191,6 +196,57 @@ export async function optimizeHubStorage(sql) {
                 updated_at = NOW();
             `;
 
+            // [INVARIANT: TWO-TIER-MODERN-SHARDING] Offload metrics & SERP history to shard base tables before purging
+            await shardSql`
+              INSERT INTO pins_daily_metrics (
+                pin_id, snapshot_date, save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity, updated_at
+              )
+              SELECT
+                u.pin_id,
+                COALESCE(NULLIF(TRIM(u.snapshot_date), '')::date, (NOW() AT TIME ZONE 'UTC')::date),
+                COALESCE(u.save_count, 0)::int,
+                COALESCE(u.repin_count, 0)::int,
+                COALESCE(u.comment_count, 0)::int,
+                COALESCE(u.share_count, 0)::int,
+                0,
+                COALESCE(u.daily_save_velocity, 0)::numeric,
+                NOW()
+              FROM jsonb_to_recordset(${payload}::jsonb) AS u(
+                pin_id text, snapshot_date text, save_count bigint, repin_count int, comment_count int, share_count int, daily_save_velocity numeric
+              )
+              ON CONFLICT (pin_id, snapshot_date) DO UPDATE SET
+                save_count = GREATEST(pins_daily_metrics.save_count, EXCLUDED.save_count),
+                repin_count = GREATEST(pins_daily_metrics.repin_count, EXCLUDED.repin_count),
+                comment_count = GREATEST(pins_daily_metrics.comment_count, EXCLUDED.comment_count),
+                share_count = GREATEST(pins_daily_metrics.share_count, EXCLUDED.share_count),
+                daily_save_velocity = GREATEST(pins_daily_metrics.daily_save_velocity, EXCLUDED.daily_save_velocity),
+                updated_at = NOW();
+            `.catch(() => {});
+
+            await shardSql`
+              INSERT INTO pin_serp_positions (
+                pin_id, snapshot_date, keyword_id, rank_position, is_displaced, last_known_rank, catalog_rank, updated_at
+              )
+              SELECT
+                u.pin_id,
+                COALESCE(NULLIF(TRIM(u.snapshot_date), '')::date, (NOW() AT TIME ZONE 'UTC')::date),
+                u.keyword_id::int,
+                NULL,
+                TRUE,
+                COALESCE(u.last_known_rank, 100)::int,
+                100,
+                NOW()
+              FROM jsonb_to_recordset(${payload}::jsonb) AS u(
+                pin_id text, snapshot_date text, keyword_id int, last_known_rank int
+              )
+              WHERE u.keyword_id IS NOT NULL AND u.keyword_id > 0
+              ON CONFLICT (pin_id, snapshot_date, keyword_id) DO UPDATE SET
+                rank_position = NULL,
+                is_displaced = TRUE,
+                last_known_rank = COALESCE(EXCLUDED.last_known_rank, pin_serp_positions.last_known_rank),
+                updated_at = NOW();
+            `.catch(() => {});
+
             for (const p of pins) {
               if (p.pin_id) confirmedPinIds.push(String(p.pin_id));
             }
@@ -205,7 +261,7 @@ export async function optimizeHubStorage(sql) {
           INSERT INTO keyword_displaced_index (
             keyword_id, pin_id, last_known_rank, vacuum_opportunity_score,
             displaced_date, save_count, repin_count, comment_count, share_count,
-            daily_save_velocity, updated_at
+            daily_save_velocity, domain, updated_at
           )
           SELECT
             keyword_id,
@@ -218,6 +274,7 @@ export async function optimizeHubStorage(sql) {
             COALESCE(comment_count, 0),
             COALESCE(share_count, 0),
             COALESCE(daily_save_velocity, 0),
+            COALESCE(domain, ''),
             NOW()
           FROM keyword_serp_current
           WHERE is_displaced = TRUE AND pin_id = ANY(${confirmedPinIds})
@@ -226,6 +283,7 @@ export async function optimizeHubStorage(sql) {
             vacuum_opportunity_score = GREATEST(COALESCE(keyword_displaced_index.vacuum_opportunity_score, 0), COALESCE(EXCLUDED.vacuum_opportunity_score, 0)),
             save_count = GREATEST(COALESCE(keyword_displaced_index.save_count, 0), COALESCE(EXCLUDED.save_count, 0)),
             repin_count = GREATEST(COALESCE(keyword_displaced_index.repin_count, 0), COALESCE(EXCLUDED.repin_count, 0)),
+            domain = COALESCE(NULLIF(EXCLUDED.domain, ''), keyword_displaced_index.domain),
             updated_at = NOW();
         `;
 

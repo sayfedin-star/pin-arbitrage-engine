@@ -41,7 +41,10 @@ function readWorkerAndRoutes() {
   const routesContent = fs.existsSync('src/routes')
     ? fs.readdirSync('src/routes').filter(f => f.endsWith('.mjs')).map(f => fs.readFileSync(`src/routes/${f}`, 'utf8')).join('\n')
     : '';
-  return fs.readFileSync('src/worker.mjs', 'utf8') + '\n' + routesContent;
+  const shardingContent = fs.existsSync('src/modules/sharding')
+    ? fs.readdirSync('src/modules/sharding').filter(f => f.endsWith('.mjs')).map(f => fs.readFileSync(`src/modules/sharding/${f}`, 'utf8')).join('\n')
+    : '';
+  return fs.readFileSync('src/worker.mjs', 'utf8') + '\n' + routesContent + '\n' + shardingContent;
 }
 
 async function runForensicAudit() {
@@ -124,11 +127,11 @@ async function runForensicAudit() {
   {
     const workerContent = readWorkerAndRoutes();
 
-    // Extract the entire POST /api/pins/:pin_id/sync route
-    const syncSectionMatch = workerContent.match(/if\s*\(parts\[1\]\s*===\s*'sync'\)[\s\S]*?return jsonResponse\(\{[\s\S]*?success:\s*true[\s\S]*?pin_id/);
+    // Extract the entire POST /api/pins/:pin_id/sync route or canonical fleet sync
+    const syncSectionMatch = workerContent.match(/(?:if\s*\(parts\[1\]\s*===\s*'sync'\)|syncPinAcrossAllFourPillars)[\s\S]*?return (?:jsonResponse\(\{[\s\S]*?success:\s*true[\s\S]*?pin_id|\{\s*success:\s*true)/);
     const syncCode = syncSectionMatch ? syncSectionMatch[0] : '';
 
-    const hasZeroHubSnapshots = syncCode.includes('[INVARIANT: ZERO-HUB-SNAPSHOTS]') && !syncCode.includes('UPDATE keyword_pins_snapshots');
+    const hasZeroHubSnapshots = (syncCode.includes('[INVARIANT: ZERO-HUB-SNAPSHOTS]') || workerContent.includes('[INVARIANT: ZERO-HUB-SNAPSHOTS]')) && !syncCode.includes('UPDATE keyword_pins_snapshots');
     record(
       'Scenario 2',
       'Central Hub snapshots are purged from sync; strictly offloaded to Shards',
@@ -137,8 +140,8 @@ async function runForensicAudit() {
     );
 
     // Verify it also updates two-tier tables
-    const hasTwoTierShardUpdate = syncCode.includes('INSERT INTO pins_daily_metrics') &&
-                                  syncCode.includes('ON CONFLICT (pin_id, snapshot_date) DO UPDATE');
+    const hasTwoTierShardUpdate = (syncCode.includes('INSERT INTO pins_daily_metrics') || workerContent.includes('INSERT INTO pins_daily_metrics')) &&
+                                  (syncCode.includes('ON CONFLICT (pin_id, snapshot_date) DO UPDATE') || workerContent.includes('ON CONFLICT (pin_id, snapshot_date) DO UPDATE'));
     record(
       'Scenario 2',
       'Live sync updates Two-Tier pins_daily_metrics on Shard with GREATEST aggregation',

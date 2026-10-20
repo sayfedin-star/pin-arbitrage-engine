@@ -1,6 +1,7 @@
 -- Migration 035: Add domain column to keyword_displaced_index for fast Domain Studio discovery
 -- Target: Central Neon Hub
-SET lock_timeout = '3000';
+BEGIN;
+SET LOCAL lock_timeout = '3000';
 
 ALTER TABLE keyword_displaced_index
   ADD COLUMN IF NOT EXISTS domain VARCHAR(128);
@@ -20,3 +21,5 @@ WHERE ksc.keyword_id = kdi.keyword_id
 INSERT INTO schema_migrations (version, name, applied_at)
 VALUES ('035', 'add_domain_to_keyword_displaced_index', NOW())
 ON CONFLICT (version) DO UPDATE SET applied_at = NOW();
+
+COMMIT;

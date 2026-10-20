@@ -169,6 +169,7 @@ export async function runOffloadAndCompact(hubSql, { forceCompact = FORCE_COMPAC
       comment_count INT DEFAULT 0,
       share_count INT DEFAULT 0,
       daily_save_velocity NUMERIC(10,2) DEFAULT 0,
+      domain VARCHAR(128),
       updated_at TIMESTAMPTZ DEFAULT NOW(),
       PRIMARY KEY (keyword_id, pin_id)
     );
@@ -182,6 +183,11 @@ export async function runOffloadAndCompact(hubSql, { forceCompact = FORCE_COMPAC
   await hubSql`
     CREATE INDEX IF NOT EXISTS idx_kdi_pin_id
     ON keyword_displaced_index (pin_id);
+  `;
+
+  await hubSql`
+    CREATE INDEX IF NOT EXISTS idx_kdi_domain
+    ON keyword_displaced_index (domain) WHERE domain IS NOT NULL AND domain <> '';
   `;
   console.log('    ✓ Hub DDL pre-flight and keyword_displaced_index verified.');
 
@@ -581,7 +587,7 @@ export async function runOffloadAndCompact(hubSql, { forceCompact = FORCE_COMPAC
     INSERT INTO keyword_displaced_index (
       keyword_id, pin_id, last_known_rank, vacuum_opportunity_score,
       displaced_date, save_count, repin_count, comment_count, share_count,
-      daily_save_velocity, updated_at
+      daily_save_velocity, domain, updated_at
     )
     SELECT
       keyword_id,
@@ -602,6 +608,7 @@ export async function runOffloadAndCompact(hubSql, { forceCompact = FORCE_COMPAC
       COALESCE(comment_count, 0),
       COALESCE(share_count, 0),
       COALESCE(daily_save_velocity, 0),
+      COALESCE(domain, ''),
       NOW()
     FROM keyword_serp_current
     WHERE is_displaced = TRUE AND pin_id IS NOT NULL
@@ -616,6 +623,7 @@ export async function runOffloadAndCompact(hubSql, { forceCompact = FORCE_COMPAC
         WHEN EXCLUDED.daily_save_velocity > 0 THEN EXCLUDED.daily_save_velocity
         ELSE keyword_displaced_index.daily_save_velocity
       END,
+      domain = COALESCE(NULLIF(EXCLUDED.domain, ''), keyword_displaced_index.domain),
       updated_at = NOW()
     RETURNING pin_id;
   `;

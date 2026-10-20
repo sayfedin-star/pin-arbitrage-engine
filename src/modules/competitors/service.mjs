@@ -1864,7 +1864,7 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
 
   // Asynchronously persist healed reach and views to Postgres profile
   if (resolvedMonthlyReach > Number(profile.monthly_reach || 0) || resolvedProfileViews > Number(profile.profile_views || 0)) {
-    sql`
+    await sql`
       UPDATE competitor_profiles
       SET monthly_reach = GREATEST(monthly_reach, ${resolvedMonthlyReach}),
           profile_views = GREATEST(profile_views, ${resolvedProfileViews}),

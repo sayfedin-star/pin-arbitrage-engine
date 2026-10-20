@@ -62,7 +62,6 @@ export async function ensureEdgePinsMetadataTable(env) {
       )
     `).run().catch(() => {});
     await env.PIN_D1_DB.prepare(`CREATE INDEX IF NOT EXISTS idx_edge_pins_domain ON edge_pins_metadata(domain)`).run().catch(() => {});
-    await env.PIN_D1_DB.prepare(`ALTER TABLE edge_pins_metadata ADD COLUMN metadata TEXT DEFAULT '{}'`).run().catch(() => {});
     isEdgePinsMetadataReady = true;
   } catch (_) {}
 }
@@ -423,32 +422,38 @@ async function hydrateDisplacedIndexFromShards(hubSql, indexRows = [], env = nul
       const shardGroups = batchGroupByShard(stillMissing, 99);
       const newlyHydratedFromShards = [];
 
-      await Promise.allSettled(
-        Array.from(shardGroups.entries()).map(async ([shardId, pins]) => {
-          const pids = pins.map(p => String(p.pin_id));
-          const shardSql = await resolveShardConnection({ hubSql, shardId, env });
-          if (!shardSql || shardSql === hubSql) return;
-          const rows = await executeShardQueryWithCircuitBreaker({
-            shardId,
-            shardSql,
-            timeoutMs: 2500,
-            queryFn: async (client) => {
-              return await client`
-                SELECT pin_id, title, domain, destination_url, image_url,
-                       creator_username, board_name, dominant_color,
-                       visual_annotations, alt_text, description, created_at_pinterest
-                FROM universal_master_pins
-                WHERE pin_id = ANY(${pids});
-              `;
-            },
-            fallbackFn: async () => []
-          });
-          for (const r of (rows || [])) {
-            masterMap.set(String(r.pin_id), r);
-            newlyHydratedFromShards.push(r);
-          }
-        })
-      );
+      // [INVARIANT: CLOUDFLARE-6-CONNECTION-CEILING] Chunk shard scatter-gather into groups of <= 4
+      const shardEntries = Array.from(shardGroups.entries());
+      const CONCURRENCY_LIMIT = 4;
+      for (let i = 0; i < shardEntries.length; i += CONCURRENCY_LIMIT) {
+        const chunk = shardEntries.slice(i, i + CONCURRENCY_LIMIT);
+        await Promise.allSettled(
+          chunk.map(async ([shardId, pins]) => {
+            const pids = pins.map(p => String(p.pin_id));
+            const shardSql = await resolveShardConnection({ hubSql, shardId, env });
+            if (!shardSql || shardSql === hubSql) return;
+            const rows = await executeShardQueryWithCircuitBreaker({
+              shardId,
+              shardSql,
+              timeoutMs: 6000,
+              queryFn: async (client) => {
+                return await client`
+                  SELECT pin_id, title, domain, destination_url, image_url,
+                         creator_username, board_name, dominant_color,
+                         visual_annotations, alt_text, description, created_at_pinterest
+                  FROM universal_master_pins
+                  WHERE pin_id = ANY(${pids});
+                `;
+              },
+              fallbackFn: async () => []
+            });
+            for (const r of (rows || [])) {
+              masterMap.set(String(r.pin_id), r);
+              newlyHydratedFromShards.push(r);
+            }
+          })
+        );
+      }
 
       // Backfill Cloudflare D1 asynchronously so subsequent requests hit D1 in < 3ms with 0 Shard HTTP calls
       if (env?.PIN_D1_DB && newlyHydratedFromShards.length > 0) {

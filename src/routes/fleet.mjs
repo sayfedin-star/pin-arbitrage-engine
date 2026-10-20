@@ -130,8 +130,9 @@ export async function handleFleetRoutes(routeCtx) {
       shardIdsToPing.push(Number(qShard));
     }
 
+    let uniqueShards = [];
     if (shardIdsToPing.length > 0) {
-      const uniqueShards = Array.from(new Set(shardIdsToPing)).slice(0, 10);
+      uniqueShards = Array.from(new Set(shardIdsToPing)).slice(0, 10);
       safeWaitUntil(ctx, Promise.allSettled(uniqueShards.map(async (sid) => {
         try {
           const shardSql = await resolveShardConnection({ hubSql: sql, shardId: sid });
@@ -144,7 +145,7 @@ export async function handleFleetRoutes(routeCtx) {
       success: true,
       alive: true,
       timestamp: Date.now(),
-      shards_pinged: shardIdsToPing.length
+      shards_pinged: uniqueShards.length
     }, 200, 0);
   }
 

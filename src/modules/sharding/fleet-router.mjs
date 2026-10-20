@@ -20,6 +20,7 @@
  */
 
 import { neon } from '@neondatabase/serverless';
+import { calculateDailyVelocity } from '../../lib/math.mjs';
 
 // Standard CRC32 table for deterministic hashing
 const CRC_TABLE = new Uint32Array(256);
@@ -1789,3 +1790,309 @@ export async function getFastEdgeDossier(pinId, env) {
   };
 }
 
+
+
+/**
+ * Canonical 4-Pillar Synchronous Pin Synchronization (SSOT)
+ * [INVARIANT: FOUR-PILLAR-SYNC-PARITY]
+ *
+ * Synchronizes a deep-crawled pin across all four platform pillars:
+ * 1. Shard: universal_master_pins (Creative static metadata)
+ * 2. Shard: pins_daily_metrics (Daily aggregate metrics for today's snapshot)
+ * 3. Shard: pin_serp_positions (Historical keyword rank positions)
+ * 4. Hub: keyword_serp_current (Active SERP rankings & daily save velocity)
+ * 5. Hub: competitor_pins (Tracked competitor profile pins)
+ * 6. Hub: pa_pins (Winning archive pins)
+ * 7. Invalidation: Memory L0 -> Cloudflare D1 -> Cloudflare KV
+ *
+ * @param {object} params
+ * @param {Function} params.hubSql - Neon SQL client connected to Central Hub
+ * @param {string|number} params.pinId - Target Pinterest Pin ID
+ * @param {object} params.scrapedPin - Fresh payload from Pinterest scraper / API
+ * @param {object} [params.env] - Cloudflare Worker environment bindings
+ * @param {object} [params.ctx] - Cloudflare Worker execution context (waitUntil)
+ * @returns {Promise<object>} Result containing synced pin details, velocity, and refreshed dossier
+ */
+export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, env = null, ctx = null }) {
+  const cleanPinId = String(pinId || '').trim();
+  if (!cleanPinId) {
+    throw new Error('[syncPinAcrossAllFourPillars] pinId is required');
+  }
+  if (!scrapedPin || typeof scrapedPin !== 'object') {
+    throw new Error('[syncPinAcrossAllFourPillars] scrapedPin object is required');
+  }
+
+  // 1. Resolve target Shard using deterministic CRC32
+  // [INVARIANT: DETERMINISTIC-CRC32-SHARDING]
+  const shardId = getPinShardId(cleanPinId, 99);
+  let shardSql;
+  try {
+    shardSql = await resolveShardConnection({ hubSql, shardId, env });
+  } catch (shardErr) {
+    console.warn(`[syncPinAcrossAllFourPillars] Failed resolving shard ${shardId}: ${shardErr.message}`);
+    shardSql = hubSql;
+  }
+
+  // 2. Normalize and sanitize numeric metrics (Anti-NaN Protection)
+  const newSaves = Number.isFinite(Number(scrapedPin.saves)) 
+    ? Math.max(0, Number(scrapedPin.saves)) 
+    : (Number.isFinite(Number(scrapedPin.save_count)) ? Math.max(0, Number(scrapedPin.save_count)) : 0);
+  const newRepins = Number.isFinite(Number(scrapedPin.repins)) 
+    ? Math.max(0, Number(scrapedPin.repins)) 
+    : (Number.isFinite(Number(scrapedPin.repin_count)) ? Math.max(0, Number(scrapedPin.repin_count)) : 0);
+  const newComments = Number.isFinite(Number(scrapedPin.comments)) 
+    ? Math.max(0, Number(scrapedPin.comments)) 
+    : (Number.isFinite(Number(scrapedPin.comment_count)) ? Math.max(0, Number(scrapedPin.comment_count)) : 0);
+  const newShares = Number.isFinite(Number(scrapedPin.share_count)) 
+    ? Math.max(0, Number(scrapedPin.share_count)) 
+    : (Number.isFinite(Number(scrapedPin.shares)) ? Math.max(0, Number(scrapedPin.shares)) : 0);
+
+  const totalReactions = Number(
+    scrapedPin.total_reaction_count ??
+    (scrapedPin.reactions && typeof scrapedPin.reactions === 'object'
+      ? Object.values(scrapedPin.reactions).reduce((acc, v) => acc + (Number(v) || 0), 0)
+      : 0)
+  );
+
+  // 3. Prepare sanitized metadata payload
+  const rawMetaToStore = {
+    alt_text: scrapedPin.alt_text || scrapedPin.seo_title || '',
+    description: scrapedPin.description || '',
+    board_name: scrapedPin.board_name || '',
+    creation_method: scrapedPin.creation_method || scrapedPin.method || 'pinterest_platform',
+    created_at_pinterest: scrapedPin.created_at_pinterest || scrapedPin.created_at || '',
+    is_repin: Boolean(scrapedPin.is_repin),
+    origin_pinner: scrapedPin.origin_pinner || null,
+    domain_official_user: scrapedPin.domain_official_user || null,
+    creator_is_verified_merchant: Boolean(scrapedPin.creator_is_verified_merchant),
+    has_affiliate_redirect: Boolean(scrapedPin.has_affiliate_redirect || scrapedPin.affiliate_link || scrapedPin.is_affiliate),
+    affiliate_networks: Array.isArray(scrapedPin.affiliate_networks) ? scrapedPin.affiliate_networks : [],
+    utm_source: scrapedPin.utm_source || null,
+    utm_medium: scrapedPin.utm_medium || null,
+    utm_campaign: scrapedPin.utm_campaign || null,
+    utm_content: scrapedPin.utm_content || null,
+    is_fresh_angle: Boolean(scrapedPin.is_fresh_angle),
+    closeupUnifiedAttribution: scrapedPin.closeupUnifiedAttribution || null,
+    closeup_attribution: scrapedPin.closeup_attribution || null,
+    link_domain: scrapedPin.link_domain || scrapedPin.domain || null,
+    shopping_flags: Array.isArray(scrapedPin.shopping_flags) ? scrapedPin.shopping_flags : []
+  };
+
+  const metaToStore = {};
+  for (const [k, v] of Object.entries(rawMetaToStore)) {
+    if (v === null || v === undefined || v === '') continue;
+    if (Array.isArray(v) && v.length === 0) continue;
+    if (typeof v === 'object' && Object.keys(v).length === 0) continue;
+    metaToStore[k] = v;
+  }
+
+  const cleanCreatedAtIso = (() => {
+    const rawDate = scrapedPin.created_at_pinterest || scrapedPin.created_at;
+    if (!rawDate) return null;
+    const d = new Date(rawDate);
+    return isNaN(d.getTime()) ? null : d.toISOString();
+  })();
+
+  // 4. Pillar 1: Upsert universal_master_pins on designated Storage Shard
+  await shardSql`
+    INSERT INTO universal_master_pins (
+      pin_id, creator_username, board_name, title, domain, destination_url,
+      image_url, description, alt_text, dominant_color, visual_annotations,
+      created_at_pinterest, metadata,
+      first_discovered_pillar, first_discovered_at, updated_at
+    ) VALUES (
+      ${cleanPinId},
+      ${scrapedPin.creator_username || scrapedPin.pinner_username || ''},
+      ${scrapedPin.board_name || ''},
+      ${scrapedPin.title || ''},
+      ${scrapedPin.domain || ''},
+      ${scrapedPin.link || scrapedPin.destination_url || ''},
+      ${scrapedPin.image_url || ''},
+      ${scrapedPin.description || ''},
+      ${scrapedPin.alt_text || scrapedPin.seo_title || ''},
+      ${scrapedPin.dominant_color || '#888888'},
+      ${JSON.stringify(scrapedPin.annotations?.map(a => a.name) || scrapedPin.visual_style_tags || [])}::jsonb,
+      ${cleanCreatedAtIso}::timestamptz,
+      ${JSON.stringify(metaToStore)}::jsonb,
+      'live_sync',
+      NOW(),
+      NOW()
+    )
+    ON CONFLICT (pin_id) DO UPDATE SET
+      creator_username = COALESCE(NULLIF(EXCLUDED.creator_username, ''), universal_master_pins.creator_username),
+      board_name = COALESCE(NULLIF(EXCLUDED.board_name, ''), universal_master_pins.board_name),
+      title = COALESCE(NULLIF(EXCLUDED.title, ''), universal_master_pins.title),
+      domain = COALESCE(NULLIF(EXCLUDED.domain, ''), universal_master_pins.domain),
+      destination_url = COALESCE(NULLIF(EXCLUDED.destination_url, ''), universal_master_pins.destination_url),
+      image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), universal_master_pins.image_url),
+      description = COALESCE(NULLIF(EXCLUDED.description, ''), universal_master_pins.description),
+      alt_text = COALESCE(NULLIF(EXCLUDED.alt_text, ''), universal_master_pins.alt_text),
+      dominant_color = COALESCE(NULLIF(EXCLUDED.dominant_color, ''), universal_master_pins.dominant_color),
+      visual_annotations = CASE 
+        WHEN jsonb_typeof(EXCLUDED.visual_annotations) = 'array' AND jsonb_array_length(EXCLUDED.visual_annotations) > 0 
+        THEN EXCLUDED.visual_annotations 
+        ELSE universal_master_pins.visual_annotations 
+      END,
+      created_at_pinterest = COALESCE(EXCLUDED.created_at_pinterest, universal_master_pins.created_at_pinterest),
+      metadata = universal_master_pins.metadata || EXCLUDED.metadata,
+      updated_at = NOW();
+  `;
+
+  // 5. Query Central Hub Active SERP State (keyword_serp_current) using exact DDL
+  const targetRows = await hubSql`
+    SELECT keyword_id, rank_position, is_displaced, save_count, repin_count, comment_count, share_count, crawled_at, last_known_rank
+    FROM keyword_serp_current
+    WHERE pin_id = ${cleanPinId};
+  `;
+
+  // 6. Compute UTC-normalized save velocity with options object
+  // [INVARIANT: UTC-MIDNIGHT-NORMALIZED-VELOCITY]
+  const prevSaves = targetRows.length > 0 && Number.isFinite(Number(targetRows[0].save_count)) 
+    ? Number(targetRows[0].save_count) 
+    : 0;
+  const prevDate = targetRows[0]?.crawled_at ? new Date(targetRows[0].crawled_at) : null;
+  const syncVelocity = calculateDailyVelocity({
+    currentSaves: newSaves,
+    baselineSaves: prevSaves,
+    currentDate: new Date(),
+    baselineDate: prevDate
+  });
+
+  // 7. Shard: Upsert two-tier modern snapshot metrics (pins_daily_metrics)
+  // [INVARIANT: TWO-TIER-MODERN-SHARDING]
+  await shardSql`
+    INSERT INTO pins_daily_metrics (
+      pin_id, snapshot_date, save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity, updated_at
+    ) VALUES (
+      ${cleanPinId}, (NOW() AT TIME ZONE 'UTC')::date, ${newSaves}, ${newRepins},
+      ${newComments}, ${newShares}, ${totalReactions}, ${syncVelocity}, NOW()
+    )
+    ON CONFLICT (pin_id, snapshot_date) DO UPDATE SET
+      save_count = GREATEST(pins_daily_metrics.save_count, EXCLUDED.save_count),
+      repin_count = GREATEST(pins_daily_metrics.repin_count, EXCLUDED.repin_count),
+      comment_count = GREATEST(pins_daily_metrics.comment_count, EXCLUDED.comment_count),
+      share_count = GREATEST(pins_daily_metrics.share_count, EXCLUDED.share_count),
+      reaction_count = GREATEST(pins_daily_metrics.reaction_count, EXCLUDED.reaction_count),
+      daily_save_velocity = GREATEST(pins_daily_metrics.daily_save_velocity, EXCLUDED.daily_save_velocity),
+      updated_at = NOW();
+  `.catch(err => console.warn(`[Sync pins_daily_metrics error: ${err.message}]`));
+
+  // 8. Shard: Upsert SERP positions (pin_serp_positions) for each associated keyword
+  if (targetRows.length > 0) {
+    for (const row of targetRows) {
+      const shardKid = row.keyword_id;
+      if (shardKid != null) {
+        if (shardKid > 0) {
+          await shardSql`
+            INSERT INTO pin_serp_positions (
+              pin_id, snapshot_date, keyword_id, rank_position, is_displaced, last_known_rank, catalog_rank, updated_at
+            ) VALUES (
+              ${cleanPinId}, (NOW() AT TIME ZONE 'UTC')::date, ${shardKid},
+              ${row.is_displaced ? null : row.rank_position},
+              ${Boolean(row.is_displaced)}, ${row.rank_position || row.last_known_rank || 100},
+              100, NOW()
+            )
+            ON CONFLICT (pin_id, snapshot_date, keyword_id) DO UPDATE SET
+              rank_position = CASE WHEN EXCLUDED.is_displaced = TRUE THEN NULL ELSE EXCLUDED.rank_position END,
+              is_displaced = COALESCE(EXCLUDED.is_displaced, FALSE),
+              last_known_rank = COALESCE(EXCLUDED.last_known_rank, pin_serp_positions.last_known_rank),
+              updated_at = NOW();
+          `.catch(err => console.warn(`[Sync pin_serp_positions error: ${err.message}]`));
+        }
+      }
+    }
+  }
+
+  // 9. Hub: Update active SERP state in keyword_serp_current
+  if (targetRows.length > 0) {
+    await hubSql`
+      UPDATE keyword_serp_current
+      SET
+        title = COALESCE(NULLIF(${scrapedPin.title || ''}, ''), title),
+        domain = COALESCE(NULLIF(${scrapedPin.domain || ''}, ''), domain),
+        destination_url = COALESCE(NULLIF(${scrapedPin.link || scrapedPin.destination_url || ''}, ''), destination_url),
+        image_url = COALESCE(NULLIF(${scrapedPin.image_url || ''}, ''), image_url),
+        save_count = GREATEST(save_count, ${newSaves}),
+        repin_count = GREATEST(repin_count, ${newRepins}),
+        comment_count = GREATEST(comment_count, ${newComments}),
+        share_count = GREATEST(share_count, ${newShares}),
+        daily_save_velocity = ${syncVelocity},
+        metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify(rawMetaToStore)}::jsonb,
+        crawled_at = NOW(),
+        updated_at = NOW()
+      WHERE pin_id = ${cleanPinId};
+    `;
+  }
+
+  // 10. Hub: Update competitor_pins if tracked competitor pin
+  await hubSql`
+    UPDATE competitor_pins
+    SET
+      title = COALESCE(NULLIF(${scrapedPin.title || ''}, ''), title),
+      link_domain = COALESCE(NULLIF(${scrapedPin.domain || ''}, ''), link_domain),
+      destination_url = COALESCE(NULLIF(${scrapedPin.link || scrapedPin.destination_url || ''}, ''), destination_url),
+      image_url = COALESCE(NULLIF(${scrapedPin.image_url || ''}, ''), image_url),
+      save_count = GREATEST(save_count, ${newSaves}),
+      repin_count = GREATEST(repin_count, ${newRepins}),
+      comment_count = GREATEST(comment_count, ${newComments}),
+      metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify(rawMetaToStore)}::jsonb,
+      updated_at = NOW()
+    WHERE pin_id = ${cleanPinId};
+  `.catch(err => console.warn(`[Sync competitor_pins error: ${err.message}]`));
+
+  // 11. Hub: Update pa_pins if in PinArchive
+  await hubSql`
+    UPDATE pa_pins
+    SET
+      title = COALESCE(NULLIF(${scrapedPin.title || ''}, ''), title),
+      domain = COALESCE(NULLIF(${scrapedPin.domain || ''}, ''), domain),
+      link = COALESCE(NULLIF(${scrapedPin.link || scrapedPin.destination_url || ''}, ''), link),
+      image_url = COALESCE(NULLIF(${scrapedPin.image_url || ''}, ''), image_url),
+      saves = GREATEST(saves, ${newSaves}),
+      repins = GREATEST(repins, ${newRepins}),
+      comments = GREATEST(comments, ${newComments}),
+      share_count = GREATEST(share_count, ${newShares}),
+      velocity = ${syncVelocity},
+      reactions = COALESCE(reactions, '{}'::jsonb) || ${JSON.stringify(scrapedPin.reactions || {})}::jsonb,
+      last_updated_at = NOW()
+    WHERE pin_id = ${cleanPinId};
+  `.catch(err => console.warn(`[Sync pa_pins error: ${err.message}]`));
+
+  // 12. Synchronous Cache Invalidation Protocol (Anti-Stale & Anti-Race Guard)
+  // [INVARIANT: EDGE-EVICTION-TANDEM]
+  // Step A: Evict Cloudflare D1 immediately to ensure subsequent reads fetch fresh data
+  if (env?.PIN_D1_DB) {
+    await env.PIN_D1_DB.prepare('DELETE FROM edge_pins_metadata WHERE pin_id = ?').bind(cleanPinId).run().catch(() => {});
+  }
+
+  // Step B: Evict Cloudflare KV keys in tandem
+  if (env?.PIN_ENGINE_KV) {
+    const associatedKids = [...new Set(targetRows.map(r => r.keyword_id).filter(Boolean))];
+    const serpKeys = associatedKids.map(kid => `serp:comp:${kid}`);
+    const evictions = [
+      `dossier:pin:${cleanPinId}`,
+      `dossier:pin:${cleanPinId}:0`,
+      `pin:dossier:${cleanPinId}`,
+      `pin:dossier?pin_id=${cleanPinId}`,
+      `traj:pin:${cleanPinId}`,
+      `traj:pin:${cleanPinId}:0`,
+      `traj:pin:${cleanPinId}:all`,
+      ...associatedKids.map(kid => `dossier:pin:${cleanPinId}:${kid}`),
+      ...associatedKids.map(kid => `traj:pin:${cleanPinId}:${kid}`),
+      ...serpKeys
+    ].map(k => env.PIN_ENGINE_KV.delete(k).catch(() => {}));
+    await Promise.all(evictions).catch(() => {});
+  }
+
+  // Step C: Fetch fresh universal dossier with edge cache bypassed
+  const refreshedDossier = await fetchUniversalPinDossier({ hubSql, pinId: cleanPinId, ctx, env, bypassEdgeCache: true });
+
+  return {
+    success: true,
+    synced: true,
+    pin_id: cleanPinId,
+    shard_id: shardId,
+    syncVelocity,
+    dossier: refreshedDossier
+  };
+}

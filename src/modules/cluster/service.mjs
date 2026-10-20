@@ -943,13 +943,15 @@ export async function getDiscoveryTypeaheadService({ cleanQ }) {
   }
 
   if (targetSuggestions.length > 0) {
-    const suggestionTerms = targetSuggestions.map(item => 
+    // [INVARIANT: CLOUDFLARE-SUBREQUEST-SHIELD] Bound suggestions to <= 8 terms to prevent subrequest exhaustion
+    const boundedSuggestions = targetSuggestions.slice(0, 8);
+    const suggestionTerms = boundedSuggestions.map(item => 
       typeof item === 'string' ? item : (item.term || item.query || '')
     ).filter(Boolean);
 
     const [velocityMapResult, enriched] = await Promise.all([
       fetchPinterestBatchVelocity(cleanQ, suggestionTerms).catch(() => new Map()),
-      Promise.allSettled(targetSuggestions.map(async (item) => {
+      Promise.allSettled(boundedSuggestions.map(async (item) => {
         const termStr = typeof item === 'string' ? item : (item.term || item.query || '');
         const isSeed = (typeof item === 'object' && Boolean(item.is_seed)) || (termStr.toLowerCase() === cleanQ.toLowerCase());
         try {
