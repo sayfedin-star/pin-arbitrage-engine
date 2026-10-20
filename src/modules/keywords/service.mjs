@@ -27,7 +27,8 @@ import {
   resolveShardConnection,
   executeShardQueryWithCircuitBreaker,
   batchGroupByShard,
-  preloadNeonRegistry
+  preloadNeonRegistry,
+  syncPinAcrossAllFourPillars
 } from '../sharding/fleet-router.mjs';
 
 /**
@@ -269,7 +270,8 @@ export async function offloadKeywordCrawlToShards(hubSql, keywordId, activePins 
   const shardGroups = batchGroupByShard(combined, 99);
   const shardEntries = Array.from(shardGroups.entries());
   let shardsSynced = 0;
-  const CONCURRENCY = 10;
+  // [INVARIANT: CLOUDFLARE-6-CONN-CEILING]
+  const CONCURRENCY = 4;
 
   for (let i = 0; i < shardEntries.length; i += CONCURRENCY) {
     const chunk = shardEntries.slice(i, i + CONCURRENCY);
@@ -2358,7 +2360,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
               WHERE kip.keyword_id = ${kid} AND kip.pin_id = keyword_serp_current.pin_id
             )
           ON CONFLICT (keyword_id, pin_id) DO UPDATE SET
-            domain = COALESCE(EXCLUDED.domain, keyword_displaced_index.domain),
+            domain = COALESCE(NULLIF(EXCLUDED.domain, ''), keyword_displaced_index.domain),
             last_known_rank = COALESCE(EXCLUDED.last_known_rank, keyword_displaced_index.last_known_rank),
             vacuum_opportunity_score = GREATEST(keyword_displaced_index.vacuum_opportunity_score, EXCLUDED.vacuum_opportunity_score),
             save_count = GREATEST(keyword_displaced_index.save_count, EXCLUDED.save_count),
@@ -3244,7 +3246,8 @@ export async function getKeywordDisplacedPins(sql, keywordId, options = {}) {
     displaced_pins: rows
   };
 
-  if (env?.PIN_ENGINE_KV && rows.length > 0) {
+  // [INVARIANT: ZERO-SKELETON-KV-POISONING] Only cache in KV when 100% of rows are hydrated
+  if (env?.PIN_ENGINE_KV && rows.length > 0 && rows.every(r => Boolean(r.title || r.image_url))) {
     try {
       await env.PIN_ENGINE_KV.put(kvKey, JSON.stringify(displacedResult), { expirationTtl: 1800 });
     } catch (_) {}
@@ -3366,7 +3369,7 @@ export async function getPinPerformanceTrajectory(sql, keywordId, pinId, range =
           `;
         },
         fallbackFn: async () => [],
-        timeoutMs: 2500
+        timeoutMs: 5500
       });
     } catch (_) {
       return [];
@@ -3475,7 +3478,8 @@ export async function getPinPerformanceTrajectory(sql, keywordId, pinId, range =
  * Pulls cached Pinterest SEO Alt Text, 9 linked Annotations, 6 KPIs, and Trajectory.
  * Automatically enriches missing Alt Text via on-demand fetchPinFromPinterest.
  */
-export async function getPinDeepDossier(sql, pinId, keywordId = null, { forceRefresh = false, env = null } = {}) {
+export async function getPinDeepDossier(sql, pinId, keywordId = null, options = {}) {
+  const { forceRefresh = false, env = null, ctx = null } = options;
   const cleanPin = String(pinId || '').trim();
   if (!cleanPin) throw new Error('pin_id is required');
   const kid = keywordId ? Number(keywordId) : null;
@@ -3550,7 +3554,7 @@ export async function getPinDeepDossier(sql, pinId, keywordId = null, { forceRef
           `.catch(() => []);
           let timerId;
           const timeoutPromise = new Promise((_, reject) => {
-            timerId = setTimeout(() => reject(new Error('timeout')), 2500);
+            timerId = setTimeout(() => reject(new Error('timeout')), 5500);
           });
           try {
             const [sMaster] = await Promise.race([
@@ -3607,102 +3611,24 @@ export async function getPinDeepDossier(sql, pinId, keywordId = null, { forceRef
       const pinResult = await fetchPinFromPinterest(cleanPin);
       if (pinResult?.ok && pinResult.pin) {
         scraped = pinResult.pin;
-        const normalizedAnnotations = Array.isArray(scraped.annotations)
-          ? scraped.annotations.map(a => typeof a === 'string' ? a.trim() : (a && (a.name || a.label) ? String(a.name || a.label).trim() : '')).filter(Boolean)
-          : [];
-
-        // Persist scraped details to Hub cache in keyword_serp_current
-        if (displacedRow) {
-          await sql`
-            UPDATE keyword_serp_current SET
-              metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
-                'alt_text', COALESCE(${scraped.alt_text || scraped.seo_alt_text || ''}::text, metadata->>'alt_text'),
-                'description', COALESCE(${scraped.description || ''}::text, metadata->>'description'),
-                'pinner', jsonb_build_object(
-                  'username', COALESCE(${scraped.creator_username || scraped.pinner?.username || ''}::text, metadata->'pinner'->>'username'),
-                  'full_name', COALESCE(${scraped.creator_name || scraped.pinner?.full_name || ''}::text, metadata->'pinner'->>'full_name'),
-                  'follower_count', COALESCE(${Number(scraped.creator_followers || scraped.pinner?.follower_count || 0)}::int, (metadata->'pinner'->>'follower_count')::int),
-                  'image_small_url', COALESCE(${scraped.creator_avatar_url || scraped.pinner?.image_url || ''}::text, metadata->'pinner'->>'image_small_url'),
-                  'is_verified_merchant', COALESCE(${Boolean(scraped.creator_is_verified_merchant || scraped.pinner?.is_verified_merchant)}::boolean, (metadata->'pinner'->>'is_verified_merchant')::boolean)
-                ),
-                'board_name', COALESCE(${scraped.board_name || scraped.board?.name || ''}::text, metadata->>'board_name'),
-                'is_repin', ${Boolean(scraped.is_repin)},
-                'is_product', ${Boolean(scraped.is_product)},
-                'category_breadcrumbs', ${JSON.stringify(scraped.category_breadcrumbs || [])}::jsonb,
-                'image_dimensions', ${JSON.stringify(scraped.image_dimensions || null)}::jsonb,
-                'seo_noindex_reason', ${scraped.seo_noindex_reason || null}
-              ),
-              creator_username = COALESCE(NULLIF(${scraped.creator_username || scraped.pinner?.username || ''}, ''), creator_username),
-              board_name = COALESCE(NULLIF(${scraped.board_name || scraped.board?.name || ''}, ''), board_name),
-              visual_annotations = CASE 
-                WHEN jsonb_typeof(${JSON.stringify(normalizedAnnotations)}::jsonb) = 'array' AND jsonb_array_length(${JSON.stringify(normalizedAnnotations)}::jsonb) > 0
-                THEN ${JSON.stringify(normalizedAnnotations)}::jsonb
-                ELSE visual_annotations
-              END,
-              dominant_color = COALESCE(${scraped.dominant_color || null}, dominant_color),
-              created_at_pinterest = COALESCE(${scraped.created_at_pinterest || null}, created_at_pinterest),
-              save_count = GREATEST(save_count, ${Number(scraped.saves || 0)}::bigint),
-              repin_count = GREATEST(repin_count, ${Number(scraped.repins || 0)}::int),
-              comment_count = GREATEST(COALESCE(comment_count, 0), ${Number(scraped.comments || 0)}::int),
-              share_count = GREATEST(COALESCE(share_count, 0), ${Number(scraped.share_count || 0)}::int),
-              crawled_at = NOW(),
-              updated_at = NOW()
-            WHERE keyword_id = ${displacedRow.keyword_id} AND pin_id = ${cleanPin};
-          `.catch(() => {});
-        }
-
-        // Backfill to Shard universal_master_pins
-        try {
-          const shardId = getPinShardId(cleanPin, 99);
-          const shardSql = await resolveShardConnection({ hubSql: sql, shardId, env });
-          if (shardSql && shardSql !== sql) {
-            const finalAnnoList = (scraped.annotations || [])
-              .map(a => typeof a === 'string' ? a : (a?.name || a?.label || ''))
-              .filter(Boolean);
-            await shardSql`
-              INSERT INTO universal_master_pins (
-                pin_id, creator_username, board_name, title, domain, destination_url,
-                image_url, description, alt_text, dominant_color, visual_annotations,
-                first_discovered_pillar, first_discovered_at, updated_at
-              ) VALUES (
-                ${cleanPin},
-                ${scraped.creator_username || scraped.pinner?.username || displacedRow?.creator_username || ''},
-                ${scraped.board_name || scraped.board?.name || displacedRow?.board_name || ''},
-                ${scraped.title || displacedRow?.title || ''},
-                ${scraped.domain || displacedRow?.domain || ''},
-                ${scraped.link || displacedRow?.destination_url || ''},
-                ${scraped.image_url || displacedRow?.image_url || ''},
-                ${scraped.description || ''},
-                ${scraped.alt_text || scraped.seo_alt_text || ''},
-                ${scraped.dominant_color || displacedRow?.dominant_color || '#888888'},
-                ${JSON.stringify(finalAnnoList)}::jsonb,
-                'keyword',
-                NOW(),
-                NOW()
-              )
-              ON CONFLICT (pin_id) DO UPDATE SET
-                creator_username = COALESCE(NULLIF(EXCLUDED.creator_username, ''), universal_master_pins.creator_username),
-                board_name = COALESCE(NULLIF(EXCLUDED.board_name, ''), universal_master_pins.board_name),
-                title = COALESCE(NULLIF(EXCLUDED.title, ''), universal_master_pins.title),
-                image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), universal_master_pins.image_url),
-                description = COALESCE(NULLIF(EXCLUDED.description, ''), universal_master_pins.description),
-                alt_text = COALESCE(NULLIF(EXCLUDED.alt_text, ''), universal_master_pins.alt_text),
-                dominant_color = COALESCE(NULLIF(EXCLUDED.dominant_color, ''), universal_master_pins.dominant_color),
-                visual_annotations = CASE 
-                  WHEN jsonb_typeof(EXCLUDED.visual_annotations) = 'array' AND jsonb_array_length(EXCLUDED.visual_annotations) > 0 
-                  THEN EXCLUDED.visual_annotations 
-                  ELSE universal_master_pins.visual_annotations 
-                END,
-                updated_at = NOW();
-            `.catch(() => {});
-          }
-        } catch (_) {}
+        // [INVARIANT: 4-PILLAR-SYNC-PARITY]
+        // Delegate DB mutations & D1/KV cache invalidation to canonical SSOT function
+        const syncRes = await syncPinAcrossAllFourPillars({
+          hubSql: sql,
+          pinId: cleanPin,
+          scrapedPin: scraped,
+          env,
+          ctx: options?.ctx || null
+        });
 
         if (displacedRow) {
           displacedRow.current_saves = Math.max(Number(displacedRow.current_saves || 0), Number(scraped.saves || 0));
           displacedRow.current_repins = Math.max(Number(displacedRow.current_repins || 0), Number(scraped.repins || 0));
           displacedRow.current_comments = Math.max(Number(displacedRow.current_comments || 0), Number(scraped.comments || 0));
           displacedRow.current_shares = Math.max(Number(displacedRow.current_shares || 0), Number(scraped.share_count || 0));
+          if (Number.isFinite(syncRes?.syncVelocity) && syncRes.syncVelocity > 0) {
+            displacedRow.daily_save_velocity = syncRes.syncVelocity;
+          }
           displacedRow.seo_alt_text = scraped.alt_text || scraped.seo_alt_text || displacedRow.seo_alt_text;
           displacedRow.creator_username = scraped.creator_username || scraped.pinner?.username || displacedRow.creator_username;
           displacedRow.board_name = scraped.board_name || scraped.board?.name || displacedRow.board_name;

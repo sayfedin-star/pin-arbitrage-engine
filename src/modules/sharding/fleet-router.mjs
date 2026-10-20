@@ -760,8 +760,14 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
   let shardErrorReason = null;
   const dossierBatchId = `dossier_batch_${cleanPinId}_${Date.now()}_${Math.random()}`;
 
-  // [INVARIANT: PERMANENT-D1-METADATA] Static pin creative metadata in D1 is permanent and bypasses Shard master query
-  const hasValidD1 = Boolean(d1Record && d1Record.pin_id);
+  // [INVARIANT: D1-12H-TTL-AND-NON-EMPTY-GUARD]
+  const d1UpdatedMs = parseD1DateMs(d1Record?.updated_at);
+  const hasValidD1 = Boolean(
+    d1Record && d1Record.pin_id &&
+    (d1Record.title || d1Record.image_url) &&
+    d1UpdatedMs > 0 &&
+    (Date.now() - d1UpdatedMs) < 12 * 3600 * 1000
+  );
 
   const masterPromise = hasValidD1
     ? Promise.resolve(d1Record)

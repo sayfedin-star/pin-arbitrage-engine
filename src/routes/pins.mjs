@@ -18,7 +18,6 @@ import {
 } from '../modules/sharding/fleet-router.mjs';
 
 import { fetchPinFromPinterest } from '../../scripts/lib/pinterest.mjs';
-import { calculateDailyVelocity } from '../lib/math.mjs';
 
 /**
  * Fast URI discriminator for Pins routes
@@ -111,6 +110,10 @@ export async function handlePinsRoutes({
 
     await invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
     await invalidateEdgeCache(buildCanonicalCacheKey('pin:dossier', { pin_id: pinId }));
+    await invalidateEdgeCache('keywords:pin-dossier');
+    if (env?.PIN_D1_DB) {
+      await env.PIN_D1_DB.prepare('DELETE FROM edge_pins_metadata WHERE pin_id = ?').bind(pinId).run().catch(() => {});
+    }
     if (env?.PIN_ENGINE_KV) {
       const evictions = getPinKvKeysToEvict(pinId, targetKwId ? [targetKwId] : []).map(k => env.PIN_ENGINE_KV.delete(k).catch(() => {}));
       safeWaitUntil(ctx, Promise.all(evictions), `kv_delete_snapshot_${rawSnapshotParam}`);
@@ -155,7 +158,12 @@ export async function handlePinsRoutes({
       WHERE pin_id = ${pinId} AND snapshot_date = ${snapshotDate}::date AND keyword_id = ${kwId};
     `.catch(() => {});
 
-    invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
+    await invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
+    await invalidateEdgeCache(buildCanonicalCacheKey('pin:dossier', { pin_id: pinId }));
+    await invalidateEdgeCache('keywords:pin-dossier');
+    if (env?.PIN_D1_DB) {
+      await env.PIN_D1_DB.prepare('DELETE FROM edge_pins_metadata WHERE pin_id = ?').bind(pinId).run().catch(() => {});
+    }
     if (env?.PIN_ENGINE_KV) {
       const evictions = getPinKvKeysToEvict(pinId, [kwId]).map(k => env.PIN_ENGINE_KV.delete(k).catch(() => {}));
       safeWaitUntil(ctx, Promise.all(evictions), `kv_delete_serp_${pinId}_${kwId}`);
@@ -203,7 +211,12 @@ export async function handlePinsRoutes({
       WHERE pin_id = ${pinId} AND snapshot_date = ${snapshotDate}::date;
     `.catch(() => {});
 
-    invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
+    await invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
+    await invalidateEdgeCache(buildCanonicalCacheKey('pin:dossier', { pin_id: pinId }));
+    await invalidateEdgeCache('keywords:pin-dossier');
+    if (env?.PIN_D1_DB) {
+      await env.PIN_D1_DB.prepare('DELETE FROM edge_pins_metadata WHERE pin_id = ?').bind(pinId).run().catch(() => {});
+    }
     if (env?.PIN_ENGINE_KV) {
       const evictions = getPinKvKeysToEvict(pinId).map(k => env.PIN_ENGINE_KV.delete(k).catch(() => {}));
       safeWaitUntil(ctx, Promise.all(evictions), `kv_delete_daily_metrics_${pinId}`);
@@ -238,9 +251,6 @@ export async function handlePinsRoutes({
           pin_id: pinId
         }, 502);
       }
-      invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
-      invalidateEdgeCache(`pin:trajectory?pin_id=${pinId}`);
-
       const syncResult = await syncPinAcrossAllFourPillars({
         hubSql: sql,
         pinId,
@@ -248,6 +258,12 @@ export async function handlePinsRoutes({
         env,
         ctx
       });
+
+      // [INVARIANT: POST-SYNC-EVICTION] Invalidate L0/L1 AFTER database commits succeed
+      await invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
+      await invalidateEdgeCache(buildCanonicalCacheKey('pin:dossier', { pin_id: pinId }));
+      await invalidateEdgeCache(`pin:trajectory?pin_id=${pinId}`);
+      await invalidateEdgeCache('keywords:pin-dossier');
 
       return jsonResponse({
         success: true,
