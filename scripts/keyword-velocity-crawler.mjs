@@ -26,6 +26,7 @@ import fs from 'fs';
 import { crawlKeywordSERP } from '../src/modules/keywords/service.mjs';
 import { fetchPinFromPinterest, setDefaultDispatcher } from './lib/pinterest.mjs';
 import { batchGroupByShard, resolveShardConnection, preloadNeonRegistry, getPinShardId } from '../src/modules/sharding/fleet-router.mjs';
+import { calculateDailyVelocity } from '../src/lib/math.mjs';
 import { crc32 } from '../src/modules/fleet/sharding.mjs';
 
 const activeTargetShards = new Set();
@@ -387,27 +388,23 @@ async function inspectPin(pin, kw) {
   if (detail && authenticSaves >= baselineSaves) {
     const rawDelta = authenticSaves - baselineSaves;
     const baseDateRaw = pin.baseline_day_date || pin.crawled_at || pin.metadata?.crawled_at || null;
-    if (rawDelta > 0) {
-      if (baseDateRaw) {
-        const parsedBaseMs = new Date(baseDateRaw).getTime();
-        const elapsedDays = Number.isFinite(parsedBaseMs)
-          ? Math.max(1, Math.round((Date.now() - parsedBaseMs) / 86400000))
-          : 1;
-        computedVelocity = Math.min(25000, Math.round(rawDelta / elapsedDays));
-      } else {
-        computedVelocity = Math.min(25000, rawDelta);
-      }
-    } else if (baseDateRaw) {
-      try {
-        const parsedBase = new Date(baseDateRaw);
-        if (!isNaN(parsedBase.getTime())) {
-          const baseIso = parsedBase.toISOString().slice(0, 10);
-          const todayIso = new Date().toISOString().slice(0, 10);
-          if (baseIso < todayIso) {
-            computedVelocity = 0;
-          }
+    if (rawDelta > 0 && baseDateRaw) {
+      computedVelocity = calculateDailyVelocity({
+        currentSaves: authenticSaves,
+        baselineSaves,
+        currentDate: new Date(),
+        baselineDate: baseDateRaw,
+        maxCap: 25000
+      });
+    } else if (rawDelta === 0 && baseDateRaw) {
+      const parsedBase = new Date(baseDateRaw);
+      if (!isNaN(parsedBase.getTime())) {
+        const baseIso = parsedBase.toISOString().slice(0, 10);
+        const todayIso = new Date().toISOString().slice(0, 10);
+        if (baseIso < todayIso) {
+          computedVelocity = 0;
         }
-      } catch (_) {}
+      }
     }
   }
 
@@ -824,8 +821,12 @@ async function flushToStorageShards(enrichedPins) {
               catalog_rank: sp.catalog_rank ? Number(sp.catalog_rank) : (sp.rank_position ? Number(sp.rank_position) : null)
             })));
 
+            // [INVARIANT: HYPERDRIVE-ATOMIC-BUILDER]
+            // [INVARIANT: ZERO-HUB-SNAPSHOTS]
+            // [INVARIANT: DETERMINISTIC-CRC32-SHARDING]
+            // [INVARIANT: SAFE-PREFETCH-EDGE-ONLY]
             // 1. Master Pin Record Upsert (Deduplicated on pin_id)
-            const q1 = shardSql`
+            const buildQ1 = (db) => db`
               INSERT INTO universal_master_pins (
                 pin_id, creator_username, board_name, board_slug, title, domain, destination_url,
                 image_url, description, alt_text, dominant_color, visual_annotations, created_at_pinterest, metadata,
@@ -862,7 +863,7 @@ async function flushToStorageShards(enrichedPins) {
             `;
 
             // 2. Atomic Two-Tier Upsert: pins_daily_metrics + pin_serp_positions (Immune to SQLSTATE 21000)
-            const q2 = shardSql`
+            const buildQ2 = (db) => db`
               WITH raw_batch AS (
                 SELECT * FROM jsonb_to_recordset(${shardPayload}::jsonb) AS u(
                   pin_id text,
@@ -950,18 +951,21 @@ async function flushToStorageShards(enrichedPins) {
                 updated_at = NOW();
             `;
 
-            // 3. Two-Tier Storage Commit: pins_daily_metrics (q1) and pin_serp_positions (q2)
-            // (Note: pins_daily_snapshots is a consolidated VIEW backed by q1 & q2)
+            // 3. Two-Tier Storage Commit: universal_master_pins (buildQ1) and pins_daily_metrics + pin_serp_positions (buildQ2)
+            // [INVARIANT: HYPERDRIVE-ATOMIC-BUILDER]
             if (typeof shardSql.transaction === 'function') {
-              await shardSql.transaction([q1, q2]);
+              await shardSql.transaction([
+                (db) => buildQ1(db),
+                (db) => buildQ2(db)
+              ]);
             } else if (typeof shardSql.begin === 'function') {
               await shardSql.begin(async (tx) => {
-                await tx(q1.strings, ...q1.args);
-                await tx(q2.strings, ...q2.args);
+                await buildQ1(tx);
+                await buildQ2(tx);
               });
             } else {
-              await q1;
-              await q2;
+              await buildQ1(shardSql);
+              await buildQ2(shardSql);
             }
           })();
 

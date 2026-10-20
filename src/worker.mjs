@@ -3,6 +3,10 @@
  * Cloudflare Worker Edge Entrypoint
  *
  * Runs on Cloudflare Workers edge runtime with Neon Serverless Postgres
+ * // [INVARIANT: HYPERDRIVE-ATOMIC-BUILDER]
+ * // [INVARIANT: ZERO-HUB-SNAPSHOTS]
+ * // [INVARIANT: DETERMINISTIC-CRC32-SHARDING]
+ * // [INVARIANT: SAFE-PREFETCH-EDGE-ONLY]
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -720,6 +724,35 @@ function setCachedShardSql(key, client) {
   shardSqlCache.set(key, client);
 }
 
+function wrapNeonClientTransaction(client) {
+  if (!client || typeof client.transaction !== 'function' || client.__atomicBuilderWrapped) {
+    return client;
+  }
+  const origTransaction = client.transaction.bind(client);
+  // [INVARIANT: HYPERDRIVE-ATOMIC-BUILDER]
+  client.transaction = async (queriesOrFn, opts) => {
+    if (typeof queriesOrFn === 'function') {
+      return await origTransaction((tx) => {
+        const res = queriesOrFn(tx);
+        if (Array.isArray(res)) {
+          return res.map(item => (typeof item === 'function' ? item(tx) : item));
+        }
+        return res;
+      }, opts);
+    }
+    if (Array.isArray(queriesOrFn)) {
+      if (queriesOrFn.length === 0) return [];
+      const builtQueries = queriesOrFn.map(q => (typeof q === 'function' ? q(client) : q));
+      return await origTransaction(builtQueries, opts);
+    }
+    throw new TypeError(
+      '[INVARIANT: HYPERDRIVE-ATOMIC-BUILDER] sql.transaction() strictly requires a callback `(tx) => ...` or an array of lazy query builders `[(db) => db`...`]`. Raw pre-instantiated promises are forbidden.'
+    );
+  };
+  client.__atomicBuilderWrapped = true;
+  return client;
+}
+
 function getCachedShardSql(key, factory) {
   if (shardSqlCache.has(key)) {
     const client = shardSqlCache.get(key);
@@ -727,7 +760,7 @@ function getCachedShardSql(key, factory) {
     shardSqlCache.set(key, client);
     return client;
   }
-  const client = factory();
+  const client = wrapNeonClientTransaction(factory());
   setCachedShardSql(key, client);
   return client;
 }
@@ -746,25 +779,39 @@ export function createHyperdriveClient(connectionString, customOpts = {}) {
     if (typeof queriesOrFn === 'function') {
       return await pSql.begin(async (tx) => {
         const res = await queriesOrFn(tx);
-        return Array.isArray(res) ? await Promise.all(res) : res;
+        if (Array.isArray(res)) {
+          const results = [];
+          for (const item of res) {
+            if (typeof item === 'function') {
+              results.push(await item(tx));
+            } else {
+              results.push(await item);
+            }
+          }
+          return results;
+        }
+        return res;
       });
     }
     if (Array.isArray(queriesOrFn)) {
-      const isBuilderArray = queriesOrFn.length > 0 && queriesOrFn.every(q => typeof q === 'function');
-      if (isBuilderArray) {
-        return await pSql.begin(async (tx) => {
-          const results = [];
-          for (const builder of queriesOrFn) {
-            results.push(await builder(tx));
-          }
-          return results;
-        });
+      if (queriesOrFn.length === 0) return [];
+      const hasNonFunction = queriesOrFn.some(q => typeof q !== 'function');
+      if (hasNonFunction) {
+        throw new TypeError(
+          '[INVARIANT: HYPERDRIVE-ATOMIC-BUILDER] pSql.transaction() strictly requires lazy query builder functions `(db) => db`...``. Passing pre-instantiated query promises is forbidden.'
+        );
       }
+      return await pSql.begin(async (tx) => {
+        const results = [];
+        for (const builder of queriesOrFn) {
+          results.push(await builder(tx));
+        }
+        return results;
+      });
     }
-    // [INVARIANT: HYPERDRIVE-ATOMIC-BUILDER] Always enforce BEGIN/COMMIT boundary even on array fallbacks
-    return await pSql.begin(async (tx) => {
-      return await Promise.all(Array.isArray(queriesOrFn) ? queriesOrFn : [queriesOrFn]);
-    });
+    throw new TypeError(
+      '[INVARIANT: HYPERDRIVE-ATOMIC-BUILDER] pSql.transaction() strictly requires a callback `(tx) => ...` or an array of lazy query builders `[(db) => db`...`]`. Raw pre-instantiated promises are forbidden.'
+    );
   };
   return pSql;
 }
@@ -1236,19 +1283,34 @@ export default {
               }
             },
             get(target, prop, receiver) {
+              if (prop === 'begin') {
+                // [INVARIANT: HYPERDRIVE-ATOMIC-BUILDER] Force all transactional callers through the managed .transaction() trap
+                return undefined;
+              }
               if (prop === 'transaction') {
                 return async (queriesOrFn) => {
                   try {
                     return await target.transaction(queriesOrFn);
                   } catch (err) {
+                    if (err instanceof TypeError && err.message.includes('HYPERDRIVE-ATOMIC-BUILDER')) {
+                      throw err;
+                    }
                     console.warn(`[Hyperdrive Tx Fallback] Tx failed (${redactSecrets(err.message)}). Degrading to direct Neon HTTP tx.`);
                     if (typeof queriesOrFn === 'function') {
-                      return await queriesOrFn(directSql);
+                      return await directSql.transaction(queriesOrFn);
                     }
-                    if (Array.isArray(queriesOrFn) && queriesOrFn.length > 0 && queriesOrFn.every(q => typeof q === 'function')) {
-                      return await directSql.transaction(queriesOrFn.map(b => b(directSql)));
+                    if (Array.isArray(queriesOrFn)) {
+                      if (queriesOrFn.length === 0) return [];
+                      if (queriesOrFn.some(q => typeof q !== 'function')) {
+                        throw new TypeError(
+                          '[INVARIANT: HYPERDRIVE-ATOMIC-BUILDER] sql.transaction() strictly requires lazy query builder functions `(db) => db`...``.'
+                        );
+                      }
+                      return await directSql.transaction(queriesOrFn);
                     }
-                    return await directSql.transaction(queriesOrFn);
+                    throw new TypeError(
+                      '[INVARIANT: HYPERDRIVE-ATOMIC-BUILDER] sql.transaction() strictly requires lazy query builders.'
+                    );
                   }
                 };
               }
@@ -1546,12 +1608,17 @@ export default {
       const store = requestContextStorage.getStore();
       if (store?.hyperdriveSql && typeof store.hyperdriveSql.end === 'function') {
         const hyperdriveClient = store.hyperdriveSql;
-        const pendingBg = Array.isArray(store.bgPromises) ? store.bgPromises : [];
-        const closePromise = (pendingBg.length > 0 ? Promise.allSettled(pendingBg) : Promise.resolve())
-          .then(() => hyperdriveClient.end({ timeout: 5 }).catch(() => {}));
+        store.hyperdriveSql = null;
+        // Release Hyperdrive TCP socket immediately without waiting up to 25s on non-DB background promises
+        const closePromise = Promise.resolve()
+          .then(() => hyperdriveClient.end({ timeout: 3 }))
+          .catch((closeErr) => {
+            console.warn('[Hyperdrive Socket Close] Non-fatal teardown note:', redactSecrets(closeErr?.message || String(closeErr)));
+          });
         if (ctx && typeof ctx.waitUntil === 'function') {
           ctx.waitUntil(closePromise);
         }
+        await closePromise;
       }
     }
     });

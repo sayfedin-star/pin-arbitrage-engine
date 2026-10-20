@@ -173,10 +173,39 @@ export function setCachedShardSqlClient(dsn, client) {
   shardSqlClients.set(dsn, client);
 }
 
+function wrapShardNeonTransaction(client) {
+  if (!client || typeof client.transaction !== 'function' || client.__atomicBuilderWrapped) {
+    return client;
+  }
+  const origTransaction = client.transaction.bind(client);
+  // [INVARIANT: HYPERDRIVE-ATOMIC-BUILDER]
+  client.transaction = async (queriesOrFn, opts) => {
+    if (typeof queriesOrFn === 'function') {
+      return await origTransaction((tx) => {
+        const res = queriesOrFn(tx);
+        if (Array.isArray(res)) {
+          return res.map(item => (typeof item === 'function' ? item(tx) : item));
+        }
+        return res;
+      }, opts);
+    }
+    if (Array.isArray(queriesOrFn)) {
+      if (queriesOrFn.length === 0) return [];
+      const builtQueries = queriesOrFn.map(q => (typeof q === 'function' ? q(client) : q));
+      return await origTransaction(builtQueries, opts);
+    }
+    throw new TypeError(
+      '[INVARIANT: HYPERDRIVE-ATOMIC-BUILDER] shardSql.transaction() strictly requires a callback or an array of lazy query builders.'
+    );
+  };
+  client.__atomicBuilderWrapped = true;
+  return client;
+}
+
 export function getOrCreateShardSqlClient(pooledDsn) {
   let client = getCachedShardSqlClient(pooledDsn);
   if (!client) {
-    client = neon(pooledDsn);
+    client = wrapShardNeonTransaction(neon(pooledDsn));
     setCachedShardSqlClient(pooledDsn, client);
   }
   return client;
@@ -1243,9 +1272,10 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
             metricsMap.set(d, s);
           }
         }
+        // [INVARIANT: HYPERDRIVE-ATOMIC-BUILDER]
         const metricsRows = Array.from(metricsMap.values());
         if (metricsRows.length > 0) {
-          txQueries.push(shardSql`
+          txQueries.push((db) => db`
             INSERT INTO pins_daily_metrics (
               pin_id, snapshot_date, save_count, repin_count,
               comment_count, share_count, reaction_count, daily_save_velocity, updated_at
@@ -1272,9 +1302,9 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
         }
 
         // Two-Tier Shard Read-Repair: Hydrate pin_serp_positions
-        const positionRows = repairPayload.filter(s => s.keyword_id != null);
+        const positionRows = repairPayload.filter(s => s.keyword_id != null && Number(s.keyword_id) > 0);
         if (positionRows.length > 0) {
-          txQueries.push(shardSql`
+          txQueries.push((db) => db`
             INSERT INTO pin_serp_positions (
               pin_id, snapshot_date, keyword_id, rank_position, is_displaced, last_known_rank, catalog_rank, updated_at
             )
@@ -1291,11 +1321,13 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
           `);
         }
 
-        if (typeof shardSql.transaction === 'function') {
-          await shardSql.transaction(txQueries);
-        } else {
-          for (const q of txQueries) {
-            await q.catch(() => {});
+        if (txQueries.length > 0) {
+          if (typeof shardSql.transaction === 'function') {
+            await shardSql.transaction(txQueries);
+          } else {
+            for (const buildQuery of txQueries) {
+              await buildQuery(shardSql);
+            }
           }
         }
       } catch (repairErr) {
@@ -1814,6 +1846,10 @@ export async function getFastEdgeDossier(pinId, env) {
  * @returns {Promise<object>} Result containing synced pin details, velocity, and refreshed dossier
  */
 export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, env = null, ctx = null }) {
+  // [INVARIANT: HYPERDRIVE-ATOMIC-BUILDER]
+  // [INVARIANT: ZERO-HUB-SNAPSHOTS]
+  // [INVARIANT: DETERMINISTIC-CRC32-SHARDING]
+  // [INVARIANT: SAFE-PREFETCH-EDGE-ONLY]
   const cleanPinId = String(pinId || '').trim();
   if (!cleanPinId) {
     throw new Error('[syncPinAcrossAllFourPillars] pinId is required');
@@ -1938,28 +1974,123 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
       updated_at = NOW();
   `;
 
-  // 5. Query Central Hub Active SERP State (keyword_serp_current) using exact DDL
+  // 5. Query Central Hub Active SERP State (keyword_serp_current) including baseline velocity columns
   const targetRows = await hubSql`
-    SELECT keyword_id, rank_position, is_displaced, save_count, repin_count, comment_count, share_count, crawled_at, last_known_rank
+    SELECT
+      keyword_id, rank_position, is_displaced, save_count, repin_count,
+      comment_count, share_count, baseline_day_saves, baseline_day_date,
+      daily_save_velocity, crawled_at, last_known_rank
     FROM keyword_serp_current
     WHERE pin_id = ${cleanPinId};
   `;
 
-  // 6. Compute UTC-normalized save velocity with options object
+  // 5B. Displaced / Competitor / Archive Fallback: Query keyword_displaced_index and Shard pins_daily_metrics
+  let displacedRows = [];
+  try {
+    displacedRows = await hubSql`
+      SELECT
+        keyword_id, last_known_rank, displaced_date, save_count, repin_count,
+        comment_count, share_count, daily_save_velocity, domain, updated_at
+      FROM keyword_displaced_index
+      WHERE pin_id = ${cleanPinId};
+    `;
+  } catch (dispErr) {
+    console.warn(`[syncPinAcrossAllFourPillars] keyword_displaced_index lookup note: ${dispErr.message}`);
+  }
+
+  let priorShardMetrics = [];
+  try {
+    priorShardMetrics = await shardSql`
+      SELECT snapshot_date, save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity, updated_at
+      FROM pins_daily_metrics
+      WHERE pin_id = ${cleanPinId}
+      ORDER BY snapshot_date DESC
+      LIMIT 2;
+    `;
+  } catch (metricLookupErr) {
+    console.warn(`[syncPinAcrossAllFourPillars] Shard pins_daily_metrics baseline lookup note: ${metricLookupErr.message}`);
+  }
+
+  // 6. Compute UTC-normalized save velocity with Day-2 Baseline & Intraday Ratchet Protection
   // [INVARIANT: UTC-MIDNIGHT-NORMALIZED-VELOCITY]
-  const prevSaves = targetRows.length > 0 && Number.isFinite(Number(targetRows[0].save_count)) 
-    ? Number(targetRows[0].save_count) 
-    : 0;
-  const prevDate = targetRows[0]?.crawled_at ? new Date(targetRows[0].crawled_at) : null;
-  const syncVelocity = calculateDailyVelocity({
+  const nowDate = new Date();
+  const todayUtcStr = nowDate.toISOString().slice(0, 10);
+  const toIsoDateStr = (val) => {
+    if (!val) return null;
+    if (val instanceof Date) return isNaN(val.getTime()) ? null : val.toISOString().slice(0, 10);
+    const d = new Date(val);
+    return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+  };
+
+  const todayShardRow = priorShardMetrics.find(m => toIsoDateStr(m.snapshot_date) === todayUtcStr) || null;
+  const priorDayShardRow = priorShardMetrics.find(m => {
+    const dStr = toIsoDateStr(m.snapshot_date);
+    return dStr && dStr < todayUtcStr;
+  }) || null;
+
+  let baselineSaves = 0;
+  let baselineDate = null;
+
+  if (targetRows.length > 0) {
+    const r0 = targetRows[0];
+    const baseDateIso = toIsoDateStr(r0.baseline_day_date);
+    const crawlDateIso = toIsoDateStr(r0.crawled_at);
+
+    if (baseDateIso && baseDateIso < todayUtcStr && r0.baseline_day_saves != null && Number(r0.baseline_day_saves) > 0) {
+      baselineSaves = Number(r0.baseline_day_saves);
+      baselineDate = r0.baseline_day_date;
+    } else if (crawlDateIso && crawlDateIso < todayUtcStr && Number.isFinite(Number(r0.save_count))) {
+      baselineSaves = Number(r0.save_count);
+      baselineDate = r0.crawled_at;
+    } else if (priorDayShardRow && Number.isFinite(Number(priorDayShardRow.save_count))) {
+      baselineSaves = Number(priorDayShardRow.save_count);
+      baselineDate = priorDayShardRow.snapshot_date;
+    } else if (r0.baseline_day_date && r0.baseline_day_saves != null && Number(r0.baseline_day_saves) > 0) {
+      baselineSaves = Number(r0.baseline_day_saves);
+      baselineDate = r0.baseline_day_date;
+    } else {
+      baselineSaves = Number.isFinite(Number(r0.save_count)) ? Number(r0.save_count) : 0;
+      baselineDate = r0.crawled_at ? new Date(r0.crawled_at) : null;
+    }
+  } else if (priorDayShardRow && Number.isFinite(Number(priorDayShardRow.save_count))) {
+    baselineSaves = Number(priorDayShardRow.save_count);
+    baselineDate = priorDayShardRow.snapshot_date;
+  } else if (displacedRows.length > 0) {
+    const d0 = displacedRows[0];
+    baselineSaves = Number.isFinite(Number(d0.save_count)) ? Number(d0.save_count) : 0;
+    baselineDate = d0.displaced_date || d0.updated_at || null;
+  } else if (todayShardRow && Number.isFinite(Number(todayShardRow.save_count))) {
+    baselineSaves = Number(todayShardRow.save_count);
+    baselineDate = todayShardRow.snapshot_date;
+  }
+
+  const computedVelocity = calculateDailyVelocity({
     currentSaves: newSaves,
-    baselineSaves: prevSaves,
-    currentDate: new Date(),
-    baselineDate: prevDate
+    baselineSaves,
+    currentDate: nowDate,
+    baselineDate
   });
+
+  const existingPositiveVelocity = Math.max(
+    0,
+    ...targetRows.map(r => Number(r.daily_save_velocity) || 0),
+    ...displacedRows.map(r => Number(r.daily_save_velocity) || 0),
+    Number(todayShardRow?.daily_save_velocity || 0)
+  );
+
+  const baselineDateIso = toIsoDateStr(baselineDate);
+  const rawDelta = Math.max(0, newSaves - baselineSaves);
+
+  // Intraday Ratchet Protection:
+  // If rawDelta === 0 on the same UTC calendar day as baselineDate (or when re-syncing today with no new save delta),
+  // preserve the existing positive daily_save_velocity rather than overwriting with 0.
+  const syncVelocity = (rawDelta === 0 && existingPositiveVelocity > 0 && (!baselineDateIso || baselineDateIso === todayUtcStr))
+    ? existingPositiveVelocity
+    : computedVelocity;
 
   // 7. Shard: Upsert two-tier modern snapshot metrics (pins_daily_metrics)
   // [INVARIANT: TWO-TIER-MODERN-SHARDING]
+  // [INVARIANT: ZERO-HUB-SNAPSHOTS]
   await shardSql`
     INSERT INTO pins_daily_metrics (
       pin_id, snapshot_date, save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity, updated_at
@@ -1973,31 +2104,50 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
       comment_count = GREATEST(pins_daily_metrics.comment_count, EXCLUDED.comment_count),
       share_count = GREATEST(pins_daily_metrics.share_count, EXCLUDED.share_count),
       reaction_count = GREATEST(pins_daily_metrics.reaction_count, EXCLUDED.reaction_count),
-      daily_save_velocity = GREATEST(pins_daily_metrics.daily_save_velocity, EXCLUDED.daily_save_velocity),
+      daily_save_velocity = CASE
+        WHEN EXCLUDED.daily_save_velocity > 0 THEN GREATEST(COALESCE(pins_daily_metrics.daily_save_velocity, 0), EXCLUDED.daily_save_velocity)
+        ELSE COALESCE(pins_daily_metrics.daily_save_velocity, 0)
+      END,
       updated_at = NOW();
-  `.catch(err => console.warn(`[Sync pins_daily_metrics error: ${err.message}]`));
+  `;
 
-  // 8. Shard: Upsert SERP positions (pin_serp_positions) for each associated keyword
-  if (targetRows.length > 0) {
-    for (const row of targetRows) {
-      const shardKid = row.keyword_id;
+  // 8. Shard: Upsert SERP positions (pin_serp_positions) for each associated active or displaced keyword
+  const combinedKeywordRows = [
+    ...targetRows,
+    ...displacedRows
+      .filter(d => !targetRows.some(t => Number(t.keyword_id) === Number(d.keyword_id)))
+      .map(d => ({
+        keyword_id: d.keyword_id,
+        rank_position: null,
+        is_displaced: true,
+        last_known_rank: d.last_known_rank || 100
+      }))
+  ];
+
+  if (combinedKeywordRows.length > 0) {
+    for (const row of combinedKeywordRows) {
+      const shardKid = Number(row.keyword_id);
       if (shardKid != null) {
         if (shardKid > 0) {
+          const isDisp = Boolean(row.is_displaced);
+          const effLastRank = row.rank_position || row.last_known_rank || 100;
+          const effCatalogRank = isDisp ? (Number(effLastRank) + 250) : Number(row.rank_position || 1);
           await shardSql`
             INSERT INTO pin_serp_positions (
               pin_id, snapshot_date, keyword_id, rank_position, is_displaced, last_known_rank, catalog_rank, updated_at
             ) VALUES (
               ${cleanPinId}, (NOW() AT TIME ZONE 'UTC')::date, ${shardKid},
-              ${row.is_displaced ? null : row.rank_position},
-              ${Boolean(row.is_displaced)}, ${row.rank_position || row.last_known_rank || 100},
-              100, NOW()
+              ${isDisp ? null : row.rank_position},
+              ${isDisp}, ${effLastRank},
+              ${effCatalogRank}, NOW()
             )
             ON CONFLICT (pin_id, snapshot_date, keyword_id) DO UPDATE SET
               rank_position = CASE WHEN EXCLUDED.is_displaced = TRUE THEN NULL ELSE EXCLUDED.rank_position END,
               is_displaced = COALESCE(EXCLUDED.is_displaced, FALSE),
               last_known_rank = COALESCE(EXCLUDED.last_known_rank, pin_serp_positions.last_known_rank),
+              catalog_rank = COALESCE(EXCLUDED.catalog_rank, pin_serp_positions.catalog_rank),
               updated_at = NOW();
-          `.catch(err => console.warn(`[Sync pin_serp_positions error: ${err.message}]`));
+          `;
         }
       }
     }
@@ -2016,9 +2166,31 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
         repin_count = GREATEST(repin_count, ${newRepins}),
         comment_count = GREATEST(comment_count, ${newComments}),
         share_count = GREATEST(share_count, ${newShares}),
-        daily_save_velocity = ${syncVelocity},
+        daily_save_velocity = CASE
+          WHEN ${syncVelocity} > 0 THEN ${syncVelocity}
+          ELSE daily_save_velocity
+        END,
         metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify(rawMetaToStore)}::jsonb,
         crawled_at = NOW(),
+        updated_at = NOW()
+      WHERE pin_id = ${cleanPinId};
+    `;
+  }
+
+  // 9B. Hub: Update keyword_displaced_index if the pin is tracked in the Displaced Vault
+  if (displacedRows.length > 0) {
+    await hubSql`
+      UPDATE keyword_displaced_index
+      SET
+        save_count = GREATEST(COALESCE(save_count, 0), ${newSaves}),
+        repin_count = GREATEST(COALESCE(repin_count, 0), ${newRepins}),
+        comment_count = GREATEST(COALESCE(comment_count, 0), ${newComments}),
+        share_count = GREATEST(COALESCE(share_count, 0), ${newShares}),
+        daily_save_velocity = CASE
+          WHEN ${syncVelocity} > 0 THEN ${syncVelocity}
+          ELSE daily_save_velocity
+        END,
+        domain = COALESCE(NULLIF(${scrapedPin.domain || ''}, ''), domain),
         updated_at = NOW()
       WHERE pin_id = ${cleanPinId};
     `;
@@ -2038,7 +2210,7 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
       metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify(rawMetaToStore)}::jsonb,
       updated_at = NOW()
     WHERE pin_id = ${cleanPinId};
-  `.catch(err => console.warn(`[Sync competitor_pins error: ${err.message}]`));
+  `;
 
   // 11. Hub: Update pa_pins if in PinArchive
   await hubSql`
@@ -2052,22 +2224,30 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
       repins = GREATEST(repins, ${newRepins}),
       comments = GREATEST(comments, ${newComments}),
       share_count = GREATEST(share_count, ${newShares}),
-      velocity = ${syncVelocity},
+      velocity = CASE
+        WHEN ${syncVelocity} > 0 THEN ${syncVelocity}
+        ELSE velocity
+      END,
       reactions = COALESCE(reactions, '{}'::jsonb) || ${JSON.stringify(scrapedPin.reactions || {})}::jsonb,
       last_updated_at = NOW()
     WHERE pin_id = ${cleanPinId};
-  `.catch(err => console.warn(`[Sync pa_pins error: ${err.message}]`));
+  `;
 
   // 12. Synchronous Cache Invalidation Protocol (Anti-Stale & Anti-Race Guard)
   // [INVARIANT: EDGE-EVICTION-TANDEM]
   // Step A: Evict Cloudflare D1 immediately to ensure subsequent reads fetch fresh data
   if (env?.PIN_D1_DB) {
-    await env.PIN_D1_DB.prepare('DELETE FROM edge_pins_metadata WHERE pin_id = ?').bind(cleanPinId).run().catch(() => {});
+    await env.PIN_D1_DB.prepare('DELETE FROM edge_pins_metadata WHERE pin_id = ?').bind(cleanPinId).run();
   }
 
-  // Step B: Evict Cloudflare KV keys in tandem
+  // Step B: Evict all Cloudflare KV key variants in tandem (active + displaced keyword scopes + all trajectory ranges)
   if (env?.PIN_ENGINE_KV) {
-    const associatedKids = [...new Set(targetRows.map(r => r.keyword_id).filter(Boolean))];
+    const associatedKids = [
+      ...new Set([
+        ...targetRows.map(r => Number(r.keyword_id)),
+        ...displacedRows.map(r => Number(r.keyword_id))
+      ].filter(kid => Number.isFinite(kid) && kid > 0))
+    ];
     const serpKeys = associatedKids.map(kid => `serp:comp:${kid}`);
     const evictions = [
       `dossier:pin:${cleanPinId}`,
@@ -2077,11 +2257,15 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
       `traj:pin:${cleanPinId}`,
       `traj:pin:${cleanPinId}:0`,
       `traj:pin:${cleanPinId}:all`,
+      `traj:pin:${cleanPinId}:7d`,
+      `traj:pin:${cleanPinId}:14d`,
+      `traj:pin:${cleanPinId}:30d`,
+      `pin:trajectory?pin_id=${cleanPinId}`,
       ...associatedKids.map(kid => `dossier:pin:${cleanPinId}:${kid}`),
       ...associatedKids.map(kid => `traj:pin:${cleanPinId}:${kid}`),
       ...serpKeys
-    ].map(k => env.PIN_ENGINE_KV.delete(k).catch(() => {}));
-    await Promise.all(evictions).catch(() => {});
+    ].map(k => env.PIN_ENGINE_KV.delete(k));
+    await Promise.all(evictions);
   }
 
   // Step C: Fetch fresh universal dossier with edge cache bypassed

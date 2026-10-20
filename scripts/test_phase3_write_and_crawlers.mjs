@@ -105,8 +105,8 @@ const pinarchiveServiceContent = fs.readFileSync('src/modules/pinarchive/service
 
 // Ensure Neon HTTP array transaction and TCP begin are supported
 assert(
-  pinarchiveServiceContent.includes('sql.transaction([ qPins, qMetrics ])'),
-  'ingestPinsBatch must pass array [ qPins, qMetrics ] to sql.transaction for Neon HTTP compatibility'
+  pinarchiveServiceContent.includes('buildPinsQuery') && pinarchiveServiceContent.includes('buildMetricsQuery'),
+  'ingestPinsBatch must pass lazy query builders to sql.transaction for Neon HTTP compatibility'
 );
 
 // Ensure ORDER BY raw.pin_id ASC is present in SQL
@@ -178,6 +178,9 @@ mockNeonSql.transaction = async (queries) => {
   receivedQueries = queries;
   assert(Array.isArray(queries), 'Neon HTTP transaction strictly requires an array of queries');
   assert.strictEqual(queries.length, 2, 'Must submit exactly [qPins, qMetrics] array');
+  for (const q of queries) {
+    if (typeof q === 'function') q(mockNeonSql);
+  }
   return [[{ is_inserted: true }]];
 };
 
@@ -207,8 +210,8 @@ assert(
   'batchAddKeywordsToFolder must use set-based UNNEST'
 );
 assert(
-  foldersServiceContent.includes('sql.transaction([ qInsert, qUpdate ])'),
-  'batchAddKeywordsToFolder must pass query array to sql.transaction for Neon HTTP'
+  foldersServiceContent.includes('buildInsertQuery') && foldersServiceContent.includes('buildUpdateQuery'),
+  'batchAddKeywordsToFolder must pass lazy query builders to sql.transaction for Neon HTTP'
 );
 
 let folderTxBegun = false;
@@ -217,6 +220,9 @@ mockFolderSql.transaction = async (queries) => {
   folderTxBegun = true;
   assert(Array.isArray(queries), 'sql.transaction must receive an array of queries for Neon HTTP');
   assert.strictEqual(queries.length, 2, 'sql.transaction must receive [qInsert, qUpdate]');
+  for (const q of queries) {
+    if (typeof q === 'function') q(mockFolderSql);
+  }
   return [[{ keyword_id: 101 }, { keyword_id: 102 }]];
 };
 

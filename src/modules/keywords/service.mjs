@@ -280,7 +280,11 @@ export async function offloadKeywordCrawlToShards(hubSql, keywordId, activePins 
         const sorted = [...shardPins].sort((a, b) => String(a.pin_id).localeCompare(String(b.pin_id)));
         const payload = JSON.stringify(sorted);
 
-        const qMaster = shardSql`
+        // [INVARIANT: HYPERDRIVE-ATOMIC-BUILDER]
+        // [INVARIANT: ZERO-HUB-SNAPSHOTS]
+        // [INVARIANT: DETERMINISTIC-CRC32-SHARDING]
+        // [INVARIANT: SAFE-PREFETCH-EDGE-ONLY]
+        const buildMasterQuery = (db) => db`
           INSERT INTO universal_master_pins (
             pin_id, creator_username, board_name, title, domain, destination_url,
             image_url, description, alt_text, dominant_color, visual_annotations,
@@ -320,7 +324,7 @@ export async function offloadKeywordCrawlToShards(hubSql, keywordId, activePins 
             updated_at = NOW();
         `;
 
-        const qTwoTier = shardSql`
+        const buildTwoTierQuery = (db) => db`
           WITH raw_batch AS (
             SELECT * FROM jsonb_to_recordset(${payload}::jsonb) AS u(
               pin_id text, keyword_id int, rank_position int, last_known_rank int,
@@ -380,10 +384,18 @@ export async function offloadKeywordCrawlToShards(hubSql, keywordId, activePins 
         `;
 
         if (typeof shardSql.transaction === 'function') {
-          await shardSql.transaction([qMaster, qTwoTier]);
+          await shardSql.transaction([
+            (db) => buildMasterQuery(db),
+            (db) => buildTwoTierQuery(db)
+          ]);
+        } else if (typeof shardSql.begin === 'function') {
+          await shardSql.begin(async (tx) => {
+            await buildMasterQuery(tx);
+            await buildTwoTierQuery(tx);
+          });
         } else {
-          await qMaster;
-          await qTwoTier;
+          await buildMasterQuery(shardSql);
+          await buildTwoTierQuery(shardSql);
         }
         shardsSynced++;
       } catch (err) {
@@ -2410,18 +2422,18 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
     `);
 
     // [INVARIANT: HYPERDRIVE-ATOMIC-BUILDER]
-    // Execute atomic Hub transaction in 1 atomic transaction / single roundtrip
-    if (typeof sql.begin === 'function') {
+    // Execute atomic Hub transaction in 1 atomic transaction / single roundtrip using lazy query builders
+    if (typeof sql.transaction === 'function') {
+      await sql.transaction(txBatch.map(b => (typeof b === 'function' ? b : (db) => b)));
+    } else if (typeof sql.begin === 'function') {
       await sql.begin(async (tx) => {
         for (const builder of txBatch) {
-          await (typeof builder === 'function' ? builder(tx) : builder);
+          await builder(tx);
         }
       });
-    } else if (typeof sql.transaction === 'function') {
-      await sql.transaction(txBatch.map(b => typeof b === 'function' ? b(sql) : b));
     } else {
       for (const builder of txBatch) {
-        await (typeof builder === 'function' ? builder(sql) : builder);
+        await builder(sql);
       }
     }
     leaseCommittedInTx = true;

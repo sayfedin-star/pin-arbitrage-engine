@@ -309,20 +309,23 @@ export async function batchAddKeywordsToFolder(sql, folderId, keywordIds = []) {
     WHERE id = ${fid};
   `;
 
+  // [INVARIANT: HYPERDRIVE-ATOMIC-BUILDER]
+  // [INVARIANT: ZERO-HUB-SNAPSHOTS]
+  // [INVARIANT: DETERMINISTIC-CRC32-SHARDING]
+  // [INVARIANT: SAFE-PREFETCH-EDGE-ONLY]
   let inserted = [];
-  if (typeof sql.begin === 'function') {
-    // Hyperdrive / postgres.js (TCP)
+  if (typeof sql.transaction === 'function') {
+    const res = await sql.transaction([
+      (db) => buildInsertQuery(db),
+      (db) => buildUpdateQuery(db)
+    ]);
+    inserted = res && res[0] ? res[0] : [];
+  } else if (typeof sql.begin === 'function') {
     [inserted] = await sql.begin(async (tx) => {
       const rows = await buildInsertQuery(tx);
       await buildUpdateQuery(tx);
       return [rows];
     });
-  } else if (typeof sql.transaction === 'function') {
-    // Neon Serverless (HTTP) - requires array of queries
-    const qInsert = buildInsertQuery(sql);
-    const qUpdate = buildUpdateQuery(sql);
-    const res = await sql.transaction([ qInsert, qUpdate ]);
-    inserted = res && res[0] ? res[0] : [];
   } else {
     inserted = await buildInsertQuery(sql);
     await buildUpdateQuery(sql);

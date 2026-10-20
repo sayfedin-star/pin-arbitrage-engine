@@ -542,20 +542,23 @@ export async function ingestPinsBatch(sql, pins, accountUsername = null, { filte
         comments = GREATEST(pa_pin_metrics.comments, EXCLUDED.comments);
     `;
 
+    // [INVARIANT: HYPERDRIVE-ATOMIC-BUILDER]
+    // [INVARIANT: ZERO-HUB-SNAPSHOTS]
+    // [INVARIANT: DETERMINISTIC-CRC32-SHARDING]
+    // [INVARIANT: SAFE-PREFETCH-EDGE-ONLY]
     let pinRows = [];
-    if (typeof sql.begin === 'function') {
-      // Hyperdrive / postgres.js (TCP)
+    if (typeof sql.transaction === 'function') {
+      const res = await sql.transaction([
+        (db) => buildPinsQuery(db),
+        (db) => buildMetricsQuery(db)
+      ]);
+      pinRows = res && res[0] ? res[0] : [];
+    } else if (typeof sql.begin === 'function') {
       [pinRows] = await sql.begin(async (tx) => {
         const rows = await buildPinsQuery(tx);
         await buildMetricsQuery(tx);
         return [rows];
       });
-    } else if (typeof sql.transaction === 'function') {
-      // Neon Serverless (HTTP) - requires array of queries
-      const qPins = buildPinsQuery(sql);
-      const qMetrics = buildMetricsQuery(sql);
-      const res = await sql.transaction([ qPins, qMetrics ]);
-      pinRows = res && res[0] ? res[0] : [];
     } else {
       pinRows = await buildPinsQuery(sql);
       await buildMetricsQuery(sql);
