@@ -37,9 +37,8 @@ import {
 import { syncCompetitorAcrossFleet } from '../src/modules/fleet/service.mjs';
 import { getQualificationRules, isPinQualified } from '../src/modules/pinarchive/service.mjs';
 import { fetchBoardsResource, fetchPinFromPinterest, fetchPinFromPinResource, setDefaultDispatcher, sleep, randomJitterMs } from './lib/pinterest.mjs';
-import { getShardNumberForEntity, getResilientShardNumberForEntity } from '../src/modules/fleet/sharding.mjs';
 import { assertShardSchemaParity } from '../src/modules/fleet/guardrails.mjs';
-import { enforceNeonPoolerUrl } from '../src/modules/sharding/fleet-router.mjs';
+import { enforceNeonPoolerUrl, batchGroupByShard, resolveShardConnection, getPinShardId, getResilientShardNumberForEntity } from '../src/modules/sharding/fleet-router.mjs';
 
 let undiciAgent = null;
 try {
@@ -194,10 +193,11 @@ export async function bulkUpsertPaPins(sqlClient, pins) {
 }
 
 /**
- * True Atomic Bulk Insert into pa_pin_metrics (Hourly bucketed deduplication)
- * Enforces monotonic ORDER BY pin_id ASC
+ * Route historical daily snapshots to target Storage Shards (pins_daily_metrics) via CRC32
+ * [INVARIANT: ZERO-HUB-SNAPSHOTS]
+ * [INVARIANT: DETERMINISTIC-CRC32-SHARDING]
  */
-async function bulkInsertMetrics(sqlClient, metrics) {
+async function bulkInsertMetrics(hubSql, metrics) {
   if (!Array.isArray(metrics) || metrics.length === 0) return 0;
 
   const uniqueMetricsMap = new Map();
@@ -209,32 +209,182 @@ async function bulkInsertMetrics(sqlClient, metrics) {
   const sortedMetrics = Array.from(uniqueMetricsMap.values()).sort((a, b) => String(a.pin_id).localeCompare(String(b.pin_id)));
   if (sortedMetrics.length === 0) return 0;
 
-  const cleanMetrics = sanitizeForJsonb(sortedMetrics);
+  const shardGroups = batchGroupByShard(sortedMetrics, 99);
+  let totalInserted = 0;
 
-  try {
-    await sqlClient`
-      INSERT INTO pa_pin_metrics (pin_id, recorded_at, saves, repins, comments)
-      SELECT 
-        x.pin_id, 
-        date_trunc('hour', NOW()), 
-        GREATEST(x.saves, COALESCE(p.saves, 0)), 
-        GREATEST(x.repins, COALESCE(p.repins, 0)), 
-        GREATEST(x.comments, COALESCE(p.comments, 0))
-      FROM jsonb_to_recordset(${JSON.stringify(cleanMetrics)}::jsonb) AS x(
-        pin_id VARCHAR(64), saves BIGINT, repins BIGINT, comments INT
-      )
-      LEFT JOIN pa_pins p ON p.pin_id = x.pin_id
-      ORDER BY x.pin_id ASC
-      ON CONFLICT (pin_id, recorded_at) DO UPDATE SET
-        saves = GREATEST(pa_pin_metrics.saves, EXCLUDED.saves),
-        repins = GREATEST(pa_pin_metrics.repins, EXCLUDED.repins),
-        comments = GREATEST(pa_pin_metrics.comments, EXCLUDED.comments);
-    `;
-    return cleanMetrics.length;
-  } catch (err) {
-    console.warn(`[bulkInsertMetrics] Warning:`, err.message);
-    return 0;
+  for (const [shardId, shardMetrics] of shardGroups.entries()) {
+    try {
+      const shardSql = await resolveShardConnection({ hubSql, shardId }).catch(() => null);
+      if (!shardSql) continue;
+
+      const cleanMetrics = sanitizeForJsonb(shardMetrics);
+      const jsonPayload = JSON.stringify(cleanMetrics);
+
+      await shardSql`
+        INSERT INTO pins_daily_metrics (
+          pin_id, snapshot_date, save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity, updated_at
+        )
+        SELECT 
+          x.pin_id, 
+          (NOW() AT TIME ZONE 'UTC')::date, 
+          COALESCE(x.saves, 0)::bigint, 
+          COALESCE(x.repins, 0)::int, 
+          COALESCE(x.comments, 0)::int,
+          COALESCE(x.share_count, 0)::int,
+          COALESCE(x.reaction_count, 0)::int,
+          COALESCE(x.velocity, 0)::numeric,
+          NOW()
+        FROM jsonb_to_recordset(${jsonPayload}::jsonb) AS x(
+          pin_id VARCHAR(64), saves BIGINT, repins BIGINT, comments INT, share_count INT, reaction_count INT, velocity NUMERIC
+        )
+        ORDER BY x.pin_id ASC
+        ON CONFLICT (pin_id, snapshot_date) DO UPDATE SET
+          save_count = GREATEST(pins_daily_metrics.save_count, EXCLUDED.save_count),
+          repin_count = GREATEST(pins_daily_metrics.repin_count, EXCLUDED.repin_count),
+          comment_count = GREATEST(pins_daily_metrics.comment_count, EXCLUDED.comment_count),
+          share_count = GREATEST(pins_daily_metrics.share_count, EXCLUDED.share_count),
+          reaction_count = GREATEST(pins_daily_metrics.reaction_count, EXCLUDED.reaction_count),
+          daily_save_velocity = CASE
+            WHEN EXCLUDED.daily_save_velocity IS NOT NULL THEN EXCLUDED.daily_save_velocity
+            ELSE pins_daily_metrics.daily_save_velocity
+          END,
+          updated_at = NOW();
+      `;
+      totalInserted += cleanMetrics.length;
+    } catch (err) {
+      console.warn(`[bulkInsertMetrics] Warning for shard ${shardId}:`, err.message);
+    }
   }
+
+  return totalInserted;
+}
+
+/**
+ * Route discovered & enriched competitor pins to universal_master_pins and pins_daily_metrics
+ * on their deterministic CRC32 Storage Shards ((crc32(pin_id) % 99) + 1).
+ * [INVARIANT: DETERMINISTIC-CRC32-SHARDING]
+ * [INVARIANT: ZERO-HUB-SNAPSHOTS]
+ */
+export async function bulkSyncPinsToDeterministicShards(hubSql, enrichedPins) {
+  if (!Array.isArray(enrichedPins) || enrichedPins.length === 0) return 0;
+  const shardGroups = batchGroupByShard(enrichedPins, 99);
+  let totalSynced = 0;
+
+  for (const [shardId, shardPins] of shardGroups.entries()) {
+    try {
+      const shardSql = await resolveShardConnection({ hubSql, shardId }).catch(() => null);
+      if (!shardSql) continue;
+
+      const sortedPins = [...shardPins].sort((a, b) => String(a.pin_id).localeCompare(String(b.pin_id)));
+      const payload = JSON.stringify(sortedPins.map(p => {
+        const reactionCount = (p.reactions && typeof p.reactions === 'object' && p.reactions !== null)
+          ? Object.values(p.reactions).reduce((acc, v) => acc + (Number(v) || 0), 0)
+          : (Number(p.reactions) || 0);
+
+        return {
+          pin_id: String(p.pin_id),
+          creator_username: String(p.account_username || ''),
+          board_name: String(p.board_name || ''),
+          title: String(p.title || ''),
+          domain: String(p.domain || p.link_domain || ''),
+          destination_url: String(p.link || p.destination_url || ''),
+          image_url: String(p.image_url || ''),
+          description: String(p.description || ''),
+          alt_text: String(p.alt_text || ''),
+          dominant_color: String(p.dominant_color || '#888888'),
+          visual_annotations: p.annotations || [],
+          created_at_pinterest: p.created_at_pinterest ? new Date(p.created_at_pinterest).toISOString() : null,
+          metadata: {
+            is_product: Boolean(p.is_product),
+            is_video: Boolean(p.is_video),
+            reactions: p.reactions || {}
+          },
+          save_count: Number(p.saves || 0),
+          repin_count: Number(p.repins || 0),
+          comment_count: Number(p.comments || 0),
+          share_count: Number(p.share_count || 0),
+          reaction_count: reactionCount,
+          daily_save_velocity: Number(p.velocity || 0)
+        };
+      }));
+
+      // 1. Upsert universal_master_pins on designated deterministic CRC32 shard
+      await shardSql`
+        INSERT INTO universal_master_pins (
+          pin_id, creator_username, board_name, title, domain, destination_url,
+          image_url, description, alt_text, dominant_color, visual_annotations, created_at_pinterest, metadata,
+          first_discovered_pillar, first_discovered_at, updated_at
+        )
+        SELECT DISTINCT ON (u.pin_id)
+          u.pin_id, u.creator_username, u.board_name, u.title, u.domain, u.destination_url,
+          u.image_url, u.description, u.alt_text, u.dominant_color, u.visual_annotations,
+          NULLIF(TRIM(u.created_at_pinterest), '')::timestamptz, u.metadata,
+          'competitor', NOW(), NOW()
+        FROM jsonb_to_recordset(${payload}::jsonb) AS u(
+          pin_id text, creator_username text, board_name text, title text, domain text, destination_url text,
+          image_url text, description text, alt_text text, dominant_color text, visual_annotations jsonb,
+          created_at_pinterest text, metadata jsonb
+        )
+        ORDER BY u.pin_id ASC, u.title DESC NULLS LAST
+        ON CONFLICT (pin_id) DO UPDATE SET
+          creator_username = COALESCE(NULLIF(EXCLUDED.creator_username, ''), universal_master_pins.creator_username),
+          board_name = COALESCE(NULLIF(EXCLUDED.board_name, ''), universal_master_pins.board_name),
+          title = COALESCE(NULLIF(EXCLUDED.title, ''), universal_master_pins.title),
+          domain = COALESCE(NULLIF(EXCLUDED.domain, ''), universal_master_pins.domain),
+          destination_url = COALESCE(NULLIF(EXCLUDED.destination_url, ''), universal_master_pins.destination_url),
+          image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), universal_master_pins.image_url),
+          description = COALESCE(NULLIF(EXCLUDED.description, ''), universal_master_pins.description),
+          alt_text = COALESCE(NULLIF(EXCLUDED.alt_text, ''), universal_master_pins.alt_text),
+          dominant_color = COALESCE(NULLIF(EXCLUDED.dominant_color, ''), universal_master_pins.dominant_color),
+          visual_annotations = CASE 
+            WHEN jsonb_typeof(EXCLUDED.visual_annotations) = 'array' AND jsonb_array_length(EXCLUDED.visual_annotations) > 0 
+            THEN EXCLUDED.visual_annotations 
+            ELSE universal_master_pins.visual_annotations 
+          END,
+          created_at_pinterest = COALESCE(EXCLUDED.created_at_pinterest, universal_master_pins.created_at_pinterest),
+          metadata = COALESCE(universal_master_pins.metadata, '{}'::jsonb) || EXCLUDED.metadata,
+          updated_at = NOW();
+      `;
+
+      // 2. Upsert pins_daily_metrics on deterministic CRC32 shard
+      await shardSql`
+        INSERT INTO pins_daily_metrics (
+          pin_id, snapshot_date, save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity, updated_at
+        )
+        SELECT 
+          u.pin_id,
+          (NOW() AT TIME ZONE 'UTC')::date,
+          u.save_count,
+          u.repin_count,
+          u.comment_count,
+          u.share_count,
+          u.reaction_count,
+          u.daily_save_velocity,
+          NOW()
+        FROM jsonb_to_recordset(${payload}::jsonb) AS u(
+          pin_id text, save_count bigint, repin_count int, comment_count int, share_count int, reaction_count int, daily_save_velocity numeric
+        )
+        ORDER BY u.pin_id ASC
+        ON CONFLICT (pin_id, snapshot_date) DO UPDATE SET
+          save_count = GREATEST(pins_daily_metrics.save_count, EXCLUDED.save_count),
+          repin_count = GREATEST(pins_daily_metrics.repin_count, EXCLUDED.repin_count),
+          comment_count = GREATEST(pins_daily_metrics.comment_count, EXCLUDED.comment_count),
+          share_count = GREATEST(pins_daily_metrics.share_count, EXCLUDED.share_count),
+          reaction_count = GREATEST(pins_daily_metrics.reaction_count, EXCLUDED.reaction_count),
+          daily_save_velocity = CASE
+            WHEN EXCLUDED.daily_save_velocity IS NOT NULL THEN EXCLUDED.daily_save_velocity
+            ELSE pins_daily_metrics.daily_save_velocity
+          END,
+          updated_at = NOW();
+      `;
+
+      totalSynced += sortedPins.length;
+    } catch (err) {
+      console.warn(`[bulkSyncPinsToDeterministicShards] Warning for shard ${shardId}:`, err.message);
+    }
+  }
+
+  return totalSynced;
 }
 
 /**
@@ -1260,6 +1410,7 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
 
     try {
       const enrichedPins = [];
+      const allDiscoveredPins = [];
       const metricSnapshots = [];
       const statusUpdates = [];
 
@@ -1322,14 +1473,23 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
                 created_at_pinterest: createdAtPinterest ? new Date(createdAtPinterest).toISOString() : null
               };
 
+              allDiscoveredPins.push(pinCandidate);
+
               // Gate pa_pins (Winning Pins Archive): strictly qualify via active 3-tier rules
               if (item.auto_archive_winning !== false && isPinQualified(pinCandidate, qualRules)) {
                 enrichedPins.push(pinCandidate);
+                const totalReactions = (typeof reactions === 'object' && reactions !== null)
+                  ? Object.values(reactions).reduce((acc, v) => acc + (Number(v) || 0), 0)
+                  : Number(reactions || 0);
+
                 metricSnapshots.push({
                   pin_id: item.pin_id,
                   saves,
                   repins,
-                  comments
+                  comments,
+                  share_count: shares,
+                  reaction_count: totalReactions,
+                  velocity
                 });
               }
 
@@ -1474,23 +1634,23 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
       }
 
       // 3. Atomically commit the batch using single bulk SQL operations (<50ms total)
-      if (enrichedPins.length > 0) {
+      if (enrichedPins.length > 0 || allDiscoveredPins.length > 0) {
         try {
-          if (typeof sqlClient.begin === 'function') {
-            await sqlClient.begin(async (tx) => {
-              await bulkUpsertPaPins(tx, enrichedPins);
-              await bulkInsertMetrics(tx, metricSnapshots);
-            });
-          } else {
-            await bulkUpsertPaPins(sqlClient, enrichedPins);
-            await bulkInsertMetrics(sqlClient, metricSnapshots);
+          if (enrichedPins.length > 0) {
+            if (typeof sqlClient.begin === 'function') {
+              await sqlClient.begin(async (tx) => {
+                await bulkUpsertPaPins(tx, enrichedPins);
+              });
+            } else {
+              await bulkUpsertPaPins(sqlClient, enrichedPins);
+            }
           }
 
-          if (shardSql) {
-            await bulkUpsertPaPins(shardSql, enrichedPins).catch((sErr) => {
-              console.warn(`[!] Shard pa_pins sync warning:`, sErr.message);
-            });
-          }
+          // [INVARIANT: ZERO-HUB-SNAPSHOTS]
+          // [INVARIANT: DETERMINISTIC-CRC32-SHARDING]
+          // Route daily snapshots and creative pin records across deterministic CRC32 Shards
+          const pinsToSync = allDiscoveredPins.length > 0 ? allDiscoveredPins : enrichedPins;
+          await bulkSyncPinsToDeterministicShards(sqlClient, pinsToSync);
         } catch (upsertErr) {
           console.error(`[-] [Shard ${shardNumber}] FATAL: bulkUpsertPaPins failed! Reverting batch pins to pending to prevent silent data drop:`, upsertErr.message);
           // Safety: Revert statusUpdates for enriched pins to 'pending' so they are retried safely!
@@ -1724,11 +1884,18 @@ async function runDailyScheduledMode(sqlClient, shardSql, shardNumber, shardTota
               WHERE pin_id = ${p.pin_id};
             `;
 
+            const totalReactions = (typeof fresh.reactions === 'object' && fresh.reactions !== null)
+              ? Object.values(fresh.reactions).reduce((acc, v) => acc + (Number(v) || 0), 0)
+              : Number(fresh.reactions || 0);
+
             metricSnapshots.push({
               pin_id: p.pin_id,
               saves: freshSaves,
               repins: freshRepins,
-              comments: freshComments
+              comments: freshComments,
+              share_count: Number(fresh.share_count || fresh.shares || p.share_count || 0),
+              reaction_count: totalReactions,
+              velocity: deltaSaves > 0 ? deltaSaves : Number(p.velocity || 0)
             });
           }
         } catch (_) {}
@@ -1797,8 +1964,10 @@ async function main() {
   console.log(`🌐 [Runner Network Diagnostic] Public Egress IP: ${egressIp} (Shard ${shardNumber}/${shardTotal})`);
 
   // Look up dedicated shard database in Neon registry if configured
-  // In targeted account mode, all swarm runners replicate to the account's canonical assigned shard
-  // In scheduled fleet mode, runners connect to their assigned matrix shard
+  // [INVARIANT: DETERMINISTIC-CRC32-SHARDING]
+  // Note: Runner matrix assignment (effectiveShardNumber) governs runner process distribution only.
+  // Pins discovered from competitor accounts are strictly routed via batchGroupByShard(pins, 99)
+  // to their deterministic CRC32 shard (crc32(pin_id) % 99) + 1 for universal_master_pins and pins_daily_metrics.
   let effectiveShardNumber;
   const canonicalEnv = process.env.CANONICAL_SHARD || process.env.TARGET_SHARD;
   if (canonicalEnv) {

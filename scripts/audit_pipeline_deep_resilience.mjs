@@ -19,7 +19,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { formatPin } from './lib/pinterest.mjs';
-import { crc32, getShardNumberForEntity } from '../src/modules/fleet/sharding.mjs';
+import { crc32, getShardNumberForEntity } from '../src/modules/sharding/fleet-router.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

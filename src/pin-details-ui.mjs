@@ -1420,13 +1420,15 @@ export function getPinDetailPageHtml(pinId = '') {
           this.isSyncing = true;
           this.showToast('Triggering Live Pinterest Deep Sync (48 fields)...');
           try {
-            const res = await fetch('/api/pins/' + encodeURIComponent(this.pinId) + '/sync', {
+            const res = await (window.safeApiFetch || fetch)('/api/pins/' + encodeURIComponent(this.pinId) + '/sync', {
               method: 'POST',
-              signal: AbortSignal.timeout(15000)
+              signal: (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') ? AbortSignal.timeout(15000) : undefined
             });
             let data = null;
-            const contentType = res.headers.get('content-type') || '';
+            const contentType = (res.headers && res.headers.get('content-type')) || '';
             if (contentType.includes('application/json')) {
+              data = await res.json().catch(() => null);
+            } else {
               data = await res.json().catch(() => null);
             }
             if (res.ok && data?.success) {
@@ -1473,44 +1475,44 @@ export function getPinDetailPageHtml(pinId = '') {
           try {
             if (this.deleteType === 'SERP_BADGE') {
               const { keywordId, keywordName, date } = this.itemToDelete;
-              const res = await fetch('/api/pins/' + encodeURIComponent(this.pinId) + '/serp-positions', {
+              const res = await (window.safeApiFetch || fetch)('/api/pins/' + encodeURIComponent(this.pinId) + '/serp-positions', {
                 method: 'DELETE',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ keyword_id: keywordId, snapshot_date: date })
               });
-              const data = await res.json();
-              if (res.ok && data.success) {
+              const data = await res.json().catch(() => ({}));
+              if (res.ok && data?.success) {
                 this.showToast('Keyword rank "' + keywordName + '" removed for ' + date);
                 this.deleteModalOpen = false;
                 await this.loadDossier(true);
               } else {
-                this.showToast(data.message || 'Error removing keyword rank', 'error');
+                this.showToast(data?.message || data?.error || 'Error removing keyword rank', 'error');
               }
             } else if (this.deleteType === 'DAY') {
               const { date } = this.itemToDelete;
-              const res = await fetch('/api/pins/' + encodeURIComponent(this.pinId) + '/daily-metrics/' + encodeURIComponent(date), {
+              const res = await (window.safeApiFetch || fetch)('/api/pins/' + encodeURIComponent(this.pinId) + '/daily-metrics/' + encodeURIComponent(date), {
                 method: 'DELETE'
               });
-              const data = await res.json();
-              if (res.ok && data.success) {
+              const data = await res.json().catch(() => ({}));
+              if (res.ok && data?.success) {
                 this.showToast('All data for ' + date + ' deleted successfully');
                 this.deleteModalOpen = false;
                 await this.loadDossier(true);
               } else {
-                this.showToast(data.message || 'Error deleting day', 'error');
+                this.showToast(data?.message || data?.error || 'Error deleting day', 'error');
               }
             } else if (this.deleteType === 'SNAPSHOT') {
               const snapshotId = this.itemToDelete.snapshotId;
-              const res = await fetch('/api/pins/' + encodeURIComponent(this.pinId) + '/snapshots/' + snapshotId, {
+              const res = await (window.safeApiFetch || fetch)('/api/pins/' + encodeURIComponent(this.pinId) + '/snapshots/' + snapshotId, {
                 method: 'DELETE'
               });
-              const data = await res.json();
-              if (res.ok && data.success) {
+              const data = await res.json().catch(() => ({}));
+              if (res.ok && data?.success) {
                 this.showToast('Snapshot #' + snapshotId + ' deleted successfully');
                 this.deleteModalOpen = false;
                 await this.loadDossier(true);
               } else {
-                this.showToast(data.message || 'Error deleting snapshot', 'error');
+                this.showToast(data?.message || data?.error || 'Error deleting snapshot', 'error');
               }
             }
           } catch (err) {
@@ -1524,11 +1526,11 @@ export function getPinDetailPageHtml(pinId = '') {
           if (!this.snapshotToDelete || this.isDeleting) return;
           this.isDeleting = true;
           try {
-            const res = await fetch('/api/pins/' + encodeURIComponent(this.pinId) + '/snapshots/' + this.snapshotToDelete, {
+            const res = await (window.safeApiFetch || fetch)('/api/pins/' + encodeURIComponent(this.pinId) + '/snapshots/' + this.snapshotToDelete, {
               method: 'DELETE'
             });
-            const data = await res.json();
-            if (res.ok && data.success) {
+            const data = await res.json().catch(() => ({}));
+            if (res.ok && data?.success) {
               if (this.dossier?.snapshots) {
                 this.dossier.snapshots = this.dossier.snapshots.filter(s => s.id !== this.snapshotToDelete);
               }
@@ -1536,7 +1538,7 @@ export function getPinDetailPageHtml(pinId = '') {
               this.deleteModalOpen = false;
               this.snapshotToDelete = null;
             } else {
-              this.showToast(data.message || 'Error deleting snapshot', 'error');
+              this.showToast(data?.message || data?.error || 'Error deleting snapshot', 'error');
             }
           } catch (e) {
             this.showToast('Error deleting snapshot: ' + e.message, 'error');

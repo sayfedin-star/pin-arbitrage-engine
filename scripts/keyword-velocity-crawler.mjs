@@ -25,9 +25,8 @@ import { neon } from '@neondatabase/serverless';
 import fs from 'fs';
 import { crawlKeywordSERP } from '../src/modules/keywords/service.mjs';
 import { fetchPinFromPinterest, fetchPinHybrid, setDefaultDispatcher } from './lib/pinterest.mjs';
-import { batchGroupByShard, resolveShardConnection, preloadNeonRegistry, getPinShardId } from '../src/modules/sharding/fleet-router.mjs';
+import { batchGroupByShard, resolveShardConnection, preloadNeonRegistry, getPinShardId, crc32 } from '../src/modules/sharding/fleet-router.mjs';
 import { calculateDailyVelocity } from '../src/lib/math.mjs';
-import { crc32 } from '../src/modules/fleet/sharding.mjs';
 
 const activeTargetShards = new Set();
 let crawlerKeepAlive = null;
@@ -581,8 +580,10 @@ async function flushBatchToHub(pinsChunk, kw) {
         share_count = GREATEST(COALESCE(ksc.share_count, 0), u.authentic_shares::int),
         daily_save_velocity = CASE 
           WHEN NOT u.from_hydration_cache AND u.daily_save_velocity IS NOT NULL THEN u.daily_save_velocity::numeric
-          WHEN u.daily_save_velocity > 0 THEN GREATEST(COALESCE(ksc.daily_save_velocity, 0), u.daily_save_velocity::numeric)
-          ELSE ksc.daily_save_velocity 
+          WHEN u.daily_save_velocity IS NOT NULL 
+           AND (u.daily_save_velocity > 0 OR COALESCE((ksc.crawled_at AT TIME ZONE 'UTC')::date, ksc.baseline_day_date) < (NOW() AT TIME ZONE 'UTC')::date)
+          THEN u.daily_save_velocity::numeric
+          ELSE COALESCE(ksc.daily_save_velocity, 0)
         END,
         creator_username = CASE WHEN u.creator <> '' THEN u.creator ELSE ksc.creator_username END,
         board_name = CASE WHEN u.board <> '' THEN u.board ELSE ksc.board_name END,
@@ -642,8 +643,7 @@ async function flushBatchToHub(pinsChunk, kw) {
         comment_count = GREATEST(kdi.comment_count, u.authentic_comments::int),
         share_count = GREATEST(COALESCE(kdi.share_count, 0), u.authentic_shares::int),
         daily_save_velocity = CASE 
-          WHEN NOT u.from_hydration_cache AND u.daily_save_velocity IS NOT NULL THEN u.daily_save_velocity::numeric
-          WHEN u.daily_save_velocity > 0 THEN GREATEST(COALESCE(kdi.daily_save_velocity, 0), u.daily_save_velocity::numeric)
+          WHEN u.daily_save_velocity IS NOT NULL THEN u.daily_save_velocity::numeric
           ELSE kdi.daily_save_velocity 
         END,
         updated_at = NOW()
@@ -675,8 +675,10 @@ async function flushBatchToHub(pinsChunk, kw) {
         share_count = GREATEST(COALESCE(ksc.share_count, 0), u.authentic_shares::int),
         daily_save_velocity = CASE 
           WHEN NOT u.from_hydration_cache AND u.daily_save_velocity IS NOT NULL THEN u.daily_save_velocity::numeric
-          WHEN u.daily_save_velocity > 0 THEN GREATEST(COALESCE(ksc.daily_save_velocity, 0), u.daily_save_velocity::numeric)
-          ELSE ksc.daily_save_velocity 
+          WHEN u.daily_save_velocity IS NOT NULL 
+           AND (u.daily_save_velocity > 0 OR COALESCE((ksc.crawled_at AT TIME ZONE 'UTC')::date, ksc.baseline_day_date) < (NOW() AT TIME ZONE 'UTC')::date)
+          THEN u.daily_save_velocity::numeric
+          ELSE COALESCE(ksc.daily_save_velocity, 0)
         END,
         creator_username = CASE WHEN u.creator <> '' THEN u.creator ELSE ksc.creator_username END,
         board_name = CASE WHEN u.board <> '' THEN u.board ELSE ksc.board_name END,
@@ -738,8 +740,7 @@ async function flushBatchToHub(pinsChunk, kw) {
         comment_count = GREATEST(kdi.comment_count, u.authentic_comments::int),
         share_count = GREATEST(COALESCE(kdi.share_count, 0), u.authentic_shares::int),
         daily_save_velocity = CASE 
-          WHEN NOT u.from_hydration_cache AND u.daily_save_velocity IS NOT NULL THEN u.daily_save_velocity::numeric
-          WHEN u.daily_save_velocity > 0 THEN GREATEST(COALESCE(kdi.daily_save_velocity, 0), u.daily_save_velocity::numeric)
+          WHEN u.daily_save_velocity IS NOT NULL THEN u.daily_save_velocity::numeric
           ELSE kdi.daily_save_velocity 
         END,
         updated_at = NOW()
@@ -773,8 +774,10 @@ async function flushBatchToHub(pinsChunk, kw) {
         share_count = GREATEST(COALESCE(ksc.share_count, 0), u.authentic_shares::int),
         daily_save_velocity = CASE 
           WHEN NOT u.from_hydration_cache AND u.daily_save_velocity IS NOT NULL THEN u.daily_save_velocity::numeric
-          WHEN u.daily_save_velocity > 0 THEN GREATEST(COALESCE(ksc.daily_save_velocity, 0), u.daily_save_velocity::numeric)
-          ELSE ksc.daily_save_velocity 
+          WHEN u.daily_save_velocity IS NOT NULL 
+           AND (u.daily_save_velocity > 0 OR COALESCE((ksc.crawled_at AT TIME ZONE 'UTC')::date, ksc.baseline_day_date) < (NOW() AT TIME ZONE 'UTC')::date)
+          THEN u.daily_save_velocity::numeric
+          ELSE COALESCE(ksc.daily_save_velocity, 0)
         END,
         creator_username = CASE WHEN u.creator <> '' THEN u.creator ELSE ksc.creator_username END,
         board_name = CASE WHEN u.board <> '' THEN u.board ELSE ksc.board_name END,
@@ -833,8 +836,7 @@ async function flushBatchToHub(pinsChunk, kw) {
         comment_count = GREATEST(kdi.comment_count, u.authentic_comments::int),
         share_count = GREATEST(COALESCE(kdi.share_count, 0), u.authentic_shares::int),
         daily_save_velocity = CASE 
-          WHEN NOT u.from_hydration_cache AND u.daily_save_velocity IS NOT NULL THEN u.daily_save_velocity::numeric
-          WHEN u.daily_save_velocity > 0 THEN GREATEST(COALESCE(kdi.daily_save_velocity, 0), u.daily_save_velocity::numeric)
+          WHEN u.daily_save_velocity IS NOT NULL THEN u.daily_save_velocity::numeric
           ELSE kdi.daily_save_velocity 
         END,
         updated_at = NOW()
@@ -1031,7 +1033,10 @@ async function flushToStorageShards(enrichedPins) {
                   repin_count = GREATEST(pins_daily_metrics.repin_count, EXCLUDED.repin_count),
                   comment_count = GREATEST(pins_daily_metrics.comment_count, EXCLUDED.comment_count),
                   share_count = GREATEST(pins_daily_metrics.share_count, EXCLUDED.share_count),
-                  daily_save_velocity = EXCLUDED.daily_save_velocity,
+                  daily_save_velocity = CASE
+                    WHEN EXCLUDED.daily_save_velocity IS NOT NULL THEN EXCLUDED.daily_save_velocity
+                    ELSE pins_daily_metrics.daily_save_velocity
+                  END,
                   updated_at = NOW()
                 RETURNING pin_id
               ),

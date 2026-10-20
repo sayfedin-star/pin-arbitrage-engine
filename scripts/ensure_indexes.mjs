@@ -175,10 +175,11 @@ async function optimizeIndexes() {
         await shardSql`CREATE INDEX IF NOT EXISTS idx_competitor_pins_queue_fast ON competitor_pins(competitor_id, enrichment_status, id);`.catch(() => {});
         await shardSql`CREATE INDEX IF NOT EXISTS idx_competitor_pins_enrichment_global ON competitor_pins(enrichment_status) WHERE enrichment_status = 'pending';`.catch(() => {});
         await shardSql`CREATE INDEX IF NOT EXISTS idx_competitor_pins_stale_reclaim ON competitor_pins(enrichment_status, updated_at) WHERE enrichment_status = 'processing';`.catch(() => {});
-        // universal_master_pins & snapshots
+        // universal_master_pins & snapshots (underlying shard tables)
         await shardSql`CREATE INDEX IF NOT EXISTS idx_ump_domain ON universal_master_pins(domain);`.catch(() => {});
         await shardSql`CREATE INDEX IF NOT EXISTS idx_ump_creator ON universal_master_pins(creator_username);`.catch(() => {});
-        await shardSql`CREATE INDEX IF NOT EXISTS idx_pds_pin_date ON pins_daily_snapshots(pin_id, snapshot_date ASC, created_at DESC);`.catch(() => {});
+        await shardSql`CREATE INDEX IF NOT EXISTS idx_pdm_pin_date ON pins_daily_metrics(pin_id, snapshot_date ASC);`.catch(() => {});
+        await shardSql`CREATE INDEX IF NOT EXISTS idx_psp_pin_date ON pin_serp_positions(pin_id, snapshot_date ASC);`.catch(() => {});
       } catch (shardErr) {
         console.warn(`[!] Shard ${shard.project_name || shard.id} index notice:`, shardErr.message);
       }

@@ -1813,9 +1813,9 @@ export function getCampaignFoldersPageHtml(folderId = '') {
         async loadFolders() {
           this.foldersLoading = true;
           try {
-            const res = await fetch('/api/folders');
+            const res = await (window.safeApiFetch || fetch)('/api/folders');
             if (res.ok) {
-              const data = await res.json();
+              const data = await res.json().catch(() => ({}));
               this.foldersList = data.folders || [];
             } else {
               this.showToast('Failed to load campaign folders', 'error');
@@ -1832,12 +1832,12 @@ export function getCampaignFoldersPageHtml(folderId = '') {
           this.crossoverLoading = true;
           try {
             const [folderRes, crossoverRes] = await Promise.all([
-              fetch('/api/folders/' + this.activeFolderId),
-              fetch('/api/folders/' + this.activeFolderId + '/raw-visual-crossover')
+              (window.safeApiFetch || fetch)('/api/folders/' + this.activeFolderId),
+              (window.safeApiFetch || fetch)('/api/folders/' + this.activeFolderId + '/raw-visual-crossover')
             ]);
 
             if (folderRes.ok) {
-              const data = await folderRes.json();
+              const data = await folderRes.json().catch(() => ({}));
               this.activeFolder = data.folder || null;
               this.syncFolderSettingsFromActive();
             } else {
@@ -1845,7 +1845,7 @@ export function getCampaignFoldersPageHtml(folderId = '') {
             }
 
             if (crossoverRes.ok) {
-              const cdata = await crossoverRes.json();
+              const cdata = await crossoverRes.json().catch(() => ({}));
               this.crossoverData = cdata.crossover || cdata;
               this.computePowerPairs();
               this.currentPage = 1;
@@ -1871,9 +1871,9 @@ export function getCampaignFoldersPageHtml(folderId = '') {
           this.crossoverLoading = true;
           try {
             const url = '/api/folders/' + this.activeFolderId + '/raw-visual-crossover' + (isRefresh ? '?refresh=true' : '');
-            const res = await fetch(url);
+            const res = await (window.safeApiFetch || fetch)(url);
             if (res.ok) {
-              const data = await res.json();
+              const data = await res.json().catch(() => ({}));
               this.crossoverData = data.crossover || data;
               this.computePowerPairs();
               this.currentPage = 1;
@@ -1953,7 +1953,7 @@ export function getCampaignFoldersPageHtml(folderId = '') {
               }
             };
 
-            const res = await fetch('/api/folders/' + this.activeFolderId, {
+            const res = await (window.safeApiFetch || fetch)('/api/folders/' + this.activeFolderId, {
               method: 'PATCH',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(payload)
@@ -1975,7 +1975,8 @@ export function getCampaignFoldersPageHtml(folderId = '') {
                 this.isSettingsModalOpen = false;
               }
             } else {
-              this.showToast('Failed to save folder settings', 'error');
+              const errData = await res.json().catch(() => ({}));
+              this.showToast(errData.message || errData.error || 'Failed to save folder settings', 'error');
             }
           } catch (err) {
             this.showToast('Error saving settings: ' + err.message, 'error');
@@ -2006,7 +2007,7 @@ export function getCampaignFoldersPageHtml(folderId = '') {
             const crawlScope = String(this.folderSettings?.crawl_scope || meta.crawl_scope || 'all_pins');
             const maxCatalogInspect = String(this.folderSettings?.max_catalog_inspect || meta.max_catalog_inspect || '0');
 
-            const res = await fetch('/api/folders/' + this.activeFolderId + '/dispatch-audit', {
+            const res = await (window.safeApiFetch || fetch)('/api/folders/' + this.activeFolderId + '/dispatch-audit', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -2017,8 +2018,8 @@ export function getCampaignFoldersPageHtml(folderId = '') {
                 enable_serp_harvest: String(harvest)
               })
             });
-            const data = await res.json().catch(() => ({ success: false, error: 'Invalid response from server' }));
-            if (data.success) {
+            const data = await res.json();
+            if (res.ok && data.success) {
               this.showToast(data.message || '20-Runner Parallel Fleet Audit dispatched successfully on GitHub Actions!', 'success');
               if (this.isSettingsModalOpen) this.isSettingsModalOpen = false;
             } else {
@@ -2491,7 +2492,7 @@ export function getCampaignFoldersPageHtml(folderId = '') {
         async createFolder() {
           if (!this.newFolderName.trim()) return;
           try {
-            const res = await fetch('/api/folders', {
+            const res = await (window.safeApiFetch || fetch)('/api/folders', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -2513,10 +2514,11 @@ export function getCampaignFoldersPageHtml(folderId = '') {
                 await this.loadFolders();
               }
             } else {
-              this.showToast('Failed to create folder', 'error');
+              const errData = await res.json().catch(() => ({}));
+              this.showToast(errData.message || errData.error || 'Failed to create folder', 'error');
             }
           } catch (e) {
-            this.showToast('Network error creating folder', 'error');
+            this.showToast('Network error creating folder: ' + e.message, 'error');
           }
         },
 
@@ -2528,16 +2530,17 @@ export function getCampaignFoldersPageHtml(folderId = '') {
           const id = this.deleteModalFolderId;
           if (!id) return;
           try {
-            const res = await fetch('/api/folders/' + id, { method: 'DELETE' });
+            const res = await (window.safeApiFetch || fetch)('/api/folders/' + id, { method: 'DELETE' });
             if (res.ok) {
               this.foldersList = this.foldersList.filter(f => f.id !== id);
               this.deleteModalFolderId = null;
               this.showToast('Campaign folder deleted', 'success');
             } else {
-              this.showToast('Failed to delete folder', 'error');
+              const errData = await res.json().catch(() => ({}));
+              this.showToast(errData.message || errData.error || 'Failed to delete folder', 'error');
             }
           } catch (e) {
-            this.showToast('Network error deleting folder', 'error');
+            this.showToast('Network error deleting folder: ' + e.message, 'error');
           }
         },
 

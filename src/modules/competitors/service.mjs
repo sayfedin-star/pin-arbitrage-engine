@@ -8,6 +8,7 @@ import { formatPinterestCookie, sanitizeForJsonb, escapeSqlWildcards } from '../
 import { fetchUserResource, fetchBoardsResource, fetchBoardDetailUnauth, fetchUserActivityPinsResource, fetchBoardFeedResource, fetchPinFromPinResource, pinterestFetch, sleep, randomJitterMs } from '../../../scripts/lib/pinterest.mjs';
 import crypto from 'node:crypto';
 import { ingestPinsBatch, getQualificationRules } from '../pinarchive/service.mjs';
+import { syncPinAcrossAllFourPillars } from '../sharding/fleet-router.mjs';
 
 /**
  * Deterministic Synthetic Board ID Generator
@@ -1815,36 +1816,9 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
     }
   }
 
-  // Fallback: Calculate 24h deltas from pa_pin_metrics if snapshot deltas are not yet available
-  if (deltaSaves24h === null && cleanUsername) {
-    try {
-      const [growthRow] = await sql`
-        WITH recent_samples AS (
-          SELECT 
-            m.pin_id,
-            m.saves,
-            m.repins,
-            m.recorded_at,
-            ROW_NUMBER() OVER (PARTITION BY m.pin_id ORDER BY m.recorded_at DESC) as rn_latest,
-            ROW_NUMBER() OVER (PARTITION BY m.pin_id ORDER BY m.recorded_at ASC) as rn_oldest
-          FROM pa_pin_metrics m
-          JOIN pa_pins p ON p.pin_id = m.pin_id
-          WHERE LOWER(REPLACE(p.account_username, '@', '')) = ${cleanUsername}
-            AND m.recorded_at >= NOW() - INTERVAL '24 hours'
-        )
-        SELECT 
-          COALESCE(SUM(latest.saves - oldest.saves), 0)::bigint AS delta_saves,
-          COALESCE(SUM(latest.repins - oldest.repins), 0)::bigint AS delta_repins
-        FROM recent_samples latest
-        JOIN recent_samples oldest ON latest.pin_id = oldest.pin_id AND oldest.rn_oldest = 1
-        WHERE latest.rn_latest = 1 AND latest.recorded_at > oldest.recorded_at;
-      `;
-      if (growthRow && (Number(growthRow.delta_saves) > 0 || Number(growthRow.delta_repins) > 0)) {
-        deltaSaves24h = Number(growthRow.delta_saves);
-        deltaRepins24h = Number(growthRow.delta_repins);
-      }
-    } catch (_) {}
-  }
+  // [INVARIANT: ZERO-HUB-SNAPSHOTS]
+  // Time-series snapshots are stored exclusively on Shards (pins_daily_metrics).
+  // Hub pa_pin_metrics fallback is eradicated.
 
   // Auto-heal non-zero reach & profile_views if profile record was degraded to 0
   let resolvedMonthlyReach = Number(profile.monthly_reach || 0);
@@ -3341,56 +3315,16 @@ export async function fastRefreshCompetitorArchivedPins(sql, competitorIdOrUsern
     try {
       const live = await fetchPinFromPinResource(pin.pin_id);
       if (live && live.saves > 0) {
-        // 1. Update pa_pins
-        await sql`
-          UPDATE pa_pins
-          SET
-            saves = GREATEST(pa_pins.saves, ${live.saves}),
-            repins = GREATEST(pa_pins.repins, ${live.repins || 0}),
-            comments = GREATEST(pa_pins.comments, ${live.comments || 0}),
-            reactions = CASE WHEN ${JSON.stringify(live.reactions || {})}::jsonb <> '{}'::jsonb THEN ${JSON.stringify(live.reactions || {})}::jsonb ELSE pa_pins.reactions END,
-            last_updated_at = NOW()
-          WHERE pin_id = ${pin.pin_id};
-        `;
-
-        // 2. Insert hourly bucket in pa_pin_metrics with monotonic protection
-        await sql`
-          INSERT INTO pa_pin_metrics (pin_id, recorded_at, saves, repins, comments)
-          VALUES (
-            ${pin.pin_id},
-            date_trunc('hour', NOW()),
-            ${live.saves},
-            ${live.repins || 0},
-            ${live.comments || 0}
-          )
-          ON CONFLICT (pin_id, recorded_at) DO UPDATE SET
-            saves = GREATEST(pa_pin_metrics.saves, EXCLUDED.saves),
-            repins = GREATEST(pa_pin_metrics.repins, EXCLUDED.repins),
-            comments = GREATEST(pa_pin_metrics.comments, EXCLUDED.comments);
-        `;
-
-        // 3. Update competitor_pins
-        if (numericId) {
-          await sql`
-            UPDATE competitor_pins
-            SET
-              save_count = GREATEST(competitor_pins.save_count, ${live.saves}),
-              repin_count = GREATEST(competitor_pins.repin_count, ${live.repins || 0}),
-              comment_count = GREATEST(competitor_pins.comment_count, ${live.comments || 0}),
-              last_seen_at = NOW()
-            WHERE competitor_id = ${numericId} AND pin_id = ${pin.pin_id};
-          `;
-        }
-
-        // 4. Update keyword_serp_current if present for full 4-pillar parity
-        await sql`
-          UPDATE keyword_serp_current
-          SET
-            save_count = GREATEST(keyword_serp_current.save_count, ${live.saves}),
-            repin_count = GREATEST(keyword_serp_current.repin_count, ${live.repins || 0}),
-            crawled_at = NOW()
-          WHERE pin_id = ${pin.pin_id};
-        `;
+        // [INVARIANT: ZERO-HUB-SNAPSHOTS]
+        // [INVARIANT: FOUR-PILLAR-SYNC-PARITY]
+        // Route through syncPinAcrossAllFourPillars to update Shard universal_master_pins,
+        // Shard pins_daily_metrics, Hub pa_pins, Hub competitor_pins, Hub keyword_serp_current
+        await syncPinAcrossAllFourPillars({
+          hubSql: sql,
+          pinId: pin.pin_id,
+          scrapedPin: live,
+          env: options?.env || null
+        });
 
         refreshedCount++;
         results.push({ pin_id: pin.pin_id, saves: live.saves, repins: live.repins });
@@ -3416,7 +3350,7 @@ export async function fastRefreshCompetitorArchivedPins(sql, competitorIdOrUsern
  * Executes a comprehensive audit and reconciliation sweep for a creator:
  * 1. Scrapes fresh unauthenticated profile metrics (reach, views, followers, total pins) and snapshots history.
  * 2. Syncs and heals all Pinterest boards in competitor_boards.
- * 3. Sweeps and resolves any monotonic dips in pa_pin_metrics.
+ * 3. Sweeps and resolves any monotonic dips (handled at Shard DB Storage level).
  * 4. Re-evaluates all discovered competitor_pins against 3-tier rules to ingest newly qualified pins.
  * 5. Returns a detailed audit report.
  */
@@ -3467,28 +3401,9 @@ export async function auditSweepCompetitor(sql, competitorIdOrUsername, options 
     }
   }
 
-  // 3. Monotonic healing ratchet sweep across pa_pin_metrics for this competitor
-  try {
-    const healed = await sql`
-      WITH ranked AS (
-        SELECT m.id,
-          MAX(m.saves) OVER (PARTITION BY m.pin_id ORDER BY m.recorded_at ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as monotonic_saves,
-          MAX(m.repins) OVER (PARTITION BY m.pin_id ORDER BY m.recorded_at ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as monotonic_repins
-        FROM pa_pin_metrics m
-        JOIN pa_pins p ON p.pin_id = m.pin_id
-        WHERE LOWER(REPLACE(p.account_username, '@', '')) = ${cleanUsername.toLowerCase()}
-      )
-      UPDATE pa_pin_metrics m
-      SET saves = GREATEST(m.saves, r.monotonic_saves),
-          repins = GREATEST(m.repins, r.monotonic_repins)
-      FROM ranked r
-      WHERE m.id = r.id AND (m.saves < r.monotonic_saves OR m.repins < r.monotonic_repins)
-      RETURNING m.id;
-    `;
-    auditReport.monotonic_dips_healed = healed.length || 0;
-  } catch (err) {
-    console.warn(`[auditSweep] Monotonic ratchet notice:`, err.message);
-  }
+  // 3. Monotonic healing ratchet sweep (Snapshots are managed exclusively on Storage Shards)
+  // [INVARIANT: ZERO-HUB-SNAPSHOTS]
+  auditReport.monotonic_dips_healed = 0;
 
   // 4. Re-evaluate pins against 3-tier rules
   if (numericId) {

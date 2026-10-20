@@ -17,7 +17,7 @@ import { handleFleetRoutes } from './routes/fleet.mjs';
 import { handlePinarchiveRoutes } from './routes/pinarchive.mjs';
 import { handleDomainsRoutes } from './routes/domains.mjs';
 import { isClusterRoute, handleClusterRoutes } from './routes/cluster.mjs';
-import { enforceNeonPoolerUrl } from './modules/sharding/fleet-router.mjs';
+import { enforceNeonPoolerUrl, getFastEdgeDossier, getOrCreateShardSqlClient, getCachedShardSqlClient, setCachedShardSqlClient, shardSqlClients, wrapShardNeonTransaction } from './modules/sharding/fleet-router.mjs';
 import { isKeywordsRoute, handleKeywordsRoutes } from './routes/keywords.mjs';
 import { isPinsRoute, handlePinsRoutes } from './routes/pins.mjs';
 import { handleCompetitorsRoutes } from './routes/competitors.mjs';
@@ -715,58 +715,35 @@ export const HTML_HEADERS = {
 // Culinary Color & Age Utilities
 export { getCulinaryColorName, formatAge } from './utils.mjs';
 
-// Bounded database connection cache to prevent connection/memory leaks in Workers (max 128)
-const shardSqlCache = new Map();
-function setCachedShardSql(key, client) {
-  if (!key || !client) return;
-  if (shardSqlCache.has(key)) {
-    shardSqlCache.delete(key);
-  } else if (shardSqlCache.size >= 128) {
-    const oldestKey = shardSqlCache.keys().next().value;
-    if (oldestKey) shardSqlCache.delete(oldestKey);
-  }
-  shardSqlCache.set(key, client);
+// Bounded database connection cache unified with fleet-router (shardSqlClients)
+// to eliminate dual cache thrashing and socket leaks. Single canonical DSN key per shard.
+export const shardSqlCache = shardSqlClients;
+const shardKeyToDsn = new Map(); // cleanKey -> canonical pooled DSN
+
+export function setCachedShardSql(key, client) {
+  setCachedShardSqlClient(key, client);
 }
 
-function wrapNeonClientTransaction(client) {
-  if (!client || typeof client.transaction !== 'function' || client.__atomicBuilderWrapped) {
+export function getCachedShardSql(key, factory) {
+  if (!key) return null;
+  if (typeof key === 'string' && key.startsWith('postgres')) {
+    return getOrCreateShardSqlClient(key);
+  }
+  const cachedDsn = shardKeyToDsn.get(key);
+  if (cachedDsn) {
+    return getOrCreateShardSqlClient(cachedDsn);
+  }
+  const existing = getCachedShardSqlClient(key);
+  if (existing) {
+    return existing;
+  }
+  if (typeof factory === 'function') {
+    const rawClient = factory();
+    const client = wrapShardNeonTransaction(rawClient);
+    setCachedShardSqlClient(key, client);
     return client;
   }
-  const origTransaction = client.transaction.bind(client);
-  // [INVARIANT: HYPERDRIVE-ATOMIC-BUILDER]
-  client.transaction = async (queriesOrFn, opts) => {
-    if (typeof queriesOrFn === 'function') {
-      return await origTransaction((tx) => {
-        const res = queriesOrFn(tx);
-        if (Array.isArray(res)) {
-          return res.map(item => (typeof item === 'function' ? item(tx) : item));
-        }
-        return res;
-      }, opts);
-    }
-    if (Array.isArray(queriesOrFn)) {
-      if (queriesOrFn.length === 0) return [];
-      const builtQueries = queriesOrFn.map(q => (typeof q === 'function' ? q(client) : q));
-      return await origTransaction(builtQueries, opts);
-    }
-    throw new TypeError(
-      '[INVARIANT: HYPERDRIVE-ATOMIC-BUILDER] sql.transaction() strictly requires a callback `(tx) => ...` or an array of lazy query builders `[(db) => db`...`]`. Raw pre-instantiated promises are forbidden.'
-    );
-  };
-  client.__atomicBuilderWrapped = true;
-  return client;
-}
-
-function getCachedShardSql(key, factory) {
-  if (shardSqlCache.has(key)) {
-    const client = shardSqlCache.get(key);
-    shardSqlCache.delete(key);
-    shardSqlCache.set(key, client);
-    return client;
-  }
-  const client = wrapNeonClientTransaction(factory());
-  setCachedShardSql(key, client);
-  return client;
+  return null;
 }
 
 export function createHyperdriveClient(connectionString, customOpts = {}) {
@@ -1254,6 +1231,18 @@ export default {
       });
     }
 
+    // [INVARIANT: SAFE-PREFETCH-EDGE-ONLY] Return immediately before instantiating Hyperdrive TCP
+    if (method === 'GET' && searchParams.get('prefetch') === 'true' && isPinsRoute(pathname)) {
+      const parts = pathname.slice('/api/pins/'.length).split('/').filter(Boolean);
+      if (parts.length === 1) {
+        const pinId = parts[0];
+        if (pinId && isValidPinId(pinId)) {
+          const edgeFast = await getFastEdgeDossier(pinId, env);
+          return jsonResponse(edgeFast, edgeFast.success ? 200 : 404, 300);
+        }
+      }
+    }
+
     let sql = env?.SQL_CLIENT;
     if (!sql) {
       const isHyperdriveConfigured = Boolean(env?.HYPERDRIVE?.connectionString);
@@ -1344,8 +1333,9 @@ export default {
     const reqProjectId = searchParams.get('project_id') || searchParams.get('shard') || request.headers.get('x-target-project');
     if (reqProjectId && reqProjectId !== 'all' && reqProjectId !== 'hub') {
       const cleanKey = String(reqProjectId).trim();
-      if (shardSqlCache.has(cleanKey)) {
-        targetSql = shardSqlCache.get(cleanKey);
+      const cachedDsn = shardKeyToDsn.get(cleanKey);
+      if (cachedDsn) {
+        targetSql = getOrCreateShardSqlClient(cachedDsn);
       } else {
         try {
           let shardsMap = null;
@@ -1373,11 +1363,11 @@ export default {
             );
           }
           if (proj && proj.database_url) {
-            const pooledShardUrl = enforceNeonPoolerUrl(proj.database_url);
-            targetSql = getCachedShardSql(pooledShardUrl, () => neon(pooledShardUrl));
-            setCachedShardSql(cleanKey, targetSql);
-            if (proj.project_id) setCachedShardSql(proj.project_id, targetSql);
-            if (proj.project_name) setCachedShardSql(proj.project_name, targetSql);
+            const canonicalUrl = enforceNeonPoolerUrl(proj.database_url);
+            shardKeyToDsn.set(cleanKey, canonicalUrl);
+            if (proj.project_id) shardKeyToDsn.set(String(proj.project_id).trim(), canonicalUrl);
+            if (proj.project_name) shardKeyToDsn.set(String(proj.project_name).trim(), canonicalUrl);
+            targetSql = getOrCreateShardSqlClient(canonicalUrl);
           } else if (method !== 'GET') {
             return jsonResponse({
               error: 'Target shard not found or inactive',

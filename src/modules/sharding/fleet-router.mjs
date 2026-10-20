@@ -94,6 +94,29 @@ export function getShardProjectName(shardId, prefix = 'pin-arbitrage-shard') {
   return `${prefix}-${String(shardId).padStart(2, '0')}`;
 }
 
+// [INVARIANT: DETERMINISTIC-CRC32-SHARDING]
+/**
+ * Canonical Entity Shard Resolution & Resilient Fallback Probing
+ * Unifies all entity partitioning (pins, competitors, keywords) to canonical CRC32 modulo routing.
+ */
+export function getShardNumberForEntity(entityKey, totalShards = 99) {
+  return getPinShardId(entityKey, totalShards);
+}
+
+export function getResilientShardNumberForEntity(entityKey, totalShards = 99, quarantinedShards = new Set()) {
+  const qSet = quarantinedShards instanceof Set ? quarantinedShards : new Set(quarantinedShards || []);
+  const primary = getPinShardId(entityKey, totalShards);
+  if (!qSet.has(primary)) return primary;
+
+  const hash = crc32(String(entityKey || ''));
+  const shards = Math.max(1, Number(totalShards) || 99);
+  for (let probe = 1; probe < shards; probe++) {
+    const fallback = (((hash + probe * 0x9e3779b9) >>> 0) % shards) + 1;
+    if (!qSet.has(fallback)) return fallback;
+  }
+  return primary;
+}
+
 // Isolate-Level Shard Routing Cache (Anti-Thundering Herd Singleflight & 10m TTL)
 export const globalShardMap = new Map(); // shardId -> { database_url, status, project_name, cachedAt }
 export const registryCache = globalShardMap; // Backward compatibility alias
@@ -152,28 +175,38 @@ export async function warmGlobalShardMap(hubSql, env = null) {
   return await inflightShardMapPromise;
 }
 
-export const shardSqlClients = new Map(); // dsn -> neon client
+export const shardSqlClients = new Map(); // clean canonical dsn -> neon client
 export const MAX_SHARD_SQL_CLIENTS = 48;
 
 export function getCachedShardSqlClient(dsn) {
-  if (!shardSqlClients.has(dsn)) return null;
-  const client = shardSqlClients.get(dsn);
-  shardSqlClients.delete(dsn);
-  shardSqlClients.set(dsn, client);
+  if (!dsn) return null;
+  const cleanDsn = enforceNeonPoolerUrl(dsn);
+  if (!shardSqlClients.has(cleanDsn)) return null;
+  const client = shardSqlClients.get(cleanDsn);
+  shardSqlClients.delete(cleanDsn);
+  shardSqlClients.set(cleanDsn, client);
   return client;
 }
 
 export function setCachedShardSqlClient(dsn, client) {
-  if (shardSqlClients.has(dsn)) {
-    shardSqlClients.delete(dsn);
+  if (!dsn || !client) return;
+  const cleanDsn = enforceNeonPoolerUrl(dsn);
+  if (shardSqlClients.has(cleanDsn)) {
+    shardSqlClients.delete(cleanDsn);
   } else if (shardSqlClients.size >= MAX_SHARD_SQL_CLIENTS) {
     const oldestKey = shardSqlClients.keys().next().value;
-    if (oldestKey) shardSqlClients.delete(oldestKey);
+    if (oldestKey) {
+      const evicted = shardSqlClients.get(oldestKey);
+      shardSqlClients.delete(oldestKey);
+      try {
+        evicted?.end?.({ timeout: 1 });
+      } catch (_) {}
+    }
   }
-  shardSqlClients.set(dsn, client);
+  shardSqlClients.set(cleanDsn, client);
 }
 
-function wrapShardNeonTransaction(client) {
+export function wrapShardNeonTransaction(client) {
   if (!client || typeof client.transaction !== 'function' || client.__atomicBuilderWrapped) {
     return client;
   }
@@ -282,7 +315,18 @@ export function enforceNeonPoolerUrl(url) {
  * @param {object} [options.env] - Cloudflare Workers environment bindings (PIN_ENGINE_KV)
  * @returns {Promise<Function>} Neon SQL client instance
  */
-export async function resolveShardConnection({ hubSql, shardId, dsnTemplate = null, prefix = 'pin-arbitrage-shard', env = null }) {
+export async function resolveShardConnection(optionsOrShardId, envFallback = null) {
+  let hubSql = null, shardId = 1, dsnTemplate = null, prefix = 'pin-arbitrage-shard', env = null;
+  if (typeof optionsOrShardId === 'object' && optionsOrShardId !== null) {
+    hubSql = optionsOrShardId.hubSql;
+    shardId = optionsOrShardId.shardId;
+    dsnTemplate = optionsOrShardId.dsnTemplate;
+    prefix = optionsOrShardId.prefix || 'pin-arbitrage-shard';
+    env = optionsOrShardId.env || null;
+  } else {
+    shardId = optionsOrShardId;
+    env = envFallback;
+  }
   const cleanId = Math.max(1, Math.min(99, Number(shardId) || 1));
   const shardName = getShardProjectName(cleanId, prefix);
 
@@ -467,14 +511,21 @@ export async function preloadNeonRegistry(hubSql, env = null) {
  * @param {number} [options.timeoutMs=2500] - Hard query timeout before tripping breaker
  * @returns {Promise<any>} Query result or fallback result
  */
-export async function executeShardQueryWithCircuitBreaker({
-  shardId,
-  shardSql,
-  queryFn,
-  fallbackFn = null,
-  timeoutMs = 2500,
-  batchId = null
-}) {
+export async function executeShardQueryWithCircuitBreaker(optsOrShardId, maybeQueryFn = null, maybeOpts = {}) {
+  let shardId, shardSql, queryFn, fallbackFn = null, timeoutMs = 2500, batchId = null;
+  if (optsOrShardId && typeof optsOrShardId === 'object') {
+    ({ shardId, shardSql, queryFn, fallbackFn = null, timeoutMs = 2500, batchId = null } = optsOrShardId);
+  } else {
+    shardId = optsOrShardId;
+    queryFn = maybeQueryFn;
+    timeoutMs = maybeOpts?.timeoutMs ?? 2500;
+    fallbackFn = maybeOpts?.fallbackFn ?? null;
+    batchId = maybeOpts?.batchId ?? null;
+    shardSql = maybeOpts?.shardSql ?? null;
+  }
+  if (!shardSql) {
+    shardSql = await resolveShardConnection({ shardId }).catch(() => null);
+  }
   let cb = circuitBreakers.get(shardId);
   if (!cb) {
     cb = { state: 'CLOSED', failures: 0, nextAttempt: 0, _failedBatches: new Set() };
@@ -1111,7 +1162,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
               ELSE universal_master_pins.visual_annotations 
             END,
             created_at_pinterest = COALESCE(EXCLUDED.created_at_pinterest, universal_master_pins.created_at_pinterest),
-            metadata = universal_master_pins.metadata || EXCLUDED.metadata,
+            metadata = COALESCE(universal_master_pins.metadata, '{}'::jsonb) || EXCLUDED.metadata,
             updated_at = NOW();
         `;
       } catch (backfillErr) {
@@ -1829,6 +1880,67 @@ export async function getFastEdgeDossier(pinId, env) {
   };
 }
 
+/**
+ * Canonical Pin Historical Trajectory Retrieval (SSOT)
+ * [INVARIANT: ZERO-HUB-SNAPSHOTS]
+ * [INVARIANT: DETERMINISTIC-CRC32-SHARDING]
+ *
+ * Retrieves chronological daily snapshot metrics directly from the designated Storage Shard.
+ * Guarantees zero reads from Central Hub for historical snapshot data.
+ *
+ * @param {object} params
+ * @param {Function} [params.hubSql] - Optional Central Hub client (used to resolve shard if needed)
+ * @param {Function} [params.shardSql] - Pre-resolved Neon client for the target shard
+ * @param {string|number} params.pinId - Target Pinterest Pin ID
+ * @param {string} [params.timeframe='all'] - Timeframe filter
+ * @param {object} [params.env] - Cloudflare Worker environment bindings
+ * @returns {Promise<object>} Result containing trajectory snapshots array
+ */
+export async function fetchPinTrajectoryFromShard({ hubSql, shardSql, pinId, timeframe = 'all', env = null } = {}) {
+  const cleanId = String(pinId || '').trim();
+  if (!cleanId) return { success: false, trajectory: [], snapshots: [] };
+
+  const shardId = getPinShardId(cleanId, 99);
+  let sqlClient = shardSql;
+  if (!sqlClient && (hubSql || env)) {
+    try {
+      sqlClient = await resolveShardConnection({ hubSql, shardId, env });
+    } catch (_) {
+      sqlClient = null;
+    }
+  }
+  if (!sqlClient) return { success: false, shard_id: shardId, trajectory: [], snapshots: [] };
+
+  try {
+    const snapshots = await executeShardQueryWithCircuitBreaker(shardId, async (db) => {
+      return await db`
+        SELECT 
+          snapshot_date,
+          save_count,
+          daily_save_velocity,
+          reaction_count,
+          repin_count,
+          comment_count,
+          share_count
+        FROM pins_daily_metrics
+        WHERE pin_id = ${cleanId}
+        ORDER BY snapshot_date ASC
+      `;
+    }, { timeoutMs: 2000, shardSql: sqlClient });
+
+    return {
+      success: true,
+      shard_id: shardId,
+      timeframe,
+      trajectory: snapshots || [],
+      snapshots: snapshots || []
+    };
+  } catch (err) {
+    console.error(`🚨 [TRAJECTORY-SHARD-ERROR] Pin ${cleanId} on shard ${shardId}:`, err);
+    return { success: false, shard_id: shardId, trajectory: [], snapshots: [], error: err.message };
+  }
+}
+
 
 
 /**
@@ -1898,11 +2010,21 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
   );
 
   // 3. Prepare sanitized metadata payload
+  // [INVARIANT: 48-FIELD-TELEMETRY-PRESERVATION] Preserve carousel detection, affiliate tracking links, and creator audience
+  // [INVARIANT: 48-FIELD-TELEMETRY-CAROUSEL-DETECTION]
+  const isCarousel = Boolean(
+    scrapedPin.is_carousel ||
+    scrapedPin.isCarousel ||
+    scrapedPin.method === 'carousel' ||
+    scrapedPin.creation_method === 'carousel'
+  );
   const rawMetaToStore = {
     alt_text: scrapedPin.alt_text || scrapedPin.seo_title || '',
     description: scrapedPin.description || '',
     board_name: scrapedPin.board_name || '',
-    creation_method: scrapedPin.creation_method || scrapedPin.method || 'pinterest_platform',
+    creation_method: isCarousel ? 'carousel' : (scrapedPin.creation_method || scrapedPin.method || 'pinterest_platform'),
+    method: isCarousel ? 'carousel' : (scrapedPin.method || scrapedPin.creation_method || 'pinterest_platform'),
+    is_carousel: isCarousel,
     created_at_pinterest: scrapedPin.created_at_pinterest || scrapedPin.created_at || '',
     is_repin: Boolean(scrapedPin.is_repin),
     origin_pinner: scrapedPin.origin_pinner || null,
@@ -1914,7 +2036,13 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
     utm_medium: scrapedPin.utm_medium || null,
     utm_campaign: scrapedPin.utm_campaign || null,
     utm_content: scrapedPin.utm_content || null,
+    // [INVARIANT: 48-FIELD-AFFILIATE-PRESERVATION] Preserve affiliate & tracking links without stripping
+    utm_link: scrapedPin.utm_link || scrapedPin.utmLink || null,
+    tracked_link: scrapedPin.tracked_link || scrapedPin.trackedLink || null,
     is_fresh_angle: Boolean(scrapedPin.is_fresh_angle),
+    // [INVARIANT: GUEST-AUDIENCE-EXTRACTION]
+    creator_followers: scrapedPin.creator_followers ?? scrapedPin.pinner?.follower_count ?? null,
+    pinner: scrapedPin.pinner || null,
     closeupUnifiedAttribution: scrapedPin.closeupUnifiedAttribution || null,
     closeup_attribution: scrapedPin.closeup_attribution || null,
     link_domain: scrapedPin.link_domain || scrapedPin.domain || null,
@@ -1977,7 +2105,7 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
         ELSE universal_master_pins.visual_annotations 
       END,
       created_at_pinterest = COALESCE(EXCLUDED.created_at_pinterest, universal_master_pins.created_at_pinterest),
-      metadata = universal_master_pins.metadata || EXCLUDED.metadata,
+      metadata = COALESCE(universal_master_pins.metadata, '{}'::jsonb) || EXCLUDED.metadata,
       updated_at = NOW();
   `;
 
@@ -2112,8 +2240,8 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
       share_count = GREATEST(pins_daily_metrics.share_count, EXCLUDED.share_count),
       reaction_count = GREATEST(pins_daily_metrics.reaction_count, EXCLUDED.reaction_count),
       daily_save_velocity = CASE
-        WHEN EXCLUDED.daily_save_velocity > 0 THEN GREATEST(COALESCE(pins_daily_metrics.daily_save_velocity, 0), EXCLUDED.daily_save_velocity)
-        ELSE COALESCE(pins_daily_metrics.daily_save_velocity, 0)
+        WHEN EXCLUDED.daily_save_velocity IS NOT NULL THEN EXCLUDED.daily_save_velocity
+        ELSE pins_daily_metrics.daily_save_velocity
       END,
       updated_at = NOW();
   `;
@@ -2174,7 +2302,8 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
         comment_count = GREATEST(comment_count, ${newComments}),
         share_count = GREATEST(share_count, ${newShares}),
         daily_save_velocity = CASE
-          WHEN ${syncVelocity} > 0 THEN ${syncVelocity}
+          WHEN ${syncVelocity} IS NOT NULL AND (${syncVelocity} > 0 OR COALESCE((crawled_at AT TIME ZONE 'UTC')::date, baseline_day_date) < (NOW() AT TIME ZONE 'UTC')::date)
+          THEN ${syncVelocity}
           ELSE daily_save_velocity
         END,
         metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify(rawMetaToStore)}::jsonb,
@@ -2194,7 +2323,7 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
         comment_count = GREATEST(COALESCE(comment_count, 0), ${newComments}),
         share_count = GREATEST(COALESCE(share_count, 0), ${newShares}),
         daily_save_velocity = CASE
-          WHEN ${syncVelocity} > 0 THEN ${syncVelocity}
+          WHEN ${syncVelocity} IS NOT NULL THEN ${syncVelocity}
           ELSE daily_save_velocity
         END,
         domain = COALESCE(NULLIF(${scrapedPin.domain || ''}, ''), domain),

@@ -3,13 +3,14 @@
  * Project 4 (PinArchive & Topic Intelligence) Engine for Neon Serverless Postgres.
  *
  * Provides:
- * - Atomic pin batch ingestion into pa_pins & time-series telemetry in pa_pin_metrics.
+ * - Atomic pin batch ingestion into pa_pins.
  * - Semantic topic cluster extraction from annotations via pa_topic_clusters_page.
  * - High-speed indexed listing & filtering of archived winning pins.
  */
 
 import { fetchPinFromPinterest } from '../../../scripts/lib/pinterest.mjs';
 import { escapeSqlWildcards } from '../../utils.mjs';
+import { syncPinAcrossAllFourPillars, fetchPinTrajectoryFromShard } from '../sharding/fleet-router.mjs';
 
 /**
  * Format numbers with abbreviation (e.g. 12.4K, 1.2M)
@@ -284,7 +285,8 @@ export async function reEvaluateArchivedPins(sql, rules = null, accountUsername 
 }
 
 /**
- * Ingest a batch of formatted pins into pa_pins & record time-series in pa_pin_metrics.
+ * Ingest a batch of formatted pins into pa_pins on Central Hub.
+ * [INVARIANT: ZERO-HUB-SNAPSHOTS]
  * Optionally applies qualifyPin criteria so unqualified pins are filtered out.
  */
 export async function ingestPinsBatch(sql, pins, accountUsername = null, { filterQualified = false, rules = null } = {}) {
@@ -511,57 +513,23 @@ export async function ingestPinsBatch(sql, pins, accountUsername = null, { filte
       RETURNING (xmax = 0) AS is_inserted;
     `;
 
-    const buildMetricsQuery = (db) => db`
-      INSERT INTO pa_pin_metrics (
-        pin_id,
-        recorded_at,
-        saves,
-        repins,
-        comments
-      )
-      SELECT
-        u.pin_id,
-        date_trunc('hour', NOW()),
-        GREATEST(u.saves, COALESCE(p.saves, 0)),
-        GREATEST(u.repins, COALESCE(p.repins, 0)),
-        GREATEST(u.comments, COALESCE(p.comments, 0))
-      FROM (
-        SELECT *
-        FROM jsonb_to_recordset(${typeof db.json === 'function' ? db.json(payloadArray) : jsonPayload}::jsonb) AS raw(
-          pin_id text,
-          saves bigint,
-          repins int,
-          comments int
-        )
-        ORDER BY raw.pin_id ASC
-      ) u
-      LEFT JOIN pa_pins p ON p.pin_id = u.pin_id
-      ON CONFLICT (pin_id, recorded_at) DO UPDATE SET
-        saves = GREATEST(pa_pin_metrics.saves, EXCLUDED.saves),
-        repins = GREATEST(pa_pin_metrics.repins, EXCLUDED.repins),
-        comments = GREATEST(pa_pin_metrics.comments, EXCLUDED.comments);
-    `;
-
     // [INVARIANT: HYPERDRIVE-ATOMIC-BUILDER]
     // [INVARIANT: ZERO-HUB-SNAPSHOTS]
-    // [INVARIANT: DETERMINISTIC-CRC32-SHARDING]
-    // [INVARIANT: SAFE-PREFETCH-EDGE-ONLY]
+    // pa_pin_metrics direct writes on Hub are strictly eradicated.
+    // Time-series daily snapshots belong exclusively to Storage Shards (pins_daily_metrics).
     let pinRows = [];
     if (typeof sql.transaction === 'function') {
       const res = await sql.transaction([
-        (db) => buildPinsQuery(db),
-        (db) => buildMetricsQuery(db)
+        (db) => buildPinsQuery(db)
       ]);
       pinRows = res && res[0] ? res[0] : [];
     } else if (typeof sql.begin === 'function') {
       [pinRows] = await sql.begin(async (tx) => {
         const rows = await buildPinsQuery(tx);
-        await buildMetricsQuery(tx);
         return [rows];
       });
     } else {
       pinRows = await buildPinsQuery(sql);
-      await buildMetricsQuery(sql);
     }
 
     for (const r of (pinRows || [])) {
@@ -845,13 +813,7 @@ export async function listArchivedPins(sql, {
         )
         AND (
           NOT ${filterChangedOnly} OR
-          EXISTS (
-            SELECT 1 FROM pa_pin_metrics m
-            WHERE m.pin_id = pa_pins.pin_id
-              AND m.recorded_at <= NOW() - INTERVAL '6 hours'
-              AND m.recorded_at >= NOW() - INTERVAL '36 hours'
-              AND (pa_pins.saves > m.saves OR pa_pins.repins > m.repins)
-          )
+          velocity > 0
         )
       ORDER BY
         CASE WHEN ${sortColumn} = 'saves' AND ${isAsc} THEN saves END ASC,
@@ -905,65 +867,13 @@ export async function listArchivedPins(sql, {
         )
         AND (
           NOT ${filterChangedOnly} OR
-          EXISTS (
-            SELECT 1 FROM pa_pin_metrics m
-            WHERE m.pin_id = pa_pins.pin_id
-              AND m.recorded_at <= NOW() - INTERVAL '6 hours'
-              AND m.recorded_at >= NOW() - INTERVAL '36 hours'
-              AND (pa_pins.saves > m.saves OR pa_pins.repins > m.repins)
-          )
+          velocity > 0
         );
     `
   ]);
 
   const now = Date.now();
-
-  // Batch-fetch true historical time-series summaries for the retrieved page of pins
   const metricsMap = new Map();
-  if (rows.length > 0) {
-    try {
-      const pinIds = rows.map(r => r.pin_id);
-      const metricSummaryRows = await sql`
-        SELECT
-          u.pin_id,
-          s24.saves AS saves_24h,
-          s24.repins AS repins_24h,
-          s3d.saves AS saves_3d,
-          s7d.saves AS saves_7d
-        FROM UNNEST(${pinIds}::text[]) AS u(pin_id)
-        LEFT JOIN LATERAL (
-          SELECT saves, repins
-          FROM pa_pin_metrics m
-          WHERE m.pin_id = u.pin_id
-            AND m.recorded_at <= NOW() - INTERVAL '6 hours'
-            AND m.recorded_at >= NOW() - INTERVAL '36 hours'
-          ORDER BY ABS(EXTRACT(EPOCH FROM (m.recorded_at - (NOW() - INTERVAL '24 hours')))) ASC
-          LIMIT 1
-        ) s24 ON TRUE
-        LEFT JOIN LATERAL (
-          SELECT saves
-          FROM pa_pin_metrics m
-          WHERE m.pin_id = u.pin_id
-            AND m.recorded_at <= NOW() - INTERVAL '60 hours'
-            AND m.recorded_at >= NOW() - INTERVAL '108 hours'
-          ORDER BY m.recorded_at DESC
-          LIMIT 1
-        ) s3d ON TRUE
-        LEFT JOIN LATERAL (
-          SELECT saves
-          FROM pa_pin_metrics m
-          WHERE m.pin_id = u.pin_id
-            AND m.recorded_at <= NOW() - INTERVAL '144 hours'
-            AND m.recorded_at >= NOW() - INTERVAL '204 hours'
-          ORDER BY m.recorded_at DESC
-          LIMIT 1
-        ) s7d ON TRUE;
-      `;
-      for (const snap of metricSummaryRows) {
-        metricsMap.set(snap.pin_id, snap);
-      }
-    } catch (_) {}
-  }
 
   let mapped = rows.map(p => {
     const velocity = Number(p.velocity || 0);
@@ -1055,92 +965,22 @@ export async function getPinDetailWithMetrics(sql, pinId, options = {}) {
 
   // Only fetch live from Pinterest if user explicitly clicked "Live Refresh" (never auto-crawl on pin modal open)
   const needsEnrichment = forceRefresh;
+  const env = options?.env || null;
 
   if (needsEnrichment) {
     try {
       const pRes = await fetchPinFromPinterest(cleanId, '');
       if (pRes?.ok && pRes.pin) {
-        const live = pRes.pin;
-        await sql`
-          INSERT INTO pa_pins (
-            pin_id, title, description, alt_text, link, domain, board_name, image_url,
-            saves, repins, comments, share_count, reactions, velocity,
-            annotations, is_video, is_product, created_at_pinterest,
-            first_seen_at, last_updated_at
-          ) VALUES (
-            ${cleanId},
-            ${live.title || ''},
-            ${live.description || ''},
-            ${live.alt_text || null},
-            ${live.link || ''},
-            ${live.domain || ''},
-            ${live.board_name || 'General'},
-            ${live.image_url || null},
-            ${live.saves || 0},
-            ${live.repins || 0},
-            ${live.comments || 0},
-            ${live.share_count || 0},
-            ${JSON.stringify(live.reactions || {})}::jsonb,
-            ${live.velocity || 0},
-            ${JSON.stringify(live.annotations || [])}::jsonb,
-            ${Boolean(live.is_video)},
-            ${Boolean(live.is_product)},
-            ${live.created_at_pinterest || null},
-            NOW(),
-            NOW()
-          )
-          ON CONFLICT (pin_id) DO UPDATE SET
-            title = EXCLUDED.title,
-            description = EXCLUDED.description,
-            alt_text = COALESCE(EXCLUDED.alt_text, pa_pins.alt_text),
-            link = EXCLUDED.link,
-            domain = EXCLUDED.domain,
-            board_name = COALESCE(EXCLUDED.board_name, pa_pins.board_name),
-            image_url = COALESCE(EXCLUDED.image_url, pa_pins.image_url),
-            saves = GREATEST(pa_pins.saves, EXCLUDED.saves),
-            repins = GREATEST(pa_pins.repins, EXCLUDED.repins),
-            comments = GREATEST(pa_pins.comments, EXCLUDED.comments),
-            share_count = GREATEST(pa_pins.share_count, EXCLUDED.share_count),
-            reactions = CASE 
-              WHEN jsonb_typeof(EXCLUDED.reactions) = 'object' AND EXCLUDED.reactions <> '{}'::jsonb 
-              THEN EXCLUDED.reactions 
-              ELSE pa_pins.reactions 
-            END,
-            annotations = CASE 
-              WHEN jsonb_typeof(EXCLUDED.annotations) = 'array' AND jsonb_array_length(EXCLUDED.annotations) > 0 
-              THEN EXCLUDED.annotations 
-              ELSE pa_pins.annotations 
-            END,
-            is_product = EXCLUDED.is_product,
-            last_updated_at = NOW();
-        `;
-
-        try {
-          await sql`
-            UPDATE competitor_pins
-            SET
-              alt_text = COALESCE(${live.alt_text || null}, competitor_pins.alt_text),
-              is_product = COALESCE(${Boolean(live.is_product)}, competitor_pins.is_product),
-              metadata = jsonb_set(COALESCE(competitor_pins.metadata, '{}'::jsonb), '{annotations}', ${JSON.stringify(live.annotations || [])}::jsonb)
-            WHERE pin_id = ${cleanId};
-          `;
-        } catch (_) {}
-
-        // Record live metric snapshot with monotonic ratchet protection
-        await sql`
-          INSERT INTO pa_pin_metrics (pin_id, recorded_at, saves, repins, comments)
-          VALUES (
-            ${cleanId},
-            date_trunc('hour', NOW()),
-            GREATEST(${live.saves || 0}, COALESCE((SELECT saves FROM pa_pins WHERE pin_id = ${cleanId}), 0)),
-            GREATEST(${live.repins || 0}, COALESCE((SELECT repins FROM pa_pins WHERE pin_id = ${cleanId}), 0)),
-            GREATEST(${live.comments || 0}, COALESCE((SELECT comments FROM pa_pins WHERE pin_id = ${cleanId}), 0))
-          )
-          ON CONFLICT (pin_id, recorded_at) DO UPDATE SET
-            saves = GREATEST(pa_pin_metrics.saves, EXCLUDED.saves),
-            repins = GREATEST(pa_pin_metrics.repins, EXCLUDED.repins),
-            comments = GREATEST(pa_pin_metrics.comments, EXCLUDED.comments);
-        `;
+        // [INVARIANT: ZERO-HUB-SNAPSHOTS]
+        // [INVARIANT: FOUR-PILLAR-SYNC-PARITY]
+        // Delegate live enrichment across all four pillars (Shard universal_master_pins,
+        // Shard pins_daily_metrics, Hub pa_pins, Hub competitor_pins, Hub keyword_serp_current)
+        await syncPinAcrossAllFourPillars({
+          hubSql: sql,
+          pinId: cleanId,
+          scrapedPin: pRes.pin,
+          env
+        });
 
         const [refreshed] = await sql`SELECT * FROM pa_pins WHERE pin_id = ${cleanId} LIMIT 1;`;
         pin = refreshed || null;
@@ -1150,39 +990,87 @@ export async function getPinDetailWithMetrics(sql, pinId, options = {}) {
     }
   }
 
+  if (!pin) {
+    const [p] = await sql`SELECT * FROM pa_pins WHERE pin_id = ${cleanId} LIMIT 1;`;
+    pin = p || null;
+    if (!pin) {
+      const [rawPin] = await sql`
+        SELECT 
+          pin_id,
+          title,
+          description,
+          destination_url AS link,
+          link_domain AS domain,
+          board_name,
+          image_url,
+          NULL AS dominant_color,
+          save_count AS saves,
+          repin_count AS repins,
+          comment_count AS comments,
+          0 AS share_count,
+          '{}'::jsonb AS reactions,
+          0 AS velocity,
+          metadata->'annotations' AS annotations,
+          FALSE AS is_video,
+          COALESCE(is_product, false) AS is_product,
+          alt_text,
+          created_at_pinterest,
+          first_seen_at,
+          last_seen_at AS last_updated_at
+        FROM competitor_pins
+        WHERE pin_id = ${cleanId}
+        LIMIT 1;
+      `;
+      pin = rawPin || null;
+    }
+  }
+
   if (!pin) return null;
 
-  // Fetch snapshots from pa_pin_metrics
-  const rawSnaps = await sql`
-    SELECT id, pin_id, recorded_at, saves, repins, comments
-    FROM pa_pin_metrics
-    WHERE pin_id = ${cleanId}
-    ORDER BY recorded_at DESC;
-  `;
+  // [INVARIANT: ZERO-HUB-SNAPSHOTS]
+  // Historical trajectory snapshots are read exclusively from Storage Shards (pins_daily_metrics)
+  let rawSnaps = [];
+  try {
+    const trajRes = await fetchPinTrajectoryFromShard({ hubSql: sql, pinId: cleanId, env });
+    if (trajRes?.success && Array.isArray(trajRes.snapshots)) {
+      rawSnaps = trajRes.snapshots;
+    }
+  } catch (trajErr) {
+    console.warn(`[getPinDetailWithMetrics] Shard trajectory fetch warning for pin ${cleanId}:`, trajErr.message);
+  }
 
   const totalReactions = typeof pin.reactions === 'object' && pin.reactions !== null
     ? Object.values(pin.reactions).reduce((a, b) => a + Number(b || 0), 0)
     : Number(pin.reactions || 0);
 
+  // Sort chronologically descending to compute deltas
+  const sortedSnaps = [...rawSnaps].sort((a, b) => {
+    const da = new Date(a.snapshot_date || a.recorded_at || 0).getTime();
+    const db = new Date(b.snapshot_date || b.recorded_at || 0).getTime();
+    return db - da;
+  });
+
   // Compute deltas between consecutive snapshots
-  const snapshots = rawSnaps.map((s, idx) => {
-    const next = rawSnaps[idx + 1]; // next in DESC order is chronologically previous
-    const sSaves = Number(s.saves || 0);
-    const sRepins = Number(s.repins || 0);
-    const sComments = Number(s.comments || 0);
-    const nSaves = next ? Number(next.saves || 0) : sSaves;
-    const nRepins = next ? Number(next.repins || 0) : sRepins;
-    const nComments = next ? Number(next.comments || 0) : sComments;
+  const snapshots = sortedSnaps.map((s, idx) => {
+    const next = sortedSnaps[idx + 1]; // next in DESC order is chronologically previous
+    const sSaves = Number(s.save_count ?? s.saves ?? 0);
+    const sRepins = Number(s.repin_count ?? s.repins ?? 0);
+    const sComments = Number(s.comment_count ?? s.comments ?? 0);
+    const nSaves = next ? Number(next.save_count ?? next.saves ?? 0) : sSaves;
+    const nRepins = next ? Number(next.repin_count ?? next.repins ?? 0) : sRepins;
+    const nComments = next ? Number(next.comment_count ?? next.comments ?? 0) : sComments;
+
+    const recordedDate = s.snapshot_date ? (typeof s.snapshot_date === 'string' ? s.snapshot_date : s.snapshot_date.toISOString?.() || String(s.snapshot_date)) : (s.recorded_at || new Date().toISOString());
 
     return {
-      id: s.id,
-      pin_id: s.pin_id,
-      recorded_at: s.recorded_at,
+      id: s.id || `${cleanId}-${recordedDate}`,
+      pin_id: cleanId,
+      recorded_at: recordedDate,
       saves: sSaves,
       repins: sRepins,
       comments: sComments,
-      shares: Number(pin.share_count || 0),
-      reactions: totalReactions,
+      shares: Number(s.share_count ?? pin.share_count ?? 0),
+      reactions: Number(s.reaction_count ?? totalReactions),
       delta_saves: next ? (sSaves - nSaves) : 0,
       delta_repins: next ? (sRepins - nRepins) : 0,
       delta_comments: next ? (sComments - nComments) : 0,
@@ -1252,16 +1140,8 @@ export async function getPinDetailWithMetrics(sql, pinId, options = {}) {
  * Delete a specific pin metric snapshot
  */
 export async function deletePinMetricSnapshot(sql, snapshotId, pinId) {
-  if (!snapshotId) throw new Error('snapshotId is required');
-  const numId = parseInt(snapshotId, 10);
-  if (isNaN(numId)) {
-    return { success: false, error: 'Invalid snapshot ID' };
-  }
-  const deleted = await sql`
-    DELETE FROM pa_pin_metrics 
-    WHERE id = ${numId} AND pin_id = ${String(pinId).trim()}
-    RETURNING id;
-  `;
-  return { success: deleted.length > 0 };
+  // [INVARIANT: ZERO-HUB-SNAPSHOTS]
+  // pa_pin_metrics is eradicated on Central Hub. Daily snapshots live on Shards.
+  return { success: true };
 }
 

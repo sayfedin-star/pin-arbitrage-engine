@@ -5,8 +5,7 @@
 
 import { neon } from '@neondatabase/serverless';
 import { getCompetitorsOverview, listCompetitors, formatMetric } from '../competitors/service.mjs';
-import { getShardNumberForEntity } from './sharding.mjs';
-import { enforceNeonPoolerUrl } from '../sharding/fleet-router.mjs';
+import { getShardNumberForEntity, enforceNeonPoolerUrl } from '../sharding/fleet-router.mjs';
 import { maskDatabaseUrl } from '../../utils.mjs';
 export { enforceNeonPoolerUrl, maskDatabaseUrl };
 
@@ -413,7 +412,8 @@ export async function syncFleetDatabases(hubSql, { targetProjectId = null } = {}
   const boards = await hubSql`SELECT * FROM competitor_boards;`;
   const [rules] = await hubSql`SELECT * FROM pa_qualification_rules WHERE id = 1;`;
   const [{ count: pinsCount }] = await hubSql`SELECT COUNT(*)::int AS count FROM pa_pins;`.catch(() => [{ count: 0 }]);
-  const [{ count: metricsCount }] = await hubSql`SELECT COUNT(*)::int AS count FROM pa_pin_metrics;`.catch(() => [{ count: 0 }]);
+  // [INVARIANT: ZERO-HUB-SNAPSHOTS] pa_pin_metrics is eradicated from Hub.
+  const metricsCount = 0;
 
   let query = hubSql`
     SELECT project_id, project_name, database_url

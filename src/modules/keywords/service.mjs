@@ -36,162 +36,19 @@ import {
  * (universal_master_pins, pins_daily_metrics, pin_serp_positions, and pins_daily_snapshots)
  * partitioned strictly by Shard_ID = (CRC32(pin_id) % 99) + 1.
  */
-let isEdgePinsMetadataReady = false;
-
-/**
- * Ensures `edge_pins_metadata` table exists on Cloudflare D1 (`PIN_D1_DB`)
- */
-export async function ensureEdgePinsMetadataTable(env) {
-  if (isEdgePinsMetadataReady || !env?.PIN_D1_DB) return;
-  try {
-    await env.PIN_D1_DB.prepare(`
-      CREATE TABLE IF NOT EXISTS edge_pins_metadata (
-        pin_id TEXT PRIMARY KEY,
-        title TEXT DEFAULT '',
-        domain TEXT DEFAULT '',
-        destination_url TEXT DEFAULT '',
-        image_url TEXT DEFAULT '',
-        creator_username TEXT DEFAULT '',
-        board_name TEXT DEFAULT '',
-        dominant_color TEXT DEFAULT '#888888',
-        visual_annotations TEXT DEFAULT '[]',
-        seo_alt_text TEXT DEFAULT '',
-        description TEXT DEFAULT '',
-        metadata TEXT DEFAULT '{}',
-        created_at_pinterest TEXT,
-        updated_at TEXT DEFAULT (datetime('now'))
-      )
-    `).run().catch(() => {});
-    await env.PIN_D1_DB.prepare(`CREATE INDEX IF NOT EXISTS idx_edge_pins_domain ON edge_pins_metadata(domain)`).run().catch(() => {});
-    isEdgePinsMetadataReady = true;
-  } catch (_) {}
-}
-
-/**
- * Batch-syncs creative pin metadata into Cloudflare D1 (`edge_pins_metadata`)
- * in bounded chunks of 80 statements per D1 batch call.
- */
-export async function syncPinsBatchToD1(env, pins = []) {
-  if (!env?.PIN_D1_DB || !Array.isArray(pins) || pins.length === 0) return 0;
-  try {
-    await ensureEdgePinsMetadataTable(env);
-    const dedup = new Map();
-    for (const p of pins) {
-      if (!p || !p.pin_id) continue;
-      const pid = String(p.pin_id).trim();
-      if (!pid) continue;
-      if (!dedup.has(pid) || (p.title && p.image_url)) {
-        dedup.set(pid, p);
-      }
-    }
-    const uniquePins = Array.from(dedup.values());
-    const nowIso = new Date().toISOString();
-    let synced = 0;
-    const CHUNK = 80;
-    for (let i = 0; i < uniquePins.length; i += CHUNK) {
-      const slice = uniquePins.slice(i, i + CHUNK);
-      const stmts = slice.map(p => {
-        const annotationsArr = Array.isArray(p.visual_annotations)
-          ? p.visual_annotations
-          : (Array.isArray(p.annotations) ? p.annotations : []);
-        const metaObj = (p.metadata && typeof p.metadata === 'object')
-          ? p.metadata
-          : ((p.extra_meta && typeof p.extra_meta === 'object') ? p.extra_meta : {});
-        return env.PIN_D1_DB.prepare(`
-          INSERT INTO edge_pins_metadata (
-            pin_id, title, domain, destination_url, image_url,
-            creator_username, board_name, dominant_color, visual_annotations,
-            seo_alt_text, description, metadata, created_at_pinterest, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT(pin_id) DO UPDATE SET
-            title = CASE WHEN excluded.title <> '' THEN excluded.title ELSE edge_pins_metadata.title END,
-            domain = CASE WHEN excluded.domain <> '' THEN excluded.domain ELSE edge_pins_metadata.domain END,
-            destination_url = CASE WHEN excluded.destination_url <> '' THEN excluded.destination_url ELSE edge_pins_metadata.destination_url END,
-            image_url = CASE WHEN excluded.image_url <> '' THEN excluded.image_url ELSE edge_pins_metadata.image_url END,
-            creator_username = CASE WHEN excluded.creator_username <> '' THEN excluded.creator_username ELSE edge_pins_metadata.creator_username END,
-            board_name = CASE WHEN excluded.board_name <> '' THEN excluded.board_name ELSE edge_pins_metadata.board_name END,
-            dominant_color = CASE WHEN excluded.dominant_color <> '#888888' THEN excluded.dominant_color ELSE edge_pins_metadata.dominant_color END,
-            visual_annotations = CASE WHEN excluded.visual_annotations <> '[]' THEN excluded.visual_annotations ELSE edge_pins_metadata.visual_annotations END,
-            seo_alt_text = CASE WHEN excluded.seo_alt_text <> '' THEN excluded.seo_alt_text ELSE edge_pins_metadata.seo_alt_text END,
-            description = CASE WHEN excluded.description <> '' THEN excluded.description ELSE edge_pins_metadata.description END,
-            metadata = CASE WHEN excluded.metadata <> '{}' AND excluded.metadata <> '' THEN excluded.metadata ELSE edge_pins_metadata.metadata END,
-            created_at_pinterest = COALESCE(excluded.created_at_pinterest, edge_pins_metadata.created_at_pinterest),
-            updated_at = excluded.updated_at
-        `).bind(
-          String(p.pin_id),
-          String(p.title || ''),
-          String(p.domain || ''),
-          String(p.destination_url || ''),
-          String(p.image_url || ''),
-          String(p.creator_username || p.metadata?.pinner?.username || ''),
-          String(p.board_name || p.metadata?.board_name || ''),
-          String(p.dominant_color || '#888888'),
-          JSON.stringify(annotationsArr),
-          String(p.seo_alt_text || p.alt_text || p.metadata?.alt_text || ''),
-          String(p.description || p.metadata?.description || ''),
-          JSON.stringify(metaObj),
-          p.created_at_pinterest ? new Date(p.created_at_pinterest).toISOString() : null,
-          nowIso
-        );
-      });
-      await env.PIN_D1_DB.batch(stmts);
-      synced += stmts.length;
-    }
-    return synced;
-  } catch (err) {
-    console.warn('[syncPinsBatchToD1] Non-fatal D1 sync warning:', err.message);
-    return 0;
-  }
-}
-
-/**
- * Reads pin creative metadata from Cloudflare D1 (`edge_pins_metadata`) in < 3ms
- * using chunks of 80 parameters to respect D1's 100-variable SQLite limit.
- */
-export async function hydratePinsFromD1(env, pinIds = []) {
-  const map = new Map();
-  if (!env?.PIN_D1_DB || !Array.isArray(pinIds) || pinIds.length === 0) return map;
-  try {
-    await ensureEdgePinsMetadataTable(env);
-    const uniqueIds = Array.from(new Set(pinIds.map(id => String(id).trim()).filter(Boolean)));
-    const CHUNK = 80;
-    const stmts = [];
-    for (let i = 0; i < uniqueIds.length; i += CHUNK) {
-      const slice = uniqueIds.slice(i, i + CHUNK);
-      const placeholders = slice.map(() => '?').join(',');
-      stmts.push(
-        env.PIN_D1_DB.prepare(
-          `SELECT pin_id, title, domain, destination_url, image_url, creator_username, board_name, dominant_color, visual_annotations, seo_alt_text, description, metadata, created_at_pinterest FROM edge_pins_metadata WHERE pin_id IN (${placeholders})`
-        ).bind(...slice)
-      );
-    }
-    if (stmts.length === 0) return map;
-    const batchRes = await env.PIN_D1_DB.batch(stmts);
-    for (const res of (batchRes || [])) {
-      for (const r of (res?.results || [])) {
-        let parsedAnnotations = [];
-        if (Array.isArray(r.visual_annotations)) {
-          parsedAnnotations = r.visual_annotations;
-        } else if (typeof r.visual_annotations === 'string' && r.visual_annotations.trim()) {
-          try { parsedAnnotations = JSON.parse(r.visual_annotations); } catch (_) {}
-        }
-        let parsedMeta = {};
-        if (typeof r.metadata === 'string' && r.metadata.trim()) {
-          try { parsedMeta = JSON.parse(r.metadata); } catch (_) {}
-        } else if (r.metadata && typeof r.metadata === 'object') {
-          parsedMeta = r.metadata;
-        }
-        map.set(String(r.pin_id), {
-          ...r,
-          metadata: parsedMeta,
-          visual_annotations: Array.isArray(parsedAnnotations) ? parsedAnnotations : [],
-          alt_text: r.seo_alt_text || ''
-        });
-      }
-    }
-  } catch (_) {}
-  return map;
-}
+// [INVARIANT: SAFE-PREFETCH-EDGE-ONLY]
+// Modular D1 Edge Metadata Operations
+export {
+  isEdgePinsMetadataReady,
+  ensureEdgePinsMetadataTable,
+  syncPinsBatchToD1,
+  hydratePinsFromD1
+} from './d1-metadata.mjs';
+import {
+  ensureEdgePinsMetadataTable,
+  syncPinsBatchToD1,
+  hydratePinsFromD1
+} from './d1-metadata.mjs';
 
 export async function offloadKeywordCrawlToShards(hubSql, keywordId, activePins = [], displacedPins = [], env = null) {
   const kid = Number(keywordId);
@@ -361,7 +218,7 @@ export async function offloadKeywordCrawlToShards(hubSql, keywordId, activePins 
               comment_count = GREATEST(pins_daily_metrics.comment_count, EXCLUDED.comment_count),
               share_count = GREATEST(pins_daily_metrics.share_count, EXCLUDED.share_count),
               daily_save_velocity = CASE 
-                WHEN EXCLUDED.daily_save_velocity > 0 THEN GREATEST(COALESCE(pins_daily_metrics.daily_save_velocity, 0), EXCLUDED.daily_save_velocity)
+                WHEN EXCLUDED.daily_save_velocity IS NOT NULL THEN EXCLUDED.daily_save_velocity
                 ELSE pins_daily_metrics.daily_save_velocity 
               END,
               updated_at = NOW()
@@ -436,7 +293,7 @@ async function hydrateDisplacedIndexFromShards(hubSql, indexRows = [], env = nul
       const shardGroups = batchGroupByShard(stillMissing, 99);
       const newlyHydratedFromShards = [];
 
-      // [INVARIANT: CLOUDFLARE-6-CONNECTION-CEILING] Chunk shard scatter-gather into groups of <= 4
+      // [INVARIANT: EDGE-SUBREQUEST-PAGINATION-SHIELD] [INVARIANT: CLOUDFLARE-6-CONNECTION-CEILING] Chunk shard scatter-gather into groups of <= 4
       const shardEntries = Array.from(shardGroups.entries());
       const CONCURRENCY_LIMIT = 4;
       for (let i = 0; i < shardEntries.length; i += CONCURRENCY_LIMIT) {
@@ -449,7 +306,8 @@ async function hydrateDisplacedIndexFromShards(hubSql, indexRows = [], env = nul
             const rows = await executeShardQueryWithCircuitBreaker({
               shardId,
               shardSql,
-              timeoutMs: 6000,
+              // [INVARIANT: EDGE-SUBREQUEST-PAGINATION-SHIELD] Strict 2000ms circuit breaker timeout
+              timeoutMs: 2000,
               queryFn: async (client) => {
                 return await client`
                   SELECT pin_id, title, domain, destination_url, image_url,
@@ -501,153 +359,27 @@ async function hydrateDisplacedIndexFromShards(hubSql, indexRows = [], env = nul
 // In-Memory Mutex for process-local fast-fail
 const activeKeywordCrawls = new Set();
 
-/**
- * Defensive JSONB Metadata Normalizer (Resilient against double-stringification, nulls, and scalars)
- */
-export function safeNormalizeMetadata(raw) {
-  if (!raw) return {};
-  if (typeof raw === 'object' && !Array.isArray(raw)) return raw;
-  if (typeof raw === 'string') {
-    const trimmed = raw.trim();
-    if (!trimmed || trimmed === '""' || trimmed === "''") return {};
-    try {
-      let parsed = JSON.parse(trimmed);
-      if (typeof parsed === 'string') {
-        try { parsed = JSON.parse(parsed); } catch (_) {}
-      }
-      return (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) ? parsed : {};
-    } catch (_) {
-      return {};
-    }
-  }
-  return {};
-}
-
-// In-Memory True LRU Cache for Pinterest Typeahead (max 500 entries, 15m TTL)
-const typeaheadCache = new Map();
-const inflightTypeahead = new Map();
-const TYPEAHEAD_CACHE_MAX = 500;
-const TYPEAHEAD_TTL_MS = 15 * 60 * 1000;
+// Modular Analytics, Outlier Suppression & Normalization
+export {
+  safeNormalizeMetadata,
+  winsorize,
+  extractPinTitle,
+  calculateMedian,
+  calculateKeywordIntelligenceSummary
+} from './analytics.mjs';
+import {
+  safeNormalizeMetadata,
+  winsorize,
+  extractPinTitle,
+  calculateMedian,
+  calculateKeywordIntelligenceSummary
+} from './analytics.mjs';
 
 // In-Memory True LRU Cache for Visual Similarity Lens (max 500 entries, 15m TTL)
 const visualSearchCache = new Map();
 const inflightVisualSearch = new Map();
 const VISUAL_CACHE_MAX = 500;
 const VISUAL_TTL_MS = 15 * 60 * 1000;
-
-/**
- * Statistical Winsorization for Outlier Suppression (Bot Spike & Anomaly Protection)
- * Caps extreme outliers above the upperPercentile (default 95th percentile) to prevent
- * single-pin bot surges from skewing aggregate velocity and SEO scores.
- */
-export function winsorize(values, upperPercentile = 0.95) {
-  if (!Array.isArray(values) || values.length === 0) return [];
-  const sorted = [...values].sort((a, b) => a - b);
-  const cutoffIndex = Math.floor(sorted.length * upperPercentile);
-  const cutoffValue = sorted[Math.min(cutoffIndex, sorted.length - 1)];
-  return values.map(v => Math.min(v, cutoffValue));
-}
-
-/**
- * Safely extracts clean string title from raw Pinterest items,
- * preventing JSON format objects (e.g. {"args":[],"format":"..."}) from corrupting pin titles.
- * Traverses all Pinterest title variants, descriptions, link slugs, and visual annotations.
- */
-export function extractPinTitle(item, fallbackQuery = '') {
-  if (!item) return fallbackQuery ? `${fallbackQuery} Idea` : 'Pinterest Pin Idea';
-  
-  // 1. Primary explicit title fields
-  const primaryCandidates = [
-    item.title,
-    item.grid_title,
-    item.headline,
-    item.rich_metadata?.title,
-    item.rich_summary?.display_name,
-    item.rich_summary?.products?.[0]?.name,
-    item.story_pin_data?.metadata?.root?.title,
-    item.pin_join?.story_pin_data?.metadata?.root?.title,
-    item.seo_title,
-    item.seoTitle
-  ];
-
-  for (let c of primaryCandidates) {
-    if (!c) continue;
-    if (typeof c === 'object') {
-      c = c.text || c.title || c.headline || c.format || c.name || '';
-    }
-    let str = String(c || '').trim();
-    if (str.startsWith('{') && str.endsWith('}')) {
-      try {
-        const parsed = JSON.parse(str);
-        str = String(parsed.text || parsed.title || parsed.format || str).trim();
-      } catch (_) {}
-    }
-    if (!str || str === 'Explore featured boards' || str === 'Untitled Pin' || str === '{}' || str === 'Related Interests') {
-      continue;
-    }
-    // Truncate long descriptions masquerading as titles to first sentence
-    if (str.length > 90 && (str.includes('\n') || str.includes('.') || str.includes('!'))) {
-      const firstSentence = str.split(/[\n.!?]/)[0].trim();
-      if (firstSentence.length > 5) return firstSentence.slice(0, 110);
-    }
-    return str.slice(0, 150);
-  }
-
-  // 2. High-precision Fallback: Pinterest Computer-Vision Visual Annotation Taxonomy
-  const firstAnnotation = Array.isArray(item.pin_join?.visual_annotation)
-    ? item.pin_join.visual_annotation[0]
-    : null;
-  if (firstAnnotation && typeof firstAnnotation === 'string' && firstAnnotation.trim()) {
-    const cleanAnn = firstAnnotation.trim();
-    if (cleanAnn.length > 3 && cleanAnn !== 'Related Interests') {
-      return cleanAnn.slice(0, 120);
-    }
-  }
-
-  // 3. Fallback: Clean readable slug derived from destination link URL
-  if (item.link || item.url) {
-    try {
-      const u = new URL(item.link || item.url);
-      const pathParts = u.pathname.split('/').filter(Boolean);
-      const lastSlug = pathParts[pathParts.length - 1];
-      if (lastSlug && lastSlug.length > 3 && !/^\d+$/.test(lastSlug)) {
-        const readable = lastSlug
-          .replace(/[-_]+/g, ' ')
-          .replace(/\.html?$/i, '')
-          .replace(/\b\w/g, ch => ch.toUpperCase())
-          .trim();
-        if (readable.length > 4) return readable.slice(0, 120);
-      }
-    } catch (_) {}
-  }
-
-  // 4. Secondary fallback: First sentence of description or alt text (never a run-on essay)
-  const secondaryCandidates = [
-    item.seoAltText,
-    item.alt_text,
-    item.grid_description,
-    item.closeup_unified_description,
-    item.description
-  ];
-
-  for (let c of secondaryCandidates) {
-    if (!c) continue;
-    let str = String(c || '').trim();
-    if (!str || str === 'Untitled Pin') continue;
-    const firstSentence = str.split(/[\n.!?]/)[0].trim();
-    if (firstSentence && firstSentence.length > 5) {
-      return firstSentence.slice(0, 110);
-    }
-  }
-
-  // 5. Fallback: Board Name
-  if (item.board?.name && typeof item.board.name === 'string' && item.board.name.trim()) {
-    return `${item.board.name.trim()} Pin`;
-  }
-
-  // 6. Absolute fail-safe: clean readable query title
-  return fallbackQuery ? `${fallbackQuery} Idea` : 'Pinterest Pin Idea';
-}
 
 /**
  * List all tracked keywords with velocity summaries
@@ -759,296 +491,25 @@ export async function listKeywords(sql, { search = '', limit = 1000, offset = 0 
 /**
  * Add a new keyword to track
  */
-/**
- * Get Global Keyword & Crawl Intelligence Settings
- */
-export async function getAppSettings(sql) {
-  const defaultSettings = {
-    enable_serp_harvest: true,
-    default_crawl_pages: 2,
-    default_max_pins: 50,
-    max_serp_pins: 50,
-    max_catalog_inspect: 0,
-    default_crawl_scope: 'all_pins',
-    default_inspection_mode: 'full_catalog',
-    exclude_promoted: true,
-    exclude_boards_and_suggestions: true,
-    exclude_ignored_pins: true,
-    breakout_rules: {
-      max_pin_age_days: 14,
-      min_daily_save_velocity: 3.0,
-      min_repins: 1,
-      target_rank_zone: [20, 400]
-    }
-  };
-  try {
-    const rows = await sql`SELECT key, value, updated_at FROM app_settings WHERE key = 'keyword_crawl_settings';`;
-    if (rows.length > 0 && rows[0].value) {
-      return {
-        ...defaultSettings,
-        ...rows[0].value,
-        breakout_rules: {
-          ...defaultSettings.breakout_rules,
-          ...(rows[0].value.breakout_rules || {})
-        }
-      };
-    }
-  } catch (err) {
-    console.warn('[Settings] Failed reading app_settings from DB:', err.message);
-  }
-  return defaultSettings;
-}
+// Modular Keyword Settings & Configuration
+export {
+  getAppSettings,
+  updateAppSettings,
+  updateKeywordSettings,
+  addKeyword,
+  resolveKeywordBySlug
+} from './settings.mjs';
+import {
+  getAppSettings,
+  updateAppSettings,
+  updateKeywordSettings,
+  addKeyword,
+  resolveKeywordBySlug
+} from './settings.mjs';
 
-/**
- * Update Global Keyword & Crawl Intelligence Settings
- */
-export async function updateAppSettings(sql, newSettings = {}) {
-  const current = await getAppSettings(sql);
-  const merged = {
-    ...current,
-    ...newSettings,
-    breakout_rules: {
-      ...(current.breakout_rules || {}),
-      ...(newSettings.breakout_rules || {})
-    }
-  };
-  await sql`
-    INSERT INTO app_settings (key, value, updated_at)
-    VALUES ('keyword_crawl_settings', ${JSON.stringify(merged)}::jsonb, NOW())
-    ON CONFLICT (key) DO UPDATE SET
-      value = EXCLUDED.value,
-      updated_at = NOW();
-  `;
-  return merged;
-}
-
-/**
- * Update individual keyword settings (pages limit, inspection mode, target pin count)
- */
-export async function updateKeywordSettings(sql, keywordId, settings = {}) {
-  const kid = Number(keywordId);
-  if (!kid) throw new Error('Valid keyword ID is required');
-  const pages = settings.crawl_pages_limit !== undefined ? Math.max(1, Math.min(40, Number(settings.crawl_pages_limit))) : null;
-  const mode = settings.inspection_mode !== undefined ? String(settings.inspection_mode).trim() : null;
-  const pinCount = settings.target_pin_count !== undefined 
-    ? Math.max(25, Math.min(1000, Number(settings.target_pin_count))) 
-    : (pages ? pages * 25 : null);
-
-  const [updated] = await sql`
-    UPDATE tracked_keywords
-    SET 
-      crawl_pages_limit = COALESCE(${pages}, crawl_pages_limit),
-      inspection_mode = COALESCE(${mode}, inspection_mode),
-      target_pin_count = COALESCE(${pinCount}, target_pin_count),
-      updated_at = NOW()
-    WHERE id = ${kid}
-    RETURNING id, keyword, category, target_pin_count, crawl_pages_limit, inspection_mode;
-  `;
-  return updated;
-}
-
-/**
- * Add a new keyword to track with dynamic depth support
- */
-export async function addKeyword(sql, { keyword, category = 'General', target_pin_count = 250, crawl_pages_limit = 10, inspection_mode = 'full_catalog' }) {
-  const cleanKeyword = keyword.trim().toLowerCase();
-  if (!cleanKeyword) throw new Error('Keyword is required.');
-
-  const [row] = await sql`
-    INSERT INTO tracked_keywords (
-      keyword,
-      category,
-      target_pin_count,
-      crawl_pages_limit,
-      inspection_mode,
-      is_active,
-      created_at,
-      updated_at
-    ) VALUES (
-      ${cleanKeyword},
-      ${category},
-      ${target_pin_count},
-      ${crawl_pages_limit},
-      ${inspection_mode},
-      TRUE,
-      NOW(),
-      NOW()
-    )
-    ON CONFLICT (keyword) DO UPDATE SET
-      is_active = TRUE,
-      target_pin_count = GREATEST(tracked_keywords.target_pin_count, EXCLUDED.target_pin_count),
-      crawl_pages_limit = GREATEST(tracked_keywords.crawl_pages_limit, EXCLUDED.crawl_pages_limit),
-      inspection_mode = EXCLUDED.inspection_mode,
-      updated_at = NOW()
-    RETURNING *;
-  `;
-  return row;
-}
-
-/**
- * Resolve or auto-register a keyword from a URL slug or search query
- * Supports: 'tater-tot-casserole', 'tater%20tot%20casserole', 'tater tot casserole'
- */
-export async function resolveKeywordBySlug(sql, slug, autoCreate = true) {
-  if (!slug || typeof slug !== 'string') return null;
-  const raw = decodeURIComponent(slug).trim();
-  if (!raw) return null;
-  const normalized = raw.replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
-  const slugified = normalized.replace(/\s+/g, '-');
-
-  // Query database for existing keyword matching either format
-  const [existing] = await sql`
-    SELECT *
-    FROM tracked_keywords
-    WHERE LOWER(keyword) = ${normalized}
-       OR LOWER(keyword) = ${raw.toLowerCase()}
-       OR REPLACE(LOWER(keyword), ' ', '-') = ${slugified}
-       OR REPLACE(LOWER(keyword), ' ', '-') = ${raw.toLowerCase()}
-    ORDER BY created_at DESC
-    LIMIT 1;
-  `;
-
-  if (existing) return existing;
-
-  // If not found and autoCreate enabled, create new tracked keyword
-  if (autoCreate && normalized.length >= 2) {
-    const [created] = await sql`
-      INSERT INTO tracked_keywords (
-        keyword,
-        category,
-        target_pin_count,
-        crawl_pages_limit,
-        inspection_mode,
-        is_active,
-        created_at,
-        updated_at
-      ) VALUES (
-        ${normalized},
-        'Organic Search',
-        50,
-        2,
-        'full_catalog',
-        TRUE,
-        NOW(),
-        NOW()
-      )
-      ON CONFLICT (keyword) DO UPDATE SET
-        is_active = TRUE,
-        target_pin_count = GREATEST(tracked_keywords.target_pin_count, EXCLUDED.target_pin_count),
-        crawl_pages_limit = GREATEST(tracked_keywords.crawl_pages_limit, EXCLUDED.crawl_pages_limit),
-        inspection_mode = EXCLUDED.inspection_mode,
-        updated_at = NOW()
-      RETURNING *;
-    `;
-    return created;
-  }
-
-  return null;
-}
-
-/**
- * Endpoint 1: v3_typeahead (AdvancedTypeaheadResource)
- * Fetch predictive autocomplete suggestions from Pinterest.
- * Protected with in-flight request coalescing and True LRU cache (15 min TTL, 500 items max).
- */
-export async function fetchKeywordTypeahead(term) {
-  const cleanTerm = String(term || '').trim().toLowerCase();
-  if (!cleanTerm || cleanTerm.length < 2) {
-    return { success: true, term: cleanTerm, suggestions: [] };
-  }
-
-  const now = Date.now();
-
-  // 1. Check in-memory True LRU cache
-  const cached = typeaheadCache.get(cleanTerm);
-  if (cached) {
-    if (now - cached.timestamp < TYPEAHEAD_TTL_MS) {
-      // Re-insert to refresh LRU access order
-      typeaheadCache.delete(cleanTerm);
-      typeaheadCache.set(cleanTerm, cached);
-      return { success: true, term: cleanTerm, suggestions: cached.suggestions, cached: true };
-    } else {
-      typeaheadCache.delete(cleanTerm); // Evict expired
-    }
-  }
-
-  // 2. Coalesce in-flight requests for the exact same term (stampede protection)
-  if (inflightTypeahead.has(cleanTerm)) {
-    return await inflightTypeahead.get(cleanTerm);
-  }
-
-  const requestPromise = (async () => {
-    // Active pruning if cache is approaching limit
-    if (typeaheadCache.size >= TYPEAHEAD_CACHE_MAX) {
-      for (const [key, val] of typeaheadCache.entries()) {
-        if (now - val.timestamp >= TYPEAHEAD_TTL_MS) {
-          typeaheadCache.delete(key);
-        }
-      }
-      while (typeaheadCache.size >= TYPEAHEAD_CACHE_MAX) {
-        const oldestKey = typeaheadCache.keys().next().value;
-        typeaheadCache.delete(oldestKey);
-      }
-    }
-
-    const dataParam = encodeURIComponent(JSON.stringify({
-      options: {
-        term: cleanTerm,
-        count: 12,
-        pin_type: 'all'
-      },
-      context: {}
-    }));
-    const sourceUrl = encodeURIComponent(`/search/pins/?q=${encodeURIComponent(cleanTerm)}`);
-    const url = `https://www.pinterest.com/resource/AdvancedTypeaheadResource/get/?source_url=${sourceUrl}&data=${dataParam}`;
-
-    const headers = {
-      'Accept': 'application/json, text/javascript, */*, q=0.01',
-      'X-Requested-With': 'XMLHttpRequest',
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
-      'x-pinterest-pws-handler': 'www/search/pins.js',
-      'referer': `https://www.pinterest.com/search/pins/?q=${encodeURIComponent(cleanTerm)}`
-    };
-
-    let res;
-    try {
-      res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
-      if (!res.ok) {
-        return { success: false, term: cleanTerm, suggestions: [], error: `Pinterest Typeahead HTTP ${res.status}` };
-      }
-
-      const data = await res.json();
-      const rawQueries = data?.resource_response?.data?.items || data?.resource_response?.data?.queries || [];
-
-      const suggestions = rawQueries
-        .map(q => {
-          if (!q) return null;
-          if (typeof q === 'string') return q.trim();
-          return (q.query || q.label || q.clean_query || '').trim();
-        })
-        .filter(Boolean);
-
-      // Save to LRU cache
-      typeaheadCache.set(cleanTerm, { suggestions, timestamp: Date.now() });
-
-      return { success: true, term: cleanTerm, suggestions, cached: false };
-    } catch (err) {
-      console.warn(`[!] fetchKeywordTypeahead error for "${cleanTerm}":`, err.message);
-      return { success: false, term: cleanTerm, suggestions: [], error: err.message };
-    } finally {
-      if (res?.body && !res.bodyUsed) {
-        await res.body.cancel().catch(() => {});
-      }
-    }
-  })();
-
-  inflightTypeahead.set(cleanTerm, requestPromise);
-  try {
-    return await requestPromise;
-  } finally {
-    inflightTypeahead.delete(cleanTerm);
-  }
-}
+// Modular Predictive Autocomplete & Typeahead
+export { fetchKeywordTypeahead } from './typeahead.mjs';
+import { fetchKeywordTypeahead } from './typeahead.mjs';
 
 /**
  * Endpoint 4: v3_visual_search (Visual Similarity Lens)
@@ -1663,6 +1124,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
     const pinVelocities = [];
     const todayDate = new Date();
     const todayUtc = Date.UTC(todayDate.getUTCFullYear(), todayDate.getUTCMonth(), todayDate.getUTCDate());
+    const crawlNowIso = todayDate.toISOString();
     let climbedCount = 0;
     let droppedCount = 0;
     let stableCount = 0;
@@ -1890,7 +1352,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
         creation_method: method,
         dominant_color: item.dominant_color || '#888888',
         visual_annotations: visualAnnotations,
-        crawled_at: null,
+        crawled_at: crawlNowIso,
         metadata: {
           prev_rank: prevRank,
           rank_delta: rankDelta,
@@ -2269,13 +1731,13 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
           rank_position = EXCLUDED.rank_position,
           last_known_rank = EXCLUDED.rank_position,
           baseline_day_saves = CASE
-            WHEN (keyword_serp_current.crawled_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date
+            WHEN COALESCE((keyword_serp_current.crawled_at AT TIME ZONE 'UTC')::date, keyword_serp_current.baseline_day_date) < (NOW() AT TIME ZONE 'UTC')::date
             THEN keyword_serp_current.save_count
             ELSE COALESCE(NULLIF(keyword_serp_current.baseline_day_saves, 0), EXCLUDED.baseline_day_saves)
           END,
           baseline_day_date = CASE
-            WHEN (keyword_serp_current.crawled_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date
-            THEN (keyword_serp_current.crawled_at AT TIME ZONE 'UTC')::date
+            WHEN COALESCE((keyword_serp_current.crawled_at AT TIME ZONE 'UTC')::date, keyword_serp_current.baseline_day_date) < (NOW() AT TIME ZONE 'UTC')::date
+            THEN (NOW() AT TIME ZONE 'UTC')::date
             ELSE COALESCE(keyword_serp_current.baseline_day_date, EXCLUDED.baseline_day_date)
           END,
           is_displaced = FALSE,
@@ -2290,7 +1752,9 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
           repin_count = GREATEST(COALESCE(keyword_serp_current.repin_count, 0), COALESCE(EXCLUDED.repin_count, 0)),
           comment_count = GREATEST(COALESCE(keyword_serp_current.comment_count, 0), COALESCE(EXCLUDED.comment_count, 0)),
           daily_save_velocity = CASE 
-            WHEN EXCLUDED.daily_save_velocity > 0 THEN EXCLUDED.daily_save_velocity 
+            WHEN EXCLUDED.daily_save_velocity IS NOT NULL 
+             AND (EXCLUDED.daily_save_velocity > 0 OR COALESCE((keyword_serp_current.crawled_at AT TIME ZONE 'UTC')::date, keyword_serp_current.baseline_day_date) < (NOW() AT TIME ZONE 'UTC')::date)
+            THEN EXCLUDED.daily_save_velocity 
             ELSE COALESCE(keyword_serp_current.daily_save_velocity, 0) 
           END,
           dominant_color = CASE 
@@ -2736,318 +2200,8 @@ export async function getKeywordSERPComparison(sql, keywordId, knownKeyword = nu
   return comparisonPayload;
 }
 
-/**
- * Helper to calculate numeric median of an array
- */
-function calculateMedian(arr) {
-  if (!arr || arr.length === 0) return 0;
-  const sorted = [...arr].filter(n => typeof n === 'number' && !isNaN(n)).sort((a, b) => a - b);
-  if (sorted.length === 0) return 0;
-  const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 !== 0 ? sorted[mid] : Math.round((sorted[mid - 1] + sorted[mid]) / 2);
-}
-
-/**
- * Algorithmic Opportunity & SERP Intelligence Calculation:
- * Evaluates the Top 12 pins (official SERP ranking threshold) to determine:
- * 1. Opportunity Verdict: "Can a new Pin rank here?"
- *    - New Pins Rank: % of top 12 posted within 90 days (>= 33% -> PASS)
- *    - Small Accounts Rank: % of top 12 from accounts with < 1,000 followers (>= 50% -> PASS)
- *    - Saves Don't Decide Rank: Pins in top 10 with < 100 saves (>= 2 pins -> PASS)
- *    - Overall: 3 PASS -> "Wide Open" (green), 2 PASS -> "Competitive" (yellow), <2 PASS -> "Locked / Difficult" (red)
- * 2. SERP Benchmarks (Medians for saves, age, followers, daily velocity)
- * 3. Winning Formats & Dimensions (% organic, % video, % idea, % 1:2 Extra Tall, % 2:3 Standard)
- * 4. Copywriting Patterns (Average title length, numbers in titles, destination links)
- * 5. Semantic Visual Annotations Cloud (Top co-occurring computer-vision tags across top pins)
- */
-export function calculateKeywordIntelligenceSummary(pins = []) {
-  if (!pins || pins.length === 0) {
-    return {
-      avg_saves: 0,
-      median_saves: 0,
-      unique_domains_count: 0,
-      repeated_domains_count: 0,
-      top_domain: 'N/A',
-      top_domain_share: 0,
-      domain_breakdown: [],
-      repeated_domains: [],
-      opportunity: {
-        verdict: 'UNKNOWN',
-        badge: '⚪ No Data',
-        score: 0,
-        summary: 'No snapshot pins indexed yet. Run a SERP crawl to analyze.',
-        criteria: []
-      },
-      benchmarks: {
-        median_saves: 0,
-        avg_saves: 0,
-        median_age_days: 0,
-        median_followers: 0,
-        median_velocity: 0
-      },
-      formats: { organic_pct: 0, video_pct: 0, idea_pct: 0, product_pct: 0 },
-      aspect_ratios: { standard_pct: 0, extra_tall_pct: 0, square_wide_pct: 0 },
-      copywriting: {
-        avg_title_words: 0,
-        avg_title_chars: 0,
-        numbers_in_title_pct: 0,
-        has_destination_pct: 0
-      },
-      visual_annotations: []
-    };
-  }
-
-  // Sort strictly by rank_position ascending
-  const sortedPins = [...pins].sort((a, b) => Number(a.rank_position || 0) - Number(b.rank_position || 0));
-  const top12 = sortedPins.slice(0, 12);
-  const top10 = sortedPins.slice(0, 10);
-  const total = sortedPins.length;
-
-  // Criteria 1: New Pins Rank (% of top 12 posted within 90 days)
-  let newPinsCount = 0;
-  let newPinsEvaluated = 0;
-  for (const p of top12) {
-    const age = p.metadata?.pin_age_days;
-    if (age !== null && age !== undefined && !isNaN(Number(age))) {
-      newPinsEvaluated++;
-      if (Number(age) <= 90) newPinsCount++;
-    }
-  }
-  const newPinsPct = newPinsEvaluated > 0 ? Math.round((newPinsCount / newPinsEvaluated) * 100) : 0;
-  const newPinsPass = newPinsCount >= 4 || newPinsPct >= 33;
-
-  // Criteria 2: Small Accounts Rank (% of top 12 with < 1,000 followers)
-  let smallAccountsCount = 0;
-  let smallAccountsEvaluated = 0;
-  for (const p of top12) {
-    const followers = p.metadata?.pinner?.follower_count;
-    if (followers !== null && followers !== undefined && !isNaN(Number(followers))) {
-      smallAccountsEvaluated++;
-      if (Number(followers) < 1000) smallAccountsCount++;
-    }
-  }
-  const smallAccountsPct = smallAccountsEvaluated > 0 ? Math.round((smallAccountsCount / smallAccountsEvaluated) * 100) : 0;
-  const smallAccountsPass = smallAccountsCount >= 6 || smallAccountsPct >= 50;
-
-  // Criteria 3: Saves Don't Decide Rank (Pins in top 10 with < 100 saves >= 2)
-  let lowSaveCount = 0;
-  for (const p of top10) {
-    const saves = Number(p.save_count || 0);
-    if (saves < 100) lowSaveCount++;
-  }
-  const lowSavesPass = lowSaveCount >= 2;
-
-  // Overall Opportunity Score & Verdict
-  let criteriaScore = 0;
-  if (newPinsPass) criteriaScore++;
-  if (smallAccountsPass) criteriaScore++;
-  if (lowSavesPass) criteriaScore++;
-
-  let verdict = 'LOCKED';
-  let badge = '🔴 Locked / Difficult';
-  let summary = 'Dominated by legacy authority accounts and high-save pins. High barrier for fresh pins.';
-  if (criteriaScore === 3) {
-    verdict = 'WIDE_OPEN';
-    badge = '🟢 Wide Open';
-    summary = 'Prime Arbitrage Target! Fresh pins and low-follower creators rank easily in the top 12.';
-  } else if (criteriaScore === 2) {
-    verdict = 'COMPETITIVE';
-    badge = '🟡 Moderate / Competitive';
-    summary = 'Healthy opportunity: balanced mix of authority content and fresh ranking breakthroughs.';
-  }
-
-  const criteriaList = [
-    {
-      id: 'new_pins_rank',
-      name: 'New Pins Rank (Freshness Weight)',
-      pass: newPinsPass,
-      metric: `${newPinsCount}/${newPinsEvaluated || top12.length} pins (${newPinsPct}%) posted <90 days`,
-      benchmark: '>= 33% of top 12',
-      description: 'Pinterest search algorithm actively ranks fresh content rather than decaying legacy pins.'
-    },
-    {
-      id: 'small_accounts_rank',
-      name: 'Small Accounts Rank (Democratized Distribution)',
-      pass: smallAccountsPass,
-      metric: `${smallAccountsCount}/${smallAccountsEvaluated || top12.length} accounts (${smallAccountsPct}%) <1,000 followers`,
-      benchmark: '>= 50% of top 12',
-      description: 'Account follower count is NOT a ranking barrier; content relevance drives position.'
-    },
-    {
-      id: 'saves_dont_decide',
-      name: 'Saves Don\'t Decide Rank (SERP Fluidity)',
-      pass: lowSavesPass,
-      metric: `${lowSaveCount} pins in top 10 with <100 saves`,
-      benchmark: '>= 2 pins in top 10',
-      description: 'Pins without massive accumulated historical saves can capture top 10 spots.'
-    }
-  ];
-
-  // SERP Benchmarks (Medians across all pins)
-  const savesArr = sortedPins.map(p => Number(p.save_count || 0));
-  const ageArr = sortedPins
-    .map(p => p.metadata?.pin_age_days)
-    .filter(a => a !== null && a !== undefined && !isNaN(Number(a)))
-    .map(Number);
-  const followersArr = sortedPins
-    .map(p => p.metadata?.pinner?.follower_count)
-    .filter(f => f !== null && f !== undefined && !isNaN(Number(f)))
-    .map(Number);
-  const velocityArr = sortedPins.map(p => Number(p.daily_save_velocity || 0));
-
-  const medianSaves = calculateMedian(savesArr);
-  const medianAge = ageArr.length > 0 ? calculateMedian(ageArr) : 0;
-  const medianFollowers = followersArr.length > 0 ? calculateMedian(followersArr) : 0;
-  const medianVelocity = calculateMedian(velocityArr);
-
-  // Formats Breakdown
-  let organicCount = 0;
-  let videoCount = 0;
-  let ideaCount = 0;
-  let productCount = 0;
-  for (const p of sortedPins) {
-    const fmt = p.metadata?.format || 'ORGANIC PIN';
-    if (fmt === 'VIDEO PIN') videoCount++;
-    else if (fmt === 'IDEA PIN') ideaCount++;
-    else if (fmt === 'PRODUCT CARD') productCount++;
-    else organicCount++;
-  }
-
-  // Aspect Ratios Breakdown
-  let standardCount = 0;
-  let extraTallCount = 0;
-  let squareWideCount = 0;
-  for (const p of sortedPins) {
-    const tier = p.metadata?.aspect_ratio_tier || '';
-    if (tier.includes('1:2 Extra Tall') || p.metadata?.aspect_ratio === '1:2') extraTallCount++;
-    else if (tier.includes('2:3 Standard') || p.metadata?.aspect_ratio === '2:3') standardCount++;
-    else squareWideCount++;
-  }
-
-  // Copywriting Patterns
-  let totalWords = 0;
-  let totalChars = 0;
-  let withNumbers = 0;
-  let withDest = 0;
-  for (const p of sortedPins) {
-    const title = String(p.title || '').trim();
-    const words = title ? title.split(/\s+/).filter(Boolean).length : 0;
-    totalWords += words;
-    totalChars += title.length;
-    if (/\d+/.test(title)) withNumbers++;
-    if (p.destination_url || p.domain) withDest++;
-  }
-
-  // Semantic Computer Vision Annotations (pin_join tags)
-  const tagCounts = new Map();
-  for (const p of sortedPins.slice(0, 30)) {
-    const tags = p.metadata?.visual_annotations || [];
-    if (Array.isArray(tags)) {
-      for (const t of tags) {
-        const cleanTag = String(t).trim();
-        if (cleanTag) {
-          tagCounts.set(cleanTag, (tagCounts.get(cleanTag) || 0) + 1);
-        }
-      }
-    }
-  }
-
-  const sortedAnnotations = Array.from(tagCounts.entries())
-    .map(([tag, count]) => ({
-      tag,
-      count,
-      pct: Math.round((count / Math.min(30, total)) * 100)
-    }))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 25);
-
-  // Domain Concentration, Authority & Repeat Frequency Breakdown
-  const domainMap = new Map();
-  let totalSavesAll = 0;
-
-  for (const p of sortedPins) {
-    totalSavesAll += Number(p.save_count || 0);
-    let d = (p.domain || '').trim().toLowerCase();
-    if (!d && p.destination_url) {
-      try {
-        d = new URL(p.destination_url).hostname.replace(/^www\./, '').toLowerCase();
-      } catch (_) {}
-    }
-    // Filter out unknown / user uploads / empty
-    if (!d || d === 'unknown' || d === 'uploaded by user' || d === 'null' || d === 'undefined') {
-      continue;
-    }
-    if (!domainMap.has(d)) {
-      domainMap.set(d, {
-        domain: d,
-        pin_count: 0,
-        total_saves: 0,
-        best_rank: Number(p.rank_position || 999)
-      });
-    }
-    const entry = domainMap.get(d);
-    entry.pin_count++;
-    entry.total_saves += Number(p.save_count || 0);
-    entry.best_rank = Math.min(entry.best_rank, Number(p.rank_position || 999));
-  }
-
-  const allDomains = Array.from(domainMap.values())
-    .map(entry => ({
-      ...entry,
-      share_pct: total > 0 ? Number(((entry.pin_count / total) * 100).toFixed(1)) : 0
-    }))
-    .sort((a, b) => b.pin_count - a.pin_count || b.total_saves - a.total_saves);
-
-  const repeatedDomains = allDomains.filter(d => d.pin_count > 1);
-  const uniqueDomainsCount = allDomains.length;
-  const repeatedDomainsCount = repeatedDomains.length;
-  const topDomain = allDomains[0] ? allDomains[0].domain : 'N/A';
-  const topDomainShare = allDomains[0] ? allDomains[0].share_pct : 0;
-  const avgSaves = total > 0 ? Math.round(totalSavesAll / total) : 0;
-
-  return {
-    avg_saves: avgSaves,
-    median_saves: medianSaves,
-    unique_domains_count: uniqueDomainsCount,
-    repeated_domains_count: repeatedDomainsCount,
-    top_domain: topDomain,
-    top_domain_share: topDomainShare,
-    domain_breakdown: allDomains,
-    repeated_domains: repeatedDomains,
-    opportunity: {
-      verdict,
-      badge,
-      score: criteriaScore,
-      summary,
-      criteria: criteriaList
-    },
-    benchmarks: {
-      median_saves: medianSaves,
-      avg_saves: avgSaves,
-      median_age_days: medianAge,
-      median_followers: medianFollowers,
-      median_velocity: medianVelocity
-    },
-    formats: {
-      organic_pct: total > 0 ? Math.round((organicCount / total) * 100) : 0,
-      video_pct: total > 0 ? Math.round((videoCount / total) * 100) : 0,
-      idea_pct: total > 0 ? Math.round((ideaCount / total) * 100) : 0,
-      product_pct: total > 0 ? Math.round((productCount / total) * 100) : 0
-    },
-    aspect_ratios: {
-      standard_pct: total > 0 ? Math.round((standardCount / total) * 100) : 0,
-      extra_tall_pct: total > 0 ? Math.round((extraTallCount / total) * 100) : 0,
-      square_wide_pct: total > 0 ? Math.round((squareWideCount / total) * 100) : 0
-    },
-    copywriting: {
-      avg_title_words: total > 0 ? Number((totalWords / total).toFixed(1)) : 0,
-      avg_title_chars: total > 0 ? Math.round(totalChars / total) : 0,
-      numbers_in_title_pct: total > 0 ? Math.round((withNumbers / total) * 100) : 0,
-      has_destination_pct: total > 0 ? Math.round((withDest / total) * 100) : 0
-    },
-    visual_annotations: sortedAnnotations
-  };
-}
+// [INVARIANT: MODULAR-ANALYTICS]
+// calculateKeywordIntelligenceSummary and calculateMedian are imported from ./analytics.mjs above.
 
 /**
  * Retrieve standalone Algorithmic Intelligence Summary for a keyword
@@ -3088,8 +2242,9 @@ export async function getKeywordDisplacedPins(sql, keywordId, options = {}) {
   const kid = Number(keywordId);
   if (!kid) throw new Error('Valid keyword ID is required');
 
-  const { status = 'ALL', limit = 250, offset = 0, env = null, forceRefresh = false, skipShardHydration = false } = options;
-  const lim = Math.min(1000, Math.max(1, Number(limit) || 250));
+  // [INVARIANT: EDGE-SUBREQUEST-PAGINATION-SHIELD] Strict pagination <= 30 pins per page
+  const { status = 'ALL', limit = 24, offset = 0, env = null, forceRefresh = false, skipShardHydration = false } = options;
+  const lim = Math.min(30, Math.max(1, Number(limit) || 24));
   const off = Math.max(0, Number(offset) || 0);
 
   const kvKey = `displaced:kw:${kid}:${lim}:${off}`;

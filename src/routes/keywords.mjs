@@ -643,7 +643,8 @@ export async function handleKeywordsRoutes({
     const keywordId = Number(searchParams.get('keyword_id'));
     if (!keywordId) return jsonResponse({ error: 'keyword_id is required' }, 400);
     const status = searchParams.get('status') || 'ALL';
-    const limit = clampLimit(searchParams.get('limit'), 100, 1000);
+    // [INVARIANT: EDGE-SUBREQUEST-PAGINATION-SHIELD] Strict <= 30 limit per page
+    const limit = Math.min(30, Math.max(1, Number(searchParams.get('limit')) || 24));
     const offset = Math.max(0, parseInt(searchParams.get('offset'), 10) || 0);
     const cacheKey = buildCanonicalCacheKey('keywords:displaced', { keyword_id: keywordId, status, limit, offset });
     const forceRefresh = searchParams.get('refresh') === 'true';

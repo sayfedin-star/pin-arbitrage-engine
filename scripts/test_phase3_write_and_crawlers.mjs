@@ -105,15 +105,16 @@ const pinarchiveServiceContent = fs.readFileSync('src/modules/pinarchive/service
 
 // Ensure Neon HTTP array transaction and TCP begin are supported
 assert(
-  pinarchiveServiceContent.includes('buildPinsQuery') && pinarchiveServiceContent.includes('buildMetricsQuery'),
+  pinarchiveServiceContent.includes('buildPinsQuery'),
   'ingestPinsBatch must pass lazy query builders to sql.transaction for Neon HTTP compatibility'
 );
 
-// Ensure ORDER BY raw.pin_id ASC is present in SQL
+// [INVARIANT: ZERO-HUB-SNAPSHOTS]
+// pa_pin_metrics is eradicated on Central Hub; only pa_pins query executes on Hub
 const orderPinIdAscMatches = (pinarchiveServiceContent.match(/ORDER BY raw\.pin_id ASC/g) || []).length;
 assert(
-  orderPinIdAscMatches >= 2,
-  'ingestPinsBatch must order by raw.pin_id ASC in both pa_pins and pa_pin_metrics upserts'
+  orderPinIdAscMatches >= 1,
+  'ingestPinsBatch must order by raw.pin_id ASC in pa_pins upsert'
 );
 
 // Functional test with mock TCP transaction runner (sql.begin)
@@ -154,10 +155,10 @@ const testPins = [
 
 const ingestResult = await ingestPinsBatch(mockSql, testPins);
 assert.strictEqual(txBegun, true, 'Transaction runner must be called');
-assert.strictEqual(queriesRun, 2, 'Both pa_pins and pa_pin_metrics queries must execute in transaction');
+assert.strictEqual(queriesRun, 1, 'pa_pins query must execute in transaction under ZERO-HUB-SNAPSHOTS');
 assert.strictEqual(ingestResult.ok, true, 'Ingest result must succeed');
 
-// Functional test with mock Neon HTTP array transaction runner (sql.transaction([q1, q2]))
+// Functional test with mock Neon HTTP array transaction runner (sql.transaction([q1]))
 let httpTxBegun = false;
 let receivedQueries = null;
 let parsedPayload = null;
@@ -177,7 +178,7 @@ mockNeonSql.transaction = async (queries) => {
   httpTxBegun = true;
   receivedQueries = queries;
   assert(Array.isArray(queries), 'Neon HTTP transaction strictly requires an array of queries');
-  assert.strictEqual(queries.length, 2, 'Must submit exactly [qPins, qMetrics] array');
+  assert.strictEqual(queries.length, 1, 'Must submit [qPins] array under ZERO-HUB-SNAPSHOTS');
   for (const q of queries) {
     if (typeof q === 'function') q(mockNeonSql);
   }

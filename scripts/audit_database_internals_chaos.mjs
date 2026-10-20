@@ -15,7 +15,7 @@
  */
 
 import { neon } from '@neondatabase/serverless';
-import { crc32, getShardNumberForEntity } from '../src/modules/fleet/sharding.mjs';
+import { crc32, getShardNumberForEntity } from '../src/modules/sharding/fleet-router.mjs';
 
 // Auto-load .env
 if (typeof process.loadEnvFile === 'function') {

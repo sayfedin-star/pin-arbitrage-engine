@@ -19,7 +19,7 @@
 
 import { neon } from '@neondatabase/serverless';
 import fs from 'node:fs';
-import { getShardNumberForEntity, getResilientShardNumberForEntity } from '../src/modules/fleet/sharding.mjs';
+import { getShardNumberForEntity, getResilientShardNumberForEntity } from '../src/modules/sharding/fleet-router.mjs';
 import { normalizePinterestUsername } from '../src/modules/competitors/service.mjs';
 
 // Auto-load .env in local environments

@@ -50,6 +50,7 @@ export async function pinterestFetch(url, init = {}) {
   }
 }
 
+// [INVARIANT: STRICT-GUEST-SCRAPING] Unauthenticated guest session headers (NO LOGGED-IN COOKIES)
 export const PINTEREST_PAGE_HEADERS = {
   'User-Agent':
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',
@@ -442,7 +443,20 @@ export function formatPin(pin) {
     ? Math.round((saves / ageDays) * 100) / 100
     : 0;
 
-  const method = safeString(
+  // [INVARIANT: 48-FIELD-TELEMETRY-CAROUSEL-DETECTION]
+  const isCarousel = Boolean(
+    pin.is_carousel ||
+    pin.isCarousel ||
+    pin.method === 'carousel' ||
+    pin.creation_method === 'carousel' ||
+    pin.creationMethod === 'carousel' ||
+    pin.type === 'carousel' ||
+    (Array.isArray(pin.carousel_data?.slots) && pin.carousel_data.slots.length > 0) ||
+    (Array.isArray(pin.carouselData?.slots) && pin.carouselData.slots.length > 0) ||
+    (Array.isArray(pin.carousel_slots) && pin.carousel_slots.length > 0)
+  );
+
+  const method = isCarousel ? 'carousel' : safeString(
     pin.method ||
     pin.creation_method ||
     pin.creationMethod ||
@@ -452,13 +466,25 @@ export function formatPin(pin) {
     'pinterest_platform'
   );
 
-  // Domain extraction & URL sanitization (stripping tracking parameters utm_*, fbclid, etc.)
-  let rawLink = String(pin.link || pin.url || '').trim();
+  // Domain extraction & URL sanitization
+  let rawLink = String(pin.link || pin.destination_url || pin.url || '').trim();
   if (rawLink && !/^https?:\/\//i.test(rawLink) && !rawLink.startsWith('/')) {
     rawLink = `https://${rawLink}`;
   }
   const cleanLink = sanitizeDestinationUrl(rawLink);
   const domain = normalizeDomain(pin.domain, cleanLink || rawLink);
+
+  // [INVARIANT: 48-FIELD-AFFILIATE-PRESERVATION] Preserve affiliate/arbitrage tracking links
+  const utmLink = safeString(
+    pin.utmLink ||
+    pin.utm_link ||
+    (/utm_/i.test(rawLink) ? rawLink : '')
+  );
+  const trackedLink = safeString(
+    pin.trackedLink ||
+    pin.tracked_link ||
+    (rawLink && cleanLink && rawLink !== cleanLink ? rawLink : (rawLink.includes('?') ? rawLink : ''))
+  );
 
   // Image URL
   let rawImageUrl =
@@ -532,14 +558,37 @@ export function formatPin(pin) {
     alt_text: altText,
     seo_title: seoTitle,
     seo_description: seoDescription,
-    link: safeString(cleanLink || rawLink || pin.link || pin.url),
+    link: safeString(cleanLink || rawLink || pin.link || pin.destination_url || pin.url),
     domain,
     board_id: pin.board?.id || pin.board_id || null,
     board_name: safeString(pin.board?.name || pin.board_name),
-    creator_username: safeString(pin.pinner?.username || pin.creator?.username || pin.creator_username || pin.origin_pinner?.username || ''),
-    creator_name: safeString(pin.pinner?.full_name || pin.pinner?.fullName || pin.creator?.full_name || pin.creator_name || ''),
-    creator_avatar_url: pin.pinner?.image_url || pin.pinner?.imageMediumUrl || pin.pinner?.imageSmallUrl || pin.creator?.image_url || null,
-    creator_followers: parseCleanMetric(pin.pinner?.follower_count || pin.pinner?.followerCount || pin.creator?.follower_count || 0),
+    creator_username: safeString(pin.pinner?.username || pin.creator?.username || pin.creator_username || pin.origin_pinner?.username || pin.closeupUnifiedAttribution?.username || pin.closeup_attribution?.username || ''),
+    creator_name: safeString(pin.pinner?.full_name || pin.pinner?.fullName || pin.creator?.full_name || pin.creator_name || pin.closeupUnifiedAttribution?.fullName || pin.closeup_attribution?.full_name || ''),
+    creator_avatar_url: pin.pinner?.image_url || pin.pinner?.imageMediumUrl || pin.pinner?.imageSmallUrl || pin.creator?.image_url || pin.closeupUnifiedAttribution?.imageMediumUrl || null,
+    // [INVARIANT: GUEST-AUDIENCE-EXTRACTION] Extract creator audience from closeupUnifiedAttribution in guest mode
+    creator_followers: parseCleanMetric(
+      pin.pinner?.follower_count ||
+      pin.pinner?.followerCount ||
+      pin.creator?.follower_count ||
+      pin.closeupUnifiedAttribution?.followerCount ||
+      pin.closeupUnifiedAttribution?.follower_count ||
+      pin.closeup_attribution?.follower_count ||
+      0
+    ),
+    pinner: {
+      username: safeString(pin.pinner?.username || pin.creator?.username || pin.creator_username || pin.closeupUnifiedAttribution?.username || ''),
+      full_name: safeString(pin.pinner?.full_name || pin.pinner?.fullName || pin.creator?.full_name || pin.closeupUnifiedAttribution?.fullName || ''),
+      follower_count: parseCleanMetric(
+        pin.pinner?.follower_count ||
+        pin.pinner?.followerCount ||
+        pin.creator?.follower_count ||
+        pin.closeupUnifiedAttribution?.followerCount ||
+        pin.closeupUnifiedAttribution?.follower_count ||
+        pin.closeup_attribution?.follower_count ||
+        0
+      ),
+      image_url: pin.pinner?.image_url || pin.pinner?.imageMediumUrl || pin.creator?.image_url || pin.closeupUnifiedAttribution?.imageMediumUrl || null
+    },
     created_at: createdAtPinterest,
     created_at_pinterest: createdAtPinterest,
     method: method || 'pinterest_platform',
@@ -549,6 +598,7 @@ export function formatPin(pin) {
     image_url: imageUrl,
     dominant_color: dominantColor,
     is_video: Boolean(pin.is_video || pin.isVideo || pin.video_status),
+    is_carousel: isCarousel,
     is_product: isProduct,
     saves,
     has_explicit_saves: hasExplicitSaves,
@@ -579,8 +629,8 @@ export function formatPin(pin) {
     image_signature: safeString(pin.imageSignature || pin.image_signature || ''),
     seo_noindex_reason: pin.seoNoindexReason || pin.seo_noindex_reason || null,
     is_go_linkless: Boolean(pin.isGoLinkless || pin.is_go_linkless || false),
-    utm_link: safeString(pin.utmLink || pin.utm_link || ''),
-    tracked_link: safeString(pin.trackedLink || pin.tracked_link || ''),
+    utm_link: utmLink,
+    tracked_link: trackedLink,
     category_breadcrumbs: Array.isArray(pin.pinJoin?.seoBreadcrumbs)
       ? pin.pinJoin.seoBreadcrumbs.map(b => b?.name).filter(Boolean)
       : (Array.isArray(pin.seo_breadcrumbs) ? pin.seo_breadcrumbs : []),
@@ -661,8 +711,26 @@ export function extractPinData(rawHtml, pinId) {
         if (v3.dominantColor) mergedRelayPin.dominantColor = v3.dominantColor;
         if (v3.createdAt) mergedRelayPin.createdAt = v3.createdAt;
         if (v3.created_at) mergedRelayPin.created_at = v3.created_at;
-        if (v3.method) mergedRelayPin.method = v3.method;
-        if (v3.creationMethod || v3.creation_method) mergedRelayPin.creation_method = v3.creationMethod || v3.creation_method;
+        // [INVARIANT: 48-FIELD-TELEMETRY-CAROUSEL-DETECTION] Detect carousel pins
+        const isCarouselPin = Boolean(
+          v3.isCarousel ||
+          v3.is_carousel ||
+          v3.carouselData ||
+          v3.carousel_data ||
+          v3.carousel_slots ||
+          v3.method === 'carousel' ||
+          v3.creation_method === 'carousel' ||
+          v3.creationMethod === 'carousel'
+        );
+        if (isCarouselPin) {
+          mergedRelayPin.is_carousel = true;
+          mergedRelayPin.isCarousel = true;
+          mergedRelayPin.method = 'carousel';
+          mergedRelayPin.creation_method = 'carousel';
+        } else {
+          if (v3.method) mergedRelayPin.method = v3.method;
+          if (v3.creationMethod || v3.creation_method) mergedRelayPin.creation_method = v3.creationMethod || v3.creation_method;
+        }
         if (v3.attribution?.provider_name) mergedRelayPin.provider_name = v3.attribution.provider_name;
 
         if (v3.aggregatedPinData) {
@@ -715,8 +783,19 @@ export function extractPinData(rawHtml, pinId) {
         if (v3.imageSignature) mergedRelayPin.imageSignature = v3.imageSignature;
         if (v3.seoNoindexReason !== undefined && v3.seoNoindexReason !== null) mergedRelayPin.seoNoindexReason = v3.seoNoindexReason;
         if (v3.isGoLinkless !== undefined && v3.isGoLinkless !== null) mergedRelayPin.isGoLinkless = Boolean(v3.isGoLinkless);
-        if (v3.utmLink) mergedRelayPin.utmLink = v3.utmLink;
-        if (v3.trackedLink) mergedRelayPin.trackedLink = v3.trackedLink;
+
+        // [INVARIANT: 48-FIELD-AFFILIATE-PRESERVATION]
+        if (v3.utmLink) {
+          mergedRelayPin.utmLink = v3.utmLink;
+        } else if (v3.link && /utm_/i.test(String(v3.link))) {
+          mergedRelayPin.utmLink = v3.link;
+        }
+        if (v3.trackedLink) {
+          mergedRelayPin.trackedLink = v3.trackedLink;
+        } else if (v3.link && (String(v3.link).includes('?') || sanitizeDestinationUrl(v3.link) !== v3.link)) {
+          mergedRelayPin.trackedLink = v3.link;
+        }
+
         if (v3.topInterest !== undefined && v3.topInterest !== null) mergedRelayPin.topInterest = v3.topInterest;
         if (v3.unauthOnPageTitle) mergedRelayPin.unauthOnPageTitle = v3.unauthOnPageTitle;
         if (v3.closeupUnifiedTitle) mergedRelayPin.closeupUnifiedTitle = v3.closeupUnifiedTitle;
@@ -734,16 +813,27 @@ export function extractPinData(rawHtml, pinId) {
           };
         }
 
-        if (v3.pinner) {
+        // [INVARIANT: GUEST-AUDIENCE-EXTRACTION] Extract creator audience from closeupUnifiedAttribution
+        if (v3.pinner || v3.closeupUnifiedAttribution) {
           const prevPinner = mergedRelayPin.pinner || {};
+          const pinnerObj = v3.pinner || {};
+          const unifiedAttr = v3.closeupUnifiedAttribution || {};
+          const unifiedFollowers = Number(unifiedAttr.followerCount || unifiedAttr.follower_count || 0);
           mergedRelayPin.pinner = {
-            username: v3.pinner.username || prevPinner.username || '',
-            full_name: v3.pinner.fullName || v3.pinner.full_name || prevPinner.full_name || '',
-            image_url: v3.pinner.imageMediumUrl || v3.pinner.imageSmallUrl || prevPinner.image_url || '',
-            follower_count: Math.max(Number(prevPinner.follower_count || 0), Number(v3.pinner.followerCount || v3.pinner.follower_count || 0)),
-            is_verified_merchant: Boolean(prevPinner.is_verified_merchant || v3.pinner.isVerifiedMerchant || v3.pinner.is_verified_merchant),
-            domain_verified: Boolean(prevPinner.domain_verified || v3.pinner.domainVerified)
+            username: pinnerObj.username || prevPinner.username || unifiedAttr.username || '',
+            full_name: pinnerObj.fullName || pinnerObj.full_name || prevPinner.full_name || unifiedAttr.fullName || '',
+            image_url: pinnerObj.imageMediumUrl || pinnerObj.imageSmallUrl || prevPinner.image_url || unifiedAttr.imageMediumUrl || '',
+            follower_count: Math.max(
+              Number(prevPinner.follower_count || 0),
+              Number(pinnerObj.followerCount || pinnerObj.follower_count || 0),
+              unifiedFollowers
+            ),
+            is_verified_merchant: Boolean(prevPinner.is_verified_merchant || pinnerObj.isVerifiedMerchant || pinnerObj.is_verified_merchant || unifiedAttr.isVerifiedMerchant),
+            domain_verified: Boolean(prevPinner.domain_verified || pinnerObj.domainVerified)
           };
+          if (unifiedFollowers > 0) {
+            mergedRelayPin.creator_followers = Math.max(Number(mergedRelayPin.creator_followers || 0), unifiedFollowers);
+          }
         }
 
         if (v3.richMetadata) {
@@ -981,8 +1071,10 @@ export function extractPinData(rawHtml, pinId) {
           });
           if (fallbackFormatted) {
             return {
-              ...fallbackFormatted,
               ...ldFormatted,
+              ...fallbackFormatted,
+              title: fallbackFormatted.title || ldFormatted.title,
+              description: fallbackFormatted.description || ldFormatted.description,
               saves: Math.max(ldFormatted.saves, fallbackFormatted.saves || 0),
               comments: Math.max(ldFormatted.comments, fallbackFormatted.comments || 0)
             };
@@ -1013,8 +1105,10 @@ export function extractPinData(rawHtml, pinId) {
     });
     if (fallbackFormatted) {
       return {
-        ...fallbackFormatted,
         ...metaFormatted,
+        ...fallbackFormatted,
+        title: fallbackFormatted.title || metaFormatted.title,
+        description: fallbackFormatted.description || metaFormatted.description,
         saves: Math.max(metaFormatted.saves, fallbackFormatted.saves || 0),
         repins: Math.max(metaFormatted.repins, fallbackFormatted.repins || 0)
       };
@@ -1105,6 +1199,7 @@ export async function fetchPinHybrid(pinId, { isTelemetryOnly = false, cookie = 
   return await fetchPinFromPinterest(pinId, cookie, { dispatcher });
 }
 
+// [INVARIANT: STRICT-GUEST-SCRAPING] Unauthenticated guest session headers (NO LOGGED-IN COOKIES)
 export async function fetchPinFromPinterest(pinId, cookieOrOptions = null, maybeOptions = {}) {
   try {
     const cleanId = String(pinId || '').trim();

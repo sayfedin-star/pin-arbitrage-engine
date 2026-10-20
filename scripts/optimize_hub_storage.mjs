@@ -271,7 +271,7 @@ export async function optimizeHubStorage(sql) {
                   comment_count = GREATEST(pins_daily_metrics.comment_count, EXCLUDED.comment_count),
                   share_count = GREATEST(pins_daily_metrics.share_count, EXCLUDED.share_count),
                   daily_save_velocity = CASE
-                    WHEN EXCLUDED.daily_save_velocity > 0 THEN GREATEST(COALESCE(pins_daily_metrics.daily_save_velocity, 0), EXCLUDED.daily_save_velocity)
+                    WHEN EXCLUDED.daily_save_velocity IS NOT NULL THEN EXCLUDED.daily_save_velocity
                     ELSE pins_daily_metrics.daily_save_velocity
                   END,
                   updated_at = NOW()
@@ -498,7 +498,7 @@ export async function optimizeHubStorage(sql) {
                   share_count = GREATEST(pins_daily_metrics.share_count, EXCLUDED.share_count),
                   reaction_count = GREATEST(pins_daily_metrics.reaction_count, EXCLUDED.reaction_count),
                   daily_save_velocity = CASE 
-                    WHEN EXCLUDED.daily_save_velocity > 0 THEN GREATEST(COALESCE(pins_daily_metrics.daily_save_velocity, 0), EXCLUDED.daily_save_velocity)
+                    WHEN EXCLUDED.daily_save_velocity IS NOT NULL THEN EXCLUDED.daily_save_velocity
                     ELSE pins_daily_metrics.daily_save_velocity 
                   END,
                   updated_at = NOW()

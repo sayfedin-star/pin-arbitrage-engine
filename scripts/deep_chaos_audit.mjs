@@ -6,7 +6,7 @@ import {
   getShardNumberForEntity, 
   getShardProjectName, 
   crc32 
-} from '../src/modules/fleet/sharding.mjs';
+} from '../src/modules/sharding/fleet-router.mjs';
 import { 
   listKeywords, 
   getKeywordSERPComparison, 

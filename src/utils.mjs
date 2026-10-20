@@ -8,12 +8,14 @@ export function formatPinterestCookie(rawCookie) {
   if (cookie.startsWith('"') && cookie.endsWith('"')) {
     cookie = cookie.slice(1, -1).trim();
   }
+  // [INVARIANT: GUEST-SCRAPING-ONLY] Never send _auth=1 to avoid zeroing aggregate counters
+  cookie = cookie.replace(/_auth="?[^;"]+"?;?\s*/g, '').trim();
   if (!cookie.includes('=') || cookie.startsWith('TWc9') || cookie.startsWith('Mg==')) {
-    return `_pinterest_sess="${cookie}"; _auth=1;`;
+    return `_pinterest_sess="${cookie.replace(/"/g, '')}"; _auth=0;`;
   }
   cookie = cookie.replace(/_pinterest_sess=([^;\s"]+)/, '_pinterest_sess="$1"');
   if (!cookie.includes('_auth=')) {
-    cookie = `${cookie.replace(/;$/, '')}; _auth=1;`;
+    cookie = `${cookie.replace(/;$/, '')}; _auth=0;`;
   }
   return cookie;
 }

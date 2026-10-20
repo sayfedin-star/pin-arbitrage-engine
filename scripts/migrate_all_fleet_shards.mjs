@@ -79,7 +79,6 @@ async function migrateFleet() {
         await sSql`ALTER TABLE universal_master_pins SET (fillfactor = 80);`.catch(() => {});
         await sSql`ALTER TABLE pin_serp_positions SET (fillfactor = 80);`.catch(() => {});
         await sSql`ALTER TABLE pins_daily_metrics SET (fillfactor = 80);`.catch(() => {});
-        await sSql`ALTER TABLE pins_daily_snapshots SET (fillfactor = 80);`.catch(() => {});
         if (proj.is_hub) {
           await sSql`ALTER TABLE keyword_serp_current SET (fillfactor = 80);`.catch(() => {});
           await sSql`ALTER TABLE pa_pins SET (fillfactor = 80);`.catch(() => {});

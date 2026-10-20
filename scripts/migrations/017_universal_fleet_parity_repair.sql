@@ -11,7 +11,7 @@ SET lock_timeout = '3000';
 -- ============================================================================
 DO $$
 BEGIN
-  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'pins_daily_snapshots') THEN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'pins_daily_snapshots' AND table_type = 'BASE TABLE') THEN
     DELETE FROM pins_daily_snapshots a
     USING pins_daily_snapshots b
     WHERE a.id < b.id

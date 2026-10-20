@@ -101,15 +101,17 @@ export function formatPinterestCookie(rawCookie) {
   if (cookie.startsWith('"') && cookie.endsWith('"')) {
     cookie = cookie.slice(1, -1).trim();
   }
+  // [INVARIANT: GUEST-SCRAPING-ONLY] Never send _auth=1 to avoid zeroing aggregate counters
+  cookie = cookie.replace(/_auth="?[^;"]+"?;?\s*/g, '').trim();
   // If user pasted just the raw session token (starts with TWc9, contains Mg==, or lacks '=')
   if (!cookie.includes('=') || cookie.startsWith('TWc9') || cookie.startsWith('Mg==')) {
-    return `_pinterest_sess="${cookie}"; _auth=1;`;
+    return `_pinterest_sess="${cookie.replace(/"/g, '')}"; _auth=0;`;
   }
   // Ensure _pinterest_sess value is quoted per RFC 6265 if user provided without quotes
   cookie = cookie.replace(/_pinterest_sess=([^;\s"]+)/, '_pinterest_sess="$1"');
-  // If user provided a cookie string with '=', ensure _auth=1 is present
+  // If user provided a cookie string with '=', ensure _auth=0 is present
   if (!cookie.includes('_auth=')) {
-    cookie = `${cookie.replace(/;$/, '')}; _auth=1;`;
+    cookie = `${cookie.replace(/;$/, '')}; _auth=0;`;
   }
   return cookie;
 }
