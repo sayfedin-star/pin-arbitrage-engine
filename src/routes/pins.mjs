@@ -58,8 +58,9 @@ export async function handlePinsRoutes({
     }
     const rawSnapshotParam = String(parts[2] || '').trim();
     const isDateParam = /^\d{4}-\d{2}-\d{2}$/.test(rawSnapshotParam);
-    const snapshotId = Number(rawSnapshotParam);
-    if (!isDateParam && (!snapshotId || isNaN(snapshotId))) {
+    // [INVARIANT: 60-BIT-SNOWFLAKE-SAFE] Never cast 60-bit view IDs via Number() (exceeds 53-bit MAX_SAFE_INTEGER)
+    const isNumericSnapshotId = /^[1-9]\d{0,19}$/.test(rawSnapshotParam);
+    if (!isDateParam && !isNumericSnapshotId) {
       return jsonResponse({
         success: false,
         error: 'BAD_REQUEST',
@@ -82,7 +83,7 @@ export async function handlePinsRoutes({
     // 1. If numeric ID passed, resolve date and keyword from shard view
     if (!targetDate && shardSql) {
       const [shardSnap] = await shardSql`
-        SELECT snapshot_date, keyword_id FROM pins_daily_snapshots WHERE id = ${snapshotId} LIMIT 1;
+        SELECT snapshot_date, keyword_id FROM pins_daily_snapshots WHERE id = ${rawSnapshotParam}::bigint LIMIT 1;
       `.catch(() => []);
       targetDate = shardSnap?.snapshot_date ? new Date(shardSnap.snapshot_date).toISOString().slice(0, 10) : null;
       targetKwId = shardSnap?.keyword_id || null;

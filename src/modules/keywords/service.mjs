@@ -2280,10 +2280,10 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
           END,
           is_displaced = FALSE,
           displaced_date = NULL,
-          title = EXCLUDED.title,
-          domain = EXCLUDED.domain,
-          destination_url = EXCLUDED.destination_url,
-          image_url = COALESCE(EXCLUDED.image_url, keyword_serp_current.image_url),
+          title = COALESCE(NULLIF(EXCLUDED.title, ''), keyword_serp_current.title),
+          domain = COALESCE(NULLIF(EXCLUDED.domain, ''), keyword_serp_current.domain),
+          destination_url = COALESCE(NULLIF(EXCLUDED.destination_url, ''), keyword_serp_current.destination_url),
+          image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), keyword_serp_current.image_url),
           creator_username = COALESCE(NULLIF(EXCLUDED.creator_username, ''), keyword_serp_current.creator_username),
           board_name = COALESCE(NULLIF(EXCLUDED.board_name, ''), keyword_serp_current.board_name),
           save_count = GREATEST(COALESCE(keyword_serp_current.save_count, 0), COALESCE(EXCLUDED.save_count, 0)),
@@ -2425,8 +2425,12 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
 
     // [INVARIANT: HYPERDRIVE-ATOMIC-BUILDER]
     // Execute atomic Hub transaction in 1 atomic transaction / single roundtrip using lazy query builders
+    // Supports both wrapped Worker clients (__atomicBuilderWrapped) and raw @neondatabase/serverless CLI clients
     if (typeof sql.transaction === 'function') {
-      await sql.transaction(txBatch.map(b => (typeof b === 'function' ? b : (db) => b)));
+      const txPayload = sql.__atomicBuilderWrapped
+        ? txBatch.map(b => (typeof b === 'function' ? b : (db) => b))
+        : txBatch.map(b => (typeof b === 'function' ? b(sql) : b));
+      await sql.transaction(txPayload);
     } else if (typeof sql.begin === 'function') {
       await sql.begin(async (tx) => {
         for (const builder of txBatch) {
@@ -3561,7 +3565,8 @@ export async function getPinDeepDossier(sql, pinId, keywordId = null, options = 
               shardPromise,
               timeoutPromise
             ]);
-            if (sMaster && env?.PIN_D1_DB) {
+            // [INVARIANT: D1-ANTI-PRE-SCRAPE-POISONING] Do not backfill pre-scrape shard state during forceRefresh
+            if (sMaster && env?.PIN_D1_DB && !forceRefresh) {
               syncPinsBatchToD1(env, [sMaster]).catch(() => {});
             }
             return sMaster || null;
@@ -3598,12 +3603,18 @@ export async function getPinDeepDossier(sql, pinId, keywordId = null, options = 
     displacedRow = fallbackRow || null;
   }
 
-  // [INVARIANT: ZERO-HUB-SNAPSHOTS] Snapshot metrics are derived from Shard trajectory
-  const latestSnapshot = (Array.isArray(trajectory) && trajectory.length > 0) ? trajectory[trajectory.length - 1] : null;
+  // [INVARIANT: ZERO-HUB-SNAPSHOTS] Unpack Shard trajectory object ({ snapshots: [...] }) deterministically
+  const trajectorySnapshots = Array.isArray(trajectory)
+    ? trajectory
+    : (Array.isArray(trajectory?.snapshots) ? trajectory.snapshots : []);
+  const latestSnapshot = trajectorySnapshots.length > 0
+    ? trajectorySnapshots[trajectorySnapshots.length - 1]
+    : null;
 
   // 4. Smart Dynamic On-Demand Scrape Trigger:
   // Only scrape if explicitly requested via forceRefresh
   let scraped = null;
+  let syncRes = null;
   const needsScrape = Boolean(forceRefresh);
 
   if (needsScrape) {
@@ -3613,7 +3624,7 @@ export async function getPinDeepDossier(sql, pinId, keywordId = null, options = 
         scraped = pinResult.pin;
         // [INVARIANT: 4-PILLAR-SYNC-PARITY]
         // Delegate DB mutations & D1/KV cache invalidation to canonical SSOT function
-        const syncRes = await syncPinAcrossAllFourPillars({
+        syncRes = await syncPinAcrossAllFourPillars({
           hubSql: sql,
           pinId: cleanPin,
           scrapedPin: scraped,
@@ -3637,6 +3648,10 @@ export async function getPinDeepDossier(sql, pinId, keywordId = null, options = 
           latestSnapshot.save_count = Math.max(Number(latestSnapshot.save_count || 0), Number(scraped.saves || 0));
           latestSnapshot.repin_count = Math.max(Number(latestSnapshot.repin_count || 0), Number(scraped.repins || 0));
           latestSnapshot.comment_count = Math.max(Number(latestSnapshot.comment_count || 0), Number(scraped.comments || 0));
+          latestSnapshot.share_count = Math.max(Number(latestSnapshot.share_count || 0), Number(scraped.share_count || 0));
+          if (Number.isFinite(syncRes?.syncVelocity) && syncRes.syncVelocity > 0) {
+            latestSnapshot.daily_save_velocity = syncRes.syncVelocity;
+          }
         }
       }
     } catch (err) {
@@ -3691,7 +3706,8 @@ export async function getPinDeepDossier(sql, pinId, keywordId = null, options = 
   const comments = Math.max(Number(scraped?.comments || 0), Number(displacedRow?.current_comments || 0), Number(latestSnapshot?.comment_count || 0));
   const shares = Math.max(Number(scraped?.share_count || 0), Number(displacedRow?.current_shares || 0), Number(latestSnapshot?.share_count || 0));
   const reactions = Math.max(Number(displacedRow?.current_reactions || 0), (typeof scraped?.reactions === 'object' ? Object.values(scraped.reactions).reduce((a, b) => a + Number(b || 0), 0) : 0), Number(latestSnapshot?.reaction_count || 0));
-  const velocity = Number(displacedRow?.daily_save_velocity || latestSnapshot?.daily_save_velocity || 0);
+  // [INVARIANT: DISPLACED-VELOCITY-PARITY] Preserve syncRes.syncVelocity when pin is outside active SERP (displacedRow === null)
+  const velocity = Number(displacedRow?.daily_save_velocity || syncRes?.syncVelocity || latestSnapshot?.daily_save_velocity || 0);
 
   const creatorUsername = displacedRow?.creator_username || displacedRow?.account_username || scraped?.creator_username || scraped?.pinner?.username || mergedMeta.pinner?.username || shardRow?.creator_username || '';
   const creatorFullName = scraped?.creator_name || scraped?.pinner?.full_name || mergedMeta.pinner?.full_name || '';
@@ -3762,7 +3778,7 @@ export async function getPinDeepDossier(sql, pinId, keywordId = null, options = 
       reactions_24h: Number(displacedRow?.delta_reactions_24h || 0)
     },
     reactions_breakdown: (typeof scraped?.reactions === 'object' && scraped?.reactions) ? scraped.reactions : (latestSnapshot?.metadata?.reactions || {}),
-    trajectory
+    trajectory: trajectorySnapshots
   };
 
   if (env?.PIN_ENGINE_KV && title && title !== 'Untitled Pin') {

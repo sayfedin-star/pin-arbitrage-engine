@@ -1599,7 +1599,8 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
   }
 
   // Tier 1 Edge Mirror: Write-through fresh shard metadata to Cloudflare D1 asynchronously
-  if (env?.PIN_D1_DB && masterRecord) {
+  // [INVARIANT: D1-12H-TTL-NO-PERPETUAL-SLIDE] Only write to D1 when D1 cache missed or expired (!hasValidD1)
+  if (env?.PIN_D1_DB && masterRecord && !hasValidD1) {
     const d1WritePromise = (async () => {
       try {
         const fullMetaObj = { ...snapMeta, ...cleanMeta(masterRecord.metadata) };
