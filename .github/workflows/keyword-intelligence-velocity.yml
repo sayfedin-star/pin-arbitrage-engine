@@ -56,8 +56,9 @@ jobs:
   # ============================================================================
   # STAGE 0: Intelligent Dynamic Fleet Dispatcher (~10s)
   # Determines Mode:
-  # - Mode A (Multi-Keyword Broadcast): Up to 20 active keywords
-  # - Mode B (Single-Keyword Pin-Slice Sharding): 201 pins sliced across 20 runners
+  # - Mode A (Global Two-Phase Fleet): 20 persistent workers across all active keywords
+  # - Mode B (Single-Keyword Pin-Slice Sharding): 201+ pins sliced across 20 runners
+  # - Mode C (Folder Cluster Pin-Slice Sharding): Folder pins sliced across 20 runners
   # ============================================================================
   dispatch:
     name: Stage 0 - Fleet Orchestrator & Dispatcher
@@ -80,7 +81,7 @@ jobs:
           cache: 'npm'
 
       - name: 3. Install dependencies
-        run: npm ci
+        run: npm ci --prefer-offline --no-audit --no-fund
 
       - name: 4. Execute Fleet Orchestrator & Dispatcher
         id: dispatcher
@@ -127,21 +128,22 @@ jobs:
       - name: 3. Runner Egress IP Diagnostics
         run: |
           echo "=== Runner Egress IP ==="
-          curl -s --max-time 5 https://api.ipify.org || echo "ip-diagnostics unavailable (non-fatal)"
+          curl -s --max-time 3 https://api.ipify.org || echo "ip-diagnostics unavailable (non-fatal)"
           echo ""
           echo "========================"
 
       - name: 4. Install dependencies
-        run: npm ci
+        run: npm ci --prefer-offline --no-audit --no-fund
 
       - name: 5. Execute Fleet Worker
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           PINTEREST_COOKIE: ${{ secrets.PINTEREST_COOKIE }}
           MODE: ${{ matrix.mode }}
-          TARGET_KEYWORD: ${{ matrix.keyword_ids != '' && '' || matrix.keyword }}
+          TARGET_KEYWORD: ${{ matrix.target_keyword || '' }}
           KEYWORD_ID: ${{ matrix.keyword_id }}
           KEYWORD_IDS: ${{ matrix.keyword_ids || '' }}
+          ALL_KEYWORD_IDS: ${{ matrix.all_keyword_ids || '' }}
           FOLDER_ID: ${{ matrix.folder_id }}
           WORKER_INDEX: ${{ matrix.worker_index }}
           WORKER_TOTAL: ${{ matrix.worker_total }}
@@ -150,6 +152,10 @@ jobs:
           MAX_SERP_PINS: ${{ matrix.max_serp_pins }}
           MAX_CATALOG_INSPECT: ${{ matrix.max_catalog_inspect }}
           ENABLE_SERP_HARVEST: ${{ matrix.enable_serp_harvest }}
+          CONCURRENCY: '12'
+          SLEEP_MS_MIN: '300'
+          SLEEP_MS_MAX: '600'
+          BATCH_SIZE: '250'
         run: node scripts/keyword-velocity-crawler.mjs
 
   # ============================================================================
@@ -175,7 +181,7 @@ jobs:
           cache: 'npm'
 
       - name: 3. Install dependencies
-        run: npm ci
+        run: npm ci --prefer-offline --no-audit --no-fund
 
       - name: 4. Execute Consolidation & Report Engine
         env:

@@ -2445,8 +2445,9 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
     leaseCommittedInTx = true;
 
     // Route 100% of static creative metadata & historical time-series (active + displaced) directly to the 99 Shards + D1
+    // Bypassed during Fleet Phase 1A when skip_shard_offload=true since Phase 1B performs global deduplicated shard sync
     const envObj = options?.env || null;
-    if (!isSuspectedIncompleteCrawl && (preparedPins.length > 0 || droppedOutList.length > 0)) {
+    if (!options?.skip_shard_offload && !isSuspectedIncompleteCrawl && (preparedPins.length > 0 || droppedOutList.length > 0)) {
       await offloadKeywordCrawlToShards(sql, kid, preparedPins, droppedOutList, envObj).catch(err => {
         console.warn(`[crawlKeywordSERP] Shard offload non-fatal warning for keyword ${kid}:`, err.message);
       });

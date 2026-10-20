@@ -224,7 +224,11 @@ export async function syncFolderToD1(env, folder) {
     const name = String(folder.name || 'Untitled');
     const color = String(folder.color || '#e60023');
     const description = folder.description || null;
-    const itemCount = Number(folder.item_count || folder.keyword_count || 0);
+    const itemCount = Number(
+      folder.item_count ??
+      folder.keyword_count ??
+      (Array.isArray(folder.items) ? folder.items.length : 0)
+    );
     const updatedAt = folder.updated_at ? new Date(folder.updated_at).toISOString() : new Date().toISOString();
 
     await env.PIN_D1_DB.prepare(`

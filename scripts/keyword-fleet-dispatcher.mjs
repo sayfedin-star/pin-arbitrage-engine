@@ -6,12 +6,16 @@
  * Intelligent Dynamic Fleet Orchestrator & Dispatcher
  * Coordinates the 20-Runner Distributed GitHub Actions Fleet:
  * 
- * - Mode A (Multi-Keyword Sweep):
- *   Dispatches up to 20 active keywords from Central Hub to 20 parallel runners.
+ * - Mode A (Global Two-Phase Pin-Partition Sweep):
+ *   Dispatches all active keywords across 20 persistent parallel runners (Single Wave).
+ *   Phase 1A: 20 runners harvest SERPs in parallel.
+ *   Phase 1B: 20 runners partition 100% of unique Active + Displaced Vault pins evenly.
  * 
  * - Mode B (Single-Keyword Pin-Slice Sharding):
- *   Ingests the keyword SERP, queries all associated pins (Active SERP + Displaced Vault = 200+ pins),
- *   and partitions them mathematically across 20 runners (~10 pins/runner) for ~30s execution!
+ *   Partitions a single keyword's Active SERP + Displaced Vault pins across 20 runners.
+ * 
+ * - Mode C (Folder Cluster Pin-Slice Sharding):
+ *   Partitions a campaign folder's keywords and unique pins across 20 runners.
  */
 
 import { neon } from '@neondatabase/serverless';
@@ -32,7 +36,6 @@ if (!DATABASE_URL) {
 const sql = neon(DATABASE_URL);
 const rawTargetKeyword = (process.env.TARGET_KEYWORD || '').trim();
 const rawFolderId = (process.env.FOLDER_ID || '').trim();
-const cookie = process.env.PINTEREST_COOKIE || null;
 const githubOutputPath = process.env.GITHUB_OUTPUT || null;
 const stepSummaryPath = process.env.GITHUB_STEP_SUMMARY || null;
 
@@ -119,7 +122,6 @@ async function main() {
     console.log(`  [+] Target Folder: "${folderRow.name}" (ID: ${folderRow.id})`);
     console.log(`  [+] Resolved Config: Harvest=${enableSerpHarvest ? 'ON' : 'OFF'} | Scope=${resolvedCrawlScope} | MaxPins=${resolvedMaxSerpPins} | InspectCap=${resolvedMaxCatalogInspect}`);
 
-    // 1. Fetch keywords belonging to this folder, prioritizing never-crawled keywords first
     const folderKeywords = await sql`
       SELECT tk.id, tk.keyword, tk.category, tk.target_pin_count, tk.last_crawled_at
       FROM keyword_folder_items kfi
@@ -130,9 +132,6 @@ async function main() {
 
     console.log(`  [+] Resolved ${folderKeywords.length} keywords in folder cluster.`);
 
-    // 2. Stage 0 Pure Zero-Crawl Dispatch:
-    // Partition folder's keywords evenly across 20 runners for parallel Stage 1A SERP ingestion.
-    // Deep pin inspection will run in Stage 1B after Phase 1A barrier sync.
     const numWorkers = 20;
     console.log(`  [*] Partitioning ${folderKeywords.length} cluster keywords across ${numWorkers} parallel fleet runners for distributed SERP harvest...`);
 
@@ -140,6 +139,7 @@ async function main() {
       const assignedKeywords = folderKeywords.filter((_, kIdx) => kIdx % numWorkers === idx);
       return {
         mode: 'folder_pin_partition',
+        target_keyword: '',
         folder_id: fid,
         folder_name: folderRow.name,
         keyword: folderRow.name,
@@ -166,17 +166,17 @@ async function main() {
 
   } else if (isSweepAll || commaKeywords.length > 1) {
     // =========================================================================
-    // MODE A: MULTI-KEYWORD BROADCAST MATRIX (Up to 20 Parallel Runners)
+    // MODE A: GLOBAL TWO-PHASE PIN-PARTITION FLEET (Strictly 20 Parallel Runners)
     // =========================================================================
     mode = 'keyword_sweep';
-    console.log('\n[*] Mode Selected: MODE A (Multi-Keyword Broadcast Fleet)');
+    console.log('\n[*] Mode Selected: MODE A (Global Two-Phase Distributed Pin-Partition Fleet)');
 
     let targetRows = [];
     if (commaKeywords.length > 1) {
       console.log(`[*] Resolving ${commaKeywords.length} explicitly specified keywords...`);
       for (const kwStr of commaKeywords) {
         let [row] = await sql`
-          SELECT id, keyword, category, target_pin_count 
+          SELECT id, keyword, category, target_pin_count, is_active
           FROM tracked_keywords 
           WHERE LOWER(keyword) = ${kwStr};
         `;
@@ -209,61 +209,50 @@ async function main() {
         SELECT id, keyword, category, target_pin_count 
         FROM tracked_keywords 
         WHERE is_active = TRUE 
-        ORDER BY last_crawled_at ASC NULLS FIRST;
+        ORDER BY last_crawled_at ASC NULLS FIRST, id ASC;
       `;
     }
 
-    console.log(`[*] Dispatched ${targetRows.length} active keywords.`);
+    console.log(`[*] Dispatched ${targetRows.length} active keywords across 20 Persistent Fleet Workers.`);
 
     if (targetRows.length === 0) {
       console.log('[!] Warning: No active keywords found in database. Emitting empty matrix.');
       matrixTasks = [];
-    } else if (targetRows.length <= 250) {
-      // 1:1 Mapping: Direct individual runner per keyword (up to 250 concurrent tasks)
-      matrixTasks = targetRows.map((row, idx) => ({
-        mode: 'keyword_sweep',
-        keyword: row.keyword,
-        keyword_id: row.id,
-        category: row.category || 'General',
-        worker_index: idx,
-        worker_slot: idx + 1,
-        worker_total: targetRows.length,
-        max_pins: maxSerpPins,
-        max_serp_pins: maxSerpPins,
-        max_catalog_inspect: maxCatalogInspect,
-        crawl_scope: crawlScope,
-        enable_serp_harvest: enableSerpHarvest
-      }));
     } else {
-      // Chunking strategy: Partition large keyword fleet into 20 workers to prevent GitHub Actions matrix explosion (256 limit)
-      // Ensures 100% of tracked keywords are crawled on schedule without multi-day velocity drift
+      // Strictly cap matrix to 20 persistent workers (Single GitHub Actions Wave, zero queuing delay).
+      // Phase 1A: Each worker harvests SERPs for its modulo slice (~5-6 keywords/worker).
+      // Phase 1B: All 20 workers partition 100% of unique Active + Displaced Vault pins via Push-Down SQL Hash.
       const WORKER_COUNT = 20;
+      const allKeywordIdsCsv = targetRows.map(r => r.id).join(',');
       matrixTasks = [];
+
       for (let w = 0; w < WORKER_COUNT; w++) {
         const chunk = targetRows.filter((_, idx) => idx % WORKER_COUNT === w);
-        if (chunk.length > 0) {
-          matrixTasks.push({
-            mode: 'keyword_sweep',
-            keyword: chunk[0].keyword,
-            keyword_id: chunk[0].id,
-            keyword_ids: chunk.map(r => r.id).join(','),
-            keywords_count: chunk.length,
-            category: 'Batch Fleet',
-            worker_index: w,
-            worker_slot: w + 1,
-            worker_total: WORKER_COUNT,
-            max_pins: maxSerpPins,
-            max_serp_pins: maxSerpPins,
-            max_catalog_inspect: maxCatalogInspect,
-            crawl_scope: crawlScope,
-            enable_serp_harvest: enableSerpHarvest
-          });
-        }
+        matrixTasks.push({
+          mode: 'keyword_sweep',
+          target_keyword: '',
+          keyword: chunk.length > 0
+            ? `${chunk[0].keyword} (+${Math.max(0, chunk.length - 1)} kw)`
+            : `Pin Slice Worker #${w + 1}`,
+          keyword_id: chunk[0]?.id || targetRows[0].id,
+          keyword_ids: chunk.map(r => r.id).join(','),
+          all_keyword_ids: allKeywordIdsCsv,
+          keywords_count: chunk.length,
+          category: 'Global Pin Swarm',
+          worker_index: w,
+          worker_slot: w + 1,
+          worker_total: WORKER_COUNT,
+          max_pins: maxSerpPins,
+          max_serp_pins: maxSerpPins,
+          max_catalog_inspect: maxCatalogInspect,
+          crawl_scope: crawlScope,
+          enable_serp_harvest: enableSerpHarvest
+        });
       }
     }
 
     summaryDetails = {
-      mode: 'Multi-Keyword Broadcast',
+      mode: 'Global Two-Phase Distributed Pin Swarm (20 Persistent Workers)',
       keywordsCount: targetRows.length,
       runnersAssigned: matrixTasks.length,
       keywordsList: targetRows.map(r => r.keyword)
@@ -277,9 +266,8 @@ async function main() {
     const singleKeyword = commaKeywords[0];
     console.log(`\n[*] Mode Selected: MODE B (Single-Keyword Pin-Slice Sharding for "${singleKeyword}")`);
 
-    // 1. Resolve / Register Keyword in Central Hub
     let [kwRow] = await sql`
-      SELECT id, keyword, category, target_pin_count 
+      SELECT id, keyword, category, target_pin_count, is_active
       FROM tracked_keywords 
       WHERE LOWER(keyword) = ${singleKeyword};
     `;
@@ -307,9 +295,6 @@ async function main() {
 
     console.log(`  [+] Keyword Confirmed: "${kwRow.keyword}" (ID: ${kwRow.id})`);
 
-    // 2. Stage 0 Pure Zero-Crawl Dispatch:
-    // Spawns 20 parallel runners. Runner 1 handles Phase 1A SERP ingestion if harvest is enabled,
-    // and all 20 runners partition the candidate pins for Phase 1B deep inspection.
     const numWorkers = 20;
     console.log(`  [*] Partitioning "${kwRow.keyword}" across ${numWorkers} parallel runners (Runner 1 handles Phase 1A SERP ingestion)...`);
 
@@ -351,7 +336,6 @@ async function main() {
   console.log(`• Output Size: ${matrixJson.length} bytes`);
   console.log('================================================================');
 
-  // Write Markdown summary to $GITHUB_STEP_SUMMARY if available
   if (stepSummaryPath) {
     try {
       let md = `## 🚀 Stage 0: Dynamic Fleet Orchestrator & Dispatcher\n\n`;
@@ -363,11 +347,11 @@ async function main() {
         md += `- **Cluster Keywords**: **${summaryDetails.keywordsCount}** keywords distributed across **${matrixTasks.length}** parallel runners\n`;
         md += `- **Execution Architecture**: Two-Phase Distributed Fleet (Phase 1A: 20-Egress Parallel SERP Harvest + Phase 1B: Pin Slice Sharding)\n\n`;
       } else if (mode === 'keyword_sweep') {
-        md += `### 📋 Assigned Keywords Matrix\n\n`;
-        md += `| Runner # | Assigned Keyword | Category | Target Pins |\n`;
-        md += `| :---: | :--- | :--- | :---: |\n`;
+        md += `### 📋 Assigned Global Swarm Workers Matrix (${summaryDetails.keywordsCount} Keywords -> 20 Persistent Workers)\n\n`;
+        md += `| Runner # | Assigned SERP Slice | Keywords Count | SERP Quota |\n`;
+        md += `| :---: | :--- | :---: | :---: |\n`;
         matrixTasks.forEach(t => {
-          md += `| **Runner ${t.worker_index + 1}/${t.worker_total}** | \`${t.keyword}\` | ${t.category} | ${t.max_pins} |\n`;
+          md += `| **Runner ${t.worker_index + 1}/${t.worker_total}** | \`${t.keyword}\` | ${t.keywords_count || 0} | ${t.max_pins} |\n`;
         });
       } else {
         md += `### 🎯 Single-Keyword Distributed Partition\n\n`;

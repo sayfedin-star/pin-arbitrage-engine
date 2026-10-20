@@ -126,9 +126,15 @@ export async function getFolder(sql, folderId) {
     ORDER BY i.added_at DESC;
   `;
 
+  const resolvedCount = Array.isArray(items)
+    ? items.length
+    : Number(folder.keyword_count ?? folder.item_count ?? 0);
+
   return {
     ...folder,
     metadata: normalizeFolderMetadata(folder.metadata),
+    keyword_count: resolvedCount,
+    item_count: resolvedCount,
     items
   };
 }

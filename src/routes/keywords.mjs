@@ -929,10 +929,14 @@ export async function handleKeywordsRoutes({
         if (env?.PIN_D1_DB) {
           try {
             const d1Folder = await env.PIN_D1_DB.prepare(
-              "SELECT id, name, color, description, item_count, updated_at FROM edge_campaign_folders WHERE id = ?"
+              "SELECT id, name, color, description, item_count, item_count AS keyword_count, updated_at FROM edge_campaign_folders WHERE id = ?"
             ).bind(String(folderId)).first();
             if (d1Folder) {
-              return jsonResponse({ success: true, folder: d1Folder, source: 'd1_edge' }, 200, 15);
+              const normalizedD1Folder = {
+                ...d1Folder,
+                keyword_count: Number(d1Folder.keyword_count ?? d1Folder.item_count ?? 0)
+              };
+              return jsonResponse({ success: true, folder: normalizedD1Folder, source: 'd1_edge' }, 200, 15);
             }
           } catch (_) {}
         }
@@ -946,10 +950,14 @@ export async function handleKeywordsRoutes({
       if (env?.PIN_D1_DB) {
         try {
           const d1Folders = await env.PIN_D1_DB.prepare(
-            "SELECT id, name, color, description, item_count, updated_at FROM edge_campaign_folders ORDER BY updated_at DESC"
+            "SELECT id, name, color, description, item_count, item_count AS keyword_count, updated_at FROM edge_campaign_folders ORDER BY updated_at DESC"
           ).all();
           if (d1Folders?.results?.length > 0) {
-            return jsonResponse({ success: true, folders: d1Folders.results, source: 'd1_edge' }, 200, 10);
+            const normalizedList = d1Folders.results.map(f => ({
+              ...f,
+              keyword_count: Number(f.keyword_count ?? f.item_count ?? 0)
+            }));
+            return jsonResponse({ success: true, folders: normalizedList, source: 'd1_edge' }, 200, 10);
           }
         } catch (_) {}
       }
@@ -1081,10 +1089,14 @@ export async function handleKeywordsRoutes({
       if (env?.PIN_D1_DB) {
         try {
           const d1Folder = await env.PIN_D1_DB.prepare(
-            "SELECT id, name, color, description, item_count, updated_at FROM edge_campaign_folders WHERE id = ?"
+            "SELECT id, name, color, description, item_count, item_count AS keyword_count, updated_at FROM edge_campaign_folders WHERE id = ?"
           ).bind(String(folderId)).first();
           if (d1Folder) {
-            return jsonResponse({ success: true, folder: d1Folder, source: 'd1_edge' });
+            const normalizedD1Folder = {
+              ...d1Folder,
+              keyword_count: Number(d1Folder.keyword_count ?? d1Folder.item_count ?? 0)
+            };
+            return jsonResponse({ success: true, folder: normalizedD1Folder, source: 'd1_edge' });
           }
         } catch (_) {}
       }
@@ -1098,10 +1110,14 @@ export async function handleKeywordsRoutes({
     if (env?.PIN_D1_DB) {
       try {
         const d1Folders = await env.PIN_D1_DB.prepare(
-          "SELECT id, name, color, description, item_count, updated_at FROM edge_campaign_folders ORDER BY updated_at DESC"
+          "SELECT id, name, color, description, item_count, item_count AS keyword_count, updated_at FROM edge_campaign_folders ORDER BY updated_at DESC"
         ).all();
         if (d1Folders?.results?.length > 0) {
-          return jsonResponse({ success: true, folders: d1Folders.results, source: 'd1_edge' });
+          const normalizedList = d1Folders.results.map(f => ({
+            ...f,
+            keyword_count: Number(f.keyword_count ?? f.item_count ?? 0)
+          }));
+          return jsonResponse({ success: true, folders: normalizedList, source: 'd1_edge' });
         }
       } catch (_) {}
     }
