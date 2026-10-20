@@ -24,6 +24,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="referrer" content="same-origin">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📌</text></svg>">
   <title>Keyword Intelligence & Velocity | Pinterest SERP Radar Studio</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -52,8 +53,8 @@ export function getKeywordsPageHtml(initialSlug = '') {
       }
     };
   </script>
+  <script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.js" defer></script>
   <script defer src="https://unpkg.com/alpinejs@3.14.8/dist/cdn.min.js"></script>
-  <script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.js"></script>
   <style>
     [x-cloak] { display: none !important; }
     ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -2255,21 +2256,21 @@ export function getKeywordsPageHtml(initialSlug = '') {
             <div class="flex items-center space-x-2">
               <!-- View Switcher: Full Pins (736x) vs Official Collage vs Interactive Cards -->
               <div class="inline-flex rounded-xl bg-slate-100 dark:bg-slate-800/90 p-1 border border-slate-200/80 dark:border-slate-700/60 text-xs">
-                <button @click="popularPinsView = 'full'; $nextTick(() => lucide.createIcons())"
+                <button @click="popularPinsView = 'full'; $nextTick(() => { if (window.lucide) window.lucide.createIcons(); })"
                         :class="popularPinsView === 'full' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 font-medium'"
                         class="px-2.5 py-1 rounded-lg transition flex items-center space-x-1 cursor-pointer"
                         title="عرض كافة الدبابيس كاملة بدقة 736x">
                   <i data-lucide="layout-grid" class="w-3.5 h-3.5"></i>
                   <span>Full Pins (الصور كاملة)</span>
                 </button>
-                <button @click="popularPinsView = 'collage'; $nextTick(() => lucide.createIcons())"
+                <button @click="popularPinsView = 'collage'; $nextTick(() => { if (window.lucide) window.lucide.createIcons(); })"
                         :class="popularPinsView === 'collage' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 font-medium'"
                         class="px-2.5 py-1 rounded-lg transition flex items-center space-x-1 cursor-pointer"
                         title="بانر الكولاج الرسمي">
                   <i data-lucide="columns-3" class="w-3.5 h-3.5"></i>
                   <span>Official Collage</span>
                 </button>
-                <button @click="popularPinsView = 'grid'; $nextTick(() => lucide.createIcons())"
+                <button @click="popularPinsView = 'grid'; $nextTick(() => { if (window.lucide) window.lucide.createIcons(); })"
                         :class="popularPinsView === 'grid' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 font-medium'"
                         class="px-2.5 py-1 rounded-lg transition flex items-center space-x-1 cursor-pointer"
                         title="بطاقات التحليل والتتبع">
@@ -4144,7 +4145,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
             ...this.expandedPinTags,
             [pinId]: !this.expandedPinTags[pinId]
           };
-          this.$nextTick(() => { lucide.createIcons(); });
+          this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
         },
 
         isPinTagsExpanded(pinId) {
@@ -4155,7 +4156,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
           this.quickKeywordInput = '';
           this.quickKeywordCategory = 'General';
           this.isQuickTrackModalOpen = true;
-          this.$nextTick(() => { lucide.createIcons(); });
+          this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
         },
 
         async quickTrackKeyword(term) {
@@ -4317,7 +4318,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
           if (p === '...' || p < 1 || p > this.dashboardTotalPages) return;
           this.dashboardPage = p;
           this.$nextTick(() => {
-            if (window.lucide) lucide.createIcons();
+            if (window.lucide) window.lucide.createIcons();
             const el = this.dashboardViewMode === 'grid'
               ? (document.getElementById('keywords-dashboard-grid') || document.getElementById('keywords-dashboard-table'))
               : document.getElementById('keywords-dashboard-table');
@@ -4411,7 +4412,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
           try {
             localStorage.setItem('keywords_visible_columns', JSON.stringify(this.visibleColumns));
           } catch (_) {}
-          this.$nextTick(() => { if (window.lucide) lucide.createIcons(); });
+          this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
         },
 
         resetColumns() {
@@ -4429,7 +4430,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
           try {
             localStorage.removeItem('keywords_visible_columns');
           } catch (_) {}
-          this.$nextTick(() => { if (window.lucide) lucide.createIcons(); });
+          this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
         },
 
         get activeVisibleColumnCount() {
@@ -4634,7 +4635,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
             this.serpScope = 'all';
             this.activeTab = 'serp';
           }
-          this.$nextTick(() => { lucide.createIcons(); });
+          this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
         },
 
         filterByDomain(domain) {
@@ -4647,7 +4648,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
             this.serpScope = 'all';
             this.activeTab = 'serp';
           }
-          this.$nextTick(() => { lucide.createIcons(); });
+          this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
         },
 
         get analyzedPinsList() {
@@ -5027,7 +5028,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
             const path = window.location.pathname || '';
             if (path === '/keywords' || path === '/keywords/') {
               this.viewModeLevel = 'dashboard';
-              this.$nextTick(() => { lucide.createIcons(); });
+              this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
             } else {
               const pathSlug = this.extractSlugFromUrl();
               if (pathSlug) {
@@ -5053,16 +5054,16 @@ export function getKeywordsPageHtml(initialSlug = '') {
             this.fetchFolders();
           }
 
-          this.$watch('dashboardSearch', () => { this.dashboardPage = 1; this.$nextTick(() => { if (window.lucide) lucide.createIcons(); }); });
-          this.$watch('dashboardCategoryFilter', () => { this.dashboardPage = 1; this.$nextTick(() => { if (window.lucide) lucide.createIcons(); }); });
-          this.$watch('dashboardStatusFilter', () => { this.dashboardPage = 1; this.$nextTick(() => { if (window.lucide) lucide.createIcons(); }); });
-          this.$watch('dashboardFolderFilter', () => { this.dashboardPage = 1; this.$nextTick(() => { if (window.lucide) lucide.createIcons(); }); });
-          this.$watch('dashboardGrowthFilter', () => { this.dashboardPage = 1; this.$nextTick(() => { if (window.lucide) lucide.createIcons(); }); });
-          this.$watch('dashboardPinsFilter', () => { this.dashboardPage = 1; this.$nextTick(() => { if (window.lucide) lucide.createIcons(); }); });
-          this.$watch('dashboardSort', () => { this.dashboardPage = 1; this.$nextTick(() => { if (window.lucide) lucide.createIcons(); }); });
-          this.$watch('dashboardPageSize', () => { this.dashboardPage = 1; this.$nextTick(() => { if (window.lucide) lucide.createIcons(); }); });
+          this.$watch('dashboardSearch', () => { this.dashboardPage = 1; this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); }); });
+          this.$watch('dashboardCategoryFilter', () => { this.dashboardPage = 1; this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); }); });
+          this.$watch('dashboardStatusFilter', () => { this.dashboardPage = 1; this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); }); });
+          this.$watch('dashboardFolderFilter', () => { this.dashboardPage = 1; this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); }); });
+          this.$watch('dashboardGrowthFilter', () => { this.dashboardPage = 1; this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); }); });
+          this.$watch('dashboardPinsFilter', () => { this.dashboardPage = 1; this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); }); });
+          this.$watch('dashboardSort', () => { this.dashboardPage = 1; this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); }); });
+          this.$watch('dashboardPageSize', () => { this.dashboardPage = 1; this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); }); });
           this.$watch('dashboardTotalPages', (total) => { if (this.dashboardPage > total) this.dashboardPage = Math.max(1, total); });
-          this.$watch('dashboardViewMode', () => { this.$nextTick(() => { if (window.lucide) lucide.createIcons(); }); });
+          this.$watch('dashboardViewMode', () => { this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); }); });
           this.$watch('pinSearch', () => { this.pinPage = 1; });
           this.$watch('serpScope', () => { this.pinPage = 1; });
           this.$watch('formatFilter', () => { this.pinPage = 1; });
@@ -5073,13 +5074,13 @@ export function getKeywordsPageHtml(initialSlug = '') {
           this.$watch('anchorsSearch', () => { this.anchorsPage = 1; });
           this.$watch('anchorsTier', () => { this.anchorsPage = 1; });
           this.$watch('domainSearch', () => { this.domainPage = 1; });
-          this.$nextTick(() => { lucide.createIcons(); });
+          this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
         },
 
         switchToDashboard() {
           this.viewModeLevel = 'dashboard';
           window.history.pushState(null, '', '/keywords');
-          this.$nextTick(() => { lucide.createIcons(); });
+          this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
         },
 
         switchToSerpStudio(kw) {
@@ -5087,7 +5088,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
           if (kw) {
             this.selectKeyword(kw, true);
           }
-          this.$nextTick(() => { lucide.createIcons(); });
+          this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
         },
 
         toggleDashboardKeywordSelection(kwId) {
@@ -5333,7 +5334,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
 
         showToast(message, type = 'info') {
           this.toast = { show: true, message, type };
-          this.$nextTick(() => { lucide.createIcons(); });
+          this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
           setTimeout(() => { this.toast.show = false; }, 3500);
         },
 
@@ -5388,7 +5389,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
             this.showToast('Failed to load keywords: ' + err.message, 'error');
           } finally {
             this.isKeywordsLoading = false;
-            this.$nextTick(() => { if (window.lucide) lucide.createIcons(); });
+            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
           }
         },
 
@@ -5434,7 +5435,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
               this.showToast('Error loading keyword: ' + err.message, 'error');
             } finally {
               this.isDetailsLoading = false;
-              this.$nextTick(() => { lucide.createIcons(); });
+              this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
             }
           }
         },
@@ -5487,7 +5488,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
           } finally {
             if (currentReqId === this.detailRequestId) {
               this.isDetailsLoading = false;
-              this.$nextTick(() => { lucide.createIcons(); });
+              this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
             }
           }
         },
@@ -5522,7 +5523,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
             }
           } catch (_) {} finally {
             this.isTrendsLoading = false;
-            this.$nextTick(() => { lucide.createIcons(); });
+            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
           }
         },
 
@@ -5535,7 +5536,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
           this.dossierData = null;
           this.trajectoryData = null;
           this.isPinDrawerOpen = true;
-          this.$nextTick(() => { lucide.createIcons(); });
+          this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
 
           if (this.pinInspectorAbortController) {
             this.pinInspectorAbortController.abort();
@@ -5586,7 +5587,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
           } finally {
             if (currentReqId === this.activePinRequestId) {
               this.isDossierLoading = false;
-              this.$nextTick(() => { lucide.createIcons(); });
+              this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
             }
           }
         },
@@ -5617,7 +5618,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
           } finally {
             if (currentReqId === this.activePinRequestId) {
               this.isTrajectoryLoading = false;
-              this.$nextTick(() => { lucide.createIcons(); });
+              this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
             }
           }
         },
@@ -5644,7 +5645,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
             }
           } catch (_) {} finally {
             this.isDisplacedLoading = false;
-            this.$nextTick(() => { lucide.createIcons(); });
+            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
           }
         },
 
@@ -5702,7 +5703,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
           this.settingsMaxPinAgeDays = Number(this.appSettings.breakout_max_pin_age_days || this.appSettings.breakout_rules?.max_pin_age_days || 30);
           this.settingsMinVelocity = Number(this.appSettings.breakout_min_velocity || this.appSettings.breakout_rules?.min_daily_save_velocity || 1.5);
           this.isSettingsModalOpen = true;
-          this.$nextTick(() => { lucide.createIcons(); });
+          this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
         },
 
         async saveSettings() {
@@ -5944,7 +5945,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
             }
           } catch (_) {} finally {
             this.isTypeaheadLoading = false;
-            this.$nextTick(() => { lucide.createIcons(); });
+            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
           }
         },
 
@@ -6272,7 +6273,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
             this.visualLensError = err.message;
           } finally {
             this.isVisualLensLoading = false;
-            this.$nextTick(() => { lucide.createIcons(); });
+            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
           }
         },
 
@@ -6415,7 +6416,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
             this.showToast('Error loading crossover matrix: ' + err.message, 'error');
           } finally {
             this.isCrossoverLoading = false;
-            this.$nextTick(() => { lucide.createIcons(); });
+            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
           }
         },
 
@@ -6614,6 +6615,18 @@ export function getKeywordsPageHtml(initialSlug = '') {
           this.showToast('1-Click CSV Blueprint downloaded successfully!', 'success');
         }
       };
+    }
+    if (typeof document !== 'undefined') {
+      const initLucide = () => {
+        if (typeof window !== 'undefined' && window.lucide && typeof window.lucide.createIcons === 'function') {
+          window.lucide.createIcons();
+        }
+      };
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initLucide);
+      } else {
+        initLucide();
+      }
     }
   </script>
   ${getEdgeShieldClientScript()}

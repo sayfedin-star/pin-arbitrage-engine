@@ -703,9 +703,14 @@ export function corsOptionsResponse(requestOrigin = null, env = {}, allow = 'GET
   });
 }
 
+// [INVARIANT: EDGE-COMPRESSION-AND-SMART-CACHING]
+// HTML headers configured to enable Cloudflare Edge Brotli/Gzip compression by omitting 'no-transform'.
+// 'public, max-age=0, s-maxage=3600, stale-while-revalidate=86400' instructs Cloudflare Edge to cache the
+// static UI shells for up to 1 hour (revalidating in background for 24 hours), while browsers always
+// revalidate with edge (max-age=0) ensuring immediate UI updates upon deployment.
 export const HTML_HEADERS = {
   'Content-Type': 'text/html; charset=utf-8',
-  'Cache-Control': 'private, no-cache, no-transform, max-age=0, must-revalidate',
+  'Cache-Control': 'public, max-age=0, s-maxage=3600, stale-while-revalidate=86400',
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'DENY',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
@@ -1603,7 +1608,10 @@ export default {
       if (store?.hyperdriveSql && typeof store.hyperdriveSql.end === 'function') {
         const hyperdriveClient = store.hyperdriveSql;
         store.hyperdriveSql = null;
-        // Release Hyperdrive TCP socket immediately without waiting up to 25s on non-DB background promises
+        // [INVARIANT: NON-BLOCKING-SOCKET-CLEANUP]
+        // Release Hyperdrive TCP socket asynchronously via ctx.waitUntil without blocking HTTP response stream.
+        // We do NOT await closePromise here so the HTTP response stream to the browser is flushed and
+        // finalized immediately without stalling for TCP socket close handshakes.
         const closePromise = Promise.resolve()
           .then(() => hyperdriveClient.end({ timeout: 3 }))
           .catch((closeErr) => {
@@ -1612,7 +1620,6 @@ export default {
         if (ctx && typeof ctx.waitUntil === 'function') {
           ctx.waitUntil(closePromise);
         }
-        await closePromise;
       }
     }
     });
