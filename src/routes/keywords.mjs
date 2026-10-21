@@ -218,14 +218,21 @@ export async function handleKeywordsRoutes({
       env
     });
 
-    // Trigger Stage 2 Deep Crawler in GitHub Actions asynchronously (< 3s edge response preserved)
-    const autoDispatch = body.dispatch_workflow !== false;
+    // [INVARIANT: EDGE-ONLY-SERP-DISCOVERY]
+    // Table row re-crawls and synchronous SERP queries are strictly edge-only (< 2s).
+    // Workflow dispatch to GitHub Actions occurs only when explicitly opted in via dispatch_workflow === true.
+    const autoDispatch = body.dispatch_workflow === true;
     const token = (typeof env !== 'undefined' && (env?.GITHUB_TOKEN || env?.GITHUB_PAT || env?.GH_TOKEN || env?.GH_REFRESH_TOKEN)) || (typeof process !== 'undefined' ? (process.env?.GITHUB_TOKEN || process.env?.GITHUB_PAT || process.env?.GH_TOKEN || process.env?.GH_REFRESH_TOKEN) : null);
     if (autoDispatch && token && res?.success) {
       const repo = (typeof env !== 'undefined' && env?.GITHUB_REPOSITORY) || (typeof process !== 'undefined' ? process.env?.GITHUB_REPOSITORY : null) || 'sayfedin-star/pin-arbitrage-engine';
       const targetKw = res.keyword || body.target_keyword || body.keyword || resolvedKw?.keyword || '';
       const maxPinsInput = String(body.max_pins || resolvedKw?.target_pin_count || '50');
       const crawlScopeInput = String(body.crawl_scope || 'all_pins');
+      // [INVARIANT: EDGE-ONLY-SERP-DISCOVERY]
+      // When auto-dispatched from sync, SERP was already scraped on Edge (< 2s). Default enable_serp_harvest to 'false' unless explicitly overridden.
+      const enableSerpHarvestInput = body.enable_serp_harvest !== undefined
+        ? String(body.enable_serp_harvest)
+        : 'false';
       const cleanToken = String(token).replace(/^(token|Bearer)\s+/i, '').replace(/^["']|["']$/g, '').trim();
       const authHeader = cleanToken.startsWith('ghp_') ? `token ${cleanToken}` : `Bearer ${cleanToken}`;
       const dispatchPromise = (async () => {
@@ -242,7 +249,8 @@ export async function handleKeywordsRoutes({
               inputs: {
                 target_keyword: targetKw,
                 crawl_scope: crawlScopeInput,
-                max_pins: maxPinsInput
+                max_pins: maxPinsInput,
+                enable_serp_harvest: enableSerpHarvestInput
               }
             })
           });
@@ -1053,7 +1061,9 @@ export async function handleKeywordsRoutes({
     const maxPinsInput = String(body.max_pins || '50');
     const maxSerpPinsInput = String(body.max_serp_pins || body.max_pins || maxPinsInput);
     const maxCatalogInspectInput = String(body.max_catalog_inspect || '0');
-    const enableSerpHarvestInput = String(body.enable_serp_harvest ?? 'true');
+    const enableSerpHarvestInput = body.enable_serp_harvest !== undefined && body.enable_serp_harvest !== null && body.enable_serp_harvest !== ''
+      ? String(body.enable_serp_harvest)
+      : (folderIdInput ? '' : 'true');
     const crawlScopeInput = String(body.crawl_scope || 'all_pins');
     const repo = (typeof env !== 'undefined' && env?.GITHUB_REPOSITORY) || (typeof process !== 'undefined' ? process.env?.GITHUB_REPOSITORY : null) || 'sayfedin-star/pin-arbitrage-engine';
     const token = (typeof env !== 'undefined' && (env?.GITHUB_TOKEN || env?.GITHUB_PAT || env?.GH_TOKEN || env?.GH_REFRESH_TOKEN)) || (typeof process !== 'undefined' ? (process.env?.GITHUB_TOKEN || process.env?.GITHUB_PAT || process.env?.GH_TOKEN || process.env?.GH_REFRESH_TOKEN) : null);

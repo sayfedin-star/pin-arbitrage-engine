@@ -72,3 +72,9 @@ Refer to `PROJECT_CHARTER_AND_DIRECTIVES.md` for full context. The following rul
   - `// [INVARIANT: HYPERDRIVE-ATOMIC-BUILDER]`
   - `// [INVARIANT: SAFE-PREFETCH-EDGE-ONLY]`
 - **Preserve Existing Documentation:** Never wipe or strip existing docstrings or inline comments during refactoring.
+
+## 11. Public Repository & Distributed Fleet Scaling Invariants
+- **Public Repo Unlimited Actions:** The repository `sayfedin-star/pin-arbitrage-engine` is 100% PUBLIC. GitHub Actions runner minutes are completely FREE and UNLIMITED. Never warn about or factor in Action minutes depletion.
+- **Intelligent 20-Runner Pin Partitioning:** Mode B (`single-keyword`) slices whatever pin volume is requested (50 to 5,000 pins) dynamically and deterministically across the 20 isolated Azure runner VMs (`crc32(pin_id) % 20 === workerIndex`).
+- **Re-Crawl Button Cloudflare Edge Boundary:** The `Re-Crawl` button in the UI table row is strictly designated for fast, immediate Cloudflare Edge SERP discovery (< 2s). The 20-runner fleet pipeline is preserved for daily scheduled deep sweeps and explicit bulk operations.
+

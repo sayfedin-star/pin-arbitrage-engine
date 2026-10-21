@@ -1316,6 +1316,15 @@ async function run() {
           console.log(`  [+] [Phase 1A] Keyword ID ${kid} SERP harvest complete:`, res?.pins_collected || res?.total_pins_processed || 'OK');
         } catch (err) {
           console.warn(`  [!] [Phase 1A] Keyword ID ${kid} SERP error:`, err.message);
+        } finally {
+          // Failure-Immune Barrier Sync Guard: Always stamp updated_at so failure or incomplete crawl never blocks cluster barrier
+          await sql`
+            UPDATE tracked_keywords
+            SET updated_at = NOW(),
+                crawl_lease_token = NULL,
+                crawl_lease_until = NULL
+            WHERE id = ${kid};
+          `.catch(() => {});
         }
       }
     } else if (!enableSerpHarvest) {
@@ -1336,7 +1345,10 @@ async function run() {
           JOIN tracked_keywords tk ON tk.id = kfi.keyword_id
           WHERE kfi.folder_id = ${fid}
             AND tk.is_active = TRUE
-            AND (tk.last_crawled_at IS NULL OR tk.last_crawled_at < ${runStartTime});
+            AND GREATEST(
+              COALESCE(tk.last_crawled_at, '1970-01-01'::timestamptz),
+              COALESCE(tk.updated_at, '1970-01-01'::timestamptz)
+            ) < ${runStartTime};
         `;
         const pendingCount = Number(pendingRow?.pending || 0);
         if (pendingCount === 0) {
@@ -1548,6 +1560,15 @@ async function run() {
           console.log(`[Phase 1A] Lead Runner SERP ingest complete:`, res?.pins_collected || res?.total_pins_processed || 'OK');
         } catch (err) {
           console.warn(`[Phase 1A] Lead Runner SERP error:`, err.message);
+        } finally {
+          // Failure-Immune Barrier Sync Guard: Always stamp updated_at so failure or incomplete crawl never hangs peer workers for 45s
+          await sql`
+            UPDATE tracked_keywords
+            SET updated_at = NOW(),
+                crawl_lease_token = NULL,
+                crawl_lease_until = NULL
+            WHERE id = ${kwRow.id};
+          `.catch(() => {});
         }
       } else {
         console.log(`[Phase 1A] Runner ${workerIndex + 1}/${workerTotal}: Waiting for Runner 1 to complete SERP ingestion...`);
@@ -1555,16 +1576,20 @@ async function run() {
         const BARRIER_TIMEOUT_MS = 45000;
         while (Date.now() - barrierStart < BARRIER_TIMEOUT_MS) {
           const [checkRow] = await sql`
-            SELECT last_crawled_at FROM tracked_keywords WHERE id = ${kwRow.id};
+            SELECT last_crawled_at, updated_at FROM tracked_keywords WHERE id = ${kwRow.id};
           `;
-          if (checkRow?.last_crawled_at && new Date(checkRow.last_crawled_at) >= runStartTime) {
+          const lastTs = Math.max(
+            checkRow?.last_crawled_at ? new Date(checkRow.last_crawled_at).getTime() : 0,
+            checkRow?.updated_at ? new Date(checkRow.updated_at).getTime() : 0
+          );
+          if (lastTs >= runStartTime.getTime()) {
             console.log(`[Phase 1A] Barrier Sync cleared: SERP ingested in ${Math.round((Date.now() - barrierStart) / 1000)}s!`);
             break;
           }
           await sleep(2500);
         }
         if (Date.now() - barrierStart >= BARRIER_TIMEOUT_MS) {
-          console.warn(`[Phase 1A] Barrier Sync reached 35s timeout limit. Proceeding to Phase 1B.`);
+          console.warn(`[Phase 1A] Barrier Sync reached 45s timeout limit. Proceeding to Phase 1B.`);
         }
       }
     }

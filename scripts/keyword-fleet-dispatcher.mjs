@@ -57,9 +57,11 @@ async function main() {
   // Dynamically resolve configuration from DB app_settings with ENV overrides
   const appSettings = await getAppSettings(sql).catch(() => ({}));
   const envHarvest = process.env.ENABLE_SERP_HARVEST?.trim();
+  // [INVARIANT: CRON-SERP-HARVEST-DEFAULT-TRUE]
+  // Guarantee that scheduled runs at 0 1 * * * or triggers omitting ENABLE_SERP_HARVEST always default to true
   let enableSerpHarvest = (envHarvest !== undefined && envHarvest !== '')
     ? (envHarvest === 'true' || envHarvest === '1')
-    : (appSettings.enable_serp_harvest ?? true);
+    : true;
 
   const envSerpPins = process.env.MAX_SERP_PINS?.trim() || process.env.MAX_PINS?.trim();
   const maxSerpPins = (envSerpPins && !isNaN(parseInt(envSerpPins, 10)))

@@ -259,7 +259,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
           </button>
 
           <!-- Trigger Fleet Crawl -->
-          <button @click="triggerWorkflow()" :disabled="isWorkflowDispatching"
+          <button @click="openFleetDispatchModal()" :disabled="isWorkflowDispatching"
                   class="px-3.5 py-2 rounded-2xl text-xs font-bold uppercase tracking-wider bg-slate-900 hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white transition flex items-center space-x-1.5 shadow-xs disabled:opacity-50 cursor-pointer">
             <i data-lucide="play" class="w-3.5 h-3.5 text-emerald-400" :class="isWorkflowDispatching ? 'animate-spin' : ''"></i>
             <span>Trigger Fleet</span>
@@ -1227,11 +1227,11 @@ export function getKeywordsPageHtml(initialSlug = '') {
             </div>
           </div>
 
-          <button @click="triggerWorkflow()" :disabled="isWorkflowDispatching"
-                  class="px-3.5 py-2.5 rounded-2xl text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 transition flex items-center space-x-1.5 disabled:opacity-50"
-                  title="Run Autonomous 24h Crawler via GitHub Actions">
+          <button @click="openFleetDispatchModal()" :disabled="isWorkflowDispatching"
+                  class="px-3.5 py-2.5 rounded-2xl text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 transition flex items-center space-x-1.5 disabled:opacity-50 cursor-pointer"
+                  title="Run Autonomous 24h Crawler Fleet via GitHub Actions">
             <i data-lucide="play" class="w-3.5 h-3.5 text-emerald-500" :class="isWorkflowDispatching ? 'animate-spin' : ''"></i>
-            <span class="hidden sm:inline">GitHub Actions</span>
+            <span class="hidden sm:inline">Trigger Fleet</span>
           </button>
 
           <button @click="copySEOFormula()"
@@ -3962,6 +3962,127 @@ export function getKeywordsPageHtml(initialSlug = '') {
     </div>
   </div>
 
+  <!-- MODAL: INTERACTIVE 20-RUNNER FLEET DISPATCH SWARM -->
+  <div x-show="isFleetDispatchModalOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div x-show="isFleetDispatchModalOpen"
+         x-transition:enter="transition-opacity ease-linear duration-300"
+         x-transition:enter-start="opacity-0"
+         x-transition:enter-end="opacity-100"
+         x-transition:leave="transition-opacity ease-linear duration-300"
+         x-transition:leave-start="opacity-100"
+         x-transition:leave-end="opacity-0"
+         @click="isFleetDispatchModalOpen = false"
+         class="fixed inset-0 bg-slate-950/70 backdrop-blur-xs"></div>
+
+    <div x-show="isFleetDispatchModalOpen"
+         x-transition:enter="transform transition ease-out duration-300"
+         x-transition:enter-start="opacity-0 scale-95"
+         x-transition:enter-end="opacity-100 scale-100"
+         x-transition:leave="transform transition ease-in duration-200"
+         x-transition:leave-start="opacity-100 scale-100"
+         x-transition:leave-end="opacity-0 scale-95"
+         class="relative w-full max-w-lg bg-white dark:bg-[#0c1322] border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl p-6 space-y-5 z-10">
+      
+      <!-- Modal Header -->
+      <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+        <div class="flex items-center space-x-3">
+          <div class="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center">
+            <i data-lucide="play" class="w-4 h-4"></i>
+          </div>
+          <div>
+            <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">Trigger 20-Runner Swarm</h3>
+            <p class="text-[11px] text-slate-400 font-mono">Autonomous deep crawler fleet via GitHub Actions</p>
+          </div>
+        </div>
+        <button @click="isFleetDispatchModalOpen = false" class="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <!-- Controls Form -->
+      <div class="space-y-4">
+        <!-- 1. Target Keyword -->
+        <div>
+          <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Target Keyword</label>
+          <select x-model="fleetDispatchTargetKeyword" @change="onFleetTargetKeywordChange()" class="w-full px-3 py-2.5 rounded-xl text-xs bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/40 font-medium">
+            <option value="">All Tracked Keywords (Global Sweep)</option>
+            <template x-for="kw in keywords" :key="kw.id">
+              <option :value="kw.keyword" x-text="kw.keyword + ' (' + (getKeywordTotalPins(kw) || kw.total_pins || 0) + ' pins)'"></option>
+            </template>
+          </select>
+          <p class="mt-1 text-[10px] text-slate-400">Select an individual keyword to partition its pins across 20 runners, or audit all keywords globally.</p>
+        </div>
+
+        <!-- 2. Fresh Live SERP First (Toggle / Checkbox) -->
+        <div class="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 flex items-start justify-between space-x-3">
+          <div class="space-y-0.5">
+            <label class="text-xs font-bold text-slate-800 dark:text-slate-200 cursor-pointer" @click="fleetDispatchHarvestSerp = !fleetDispatchHarvestSerp">
+              Fetch Fresh Live SERP First
+            </label>
+            <p class="text-[11px] text-slate-400 leading-relaxed">
+              Harvests real-time Pinterest search rankings before extracting 48-field telemetry
+            </p>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer shrink-0 mt-0.5">
+            <input type="checkbox" x-model="fleetDispatchHarvestSerp" class="sr-only peer">
+            <div class="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-slate-600 peer-checked:bg-emerald-500"></div>
+          </label>
+        </div>
+
+        <!-- 3. Crawl Scope -->
+        <div>
+          <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Crawl Scope</label>
+          <div class="grid grid-cols-2 gap-2">
+            <button type="button" @click="fleetDispatchScope = 'all_pins'"
+                    class="p-3 rounded-2xl border text-left transition cursor-pointer"
+                    :class="fleetDispatchScope === 'all_pins' ? 'bg-emerald-500/10 border-emerald-500 text-emerald-600 dark:text-emerald-400' : 'bg-slate-100 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:border-slate-300'">
+              <div class="text-xs font-bold">All Pins</div>
+              <div class="text-[10px] text-slate-400 mt-0.5">Active SERP + Displaced Vault</div>
+            </button>
+            <button type="button" @click="fleetDispatchScope = 'active_serp'"
+                    class="p-3 rounded-2xl border text-left transition cursor-pointer"
+                    :class="fleetDispatchScope === 'active_serp' ? 'bg-emerald-500/10 border-emerald-500 text-emerald-600 dark:text-emerald-400' : 'bg-slate-100 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:border-slate-300'">
+              <div class="text-xs font-bold">Active SERP Only</div>
+              <div class="text-[10px] text-slate-400 mt-0.5">Top 50-100 ranked pins</div>
+            </button>
+          </div>
+        </div>
+
+        <!-- 4. Max Pins Quota -->
+        <div>
+          <div class="flex items-center justify-between mb-1">
+            <label class="text-xs font-bold text-slate-700 dark:text-slate-300">Max Pins Quota</label>
+            <span class="text-[11px] font-mono text-emerald-500 font-bold" x-text="fleetDispatchMaxPins + ' pins'"></span>
+          </div>
+          <select x-model.number="fleetDispatchMaxPins" class="w-full px-3 py-2 rounded-xl text-xs bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/40">
+            <option :value="fleetDispatchMaxPins" x-show="![50, 100, 250, 500, 1000].includes(fleetDispatchMaxPins)" x-text="fleetDispatchMaxPins + ' Pins (Target Quota)'"></option>
+            <option :value="50">50 Pins (Fast Discovery)</option>
+            <option :value="100">100 Pins (Standard SERP)</option>
+            <option :value="250">250 Pins (Deep Audit)</option>
+            <option :value="500">500 Pins (Extensive Sweep)</option>
+            <option :value="1000">1000 Pins (Maximum Cluster)</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-800">
+        <span class="text-[11px] text-slate-400 font-mono">20 Azure VMs &middot; Zero Hub writes</span>
+        <div class="flex items-center space-x-2">
+          <button @click="isFleetDispatchModalOpen = false" class="px-4 py-2 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer">
+            Cancel
+          </button>
+          <button @click="executeFleetDispatch()" :disabled="isWorkflowDispatching"
+                  class="px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider bg-emerald-600 hover:bg-emerald-500 text-white transition disabled:opacity-50 cursor-pointer shadow-sm flex items-center space-x-1.5">
+            <i data-lucide="play" class="w-3.5 h-3.5 text-white" :class="isWorkflowDispatching ? 'animate-spin' : ''"></i>
+            <span>Launch 20-Runner Swarm</span>
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
   ${getKeywordDrawersAndModalsHtml()}
 
 
@@ -3976,6 +4097,13 @@ export function getKeywordsPageHtml(initialSlug = '') {
         isDetailsLoading: false,
         isWorkflowDispatching: false,
         syncingKeywordId: null,
+
+        // Interactive 20-Runner Swarm Fleet Dispatch Modal State
+        isFleetDispatchModalOpen: false,
+        fleetDispatchTargetKeyword: '',
+        fleetDispatchHarvestSerp: true,
+        fleetDispatchScope: 'all_pins',
+        fleetDispatchMaxPins: 50,
 
         // Level 1A Dashboard State & Bulk Selection
         selectedKeywordIds: [],
@@ -6008,8 +6136,8 @@ export function getKeywordsPageHtml(initialSlug = '') {
           this.showToast('Crawling fresh SERP (~' + maxPins + ' pins) from Pinterest...', 'info');
 
           try {
-            const targetKw = this.selectedKeyword?.keyword || this.activeKeywordQuery || '';
-            const targetSlug = this.selectedKeyword?.slug || this.activeKeywordQuery || '';
+            const targetKw = kwObj?.keyword || (this.selectedKeyword?.id === id ? this.selectedKeyword?.keyword : '') || this.activeKeywordQuery || '';
+            const targetSlug = kwObj?.slug || kwObj?.canonical_keyword || (this.selectedKeyword?.id === id ? this.selectedKeyword?.slug : '') || this.activeKeywordQuery || '';
             const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/keywords/sync'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -6020,7 +6148,8 @@ export function getKeywordsPageHtml(initialSlug = '') {
                 force: Boolean(force),
                 crawl_pages: crawlPages,
                 max_pins: maxPins,
-                inspection_mode: inspectionMode
+                inspection_mode: inspectionMode,
+                dispatch_workflow: false
               })
             });
 
@@ -6037,8 +6166,9 @@ export function getKeywordsPageHtml(initialSlug = '') {
                 await this.selectKeyword(this.selectedKeyword, false);
               }
               // [INVARIANT: ZERO-DOUBLE-TRIGGER]
-              // Background fleet pipeline workflow is already automatically dispatched by the backend
-              // in /api/keywords/sync. Redundant client-side triggerWorkflow call eliminated.
+              // [INVARIANT: EDGE-ONLY-RESCAN]
+              // Table row re-crawl runs strictly on Cloudflare Edge (< 2s) with dispatch_workflow: false.
+              // Deep fleet telemetry is triggered independently via the interactive Trigger Fleet modal.
             } else {
               const reason = data.result?.reason === 'zero_organic_results'
                 ? '0 organic pins found on Pinterest (check cookie/query)'
@@ -6075,33 +6205,64 @@ export function getKeywordsPageHtml(initialSlug = '') {
           }
         },
 
-        async triggerWorkflow(notify = true) {
+        openFleetDispatchModal(target = null) {
+          const kwObj = (typeof target === 'object' && target !== null)
+            ? target
+            : (typeof target === 'string' && target
+                ? (this.keywords.find(k => k.keyword?.toLowerCase() === target.toLowerCase()) || { keyword: target })
+                : this.selectedKeyword);
+          this.fleetDispatchTargetKeyword = kwObj?.keyword || '';
+          this.fleetDispatchHarvestSerp = true;
+          this.fleetDispatchScope = 'all_pins';
+          this.fleetDispatchMaxPins = kwObj?.target_pin_count || this.appSettings?.default_max_pins || 50;
+          this.isFleetDispatchModalOpen = true;
+          this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+        },
+
+        onFleetTargetKeywordChange() {
+          if (!this.fleetDispatchTargetKeyword) {
+            this.fleetDispatchMaxPins = this.appSettings?.default_max_pins || 50;
+            return;
+          }
+          const kw = this.keywords.find(k => k.keyword?.toLowerCase() === this.fleetDispatchTargetKeyword.toLowerCase());
+          if (kw) {
+            this.fleetDispatchMaxPins = kw.target_pin_count || this.appSettings?.default_max_pins || 50;
+          }
+        },
+
+        async executeFleetDispatch() {
           this.isWorkflowDispatching = true;
-          if (notify) this.showToast('Dispatching GitHub Actions autonomous crawler fleet...', 'info');
+          this.isFleetDispatchModalOpen = false;
+          this.showToast('Dispatching 20-Runner Swarm via GitHub Actions...', 'info');
           try {
-            const targetKw = this.selectedKeyword?.keyword || this.activeKeywordQuery || '';
-            const targetPins = String(this.selectedKeyword?.target_pin_count || this.appSettings.default_max_pins || 250);
+            const targetKw = this.fleetDispatchTargetKeyword || '';
+            const targetPins = String(this.fleetDispatchMaxPins || this.selectedKeyword?.target_pin_count || this.appSettings?.default_max_pins || 50);
             const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/keywords/dispatch-workflow'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 target_keyword: targetKw,
                 keyword: targetKw,
-                crawl_scope: 'all_pins',
-                max_pins: targetPins
+                crawl_scope: this.fleetDispatchScope || 'all_pins',
+                max_pins: targetPins,
+                enable_serp_harvest: this.fleetDispatchHarvestSerp ? 'true' : 'false'
               })
             });
             const data = await res.json().catch(() => ({}));
             if (res.ok && data?.success) {
-              if (notify) this.showToast('GitHub Actions fleet workflow dispatched successfully!', 'success');
+              this.showToast('20-Runner Swarm dispatched successfully!', 'success');
             } else {
-              if (notify) this.showToast('Dispatch note: ' + (data.message || data.error || 'Check GitHub token'), 'error');
+              this.showToast('Dispatch note: ' + (data.message || data.error || 'Check GitHub token'), 'error');
             }
           } catch (err) {
-            if (notify) this.showToast('Error triggering workflow: ' + err.message, 'error');
+            this.showToast('Error triggering fleet: ' + err.message, 'error');
           } finally {
             this.isWorkflowDispatching = false;
           }
+        },
+
+        async triggerWorkflow(notify = true) {
+          this.openFleetDispatchModal();
         },
 
         copyToClipboard(text, msg = 'Copied to clipboard!') {
