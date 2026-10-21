@@ -354,6 +354,88 @@ runTest('scripts/offload_and_compact_hub.mjs contains zero GREATEST locks on dai
   assert.strictEqual(hasGreatestLock, false, 'offload_and_compact_hub.mjs must not contain GREATEST velocity locks');
 });
 
+// -----------------------------------------------------------------------------
+// 6. Keywords UI Pin Dossier Link Integrity & activeFolderId ReferenceError Guard
+// -----------------------------------------------------------------------------
+console.log('\n[*] Section 6: Keywords UI Pin Dossier Link Integrity & activeFolderId Guard...');
+
+import vm from 'node:vm';
+import { getKeywordsPageHtml } from '../src/keywords-ui.mjs';
+
+runTest('src/keywords-ui.mjs and src/ui/keywords-drawers.mjs contain ZERO undeclared activeFolderId references', () => {
+  const kwUiContent = fs.readFileSync('src/keywords-ui.mjs', 'utf8');
+  const drawersContent = fs.readFileSync('src/ui/keywords-drawers.mjs', 'utf8');
+  
+  assert.strictEqual(kwUiContent.includes('activeFolderId'), false, 'keywords-ui.mjs must not reference undeclared activeFolderId');
+  assert.strictEqual(drawersContent.includes('activeFolderId'), false, 'keywords-drawers.mjs must not reference undeclared activeFolderId');
+});
+
+runTest('getPinDossierUrl generates robust, breadcrumb-rich URLs across all edge cases', () => {
+  const html = getKeywordsPageHtml();
+  const scriptTags = html.match(/<script[\s\S]*?<\/script>/gi) || [];
+  const studioScriptTag = scriptTags.find(s => s.includes('function keywordStudio'));
+  assert(studioScriptTag, 'keywordStudio script must be present in getKeywordsPageHtml output');
+  const code = studioScriptTag.replace(/<script[^>]*>/, '').replace(/<\/script>/, '');
+
+  const context = {
+    window: { __INITIAL_KEYWORD_SLUG__: '' },
+    URLSearchParams,
+    encodeURIComponent,
+    console
+  };
+  vm.createContext(context);
+  vm.runInContext(code, context);
+  const studio = context.keywordStudio();
+
+  // Edge Case 1: null or missing pin
+  assert.strictEqual(studio.getPinDossierUrl(null), '#');
+  assert.strictEqual(studio.getPinDossierUrl({}), '#');
+  assert.strictEqual(studio.getPinDossierUrl({ pin_id: '' }), '#');
+
+  // Edge Case 2: pin with pin_id, no selected keyword or folder
+  studio.selectedKeyword = null;
+  studio.activeFolder = null;
+  studio.dashboardFolderFilter = 'ALL';
+  assert.strictEqual(studio.getPinDossierUrl({ pin_id: '123456789' }), '/pins/123456789');
+
+  // Edge Case 3: pin with selected keyword
+  studio.selectedKeyword = { id: 101, keyword: 'summer crockpot recipes' };
+  assert.strictEqual(
+    studio.getPinDossierUrl({ pin_id: '123456789' }),
+    '/pins/123456789?keyword_id=101&keyword=summer+crockpot+recipes'
+  );
+
+  // Edge Case 4: pin with selected keyword and activeFolder object
+  studio.activeFolder = { id: 42, name: 'Dinner Ideas' };
+  assert.strictEqual(
+    studio.getPinDossierUrl({ pin_id: '123456789' }),
+    '/pins/123456789?keyword_id=101&keyword=summer+crockpot+recipes&folder_id=42'
+  );
+
+  // Edge Case 5: pin with selected keyword and dashboardFolderFilter
+  studio.activeFolder = null;
+  studio.dashboardFolderFilter = '88';
+  assert.strictEqual(
+    studio.getPinDossierUrl({ pin_id: '123456789' }),
+    '/pins/123456789?keyword_id=101&keyword=summer+crockpot+recipes&folder_id=88'
+  );
+
+  // Edge Case 6: UNASSIGNED folder filter does not inject folder_id
+  studio.dashboardFolderFilter = 'UNASSIGNED';
+  assert.strictEqual(
+    studio.getPinDossierUrl({ pin_id: '123456789' }),
+    '/pins/123456789?keyword_id=101&keyword=summer+crockpot+recipes'
+  );
+});
+
+runTest('Keywords UI and Drawers use getPinDossierUrl on all pin anchor tags', () => {
+  const html = getKeywordsPageHtml();
+  assert(!html.includes('href="\'/pins/\' + pin.pin_id'), 'Raw string concat hrefs for pin.pin_id must be eradicated');
+  assert(!html.includes('href="\'/pins/\' + activeInspectorPin?.pin_id'), 'Raw string concat hrefs for activeInspectorPin must be eradicated');
+  assert(html.includes(':href="getPinDossierUrl(pin)"'), 'Pin table/cards must bind :href to getPinDossierUrl(pin)');
+  assert(html.includes(':href="getPinDossierUrl(activeInspectorPin)"'), 'Drawers must bind :href to getPinDossierUrl(activeInspectorPin)');
+});
+
 console.log('\n================================================================================');
 console.log(`✅ ALL ${totalTests} TESTS PASSED SUCCESSFULLY (100% GREEN)`);
 console.log('================================================================================');

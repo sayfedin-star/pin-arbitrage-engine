@@ -55,7 +55,7 @@ export function getKeywordDrawersAndModalsHtml() {
           <!-- Quick-Copy Buttons Bar (Image 2 Parity) -->
           <div class="flex flex-wrap items-center gap-1.5">
             <!-- Open Full Dossier Page (Level 3) -->
-            <a :href="'/pins/' + activeInspectorPin?.pin_id + (selectedKeyword?.id ? ('?keyword_id=' + selectedKeyword.id + '&keyword=' + encodeURIComponent(selectedKeyword.keyword) + (activeFolderId ? ('&folder_id=' + activeFolderId) : '')) : '')"
+            <a :href="getPinDossierUrl(activeInspectorPin)"
                class="px-2.5 py-1 rounded-xl text-[11px] font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25 transition flex items-center space-x-1"
                title="Open Dedicated Full Dossier Page (/pins/:pin_id)">
               <i data-lucide="external-link" class="w-3 h-3 text-emerald-500"></i>
@@ -97,7 +97,7 @@ export function getKeywordDrawersAndModalsHtml() {
               <span>Desc</span>
             </button>
 
-            <a :href="'/pins/' + activeInspectorPin?.pin_id + (selectedKeyword?.id ? ('?keyword_id=' + selectedKeyword.id + '&keyword=' + encodeURIComponent(selectedKeyword.keyword) + (activeFolderId ? ('&folder_id=' + activeFolderId) : '')) : '')" target="_blank"
+            <a :href="getPinDossierUrl(activeInspectorPin)" target="_blank"
                class="px-2.5 py-1 rounded-xl text-[11px] font-bold bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 border border-purple-500/20 transition flex items-center space-x-1 cursor-pointer"
                title="Open Universal Pin Dossier (Level 3)">
               <i data-lucide="sparkles" class="w-3 h-3"></i>
