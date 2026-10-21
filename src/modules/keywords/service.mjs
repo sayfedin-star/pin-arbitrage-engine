@@ -416,6 +416,12 @@ export async function listKeywords(sql, { search = '', limit = 1000, offset = 0 
           AND rank_position IS NOT NULL
         GROUP BY keyword_id
       ),
+      displaced_pin_counts AS (
+        SELECT keyword_id, COUNT(*)::int AS cnt
+        FROM keyword_displaced_index
+        WHERE keyword_id IN (SELECT id FROM paged_keywords)
+        GROUP BY keyword_id
+      ),
       folder_map AS (
         SELECT 
           kfi.keyword_id, 
@@ -431,15 +437,24 @@ export async function listKeywords(sql, { search = '', limit = 1000, offset = 0 
           NULLIF(pc.cnt, 0),
           CASE WHEN pk.metadata->>'last_crawled_pins_count' ~ '^[0-9]+$' THEN (pk.metadata->>'last_crawled_pins_count')::int ELSE 0 END,
           0
-        )::int AS snapshots_count,
+        )::int AS active_pins_count,
+        COALESCE(dpc.cnt, 0)::int AS displaced_pins_count,
         COALESCE(
           NULLIF(pc.cnt, 0),
           CASE WHEN pk.metadata->>'last_crawled_pins_count' ~ '^[0-9]+$' THEN (pk.metadata->>'last_crawled_pins_count')::int ELSE 0 END,
           0
+        )::int AS snapshots_count,
+        (
+          COALESCE(
+            NULLIF(pc.cnt, 0),
+            CASE WHEN pk.metadata->>'last_crawled_pins_count' ~ '^[0-9]+$' THEN (pk.metadata->>'last_crawled_pins_count')::int ELSE 0 END,
+            0
+          ) + COALESCE(dpc.cnt, 0)
         )::int AS total_pins_count,
         COALESCE(fm.folders, '[]'::json) AS folders
       FROM paged_keywords pk
       LEFT JOIN pin_counts pc ON pc.keyword_id = pk.id
+      LEFT JOIN displaced_pin_counts dpc ON dpc.keyword_id = pk.id
       LEFT JOIN folder_map fm ON fm.keyword_id = pk.id
       ORDER BY pk.created_at DESC;
     `;
@@ -464,6 +479,12 @@ export async function listKeywords(sql, { search = '', limit = 1000, offset = 0 
           AND rank_position IS NOT NULL
         GROUP BY keyword_id
       ),
+      displaced_pin_counts AS (
+        SELECT keyword_id, COUNT(*)::int AS cnt
+        FROM keyword_displaced_index
+        WHERE keyword_id IN (SELECT id FROM paged_keywords)
+        GROUP BY keyword_id
+      ),
       folder_map AS (
         SELECT 
           kfi.keyword_id, 
@@ -479,15 +500,24 @@ export async function listKeywords(sql, { search = '', limit = 1000, offset = 0 
           NULLIF(pc.cnt, 0),
           CASE WHEN pk.metadata->>'last_crawled_pins_count' ~ '^[0-9]+$' THEN (pk.metadata->>'last_crawled_pins_count')::int ELSE 0 END,
           0
-        )::int AS snapshots_count,
+        )::int AS active_pins_count,
+        COALESCE(dpc.cnt, 0)::int AS displaced_pins_count,
         COALESCE(
           NULLIF(pc.cnt, 0),
           CASE WHEN pk.metadata->>'last_crawled_pins_count' ~ '^[0-9]+$' THEN (pk.metadata->>'last_crawled_pins_count')::int ELSE 0 END,
           0
+        )::int AS snapshots_count,
+        (
+          COALESCE(
+            NULLIF(pc.cnt, 0),
+            CASE WHEN pk.metadata->>'last_crawled_pins_count' ~ '^[0-9]+$' THEN (pk.metadata->>'last_crawled_pins_count')::int ELSE 0 END,
+            0
+          ) + COALESCE(dpc.cnt, 0)
         )::int AS total_pins_count,
         COALESCE(fm.folders, '[]'::json) AS folders
       FROM paged_keywords pk
       LEFT JOIN pin_counts pc ON pc.keyword_id = pk.id
+      LEFT JOIN displaced_pin_counts dpc ON dpc.keyword_id = pk.id
       LEFT JOIN folder_map fm ON fm.keyword_id = pk.id
       ORDER BY pk.created_at DESC;
     `;

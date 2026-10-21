@@ -141,6 +141,16 @@ export function getPinDetailPageHtml(pinId = '') {
     </div>
 
     <div class="flex items-center gap-2.5 flex-shrink-0">
+      <!-- Direct Return to Origin Keyword / Radar -->
+      <a 
+        :href="getBackToKeywordUrl()" 
+        class="px-3.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 text-xs font-bold transition-all flex items-center gap-1.5 border border-slate-300 shadow-2xs"
+        :title="originKeyword ? ('Back to ' + originKeyword) : 'Back to Keywords Radar'"
+      >
+        <span class="text-sm">←</span>
+        <span x-text="originKeyword ? ('Back to ' + originKeyword) : 'Back to Radar'"></span>
+      </a>
+
       <button 
         @click="triggerLiveDeepSync()" 
         :disabled="isSyncing"
@@ -157,6 +167,40 @@ export function getPinDetailPageHtml(pinId = '') {
       </button>
     </div>
   </header>
+
+  <!-- Responsive Breadcrumb Navigation Bar -->
+  <nav aria-label="Breadcrumb" class="border-b border-slate-200/80 bg-white/90 px-6 py-2.5 text-xs font-medium text-slate-500 flex items-center gap-2 overflow-x-auto shadow-2xs backdrop-blur-xs">
+    <a href="/keywords" class="hover:text-pink-600 flex items-center gap-1.5 transition-colors text-slate-600 font-semibold">
+      <span>📡</span>
+      <span>Keywords Radar</span>
+    </a>
+    
+    <template x-if="originFolderId || originFolderName">
+      <div class="flex items-center gap-2">
+        <span class="text-slate-300 select-none">/</span>
+        <a :href="'/folders?id=' + encodeURIComponent(originFolderId || '')" class="hover:text-pink-600 flex items-center gap-1 transition-colors text-slate-600">
+          <span>📁</span>
+          <span x-text="originFolderName || ('Folder #' + originFolderId)"></span>
+        </a>
+      </div>
+    </template>
+
+    <template x-if="originKeyword">
+      <div class="flex items-center gap-2">
+        <span class="text-slate-300 select-none">/</span>
+        <a :href="getBackToKeywordUrl()" class="hover:text-pink-600 font-semibold text-slate-700 transition-colors flex items-center gap-1">
+          <span>🔑</span>
+          <span x-text="originKeyword"></span>
+        </a>
+      </div>
+    </template>
+
+    <span class="text-slate-300 select-none">/</span>
+    <span class="text-slate-900 font-mono font-bold flex items-center gap-1">
+      <span class="text-pink-600">📌</span>
+      <span x-text="'Pin #' + pinId"></span>
+    </span>
+  </nav>
 
   <!-- Loading State -->
   <div x-show="loading" class="flex-1 flex items-center justify-center p-12" x-cloak>
@@ -844,14 +888,62 @@ export function getPinDetailPageHtml(pinId = '') {
           type: 'success'
         },
         toastTimeout: null,
+        originKeywordId: null,
+        originKeyword: '',
+        originFolderId: null,
+        originFolderName: '',
+
+        getBackToKeywordUrl() {
+          if (!this.originKeyword && !this.originKeywordId) {
+            return '/keywords';
+          }
+          let url = '/keywords?';
+          const parts = [];
+          if (this.originKeyword) {
+            parts.push('q=' + encodeURIComponent(this.originKeyword));
+          }
+          if (this.originKeywordId) {
+            parts.push('keyword_id=' + encodeURIComponent(this.originKeywordId));
+          }
+          if (this.originFolderId) {
+            parts.push('folder_id=' + encodeURIComponent(this.originFolderId));
+          }
+          return url + parts.join('&');
+        },
 
         async init() {
+          if (typeof window !== 'undefined' && window.location && window.location.search) {
+            const params = new URLSearchParams(window.location.search);
+            this.originKeywordId = params.get('keyword_id');
+            this.originKeyword = params.get('keyword') || '';
+            this.originFolderId = params.get('folder_id');
+            this.originFolderName = params.get('folder') || params.get('folder_name') || '';
+            if (this.originFolderId && !this.originFolderName) {
+              const fetcher = window.safeApiFetch || fetch;
+              fetcher('/api/folders/' + encodeURIComponent(this.originFolderId))
+                .then(r => (r && r.ok ? r.json() : null))
+                .then(data => {
+                  if (data?.folder?.name) this.originFolderName = data.folder.name;
+                })
+                .catch(() => {});
+            }
+          }
+
           if (!this.pinId) {
             this.error = 'No Pin ID provided in URL.';
             this.loading = false;
             return;
           }
           await this.loadDossier();
+
+          if (!this.originKeyword) {
+            const rankingKws = this.dossier?.pillar_2_keywords_context?.ranking_keywords;
+            if (Array.isArray(rankingKws) && rankingKws.length > 0) {
+              const firstKw = rankingKws[0];
+              this.originKeyword = firstKw.keyword || firstKw.keyword_name || '';
+              this.originKeywordId = firstKw.keyword_id || firstKw.id || this.originKeywordId;
+            }
+          }
         },
 
         showToast(message, type = 'success') {

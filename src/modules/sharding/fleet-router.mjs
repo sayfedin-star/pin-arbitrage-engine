@@ -878,7 +878,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
         try {
           const rollups = await sqlClient`
             SELECT 
-              pin_id, snapshot_date, save_count, repin_count,
+              pin_id, snapshot_date::text AS snapshot_date, save_count, repin_count,
               comment_count, share_count, reaction_count, daily_save_velocity,
               updated_at, serp_rankings
             FROM pins_daily_rollups_v2
@@ -935,7 +935,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
         // 2. Graceful fallback to legacy pins_daily_snapshots
         const rows = await sqlClient`
           SELECT 
-            id, snapshot_date, rank_position, is_displaced, save_count, repin_count,
+            id, snapshot_date::text AS snapshot_date, rank_position, is_displaced, save_count, repin_count,
             comment_count, share_count, reaction_count, daily_save_velocity,
             keyword_id, competitor_id, created_at
           FROM pins_daily_snapshots
@@ -1155,11 +1155,19 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
   if (shouldBackfillShard) {
     const backfillPromise = (async () => {
       try {
+        const backfillCandidates = [
+          shardMetaObj.creation_method,
+          snapMetaObj.creation_method,
+          snapMetaObj.method,
+          hubSerpRows[0]?.creation_method,
+          topHubMeta.creation_method
+        ].filter(m => m && typeof m === 'string' && m.trim().length > 0);
+        const resolvedBackfillMethod = backfillCandidates.find(m => m !== 'pinterest_platform') || backfillCandidates[0] || 'pinterest_platform';
         const enrichedMetaToSave = {
           ...topHubMeta,
           ...snapMetaObj,
           ...shardMetaObj,
-          creation_method: hubSerpRows[0]?.creation_method || shardMetaObj.creation_method || snapMetaObj.creation_method || topHubMeta.creation_method || 'pinterest_platform'
+          creation_method: resolvedBackfillMethod
         };
         await shardSql`
           INSERT INTO universal_master_pins (
@@ -1228,6 +1236,37 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
   const shardList = snapshots || [];
   const snapshotMap = new Map();
 
+  function formatUtcDate(val) {
+    if (!val) return '';
+    if (val instanceof Date) {
+      if (isNaN(val.getTime())) return '';
+      const year = val.getUTCFullYear();
+      const month = String(val.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(val.getUTCDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+    if (typeof val === 'string') {
+      const s = val.trim();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+      const d = new Date(s);
+      if (!isNaN(d.getTime())) {
+        const year = d.getUTCFullYear();
+        const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+        const day = String(d.getUTCDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      }
+      if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+    }
+    const d = new Date(val);
+    if (!isNaN(d.getTime())) {
+      const year = d.getUTCFullYear();
+      const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(d.getUTCDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+    return '';
+  }
+
   function getSnapTimestamp(s) {
     const t = s.created_at || s.updated_at || s.snapshot_date;
     return t ? new Date(t).getTime() : 0;
@@ -1235,9 +1274,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
 
   // Populate map with Shard snapshots first
   for (const s of shardList) {
-    const sDate = s.snapshot_date instanceof Date
-      ? s.snapshot_date.toISOString().slice(0, 10)
-      : String(s.snapshot_date || '').slice(0, 10);
+    const sDate = formatUtcDate(s.snapshot_date);
     if (!sDate) continue;
     const dedupKey = `${sDate}_${s.keyword_id || 'global'}`;
     snapshotMap.set(dedupKey, s);
@@ -1247,36 +1284,33 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
   const todayUtc = new Date().toISOString().slice(0, 10);
   for (const sc of hubSerpRows) {
     const crawlDate = sc.crawled_at || sc.updated_at;
-    const isToday = crawlDate && (
-      (crawlDate instanceof Date ? crawlDate.toISOString().slice(0, 10) : String(crawlDate).slice(0, 10)) === todayUtc ||
-      (Date.now() - new Date(crawlDate).getTime() < 86400000)
-    );
+    const crawlIso = formatUtcDate(crawlDate);
+    const isToday = Boolean(crawlIso && crawlIso === todayUtc);
     if (isToday) {
       const dedupKey = `${todayUtc}_${sc.keyword_id || 'global'}`;
-      const existing = snapshotMap.get(dedupKey);
-      const livePoint = {
-        pin_id: cleanPinId,
-        keyword_id: sc.keyword_id,
-        keyword_name: sc.keyword_name,
-        snapshot_date: todayUtc,
-        rank_position: sc.rank_position ?? sc.last_known_rank ?? null,
-        last_known_rank: sc.last_known_rank ?? null,
-        is_displaced: Boolean(sc.is_displaced),
-        save_count: Math.max(Number(sc.save_count || 0), Number(existing?.save_count || 0)),
-        repin_count: Math.max(Number(sc.repin_count || 0), Number(existing?.repin_count || 0)),
-        comment_count: Math.max(Number(sc.comment_count || 0), Number(existing?.comment_count || 0)),
-        share_count: Math.max(Number(sc.share_count || 0), Number(existing?.share_count || 0)),
-        reaction_count: Math.max(Number(sc.reaction_count || 0), Number(existing?.reaction_count || 0)),
-        daily_save_velocity: (sc.daily_save_velocity !== undefined && sc.daily_save_velocity !== null) ? Number(sc.daily_save_velocity) : (existing?.daily_save_velocity || 0),
-        created_at: sc.updated_at || new Date().toISOString(),
-        metadata: sc.metadata || {}
-      };
-      snapshotMap.set(dedupKey, livePoint);
+      if (!snapshotMap.has(dedupKey)) {
+        const livePoint = {
+          pin_id: cleanPinId,
+          keyword_id: sc.keyword_id,
+          keyword_name: sc.keyword_name,
+          snapshot_date: todayUtc,
+          rank_position: sc.rank_position ?? sc.last_known_rank ?? null,
+          last_known_rank: sc.last_known_rank ?? null,
+          is_displaced: Boolean(sc.is_displaced),
+          save_count: Number(sc.save_count || 0),
+          repin_count: Number(sc.repin_count || 0),
+          comment_count: Number(sc.comment_count || 0),
+          share_count: Number(sc.share_count || 0),
+          reaction_count: Number(sc.reaction_count || 0),
+          daily_save_velocity: (sc.daily_save_velocity !== undefined && sc.daily_save_velocity !== null) ? Number(sc.daily_save_velocity) : 0,
+          created_at: sc.updated_at || new Date().toISOString(),
+          metadata: sc.metadata || {}
+        };
+        snapshotMap.set(dedupKey, livePoint);
+      }
 
       if (sc.baseline_day_date && sc.baseline_day_saves != null) {
-        const baseDateStr = sc.baseline_day_date instanceof Date
-          ? sc.baseline_day_date.toISOString().slice(0, 10)
-          : String(sc.baseline_day_date).slice(0, 10);
+        const baseDateStr = formatUtcDate(sc.baseline_day_date);
         if (baseDateStr && baseDateStr < todayUtc) {
           const baseKey = `${baseDateStr}_${sc.keyword_id || 'global'}`;
           if (!snapshotMap.has(baseKey)) {
@@ -1306,9 +1340,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
   // Merge Hub snapshots with LWW and collect missing snapshots for Shard Read-Repair
   const missingFromShard = [];
   for (const h of hubSnapshots) {
-    const hDate = h.snapshot_date instanceof Date
-      ? h.snapshot_date.toISOString().slice(0, 10)
-      : String(h.snapshot_date || '').slice(0, 10);
+    const hDate = formatUtcDate(h.snapshot_date);
     if (!hDate) continue;
     const dedupKey = `${hDate}_${h.keyword_id || 'global'}`;
     const existing = snapshotMap.get(dedupKey);
@@ -1335,9 +1367,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     const repairPromise = (async () => {
       try {
         const repairPayload = missingFromShard.slice(0, 90).map(s => {
-          const sDate = s.snapshot_date instanceof Date
-            ? s.snapshot_date.toISOString().slice(0, 10)
-            : String(s.snapshot_date || '').slice(0, 10);
+          const sDate = formatUtcDate(s.snapshot_date);
           return {
             pin_id: cleanPinId,
             keyword_id: s.keyword_id != null && !isNaN(Number(s.keyword_id)) ? Number(s.keyword_id) : null,
@@ -1474,9 +1504,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
   }
 
   const enrichedSnapshots = rawSnapshots.map((s, sIdx) => {
-    const sDate = s.snapshot_date instanceof Date
-      ? s.snapshot_date.toISOString().slice(0, 10)
-      : String(s.snapshot_date || '').slice(0, 10);
+    const sDate = formatUtcDate(s.snapshot_date);
     const kid = s.keyword_id != null ? Number(s.keyword_id) : null;
     const serpMatch = (kid ? serpByKeyword.get(kid) : null) || hubSerpRows[0] || null;
     const isDisplaced = Boolean(
@@ -1732,6 +1760,15 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     }
   }
 
+  const candidateCreationMethods = [
+    masterRecord?.creation_method,
+    shardMetaObj.creation_method,
+    snapMeta.creation_method,
+    snapMeta.method,
+    hubSerpRows[0]?.creation_method
+  ].filter(m => m && typeof m === 'string' && m.trim().length > 0);
+  const resolvedCreationMethod = candidateCreationMethods.find(m => m !== 'pinterest_platform') || candidateCreationMethods[0] || 'pinterest_platform';
+
   const algorithmicIntelligence = {
     is_repin: Boolean(snapMeta.is_repin ?? false),
     origin_pinner: snapMeta.origin_pinner || null,
@@ -1750,9 +1787,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
       cover_url: snapMeta.board_cover_url || null,
       thumbnail_url: snapMeta.board_thumbnail_url || null
     },
-    image_dimensions: snapMeta.image_dimensions || null,
-    creation_method: hubSerpRows[0]?.creation_method || masterRecord?.creation_method || shardMetaObj.creation_method || snapMeta.creation_method || snapMeta.method || 'pinterest_platform',
-    share_count: Number(snapMeta.share_count || 0),
+    creation_method: resolvedCreationMethod,
     seo_title: snapMeta.seo_title || masterRecord?.title || '',
     seo_description: snapMeta.seo_description || masterRecord?.description || '',
     seo_canonical_url: seoCanonicalUrl || snapMeta.seo_canonical_url || '',
@@ -1797,7 +1832,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
       visual_annotations: finalVisualAnnotations,
       visual_annotations_detailed: detailedAnnotations,
       created_at_pinterest: masterRecord?.created_at_pinterest || hubHistoricalSnap?.created_at_pinterest || snapMeta.created_at_pinterest || snapMeta.created_at || null,
-      creation_method: hubSerpRows[0]?.creation_method || masterRecord?.creation_method || shardMetaObj.creation_method || snapMeta.creation_method || snapMeta.method || 'pinterest_platform',
+      creation_method: resolvedCreationMethod,
       image_signature: snapMeta.image_signature || '',
       canonical_pin_id: canonicalPinId,
       canonical_pin_url: canonicalPinUrl,
@@ -1960,7 +1995,7 @@ export async function fetchPinTrajectoryFromShard({ hubSql, shardSql, pinId, tim
     const snapshots = await executeShardQueryWithCircuitBreaker(shardId, async (db) => {
       return await db`
         SELECT 
-          snapshot_date,
+          snapshot_date::text AS snapshot_date,
           save_count,
           daily_save_velocity,
           reaction_count,
@@ -2181,7 +2216,7 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
   let priorShardMetrics = [];
   try {
     priorShardMetrics = await shardSql`
-      SELECT snapshot_date, save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity, updated_at
+      SELECT snapshot_date::text AS snapshot_date, save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity, updated_at
       FROM pins_daily_metrics
       WHERE pin_id = ${cleanPinId}
       ORDER BY snapshot_date DESC
@@ -2342,6 +2377,7 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
         domain = COALESCE(NULLIF(${scrapedPin.domain || ''}, ''), domain),
         destination_url = COALESCE(NULLIF(${scrapedPin.link || scrapedPin.destination_url || ''}, ''), destination_url),
         image_url = COALESCE(NULLIF(${scrapedPin.image_url || ''}, ''), image_url),
+        creation_method = COALESCE(NULLIF(${isCarousel ? 'carousel' : (scrapedPin.creation_method || scrapedPin.method || '')}, ''), creation_method),
         save_count = GREATEST(save_count, ${newSaves}),
         repin_count = GREATEST(repin_count, ${newRepins}),
         comment_count = GREATEST(comment_count, ${newComments}),

@@ -658,10 +658,14 @@ export function getKeywordsPageHtml(initialSlug = '') {
 
                     <!-- Total Pins Badge (Clean, No Quota Bar) -->
                     <td x-show="visibleColumns.total_pins" class="py-3.5 px-3 font-mono">
-                      <span class="px-2.5 py-1 rounded-xl text-xs font-bold inline-flex items-center space-x-1.5 bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-200 border border-slate-200/80 dark:border-slate-700/80 shadow-2xs">
+                      <span class="px-2.5 py-1 rounded-xl text-xs font-bold inline-flex items-center space-x-1.5 bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-200 border border-slate-200/80 dark:border-slate-700/80 shadow-2xs"
+                            :title="(kw.active_pins_count ?? getKeywordTotalPins(kw)) + ' Active SERP + ' + (kw.displaced_pins_count || 0) + ' Displaced Vault'">
                         <i data-lucide="pin" class="w-3.5 h-3.5 text-emerald-500 shrink-0"></i>
                         <span class="font-black text-slate-900 dark:text-white" x-text="getKeywordTotalPins(kw)"></span>
                         <span class="text-[10px] text-slate-400 uppercase">Pins</span>
+                        <template x-if="Number(kw.displaced_pins_count || 0) > 0">
+                          <span class="text-[9px] text-indigo-500 dark:text-indigo-400 font-semibold ml-0.5" x-text="'(' + (kw.active_pins_count || 0) + ' Active + ' + kw.displaced_pins_count + ' Vault)'"></span>
+                        </template>
                       </span>
                     </td>
 
@@ -890,9 +894,13 @@ export function getKeywordsPageHtml(initialSlug = '') {
                             :class="kw.is_active !== false ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-500/40' : 'bg-amber-950/80 text-amber-300 border border-amber-500/40'"
                             x-text="kw.is_active !== false ? '● Active' : '● Paused'"></span>
 
-                      <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-slate-950/80 text-white backdrop-blur-md border border-slate-700/60 inline-flex items-center space-x-1">
+                      <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-slate-950/80 text-white backdrop-blur-md border border-slate-700/60 inline-flex items-center space-x-1"
+                            :title="(kw.active_pins_count ?? getKeywordTotalPins(kw)) + ' Active + ' + (kw.displaced_pins_count || 0) + ' Vault'">
                         <i data-lucide="pin" class="w-3 h-3 text-emerald-400"></i>
                         <span x-text="getKeywordTotalPins(kw) + ' Pins'"></span>
+                        <template x-if="Number(kw.displaced_pins_count || 0) > 0">
+                          <span class="text-[9px] text-indigo-300 font-semibold ml-0.5" x-text="'(' + (kw.active_pins_count || 0) + ' Active + ' + kw.displaced_pins_count + ' Vault)'"></span>
+                        </template>
                       </span>
                     </div>
                   </div>
@@ -939,9 +947,13 @@ export function getKeywordsPageHtml(initialSlug = '') {
                     <!-- Total Pins Status Ribbon -->
                     <div class="flex items-center justify-between text-xs font-mono pt-1">
                       <span class="text-slate-400">Total Pins:</span>
-                      <span class="font-bold text-slate-900 dark:text-white inline-flex items-center space-x-1.5">
+                      <span class="font-bold text-slate-900 dark:text-white inline-flex items-center space-x-1.5"
+                            :title="(kw.active_pins_count ?? getKeywordTotalPins(kw)) + ' Active + ' + (kw.displaced_pins_count || 0) + ' Vault'">
                         <i data-lucide="pin" class="w-3.5 h-3.5 text-emerald-500"></i>
                         <span x-text="getKeywordTotalPins(kw) + ' Pins'"></span>
+                        <template x-if="Number(kw.displaced_pins_count || 0) > 0">
+                          <span class="text-[10px] text-indigo-500 dark:text-indigo-400 font-semibold ml-0.5" x-text="'(' + (kw.active_pins_count || 0) + ' Active + ' + kw.displaced_pins_count + ' Vault)'"></span>
+                        </template>
                       </span>
                     </div>
                   </div>
@@ -1698,7 +1710,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
 
                     <!-- Preview Thumbnail -->
                     <td class="py-3.5 px-3">
-                      <a :href="'/pins/' + pin.pin_id" @click.stop class="relative group/img shrink-0 block" title="Open Dedicated Pin Intelligence (/pins/:pin_id)">
+                      <a :href="'/pins/' + pin.pin_id + (selectedKeyword?.id ? ('?keyword_id=' + selectedKeyword.id + '&keyword=' + encodeURIComponent(selectedKeyword.keyword) + (activeFolderId ? ('&folder_id=' + activeFolderId) : '')) : '')" @click.stop class="relative group/img shrink-0 block" title="Open Dedicated Pin Intelligence (/pins/:pin_id)">
                         <template x-if="pin.image_url">
                           <img :src="pin.image_url" class="w-10 h-14 rounded-lg object-cover border border-slate-200 dark:border-slate-700 shadow-xs group-hover/img:scale-105 transition">
                         </template>
@@ -1713,12 +1725,12 @@ export function getKeywordsPageHtml(initialSlug = '') {
                     <!-- Pin Title, ID & Creator -->
                     <td class="py-3.5 px-4 min-w-[260px]">
                       <div class="space-y-1">
-                        <a :href="'/pins/' + pin.pin_id" @click.stop
+                        <a :href="'/pins/' + pin.pin_id + (selectedKeyword?.id ? ('?keyword_id=' + selectedKeyword.id + '&keyword=' + encodeURIComponent(selectedKeyword.keyword) + (activeFolderId ? ('&folder_id=' + activeFolderId) : '')) : '')" @click.stop
                            class="font-bold text-slate-900 dark:text-white hover:text-emerald-500 line-clamp-2 block transition"
                            title="Open Dedicated Pin Intelligence (/pins/:pin_id)"
                            x-text="pin.title || 'Untitled Pin'"></a>
                         <div class="flex items-center flex-wrap gap-1.5 text-[10px] text-slate-400 font-mono">
-                          <a :href="'/pins/' + pin.pin_id" @click.stop
+                          <a :href="'/pins/' + pin.pin_id + (selectedKeyword?.id ? ('?keyword_id=' + selectedKeyword.id + '&keyword=' + encodeURIComponent(selectedKeyword.keyword) + (activeFolderId ? ('&folder_id=' + activeFolderId) : '')) : '')" @click.stop
                              class="text-slate-500 dark:text-slate-400 hover:text-emerald-500 truncate font-mono"
                              title="Open Dedicated Pin Intelligence"
                              x-text="'ID: ' + pin.pin_id"></a>
@@ -1875,7 +1887,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
                     <!-- Actions -->
                     <td class="py-3.5 px-3 text-right">
                       <div class="flex items-center justify-end space-x-1" @click.stop>
-                        <a :href="'/pins/' + pin.pin_id"
+                        <a :href="'/pins/' + pin.pin_id + (selectedKeyword?.id ? ('?keyword_id=' + selectedKeyword.id + '&keyword=' + encodeURIComponent(selectedKeyword.keyword) + (activeFolderId ? ('&folder_id=' + activeFolderId) : '')) : '')"
                            class="p-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 transition cursor-pointer"
                            title="Open Dedicated Pin Intelligence (/pins/:pin_id)">
                           <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
@@ -1915,7 +1927,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
                 
                 <div class="space-y-3">
                   <!-- Thumbnail with Rank & Format overlays -->
-                  <a :href="'/pins/' + pin.pin_id" @click.stop class="block relative rounded-2xl overflow-hidden aspect-[2/3] max-h-56 bg-slate-200 dark:bg-slate-800" title="Open Dedicated Pin Intelligence (/pins/:pin_id)">
+                  <a :href="'/pins/' + pin.pin_id + (selectedKeyword?.id ? ('?keyword_id=' + selectedKeyword.id + '&keyword=' + encodeURIComponent(selectedKeyword.keyword) + (activeFolderId ? ('&folder_id=' + activeFolderId) : '')) : '')" @click.stop class="block relative rounded-2xl overflow-hidden aspect-[2/3] max-h-56 bg-slate-200 dark:bg-slate-800" title="Open Dedicated Pin Intelligence (/pins/:pin_id)">
                     <template x-if="pin.image_url">
                       <img :src="pin.image_url" class="w-full h-full object-cover group-hover:scale-105 transition duration-300">
                     </template>
@@ -1935,12 +1947,12 @@ export function getKeywordsPageHtml(initialSlug = '') {
 
                   <!-- Title & ID -->
                   <div class="space-y-1">
-                    <a :href="'/pins/' + pin.pin_id" @click.stop
+                    <a :href="'/pins/' + pin.pin_id + (selectedKeyword?.id ? ('?keyword_id=' + selectedKeyword.id + '&keyword=' + encodeURIComponent(selectedKeyword.keyword) + (activeFolderId ? ('&folder_id=' + activeFolderId) : '')) : '')" @click.stop
                        class="text-xs font-bold text-slate-900 dark:text-white hover:text-emerald-500 line-clamp-2 leading-snug transition block"
                        title="Open Dedicated Pin Intelligence (/pins/:pin_id)"
                        x-text="pin.title || 'Untitled Pin'"></a>
                     <div class="flex items-center space-x-1.5 text-[10px] font-mono">
-                      <a :href="'/pins/' + pin.pin_id" @click.stop
+                      <a :href="'/pins/' + pin.pin_id + (selectedKeyword?.id ? ('?keyword_id=' + selectedKeyword.id + '&keyword=' + encodeURIComponent(selectedKeyword.keyword) + (activeFolderId ? ('&folder_id=' + activeFolderId) : '')) : '')" @click.stop
                          class="text-slate-400 hover:text-emerald-500 truncate"
                          x-text="pin.board_name || pin.metadata?.board_name || ('ID: ' + pin.pin_id)"></a>
                       <span class="px-1.5 py-0.2 rounded text-[8px] font-mono font-bold border shrink-0"
@@ -1985,7 +1997,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
                   <div class="flex items-center justify-between text-[11px] text-slate-400 pt-1" @click.stop>
                     <span class="truncate max-w-[120px] font-mono text-[10px]" x-text="pin.domain || 'Pinterest'"></span>
                     <div class="flex items-center space-x-1">
-                      <a :href="'/pins/' + pin.pin_id" class="p-1 rounded bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20" title="Open Dossier (/pins/:pin_id)">
+                      <a :href="'/pins/' + pin.pin_id + (selectedKeyword?.id ? ('?keyword_id=' + selectedKeyword.id + '&keyword=' + encodeURIComponent(selectedKeyword.keyword) + (activeFolderId ? ('&folder_id=' + activeFolderId) : '')) : '')" class="p-1 rounded bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20" title="Open Dossier (/pins/:pin_id)">
                         <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
                       </a>
                       <button @click="openPinInspector(pin)" class="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-400 hover:text-slate-200" title="Dossier">
@@ -4331,9 +4343,9 @@ export function getKeywordsPageHtml(initialSlug = '') {
           if (kw.total_pins_count !== undefined && kw.total_pins_count !== null && !isNaN(Number(kw.total_pins_count))) {
             return Number(kw.total_pins_count);
           }
-          if (kw.snapshots_count !== undefined && kw.snapshots_count !== null && !isNaN(Number(kw.snapshots_count))) {
-            return Number(kw.snapshots_count);
-          }
+          const active = Number(kw.active_pins_count ?? kw.snapshots_count ?? 0) || 0;
+          const displaced = Number(kw.displaced_pins_count ?? 0) || 0;
+          if (active > 0 || displaced > 0) return active + displaced;
           return 0;
         },
 

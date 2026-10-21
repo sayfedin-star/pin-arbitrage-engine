@@ -224,12 +224,13 @@ export async function syncFolderToD1(env, folder) {
     const name = String(folder.name || 'Untitled');
     const color = String(folder.color || '#e60023');
     const description = folder.description || null;
-    const itemCount = Number(
-      folder.item_count ??
+    const itemCount = Math.max(0, Number(
       folder.keyword_count ??
-      (Array.isArray(folder.items) ? folder.items.length : 0)
-    );
-    const updatedAt = folder.updated_at ? new Date(folder.updated_at).toISOString() : new Date().toISOString();
+      folder.item_count ??
+      (Array.isArray(folder.items) ? folder.items.length : 0) ??
+      0
+    ));
+    const updatedAt = new Date().toISOString();
 
     await env.PIN_D1_DB.prepare(`
       INSERT INTO edge_campaign_folders (id, name, color, description, item_count, updated_at)
@@ -432,6 +433,8 @@ export async function readKeywordsFromD1(env, { search = '', limit = 1000, offse
         is_active: Boolean(row.is_active),
         crawl_pages_limit: Number(row.crawl_pages_limit || 2),
         snapshots_count: Number(row.snapshots_count || 0),
+        active_pins_count: Number(row.active_pins_count ?? row.snapshots_count ?? 0),
+        displaced_pins_count: Number(row.displaced_pins_count ?? Math.max(0, (row.total_pins_count || 0) - (row.snapshots_count || 0))),
         total_pins_count: Number(row.total_pins_count || 0),
         metadata: m,
         folders: fldrs

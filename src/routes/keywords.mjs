@@ -926,18 +926,26 @@ export async function handleKeywordsRoutes({
     const folderId = parts[0] ? Number(parts[0]) : (searchParams.get('id') || searchParams.get('folder_id'));
 
     if (method === 'GET') {
+      const isRefreshRequested = searchParams.get('refresh') === 'true';
       if (folderId) {
-        if (env?.PIN_D1_DB) {
+        if (!isRefreshRequested && env?.PIN_D1_DB) {
           try {
             const d1Folder = await env.PIN_D1_DB.prepare(
               "SELECT id, name, color, description, item_count, item_count AS keyword_count, updated_at FROM edge_campaign_folders WHERE id = ?"
             ).bind(String(folderId)).first();
             if (d1Folder) {
-              const normalizedD1Folder = {
-                ...d1Folder,
-                keyword_count: Number(d1Folder.keyword_count ?? d1Folder.item_count ?? 0)
-              };
-              return jsonResponse({ success: true, folder: normalizedD1Folder, source: 'd1_edge' }, 200, 15);
+              const updatedTime = d1Folder.updated_at ? new Date(d1Folder.updated_at).getTime() : 0;
+              const isFresh = !isNaN(updatedTime) && (Date.now() - updatedTime < 10 * 60 * 1000);
+              const count = Number(d1Folder.keyword_count ?? d1Folder.item_count ?? 0);
+              if (isFresh && count > 0) {
+                const normalizedD1Folder = {
+                  ...d1Folder,
+                  keyword_count: count,
+                  item_count: count,
+                  items: []
+                };
+                return jsonResponse({ success: true, folder: normalizedD1Folder, source: 'd1_edge' }, 200, 15);
+              }
             }
           } catch (_) {}
         }
@@ -948,17 +956,28 @@ export async function handleKeywordsRoutes({
         }
         return jsonResponse({ success: true, folder }, 200, 15);
       }
-      if (env?.PIN_D1_DB) {
+      if (!isRefreshRequested && env?.PIN_D1_DB) {
         try {
           const d1Folders = await env.PIN_D1_DB.prepare(
-            "SELECT id, name, color, description, item_count, item_count AS keyword_count, updated_at FROM edge_campaign_folders ORDER BY updated_at DESC"
+            "SELECT id, name, color, description, item_count, item_count AS keyword_count, updated_at FROM edge_campaign_folders WHERE datetime(updated_at) > datetime('now', '-10 minutes') ORDER BY updated_at DESC"
           ).all();
           if (d1Folders?.results?.length > 0) {
-            const normalizedList = d1Folders.results.map(f => ({
-              ...f,
-              keyword_count: Number(f.keyword_count ?? f.item_count ?? 0)
-            }));
-            return jsonResponse({ success: true, folders: normalizedList, source: 'd1_edge' }, 200, 10);
+            const tenMinutesAgo = Date.now() - 10 * 60 * 1000;
+            const allFresh = d1Folders.results.every(f => {
+              const t = f.updated_at ? new Date(f.updated_at).getTime() : 0;
+              return !isNaN(t) && t >= tenMinutesAgo;
+            });
+            const totalItems = d1Folders.results.reduce(
+              (sum, f) => sum + Number(f.keyword_count ?? f.item_count ?? 0),
+              0
+            );
+            if (allFresh && totalItems > 0) {
+              const normalizedList = d1Folders.results.map(f => ({
+                ...f,
+                keyword_count: Number(f.keyword_count ?? f.item_count ?? 0)
+              }));
+              return jsonResponse({ success: true, folders: normalizedList, source: 'd1_edge' }, 200, 10);
+            }
           }
         } catch (_) {}
       }
@@ -1085,19 +1104,27 @@ export async function handleKeywordsRoutes({
 
   // 29. GET /api/keywords/folders
   if (method === 'GET' && pathname === '/api/keywords/folders') {
+    const isRefreshRequested = searchParams.get('refresh') === 'true';
     const folderId = searchParams.get('id') || searchParams.get('folder_id');
     if (folderId) {
-      if (env?.PIN_D1_DB) {
+      if (!isRefreshRequested && env?.PIN_D1_DB) {
         try {
           const d1Folder = await env.PIN_D1_DB.prepare(
             "SELECT id, name, color, description, item_count, item_count AS keyword_count, updated_at FROM edge_campaign_folders WHERE id = ?"
           ).bind(String(folderId)).first();
           if (d1Folder) {
-            const normalizedD1Folder = {
-              ...d1Folder,
-              keyword_count: Number(d1Folder.keyword_count ?? d1Folder.item_count ?? 0)
-            };
-            return jsonResponse({ success: true, folder: normalizedD1Folder, source: 'd1_edge' });
+            const updatedTime = d1Folder.updated_at ? new Date(d1Folder.updated_at).getTime() : 0;
+            const isFresh = !isNaN(updatedTime) && (Date.now() - updatedTime < 10 * 60 * 1000);
+            const count = Number(d1Folder.keyword_count ?? d1Folder.item_count ?? 0);
+            if (isFresh && count > 0) {
+              const normalizedD1Folder = {
+                ...d1Folder,
+                keyword_count: count,
+                item_count: count,
+                items: []
+              };
+              return jsonResponse({ success: true, folder: normalizedD1Folder, source: 'd1_edge' });
+            }
           }
         } catch (_) {}
       }
@@ -1108,17 +1135,28 @@ export async function handleKeywordsRoutes({
       }
       return jsonResponse({ success: true, folder });
     }
-    if (env?.PIN_D1_DB) {
+    if (!isRefreshRequested && env?.PIN_D1_DB) {
       try {
         const d1Folders = await env.PIN_D1_DB.prepare(
-          "SELECT id, name, color, description, item_count, item_count AS keyword_count, updated_at FROM edge_campaign_folders ORDER BY updated_at DESC"
+          "SELECT id, name, color, description, item_count, item_count AS keyword_count, updated_at FROM edge_campaign_folders WHERE datetime(updated_at) > datetime('now', '-10 minutes') ORDER BY updated_at DESC"
         ).all();
         if (d1Folders?.results?.length > 0) {
-          const normalizedList = d1Folders.results.map(f => ({
-            ...f,
-            keyword_count: Number(f.keyword_count ?? f.item_count ?? 0)
-          }));
-          return jsonResponse({ success: true, folders: normalizedList, source: 'd1_edge' });
+          const tenMinutesAgo = Date.now() - 10 * 60 * 1000;
+          const allFresh = d1Folders.results.every(f => {
+            const t = f.updated_at ? new Date(f.updated_at).getTime() : 0;
+            return !isNaN(t) && t >= tenMinutesAgo;
+          });
+          const totalItems = d1Folders.results.reduce(
+            (sum, f) => sum + Number(f.keyword_count ?? f.item_count ?? 0),
+            0
+          );
+          if (allFresh && totalItems > 0) {
+            const normalizedList = d1Folders.results.map(f => ({
+              ...f,
+              keyword_count: Number(f.keyword_count ?? f.item_count ?? 0)
+            }));
+            return jsonResponse({ success: true, folders: normalizedList, source: 'd1_edge' });
+          }
         }
       } catch (_) {}
     }
