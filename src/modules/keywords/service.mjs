@@ -66,8 +66,8 @@ export async function offloadKeywordCrawlToShards(hubSql, keywordId, activePins 
       domain: String(p.domain || ''),
       destination_url: String(p.destination_url || ''),
       image_url: String(p.image_url || ''),
-      description: String(p.metadata?.description || '').slice(0, 500),
-      alt_text: String(p.metadata?.alt_text || '').slice(0, 500),
+      description: String(p.description || p.metadata?.description || '').slice(0, 500),
+      alt_text: String(p.alt_text || p.metadata?.alt_text || '').slice(0, 500),
       dominant_color: String(p.dominant_color || '#888888'),
       visual_annotations: Array.isArray(p.visual_annotations) ? p.visual_annotations : [],
       created_at_pinterest: p.created_at_pinterest ? new Date(p.created_at_pinterest).toISOString() : null,
@@ -80,7 +80,10 @@ export async function offloadKeywordCrawlToShards(hubSql, keywordId, activePins 
       comment_count: Number(p.comment_count || 0),
       share_count: Number(p.metadata?.share_count || 0),
       daily_save_velocity: Number(p.daily_save_velocity || 0),
-      metadata: p.metadata || {}
+      metadata: {
+        ...(p.metadata || {}),
+        creation_method: p.creation_method || p.metadata?.creation_method || null
+      }
     });
   }
 
@@ -96,8 +99,8 @@ export async function offloadKeywordCrawlToShards(hubSql, keywordId, activePins 
       domain: String(dp.domain || ''),
       destination_url: String(dp.destination_url || ''),
       image_url: String(dp.image_url || ''),
-      description: String(dp.metadata?.description || '').slice(0, 500),
-      alt_text: String(dp.metadata?.alt_text || '').slice(0, 500),
+      description: String(dp.description || dp.metadata?.description || '').slice(0, 500),
+      alt_text: String(dp.alt_text || dp.metadata?.alt_text || '').slice(0, 500),
       dominant_color: String(dp.dominant_color || '#888888'),
       visual_annotations: Array.isArray(dp.visual_annotations) ? dp.visual_annotations : [],
       created_at_pinterest: dp.created_at_pinterest ? new Date(dp.created_at_pinterest).toISOString() : null,
@@ -110,7 +113,10 @@ export async function offloadKeywordCrawlToShards(hubSql, keywordId, activePins 
       comment_count: Number(dp.comment_count || 0),
       share_count: Number(dp.metadata?.share_count || 0),
       daily_save_velocity: 0,
-      metadata: dp.metadata || {}
+      metadata: {
+        ...(dp.metadata || {}),
+        creation_method: dp.creation_method || dp.metadata?.creation_method || null
+      }
     });
   }
 
@@ -1333,6 +1339,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
         : [];
 
       const description = (item.grid_description || item.closeup_unified_description || item.description || '').slice(0, 500);
+      const altText = (item.closeup_unified_description || item.description || '').slice(0, 500);
       const boardName = item.board?.name || null;
 
       const finalTitle = derivePinTitle(title, destinationUrl, keywordRow.keyword, boardName, visualAnnotations);
@@ -1341,6 +1348,8 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
         pin_id: pinId,
         rank_position: rank,
         title: finalTitle,
+        description: description,
+        alt_text: altText,
         domain,
         destination_url: destinationUrl,
         image_url: imageUrl,
@@ -1354,6 +1363,8 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
         visual_annotations: visualAnnotations,
         crawled_at: crawlNowIso,
         metadata: {
+          description: description,
+          creation_method: method,
           prev_rank: prevRank,
           rank_delta: rankDelta,
           baseline_snapshot_id: immediateData?.snapshotId ?? null,
@@ -1411,6 +1422,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
             if (scraped.method || scraped.creation_method) {
               const enrichedMethod = scraped.method || scraped.creation_method;
               p.creation_method = enrichedMethod;
+              if (p.metadata) p.metadata.creation_method = enrichedMethod;
             }
             if (scraped.dominant_color) {
               p.dominant_color = scraped.dominant_color;
@@ -1422,9 +1434,15 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
               p.metadata.is_deep_hydrated = true;
               p.metadata.share_count = enrichedShares;
               if (scraped.alt_text || scraped.seo_alt_text) {
-                p.metadata.alt_text = scraped.alt_text || scraped.seo_alt_text;
+                const altStr = scraped.alt_text || scraped.seo_alt_text;
+                p.alt_text = altStr;
+                p.metadata.alt_text = altStr;
               }
-              if (scraped.description) p.metadata.description = String(scraped.description).slice(0, 1000);
+              if (scraped.description) {
+                const descStr = String(scraped.description).slice(0, 1000);
+                p.description = descStr;
+                p.metadata.description = descStr;
+              }
               if (scraped.seo_title) p.metadata.seo_title = scraped.seo_title;
               if (scraped.seo_description) p.metadata.seo_description = scraped.seo_description;
               if (scraped.canonical_pin_id) p.metadata.canonical_pin_id = scraped.canonical_pin_id;
@@ -2703,7 +2721,16 @@ export async function getPinDeepDossier(sql, pinId, keywordId = null, options = 
           const d1Map = await hydratePinsFromD1(env, [cleanPin]);
           if (d1Map.has(cleanPin)) {
             const d1Pin = d1Map.get(cleanPin);
-            if (d1Pin.title && d1Pin.image_url) return d1Pin;
+            // [INVARIANT: D1-RICH-OR-BYPASS-GUARD]
+            // Prevent hollow / empty D1 shells from being treated as valid cache hits
+            if (
+              d1Pin && d1Pin.pin_id &&
+              (d1Pin.title || d1Pin.image_url) &&
+              (d1Pin.description && d1Pin.description.length > 5) &&
+              d1Pin.created_at_pinterest
+            ) {
+              return d1Pin;
+            }
           }
         }
         const shardId = getPinShardId(cleanPin, 99);

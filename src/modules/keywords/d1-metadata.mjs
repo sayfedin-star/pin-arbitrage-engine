@@ -158,7 +158,8 @@ export async function hydratePinsFromD1(env, pinIds = []) {
           ...r,
           metadata: parsedMeta,
           visual_annotations: Array.isArray(parsedAnnotations) ? parsedAnnotations : [],
-          alt_text: r.seo_alt_text || ''
+          alt_text: r.seo_alt_text || '',
+          creation_method: parsedMeta.creation_method || parsedMeta.method || null
         });
       }
     }

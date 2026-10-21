@@ -801,7 +801,8 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
           ...row,
           metadata: parsedMeta,
           visual_annotations: parsedAnnotations,
-          alt_text: row.seo_alt_text || ''
+          alt_text: row.seo_alt_text || '',
+          creation_method: parsedMeta.creation_method || parsedMeta.method || null
         };
       }
     } catch (_) {}
@@ -811,11 +812,22 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
   let shardErrorReason = null;
   const dossierBatchId = `dossier_batch_${cleanPinId}_${Date.now()}_${Math.random()}`;
 
-  // [INVARIANT: D1-12H-TTL-AND-NON-EMPTY-GUARD]
+  // [INVARIANT: D1-RICH-OR-BYPASS-GUARD]
+  // Prevent hollow / empty D1 shells from being treated as valid cache hits for 12 hours.
+  // A D1 cache record should ONLY be treated as a valid hit if it contains rich creative attributes:
+  // - d1Record.pin_id
+  // - (d1Record.title || d1Record.image_url)
+  // - (d1Record.description && d1Record.description.length > 5)
+  // - d1Record.created_at_pinterest
+  // - d1UpdatedMs > 0 && (Date.now() - d1UpdatedMs) < 12 * 3600 * 1000
+  // If a D1 record is a hollow shell (missing description or created_at_pinterest), hasValidD1 must be false,
+  // allowing the query to fall through to the storage shard to fetch and upgrade the rich record!
   const d1UpdatedMs = parseD1DateMs(d1Record?.updated_at);
   const hasValidD1 = Boolean(
     d1Record && d1Record.pin_id &&
     (d1Record.title || d1Record.image_url) &&
+    (d1Record.description && d1Record.description.length > 5) &&
+    d1Record.created_at_pinterest &&
     d1UpdatedMs > 0 &&
     (Date.now() - d1UpdatedMs) < 12 * 3600 * 1000
   );
@@ -836,7 +848,12 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
             WHERE pin_id = ${cleanPinId}
             LIMIT 1;
           `;
-          return row || null;
+          if (!row) return null;
+          const meta = typeof row.metadata === 'object' && row.metadata !== null ? row.metadata : {};
+          return {
+            ...row,
+            creation_method: meta.creation_method || meta.method || null
+          };
         },
         fallbackFn: async (info) => {
           shardErrorReason = info?.reason || 'SHARD_UNAVAILABLE';
@@ -944,7 +961,9 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
         COALESCE(sc.crawled_at, sc.updated_at) as crawled_at,
         sc.updated_at,
         sc.baseline_day_saves, sc.baseline_day_date,
-        tk.keyword AS keyword_name
+        tk.keyword AS keyword_name,
+        sc.creation_method,
+        sc.created_at_pinterest
       FROM keyword_serp_current sc
       LEFT JOIN tracked_keywords tk ON tk.id = sc.keyword_id
       WHERE sc.pin_id = ${cleanPinId}
@@ -960,7 +979,9 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
         TRUE as is_displaced, '{}'::jsonb as metadata,
         kdi.updated_at as crawled_at, kdi.updated_at,
         NULL::bigint as baseline_day_saves, NULL::date as baseline_day_date,
-        tk.keyword AS keyword_name
+        tk.keyword AS keyword_name,
+        NULL::text as creation_method,
+        NULL::timestamptz as created_at_pinterest
       FROM keyword_displaced_index kdi
       LEFT JOIN tracked_keywords tk ON tk.id = kdi.keyword_id
       WHERE kdi.pin_id = ${cleanPinId}
@@ -975,6 +996,10 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
   ]);
 
   let masterRecord = initialMaster || d1Record;
+  if (masterRecord && !masterRecord.creation_method) {
+    const mMeta = typeof masterRecord.metadata === 'object' && masterRecord.metadata !== null ? masterRecord.metadata : {};
+    masterRecord.creation_method = mMeta.creation_method || mMeta.method || null;
+  }
   let snapshots = initialSnapshots;
   const hubSerpRows = Array.isArray(hubSerpRowsRaw) ? hubSerpRowsRaw : [];
   const hubSnapshots = Array.isArray(hubSnapshotsRaw) ? hubSnapshotsRaw : [];
@@ -1077,8 +1102,9 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
         alt_text: topHubMeta.alt_text || snapMetaObj.alt_text || '',
         description: topHubMeta.description || snapMetaObj.description || '',
         created_at_pinterest: topRow.created_at_pinterest || topHubMeta.created_at_pinterest || snapMetaObj.created_at_pinterest || null,
+        creation_method: topRow.creation_method || topHubMeta.creation_method || snapMetaObj.creation_method || 'pinterest_platform',
         visual_annotations: Array.from(unionSet),
-        metadata: { ...topHubMeta, ...snapMetaObj }
+        metadata: { ...topHubMeta, ...snapMetaObj, creation_method: topRow.creation_method || topHubMeta.creation_method || snapMetaObj.creation_method || 'pinterest_platform' }
       };
     } else if (hubHistoricalSnap) {
       masterRecord = {
@@ -1096,8 +1122,9 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
         alt_text: snapMetaObj.alt_text || '',
         description: snapMetaObj.description || '',
         created_at_pinterest: hubHistoricalSnap.created_at_pinterest || snapMetaObj.created_at_pinterest || null,
+        creation_method: snapMetaObj.creation_method || snapMetaObj.method || 'pinterest_platform',
         visual_annotations: Array.from(unionSet),
-        metadata: snapMetaObj
+        metadata: { ...snapMetaObj, creation_method: snapMetaObj.creation_method || snapMetaObj.method || 'pinterest_platform' }
       };
     }
   } else {
@@ -1110,6 +1137,9 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     }
     if (!masterRecord.created_at_pinterest) {
       masterRecord.created_at_pinterest = shardMetaObj.created_at_pinterest || hubSerpRows[0]?.created_at_pinterest || topHubMeta.created_at_pinterest || snapMetaObj.created_at_pinterest || null;
+    }
+    if (!masterRecord.creation_method) {
+      masterRecord.creation_method = shardMetaObj.creation_method || hubSerpRows[0]?.creation_method || topHubMeta.creation_method || snapMetaObj.creation_method || null;
     }
     masterRecord.metadata = { ...topHubMeta, ...snapMetaObj, ...shardMetaObj };
   }
@@ -1125,7 +1155,12 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
   if (shouldBackfillShard) {
     const backfillPromise = (async () => {
       try {
-        const enrichedMetaToSave = { ...topHubMeta, ...snapMetaObj, ...shardMetaObj };
+        const enrichedMetaToSave = {
+          ...topHubMeta,
+          ...snapMetaObj,
+          ...shardMetaObj,
+          creation_method: hubSerpRows[0]?.creation_method || shardMetaObj.creation_method || snapMetaObj.creation_method || topHubMeta.creation_method || 'pinterest_platform'
+        };
         await shardSql`
           INSERT INTO universal_master_pins (
             pin_id, creator_username, board_name, title, domain, destination_url,
@@ -1716,7 +1751,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
       thumbnail_url: snapMeta.board_thumbnail_url || null
     },
     image_dimensions: snapMeta.image_dimensions || null,
-    creation_method: snapMeta.creation_method || snapMeta.method || hubHistoricalSnap?.creation_method || 'pinterest_platform',
+    creation_method: hubSerpRows[0]?.creation_method || masterRecord?.creation_method || shardMetaObj.creation_method || snapMeta.creation_method || snapMeta.method || 'pinterest_platform',
     share_count: Number(snapMeta.share_count || 0),
     seo_title: snapMeta.seo_title || masterRecord?.title || '',
     seo_description: snapMeta.seo_description || masterRecord?.description || '',
@@ -1762,6 +1797,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
       visual_annotations: finalVisualAnnotations,
       visual_annotations_detailed: detailedAnnotations,
       created_at_pinterest: masterRecord?.created_at_pinterest || hubHistoricalSnap?.created_at_pinterest || snapMeta.created_at_pinterest || snapMeta.created_at || null,
+      creation_method: hubSerpRows[0]?.creation_method || masterRecord?.creation_method || shardMetaObj.creation_method || snapMeta.creation_method || snapMeta.method || 'pinterest_platform',
       image_signature: snapMeta.image_signature || '',
       canonical_pin_id: canonicalPinId,
       canonical_pin_url: canonicalPinUrl,
@@ -1831,7 +1867,14 @@ export async function getFastEdgeDossier(pinId, env) {
       const row = await env.PIN_D1_DB.prepare(
         `SELECT pin_id, title, domain, destination_url, image_url, creator_username, board_name, dominant_color, visual_annotations, seo_alt_text, description, metadata, created_at_pinterest, updated_at FROM edge_pins_metadata WHERE pin_id = ? LIMIT 1`
       ).bind(cleanPinId).first();
-      if (row) {
+      // [INVARIANT: D1-RICH-OR-BYPASS-GUARD]
+      // Only serve edge prefetch if D1 record contains rich creative attributes (not a hollow shell)
+      const isRichD1 = Boolean(
+        row && (row.title || row.image_url) &&
+        (row.description && row.description.length > 5) &&
+        row.created_at_pinterest
+      );
+      if (isRichD1) {
         let parsedAnnotations = [];
         try { parsedAnnotations = typeof row.visual_annotations === 'string' ? JSON.parse(row.visual_annotations) : (row.visual_annotations || []); } catch (_) {}
         let parsedMeta = {};
@@ -1854,9 +1897,11 @@ export async function getFastEdgeDossier(pinId, env) {
             canonical_pin_id: parsedMeta.canonical_pin_id || null,
             canonical_pin_url: parsedMeta.canonical_pin_url || null,
             save_count: Number(parsedMeta.save_count || 0),
-            repin_count: Number(parsedMeta.repin_count || 0)
+            repin_count: Number(parsedMeta.repin_count || 0),
+            creation_method: parsedMeta.creation_method || parsedMeta.method || 'pinterest_platform'
           },
           algorithmic_intelligence: {
+            creation_method: parsedMeta.creation_method || parsedMeta.method || 'pinterest_platform',
             canonical_pin_id: parsedMeta.canonical_pin_id || null,
             canonical_pin_url: parsedMeta.canonical_pin_url || null,
             seo_related_interests: Array.isArray(parsedMeta.seo_related_interests) ? parsedMeta.seo_related_interests : []
