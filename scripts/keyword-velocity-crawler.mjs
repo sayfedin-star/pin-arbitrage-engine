@@ -1367,7 +1367,7 @@ async function run() {
             ksc.baseline_day_saves, ksc.baseline_day_date
           FROM keyword_serp_current ksc
           JOIN keyword_folder_items kfi ON kfi.keyword_id = ksc.keyword_id
-          WHERE kfi.folder_id = ${fid} AND ksc.pin_id ~ '^[0-9]+$' AND ksc.is_displaced = FALSE
+          WHERE kfi.folder_id = ${fid} AND ksc.pin_id IS NOT NULL AND ksc.pin_id <> '' AND ksc.is_displaced = FALSE
             AND NOT EXISTS (
               SELECT 1 FROM keyword_ignored_pins kip
               WHERE kip.keyword_id = ksc.keyword_id AND kip.pin_id = ksc.pin_id
@@ -1407,7 +1407,7 @@ async function run() {
             ksc.baseline_day_saves, ksc.baseline_day_date
           FROM keyword_serp_current ksc
           JOIN keyword_folder_items kfi ON kfi.keyword_id = ksc.keyword_id
-          WHERE kfi.folder_id = ${fid} AND ksc.pin_id ~ '^[0-9]+$'
+          WHERE kfi.folder_id = ${fid} AND ksc.pin_id IS NOT NULL AND ksc.pin_id <> ''
             AND NOT EXISTS (
               SELECT 1 FROM keyword_ignored_pins kip
               WHERE kip.keyword_id = ksc.keyword_id AND kip.pin_id = ksc.pin_id
@@ -1423,7 +1423,7 @@ async function run() {
             NULL::bigint as baseline_day_saves, NULL::date as baseline_day_date
           FROM keyword_displaced_index kdi
           JOIN keyword_folder_items kfi ON kfi.keyword_id = kdi.keyword_id
-          WHERE kfi.folder_id = ${fid} AND kdi.pin_id ~ '^[0-9]+$'
+          WHERE kfi.folder_id = ${fid} AND kdi.pin_id IS NOT NULL AND kdi.pin_id <> ''
             AND NOT EXISTS (
               SELECT 1 FROM keyword_ignored_pins kip
               WHERE kip.keyword_id = kdi.keyword_id AND kip.pin_id = kdi.pin_id
@@ -1583,7 +1583,7 @@ async function run() {
           metadata, crawled_at, updated_at, FALSE as is_displaced,
           baseline_day_saves, baseline_day_date
         FROM keyword_serp_current
-        WHERE keyword_id = ${kwRow.id} AND pin_id ~ '^[0-9]+$' AND is_displaced = FALSE
+        WHERE keyword_id = ${kwRow.id} AND pin_id IS NOT NULL AND pin_id <> '' AND is_displaced = FALSE
           AND NOT EXISTS (
             SELECT 1 FROM keyword_ignored_pins kip
             WHERE kip.keyword_id = ${kwRow.id} AND kip.pin_id = keyword_serp_current.pin_id
@@ -1601,7 +1601,7 @@ async function run() {
             metadata, crawled_at, updated_at, is_displaced,
             baseline_day_saves, baseline_day_date
           FROM keyword_serp_current
-          WHERE keyword_id = ${kwRow.id} AND pin_id ~ '^[0-9]+$'
+          WHERE keyword_id = ${kwRow.id} AND pin_id IS NOT NULL AND pin_id <> ''
             AND NOT EXISTS (
               SELECT 1 FROM keyword_ignored_pins kip
               WHERE kip.keyword_id = ${kwRow.id} AND kip.pin_id = keyword_serp_current.pin_id
@@ -1616,7 +1616,7 @@ async function run() {
             '{}'::jsonb as metadata, kdi.updated_at as crawled_at, kdi.updated_at, TRUE as is_displaced,
             NULL::bigint as baseline_day_saves, NULL::date as baseline_day_date
           FROM keyword_displaced_index kdi
-          WHERE kdi.keyword_id = ${kwRow.id} AND kdi.pin_id ~ '^[0-9]+$'
+          WHERE kdi.keyword_id = ${kwRow.id} AND kdi.pin_id IS NOT NULL AND kdi.pin_id <> ''
             AND NOT EXISTS (
               SELECT 1 FROM keyword_ignored_pins kip
               WHERE kip.keyword_id = ${kwRow.id} AND kip.pin_id = kdi.pin_id

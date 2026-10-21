@@ -802,6 +802,7 @@ export function createHyperdriveClient(connectionString, customOpts = {}) {
       '[INVARIANT: HYPERDRIVE-ATOMIC-BUILDER] pSql.transaction() strictly requires a callback `(tx) => ...` or an array of lazy query builders `[(db) => db`...`]`. Raw pre-instantiated promises are forbidden.'
     );
   };
+  pSql.__atomicBuilderWrapped = true;
   return pSql;
 }
 
@@ -1284,6 +1285,9 @@ export default {
               }
             },
             get(target, prop, receiver) {
+              if (prop === '__atomicBuilderWrapped') {
+                return true;
+              }
               if (prop === 'begin') {
                 // [INVARIANT: HYPERDRIVE-ATOMIC-BUILDER] Force all transactional callers through the managed .transaction() trap
                 return undefined;

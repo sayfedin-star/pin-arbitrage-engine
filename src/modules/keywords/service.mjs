@@ -853,6 +853,11 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
     if (options.cookie !== undefined) cookie = options.cookie;
   }
 
+  // Fallback to Worker or Cloudflare execution environment secrets if not provided directly
+  if (!cookie) {
+    cookie = options?.env?.PINTEREST_COOKIE || maybeOptions?.env?.PINTEREST_COOKIE || null;
+  }
+
   if (options.force) force = Boolean(options.force);
 
   // 1. Process-local fast-fail check and lock acquisition
@@ -946,16 +951,13 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
     `.catch(() => []);
     const ignoredPinSet = new Set(ignoredPinRows.map(r => String(r.pin_id)));
 
-    const headers = {
-      'Accept': 'application/json, text/javascript, */*, q=0.01',
-      'X-Requested-With': 'XMLHttpRequest',
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
-      'x-pinterest-pws-handler': 'www/search/pins.js',
-      'referer': `https://www.pinterest.com/search/pins/?q=${query}`
-    };
-    if (cookie && String(cookie).trim()) {
-      headers['Cookie'] = formatPinterestCookie(cookie);
-    }
+    const headers = getPinterestHeaders({
+      cookie,
+      referer: `https://www.pinterest.com/search/pins/?q=${query}`,
+      extraHeaders: {
+        'x-pinterest-pws-handler': 'www/search/pins.js'
+      }
+    });
 
     let rawResults = [];
     let bookmark = null;
@@ -1011,6 +1013,13 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
         const pageItems = data?.resource_response?.data?.results || [];
         if (pageItems.length === 0) break;
         rawResults = rawResults.concat(pageItems);
+
+        if (page === 1 && pageItems.length > 0) {
+          const hasObfuscated = pageItems.some(it => String(it?.id || '').startsWith('e1_'));
+          if (hasObfuscated) {
+            console.warn(`[BaseSearchResource] WARNING: Pinterest returned encrypted e1_ pin IDs for query "${query}". Your PINTEREST_COOKIE may be expired, invalid, or missing.`);
+          }
+        }
 
         for (const it of pageItems) {
           if (!it || it.type !== 'pin') continue;
@@ -1937,9 +1946,14 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
 
     // [INVARIANT: HYPERDRIVE-ATOMIC-BUILDER]
     // Execute atomic Hub transaction in 1 atomic transaction / single roundtrip using lazy query builders
-    // Supports both wrapped Worker clients (__atomicBuilderWrapped) and raw @neondatabase/serverless CLI clients
+    // Supports both wrapped Worker clients (__atomicBuilderWrapped / Hyperdrive) and raw @neondatabase/serverless CLI clients
     if (typeof sql.transaction === 'function') {
-      const txPayload = sql.__atomicBuilderWrapped
+      const isLazyRequired = Boolean(
+        sql.__atomicBuilderWrapped ||
+        typeof sql.begin === 'function' ||
+        (sql.options && sql.options.max !== undefined)
+      );
+      const txPayload = isLazyRequired
         ? txBatch.map(b => (typeof b === 'function' ? b : (db) => b))
         : txBatch.map(b => (typeof b === 'function' ? b(sql) : b));
       await sql.transaction(txPayload);
