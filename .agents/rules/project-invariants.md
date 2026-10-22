@@ -78,3 +78,10 @@ Refer to `PROJECT_CHARTER_AND_DIRECTIVES.md` for full context. The following rul
 - **Intelligent 20-Runner Pin Partitioning:** Mode B (`single-keyword`) slices whatever pin volume is requested (50 to 5,000 pins) dynamically and deterministically across the 20 isolated Azure runner VMs (`crc32(pin_id) % 20 === workerIndex`).
 - **Re-Crawl Button Cloudflare Edge Boundary:** The `Re-Crawl` button in the UI table row is strictly designated for fast, immediate Cloudflare Edge SERP discovery (< 2s). The 20-runner fleet pipeline is preserved for daily scheduled deep sweeps and explicit bulk operations.
 
+## 12. Strict Internal Routing Credential Hygiene (ANTI-POISONING KV INVARIANT)
+- **Zero Masked URLs in Internal KV:** The Workers KV key `'fleet:shards_map'` and all internal shard routing tables MUST strictly contain raw, unmasked PostgreSQL connection strings. Masking (`maskDatabaseUrl`) with Unicode bullets (`••••••••`) is reserved EXCLUSIVELY for client-facing JSON responses (`clientProjects`).
+- **The ByteString Header Invariant:** `@neondatabase/serverless` communicates over HTTP by setting `headers: { "Neon-Connection-String": dsn }`. Non-ASCII characters (such as bullet `•` charCode 8226) or redacted placeholders cannot be converted to a ByteString in HTTP headers and will throw `NeonDbError: invalid header: neon-connection-string`, causing complete shard query failures and false 2-day fallback degradations.
+- **Mandatory DSN Sanitization:** All connection strings read from KV or cache MUST be validated with `isValidShardDsn()` before invoking `neon()`. Any poisoned entry must be purged from KV immediately and reloaded from the Central Hub `neon_projects_registry`.
+- **Array Format Parity:** Postgres `assigned_shards` can be returned as string `"{11}"` or array `[11]`. All routing checks MUST normalize with `normalizeAssignedShards()`.
+
+

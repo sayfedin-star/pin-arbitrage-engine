@@ -38,3 +38,9 @@ trigger: always_on
 ## 7. Mandatory Static Audit Command
 - Before any commit or task completion, always execute `npm run check` and `npm test`. Both must pass with zero warnings and zero violations.
 
+## 8. Database DSN Hygiene & ByteString Header Safety (Anti-Poisoning Rule)
+- **Zero Masked DSNs in Internal Routing:** Never write masked database connection strings (`••••••••`) or redacted placeholders (`[REDACTED_DATABASE_URL]`) into internal routing caches, Workers KV (`fleet:shards_map`), or connection pools.
+- **The ByteString Crash Invariant:** `@neondatabase/serverless` communicates over HTTP by sending `headers: { "Neon-Connection-String": dsn }`. Unicode bullets (`•` code 8226) or non-ASCII characters crash the HTTP request with `NeonDbError: invalid header: neon-connection-string`.
+- **Mandatory Validation:** Always validate resolved DSNs with `isValidShardDsn()` before instantiating SQL clients, and normalize array formats with `normalizeAssignedShards()`.
+
+
