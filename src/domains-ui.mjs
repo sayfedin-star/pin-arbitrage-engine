@@ -15,7 +15,11 @@
 
 import { getEdgeShieldClientScript } from './edge-shield-client.mjs';
 
-export function getDomainsPageHtml() {
+export function getDomainsPageHtml(initialDomain = '') {
+  const rawDomain = String(initialDomain || '').trim();
+  const safeInitialDomain = rawDomain.replace(/[^a-zA-Z0-9.-]/g, '').toLowerCase();
+  const hasInitialDomain = Boolean(safeInitialDomain);
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -90,7 +94,7 @@ export function getDomainsPageHtml() {
 })();
   </script>
 </head>
-<body class="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 min-h-screen antialiased flex flex-col font-sans transition-colors duration-150" x-data="domainsApp()">
+<body class="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 min-h-screen antialiased flex flex-col font-sans transition-colors duration-150" x-data="domainsApp('${safeInitialDomain}')" @keydown.escape.window="if (isBlueprintModalOpen) closeBlueprintModal(); else if (isDossierOpen) closeDossier();">
 
   <!-- Toast Notification Container -->
   <div class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 max-w-sm pointer-events-none">
@@ -156,6 +160,9 @@ export function getDomainsPageHtml() {
 
   <!-- Main Container -->
   <main class="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 flex flex-col gap-6">
+
+    <!-- DOMAIN RADAR LEADERBOARD VIEW -->
+    <div x-show="!isDossierOpen" class="flex flex-col gap-6" ${hasInitialDomain ? 'style="display:none;"' : ''}>
 
     <!-- TOP 5 EXECUTIVE KPI CARDS -->
     <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
@@ -924,246 +931,374 @@ export function getDomainsPageHtml() {
         </div>
       </div>
     </div>
+    </div>
+    <!-- END DOMAIN RADAR LEADERBOARD VIEW -->
 
-  </main>
+    <!-- DEDICATED FULL-PAGE DOMAIN INTELLIGENCE STUDIO VIEW -->
+    <div x-show="isDossierOpen" x-cloak class="flex flex-col gap-6 w-full" ${hasInitialDomain ? 'style="display:flex;"' : ''}>
 
-  <!-- SLIDE-OVER DEEP DOMAIN DOSSIER DRAWER -->
-  <div x-show="isDossierOpen"
-       class="fixed inset-0 z-50 overflow-hidden"
-       x-cloak
-       @keydown.escape.window="closeDossier()">
-    <!-- Backdrop -->
-    <div x-show="isDossierOpen"
-         x-transition:enter="transition-opacity ease-linear duration-200"
-         x-transition:enter-start="opacity-0"
-         x-transition:enter-end="opacity-100"
-         x-transition:leave="transition-opacity ease-linear duration-200"
-         x-transition:leave-start="opacity-100"
-         x-transition:leave-end="opacity-0"
-         class="fixed inset-0 bg-slate-950/70 backdrop-blur-sm"
-         @click="closeDossier()"></div>
+      <!-- Breadcrumbs & Studio Action Bar -->
+      <div class="flex items-center justify-between flex-wrap gap-4 pb-2 border-b border-slate-200 dark:border-slate-800">
+        <div class="flex items-center gap-3 text-xs font-mono">
+          <button @click="closeDossier()"
+                  class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold flex items-center gap-1.5 transition shadow-sm"
+                  title="Return to Domain Radar Leaderboard (Esc)">
+            <span>← Back to Leaderboard</span>
+          </button>
+          <span class="text-slate-300 dark:text-slate-700">|</span>
+          <nav class="flex items-center gap-1.5 text-slate-500">
+            <a href="/domains" @click.prevent="closeDossier()" class="hover:text-sky-600 dark:hover:text-sky-400 flex items-center gap-1 transition">
+              <span>🌐 Domain Radar</span>
+            </a>
+            <span class="text-slate-300 dark:text-slate-700">/</span>
+            <span class="font-bold text-slate-900 dark:text-white" x-text="dossierDomain"></span>
+          </nav>
+        </div>
 
-    <!-- Drawer Panel Container -->
-    <div class="fixed inset-y-0 right-0 max-w-full flex pl-10">
-      <div x-show="isDossierOpen"
-           x-transition:enter="transform transition ease-in-out duration-300"
-           x-transition:enter-start="translate-x-full"
-           x-transition:enter-end="translate-x-0"
-           x-transition:leave="transform transition ease-in-out duration-300"
-           x-transition:leave-start="translate-x-0"
-           x-transition:leave-end="translate-x-full"
-           class="w-screen max-w-3xl bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col">
+        <div class="flex items-center gap-2">
+          <button @click="openBlueprintModal(dossierDomain)"
+                  class="px-3 py-1.5 rounded-lg bg-gradient-to-r from-amber-500 to-rose-600 hover:from-amber-600 hover:to-rose-700 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-md shadow-rose-500/20 active:scale-95"
+                  title="Generate instant 6-pillar Arbitrage Attack Blueprint">
+            <span>⚡</span>
+            <span>Attack Plan</span>
+          </button>
+          <button @click="recheckAgeForDossier()"
+                  :disabled="enrichingDomains[dossierDomain]"
+                  class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-300 transition flex items-center gap-1 shadow-sm disabled:opacity-60">
+            <span :class="{ 'animate-spin': enrichingDomains[dossierDomain] }">🔄</span>
+            <span x-text="enrichingDomains[dossierDomain] ? 'Checking...' : 'Re-check Age'">Re-check Age</span>
+          </button>
+          <button @click="recheckAdsForDossier()"
+                  :disabled="enrichingAds[dossierDomain]"
+                  class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-300 transition flex items-center gap-1 shadow-sm disabled:opacity-60">
+            <span :class="{ 'animate-spin': enrichingAds[dossierDomain] }">🔄</span>
+            <span x-text="enrichingAds[dossierDomain] ? 'Scanning...' : 'Re-scan ads.txt'">Re-scan ads.txt</span>
+          </button>
+          <button @click="closeDossier()"
+                  class="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-bold transition flex items-center gap-1"
+                  title="Close Studio (Esc)">
+            <span>Esc</span>
+            <span>✕</span>
+          </button>
+        </div>
+      </div>
 
-        <!-- Drawer Header -->
-        <div class="p-6 border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/50 flex flex-col gap-4">
-          <div class="flex items-center justify-between">
-            <div class="flex items-center gap-3">
-              <img :src="'https://www.google.com/s2/favicons?domain=' + encodeURIComponent(dossierDomain) + '&sz=32'"
-                   class="w-7 h-7 rounded shadow-sm bg-slate-200 dark:bg-slate-700"
-                   loading="lazy"
-                   onerror="this.onerror=null; this.style.display='none'">
-              <div>
-                <div class="flex items-center gap-2 flex-wrap">
-                  <h2 class="text-lg font-bold text-slate-900 dark:text-white font-mono" x-text="dossierDomain"></h2>
-                  <a :href="safeUrl('https://' + dossierDomain)"
-                     target="_blank"
-                     rel="noopener noreferrer"
-                     class="text-xs text-sky-600 hover:underline shrink-0">
-                    Visit ↗
-                  </a>
-                  <!-- SEO Spy Shortcuts -->
-                  <span class="text-slate-300 dark:text-slate-700">•</span>
-                  <a :href="safeUrl('https://www.similarweb.com/website/' + dossierDomain)"
-                     target="_blank"
-                     rel="noopener noreferrer"
-                     class="text-[11px] font-mono text-slate-500 hover:text-sky-600 dark:hover:text-sky-400 hover:underline shrink-0"
-                     title="View traffic and geography on Similarweb">
-                    Similarweb ↗
-                  </a>
-                  <span class="text-slate-300 dark:text-slate-700">•</span>
-                  <a :href="safeUrl('https://web.archive.org/web/*/' + dossierDomain)"
-                     target="_blank"
-                     rel="noopener noreferrer"
-                     class="text-[11px] font-mono text-slate-500 hover:text-sky-600 dark:hover:text-sky-400 hover:underline shrink-0"
-                     title="View historical archive on Wayback Machine">
-                    Wayback ↗
-                  </a>
-                  <span class="text-slate-300 dark:text-slate-700">•</span>
-                  <a :href="safeUrl('https://www.google.com/search?q=site%3A' + encodeURIComponent(dossierDomain))"
-                     target="_blank"
-                     rel="noopener noreferrer"
-                     class="text-[11px] font-mono text-slate-500 hover:text-sky-600 dark:hover:text-sky-400 hover:underline shrink-0"
-                     title="View Google indexation (site:domain)">
-                    Google Site ↗
-                  </a>
-                </div>
-                <div class="text-xs text-slate-400">Deep Domain Dossier & Cross-Pillar Forensic Audit</div>
+      <!-- Top Profile & Integrated Monetization Profile Card -->
+      <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-5 sm:p-6 shadow-sm flex flex-col gap-5">
+        <!-- Identity & Fast Shortcuts -->
+        <div class="flex items-center justify-between flex-wrap gap-4">
+          <div class="flex items-center gap-3.5">
+            <img :src="'https://www.google.com/s2/favicons?domain=' + encodeURIComponent(dossierDomain) + '&sz=32'"
+                 class="w-8 h-8 rounded-xl shadow-sm bg-slate-200 dark:bg-slate-700"
+                 loading="lazy"
+                 onerror="this.onerror=null; this.style.display='none'">
+            <div>
+              <div class="flex items-center gap-2.5 flex-wrap">
+                <h2 class="text-xl font-bold text-slate-900 dark:text-white font-mono" x-text="dossierDomain"></h2>
+                <a :href="safeUrl('https://' + dossierDomain)"
+                   target="_blank"
+                   rel="noopener noreferrer"
+                   class="text-xs text-sky-600 hover:underline shrink-0 font-medium">
+                  Visit ↗
+                </a>
+                <span class="text-slate-300 dark:text-slate-700">•</span>
+                <a :href="safeUrl('https://www.similarweb.com/website/' + dossierDomain)"
+                   target="_blank"
+                   rel="noopener noreferrer"
+                   class="text-xs font-mono text-slate-500 hover:text-sky-600 dark:hover:text-sky-400 hover:underline shrink-0"
+                   title="View traffic and geography on Similarweb">
+                  Similarweb ↗
+                </a>
+                <span class="text-slate-300 dark:text-slate-700">•</span>
+                <a :href="safeUrl('https://web.archive.org/web/*/' + dossierDomain)"
+                   target="_blank"
+                   rel="noopener noreferrer"
+                   class="text-xs font-mono text-slate-500 hover:text-sky-600 dark:hover:text-sky-400 hover:underline shrink-0"
+                   title="View historical archive on Wayback Machine">
+                  Wayback ↗
+                </a>
+                <span class="text-slate-300 dark:text-slate-700">•</span>
+                <a :href="safeUrl('https://www.google.com/search?q=site%3A' + encodeURIComponent(dossierDomain))"
+                   target="_blank"
+                   rel="noopener noreferrer"
+                   class="text-xs font-mono text-slate-500 hover:text-sky-600 dark:hover:text-sky-400 hover:underline shrink-0"
+                   title="View Google indexation (site:domain)">
+                  Google Site ↗
+                </a>
               </div>
+              <div class="text-xs text-slate-400 mt-0.5">Deep Domain Dossier & Cross-Pillar Forensic Audit</div>
             </div>
-
-            <div class="flex items-center gap-2 shrink-0">
-              <button @click="openBlueprintModal(dossierDomain)"
-                      class="px-3 py-1.5 rounded-lg bg-gradient-to-r from-amber-500 to-rose-600 hover:from-amber-600 hover:to-rose-700 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-md shadow-rose-500/20 active:scale-95"
-                      title="Generate instant 6-pillar Arbitrage Attack Blueprint">
-                <span>⚡</span>
-                <span>Attack Plan</span>
-              </button>
-              <button @click="recheckAgeForDossier()"
-                      :disabled="enrichingDomains[dossierDomain]"
-                      class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-300 transition flex items-center gap-1 shadow-sm disabled:opacity-60">
-                <span :class="{ 'animate-spin': enrichingDomains[dossierDomain] }">🔄</span>
-                <span x-text="enrichingDomains[dossierDomain] ? 'Checking...' : 'Re-check Age'">Re-check Age</span>
-              </button>
-              <button @click="closeDossier()"
-                      class="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 hover:text-slate-900 dark:hover:text-white flex items-center justify-center text-sm font-bold transition">
-                ✕
-              </button>
-            </div>
-          </div>
-
-          <!-- WHOIS Summary Strip -->
-          <div class="grid grid-cols-2 sm:grid-cols-5 gap-2.5 pt-2 border-t border-slate-200/80 dark:border-slate-800/80 font-mono text-[11px]">
-            <div class="bg-white dark:bg-slate-800/80 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col">
-              <span class="text-slate-400 text-[10px] uppercase">Registered</span>
-              <span class="font-bold text-slate-800 dark:text-slate-200"
-                    x-text="dossierData?.age_info?.registered_at ? dossierData.age_info.registered_at.slice(0, 10) : (dossierData?.age_info?.lookup_status === 'failed' ? '🔒 Redacted' : 'Unknown')"></span>
-            </div>
-            <div class="bg-white dark:bg-slate-800/80 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col">
-              <span class="text-slate-400 text-[10px] uppercase">Age</span>
-              <span class="font-bold"
-                    :class="dossierData?.age_info?.age_years != null ? 'text-emerald-600 dark:text-emerald-400' : (dossierData?.age_info?.lookup_status === 'failed' ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400')"
-                    x-text="dossierData?.age_info?.age_years != null ? dossierData.age_info.age_years + 'y (' + dossierData.age_info.age_days + 'd)' : (dossierData?.age_info?.lookup_status === 'failed' ? 'Withheld by Registry' : 'Unverified')"></span>
-            </div>
-            <div class="bg-white dark:bg-slate-800/80 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col">
-              <span class="text-slate-400 text-[10px] uppercase">Expires</span>
-              <span class="font-bold text-slate-800 dark:text-slate-200" x-text="dossierData?.age_info?.expires_at ? dossierData.age_info.expires_at.slice(0, 10) : '—'"></span>
-            </div>
-            <div class="bg-white dark:bg-slate-800/80 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col">
-              <span class="text-slate-400 text-[10px] uppercase">WHOIS Source</span>
-              <span class="font-bold text-sky-600 dark:text-sky-400"
-                    x-text="dossierData?.age_info?.lookup_source ? dossierData.age_info.lookup_source + (dossierData?.age_info?.lookup_status === 'failed' ? ' (shielded)' : '') : '—'"></span>
-            </div>
-            <div class="bg-white dark:bg-slate-800/80 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col">
-              <span class="text-slate-400 text-[10px] uppercase">Ad Network</span>
-              <span class="font-bold truncate"
-                    :class="getAdNetworkBadgeClasses(dossierData?.ad_info?.current_ad_network)"
-                    x-text="getAdNetworkBadgeText(dossierData?.ad_info?.current_ad_network)"></span>
-            </div>
-          </div>
-
-          <!-- Privacy Shielded Explanatory Note -->
-          <template x-if="dossierData?.age_info?.lookup_status === 'failed'">
-            <div class="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-800 dark:text-amber-300 flex items-start gap-2 font-mono">
-              <span class="text-sm shrink-0">ℹ️</span>
-              <div>
-                <span class="font-bold">Registry Withheld / Privacy Shielded:</span>
-                <span> This domain was queried across Direct Authoritative RDAP, WHOIS Port 43, and Certificate Transparency, but the registry or parent platform redacted the public creation date.</span>
-              </div>
-            </div>
-          </template>
-
-          <!-- Dossier High-Level Stats Cards -->
-          <div class="grid grid-cols-3 sm:grid-cols-6 gap-2 pt-1 font-mono text-center">
-            <div class="bg-slate-100 dark:bg-slate-800 p-2 rounded-xl">
-              <div class="text-[10px] text-slate-400 uppercase">Pins</div>
-              <div class="text-xs font-bold text-slate-900 dark:text-white" x-text="dossierData?.summary?.total_pins || 0"></div>
-            </div>
-            <div class="bg-slate-100 dark:bg-slate-800 p-2 rounded-xl">
-              <div class="text-[10px] text-slate-400 uppercase">URLs</div>
-              <div class="text-xs font-bold text-slate-900 dark:text-white" x-text="dossierData?.summary?.unique_urls || 0"></div>
-            </div>
-            <div class="bg-slate-100 dark:bg-slate-800 p-2 rounded-xl">
-              <div class="text-[10px] text-slate-400 uppercase">Multiplier</div>
-              <div class="text-xs font-bold text-amber-600 dark:text-amber-400" x-text="(dossierData?.summary?.pins_per_url || 1) + 'x'"></div>
-            </div>
-            <div class="bg-slate-100 dark:bg-slate-800 p-2 rounded-xl">
-              <div class="text-[10px] text-slate-400 uppercase">Keywords</div>
-              <div class="text-xs font-bold text-sky-600 dark:text-sky-400" x-text="dossierData?.summary?.ranked_keywords_count || 0"></div>
-            </div>
-            <div class="bg-slate-100 dark:bg-slate-800 p-2 rounded-xl">
-              <div class="text-[10px] text-slate-400 uppercase">Saves</div>
-              <div class="text-xs font-bold text-emerald-600 dark:text-emerald-400" x-text="formatNumber(dossierData?.summary?.total_saves || 0)"></div>
-            </div>
-            <div class="bg-slate-100 dark:bg-slate-800 p-2 rounded-xl">
-              <div class="text-[10px] text-slate-400 uppercase">Accounts</div>
-              <div class="text-xs font-bold text-purple-600 dark:text-purple-400" x-text="dossierData?.summary?.accounts_count || 0"></div>
-            </div>
-          </div>
-
-          <!-- Drawer Navigation Tabs -->
-          <div class="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 -mb-6 pb-2 text-xs flex-wrap">
-            <button @click="dossierTab = 'pins'"
-                    class="px-3 py-1.5 rounded-lg font-semibold transition"
-                    :class="dossierTab === 'pins' ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'">
-              📌 Ranked Pins (<span x-text="dossierData?.ranked_pins?.length || 0"></span>)
-            </button>
-            <button @click="dossierTab = 'urls'"
-                    class="px-3 py-1.5 rounded-lg font-semibold transition"
-                    :class="dossierTab === 'urls' ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'">
-              🔗 Money Articles (<span x-text="dossierData?.money_urls?.length || 0"></span>)
-            </button>
-            <button @click="dossierTab = 'monopoly'"
-                    class="px-3 py-1.5 rounded-lg font-semibold transition"
-                    :class="dossierTab === 'monopoly' ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'">
-              🕸️ Keyword Monopoly (<span x-text="dossierData?.keyword_monopoly?.length || 0"></span>)
-            </button>
-            <button @click="dossierTab = 'accounts'"
-                    class="px-3 py-1.5 rounded-lg font-semibold transition"
-                    :class="dossierTab === 'accounts' ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'">
-              👤 Creators (<span x-text="dossierData?.accounts?.length || 0"></span>)
-            </button>
-            <button @click="dossierTab = 'visual_dna'"
-                    class="px-3 py-1.5 rounded-lg font-semibold transition flex items-center gap-1.5"
-                    :class="dossierTab === 'visual_dna' ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'">
-              <span>🧬 Visual DNA</span>
-            </button>
-            <button @click="dossierTab = 'monetization'"
-                    class="px-3 py-1.5 rounded-lg font-semibold transition flex items-center gap-1.5"
-                    :class="dossierTab === 'monetization' ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'">
-              <span>💰 Ad Network</span>
-              <template x-if="dossierData?.ad_info?.current_ad_network && dossierData?.ad_info?.current_ad_network !== 'unchecked'">
-                <span class="text-[10px] px-1.5 py-0.2 rounded font-mono font-bold"
-                      :class="dossierTab === 'monetization' ? 'bg-white/20 text-white' : getAdNetworkBadgeClasses(dossierData.ad_info.current_ad_network)"
-                      x-text="getAdNetworkBadgeText(dossierData.ad_info.current_ad_network)"></span>
-              </template>
-            </button>
           </div>
         </div>
 
-        <!-- Drawer Content Body -->
-        <div class="flex-1 overflow-y-auto p-6">
-          <!-- Loading State -->
-          <template x-if="dossierLoading">
-            <div class="py-20 text-center text-slate-400 font-mono">
-              <div class="inline-flex items-center gap-2">
-                <span class="animate-spin text-lg">⏳</span>
-                <span>Assembling forensic dossier...</span>
+        <!-- Integrated Two-Column Profile: WHOIS Registry + Ad Network & Monetization Profile -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 pt-4 border-t border-slate-200 dark:border-slate-800">
+          
+          <!-- Column 1: Domain WHOIS & Registry Intel -->
+          <div class="flex flex-col gap-2.5">
+            <div class="flex items-center gap-2">
+              <span class="text-base">📅</span>
+              <h3 class="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-white font-mono">Domain Registry & Longevity</h3>
+            </div>
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 font-mono text-[11px]">
+              <div class="bg-slate-50 dark:bg-slate-950/60 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col">
+                <span class="text-slate-400 text-[10px] uppercase">Registered</span>
+                <span class="font-bold text-slate-800 dark:text-slate-200 truncate"
+                      x-text="dossierData?.age_info?.registered_at ? dossierData.age_info.registered_at.slice(0, 10) : (dossierData?.age_info?.lookup_status === 'failed' ? '🔒 Redacted' : 'Unknown')"></span>
+              </div>
+              <div class="bg-slate-50 dark:bg-slate-950/60 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col">
+                <span class="text-slate-400 text-[10px] uppercase">Domain Age</span>
+                <span class="font-bold truncate"
+                      :class="dossierData?.age_info?.age_years != null ? 'text-emerald-600 dark:text-emerald-400' : (dossierData?.age_info?.lookup_status === 'failed' ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400')"
+                      x-text="dossierData?.age_info?.age_years != null ? dossierData.age_info.age_years + 'y (' + dossierData.age_info.age_days + 'd)' : (dossierData?.age_info?.lookup_status === 'failed' ? 'Withheld by Registry' : 'Unverified')"></span>
+              </div>
+              <div class="bg-slate-50 dark:bg-slate-950/60 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col">
+                <span class="text-slate-400 text-[10px] uppercase">Expires</span>
+                <span class="font-bold text-slate-800 dark:text-slate-200 truncate" x-text="dossierData?.age_info?.expires_at ? dossierData.age_info.expires_at.slice(0, 10) : '—'"></span>
+              </div>
+              <div class="bg-slate-50 dark:bg-slate-950/60 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col">
+                <span class="text-slate-400 text-[10px] uppercase">WHOIS Source</span>
+                <span class="font-bold text-sky-600 dark:text-sky-400 truncate"
+                      x-text="dossierData?.age_info?.lookup_source ? dossierData.age_info.lookup_source + (dossierData?.age_info?.lookup_status === 'failed' ? ' (shielded)' : '') : '—'"></span>
               </div>
             </div>
-          </template>
 
-          <template x-if="!dossierLoading && dossierData">
-            <div>
+            <!-- Privacy Shielded Explanatory Note -->
+            <template x-if="dossierData?.age_info?.lookup_status === 'failed'">
+              <div class="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-800 dark:text-amber-300 flex items-start gap-2 font-mono">
+                <span class="text-sm shrink-0">🔒</span>
+                <div>
+                  <span class="font-bold">Registry Withheld / Privacy Shielded (Redacted / Shielded):</span>
+                  <span> This domain was queried across Direct Authoritative RDAP, WHOIS Port 43, and Certificate Transparency, but the registry or parent platform redacted the public creation date.</span>
+                </div>
+              </div>
+            </template>
+          </div>
+
+          <!-- Column 2: Embedded Ad Network & Monetization Profile -->
+          <div class="flex flex-col gap-2.5">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="text-base">💰</span>
+                <h3 class="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-white font-mono">Ad Network & Monetization Profile</h3>
+              </div>
+              <!-- Historical Switch Tracking Pill -->
+              <div class="flex items-center gap-1.5 font-mono text-[11px]">
+                <template x-if="dossierData?.ad_info?.previous_ad_network">
+                  <span class="px-2 py-0.5 rounded-full font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 flex items-center gap-1 shadow-sm"
+                        :title="'Historical Switch Tracking: Migrated from ' + dossierData.ad_info.previous_ad_network + ' to ' + (dossierData.ad_info.current_ad_network || '')">
+                    <span>↗️</span>
+                    <span x-text="'Ex-' + capitalize(dossierData.ad_info.previous_ad_network)"></span>
+                    <span class="text-[9px] text-slate-400" x-text="dossierData?.ad_info?.switched_at ? '(' + dossierData.ad_info.switched_at.slice(0, 10) + ')' : ''"></span>
+                  </span>
+                </template>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 font-mono text-[11px]">
+              <div class="bg-slate-50 dark:bg-slate-950/60 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col">
+                <span class="text-slate-400 text-[10px] uppercase">Active Network</span>
+                <span class="font-bold truncate"
+                      :class="getAdNetworkBadgeClasses(dossierData?.ad_info?.current_ad_network)"
+                      x-text="getAdNetworkBadgeText(dossierData?.ad_info?.current_ad_network)"></span>
+              </div>
+              <div class="bg-slate-50 dark:bg-slate-950/60 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col">
+                <span class="text-slate-400 text-[10px] uppercase">Manager Domain</span>
+                <span class="font-bold text-sky-600 dark:text-sky-400 truncate" x-text="dossierData?.ad_info?.ad_manager_domain || 'None (Direct / Affiliate)'"></span>
+              </div>
+              <div class="bg-slate-50 dark:bg-slate-950/60 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col">
+                <span class="text-slate-400 text-[10px] uppercase">Publisher ID</span>
+                <span class="font-bold text-slate-800 dark:text-slate-200 truncate" x-text="dossierData?.ad_info?.primary_pub_id || '—'"></span>
+              </div>
+              <div class="bg-slate-50 dark:bg-slate-950/60 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col">
+                <span class="text-slate-400 text-[10px] uppercase">ads.txt Status</span>
+                <span class="font-bold text-emerald-600 dark:text-emerald-400 truncate" x-text="dossierData?.ad_info?.ads_txt_status || 'Pending'"></span>
+              </div>
+            </div>
+
+            <!-- Historical Switch Tracking Migration Audit -->
+            <div class="text-[11px] font-mono text-slate-500">
+              <span class="text-slate-400 text-[10px] uppercase font-bold">Historical Switch Tracking: </span>
+              <template x-if="dossierData?.ad_info?.previous_ad_network">
+                <span class="text-amber-600 dark:text-amber-400 font-bold" x-text="'Detected switch from ' + capitalize(dossierData.ad_info.previous_ad_network) + ' ➔ ' + capitalize(dossierData.ad_info.current_ad_network) + (dossierData.ad_info.switched_at ? ' on ' + dossierData.ad_info.switched_at.slice(0, 10) : '')"></span>
+              </template>
+              <template x-if="!dossierData?.ad_info?.previous_ad_network">
+                <span>Continuous operation on <span class="font-bold text-slate-800 dark:text-slate-200" x-text="getAdNetworkBadgeText(dossierData?.ad_info?.current_ad_network)"></span> (no network switch recorded).</span>
+              </template>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+
+      <!-- Dossier High-Level 6 KPI Summary Cards -->
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5 font-mono text-center">
+        <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-sm flex flex-col gap-1">
+          <div class="text-[10px] text-slate-400 uppercase tracking-wider">Ranked Pins</div>
+          <div class="text-2xl font-bold text-slate-900 dark:text-white" x-text="dossierData?.summary?.total_pins || 0"></div>
+          <div class="text-[11px] text-slate-400">Total SERP pins</div>
+        </div>
+        <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-sm flex flex-col gap-1">
+          <div class="text-[10px] text-slate-400 uppercase tracking-wider">Money Articles</div>
+          <div class="text-2xl font-bold text-slate-900 dark:text-white" x-text="dossierData?.summary?.unique_urls || 0"></div>
+          <div class="text-[11px] text-slate-400">Unique URLs</div>
+        </div>
+        <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-sm flex flex-col gap-1">
+          <div class="text-[10px] text-slate-400 uppercase tracking-wider">Multiplier</div>
+          <div class="text-2xl font-bold text-amber-600 dark:text-amber-400" x-text="(dossierData?.summary?.pins_per_url || 1) + 'x'"></div>
+          <div class="text-[11px] text-slate-400">Pins per article</div>
+        </div>
+        <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-sm flex flex-col gap-1">
+          <div class="text-[10px] text-slate-400 uppercase tracking-wider">Keywords</div>
+          <div class="text-2xl font-bold text-sky-600 dark:text-sky-400" x-text="dossierData?.summary?.ranked_keywords_count || 0"></div>
+          <div class="text-[11px] text-slate-400">Targeted keywords</div>
+        </div>
+        <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-sm flex flex-col gap-1">
+          <div class="text-[10px] text-slate-400 uppercase tracking-wider">Total Saves</div>
+          <div class="text-2xl font-bold text-emerald-600 dark:text-emerald-400" x-text="formatNumber(dossierData?.summary?.total_saves || 0)"></div>
+          <div class="text-[11px] text-slate-400">Aggregate saves</div>
+        </div>
+        <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-sm flex flex-col gap-1">
+          <div class="text-[10px] text-slate-400 uppercase tracking-wider">Creators</div>
+          <div class="text-2xl font-bold text-purple-600 dark:text-purple-400" x-text="dossierData?.summary?.accounts_count || 0"></div>
+          <div class="text-[11px] text-slate-400">Associated accounts</div>
+        </div>
+      </div>
+
+      <!-- Unified Studio Smart View Switcher & Action Toolbar -->
+      <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-3.5 shadow-sm flex items-center justify-between flex-wrap gap-3">
+        <!-- 3-Way Main Toggle + 2 Secondary Tabs -->
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <!-- Button 1: Articles / URLs -->
+          <button @click="dossierTab = 'urls'"
+                  class="px-3 py-1.5 rounded-xl text-xs font-semibold font-mono transition flex items-center gap-1.5"
+                  :class="dossierTab === 'urls' ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'">
+            <span>🔗 بالمقالات</span>
+            <span class="px-1.5 py-0.2 rounded-full text-[10px] font-bold"
+                  :class="dossierTab === 'urls' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'"
+                  x-text="filteredDossierArticles().length"></span>
+          </button>
+
+          <!-- Button 2: Ranked Pins -->
+          <button @click="dossierTab = 'pins'"
+                  class="px-3 py-1.5 rounded-xl text-xs font-semibold font-mono transition flex items-center gap-1.5"
+                  :class="dossierTab === 'pins' ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'">
+            <span>🎯 بالبنز المتصدرة</span>
+            <span class="px-1.5 py-0.2 rounded-full text-[10px] font-bold"
+                  :class="dossierTab === 'pins' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'"
+                  x-text="filteredDossierPins().length"></span>
+          </button>
+
+          <!-- Button 3: Keyword Monopoly -->
+          <button @click="dossierTab = 'keywords'"
+                  class="px-3 py-1.5 rounded-xl text-xs font-semibold font-mono transition flex items-center gap-1.5"
+                  :class="dossierTab === 'keywords' ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'">
+            <span>🕸️ بالكلمات المحتكرة</span>
+            <span class="px-1.5 py-0.2 rounded-full text-[10px] font-bold"
+                  :class="dossierTab === 'keywords' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'"
+                  x-text="filteredDossierKeywords().length"></span>
+          </button>
+
+          <span class="text-slate-300 dark:text-slate-700 hidden sm:inline">|</span>
+
+          <!-- Button 4: Associated Accounts -->
+          <button @click="dossierTab = 'accounts'"
+                  class="px-3 py-1.5 rounded-xl text-xs font-semibold font-mono transition flex items-center gap-1.5"
+                  :class="dossierTab === 'accounts' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'">
+            <span>👤 صناع المحتوى</span>
+            <span class="px-1.5 py-0.2 rounded-full text-[10px] font-bold"
+                  :class="dossierTab === 'accounts' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'"
+                  x-text="dossierData?.accounts?.length || 0"></span>
+          </button>
+
+          <!-- Button 5: Visual DNA -->
+          <button @click="dossierTab = 'visual_dna'"
+                  class="px-3 py-1.5 rounded-xl text-xs font-semibold font-mono transition flex items-center gap-1.5"
+                  :class="dossierTab === 'visual_dna' ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'">
+            <span>🧬 Visual DNA</span>
+          </button>
+        </div>
+
+        <!-- Filter, Sort & 1-Click Copy Actions -->
+        <div class="flex items-center gap-2 flex-wrap min-w-0">
+          <!-- Instant Search -->
+          <div class="relative min-w-[180px] max-w-xs">
+            <input type="text"
+                   x-model="dossierSearch"
+                   placeholder="Search in studio..."
+                   class="w-full text-xs font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-sky-500">
+            <template x-if="dossierSearch">
+              <button @click="dossierSearch = ''" class="absolute right-2 top-1.5 text-slate-400 hover:text-slate-600 text-xs">✕</button>
+            </template>
+          </div>
+
+          <!-- Contextual Sort Dropdown -->
+          <select x-model="dossierSort"
+                  class="text-xs font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2.5 py-1.5 text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-sky-500">
+            <option value="saves">By Saves (الأعلى حفظاً)</option>
+            <option value="age_asc">By Pin Age: Fresh (الأحدث 🌱)</option>
+            <option value="age_desc">By Pin Age: Evergreen (الأقدم 🦖)</option>
+            <option value="multiplier">By Multiplier (الأعلى تكراراً)</option>
+            <option value="rank">By Best Rank (أفضل ترتيب)</option>
+          </select>
+
+          <!-- 1-Click Copy Buttons -->
+          <button @click="copyAllArticleUrls()"
+                  class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-mono font-semibold text-slate-700 dark:text-slate-300 transition flex items-center gap-1 shadow-sm"
+                  title="Copy all discovered article URLs to clipboard">
+            <span>📋</span>
+            <span>Copy URLs</span>
+          </button>
+          <button @click="copyAllKeywords()"
+                  class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-mono font-semibold text-slate-700 dark:text-slate-300 transition flex items-center gap-1 shadow-sm"
+                  title="Copy all monopolized keywords to clipboard">
+            <span>📋</span>
+            <span>Copy Keywords</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Studio Content Body -->
+      <div class="flex flex-col gap-4">
+        <!-- Loading State -->
+        <template x-if="dossierLoading">
+          <div class="py-24 text-center text-slate-400 font-mono flex flex-col items-center justify-center gap-3">
+            <span class="animate-spin text-3xl">🔄</span>
+            <span class="text-sm">De-obfuscating domain intelligence & 4-pillar data...</span>
+          </div>
+        </template>
+
+        <!-- Main Studio Tab Views -->
+        <template x-if="!dossierLoading && dossierData">
+          <div class="flex flex-col gap-4">
               <!-- TAB 1: Ranked Pins -->
               <div x-show="dossierTab === 'pins'" class="space-y-3">
-                <template x-for="p in dossierData.ranked_pins" :key="p.pin_id">
-                  <div :data-pin-id="p.pin_id" class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700/80 rounded-xl p-3 flex items-center justify-between gap-3 shadow-sm hover:border-sky-500/50 transition">
-                    <div class="flex items-center gap-3 min-w-0">
+                <template x-for="p in filteredDossierPins()" :key="p.pin_id">
+                  <div :data-pin-id="p.pin_id" class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 flex items-center justify-between gap-4 shadow-sm hover:border-sky-500/50 transition">
+                    <div class="flex items-center gap-3.5 min-w-0">
                       <img :src="p.image_url"
-                           class="w-12 h-16 rounded-lg object-cover bg-slate-200 dark:bg-slate-700 shrink-0"
+                           class="w-14 h-20 rounded-xl object-cover bg-slate-200 dark:bg-slate-700 shrink-0 shadow-sm"
                            loading="lazy"
                            onerror="this.onerror=null; this.src='https://placehold.co/80x120?text=Pin'">
                       <div class="flex flex-col min-w-0">
                         <div class="flex items-center gap-2 flex-wrap">
-                          <span class="text-xs font-bold text-slate-900 dark:text-white truncate" x-text="p.title"></span>
+                          <span class="text-sm font-bold text-slate-900 dark:text-white truncate" x-text="p.title"></span>
                           <template x-if="p.is_vulnerable">
                             <span class="px-1.5 py-0.5 rounded text-[9px] font-bold font-mono bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30 shrink-0"
                                   title="Decaying Monopoly: High Saves + Stale Velocity. Vulnerable to Fresh Pin Overhaul!">
                               ⚡ Decaying Monopoly
                             </span>
                           </template>
+                          <!-- Pin Age Badge -->
+                          <template x-if="getPinAgeBadge(p.created_at_pinterest)">
+                            <span class="px-1.5 py-0.5 rounded text-[9px] font-bold font-mono shrink-0"
+                                  :class="getPinAgeBadge(p.created_at_pinterest).class"
+                                  :title="getPinAgeBadge(p.created_at_pinterest).title"
+                                  x-text="getPinAgeBadge(p.created_at_pinterest).label"></span>
+                          </template>
                         </div>
-                        <div class="flex items-center gap-2 text-[10px] text-slate-400 font-mono mt-0.5 flex-wrap">
+                        <div class="flex items-center gap-2 text-xs text-slate-400 font-mono mt-1 flex-wrap">
                           <span x-text="'Pin #' + p.pin_id"></span>
                           <span class="text-slate-300 dark:text-slate-600">•</span>
                           <template x-if="p.creator_username">
@@ -1179,29 +1314,28 @@ export function getDomainsPageHtml() {
                           <span class="text-slate-300 dark:text-slate-600">•</span>
                           <span class="text-emerald-600 dark:text-emerald-400 font-bold" x-text="formatNumber(p.saves) + ' saves'"></span>
                           <template x-if="p.dominant_color">
-                            <span class="inline-flex items-center gap-1 text-[9px]">
+                            <span class="inline-flex items-center gap-1 text-[10px]">
                               <span>•</span>
-                              <span class="w-2 h-2 rounded-full border border-slate-400/40 inline-block" :style="'background-color: ' + p.dominant_color"></span>
+                              <span class="w-2.5 h-2.5 rounded-full border border-slate-400/40 inline-block shadow-sm" :style="'background-color: ' + p.dominant_color"></span>
                               <span x-text="p.dominant_color"></span>
                             </span>
                           </template>
                           <template x-if="Array.isArray(p.visual_annotations) && p.visual_annotations.length > 0">
-                            <span class="text-[9px] text-slate-500 dark:text-slate-400 truncate max-w-[150px]"
+                            <span class="text-[10px] text-slate-500 dark:text-slate-400 truncate max-w-[200px]"
                                   :title="p.visual_annotations.join(', ')"
-                                  x-text="'• 🏷️ ' + p.visual_annotations.slice(0, 2).join(', ')"></span>
+                                  x-text="'• 🏷️ ' + p.visual_annotations.slice(0, 3).join(', ')"></span>
                           </template>
                         </div>
-                        <!-- SERP Appearances Badges (Clickable) -->
-                        <div class="flex items-center gap-1.5 flex-wrap mt-1.5">
-                          <template x-for="app in (p.serp_appearances || []).slice(0, 4)" :key="app.keyword_id">
-                            <a :href="safeUrl('/keywords/' + encodeURIComponent(app.keyword_name))"
-                               target="_blank"
-                               class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-sky-500/10 hover:bg-sky-500/20 text-sky-700 dark:text-sky-300 border border-sky-500/20 transition-colors inline-flex items-center gap-1"
-                               :title="'Open SERP Radar for: ' + app.keyword_name">
+                        <!-- SERP Appearances Badges (Clickable with drilldown) -->
+                        <div class="flex items-center gap-1.5 flex-wrap mt-2">
+                          <template x-for="app in (p.serp_appearances || []).slice(0, 6)" :key="app.keyword_id">
+                            <button @click="filterToKeyword(app.keyword_name)"
+                                    class="text-[10px] font-mono px-2 py-0.5 rounded-md bg-sky-500/10 hover:bg-sky-500/20 text-sky-700 dark:text-sky-300 border border-sky-500/20 transition-colors inline-flex items-center gap-1"
+                                    :title="'Drilldown to keyword monopoly for ' + app.keyword_name">
                               <span x-text="app.rank_position ? '#' + app.rank_position : 'Displaced'" class="font-bold"></span>
-                              <span class="text-slate-500 dark:text-slate-400 truncate max-w-[130px]" x-text="app.keyword_name"></span>
-                              <span class="text-[9px]">↗</span>
-                            </a>
+                              <span class="text-slate-500 dark:text-slate-400 truncate max-w-[150px]" x-text="app.keyword_name"></span>
+                              <span class="text-[9px]">→</span>
+                            </button>
                           </template>
                         </div>
                       </div>
@@ -1210,42 +1344,45 @@ export function getDomainsPageHtml() {
                     <div class="flex items-center gap-2 shrink-0">
                       <a :href="safeUrl('/pin/' + p.pin_id)"
                          target="_blank"
-                         class="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 text-xs font-semibold transition">
-                        Inspect
+                         class="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold transition font-mono">
+                        Inspect ↗
                       </a>
                     </div>
                   </div>
+                </template>
+                <template x-if="filteredDossierPins().length === 0">
+                  <div class="py-12 text-center text-slate-400 font-mono text-xs">No ranked pins matched your search or filters.</div>
                 </template>
               </div>
 
               <!-- TAB 2: Money Articles & Multipliers -->
               <div x-show="dossierTab === 'urls'" class="space-y-4">
-                <div class="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
-                  <div class="text-xs text-slate-500 font-mono" x-text="(dossierData.money_urls?.length || 0) + ' articles discovered'"></div>
-                  <button @click="copyAllArticleUrls()"
-                          class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold font-mono transition flex items-center gap-1 shadow-sm">
-                    <span>📋</span> Copy All Article URLs
-                  </button>
-                </div>
-                <template x-for="art in dossierData.money_urls" :key="art.clean_slug">
-                  <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700/80 rounded-xl p-4 flex flex-col gap-3 shadow-sm">
+                <template x-for="art in filteredDossierArticles()" :key="art.clean_slug">
+                  <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-5 flex flex-col gap-3 shadow-sm hover:border-sky-500/40 transition">
                     <div class="flex items-start justify-between gap-3">
                       <div class="flex flex-col min-w-0">
                         <div class="flex items-center gap-2 flex-wrap">
                           <span class="text-sm font-bold font-mono text-slate-900 dark:text-white truncate" x-text="art.clean_slug"></span>
                           <button @click="copyToClipboard(art.sample_url || art.clean_slug, 'Copied article URL!')"
-                                  class="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-xs px-1.5 py-0.5 rounded hover:bg-slate-100 dark:hover:bg-slate-700"
+                                  class="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-xs px-1.5 py-0.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800"
                                   title="Copy URL">
                             📋
                           </button>
                           <a :href="safeUrl(art.sample_url)"
                              target="_blank"
                              rel="noopener noreferrer"
-                             class="text-xs text-sky-600 hover:underline shrink-0">
+                             class="text-xs text-sky-600 hover:underline shrink-0 font-medium">
                             Open Article ↗
                           </a>
                         </div>
                         <div class="flex items-center gap-2 text-xs font-mono text-slate-400 mt-1 flex-wrap">
+                          <!-- Article Pin Age Badge -->
+                          <template x-if="getPinAgeBadge(art.created_at_pinterest || art.newest_pin_date)">
+                            <span class="px-1.5 py-0.5 rounded text-[9px] font-bold font-mono shrink-0"
+                                  :class="getPinAgeBadge(art.created_at_pinterest || art.newest_pin_date).class"
+                                  :title="getPinAgeBadge(art.created_at_pinterest || art.newest_pin_date).title"
+                                  x-text="getPinAgeBadge(art.created_at_pinterest || art.newest_pin_date).label"></span>
+                          </template>
                           <span class="font-bold text-amber-600 dark:text-amber-400" x-text="art.pins_count + ' creative pins'"></span>
                           <span>•</span>
                           <span class="text-emerald-600 dark:text-emerald-400 font-bold" x-text="formatNumber(art.total_saves) + ' saves'"></span>
@@ -1257,14 +1394,40 @@ export function getDomainsPageHtml() {
                             <span>•</span>
                             <span class="text-rose-600 dark:text-rose-400 font-bold">⚡ Vulnerable</span>
                           </template>
+                          <!-- Clickable Keyword Count Drilldown -->
+                          <template x-if="(art.keywords || art.target_keywords || []).length > 0">
+                            <span class="inline-flex items-center gap-1">
+                              <span>•</span>
+                              <button @click="filterToArticleKeywords(art)"
+                                      class="text-sky-600 dark:text-sky-400 hover:underline font-bold"
+                                      :title="'Filter keywords view to this article\'s ' + (art.keywords || art.target_keywords).length + ' keywords'"
+                                      x-text="(art.keywords || art.target_keywords).length + ' keywords →'"></button>
+                            </span>
+                          </template>
                         </div>
+
                         <!-- Targeted Marketing Angles -->
                         <template x-if="Array.isArray(art.angles_targeted) && art.angles_targeted.length > 0">
                           <div class="flex items-center gap-1.5 flex-wrap mt-2">
                             <span class="text-[10px] font-mono text-slate-400 uppercase font-bold">Search Intents:</span>
                             <template x-for="ang in art.angles_targeted" :key="ang">
-                              <span class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700/80 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-600"
+                              <span class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700"
                                     x-text="'🎯 ' + ang"></span>
+                            </template>
+                          </div>
+                        </template>
+
+                        <!-- Cross-View Drilldown Keywords -->
+                        <template x-if="Array.isArray(art.target_keywords || art.keywords) && (art.target_keywords || art.keywords).length > 0">
+                          <div class="flex items-center gap-1.5 flex-wrap mt-1.5">
+                            <span class="text-[10px] font-mono text-slate-400 uppercase font-bold">Keywords:</span>
+                            <template x-for="kw in (art.target_keywords || art.keywords)" :key="kw">
+                              <button @click="filterToKeyword(kw)"
+                                      class="text-[10px] font-mono px-2 py-0.5 rounded-md bg-sky-500/10 hover:bg-sky-500/20 text-sky-700 dark:text-sky-300 border border-sky-500/20 transition flex items-center gap-1"
+                                      :title="'Jump to Keyword Monopoly view for ' + kw">
+                                <span x-text="kw"></span>
+                                <span class="text-[9px]">→</span>
+                              </button>
                             </template>
                           </div>
                         </template>
@@ -1272,43 +1435,57 @@ export function getDomainsPageHtml() {
                     </div>
 
                     <!-- Creative Pin Variations Thumbnails Gallery (Pillar 2) -->
-                    <div class="grid grid-cols-4 sm:grid-cols-6 gap-2 pt-2 border-t border-slate-100 dark:border-slate-700/60">
+                    <div class="grid grid-cols-3 sm:grid-cols-6 lg:grid-cols-8 gap-2.5 pt-2.5 border-t border-slate-100 dark:border-slate-800">
                       <template x-for="p in art.pins" :key="p.pin_id">
-                        <a :data-pin-id="p.pin_id"
-                           :href="safeUrl('/pin/' + p.pin_id)"
-                           target="_blank"
-                           class="group relative rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-900 aspect-[2/3]">
+                        <div class="group relative rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-900 aspect-[2/3] flex flex-col justify-between">
                           <img :src="p.image_url"
-                               class="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                               class="w-full h-full object-cover group-hover:scale-105 transition-transform absolute inset-0"
                                loading="lazy"
                                onerror="this.onerror=null; this.src='https://placehold.co/80x120?text=Pin'">
-                          <!-- Marketing Intent Badge Overlay -->
-                          <template x-if="p.intent_tag">
-                            <div class="absolute top-1 left-1 px-1 py-0.5 rounded text-[8px] font-bold font-mono bg-black/75 text-amber-300 truncate max-w-[90%] shadow-sm"
-                                 x-text="p.intent_tag"></div>
-                          </template>
-                          <div class="absolute bottom-0 inset-x-0 bg-slate-950/80 p-1 text-[9px] font-mono text-white flex items-center justify-between">
-                            <span x-text="p.best_rank ? '#' + p.best_rank : '—'"></span>
-                            <span class="text-emerald-400" x-text="p.saves + 's'"></span>
+                          
+                          <!-- Top Badges Overlay (Age & Intent) -->
+                          <div class="relative z-10 p-1 flex items-start justify-between gap-1 w-full flex-wrap">
+                            <template x-if="getPinAgeBadge(p.created_at_pinterest)">
+                              <span class="px-1 py-0.2 rounded text-[8px] font-bold font-mono shadow-sm"
+                                    :class="getPinAgeBadge(p.created_at_pinterest).class"
+                                    :title="getPinAgeBadge(p.created_at_pinterest).title"
+                                    x-text="getPinAgeBadge(p.created_at_pinterest).label"></span>
+                            </template>
+                            <template x-if="p.intent_tag">
+                              <div class="px-1 py-0.2 rounded text-[8px] font-bold font-mono bg-black/75 text-amber-300 truncate max-w-[80%] shadow-sm"
+                                   x-text="p.intent_tag"></div>
+                            </template>
                           </div>
-                        </a>
+
+                          <!-- Bottom Rank & Saves Overlay -->
+                          <div class="relative z-10 bg-slate-950/85 p-1 text-[9px] font-mono text-white flex items-center justify-between">
+                            <a :href="safeUrl('/pin/' + p.pin_id)" target="_blank" class="hover:underline flex items-center gap-0.5">
+                              <span x-text="p.best_rank ? '#' + p.best_rank : 'Pin'"></span>
+                              <span class="text-[8px]">↗</span>
+                            </a>
+                            <span class="text-emerald-400 font-bold" x-text="p.saves + 's'"></span>
+                          </div>
+                        </div>
                       </template>
                     </div>
                   </div>
                 </template>
+                <template x-if="filteredDossierArticles().length === 0">
+                  <div class="py-12 text-center text-slate-400 font-mono text-xs">No articles matched your search or filters.</div>
+                </template>
               </div>
 
               <!-- TAB 3: Keyword Monopoly Matrix -->
-              <div x-show="dossierTab === 'monopoly'" class="space-y-3">
-                <template x-for="kw in dossierData.keyword_monopoly" :key="kw.keyword_id">
-                  <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700/80 rounded-xl p-3.5 flex flex-col gap-2.5 shadow-sm">
+              <div x-show="dossierTab === 'keywords' || dossierTab === 'monopoly'" class="space-y-3">
+                <template x-for="kw in filteredDossierKeywords()" :key="kw.keyword_id">
+                  <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 flex flex-col gap-2.5 shadow-sm hover:border-sky-500/40 transition">
                     <div class="flex items-start justify-between gap-3">
                       <div class="flex flex-col min-w-0">
                         <div class="flex items-center gap-2 flex-wrap">
-                          <span class="text-xs font-bold text-slate-900 dark:text-white" x-text="kw.keyword_name"></span>
+                          <span class="text-sm font-bold text-slate-900 dark:text-white" x-text="kw.keyword_name"></span>
                           <a :href="safeUrl('/keywords/' + encodeURIComponent(kw.keyword_name))"
                              target="_blank"
-                             class="text-[10px] text-sky-600 hover:underline font-mono">
+                             class="text-[11px] text-sky-600 hover:underline font-mono">
                             SERP Radar ↗
                           </a>
                           <!-- Strategy Badge (Pillar 1) -->
@@ -1339,11 +1516,11 @@ export function getDomainsPageHtml() {
                         </div>
 
                         <!-- Slot Positions -->
-                        <div class="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                        <div class="flex items-center gap-1.5 mt-2 flex-wrap">
                           <span class="text-[10px] font-mono font-bold text-slate-500 uppercase">Positions:</span>
                           <template x-for="r in kw.ranks" :key="r">
-                            <span class="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded"
-                                  :class="r <= 3 ? 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30' : (r <= 10 ? 'bg-sky-500/15 text-sky-700 dark:text-sky-400 border border-sky-500/30' : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300')"
+                            <span class="text-[10px] font-mono font-bold px-2 py-0.5 rounded"
+                                  :class="r <= 3 ? 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30' : (r <= 10 ? 'bg-sky-500/15 text-sky-700 dark:text-sky-400 border border-sky-500/30' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300')"
                                   x-text="'#' + r"></span>
                           </template>
                         </div>
@@ -1351,32 +1528,40 @@ export function getDomainsPageHtml() {
 
                       <div class="flex flex-col items-end shrink-0 font-mono text-xs">
                         <span class="font-bold text-sky-600 dark:text-sky-400" x-text="kw.active_slots + ' slots (' + kw.serp_share_pct + '% SERP)'"></span>
-                        <span class="text-[10px] text-emerald-600 dark:text-emerald-400" x-text="formatNumber(kw.total_saves) + ' saves'"></span>
+                        <span class="text-[11px] text-emerald-600 dark:text-emerald-400 font-bold" x-text="formatNumber(kw.total_saves) + ' saves'"></span>
                       </div>
                     </div>
 
-                    <!-- Top Slot Traffic Attribution -->
+                    <!-- Top Slot Traffic Attribution with Cross-View Drilldown -->
                     <template x-if="kw.top_slot_attribution">
-                      <div class="pt-2 border-t border-slate-100 dark:border-slate-700/60 text-[10px] font-mono text-slate-500 flex items-center justify-between flex-wrap gap-2">
+                      <div class="pt-2 border-t border-slate-100 dark:border-slate-800 text-[11px] font-mono text-slate-500 flex items-center justify-between flex-wrap gap-2">
                         <div class="flex items-center gap-1.5 min-w-0">
                           <span class="font-bold text-amber-600 dark:text-amber-400">🏆 Top Slot Driver:</span>
                           <span class="font-bold text-slate-800 dark:text-slate-200" x-text="'Rank #' + kw.top_slot_attribution.rank_position"></span>
-                          <span class="text-slate-400 truncate max-w-[240px]" x-text="'(' + kw.top_slot_attribution.title + ')'"></span>
+                          <button @click="filterToArticle(kw.top_slot_attribution.clean_slug || kw.top_slot_attribution.title)"
+                                  class="text-sky-600 dark:text-sky-400 hover:underline truncate max-w-[280px] flex items-center gap-1"
+                                  :title="'Jump to Article: ' + kw.top_slot_attribution.title">
+                            <span x-text="'(' + kw.top_slot_attribution.title + ')'"></span>
+                            <span>→</span>
+                          </button>
                         </div>
                         <span class="font-bold text-emerald-600 dark:text-emerald-400" x-text="formatNumber(kw.top_slot_attribution.saves) + ' saves (' + Math.round((kw.top_slot_attribution.saves / Math.max(1, kw.total_saves)) * 100) + '%)'"></span>
                       </div>
                     </template>
                   </div>
                 </template>
+                <template x-if="filteredDossierKeywords().length === 0">
+                  <div class="py-12 text-center text-slate-400 font-mono text-xs">No keywords matched your search or filters.</div>
+                </template>
               </div>
 
               <!-- TAB 4: Associated Pinterest Accounts -->
               <div x-show="dossierTab === 'accounts'" class="space-y-3">
-                <template x-for="acc in dossierData.accounts" :key="acc.username">
-                  <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700/80 rounded-xl p-3.5 flex flex-col gap-2.5 shadow-sm">
+                <template x-for="acc in (dossierData.accounts || [])" :key="acc.username">
+                  <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 flex flex-col gap-3 shadow-sm">
                     <div class="flex items-center justify-between gap-3">
-                      <div class="flex items-center gap-3 min-w-0">
-                        <div class="w-9 h-9 rounded-full flex items-center justify-center font-bold font-mono text-xs shrink-0"
+                      <div class="flex items-center gap-3.5 min-w-0">
+                        <div class="w-10 h-10 rounded-2xl flex items-center justify-center font-bold font-mono text-sm shrink-0"
                              :class="acc.role === 'PRIMARY_BRAND' ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30' : 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/30'">
                           <span x-text="acc.role === 'PRIMARY_BRAND' ? '👑' : '@'"></span>
                         </div>
@@ -1385,28 +1570,28 @@ export function getDomainsPageHtml() {
                             <a :href="safeUrl('https://pinterest.com/' + acc.username)"
                                target="_blank"
                                rel="noopener noreferrer"
-                               class="text-xs font-bold text-slate-900 dark:text-white hover:text-sky-600 transition truncate"
+                               class="text-sm font-bold text-slate-900 dark:text-white hover:text-sky-600 transition truncate"
                                x-text="'@' + acc.username"></a>
-                            <span class="text-[9px] font-mono px-2 py-0.5 rounded-full font-bold"
+                            <span class="text-[10px] font-mono px-2 py-0.5 rounded-full font-bold"
                                   :class="acc.role === 'PRIMARY_BRAND' ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30' : 'bg-purple-500/15 text-purple-700 dark:text-purple-300 border border-purple-500/30'"
                                   x-text="acc.role === 'PRIMARY_BRAND' ? '👑 Primary Brand Account' : '🛰️ Satellite / Ghost Creator'"></span>
                           </div>
-                          <div class="flex items-center gap-2 text-[10px] text-slate-400 font-mono mt-0.5">
+                          <div class="flex items-center gap-2 text-xs text-slate-400 font-mono mt-1">
                             <span x-text="acc.pins_count + ' pins linked'"></span>
                             <span>•</span>
-                            <span class="text-sky-600 dark:text-sky-400" x-text="acc.top10_count + ' top-10 slots'"></span>
+                            <span class="text-sky-600 dark:text-sky-400 font-bold" x-text="acc.top10_count + ' top-10 slots'"></span>
                           </div>
                         </div>
                       </div>
 
                       <div class="flex items-center gap-3 shrink-0">
                         <div class="text-right font-mono text-xs">
-                          <div class="font-bold text-emerald-600 dark:text-emerald-400" x-text="formatNumber(acc.total_saves)"></div>
+                          <div class="font-bold text-emerald-600 dark:text-emerald-400 text-sm" x-text="formatNumber(acc.total_saves)"></div>
                           <div class="text-[10px] text-slate-400">total saves</div>
                         </div>
                         <a :href="safeUrl('/?tab=competitors&action=track&creator=' + encodeURIComponent(acc.username))"
                            target="_blank"
-                           class="px-2.5 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold shadow-sm transition">
+                           class="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold shadow-sm transition font-mono">
                           + Track
                         </a>
                       </div>
@@ -1414,10 +1599,10 @@ export function getDomainsPageHtml() {
 
                     <!-- Cross-Domain Sybil Footprint (Pillar 4) -->
                     <template x-if="Array.isArray(acc.sister_domains) && acc.sister_domains.length > 0">
-                      <div class="pt-2 border-t border-slate-100 dark:border-slate-700/60 flex items-center gap-1.5 flex-wrap text-[10px] font-mono">
+                      <div class="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center gap-1.5 flex-wrap text-xs font-mono">
                         <span class="text-amber-600 dark:text-amber-400 font-bold">⚠️ Sybil Sister Domains Fingerprint:</span>
                         <template x-for="sd in acc.sister_domains" :key="sd.domain">
-                          <span class="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-800 dark:text-amber-300 border border-amber-500/20"
+                          <span class="px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-800 dark:text-amber-300 border border-amber-500/20"
                                 x-text="sd.domain + ' (' + sd.pins_count + ' pins)'"></span>
                         </template>
                       </div>
@@ -1426,104 +1611,7 @@ export function getDomainsPageHtml() {
                 </template>
               </div>
 
-              <!-- TAB 5: Monetization & Ad Network Intelligence -->
-              <div x-show="dossierTab === 'monetization'" class="space-y-4 font-sans">
-                <!-- Top Status Card -->
-                <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700/80 rounded-2xl p-4 shadow-sm flex flex-col gap-3">
-                  <div class="flex items-center justify-between">
-                    <div class="flex items-center gap-2">
-                      <span class="text-xl">💰</span>
-                      <div>
-                        <h3 class="text-sm font-bold text-slate-900 dark:text-white">Ad Network & Monetization Profile</h3>
-                        <p class="text-[11px] text-slate-400">IAB ads.txt verification and publisher network classification</p>
-                      </div>
-                    </div>
-                    <button @click="recheckAdsForDossier()"
-                            :disabled="enrichingAds[dossierDomain]"
-                            class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-300 transition flex items-center gap-1 shadow-sm disabled:opacity-60">
-                      <span :class="{ 'animate-spin': enrichingAds[dossierDomain] }">🔄</span>
-                      <span x-text="enrichingAds[dossierDomain] ? 'Scanning...' : 'Re-scan ads.txt'">Re-scan ads.txt</span>
-                    </button>
-                  </div>
 
-                  <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-2 border-t border-slate-200/80 dark:border-slate-800 font-mono text-[11px]">
-                    <div class="bg-slate-50 dark:bg-slate-900/60 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col">
-                      <span class="text-slate-400 text-[10px] uppercase">Active Network</span>
-                      <span class="font-bold text-slate-900 dark:text-white" x-text="getAdNetworkBadgeText(dossierData?.ad_info?.current_ad_network)"></span>
-                    </div>
-                    <div class="bg-slate-50 dark:bg-slate-900/60 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col">
-                      <span class="text-slate-400 text-[10px] uppercase">Manager Domain</span>
-                      <span class="font-bold text-sky-600 dark:text-sky-400 truncate" x-text="dossierData?.ad_info?.ad_manager_domain || 'None (Direct / Affiliate)'"></span>
-                    </div>
-                    <div class="bg-slate-50 dark:bg-slate-900/60 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col">
-                      <span class="text-slate-400 text-[10px] uppercase">Publisher ID</span>
-                      <span class="font-bold text-slate-800 dark:text-slate-200 truncate" x-text="dossierData?.ad_info?.primary_pub_id || '—'"></span>
-                    </div>
-                    <div class="bg-slate-50 dark:bg-slate-900/60 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col">
-                      <span class="text-slate-400 text-[10px] uppercase">ads.txt Status</span>
-                      <span class="font-bold text-emerald-600 dark:text-emerald-400" x-text="dossierData?.ad_info?.ads_txt_status || 'Pending'"></span>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Historical Switch Timeline Card -->
-                <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700/80 rounded-2xl p-4 shadow-sm flex flex-col gap-3">
-                  <div class="flex items-center gap-2">
-                    <span class="text-base">🔄</span>
-                    <h4 class="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">Historical Switch Tracking & Migration Audit</h4>
-                  </div>
-
-                  <!-- Has Switch History -->
-                  <template x-if="dossierData?.ad_info?.previous_ad_network || (Array.isArray(dossierData?.ad_info?.network_history) && dossierData.ad_info.network_history.length > 0)">
-                    <div class="space-y-2.5">
-                      <template x-if="dossierData?.ad_info?.previous_ad_network">
-                        <div class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-800 dark:text-amber-300 font-mono flex items-center justify-between">
-                          <div class="flex items-center gap-2">
-                            <span>🚀</span>
-                            <span>Network Migration Detected:</span>
-                            <span class="font-bold uppercase" x-text="dossierData.ad_info.previous_ad_network"></span>
-                            <span>➔</span>
-                            <span class="font-bold uppercase text-emerald-600 dark:text-emerald-400" x-text="dossierData.ad_info.current_ad_network"></span>
-                          </div>
-                          <span class="text-[10px] text-slate-400" x-text="dossierData.ad_info.switched_at ? dossierData.ad_info.switched_at.slice(0, 10) : ''"></span>
-                        </div>
-                      </template>
-
-                      <template x-if="Array.isArray(dossierData?.ad_info?.network_history) && dossierData.ad_info.network_history.length > 0">
-                        <div class="space-y-2">
-                          <template x-for="(entry, eIdx) in dossierData.ad_info.network_history" :key="eIdx">
-                            <div class="flex items-center gap-3 p-2.5 rounded-lg bg-slate-50 dark:bg-slate-900 text-xs font-mono border border-slate-200 dark:border-slate-800">
-                              <span class="w-5 h-5 rounded-full bg-sky-500/20 text-sky-600 flex items-center justify-center text-[10px] font-bold" x-text="eIdx + 1"></span>
-                              <div class="flex items-center gap-2 flex-1">
-                                <span class="font-bold text-slate-600 dark:text-slate-400" x-text="entry.from_network"></span>
-                                <span class="text-slate-400">➔</span>
-                                <span class="font-bold text-emerald-600 dark:text-emerald-400" x-text="entry.to_network"></span>
-                              </div>
-                              <span class="text-[10px] text-slate-400" x-text="entry.switched_at ? entry.switched_at.slice(0, 10) : ''"></span>
-                            </div>
-                          </template>
-                        </div>
-                      </template>
-                    </div>
-                  </template>
-
-                  <!-- No Switch History -->
-                  <template x-if="!dossierData?.ad_info?.previous_ad_network && (!Array.isArray(dossierData?.ad_info?.network_history) || dossierData.ad_info.network_history.length === 0)">
-                    <div class="p-4 rounded-xl bg-slate-50 dark:bg-slate-900 text-center text-xs text-slate-500 font-mono">
-                      <span>No network switch detected yet. Publisher is operating continuously on </span>
-                      <span class="font-bold text-slate-900 dark:text-white" x-text="getAdNetworkBadgeText(dossierData?.ad_info?.current_ad_network)"></span>.
-                    </div>
-                  </template>
-                </div>
-
-                <!-- Raw Diagnostic Snippet -->
-                <template x-if="dossierData?.ad_info?.raw_header_snippet">
-                  <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700/80 rounded-2xl p-4 shadow-sm flex flex-col gap-2">
-                    <span class="text-[10px] font-mono text-slate-400 uppercase">ads.txt Header / Declaration Snippet</span>
-                    <div class="p-3 rounded-xl bg-slate-900 text-slate-300 font-mono text-[11px] whitespace-pre-wrap break-all select-all border border-slate-800"
-                         x-text="dossierData.ad_info.raw_header_snippet"></div>
-                  </div>
-                </template>
               <!-- TAB 6: Visual DNA & Computer Vision Reverse-Engineering -->
               <div x-show="dossierTab === 'visual_dna'" class="space-y-4 font-sans">
                 <!-- Top Overview Card -->
@@ -1599,12 +1687,14 @@ export function getDomainsPageHtml() {
               </div>
 
             </div>
-          </template>
-        </div>
-
+          </div>
+        </template>
       </div>
+
     </div>
-  </div>
+    <!-- END DEDICATED FULL-PAGE DOMAIN INTELLIGENCE STUDIO VIEW -->
+
+  </main>
 
   <!-- TACTICAL ARBITRAGE ATTACK BLUEPRINT MODAL (PILLAR 6) -->
   <div x-show="isBlueprintModalOpen"
@@ -1785,7 +1875,7 @@ export function getDomainsPageHtml() {
 
   <!-- Client-Side Application Script -->
   <script>
-    function domainsApp() {
+    function domainsApp(initialDomain = '') {
       return {
         darkMode: localStorage.getItem('pa_theme') !== 'light',
         loading: false,
@@ -1817,12 +1907,14 @@ export function getDomainsPageHtml() {
         sortBy: 'visibility',
         excludeMarketplaces: true,
 
-        // Deep Dossier Drawer State
-        isDossierOpen: false,
-        dossierDomain: '',
+        // Deep Dossier Studio State (Dedicated Full-Page Route /domains/:domain)
+        isDossierOpen: Boolean(initialDomain),
+        dossierDomain: initialDomain || '',
         dossierLoading: false,
         dossierData: null,
-        dossierTab: 'pins', // 'pins' | 'urls' | 'monopoly' | 'accounts' | 'visual_dna' | 'monetization'
+        dossierTab: 'urls', // 'urls' | 'pins' | 'keywords' | 'accounts' | 'visual_dna'
+        dossierSearch: '',
+        dossierSort: 'saves',
 
         // Arbitrage Attack Blueprint Modal State (Pillar 6)
         isBlueprintModalOpen: false,
@@ -1876,6 +1968,30 @@ export function getDomainsPageHtml() {
           this.loadDomains();
           this.fetchGlobalEnrichStatus();
           this.fetchGlobalAdsStatus();
+
+          // Sync Dedicated Full-Page Route & Browser History
+          if (typeof window !== 'undefined') {
+            window.addEventListener('popstate', (e) => {
+              const stateDomain = e.state?.domain;
+              const pathMatch = window.location.pathname.match(/^\\/(?:keywords\\/)?domains\\/([^/?#]+)/);
+              const urlDomain = pathMatch ? decodeURIComponent(pathMatch[1]) : '';
+              const target = stateDomain || urlDomain;
+              if (target) {
+                this.openDossier(target, false);
+              } else {
+                this.closeDossier(false);
+              }
+            });
+
+            if (this.dossierDomain) {
+              this.openDossier(this.dossierDomain, false);
+            } else {
+              const pathMatch = window.location.pathname.match(/^\\/(?:keywords\\/)?domains\\/([^/?#]+)/);
+              if (pathMatch && pathMatch[1]) {
+                this.openDossier(decodeURIComponent(pathMatch[1]), false);
+              }
+            }
+          }
         },
 
         toggleTheme() {
@@ -2232,12 +2348,22 @@ export function getDomainsPageHtml() {
           this.showToast('Global verification paused. You can resume anytime.', 'info');
         },
 
-        async openDossier(domain) {
+        async openDossier(domain, pushState = true) {
+          if (!domain) return;
           this.dossierDomain = domain;
           this.isDossierOpen = true;
           this.dossierLoading = true;
           this.dossierData = null;
-          this.dossierTab = 'pins';
+          this.dossierTab = 'urls';
+          this.dossierSearch = '';
+          this.dossierSort = 'saves';
+
+          if (pushState && typeof window !== 'undefined' && window.history && window.history.pushState) {
+            const targetPath = '/domains/' + encodeURIComponent(domain);
+            if (window.location.pathname !== targetPath) {
+              window.history.pushState({ domain }, '', targetPath);
+            }
+          }
 
           try {
             const res = await fetch('/api/domains/dossier?domain=' + encodeURIComponent(domain));
@@ -2250,9 +2376,232 @@ export function getDomainsPageHtml() {
           }
         },
 
-        closeDossier() {
+        closeDossier(pushState = true) {
           this.isDossierOpen = false;
           this.dossierData = null;
+          this.dossierDomain = '';
+          this.dossierSearch = '';
+          if (pushState && typeof window !== 'undefined' && window.history && window.history.pushState) {
+            if (window.location.pathname !== '/domains') {
+              window.history.pushState({}, '', '/domains');
+            }
+          }
+        },
+
+        getPinAgeBadge(dateStr) {
+          if (!dateStr) return null;
+          const d = new Date(dateStr);
+          if (isNaN(d.getTime())) return null;
+          const diffDays = Math.max(0, Math.floor((Date.now() - d.getTime()) / (1000 * 60 * 60 * 24)));
+          if (diffDays < 30) {
+            return {
+              label: '🌱 ' + diffDays + 'd',
+              title: 'Fresh Pin: Created ' + diffDays + ' days ago',
+              class: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30'
+            };
+          } else if (diffDays <= 180) {
+            return {
+              label: '⚡ ' + diffDays + 'd',
+              title: 'Velocity Active: Created ' + diffDays + ' days ago',
+              class: 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30'
+            };
+          } else {
+            const years = (diffDays / 365).toFixed(1);
+            const text = diffDays >= 365 ? '🦖 ' + years + 'y' : '🦖 ' + diffDays + 'd';
+            return {
+              label: text,
+              title: 'Evergreen Pin: Created ' + diffDays + ' days ago',
+              class: 'bg-purple-500/15 text-purple-700 dark:text-purple-300 border border-purple-500/30'
+            };
+          }
+        },
+
+        filterToKeyword(kw) {
+          if (!kw) return;
+          this.dossierTab = 'keywords';
+          this.dossierSearch = kw;
+        },
+
+        filterToArticle(urlOrSlug) {
+          if (!urlOrSlug) return;
+          this.dossierTab = 'urls';
+          this.dossierSearch = urlOrSlug;
+        },
+
+        filterToArticleKeywords(art) {
+          const kws = art?.target_keywords || art?.keywords || [];
+          if (!kws || kws.length === 0) return;
+          this.dossierTab = 'keywords';
+          this.dossierSearch = kws[0];
+        },
+
+        copyAllKeywords() {
+          if (!this.dossierData?.keyword_monopoly?.length) {
+            this.showToast('No keywords available to copy', 'warning');
+            return;
+          }
+          const list = this.dossierData.keyword_monopoly.map(k => k.keyword_name).filter(Boolean).join('\\n');
+          this.copyToClipboard(list, 'Copied ' + this.dossierData.keyword_monopoly.length + ' keywords to clipboard!');
+        },
+
+        filteredDossierPins() {
+          let list = Array.isArray(this.dossierData?.ranked_pins) ? [...this.dossierData.ranked_pins] : [];
+          const q = (this.dossierSearch || '').toLowerCase().trim();
+          if (q) {
+            list = list.filter(p => {
+              return (p.title && p.title.toLowerCase().includes(q)) ||
+                     (p.pin_id && String(p.pin_id).includes(q)) ||
+                     (p.creator_username && p.creator_username.toLowerCase().includes(q)) ||
+                     (Array.isArray(p.serp_appearances) && p.serp_appearances.some(a => a.keyword_name && a.keyword_name.toLowerCase().includes(q)));
+            });
+          }
+          const getPinTime = (p) => {
+            if (!p?.created_at_pinterest) return null;
+            const t = new Date(p.created_at_pinterest).getTime();
+            return isFinite(t) ? t : null;
+          };
+          const sort = this.dossierSort || 'saves';
+          if (sort === 'saves') {
+            list.sort((a, b) => (Number(b.saves) || 0) - (Number(a.saves) || 0));
+          } else if (sort === 'age_asc') {
+            list.sort((a, b) => {
+              const aT = getPinTime(a);
+              const bT = getPinTime(b);
+              if (aT === null && bT === null) return 0;
+              if (aT === null) return 1;
+              if (bT === null) return -1;
+              return bT - aT;
+            });
+          } else if (sort === 'age_desc') {
+            list.sort((a, b) => {
+              const aT = getPinTime(a);
+              const bT = getPinTime(b);
+              if (aT === null && bT === null) return 0;
+              if (aT === null) return 1;
+              if (bT === null) return -1;
+              return aT - bT;
+            });
+          } else if (sort === 'multiplier') {
+            list.sort((a, b) => (b.serp_appearances?.length || 0) - (a.serp_appearances?.length || 0));
+          } else if (sort === 'rank') {
+            list.sort((a, b) => (Number(a.best_rank) || 999) - (Number(b.best_rank) || 999));
+          }
+          return list;
+        },
+
+        filteredDossierArticles() {
+          let list = Array.isArray(this.dossierData?.money_urls) ? [...this.dossierData.money_urls] : [];
+          const q = (this.dossierSearch || '').toLowerCase().trim();
+          if (q) {
+            list = list.filter(art => {
+              const kws = art.target_keywords || art.keywords || [];
+              return (art.clean_slug && art.clean_slug.toLowerCase().includes(q)) ||
+                     (art.sample_url && art.sample_url.toLowerCase().includes(q)) ||
+                     (Array.isArray(art.angles_targeted) && art.angles_targeted.some(ang => ang.toLowerCase().includes(q))) ||
+                     (Array.isArray(kws) && kws.some(kw => kw && kw.toLowerCase().includes(q))) ||
+                     (Array.isArray(art.pins) && art.pins.some(p => p.title && p.title.toLowerCase().includes(q)));
+            });
+          }
+          const getArticleNewestTime = (art) => {
+            if (art.newest_pin_date || art.created_at_pinterest) {
+              const t = new Date(art.newest_pin_date || art.created_at_pinterest).getTime();
+              if (isFinite(t)) return t;
+            }
+            const times = (art.pins || [])
+              .map(p => p.created_at_pinterest ? new Date(p.created_at_pinterest).getTime() : null)
+              .filter(t => t !== null && isFinite(t));
+            return times.length > 0 ? Math.max(...times) : null;
+          };
+          const getArticleOldestTime = (art) => {
+            if (art.oldest_pin_date) {
+              const t = new Date(art.oldest_pin_date).getTime();
+              if (isFinite(t)) return t;
+            }
+            const times = (art.pins || [])
+              .map(p => p.created_at_pinterest ? new Date(p.created_at_pinterest).getTime() : null)
+              .filter(t => t !== null && isFinite(t));
+            return times.length > 0 ? Math.min(...times) : null;
+          };
+          const sort = this.dossierSort || 'saves';
+          if (sort === 'saves') {
+            list.sort((a, b) => (Number(b.total_saves) || 0) - (Number(a.total_saves) || 0));
+          } else if (sort === 'multiplier') {
+            list.sort((a, b) => (Number(b.pins_count) || 0) - (Number(a.pins_count) || 0));
+          } else if (sort === 'rank') {
+            list.sort((a, b) => (Number(a.best_rank) || 999) - (Number(b.best_rank) || 999));
+          } else if (sort === 'age_asc') {
+            list.sort((a, b) => {
+              const aT = getArticleNewestTime(a);
+              const bT = getArticleNewestTime(b);
+              if (aT === null && bT === null) return 0;
+              if (aT === null) return 1;
+              if (bT === null) return -1;
+              return bT - aT;
+            });
+          } else if (sort === 'age_desc') {
+            list.sort((a, b) => {
+              const aT = getArticleOldestTime(a);
+              const bT = getArticleOldestTime(b);
+              if (aT === null && bT === null) return 0;
+              if (aT === null) return 1;
+              if (bT === null) return -1;
+              return aT - bT;
+            });
+          }
+          return list;
+        },
+
+        filteredDossierKeywords() {
+          let list = Array.isArray(this.dossierData?.keyword_monopoly) ? [...this.dossierData.keyword_monopoly] : [];
+          const q = (this.dossierSearch || '').toLowerCase().trim();
+          if (q) {
+            list = list.filter(kw => {
+              return (kw.keyword_name && kw.keyword_name.toLowerCase().includes(q)) ||
+                     (kw.strategy && kw.strategy.toLowerCase().includes(q)) ||
+                     (kw.top_slot_attribution?.title && kw.top_slot_attribution.title.toLowerCase().includes(q));
+            });
+          }
+          const getKeywordNewestTime = (kw) => {
+            const times = (kw.slots_detail || kw.slots || [])
+              .map(s => s.created_at_pinterest ? new Date(s.created_at_pinterest).getTime() : null)
+              .filter(t => t !== null && isFinite(t));
+            return times.length > 0 ? Math.max(...times) : null;
+          };
+          const getKeywordOldestTime = (kw) => {
+            const times = (kw.slots_detail || kw.slots || [])
+              .map(s => s.created_at_pinterest ? new Date(s.created_at_pinterest).getTime() : null)
+              .filter(t => t !== null && isFinite(t));
+            return times.length > 0 ? Math.min(...times) : null;
+          };
+          const sort = this.dossierSort || 'saves';
+          if (sort === 'saves') {
+            list.sort((a, b) => (Number(b.total_saves) || 0) - (Number(a.total_saves) || 0));
+          } else if (sort === 'multiplier') {
+            // Sort by Pins per Keyword / Monopoly slots
+            list.sort((a, b) => (Number(b.active_slots) || 0) - (Number(a.active_slots) || 0) || (Number(b.unique_urls_count) || 0) - (Number(a.unique_urls_count) || 0));
+          } else if (sort === 'rank') {
+            // Best rank: Rank #1 first!
+            list.sort((a, b) => (Number(a.best_rank) || 999) - (Number(b.best_rank) || 999));
+          } else if (sort === 'age_asc') {
+            list.sort((a, b) => {
+              const aT = getKeywordNewestTime(a);
+              const bT = getKeywordNewestTime(b);
+              if (aT === null && bT === null) return 0;
+              if (aT === null) return 1;
+              if (bT === null) return -1;
+              return bT - aT;
+            });
+          } else if (sort === 'age_desc') {
+            list.sort((a, b) => {
+              const aT = getKeywordOldestTime(a);
+              const bT = getKeywordOldestTime(b);
+              if (aT === null && bT === null) return 0;
+              if (aT === null) return 1;
+              if (bT === null) return -1;
+              return aT - bT;
+            });
+          }
+          return list;
         },
 
         async openBlueprintModal(domain) {
@@ -2563,11 +2912,31 @@ export function getDomainsPageHtml() {
 
         copyToClipboard(text, msg = 'Copied to clipboard!') {
           if (!text) return;
-          navigator.clipboard.writeText(text).then(() => {
+          if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(() => {
+              this.showToast(msg, 'success');
+            }).catch(() => {
+              this.fallbackCopy(text, msg);
+            });
+          } else {
+            this.fallbackCopy(text, msg);
+          }
+        },
+
+        fallbackCopy(text, msg = 'Copied to clipboard!') {
+          try {
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.position = 'fixed';
+            ta.style.opacity = '0';
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
             this.showToast(msg, 'success');
-          }).catch(() => {
+          } catch (_) {
             this.showToast('Could not copy to clipboard', 'warning');
-          });
+          }
         },
 
         copyAllArticleUrls() {

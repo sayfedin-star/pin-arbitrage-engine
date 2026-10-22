@@ -106,7 +106,29 @@ async function runTests() {
     slugRes.status === 200
   );
 
-  // 2.3 Verb tampering on /domains
+  // 2.3 Direct Studio Route: GET /domains/:domain
+  const directDomainRes = await worker.fetch(new Request('https://engine.internal/domains/makeourrecipes.com'), mockEnv);
+  const directDomainHtml = await directDomainRes.text();
+  report(
+    'GET /domains/:domain returns 200 OK with sanitized initialDomain and zero FOUC inline styles',
+    directDomainRes.status === 200 &&
+    directDomainHtml.includes("domainsApp('makeourrecipes.com')") &&
+    directDomainHtml.includes('style="display:none;"') &&
+    directDomainHtml.includes('style="display:flex;"') &&
+    directDomainHtml.includes('← Back to Leaderboard') &&
+    directDomainHtml.includes('🌐 Domain Radar')
+  );
+
+  // 2.4 Slug safety & malformed decoding: GET /domains/test%20slug%22
+  const malformedSlugRes = await worker.fetch(new Request('https://engine.internal/domains/test%20slug%22'), mockEnv);
+  const malformedSlugHtml = await malformedSlugRes.text();
+  report(
+    'GET /domains with special chars strips attribute injection tokens strictly',
+    malformedSlugRes.status === 200 &&
+    malformedSlugHtml.includes("domainsApp('testslug')")
+  );
+
+  // 2.5 Verb tampering on /domains
   const postHtmlRes = await worker.fetch(new Request('https://engine.internal/domains', { method: 'POST' }), mockEnv);
   report(
     'POST /domains rejected with 405 Method Not Allowed',
@@ -496,6 +518,53 @@ async function runTests() {
     studioHtml.includes('isBlueprintModalOpen') &&
     studioHtml.includes('openBlueprintModal') &&
     studioHtml.includes('copyBlueprintMarkdown')
+  );
+
+  // 10. Studio Unified Switcher & Cross-View Drilldown Verification
+  console.log('\n[*] Testing Unified Studio Switcher, Anti-NaN Sorters & Cross-View Drilldown...');
+
+  // 10.1 makeourrecipes.com deep dossier verification
+  const morDossier = await getDomainDeepDossier(sql, 'makeourrecipes.com');
+  report(
+    'makeourrecipes.com deep dossier contains both keywords and target_keywords on money_urls',
+    morDossier.success === true &&
+    Array.isArray(morDossier.money_urls) &&
+    morDossier.money_urls.length > 0 &&
+    Array.isArray(morDossier.money_urls[0].keywords) &&
+    Array.isArray(morDossier.money_urls[0].target_keywords)
+  );
+
+  // 10.2 money_urls includes pin creation dates
+  report(
+    'makeourrecipes.com money_urls carries created_at_pinterest and newest_pin_date',
+    morDossier.money_urls.some(u => u.created_at_pinterest !== null || u.newest_pin_date !== null) ||
+    morDossier.money_urls[0]?.pins[0]?.created_at_pinterest !== undefined
+  );
+
+  // 10.3 Studio HTML contracts
+  report(
+    'Studio UI contains 3-way view switcher with Arabic labels and copy buttons',
+    studioHtml.includes('🔗 بالمقالات') &&
+    studioHtml.includes('🎯 بالبنز المتصدرة') &&
+    studioHtml.includes('🕸️ بالكلمات المحتكرة') &&
+    studioHtml.includes('Copy URLs') &&
+    studioHtml.includes('Copy Keywords') &&
+    studioHtml.includes('fallbackCopy')
+  );
+
+  report(
+    'Studio UI contains article keyword count drilldown and pin age badges',
+    studioHtml.includes('filterToArticleKeywords') &&
+    studioHtml.includes('getPinAgeBadge(art.created_at_pinterest') &&
+    studioHtml.includes('getPinAgeBadge(p.created_at_pinterest)')
+  );
+
+  report(
+    'Studio UI eliminates NaN sort trap and implements rank ascending for keywords',
+    studioHtml.includes('getPinTime') &&
+    studioHtml.includes('getArticleNewestTime') &&
+    studioHtml.includes('getKeywordNewestTime') &&
+    studioHtml.includes('(Number(a.best_rank) || 999) - (Number(b.best_rank) || 999)')
   );
 
   console.log('\n================================================================================');

@@ -140,12 +140,15 @@ export async function handlePagesRoutes(routeCtx) {
     });
   }
 
-  // 7. Level 4B: Dedicated Domain Intelligence & SERP Monopoly Studio (/domains)
+  // 7. Level 4B: Dedicated Domain Intelligence & SERP Monopoly Studio (/domains & /domains/:domain)
   if (pathLower === '/domains' || pathLower.startsWith('/domains/')) {
     if (method !== 'GET' && method !== 'HEAD') {
       return methodNotAllowedResponse('GET, OPTIONS');
     }
-    return new Response(method === 'HEAD' ? null : getDomainsPageHtml(), {
+    const segments = normalizedPath.split('/').filter(Boolean);
+    let domain = segments[1] || '';
+    try { domain = decodeURIComponent(domain); } catch (_) {}
+    return new Response(method === 'HEAD' ? null : getDomainsPageHtml(domain), {
       status: 200,
       headers: HTML_HEADERS
     });
@@ -176,7 +179,9 @@ export async function handlePagesRoutes(routeCtx) {
         });
       }
       if (slugLower === 'domains') {
-        return new Response(method === 'HEAD' ? null : getDomainsPageHtml(), {
+        let domain = segments[2] || '';
+        try { domain = decodeURIComponent(domain); } catch (_) {}
+        return new Response(method === 'HEAD' ? null : getDomainsPageHtml(domain), {
           status: 200,
           headers: HTML_HEADERS
         });

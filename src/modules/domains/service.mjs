@@ -809,7 +809,7 @@ export async function listDomainsIntelligence(sql, {
         LOWER(REPLACE(COALESCE(ksc.creator_username, ''), '@', '')) AS username,
         COALESCE(NULLIF(LOWER(REGEXP_REPLACE(REGEXP_REPLACE(COALESCE(ksc.destination_url, ''), '^https?://(www\\.)?[^/]+', ''), '[?#].*$', '')), ''), '/') AS url_slug
       FROM keyword_serp_current ksc
-      WHERE (${pillar} IN ('all', 'serp'))
+      WHERE (${pillar} IN ('all', 'serp', 'competitors'))
         AND ksc.domain IS NOT NULL AND ksc.domain <> ''
         AND (${fId}::int IS NULL OR ksc.keyword_id IN (SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${fId}))
         AND (${kId}::int IS NULL OR ksc.keyword_id = ${kId})
@@ -868,7 +868,7 @@ export async function listDomainsIntelligence(sql, {
         '' AS username,
         '/' AS url_slug
       FROM keyword_displaced_index kdi
-      WHERE (${pillar} IN ('all', 'serp', 'displaced'))
+      WHERE (${pillar} IN ('all', 'serp', 'displaced', 'competitors'))
         AND kdi.domain IS NOT NULL AND kdi.domain <> ''
         AND (${fId}::int IS NULL OR kdi.keyword_id IN (SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${fId}))
         AND (${kId}::int IS NULL OR kdi.keyword_id = ${kId})
@@ -909,6 +909,11 @@ export async function listDomainsIntelligence(sql, {
         AND clean_domain <> ALL(${IGNORED_INTERNAL_DOMAINS}::text[])
         AND (${excludeMarketplaces} = FALSE OR clean_domain <> ALL(${ECOMMERCE_AND_SOCIAL_DOMAINS}::text[]))
         AND (${searchPattern}::text IS NULL OR clean_domain LIKE ${searchPattern})
+        AND (${pillar} <> 'competitors' OR clean_domain IN (
+          SELECT LOWER(REGEXP_REPLACE(link_domain, '^www\\.', ''))
+          FROM competitor_pins
+          WHERE link_domain IS NOT NULL AND link_domain <> ''
+        ))
       GROUP BY clean_domain, pin_id
     ),
     domain_agg AS (
@@ -1718,8 +1723,7 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
       WHERE LOWER(REGEXP_REPLACE(ksc.domain, '^www\\.', '')) = ${cleanDomain}
         AND (${fId}::int IS NULL OR ksc.keyword_id IN (SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${fId}))
         AND (${kId}::int IS NULL OR ksc.keyword_id = ${kId})
-      ORDER BY ksc.is_displaced ASC, ksc.rank_position ASC NULLS LAST, ksc.save_count DESC
-      LIMIT 300;
+      ORDER BY ksc.is_displaced ASC, ksc.rank_position ASC NULLS LAST, ksc.save_count DESC;
     `.catch(() => []),
     sql`
       SELECT
@@ -1783,8 +1787,7 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
       WHERE LOWER(REGEXP_REPLACE(kdi.domain, '^www\\.', '')) = ${cleanDomain}
         AND (${fId}::int IS NULL OR kdi.keyword_id IN (SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${fId}))
         AND (${kId}::int IS NULL OR kdi.keyword_id = ${kId})
-      ORDER BY kdi.save_count DESC
-      LIMIT 100;
+      ORDER BY kdi.save_count DESC;
     `.catch(() => [])
   ]);
 
@@ -1959,10 +1962,26 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
 
   for (const r of serpPins) registerPin(r, 'serp');
   for (const r of displacedPins) registerPin(r, 'displaced');
-  if (!fId && !kId) {
-    for (const r of archivePins) registerPin(r, 'archive');
-    for (const r of compPins) registerPin(r, 'competitors');
-  }
+  // Catalog & archive pins only enrich metadata for existing SERP pins without polluting ranked_pins or money_urls
+  const enrichFromCatalogRow = (r) => {
+    const pid = String(r.pin_id || '').trim();
+    if (!pid || !pinsMap.has(pid)) return;
+    const existing = pinsMap.get(pid);
+    if (!existing.title && r.title) existing.title = r.title;
+    if (!existing.image_url && r.image_url) existing.image_url = r.image_url;
+    if (!existing.created_at_pinterest && r.created_at_pinterest) existing.created_at_pinterest = r.created_at_pinterest;
+    if (!existing.creator_username && r.creator_username) existing.creator_username = r.creator_username;
+    if (!existing.board_name && r.board_name) existing.board_name = r.board_name;
+    if ((!existing.destination_url || existing.clean_slug === '/') && (r.destination_url || r.link)) {
+      existing.destination_url = r.destination_url || r.link;
+      try {
+        const u = new URL(existing.destination_url.startsWith('http') ? existing.destination_url : `https://${existing.destination_url}`);
+        existing.clean_slug = (u.pathname.replace(/\/+$/, '') || '/').toLowerCase();
+      } catch (_) {}
+    }
+  };
+  for (const r of compPins) enrichFromCatalogRow(r);
+  for (const r of archivePins) enrichFromCatalogRow(r);
 
   // 2. Finalize Pins & Group by Money Article URLs (Pillar 2: Creative Multiplier)
   const urlGroupsMap = new Map();
@@ -2017,6 +2036,7 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
       creator_username: p.creator_username,
       dominant_color: p.dominant_color,
       visual_annotations: p.visual_annotations,
+      created_at_pinterest: p.created_at_pinterest,
       is_vulnerable: p.is_vulnerable,
       vulnerability_score: p.vulnerability_score,
       detected_angle: angleInfo.angle,
@@ -2038,19 +2058,32 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
   });
 
   const moneyUrls = Array.from(urlGroupsMap.values())
-    .map(u => ({
-      clean_slug: u.clean_slug,
-      sample_url: u.sample_url,
-      pins_count: u.pins_count,
-      total_saves: u.total_saves,
-      total_repins: u.total_repins,
-      best_rank: u.best_rank,
-      keywords: Array.from(u.keywords_set),
-      angles_targeted: Array.from(u.angles_targeted),
-      angle_multiplier: u.angles_targeted.size,
-      is_vulnerable: u.pins.some(p => p.is_vulnerable),
-      pins: u.pins.sort((a, b) => b.saves - a.saves)
-    }))
+    .map(u => {
+      const pinDates = u.pins
+        .map(p => p.created_at_pinterest ? new Date(p.created_at_pinterest).getTime() : null)
+        .filter(t => t !== null && isFinite(t));
+      const newestPinDate = pinDates.length > 0 ? new Date(Math.max(...pinDates)).toISOString() : null;
+      const oldestPinDate = pinDates.length > 0 ? new Date(Math.min(...pinDates)).toISOString() : null;
+      const kws = Array.from(u.keywords_set);
+
+      return {
+        clean_slug: u.clean_slug,
+        sample_url: u.sample_url,
+        pins_count: u.pins_count,
+        total_saves: u.total_saves,
+        total_repins: u.total_repins,
+        best_rank: u.best_rank,
+        keywords: kws,
+        target_keywords: kws,
+        created_at_pinterest: newestPinDate,
+        newest_pin_date: newestPinDate,
+        oldest_pin_date: oldestPinDate,
+        angles_targeted: Array.from(u.angles_targeted),
+        angle_multiplier: u.angles_targeted.size,
+        is_vulnerable: u.pins.some(p => p.is_vulnerable),
+        pins: u.pins.sort((a, b) => b.saves - a.saves)
+      };
+    })
     .sort((a, b) => b.pins_count - a.pins_count || b.total_saves - a.total_saves);
 
   // 3. Pillar 1: Carpet Bombing & Slot Domination Analysis
