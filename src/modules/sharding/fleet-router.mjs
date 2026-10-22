@@ -255,7 +255,7 @@ export function _setShardSqlClient(dsn, client) {
 // Circuit Breaker State per Shard
 export const circuitBreakers = new Map(); // shardId -> { state: 'CLOSED'|'OPEN'|'HALF_OPEN', failures: 0, nextAttempt: 0 }
 export const CIRCUIT_FAILURE_THRESHOLD = 2;
-export const CIRCUIT_COOLDOWN_MS = 30000; // 30 seconds cooldown before half-open probe
+export const CIRCUIT_COOLDOWN_MS = 6000; // 6 seconds cooldown before half-open probe (aligned with Neon scale-to-zero cold start)
 
 // In-Flight Read-Repair Deduplication Set (Prevents concurrent duplicate backfills on same pin)
 export const reconcilingPins = new Set();
@@ -513,9 +513,9 @@ export async function preloadNeonRegistry(hubSql, env = null) {
  * @returns {Promise<any>} Query result or fallback result
  */
 export async function executeShardQueryWithCircuitBreaker(optsOrShardId, maybeQueryFn = null, maybeOpts = {}) {
-  let shardId, shardSql, queryFn, fallbackFn = null, timeoutMs = 2500, batchId = null;
+  let shardId, shardSql, queryFn, fallbackFn = null, timeoutMs = 2500, batchId = null, bypassBreaker = false;
   if (optsOrShardId && typeof optsOrShardId === 'object') {
-    ({ shardId, shardSql, queryFn, fallbackFn = null, timeoutMs = 2500, batchId = null } = optsOrShardId);
+    ({ shardId, shardSql, queryFn, fallbackFn = null, timeoutMs = 2500, batchId = null, bypassBreaker = false } = optsOrShardId);
   } else {
     shardId = optsOrShardId;
     queryFn = maybeQueryFn;
@@ -523,6 +523,7 @@ export async function executeShardQueryWithCircuitBreaker(optsOrShardId, maybeQu
     fallbackFn = maybeOpts?.fallbackFn ?? null;
     batchId = maybeOpts?.batchId ?? null;
     shardSql = maybeOpts?.shardSql ?? null;
+    bypassBreaker = Boolean(maybeOpts?.bypassBreaker);
   }
   if (!shardSql) {
     shardSql = await resolveShardConnection({ shardId }).catch(() => null);
@@ -534,17 +535,22 @@ export async function executeShardQueryWithCircuitBreaker(optsOrShardId, maybeQu
   }
   const now = Date.now();
 
-  // If breaker is OPEN and cooldown has not expired, fast-fail to fallback
+  // If breaker is OPEN and cooldown has not expired, fast-fail to fallback unless explicit bypass is requested
   if (cb.state === 'OPEN') {
-    if (now < cb.nextAttempt) {
+    if (bypassBreaker) {
+      // [INVARIANT: FORCE-REFRESH-PROBE] User or caller explicitly bypassed cache: probe shard immediately
+      cb.state = 'HALF_OPEN';
+      circuitBreakers.set(shardId, cb);
+    } else if (now < cb.nextAttempt) {
       if (fallbackFn) {
         return await fallbackFn({ reason: 'CIRCUIT_OPEN', shardId });
       }
       throw new Error(`Shard ${shardId} circuit breaker is OPEN (re-evaluating in ${Math.round((cb.nextAttempt - now) / 1000)}s).`);
+    } else {
+      // Probe attempt (HALF_OPEN)
+      cb.state = 'HALF_OPEN';
+      circuitBreakers.set(shardId, cb);
     }
-    // Probe attempt (HALF_OPEN)
-    cb.state = 'HALF_OPEN';
-    circuitBreakers.set(shardId, cb);
   }
 
   // Execute with explicit timeout
@@ -873,6 +879,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     : executeShardQueryWithCircuitBreaker({
         shardId,
         shardSql,
+        bypassBreaker: bypassEdgeCache,
         queryFn: async (sqlClient) => {
           const [row] = await sqlClient`
             SELECT 
@@ -900,13 +907,65 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
       });
 
   // Zero-Wakeup Shard Immunity: When D1 contains a valid cached multi-day daily_trajectory,
-  // resolve snapshots directly from edge D1 mirror without touching the dormant storage shard.
-  const snapshotsPromise = hasValidTrajectoryFromD1
-    ? Promise.resolve(d1Record.daily_trajectory)
-    : executeShardQueryWithCircuitBreaker({
-        shardId,
-        shardSql,
-        queryFn: async (sqlClient) => {
+  // unpack into snapshot records directly from edge D1 mirror without touching the dormant storage shard.
+  let snapshotsPromise;
+  if (hasValidTrajectoryFromD1 && Array.isArray(d1Record?.daily_trajectory)) {
+    const expandedFromD1 = [];
+    for (const day of d1Record.daily_trajectory) {
+      const kws = Array.isArray(day.ranking_keywords) ? day.ranking_keywords : [];
+      if (kws.length === 0) {
+        expandedFromD1.push({
+          pin_id: cleanPinId,
+          snapshot_date: day.snapshot_date,
+          save_count: Number(day.save_count) || 0,
+          repin_count: Number(day.repin_count) || 0,
+          comment_count: Number(day.comment_count) || 0,
+          share_count: Number(day.share_count) || 0,
+          reaction_count: Number(day.reaction_count) || 0,
+          daily_save_velocity: Number(day.daily_save_velocity) || 0,
+          best_rank: day.best_rank,
+          keyword_id: null,
+          keyword_name: null,
+          rank_position: null,
+          is_displaced: false,
+          last_known_rank: null,
+          catalog_rank: null,
+          created_at: day.updated_at || day.crawled_at,
+          crawled_at: day.crawled_at,
+          updated_at: day.updated_at
+        });
+      } else {
+        for (const kw of kws) {
+          expandedFromD1.push({
+            pin_id: cleanPinId,
+            snapshot_date: day.snapshot_date,
+            save_count: Number(day.save_count) || 0,
+            repin_count: Number(day.repin_count) || 0,
+            comment_count: Number(day.comment_count) || 0,
+            share_count: Number(day.share_count) || 0,
+            reaction_count: Number(day.reaction_count) || 0,
+            daily_save_velocity: Number(day.daily_save_velocity) || 0,
+            best_rank: day.best_rank,
+            keyword_id: kw.keyword_id,
+            keyword_name: kw.keyword,
+            rank_position: kw.rank_position ?? kw.rank ?? null,
+            last_known_rank: kw.last_known_rank ?? kw.rank ?? null,
+            catalog_rank: kw.catalog_rank || null,
+            is_displaced: Boolean(kw.is_displaced),
+            created_at: day.updated_at || day.crawled_at,
+            crawled_at: day.crawled_at,
+            updated_at: day.updated_at
+          });
+        }
+      }
+    }
+    snapshotsPromise = Promise.resolve(expandedFromD1);
+  } else {
+    snapshotsPromise = executeShardQueryWithCircuitBreaker({
+      shardId,
+      shardSql,
+      bypassBreaker: bypassEdgeCache,
+      queryFn: async (sqlClient) => {
           // 1. Query Two-Tier view pins_daily_rollups_v2 first
           try {
             const rollups = await sqlClient`
@@ -989,6 +1048,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
         timeoutMs: 8500,
         batchId: dossierBatchId
       });
+  }
 
   const [
     initialMaster,
@@ -1618,7 +1678,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
       snapshot_date: sDate,
       crawled_at: crawlTimestamp,
       updated_at: updatedTimestamp,
-      keyword_name: kid ? (kwMap.get(kid) || `Keyword #${kid}`) : null,
+      keyword_name: kid ? (kwMap.get(kid) || s.keyword_name || `Keyword #${kid}`) : (s.keyword_name || null),
       is_displaced: isDisplaced,
       last_known_rank: lastKnownRank,
       catalog_rank: catalogRank

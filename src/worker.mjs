@@ -848,7 +848,16 @@ export async function getCachedOrFetch(key, fetcher, ttlMs = 15000, staleMs = 60
             ]).finally(() => {
               if (timerId) clearTimeout(timerId);
             });
-            if (fresh && fresh.success !== false && !fresh.degraded && !fresh._degraded) {
+            const isCacheable = Boolean(
+              fresh &&
+              fresh.success !== false &&
+              !fresh.degraded &&
+              !fresh._degraded &&
+              !fresh.is_degraded &&
+              !fresh.shard_cold &&
+              (fresh.from_shard_snapshots !== false || (Array.isArray(fresh.daily_trajectory) && fresh.daily_trajectory.length > 2))
+            );
+            if (isCacheable) {
               edgeCache.set(key, {
                 data: fresh,
                 expiresAt: Date.now() + ttlMs,
@@ -919,7 +928,16 @@ export async function getCachedOrFetch(key, fetcher, ttlMs = 15000, staleMs = 60
       ]).finally(() => {
         if (timerId) clearTimeout(timerId);
       });
-      if (fresh && fresh.success !== false && !fresh.degraded && !fresh._degraded) {
+      const isCacheable = Boolean(
+        fresh &&
+        fresh.success !== false &&
+        !fresh.degraded &&
+        !fresh._degraded &&
+        !fresh.is_degraded &&
+        !fresh.shard_cold &&
+        (fresh.from_shard_snapshots !== false || (Array.isArray(fresh.daily_trajectory) && fresh.daily_trajectory.length > 2))
+      );
+      if (isCacheable) {
         if (edgeCache.size >= MAX_CACHE_ENTRIES) {
           const oldestKey = edgeCache.keys().next().value;
           if (oldestKey) edgeCache.delete(oldestKey);
