@@ -17,7 +17,8 @@ import {
   enrichMissingAdNetworksBatch,
   getDatabaseMonetizationStats,
   enrichNextUncheckedAdsBatch,
-  generateDomainArbitrageBlueprint
+  generateDomainArbitrageBlueprint,
+  refreshDomainIntelligenceRollup
 } from '../modules/domains/service.mjs';
 
 /**
@@ -26,6 +27,7 @@ import {
  */
 export async function handleDomainsRoutes(routeCtx) {
   const {
+    env,
     pathname,
     method,
     request,
@@ -41,9 +43,25 @@ export async function handleDomainsRoutes(routeCtx) {
     redactSecrets
   } = routeCtx;
 
+  // 1a. Dedicated Rollup Refresh & Edge Cache Invalidation Endpoint
+  if ((method === 'POST' || method === 'GET') && (pathname === '/api/domains/refresh-rollup' || pathname === '/api/domains/refresh')) {
+    try {
+      invalidateEdgeCache('domains:leaderboard');
+      const refreshResult = await refreshDomainIntelligenceRollup(sql);
+      return jsonResponse({ success: true, refreshed: true, ...refreshResult }, 200, 0);
+    } catch (err) {
+      return jsonResponse({ success: false, error: redactSecrets(err.message) }, 500);
+    }
+  }
+
   // 1. Domains Leaderboard Fast Listing
   if (method === 'GET' && pathname === '/api/domains') {
     try {
+      const isForceRefresh = searchParams.get('refresh') === 'true' || searchParams.get('force') === 'true';
+      if (isForceRefresh) {
+        invalidateEdgeCache('domains:leaderboard');
+        await refreshDomainIntelligenceRollup(sql);
+      }
       const cacheParams = {
         search: searchParams.get('search') || '',
         folderId: searchParams.get('folder_id') || '',
@@ -63,9 +81,11 @@ export async function handleDomainsRoutes(routeCtx) {
         limit: clampLimit(searchParams.get('limit'), 50, 200)
       };
       const cacheKey = buildCanonicalCacheKey('domains:leaderboard', cacheParams);
-      const data = await getCachedOrFetch(cacheKey, async () => {
-        return await listDomainsIntelligenceFast(sql, cacheParams);
-      }, 15000, 60000);
+      const data = isForceRefresh
+        ? await listDomainsIntelligenceFast(sql, cacheParams)
+        : await getCachedOrFetch(cacheKey, async () => {
+            return await listDomainsIntelligenceFast(sql, cacheParams);
+          }, 15000, 60000);
 
       // Non-blocking background WHOIS/Age enrichment for unchecked domains on current page
       if (Array.isArray(data?.missing_age_domains) && data.missing_age_domains.length > 0) {
@@ -98,7 +118,7 @@ export async function handleDomainsRoutes(routeCtx) {
     try {
       const folderId = searchParams.get('folder_id') || null;
       const keywordId = searchParams.get('keyword_id') || null;
-      const dossier = await getDomainDeepDossier(sql, domain, { folderId, keywordId });
+      const dossier = await getDomainDeepDossier(sql, domain, { folderId, keywordId, env });
       return jsonResponse(dossier, 200, 30);
     } catch (err) {
       return jsonResponse({ success: false, error: redactSecrets(err.message) }, 400);

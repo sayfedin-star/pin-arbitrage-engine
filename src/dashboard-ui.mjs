@@ -5276,6 +5276,12 @@ export function getDashboardHtml() {
                   <span>🏆 Qualified Only</span>
                 </label>
 
+                <!-- Ranked in SERP Only Toggle -->
+                <label class="inline-flex items-center gap-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 py-1.5 cursor-pointer text-xs font-medium text-slate-800 dark:text-slate-200 select-none" title="Filter strictly for pins currently tracked in Google or Pinterest SERP rankings">
+                  <input type="checkbox" x-model="creatorAllPinRankedOnly" @change="activeCreatorAllPinsPage = 1; fetchCreatorAllPins()" class="rounded border-slate-300 text-sky-600 h-4 w-4" />
+                  <span>🎯 Ranked Only</span>
+                </label>
+
                 <!-- Articles Only Toggle (!is_product) -->
                 <label class="inline-flex items-center gap-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 py-1.5 cursor-pointer text-xs font-medium text-slate-800 dark:text-slate-200 select-none" title="Filter strictly for content/editorial articles and exclude shopping product pins">
                   <input type="checkbox" x-model="creatorAllPinArticlesOnly" @change="activeCreatorAllPinsPage = 1; fetchCreatorAllPins()" class="rounded border-slate-300 text-emerald-600 h-4 w-4" />
@@ -5284,8 +5290,8 @@ export function getDashboardHtml() {
 
                 <!-- Clear filters button -->
                 <button
-                  x-show="creatorAllPinSearch || creatorAllPinBoard || creatorAllPinMinSaves > 0 || creatorAllPinQualifiedOnly || creatorAllPinArticlesOnly"
-                  @click="creatorAllPinSearch = ''; creatorAllPinBoard = ''; creatorAllPinMinSaves = 0; creatorAllPinQualifiedOnly = false; creatorAllPinArticlesOnly = false; activeCreatorAllPinsPage = 1; fetchCreatorAllPins()"
+                  x-show="creatorAllPinSearch || creatorAllPinBoard || creatorAllPinMinSaves > 0 || creatorAllPinQualifiedOnly || creatorAllPinArticlesOnly || creatorAllPinRankedOnly"
+                  @click="creatorAllPinSearch = ''; creatorAllPinBoard = ''; creatorAllPinMinSaves = 0; creatorAllPinQualifiedOnly = false; creatorAllPinArticlesOnly = false; creatorAllPinRankedOnly = false; activeCreatorAllPinsPage = 1; fetchCreatorAllPins()"
                   class="px-2.5 py-1.5 rounded-xl text-xs font-semibold text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition cursor-pointer"
                 >
                   Clear Filters
@@ -5379,6 +5385,12 @@ export function getDashboardHtml() {
                       <!-- Status Badge -->
                       <td class="py-2.5 px-3 text-center">
                         <div class="flex items-center justify-center gap-1 flex-wrap">
+                          <template x-if="p.is_ranked">
+                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-500/15 text-sky-600 dark:text-sky-400 border border-sky-500/30 shadow-2xs" :title="'Ranked in SERP position #' + (p.rank_position || '—')">
+                              <span>🎯 SERP</span>
+                              <span x-text="p.rank_position ? '#' + p.rank_position : 'Ranked'"></span>
+                            </span>
+                          </template>
                           <template x-if="p.is_product">
                             <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shadow-2xs" title="Identified Commercial / Affiliate Product">
                               <i data-lucide="shopping-bag" class="w-2.5 h-2.5"></i>
@@ -5391,7 +5403,7 @@ export function getDashboardHtml() {
                               <i data-lucide="arrow-right" class="w-2.5 h-2.5"></i>
                             </button>
                           </template>
-                          <template x-if="!p.is_qualified && !p.is_product">
+                          <template x-if="!p.is_qualified && !p.is_product && !p.is_ranked">
                             <span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700">
                               Standard
                             </span>
@@ -7038,6 +7050,7 @@ export function getDashboardHtml() {
         creatorAllPinSort: 'saves_desc',
         creatorAllPinQualifiedOnly: false,
         creatorAllPinArticlesOnly: false,
+        creatorAllPinRankedOnly: false,
         isLoadingAllPins: false,
         isHarvestingAllPins: false,
         isDispatchingGitHubCrawl: false,
@@ -10479,6 +10492,7 @@ export function getDashboardHtml() {
             if (this.creatorAllPinSort) p.set('sort', this.creatorAllPinSort);
             if (this.creatorAllPinQualifiedOnly) p.set('qualified_only', 'true');
             if (this.creatorAllPinArticlesOnly) p.set('articles_only', 'true');
+            if (this.creatorAllPinRankedOnly) p.set('ranked_only', 'true');
             p.set('page', this.activeCreatorAllPinsPage || 1);
             p.set('limit', 25);
 

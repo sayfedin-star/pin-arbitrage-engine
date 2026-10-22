@@ -2122,7 +2122,8 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
   limit = 50,
   qualified_only = false,
   product_only = false,
-  articles_only = false
+  articles_only = false,
+  ranked_only = false
 } = {}) {
   let cleanUsername = username ? normalizePinterestUsername(username) : null;
   let numericId = parseInt(competitorIdOrUsername, 10);
@@ -2218,10 +2219,25 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
         COALESCE(cp.link_domain ILIKE '%etsy%' OR cp.link_domain ILIKE '%shopify%' OR cp.link_domain ILIKE '%amazon%' OR cp.destination_url ILIKE '%/listing/%' OR cp.destination_url ILIKE '%/product/%' OR cp.destination_url ILIKE '%/item/%' OR cp.destination_url ILIKE '%gumroad.com%', false)
       ) AS is_product,
       (pa.pin_id IS NOT NULL) AS is_qualified,
+      (ksc.pin_id IS NOT NULL OR kdi.pin_id IS NOT NULL) AS is_ranked,
+      COALESCE(ksc.rank_position, kdi.last_known_rank) AS rank_position,
       COALESCE(pa.velocity, 0) AS velocity
     FROM competitor_pins cp
     LEFT JOIN pa_pins pa ON pa.pin_id = cp.pin_id
+    LEFT JOIN (
+      SELECT DISTINCT ON (pin_id) pin_id, rank_position
+      FROM keyword_serp_current
+      WHERE rank_position IS NOT NULL
+      ORDER BY pin_id, rank_position ASC
+    ) ksc ON ksc.pin_id = cp.pin_id
+    LEFT JOIN (
+      SELECT DISTINCT ON (pin_id) pin_id, last_known_rank
+      FROM keyword_displaced_index
+      WHERE last_known_rank IS NOT NULL
+      ORDER BY pin_id, last_known_rank ASC
+    ) kdi ON kdi.pin_id = cp.pin_id
     WHERE cp.competitor_id = ${numericId}
+      AND (${ranked_only} = FALSE OR (ksc.pin_id IS NOT NULL OR kdi.pin_id IS NOT NULL))
       AND (${minSavesNum} = 0 OR cp.save_count >= ${minSavesNum})
       AND (${searchPattern}::text IS NULL OR LOWER(cp.title) LIKE ${searchPattern} OR LOWER(COALESCE(cp.description, '')) LIKE ${searchPattern})
       AND (
@@ -2258,7 +2274,14 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
     SELECT COUNT(*)::int as total
     FROM competitor_pins cp
     LEFT JOIN pa_pins pa ON pa.pin_id = cp.pin_id
+    LEFT JOIN (
+      SELECT DISTINCT pin_id FROM keyword_serp_current WHERE rank_position IS NOT NULL
+    ) ksc ON ksc.pin_id = cp.pin_id
+    LEFT JOIN (
+      SELECT DISTINCT pin_id FROM keyword_displaced_index WHERE last_known_rank IS NOT NULL
+    ) kdi ON kdi.pin_id = cp.pin_id
     WHERE cp.competitor_id = ${numericId}
+      AND (${ranked_only} = FALSE OR (ksc.pin_id IS NOT NULL OR kdi.pin_id IS NOT NULL))
       AND (${minSavesNum} = 0 OR cp.save_count >= ${minSavesNum})
       AND (${searchPattern}::text IS NULL OR LOWER(cp.title) LIKE ${searchPattern} OR LOWER(COALESCE(cp.description, '')) LIKE ${searchPattern})
       AND (

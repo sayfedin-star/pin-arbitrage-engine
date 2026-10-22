@@ -150,10 +150,12 @@ export function getDomainsPageHtml(initialDomain = '') {
       </button>
 
       <!-- Refresh Button -->
-      <button @click="loadDomains(true)"
-              class="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold shadow-sm transition-all flex items-center gap-1.5">
-        <span :class="{ 'animate-spin': loading }">🔄</span>
-        <span class="hidden sm:inline">Refresh</span>
+      <button @click="refreshDomains()"
+              :disabled="refreshingRollup || loading"
+              class="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-xs font-semibold shadow-sm transition-all flex items-center gap-1.5"
+              title="Re-aggregate live domain intelligence from rankings & purge edge cache">
+        <span :class="{ 'animate-spin': refreshingRollup || loading }">🔄</span>
+        <span class="hidden sm:inline" x-text="refreshingRollup ? 'Refreshing...' : 'Refresh'">Refresh</span>
       </button>
     </div>
   </header>
@@ -1343,7 +1345,7 @@ export function getDomainsPageHtml(initialDomain = '') {
                     <div class="flex items-start justify-between gap-3">
                       <div class="flex flex-col min-w-0">
                         <div class="flex items-center gap-2 flex-wrap">
-                          <span class="text-sm font-bold font-mono text-slate-900 dark:text-white truncate" x-text="art.clean_slug"></span>
+                          <span class="text-sm font-bold font-mono text-slate-900 dark:text-white truncate" x-text="art.clean_slug === '/' ? 'Root Domain (/)' : art.clean_slug"></span>
                           <button @click="copyToClipboard(art.sample_url || art.clean_slug, 'Copied article URL!')"
                                   class="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-xs px-1.5 py-0.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800"
                                   title="Copy URL">
@@ -1442,7 +1444,7 @@ export function getDomainsPageHtml(initialDomain = '') {
                           <!-- Bottom Rank & Saves Overlay -->
                           <div class="relative z-10 bg-slate-950/85 p-1 text-[9px] font-mono text-white flex items-center justify-between">
                             <a :href="safeUrl('/pin/' + p.pin_id)" target="_blank" class="hover:underline flex items-center gap-0.5">
-                              <span x-text="p.best_rank ? '#' + p.best_rank : 'Pin'"></span>
+                              <span x-text="p.best_rank ? '#' + p.best_rank : (p.is_displaced ? 'Displaced' : 'Pin')"></span>
                               <span class="text-[8px]">↗</span>
                             </a>
                             <span class="text-emerald-400 font-bold" x-text="p.saves + 's'"></span>
@@ -1861,6 +1863,7 @@ export function getDomainsPageHtml(initialDomain = '') {
       return {
         darkMode: localStorage.getItem('pa_theme') !== 'light',
         loading: false,
+        refreshingRollup: false,
         domains: [],
         overview: {
           total_domains: 0,
@@ -2093,6 +2096,26 @@ export function getDomainsPageHtml(initialDomain = '') {
             this.showToast('Failed to load domains: ' + err.message, 'error');
           } finally {
             this.loading = false;
+          }
+        },
+
+        async refreshDomains() {
+          if (this.refreshingRollup) return;
+          this.refreshingRollup = true;
+          this.showToast('Re-aggregating domain intelligence from live rankings...', 'info');
+          try {
+            const fetchFn = window.safeApiFetch || fetch;
+            await fetchFn('/api/domains/refresh-rollup', {
+              method: 'POST',
+              headers: { 'Accept': 'application/json' }
+            }).catch(() => {});
+            await this.loadDomains(true);
+            this.showToast('Domain intelligence refreshed successfully!', 'success');
+          } catch (e) {
+            console.error('[DomainRadar] refreshDomains error:', e);
+            await this.loadDomains(true);
+          } finally {
+            this.refreshingRollup = false;
           }
         },
 

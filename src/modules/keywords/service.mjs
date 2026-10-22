@@ -274,7 +274,7 @@ export async function offloadKeywordCrawlToShards(hubSql, keywordId, activePins 
 /**
  * Batch-hydrates slim displaced index rows with creative metadata from their deterministic shards
  */
-async function hydrateDisplacedIndexFromShards(hubSql, indexRows = [], env = null, skipShardHydration = false) {
+export async function hydrateDisplacedIndexFromShards(hubSql, indexRows = [], env = null, skipShardHydration = false) {
   if (!Array.isArray(indexRows) || indexRows.length === 0) return [];
   const needsHydration = indexRows.filter(r => !r.title && !r.image_url);
   if (needsHydration.length === 0) return indexRows;

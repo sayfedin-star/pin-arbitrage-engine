@@ -1595,6 +1595,7 @@ export default {
       // 19. Domain Intelligence & SERP Monopoly Sub-Router
       if (pathname.startsWith('/api/domains')) {
         const domainsRes = await handleDomainsRoutes({
+          env,
           pathname,
           method,
           request,
