@@ -825,7 +825,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
   }
 
   // 1 & 2. Ultra-Low Latency Parallel Scatter-Gather (t=0 concurrent dispatch)
-  let shardErrorReason = null;
+  let shardErrorReason = null, shardErrorMessage = null;
   const dossierBatchId = `dossier_batch_${cleanPinId}_${Date.now()}_${Math.random()}`;
 
   // [INVARIANT: D1-RICH-OR-BYPASS-GUARD]
@@ -900,6 +900,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
         },
         fallbackFn: async (info) => {
           shardErrorReason = info?.reason || 'SHARD_UNAVAILABLE';
+          shardErrorMessage = info?.error?.message || null;
           return d1Record || null;
         },
         timeoutMs: 8500,
@@ -1043,6 +1044,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
         },
         fallbackFn: async (info) => {
           if (!shardErrorReason) shardErrorReason = info?.reason || 'SHARD_UNAVAILABLE';
+          if (!shardErrorMessage) shardErrorMessage = info?.error?.message || null;
           return [];
         },
         timeoutMs: 8500,
@@ -1956,6 +1958,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     is_degraded: isDegraded,
     shard_cold: Boolean(shardErrorReason),
     shard_error_reason: shardErrorReason || null,
+    shard_error_message: shardErrorMessage || null,
     from_shard_snapshots: fromShardSnapshots,
     creative: {
       title: masterRecord?.title || `Pin ${cleanPinId}`,
