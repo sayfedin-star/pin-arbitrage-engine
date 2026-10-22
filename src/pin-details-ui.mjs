@@ -628,9 +628,22 @@ export function getPinDetailPageHtml(pinId = '') {
         <div x-show="activeTab === 'history'" class="p-5 flex flex-col gap-4">
           <!-- Control Ribbon -->
           <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-slate-200">
-            <!-- Left: Snapshot Count & Controls (Zero Shard Text Repetition) -->
+            <!-- Left: Snapshot Count & Controls -->
             <div class="flex items-center gap-2 text-xs font-mono">
-              <span class="font-bold text-slate-800" x-text="filteredDays().length + ' Daily Snapshot' + (filteredDays().length === 1 ? '' : 's')"></span>
+              <template x-if="selectedKeywordFilter === 'ALL'">
+                <span class="font-bold text-slate-800" x-text="(dossier?.daily_trajectory?.length || 0) + ' Daily Snapshots'"></span>
+              </template>
+              <template x-if="selectedKeywordFilter !== 'ALL'">
+                <div class="flex items-center gap-1.5">
+                  <span class="font-bold text-slate-800" x-text="'Showing ' + filteredDays().length + ' of ' + (dossier?.daily_trajectory?.length || 0) + ' Days'"></span>
+                  <span class="text-slate-300">•</span>
+                  <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-pink-50 text-pink-700 border border-pink-200 text-[11px] font-semibold">
+                    <span class="text-slate-500 font-normal">Filtered:</span>
+                    <span x-text="selectedKeywordFilter"></span>
+                    <button @click="selectedKeywordFilter = 'ALL'" class="hover:text-pink-900 font-bold ml-0.5" title="Clear filter">✕</button>
+                  </span>
+                </div>
+              </template>
               <span class="text-slate-300">•</span>
               <button @click="expandAllDays()" class="text-pink-600 hover:text-pink-700 font-semibold transition-colors text-xs underline">Expand All</button>
               <span class="text-slate-300">/</span>
@@ -666,34 +679,54 @@ export function getPinDetailPageHtml(pinId = '') {
                   x-model="selectedKeywordFilter" 
                   class="px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-300 text-slate-800 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-pink-500"
                 >
-                  <option value="ALL">All SERP Snapshots</option>
+                  <option value="ALL">All Keywords &amp; Days (<span x-text="dossier?.daily_trajectory?.length || 0"></span>)</option>
                   <template x-for="kw in uniqueKeywords()" :key="kw.name">
-                    <option :value="kw.name" x-text="kw.name + ' (' + kw.count + ')'"></option>
+                    <option :value="kw.name" x-text="kw.name + ' (' + kw.count + 'd)'"></option>
                   </template>
                 </select>
                 <button 
                   x-show="selectedKeywordFilter !== 'ALL'" 
                   @click="selectedKeywordFilter = 'ALL'" 
                   class="text-slate-400 hover:text-pink-600 text-xs font-mono px-1 py-0.5" 
-                  title="Clear Keyword Filter"
+                  title="Clear Keyword Filter (Show all days)"
                 >✕</button>
               </div>
             </div>
           </div>
 
+          <!-- Banner when keyword filter hides other days -->
+          <div 
+            x-show="selectedKeywordFilter !== 'ALL' && filteredDays().length < (dossier?.daily_trajectory?.length || 0)" 
+            class="flex items-center justify-between px-3 py-2 bg-sky-50 border border-sky-200/80 rounded-lg text-xs text-sky-800 font-mono"
+          >
+            <div class="flex items-center gap-2">
+              <span>🔍</span>
+              <span>
+                Filtered by <strong class="text-sky-950 font-bold">"<span x-text="selectedKeywordFilter"></span>"</strong>. 
+                <span x-text="((dossier?.daily_trajectory?.length || 0) - filteredDays().length) + ' other historical day(s) exist for this pin.'"></span>
+              </span>
+            </div>
+            <button 
+              @click="selectedKeywordFilter = 'ALL'" 
+              class="px-2.5 py-1 bg-white hover:bg-sky-100 text-sky-700 border border-sky-300 rounded-md font-semibold transition-colors text-[11px]"
+            >
+              Show All Days (Full History) →
+            </button>
+          </div>
+
           <!-- VIEW 1: CHRONOLOGICAL DAILY LEDGER (MASTER-DETAIL ACCORDION) -->
-          <div x-show="historyViewMode === 'ledger'" class="overflow-x-auto rounded-xl border border-slate-200 shadow-2xs">
-            <table class="w-full text-left text-xs font-mono border-collapse">
+          <div x-show="historyViewMode === 'ledger'" class="overflow-x-auto rounded-xl border border-slate-200 shadow-2xs bg-white">
+            <table class="w-full text-left text-xs font-mono border-collapse table-auto">
               <thead>
-                <tr class="bg-slate-50 text-slate-700 border-b border-slate-200 h-9">
-                  <th class="w-8 px-2 text-center"></th>
-                  <th class="p-2.5 font-semibold">Date &amp; UTC</th>
-                  <th class="p-2.5 font-semibold text-right">Total Saves (24h Δ)</th>
-                  <th class="p-2.5 font-semibold text-right">Repins (Δ)</th>
-                  <th class="p-2.5 font-semibold text-right">Save Velocity</th>
-                  <th class="p-2.5 font-semibold text-center">Peak Rank</th>
-                  <th class="p-2.5 font-semibold">SERP Health &amp; Coverage</th>
-                  <th class="p-2.5 font-semibold text-right pr-4">Actions</th>
+                <tr class="bg-slate-50/90 text-slate-500 uppercase tracking-wider text-[10px] border-b border-slate-200 h-9">
+                  <th class="w-7 px-2 text-center"></th>
+                  <th class="py-2 px-3 font-semibold text-slate-600">Date</th>
+                  <th class="py-2 px-3 font-semibold text-right text-slate-600">Total Saves</th>
+                  <th class="py-2 px-3 font-semibold text-right text-slate-600">Repins</th>
+                  <th class="py-2 px-3 font-semibold text-right text-slate-600">Velocity</th>
+                  <th class="py-2 px-3 font-semibold text-center text-slate-600">Peak Rank</th>
+                  <th class="py-2 px-3 font-semibold text-slate-600">SERP Coverage</th>
+                  <th class="py-2 px-3 font-semibold text-right pr-4 text-slate-600">Actions</th>
                 </tr>
               </thead>
               <template x-for="(day, idx) in filteredDays()" :key="day.snapshot_date">
@@ -703,73 +736,75 @@ export function getPinDetailPageHtml(pinId = '') {
                   <tr class="hover:bg-slate-50/80 transition-colors group cursor-pointer" @click="toggleDayExpanded(day.snapshot_date)">
                     <!-- Expand chevron -->
                     <td class="px-2 text-center text-slate-400 group-hover:text-pink-600 transition-colors">
-                      <span class="inline-block transition-transform duration-200 text-[10px]" :class="isDayExpanded(day.snapshot_date) ? 'rotate-90 text-pink-600 font-bold' : ''">▶</span>
+                      <span class="inline-block transition-transform duration-200 text-[9px]" :class="isDayExpanded(day.snapshot_date) ? 'rotate-90 text-pink-600 font-bold' : ''">▶</span>
                     </td>
-                    <!-- Date & time -->
-                    <td class="p-2.5 whitespace-nowrap">
-                      <div class="flex items-center gap-2">
-                        <span class="font-bold text-slate-900" x-text="day.snapshot_date"></span>
+                    <!-- Date & time stacked -->
+                    <td class="py-2 px-3">
+                      <div class="flex flex-col">
+                        <span class="font-bold text-slate-900 text-xs" x-text="day.snapshot_date"></span>
                         <span class="text-[10px] text-slate-400 font-mono" :title="formatLocalTime(day.crawled_at || day.updated_at)" x-text="formatDateTime(day.crawled_at || day.updated_at)"></span>
                       </div>
                     </td>
-                    <!-- Saves + 24h delta -->
-                    <td class="p-2.5 text-right whitespace-nowrap">
-                      <div class="flex items-baseline justify-end gap-1.5">
-                        <span class="font-bold text-emerald-700" x-text="formatNumber(day.save_count)"></span>
+                    <!-- Saves + 24h delta stacked -->
+                    <td class="py-2 px-3 text-right">
+                      <div class="flex flex-col items-end">
+                        <span class="font-bold text-emerald-700 text-xs" x-text="formatNumber(day.save_count)"></span>
                         <template x-if="computeDeltaByDate(day.snapshot_date, 'save_count') !== 0">
                           <span 
-                            class="px-1.5 py-0.2 rounded text-[10px] font-mono font-bold"
-                            :class="computeDeltaByDate(day.snapshot_date, 'save_count') > 0 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'" 
-                            x-text="computeDeltaByDate(day.snapshot_date, 'save_count') > 0 ? '+' + formatNumber(computeDeltaByDate(day.snapshot_date, 'save_count')) : formatNumber(computeDeltaByDate(day.snapshot_date, 'save_count'))"
+                            class="text-[10px] font-bold"
+                            :class="computeDeltaByDate(day.snapshot_date, 'save_count') > 0 ? 'text-emerald-600' : 'text-rose-600'" 
+                            x-text="(computeDeltaByDate(day.snapshot_date, 'save_count') > 0 ? '+' : '') + formatNumber(computeDeltaByDate(day.snapshot_date, 'save_count')) + ' (24h)'"
                           ></span>
                         </template>
                         <template x-if="computeDeltaByDate(day.snapshot_date, 'save_count') === 0">
-                          <span class="text-slate-400 text-[10px] font-mono">0</span>
+                          <span class="text-[10px] text-slate-400">+0 (24h)</span>
                         </template>
                       </div>
                     </td>
-                    <!-- Repins + delta -->
-                    <td class="p-2.5 text-right whitespace-nowrap">
-                      <div class="flex items-baseline justify-end gap-1.5">
-                        <span class="font-bold text-pink-700" x-text="formatNumber(day.repin_count)"></span>
+                    <!-- Repins + delta stacked -->
+                    <td class="py-2 px-3 text-right">
+                      <div class="flex flex-col items-end">
+                        <span class="font-semibold text-pink-700 text-xs" x-text="formatNumber(day.repin_count)"></span>
                         <template x-if="computeDeltaByDate(day.snapshot_date, 'repin_count') !== 0">
                           <span 
-                            class="px-1.5 py-0.2 rounded text-[10px] font-mono font-semibold"
-                            :class="computeDeltaByDate(day.snapshot_date, 'repin_count') > 0 ? 'bg-pink-50 text-pink-700 border border-pink-200' : 'bg-red-50 text-red-700 border border-red-200'" 
-                            x-text="computeDeltaByDate(day.snapshot_date, 'repin_count') > 0 ? '+' + formatNumber(computeDeltaByDate(day.snapshot_date, 'repin_count')) : formatNumber(computeDeltaByDate(day.snapshot_date, 'repin_count'))"
+                            class="text-[10px]"
+                            :class="computeDeltaByDate(day.snapshot_date, 'repin_count') > 0 ? 'text-pink-600' : 'text-rose-600'" 
+                            x-text="(computeDeltaByDate(day.snapshot_date, 'repin_count') > 0 ? '+' : '') + formatNumber(computeDeltaByDate(day.snapshot_date, 'repin_count'))"
                           ></span>
                         </template>
                         <template x-if="computeDeltaByDate(day.snapshot_date, 'repin_count') === 0">
-                          <span class="text-slate-400 text-[10px] font-mono">0</span>
+                          <span class="text-[10px] text-slate-300">--</span>
                         </template>
                       </div>
                     </td>
                     <!-- Velocity -->
-                    <td class="p-2.5 text-right text-amber-700 font-medium whitespace-nowrap" x-text="'+' + (day.daily_save_velocity || 0) + '/d'"></td>
+                    <td class="py-2 px-3 text-right">
+                      <span class="inline-flex items-center px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200/70 font-bold text-xs" x-text="'+' + (day.daily_save_velocity || 0) + '/d'"></span>
+                    </td>
                     <!-- Peak Rank -->
-                    <td class="p-2.5 text-center whitespace-nowrap">
+                    <td class="py-2 px-3 text-center">
                       <template x-if="day.best_rank && day.best_rank !== 999">
-                        <span class="px-2 py-0.5 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold" x-text="'#' + day.best_rank"></span>
+                        <span class="inline-flex items-center justify-center min-w-[28px] px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold text-xs" x-text="'#' + day.best_rank"></span>
                       </template>
                       <template x-if="!day.best_rank || day.best_rank === 999">
-                        <span class="px-2 py-0.5 rounded-lg bg-slate-100 text-slate-400 border border-slate-200">N/A</span>
+                        <span class="text-slate-400 text-xs">--</span>
                       </template>
                     </td>
                     <!-- Keyword Health / Targeted Keyword -->
-                    <td class="p-2.5 whitespace-nowrap">
+                    <td class="py-2 px-3">
                       <!-- Default Mode: Summary Health Badges -->
                       <template x-if="selectedKeywordFilter === 'ALL'">
-                        <div class="flex items-center gap-1.5">
+                        <div class="flex flex-wrap items-center gap-1">
                           <template x-if="dayKeywordSummary(day).top3 > 0">
-                            <span class="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold" x-text="dayKeywordSummary(day).top3 + ' in Top 3'"></span>
+                            <span class="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200/80 text-[10px] font-bold" x-text="dayKeywordSummary(day).top3 + ' Top 3'"></span>
                           </template>
                           <template x-if="dayKeywordSummary(day).top10 > 0">
-                            <span class="px-2 py-0.5 rounded-md bg-sky-50 text-sky-700 border border-sky-200 text-[10px] font-semibold" x-text="dayKeywordSummary(day).top10 + ' in Top 10'"></span>
+                            <span class="px-1.5 py-0.5 rounded bg-sky-50 text-sky-700 border border-sky-200/80 text-[10px] font-medium" x-text="dayKeywordSummary(day).top10 + ' Top 10'"></span>
                           </template>
                           <template x-if="dayKeywordSummary(day).vault > 0">
-                            <span class="px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-200 text-[10px]" x-text="dayKeywordSummary(day).vault + ' Vault'"></span>
+                            <span class="px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200/80 text-[10px]" x-text="dayKeywordSummary(day).vault + ' Vault'"></span>
                           </template>
-                          <span class="text-[11px] text-slate-400 font-mono" x-text="'(' + dayKeywordSummary(day).total + ' kws)'"></span>
+                          <span class="text-[11px] text-slate-400 font-mono ml-0.5" x-text="'(' + dayKeywordSummary(day).total + ' kws)'"></span>
                         </div>
                       </template>
                       <!-- Filtered Mode: Show targeted keyword badge directly -->
@@ -785,21 +820,24 @@ export function getPinDetailPageHtml(pinId = '') {
                       </template>
                     </td>
                     <!-- Action Buttons -->
-                    <td class="p-2.5 text-right pr-4 whitespace-nowrap" @click.stop>
+                    <td class="py-2 px-3 text-right pr-4" @click.stop>
                       <div class="flex items-center justify-end gap-1.5">
                         <button 
                           @click="toggleDayExpanded(day.snapshot_date)" 
-                          class="px-2.5 py-1 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 text-[11px] font-mono transition-colors flex items-center gap-1"
+                          class="px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium text-[11px] transition-colors flex items-center gap-1"
+                          :class="isDayExpanded(day.snapshot_date) ? 'bg-pink-50 text-pink-700 font-semibold border border-pink-200' : ''"
                         >
                           <span x-text="isDayExpanded(day.snapshot_date) ? 'Close' : 'View ' + (day.ranking_keywords?.length || 0)"></span>
                           <span class="text-[9px]" x-text="isDayExpanded(day.snapshot_date) ? '▲' : '▼'"></span>
                         </button>
                         <button 
                           @click="requestDeleteDay(day.snapshot_date)" 
-                          class="px-2 py-1 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-700 border border-transparent hover:border-red-200 text-[11px] font-mono transition-colors"
+                          class="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-600 transition-colors"
                           title="Delete all data for this day from Shard"
                         >
-                          Delete ✕
+                          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
                         </button>
                       </div>
                     </td>
@@ -907,10 +945,12 @@ export function getPinDetailPageHtml(pinId = '') {
                                   <td class="p-2 text-right pr-3 whitespace-nowrap">
                                     <button 
                                       @click.stop="requestDeleteSerpBadge(kw, day.snapshot_date)" 
-                                      class="text-slate-400 hover:text-red-600 transition-colors px-1 py-0.5 text-[11px]" 
+                                      class="p-1 rounded hover:bg-red-50 text-slate-400 hover:text-red-600 transition-colors inline-flex items-center" 
                                       title="Remove rank for this keyword on this date"
                                     >
-                                      Delete ✕
+                                      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                      </svg>
                                     </button>
                                   </td>
                                 </tr>
