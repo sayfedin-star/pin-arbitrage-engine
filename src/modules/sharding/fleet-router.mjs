@@ -859,7 +859,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
           shardErrorReason = info?.reason || 'SHARD_UNAVAILABLE';
           return d1Record || null;
         },
-        timeoutMs: 5500,
+        timeoutMs: 8500,
         batchId: dossierBatchId
       });
 
@@ -949,8 +949,11 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
         `;
         return rows;
       },
-      fallbackFn: async () => [],
-      timeoutMs: 5500,
+      fallbackFn: async (info) => {
+        if (!shardErrorReason) shardErrorReason = info?.reason || 'SHARD_UNAVAILABLE';
+        return [];
+      },
+      timeoutMs: 8500,
       batchId: dossierBatchId
     }),
     hubSql`
@@ -1353,9 +1356,14 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
       }
     }
 
-    // Always synthesize the historical baseline point whenever present, regardless of whether the crawl date is today or yesterday
-    if (sc.baseline_day_date && sc.baseline_day_saves != null) {
-      const baseDateStr = formatUtcDate(sc.baseline_day_date);
+    // [INVARIANT: ZERO-HUB-SNAPSHOTS]
+    // Always synthesize the historical baseline point whenever present, regardless of whether the crawl date is today or yesterday.
+    // Defend against missing baseline metadata by inferring baseline day (crawlIso - 1d) if velocity exists
+    const rawBaseDate = sc.baseline_day_date || (sc.daily_save_velocity > 0 && crawlIso ? new Date(new Date(crawlIso + 'T00:00:00.000Z').getTime() - 86400000) : null);
+    const rawBaseSaves = sc.baseline_day_saves != null ? Number(sc.baseline_day_saves) : (sc.daily_save_velocity > 0 && sc.save_count != null ? Math.max(0, Number(sc.save_count) - Number(sc.daily_save_velocity)) : null);
+
+    if (rawBaseDate && rawBaseSaves != null) {
+      const baseDateStr = formatUtcDate(rawBaseDate);
       if (baseDateStr && (!crawlIso || baseDateStr < crawlIso)) {
         const baseKey = `${baseDateStr}_${sc.keyword_id || 'global'}`;
         if (!snapshotMap.has(baseKey)) {
@@ -1368,7 +1376,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
             rank_position: sc.prev_rank_position ?? sc.rank_position ?? null,
             last_known_rank: sc.last_known_rank ?? null,
             is_displaced: Boolean(sc.is_displaced),
-            save_count: Number(sc.baseline_day_saves || 0),
+            save_count: Number(rawBaseSaves || 0),
             repin_count: 0,
             comment_count: 0,
             share_count: 0,
