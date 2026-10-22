@@ -17,7 +17,7 @@ import { handleFleetRoutes } from './routes/fleet.mjs';
 import { handlePinarchiveRoutes } from './routes/pinarchive.mjs';
 import { handleDomainsRoutes } from './routes/domains.mjs';
 import { isClusterRoute, handleClusterRoutes } from './routes/cluster.mjs';
-import { enforceNeonPoolerUrl, getFastEdgeDossier, getOrCreateShardSqlClient, getCachedShardSqlClient, setCachedShardSqlClient, shardSqlClients, wrapShardNeonTransaction } from './modules/sharding/fleet-router.mjs';
+import { enforceNeonPoolerUrl, getFastEdgeDossier, getOrCreateShardSqlClient, getCachedShardSqlClient, setCachedShardSqlClient, shardSqlClients, wrapShardNeonTransaction, isValidShardDsn, normalizeAssignedShards } from './modules/sharding/fleet-router.mjs';
 import { isKeywordsRoute, handleKeywordsRoutes } from './routes/keywords.mjs';
 import { isPinsRoute, handlePinsRoutes } from './routes/pins.mjs';
 import { handleCompetitorsRoutes } from './routes/competitors.mjs';
@@ -1373,6 +1373,10 @@ export default {
           if (env?.PIN_ENGINE_KV) {
             try {
               shardsMap = await env.PIN_ENGINE_KV.get('fleet:shards_map', { type: 'json', cacheTtl: 300 });
+              if (Array.isArray(shardsMap) && shardsMap.some(r => !isValidShardDsn(r?.database_url))) {
+                shardsMap = null;
+                safeWaitUntil(ctx, env.PIN_ENGINE_KV.delete('fleet:shards_map'), 'kv_evict_shards_map');
+              }
             } catch (_) {}
           }
           if (!shardsMap) {
@@ -1390,10 +1394,10 @@ export default {
             proj = shardsMap.find(p => 
               (p.project_id && String(p.project_id).trim() === cleanKey) ||
               (p.project_name && String(p.project_name).trim() === cleanKey) ||
-              (Array.isArray(p.assigned_shards) && p.assigned_shards.map(Number).includes(Number(cleanKey)))
+              (normalizeAssignedShards(p.assigned_shards).includes(Number(cleanKey)))
             );
           }
-          if (proj && proj.database_url) {
+          if (proj && isValidShardDsn(proj.database_url)) {
             const canonicalUrl = enforceNeonPoolerUrl(proj.database_url);
             shardKeyToDsn.set(cleanKey, canonicalUrl);
             if (proj.project_id) shardKeyToDsn.set(String(proj.project_id).trim(), canonicalUrl);

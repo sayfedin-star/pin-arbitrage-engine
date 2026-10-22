@@ -12,7 +12,7 @@ import {
   pingFleetProject,
   getFleetProjectUrl
 } from '../modules/fleet/service.mjs';
-import { resolveShardConnection, getPinShardId } from '../modules/sharding/fleet-router.mjs';
+import { resolveShardConnection, getPinShardId, isValidShardDsn } from '../modules/sharding/fleet-router.mjs';
 import { maskDatabaseUrl } from '../utils.mjs';
 
 // Predictive Hover JIT Warming deduplication & rate limiting
@@ -43,23 +43,36 @@ export async function handleFleetRoutes(routeCtx) {
 
   // 1. Neon Multi-Project Fleet API & Shards Map (KV Accelerated)
   if (method === 'GET' && (pathname === '/api/fleet/projects' || pathname === '/api/fleet/shards')) {
-    let projects = null;
+    let rawShards = null;
     if (env?.PIN_ENGINE_KV) {
       try {
-        projects = await env.PIN_ENGINE_KV.get('fleet:shards_map', { type: 'json', cacheTtl: 300 });
+        rawShards = await env.PIN_ENGINE_KV.get('fleet:shards_map', { type: 'json', cacheTtl: 300 });
+        // Anti-Poisoning Check: Ensure cached KV data does not contain masked bullet URLs
+        if (Array.isArray(rawShards) && rawShards.some(r => !isValidShardDsn(r?.database_url))) {
+          rawShards = null; // Discard poisoned data
+          safeWaitUntil(ctx, env.PIN_ENGINE_KV.delete('fleet:shards_map'), 'kv_evict_poisoned_shards_map');
+        }
       } catch (_) {}
     }
-    if (!projects || !Array.isArray(projects) || projects.length === 0) {
-      const cacheKey = 'fleet_projects';
-      projects = await getCachedOrFetch(cacheKey, () => getFleetProjects(sql), 10000, 30000);
-      if (env?.PIN_ENGINE_KV && Array.isArray(projects) && projects.length > 0) {
-        safeWaitUntil(ctx, env.PIN_ENGINE_KV.put('fleet:shards_map', JSON.stringify(projects), { expirationTtl: 86400 }), 'kv_cache_shards_map');
+    if (!rawShards || !Array.isArray(rawShards) || rawShards.length === 0) {
+      // Query raw unmasked projects directly from Central Hub
+      rawShards = await sql`
+        SELECT 
+          id, project_id, project_name, region_id, database_url,
+          status, is_hub, assigned_shards, stats, created_at, updated_at
+        FROM neon_projects_registry
+        ORDER BY is_hub DESC, id ASC;
+      `;
+      if (env?.PIN_ENGINE_KV && Array.isArray(rawShards) && rawShards.length > 0) {
+        // ALWAYS store RAW unmasked connection strings in the internal routing key 'fleet:shards_map'
+        safeWaitUntil(ctx, env.PIN_ENGINE_KV.put('fleet:shards_map', JSON.stringify(rawShards), { expirationTtl: 86400 }), 'kv_cache_shards_map');
       }
     }
 
     // Security: Mask database credentials before transmitting to client
-    const clientProjects = (Array.isArray(projects) ? projects : []).map(p => {
-      const masked = maskDatabaseUrl(p.database_url || '');
+    const clientProjects = (Array.isArray(rawShards) ? rawShards : []).map(p => {
+      const rawUrl = p.database_url || '';
+      const masked = maskDatabaseUrl(rawUrl);
       return {
         ...p,
         database_url: masked,

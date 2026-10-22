@@ -282,6 +282,36 @@ export function _setCircuitBreakerState(shardId, stateObj) {
 }
 
 /**
+ * Validates that a resolved DSN is a clean, genuine, unmasked Postgres connection string.
+ * Guards against poisoned KV entries containing UI masks (••••) or redacted placeholders.
+ */
+export function isValidShardDsn(dsn) {
+  if (!dsn || typeof dsn !== 'string') return false;
+  const trimmed = dsn.trim();
+  return (
+    trimmed.startsWith('postgres://') ||
+    trimmed.startsWith('postgresql://')
+  ) &&
+  trimmed.includes('@') &&
+  !trimmed.includes('••••') &&
+  !trimmed.includes('[REDACTED');
+}
+
+/**
+ * Normalizes assigned_shards from Postgres text array format "{1,2}" or JSON array [1,2]
+ */
+export function normalizeAssignedShards(raw) {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw.map(Number).filter(n => !isNaN(n));
+  if (typeof raw === 'string') {
+    const cleaned = raw.replace(/^\{|\}$|^\[|\]$/g, '').trim();
+    if (!cleaned) return [];
+    return cleaned.split(',').map(s => Number(s.trim())).filter(n => !isNaN(n));
+  }
+  return [];
+}
+
+/**
  * Enforces PgBouncer transaction connection pooling (-pooler) on Neon URLs.
  * In Neon, pooler endpoints append '-pooler' to the endpoint ID prefix:
  * e.g. ep-cool-fog-123456.us-east-2.aws.neon.tech -> ep-cool-fog-123456-pooler.us-east-2.aws.neon.tech
@@ -291,9 +321,10 @@ export function _setCircuitBreakerState(shardId, stateObj) {
  */
 export function enforceNeonPoolerUrl(url) {
   if (!url || typeof url !== 'string') return url;
-  if (!url.includes('.neon.tech') || url.includes('-pooler')) return url;
+  const cleanUrl = url.trim().replace(/[\r\n]/g, '');
+  if (!cleanUrl.includes('.neon.tech') || cleanUrl.includes('-pooler')) return cleanUrl;
 
-  return url.replace(/(@|:\/\/)([a-z0-9_-]+)(\.[a-z0-9_.-]*neon\.tech)/i, (match, prefix, endpointId, suffix) => {
+  return cleanUrl.replace(/(@|:\/\/)([a-z0-9_-]+)(\.[a-z0-9_.-]*neon\.tech)/i, (match, prefix, endpointId, suffix) => {
     if (endpointId.endsWith('-pooler')) return match;
     return `${prefix}${endpointId}-pooler${suffix}`;
   });
@@ -340,15 +371,17 @@ export async function resolveShardConnection(optionsOrShardId, envFallback = nul
       .replace(/{SHARD_ID}/g, String(cleanId))
       .replace(/{SHARD_NAME}/g, shardName);
     
-    const pooledDsn = enforceNeonPoolerUrl(computedDsn);
-    return getOrCreateShardSqlClient(pooledDsn);
+    if (isValidShardDsn(computedDsn)) {
+      const pooledDsn = enforceNeonPoolerUrl(computedDsn);
+      return getOrCreateShardSqlClient(pooledDsn);
+    }
   }
 
   // 2. Ultra-Fast In-Memory Lookup (0ms execution time from globalShardMap)
   const now = Date.now();
   if (globalShardMap.has(cleanId)) {
     const cachedEntry = globalShardMap.get(cleanId);
-    if (cachedEntry?.database_url && (now - (cachedEntry.cachedAt || 0) < SHARD_MAP_TTL_MS)) {
+    if (isValidShardDsn(cachedEntry?.database_url) && (now - (cachedEntry.cachedAt || 0) < SHARD_MAP_TTL_MS)) {
       const pooledDsn = enforceNeonPoolerUrl(cachedEntry.database_url);
       return getOrCreateShardSqlClient(pooledDsn);
     }
@@ -359,7 +392,7 @@ export async function resolveShardConnection(optionsOrShardId, envFallback = nul
     await warmGlobalShardMap(hubSql, env);
     if (globalShardMap.has(cleanId)) {
       const cachedEntry = globalShardMap.get(cleanId);
-      if (cachedEntry?.database_url) {
+      if (isValidShardDsn(cachedEntry?.database_url)) {
         const pooledDsn = enforceNeonPoolerUrl(cachedEntry.database_url);
         return getOrCreateShardSqlClient(pooledDsn);
       }
@@ -372,9 +405,9 @@ export async function resolveShardConnection(optionsOrShardId, envFallback = nul
     if (Array.isArray(kvRows)) {
       const match = kvRows.find(r => 
         (r.project_name === shardName) ||
-        (Array.isArray(r.assigned_shards) && r.assigned_shards.map(Number).includes(cleanId))
+        normalizeAssignedShards(r.assigned_shards).includes(cleanId)
       );
-      if (match?.database_url) {
+      if (isValidShardDsn(match?.database_url)) {
         globalShardMap.set(cleanId, { ...match, cachedAt: now });
         globalShardMapLastFetched = now;
         const pooledDsn = enforceNeonPoolerUrl(match.database_url);
@@ -389,15 +422,15 @@ export async function resolveShardConnection(optionsOrShardId, envFallback = nul
   }
 
   const [row] = await hubSql`
-    SELECT id, project_id, project_name, database_url, status
+    SELECT id, project_id, project_name, database_url, status, assigned_shards
     FROM neon_projects_registry
     WHERE (project_name = ${shardName} OR assigned_shards @> ARRAY[${cleanId}]::int[])
       AND status = 'active'
     LIMIT 1;
   `;
 
-  if (!row || !row.database_url) {
-    throw new Error(`Shard database '${shardName}' (ID: ${cleanId}) is not active in neon_projects_registry.`);
+  if (!row || !isValidShardDsn(row.database_url)) {
+    throw new Error(`Shard database '${shardName}' (ID: ${cleanId}) is not active or has invalid DSN in neon_projects_registry.`);
   }
 
   globalShardMap.set(cleanId, { ...row, cachedAt: now });
@@ -420,7 +453,14 @@ export async function getFleetShardsMap(env = null, hubSql = null) {
     try {
       const kvData = await env.PIN_ENGINE_KV.get('fleet:shards_map', { type: 'json', cacheTtl: 300 });
       if (Array.isArray(kvData) && kvData.length > 0) {
-        return kvData;
+        // [INVARIANT: ANTI-POISONING-KV-GUARD]
+        // Evict immediately if poisoned with UI bullets or non-postgres URLs
+        const isPoisoned = kvData.some(r => !isValidShardDsn(r?.database_url));
+        if (!isPoisoned) {
+          return kvData;
+        }
+        console.warn('[fleet-router] Poisoned or masked database_url detected in fleet:shards_map KV! Evicting...');
+        env.PIN_ENGINE_KV.delete('fleet:shards_map').catch(() => {});
       }
     } catch (_) {}
   }
@@ -460,7 +500,13 @@ export async function preloadNeonRegistry(hubSql, env = null) {
       try {
         const kvData = await env.PIN_ENGINE_KV.get('fleet:shards_map', { type: 'json', cacheTtl: 300 });
         if (Array.isArray(kvData) && kvData.length > 0) {
-          rows = kvData;
+          const isPoisoned = kvData.some(r => !isValidShardDsn(r?.database_url));
+          if (!isPoisoned) {
+            rows = kvData;
+          } else {
+            console.warn('[preloadNeonRegistry] Evicting poisoned fleet:shards_map KV...');
+            env.PIN_ENGINE_KV.delete('fleet:shards_map').catch(() => {});
+          }
         }
       } catch (_) {}
     }
@@ -479,11 +525,11 @@ export async function preloadNeonRegistry(hubSql, env = null) {
     if (!rows) return 0;
     let loaded = 0;
     for (const row of rows) {
-      if (Array.isArray(row.assigned_shards)) {
-        for (const sid of row.assigned_shards) {
-          globalShardMap.set(Number(sid), { ...row, cachedAt: now });
-          loaded++;
-        }
+      if (!isValidShardDsn(row.database_url)) continue;
+      const shardsList = normalizeAssignedShards(row.assigned_shards);
+      for (const sid of shardsList) {
+        globalShardMap.set(sid, { ...row, cachedAt: now });
+        loaded++;
       }
       const match = row.project_name?.match(/shard-(\d+)/i);
       if (match) {
