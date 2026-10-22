@@ -317,9 +317,14 @@ export async function handlePinsRoutes({
         return await fetchUniversalPinDossier({ hubSql: sql, pinId, ctx, env, bypassEdgeCache: forceRefresh });
       }, 30000, 120000, { forceRefresh });
 
-      // Edge cache poisoning guard: If dossier failed, has 0 snapshots, or is degraded (shard cold/timeout with <= 1 day),
+      // Edge cache poisoning guard: If dossier failed, has 0 snapshots, is degraded, or has an unverified fallback (<= 2 days while having rankings),
       // invalidate cache so subsequent page loads can immediately fetch full history once shard is warm.
-      if (!dossier?.success || (!dossier?.daily_trajectory?.length && !dossier?.snapshots?.length) || dossier?.is_degraded || (dossier?.daily_trajectory?.length <= 1 && (dossier?.pillar_2_keywords_context?.ranking_keywords?.length || 0) > 1)) {
+      if (
+        !dossier?.success ||
+        (!dossier?.daily_trajectory?.length && !dossier?.snapshots?.length) ||
+        dossier?.is_degraded ||
+        (dossier?.daily_trajectory?.length <= 2 && (dossier?.pillar_2_keywords_context?.ranking_keywords?.length || 0) > 1 && !dossier?.from_shard_snapshots)
+      ) {
         invalidateEdgeCache(dossierCacheKey);
       }
 

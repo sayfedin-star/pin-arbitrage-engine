@@ -382,6 +382,74 @@ await runAsyncTest('fetchUniversalPinDossier WRITE-THROUGH: Asynchronously persi
   assert.ok(kvEntry, 'KV pin:dossier?pin_id=554433221100 must be populated');
 });
 
+await runAsyncTest('fetchUniversalPinDossier DEGRADED FALLBACK: Correctly flags is_degraded: true when shard query returns empty/times out', async () => {
+  const mockD1 = createMockD1Database();
+  const env = {
+    PIN_D1_DB: mockD1,
+    PIN_ENGINE_KV: { get: async () => null, put: async () => {}, delete: async () => {} }
+  };
+
+  // Mock Hub SQL returning active SERP row with baseline
+  const mockHubSql = async (strings, ...values) => {
+    const q = strings.join('');
+    if (q.includes('FROM keyword_serp_current')) {
+      return [{
+        keyword_id: 5,
+        pin_id: '998877665544',
+        title: 'Degraded Fallback Test Pin',
+        domain: 'fallback.com',
+        destination_url: 'https://fallback.com/item',
+        image_url: 'https://i.pinimg.com/736x/fb.jpg',
+        save_count: 500,
+        repin_count: 50,
+        daily_save_velocity: 10,
+        crawled_at: '2026-10-22T05:00:00.000Z',
+        updated_at: '2026-10-22T05:00:00.000Z',
+        baseline_day_date: '2026-10-21',
+        baseline_day_saves: 490,
+        metadata: {}
+      }];
+    }
+    return [];
+  };
+
+  // Mock Shard SQL returning empty snapshots (simulating cold shard timeout/empty)
+  const mockEmptyShardSql = Object.assign(
+    async (strings, ...values) => {
+      const q = strings.join('');
+      if (q.includes('FROM universal_master_pins')) {
+        return [{ pin_id: '998877665544', title: 'Master' }];
+      }
+      return [];
+    },
+    { transaction: async () => [] }
+  );
+
+  const targetShardId = getPinShardId('998877665544', 99);
+  const mockDsn = 'postgres://user:pass@ep-test-shard-degraded.neon.tech/neondb';
+  _setShardSqlClient(mockDsn, mockEmptyShardSql);
+  globalShardMap.set(targetShardId, { database_url: mockDsn, cachedAt: Date.now() });
+
+  const dossier = await fetchUniversalPinDossier({
+    hubSql: mockHubSql,
+    pinId: '998877665544',
+    env,
+    bypassEdgeCache: true
+  });
+
+  assert.strictEqual(dossier.success, true);
+  assert.strictEqual(dossier.is_degraded, true, 'Dossier must be flagged as is_degraded: true');
+  assert.strictEqual(dossier.from_shard_snapshots, false, 'from_shard_snapshots must be false when shard returned empty');
+  assert.strictEqual(dossier.daily_trajectory.length, 2, 'Fallback trajectory contains 2 synthesized days');
+
+  // Verify write-through did NOT poison D1 with has_shard_trajectory: true
+  const d1Entry = mockD1._store.get('998877665544');
+  if (d1Entry && d1Entry.metadata) {
+    const meta = typeof d1Entry.metadata === 'string' ? JSON.parse(d1Entry.metadata) : d1Entry.metadata;
+    assert.strictEqual(meta.has_shard_trajectory, undefined, 'D1 metadata must NOT claim has_shard_trajectory');
+  }
+});
+
 // =============================================================================
 // Section 4: Predictive Hover JIT Warming Endpoint (/api/fleet/warm)
 // =============================================================================

@@ -843,13 +843,18 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
   );
 
   // [INVARIANT: EDGE-D1-SNAPSHOT-MIRRORING]
-  // Zero-Wakeup Edge Resolution: When D1 contains a valid cached daily_trajectory with multiple days,
+  // Zero-Wakeup Edge Resolution: When D1 contains a valid cached daily_trajectory with verified multi-day depth,
   // read-only views resolve in < 5ms without needing to wake up sleeping Neon Shard databases.
+  // CRITICAL ANTI-POISONING GUARD: A 2-day fallback (today + yesterday baseline) is NOT verified shard history;
+  // it must have > 2 days OR an explicit has_shard_trajectory flag to bypass the shard connection.
   const hasValidTrajectoryFromD1 = Boolean(
     !bypassEdgeCache &&
     hasValidD1 &&
     Array.isArray(d1Record?.daily_trajectory) &&
-    d1Record.daily_trajectory.length >= 2
+    (
+      d1Record.daily_trajectory.length > 2 ||
+      (d1Record.daily_trajectory.length >= 1 && d1Record.metadata?.has_shard_trajectory === true)
+    )
   );
 
   let shardSql = null;
@@ -1873,10 +1878,25 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     label: (latestLiveAnnotations.size > 0 && latestLiveAnnotations.has(tag)) ? 'Live Active' : 'Historical Crawl'
   }));
 
+  const fromShardSnapshots = Boolean(
+    hasValidTrajectoryFromD1
+      ? (d1Record?.metadata?.has_shard_trajectory || (Array.isArray(d1Record?.daily_trajectory) && d1Record.daily_trajectory.length > 2))
+      : (Array.isArray(initialSnapshots) && initialSnapshots.length > 0)
+  );
+
+  const isDegraded = Boolean(
+    shardErrorReason ||
+    (!hasValidTrajectoryFromD1 && (!initialSnapshots || initialSnapshots.length === 0) && ((hubContext?.ranking_keywords?.length || 0) > 0 || (dailyTrajectory && dailyTrajectory.length <= 2)))
+  );
+
   const dossierResult = {
     success: true,
     pin_id: cleanPinId,
     shard_id: shardId,
+    is_degraded: isDegraded,
+    shard_cold: Boolean(shardErrorReason),
+    shard_error_reason: shardErrorReason || null,
+    from_shard_snapshots: fromShardSnapshots,
     creative: {
       title: masterRecord?.title || `Pin ${cleanPinId}`,
       description: masterRecord?.description || '',
@@ -1927,9 +1947,19 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
 
   // Tier 1 Edge Mirror & Write-Through: Persist fresh shard metadata & daily_trajectory to D1 & KV
   // [INVARIANT: EDGE-D1-SNAPSHOT-MIRRORING]
+  // CRITICAL ANTI-POISONING GUARD: Never mirror a degraded fallback (2-day synthesis from Hub) as a complete trajectory in D1.
+  // Only write daily_trajectory to D1 if it originated from real Shard snapshots or has real multi-day depth (> 2 days).
+  const canMirrorTrajectoryToD1 = Boolean(
+    fromShardSnapshots ||
+    (Array.isArray(dailyTrajectory) && dailyTrajectory.length > 2)
+  );
+
   if ((env?.PIN_D1_DB || env?.PIN_ENGINE_KV) && masterRecord && (!hasValidTrajectoryFromD1 || bypassEdgeCache)) {
     const edgeWriteThroughPromise = (async () => {
       const fullMetaObj = { ...snapMeta, ...cleanMeta(masterRecord.metadata) };
+      if (canMirrorTrajectoryToD1) {
+        fullMetaObj.has_shard_trajectory = true;
+      }
       // 1. Write to Cloudflare D1 edge_pins_metadata
       if (env?.PIN_D1_DB) {
         try {
@@ -1968,14 +1998,14 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
             String(masterRecord.alt_text || ''),
             String(masterRecord.description || ''),
             JSON.stringify(fullMetaObj),
-            JSON.stringify(dailyTrajectory || []),
+            canMirrorTrajectoryToD1 ? JSON.stringify(dailyTrajectory || []) : (d1Record?.daily_trajectory ? JSON.stringify(d1Record.daily_trajectory) : '[]'),
             masterRecord.created_at_pinterest ? new Date(masterRecord.created_at_pinterest).toISOString() : null
           ).run();
         } catch (_) {}
       }
 
-      // 2. Write to Cloudflare Workers KV
-      if (env?.PIN_ENGINE_KV) {
+      // 2. Write to Cloudflare Workers KV (only if healthy and verified from shard)
+      if (env?.PIN_ENGINE_KV && !isDegraded) {
         try {
           const kvPayload = JSON.stringify(dossierResult);
           await Promise.all([

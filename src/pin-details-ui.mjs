@@ -671,14 +671,14 @@ export function getPinDetailPageHtml(pinId = '') {
               </div>
 
               <!-- Shard Cold-Start Warning / Refresh Pill -->
-              <template x-if="dossier?.is_degraded || (dossier?.daily_trajectory?.length === 1 && (dossier?.pillar_2_keywords_context?.ranking_keywords?.length || 0) > 1)">
+              <template x-if="dossier?.is_degraded || (dossier?.daily_trajectory?.length <= 2 && (dossier?.pillar_2_keywords_context?.ranking_keywords?.length || 0) > 1 && !dossier?.from_shard_snapshots)">
                 <button 
                   @click="loadDossier(true)" 
-                  class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-[11px] font-medium transition-colors"
+                  class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-[11px] font-medium transition-colors animate-pulse"
                   title="Click to fetch complete history from warmed storage shard"
                 >
-                  <span>⚡</span>
-                  <span>Shard Warming (Click to fetch full history)</span>
+                  <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                  <span>Syncing from Shard (Click to load full history)</span>
                 </button>
               </template>
             </div>
@@ -1328,19 +1328,24 @@ export function getPinDetailPageHtml(pinId = '') {
             if (res.ok) {
               const data = await res.json();
               this.dossier = data;
-              this.isShardWarming = Boolean(data?.is_degraded);
+              this.isShardWarming = Boolean(data?.is_degraded || data?.shard_cold);
               this.rebuildDateMapCache();
               const days = this.filteredDays();
               if (days.length > 0 && Object.keys(this.expandedDays).length === 0) {
                 this.expandedDays = { [days[0].snapshot_date]: true };
               }
-              // Auto-heal cold start: If dossier returned degraded or with single day while having multi-keywords, trigger 1-shot background refresh
-              if (!forceRefresh && (data?.is_degraded || (days.length <= 1 && (data?.pillar_2_keywords_context?.ranking_keywords?.length || 0) > 1))) {
+              // Auto-heal cold start: If dossier returned degraded or with incomplete fallback (<= 2 days while having rankings), trigger 1-shot background refresh
+              const isIncompleteFallback = Boolean(
+                data?.is_degraded ||
+                data?.shard_cold ||
+                (days.length <= 2 && (data?.pillar_2_keywords_context?.ranking_keywords?.length || 0) > 1 && !data?.from_shard_snapshots)
+              );
+              if (!forceRefresh && isIncompleteFallback) {
                 if (!this._autoRefreshTriggered) {
                   this._autoRefreshTriggered = true;
                   setTimeout(() => {
                     this.loadDossier(true);
-                  }, 2500);
+                  }, 2000);
                 }
               }
             } else {
