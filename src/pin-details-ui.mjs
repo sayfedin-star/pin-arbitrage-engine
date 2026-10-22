@@ -624,103 +624,294 @@ export function getPinDetailPageHtml(pinId = '') {
           </div>
         </div>
 
-        <!-- TAB 2: HISTORICAL SNAPSHOT LOG TABLE -->
+        <!-- TAB 2: HISTORICAL SNAPSHOT LOG (STITCH HIGH-DENSITY MASTER-DETAIL & TRAJECTORY MATRIX) -->
         <div x-show="activeTab === 'history'" class="p-5 flex flex-col gap-4">
-          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div class="text-xs font-mono text-slate-500">
-              Chronological record of crawled telemetry points on Shard <span class="font-bold text-slate-800" x-text="'#' + dossier?.shard_id"></span>
+          <!-- Control Ribbon -->
+          <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-2 border-b border-slate-200">
+            <div class="flex items-center gap-2 text-xs font-mono text-slate-500">
+              <span>⏱️ Chronological record of crawled telemetry points on Shard <strong class="text-slate-800" x-text="'#' + (dossier?.shard_id || 11)"></strong></span>
+              <span class="text-slate-300">|</span>
+              <button @click="expandAllDays()" class="text-slate-500 hover:text-pink-600 transition-colors text-[11px] underline decoration-dotted">Expand All</button>
+              <span class="text-slate-300">•</span>
+              <button @click="collapseAllDays()" class="text-slate-500 hover:text-pink-600 transition-colors text-[11px] underline decoration-dotted">Collapse All</button>
             </div>
 
-            <!-- Keyword Filter Dropdown -->
-            <div class="flex items-center gap-2 text-xs font-mono">
-              <span class="text-slate-500">Filter:</span>
-              <select 
-                x-model="selectedKeywordFilter" 
-                class="px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-300 text-slate-800 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-pink-500"
-              >
-                <option value="ALL">All SERP Snapshots</option>
-                <template x-for="kw in uniqueKeywords()" :key="kw.name">
-                  <option :value="kw.name" x-text="kw.name + ' (' + kw.count + ')'"></option>
-                </template>
-              </select>
+            <!-- View Switcher & Keyword Filter Ribbon -->
+            <div class="flex flex-wrap items-center gap-3">
+              <!-- Segmented View Mode -->
+              <div class="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-xs font-mono">
+                <button 
+                  @click="historyViewMode = 'ledger'" 
+                  :class="historyViewMode === 'ledger' ? 'bg-white text-slate-900 font-bold shadow-2xs' : 'text-slate-600 hover:text-slate-900'" 
+                  class="px-2.5 py-1 rounded-md transition-colors flex items-center gap-1.5"
+                >
+                  <span>📑</span>
+                  <span>Daily Ledger</span>
+                </button>
+                <button 
+                  @click="historyViewMode = 'matrix'" 
+                  :class="historyViewMode === 'matrix' ? 'bg-white text-slate-900 font-bold shadow-2xs' : 'text-slate-600 hover:text-slate-900'" 
+                  class="px-2.5 py-1 rounded-md transition-colors flex items-center gap-1.5"
+                >
+                  <span>📊</span>
+                  <span>SERP Matrix</span>
+                </button>
+              </div>
+
+              <!-- Keyword Filter Dropdown -->
+              <div class="flex items-center gap-1.5 text-xs font-mono">
+                <span class="text-slate-500">Filter:</span>
+                <select 
+                  x-model="selectedKeywordFilter" 
+                  class="px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-300 text-slate-800 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-pink-500"
+                >
+                  <option value="ALL">All SERP Snapshots</option>
+                  <template x-for="kw in uniqueKeywords()" :key="kw.name">
+                    <option :value="kw.name" x-text="kw.name + ' (' + kw.count + ')'"></option>
+                  </template>
+                </select>
+                <button 
+                  x-show="selectedKeywordFilter !== 'ALL'" 
+                  @click="selectedKeywordFilter = 'ALL'" 
+                  class="text-slate-400 hover:text-pink-600 text-xs font-mono px-1 py-0.5" 
+                  title="Clear Keyword Filter"
+                >✕</button>
+              </div>
             </div>
           </div>
 
-          <!-- Snapshots Table -->
-          <div class="overflow-x-auto rounded-xl border border-slate-200">
+          <!-- VIEW 1: CHRONOLOGICAL DAILY LEDGER (MASTER-DETAIL ACCORDION) -->
+          <div x-show="historyViewMode === 'ledger'" class="overflow-x-auto rounded-xl border border-slate-200 shadow-2xs">
             <table class="w-full text-left text-xs font-mono border-collapse">
               <thead>
-                <tr class="bg-slate-50 text-slate-700 border-b border-slate-200">
-                  <th class="p-3 font-semibold">Date</th>
-                  <th class="p-3 font-semibold">SERP Rankings</th>
-                  <th class="p-3 font-semibold">Best Rank</th>
-                  <th class="p-3 font-semibold">Saves</th>
-                  <th class="p-3 font-semibold">Delta 24h</th>
-                  <th class="p-3 font-semibold">Repins</th>
-                  <th class="p-3 font-semibold">Daily Velocity</th>
-                  <th class="p-3 font-semibold text-right">Action</th>
+                <tr class="bg-slate-50 text-slate-700 border-b border-slate-200 h-9">
+                  <th class="w-8 px-2 text-center"></th>
+                  <th class="p-2.5 font-semibold">Date &amp; UTC</th>
+                  <th class="p-2.5 font-semibold text-right">Total Saves (24h Δ)</th>
+                  <th class="p-2.5 font-semibold text-right">Repins (Δ)</th>
+                  <th class="p-2.5 font-semibold text-right">Save Velocity</th>
+                  <th class="p-2.5 font-semibold text-center">Peak Rank</th>
+                  <th class="p-2.5 font-semibold">SERP Health &amp; Coverage</th>
+                  <th class="p-2.5 font-semibold text-right pr-4">Actions</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-slate-100 bg-white">
                 <template x-for="(day, idx) in filteredDays()" :key="day.snapshot_date">
-                  <tr class="hover:bg-slate-50/80 transition-colors">
-                    <td class="p-3">
-                      <div class="flex flex-col">
+                  <!-- Master Day Row -->
+                  <tr class="hover:bg-slate-50/80 transition-colors group cursor-pointer" @click="toggleDayExpanded(day.snapshot_date)">
+                    <!-- Expand chevron -->
+                    <td class="px-2 text-center text-slate-400 group-hover:text-pink-600 transition-colors">
+                      <span class="inline-block transition-transform duration-200 text-[10px]" :class="isDayExpanded(day.snapshot_date) ? 'rotate-90 text-pink-600 font-bold' : ''">▶</span>
+                    </td>
+                    <!-- Date & time -->
+                    <td class="p-2.5 whitespace-nowrap">
+                      <div class="flex items-center gap-2">
                         <span class="font-bold text-slate-900" x-text="day.snapshot_date"></span>
                         <span class="text-[10px] text-slate-400 font-mono" :title="formatLocalTime(day.crawled_at || day.updated_at)" x-text="formatDateTime(day.crawled_at || day.updated_at)"></span>
                       </div>
                     </td>
-                    <td class="p-3">
-                      <div class="flex items-center gap-1.5 flex-wrap">
-                        <template x-for="kw in (day.ranking_keywords || [])" :key="kw.keyword_id || kw.keyword">
-                          <span 
-                            class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium border transition-colors"
-                            :class="kw.is_displaced ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-slate-100 text-slate-800 border-slate-200'"
-                          >
-                            <template x-if="kw.rank && !kw.is_displaced">
-                              <span class="font-bold text-emerald-700" x-text="'#' + kw.rank"></span>
-                            </template>
-                            <template x-if="kw.is_displaced">
-                              <span class="font-bold text-amber-700" x-text="'[Vault #' + (kw.rank || 101) + ']'"></span>
-                            </template>
-                            <span x-text="kw.keyword"></span>
-                            <button 
-                              @click.stop="requestDeleteSerpBadge(kw, day.snapshot_date)" 
-                              class="text-slate-400 hover:text-red-600 transition-colors ml-0.5" 
-                              title="Remove rank for this keyword on this date"
-                            >✕</button>
-                          </span>
-                        </template>
-                        <template x-if="!day.ranking_keywords || day.ranking_keywords.length === 0">
-                          <span class="px-2 py-0.5 rounded bg-slate-50 text-slate-400 border border-slate-200 text-[11px]">Direct / Pillar</span>
-                        </template>
+                    <!-- Saves + 24h delta -->
+                    <td class="p-2.5 text-right whitespace-nowrap">
+                      <div class="flex items-baseline justify-end gap-1.5">
+                        <span class="font-bold text-emerald-700" x-text="formatNumber(day.save_count)"></span>
+                        <span 
+                          class="px-1 py-0.2 rounded text-[10px] font-mono font-semibold"
+                          :class="computeDeltaByDate(day.snapshot_date, 'save_count') > 0 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : (computeDeltaByDate(day.snapshot_date, 'save_count') < 0 ? 'bg-red-50 text-red-700 border border-red-200' : 'text-slate-400')" 
+                          x-text="computeDeltaByDate(day.snapshot_date, 'save_count') > 0 ? '+' + formatNumber(computeDeltaByDate(day.snapshot_date, 'save_count')) : (computeDeltaByDate(day.snapshot_date, 'save_count') < 0 ? formatNumber(computeDeltaByDate(day.snapshot_date, 'save_count')) : '0')"
+                        ></span>
                       </div>
                     </td>
-                    <td class="p-3">
+                    <!-- Repins + delta -->
+                    <td class="p-2.5 text-right whitespace-nowrap">
+                      <div class="flex items-baseline justify-end gap-1.5">
+                        <span class="font-bold text-pink-700" x-text="formatNumber(day.repin_count)"></span>
+                        <span 
+                          class="px-1 py-0.2 rounded text-[10px] font-mono"
+                          :class="computeDeltaByDate(day.snapshot_date, 'repin_count') > 0 ? 'bg-pink-50 text-pink-700' : 'text-slate-400'" 
+                          x-text="computeDeltaByDate(day.snapshot_date, 'repin_count') > 0 ? '+' + formatNumber(computeDeltaByDate(day.snapshot_date, 'repin_count')) : '0'"
+                        ></span>
+                      </div>
+                    </td>
+                    <!-- Velocity -->
+                    <td class="p-2.5 text-right text-amber-700 font-medium whitespace-nowrap" x-text="'+' + (day.daily_save_velocity || 0) + '/d'"></td>
+                    <!-- Peak Rank -->
+                    <td class="p-2.5 text-center whitespace-nowrap">
                       <template x-if="day.best_rank && day.best_rank !== 999">
-                        <span class="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold" x-text="'#' + day.best_rank"></span>
+                        <span class="px-2 py-0.5 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold" x-text="'#' + day.best_rank"></span>
                       </template>
                       <template x-if="!day.best_rank || day.best_rank === 999">
-                        <span class="px-2 py-0.5 rounded bg-slate-100 text-slate-400 border border-slate-200">N/A</span>
+                        <span class="px-2 py-0.5 rounded-lg bg-slate-100 text-slate-400 border border-slate-200">N/A</span>
                       </template>
                     </td>
-                    <td class="p-3 text-emerald-700 font-bold" x-text="formatNumber(day.save_count)"></td>
-                    <td class="p-3">
-                      <span 
-                        :class="computeDeltaByDate(day.snapshot_date, 'save_count') > 0 ? 'text-emerald-700 font-semibold' : (computeDeltaByDate(day.snapshot_date, 'save_count') < 0 ? 'text-red-700 font-semibold' : 'text-slate-400')" 
-                        x-text="computeDeltaByDate(day.snapshot_date, 'save_count') > 0 ? '+' + formatNumber(computeDeltaByDate(day.snapshot_date, 'save_count')) : (computeDeltaByDate(day.snapshot_date, 'save_count') < 0 ? formatNumber(computeDeltaByDate(day.snapshot_date, 'save_count')) : '0')"
-                      ></span>
+                    <!-- Keyword Health / Targeted Keyword -->
+                    <td class="p-2.5 whitespace-nowrap">
+                      <!-- Default Mode: Summary Health Badges -->
+                      <template x-if="selectedKeywordFilter === 'ALL'">
+                        <div class="flex items-center gap-1.5">
+                          <template x-if="dayKeywordSummary(day).top3 > 0">
+                            <span class="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold" x-text="dayKeywordSummary(day).top3 + ' in Top 3'"></span>
+                          </template>
+                          <template x-if="dayKeywordSummary(day).top10 > 0">
+                            <span class="px-2 py-0.5 rounded-md bg-sky-50 text-sky-700 border border-sky-200 text-[10px] font-semibold" x-text="dayKeywordSummary(day).top10 + ' in Top 10'"></span>
+                          </template>
+                          <template x-if="dayKeywordSummary(day).vault > 0">
+                            <span class="px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-200 text-[10px]" x-text="dayKeywordSummary(day).vault + ' Vault'"></span>
+                          </template>
+                          <span class="text-[11px] text-slate-400 font-mono" x-text="'(' + dayKeywordSummary(day).total + ' kws)'"></span>
+                        </div>
+                      </template>
+                      <!-- Filtered Mode: Show targeted keyword badge directly -->
+                      <template x-if="selectedKeywordFilter !== 'ALL'">
+                        <div class="flex items-center gap-1.5">
+                          <template x-for="kw in getSpecificKeywordForDay(day, selectedKeywordFilter)" :key="kw.keyword">
+                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium border" :class="kw.is_displaced ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'">
+                              <span class="font-bold" x-text="kw.rank ? ('#' + kw.rank) : 'Unranked'"></span>
+                              <span x-text="kw.keyword"></span>
+                            </span>
+                          </template>
+                        </div>
+                      </template>
                     </td>
-                    <td class="p-3 text-pink-700 font-bold" x-text="formatNumber(day.repin_count)"></td>
-                    <td class="p-3 text-amber-700 font-medium" x-text="'+' + (day.daily_save_velocity || 0) + '/d'"></td>
-                    <td class="p-3 text-right">
-                      <button 
-                        @click="requestDeleteDay(day.snapshot_date)" 
-                        class="px-2.5 py-1 rounded bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-[11px] transition-colors"
-                        title="Delete all data for this day from Shard"
-                      >
-                        Delete Day ✕
-                      </button>
+                    <!-- Action Buttons -->
+                    <td class="p-2.5 text-right pr-4 whitespace-nowrap" @click.stop>
+                      <div class="flex items-center justify-end gap-1.5">
+                        <button 
+                          @click="toggleDayExpanded(day.snapshot_date)" 
+                          class="px-2.5 py-1 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 text-[11px] font-mono transition-colors flex items-center gap-1"
+                        >
+                          <span x-text="isDayExpanded(day.snapshot_date) ? 'Close' : 'View ' + (day.ranking_keywords?.length || 0)"></span>
+                          <span class="text-[9px]" x-text="isDayExpanded(day.snapshot_date) ? '▲' : '▼'"></span>
+                        </button>
+                        <button 
+                          @click="requestDeleteDay(day.snapshot_date)" 
+                          class="px-2 py-1 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-700 border border-transparent hover:border-red-200 text-[11px] font-mono transition-colors"
+                          title="Delete all data for this day from Shard"
+                        >
+                          Delete ✕
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+
+                  <!-- ACCORDION SUB-DRAWER: EXPANDED KEYWORDS TABLE -->
+                  <tr x-show="isDayExpanded(day.snapshot_date)" class="bg-slate-50/70 border-b-2 border-slate-200">
+                    <td colspan="8" class="p-3 sm:p-4">
+                      <div class="flex flex-col gap-3 bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
+                        <!-- Drawer Controls Ribbon -->
+                        <div class="flex flex-col md:flex-row md:items-center justify-between gap-2.5 pb-2 border-b border-slate-100">
+                          <!-- Category Filter Pills -->
+                          <div class="flex flex-wrap items-center gap-1 text-[11px] font-mono">
+                            <span class="text-slate-400 mr-1">Filter Ranks:</span>
+                            <button 
+                              @click="drawerCategoryFilter = 'ALL'" 
+                              :class="drawerCategoryFilter === 'ALL' ? 'bg-slate-900 text-white font-bold' : 'bg-slate-100 text-slate-600 hover:text-slate-900'" 
+                              class="px-2 py-0.5 rounded-md transition-colors"
+                            >
+                              All (<span x-text="day.ranking_keywords?.length || 0"></span>)
+                            </button>
+                            <button 
+                              @click="drawerCategoryFilter = 'TOP3'" 
+                              :class="drawerCategoryFilter === 'TOP3' ? 'bg-emerald-600 text-white font-bold' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'" 
+                              class="px-2 py-0.5 rounded-md transition-colors"
+                            >
+                              Top 3 (<span x-text="dayKeywordSummary(day).top3"></span>)
+                            </button>
+                            <button 
+                              @click="drawerCategoryFilter = 'TOP10'" 
+                              :class="drawerCategoryFilter === 'TOP10' ? 'bg-sky-600 text-white font-bold' : 'bg-sky-50 text-sky-700 hover:bg-sky-100'" 
+                              class="px-2 py-0.5 rounded-md transition-colors"
+                            >
+                              Ranks 4-10 (<span x-text="dayKeywordSummary(day).top10"></span>)
+                            </button>
+                            <button 
+                              @click="drawerCategoryFilter = 'VAULT'" 
+                              :class="drawerCategoryFilter === 'VAULT' ? 'bg-amber-600 text-white font-bold' : 'bg-amber-50 text-amber-800 hover:bg-amber-100'" 
+                              class="px-2 py-0.5 rounded-md transition-colors"
+                            >
+                              Displaced / Vault (<span x-text="dayKeywordSummary(day).vault"></span>)
+                            </button>
+                          </div>
+
+                          <!-- Search Input & Direct Links -->
+                          <div class="flex items-center gap-2">
+                            <input 
+                              type="text" 
+                              x-model="searchKeywordInput" 
+                              placeholder="Search keyword..." 
+                              class="px-2 py-1 rounded-md bg-slate-50 border border-slate-200 text-slate-800 text-[11px] font-mono focus:outline-none focus:ring-1 focus:ring-pink-500 w-36 sm:w-48"
+                            />
+                            <a :href="'/keywords'" class="text-[11px] text-pink-600 hover:underline font-mono hidden sm:inline">Keywords Fleet →</a>
+                          </div>
+                        </div>
+
+                        <!-- High-Density Sub-Table -->
+                        <div class="overflow-x-auto rounded-lg border border-slate-100">
+                          <table class="w-full text-left text-xs font-mono border-collapse">
+                            <thead>
+                              <tr class="bg-slate-50/80 text-slate-600 text-[10px] uppercase border-b border-slate-100 h-7">
+                                <th class="p-2 font-semibold">Target Keyword</th>
+                                <th class="p-2 font-semibold text-center w-32">SERP Position</th>
+                                <th class="p-2 font-semibold text-right">Attributed Saves</th>
+                                <th class="p-2 font-semibold text-right">Velocity</th>
+                                <th class="p-2 font-semibold text-right pr-3 w-24">Action</th>
+                              </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100">
+                              <template x-for="kw in filteredKeywordsForDay(day)" :key="kw.keyword_id || kw.keyword">
+                                <tr class="hover:bg-slate-50/60 transition-colors h-7">
+                                  <!-- Keyword link -->
+                                  <td class="p-2 font-semibold">
+                                    <a :href="'/keywords/' + encodeURIComponent(kw.keyword)" target="_blank" class="text-slate-900 hover:text-pink-600 transition-colors flex items-center gap-1.5">
+                                      <span class="w-1.5 h-1.5 rounded-full" :class="kw.is_displaced ? 'bg-amber-500' : 'bg-emerald-500'"></span>
+                                      <span x-text="kw.keyword"></span>
+                                      <span class="text-[10px] text-slate-400">↗</span>
+                                    </a>
+                                  </td>
+                                  <!-- Rank + Movement -->
+                                  <td class="p-2 text-center whitespace-nowrap">
+                                    <template x-if="kw.rank && !kw.is_displaced">
+                                      <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold text-[11px]">
+                                        <span x-text="'#' + kw.rank"></span>
+                                        <template x-if="keywordRankMovement(day.snapshot_date, kw).status === 'up'">
+                                          <span class="text-[9px] text-emerald-800 font-bold" x-text="'▲ ' + keywordRankMovement(day.snapshot_date, kw).delta"></span>
+                                        </template>
+                                        <template x-if="keywordRankMovement(day.snapshot_date, kw).status === 'down'">
+                                          <span class="text-[9px] text-rose-700 font-bold" x-text="'▼ ' + keywordRankMovement(day.snapshot_date, kw).delta"></span>
+                                        </template>
+                                        <template x-if="keywordRankMovement(day.snapshot_date, kw).status === 'new'">
+                                          <span class="text-[9px] text-sky-700 font-medium">NEW</span>
+                                        </template>
+                                      </span>
+                                    </template>
+                                    <template x-if="kw.is_displaced">
+                                      <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-200 font-semibold text-[11px]" x-text="'[Vault #' + (kw.rank || 101) + ']'"></span>
+                                    </template>
+                                  </td>
+                                  <!-- Attributed saves -->
+                                  <td class="p-2 text-right text-emerald-700 font-bold whitespace-nowrap" x-text="formatNumber(kw.saves || day.save_count)"></td>
+                                  <!-- Velocity -->
+                                  <td class="p-2 text-right text-amber-700 font-medium whitespace-nowrap" x-text="'+' + (kw.velocity || day.daily_save_velocity || 0) + '/d'"></td>
+                                  <!-- Remove rank badge button -->
+                                  <td class="p-2 text-right pr-3 whitespace-nowrap">
+                                    <button 
+                                      @click.stop="requestDeleteSerpBadge(kw, day.snapshot_date)" 
+                                      class="text-slate-400 hover:text-red-600 transition-colors px-1 py-0.5 text-[11px]" 
+                                      title="Remove rank for this keyword on this date"
+                                    >
+                                      Delete ✕
+                                    </button>
+                                  </td>
+                                </tr>
+                              </template>
+                              <tr x-show="!filteredKeywordsForDay(day).length">
+                                <td colspan="5" class="p-4 text-center text-slate-400 font-mono text-[11px]">
+                                  No keywords match the selected category filter or search query.
+                                </td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
                     </td>
                   </tr>
                 </template>
@@ -729,6 +920,57 @@ export function getPinDetailPageHtml(pinId = '') {
                     No telemetry records match the selected SERP filter.
                   </td>
                 </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- VIEW 2: SERP TRAJECTORY MATRIX (HEATMAP VIEW) -->
+          <div x-show="historyViewMode === 'matrix'" class="overflow-x-auto rounded-xl border border-slate-200 shadow-2xs bg-white">
+            <table class="w-full text-left text-xs font-mono border-collapse">
+              <thead>
+                <tr class="bg-slate-50 text-slate-700 border-b border-slate-200 h-9">
+                  <th class="p-2.5 font-semibold sticky left-0 bg-slate-50 border-r border-slate-200 z-10 min-w-[200px]">
+                    Monitored Keyword (<span x-text="getAllMatrixKeywords().length"></span>)
+                  </th>
+                  <template x-for="day in filteredDays()" :key="day.snapshot_date">
+                    <th class="p-2.5 font-semibold text-center whitespace-nowrap min-w-[100px]" x-text="day.snapshot_date"></th>
+                  </template>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100">
+                <template x-for="kwItem in getAllMatrixKeywords()" :key="kwItem.keyword">
+                  <tr class="hover:bg-slate-50/80 transition-colors h-8">
+                    <!-- Sticky keyword column -->
+                    <td class="p-2.5 font-semibold sticky left-0 bg-white group-hover:bg-slate-50 border-r border-slate-100 z-10 whitespace-nowrap">
+                      <a :href="'/keywords/' + encodeURIComponent(kwItem.keyword)" target="_blank" class="text-slate-900 hover:text-pink-600 transition-colors flex items-center gap-1.5">
+                        <span class="w-1.5 h-1.5 rounded-full" :class="kwItem.is_displaced ? 'bg-amber-500' : 'bg-emerald-500'"></span>
+                        <span class="truncate max-w-[180px]" x-text="kwItem.keyword"></span>
+                      </a>
+                    </td>
+                    <!-- Date cells -->
+                    <template x-for="day in filteredDays()" :key="day.snapshot_date">
+                      <td class="p-2 text-center whitespace-nowrap">
+                        <template x-if="getMatrixCell(day, kwItem.keyword)">
+                          <div>
+                            <template x-if="getMatrixCell(day, kwItem.keyword).rank && !getMatrixCell(day, kwItem.keyword).is_displaced">
+                              <span 
+                                class="inline-block px-2 py-0.5 rounded text-[11px] font-bold border"
+                                :class="getMatrixCell(day, kwItem.keyword).rank <= 3 ? 'bg-emerald-100 text-emerald-800 border-emerald-300' : (getMatrixCell(day, kwItem.keyword).rank <= 10 ? 'bg-sky-100 text-sky-800 border-sky-300' : 'bg-slate-100 text-slate-700 border-slate-200')"
+                                x-text="'#' + getMatrixCell(day, kwItem.keyword).rank"
+                              ></span>
+                            </template>
+                            <template x-if="getMatrixCell(day, kwItem.keyword).is_displaced">
+                              <span class="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-800 border border-amber-300" x-text="'V #' + (getMatrixCell(day, kwItem.keyword).rank || 101)"></span>
+                            </template>
+                          </div>
+                        </template>
+                        <template x-if="!getMatrixCell(day, kwItem.keyword)">
+                          <span class="text-slate-300 text-xs">—</span>
+                        </template>
+                      </td>
+                    </template>
+                  </tr>
+                </template>
               </tbody>
             </table>
           </div>
@@ -887,6 +1129,10 @@ export function getPinDetailPageHtml(pinId = '') {
         isDeleting: false,
         isSyncing: false,
         selectedKeywordFilter: 'ALL',
+        historyViewMode: 'ledger',
+        expandedDays: {},
+        drawerCategoryFilter: 'ALL',
+        searchKeywordInput: '',
         toast: {
           show: false,
           message: '',
@@ -1253,6 +1499,101 @@ export function getPinDetailPageHtml(pinId = '') {
             : this.synthesizeDailyTrajectoryFromSnapshots();
           if (!traj[currentIdx]) return 0;
           return this.computeDeltaByDate(traj[currentIdx].snapshot_date, field);
+        },
+
+        toggleDayExpanded(date) {
+          if (!date) return;
+          this.expandedDays[date] = !this.expandedDays[date];
+        },
+
+        isDayExpanded(date) {
+          return Boolean(this.expandedDays[date]);
+        },
+
+        expandAllDays() {
+          const days = this.filteredDays();
+          const next = {};
+          for (const d of days) {
+            if (d.snapshot_date) next[d.snapshot_date] = true;
+          }
+          this.expandedDays = next;
+        },
+
+        collapseAllDays() {
+          this.expandedDays = {};
+        },
+
+        dayKeywordSummary(day) {
+          const kws = Array.isArray(day?.ranking_keywords) ? day.ranking_keywords : [];
+          const total = kws.length;
+          const top3 = kws.filter(k => !k.is_displaced && k.rank && Number(k.rank) <= 3).length;
+          const top10 = kws.filter(k => !k.is_displaced && k.rank && Number(k.rank) > 3 && Number(k.rank) <= 10).length;
+          const vault = kws.filter(k => k.is_displaced || (k.rank && Number(k.rank) > 100)).length;
+          return { total, top3, top10, vault };
+        },
+
+        filteredKeywordsForDay(day) {
+          let list = Array.isArray(day?.ranking_keywords) ? day.ranking_keywords : [];
+          if (this.selectedKeywordFilter && this.selectedKeywordFilter !== 'ALL') {
+            list = list.filter(k => k.keyword === this.selectedKeywordFilter);
+          }
+          if (this.searchKeywordInput && this.searchKeywordInput.trim()) {
+            const q = this.searchKeywordInput.trim().toLowerCase();
+            list = list.filter(k => (k.keyword || '').toLowerCase().includes(q));
+          }
+          if (this.drawerCategoryFilter === 'TOP3') {
+            list = list.filter(k => !k.is_displaced && k.rank && Number(k.rank) <= 3);
+          } else if (this.drawerCategoryFilter === 'TOP10') {
+            list = list.filter(k => !k.is_displaced && k.rank && Number(k.rank) > 3 && Number(k.rank) <= 10);
+          } else if (this.drawerCategoryFilter === 'VAULT') {
+            list = list.filter(k => k.is_displaced || (k.rank && Number(k.rank) > 100));
+          }
+          return list;
+        },
+
+        keywordRankMovement(dayDate, kw) {
+          if (!this._cachedDateMap) this.rebuildDateMapCache();
+          const entry = this._cachedDateMap?.get(dayDate);
+          if (!entry || !entry.previous) return { delta: 0, status: 'steady' };
+          const prevKws = entry.previous.ranking_keywords || [];
+          const prev = prevKws.find(p => p.keyword === kw.keyword || (kw.keyword_id && p.keyword_id === kw.keyword_id));
+          if (!prev || !prev.rank || prev.is_displaced) {
+            return { delta: 0, status: 'new' };
+          }
+          const currRank = Number(kw.rank || 999);
+          const prevRank = Number(prev.rank || 999);
+          const diff = prevRank - currRank;
+          if (diff > 0) return { delta: diff, status: 'up' };
+          if (diff < 0) return { delta: Math.abs(diff), status: 'down' };
+          return { delta: 0, status: 'steady' };
+        },
+
+        getSpecificKeywordForDay(day, kwName) {
+          const list = Array.isArray(day?.ranking_keywords) ? day.ranking_keywords : [];
+          return list.filter(k => k.keyword === kwName);
+        },
+
+        getAllMatrixKeywords() {
+          const days = this.filteredDays();
+          const map = new Map();
+          for (const day of days) {
+            for (const kw of (day.ranking_keywords || [])) {
+              if (kw.keyword && !map.has(kw.keyword)) {
+                map.set(kw.keyword, {
+                  keyword: kw.keyword,
+                  keyword_id: kw.keyword_id,
+                  bestRank: Number(kw.rank || 999),
+                  is_displaced: Boolean(kw.is_displaced)
+                });
+              }
+            }
+          }
+          return Array.from(map.values()).sort((a, b) => (a.bestRank || 999) - (b.bestRank || 999));
+        },
+
+        getMatrixCell(day, keywordName) {
+          const kw = (day.ranking_keywords || []).find(k => k.keyword === keywordName);
+          return kw || null;
         },
 
         totalEngagementScore() {
