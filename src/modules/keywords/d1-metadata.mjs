@@ -31,10 +31,13 @@ export async function ensureEdgePinsMetadataTable(env) {
         seo_alt_text TEXT DEFAULT '',
         description TEXT DEFAULT '',
         metadata TEXT DEFAULT '{}',
+        daily_trajectory TEXT DEFAULT '[]',
         created_at_pinterest TEXT,
         updated_at TEXT DEFAULT (datetime('now'))
       )
     `).run().catch(() => {});
+    // Defensive column upgrade if table was initialized by earlier migration
+    await env.PIN_D1_DB.prepare(`ALTER TABLE edge_pins_metadata ADD COLUMN daily_trajectory TEXT DEFAULT '[]'`).run().catch(() => {});
     await env.PIN_D1_DB.prepare(`CREATE INDEX IF NOT EXISTS idx_edge_pins_domain ON edge_pins_metadata(domain)`).run().catch(() => {});
     isEdgePinsMetadataReady = true;
   } catch (_) {}
@@ -70,12 +73,13 @@ export async function syncPinsBatchToD1(env, pins = []) {
         const metaObj = (p.metadata && typeof p.metadata === 'object')
           ? p.metadata
           : ((p.extra_meta && typeof p.extra_meta === 'object') ? p.extra_meta : {});
+        const trajectoryArr = Array.isArray(p.daily_trajectory) ? p.daily_trajectory : [];
         return env.PIN_D1_DB.prepare(`
           INSERT INTO edge_pins_metadata (
             pin_id, title, domain, destination_url, image_url,
             creator_username, board_name, dominant_color, visual_annotations,
-            seo_alt_text, description, metadata, created_at_pinterest, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            seo_alt_text, description, metadata, daily_trajectory, created_at_pinterest, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(pin_id) DO UPDATE SET
             title = CASE WHEN excluded.title <> '' THEN excluded.title ELSE edge_pins_metadata.title END,
             domain = CASE WHEN excluded.domain <> '' THEN excluded.domain ELSE edge_pins_metadata.domain END,
@@ -88,6 +92,7 @@ export async function syncPinsBatchToD1(env, pins = []) {
             seo_alt_text = CASE WHEN excluded.seo_alt_text <> '' THEN excluded.seo_alt_text ELSE edge_pins_metadata.seo_alt_text END,
             description = CASE WHEN excluded.description <> '' THEN excluded.description ELSE edge_pins_metadata.description END,
             metadata = CASE WHEN excluded.metadata <> '{}' AND excluded.metadata <> '' THEN excluded.metadata ELSE edge_pins_metadata.metadata END,
+            daily_trajectory = CASE WHEN excluded.daily_trajectory <> '[]' AND excluded.daily_trajectory <> '' THEN excluded.daily_trajectory ELSE edge_pins_metadata.daily_trajectory END,
             created_at_pinterest = COALESCE(excluded.created_at_pinterest, edge_pins_metadata.created_at_pinterest),
             updated_at = excluded.updated_at
         `).bind(
@@ -103,6 +108,7 @@ export async function syncPinsBatchToD1(env, pins = []) {
           String(p.seo_alt_text || p.alt_text || p.metadata?.alt_text || ''),
           String(p.description || p.metadata?.description || ''),
           JSON.stringify(metaObj),
+          JSON.stringify(trajectoryArr),
           p.created_at_pinterest ? new Date(p.created_at_pinterest).toISOString() : null,
           nowIso
         );
@@ -134,7 +140,7 @@ export async function hydratePinsFromD1(env, pinIds = []) {
       const placeholders = slice.map(() => '?').join(',');
       stmts.push(
         env.PIN_D1_DB.prepare(
-          `SELECT pin_id, title, domain, destination_url, image_url, creator_username, board_name, dominant_color, visual_annotations, seo_alt_text, description, metadata, created_at_pinterest FROM edge_pins_metadata WHERE pin_id IN (${placeholders})`
+          `SELECT pin_id, title, domain, destination_url, image_url, creator_username, board_name, dominant_color, visual_annotations, seo_alt_text, description, metadata, daily_trajectory, created_at_pinterest FROM edge_pins_metadata WHERE pin_id IN (${placeholders})`
         ).bind(...slice)
       );
     }
@@ -154,10 +160,17 @@ export async function hydratePinsFromD1(env, pinIds = []) {
         } else if (r.metadata && typeof r.metadata === 'object') {
           parsedMeta = r.metadata;
         }
+        let parsedTrajectory = [];
+        if (typeof r.daily_trajectory === 'string' && r.daily_trajectory.trim()) {
+          try { parsedTrajectory = JSON.parse(r.daily_trajectory); } catch (_) {}
+        } else if (Array.isArray(r.daily_trajectory)) {
+          parsedTrajectory = r.daily_trajectory;
+        }
         map.set(String(r.pin_id), {
           ...r,
           metadata: parsedMeta,
           visual_annotations: Array.isArray(parsedAnnotations) ? parsedAnnotations : [],
+          daily_trajectory: parsedTrajectory,
           alt_text: r.seo_alt_text || '',
           creation_method: parsedMeta.creation_method || parsedMeta.method || null
         });

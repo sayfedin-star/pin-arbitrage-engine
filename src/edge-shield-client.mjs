@@ -214,10 +214,14 @@ export function getEdgeShieldClientScript() {
       }).catch(function() {});
     }, 240000);
 
-    // 3. Smart Prefetch on Hover (120ms debounce)
-    // Wakes up ONLY the specific target shard (O(1)) for the hovered pin
+    // 3. Smart Prefetch & Predictive JIT Warming on Hover (130ms debounce)
+    // [INVARIANT: PREDICTIVE-HOVER-JIT-WARMING]
+    // [INVARIANT: SAFE-PREFETCH-EDGE-ONLY]
+    // 1. Fast Edge Prefetch (< 3ms) from Cloudflare D1 / KV cache
+    // 2. Predictive JIT Warming ping to background-wake target shard before click navigation
     var hoverPrefetchTimer = null;
     var prefetchCache = new Set();
+    var warmCache = new Set();
 
     document.addEventListener('mouseover', function(e) {
       var pinCard = e.target.closest('[data-pin-id], a[href*="/pin/"], a[href*="/pins/"]');
@@ -230,12 +234,20 @@ export function getEdgeShieldClientScript() {
         var match = pinCard.href.match(/\\/pins?\\/([0-9]{10,})/);
         if (match) pid = match[1];
       }
-      if (pid && pid.length >= 10 && !isNaN(Number(pid)) && !prefetchCache.has(pid)) {
+      if (pid && pid.length >= 10 && !isNaN(Number(pid))) {
         if (hoverPrefetchTimer) clearTimeout(hoverPrefetchTimer);
         hoverPrefetchTimer = setTimeout(function() {
-          prefetchCache.add(pid);
-          fetch('/api/pins/' + pid + '?prefetch=true', { method: 'GET' }).catch(function() {});
-        }, 120);
+          // A. Edge Prefetch (< 3ms) from D1/KV
+          if (!prefetchCache.has(pid)) {
+            prefetchCache.add(pid);
+            fetch('/api/pins/' + pid + '?prefetch=true', { method: 'GET' }).catch(function() {});
+          }
+          // B. Predictive JIT Shard Pre-Warming (Targeted O(1) Wakeup)
+          if (!warmCache.has(pid)) {
+            warmCache.add(pid);
+            fetch('/api/fleet/warm?pin_id=' + pid, { method: 'GET' }).catch(function() {});
+          }
+        }, 130);
       }
     }, { passive: true });
 

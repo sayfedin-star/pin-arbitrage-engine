@@ -12,8 +12,14 @@ import {
   pingFleetProject,
   getFleetProjectUrl
 } from '../modules/fleet/service.mjs';
-import { resolveShardConnection } from '../modules/sharding/fleet-router.mjs';
+import { resolveShardConnection, getPinShardId } from '../modules/sharding/fleet-router.mjs';
 import { maskDatabaseUrl } from '../utils.mjs';
+
+// Predictive Hover JIT Warming deduplication & rate limiting
+const recentWarmedShards = new Map(); // shardId -> epochMs
+const inFlightWarms = new Set(); // Set<shardId>
+const MAX_CONCURRENT_WARMS = 4;
+const WARM_COOLDOWN_MS = 15000;
 
 /**
  * Handles incoming /api/fleet/* requests.
@@ -146,6 +152,122 @@ export async function handleFleetRoutes(routeCtx) {
       alive: true,
       timestamp: Date.now(),
       shards_pinged: uniqueShards.length
+    }, 200, 0);
+  }
+
+  // 7. Predictive Hover JIT Warming API
+  // [INVARIANT: PREDICTIVE-HOVER-JIT-WARMING]
+  // Wakes up dormant Neon Shards (1-99) in the background before the user completes navigation click.
+  // Safely guarded with deduplication (15s cooldown) and concurrency throttling (max 4 concurrent pings).
+  if (pathname === '/api/fleet/warm') {
+    if (method !== 'GET' && method !== 'POST') {
+      return methodNotAllowedResponse('GET, POST, OPTIONS');
+    }
+
+    let targetShardId = null;
+    const pinIdParam = searchParams.get('pin_id') || searchParams.get('pinId');
+    const shardParam = searchParams.get('shard') || searchParams.get('shard_id');
+
+    if (pinIdParam) {
+      targetShardId = getPinShardId(pinIdParam, 99);
+    } else if (shardParam && !isNaN(Number(shardParam))) {
+      const sNum = Number(shardParam);
+      if (sNum >= 1 && sNum <= 99) {
+        targetShardId = sNum;
+      }
+    }
+
+    if (!targetShardId && method === 'POST') {
+      const body = await request.json().catch(() => ({}));
+      if (body?.pin_id || body?.pinId) {
+        targetShardId = getPinShardId(body.pin_id || body.pinId, 99);
+      } else if (body?.shard || body?.shard_id) {
+        const sNum = Number(body.shard || body.shard_id);
+        if (sNum >= 1 && sNum <= 99) targetShardId = sNum;
+      }
+    }
+
+    if (!targetShardId) {
+      return jsonResponse({
+        success: false,
+        error: 'INVALID_PARAM',
+        message: 'Provide pin_id or shard (1-99)'
+      }, 400);
+    }
+
+    const now = Date.now();
+    const lastWarmed = recentWarmedShards.get(targetShardId) || 0;
+
+    // A. 15s Cooldown Deduplication: Shard is already awake or waking up
+    if (now - lastWarmed < WARM_COOLDOWN_MS) {
+      return jsonResponse({
+        success: true,
+        warmed: false,
+        cached: true,
+        shard_id: targetShardId,
+        message: `Shard ${targetShardId} warming in cooldown (already active)`
+      }, 200, 0);
+    }
+
+    // B. In-flight Guard: Ping already dispatched
+    if (inFlightWarms.has(targetShardId)) {
+      return jsonResponse({
+        success: true,
+        warmed: false,
+        in_flight: true,
+        shard_id: targetShardId,
+        message: `Shard ${targetShardId} is currently warming`
+      }, 200, 0);
+    }
+
+    // C. Concurrency Limiter: Shed extra requests if already at capacity
+    if (inFlightWarms.size >= MAX_CONCURRENT_WARMS) {
+      return jsonResponse({
+        success: true,
+        warmed: false,
+        rate_limited: true,
+        shard_id: targetShardId,
+        message: 'Max concurrent warming operations reached'
+      }, 200, 0);
+    }
+
+    recentWarmedShards.set(targetShardId, now);
+    inFlightWarms.add(targetShardId);
+
+    // Prune stale cache entries
+    if (recentWarmedShards.size > 200) {
+      for (const [s, ts] of recentWarmedShards.entries()) {
+        if (now - ts > WARM_COOLDOWN_MS * 2) recentWarmedShards.delete(s);
+      }
+    }
+
+    let warmShard = targetShardId;
+    const warmPromise = (async () => {
+      try {
+        const shardSql = await resolveShardConnection({ hubSql: sql, shardId: warmShard, env });
+        if (shardSql) {
+          await shardSql`SELECT 1;`;
+        }
+      } catch (_) {
+        // Non-fatal background wake-up ping
+      } finally {
+        if (warmShard != null) {
+          inFlightWarms.delete(warmShard);
+        }
+      }
+    })();
+
+    if (ctx && typeof ctx.waitUntil === 'function') {
+      safeWaitUntil(ctx, warmPromise, `jit_warm_shard_${targetShardId}`);
+    } else {
+      warmPromise.catch(() => {});
+    }
+
+    return jsonResponse({
+      success: true,
+      warmed: true,
+      shard_id: targetShardId,
+      timestamp: now
     }, 200, 0);
   }
 
