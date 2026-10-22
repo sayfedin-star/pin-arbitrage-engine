@@ -905,7 +905,9 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
                   is_displaced: false,
                   last_known_rank: null,
                   catalog_rank: null,
-                  created_at: r.updated_at
+                  created_at: r.updated_at,
+                  crawled_at: r.updated_at,
+                  updated_at: r.updated_at
                 });
               } else {
                 for (const pos of rankings) {
@@ -923,7 +925,9 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
                     is_displaced: Boolean(pos.is_displaced),
                     last_known_rank: pos.last_known_rank,
                     catalog_rank: pos.catalog_rank,
-                    created_at: r.updated_at
+                    created_at: r.updated_at,
+                    crawled_at: r.updated_at,
+                    updated_at: r.updated_at
                   });
                 }
               }
@@ -937,7 +941,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
           SELECT 
             id, snapshot_date::text AS snapshot_date, rank_position, is_displaced, save_count, repin_count,
             comment_count, share_count, reaction_count, daily_save_velocity,
-            keyword_id, competitor_id, created_at
+            keyword_id, competitor_id, created_at, created_at AS crawled_at, created_at AS updated_at
           FROM pins_daily_snapshots
           WHERE pin_id = ${cleanPinId}
           ORDER BY snapshot_date DESC, created_at DESC
@@ -1267,6 +1271,16 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     return '';
   }
 
+  function safeIsoDate(val, fallback = null) {
+    if (!val) return fallback;
+    try {
+      const d = new Date(val);
+      return !isNaN(d.getTime()) ? d.toISOString() : fallback;
+    } catch (_) {
+      return fallback;
+    }
+  }
+
   function getSnapTimestamp(s) {
     const t = s.created_at || s.updated_at || s.snapshot_date;
     return t ? new Date(t).getTime() : 0;
@@ -1280,58 +1294,91 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     snapshotMap.set(dedupKey, s);
   }
 
-  // Synthesize live in-memory SERP points for today from Hub active catalog if crawled today (read-time only, no DB writes)
-  const todayUtc = new Date().toISOString().slice(0, 10);
+  // [INVARIANT: ZERO-HUB-SNAPSHOTS]
+  // Synthesize live in-memory SERP points from Hub active catalog (read-time only, no DB writes)
+  // Decoupled from strict todayUtc: Any valid crawl date represents a valid telemetry capture point
   for (const sc of hubSerpRows) {
     const crawlDate = sc.crawled_at || sc.updated_at;
     const crawlIso = formatUtcDate(crawlDate);
-    const isToday = Boolean(crawlIso && crawlIso === todayUtc);
-    if (isToday) {
-      const dedupKey = `${todayUtc}_${sc.keyword_id || 'global'}`;
-      if (!snapshotMap.has(dedupKey)) {
-        const livePoint = {
-          pin_id: cleanPinId,
-          keyword_id: sc.keyword_id,
-          keyword_name: sc.keyword_name,
-          snapshot_date: todayUtc,
-          rank_position: sc.rank_position ?? sc.last_known_rank ?? null,
-          last_known_rank: sc.last_known_rank ?? null,
-          is_displaced: Boolean(sc.is_displaced),
-          save_count: Number(sc.save_count || 0),
-          repin_count: Number(sc.repin_count || 0),
-          comment_count: Number(sc.comment_count || 0),
-          share_count: Number(sc.share_count || 0),
-          reaction_count: Number(sc.reaction_count || 0),
-          daily_save_velocity: (sc.daily_save_velocity !== undefined && sc.daily_save_velocity !== null) ? Number(sc.daily_save_velocity) : 0,
-          created_at: sc.updated_at || new Date().toISOString(),
-          metadata: sc.metadata || {}
-        };
-        snapshotMap.set(dedupKey, livePoint);
-      }
+    if (crawlIso) {
+      const dedupKey = `${crawlIso}_${sc.keyword_id || 'global'}`;
+      const crawlIsoStr = safeIsoDate(sc.crawled_at) || safeIsoDate(sc.updated_at) || (crawlIso + 'T00:00:00.000Z');
+      const updatedIsoStr = safeIsoDate(sc.updated_at) || crawlIsoStr;
+      const livePoint = {
+        pin_id: cleanPinId,
+        keyword_id: sc.keyword_id,
+        keyword_name: sc.keyword_name,
+        snapshot_date: crawlIso,
+        rank_position: sc.rank_position ?? sc.last_known_rank ?? null,
+        last_known_rank: sc.last_known_rank ?? null,
+        is_displaced: Boolean(sc.is_displaced),
+        save_count: Number(sc.save_count || 0),
+        repin_count: Number(sc.repin_count || 0),
+        comment_count: Number(sc.comment_count || 0),
+        share_count: Number(sc.share_count || 0),
+        reaction_count: Number(sc.reaction_count || 0),
+        daily_save_velocity: (sc.daily_save_velocity !== undefined && sc.daily_save_velocity !== null) ? Number(sc.daily_save_velocity) : 0,
+        created_at: updatedIsoStr,
+        crawled_at: crawlIsoStr,
+        updated_at: updatedIsoStr,
+        metadata: sc.metadata || {}
+      };
 
-      if (sc.baseline_day_date && sc.baseline_day_saves != null) {
-        const baseDateStr = formatUtcDate(sc.baseline_day_date);
-        if (baseDateStr && baseDateStr < todayUtc) {
-          const baseKey = `${baseDateStr}_${sc.keyword_id || 'global'}`;
-          if (!snapshotMap.has(baseKey)) {
-            snapshotMap.set(baseKey, {
-              pin_id: cleanPinId,
-              keyword_id: sc.keyword_id,
-              keyword_name: sc.keyword_name,
-              snapshot_date: baseDateStr,
-              rank_position: sc.prev_rank_position ?? sc.rank_position ?? null,
-              last_known_rank: sc.last_known_rank ?? null,
-              is_displaced: Boolean(sc.is_displaced),
-              save_count: Number(sc.baseline_day_saves || 0),
-              repin_count: 0,
-              comment_count: 0,
-              share_count: 0,
-              reaction_count: 0,
-              daily_save_velocity: 0,
-              created_at: baseDateStr + 'T00:00:00.000Z',
-              metadata: {}
-            });
+      if (!snapshotMap.has(dedupKey)) {
+        snapshotMap.set(dedupKey, livePoint);
+      } else {
+        // [INVARIANT: PRECEDENCE-AND-RATCHET-INTEGRITY]
+        // Existing shard entry for this date: ratchet saves forward & adopt newer crawl timestamp
+        const existing = snapshotMap.get(dedupKey);
+        const existingTs = existing.crawled_at || existing.updated_at || existing.created_at;
+        const incomingTs = livePoint.crawled_at || livePoint.updated_at;
+        const isNewer = !existingTs || (incomingTs && new Date(incomingTs).getTime() >= new Date(existingTs).getTime());
+
+        existing.save_count = Math.max(Number(existing.save_count || 0), Number(livePoint.save_count || 0));
+        existing.repin_count = Math.max(Number(existing.repin_count || 0), Number(livePoint.repin_count || 0));
+        existing.comment_count = Math.max(Number(existing.comment_count || 0), Number(livePoint.comment_count || 0));
+        existing.share_count = Math.max(Number(existing.share_count || 0), Number(livePoint.share_count || 0));
+        existing.reaction_count = Math.max(Number(existing.reaction_count || 0), Number(livePoint.reaction_count || 0));
+
+        if (isNewer) {
+          existing.crawled_at = livePoint.crawled_at;
+          existing.updated_at = livePoint.updated_at;
+          if (livePoint.rank_position != null) existing.rank_position = livePoint.rank_position;
+          if (livePoint.last_known_rank != null) existing.last_known_rank = livePoint.last_known_rank;
+          if (livePoint.is_displaced != null) existing.is_displaced = livePoint.is_displaced;
+          if (livePoint.daily_save_velocity != null && livePoint.daily_save_velocity > 0) {
+            existing.daily_save_velocity = livePoint.daily_save_velocity;
           }
+        }
+      }
+    }
+
+    // Always synthesize the historical baseline point whenever present, regardless of whether the crawl date is today or yesterday
+    if (sc.baseline_day_date && sc.baseline_day_saves != null) {
+      const baseDateStr = formatUtcDate(sc.baseline_day_date);
+      if (baseDateStr && (!crawlIso || baseDateStr < crawlIso)) {
+        const baseKey = `${baseDateStr}_${sc.keyword_id || 'global'}`;
+        if (!snapshotMap.has(baseKey)) {
+          const baseIsoStr = baseDateStr + 'T00:00:00.000Z';
+          snapshotMap.set(baseKey, {
+            pin_id: cleanPinId,
+            keyword_id: sc.keyword_id,
+            keyword_name: sc.keyword_name,
+            snapshot_date: baseDateStr,
+            rank_position: sc.prev_rank_position ?? sc.rank_position ?? null,
+            last_known_rank: sc.last_known_rank ?? null,
+            is_displaced: Boolean(sc.is_displaced),
+            save_count: Number(sc.baseline_day_saves || 0),
+            repin_count: 0,
+            comment_count: 0,
+            share_count: 0,
+            reaction_count: 0,
+            daily_save_velocity: 0,
+            created_at: baseIsoStr,
+            crawled_at: baseIsoStr,
+            updated_at: baseIsoStr,
+            metadata: {}
+          });
         }
       }
     }
@@ -1514,9 +1561,13 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     );
     const lastKnownRank = s.last_known_rank || serpMatch?.last_known_rank || (isDisplaced ? (s.rank_position || serpMatch?.rank_position) : null);
     const catalogRank = s.catalog_rank || (isDisplaced ? (100 + (sIdx + 1)) : (s.rank_position || 1));
+    const crawlTimestamp = safeIsoDate(s.crawled_at || s.updated_at || s.created_at) || (sDate ? sDate + 'T00:00:00.000Z' : null);
+    const updatedTimestamp = safeIsoDate(s.updated_at) || crawlTimestamp;
     return {
       ...s,
       snapshot_date: sDate,
+      crawled_at: crawlTimestamp,
+      updated_at: updatedTimestamp,
       keyword_name: kid ? (kwMap.get(kid) || `Keyword #${kid}`) : null,
       is_displaced: isDisplaced,
       last_known_rank: lastKnownRank,
@@ -1529,6 +1580,8 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
   for (const s of enrichedSnapshots) {
     const dateKey = s.snapshot_date;
     if (!dateKey) continue;
+    const crawlTs = safeIsoDate(s.crawled_at || s.updated_at || s.created_at) || (dateKey + 'T00:00:00.000Z');
+    const updatedTs = safeIsoDate(s.updated_at) || crawlTs;
     if (!dailyMap.has(dateKey)) {
       dailyMap.set(dateKey, {
         snapshot_date: dateKey,
@@ -1536,13 +1589,19 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
         repin_count: Number(s.repin_count) || 0,
         comment_count: Number(s.comment_count) || 0,
         share_count: Number(s.share_count) || 0,
-        reaction_count: Number(s.reaction_count) || 0,
+        reaction_count: Number(s.reaction_count || 0),
         daily_save_velocity: Number(s.daily_save_velocity) || 0,
         best_rank: (s.rank_position && s.rank_position > 0) ? s.rank_position : 999,
-        ranking_keywords: []
+        ranking_keywords: [],
+        crawled_at: crawlTs,
+        updated_at: updatedTs
       });
     }
     const day = dailyMap.get(dateKey);
+    if (crawlTs && (!day.crawled_at || new Date(crawlTs).getTime() > new Date(day.crawled_at).getTime())) {
+      day.crawled_at = crawlTs;
+      day.updated_at = updatedTs;
+    }
     day.save_count = Math.max(day.save_count, Number(s.save_count) || 0);
     day.repin_count = Math.max(day.repin_count, Number(s.repin_count) || 0);
     day.comment_count = Math.max(day.comment_count, Number(s.comment_count) || 0);
@@ -2001,7 +2060,9 @@ export async function fetchPinTrajectoryFromShard({ hubSql, shardSql, pinId, tim
           reaction_count,
           repin_count,
           comment_count,
-          share_count
+          share_count,
+          updated_at,
+          updated_at AS crawled_at
         FROM pins_daily_metrics
         WHERE pin_id = ${cleanId}
         ORDER BY snapshot_date ASC

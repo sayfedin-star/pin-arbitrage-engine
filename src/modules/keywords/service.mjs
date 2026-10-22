@@ -2092,14 +2092,14 @@ export async function getKeywordSERPComparison(sql, keywordId, knownKeyword = nu
   if (env?.PIN_ENGINE_KV && !forceRefresh) {
     try {
       const kvCached = await env.PIN_ENGINE_KV.get(`serp:comp:${kid}`, { type: 'json', cacheTtl: 300 });
-      if (kvCached && kvCached.status === 'active' && Array.isArray(kvCached.current_pins) && kvCached.current_pins.length > 0) {
+      if (kvCached && kvCached.status === 'active' && Array.isArray(kvCached.current_pins) && kvCached.current_pins.length > 0 && kvCached.total_displaced_count !== undefined) {
         return { ...kvCached, source: 'kv_edge' };
       }
     } catch (_) {}
   }
 
-  // Parallel fetch: keyword metadata (if not already known), active catalog pins, distinct dates, dropped pins, and guided capsules
-  const [keywordRows, activeCatalogPins, dates, droppedOutPinsRaw, guides] = await Promise.all([
+  // Parallel fetch: keyword metadata (if not already known), active catalog pins, distinct dates, dropped pins, guided capsules, and true displaced count
+  const [keywordRows, activeCatalogPins, dates, displacedResultRaw, guides, displacedCountRow] = await Promise.all([
     actualKeyword ? Promise.resolve([actualKeyword]) : sql`SELECT * FROM tracked_keywords WHERE id = ${kid};`,
     sql`
       SELECT *
@@ -2116,17 +2116,31 @@ export async function getKeywordSERPComparison(sql, keywordId, knownKeyword = nu
     `.catch(() => []),
     // [INVARIANT: ZERO-HUB-SNAPSHOTS] Central Hub holds zero historical snapshots
     Promise.resolve([]),
-    getKeywordDisplacedPins(sql, kid, { limit: 24, env, skipShardHydration: true }).then(r => r?.pins || []).catch(() => []),
-    getKeywordGuides(sql, kid).catch(() => [])
+    getKeywordDisplacedPins(sql, kid, { limit: 24, env, skipShardHydration: true }).catch(() => null),
+    getKeywordGuides(sql, kid).catch(() => []),
+    sql`
+      SELECT COUNT(*)::int AS total 
+      FROM keyword_displaced_index 
+      WHERE keyword_id = ${kid}
+        AND NOT EXISTS (
+          SELECT 1 FROM keyword_ignored_pins kip
+          WHERE kip.keyword_id = ${kid} AND kip.pin_id = keyword_displaced_index.pin_id
+        );
+    `.catch(() => [{ total: 0 }])
   ]);
 
   const keyword = keywordRows[0];
   if (!keyword) throw new Error(`Keyword ID ${kid} not found`);
 
-  let droppedOutPins = droppedOutPinsRaw || [];
+  let droppedOutPins = displacedResultRaw?.pins || [];
   if (droppedOutPins.length === 0 && Array.isArray(keyword.metadata?.last_dropped_pins) && keyword.metadata.last_dropped_pins.length > 0) {
     droppedOutPins = keyword.metadata.last_dropped_pins;
   }
+
+  const countFromDb = Number(displacedCountRow?.[0]?.total || 0);
+  const countFromResult = Number(displacedResultRaw?.total || 0);
+  const totalDisplacedCount = Math.max(countFromDb, countFromResult, droppedOutPins.length);
+  const totalCatalogPinsCount = (Array.isArray(activeCatalogPins) ? activeCatalogPins.length : 0) + totalDisplacedCount;
 
   const latestDate = activeCatalogPins?.[0]?.crawled_at ? new Date(activeCatalogPins[0].crawled_at).toISOString().slice(0, 10) : null;
   let currentPins = Array.isArray(activeCatalogPins) && activeCatalogPins.length > 0 ? activeCatalogPins : [];
@@ -2136,12 +2150,14 @@ export async function getKeywordSERPComparison(sql, keywordId, knownKeyword = nu
       status: 'never_crawled',
       keyword,
       current_pins: [],
-      dropped_out_pins: [],
+      dropped_out_pins: droppedOutPins,
+      total_displaced_count: totalDisplacedCount,
+      total_catalog_pins_count: totalCatalogPinsCount,
       tag_frequencies: {},
       core_anchors: [],
       guides: guides || [],
       velocity_chart: { points: [], explosive: 0, trending: 0, steady: 0, stagnant: 0 },
-      stats: { total: 0, climbed: 0, dropped: 0, stable: 0, new_entries: 0, dropped_out: 0 }
+      stats: { total: 0, climbed: 0, dropped: 0, stable: 0, new_entries: 0, dropped_out: totalDisplacedCount }
     };
   }
 
@@ -2228,6 +2244,8 @@ export async function getKeywordSERPComparison(sql, keywordId, knownKeyword = nu
     has_history: dates.length > 1 || droppedOutPins.length > 0,
     current_pins: currentPins,
     dropped_out_pins: droppedOutPins,
+    total_displaced_count: totalDisplacedCount,
+    total_catalog_pins_count: totalCatalogPinsCount,
     tag_frequencies: tagFrequencies,
     core_anchors: coreAnchors,
     guides,
@@ -2246,7 +2264,7 @@ export async function getKeywordSERPComparison(sql, keywordId, knownKeyword = nu
       dropped,
       stable,
       new_entries: newEntries,
-      dropped_out: droppedOutPins.length
+      dropped_out: totalDisplacedCount
     }
   };
 
@@ -2364,18 +2382,17 @@ export async function getKeywordDisplacedPins(sql, keywordId, options = {}) {
     LIMIT ${lim} OFFSET ${off};
   `.catch(() => []);
 
-  let cntRow = null;
-  if (Array.isArray(rawRows) && rawRows.length > 0) {
-    [cntRow] = await sql`
-      SELECT COUNT(*)::int AS total
-      FROM keyword_displaced_index kdi
-      WHERE kdi.keyword_id = ${kid}
-        AND NOT EXISTS (
-          SELECT 1 FROM keyword_ignored_pins kip
-          WHERE kip.keyword_id = ${kid} AND kip.pin_id = kdi.pin_id
-        );
-    `.catch(() => []);
-  } else {
+  let [cntRow] = await sql`
+    SELECT COUNT(*)::int AS total
+    FROM keyword_displaced_index kdi
+    WHERE kdi.keyword_id = ${kid}
+      AND NOT EXISTS (
+        SELECT 1 FROM keyword_ignored_pins kip
+        WHERE kip.keyword_id = ${kid} AND kip.pin_id = kdi.pin_id
+      );
+  `.catch(() => []);
+
+  if (!cntRow || Number(cntRow.total || 0) === 0) {
     rawRows = await sql`
       SELECT 
         keyword_id, pin_id, title, domain, destination_url, image_url,
@@ -2608,6 +2625,7 @@ export async function getPinPerformanceTrajectory(sql, keywordId, pinId, range =
   for (const s of shardRows) {
     const dStr = s.snapshot_date instanceof Date ? s.snapshot_date.toISOString().slice(0, 10) : String(s.snapshot_date || '').slice(0, 10);
     if (dStr) {
+      const crawlTs = s.crawled_at || s.updated_at || s.created_at || (dStr + 'T00:00:00Z');
       dateMap.set(dStr, {
         pin_id: cleanPin,
         rank_position: s.rank_position ?? null,
@@ -2617,7 +2635,9 @@ export async function getPinPerformanceTrajectory(sql, keywordId, pinId, range =
         share_count: Number(s.share_count || 0),
         reaction_count: Number(s.reaction_count || 0),
         daily_save_velocity: Number(s.daily_save_velocity || 0),
-        snapshot_date: dStr
+        snapshot_date: dStr,
+        crawled_at: crawlTs,
+        updated_at: s.updated_at || crawlTs
       });
     }
   }
@@ -2626,6 +2646,7 @@ export async function getPinPerformanceTrajectory(sql, keywordId, pinId, range =
     const dStr = h.snapshot_date instanceof Date ? h.snapshot_date.toISOString().slice(0, 10) : String(h.snapshot_date || '').slice(0, 10);
     if (dStr) {
       const existing = dateMap.get(dStr);
+      const crawlTs = h.crawled_at || h.updated_at || (dStr + 'T00:00:00Z');
       dateMap.set(dStr, {
         pin_id: cleanPin,
         rank_position: h.rank_position ?? existing?.rank_position ?? null,
@@ -2635,7 +2656,9 @@ export async function getPinPerformanceTrajectory(sql, keywordId, pinId, range =
         share_count: Math.max(Number(h.share_count || 0), Number(existing?.share_count || 0)),
         reaction_count: Math.max(Number(h.reaction_count || 0), Number(existing?.reaction_count || 0)),
         daily_save_velocity: (h.daily_save_velocity !== undefined && h.daily_save_velocity !== null) ? Number(h.daily_save_velocity) : (existing?.daily_save_velocity || 0),
-        snapshot_date: dStr
+        snapshot_date: dStr,
+        crawled_at: (crawlTs && (!existing?.crawled_at || new Date(crawlTs).getTime() >= new Date(existing.crawled_at).getTime())) ? crawlTs : (existing?.crawled_at || crawlTs),
+        updated_at: h.updated_at || existing?.updated_at || crawlTs
       });
     }
   }

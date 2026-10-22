@@ -119,21 +119,21 @@ export function getKeywordsPageHtml(initialSlug = '') {
   </div>
 
   <!-- Top Executive Navigation Bar -->
-  <header class="sticky top-0 z-40 bg-white/90 dark:bg-[#0b1120]/90 backdrop-blur-xl border-b border-slate-200/80 dark:border-slate-800/80 px-4 lg:px-8 py-3 transition-colors">
+  <header class="sticky top-0 z-40 bg-white/80 dark:bg-[#070b14]/80 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800/80 px-4 lg:px-8 py-2.5 transition-colors">
     <div class="max-w-[1920px] mx-auto flex items-center justify-between gap-4">
       
       <!-- Brand & Breadcrumbs -->
-      <div class="flex items-center space-x-4">
-        <a href="/" class="flex items-center space-x-3 group">
-          <div class="w-9 h-9 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-500 text-white flex items-center justify-center shadow-lg shadow-emerald-600/20 shrink-0 group-hover:scale-105 transition">
+      <div class="flex items-center space-x-3.5">
+        <a href="/" class="flex items-center space-x-2.5 group">
+          <div class="w-8 h-8 rounded-lg bg-emerald-600 dark:bg-emerald-500 text-white flex items-center justify-center shadow-xs shrink-0 group-hover:scale-102 transition">
             <i data-lucide="sparkles" class="w-4 h-4"></i>
           </div>
           <div>
-            <div class="flex items-center space-x-2">
-              <span class="text-sm font-black tracking-tight text-slate-900 dark:text-white">PinArbitrage</span>
-              <span class="px-1.5 py-0.5 text-[9px] font-bold uppercase rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 font-mono">SERP Studio</span>
+            <div class="flex items-center space-x-1.5">
+              <span class="text-xs font-bold tracking-tight text-slate-900 dark:text-white">PinArbitrage</span>
+              <span class="px-1.5 py-0.2 text-[9px] font-semibold uppercase rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 font-mono">SERP Studio</span>
             </div>
-            <p class="text-[10px] text-slate-400 font-mono">Executive Organic Intelligence</p>
+            <p class="text-[9px] text-slate-400 font-mono">Executive Organic Intelligence</p>
           </div>
         </a>
 
@@ -145,17 +145,17 @@ export function getKeywordsPageHtml(initialSlug = '') {
           <template x-if="viewModeLevel === 'serp_studio'">
             <div class="flex items-center space-x-2">
               <span class="text-slate-300 dark:text-slate-700">/</span>
-              <span class="font-bold text-emerald-600 dark:text-emerald-400 font-mono capitalize" x-text="selectedKeyword?.keyword || activeKeywordQuery || 'Overview'"></span>
+              <span class="font-semibold text-emerald-600 dark:text-emerald-400 font-mono capitalize" x-text="selectedKeyword?.keyword || activeKeywordQuery || 'Overview'"></span>
             </div>
           </template>
         </div>
       </div>
 
       <!-- Center: Fleet Multi-Project Selector -->
-      <div class="hidden lg:flex items-center space-x-2 px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs">
+      <div class="hidden lg:flex items-center space-x-2 px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs">
         <i data-lucide="server" class="w-3.5 h-3.5 text-cyan-500"></i>
-        <span class="text-slate-400">Fleet:</span>
-        <select x-model="selectedProjectId" @change="onProjectChange()" class="bg-transparent text-xs font-semibold text-slate-900 dark:text-slate-100 focus:outline-none cursor-pointer">
+        <span class="text-slate-400 font-medium">Fleet:</span>
+        <select x-model="selectedProjectId" @change="onProjectChange()" class="bg-transparent text-xs font-medium text-slate-900 dark:text-slate-100 focus:outline-none cursor-pointer">
           <option value="">Central Hub (Default)</option>
           <template x-for="p in fleetProjects" :key="p.project_id">
             <option :value="p.project_id" x-text="p.project_name + (p.is_hub ? ' [Hub]' : '')"></option>
@@ -164,10 +164,10 @@ export function getKeywordsPageHtml(initialSlug = '') {
       </div>
 
       <!-- Right Header Actions -->
-      <div class="flex items-center space-x-2 sm:space-x-3">
+      <div class="flex items-center space-x-1.5 sm:space-x-2">
         <!-- Keyword Discovery Hub Link (Level 1B) -->
         <a href="/keywords/discovery"
-           class="px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-500/10 hover:bg-emerald-500/20 dark:bg-emerald-950/30 dark:hover:bg-emerald-900/40 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 transition flex items-center space-x-1.5 cursor-pointer">
+           class="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-emerald-500/10 hover:bg-emerald-500/20 dark:bg-emerald-950/30 dark:hover:bg-emerald-900/40 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 transition flex items-center space-x-1.5 cursor-pointer">
           <i data-lucide="compass" class="w-3.5 h-3.5 text-emerald-500"></i>
           <span class="hidden sm:inline">Keyword Discovery</span>
           <span class="sm:hidden">Discovery</span>
@@ -175,33 +175,33 @@ export function getKeywordsPageHtml(initialSlug = '') {
 
         <!-- Campaign Folders Fleet Link (Level 4) -->
         <a href="/folders"
-           class="px-3 py-1.5 rounded-xl text-xs font-bold bg-pink-500/10 hover:bg-pink-500/20 dark:bg-pink-950/30 dark:hover:bg-pink-900/40 border border-pink-500/30 text-pink-600 dark:text-pink-400 transition flex items-center space-x-1.5 cursor-pointer">
+           class="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-pink-500/10 hover:bg-pink-500/20 dark:bg-pink-950/30 dark:hover:bg-pink-900/40 border border-pink-500/20 text-pink-600 dark:text-pink-400 transition flex items-center space-x-1.5 cursor-pointer">
           <i data-lucide="folder-kanban" class="w-3.5 h-3.5 text-pink-500"></i>
           <span class="hidden sm:inline">Campaign Folders</span>
           <span class="sm:hidden">Folders</span>
-          <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-pink-500/20 text-pink-600 dark:text-pink-300 font-mono" x-text="folders.length"></span>
+          <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-pink-500/20 text-pink-600 dark:text-pink-300 font-mono font-medium" x-text="folders.length"></span>
         </a>
 
         <!-- Domain Radar Studio Link (Level 4B) -->
         <a href="/domains"
-           class="px-3 py-1.5 rounded-xl text-xs font-bold bg-sky-500/10 hover:bg-sky-500/20 dark:bg-sky-950/30 dark:hover:bg-sky-900/40 border border-sky-500/30 text-sky-600 dark:text-sky-400 transition flex items-center space-x-1.5 cursor-pointer">
+           class="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-sky-500/10 hover:bg-sky-500/20 dark:bg-sky-950/30 dark:hover:bg-sky-900/40 border border-sky-500/20 text-sky-600 dark:text-sky-400 transition flex items-center space-x-1.5 cursor-pointer">
           <i data-lucide="globe" class="w-3.5 h-3.5 text-sky-500"></i>
           <span class="hidden sm:inline">Domain Radar</span>
           <span class="sm:hidden">Domains</span>
         </a>
 
-        <a href="/accounts" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 transition hidden sm:flex items-center space-x-1.5">
+        <a href="/accounts" class="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 transition hidden sm:flex items-center space-x-1.5">
           <i data-lucide="users" class="w-3.5 h-3.5 text-purple-500"></i>
           <span>Creators</span>
         </a>
 
-        <a href="/" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 transition flex items-center space-x-1.5">
+        <a href="/" class="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 transition flex items-center space-x-1.5">
           <i data-lucide="home" class="w-3.5 h-3.5"></i>
           <span class="hidden sm:inline">Main Hub</span>
         </a>
 
         <!-- Dark/Light Theme Toggle -->
-        <button @click="toggleTheme()" class="p-2 rounded-xl text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 transition">
+        <button @click="toggleTheme()" class="p-1.5 rounded-lg text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 transition cursor-pointer">
           <i :data-lucide="darkMode ? 'sun' : 'moon'" class="w-3.5 h-3.5"></i>
         </button>
       </div>
@@ -217,25 +217,25 @@ export function getKeywordsPageHtml(initialSlug = '') {
     <!-- ========================================================================= -->
     <div x-show="viewModeLevel === 'dashboard'" x-cloak class="space-y-6">
       
-      <!-- HERO & STRATEGIC ACTIONS HEADER -->
-      <section class="p-5 sm:p-6 rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/90 dark:border-slate-800/90 shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+      <!-- [INVARIANT: MODERN-MINIMALIST-HEADER] Linear / Vercel Executive Header -->
+      <section class="p-4 sm:p-5 rounded-2xl bg-white dark:bg-[#0c101b] border border-slate-200/80 dark:border-slate-800/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div class="flex items-center space-x-3.5">
-          <div class="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-500 text-white flex items-center justify-center shadow-lg shadow-emerald-600/25 shrink-0 ring-4 ring-emerald-500/10">
-            <i data-lucide="layers" class="w-6 h-6"></i>
+          <div class="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 flex items-center justify-center shadow-xs shrink-0">
+            <i data-lucide="layers" class="w-5 h-5"></i>
           </div>
           <div>
             <div class="flex items-center space-x-2">
-              <h2 class="text-xl font-black tracking-tight text-slate-900 dark:text-white">Keywords Fleet Dashboard</h2>
-              <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">Level 1A</span>
+              <h2 class="text-lg sm:text-xl font-bold tracking-tight text-slate-900 dark:text-white">Keywords Fleet Dashboard</h2>
+              <span class="px-2 py-0.5 rounded-md text-[10px] font-mono font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">Level 1A</span>
             </div>
-            <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-medium">Multi-Cluster Organic SERP Monitoring • Velocity Tracking & Fleet Telemetry</p>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-normal">Multi-Cluster Organic SERP Monitoring · Velocity Tracking & Fleet Telemetry</p>
           </div>
         </div>
 
         <div class="flex flex-wrap items-center gap-2">
           <!-- Refresh Hub Button -->
           <button @click="fetchKeywords(true)" :disabled="isKeywordsLoading"
-                  class="px-3.5 py-2 rounded-2xl text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/80 dark:hover:bg-slate-700/80 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition flex items-center space-x-1.5 shadow-xs cursor-pointer active:scale-95"
+                  class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/80 dark:hover:bg-slate-700/80 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition inline-flex items-center space-x-1.5 shadow-2xs cursor-pointer active:scale-95"
                   title="Sync with Neon Central Hub">
             <i data-lucide="refresh-cw" class="w-3.5 h-3.5" :class="isKeywordsLoading ? 'animate-spin text-emerald-500' : 'text-slate-400'"></i>
             <span class="hidden sm:inline">Refresh</span>
@@ -243,149 +243,152 @@ export function getKeywordsPageHtml(initialSlug = '') {
 
           <!-- Primary CTA: Track Keyword -->
           <button @click="openQuickTrackModal()"
-                  class="px-4 py-2 rounded-2xl text-xs font-black uppercase tracking-wider bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white transition flex items-center space-x-1.5 shadow-md shadow-emerald-900/20 active:scale-95 cursor-pointer ring-2 ring-emerald-500/20">
-            <i data-lucide="plus-circle" class="w-4 h-4"></i>
+                  class="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition inline-flex items-center space-x-1.5 shadow-xs active:scale-95 cursor-pointer">
+            <i data-lucide="plus-circle" class="w-3.5 h-3.5"></i>
             <span>+ Track Keyword</span>
           </button>
 
-
-
           <!-- Settings -->
           <button @click="openSettingsModal()"
-                  class="px-3.5 py-2 rounded-2xl text-xs font-bold bg-violet-500/10 hover:bg-violet-500/20 text-violet-700 dark:text-violet-400 border border-violet-500/30 transition flex items-center space-x-1.5 shadow-xs cursor-pointer"
+                  class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/80 dark:hover:bg-slate-700/80 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition inline-flex items-center space-x-1.5 shadow-2xs cursor-pointer"
                   title="Configure Crawl Depth & Breakout Hunter">
-            <i data-lucide="sliders" class="w-3.5 h-3.5 text-violet-500"></i>
+            <i data-lucide="sliders" class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400"></i>
             <span>Settings</span>
           </button>
 
           <!-- Trigger Fleet Crawl -->
           <button @click="openFleetDispatchModal()" :disabled="isWorkflowDispatching"
-                  class="px-3.5 py-2 rounded-2xl text-xs font-bold uppercase tracking-wider bg-slate-900 hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white transition flex items-center space-x-1.5 shadow-xs disabled:opacity-50 cursor-pointer">
+                  class="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-slate-900 hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white transition inline-flex items-center space-x-1.5 shadow-xs disabled:opacity-50 cursor-pointer">
             <i data-lucide="play" class="w-3.5 h-3.5 text-emerald-400" :class="isWorkflowDispatching ? 'animate-spin' : ''"></i>
             <span>Trigger Fleet</span>
           </button>
         </div>
       </section>
 
-      <!-- 4 TOP KPI CARDS: FLEET TELEMETRY RIBBON -->
-      <section class="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <!-- KPI 1: Tracked Queries Fleet -->
-        <div class="p-5 rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/90 dark:border-slate-800/90 space-y-3 shadow-xs">
-          <div class="flex items-center justify-between">
-            <span class="text-xs font-bold text-slate-500 dark:text-slate-400">Tracked Queries Fleet</span>
-            <span class="p-1.5 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-              <i data-lucide="tags" class="w-4 h-4"></i>
+      <!-- [INVARIANT: MODERN-MINIMALIST-TELEMETRY-PARITY] Consolidated high-density telemetry strip eliminating card bloat while preserving all 4-pillar fleet telemetry metrics -->
+      <section class="rounded-2xl bg-white dark:bg-[#0c101b] border border-slate-200/80 dark:border-slate-800/80 shadow-xs divide-y sm:divide-y-0 sm:divide-x divide-slate-100 dark:divide-slate-800/80 grid grid-cols-2 lg:grid-cols-4 overflow-hidden">
+        
+        <!-- Metric 1: Tracked Queries Fleet -->
+        <div class="p-4 sm:p-5 flex flex-col justify-between space-y-2">
+          <div class="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+            <span class="font-medium text-[11px] uppercase tracking-wider font-mono">Tracked Queries</span>
+            <span class="p-1 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+              <i data-lucide="tags" class="w-3.5 h-3.5"></i>
             </span>
           </div>
           <template x-if="isKeywordsLoading">
-            <div class="space-y-2 py-1">
-              <div class="h-8 w-20 bg-slate-200 dark:bg-slate-800 rounded-xl animate-pulse"></div>
-              <div class="h-3 w-32 bg-slate-100 dark:bg-slate-800/60 rounded animate-pulse"></div>
+            <div class="space-y-1 py-0.5">
+              <div class="h-7 w-16 bg-slate-200 dark:bg-slate-800 rounded animate-pulse"></div>
+              <div class="h-3 w-24 bg-slate-100 dark:bg-slate-800/60 rounded animate-pulse"></div>
             </div>
           </template>
           <template x-if="!isKeywordsLoading">
             <div>
-              <div class="flex items-baseline space-x-2">
-                <span class="text-3xl font-black text-slate-900 dark:text-white font-mono" x-text="keywords.length"></span>
-                <span class="text-xs text-slate-500 dark:text-slate-400 font-mono font-medium">Monitored</span>
+              <div class="flex items-baseline gap-2">
+                <span class="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white font-mono tracking-tight" x-text="keywords.length"></span>
+                <span class="text-xs text-slate-400 font-mono">monitored</span>
               </div>
-              <div class="flex items-center justify-between text-[11px] pt-2 mt-2 border-t border-slate-100 dark:border-slate-800/80 font-mono">
-                <span class="text-emerald-600 dark:text-emerald-400 font-bold" x-text="activeKeywordsCount + ' Active'"></span>
-                <span class="text-amber-600 dark:text-amber-400 font-bold" x-text="pausedKeywordsCount + ' Paused'"></span>
+              <div class="flex items-center gap-2 mt-1.5 text-[11px] font-mono">
+                <span class="text-emerald-600 dark:text-emerald-400 font-semibold" x-text="activeKeywordsCount + ' active'"></span>
+                <span class="text-slate-300 dark:text-slate-700">·</span>
+                <span class="text-amber-600 dark:text-amber-400 font-medium" x-text="pausedKeywordsCount + ' paused'"></span>
               </div>
             </div>
           </template>
         </div>
 
-        <!-- KPI 2: Total Monitored Organic Pins -->
-        <div class="p-5 rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/90 dark:border-slate-800/90 space-y-3 shadow-xs">
-          <div class="flex items-center justify-between">
-            <span class="text-xs font-bold text-slate-500 dark:text-slate-400">Monitored Organic Pins</span>
-            <span class="p-1.5 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400">
-              <i data-lucide="database" class="w-4 h-4"></i>
+        <!-- Metric 2: Monitored Organic Pins -->
+        <div class="p-4 sm:p-5 flex flex-col justify-between space-y-2">
+          <div class="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+            <span class="font-medium text-[11px] uppercase tracking-wider font-mono">Monitored Organic Pins</span>
+            <span class="p-1 rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400">
+              <i data-lucide="database" class="w-3.5 h-3.5"></i>
             </span>
           </div>
           <template x-if="isKeywordsLoading">
-            <div class="space-y-2 py-1">
-              <div class="h-8 w-24 bg-slate-200 dark:bg-slate-800 rounded-xl animate-pulse"></div>
+            <div class="space-y-1 py-0.5">
+              <div class="h-7 w-20 bg-slate-200 dark:bg-slate-800 rounded animate-pulse"></div>
               <div class="h-3 w-28 bg-slate-100 dark:bg-slate-800/60 rounded animate-pulse"></div>
             </div>
           </template>
           <template x-if="!isKeywordsLoading">
             <div>
-              <div class="flex items-baseline space-x-2">
-                <span class="text-3xl font-black text-slate-900 dark:text-white font-mono" x-text="formatNumber(totalMonitoredPins)"></span>
-                <span class="text-xs text-slate-500 dark:text-slate-400 font-mono font-medium">Pins</span>
+              <div class="flex items-baseline gap-2">
+                <span class="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white font-mono tracking-tight" x-text="formatNumber(totalMonitoredPins)"></span>
+                <span class="text-xs text-slate-400 font-mono">pins</span>
               </div>
-              <div class="flex items-center justify-between text-[11px] pt-2 mt-2 border-t border-slate-100 dark:border-slate-800/80 text-slate-500 dark:text-slate-400 font-mono">
-                <span>Quota Depth:</span>
-                <span class="font-bold text-blue-600 dark:text-blue-400" x-text="'~' + (appSettings.default_max_pins || 250) + ' Pins / Query'"></span>
+              <div class="mt-1.5 text-[11px] font-mono text-slate-500 dark:text-slate-400">
+                <span>Quota: </span>
+                <span class="text-blue-600 dark:text-blue-400 font-medium" x-text="'~' + (appSettings.default_max_pins || 250) + ' pins / query'"></span>
               </div>
             </div>
           </template>
         </div>
 
-        <!-- KPI 3: Campaign Folders Fleet -->
-        <a href="/folders" class="p-5 rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/90 dark:border-slate-800/90 space-y-3 shadow-xs hover:border-pink-500/40 transition block group cursor-pointer">
-          <div class="flex items-center justify-between">
-            <span class="text-xs font-bold text-slate-500 dark:text-slate-400 group-hover:text-pink-600 dark:group-hover:text-pink-400 transition">Campaign Folders</span>
-            <span class="p-1.5 rounded-xl bg-pink-500/10 text-pink-600 dark:text-pink-400">
-              <i data-lucide="folder-kanban" class="w-4 h-4"></i>
+        <!-- Metric 3: Campaign Folders Fleet -->
+        <a href="/folders" class="p-4 sm:p-5 flex flex-col justify-between space-y-2 hover:bg-slate-50/60 dark:hover:bg-slate-800/30 transition group cursor-pointer">
+          <div class="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+            <span class="font-medium text-[11px] uppercase tracking-wider font-mono group-hover:text-pink-600 dark:group-hover:text-pink-400 transition">Campaign Folders</span>
+            <span class="p-1 rounded-md bg-pink-500/10 text-pink-600 dark:text-pink-400 group-hover:scale-105 transition-transform">
+              <i data-lucide="folder-kanban" class="w-3.5 h-3.5"></i>
             </span>
           </div>
           <div>
-            <div class="flex items-baseline space-x-2">
-              <span class="text-3xl font-black text-pink-600 dark:text-pink-400 font-mono" x-text="folders.length"></span>
-              <span class="text-xs text-slate-500 dark:text-slate-400 font-mono font-medium">Folders</span>
+            <div class="flex items-baseline gap-2">
+              <span class="text-2xl sm:text-3xl font-extrabold text-pink-600 dark:text-pink-400 font-mono tracking-tight" x-text="folders.length"></span>
+              <span class="text-xs text-slate-400 font-mono">folders</span>
             </div>
-            <div class="flex items-center justify-between text-[11px] pt-2 mt-2 border-t border-slate-100 dark:border-slate-800/80 text-slate-500 dark:text-slate-400 font-mono">
-              <span>Organized Hub:</span>
-              <span class="font-bold text-pink-600 dark:text-pink-400 flex items-center space-x-1">
-                <span>View Folders</span>
-                <i data-lucide="arrow-right" class="w-3 h-3"></i>
+            <div class="mt-1.5 text-[11px] font-mono text-slate-500 dark:text-slate-400 flex items-center justify-between">
+              <span class="group-hover:text-pink-600 dark:group-hover:text-pink-400 transition font-medium">Organized Hub</span>
+              <span class="text-pink-600 dark:text-pink-400 font-medium inline-flex items-center gap-1">
+                <span>View</span>
+                <i data-lucide="arrow-right" class="w-3 h-3 group-hover:translate-x-0.5 transition-transform"></i>
               </span>
             </div>
           </div>
         </a>
 
-        <!-- KPI 4: Nightly Crawler Fleet Status -->
-        <div class="p-5 rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/90 dark:border-slate-800/90 space-y-3 shadow-xs">
-          <div class="flex items-center justify-between">
-            <span class="text-xs font-bold text-slate-500 dark:text-slate-400">Nightly Crawler Fleet</span>
-            <span class="p-1.5 rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400">
-              <i data-lucide="clock" class="w-4 h-4"></i>
+        <!-- Metric 4: Nightly Crawler Fleet Status -->
+        <div class="p-4 sm:p-5 flex flex-col justify-between space-y-2">
+          <div class="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+            <span class="font-medium text-[11px] uppercase tracking-wider font-mono">Nightly Crawler Fleet</span>
+            <span class="p-1 rounded-md bg-purple-500/10 text-purple-600 dark:text-purple-400">
+              <i data-lucide="clock" class="w-3.5 h-3.5"></i>
             </span>
           </div>
-          <div class="flex items-center space-x-2">
-            <span class="px-2.5 py-1 rounded-xl text-xs font-black font-mono bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 flex items-center space-x-1.5">
-              <span class="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
-              <span>OPERATIONAL</span>
-            </span>
-          </div>
-          <div class="flex items-center justify-between text-[11px] pt-2 border-t border-slate-100 dark:border-slate-800/80 text-slate-500 dark:text-slate-400 font-mono truncate">
-            <span class="truncate" x-text="nightlySyncCountdown"></span>
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25 inline-flex items-center gap-1.5">
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span>OPERATIONAL</span>
+              </span>
+            </div>
+            <div class="mt-2 text-[11px] font-mono text-slate-500 dark:text-slate-400 truncate" :title="nightlySyncCountdown">
+              <span x-text="nightlySyncCountdown"></span>
+            </div>
           </div>
         </div>
+
       </section>
 
-      <!-- FILTER & SORT CONTROLS STRIP -->
-      <section class="p-4 rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/90 dark:border-slate-800/90 shadow-xs space-y-3">
-        <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
+      <!-- FILTER & SORT CONTROLS STRIP (LINEAR STYLE) -->
+      <section class="p-3.5 rounded-2xl bg-white dark:bg-[#0c101b] border border-slate-200/80 dark:border-slate-800/80 shadow-xs space-y-2.5">
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-2.5">
           <!-- Left: Search and Dropdowns -->
           <div class="flex flex-wrap items-center gap-2 flex-1">
             <!-- Search input with clear button -->
-            <div class="relative flex-1 min-w-[200px] max-w-md">
-              <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
+            <div class="relative flex-1 min-w-[220px] max-w-sm">
+              <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
               <input type="text" x-model="dashboardSearch" placeholder="Search keywords, categories, or folders..."
-                     class="w-full pl-9 pr-8 py-2 text-xs rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/40">
+                     class="w-full pl-8 pr-7 py-1.5 text-xs rounded-lg bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800/90 text-slate-800 dark:text-slate-200 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 focus:border-emerald-500/50 transition">
               <button x-show="dashboardSearch" @click="dashboardSearch = ''"
                       class="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-white p-0.5 cursor-pointer">
-                <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                <i data-lucide="x" class="w-3 h-3"></i>
               </button>
             </div>
 
             <!-- Campaign Folders filter dropdown -->
-            <select x-model="dashboardFolderFilter" class="px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 focus:outline-none cursor-pointer">
+            <select x-model="dashboardFolderFilter" class="px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800/90 text-xs font-medium text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 cursor-pointer">
               <option value="ALL">📁 All Folders</option>
               <option value="UNASSIGNED">Unassigned (No Folder)</option>
               <template x-for="f in folders" :key="f.id">
@@ -394,7 +397,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
             </select>
 
             <!-- Category filter dropdown -->
-            <select x-model="dashboardCategoryFilter" class="px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 focus:outline-none cursor-pointer">
+            <select x-model="dashboardCategoryFilter" class="px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800/90 text-xs font-medium text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 cursor-pointer">
               <option value="ALL">All Categories</option>
               <template x-for="cat in uniqueCategories" :key="cat">
                 <option :value="cat" x-text="cat"></option>
@@ -402,26 +405,26 @@ export function getKeywordsPageHtml(initialSlug = '') {
             </select>
 
             <!-- Status filter dropdown -->
-            <select x-model="dashboardStatusFilter" class="px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 focus:outline-none cursor-pointer">
+            <select x-model="dashboardStatusFilter" class="px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800/90 text-xs font-medium text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 cursor-pointer">
               <option value="ALL">All Statuses</option>
               <option value="ACTIVE">Active Only</option>
               <option value="PAUSED">Paused Only</option>
             </select>
 
             <!-- Growth Momentum filter dropdown -->
-            <select x-model="dashboardGrowthFilter" class="px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 focus:outline-none cursor-pointer">
+            <select x-model="dashboardGrowthFilter" class="px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800/90 text-xs font-medium text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 cursor-pointer">
               <option value="ALL">All Growth</option>
-              <option value="HIGH">🔥 High Growth (+50 Saves)</option>
-              <option value="POSITIVE">📈 Positive Growth (> 0)</option>
+              <option value="HIGH">🔥 High Growth (+50)</option>
+              <option value="POSITIVE">📈 Positive (> 0)</option>
               <option value="FLAT">⏸ Flat (= 0)</option>
               <option value="DECLINING">📉 Declining (< 0)</option>
             </select>
 
             <!-- Sort filter dropdown -->
-            <select x-model="dashboardSort" class="px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 focus:outline-none cursor-pointer">
-              <option value="saves_delta">Sort: 24h Saves Δ (Highest)</option>
-              <option value="repins_delta">Sort: 24h Repins Δ (Highest)</option>
-              <option value="total_pins">Sort: Total Pins (Highest)</option>
+            <select x-model="dashboardSort" class="px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800/90 text-xs font-medium text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 cursor-pointer">
+              <option value="saves_delta">Sort: 24h Saves Δ</option>
+              <option value="repins_delta">Sort: 24h Repins Δ</option>
+              <option value="total_pins">Sort: Total Pins</option>
               <option value="created_desc">Sort: Date Added (Newest)</option>
               <option value="created_asc">Sort: Date Added (Oldest)</option>
               <option value="crawled">Sort: Recently Crawled</option>
@@ -430,15 +433,15 @@ export function getKeywordsPageHtml(initialSlug = '') {
           </div>
 
           <!-- Right: Counter, Columns Visibility & Table/Grid View Switcher -->
-          <div class="flex items-center space-x-2 sm:space-x-3 shrink-0">
-            <span class="text-xs font-mono text-slate-500 dark:text-slate-400 font-semibold hidden md:inline"
+          <div class="flex items-center space-x-2 shrink-0">
+            <span class="text-xs font-mono text-slate-500 dark:text-slate-400 font-medium hidden md:inline"
                   x-text="filteredDashboardKeywords.length + ' of ' + keywords.length + ' Queries'"></span>
 
-            <!-- Column Visibility Dropdown (Table View Only) -->
+            <!-- Column Visibility Dropdown -->
             <div x-show="dashboardViewMode === 'table'" class="relative" x-data="{ isColumnsOpen: false }" @click.outside="isColumnsOpen = false" @keydown.escape.window="isColumnsOpen = false">
               <button type="button" @click="isColumnsOpen = !isColumnsOpen"
-                      class="px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 text-xs font-semibold transition flex items-center space-x-1.5 cursor-pointer shadow-2xs">
-                <i data-lucide="columns-3" class="w-3.5 h-3.5 text-slate-500"></i>
+                      class="px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 text-xs font-medium transition flex items-center space-x-1.5 cursor-pointer shadow-2xs">
+                <i data-lucide="columns-3" class="w-3.5 h-3.5 text-slate-400"></i>
                 <span>Columns</span>
                 <i data-lucide="chevron-down" class="w-3 h-3 text-slate-400 transition-transform" :class="isColumnsOpen ? 'rotate-180' : ''"></i>
               </button>
@@ -451,14 +454,14 @@ export function getKeywordsPageHtml(initialSlug = '') {
                    x-transition:leave="transition ease-in duration-100"
                    x-transition:leave-start="opacity-100 scale-100"
                    x-transition:leave-end="opacity-0 scale-95"
-                   class="absolute right-0 mt-2 w-56 rounded-2xl bg-white dark:bg-[#0c1322] border border-slate-200 dark:border-slate-800 shadow-xl p-2 space-y-0.5 z-40 text-xs font-sans">
+                   class="absolute right-0 mt-2 w-56 rounded-xl bg-white dark:bg-[#0c1322] border border-slate-200 dark:border-slate-800 shadow-xl p-2 space-y-0.5 z-40 text-xs font-sans">
                 <div class="px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400 font-mono border-b border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
                   <span>Display Columns</span>
                   <button type="button" @click="resetColumns()" class="text-emerald-500 hover:underline capitalize text-[10px]">Reset</button>
                 </div>
                 
                 <template x-for="col in columnDefinitions" :key="col.key">
-                  <label class="flex items-center space-x-2 px-2.5 py-1.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/60 cursor-pointer select-none transition"
+                  <label class="flex items-center space-x-2 px-2.5 py-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60 cursor-pointer select-none transition"
                          :class="col.required ? 'opacity-60 cursor-not-allowed' : ''">
                     <input type="checkbox"
                            :checked="visibleColumns[col.key]"
@@ -475,17 +478,17 @@ export function getKeywordsPageHtml(initialSlug = '') {
             </div>
 
             <!-- View Switcher (Table vs Grid) -->
-            <div class="flex items-center p-0.5 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+            <div class="flex items-center p-0.5 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
               <button @click="dashboardViewMode = 'table'"
-                      :class="dashboardViewMode === 'table' ? 'bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 shadow-xs font-bold' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'"
-                      class="px-2.5 py-1.5 rounded-lg text-xs transition flex items-center space-x-1 cursor-pointer"
+                      :class="dashboardViewMode === 'table' ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs font-semibold' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'"
+                      class="px-2 py-1 rounded-md text-xs transition flex items-center space-x-1 cursor-pointer"
                       title="Table View">
                 <i data-lucide="list" class="w-3.5 h-3.5"></i>
                 <span class="hidden sm:inline">Table</span>
               </button>
               <button @click="dashboardViewMode = 'grid'"
-                      :class="dashboardViewMode === 'grid' ? 'bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 shadow-xs font-bold' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'"
-                      class="px-2.5 py-1.5 rounded-lg text-xs transition flex items-center space-x-1 cursor-pointer"
+                      :class="dashboardViewMode === 'grid' ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs font-semibold' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'"
+                      class="px-2 py-1 rounded-md text-xs transition flex items-center space-x-1 cursor-pointer"
                       title="Visual Cards View">
                 <i data-lucide="layout-grid" class="w-3.5 h-3.5"></i>
                 <span class="hidden sm:inline">Grid</span>
@@ -497,75 +500,75 @@ export function getKeywordsPageHtml(initialSlug = '') {
         <!-- Category Quick Pills & Active Folder Pill -->
         <div class="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-slate-800/80 text-xs">
           <div class="flex flex-wrap items-center gap-1.5">
-            <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider font-mono mr-1">Categories:</span>
+            <span class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider font-mono mr-1">Categories:</span>
             <button @click="dashboardCategoryFilter = 'ALL'"
-                    class="px-2.5 py-0.5 rounded-lg text-xs font-semibold transition cursor-pointer"
-                    :class="dashboardCategoryFilter === 'ALL' ? 'bg-emerald-600 text-white shadow-xs' : 'bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'">
+                    class="px-2 py-0.5 rounded-md text-xs font-medium transition cursor-pointer"
+                    :class="dashboardCategoryFilter === 'ALL' ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-2xs' : 'bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'">
               All
             </button>
             <template x-for="cat in uniqueCategories" :key="cat">
               <button @click="dashboardCategoryFilter = cat"
-                      class="px-2.5 py-0.5 rounded-lg text-xs font-semibold transition cursor-pointer"
-                      :class="dashboardCategoryFilter === cat ? 'bg-emerald-600 text-white shadow-xs' : 'bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'"
+                      class="px-2 py-0.5 rounded-md text-xs font-medium transition cursor-pointer"
+                      :class="dashboardCategoryFilter === cat ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-2xs' : 'bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'"
                       x-text="cat"></button>
             </template>
           </div>
 
           <!-- Active Folder Filter Indicator -->
           <template x-if="dashboardFolderFilter !== 'ALL'">
-            <div class="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-xl bg-pink-500/15 text-pink-700 dark:text-pink-300 text-xs font-bold border border-pink-500/30 font-mono shadow-2xs">
-              <i data-lucide="folder" class="w-3.5 h-3.5 text-pink-500"></i>
+            <div class="inline-flex items-center space-x-1.5 px-2 py-0.5 rounded-md bg-pink-500/10 text-pink-700 dark:text-pink-300 text-xs font-semibold border border-pink-500/20 font-mono">
+              <i data-lucide="folder" class="w-3 h-3 text-pink-500"></i>
               <span>Folder: <span x-text="activeFolderName"></span></span>
               <button @click="clearFolderFilter()" class="hover:text-pink-900 dark:hover:text-white p-0.5 cursor-pointer ml-1" title="Clear Folder Filter">
-                <i data-lucide="x" class="w-3 h-3"></i>
+                <i data-lucide="x" class="w-2.5 h-2.5"></i>
               </button>
             </div>
           </template>
         </div>
       </section>
 
-      <!-- VIEW MODE 1: HIGH-DENSITY TRACKED KEYWORDS TABLE -->
-      <section id="keywords-dashboard-table" x-show="dashboardViewMode === 'table'" class="rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/90 dark:border-slate-800/90 shadow-xs overflow-hidden">
+      <!-- [INVARIANT: HIGH-DENSITY-SERP-TABLE] Modern Minimalist SaaS table with Linear-grade tabular figures, dot status indicators, and clean nested vault pins breakdown -->
+      <section id="keywords-dashboard-table" x-show="dashboardViewMode === 'table'" class="rounded-2xl bg-white dark:bg-[#0c101b] border border-slate-200/80 dark:border-slate-800/80 shadow-xs overflow-hidden">
         <div class="overflow-x-auto">
           <table class="w-full text-left border-collapse">
             <thead>
-              <tr class="table-sticky-header bg-slate-50/95 dark:bg-[#080d19]/95 border-b border-slate-200 dark:border-slate-800 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 font-mono">
-                <th class="py-3.5 px-4 w-12 text-center">
+              <tr class="table-sticky-header bg-slate-50/90 dark:bg-[#080d19]/90 border-b border-slate-200/80 dark:border-slate-800/80 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 font-mono">
+                <th class="py-3 px-3.5 w-10 text-center">
                   <input type="checkbox" @click="toggleSelectAllDashboardKeywords()"
                          :checked="paginatedDashboardKeywords.length > 0 && paginatedDashboardKeywords.every(k => isDashboardKeywordSelected(k.id))"
-                         class="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300 dark:border-slate-700">
+                         class="w-3.5 h-3.5 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 cursor-pointer">
                 </th>
-                <th x-show="visibleColumns.preview" class="py-3.5 px-3 w-16">Preview</th>
-                <th x-show="visibleColumns.keyword" class="py-3.5 px-4 min-w-[260px]">Keyword & Folders</th>
-                <th x-show="visibleColumns.saves_delta" class="py-3.5 px-3 w-28">24h Saves Δ</th>
-                <th x-show="visibleColumns.repins_delta" class="py-3.5 px-3 w-28">24h Repins Δ</th>
-                <th x-show="visibleColumns.total_pins" class="py-3.5 px-3 w-32">Total Pins</th>
-                <th x-show="visibleColumns.status" class="py-3.5 px-3 w-28 text-center">Status</th>
-                <th x-show="visibleColumns.created_at" class="py-3.5 px-3 w-36">Date Added</th>
-                <th x-show="visibleColumns.last_crawled" class="py-3.5 px-3 w-36">Last Crawled</th>
-                <th x-show="visibleColumns.actions" class="py-3.5 px-4 w-36 text-right">Actions</th>
+                <th x-show="visibleColumns.preview" class="py-3 px-3 w-14">Preview</th>
+                <th x-show="visibleColumns.keyword" class="py-3 px-4 min-w-[240px]">Keyword & Folders</th>
+                <th x-show="visibleColumns.saves_delta" class="py-3 px-3 w-28">24h Saves Δ</th>
+                <th x-show="visibleColumns.repins_delta" class="py-3 px-3 w-28">24h Repins Δ</th>
+                <th x-show="visibleColumns.total_pins" class="py-3 px-3 w-32">Total Pins</th>
+                <th x-show="visibleColumns.status" class="py-3 px-3 w-24 text-center">Status</th>
+                <th x-show="visibleColumns.created_at" class="py-3 px-3 w-32">Date Added</th>
+                <th x-show="visibleColumns.last_crawled" class="py-3 px-3 w-32">Last Crawled</th>
+                <th x-show="visibleColumns.actions" class="py-3 px-4 w-32 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-slate-100 dark:divide-slate-800/80 text-xs">
-              <!-- Skeleton Loading Rows (Shown while fetching) -->
+            <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 text-xs">
+              <!-- Skeleton Loading Rows -->
               <template x-if="isKeywordsLoading">
                 <template x-for="i in [1, 2, 3, 4, 5]" :key="i">
                   <tr class="animate-pulse">
-                    <td class="py-4 px-4 text-center"><div class="w-4 h-4 bg-slate-200 dark:bg-slate-800 rounded mx-auto"></div></td>
-                    <td x-show="visibleColumns.preview" class="py-4 px-3"><div class="w-12 h-16 bg-slate-200 dark:bg-slate-800 rounded-xl"></div></td>
-                    <td x-show="visibleColumns.keyword" class="py-4 px-4">
-                      <div class="space-y-2">
-                        <div class="h-4 w-40 bg-slate-200 dark:bg-slate-800 rounded"></div>
-                        <div class="h-3 w-20 bg-slate-100 dark:bg-slate-800/60 rounded-full"></div>
+                    <td class="py-3.5 px-3.5 text-center"><div class="w-3.5 h-3.5 bg-slate-200 dark:bg-slate-800 rounded mx-auto"></div></td>
+                    <td x-show="visibleColumns.preview" class="py-3.5 px-3"><div class="w-10 h-14 bg-slate-200 dark:bg-slate-800 rounded-lg"></div></td>
+                    <td x-show="visibleColumns.keyword" class="py-3.5 px-4">
+                      <div class="space-y-1.5">
+                        <div class="h-3.5 w-36 bg-slate-200 dark:bg-slate-800 rounded"></div>
+                        <div class="h-2.5 w-20 bg-slate-100 dark:bg-slate-800/60 rounded"></div>
                       </div>
                     </td>
-                    <td x-show="visibleColumns.saves_delta" class="py-4 px-3"><div class="h-6 w-16 bg-slate-200 dark:bg-slate-800 rounded-full"></div></td>
-                    <td x-show="visibleColumns.repins_delta" class="py-4 px-3"><div class="h-6 w-12 bg-slate-200 dark:bg-slate-800 rounded-full"></div></td>
-                    <td x-show="visibleColumns.total_pins" class="py-4 px-3"><div class="h-6 w-20 bg-slate-200 dark:bg-slate-800 rounded-lg"></div></td>
-                    <td x-show="visibleColumns.status" class="py-4 px-3 text-center"><div class="h-6 w-16 bg-slate-200 dark:bg-slate-800 rounded-full mx-auto"></div></td>
-                    <td x-show="visibleColumns.created_at" class="py-4 px-3"><div class="h-3 w-20 bg-slate-200 dark:bg-slate-800 rounded"></div></td>
-                    <td x-show="visibleColumns.last_crawled" class="py-4 px-3"><div class="h-3 w-20 bg-slate-200 dark:bg-slate-800 rounded"></div></td>
-                    <td x-show="visibleColumns.actions" class="py-4 px-4 text-right"><div class="h-8 w-24 bg-slate-200 dark:bg-slate-800 rounded-xl ml-auto"></div></td>
+                    <td x-show="visibleColumns.saves_delta" class="py-3.5 px-3"><div class="h-4 w-14 bg-slate-200 dark:bg-slate-800 rounded"></div></td>
+                    <td x-show="visibleColumns.repins_delta" class="py-3.5 px-3"><div class="h-4 w-12 bg-slate-200 dark:bg-slate-800 rounded"></div></td>
+                    <td x-show="visibleColumns.total_pins" class="py-3.5 px-3"><div class="h-4 w-16 bg-slate-200 dark:bg-slate-800 rounded"></div></td>
+                    <td x-show="visibleColumns.status" class="py-3.5 px-3 text-center"><div class="h-5 w-14 bg-slate-200 dark:bg-slate-800 rounded-full mx-auto"></div></td>
+                    <td x-show="visibleColumns.created_at" class="py-3.5 px-3"><div class="h-3 w-16 bg-slate-200 dark:bg-slate-800 rounded"></div></td>
+                    <td x-show="visibleColumns.last_crawled" class="py-3.5 px-3"><div class="h-3 w-16 bg-slate-200 dark:bg-slate-800 rounded"></div></td>
+                    <td x-show="visibleColumns.actions" class="py-3.5 px-4 text-right"><div class="h-6 w-20 bg-slate-200 dark:bg-slate-800 rounded-lg ml-auto"></div></td>
                   </tr>
                 </template>
               </template>
@@ -573,54 +576,54 @@ export function getKeywordsPageHtml(initialSlug = '') {
               <!-- Real Data Rows -->
               <template x-if="!isKeywordsLoading">
                 <template x-for="kw in paginatedDashboardKeywords" :key="kw.id">
-                  <tr class="hover:bg-slate-50/90 dark:hover:bg-slate-900/50 transition group cursor-pointer"
-                      :class="isDashboardKeywordSelected(kw.id) ? 'bg-emerald-50/60 dark:bg-emerald-950/25' : ''"
+                  <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-800/35 transition-colors duration-150 group cursor-pointer"
+                      :class="isDashboardKeywordSelected(kw.id) ? 'bg-emerald-50/40 dark:bg-emerald-950/20' : ''"
                       @click="switchToSerpStudio(kw)">
                     
                     <!-- Checkbox -->
-                    <td class="py-3.5 px-4 text-center" @click.stop>
+                    <td class="py-3 px-3.5 text-center" @click.stop>
                       <input type="checkbox" :checked="isDashboardKeywordSelected(kw.id)" @click="toggleDashboardKeywordSelection(kw.id)"
-                             class="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300 dark:border-slate-700">
+                             class="w-3.5 h-3.5 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 cursor-pointer">
                     </td>
 
                     <!-- Thumbnail with Zoom -->
-                    <td x-show="visibleColumns.preview" class="py-3.5 px-3">
-                      <div class="w-12 h-16 rounded-xl overflow-hidden bg-slate-100 dark:bg-slate-800 border border-slate-200/90 dark:border-slate-700/80 shadow-xs relative">
+                    <td x-show="visibleColumns.preview" class="py-3 px-3">
+                      <div class="w-10 h-14 rounded-lg overflow-hidden bg-slate-100 dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-2xs relative">
                         <template x-if="kw.top_pin_image">
                           <img :src="kw.top_pin_image" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200">
                         </template>
                         <template x-if="!kw.top_pin_image">
                           <div class="w-full h-full flex items-center justify-center">
-                            <i data-lucide="image" class="w-4 h-4 text-slate-400"></i>
+                            <i data-lucide="image" class="w-3.5 h-3.5 text-slate-400"></i>
                           </div>
                         </template>
                       </div>
                     </td>
 
                     <!-- Keyword & Category & Folder Tags -->
-                    <td x-show="visibleColumns.keyword" class="py-3.5 px-4 min-w-[260px]">
-                      <div class="space-y-1.5">
-                        <span class="font-bold text-slate-900 dark:text-white group-hover:text-emerald-600 dark:group-hover:text-emerald-400 text-sm capitalize block transition"
+                    <td x-show="visibleColumns.keyword" class="py-3 px-4 min-w-[240px]">
+                      <div class="space-y-1">
+                        <span class="font-semibold text-slate-900 dark:text-slate-100 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 text-sm capitalize block transition-colors leading-snug"
                               x-text="kw.keyword"></span>
                         <div class="flex flex-wrap items-center gap-1.5">
-                          <span class="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700/60"
+                          <span class="px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700/60"
                                 x-text="kw.category || 'General'"></span>
                           
                           <!-- Campaign Folders Tags -->
                           <template x-for="f in getKeywordFolders(kw)" :key="f.id">
                             <button type="button" @click.stop="filterByFolder(f.id)"
-                                    class="px-2 py-0.5 rounded-md text-[10px] font-bold font-mono transition flex items-center space-x-1 border cursor-pointer hover:scale-105 active:scale-95 shadow-2xs"
-                                    :style="'background-color: ' + (f.color || '#ec4899') + '15; color: ' + (f.color || '#ec4899') + '; border-color: ' + (f.color || '#ec4899') + '40;'"
-                                    :title="'Click to filter keywords in folder: ' + f.name">
+                                    class="px-1.5 py-0.5 rounded text-[10px] font-medium font-mono transition inline-flex items-center gap-1 border cursor-pointer hover:opacity-85 shadow-2xs"
+                                    :style="'background-color: ' + (f.color || '#ec4899') + '12; color: ' + (f.color || '#ec4899') + '; border-color: ' + (f.color || '#ec4899') + '30;'"
+                                    :title="'Filter by folder: ' + f.name">
                               <i data-lucide="folder" class="w-2.5 h-2.5 shrink-0"></i>
-                              <span class="max-w-[120px] truncate" x-text="f.name"></span>
+                              <span class="max-w-[110px] truncate" x-text="f.name"></span>
                             </button>
                           </template>
 
                           <!-- If no folders, quick add button -->
                           <template x-if="getKeywordFolders(kw).length === 0">
                             <button type="button" @click.stop="openQuickFolderModal(kw)"
-                                    class="px-1.5 py-0.5 rounded-md text-[10px] font-mono text-slate-400 hover:text-pink-500 hover:bg-pink-500/10 transition border border-dashed border-slate-200 dark:border-slate-800 flex items-center space-x-1 cursor-pointer"
+                                    class="px-1.5 py-0.5 rounded text-[10px] font-mono text-slate-400 hover:text-pink-500 hover:bg-pink-500/10 transition border border-dashed border-slate-200 dark:border-slate-800 inline-flex items-center gap-1 cursor-pointer"
                                     title="Add to Campaign Folder">
                               <i data-lucide="folder-plus" class="w-2.5 h-2.5"></i>
                               <span>Folder</span>
@@ -634,46 +637,57 @@ export function getKeywordsPageHtml(initialSlug = '') {
                       </div>
                     </td>
 
-                    <!-- 24h Saves Delta Pill Badge -->
-                    <td x-show="visibleColumns.saves_delta" class="py-3.5 px-3 font-mono">
-                      <span class="px-2.5 py-1 rounded-full text-xs font-bold inline-flex items-center space-x-1"
-                            :class="getKeywordSaveDelta(kw) > 0 ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700/80' : (getKeywordSaveDelta(kw) < 0 ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 border border-rose-300 dark:border-rose-700/80' : 'bg-slate-100 dark:bg-slate-800 text-slate-500')">
+                    <!-- 24h Saves Delta (Linear Tabular Figures) -->
+                    <td x-show="visibleColumns.saves_delta" class="py-3 px-3 font-mono">
+                      <div class="inline-flex items-center gap-1 text-xs font-semibold tabular-nums"
+                           :class="getKeywordSaveDelta(kw) > 0 ? 'text-emerald-600 dark:text-emerald-400' : (getKeywordSaveDelta(kw) < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-400 dark:text-slate-500')">
                         <template x-if="getKeywordSaveDelta(kw) > 0">
-                          <i data-lucide="arrow-up" class="w-3 h-3 text-emerald-600 shrink-0"></i>
+                          <i data-lucide="trending-up" class="w-3.5 h-3.5 shrink-0"></i>
+                        </template>
+                        <template x-if="getKeywordSaveDelta(kw) < 0">
+                          <i data-lucide="trending-down" class="w-3.5 h-3.5 shrink-0"></i>
                         </template>
                         <span x-text="(getKeywordSaveDelta(kw) > 0 ? '+' : '') + formatNumber(getKeywordSaveDelta(kw))"></span>
-                      </span>
+                      </div>
                     </td>
 
-                    <!-- 24h Repins Delta Pill Badge -->
-                    <td x-show="visibleColumns.repins_delta" class="py-3.5 px-3 font-mono">
-                      <span class="px-2.5 py-1 rounded-full text-xs font-bold inline-flex items-center space-x-1"
-                            :class="getKeywordRepinDelta(kw) > 0 ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700/80' : (getKeywordRepinDelta(kw) < 0 ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 border border-rose-300 dark:border-rose-700/80' : 'bg-slate-100 dark:bg-slate-800 text-slate-500')">
+                    <!-- 24h Repins Delta (Linear Tabular Figures) -->
+                    <td x-show="visibleColumns.repins_delta" class="py-3 px-3 font-mono">
+                      <div class="inline-flex items-center gap-1 text-xs font-semibold tabular-nums"
+                           :class="getKeywordRepinDelta(kw) > 0 ? 'text-emerald-600 dark:text-emerald-400' : (getKeywordRepinDelta(kw) < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-400 dark:text-slate-500')">
                         <template x-if="getKeywordRepinDelta(kw) > 0">
-                          <i data-lucide="arrow-up" class="w-3 h-3 text-emerald-600 shrink-0"></i>
+                          <i data-lucide="trending-up" class="w-3.5 h-3.5 shrink-0"></i>
+                        </template>
+                        <template x-if="getKeywordRepinDelta(kw) < 0">
+                          <i data-lucide="trending-down" class="w-3.5 h-3.5 shrink-0"></i>
                         </template>
                         <span x-text="(getKeywordRepinDelta(kw) > 0 ? '+' : '') + formatNumber(getKeywordRepinDelta(kw))"></span>
-                      </span>
+                      </div>
                     </td>
 
-                    <!-- Total Pins Badge (Clean, No Quota Bar) -->
-                    <td x-show="visibleColumns.total_pins" class="py-3.5 px-3 font-mono">
-                      <span class="px-2.5 py-1 rounded-xl text-xs font-bold inline-flex items-center space-x-1.5 bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-200 border border-slate-200/80 dark:border-slate-700/80 shadow-2xs"
-                            :title="(kw.active_pins_count ?? getKeywordTotalPins(kw)) + ' Active SERP + ' + (kw.displaced_pins_count || 0) + ' Displaced Vault'">
-                        <i data-lucide="pin" class="w-3.5 h-3.5 text-emerald-500 shrink-0"></i>
-                        <span class="font-black text-slate-900 dark:text-white" x-text="getKeywordTotalPins(kw)"></span>
-                        <span class="text-[10px] text-slate-400 uppercase">Pins</span>
+                    <!-- Total Pins (Clean Minimalist Layout) -->
+                    <td x-show="visibleColumns.total_pins" class="py-3 px-3 font-mono">
+                      <div class="space-y-0.5" :title="(kw.active_pins_count ?? getKeywordTotalPins(kw)) + ' Active SERP + ' + (kw.displaced_pins_count || 0) + ' Displaced Vault'">
+                        <div class="flex items-center gap-1.5">
+                          <span class="font-bold text-slate-900 dark:text-white text-xs tabular-nums" x-text="formatNumber(getKeywordTotalPins(kw))"></span>
+                          <span class="text-[10px] text-slate-400 uppercase font-sans">pins</span>
+                        </div>
                         <template x-if="Number(kw.displaced_pins_count || 0) > 0">
-                          <span class="text-[9px] text-indigo-500 dark:text-indigo-400 font-semibold ml-0.5" x-text="'(' + (kw.active_pins_count || 0) + ' Active + ' + kw.displaced_pins_count + ' Vault)'"></span>
+                          <div class="text-[10px] text-slate-400 dark:text-slate-500 flex items-center gap-1">
+                            <span class="text-slate-600 dark:text-slate-400 font-medium" x-text="kw.active_pins_count || 0"></span>
+                            <span>active</span>
+                            <span>·</span>
+                            <span class="text-slate-500 dark:text-slate-400" x-text="kw.displaced_pins_count + ' vault'"></span>
+                          </div>
                         </template>
-                      </span>
+                      </div>
                     </td>
 
-                    <!-- Active / Paused Status Toggle -->
-                    <td x-show="visibleColumns.status" class="py-3.5 px-3 text-center" @click.stop>
+                    <!-- Status Indicator (Linear Dot Badge) -->
+                    <td x-show="visibleColumns.status" class="py-3 px-3 text-center" @click.stop>
                       <button @click="toggleKeywordStatus(kw)"
-                              class="px-2.5 py-1 rounded-full text-[10px] font-mono font-bold transition inline-flex items-center space-x-1.5 cursor-pointer shadow-2xs"
-                              :class="kw.is_active !== false ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 hover:bg-emerald-100' : 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-300 dark:border-amber-700 hover:bg-amber-100'"
+                              class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-mono font-medium transition cursor-pointer border shadow-2xs"
+                              :class="kw.is_active !== false ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20 hover:bg-amber-500/20'"
                               :title="kw.is_active !== false ? 'Click to Pause Tracking' : 'Click to Resume Tracking'">
                         <span class="w-1.5 h-1.5 rounded-full" :class="kw.is_active !== false ? 'bg-emerald-500' : 'bg-amber-500'"></span>
                         <span x-text="kw.is_active !== false ? 'Active' : 'Paused'"></span>
@@ -681,43 +695,37 @@ export function getKeywordsPageHtml(initialSlug = '') {
                     </td>
 
                     <!-- Date Added -->
-                    <td x-show="visibleColumns.created_at" class="py-3.5 px-3">
-                      <div class="space-y-0.5 font-mono text-[11px]">
-                        <div class="flex items-center space-x-1.5">
-                          <span class="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
-                          <span class="font-bold text-slate-700 dark:text-slate-300" x-text="kw._relativeCreatedAt || formatRelativeTime(kw.created_at)"></span>
-                        </div>
-                        <span class="text-[10px] text-slate-400 block truncate" x-text="kw._formattedCreatedAt || formatDate(kw.created_at)"></span>
+                    <td x-show="visibleColumns.created_at" class="py-3 px-3">
+                      <div class="space-y-0.5 font-mono text-xs">
+                        <span class="font-medium text-slate-700 dark:text-slate-300 block" x-text="kw._relativeCreatedAt || formatRelativeTime(kw.created_at)"></span>
+                        <span class="text-[10px] text-slate-400 dark:text-slate-500 block truncate" x-text="kw._formattedCreatedAt || formatDate(kw.created_at)"></span>
                       </div>
                     </td>
 
-                    <!-- Last Crawled (Relative Time + Full Date) -->
-                    <td x-show="visibleColumns.last_crawled" class="py-3.5 px-3">
-                      <div class="space-y-0.5 font-mono text-[11px]">
-                        <div class="flex items-center space-x-1.5">
-                          <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                          <span class="font-bold text-slate-700 dark:text-slate-300" x-text="kw._relativeCrawledAt || formatRelativeTime(kw.last_crawled_at)"></span>
-                        </div>
-                        <span class="text-[10px] text-slate-400 block truncate" x-text="kw._formattedCrawledAt || formatDate(kw.last_crawled_at)"></span>
+                    <!-- Last Crawled -->
+                    <td x-show="visibleColumns.last_crawled" class="py-3 px-3">
+                      <div class="space-y-0.5 font-mono text-xs">
+                        <span class="font-medium text-slate-700 dark:text-slate-300 block" x-text="kw._relativeCrawledAt || formatRelativeTime(kw.last_crawled_at)"></span>
+                        <span class="text-[10px] text-slate-400 dark:text-slate-500 block truncate" x-text="kw._formattedCrawledAt || formatDate(kw.last_crawled_at)"></span>
                       </div>
                     </td>
 
                     <!-- Actions -->
-                    <td x-show="visibleColumns.actions" class="py-3.5 px-4 text-right" @click.stop>
-                      <div class="flex items-center justify-end space-x-1.5">
+                    <td x-show="visibleColumns.actions" class="py-3 px-4 text-right" @click.stop>
+                      <div class="flex items-center justify-end gap-1.5">
                         <button @click="switchToSerpStudio(kw)"
-                                class="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition flex items-center space-x-1 shadow-xs cursor-pointer group-hover:scale-102"
-                                title="Open Level 2 SERP Studio">
+                                class="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition inline-flex items-center gap-1 shadow-2xs cursor-pointer group-hover:scale-102"
+                                title="Open SERP Studio">
                           <span>Studio</span>
-                          <i data-lucide="arrow-right" class="w-3.5 h-3.5"></i>
+                          <i data-lucide="arrow-right" class="w-3 h-3"></i>
                         </button>
                         <button @click="rescanKeyword(kw.id, true)" :disabled="syncingKeywordId === kw.id"
-                                class="p-1.5 rounded-xl bg-slate-100 hover:bg-emerald-50 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 hover:text-emerald-600 transition cursor-pointer"
+                                class="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
                                 :title="'Re-Crawl ' + (kw.target_pin_count || 250) + ' pins'">
                           <i data-lucide="refresh-cw" class="w-3.5 h-3.5" :class="syncingKeywordId === kw.id ? 'animate-spin text-emerald-500' : ''"></i>
                         </button>
                         <button @click="deleteKeyword(kw.id)"
-                                class="p-1.5 rounded-xl bg-slate-100 hover:bg-rose-50 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 hover:text-rose-600 transition cursor-pointer"
+                                class="p-1 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition cursor-pointer"
                                 title="Delete Keyword">
                           <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
                         </button>
@@ -732,20 +740,20 @@ export function getKeywordsPageHtml(initialSlug = '') {
               <template x-if="!isKeywordsLoading && (!filteredDashboardKeywords || filteredDashboardKeywords.length === 0)">
                 <tr>
                   <td :colspan="activeVisibleColumnCount" class="py-16 text-center">
-                    <div class="max-w-md mx-auto space-y-4 p-4">
-                      <div class="w-12 h-12 rounded-2xl bg-emerald-500/10 text-emerald-500 mx-auto flex items-center justify-center">
-                        <i data-lucide="search" class="w-6 h-6"></i>
+                    <div class="max-w-md mx-auto space-y-3.5 p-4">
+                      <div class="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 mx-auto flex items-center justify-center">
+                        <i data-lucide="search" class="w-5 h-5"></i>
                       </div>
-                      <h3 class="text-base font-bold text-slate-900 dark:text-white">No Tracked Keywords Found</h3>
-                      <p class="text-xs text-slate-500 dark:text-slate-400">
+                      <h3 class="text-sm font-semibold text-slate-900 dark:text-white">No Tracked Keywords Found</h3>
+                      <p class="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
                         Monitor comprehensive SERP rankings, save velocity, and visual co-occurrence in real time. Track an evergreen query like <strong class="text-emerald-500 cursor-pointer hover:underline" @click="quickTrackKeyword('breakfast ideas')">"breakfast ideas"</strong> now.
                       </p>
-                      <div class="flex items-center gap-2 max-w-sm mx-auto">
+                      <div class="flex items-center gap-2 max-w-sm mx-auto pt-1">
                         <input type="text" x-model="quickKeywordInput" @keydown.enter="submitQuickKeyword()"
                                placeholder="e.g. breakfast ideas, high protein meals..."
-                               class="flex-1 px-3.5 py-2 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/40">
+                               class="flex-1 px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-emerald-500/50">
                         <button @click="submitQuickKeyword()"
-                                class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition flex items-center space-x-1.5 shrink-0 cursor-pointer">
+                                class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition inline-flex items-center gap-1 shrink-0 cursor-pointer">
                           <i data-lucide="plus" class="w-3.5 h-3.5"></i>
                           <span>Track & Crawl</span>
                         </button>
@@ -760,7 +768,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
 
         <!-- DASHBOARD TABLE PAGINATION FOOTER -->
         <template x-if="!isKeywordsLoading && filteredDashboardKeywords && filteredDashboardKeywords.length > 0">
-          <div class="px-5 py-3.5 border-t border-slate-200/80 dark:border-slate-800/80 bg-slate-50/50 dark:bg-slate-900/30 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+          <div class="px-4 py-3 border-t border-slate-200/80 dark:border-slate-800/80 bg-slate-50/50 dark:bg-slate-900/30 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
             
             <!-- Left: Items range & Page Size selector -->
             <div class="flex flex-wrap items-center gap-3 text-slate-500 font-mono text-[11px]">
@@ -777,7 +785,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
               <!-- Per Page Selector -->
               <div class="flex items-center space-x-1.5">
                 <span class="text-slate-400 font-sans">Rows:</span>
-                <select x-model="dashboardPageSize" class="px-2 py-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[11px] font-mono font-bold text-slate-700 dark:text-slate-300 focus:outline-none cursor-pointer">
+                <select x-model="dashboardPageSize" class="px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[11px] font-mono font-medium text-slate-700 dark:text-slate-300 focus:outline-none cursor-pointer">
                   <option :value="10">10 / page</option>
                   <option :value="25">25 / page</option>
                   <option :value="50">50 / page</option>
@@ -786,7 +794,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
               </div>
 
               <template x-if="selectedKeywordIds.length > 0">
-                <span class="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-bold border border-emerald-500/30 font-sans"
+                <span class="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-medium border border-emerald-500/20 font-sans"
                       x-text="selectedKeywordIds.length + ' selected'"></span>
               </template>
             </div>
@@ -796,26 +804,26 @@ export function getKeywordsPageHtml(initialSlug = '') {
               <div class="flex items-center space-x-1">
                 <!-- First Page -->
                 <button type="button" @click="setDashboardPage(1)" :disabled="dashboardPage <= 1"
-                        class="p-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer text-slate-600 dark:text-slate-400"
+                        class="p-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer text-slate-600 dark:text-slate-400"
                         title="First Page">
-                  <i data-lucide="chevrons-left" class="w-4 h-4"></i>
+                  <i data-lucide="chevrons-left" class="w-3.5 h-3.5"></i>
                 </button>
 
                 <!-- Previous Page -->
                 <button type="button" @click="setDashboardPage(dashboardPage - 1)" :disabled="dashboardPage <= 1"
-                        class="p-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer text-slate-600 dark:text-slate-400"
+                        class="p-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer text-slate-600 dark:text-slate-400"
                         title="Previous Page">
-                  <i data-lucide="chevron-left" class="w-4 h-4"></i>
+                  <i data-lucide="chevron-left" class="w-3.5 h-3.5"></i>
                 </button>
 
                 <!-- Numbered Page Pills -->
                 <div class="flex items-center space-x-1 px-1">
                   <template x-for="(p, pIdx) in dashboardPageNumbers" :key="'p-' + pIdx + '-' + p">
                     <div>
-                      <span x-show="p === '...'" class="px-2 py-1 text-slate-400 font-mono text-xs">...</span>
+                      <span x-show="p === '...'" class="px-1.5 py-0.5 text-slate-400 font-mono text-xs">...</span>
                       <button x-show="p !== '...'" type="button" @click="setDashboardPage(p)"
-                              class="min-w-8 h-8 px-2 rounded-xl text-xs font-mono font-bold transition cursor-pointer"
-                              :class="dashboardPage === p ? 'bg-emerald-600 text-white shadow-xs' : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'"
+                              class="min-w-7 h-7 px-1.5 rounded-md text-xs font-mono font-medium transition cursor-pointer"
+                              :class="dashboardPage === p ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-2xs' : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'"
                               x-text="p"></button>
                     </div>
                   </template>
@@ -823,16 +831,16 @@ export function getKeywordsPageHtml(initialSlug = '') {
 
                 <!-- Next Page -->
                 <button type="button" @click="setDashboardPage(dashboardPage + 1)" :disabled="dashboardPage >= dashboardTotalPages"
-                        class="p-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer text-slate-600 dark:text-slate-400"
+                        class="p-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer text-slate-600 dark:text-slate-400"
                         title="Next Page">
-                  <i data-lucide="chevron-right" class="w-4 h-4"></i>
+                  <i data-lucide="chevron-right" class="w-3.5 h-3.5"></i>
                 </button>
 
                 <!-- Last Page -->
                 <button type="button" @click="setDashboardPage(dashboardTotalPages)" :disabled="dashboardPage >= dashboardTotalPages"
-                        class="p-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer text-slate-600 dark:text-slate-400"
+                        class="p-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer text-slate-600 dark:text-slate-400"
                         title="Last Page">
-                  <i data-lucide="chevrons-right" class="w-4 h-4"></i>
+                  <i data-lucide="chevrons-right" class="w-3.5 h-3.5"></i>
                 </button>
               </div>
             </template>
@@ -840,14 +848,14 @@ export function getKeywordsPageHtml(initialSlug = '') {
         </template>
       </section>
 
-      <!-- VIEW MODE 2: PINTEREST-STYLE VISUAL CARDS GRID -->
+      <!-- VIEW MODE 2: PINTEREST-STYLE VISUAL CARDS GRID (LINEAR / VERCEL STYLE) -->
       <section id="keywords-dashboard-grid" x-show="dashboardViewMode === 'grid'" class="space-y-4">
         <!-- Grid Skeleton Loader -->
         <template x-if="isKeywordsLoading">
           <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
             <template x-for="i in [1, 2, 3, 4]" :key="i">
-              <div class="rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/90 dark:border-slate-800/90 p-4 space-y-3 animate-pulse">
-                <div class="w-full h-44 bg-slate-200 dark:bg-slate-800 rounded-2xl"></div>
+              <div class="rounded-2xl bg-white dark:bg-[#0c101b] border border-slate-200/80 dark:border-slate-800/80 p-3.5 space-y-3 animate-pulse">
+                <div class="w-full h-44 bg-slate-200 dark:bg-slate-800 rounded-xl"></div>
                 <div class="h-4 w-32 bg-slate-200 dark:bg-slate-800 rounded"></div>
                 <div class="h-3 w-20 bg-slate-100 dark:bg-slate-800/60 rounded"></div>
               </div>
@@ -860,12 +868,12 @@ export function getKeywordsPageHtml(initialSlug = '') {
           <div class="space-y-4">
             <!-- Grid Empty State -->
             <template x-if="!filteredDashboardKeywords || filteredDashboardKeywords.length === 0">
-              <div class="p-12 text-center rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/90 dark:border-slate-800/90 shadow-xs">
+              <div class="p-12 text-center rounded-2xl bg-white dark:bg-[#0c101b] border border-slate-200/80 dark:border-slate-800/80 shadow-xs">
                 <div class="max-w-md mx-auto space-y-3">
-                  <div class="w-12 h-12 rounded-2xl bg-emerald-500/10 text-emerald-500 mx-auto flex items-center justify-center">
-                    <i data-lucide="search" class="w-6 h-6"></i>
+                  <div class="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 mx-auto flex items-center justify-center">
+                    <i data-lucide="search" class="w-5 h-5"></i>
                   </div>
-                  <h3 class="text-base font-bold text-slate-900 dark:text-white">No Tracked Keywords Found</h3>
+                  <h3 class="text-sm font-semibold text-slate-900 dark:text-white">No Tracked Keywords Found</h3>
                   <p class="text-xs text-slate-500 dark:text-slate-400">Try adjusting your category, folder, or search filters.</p>
                 </div>
               </div>
@@ -874,27 +882,27 @@ export function getKeywordsPageHtml(initialSlug = '') {
             <div x-show="filteredDashboardKeywords && filteredDashboardKeywords.length > 0"
                  class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
               <template x-for="kw in paginatedDashboardKeywords" :key="kw.id">
-                <div class="rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/90 dark:border-slate-800/90 p-4 shadow-xs hover:shadow-md transition-all duration-200 group flex flex-col justify-between cursor-pointer space-y-3"
+                <div class="rounded-2xl bg-white dark:bg-[#0c101b] border border-slate-200/80 dark:border-slate-800/80 p-3.5 shadow-xs hover:border-slate-300 dark:hover:border-slate-700 transition duration-150 group flex flex-col justify-between cursor-pointer space-y-3"
                      @click="switchToSerpStudio(kw)">
                   
                   <!-- Card Header: Image Banner with Floating Badges -->
-                  <div class="w-full h-48 rounded-2xl overflow-hidden bg-slate-100 dark:bg-slate-900 border border-slate-200/70 dark:border-slate-800 relative">
+                  <div class="w-full h-44 rounded-xl overflow-hidden bg-slate-100 dark:bg-slate-900 border border-slate-200/70 dark:border-slate-800 relative">
                     <template x-if="kw.top_pin_image">
                       <img :src="kw.top_pin_image" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300">
                     </template>
                     <template x-if="!kw.top_pin_image">
                       <div class="w-full h-full flex items-center justify-center">
-                        <i data-lucide="image" class="w-8 h-8 text-slate-400"></i>
+                        <i data-lucide="image" class="w-6 h-6 text-slate-400"></i>
                       </div>
                     </template>
 
                     <!-- Top Badges Overlay -->
-                    <div class="absolute top-2.5 left-2.5 right-2.5 flex items-center justify-between">
-                      <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold backdrop-blur-md"
-                            :class="kw.is_active !== false ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-500/40' : 'bg-amber-950/80 text-amber-300 border border-amber-500/40'"
+                    <div class="absolute top-2 left-2 right-2 flex items-center justify-between">
+                      <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-medium backdrop-blur-md"
+                            :class="kw.is_active !== false ? 'bg-slate-950/80 text-emerald-400 border border-emerald-500/30' : 'bg-slate-950/80 text-amber-400 border border-amber-500/30'"
                             x-text="kw.is_active !== false ? '● Active' : '● Paused'"></span>
 
-                      <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-slate-950/80 text-white backdrop-blur-md border border-slate-700/60 inline-flex items-center space-x-1"
+                      <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-medium bg-slate-950/80 text-slate-200 backdrop-blur-md border border-slate-700/60 inline-flex items-center space-x-1"
                             :title="(kw.active_pins_count ?? getKeywordTotalPins(kw)) + ' Active + ' + (kw.displaced_pins_count || 0) + ' Vault'">
                         <i data-lucide="pin" class="w-3 h-3 text-emerald-400"></i>
                         <span x-text="getKeywordTotalPins(kw) + ' Pins'"></span>
@@ -908,37 +916,37 @@ export function getKeywordsPageHtml(initialSlug = '') {
                   <!-- Card Body -->
                   <div class="space-y-2 flex-1">
                     <div class="flex items-start justify-between gap-2">
-                      <h3 class="font-black text-slate-900 dark:text-white text-base capitalize group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition truncate"
+                      <h3 class="font-semibold text-slate-900 dark:text-white text-sm capitalize group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition truncate"
                           x-text="kw.keyword"></h3>
                     </div>
 
                     <div class="flex flex-wrap items-center gap-1">
-                      <span class="inline-block px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700/60"
+                      <span class="inline-block px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700/60"
                             x-text="kw.category || 'General'"></span>
                       
                       <!-- Folder Tags -->
                       <template x-for="f in getKeywordFolders(kw)" :key="f.id">
                         <button type="button" @click.stop="filterByFolder(f.id)"
-                                class="px-2 py-0.5 rounded-md text-[10px] font-bold font-mono transition inline-flex items-center space-x-1 border cursor-pointer hover:scale-105 shadow-2xs"
-                                :style="'background-color: ' + (f.color || '#ec4899') + '15; color: ' + (f.color || '#ec4899') + '; border-color: ' + (f.color || '#ec4899') + '40;'"
+                                class="px-1.5 py-0.5 rounded text-[10px] font-medium font-mono transition inline-flex items-center space-x-1 border cursor-pointer hover:opacity-85 shadow-2xs"
+                                :style="'background-color: ' + (f.color || '#ec4899') + '12; color: ' + (f.color || '#ec4899') + '; border-color: ' + (f.color || '#ec4899') + '30;'"
                                 :title="'Click to filter keywords in: ' + f.name">
                           <i data-lucide="folder" class="w-2.5 h-2.5 shrink-0"></i>
-                          <span class="max-w-[120px] truncate" x-text="f.name"></span>
+                          <span class="max-w-[110px] truncate" x-text="f.name"></span>
                         </button>
                       </template>
                     </div>
 
                     <!-- Metrics Ribbon -->
                     <div class="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 dark:border-slate-800/80 text-xs font-mono">
-                      <div class="p-2 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800">
+                      <div class="p-2 rounded-lg bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800">
                         <span class="text-[10px] text-slate-400 block font-sans">24h Saves Δ</span>
-                        <span class="font-bold text-slate-800 dark:text-slate-200"
+                        <span class="font-semibold text-slate-800 dark:text-slate-200"
                               :class="getKeywordSaveDelta(kw) > 0 ? 'text-emerald-600 dark:text-emerald-400' : ''"
                               x-text="(getKeywordSaveDelta(kw) > 0 ? '+' : '') + formatNumber(getKeywordSaveDelta(kw))"></span>
                       </div>
-                      <div class="p-2 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800">
+                      <div class="p-2 rounded-lg bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800">
                         <span class="text-[10px] text-slate-400 block font-sans">24h Repins Δ</span>
-                        <span class="font-bold text-slate-800 dark:text-slate-200"
+                        <span class="font-semibold text-slate-800 dark:text-slate-200"
                               :class="getKeywordRepinDelta(kw) > 0 ? 'text-emerald-600 dark:text-emerald-400' : ''"
                               x-text="(getKeywordRepinDelta(kw) > 0 ? '+' : '') + formatNumber(getKeywordRepinDelta(kw))"></span>
                       </div>
@@ -947,12 +955,12 @@ export function getKeywordsPageHtml(initialSlug = '') {
                     <!-- Total Pins Status Ribbon -->
                     <div class="flex items-center justify-between text-xs font-mono pt-1">
                       <span class="text-slate-400">Total Pins:</span>
-                      <span class="font-bold text-slate-900 dark:text-white inline-flex items-center space-x-1.5"
+                      <span class="font-semibold text-slate-900 dark:text-white inline-flex items-center space-x-1"
                             :title="(kw.active_pins_count ?? getKeywordTotalPins(kw)) + ' Active + ' + (kw.displaced_pins_count || 0) + ' Vault'">
-                        <i data-lucide="pin" class="w-3.5 h-3.5 text-emerald-500"></i>
+                        <i data-lucide="pin" class="w-3 h-3 text-emerald-500"></i>
                         <span x-text="getKeywordTotalPins(kw) + ' Pins'"></span>
                         <template x-if="Number(kw.displaced_pins_count || 0) > 0">
-                          <span class="text-[10px] text-indigo-500 dark:text-indigo-400 font-semibold ml-0.5" x-text="'(' + (kw.active_pins_count || 0) + ' Active + ' + kw.displaced_pins_count + ' Vault)'"></span>
+                          <span class="text-[10px] text-indigo-500 dark:text-indigo-400 font-medium ml-0.5" x-text="'(' + (kw.active_pins_count || 0) + ' Active + ' + kw.displaced_pins_count + ' Vault)'"></span>
                         </template>
                       </span>
                     </div>
@@ -966,12 +974,12 @@ export function getKeywordsPageHtml(initialSlug = '') {
                     </div>
                     <div class="flex items-center space-x-1.5 shrink-0">
                       <button @click.stop="switchToSerpStudio(kw)"
-                              class="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition flex items-center space-x-1 text-xs">
+                              class="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium transition flex items-center space-x-1 text-xs">
                         <span>Studio</span>
                         <i data-lucide="arrow-right" class="w-3 h-3"></i>
                       </button>
                       <button @click.stop="deleteKeyword(kw.id)"
-                              class="p-1.5 rounded-xl text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-slate-800 transition">
+                              class="p-1 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-slate-800 transition">
                         <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
                       </button>
                     </div>
@@ -983,7 +991,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
 
             <!-- DASHBOARD GRID PAGINATION FOOTER -->
             <template x-if="filteredDashboardKeywords && filteredDashboardKeywords.length > 0">
-              <div class="px-5 py-3.5 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 bg-white dark:bg-[#0b1120] flex flex-col sm:flex-row items-center justify-between gap-3 text-xs shadow-xs">
+              <div class="px-4 py-3 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 bg-white dark:bg-[#0c101b] flex flex-col sm:flex-row items-center justify-between gap-3 text-xs shadow-xs">
                 
                 <!-- Left: Items range & Page Size selector -->
                 <div class="flex flex-wrap items-center gap-3 text-slate-500 font-mono text-[11px]">
@@ -1000,7 +1008,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
                   <!-- Per Page Selector -->
                   <div class="flex items-center space-x-1.5">
                     <span class="text-slate-400 font-sans">Rows:</span>
-                    <select x-model="dashboardPageSize" class="px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[11px] font-mono font-bold text-slate-700 dark:text-slate-300 focus:outline-none cursor-pointer">
+                    <select x-model="dashboardPageSize" class="px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[11px] font-mono font-medium text-slate-700 dark:text-slate-300 focus:outline-none cursor-pointer">
                       <option :value="10">10 / page</option>
                       <option :value="25">25 / page</option>
                       <option :value="50">50 / page</option>
@@ -1014,26 +1022,26 @@ export function getKeywordsPageHtml(initialSlug = '') {
                   <div class="flex items-center space-x-1">
                     <!-- First Page -->
                     <button type="button" @click="setDashboardPage(1)" :disabled="dashboardPage <= 1"
-                            class="p-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer text-slate-600 dark:text-slate-400"
+                            class="p-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer text-slate-600 dark:text-slate-400"
                             title="First Page">
-                      <i data-lucide="chevrons-left" class="w-4 h-4"></i>
+                      <i data-lucide="chevrons-left" class="w-3.5 h-3.5"></i>
                     </button>
 
                     <!-- Previous Page -->
                     <button type="button" @click="setDashboardPage(dashboardPage - 1)" :disabled="dashboardPage <= 1"
-                            class="p-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer text-slate-600 dark:text-slate-400"
+                            class="p-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer text-slate-600 dark:text-slate-400"
                             title="Previous Page">
-                      <i data-lucide="chevron-left" class="w-4 h-4"></i>
+                      <i data-lucide="chevron-left" class="w-3.5 h-3.5"></i>
                     </button>
 
                     <!-- Numbered Page Pills -->
                     <div class="flex items-center space-x-1 px-1">
                       <template x-for="(p, pIdx) in dashboardPageNumbers" :key="'gp-' + pIdx + '-' + p">
                         <div>
-                          <span x-show="p === '...'" class="px-2 py-1 text-slate-400 font-mono text-xs">...</span>
+                          <span x-show="p === '...'" class="px-1.5 py-0.5 text-slate-400 font-mono text-xs">...</span>
                           <button x-show="p !== '...'" type="button" @click="setDashboardPage(p)"
-                                  class="min-w-8 h-8 px-2 rounded-xl text-xs font-mono font-bold transition cursor-pointer"
-                                  :class="dashboardPage === p ? 'bg-emerald-600 text-white shadow-xs' : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'"
+                                  class="min-w-7 h-7 px-1.5 rounded-md text-xs font-mono font-medium transition cursor-pointer"
+                                  :class="dashboardPage === p ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-2xs' : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'"
                                   x-text="p"></button>
                         </div>
                       </template>
@@ -1041,16 +1049,16 @@ export function getKeywordsPageHtml(initialSlug = '') {
 
                     <!-- Next Page -->
                     <button type="button" @click="setDashboardPage(dashboardPage + 1)" :disabled="dashboardPage >= dashboardTotalPages"
-                            class="p-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer text-slate-600 dark:text-slate-400"
+                            class="p-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer text-slate-600 dark:text-slate-400"
                             title="Next Page">
-                      <i data-lucide="chevron-right" class="w-4 h-4"></i>
+                      <i data-lucide="chevron-right" class="w-3.5 h-3.5"></i>
                     </button>
 
                     <!-- Last Page -->
                     <button type="button" @click="setDashboardPage(dashboardTotalPages)" :disabled="dashboardPage >= dashboardTotalPages"
-                            class="p-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer text-slate-600 dark:text-slate-400"
+                            class="p-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer text-slate-600 dark:text-slate-400"
                             title="Last Page">
-                      <i data-lucide="chevrons-right" class="w-4 h-4"></i>
+                      <i data-lucide="chevrons-right" class="w-3.5 h-3.5"></i>
                     </button>
                   </div>
                 </template>
@@ -1539,11 +1547,12 @@ export function getKeywordsPageHtml(initialSlug = '') {
           
           <button @click="serpScope = 'all'"
                   class="px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center space-x-1.5 border"
-                  :class="serpScope === 'all' ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/40 shadow-xs' : 'bg-white dark:bg-slate-900/80 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-700'">
+                  :class="serpScope === 'all' ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/40 shadow-xs' : 'bg-white dark:bg-slate-900/80 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-700'"
+                  :title="'Showing ' + allCombinedPins.length + ' of ' + totalCatalogCount + ' total catalog pins'">
             <span>🔘 All Pins</span>
             <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold"
                   :class="serpScope === 'all' ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'"
-                  x-text="allCombinedPins.length"></span>
+                  x-text="totalCatalogCount > allCombinedPins.length ? (allCombinedPins.length + ' / ' + totalCatalogCount) : totalCatalogCount"></span>
           </button>
           
           <button @click="serpScope = 'active'"
@@ -1555,13 +1564,14 @@ export function getKeywordsPageHtml(initialSlug = '') {
                   x-text="(selectedKeywordDetails?.current_pins || []).length"></span>
           </button>
 
-          <button @click="serpScope = 'displaced'; if(selectedKeyword) fetchDisplacedPins()"
+          <button @click="serpScope = 'displaced'; if(selectedKeyword && displacedVaultPins.length === 0) fetchDisplacedPins()"
                   class="px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center space-x-1.5 border"
-                  :class="serpScope === 'displaced' ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/40 shadow-xs' : 'bg-white dark:bg-slate-900/80 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-700'">
+                  :class="serpScope === 'displaced' ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/40 shadow-xs' : 'bg-white dark:bg-slate-900/80 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-700'"
+                  :title="'Showing ' + displacedVaultPins.length + ' of ' + totalDisplacedCount + ' displaced vault pins'">
             <span>🔴 Displaced Vault</span>
             <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold"
                   :class="serpScope === 'displaced' ? 'bg-rose-500/20 text-rose-600 dark:text-rose-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'"
-                  x-text="displacedVaultPins.length"></span>
+                  x-text="totalDisplacedCount > displacedVaultPins.length ? (displacedVaultPins.length + ' / ' + totalDisplacedCount) : totalDisplacedCount"></span>
           </button>
 
           <button @click="serpScope = 'breakout'"
@@ -2023,7 +2033,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
           <div class="px-5 py-3.5 border-t border-slate-200/80 dark:border-slate-800/80 bg-slate-50/50 dark:bg-slate-900/30 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
             
             <!-- Left: Items range & Selection -->
-            <div class="flex items-center space-x-3 text-slate-500 font-mono text-[11px]">
+            <div class="flex items-center space-x-3 text-slate-500 font-mono text-[11px] flex-wrap gap-y-1">
               <div>
                 <span>Showing </span>
                 <span class="font-bold text-slate-900 dark:text-white"
@@ -2033,12 +2043,28 @@ export function getKeywordsPageHtml(initialSlug = '') {
                       x-text="pinPageSize === 'all' ? filteredPins.length : Math.min(pinPage * Number(pinPageSize), filteredPins.length)"></span>
                 <span> of </span>
                 <span class="font-bold text-slate-900 dark:text-white" x-text="filteredPins.length"></span>
+                <template x-if="serpScope === 'displaced' && totalDisplacedCount > displacedVaultPins.length">
+                  <span class="text-rose-500 font-bold ml-1" x-text="'(' + totalDisplacedCount + ' total in Vault)'"></span>
+                </template>
+                <template x-if="serpScope === 'all' && totalCatalogCount > allCombinedPins.length">
+                  <span class="text-emerald-500 font-bold ml-1" x-text="'(' + totalCatalogCount + ' total in Catalog)'"></span>
+                </template>
                 <span> pins</span>
               </div>
 
               <template x-if="selectedPinIds.length > 0">
                 <span class="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-bold border border-emerald-500/30 font-sans"
                       x-text="selectedPinIds.length + ' selected'"></span>
+              </template>
+
+              <!-- Load More Displaced Pins Action -->
+              <template x-if="(serpScope === 'displaced' || serpScope === 'all') && totalDisplacedCount > displacedVaultPins.length">
+                <button type="button" @click="loadMoreDisplacedPins()" :disabled="isLoadingMoreDisplaced"
+                        class="px-2.5 py-1 rounded-lg font-mono font-bold text-[11px] bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/30 transition flex items-center space-x-1.5 cursor-pointer disabled:opacity-50 ml-2"
+                        title="Load next 24 displaced pins from Vault">
+                  <i data-lucide="download" class="w-3 h-3" :class="isLoadingMoreDisplaced ? 'animate-bounce' : ''"></i>
+                  <span x-text="isLoadingMoreDisplaced ? 'Loading Vault...' : ('Load More Displaced (' + Math.min(24, totalDisplacedCount - displacedVaultPins.length) + ' more)')"></span>
+                </button>
               </template>
             </div>
 
@@ -2548,7 +2574,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
               <div class="flex items-center space-x-2">
                 <span class="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-slate-200">Intelligence Scope</span>
                 <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-purple-500/15 text-purple-500"
-                      x-text="intelScope === 'all' ? ('Full Historical Catalog (#' + totalAnalyzedPinsCount + ' Pins)') : ('Active Live SERP (#' + (selectedKeywordDetails?.current_pins?.length || 0) + ' Pins)')"></span>
+                      x-text="intelScope === 'all' ? ('Full Historical Catalog (#' + totalCatalogCount + ' Pins)') : ('Active Live SERP (#' + (selectedKeywordDetails?.current_pins?.length || 0) + ' Pins)')"></span>
               </div>
               <p class="text-[11px] text-slate-500">Toggle analysis between live ranking active SERP pins and the full collected catalog (including Displaced Vault pins).</p>
             </div>
@@ -2561,7 +2587,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
               <span>🔘 Full Catalog</span>
               <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold"
                     :class="intelScope === 'all' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'"
-                    x-text="'#' + allCombinedPins.length"></span>
+                    x-text="totalCatalogCount > allCombinedPins.length ? ('#' + allCombinedPins.length + ' / ' + totalCatalogCount) : ('#' + totalCatalogCount)"></span>
             </button>
             <button @click="intelScope = 'active'"
                     class="px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center space-x-1.5"
@@ -3388,6 +3414,38 @@ export function getKeywordsPageHtml(initialSlug = '') {
           </div>
         </template>
 
+        <!-- Displaced Vault Pagination / Load More Footer -->
+        <template x-if="!isDisplacedLoading && displacedVaultPins.length > 0">
+          <div class="p-4 border-t border-slate-200/80 dark:border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-4 bg-slate-50/50 dark:bg-slate-900/30 rounded-b-3xl">
+            <div class="text-xs text-slate-500 font-mono">
+              <span>Showing </span>
+              <span class="font-bold text-slate-900 dark:text-white" x-text="displacedVaultPins.length"></span>
+              <span> of </span>
+              <span class="font-bold text-rose-500" x-text="totalDisplacedCount"></span>
+              <span> displaced vault pins</span>
+            </div>
+            <template x-if="displacedVaultPins.length < totalDisplacedCount">
+              <button type="button" @click="loadMoreDisplacedPins()"
+                      :disabled="isLoadingMoreDisplaced"
+                      class="px-4 py-2 rounded-xl text-xs font-bold font-mono bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/30 transition flex items-center space-x-2 cursor-pointer disabled:opacity-50">
+                <template x-if="isLoadingMoreDisplaced">
+                  <i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i>
+                </template>
+                <template x-if="!isLoadingMoreDisplaced">
+                  <i data-lucide="arrow-down" class="w-3.5 h-3.5"></i>
+                </template>
+                <span x-text="isLoadingMoreDisplaced ? 'Loading Displaced Pins...' : ('Load More Displaced Pins (+' + Math.min(24, totalDisplacedCount - displacedVaultPins.length) + ')')"></span>
+              </button>
+            </template>
+            <template x-if="displacedVaultPins.length >= totalDisplacedCount">
+              <div class="text-xs font-mono text-emerald-500 font-bold flex items-center space-x-1">
+                <i data-lucide="check" class="w-3.5 h-3.5"></i>
+                <span>All Displaced Pins Loaded</span>
+              </div>
+            </template>
+          </div>
+        </template>
+
       </div>
 
       <!-- DEPRECATED CROSSOVER TAB - MIGRATED TO /folders/:id -->
@@ -4167,8 +4225,10 @@ export function getKeywordsPageHtml(initialSlug = '') {
         // Displaced Pins Vault State (Phase 3 & 4)
         displacedPins: [],
         displacedPinsTotal: 0,
+        displacedOffset: 0,
         displacedStatusFilter: 'ALL',
         isDisplacedLoading: false,
+        isLoadingMoreDisplaced: false,
 
         // Pin Deep Dossier & Performance Trajectory State (Image 2 Parity)
         dossierData: null,
@@ -4767,6 +4827,19 @@ export function getKeywordsPageHtml(initialSlug = '') {
             this.rebuildPinCaches();
           }
           return this.cachedDisplacedVaultPins || [];
+        },
+
+        get totalDisplacedCount() {
+          const fromDetails = Number(this.selectedKeywordDetails?.total_displaced_count ?? this.selectedKeywordDetails?.stats?.dropped_out ?? 0);
+          const fromState = Number(this.displacedPinsTotal || 0);
+          const fromArray = (this.displacedVaultPins || []).length;
+          return Math.max(fromDetails, fromState, fromArray);
+        },
+
+        get totalCatalogCount() {
+          const activeCount = Number(this.selectedKeywordDetails?.current_pins?.length || 0);
+          const fromDetails = Number(this.selectedKeywordDetails?.total_catalog_pins_count || 0);
+          return Math.max(fromDetails, activeCount + this.totalDisplacedCount);
         },
 
         getPinVisualTags(pin) {
@@ -5572,11 +5645,19 @@ export function getKeywordsPageHtml(initialSlug = '') {
               if (data.success && data.keyword) {
                 this.selectedKeyword = data.keyword;
                 this.selectedKeywordDetails = data;
+                this.displacedOffset = 0;
+                this.displacedPins = [];
+                if (data.total_displaced_count !== undefined) {
+                  this.displacedPinsTotal = Number(data.total_displaced_count);
+                }
                 this.anchorsPage = 1;
                 this.anchorsSearch = '';
                 this.domainPage = 1;
                 this.domainSearch = '';
                 this.rebuildPinCaches();
+                if (data.keyword.id) {
+                  this.fetchDisplacedPins(data.keyword.id);
+                }
                 if (!this.keywords.some(k => k.id === data.keyword.id)) {
                   this.keywords.unshift(this.normalizeKeyword(data.keyword));
                 }
@@ -5607,6 +5688,9 @@ export function getKeywordsPageHtml(initialSlug = '') {
           this.domainSearch = '';
           this.isDetailsLoading = true;
           this.activeTab = 'serp';
+          this.displacedOffset = 0;
+          this.displacedPins = [];
+          this.displacedPinsTotal = Number(kw.displaced_pins_count || 0);
 
           // Fetch 52-week trends
           this.fetchTrends(kw.keyword);
@@ -5634,6 +5718,9 @@ export function getKeywordsPageHtml(initialSlug = '') {
             if (currentReqId !== this.detailRequestId) return;
 
             this.selectedKeywordDetails = data;
+            if (data.total_displaced_count !== undefined) {
+              this.displacedPinsTotal = Number(data.total_displaced_count);
+            }
             this.rebuildPinCaches();
           } catch (err) {
             if (err.name === 'AbortError') return;
@@ -5785,23 +5872,59 @@ export function getKeywordsPageHtml(initialSlug = '') {
           }
         },
 
-        async fetchDisplacedPins(keywordId) {
+        async fetchDisplacedPins(keywordId, append = false) {
           const kid = keywordId || this.selectedKeyword?.id;
           if (!kid) return;
-          this.isDisplacedLoading = true;
+          if (append) {
+            this.isLoadingMoreDisplaced = true;
+          } else {
+            this.isDisplacedLoading = true;
+            this.displacedOffset = 0;
+          }
           try {
+            const offset = append ? this.displacedOffset : 0;
+            const limit = 24;
             const statusParam = this.displacedStatusFilter !== 'ALL' ? '&status=' + encodeURIComponent(this.displacedStatusFilter) : '';
-            const res = await fetch(this.getApiUrl('/api/keywords/displaced?keyword_id=' + kid + statusParam));
+            const res = await fetch(this.getApiUrl('/api/keywords/displaced?keyword_id=' + kid + '&limit=' + limit + '&offset=' + offset + statusParam));
             if (res.ok) {
               const data = await res.json();
-              this.displacedPins = data.displaced_pins || data.pins || [];
-              this.displacedPinsTotal = data.total || this.displacedPins.length;
+              const incoming = data.displaced_pins || data.pins || [];
+              if (append) {
+                const existingIds = new Set([
+                  ...this.displacedPins.map(p => String(p.pin_id || p.id)),
+                  ...(this.selectedKeywordDetails?.dropped_out_pins || []).map(p => String(p.pin_id || p.id))
+                ]);
+                const fresh = incoming.filter(p => !existingIds.has(String(p.pin_id || p.id)));
+                this.displacedPins = [...this.displacedPins, ...fresh];
+                this.displacedOffset += incoming.length;
+              } else {
+                this.displacedPins = incoming;
+                this.displacedOffset = incoming.length;
+              }
+              if (data.total !== undefined && data.total !== null) {
+                this.displacedPinsTotal = Number(data.total);
+              } else {
+                this.displacedPinsTotal = Math.max(this.displacedPinsTotal || 0, this.displacedPins.length);
+              }
+              if (append && incoming.length < limit) {
+                this.displacedPinsTotal = Math.max(this.displacedPins.length, (this.selectedKeywordDetails?.dropped_out_pins || []).length);
+              }
               this.rebuildPinCaches();
             }
           } catch (_) {} finally {
             this.isDisplacedLoading = false;
+            this.isLoadingMoreDisplaced = false;
             this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
           }
+        },
+
+        async loadMoreDisplacedPins() {
+          if (this.isLoadingMoreDisplaced || this.isDisplacedLoading) return;
+          if (this.displacedVaultPins.length >= this.totalDisplacedCount) return;
+          if (this.displacedOffset === 0 && this.displacedVaultPins.length > 0) {
+            this.displacedOffset = this.displacedVaultPins.length;
+          }
+          await this.fetchDisplacedPins(this.selectedKeyword?.id, true);
         },
 
         async fetchSettings() {

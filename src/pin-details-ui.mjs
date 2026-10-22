@@ -664,7 +664,12 @@ export function getPinDetailPageHtml(pinId = '') {
               <tbody class="divide-y divide-slate-100 bg-white">
                 <template x-for="(day, idx) in filteredDays()" :key="day.snapshot_date">
                   <tr class="hover:bg-slate-50/80 transition-colors">
-                    <td class="p-3 font-bold text-slate-900" x-text="day.snapshot_date"></td>
+                    <td class="p-3">
+                      <div class="flex flex-col">
+                        <span class="font-bold text-slate-900" x-text="day.snapshot_date"></span>
+                        <span class="text-[10px] text-slate-400 font-mono" :title="formatLocalTime(day.crawled_at || day.updated_at)" x-text="formatDateTime(day.crawled_at || day.updated_at)"></span>
+                      </div>
+                    </td>
                     <td class="p-3">
                       <div class="flex items-center gap-1.5 flex-wrap">
                         <template x-for="kw in (day.ranking_keywords || [])" :key="kw.keyword_id || kw.keyword">
@@ -1012,6 +1017,36 @@ export function getPinDetailPageHtml(pinId = '') {
           } catch (_) { return String(isoStr).slice(0, 10); }
         },
 
+        formatDateTime(isoStr) {
+          if (!isoStr) return '';
+          try {
+            const d = new Date(isoStr);
+            if (isNaN(d.getTime())) return '';
+            const hours = d.getUTCHours();
+            const minutes = String(d.getUTCMinutes()).padStart(2, '0');
+            const ampm = hours >= 12 ? 'PM' : 'AM';
+            const h12 = hours % 12 || 12;
+            const timeStr = String(h12).padStart(2, '0') + ':' + minutes + ' ' + ampm + ' UTC';
+
+            const diffMs = Date.now() - d.getTime();
+            const diffHours = Math.round(diffMs / (1000 * 60 * 60));
+            if (diffHours >= 0 && diffHours < 48) {
+              const relStr = diffHours === 0 ? 'just now' : (diffHours + 'h ago');
+              return timeStr + ' (' + relStr + ')';
+            }
+            return timeStr;
+          } catch (_) { return ''; }
+        },
+
+        formatLocalTime(isoStr) {
+          if (!isoStr) return '';
+          try {
+            const d = new Date(isoStr);
+            if (isNaN(d.getTime())) return '';
+            return 'Local Time: ' + d.toLocaleString();
+          } catch (_) { return ''; }
+        },
+
         formatAge(isoStr) {
           if (!isoStr) return '';
           try {
@@ -1140,6 +1175,7 @@ export function getPinDetailPageHtml(pinId = '') {
           for (const s of snaps) {
             const date = s.snapshot_date;
             if (!date) continue;
+            const crawlTs = s.crawled_at || s.updated_at || s.created_at || (date + 'T00:00:00Z');
             if (!map.has(date)) {
               map.set(date, {
                 snapshot_date: date,
@@ -1150,10 +1186,16 @@ export function getPinDetailPageHtml(pinId = '') {
                 reaction_count: Number(s.reaction_count || 0),
                 daily_save_velocity: Number(s.daily_save_velocity || 0),
                 best_rank: (s.rank_position && s.rank_position > 0) ? s.rank_position : 999,
-                ranking_keywords: []
+                ranking_keywords: [],
+                crawled_at: crawlTs,
+                updated_at: s.updated_at || crawlTs
               });
             }
             const d = map.get(date);
+            if (crawlTs && (!d.crawled_at || new Date(crawlTs).getTime() > new Date(d.crawled_at).getTime())) {
+              d.crawled_at = crawlTs;
+              d.updated_at = s.updated_at || crawlTs;
+            }
             d.save_count = Math.max(d.save_count, Number(s.save_count || 0));
             d.repin_count = Math.max(d.repin_count, Number(s.repin_count || 0));
             d.comment_count = Math.max(d.comment_count, Number(s.comment_count || 0));
