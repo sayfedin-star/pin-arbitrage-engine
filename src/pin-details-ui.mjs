@@ -1041,7 +1041,10 @@ export function getPinDetailPageHtml(pinId = '') {
           if (Array.isArray(list) && list.length > 0) {
             return list.filter(t => t.is_live);
           }
-          return (this.dossier?.creative?.visual_annotations || []).map(t => ({ name: t, is_live: true }));
+          return (this.dossier?.creative?.visual_annotations || []).map(t => ({ 
+            name: typeof t === 'object' && t !== null ? (t.name || t.tag || '') : t, 
+            is_live: true 
+          }));
         },
 
         historicalTags() {

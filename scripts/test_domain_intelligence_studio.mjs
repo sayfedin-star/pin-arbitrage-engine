@@ -462,9 +462,13 @@ async function runTests() {
   );
 
   // Pillar 3: Visual DNA
+  const hasNoObjectString = (espionageDossier.visual_dna.visual_tags_cloud || []).every(
+    t => typeof t.tag === 'string' && t.tag !== '[object Object]' && !t.tag.includes('object Object')
+  );
   report(
-    'Pillar 3: Visual DNA extracts Computer Vision tags cloud and dominant palette',
+    'Pillar 3: Visual DNA extracts Computer Vision tags cloud and dominant palette with zero [object Object]',
     espionageDossier.visual_dna.visual_tags_cloud.length > 0 &&
+    hasNoObjectString &&
     espionageDossier.visual_dna.dominant_colors_palette.length > 0 &&
     typeof espionageDossier.visual_dna.dominant_colors_palette[0].percentage === 'number'
   );
@@ -512,7 +516,7 @@ async function runTests() {
   // 9.4 Studio UI: Contains 6-Pillar Intelligence Controls
   report(
     'Studio UI contains Decaying Monopoly lens, Visual DNA tab, Attack Plan button and modal',
-    studioHtml.includes('Decaying Monopoly (افتراس فوري)') &&
+    studioHtml.includes('Decaying Monopoly (Vulnerable)') &&
     studioHtml.includes('🧬 Visual DNA') &&
     studioHtml.includes('Attack Plan') &&
     studioHtml.includes('isBlueprintModalOpen') &&
@@ -543,10 +547,10 @@ async function runTests() {
 
   // 10.3 Studio HTML contracts
   report(
-    'Studio UI contains 3-way view switcher with Arabic labels and copy buttons',
-    studioHtml.includes('🔗 بالمقالات') &&
-    studioHtml.includes('🎯 بالبنز المتصدرة') &&
-    studioHtml.includes('🕸️ بالكلمات المحتكرة') &&
+    'Studio UI contains 3-way view switcher with English labels and copy buttons',
+    studioHtml.includes('🔗 Money Articles') &&
+    studioHtml.includes('🎯 Ranked Pins') &&
+    studioHtml.includes('🕸️ Keyword Monopoly') &&
     studioHtml.includes('Copy URLs') &&
     studioHtml.includes('Copy Keywords') &&
     studioHtml.includes('fallbackCopy')

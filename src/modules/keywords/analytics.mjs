@@ -355,8 +355,10 @@ export function calculateKeywordIntelligenceSummary(pins = []) {
     const tags = p.metadata?.visual_annotations || [];
     if (Array.isArray(tags)) {
       for (const t of tags) {
-        const cleanTag = String(t).trim();
-        if (cleanTag) {
+        // [INVARIANT: DEFENSIVE-ANNOTATIONS-UNPACKING] Prevent [object Object] poisoning from raw objects
+        const rawTag = (typeof t === 'object' && t !== null) ? (t.name || t.tag || t.label || '') : String(t || '');
+        const cleanTag = rawTag.trim();
+        if (cleanTag && cleanTag !== '[object Object]') {
           tagCounts.set(cleanTag, (tagCounts.get(cleanTag) || 0) + 1);
         }
       }

@@ -2386,7 +2386,10 @@ export function getCampaignFoldersPageHtml(folderId = '') {
               (p.title || '').toLowerCase().includes(q) ||
               (p.domain || '').toLowerCase().includes(q) ||
               (p.creator_username || '').toLowerCase().includes(q) ||
-              (p.visual_annotations || []).some(va => String(va).toLowerCase().includes(q))
+              (p.visual_annotations || []).some(va => {
+                const s = typeof va === 'object' && va !== null ? (va.name || va.tag || '') : String(va || '');
+                return s.toLowerCase().includes(q);
+              })
             );
           }
 

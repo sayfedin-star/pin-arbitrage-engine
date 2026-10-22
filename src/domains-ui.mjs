@@ -322,7 +322,7 @@ export function getDomainsPageHtml(initialDomain = '') {
         <button @click="setPreset('decaying_monopoly')"
                 class="px-3 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5"
                 :class="activePreset === 'decaying_monopoly' ? 'bg-rose-600 text-white shadow-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700'">
-          <span>⚡</span> Decaying Monopoly (افتراس فوري)
+          <span>⚡</span> Decaying Monopoly (Vulnerable)
         </button>
       </div>
 
@@ -342,7 +342,7 @@ export function getDomainsPageHtml(initialDomain = '') {
                     :class="logicMode === 'and' ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
                     title="Match ALL selected modular conditions simultaneously (Intersection)">
               <span>🔗</span>
-              <span>AND (كل الشروط)</span>
+              <span>AND (Match All)</span>
             </button>
             <button @click="setLogicMode('or')"
                     type="button"
@@ -350,7 +350,7 @@ export function getDomainsPageHtml(initialDomain = '') {
                     :class="logicMode === 'or' ? 'bg-amber-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
                     title="Match ANY of the selected modular conditions (Union)">
               <span>⚡</span>
-              <span>OR (أي شرط)</span>
+              <span>OR (Match Any)</span>
             </button>
           </div>
         </div>
@@ -983,153 +983,117 @@ export function getDomainsPageHtml(initialDomain = '') {
         </div>
       </div>
 
-      <!-- Top Profile & Integrated Monetization Profile Card -->
-      <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-5 sm:p-6 shadow-sm flex flex-col gap-5">
-        <!-- Identity & Fast Shortcuts -->
+      <!-- Stitch Minimalist Domain Header Strip -->
+      <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm flex flex-col gap-4">
+        <!-- Top Row: Identity & External Shortcuts -->
         <div class="flex items-center justify-between flex-wrap gap-4">
           <div class="flex items-center gap-3.5">
             <img :src="'https://www.google.com/s2/favicons?domain=' + encodeURIComponent(dossierDomain) + '&sz=32'"
-                 class="w-8 h-8 rounded-xl shadow-sm bg-slate-200 dark:bg-slate-700"
+                 class="w-8 h-8 rounded-xl shadow-sm bg-slate-200 dark:bg-slate-800 shrink-0"
                  loading="lazy"
                  onerror="this.onerror=null; this.style.display='none'">
-            <div>
-              <div class="flex items-center gap-2.5 flex-wrap">
-                <h2 class="text-xl font-bold text-slate-900 dark:text-white font-mono" x-text="dossierDomain"></h2>
-                <a :href="safeUrl('https://' + dossierDomain)"
-                   target="_blank"
-                   rel="noopener noreferrer"
-                   class="text-xs text-sky-600 hover:underline shrink-0 font-medium">
-                  Visit ↗
-                </a>
-                <span class="text-slate-300 dark:text-slate-700">•</span>
-                <a :href="safeUrl('https://www.similarweb.com/website/' + dossierDomain)"
-                   target="_blank"
-                   rel="noopener noreferrer"
-                   class="text-xs font-mono text-slate-500 hover:text-sky-600 dark:hover:text-sky-400 hover:underline shrink-0"
-                   title="View traffic and geography on Similarweb">
-                  Similarweb ↗
-                </a>
-                <span class="text-slate-300 dark:text-slate-700">•</span>
-                <a :href="safeUrl('https://web.archive.org/web/*/' + dossierDomain)"
-                   target="_blank"
-                   rel="noopener noreferrer"
-                   class="text-xs font-mono text-slate-500 hover:text-sky-600 dark:hover:text-sky-400 hover:underline shrink-0"
-                   title="View historical archive on Wayback Machine">
-                  Wayback ↗
-                </a>
-                <span class="text-slate-300 dark:text-slate-700">•</span>
-                <a :href="safeUrl('https://www.google.com/search?q=site%3A' + encodeURIComponent(dossierDomain))"
-                   target="_blank"
-                   rel="noopener noreferrer"
-                   class="text-xs font-mono text-slate-500 hover:text-sky-600 dark:hover:text-sky-400 hover:underline shrink-0"
-                   title="View Google indexation (site:domain)">
-                  Google Site ↗
-                </a>
+            <div class="flex items-center gap-3 flex-wrap">
+              <h2 class="text-xl font-bold text-slate-900 dark:text-white font-mono tracking-tight" x-text="dossierDomain"></h2>
+              <div class="flex items-center gap-2 text-xs font-mono text-slate-400">
+                <a :href="safeUrl('https://' + dossierDomain)" target="_blank" rel="noopener noreferrer" class="text-sky-600 dark:text-sky-400 hover:underline font-medium">Visit ↗</a>
+                <span>•</span>
+                <a :href="safeUrl('https://www.similarweb.com/website/' + dossierDomain)" target="_blank" rel="noopener noreferrer" class="hover:text-slate-600 dark:hover:text-slate-200 hover:underline">Similarweb ↗</a>
+                <span>•</span>
+                <a :href="safeUrl('https://web.archive.org/web/*/' + dossierDomain)" target="_blank" rel="noopener noreferrer" class="hover:text-slate-600 dark:hover:text-slate-200 hover:underline">Wayback ↗</a>
+                <span>•</span>
+                <a :href="safeUrl('https://www.google.com/search?q=site%3A' + encodeURIComponent(dossierDomain))" target="_blank" rel="noopener noreferrer" class="hover:text-slate-600 dark:hover:text-slate-200 hover:underline">Google Site ↗</a>
               </div>
-              <div class="text-xs text-slate-400 mt-0.5">Deep Domain Dossier & Cross-Pillar Forensic Audit</div>
             </div>
+          </div>
+
+          <!-- Quick Action Buttons -->
+          <div class="flex items-center gap-2">
+            <button @click="openBlueprintModal(dossierDomain)"
+                    class="px-3 py-1.5 rounded-lg bg-slate-900 dark:bg-slate-100 hover:bg-slate-800 dark:hover:bg-white text-white dark:text-slate-900 text-xs font-bold transition flex items-center gap-1.5 shadow-sm active:scale-95"
+                    title="Generate instant 6-pillar Arbitrage Attack Blueprint">
+              <span>⚡ Attack Plan</span>
+            </button>
+            <button @click="recheckAgeForDossier()"
+                    :disabled="enrichingDomains[dossierDomain]"
+                    class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 transition flex items-center gap-1 shadow-sm disabled:opacity-60">
+              <span :class="{ 'animate-spin': enrichingDomains[dossierDomain] }">🔄</span>
+              <span x-text="enrichingDomains[dossierDomain] ? 'Checking...' : 'Re-check Age'">Re-check Age</span>
+            </button>
+            <button @click="recheckAdsForDossier()"
+                    :disabled="enrichingAds[dossierDomain]"
+                    class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 transition flex items-center gap-1 shadow-sm disabled:opacity-60">
+              <span :class="{ 'animate-spin': enrichingAds[dossierDomain] }">🔄</span>
+              <span x-text="enrichingAds[dossierDomain] ? 'Scanning...' : 'Re-scan ads.txt'">Re-scan ads.txt</span>
+            </button>
           </div>
         </div>
 
-        <!-- Integrated Two-Column Profile: WHOIS Registry + Ad Network & Monetization Profile -->
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 pt-4 border-t border-slate-200 dark:border-slate-800">
-          
-          <!-- Column 1: Domain WHOIS & Registry Intel -->
-          <div class="flex flex-col gap-2.5">
-            <div class="flex items-center gap-2">
-              <span class="text-base">📅</span>
-              <h3 class="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-white font-mono">Domain Registry & Longevity</h3>
-            </div>
-            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 font-mono text-[11px]">
-              <div class="bg-slate-50 dark:bg-slate-950/60 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col">
-                <span class="text-slate-400 text-[10px] uppercase">Registered</span>
-                <span class="font-bold text-slate-800 dark:text-slate-200 truncate"
-                      x-text="dossierData?.age_info?.registered_at ? dossierData.age_info.registered_at.slice(0, 10) : (dossierData?.age_info?.lookup_status === 'failed' ? '🔒 Redacted' : 'Unknown')"></span>
-              </div>
-              <div class="bg-slate-50 dark:bg-slate-950/60 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col">
-                <span class="text-slate-400 text-[10px] uppercase">Domain Age</span>
-                <span class="font-bold truncate"
-                      :class="dossierData?.age_info?.age_years != null ? 'text-emerald-600 dark:text-emerald-400' : (dossierData?.age_info?.lookup_status === 'failed' ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400')"
-                      x-text="dossierData?.age_info?.age_years != null ? dossierData.age_info.age_years + 'y (' + dossierData.age_info.age_days + 'd)' : (dossierData?.age_info?.lookup_status === 'failed' ? 'Withheld by Registry' : 'Unverified')"></span>
-              </div>
-              <div class="bg-slate-50 dark:bg-slate-950/60 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col">
-                <span class="text-slate-400 text-[10px] uppercase">Expires</span>
-                <span class="font-bold text-slate-800 dark:text-slate-200 truncate" x-text="dossierData?.age_info?.expires_at ? dossierData.age_info.expires_at.slice(0, 10) : '—'"></span>
-              </div>
-              <div class="bg-slate-50 dark:bg-slate-950/60 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col">
-                <span class="text-slate-400 text-[10px] uppercase">WHOIS Source</span>
-                <span class="font-bold text-sky-600 dark:text-sky-400 truncate"
-                      x-text="dossierData?.age_info?.lookup_source ? dossierData.age_info.lookup_source + (dossierData?.age_info?.lookup_status === 'failed' ? ' (shielded)' : '') : '—'"></span>
-              </div>
-            </div>
+        <!-- Sleek Horizontal Bento Metadata Chips (Single Streamlined Row) -->
+        <div class="flex items-center gap-2 flex-wrap font-mono text-xs pt-3 border-t border-slate-100 dark:border-slate-800/80">
+          <!-- Age Badge -->
+          <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-semibold shadow-sm"
+                :class="dossierData?.age_info?.age_years != null ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20' : (dossierData?.age_info?.lookup_status === 'failed' ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700')"
+                :title="dossierData?.age_info?.registered_at ? 'Registered: ' + dossierData.age_info.registered_at.slice(0, 10) : 'Age'">
+            <span>🌱</span>
+            <span x-text="dossierData?.age_info?.age_years != null ? dossierData.age_info.age_years + 'y (' + formatNumber(dossierData.age_info.age_days) + 'd)' : (dossierData?.age_info?.lookup_status === 'failed' ? 'Registry Withheld / Privacy Shielded' : 'Unverified Age')"></span>
+          </span>
 
-            <!-- Privacy Shielded Explanatory Note -->
-            <template x-if="dossierData?.age_info?.lookup_status === 'failed'">
-              <div class="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-800 dark:text-amber-300 flex items-start gap-2 font-mono">
-                <span class="text-sm shrink-0">🔒</span>
-                <div>
-                  <span class="font-bold">Registry Withheld / Privacy Shielded (Redacted / Shielded):</span>
-                  <span> This domain was queried across Direct Authoritative RDAP, WHOIS Port 43, and Certificate Transparency, but the registry or parent platform redacted the public creation date.</span>
-                </div>
-              </div>
-            </template>
-          </div>
+          <!-- Registration Date -->
+          <template x-if="dossierData?.age_info?.registered_at">
+            <span class="px-2.5 py-1 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 text-slate-600 dark:text-slate-300">
+              <span class="text-slate-400">Reg: </span>
+              <span class="font-bold text-slate-800 dark:text-slate-200" x-text="dossierData.age_info.registered_at.slice(0, 10)"></span>
+            </span>
+          </template>
 
-          <!-- Column 2: Embedded Ad Network & Monetization Profile -->
-          <div class="flex flex-col gap-2.5">
-            <div class="flex items-center justify-between">
-              <div class="flex items-center gap-2">
-                <span class="text-base">💰</span>
-                <h3 class="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-white font-mono">Ad Network & Monetization Profile</h3>
-              </div>
-              <!-- Historical Switch Tracking Pill -->
-              <div class="flex items-center gap-1.5 font-mono text-[11px]">
-                <template x-if="dossierData?.ad_info?.previous_ad_network">
-                  <span class="px-2 py-0.5 rounded-full font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 flex items-center gap-1 shadow-sm"
-                        :title="'Historical Switch Tracking: Migrated from ' + dossierData.ad_info.previous_ad_network + ' to ' + (dossierData.ad_info.current_ad_network || '')">
-                    <span>↗️</span>
-                    <span x-text="'Ex-' + capitalize(dossierData.ad_info.previous_ad_network)"></span>
-                    <span class="text-[9px] text-slate-400" x-text="dossierData?.ad_info?.switched_at ? '(' + dossierData.ad_info.switched_at.slice(0, 10) + ')' : ''"></span>
-                  </span>
-                </template>
-              </div>
-            </div>
+          <!-- Expiry Date -->
+          <template x-if="dossierData?.age_info?.expires_at">
+            <span class="px-2.5 py-1 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 text-slate-600 dark:text-slate-300">
+              <span class="text-slate-400">Expires: </span>
+              <span class="font-bold text-slate-800 dark:text-slate-200" x-text="dossierData.age_info.expires_at.slice(0, 10)"></span>
+            </span>
+          </template>
 
-            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 font-mono text-[11px]">
-              <div class="bg-slate-50 dark:bg-slate-950/60 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col">
-                <span class="text-slate-400 text-[10px] uppercase">Active Network</span>
-                <span class="font-bold truncate"
-                      :class="getAdNetworkBadgeClasses(dossierData?.ad_info?.current_ad_network)"
-                      x-text="getAdNetworkBadgeText(dossierData?.ad_info?.current_ad_network)"></span>
-              </div>
-              <div class="bg-slate-50 dark:bg-slate-950/60 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col">
-                <span class="text-slate-400 text-[10px] uppercase">Manager Domain</span>
-                <span class="font-bold text-sky-600 dark:text-sky-400 truncate" x-text="dossierData?.ad_info?.ad_manager_domain || 'None (Direct / Affiliate)'"></span>
-              </div>
-              <div class="bg-slate-50 dark:bg-slate-950/60 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col">
-                <span class="text-slate-400 text-[10px] uppercase">Publisher ID</span>
-                <span class="font-bold text-slate-800 dark:text-slate-200 truncate" x-text="dossierData?.ad_info?.primary_pub_id || '—'"></span>
-              </div>
-              <div class="bg-slate-50 dark:bg-slate-950/60 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col">
-                <span class="text-slate-400 text-[10px] uppercase">ads.txt Status</span>
-                <span class="font-bold text-emerald-600 dark:text-emerald-400 truncate" x-text="dossierData?.ad_info?.ads_txt_status || 'Pending'"></span>
-              </div>
-            </div>
+          <!-- Active Ad Network Badge -->
+          <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-bold shadow-sm"
+                title="Ad Network & Monetization Profile"
+                :class="getAdNetworkBadgeClasses(dossierData?.ad_info?.current_ad_network)">
+            <span x-text="getAdNetworkBadgeText(dossierData?.ad_info?.current_ad_network)"></span>
+          </span>
 
-            <!-- Historical Switch Tracking Migration Audit -->
-            <div class="text-[11px] font-mono text-slate-500">
-              <span class="text-slate-400 text-[10px] uppercase font-bold">Historical Switch Tracking: </span>
-              <template x-if="dossierData?.ad_info?.previous_ad_network">
-                <span class="text-amber-600 dark:text-amber-400 font-bold" x-text="'Detected switch from ' + capitalize(dossierData.ad_info.previous_ad_network) + ' ➔ ' + capitalize(dossierData.ad_info.current_ad_network) + (dossierData.ad_info.switched_at ? ' on ' + dossierData.ad_info.switched_at.slice(0, 10) : '')"></span>
-              </template>
-              <template x-if="!dossierData?.ad_info?.previous_ad_network">
-                <span>Continuous operation on <span class="font-bold text-slate-800 dark:text-slate-200" x-text="getAdNetworkBadgeText(dossierData?.ad_info?.current_ad_network)"></span> (no network switch recorded).</span>
-              </template>
-            </div>
-          </div>
+          <!-- Ad Manager Domain -->
+          <template x-if="dossierData?.ad_info?.ad_manager_domain">
+            <span class="px-2.5 py-1 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 text-slate-600 dark:text-slate-300">
+              <span class="text-slate-400">Manager: </span>
+              <span class="font-bold text-sky-600 dark:text-sky-400" x-text="dossierData.ad_info.ad_manager_domain"></span>
+            </span>
+          </template>
 
+          <!-- Publisher ID -->
+          <template x-if="dossierData?.ad_info?.primary_pub_id">
+            <span class="px-2.5 py-1 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 text-slate-600 dark:text-slate-300">
+              <span class="text-slate-400">Pub ID: </span>
+              <span class="font-bold text-slate-800 dark:text-slate-200" x-text="dossierData.ad_info.primary_pub_id"></span>
+            </span>
+          </template>
+
+          <!-- ads.txt Status -->
+          <span class="px-2.5 py-1 rounded-lg border text-xs font-semibold flex items-center gap-1"
+                :class="dossierData?.ad_info?.ads_txt_status === 'valid' ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20' : 'bg-slate-50 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700'">
+            <span :class="dossierData?.ad_info?.ads_txt_status === 'valid' ? 'text-emerald-500' : 'text-slate-400'">●</span>
+            <span x-text="'ads.txt: ' + (dossierData?.ad_info?.ads_txt_status || 'Pending')"></span>
+          </span>
+
+          <!-- Migration Pill -->
+          <template x-if="dossierData?.ad_info?.previous_ad_network">
+            <span class="px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 font-bold flex items-center gap-1 shadow-sm"
+                  :title="'Historical Switch Tracking: Migrated from ' + dossierData.ad_info.previous_ad_network + ' to ' + (dossierData.ad_info.current_ad_network || '')">
+              <span>↗️</span>
+              <span x-text="'Ex-' + capitalize(dossierData.ad_info.previous_ad_network)"></span>
+              <span class="text-[10px] text-slate-400" x-text="dossierData?.ad_info?.switched_at ? '(' + dossierData.ad_info.switched_at.slice(0, 10) + ')' : ''"></span>
+            </span>
+          </template>
         </div>
-
       </div>
 
       <!-- Dossier High-Level 6 KPI Summary Cards -->
@@ -1174,7 +1138,7 @@ export function getDomainsPageHtml(initialDomain = '') {
           <button @click="dossierTab = 'urls'"
                   class="px-3 py-1.5 rounded-xl text-xs font-semibold font-mono transition flex items-center gap-1.5"
                   :class="dossierTab === 'urls' ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'">
-            <span>🔗 بالمقالات</span>
+            <span>🔗 Money Articles</span>
             <span class="px-1.5 py-0.2 rounded-full text-[10px] font-bold"
                   :class="dossierTab === 'urls' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'"
                   x-text="filteredDossierArticles().length"></span>
@@ -1184,7 +1148,7 @@ export function getDomainsPageHtml(initialDomain = '') {
           <button @click="dossierTab = 'pins'"
                   class="px-3 py-1.5 rounded-xl text-xs font-semibold font-mono transition flex items-center gap-1.5"
                   :class="dossierTab === 'pins' ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'">
-            <span>🎯 بالبنز المتصدرة</span>
+            <span>🎯 Ranked Pins</span>
             <span class="px-1.5 py-0.2 rounded-full text-[10px] font-bold"
                   :class="dossierTab === 'pins' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'"
                   x-text="filteredDossierPins().length"></span>
@@ -1194,7 +1158,7 @@ export function getDomainsPageHtml(initialDomain = '') {
           <button @click="dossierTab = 'keywords'"
                   class="px-3 py-1.5 rounded-xl text-xs font-semibold font-mono transition flex items-center gap-1.5"
                   :class="dossierTab === 'keywords' ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'">
-            <span>🕸️ بالكلمات المحتكرة</span>
+            <span>🕸️ Keyword Monopoly</span>
             <span class="px-1.5 py-0.2 rounded-full text-[10px] font-bold"
                   :class="dossierTab === 'keywords' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'"
                   x-text="filteredDossierKeywords().length"></span>
@@ -1206,7 +1170,7 @@ export function getDomainsPageHtml(initialDomain = '') {
           <button @click="dossierTab = 'accounts'"
                   class="px-3 py-1.5 rounded-xl text-xs font-semibold font-mono transition flex items-center gap-1.5"
                   :class="dossierTab === 'accounts' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'">
-            <span>👤 صناع المحتوى</span>
+            <span>👤 Creators</span>
             <span class="px-1.5 py-0.2 rounded-full text-[10px] font-bold"
                   :class="dossierTab === 'accounts' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'"
                   x-text="dossierData?.accounts?.length || 0"></span>
@@ -1236,11 +1200,11 @@ export function getDomainsPageHtml(initialDomain = '') {
           <!-- Contextual Sort Dropdown -->
           <select x-model="dossierSort"
                   class="text-xs font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2.5 py-1.5 text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-sky-500">
-            <option value="saves">By Saves (الأعلى حفظاً)</option>
-            <option value="age_asc">By Pin Age: Fresh (الأحدث 🌱)</option>
-            <option value="age_desc">By Pin Age: Evergreen (الأقدم 🦖)</option>
-            <option value="multiplier">By Multiplier (الأعلى تكراراً)</option>
-            <option value="rank">By Best Rank (أفضل ترتيب)</option>
+            <option value="saves">Sort: Highest Saves</option>
+            <option value="age_asc">Sort: Newest Pin (Fresh)</option>
+            <option value="age_desc">Sort: Oldest Pin (Evergreen)</option>
+            <option value="multiplier">Sort: Highest Multiplier</option>
+            <option value="rank">Sort: Best SERP Rank</option>
           </select>
 
           <!-- 1-Click Copy Buttons -->
@@ -1278,6 +1242,7 @@ export function getDomainsPageHtml(initialDomain = '') {
                   <div :data-pin-id="p.pin_id" class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 flex items-center justify-between gap-4 shadow-sm hover:border-sky-500/50 transition">
                     <div class="flex items-center gap-3.5 min-w-0">
                       <img :src="p.image_url"
+                           referrerpolicy="no-referrer"
                            class="w-14 h-20 rounded-xl object-cover bg-slate-200 dark:bg-slate-700 shrink-0 shadow-sm"
                            loading="lazy"
                            onerror="this.onerror=null; this.src='https://placehold.co/80x120?text=Pin'">
@@ -1322,8 +1287,8 @@ export function getDomainsPageHtml(initialDomain = '') {
                           </template>
                           <template x-if="Array.isArray(p.visual_annotations) && p.visual_annotations.length > 0">
                             <span class="text-[10px] text-slate-500 dark:text-slate-400 truncate max-w-[200px]"
-                                  :title="p.visual_annotations.join(', ')"
-                                  x-text="'• 🏷️ ' + p.visual_annotations.slice(0, 3).join(', ')"></span>
+                                  :title="(p.visual_annotations || []).map(a => typeof a === 'object' && a !== null ? (a.name || a.tag || '') : String(a || '')).filter(Boolean).join(', ')"
+                                  x-text="'• 🏷️ ' + (p.visual_annotations || []).map(a => typeof a === 'object' && a !== null ? (a.name || a.tag || '') : String(a || '')).filter(Boolean).slice(0, 3).join(', ')"></span>
                           </template>
                         </div>
                         <!-- SERP Appearances Badges (Clickable with drilldown) -->
@@ -1439,6 +1404,7 @@ export function getDomainsPageHtml(initialDomain = '') {
                       <template x-for="p in art.pins" :key="p.pin_id">
                         <div class="group relative rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-900 aspect-[2/3] flex flex-col justify-between">
                           <img :src="p.image_url"
+                               referrerpolicy="no-referrer"
                                class="w-full h-full object-cover group-hover:scale-105 transition-transform absolute inset-0"
                                loading="lazy"
                                onerror="this.onerror=null; this.src='https://placehold.co/80x120?text=Pin'">
@@ -1633,9 +1599,9 @@ export function getDomainsPageHtml(initialDomain = '') {
                       <span class="text-[10px] text-slate-400 font-mono">Elements Pinterest AI identifies in images</span>
                     </div>
                     <div class="flex items-center gap-2 flex-wrap">
-                      <template x-for="t in (dossierData?.visual_dna?.visual_tags_cloud || [])" :key="t.tag">
+                      <template x-for="t in (dossierData?.visual_dna?.visual_tags_cloud || [])" :key="typeof t.tag === 'object' && t.tag !== null ? (t.tag.name || t.tag.tag || '') : t.tag">
                         <span class="px-2.5 py-1 rounded-lg text-xs font-mono font-medium bg-sky-500/10 text-sky-700 dark:text-sky-300 border border-sky-500/20 flex items-center gap-1.5 shadow-sm">
-                          <span x-text="t.tag"></span>
+                          <span x-text="typeof t.tag === 'object' && t.tag !== null ? (t.tag.name || t.tag.tag || '') : t.tag"></span>
                           <span class="px-1.5 py-0.2 rounded-full bg-sky-500/20 text-[9px] font-bold" x-text="t.count + 'x'"></span>
                         </span>
                       </template>
