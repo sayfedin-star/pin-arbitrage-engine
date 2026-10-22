@@ -674,8 +674,24 @@ export function getDomainsPageHtml(initialDomain = '') {
               </tr>
             </template>
 
+            <!-- Error / Timeout Row -->
+            <template x-if="!loading && loadError">
+              <tr>
+                <td colspan="8" class="py-12 text-center text-rose-500 font-mono">
+                  <div class="flex flex-col items-center gap-2">
+                    <span class="text-2xl">⚠️</span>
+                    <span class="font-semibold text-slate-700 dark:text-slate-300" x-text="loadError"></span>
+                    <button @click="loadDomains(false)" class="px-3.5 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold font-sans transition shadow-sm mt-1 flex items-center gap-1.5">
+                      <span>🔄</span>
+                      <span>Retry Loading</span>
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            </template>
+
             <!-- Empty Row -->
-            <template x-if="!loading && domains.length === 0">
+            <template x-if="!loading && !loadError && domains.length === 0">
               <tr>
                 <td colspan="8" class="py-12 text-center text-slate-400">
                   <div class="flex flex-col items-center gap-2">
@@ -1928,12 +1944,16 @@ export function getDomainsPageHtml(initialDomain = '') {
         batchAdsProgress: { done: 0, total: 0 },
 
         toasts: [],
+        loadError: null,
 
         init() {
           this.fetchFolders();
           this.loadDomains();
-          this.fetchGlobalEnrichStatus();
-          this.fetchGlobalAdsStatus();
+          // Defer heavy database-wide aggregations to background idle so leaderboard query gets 100% database priority
+          setTimeout(() => {
+            this.fetchGlobalEnrichStatus();
+            this.fetchGlobalAdsStatus();
+          }, 1500);
 
           // Sync Dedicated Full-Page Route & Browser History
           if (typeof window !== 'undefined') {
@@ -2006,7 +2026,7 @@ export function getDomainsPageHtml(initialDomain = '') {
 
         async fetchFolders() {
           try {
-            const res = await fetch('/api/folders');
+            const res = await (window.safeApiFetch || fetch)('/api/folders');
             if (res.ok) {
               const data = await res.json();
               this.folders = Array.isArray(data.folders) ? data.folders : (Array.isArray(data) ? data : []);
@@ -2017,6 +2037,7 @@ export function getDomainsPageHtml(initialDomain = '') {
         async loadDomains(resetPage = false) {
           if (resetPage) this.currentPage = 1;
           this.loading = true;
+          this.loadError = null;
 
           const params = new URLSearchParams({
             page: String(this.currentPage),
@@ -2053,15 +2074,22 @@ export function getDomainsPageHtml(initialDomain = '') {
           }
 
           try {
-            const res = await fetch('/api/domains?' + params.toString());
+            const fetchFn = window.safeApiFetch || fetch;
+            const res = await fetchFn('/api/domains?' + params.toString(), {
+              timeout: 18000,
+              headers: { 'Accept': 'application/json' }
+            });
             if (!res.ok) throw new Error('HTTP ' + res.status);
             const data = await res.json();
+            if (data.success === false) throw new Error(data.error || 'Server error');
 
-            this.domains = data.domains || [];
+            this.domains = Array.isArray(data.domains) ? data.domains : [];
             this.overview = data.overview || this.overview;
-            this.totalDomains = data.total || 0;
-            this.totalPages = data.total_pages || 1;
+            this.totalDomains = data.total || (data.overview?.total_domains || 0);
+            this.totalPages = data.total_pages || Math.max(1, Math.ceil(this.totalDomains / this.limit));
           } catch (err) {
+            console.error('[DomainRadar] loadDomains error:', err);
+            this.loadError = err.message || 'Failed to connect to domain intelligence';
             this.showToast('Failed to load domains: ' + err.message, 'error');
           } finally {
             this.loading = false;
@@ -2147,7 +2175,7 @@ export function getDomainsPageHtml(initialDomain = '') {
           this.enrichingDomains[domain] = true;
           this.enrichingDomains = { ...this.enrichingDomains };
           try {
-            const res = await fetch('/api/domains/enrich-age', {
+            const res = await (window.safeApiFetch || fetch)('/api/domains/enrich-age', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ domain, force })
@@ -2200,7 +2228,7 @@ export function getDomainsPageHtml(initialDomain = '') {
             chunk.forEach(d => { this.enrichingDomains[d] = true; });
             this.enrichingDomains = { ...this.enrichingDomains };
             try {
-              const res = await fetch('/api/domains/enrich-age', {
+              const res = await (window.safeApiFetch || fetch)('/api/domains/enrich-age', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ domains: chunk })
@@ -2233,7 +2261,7 @@ export function getDomainsPageHtml(initialDomain = '') {
 
         async fetchGlobalEnrichStatus() {
           try {
-            const res = await fetch('/api/domains/enrich-status');
+            const res = await (window.safeApiFetch || fetch)('/api/domains/enrich-status');
             if (res.ok) {
               const data = await res.json();
               if (data.stats) {
@@ -2265,7 +2293,7 @@ export function getDomainsPageHtml(initialDomain = '') {
             }
 
             while (this.globalEnriching) {
-              const res = await fetch('/api/domains/enrich-all', {
+              const res = await (window.safeApiFetch || fetch)('/api/domains/enrich-all', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ batch_size: 25, concurrency: 4 })
@@ -2332,7 +2360,7 @@ export function getDomainsPageHtml(initialDomain = '') {
           }
 
           try {
-            const res = await fetch('/api/domains/dossier?domain=' + encodeURIComponent(domain));
+            const res = await (window.safeApiFetch || fetch)('/api/domains/dossier?domain=' + encodeURIComponent(domain), { timeout: 18000 });
             if (!res.ok) throw new Error('HTTP ' + res.status);
             this.dossierData = await res.json();
           } catch (err) {
@@ -2577,7 +2605,7 @@ export function getDomainsPageHtml(initialDomain = '') {
           this.blueprintData = null;
 
           try {
-            const res = await fetch('/api/domains/blueprint?domain=' + encodeURIComponent(domain));
+            const res = await (window.safeApiFetch || fetch)('/api/domains/blueprint?domain=' + encodeURIComponent(domain), { timeout: 18000 });
             if (!res.ok) throw new Error('HTTP ' + res.status);
             this.blueprintData = await res.json();
           } catch (err) {
@@ -2626,7 +2654,7 @@ export function getDomainsPageHtml(initialDomain = '') {
           this.enrichingAds[domain] = true;
           this.enrichingAds = { ...this.enrichingAds };
           try {
-            const res = await fetch('/api/domains/enrich-ads', {
+            const res = await (window.safeApiFetch || fetch)('/api/domains/enrich-ads', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ domain, force })
@@ -2691,7 +2719,7 @@ export function getDomainsPageHtml(initialDomain = '') {
             chunk.forEach(d => { this.enrichingAds[d] = true; });
             this.enrichingAds = { ...this.enrichingAds };
             try {
-              const res = await fetch('/api/domains/enrich-ads', {
+              const res = await (window.safeApiFetch || fetch)('/api/domains/enrich-ads', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ domains: chunk })
@@ -2726,7 +2754,7 @@ export function getDomainsPageHtml(initialDomain = '') {
 
         async fetchGlobalAdsStatus() {
           try {
-            const res = await fetch('/api/domains/ads-status');
+            const res = await (window.safeApiFetch || fetch)('/api/domains/ads-status');
             if (res.ok) {
               const data = await res.json();
               if (data.stats) {
@@ -2758,7 +2786,7 @@ export function getDomainsPageHtml(initialDomain = '') {
             }
 
             while (this.globalAdsEnriching) {
-              const res = await fetch('/api/domains/enrich-ads-all', {
+              const res = await (window.safeApiFetch || fetch)('/api/domains/enrich-ads-all', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ batch_size: 15, concurrency: 3 })

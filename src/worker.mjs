@@ -840,7 +840,7 @@ export async function getCachedOrFetch(key, fetcher, ttlMs = 15000, staleMs = 60
             const fetchTask = fetcher();
             fetchTask.catch(() => {});
             const timeoutPromise = new Promise((_, reject) => {
-              timerId = setTimeout(() => reject(new Error(`Timeout revalidating ${key}`)), 7500);
+              timerId = setTimeout(() => reject(new Error(`Timeout revalidating ${key}`)), 18000);
             });
             const fresh = await Promise.race([
               fetchTask,
@@ -864,6 +864,7 @@ export async function getCachedOrFetch(key, fetcher, ttlMs = 15000, staleMs = 60
                 await l1Cache.put(cacheReq, new Response(JSON.stringify(fresh), { headers: cacheHeaders })).catch(() => {});
               }
             }
+            return fresh;
           } catch (_) {} finally {
             inflightPromises.delete(key);
           }
@@ -910,7 +911,7 @@ export async function getCachedOrFetch(key, fetcher, ttlMs = 15000, staleMs = 60
       const fetchTask = fetcher();
       fetchTask.catch(() => {});
       const timeoutPromise = new Promise((_, reject) => {
-        timerId = setTimeout(() => reject(new Error(`Timeout fetching ${key}`)), 7500);
+        timerId = setTimeout(() => reject(new Error(`Timeout fetching ${key}`)), 18000);
       });
       const fresh = await Promise.race([
         fetchTask,

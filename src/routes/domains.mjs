@@ -71,7 +71,7 @@ export async function handleDomainsRoutes(routeCtx) {
       if (Array.isArray(data?.missing_age_domains) && data.missing_age_domains.length > 0) {
         safeWaitUntil(
           ctx,
-          enrichMissingDomainsBatch(sql, data.missing_age_domains, 6).then(() => invalidateEdgeCache('domains:leaderboard')),
+          enrichMissingDomainsBatch(sql, data.missing_age_domains, 4).catch(() => {}),
           'bg_enrich_domain_ages'
         );
       }
@@ -80,7 +80,7 @@ export async function handleDomainsRoutes(routeCtx) {
       if (Array.isArray(data?.missing_ad_domains) && data.missing_ad_domains.length > 0) {
         safeWaitUntil(
           ctx,
-          enrichMissingAdNetworksBatch(sql, data.missing_ad_domains, 6).then(() => invalidateEdgeCache('domains:leaderboard')),
+          enrichMissingAdNetworksBatch(sql, data.missing_ad_domains, 4).catch(() => {}),
           'bg_enrich_domain_ads'
         );
       }
