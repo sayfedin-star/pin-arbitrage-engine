@@ -9,7 +9,17 @@ import { getShardNumberForEntity, enforceNeonPoolerUrl } from '../sharding/fleet
 import { maskDatabaseUrl } from '../../utils.mjs';
 export { enforceNeonPoolerUrl, maskDatabaseUrl };
 
-export async function getFleetProjects(sql) {
+/**
+ * Fetches fleet projects from Central Hub.
+ * NOTE: database_url is masked with maskDatabaseUrl() by default for UI and API security.
+ * Pass { unmasked: true } only for trusted internal routing operations.
+ *
+ * @param {Function} sql - Neon Hub client
+ * @param {object} [options]
+ * @param {boolean} [options.unmasked=false] - Whether to preserve raw unmasked database_url
+ * @returns {Promise<Array<object>>}
+ */
+export async function getFleetProjects(sql, { unmasked = false } = {}) {
   const rows = await sql`
     SELECT 
       id,
@@ -28,13 +38,14 @@ export async function getFleetProjects(sql) {
   `;
 
   return rows.map(r => {
-    const masked = maskDatabaseUrl(r.database_url);
+    const rawUrl = r.database_url || '';
+    const masked = maskDatabaseUrl(rawUrl);
     return {
       id: r.id,
       project_id: r.project_id,
       project_name: r.project_name,
       region_id: r.region_id,
-      database_url: masked,
+      database_url: unmasked ? rawUrl : masked,
       masked_url: masked,
       status: r.status,
       is_hub: r.is_hub,

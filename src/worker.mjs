@@ -1113,7 +1113,7 @@ export default {
         if (isKvConfigured) {
           try {
             let cachedMap = await env.PIN_ENGINE_KV.get('fleet:shards_map', { type: 'json' });
-            if (!cachedMap || !Array.isArray(cachedMap) || cachedMap.length === 0) {
+            if (!cachedMap || !Array.isArray(cachedMap) || cachedMap.length === 0 || cachedMap.some(r => !isValidShardDsn(r?.database_url))) {
               const rows = await sql`
                 SELECT id, project_id, project_name, database_url, status, assigned_shards
                 FROM neon_projects_registry 
