@@ -627,13 +627,14 @@ export function getPinDetailPageHtml(pinId = '') {
         <!-- TAB 2: HISTORICAL SNAPSHOT LOG (STITCH HIGH-DENSITY MASTER-DETAIL & TRAJECTORY MATRIX) -->
         <div x-show="activeTab === 'history'" class="p-5 flex flex-col gap-4">
           <!-- Control Ribbon -->
-          <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-2 border-b border-slate-200">
-            <div class="flex items-center gap-2 text-xs font-mono text-slate-500">
-              <span>⏱️ Chronological record of crawled telemetry points on Shard <strong class="text-slate-800" x-text="'#' + (dossier?.shard_id || 11)"></strong></span>
-              <span class="text-slate-300">|</span>
-              <button @click="expandAllDays()" class="text-slate-500 hover:text-pink-600 transition-colors text-[11px] underline decoration-dotted">Expand All</button>
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-slate-200">
+            <!-- Left: Snapshot Count & Controls (Zero Shard Text Repetition) -->
+            <div class="flex items-center gap-2 text-xs font-mono">
+              <span class="font-bold text-slate-800" x-text="filteredDays().length + ' Daily Snapshot' + (filteredDays().length === 1 ? '' : 's')"></span>
               <span class="text-slate-300">•</span>
-              <button @click="collapseAllDays()" class="text-slate-500 hover:text-pink-600 transition-colors text-[11px] underline decoration-dotted">Collapse All</button>
+              <button @click="expandAllDays()" class="text-pink-600 hover:text-pink-700 font-semibold transition-colors text-xs underline">Expand All</button>
+              <span class="text-slate-300">/</span>
+              <button @click="collapseAllDays()" class="text-slate-500 hover:text-slate-800 transition-colors text-xs underline">Collapse All</button>
             </div>
 
             <!-- View Switcher & Keyword Filter Ribbon -->
@@ -695,8 +696,9 @@ export function getPinDetailPageHtml(pinId = '') {
                   <th class="p-2.5 font-semibold text-right pr-4">Actions</th>
                 </tr>
               </thead>
-              <tbody class="divide-y divide-slate-100 bg-white">
-                <template x-for="(day, idx) in filteredDays()" :key="day.snapshot_date">
+              <template x-for="(day, idx) in filteredDays()" :key="day.snapshot_date">
+                <!-- Each Day gets its own semantic tbody to allow multi-tr rendering in Alpine -->
+                <tbody class="border-b border-slate-200 bg-white divide-y divide-slate-100">
                   <!-- Master Day Row -->
                   <tr class="hover:bg-slate-50/80 transition-colors group cursor-pointer" @click="toggleDayExpanded(day.snapshot_date)">
                     <!-- Expand chevron -->
@@ -714,22 +716,32 @@ export function getPinDetailPageHtml(pinId = '') {
                     <td class="p-2.5 text-right whitespace-nowrap">
                       <div class="flex items-baseline justify-end gap-1.5">
                         <span class="font-bold text-emerald-700" x-text="formatNumber(day.save_count)"></span>
-                        <span 
-                          class="px-1 py-0.2 rounded text-[10px] font-mono font-semibold"
-                          :class="computeDeltaByDate(day.snapshot_date, 'save_count') > 0 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : (computeDeltaByDate(day.snapshot_date, 'save_count') < 0 ? 'bg-red-50 text-red-700 border border-red-200' : 'text-slate-400')" 
-                          x-text="computeDeltaByDate(day.snapshot_date, 'save_count') > 0 ? '+' + formatNumber(computeDeltaByDate(day.snapshot_date, 'save_count')) : (computeDeltaByDate(day.snapshot_date, 'save_count') < 0 ? formatNumber(computeDeltaByDate(day.snapshot_date, 'save_count')) : '0')"
-                        ></span>
+                        <template x-if="computeDeltaByDate(day.snapshot_date, 'save_count') !== 0">
+                          <span 
+                            class="px-1.5 py-0.2 rounded text-[10px] font-mono font-bold"
+                            :class="computeDeltaByDate(day.snapshot_date, 'save_count') > 0 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'" 
+                            x-text="computeDeltaByDate(day.snapshot_date, 'save_count') > 0 ? '+' + formatNumber(computeDeltaByDate(day.snapshot_date, 'save_count')) : formatNumber(computeDeltaByDate(day.snapshot_date, 'save_count'))"
+                          ></span>
+                        </template>
+                        <template x-if="computeDeltaByDate(day.snapshot_date, 'save_count') === 0">
+                          <span class="text-slate-400 text-[10px] font-mono">0</span>
+                        </template>
                       </div>
                     </td>
                     <!-- Repins + delta -->
                     <td class="p-2.5 text-right whitespace-nowrap">
                       <div class="flex items-baseline justify-end gap-1.5">
                         <span class="font-bold text-pink-700" x-text="formatNumber(day.repin_count)"></span>
-                        <span 
-                          class="px-1 py-0.2 rounded text-[10px] font-mono"
-                          :class="computeDeltaByDate(day.snapshot_date, 'repin_count') > 0 ? 'bg-pink-50 text-pink-700' : 'text-slate-400'" 
-                          x-text="computeDeltaByDate(day.snapshot_date, 'repin_count') > 0 ? '+' + formatNumber(computeDeltaByDate(day.snapshot_date, 'repin_count')) : '0'"
-                        ></span>
+                        <template x-if="computeDeltaByDate(day.snapshot_date, 'repin_count') !== 0">
+                          <span 
+                            class="px-1.5 py-0.2 rounded text-[10px] font-mono font-semibold"
+                            :class="computeDeltaByDate(day.snapshot_date, 'repin_count') > 0 ? 'bg-pink-50 text-pink-700 border border-pink-200' : 'bg-red-50 text-red-700 border border-red-200'" 
+                            x-text="computeDeltaByDate(day.snapshot_date, 'repin_count') > 0 ? '+' + formatNumber(computeDeltaByDate(day.snapshot_date, 'repin_count')) : formatNumber(computeDeltaByDate(day.snapshot_date, 'repin_count'))"
+                          ></span>
+                        </template>
+                        <template x-if="computeDeltaByDate(day.snapshot_date, 'repin_count') === 0">
+                          <span class="text-slate-400 text-[10px] font-mono">0</span>
+                        </template>
                       </div>
                     </td>
                     <!-- Velocity -->
@@ -794,7 +806,7 @@ export function getPinDetailPageHtml(pinId = '') {
                   </tr>
 
                   <!-- ACCORDION SUB-DRAWER: EXPANDED KEYWORDS TABLE -->
-                  <tr x-show="isDayExpanded(day.snapshot_date)" class="bg-slate-50/70 border-b-2 border-slate-200">
+                  <tr x-show="isDayExpanded(day.snapshot_date)" class="bg-slate-50/80 border-t border-slate-200">
                     <td colspan="8" class="p-3 sm:p-4">
                       <div class="flex flex-col gap-3 bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
                         <!-- Drawer Controls Ribbon -->
@@ -914,8 +926,10 @@ export function getPinDetailPageHtml(pinId = '') {
                       </div>
                     </td>
                   </tr>
-                </template>
-                <tr x-show="!filteredDays().length">
+                </tbody>
+              </template>
+              <tbody x-show="!filteredDays().length" class="bg-white">
+                <tr>
                   <td colspan="8" class="p-8 text-center text-slate-400 font-mono text-xs">
                     No telemetry records match the selected SERP filter.
                   </td>
@@ -929,7 +943,7 @@ export function getPinDetailPageHtml(pinId = '') {
             <table class="w-full text-left text-xs font-mono border-collapse">
               <thead>
                 <tr class="bg-slate-50 text-slate-700 border-b border-slate-200 h-9">
-                  <th class="p-2.5 font-semibold sticky left-0 bg-slate-50 border-r border-slate-200 z-10 min-w-[200px]">
+                  <th class="p-2.5 font-semibold sticky left-0 bg-slate-50 border-r border-slate-200 z-10 min-w-[240px]">
                     Monitored Keyword (<span x-text="getAllMatrixKeywords().length"></span>)
                   </th>
                   <template x-for="day in filteredDays()" :key="day.snapshot_date">
@@ -940,11 +954,11 @@ export function getPinDetailPageHtml(pinId = '') {
               <tbody class="divide-y divide-slate-100">
                 <template x-for="kwItem in getAllMatrixKeywords()" :key="kwItem.keyword">
                   <tr class="hover:bg-slate-50/80 transition-colors h-8">
-                    <!-- Sticky keyword column -->
+                    <!-- Sticky keyword column (full text without truncation) -->
                     <td class="p-2.5 font-semibold sticky left-0 bg-white group-hover:bg-slate-50 border-r border-slate-100 z-10 whitespace-nowrap">
                       <a :href="'/keywords/' + encodeURIComponent(kwItem.keyword)" target="_blank" class="text-slate-900 hover:text-pink-600 transition-colors flex items-center gap-1.5">
                         <span class="w-1.5 h-1.5 rounded-full" :class="kwItem.is_displaced ? 'bg-amber-500' : 'bg-emerald-500'"></span>
-                        <span class="truncate max-w-[180px]" x-text="kwItem.keyword"></span>
+                        <span class="font-medium text-slate-800" x-text="kwItem.keyword"></span>
                       </a>
                     </td>
                     <!-- Date cells -->
@@ -1221,6 +1235,10 @@ export function getPinDetailPageHtml(pinId = '') {
               this.dossier = data;
               this.isShardWarming = false;
               this.rebuildDateMapCache();
+              const days = this.filteredDays();
+              if (days.length > 0 && Object.keys(this.expandedDays).length === 0) {
+                this.expandedDays = { [days[0].snapshot_date]: true };
+              }
             } else {
               this.dossier = null;
               this._cachedDateMap = null;
@@ -1380,7 +1398,8 @@ export function getPinDetailPageHtml(pinId = '') {
             const prev = traj[i + 1] || null;
             const dateKey = curr.snapshot_date;
             if (!dateKey) continue;
-            const deltaSaves = prev ? (Number(curr.save_count || 0) - Number(prev.save_count || 0)) : 0;
+            // If prior day exists, calculate delta. If single crawl baseline, use daily_save_velocity
+            const deltaSaves = prev ? (Number(curr.save_count || 0) - Number(prev.save_count || 0)) : Number(curr.daily_save_velocity || 0);
             const deltaRepins = prev ? (Number(curr.repin_count || 0) - Number(prev.repin_count || 0)) : 0;
             map.set(dateKey, {
               current: curr,
@@ -1503,7 +1522,9 @@ export function getPinDetailPageHtml(pinId = '') {
 
         toggleDayExpanded(date) {
           if (!date) return;
-          this.expandedDays[date] = !this.expandedDays[date];
+          this.expandedDays = Object.assign({}, this.expandedDays, {
+            [date]: !this.expandedDays[date]
+          });
         },
 
         isDayExpanded(date) {
