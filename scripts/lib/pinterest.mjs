@@ -1075,9 +1075,14 @@ export function extractPinData(rawHtml, pinId) {
             comments: Math.max(comments, fallbackFormatted?.comments || 0),
           });
           if (fallbackFormatted) {
+            const authenticMethod = (fallbackFormatted.method && fallbackFormatted.method !== 'pinterest_platform')
+              ? fallbackFormatted.method
+              : (ldFormatted.method || fallbackFormatted.method || 'pinterest_platform');
             return {
               ...ldFormatted,
               ...fallbackFormatted,
+              method: authenticMethod,
+              creation_method: authenticMethod,
               title: fallbackFormatted.title || ldFormatted.title,
               description: fallbackFormatted.description || ldFormatted.description,
               saves: Math.max(ldFormatted.saves, fallbackFormatted.saves || 0),
@@ -1109,9 +1114,14 @@ export function extractPinData(rawHtml, pinId) {
       image_url: (imgMeta ? imgMeta[1] : '') || fallbackFormatted?.image_url || '',
     });
     if (fallbackFormatted) {
+      const authenticMethod = (fallbackFormatted.method && fallbackFormatted.method !== 'pinterest_platform')
+        ? fallbackFormatted.method
+        : (metaFormatted.method || fallbackFormatted.method || 'pinterest_platform');
       return {
         ...metaFormatted,
         ...fallbackFormatted,
+        method: authenticMethod,
+        creation_method: authenticMethod,
         title: fallbackFormatted.title || metaFormatted.title,
         description: fallbackFormatted.description || metaFormatted.description,
         saves: Math.max(metaFormatted.saves, fallbackFormatted.saves || 0),
@@ -1259,9 +1269,14 @@ export async function fetchPinFromPinterest(pinId, cookieOrOptions = null, maybe
         if (!parsed) {
           parsed = fallbackPin;
         } else {
+          const authenticMethod = (fallbackPin?.method && fallbackPin.method !== 'pinterest_platform')
+            ? fallbackPin.method
+            : (parsed.method || fallbackPin?.method || 'pinterest_platform');
           parsed = {
             ...fallbackPin,
             ...parsed,
+            method: authenticMethod,
+            creation_method: authenticMethod,
             saves: Math.max(parsed.saves || 0, fallbackPin.saves || 0),
             repins: Math.max(parsed.repins || 0, fallbackPin.repins || 0),
             comments: Math.max(parsed.comments || 0, fallbackPin.comments || 0),

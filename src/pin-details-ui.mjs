@@ -2002,7 +2002,9 @@ export function getPinDetailPageHtml(pinId = '') {
         },
 
         getPinMethod() {
-          const m = this.dossier?.algorithmic_intelligence?.creation_method || this.dossier?.pillar_1_storage_shard?.universal_pin?.creation_method;
+          const m = this.dossier?.algorithmic_intelligence?.creation_method 
+            || this.dossier?.creative?.creation_method
+            || this.dossier?.pillar_1_storage_shard?.universal_pin?.creation_method;
           return m ? String(m).toLowerCase().trim() : 'pinterest_platform';
         },
 
@@ -2014,7 +2016,7 @@ export function getPinDetailPageHtml(pinId = '') {
           if (m.includes('publishing') || m.includes('native')) return 'Native Publish 📌';
           if (m.includes('carousel')) return 'Carousel 🎠';
           if (m.includes('platform') || m.includes('web') || m.includes('mobile')) return 'Pinterest Platform';
-          return m.replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase());
+          return m.replace(/_/g, ' ').replace(/\\b\\w/g, ch => ch.toUpperCase());
         },
 
         getPinMethodBadgeClass() {

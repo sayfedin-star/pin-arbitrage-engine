@@ -6488,8 +6488,13 @@ export function getKeywordsPageHtml(initialSlug = '') {
 
         getPinMethod(pin) {
           if (!pin) return 'pinterest_platform';
-          const m = pin.creation_method || pin.method || pin.metadata?.method || pin.metadata?.creation_method;
-          return m ? String(m).toLowerCase().trim() : 'pinterest_platform';
+          const candidates = [
+            pin.creation_method,
+            pin.method,
+            pin.metadata?.creation_method,
+            pin.metadata?.method
+          ].filter(m => m && typeof m === 'string' && m.trim().length > 0);
+          return (candidates.find(m => m.trim().toLowerCase() !== 'pinterest_platform') || candidates[0] || 'pinterest_platform').toLowerCase().trim();
         },
 
         formatPinMethodLabel(pin) {
@@ -6500,7 +6505,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
           if (m.includes('publishing') || m.includes('native')) return 'Native Publish';
           if (m.includes('carousel')) return 'Carousel';
           if (m.includes('platform') || m.includes('web') || m.includes('mobile')) return 'Pinterest Platform';
-          return m.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+          return m.replace(/_/g, ' ').replace(/\\b\\w/g, c => c.toUpperCase());
         },
 
         getPinMethodBadgeClass(pin) {
