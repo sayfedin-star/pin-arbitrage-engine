@@ -1409,9 +1409,37 @@ export function getPinDetailPageHtml(pinId = '') {
               fetcher('/api/folders/' + encodeURIComponent(this.originFolderId))
                 .then(r => (r && r.ok ? r.json() : null))
                 .then(data => {
-                  if (data?.folder?.name) this.originFolderName = data.folder.name;
+                  if (data?.folder?.name) {
+                    this.originFolderName = data.folder.name;
+                    if (typeof window !== 'undefined' && window.sessionStorage) {
+                      try {
+                        const cur = JSON.parse(sessionStorage.getItem('pae_pin_breadcrumb_ctx') || '{}');
+                        if (cur && (!cur.pinId || cur.pinId === this.pinId)) {
+                          cur.folderName = this.originFolderName;
+                          sessionStorage.setItem('pae_pin_breadcrumb_ctx', JSON.stringify(cur));
+                        }
+                      } catch (_) {}
+                    }
+                  }
                 })
                 .catch(() => {});
+            }
+
+            if (hasUrlContext && typeof window !== 'undefined' && window.sessionStorage) {
+              try {
+                sessionStorage.setItem('pae_pin_breadcrumb_ctx', JSON.stringify({
+                  source: this.originSource,
+                  pinId: this.pinId,
+                  creator: this.originCreator,
+                  board: this.originBoard,
+                  keyword: this.originKeyword,
+                  keywordId: this.originKeywordId,
+                  folderId: this.originFolderId,
+                  folderName: this.originFolderName,
+                  returnUrl: this.originReturnUrl,
+                  ts: Date.now()
+                }));
+              } catch (_) {}
             }
 
             // Clean address bar to canonical /pin/:id while preserving state in memory
@@ -1429,7 +1457,8 @@ export function getPinDetailPageHtml(pinId = '') {
               if (rawCtx) {
                 const saved = JSON.parse(rawCtx);
                 const isFresh = saved?.ts && (Date.now() - saved.ts < 3600000); // 1h freshness
-                if (isFresh) {
+                const matchesPin = !saved.pinId || saved.pinId === this.pinId;
+                if (isFresh && matchesPin) {
                   if (saved.source === 'creator' || saved.creator) {
                     this.originSource = 'creator';
                     this.originCreator = (saved.creator || '').replace(/^@+/, '').trim();
@@ -1443,6 +1472,14 @@ export function getPinDetailPageHtml(pinId = '') {
                     this.originFolderName = saved.folderName || '';
                     this.originReturnUrl = this.originReturnUrl || saved.returnUrl || '';
                   }
+                  // Stamp pinId: this.pinId into sessionStorage once hydrated so subsequent F5 refreshes always retain context
+                  try {
+                    sessionStorage.setItem('pae_pin_breadcrumb_ctx', JSON.stringify({
+                      ...saved,
+                      pinId: this.pinId,
+                      ts: Date.now()
+                    }));
+                  } catch (_) {}
                 }
               }
             } catch (_) {}
@@ -1469,10 +1506,23 @@ export function getPinDetailPageHtml(pinId = '') {
                   if (refFid) this.originFolderId = refFid.trim();
                 } else if (refUrl.pathname !== '/' && !refUrl.pathname.startsWith('/api') && !refUrl.pathname.startsWith('/pin')) {
                   const pathParts = refUrl.pathname.split('/').filter(Boolean);
-                  if (pathParts.length === 1 && !['keywords', 'discovery', 'folders', 'domains'].includes(pathParts[0].toLowerCase())) {
+                  const RESERVED_ROOT_SLUGS = new Set(['keywords', 'discovery', 'folders', 'domains', 'api', 'pin']);
+                  const RESERVED_CREATOR_TABS = new Set(['all-pins', 'winning-pins', 'links', 'boards', 'topics', 'related-pins', 'pin']);
+
+                  if (pathParts.length === 1 && !RESERVED_ROOT_SLUGS.has(pathParts[0].toLowerCase())) {
                     this.originSource = 'creator';
                     this.originCreator = pathParts[0].replace(/^@+/, '').trim();
                     this.originReturnUrl = this.originReturnUrl || (refUrl.pathname + refUrl.search);
+                  } else if (pathParts.length === 2 && !RESERVED_ROOT_SLUGS.has(pathParts[0].toLowerCase())) {
+                    const secondSlug = pathParts[1].toLowerCase();
+                    if (secondSlug !== 'pin') {
+                      this.originSource = 'creator';
+                      this.originCreator = pathParts[0].replace(/^@+/, '').trim();
+                      this.originReturnUrl = this.originReturnUrl || (refUrl.pathname + refUrl.search);
+                      if (!RESERVED_CREATOR_TABS.has(secondSlug)) {
+                        this.originBoard = decodeURIComponent(pathParts[1]).replace(/-/g, ' ');
+                      }
+                    }
                   }
                 }
               }
@@ -1504,6 +1554,24 @@ export function getPinDetailPageHtml(pinId = '') {
               this.originKeywordId = firstKw.keyword_id || firstKw.id || this.originKeywordId;
               if (!this.originSource) this.originSource = 'keyword';
             }
+          }
+
+          // Persist hydrated breadcrumb context to sessionStorage so F5 refreshes retain Tier 3 / Tier 4 context
+          if (typeof window !== 'undefined' && window.sessionStorage && (this.originCreator || this.originKeyword)) {
+            try {
+              sessionStorage.setItem('pae_pin_breadcrumb_ctx', JSON.stringify({
+                source: this.originSource,
+                pinId: this.pinId,
+                creator: this.originCreator,
+                board: this.originBoard,
+                keyword: this.originKeyword,
+                keywordId: this.originKeywordId,
+                folderId: this.originFolderId,
+                folderName: this.originFolderName,
+                returnUrl: this.originReturnUrl,
+                ts: Date.now()
+              }));
+            } catch (_) {}
           }
         },
 

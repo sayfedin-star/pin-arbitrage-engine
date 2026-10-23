@@ -4471,7 +4471,7 @@ export function getDashboardHtml() {
             <button @click="switchCreatorTab('all_pins')" class="flex items-center space-x-2 px-4 py-2 text-xs font-bold rounded-xl transition cursor-pointer" :class="activeCreatorTab === 'all_pins' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
               <i data-lucide="list" class="w-4 h-4"></i>
               <span>📋 All Account Pins</span>
-              <span class="px-2 py-0.5 rounded text-[10px] font-mono" :class="activeCreatorTab === 'all_pins' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800'" x-text="formatNumber(activeCreatorAllPinsTotal || 0)"></span>
+              <span class="px-2 py-0.5 rounded text-[10px] font-mono" :class="activeCreatorTab === 'all_pins' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800'" x-text="formatNumber(activeCreatorCatalogTotal || activeCreatorAllPinsTotal || 0)"></span>
             </button>
             <button @click="switchCreatorTab('top_urls')" class="flex items-center space-x-2 px-4 py-2 text-xs font-bold rounded-xl transition cursor-pointer" :class="activeCreatorTab === 'top_urls' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
               <i data-lucide="link" class="w-4 h-4"></i>
@@ -5065,7 +5065,7 @@ export function getDashboardHtml() {
                 <div class="flex items-center gap-2">
                   <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-500 font-bold text-sm">📋</span>
                   <h3 class="text-base font-bold text-slate-900 dark:text-white">All Account Pins (Raw Catalog)</h3>
-                  <span class="text-xs font-mono font-bold px-2.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20" x-text="(activeCreatorAllPinsTotal || 0) + ' total pins'"></span>
+                  <span class="text-xs font-mono font-bold px-2.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20" x-text="(activeCreatorCatalogTotal || activeCreatorAllPinsTotal || 0) + ' total pins'"></span>
                 </div>
                 <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Complete discovered pin inventory for this account. Qualified winning pins meeting 3-tier rules can be filtered instantly using the <button type="button" @click="creatorAllPinQualifiedOnly = true; activeCreatorAllPinsPage = 1; fetchCreatorAllPins()" class="text-amber-500 font-bold hover:underline cursor-pointer inline-flex items-center gap-0.5">🏆 Qualified Winners</button> filter.</p>
               </div>
@@ -5104,7 +5104,7 @@ export function getDashboardHtml() {
             <div class="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
               <div class="bg-white dark:bg-[#0d1526] rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 shadow-2xs">
                 <span class="text-[10.5px] font-bold text-slate-400 uppercase tracking-wider block">Discovered Pins</span>
-                <span class="text-xl font-black text-slate-900 dark:text-white mt-1 block font-mono" x-text="formatNumber(activeCreatorAllPinsTotal || 0)"></span>
+                <span class="text-xl font-black text-slate-900 dark:text-white mt-1 block font-mono" x-text="formatNumber(activeCreatorCatalogTotal || activeCreatorAllPinsTotal || 0)"></span>
               </div>
               <div class="bg-white dark:bg-[#0d1526] rounded-2xl border border-emerald-500/20 dark:border-emerald-500/30 p-4 shadow-2xs bg-emerald-50/20 dark:bg-emerald-950/10">
                 <span class="text-[10.5px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider block">🏆 Qualified (In Archive)</span>
@@ -5129,7 +5129,7 @@ export function getDashboardHtml() {
                 :class="(!creatorAllPinQualifiedOnly && !creatorAllPinRankedOnly && !creatorAllPinHighVelocity && !creatorAllPinArticlesOnly && !creatorAllPinStage) ? 'bg-indigo-600 text-white border-indigo-700 shadow-xs' : 'bg-white dark:bg-[#0d1526] text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:text-slate-900 dark:hover:text-white'"
               >
                 <span>📋 All Catalog</span>
-                <span class="px-1.5 py-0.2 rounded text-[10px] font-mono" :class="(!creatorAllPinQualifiedOnly && !creatorAllPinRankedOnly && !creatorAllPinHighVelocity && !creatorAllPinArticlesOnly && !creatorAllPinStage) ? 'bg-white/20 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'" x-text="formatNumber(activeCreatorAllPinsTotal || 0)"></span>
+                <span class="px-1.5 py-0.2 rounded text-[10px] font-mono" :class="(!creatorAllPinQualifiedOnly && !creatorAllPinRankedOnly && !creatorAllPinHighVelocity && !creatorAllPinArticlesOnly && !creatorAllPinStage) ? 'bg-white/20 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'" x-text="formatNumber(activeCreatorCatalogTotal || activeCreatorAllPinsTotal || 0)"></span>
               </button>
 
               <button 
@@ -5191,8 +5191,8 @@ export function getDashboardHtml() {
                   <label class="text-xs font-semibold text-slate-500 whitespace-nowrap">Board:</label>
                   <select x-model="creatorAllPinBoard" @change="activeCreatorAllPinsPage = 1; fetchCreatorAllPins()" class="bg-transparent text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer max-w-[140px] truncate">
                     <option value="">All Boards</option>
-                    <template x-for="b in activeCreatorAllPinsBoards" :key="b">
-                      <option :value="b" x-text="b"></option>
+                    <template x-for="b in activeCreatorAllPinsBoards" :key="typeof b === 'object' && b !== null ? b.board_name : b">
+                      <option :value="typeof b === 'object' && b !== null ? b.board_name : b" x-text="typeof b === 'object' && b !== null ? (b.board_name + ' (' + (b.count || 0) + ')') : b"></option>
                     </template>
                   </select>
                 </div>
@@ -5428,348 +5428,7 @@ export function getDashboardHtml() {
             </div>
           </div>
 
-          <!-- ======================================================== -->
-          <!-- SUB-VIEW 2: ALL PINS ARCHIVE & DELTAS (Image 3)           -->
-          <!-- ======================================================== -->
-          <div x-show="activeCreatorTab === 'pins'" class="space-y-5">
-            
-            <!-- Account Summary Card (Image 3) -->
-            <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-6 shadow-sm space-y-6">
-              <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
-                <div class="flex items-center gap-3">
-                  <span class="h-3 w-3 rounded-full bg-emerald-500 shrink-0"></span>
-                  <div class="flex items-center gap-2">
-                    <h2 class="text-xl font-bold text-slate-900 dark:text-white" x-text="'@' + (activeCreator.username || '').replace(/^@+/, '')"></h2>
-                    <span class="text-xs font-semibold uppercase px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">ACTIVE</span>
-                  </div>
-                </div>
 
-                <div class="flex items-center gap-3 bg-slate-50 dark:bg-slate-900/60 rounded-xl px-3.5 py-2 border border-slate-200 dark:border-slate-800">
-                  <span class="text-xs font-semibold text-slate-700 dark:text-slate-300">Accept GAS Data:</span>
-                  <label class="relative inline-flex items-center cursor-pointer">
-                    <input type="checkbox" x-model="isGasDataEnabled" class="sr-only peer" />
-                    <div class="w-8 h-4.5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-emerald-500"></div>
-                  </label>
-                  <span class="text-xs font-bold" :class="isGasDataEnabled ? 'text-emerald-500' : 'text-rose-500'" x-text="isGasDataEnabled ? 'Enabled' : 'Disabled'"></span>
-                </div>
-              </div>
-
-              <!-- 4 Summary Boxes -->
-              <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                <div class="bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-slate-200 dark:border-slate-800 p-3.5">
-                  <span class="text-[11px] font-medium text-slate-400 uppercase block">Followers</span>
-                  <span class="text-lg font-bold text-slate-900 dark:text-white mt-1 block font-mono" x-text="formatNumber(activeCreator.follower_count || 0)"></span>
-                </div>
-                <div class="bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-slate-200 dark:border-slate-800 p-3.5">
-                  <span class="text-[11px] font-medium text-slate-400 uppercase block">Pins Total</span>
-                  <span class="text-lg font-bold text-slate-900 dark:text-white mt-1 block font-mono" x-text="formatNumber(activeCreator.total_pins || activeCreatorAllPinsTotal || activeCreatorWinningPinsTotal || 0)"></span>
-                </div>
-                <div class="bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-slate-200 dark:border-slate-800 p-3.5">
-                  <span class="text-[11px] font-medium text-slate-400 uppercase block">Last Run</span>
-                  <span class="text-xs font-bold text-slate-900 dark:text-white mt-1.5 block" x-text="activeCreator.last_synced_at ? new Date(activeCreator.last_synced_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Never'"></span>
-                </div>
-                <div class="bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-slate-200 dark:border-slate-800 p-3.5">
-                  <span class="text-[11px] font-medium text-slate-400 uppercase block">Next Run</span>
-                  <span class="text-xs font-bold text-slate-900 dark:text-white mt-1.5 block" x-text="activeCreator.next_run_at ? new Date(activeCreator.next_run_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Pending'"></span>
-                </div>
-              </div>
-            </div>
-
-            <!-- All Pins Header & View Toggle (Image 3) -->
-            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-              <div>
-                <h3 class="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                  <span>📌 All Pins</span>
-                  <span class="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-rose-500/10 text-rose-500" x-text="formatNumber(activeCreatorWinningPinsTotal || activeCreatorPins.length || 0)"></span>
-                </h3>
-                <p class="text-xs text-slate-500 mt-0.5">All archived creator pins with snapshots, velocity, and metric growth deltas.</p>
-              </div>
-
-              <!-- View Switch Toggle (Cards | Table) -->
-              <div class="flex items-center gap-1.5 self-start sm:self-auto bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-1 shadow-2xs">
-                <button type="button" @click="creatorPinViewMode = 'cards'" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer" :class="creatorPinViewMode === 'cards' ? 'bg-rose-500 text-white shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">
-                  <i data-lucide="layout-grid" class="w-3.5 h-3.5"></i>
-                  <span>Cards</span>
-                </button>
-                <button type="button" @click="creatorPinViewMode = 'table'" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer" :class="creatorPinViewMode === 'table' ? 'bg-rose-500 text-white shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">
-                  <i data-lucide="menu" class="w-3.5 h-3.5"></i>
-                  <span>Table</span>
-                </button>
-              </div>
-            </div>
-
-            <!-- Growth Pace Slicer (Image 3) -->
-            <div class="flex items-center justify-between flex-wrap gap-2">
-              <div class="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
-                <span class="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider shrink-0 flex items-center gap-1">
-                  <span>⚡ GROWTH PACE:</span>
-                </span>
-                <button type="button" @click="setCreatorPinPace('24h')" class="px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer shrink-0" :class="creatorPinPace === '24h' ? 'bg-rose-500 text-white shadow-2xs' : 'bg-white dark:bg-[#0d1526] border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'">
-                  🔥 Last 24 Hours
-                </button>
-                <button type="button" @click="setCreatorPinPace('3d')" class="px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer shrink-0" :class="creatorPinPace === '3d' ? 'bg-rose-500 text-white shadow-2xs' : 'bg-white dark:bg-[#0d1526] border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'">
-                  ⏱ Last 3 Days
-                </button>
-                <button type="button" @click="setCreatorPinPace('7d')" class="px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer shrink-0" :class="creatorPinPace === '7d' ? 'bg-rose-500 text-white shadow-2xs' : 'bg-white dark:bg-[#0d1526] border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'">
-                  📅 Last 7 Days
-                </button>
-                <button type="button" @click="setCreatorPinPace('all')" class="px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer shrink-0" :class="creatorPinPace === 'all' ? 'bg-rose-500 text-white shadow-2xs' : 'bg-white dark:bg-[#0d1526] border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'">
-                  ⭐ All-Time Total
-                </button>
-              </div>
-            </div>
-
-            <!-- Bulk Selection & Staging Action Ribbon -->
-            <div x-show="selectedCreatorPinIds.length > 0" class="flex items-center justify-between bg-rose-500/10 border border-rose-500/30 rounded-2xl px-4 py-2.5 shadow-sm text-xs">
-              <div class="flex items-center gap-2">
-                <i data-lucide="check-square" class="w-4 h-4 text-rose-500"></i>
-                <span class="font-bold text-rose-600 dark:text-rose-400 font-mono" x-text="selectedCreatorPinIds.length + ' pin(s) selected'"></span>
-              </div>
-              <div class="flex items-center gap-2">
-                <button type="button" @click="clearSelectedCreatorPins()" class="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0d1526] text-slate-700 dark:text-slate-300 font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer">
-                  Deselect All
-                </button>
-                <button type="button" @click="analyzeSelectedPinsAsRelated()" :disabled="isAddingSeeds" class="px-3.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold transition shadow-sm cursor-pointer flex items-center gap-1.5">
-                  <i data-lucide="network" class="w-3.5 h-3.5" :class="isAddingSeeds ? 'animate-spin' : ''"></i>
-                  <span>Analyze Related Pins</span>
-                </button>
-              </div>
-            </div>
-
-            <!-- Topic Filter Chips Ribbon -->
-            <div x-show="activeCreatorTopics.length > 0" class="flex items-center space-x-1.5 overflow-x-auto pb-1 text-xs">
-              <span class="text-[10px] uppercase font-bold text-slate-400 font-mono flex-shrink-0 mr-1 flex items-center space-x-1">
-                <i data-lucide="tag" class="w-3 h-3 text-purple-500"></i>
-                <span>Topic:</span>
-              </span>
-              <button @click="activeCreatorSelectedTopic = ''" class="px-2.5 py-1 rounded-xl text-xs font-bold transition flex-shrink-0 flex items-center space-x-1" :class="activeCreatorSelectedTopic === '' ? 'bg-rose-500 text-white shadow-sm' : 'bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'">
-                <span>All Pins</span>
-                <span class="text-[10px] px-1 py-0.2 rounded-full" :class="activeCreatorSelectedTopic === '' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800'" x-text="formatNumber(activeCreatorWinningPinsTotal || activeCreatorPins.length || 0)"></span>
-              </button>
-              <template x-for="top in activeCreatorTopics" :key="top.name">
-                <button @click="activeCreatorSelectedTopic = (activeCreatorSelectedTopic === top.name ? '' : top.name)" class="px-2.5 py-1 rounded-xl text-xs transition flex-shrink-0 flex items-center space-x-1.5" :class="activeCreatorSelectedTopic === top.name ? 'bg-purple-600 text-white shadow-sm font-bold' : 'bg-slate-100 dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800'">
-                  <span x-text="top.name"></span>
-                  <span class="text-[10px] px-1 py-0.2 rounded-full font-mono" :class="activeCreatorSelectedTopic === top.name ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-500'" x-text="top.pins_count"></span>
-                </button>
-              </template>
-            </div>
-
-            <!-- Filter Controls Bar (Image 3) -->
-            <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-4 shadow-sm flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-              <div class="relative flex-1 max-w-sm">
-                <input
-                  type="text"
-                  x-model="creatorPinSearch"
-                  placeholder="Search pin titles..."
-                  class="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-3.5 py-2 text-xs font-medium text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none pl-9"
-                />
-                <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-2.5"></i>
-              </div>
-
-              <div class="flex flex-wrap items-center gap-2.5">
-                <!-- Board Select -->
-                <div class="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 py-1.5">
-                  <label class="text-xs font-semibold text-slate-500 whitespace-nowrap">Board:</label>
-                  <select x-model="creatorPinBoard" class="bg-transparent text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer max-w-[150px] truncate">
-                    <option value="">All Boards</option>
-                    <template x-for="b in activeCreatorBoards" :key="b.name">
-                      <option :value="b.name" x-text="b.name"></option>
-                    </template>
-                  </select>
-                </div>
-
-                <!-- Stage Select -->
-                <div class="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 py-1.5">
-                  <label class="text-xs font-semibold text-slate-500 whitespace-nowrap">Stage:</label>
-                  <select x-model="creatorPinStage" class="bg-transparent text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer">
-                    <option value="">All Stages</option>
-                    <option value="GROWING">📈 GROWING</option>
-                    <option value="NEW">🟢 NEW (≤14d)</option>
-                    <option value="MATURE">🟣 MATURE (&gt;14d)</option>
-                    <option value="COOLING">❄️ COOLING</option>
-                    <option value="DORMANT">⚪ DORMANT (&lt;0.5/d)</option>
-                  </select>
-                </div>
-
-                <!-- Saves Select -->
-                <div class="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 py-1.5">
-                  <label class="text-xs font-semibold text-slate-500 whitespace-nowrap">Saves:</label>
-                  <select x-model="creatorPinSavesFilter" class="bg-transparent text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer">
-                    <option value="">All Saves</option>
-                    <option value="gte_100">≥ 100 Saves</option>
-                    <option value="gte_500">≥ 500 Saves</option>
-                    <option value="lte_50">≤ 50 Saves</option>
-                  </select>
-                </div>
-
-                <!-- Sort Select -->
-                <div class="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 py-1.5">
-                  <label class="text-xs font-semibold text-slate-500 whitespace-nowrap">Sort:</label>
-                  <select x-model="creatorPinSort" class="bg-transparent text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer">
-                    <option value="delta_saves">Δ 24h Growth</option>
-                    <option value="delta_3d">Δ 3d Growth</option>
-                    <option value="delta_7d">Δ 7d Growth</option>
-                    <option value="saves">Total Saves</option>
-                    <option value="repins">Total Repins</option>
-                    <option value="velocity">Velocity (Saves/Day)</option>
-                    <option value="shares">Total Shares</option>
-                    <option value="newest">Newest on Pinterest</option>
-                  </select>
-                </div>
-
-                <!-- Changed Only Toggle -->
-                <label class="inline-flex items-center gap-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 py-1.5 cursor-pointer text-xs font-medium text-slate-800 dark:text-slate-200 select-none">
-                  <input type="checkbox" x-model="creatorPinChangedOnly" class="rounded border-slate-300 text-rose-500 h-4 w-4" />
-                  <span>Changed only</span>
-                </label>
-
-                <!-- Limit Select -->
-                <div class="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 py-1.5">
-                  <label class="text-xs font-semibold text-slate-500 whitespace-nowrap">Show:</label>
-                  <select x-model="creatorPinLimit" class="bg-transparent text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer">
-                    <option value="25">25</option>
-                    <option value="50">50</option>
-                    <option value="100">100</option>
-                  </select>
-                </div>
-
-                <!-- Columns Toggle -->
-                <div class="relative">
-                  <button @click="isPinColsOpen = !isPinColsOpen" type="button" class="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer">
-                    <i data-lucide="columns" class="w-3.5 h-3.5 text-slate-400"></i>
-                    <span>Columns</span>
-                  </button>
-                  <div x-show="isPinColsOpen" @click.outside="isPinColsOpen = false" class="absolute right-0 top-full mt-1.5 z-30 w-44 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-2 shadow-xl space-y-1">
-                    <label class="flex items-center gap-2 px-2 py-1 text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
-                      <input type="checkbox" x-model="creatorPinColVisible.board" class="rounded border-slate-300 text-rose-500" />
-                      <span>Board</span>
-                    </label>
-                    <label class="flex items-center gap-2 px-2 py-1 text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
-                      <input type="checkbox" x-model="creatorPinColVisible.saves" class="rounded border-slate-300 text-rose-500" />
-                      <span>Saves &amp; Δ</span>
-                    </label>
-                    <label class="flex items-center gap-2 px-2 py-1 text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
-                      <input type="checkbox" x-model="creatorPinColVisible.repins" class="rounded border-slate-300 text-rose-500" />
-                      <span>Repins &amp; Δ</span>
-                    </label>
-                    <label class="flex items-center gap-2 px-2 py-1 text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
-                      <input type="checkbox" x-model="creatorPinColVisible.velocity" class="rounded border-slate-300 text-rose-500" />
-                      <span>Velocity</span>
-                    </label>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- 12-Column Pins Table View (Image 3) -->
-            <div x-show="creatorPinViewMode === 'table'" class="overflow-x-auto rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] shadow-xs">
-              <table class="w-full text-left text-xs">
-                <thead class="bg-slate-50 dark:bg-slate-900/60 text-slate-500 dark:text-slate-400 text-[11px] uppercase border-b border-slate-200 dark:border-slate-800 font-semibold select-none">
-                  <tr>
-                    <th class="py-3 px-3 w-10 text-center">
-                      <input type="checkbox" :checked="isAllCreatorPinsSelected" @change="toggleSelectAllCreatorPins()" class="rounded border-slate-300 text-rose-500 cursor-pointer" />
-                    </th>
-                    <th class="py-3 px-3 w-16">Preview</th>
-                    <th class="py-3 px-4 font-semibold text-slate-900 dark:text-white">Pin Title</th>
-                    <th x-show="creatorPinColVisible.board" class="py-3 px-3 font-semibold">Board</th>
-                    <th x-show="creatorPinColVisible.saves" class="py-3 px-3 font-semibold text-right">Saves &amp; Δ</th>
-                    <th x-show="creatorPinColVisible.repins" class="py-3 px-3 font-semibold text-right">Repins &amp; Δ</th>
-                    <th class="py-3 px-3 font-semibold text-right">Comments</th>
-                    <th class="py-3 px-3 font-semibold text-right">Shares</th>
-                    <th x-show="creatorPinColVisible.velocity" class="py-3 px-3 font-semibold text-right">Velocity</th>
-                    <th class="py-3 px-3 font-semibold text-center">Stage</th>
-                    <th class="py-3 px-3 font-semibold">First Pulled</th>
-                    <th class="py-3 px-3 font-semibold">Created</th>
-                    <th class="py-3 px-3 text-center font-semibold">Actions</th>
-                  </tr>
-                </thead>
-                <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono">
-                  <template x-for="p in paginatedCreatorPins" :key="p.pin_id">
-                    <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition">
-                      <td class="py-2.5 px-3 text-center">
-                        <input type="checkbox" :checked="selectedCreatorPinIds.includes(p.pin_id)" @change="toggleCreatorPinSelection(p.pin_id)" class="rounded border-slate-300 text-rose-500 cursor-pointer" />
-                      </td>
-                      <td class="py-2.5 px-3 w-16">
-                        <div class="cursor-pointer" @click="openPinDossier(p)">
-                          <img :src="p.image_url" loading="lazy" class="w-11 h-14 rounded-lg object-cover border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 hover:opacity-80 transition" />
-                        </div>
-                      </td>
-                      <td class="py-2.5 px-4 font-sans font-bold text-slate-900 dark:text-white">
-                        <div class="line-clamp-2 cursor-pointer hover:text-rose-500 transition" :title="p.title" x-text="p.title || 'Untitled Pin'" @click="openPinDossier(p)"></div>
-                        <span class="text-[10.5px] font-mono text-slate-400 font-normal block mt-0.5" x-text="'ID: ' + p.pin_id"></span>
-                      </td>
-                      <td x-show="creatorPinColVisible.board" class="py-2.5 px-3 font-sans text-slate-600 dark:text-slate-300 truncate max-w-[130px]" x-text="p.board_name || 'General'"></td>
-                      <td x-show="creatorPinColVisible.saves" class="py-2.5 px-3 text-right">
-                        <span class="font-extrabold text-rose-600 dark:text-rose-400" x-text="formatNumber(p.saves)"></span>
-                        <span x-show="(creatorPinPace === '3d' ? Number(p.delta_saves_3d || 0) : creatorPinPace === '7d' ? Number(p.delta_saves_7d || 0) : Number(p.delta_saves || 0)) > 0" class="inline-block px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 ml-1" x-text="'+' + (creatorPinPace === '3d' ? (p.delta_saves_3d || 0) : creatorPinPace === '7d' ? (p.delta_saves_7d || 0) : (p.delta_saves || 0))"></span>
-                      </td>
-                      <td x-show="creatorPinColVisible.repins" class="py-2.5 px-3 text-right">
-                        <span class="font-bold text-slate-900 dark:text-white" x-text="formatNumber(p.repins)"></span>
-                        <span x-show="(creatorPinPace === '3d' ? Number(p.delta_repins_3d || 0) : creatorPinPace === '7d' ? Number(p.delta_repins_7d || 0) : Number(p.delta_repins || 0)) > 0" class="inline-block px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 ml-1" x-text="'+' + (creatorPinPace === '3d' ? (p.delta_repins_3d || 0) : creatorPinPace === '7d' ? (p.delta_repins_7d || 0) : (p.delta_repins || 0))"></span>
-                      </td>
-                      <td class="py-2.5 px-3 text-right font-medium text-slate-600 dark:text-slate-400" x-text="p.comments || 0"></td>
-                      <td class="py-2.5 px-3 text-right">
-                        <a :href="'https://www.pinterest.com/pin/' + p.pin_id + '/'" target="_blank" class="font-bold text-sky-500 hover:underline" x-text="p.share_count ? formatNumber(p.share_count) : '—'"></a>
-                      </td>
-                      <td x-show="creatorPinColVisible.velocity" class="py-2.5 px-3 text-right font-bold text-emerald-500" x-text="(p.velocity || 0) + '/d'"></td>
-                      <td class="py-2.5 px-3 text-center">
-                        <span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20" x-text="'📈 ' + (p.stage || 'ACTIVE')"></span>
-                      </td>
-                      <td class="py-2.5 px-3 font-sans text-slate-500 text-[11px]" x-text="p.formatted_first_pulled || '—'"></td>
-                      <td class="py-2.5 px-3 font-sans text-slate-500 text-[11px]" x-text="p.formatted_created || '—'"></td>
-                      <td class="py-2.5 px-3 text-center">
-                        <a :href="'https://www.pinterest.com/pin/' + p.pin_id + '/'" target="_blank" rel="noopener noreferrer" class="inline-flex items-center justify-center h-7 w-7 rounded-lg text-slate-500 hover:text-rose-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition" title="Open on Pinterest">
-                          <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
-                        </a>
-                      </td>
-                    </tr>
-                  </template>
-                </tbody>
-              </table>
-            </div>
-
-            <!-- Alternative Cards View -->
-            <div x-show="creatorPinViewMode === 'cards'" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-              <template x-for="pin in paginatedCreatorPins" :key="pin.pin_id">
-                <div class="bg-white dark:bg-[#0d1526] rounded-2xl border border-slate-200/90 dark:border-slate-800 overflow-hidden shadow-sm flex flex-col justify-between hover:shadow-md transition">
-                  <div>
-                    <div class="relative aspect-[2/3] bg-slate-100 dark:bg-slate-900 overflow-hidden cursor-pointer" @click="openPinDossier(pin)">
-                      <img :src="pin.image_url" loading="lazy" class="w-full h-full object-cover hover:scale-105 transition-transform duration-300">
-                      <span class="absolute top-2 right-2 px-1.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-slate-950/75 text-amber-400 backdrop-blur-sm border border-amber-500/30">
-                        <span x-text="(pin.velocity || '0') + '/d'"></span>
-                      </span>
-                    </div>
-                    <div class="p-3 space-y-1">
-                      <h5 class="font-bold text-xs text-slate-900 dark:text-white line-clamp-2 cursor-pointer hover:text-rose-500 transition" :title="pin.title" x-text="pin.title || 'Untitled Pin'" @click="openPinDossier(pin)"></h5>
-                      <div class="flex items-center justify-between text-[11px] font-mono text-rose-600 dark:text-rose-400 font-bold pt-1">
-                        <span x-text="formatNumber(pin.saves) + ' saves'"></span>
-                        <span class="text-slate-400 text-[10px] truncate max-w-[90px]" x-text="pin.board_name || 'General'"></span>
-                      </div>
-                    </div>
-                  </div>
-                  <div class="p-2.5 pt-0 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between gap-1.5 mt-1">
-                    <a :href="'https://www.pinterest.com/pin/' + pin.pin_id + '/'" target="_blank" class="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-rose-500">
-                      <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
-                    </a>
-                    <button type="button" @click="openPinDossier(pin)" class="flex-1 py-1.5 px-2 rounded-xl text-[10px] font-bold bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/30 transition active:scale-95 shadow-2xs cursor-pointer">
-                      Inspect Pin
-                    </button>
-                  </div>
-                </div>
-              </template>
-            </div>
-
-            <!-- Pins Pagination Bar -->
-            <div class="flex items-center justify-between border-t border-slate-200 dark:border-slate-800 px-5 py-3 text-xs text-slate-500">
-              <span x-text="'Showing 1-' + paginatedCreatorPins.length + ' of ' + filteredCreatorPins.length + ' pins'"></span>
-              <div class="flex items-center gap-2">
-                <button @click="creatorPinPage = Math.max(1, creatorPinPage - 1)" :disabled="creatorPinPage <= 1" class="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0b1120] px-3 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 disabled:opacity-40 transition shadow-2xs cursor-pointer">Previous</button>
-                <span class="font-bold text-slate-900 dark:text-white" x-text="'Page ' + creatorPinPage + ' of ' + Math.max(1, Math.ceil(filteredCreatorPins.length / creatorPinLimit))"></span>
-                <button @click="creatorPinPage = creatorPinPage + 1" :disabled="creatorPinPage >= Math.ceil(filteredCreatorPins.length / creatorPinLimit)" class="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0b1120] px-3 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 disabled:opacity-40 transition shadow-2xs cursor-pointer">Next</button>
-              </div>
-            </div>
-
-          </div>
 
           <!-- ======================================================== -->
           <!-- SUB-VIEW: TOP DESTINATION URLS STRATEGY                   -->
@@ -6186,7 +5845,7 @@ export function getDashboardHtml() {
                       <td class="py-3 px-4 text-right text-slate-500" x-text="formatNumber(t.avg_saves)"></td>
                       <td class="py-3 px-4 text-right font-bold text-amber-500" x-text="(t.avg_velocity || '0') + '/d'"></td>
                       <td class="py-3 px-4 text-center">
-                        <button @click="activeCreatorSelectedTopic = t.name; activeCreatorTab = 'pins'" class="px-3 py-1 rounded-xl bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/40 dark:hover:bg-purple-900/60 text-purple-600 dark:text-purple-400 font-bold text-[11px] transition flex items-center space-x-1 mx-auto shadow-sm cursor-pointer">
+                        <button @click="activeCreatorSelectedTopic = t.name; creatorAllPinSearch = t.name; activeCreatorAllPinsPage = 1; switchCreatorTab('all_pins');" class="px-3 py-1 rounded-xl bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/40 dark:hover:bg-purple-900/60 text-purple-600 dark:text-purple-400 font-bold text-[11px] transition flex items-center space-x-1 mx-auto shadow-sm cursor-pointer">
                           <span>View Pins</span>
                           <i data-lucide="arrow-right" class="w-3.5 h-3.5"></i>
                         </button>
@@ -6715,6 +6374,7 @@ export function getDashboardHtml() {
         // All Account Pins State (Raw Inventory)
         activeCreatorAllPins: [],
         activeCreatorAllPinsTotal: 0,
+        activeCreatorCatalogTotal: 0,
         activeCreatorWinningPinsTotal: 0,
         activeCreatorAllPinsPage: 1,
         activeCreatorAllPinsTotalPages: 1,
@@ -9331,6 +8991,9 @@ export function getDashboardHtml() {
           this.activeCreatorPins = [];
           this.activeCreatorAllPins = [];
           this.activeCreatorAllPinsTotal = 0;
+          this.activeCreatorCatalogTotal = 0;
+          this.activeCreatorWinningPinsTotal = 0;
+          this.activeCreatorAllPinsBoards = [];
           this.activeCreatorTopics = [];
           this.activeCreatorBoards = [];
           this.activeCreatorSnapshots = [];
@@ -9843,7 +9506,11 @@ export function getDashboardHtml() {
           } else {
             this.activeCreator = { ...creator };
             this.activeCreatorPins = [];
+            this.activeCreatorAllPins = [];
+            this.activeCreatorAllPinsTotal = 0;
+            this.activeCreatorCatalogTotal = 0;
             this.activeCreatorWinningPinsTotal = 0;
+            this.activeCreatorAllPinsBoards = [];
             this.activeCreatorTopics = [];
             this.activeCreatorBoards = [];
             this.activeCreatorSnapshots = [];
@@ -10198,9 +9865,8 @@ export function getDashboardHtml() {
               const data = await res.json();
               this.activeCreatorAllPins = data.pins || [];
               this.activeCreatorAllPinsTotal = data.total || 0;
-              if (data.qualified_total !== undefined) {
-                this.activeCreatorWinningPinsTotal = data.qualified_total;
-              }
+              this.activeCreatorCatalogTotal = data.catalog_total ?? data.total ?? 0;
+              this.activeCreatorWinningPinsTotal = data.qualified_total ?? 0;
               this.activeCreatorAllPinsPage = data.page || 1;
               this.activeCreatorAllPinsTotalPages = data.total_pages || 1;
               if (data.boards) this.activeCreatorAllPinsBoards = data.boards;
@@ -10730,6 +10396,15 @@ export function getDashboardHtml() {
         closeCreatorProfile(updateHistory = true) {
           this.activeCreator = null;
           this.activeCreatorDetail = null;
+          this.activeCreatorPins = [];
+          this.activeCreatorAllPins = [];
+          this.activeCreatorAllPinsTotal = 0;
+          this.activeCreatorCatalogTotal = 0;
+          this.activeCreatorWinningPinsTotal = 0;
+          this.activeCreatorAllPinsBoards = [];
+          this.activeCreatorTopics = [];
+          this.activeCreatorBoards = [];
+          this.activeCreatorSnapshots = [];
           this.isCreatorDossierOpen = false;
           this.isBoardsModalOpen = false;
           this.selectedCreatorPinIds = [];
@@ -10791,9 +10466,12 @@ export function getDashboardHtml() {
 
         filterWinningPinsByBoard(boardName) {
           if (!boardName) return;
-          this.activeCreatorTab = 'pins';
-          this.creatorPinBoard = boardName;
-          this.showToast('📌 Showing winning pins for board: ' + boardName);
+          this.activeCreatorTab = 'all_pins';
+          this.creatorAllPinQualifiedOnly = true;
+          this.creatorAllPinBoard = boardName;
+          this.activeCreatorAllPinsPage = 1;
+          this.fetchCreatorAllPins();
+          this.showToast('🏆 Filtered qualified winning pins for board: ' + boardName);
         },
 
         toggleGhaBoardSelection(boardName) {

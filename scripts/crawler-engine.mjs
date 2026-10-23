@@ -1850,7 +1850,7 @@ async function runDailyScheduledMode(sqlClient, shardSql, shardNumber, shardTota
     console.log(`[*] [4/4 Winning Pins] Updating metrics for top archived winning pins...`);
     try {
       const winningPins = await sqlClient`
-        SELECT pin_id, saves, repins, comments, share_count, velocity
+        SELECT pin_id, saves, repins, comments, share_count, velocity, last_updated_at, created_at_pinterest
         FROM pa_pins
         WHERE LOWER(REPLACE(account_username, '@', '')) = ${username.toLowerCase()}
         ORDER BY saves DESC;
@@ -1868,11 +1868,11 @@ async function runDailyScheduledMode(sqlClient, shardSql, shardNumber, shardTota
             if (idx >= winningPins.length) break;
             const p = winningPins[idx];
             try {
-              const prevSaves = Math.max(0, Number(p.saves || 0));
-              const prevRepins = Math.max(0, Number(p.repins || 0));
-              const prevComments = Math.max(0, Number(p.comments || 0));
-              const prevShares = Math.max(0, Number(p.share_count || 0));
-              const prevVelocity = Number(p.velocity || 0);
+              const prevSaves = Math.max(0, Number.isFinite(Number(p.saves)) ? Number(p.saves) : 0);
+              const prevRepins = Math.max(0, Number.isFinite(Number(p.repins)) ? Number(p.repins) : 0);
+              const prevComments = Math.max(0, Number.isFinite(Number(p.comments)) ? Number(p.comments) : 0);
+              const prevShares = Math.max(0, Number.isFinite(Number(p.share_count)) ? Number(p.share_count) : 0);
+              const prevVelocity = Number.isFinite(Number(p.velocity)) ? Number(p.velocity) : 0;
 
               // Fast path: PinResource micro-packet (~90ms)
               let fresh = null;
@@ -1894,10 +1894,10 @@ async function runDailyScheduledMode(sqlClient, shardSql, shardNumber, shardTota
               }
 
               if (fresh) {
-                const rawFreshSaves = Math.max(0, Number(fresh.saves ?? fresh.save_count ?? 0));
-                const rawFreshRepins = Math.max(0, Number(fresh.repins ?? fresh.repin_count ?? 0));
-                const rawFreshComments = Math.max(0, Number(fresh.comments ?? fresh.comment_count ?? prevComments));
-                const rawFreshShares = Math.max(0, Number(fresh.share_count ?? fresh.shares ?? prevShares));
+                const rawFreshSaves = Math.max(0, Number.isFinite(Number(fresh.saves ?? fresh.save_count)) ? Number(fresh.saves ?? fresh.save_count) : 0);
+                const rawFreshRepins = Math.max(0, Number.isFinite(Number(fresh.repins ?? fresh.repin_count)) ? Number(fresh.repins ?? fresh.repin_count) : 0);
+                const rawFreshComments = Math.max(0, Number.isFinite(Number(fresh.comments ?? fresh.comment_count)) ? Number(fresh.comments ?? fresh.comment_count) : prevComments);
+                const rawFreshShares = Math.max(0, Number.isFinite(Number(fresh.share_count ?? fresh.shares)) ? Number(fresh.share_count ?? fresh.shares) : prevShares);
 
                 // Monotonic non-decreasing protection on time-series telemetry
                 const freshSaves = Math.max(prevSaves, rawFreshSaves);
@@ -1905,7 +1905,39 @@ async function runDailyScheduledMode(sqlClient, shardSql, shardNumber, shardTota
                 const freshComments = Math.max(prevComments, rawFreshComments);
                 const freshShares = Math.max(prevShares, rawFreshShares);
                 const deltaSaves = Math.max(0, freshSaves - prevSaves);
-                const velocity = deltaSaves > 0 ? deltaSaves : prevVelocity;
+
+                // Multi-Day Time-Normalized Velocity Calculation with Intraday Ratchet Protection
+                // [INVARIANT: VELOCITY-RATCHET-SYMMETRY]
+                const now = new Date();
+                const nowUtcMidnight = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+                const baselineDateVal = p.last_updated_at || p.created_at_pinterest;
+                let isSameDay = false;
+                let elapsedDays = 1;
+
+                if (baselineDateVal) {
+                  const baseD = baselineDateVal instanceof Date ? baselineDateVal : new Date(baselineDateVal);
+                  if (!isNaN(baseD.getTime())) {
+                    const baseUtcMidnight = Date.UTC(baseD.getUTCFullYear(), baseD.getUTCMonth(), baseD.getUTCDate());
+                    const msDiff = nowUtcMidnight - baseUtcMidnight;
+                    const days = Math.round(msDiff / 86400000);
+                    if (days <= 0 && p.last_updated_at) {
+                      isSameDay = true;
+                    }
+                    elapsedDays = Math.max(1, days);
+                  }
+                }
+
+                let velocity;
+                if (isSameDay && deltaSaves === 0) {
+                  velocity = prevVelocity;
+                } else if (isSameDay && deltaSaves > 0) {
+                  velocity = Math.max(prevVelocity, deltaSaves);
+                } else {
+                  velocity = Math.round((deltaSaves / elapsedDays) * 10) / 10;
+                }
+                if (!Number.isFinite(velocity) || velocity < 0) {
+                  velocity = 0;
+                }
 
                 const totalReactions = (typeof fresh.reactions === 'object' && fresh.reactions !== null)
                   ? Object.values(fresh.reactions).reduce((acc, v) => acc + (Number(v) || 0), 0)
@@ -1951,7 +1983,7 @@ async function runDailyScheduledMode(sqlClient, shardSql, shardNumber, shardTota
                 repins = GREATEST(p.repins, x.repins),
                 comments = GREATEST(p.comments, x.comments),
                 share_count = GREATEST(p.share_count, x.share_count),
-                velocity = CASE WHEN x.velocity > 0 THEN x.velocity ELSE p.velocity END,
+                velocity = x.velocity,
                 last_updated_at = NOW()
             FROM jsonb_to_recordset(${jsonPayload}::jsonb) AS x(
               pin_id VARCHAR(64),

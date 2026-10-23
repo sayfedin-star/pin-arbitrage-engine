@@ -64,6 +64,25 @@ runTest('Phase 1.4: src/dashboard-ui.mjs unified tab routing and filter controls
   assert.ok(dashboardUiCode.includes("second.toLowerCase() === 'winning-pins' || second.toLowerCase() === 'pins'"), 'Must route winning-pins and pins aliases to all_pins');
 });
 
+runTest('Phase 1.5: catalog_total and qualified_total are computed independently of active filter predicates', () => {
+  assert.ok(compServiceCode.includes('unfilteredTotalsPromise'), 'Must define unfilteredTotalsPromise');
+  assert.ok(compServiceCode.includes('COUNT(*)::int AS catalog_total'), 'Must count catalog_total');
+  assert.ok(compServiceCode.includes('COUNT(*) FILTER (WHERE pa.pin_id IS NOT NULL)::int AS qualified_total'), 'Must count qualified_total with FILTER');
+  assert.ok(compServiceCode.includes('catalog_total,'), 'Must return catalog_total in service response');
+  assert.ok(compServiceCode.includes('unfilteredTotalsPromise = sql`'), 'Must execute unfilteredTotalsPromise in parallel');
+});
+
+runTest('Phase 1.6: activeCreatorAllPinsBoards option binding extracts b.board_name and topic cluster wires to all_pins', () => {
+  assert.ok(dashboardUiCode.includes("b.board_name"), 'Board select option must extract b.board_name');
+  assert.ok(!dashboardUiCode.includes('<option :value="b" x-text="b">'), 'Must NOT bind raw object b without board_name');
+  assert.ok(dashboardUiCode.includes('activeCreatorCatalogTotal: 0'), 'Must initialize activeCreatorCatalogTotal in state');
+  assert.ok(dashboardUiCode.includes('activeCreatorCatalogTotal = data.catalog_total'), 'Must bind activeCreatorCatalogTotal in fetchCreatorAllPins');
+  assert.ok(dashboardUiCode.includes("switchCreatorTab('all_pins')"), 'Topic cluster View Pins must switch to all_pins');
+  assert.ok(dashboardUiCode.includes("creatorAllPinSearch = t.name"), 'Topic cluster View Pins must set creatorAllPinSearch to topic name');
+  assert.ok(!dashboardUiCode.includes('<div x-show="activeCreatorTab === \'pins\'"'), 'Dead DOM sub-view 2 activeCreatorTab pins must be eradicated');
+  assert.ok(dashboardUiCode.includes('this.creatorAllPinQualifiedOnly = true;\n          this.creatorAllPinBoard = boardName;'), 'filterWinningPinsByBoard must route to all_pins with qualified_only');
+});
+
 // -----------------------------------------------------------------------------
 // SECTION 2: Phase 2 100% Daily Qualification Refresh Verification
 // -----------------------------------------------------------------------------
@@ -96,6 +115,29 @@ runTest('Phase 2.4: crawler-engine.mjs implements monotonic ratchet and atomic b
   assert.ok(crawlerCode.includes('UPDATE competitor_pins AS cp'), 'Must batch update competitor_pins');
   assert.ok(crawlerCode.includes('bulkInsertMetrics(sqlClient, metricSnapshots);'), 'Must route snapshots to shards');
   assert.ok(crawlerCode.includes('ORDER BY x.pin_id ASC') || crawlerCode.includes('.sort((a, b) => String(a.pin_id).localeCompare(String(b.pin_id)))'), 'Must sort by pin_id ASC to prevent deadlocks');
+});
+
+runTest('Phase 2.5: crawler-engine.mjs normalizes daily refresh velocity by elapsed UTC days and resets cross-day zero-delta velocity', () => {
+  assert.ok(crawlerCode.includes('last_updated_at, created_at_pinterest'), 'SELECT must include last_updated_at and created_at_pinterest');
+  assert.ok(crawlerCode.includes('elapsedDays'), 'Must compute elapsedDays between baseline date and crawl time');
+  assert.ok(crawlerCode.includes('isSameDay && deltaSaves === 0'), 'Must implement intraday ratchet protection when running same UTC day');
+  assert.ok(crawlerCode.includes('velocity = Math.round((deltaSaves / elapsedDays) * 10) / 10'), 'Must normalize deltaSaves by elapsedDays');
+  assert.ok(crawlerCode.includes('velocity = x.velocity,'), 'UPDATE clause must set velocity = x.velocity directly to allow cross-day reset to 0');
+  assert.ok(crawlerCode.includes('Number.isFinite(Number(p.velocity))'), 'Velocity must be guarded with Number.isFinite');
+  assert.ok(crawlerCode.includes('Number.isFinite(Number(p.saves))'), 'Saves must be guarded with Number.isFinite');
+
+  // Functional simulation of velocity normalization math
+  const simulateVelocity = (prevVel, deltaSaves, isSameDay, elapsedDays) => {
+    if (isSameDay && deltaSaves === 0) return prevVel;
+    if (isSameDay && deltaSaves > 0) return Math.max(prevVel, deltaSaves);
+    return Math.round((deltaSaves / elapsedDays) * 10) / 10;
+  };
+
+  assert.strictEqual(simulateVelocity(12.5, 0, true, 1), 12.5, 'Same day run with 0 delta must preserve prevVelocity');
+  assert.strictEqual(simulateVelocity(12.5, 0, false, 1), 0.0, 'Next day run with 0 delta must reset velocity to 0 (anti-stagnant ratchet)');
+  assert.strictEqual(simulateVelocity(12.5, 0, false, 3), 0.0, '3-day run with 0 delta must reset velocity to 0');
+  assert.strictEqual(simulateVelocity(5.0, 15, false, 3), 5.0, '3-day run with 15 saves gained must normalize to 5.0 saves/day');
+  assert.strictEqual(simulateVelocity(2.0, 7, false, 2), 3.5, '2-day run with 7 saves gained must normalize to 3.5 saves/day');
 });
 
 // -----------------------------------------------------------------------------
@@ -198,6 +240,47 @@ runTest('Phase 3.3: src/pin-details-ui.mjs 4-tier context-aware breadcrumbs & ba
   assert.ok(html.includes('Creator Archive'), 'HTML must render Creator Archive breadcrumb');
   assert.ok(html.includes('Keywords Radar'), 'HTML must render Keywords Radar breadcrumb');
   assert.ok(html.includes('getBoardSlug(originBoard)'), 'HTML must render board breadcrumb as link with getBoardSlug');
+});
+
+runTest('Phase 3.4: src/pin-details-ui.mjs persists Tier-1 query context to sessionStorage and handles 2-segment referrers', () => {
+  assert.ok(pinDetailsCode.includes("sessionStorage.setItem('pae_pin_breadcrumb_ctx'"), 'Must persist Tier-1 context to sessionStorage before replaceState');
+  assert.ok(pinDetailsCode.includes("saved.pinId === this.pinId"), 'Tier 2 must validate saved pinId');
+  assert.ok(pinDetailsCode.includes("pathParts.length === 2"), 'Tier 3 must handle 2-segment creator board referrers');
+  assert.ok(pinDetailsCode.includes("decodeURIComponent(pathParts[1]).replace(/-/g, ' ')"), 'Tier 3 must extract board name from 2nd path segment');
+  assert.ok(pinDetailsCode.includes("Persist hydrated breadcrumb context to sessionStorage so F5 refreshes retain Tier 3 / Tier 4 context"), 'Must persist Tier 3/4 context to sessionStorage');
+
+  // Functional simulation of 2-segment referrer extraction
+  const parseReferrer = (pathname) => {
+    const pathParts = pathname.split('/').filter(Boolean);
+    const RESERVED_ROOT_SLUGS = new Set(['keywords', 'discovery', 'folders', 'domains', 'api', 'pin']);
+    const RESERVED_CREATOR_TABS = new Set(['all-pins', 'winning-pins', 'links', 'boards', 'topics', 'related-pins', 'pin']);
+    let creator = null;
+    let board = null;
+    if (pathParts.length === 1 && !RESERVED_ROOT_SLUGS.has(pathParts[0].toLowerCase())) {
+      creator = pathParts[0].replace(/^@+/, '').trim();
+    } else if (pathParts.length === 2 && !RESERVED_ROOT_SLUGS.has(pathParts[0].toLowerCase())) {
+      const secondSlug = pathParts[1].toLowerCase();
+      if (secondSlug !== 'pin') {
+        creator = pathParts[0].replace(/^@+/, '').trim();
+        if (!RESERVED_CREATOR_TABS.has(secondSlug)) {
+          board = decodeURIComponent(pathParts[1]).replace(/-/g, ' ');
+        }
+      }
+    }
+    return { creator, board };
+  };
+
+  const res1 = parseReferrer('/wifesrecipesbyme/quick-dinner-recipes');
+  assert.strictEqual(res1.creator, 'wifesrecipesbyme');
+  assert.strictEqual(res1.board, 'quick dinner recipes');
+
+  const res2 = parseReferrer('/wifesrecipesbyme/winning-pins');
+  assert.strictEqual(res2.creator, 'wifesrecipesbyme');
+  assert.strictEqual(res2.board, null, 'Reserved tab slug should not be treated as a board');
+
+  const res3 = parseReferrer('/wifesrecipesbyme');
+  assert.strictEqual(res3.creator, 'wifesrecipesbyme');
+  assert.strictEqual(res3.board, null);
 });
 
 console.log(`\n================================================================================`);

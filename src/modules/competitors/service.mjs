@@ -2292,9 +2292,7 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
   `;
 
   const countPromise = sql`
-    SELECT 
-      COUNT(*)::int as total,
-      COUNT(*) FILTER (WHERE pa.pin_id IS NOT NULL)::int as qualified_total
+    SELECT COUNT(*)::int as total
     FROM competitor_pins cp
     LEFT JOIN pa_pins pa ON pa.pin_id = cp.pin_id
     LEFT JOIN (
@@ -2338,15 +2336,37 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
       ));
   `;
 
-  const [boardsRows, rows, [countRow]] = await Promise.all([
+  // Global Unfiltered Totals Query: Decoupled from active filter predicates
+  const unfilteredTotalsPromise = sql`
+    SELECT 
+      COUNT(*)::int AS catalog_total,
+      COUNT(*) FILTER (WHERE pa.pin_id IS NOT NULL)::int AS qualified_total,
+      COUNT(*) FILTER (WHERE ksc.pin_id IS NOT NULL OR kdi.pin_id IS NOT NULL)::int AS ranked_total,
+      COUNT(*) FILTER (WHERE COALESCE(pa.velocity, 0) >= 10)::int AS high_velocity_total
+    FROM competitor_pins cp
+    LEFT JOIN pa_pins pa ON pa.pin_id = cp.pin_id
+    LEFT JOIN (
+      SELECT DISTINCT pin_id FROM keyword_serp_current WHERE rank_position IS NOT NULL
+    ) ksc ON ksc.pin_id = cp.pin_id
+    LEFT JOIN (
+      SELECT DISTINCT pin_id FROM keyword_displaced_index WHERE last_known_rank IS NOT NULL
+    ) kdi ON kdi.pin_id = cp.pin_id
+    WHERE cp.competitor_id = ${numericId};
+  `;
+
+  const [boardsRows, rows, [countRow], [unfilteredRow]] = await Promise.all([
     boardsPromise,
     rowsPromise,
-    countPromise
+    countPromise,
+    unfilteredTotalsPromise
   ]);
 
   const now = Date.now();
   const total = countRow ? countRow.total : 0;
-  const qualified_total = countRow ? (countRow.qualified_total || 0) : 0;
+  const catalog_total = unfilteredRow ? (unfilteredRow.catalog_total ?? total) : total;
+  const qualified_total = unfilteredRow ? (unfilteredRow.qualified_total || 0) : 0;
+  const ranked_total = unfilteredRow ? (unfilteredRow.ranked_total || 0) : 0;
+  const high_velocity_total = unfilteredRow ? (unfilteredRow.high_velocity_total || 0) : 0;
   const total_pages = Math.ceil(total / pLim);
 
   return {
@@ -2370,7 +2390,10 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
       };
     }),
     total,
+    catalog_total,
     qualified_total,
+    ranked_total,
+    high_velocity_total,
     page: pNum,
     limit: pLim,
     total_pages,
