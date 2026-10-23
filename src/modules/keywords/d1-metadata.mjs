@@ -70,9 +70,21 @@ export async function syncPinsBatchToD1(env, pins = []) {
         const annotationsArr = Array.isArray(p.visual_annotations)
           ? p.visual_annotations
           : (Array.isArray(p.annotations) ? p.annotations : []);
-        const metaObj = (p.metadata && typeof p.metadata === 'object')
-          ? p.metadata
-          : ((p.extra_meta && typeof p.extra_meta === 'object') ? p.extra_meta : {});
+        const metaObj = {
+          ...((p.metadata && typeof p.metadata === 'object') ? p.metadata : {}),
+          ...((p.extra_meta && typeof p.extra_meta === 'object') ? p.extra_meta : {})
+        };
+        const candidateMethods = [
+          p.creation_method,
+          p.method,
+          metaObj.creation_method,
+          metaObj.method
+        ].filter(m => m && typeof m === 'string' && m.trim().length > 0);
+        const mVal = candidateMethods.find(m => m.trim().toLowerCase() !== 'pinterest_platform') || candidateMethods[0] || null;
+        if (mVal) {
+          metaObj.creation_method = mVal;
+          metaObj.method = mVal;
+        }
         const trajectoryArr = Array.isArray(p.daily_trajectory) ? p.daily_trajectory : [];
         return env.PIN_D1_DB.prepare(`
           INSERT INTO edge_pins_metadata (

@@ -4471,12 +4471,7 @@ export function getDashboardHtml() {
             <button @click="switchCreatorTab('all_pins')" class="flex items-center space-x-2 px-4 py-2 text-xs font-bold rounded-xl transition cursor-pointer" :class="activeCreatorTab === 'all_pins' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
               <i data-lucide="list" class="w-4 h-4"></i>
               <span>📋 All Account Pins</span>
-              <span class="px-2 py-0.5 rounded text-[10px] font-mono" :class="activeCreatorTab === 'all_pins' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800'" x-text="activeCreatorAllPinsTotal || 0"></span>
-            </button>
-            <button @click="switchCreatorTab('pins')" class="flex items-center space-x-2 px-4 py-2 text-xs font-bold rounded-xl transition cursor-pointer" :class="activeCreatorTab === 'pins' ? 'bg-rose-500 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
-              <i data-lucide="archive" class="w-4 h-4"></i>
-              <span>📌 Winning Pins Archive</span>
-              <span class="px-2 py-0.5 rounded text-[10px] font-mono" :class="activeCreatorTab === 'pins' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800'" x-text="formatNumber(activeCreatorWinningPinsTotal || activeCreatorPins.length || 0)"></span>
+              <span class="px-2 py-0.5 rounded text-[10px] font-mono" :class="activeCreatorTab === 'all_pins' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800'" x-text="formatNumber(activeCreatorAllPinsTotal || 0)"></span>
             </button>
             <button @click="switchCreatorTab('top_urls')" class="flex items-center space-x-2 px-4 py-2 text-xs font-bold rounded-xl transition cursor-pointer" :class="activeCreatorTab === 'top_urls' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
               <i data-lucide="link" class="w-4 h-4"></i>
@@ -5072,7 +5067,7 @@ export function getDashboardHtml() {
                   <h3 class="text-base font-bold text-slate-900 dark:text-white">All Account Pins (Raw Catalog)</h3>
                   <span class="text-xs font-mono font-bold px-2.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20" x-text="(activeCreatorAllPinsTotal || 0) + ' total pins'"></span>
                 </div>
-                <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Complete discovered pin inventory for this account. Qualified winning pins meeting 3-tier rules are automatically isolated in the <button type="button" @click="activeCreatorTab = 'pins'" class="text-rose-500 font-bold hover:underline cursor-pointer inline-flex items-center gap-0.5">📌 All Pins Archive</button> tab.</p>
+                <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Complete discovered pin inventory for this account. Qualified winning pins meeting 3-tier rules can be filtered instantly using the <button type="button" @click="creatorAllPinQualifiedOnly = true; activeCreatorAllPinsPage = 1; fetchCreatorAllPins()" class="text-amber-500 font-bold hover:underline cursor-pointer inline-flex items-center gap-0.5">🏆 Qualified Winners</button> filter.</p>
               </div>
 
               <!-- Action buttons -->
@@ -5125,6 +5120,56 @@ export function getDashboardHtml() {
               </div>
             </div>
 
+            <!-- Sleek Segmented Filter Pill Bar -->
+            <div class="flex items-center gap-2 overflow-x-auto pb-1 select-none">
+              <button 
+                type="button" 
+                @click="creatorAllPinQualifiedOnly = false; creatorAllPinRankedOnly = false; creatorAllPinHighVelocity = false; creatorAllPinArticlesOnly = false; creatorAllPinStage = ''; activeCreatorAllPinsPage = 1; fetchCreatorAllPins()"
+                class="px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border shadow-2xs"
+                :class="(!creatorAllPinQualifiedOnly && !creatorAllPinRankedOnly && !creatorAllPinHighVelocity && !creatorAllPinArticlesOnly && !creatorAllPinStage) ? 'bg-indigo-600 text-white border-indigo-700 shadow-xs' : 'bg-white dark:bg-[#0d1526] text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:text-slate-900 dark:hover:text-white'"
+              >
+                <span>📋 All Catalog</span>
+                <span class="px-1.5 py-0.2 rounded text-[10px] font-mono" :class="(!creatorAllPinQualifiedOnly && !creatorAllPinRankedOnly && !creatorAllPinHighVelocity && !creatorAllPinArticlesOnly && !creatorAllPinStage) ? 'bg-white/20 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'" x-text="formatNumber(activeCreatorAllPinsTotal || 0)"></span>
+              </button>
+
+              <button 
+                type="button" 
+                @click="creatorAllPinQualifiedOnly = true; creatorAllPinRankedOnly = false; creatorAllPinHighVelocity = false; creatorAllPinArticlesOnly = false; activeCreatorAllPinsPage = 1; fetchCreatorAllPins()"
+                class="px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border shadow-2xs"
+                :class="(creatorAllPinQualifiedOnly && !creatorAllPinRankedOnly && !creatorAllPinHighVelocity && !creatorAllPinArticlesOnly) ? 'bg-amber-500 text-white border-amber-600 shadow-xs' : 'bg-white dark:bg-[#0d1526] text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:text-slate-900 dark:hover:text-white'"
+              >
+                <span>🏆 Qualified Winners</span>
+                <span class="px-1.5 py-0.2 rounded text-[10px] font-mono" :class="(creatorAllPinQualifiedOnly && !creatorAllPinRankedOnly && !creatorAllPinHighVelocity && !creatorAllPinArticlesOnly) ? 'bg-white/20 text-white' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'" x-text="formatNumber(activeCreatorWinningPinsTotal || 0)"></span>
+              </button>
+
+              <button 
+                type="button" 
+                @click="creatorAllPinRankedOnly = true; creatorAllPinQualifiedOnly = false; creatorAllPinHighVelocity = false; creatorAllPinArticlesOnly = false; activeCreatorAllPinsPage = 1; fetchCreatorAllPins()"
+                class="px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border shadow-2xs"
+                :class="(creatorAllPinRankedOnly) ? 'bg-sky-600 text-white border-sky-700 shadow-xs' : 'bg-white dark:bg-[#0d1526] text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:text-slate-900 dark:hover:text-white'"
+              >
+                <span>🎯 SERP Ranked</span>
+              </button>
+
+              <button 
+                type="button" 
+                @click="creatorAllPinHighVelocity = true; creatorAllPinQualifiedOnly = false; creatorAllPinRankedOnly = false; creatorAllPinArticlesOnly = false; activeCreatorAllPinsPage = 1; fetchCreatorAllPins()"
+                class="px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border shadow-2xs"
+                :class="(creatorAllPinHighVelocity) ? 'bg-rose-600 text-white border-rose-700 shadow-xs' : 'bg-white dark:bg-[#0d1526] text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:text-slate-900 dark:hover:text-white'"
+              >
+                <span>🔥 High Velocity (≥10/d)</span>
+              </button>
+
+              <button 
+                type="button" 
+                @click="creatorAllPinArticlesOnly = true; creatorAllPinQualifiedOnly = false; creatorAllPinRankedOnly = false; creatorAllPinHighVelocity = false; activeCreatorAllPinsPage = 1; fetchCreatorAllPins()"
+                class="px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border shadow-2xs"
+                :class="(creatorAllPinArticlesOnly) ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs' : 'bg-white dark:bg-[#0d1526] text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:text-slate-900 dark:hover:text-white'"
+              >
+                <span>📰 Articles Only</span>
+              </button>
+            </div>
+
             <!-- Filters & Search Toolbar -->
             <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-4 shadow-xs flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
               <!-- Search bar -->
@@ -5152,6 +5197,19 @@ export function getDashboardHtml() {
                   </select>
                 </div>
 
+                <!-- Stage Filter -->
+                <div class="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 py-1.5">
+                  <label class="text-xs font-semibold text-slate-500 whitespace-nowrap">Stage:</label>
+                  <select x-model="creatorAllPinStage" @change="activeCreatorAllPinsPage = 1; fetchCreatorAllPins()" class="bg-transparent text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer">
+                    <option value="">All Stages</option>
+                    <option value="GROWING">📈 GROWING</option>
+                    <option value="NEW">🟢 NEW (≤14d)</option>
+                    <option value="MATURE">🟣 MATURE</option>
+                    <option value="COOLING">📉 COOLING</option>
+                    <option value="DORMANT">⚪ DORMANT</option>
+                  </select>
+                </div>
+
                 <!-- Min Saves Filter -->
                 <div class="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 py-1.5">
                   <label class="text-xs font-semibold text-slate-500 whitespace-nowrap">Saves:</label>
@@ -5169,6 +5227,7 @@ export function getDashboardHtml() {
                   <label class="text-xs font-semibold text-slate-500 whitespace-nowrap">Sort:</label>
                   <select x-model="creatorAllPinSort" @change="activeCreatorAllPinsPage = 1; fetchCreatorAllPins()" class="bg-transparent text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer">
                     <option value="saves_desc">Highest Saves</option>
+                    <option value="velocity_desc">Highest Velocity (/d)</option>
                     <option value="repins_desc">Highest Repins</option>
                     <option value="created_desc">Newest Pin</option>
                     <option value="created_asc">Oldest Pin</option>
@@ -5195,8 +5254,8 @@ export function getDashboardHtml() {
 
                 <!-- Clear filters button -->
                 <button
-                  x-show="creatorAllPinSearch || creatorAllPinBoard || creatorAllPinMinSaves > 0 || creatorAllPinQualifiedOnly || creatorAllPinArticlesOnly || creatorAllPinRankedOnly"
-                  @click="creatorAllPinSearch = ''; creatorAllPinBoard = ''; creatorAllPinMinSaves = 0; creatorAllPinQualifiedOnly = false; creatorAllPinArticlesOnly = false; creatorAllPinRankedOnly = false; activeCreatorAllPinsPage = 1; fetchCreatorAllPins()"
+                  x-show="creatorAllPinSearch || creatorAllPinBoard || creatorAllPinMinSaves > 0 || creatorAllPinQualifiedOnly || creatorAllPinArticlesOnly || creatorAllPinRankedOnly || creatorAllPinHighVelocity || creatorAllPinStage"
+                  @click="creatorAllPinSearch = ''; creatorAllPinBoard = ''; creatorAllPinMinSaves = 0; creatorAllPinQualifiedOnly = false; creatorAllPinArticlesOnly = false; creatorAllPinRankedOnly = false; creatorAllPinHighVelocity = false; creatorAllPinStage = ''; activeCreatorAllPinsPage = 1; fetchCreatorAllPins()"
                   class="px-2.5 py-1.5 rounded-xl text-xs font-semibold text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition cursor-pointer"
                 >
                   Clear Filters
@@ -5236,7 +5295,8 @@ export function getDashboardHtml() {
                     <th class="py-3 px-3 font-semibold">Board</th>
                     <th class="py-3 px-3 font-semibold text-right">Saves</th>
                     <th class="py-3 px-3 font-semibold text-right">Repins</th>
-                    <th class="py-3 px-3 text-center font-semibold">Qualification</th>
+                    <th class="py-3 px-3 font-semibold text-right">Velocity</th>
+                    <th class="py-3 px-3 text-center font-semibold">Status &amp; Stage</th>
                     <th class="py-3 px-3 font-semibold">Created / Discovered</th>
                     <th class="py-3 px-3 text-center font-semibold">Actions</th>
                   </tr>
@@ -5279,17 +5339,40 @@ export function getDashboardHtml() {
 
                       <!-- Saves -->
                       <td class="py-2.5 px-3 text-right">
-                        <span class="font-extrabold" :class="Number(p.save_count || 0) >= 100 ? 'text-rose-600 dark:text-rose-400 font-black' : 'text-slate-700 dark:text-slate-300'" x-text="formatNumber(p.save_count || 0)"></span>
+                        <span class="font-extrabold" :class="Number(p.save_count || p.saves || 0) >= 100 ? 'text-rose-600 dark:text-rose-400 font-black' : 'text-slate-700 dark:text-slate-300'" x-text="formatNumber(p.save_count || p.saves || 0)"></span>
                       </td>
 
                       <!-- Repins -->
                       <td class="py-2.5 px-3 text-right">
-                        <span class="font-bold text-slate-700 dark:text-slate-300" x-text="formatNumber(p.repin_count || 0)"></span>
+                        <span class="font-bold text-slate-700 dark:text-slate-300" x-text="formatNumber(p.repin_count || p.repins || 0)"></span>
                       </td>
 
-                      <!-- Status Badge -->
+                      <!-- Velocity (/d badge) -->
+                      <td class="py-2.5 px-3 text-right">
+                        <template x-if="Number(p.velocity || 0) > 0">
+                          <span class="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[10px] font-bold font-mono" :class="Number(p.velocity) >= 10 ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30' : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'" x-text="Number(p.velocity).toFixed(1) + '/d'"></span>
+                        </template>
+                        <template x-if="!Number(p.velocity || 0)">
+                          <span class="text-slate-400 text-[11px]">—</span>
+                        </template>
+                      </td>
+
+                      <!-- Status Badge & Stage -->
                       <td class="py-2.5 px-3 text-center">
                         <div class="flex items-center justify-center gap-1 flex-wrap">
+                          <template x-if="p.stage">
+                            <span 
+                              class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase"
+                              :class="{
+                                'bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30': p.stage === 'GROWING',
+                                'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30': p.stage === 'NEW',
+                                'bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30': p.stage === 'MATURE',
+                                'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30': p.stage === 'COOLING',
+                                'bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700': p.stage === 'DORMANT'
+                              }"
+                              x-text="p.stage"
+                            ></span>
+                          </template>
                           <template x-if="p.is_ranked">
                             <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-500/15 text-sky-600 dark:text-sky-400 border border-sky-500/30 shadow-2xs" :title="'Ranked in SERP position #' + (p.rank_position || '—')">
                               <span>🎯 SERP</span>
@@ -5303,12 +5386,11 @@ export function getDashboardHtml() {
                             </span>
                           </template>
                           <template x-if="p.is_qualified">
-                            <button @click="activeCreatorTab = 'pins'" class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10.5px] font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 cursor-pointer hover:bg-amber-500/25 transition" title="Click to view in Winning Archive">
+                            <button @click="creatorAllPinQualifiedOnly = true; activeCreatorAllPinsPage = 1; fetchCreatorAllPins();" class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10.5px] font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 cursor-pointer hover:bg-amber-500/25 transition" title="Qualified Winner">
                               <span>🏆 Qualified</span>
-                              <i data-lucide="arrow-right" class="w-2.5 h-2.5"></i>
                             </button>
                           </template>
-                          <template x-if="!p.is_qualified && !p.is_product && !p.is_ranked">
+                          <template x-if="!p.is_qualified && !p.is_product && !p.is_ranked && !p.stage">
                             <span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700">
                               Standard
                             </span>
@@ -6633,6 +6715,7 @@ export function getDashboardHtml() {
         // All Account Pins State (Raw Inventory)
         activeCreatorAllPins: [],
         activeCreatorAllPinsTotal: 0,
+        activeCreatorWinningPinsTotal: 0,
         activeCreatorAllPinsPage: 1,
         activeCreatorAllPinsTotalPages: 1,
         activeCreatorAllPinsBoards: [],
@@ -6643,6 +6726,9 @@ export function getDashboardHtml() {
         creatorAllPinQualifiedOnly: false,
         creatorAllPinArticlesOnly: false,
         creatorAllPinRankedOnly: false,
+        creatorAllPinStage: '',
+        creatorAllPinHighVelocity: false,
+        creatorAllPinChangedOnly: false,
         isLoadingAllPins: false,
         isHarvestingAllPins: false,
         isDispatchingGitHubCrawl: false,
@@ -8384,7 +8470,14 @@ export function getDashboardHtml() {
             }
             this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
           });
-          // Immediate Deep Link URL Hydration (e.g. /freshmancook, /freshmancook/links, /freshmancook/related-pins, /freshmancook/pin/1688918607652644)
+          this.$watch('activeCreatorTab', (val) => {
+            if (val === 'pins') {
+              this.activeCreatorTab = 'all_pins';
+              this.creatorAllPinQualifiedOnly = true;
+              this.fetchCreatorAllPins();
+            }
+          });
+          // Immediate Deep Link URL Hydration (e.g. /freshmancook, /freshmancook/links, /freshmancook/related-pins)
           if (typeof window !== 'undefined') {
             const RESERVED_SYSTEM_SLUGS = new Set([
               'api', 'fleet', 'settings', 'admin', 'health', 'favicon.ico', 
@@ -8398,8 +8491,8 @@ export function getDashboardHtml() {
               'related-pins': 'related_pins',
               'related': 'related_pins',
               'all-pins': 'all_pins',
-              'winning-pins': 'pins',
-              'pins': 'pins',
+              'winning-pins': 'all_pins',
+              'pins': 'all_pins',
               'topics': 'topics',
               'boards': 'boards',
               'overview': 'overview'
@@ -8432,12 +8525,15 @@ export function getDashboardHtml() {
               this.currentTab = 'overview';
             } else if (first && !RESERVED_SYSTEM_SLUGS.has(cleanFirst)) {
               this.currentTab = 'creators_archive';
-              if (second === 'pin' && third) {
-                this.openCreatorByHandle(first, 'overview').then(() => {
-                  this.openPinPage(third, false);
-                });
+              if ((second === 'pin' || second === 'pins') && third) {
+                const cleanU = first.replace(/^@+/, '').trim().toLowerCase();
+                window.location.href = '/pin/' + encodeURIComponent(third) + '?creator=' + encodeURIComponent(cleanU);
+                return;
               } else if (second && CREATOR_SUB_TABS[second.toLowerCase()]) {
                 const targetTab = CREATOR_SUB_TABS[second.toLowerCase()];
+                if (second.toLowerCase() === 'winning-pins' || second.toLowerCase() === 'pins') {
+                  this.creatorAllPinQualifiedOnly = true;
+                }
                 this.openCreatorByHandle(first, targetTab);
               } else if (second) {
                 this.openCreatorByHandle(first, 'overview').then(() => {
@@ -8486,15 +8582,17 @@ export function getDashboardHtml() {
                 if (this.activeCreator) this.closeCreatorProfile(false);
                 this.currentTab = 'overview';
               } else if (pFirst && !RESERVED_SYSTEM_SLUGS.has(cleanPFirst)) {
-                if (pSecond === 'pin' && pThird) {
-                  if (!this.activeCreator || (this.activeCreator.username || '').toLowerCase() !== pFirst.toLowerCase()) {
-                    await this.openCreatorByHandle(pFirst, 'overview');
-                  }
-                  await this.openPinPage(pThird, false);
+                if ((pSecond === 'pin' || pSecond === 'pins') && pThird) {
+                  const cleanU = pFirst.replace(/^@+/, '').trim().toLowerCase();
+                  window.location.href = '/pin/' + encodeURIComponent(pThird) + '?creator=' + encodeURIComponent(cleanU);
+                  return;
                 } else if (pSecond && CREATOR_SUB_TABS[pSecond.toLowerCase()]) {
                   if (this.activePinId) this.closePinPage(false);
                   if (this.activeBoardName) this.closeBoardPage(false);
                   const targetTab = CREATOR_SUB_TABS[pSecond.toLowerCase()];
+                  if (pSecond.toLowerCase() === 'winning-pins' || pSecond.toLowerCase() === 'pins') {
+                    this.creatorAllPinQualifiedOnly = true;
+                  }
                   await this.openCreatorByHandle(pFirst, targetTab);
                 } else if (pSecond) {
                   if (this.activePinId) this.closePinPage(false);
@@ -9838,14 +9936,20 @@ export function getDashboardHtml() {
         },
 
         switchCreatorTab(tab) {
-          this.activeCreatorTab = tab;
+          if (tab === 'pins') {
+            this.activeCreatorTab = 'all_pins';
+            this.creatorAllPinQualifiedOnly = true;
+            tab = 'all_pins';
+          } else {
+            this.activeCreatorTab = tab;
+          }
+
           if (this.activeCreator) {
             const cleanU = (this.activeCreator.username || '').replace(/^@+/, '').trim().toLowerCase();
             let targetPath = '/' + cleanU;
             if (tab === 'top_urls' || tab === 'links') targetPath = '/' + cleanU + '/links';
             else if (tab === 'related_pins') targetPath = '/' + cleanU + '/related-pins';
-            else if (tab === 'all_pins') targetPath = '/' + cleanU + '/all-pins';
-            else if (tab === 'pins') targetPath = '/' + cleanU + '/winning-pins';
+            else if (tab === 'all_pins') targetPath = '/' + cleanU + (this.creatorAllPinQualifiedOnly ? '/winning-pins' : '/all-pins');
             else if (tab === 'topics') targetPath = '/' + cleanU + '/topics';
             else if (tab === 'boards') targetPath = '/' + cleanU + '/boards';
 
@@ -9858,7 +9962,6 @@ export function getDashboardHtml() {
             else if (tab === 'all_pins') this.fetchCreatorAllPins();
             else if (tab === 'boards') this.fetchCreatorBoards();
             else if (tab === 'topics') this.fetchCreatorTopics();
-            else if (tab === 'pins') this.fetchCreatorWinningPins();
           }
           this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
         },
@@ -10084,6 +10187,9 @@ export function getDashboardHtml() {
             if (this.creatorAllPinQualifiedOnly) p.set('qualified_only', 'true');
             if (this.creatorAllPinArticlesOnly) p.set('articles_only', 'true');
             if (this.creatorAllPinRankedOnly) p.set('ranked_only', 'true');
+            if (this.creatorAllPinStage) p.set('stage', this.creatorAllPinStage);
+            if (this.creatorAllPinHighVelocity) p.set('high_velocity', 'true');
+            if (this.creatorAllPinChangedOnly) p.set('changed_only', 'true');
             p.set('page', this.activeCreatorAllPinsPage || 1);
             p.set('limit', 25);
 
@@ -10092,6 +10198,9 @@ export function getDashboardHtml() {
               const data = await res.json();
               this.activeCreatorAllPins = data.pins || [];
               this.activeCreatorAllPinsTotal = data.total || 0;
+              if (data.qualified_total !== undefined) {
+                this.activeCreatorWinningPinsTotal = data.qualified_total;
+              }
               this.activeCreatorAllPinsPage = data.page || 1;
               this.activeCreatorAllPinsTotalPages = data.total_pages || 1;
               if (data.boards) this.activeCreatorAllPinsBoards = data.boards;
@@ -10213,6 +10322,28 @@ export function getDashboardHtml() {
           const pinId = typeof pinOrId === 'object' ? String(pinOrId.pin_id || pinOrId.id || '') : String(pinOrId);
           if (!pinId) return;
 
+          const cleanUser = (this.activeCreator?.username || (typeof pinOrId === 'object' && pinOrId?.account_username) || '').replace(/^@+/, '').trim().toLowerCase();
+          const currentBoard = this.activeBoardName || (typeof pinOrId === 'object' && (pinOrId?.board_name || pinOrId?.board)) || '';
+
+          if (typeof window !== 'undefined' && window.sessionStorage) {
+            try {
+              sessionStorage.setItem('pae_pin_breadcrumb_ctx', JSON.stringify({
+                source: 'creator',
+                creator: cleanUser,
+                board: currentBoard,
+                tab: this.activeCreatorTab || 'all_pins',
+                returnUrl: window.location.pathname + window.location.search,
+                ts: Date.now()
+              }));
+            } catch (_) {}
+          }
+
+          if (updateHistory && typeof window !== 'undefined') {
+            const targetUrl = '/pin/' + encodeURIComponent(pinId) + (cleanUser ? '?creator=' + encodeURIComponent(cleanUser) + (currentBoard ? '&board=' + encodeURIComponent(currentBoard) : '') : '');
+            window.location.href = targetUrl;
+            return;
+          }
+
           // Check SWR In-Memory Cache for Instant Render
           const cachedPin = (!forceRefresh && this._clientCache?.pins) ? this._clientCache.pins.get(pinId) : null;
           if (cachedPin) {
@@ -10257,16 +10388,6 @@ export function getDashboardHtml() {
 
           if (typeof window !== 'undefined') {
             window.scrollTo({ top: 0, behavior: 'smooth' });
-            if (updateHistory) {
-              let targetPath = '/pin/' + pinId;
-              if (this.activeCreator && this.activeCreator.username) {
-                const cleanU = (this.activeCreator.username || '').replace(/^@+/, '').trim().toLowerCase();
-                targetPath = '/' + cleanU + '/pin/' + pinId;
-              }
-              if (window.location.pathname !== targetPath) {
-                window.history.pushState({ pinId: pinId }, '', targetPath);
-              }
-            }
             document.title = (this.activePinDossier.title ? this.activePinDossier.title + ' | ' : '') + 'Pin #' + pinId + ' | Pinterest Intelligence';
           }
 
@@ -10283,12 +10404,6 @@ export function getDashboardHtml() {
                 this.activePinDossier = { ...this.activePinDossier, ...data.pin };
                 if (typeof window !== 'undefined' && data.pin.title) {
                   document.title = data.pin.title + ' | Pin #' + pinId + ' | Pinterest Intelligence';
-                }
-                if (typeof window !== 'undefined' && !this.activeCreator && data.pin.account_username) {
-                  const cleanU = (data.pin.account_username || '').replace(/^@+/, '').trim().toLowerCase();
-                  if (cleanU) {
-                    window.history.replaceState({ pinId: pinId }, '', '/' + cleanU + '/pin/' + pinId);
-                  }
                 }
               }
               this.pinDossierSnapshots = data.snapshots || [];

@@ -723,13 +723,13 @@ export async function getTopicClusters(sql, { minPins = 1, search = '', account 
 /**
  * Calculate pin growth stage
  */
-export function computePinStage(velocity, deltaSaves, ageDays) {
+export function computePinStage(velocity, deltaSaves = 0, ageDays = 0) {
   if (velocity < 0.5) return 'DORMANT';
-  if (velocity < 2 && deltaSaves < 0) return 'COOLING';
+  if (deltaSaves < 0 && velocity < 2) return 'COOLING';
   if (ageDays <= 14) return 'NEW';
   if (velocity >= 10) return 'GROWING';
-  if (velocity >= 2 && ageDays > 14) return 'MATURE';
-  return velocity >= 2 ? 'MATURE' : 'DORMANT';
+  if (velocity >= 2) return 'MATURE';
+  return 'COOLING';
 }
 
 /**

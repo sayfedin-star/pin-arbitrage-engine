@@ -1153,9 +1153,14 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
   ]);
 
   let masterRecord = initialMaster || d1Record;
-  if (masterRecord && !masterRecord.creation_method) {
+  if (masterRecord) {
     const mMeta = typeof masterRecord.metadata === 'object' && masterRecord.metadata !== null ? masterRecord.metadata : {};
-    masterRecord.creation_method = mMeta.creation_method || mMeta.method || null;
+    const candidateMethods = [
+      masterRecord.creation_method,
+      mMeta.creation_method,
+      mMeta.method
+    ].filter(m => m && typeof m === 'string' && m.trim().length > 0);
+    masterRecord.creation_method = candidateMethods.find(m => m.trim().toLowerCase() !== 'pinterest_platform') || candidateMethods[0] || null;
   }
   let snapshots = initialSnapshots;
   const hubSerpRows = Array.isArray(hubSerpRowsRaw) ? hubSerpRowsRaw : [];
@@ -1244,6 +1249,14 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
   if (!masterRecord) {
     if (hubSerpRows.length > 0) {
       const topRow = hubSerpRows[0];
+      const candidateHubMethods = [
+        topRow.creation_method,
+        topHubMeta.creation_method,
+        topHubMeta.method,
+        snapMetaObj.creation_method,
+        snapMetaObj.method
+      ].filter(m => m && typeof m === 'string' && m.trim().length > 0);
+      const resolvedHubMethod = candidateHubMethods.find(m => m.trim().toLowerCase() !== 'pinterest_platform') || candidateHubMethods[0] || 'pinterest_platform';
       masterRecord = {
         pin_id: topRow.pin_id,
         title: topRow.title || topHubMeta.seo_title || '',
@@ -1259,11 +1272,16 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
         alt_text: topHubMeta.alt_text || snapMetaObj.alt_text || '',
         description: topHubMeta.description || snapMetaObj.description || '',
         created_at_pinterest: topRow.created_at_pinterest || topHubMeta.created_at_pinterest || snapMetaObj.created_at_pinterest || null,
-        creation_method: topRow.creation_method || topHubMeta.creation_method || snapMetaObj.creation_method || 'pinterest_platform',
+        creation_method: resolvedHubMethod,
         visual_annotations: Array.from(unionSet),
-        metadata: { ...topHubMeta, ...snapMetaObj, creation_method: topRow.creation_method || topHubMeta.creation_method || snapMetaObj.creation_method || 'pinterest_platform' }
+        metadata: { ...topHubMeta, ...snapMetaObj, creation_method: resolvedHubMethod, method: resolvedHubMethod }
       };
     } else if (hubHistoricalSnap) {
+      const candidateSnapMethods = [
+        snapMetaObj.creation_method,
+        snapMetaObj.method
+      ].filter(m => m && typeof m === 'string' && m.trim().length > 0);
+      const resolvedSnapMethod = candidateSnapMethods.find(m => m.trim().toLowerCase() !== 'pinterest_platform') || candidateSnapMethods[0] || 'pinterest_platform';
       masterRecord = {
         pin_id: hubHistoricalSnap.pin_id,
         title: hubHistoricalSnap.title || snapMetaObj.seo_title || '',
@@ -1279,9 +1297,9 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
         alt_text: snapMetaObj.alt_text || '',
         description: snapMetaObj.description || '',
         created_at_pinterest: hubHistoricalSnap.created_at_pinterest || snapMetaObj.created_at_pinterest || null,
-        creation_method: snapMetaObj.creation_method || snapMetaObj.method || 'pinterest_platform',
+        creation_method: resolvedSnapMethod,
         visual_annotations: Array.from(unionSet),
-        metadata: { ...snapMetaObj, creation_method: snapMetaObj.creation_method || snapMetaObj.method || 'pinterest_platform' }
+        metadata: { ...snapMetaObj, creation_method: resolvedSnapMethod, method: resolvedSnapMethod }
       };
     }
   } else {
@@ -1295,10 +1313,19 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     if (!masterRecord.created_at_pinterest) {
       masterRecord.created_at_pinterest = shardMetaObj.created_at_pinterest || hubSerpRows[0]?.created_at_pinterest || topHubMeta.created_at_pinterest || snapMetaObj.created_at_pinterest || null;
     }
-    if (!masterRecord.creation_method) {
-      masterRecord.creation_method = shardMetaObj.creation_method || hubSerpRows[0]?.creation_method || topHubMeta.creation_method || snapMetaObj.creation_method || null;
-    }
-    masterRecord.metadata = { ...topHubMeta, ...snapMetaObj, ...shardMetaObj };
+    const candidateMethods = [
+      masterRecord?.creation_method,
+      shardMetaObj.creation_method,
+      shardMetaObj.method,
+      snapMetaObj.creation_method,
+      snapMetaObj.method,
+      hubSerpRows[0]?.creation_method,
+      topHubMeta.creation_method,
+      topHubMeta.method
+    ].filter(m => m && typeof m === 'string' && m.trim().length > 0);
+    const resolvedBestMethod = candidateMethods.find(m => m.trim().toLowerCase() !== 'pinterest_platform') || candidateMethods[0] || 'pinterest_platform';
+    masterRecord.creation_method = resolvedBestMethod;
+    masterRecord.metadata = { ...topHubMeta, ...snapMetaObj, ...shardMetaObj, creation_method: resolvedBestMethod, method: resolvedBestMethod };
   }
 
   const finalVisualAnnotations = Array.from(unionSet)
@@ -1313,18 +1340,22 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     const backfillPromise = (async () => {
       try {
         const backfillCandidates = [
+          masterRecord?.creation_method,
           shardMetaObj.creation_method,
+          shardMetaObj.method,
           snapMetaObj.creation_method,
           snapMetaObj.method,
           hubSerpRows[0]?.creation_method,
-          topHubMeta.creation_method
+          topHubMeta.creation_method,
+          topHubMeta.method
         ].filter(m => m && typeof m === 'string' && m.trim().length > 0);
-        const resolvedBackfillMethod = backfillCandidates.find(m => m !== 'pinterest_platform') || backfillCandidates[0] || 'pinterest_platform';
+        const resolvedBackfillMethod = backfillCandidates.find(m => m.trim().toLowerCase() !== 'pinterest_platform') || backfillCandidates[0] || 'pinterest_platform';
         const enrichedMetaToSave = {
           ...topHubMeta,
           ...snapMetaObj,
           ...shardMetaObj,
-          creation_method: resolvedBackfillMethod
+          creation_method: resolvedBackfillMethod,
+          method: resolvedBackfillMethod
         };
         await shardSql`
           INSERT INTO universal_master_pins (
@@ -1362,7 +1393,18 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
               ELSE universal_master_pins.visual_annotations 
             END,
             created_at_pinterest = COALESCE(EXCLUDED.created_at_pinterest, universal_master_pins.created_at_pinterest),
-            metadata = COALESCE(universal_master_pins.metadata, '{}'::jsonb) || EXCLUDED.metadata,
+            metadata = COALESCE(universal_master_pins.metadata, '{}'::jsonb) || EXCLUDED.metadata
+              || CASE
+                   WHEN COALESCE(NULLIF(universal_master_pins.metadata->>'creation_method', ''), NULLIF(universal_master_pins.metadata->>'method', '')) IS NOT NULL 
+                    AND LOWER(TRIM(COALESCE(NULLIF(universal_master_pins.metadata->>'creation_method', ''), NULLIF(universal_master_pins.metadata->>'method', '')))) NOT IN ('pinterest_platform')
+                    AND (COALESCE(NULLIF(EXCLUDED.metadata->>'creation_method', ''), NULLIF(EXCLUDED.metadata->>'method', '')) IS NULL 
+                         OR LOWER(TRIM(COALESCE(NULLIF(EXCLUDED.metadata->>'creation_method', ''), NULLIF(EXCLUDED.metadata->>'method', '')))) = 'pinterest_platform')
+                   THEN jsonb_build_object(
+                     'creation_method', COALESCE(NULLIF(universal_master_pins.metadata->>'creation_method', ''), NULLIF(universal_master_pins.metadata->>'method', '')),
+                     'method', COALESCE(NULLIF(universal_master_pins.metadata->>'creation_method', ''), NULLIF(universal_master_pins.metadata->>'method', ''))
+                   )
+                   ELSE '{}'::jsonb
+                 END,
             updated_at = NOW();
         `;
       } catch (backfillErr) {
@@ -1936,11 +1978,14 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
   const candidateCreationMethods = [
     masterRecord?.creation_method,
     shardMetaObj.creation_method,
+    shardMetaObj.method,
     snapMeta.creation_method,
     snapMeta.method,
-    hubSerpRows[0]?.creation_method
+    hubSerpRows[0]?.creation_method,
+    topHubMeta.creation_method,
+    topHubMeta.method
   ].filter(m => m && typeof m === 'string' && m.trim().length > 0);
-  const resolvedCreationMethod = candidateCreationMethods.find(m => m !== 'pinterest_platform') || candidateCreationMethods[0] || 'pinterest_platform';
+  const resolvedCreationMethod = candidateCreationMethods.find(m => m.trim().toLowerCase() !== 'pinterest_platform') || candidateCreationMethods[0] || 'pinterest_platform';
 
   const algorithmicIntelligence = {
     is_repin: Boolean(snapMeta.is_repin ?? false),
@@ -2068,7 +2113,11 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
 
   if ((env?.PIN_D1_DB || env?.PIN_ENGINE_KV) && masterRecord && (!hasValidTrajectoryFromD1 || bypassEdgeCache)) {
     const edgeWriteThroughPromise = (async () => {
-      const fullMetaObj = { ...snapMeta, ...cleanMeta(masterRecord.metadata) };
+      const fullMetaObj = {
+        ...snapMeta,
+        ...cleanMeta(masterRecord.metadata),
+        ...(resolvedCreationMethod ? { creation_method: resolvedCreationMethod, method: resolvedCreationMethod } : {})
+      };
       if (canMirrorTrajectoryToD1) {
         fullMetaObj.has_shard_trajectory = true;
       }
@@ -2478,8 +2527,19 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
         THEN EXCLUDED.visual_annotations 
         ELSE universal_master_pins.visual_annotations 
       END,
+      metadata = COALESCE(universal_master_pins.metadata, '{}'::jsonb) || EXCLUDED.metadata
+        || CASE
+             WHEN COALESCE(NULLIF(universal_master_pins.metadata->>'creation_method', ''), NULLIF(universal_master_pins.metadata->>'method', '')) IS NOT NULL 
+              AND LOWER(TRIM(COALESCE(NULLIF(universal_master_pins.metadata->>'creation_method', ''), NULLIF(universal_master_pins.metadata->>'method', '')))) NOT IN ('pinterest_platform')
+              AND (COALESCE(NULLIF(EXCLUDED.metadata->>'creation_method', ''), NULLIF(EXCLUDED.metadata->>'method', '')) IS NULL 
+                   OR LOWER(TRIM(COALESCE(NULLIF(EXCLUDED.metadata->>'creation_method', ''), NULLIF(EXCLUDED.metadata->>'method', '')))) = 'pinterest_platform')
+             THEN jsonb_build_object(
+               'creation_method', COALESCE(NULLIF(universal_master_pins.metadata->>'creation_method', ''), NULLIF(universal_master_pins.metadata->>'method', '')),
+               'method', COALESCE(NULLIF(universal_master_pins.metadata->>'creation_method', ''), NULLIF(universal_master_pins.metadata->>'method', ''))
+             )
+             ELSE '{}'::jsonb
+           END,
       created_at_pinterest = COALESCE(EXCLUDED.created_at_pinterest, universal_master_pins.created_at_pinterest),
-      metadata = COALESCE(universal_master_pins.metadata, '{}'::jsonb) || EXCLUDED.metadata,
       updated_at = NOW();
   `;
 
@@ -2664,6 +2724,7 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
 
   // 9. Hub: Update active SERP state in keyword_serp_current
   if (targetRows.length > 0) {
+    const incomingSyncMethod = isCarousel ? 'carousel' : (scrapedPin.creation_method || scrapedPin.method || '');
     await hubSql`
       UPDATE keyword_serp_current
       SET
@@ -2671,7 +2732,11 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
         domain = COALESCE(NULLIF(${scrapedPin.domain || ''}, ''), domain),
         destination_url = COALESCE(NULLIF(${scrapedPin.link || scrapedPin.destination_url || ''}, ''), destination_url),
         image_url = COALESCE(NULLIF(${scrapedPin.image_url || ''}, ''), image_url),
-        creation_method = COALESCE(NULLIF(${isCarousel ? 'carousel' : (scrapedPin.creation_method || scrapedPin.method || '')}, ''), creation_method),
+        creation_method = CASE
+          WHEN ${incomingSyncMethod} <> '' AND LOWER(TRIM(${incomingSyncMethod})) <> 'pinterest_platform'
+          THEN ${incomingSyncMethod}
+          ELSE COALESCE(NULLIF(creation_method, ''), ${incomingSyncMethod}, 'pinterest_platform')
+        END,
         save_count = GREATEST(save_count, ${newSaves}),
         repin_count = GREATEST(repin_count, ${newRepins}),
         comment_count = GREATEST(comment_count, ${newComments}),
@@ -2681,7 +2746,18 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
           THEN ${syncVelocity}
           ELSE daily_save_velocity
         END,
-        metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify(rawMetaToStore)}::jsonb,
+        metadata = (CASE WHEN jsonb_typeof(metadata) = 'object' THEN metadata ELSE '{}'::jsonb END) 
+          || ${JSON.stringify(rawMetaToStore)}::jsonb
+          || CASE
+               WHEN COALESCE(NULLIF(metadata->>'creation_method', ''), NULLIF(metadata->>'method', '')) IS NOT NULL 
+                AND LOWER(TRIM(COALESCE(NULLIF(metadata->>'creation_method', ''), NULLIF(metadata->>'method', '')))) NOT IN ('pinterest_platform')
+                AND (${incomingSyncMethod} IS NULL OR LOWER(TRIM(${incomingSyncMethod})) IN ('', 'pinterest_platform'))
+               THEN jsonb_build_object(
+                 'creation_method', COALESCE(NULLIF(metadata->>'creation_method', ''), NULLIF(metadata->>'method', '')),
+                 'method', COALESCE(NULLIF(metadata->>'creation_method', ''), NULLIF(metadata->>'method', ''))
+               )
+               ELSE '{}'::jsonb
+             END,
         crawled_at = NOW(),
         updated_at = NOW()
       WHERE pin_id = ${cleanPinId};

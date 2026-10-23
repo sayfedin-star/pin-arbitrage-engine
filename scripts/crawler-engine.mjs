@@ -1836,76 +1836,164 @@ async function runDailyScheduledMode(sqlClient, shardSql, shardNumber, shardTota
       });
     } catch (_) {}
 
+    // Reconcile qualified catalog pins before refreshing metrics
+    try {
+      const recon = await reconcileQualifiedCatalogPins(sqlClient, acc.id);
+      if (recon?.promoted_or_updated > 0) {
+        console.log(`[*] [Reconciliation] Reconciled and archived ${recon.promoted_or_updated} qualified pins into pa_pins.`);
+      }
+    } catch (rErr) {
+      console.warn(`[!] Catalog reconciliation warning:`, rErr.message);
+    }
+
     // 4. Winning Pins Metric Refresh (Updating 24h Saves Deltas & Velocity)
     console.log(`[*] [4/4 Winning Pins] Updating metrics for top archived winning pins...`);
     try {
       const winningPins = await sqlClient`
-        SELECT pin_id, saves, repins, comments
+        SELECT pin_id, saves, repins, comments, share_count, velocity
         FROM pa_pins
-        WHERE LOWER(account_username) = ${username.toLowerCase()}
-        ORDER BY saves DESC
-        LIMIT 50;
+        WHERE LOWER(REPLACE(account_username, '@', '')) = ${username.toLowerCase()}
+        ORDER BY saves DESC;
       `;
 
-      const metricSnapshots = [];
-      for (const p of winningPins) {
-        try {
-          const fetchRes = await fetchPinFromPinterest(p.pin_id, cookie);
-          if (fetchRes.ok && fetchRes.pin) {
-            let fresh = fetchRes.pin;
-            const prevSaves = Math.max(0, Number(p.saves || 0));
-            const prevRepins = Math.max(0, Number(p.repins || 0));
-            let rawFreshSaves = Math.max(0, Number(fresh.saves || fresh.save_count || 0));
-            let rawFreshRepins = Math.max(0, Number(fresh.repins || fresh.repin_count || 0));
+      if (winningPins.length > 0) {
+        const CONCURRENCY = 4;
+        let cursor = 0;
+        const refreshedPins = [];
+        const metricSnapshots = [];
 
-            // Anomaly shield: If fresh saves plunged or collapsed to repins, fallback to PinResource JSON
-            if (rawFreshSaves < prevSaves * 0.8 || (rawFreshSaves === rawFreshRepins && rawFreshRepins > 50)) {
-              const resPin = await fetchPinFromPinResource(p.pin_id);
-              if (resPin && resPin.saves > 0) {
-                fresh = { ...fresh, ...resPin };
-                rawFreshSaves = Math.max(rawFreshSaves, Number(resPin.saves || 0));
-                rawFreshRepins = Math.max(rawFreshRepins, Number(resPin.repins || 0));
+        async function worker() {
+          while (true) {
+            const idx = cursor++;
+            if (idx >= winningPins.length) break;
+            const p = winningPins[idx];
+            try {
+              const prevSaves = Math.max(0, Number(p.saves || 0));
+              const prevRepins = Math.max(0, Number(p.repins || 0));
+              const prevComments = Math.max(0, Number(p.comments || 0));
+              const prevShares = Math.max(0, Number(p.share_count || 0));
+              const prevVelocity = Number(p.velocity || 0);
+
+              // Fast path: PinResource micro-packet (~90ms)
+              let fresh = null;
+              const resPin = await fetchPinFromPinResource(p.pin_id).catch(() => null);
+              const rawSaves = resPin ? Math.max(0, Number(resPin.saves || resPin.save_count || 0)) : 0;
+              const rawRepins = resPin ? Math.max(0, Number(resPin.repins || resPin.repin_count || 0)) : 0;
+
+              // Fallback: full Pinterest guest scrape if PinResource failed or suspicious drop
+              if (!resPin || (rawSaves === 0 && prevSaves > 0) || (rawSaves < prevSaves * 0.8) || (rawSaves === rawRepins && rawRepins > 50)) {
+                const fetchRes = await fetchPinFromPinterest(p.pin_id, cookie).catch(() => null);
+                if (fetchRes?.ok && fetchRes?.pin) {
+                  fresh = fetchRes.pin;
+                  if (resPin) fresh = { ...resPin, ...fresh };
+                } else if (resPin) {
+                  fresh = resPin;
+                }
+              } else {
+                fresh = resPin;
               }
-            }
 
-            // Monotonic non-decreasing protection on time-series telemetry
-            const freshSaves = Math.max(prevSaves, rawFreshSaves);
-            const freshRepins = Math.max(prevRepins, rawFreshRepins);
-            const freshComments = Math.max(0, Number(fresh.comments || fresh.comment_count || p.comments || 0));
-            const deltaSaves = Math.max(0, freshSaves - prevSaves);
+              if (fresh) {
+                const rawFreshSaves = Math.max(0, Number(fresh.saves ?? fresh.save_count ?? 0));
+                const rawFreshRepins = Math.max(0, Number(fresh.repins ?? fresh.repin_count ?? 0));
+                const rawFreshComments = Math.max(0, Number(fresh.comments ?? fresh.comment_count ?? prevComments));
+                const rawFreshShares = Math.max(0, Number(fresh.share_count ?? fresh.shares ?? prevShares));
 
-            await sqlClient`
-              UPDATE pa_pins
-              SET saves = GREATEST(pa_pins.saves, ${freshSaves}::bigint),
-                  repins = GREATEST(pa_pins.repins, ${freshRepins}::bigint),
-                  comments = GREATEST(pa_pins.comments, ${freshComments}::int),
-                  velocity = CASE WHEN ${deltaSaves} > 0 THEN ${deltaSaves} ELSE pa_pins.velocity END,
-                  last_updated_at = NOW()
-              WHERE pin_id = ${p.pin_id};
-            `;
+                // Monotonic non-decreasing protection on time-series telemetry
+                const freshSaves = Math.max(prevSaves, rawFreshSaves);
+                const freshRepins = Math.max(prevRepins, rawFreshRepins);
+                const freshComments = Math.max(prevComments, rawFreshComments);
+                const freshShares = Math.max(prevShares, rawFreshShares);
+                const deltaSaves = Math.max(0, freshSaves - prevSaves);
+                const velocity = deltaSaves > 0 ? deltaSaves : prevVelocity;
 
-            const totalReactions = (typeof fresh.reactions === 'object' && fresh.reactions !== null)
-              ? Object.values(fresh.reactions).reduce((acc, v) => acc + (Number(v) || 0), 0)
-              : Number(fresh.reactions || 0);
+                const totalReactions = (typeof fresh.reactions === 'object' && fresh.reactions !== null)
+                  ? Object.values(fresh.reactions).reduce((acc, v) => acc + (Number(v) || 0), 0)
+                  : Number(fresh.reactions || 0);
 
-            metricSnapshots.push({
-              pin_id: p.pin_id,
-              saves: freshSaves,
-              repins: freshRepins,
-              comments: freshComments,
-              share_count: Number(fresh.share_count || fresh.shares || p.share_count || 0),
-              reaction_count: totalReactions,
-              velocity: deltaSaves > 0 ? deltaSaves : Number(p.velocity || 0)
-            });
+                refreshedPins.push({
+                  pin_id: String(p.pin_id),
+                  saves: freshSaves,
+                  repins: freshRepins,
+                  comments: freshComments,
+                  share_count: freshShares,
+                  velocity: velocity
+                });
+
+                metricSnapshots.push({
+                  pin_id: String(p.pin_id),
+                  saves: freshSaves,
+                  repins: freshRepins,
+                  comments: freshComments,
+                  share_count: freshShares,
+                  reaction_count: totalReactions,
+                  velocity: velocity
+                });
+              }
+            } catch (_) {}
+            await sleep(randomJitterMs(200, 400));
           }
-        } catch (_) {}
-        await sleep(randomJitterMs(1000, 1800));
-      }
+        }
 
-      if (metricSnapshots.length > 0) {
-        await bulkInsertMetrics(sqlClient, metricSnapshots);
+        await Promise.all(
+          Array.from({ length: Math.min(CONCURRENCY, winningPins.length) }, () => worker())
+        );
+
+        if (refreshedPins.length > 0) {
+          const sortedRefreshed = [...refreshedPins].sort((a, b) => String(a.pin_id).localeCompare(String(b.pin_id)));
+          const cleanRefreshed = sanitizeForJsonb(sortedRefreshed);
+          const jsonPayload = JSON.stringify(cleanRefreshed);
+
+          // Atomic monotonic batch commit to pa_pins on Hub
+          await sqlClient`
+            UPDATE pa_pins AS p
+            SET saves = GREATEST(p.saves, x.saves),
+                repins = GREATEST(p.repins, x.repins),
+                comments = GREATEST(p.comments, x.comments),
+                share_count = GREATEST(p.share_count, x.share_count),
+                velocity = CASE WHEN x.velocity > 0 THEN x.velocity ELSE p.velocity END,
+                last_updated_at = NOW()
+            FROM jsonb_to_recordset(${jsonPayload}::jsonb) AS x(
+              pin_id VARCHAR(64),
+              saves BIGINT,
+              repins BIGINT,
+              comments INT,
+              share_count BIGINT,
+              velocity NUMERIC
+            )
+            WHERE p.pin_id = x.pin_id;
+          `;
+
+          // Atomic monotonic batch commit to competitor_pins on Hub
+          await sqlClient`
+            UPDATE competitor_pins AS cp
+            SET save_count = GREATEST(cp.save_count, x.saves::int),
+                repin_count = GREATEST(cp.repin_count, x.repins::int),
+                comment_count = GREATEST(cp.comment_count, x.comments::int),
+                updated_at = NOW()
+            FROM jsonb_to_recordset(${jsonPayload}::jsonb) AS x(
+              pin_id VARCHAR(64),
+              saves BIGINT,
+              repins BIGINT,
+              comments INT
+            )
+            WHERE cp.competitor_id = ${acc.id}
+              AND cp.pin_id = x.pin_id;
+          `;
+
+          // Route historical snapshots to Storage Shards via CRC32
+          // [INVARIANT: ZERO-HUB-SNAPSHOTS]
+          // [INVARIANT: DETERMINISTIC-CRC32-SHARDING]
+          if (metricSnapshots.length > 0) {
+            await bulkInsertMetrics(sqlClient, metricSnapshots);
+          }
+          console.log(`    [✓] Refreshed ${refreshedPins.length}/${winningPins.length} winning pins for @${username}.`);
+        } else {
+          console.log(`    [-] No winning pins could be refreshed for @${username}.`);
+        }
+      } else {
+        console.log(`    [-] 0 winning pins found for @${username}.`);
       }
-      console.log(`    [✓] Refreshed ${metricSnapshots.length}/${winningPins.length} winning pins for @${username}.`);
     } catch (wErr) {
       console.warn(`[!] Winning pins refresh warning:`, wErr.message);
     }

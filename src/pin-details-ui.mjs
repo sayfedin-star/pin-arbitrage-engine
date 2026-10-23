@@ -141,14 +141,14 @@ export function getPinDetailPageHtml(pinId = '') {
     </div>
 
     <div class="flex items-center gap-2.5 flex-shrink-0">
-      <!-- Direct Return to Origin Keyword / Radar -->
+      <!-- Context-Aware Return Button -->
       <a 
-        :href="getBackToKeywordUrl()" 
+        :href="getBackUrl()" 
         class="px-3.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 text-xs font-bold transition-all flex items-center gap-1.5 border border-slate-300 shadow-2xs"
-        :title="originKeyword ? ('Back to ' + originKeyword) : 'Back to Keywords Radar'"
+        :title="isCreatorContext() ? ('Back to @' + originCreator) : (originKeyword ? ('Back to ' + originKeyword) : 'Back to Radar')"
       >
         <span class="text-sm">←</span>
-        <span x-text="originKeyword ? ('Back to ' + originKeyword) : 'Back to Radar'"></span>
+        <span x-text="isCreatorContext() ? ('Back to @' + originCreator) : (originKeyword ? ('Back to ' + originKeyword) : 'Back to Radar')"></span>
       </a>
 
       <button 
@@ -168,38 +168,77 @@ export function getPinDetailPageHtml(pinId = '') {
     </div>
   </header>
 
-  <!-- Responsive Breadcrumb Navigation Bar -->
+  <!-- Responsive Context-Aware Breadcrumb Navigation Bar -->
   <nav aria-label="Breadcrumb" class="border-b border-slate-200/80 bg-white/90 px-6 py-2.5 text-xs font-medium text-slate-500 flex items-center gap-2 overflow-x-auto shadow-2xs backdrop-blur-xs">
-    <a href="/keywords" class="hover:text-pink-600 flex items-center gap-1.5 transition-colors text-slate-600 font-semibold">
-      <span>📡</span>
-      <span>Keywords Radar</span>
-    </a>
-    
-    <template x-if="originFolderId || originFolderName">
-      <div class="flex items-center gap-2">
-        <span class="text-slate-300 select-none">/</span>
-        <a :href="'/folders?id=' + encodeURIComponent(originFolderId || '')" class="hover:text-pink-600 flex items-center gap-1 transition-colors text-slate-600">
-          <span>📁</span>
-          <span x-text="originFolderName || ('Folder #' + originFolderId)"></span>
+    <!-- Creator Context Breadcrumb Trail -->
+    <template x-if="isCreatorContext()">
+      <div class="flex items-center gap-2 flex-shrink-0">
+        <a href="/" class="hover:text-pink-600 flex items-center gap-1.5 transition-colors text-slate-600 font-semibold">
+          <span>👤</span>
+          <span>Creator Archive</span>
         </a>
+        <span class="text-slate-300 select-none">/</span>
+        <a :href="'/' + encodeURIComponent(originCreator)" class="hover:text-pink-600 font-semibold text-slate-700 transition-colors flex items-center gap-1">
+          <span>🎯</span>
+          <span x-text="'@' + originCreator"></span>
+        </a>
+        <template x-if="originBoard">
+          <div class="flex items-center gap-2">
+            <span class="text-slate-300 select-none">/</span>
+            <a :href="'/' + encodeURIComponent(originCreator) + (getBoardSlug(originBoard) ? '/' + encodeURIComponent(getBoardSlug(originBoard)) : '')" class="hover:text-pink-600 text-slate-600 flex items-center gap-1 transition-colors">
+              <span>📁</span>
+              <span x-text="originBoard"></span>
+            </a>
+          </div>
+        </template>
       </div>
     </template>
 
-    <template x-if="originKeyword">
-      <div class="flex items-center gap-2">
-        <span class="text-slate-300 select-none">/</span>
-        <a :href="getBackToKeywordUrl()" class="hover:text-pink-600 font-semibold text-slate-700 transition-colors flex items-center gap-1">
-          <span>🔑</span>
-          <span x-text="originKeyword"></span>
+    <!-- Keyword Context Breadcrumb Trail -->
+    <template x-if="!isCreatorContext()">
+      <div class="flex items-center gap-2 flex-shrink-0">
+        <a href="/keywords" class="hover:text-pink-600 flex items-center gap-1.5 transition-colors text-slate-600 font-semibold">
+          <span>📡</span>
+          <span>Keywords Radar</span>
         </a>
+        
+        <template x-if="originFolderId || originFolderName">
+          <div class="flex items-center gap-2">
+            <span class="text-slate-300 select-none">/</span>
+            <a :href="'/folders?id=' + encodeURIComponent(originFolderId || '')" class="hover:text-pink-600 flex items-center gap-1 transition-colors text-slate-600">
+              <span>📁</span>
+              <span x-text="originFolderName || ('Folder #' + originFolderId)"></span>
+            </a>
+          </div>
+        </template>
+
+        <template x-if="originKeyword">
+          <div class="flex items-center gap-2">
+            <span class="text-slate-300 select-none">/</span>
+            <a :href="getBackToKeywordUrl()" class="hover:text-pink-600 font-semibold text-slate-700 transition-colors flex items-center gap-1">
+              <span>🔑</span>
+              <span x-text="originKeyword"></span>
+            </a>
+          </div>
+        </template>
       </div>
     </template>
 
     <span class="text-slate-300 select-none">/</span>
-    <span class="text-slate-900 font-mono font-bold flex items-center gap-1">
+    <span class="text-slate-900 font-mono font-bold flex items-center gap-1 flex-shrink-0">
       <span class="text-pink-600">📌</span>
       <span x-text="'Pin #' + pinId"></span>
     </span>
+
+    <!-- Optional Right-Side Creator Pill in Keyword Context -->
+    <template x-if="!isCreatorContext() && (originCreator || dossier?.pillar_1_creator_context?.creator_username)">
+      <div class="ml-auto flex items-center gap-1.5 flex-shrink-0 text-[11px] text-slate-500 pl-4">
+        <span>Creator:</span>
+        <a :href="'/' + encodeURIComponent((originCreator || dossier?.pillar_1_creator_context?.creator_username || '').replace(/^@+/, ''))" class="font-bold text-pink-600 hover:underline flex items-center gap-0.5">
+          <span>@</span><span x-text="(originCreator || dossier?.pillar_1_creator_context?.creator_username || '').replace(/^@+/, '')"></span>
+        </a>
+      </div>
+    </template>
   </nav>
 
   <!-- Loading State -->
@@ -1277,10 +1316,34 @@ export function getPinDetailPageHtml(pinId = '') {
           type: 'success'
         },
         toastTimeout: null,
+        originSource: '',
+        originCreator: '',
+        originBoard: '',
         originKeywordId: null,
         originKeyword: '',
         originFolderId: null,
         originFolderName: '',
+        originReturnUrl: '',
+
+        isCreatorContext() {
+          return this.originSource === 'creator' || (Boolean(this.originCreator) && !this.originKeyword);
+        },
+
+        getBackUrl() {
+          if (this.originReturnUrl) {
+            return this.originReturnUrl;
+          }
+          if (this.originSource === 'creator' && this.originCreator) {
+            return '/' + encodeURIComponent(this.originCreator) + (this.originBoard ? '?board=' + encodeURIComponent(this.originBoard) : '');
+          }
+          if (this.originSource === 'keyword' || this.originKeyword || this.originKeywordId) {
+            return this.getBackToKeywordUrl();
+          }
+          if (this.originCreator) {
+            return '/' + encodeURIComponent(this.originCreator);
+          }
+          return '/keywords';
+        },
 
         getBackToKeywordUrl() {
           if (!this.originKeyword && !this.originKeywordId) {
@@ -1300,13 +1363,47 @@ export function getPinDetailPageHtml(pinId = '') {
           return url + parts.join('&');
         },
 
+        getBoardSlug(name) {
+          if (!name) return '';
+          return String(name).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '');
+        },
+
         async init() {
+          let hasUrlContext = false;
+          // Tier 1: URL Query Parameters
           if (typeof window !== 'undefined' && window.location && window.location.search) {
             const params = new URLSearchParams(window.location.search);
-            this.originKeywordId = params.get('keyword_id');
-            this.originKeyword = params.get('keyword') || '';
-            this.originFolderId = params.get('folder_id');
-            this.originFolderName = params.get('folder') || params.get('folder_name') || '';
+            const creatorParam = params.get('creator') || params.get('account') || '';
+            const boardParam = params.get('board') || '';
+            const kwParam = params.get('keyword') || params.get('q') || '';
+            const kidParam = params.get('keyword_id') || '';
+            const fidParam = params.get('folder_id') || '';
+            const fNameParam = params.get('folder') || params.get('folder_name') || '';
+            const returnUrlParam = params.get('return_url') || params.get('back_url') || '';
+
+            if (creatorParam) {
+              this.originCreator = creatorParam.replace(/^@+/, '').trim();
+              this.originBoard = boardParam.trim();
+              this.originSource = 'creator';
+              hasUrlContext = true;
+            }
+            if (kwParam || kidParam) {
+              this.originKeyword = kwParam.trim();
+              this.originKeywordId = kidParam.trim() || null;
+              if (!this.originSource) this.originSource = 'keyword';
+              hasUrlContext = true;
+            }
+            if (fidParam || fNameParam) {
+              this.originFolderId = fidParam.trim() || null;
+              this.originFolderName = fNameParam.trim();
+              if (!this.originSource) this.originSource = 'keyword';
+              hasUrlContext = true;
+            }
+            if (returnUrlParam) {
+              this.originReturnUrl = returnUrlParam.trim();
+              hasUrlContext = true;
+            }
+
             if (this.originFolderId && !this.originFolderName) {
               const fetcher = window.safeApiFetch || fetch;
               fetcher('/api/folders/' + encodeURIComponent(this.originFolderId))
@@ -1316,6 +1413,70 @@ export function getPinDetailPageHtml(pinId = '') {
                 })
                 .catch(() => {});
             }
+
+            // Clean address bar to canonical /pin/:id while preserving state in memory
+            if (hasUrlContext && window.history && typeof window.history.replaceState === 'function') {
+              try {
+                window.history.replaceState(null, '', '/pin/' + encodeURIComponent(this.pinId));
+              } catch (_) {}
+            }
+          }
+
+          // Tier 2: sessionStorage ('pae_pin_breadcrumb_ctx')
+          if (!this.originCreator && !this.originKeyword && typeof window !== 'undefined' && window.sessionStorage) {
+            try {
+              const rawCtx = sessionStorage.getItem('pae_pin_breadcrumb_ctx');
+              if (rawCtx) {
+                const saved = JSON.parse(rawCtx);
+                const isFresh = saved?.ts && (Date.now() - saved.ts < 3600000); // 1h freshness
+                if (isFresh) {
+                  if (saved.source === 'creator' || saved.creator) {
+                    this.originSource = 'creator';
+                    this.originCreator = (saved.creator || '').replace(/^@+/, '').trim();
+                    this.originBoard = saved.board || '';
+                    this.originReturnUrl = this.originReturnUrl || saved.returnUrl || '';
+                  } else if (saved.source === 'keyword' || saved.keyword) {
+                    this.originSource = 'keyword';
+                    this.originKeyword = saved.keyword || '';
+                    this.originKeywordId = saved.keywordId || null;
+                    this.originFolderId = saved.folderId || null;
+                    this.originFolderName = saved.folderName || '';
+                    this.originReturnUrl = this.originReturnUrl || saved.returnUrl || '';
+                  }
+                }
+              }
+            } catch (_) {}
+          }
+
+          // Tier 3: Same-Origin document.referrer Inspection
+          if (!this.originCreator && !this.originKeyword && typeof document !== 'undefined' && document.referrer) {
+            try {
+              const refUrl = new URL(document.referrer);
+              if (refUrl.origin === window.location.origin) {
+                if (refUrl.pathname.startsWith('/keywords')) {
+                  this.originSource = 'keyword';
+                  this.originReturnUrl = this.originReturnUrl || (refUrl.pathname + refUrl.search);
+                  const refKw = refUrl.searchParams.get('q') || refUrl.searchParams.get('keyword');
+                  if (refKw) this.originKeyword = refKw.trim();
+                  const refKid = refUrl.searchParams.get('keyword_id');
+                  if (refKid) this.originKeywordId = refKid.trim();
+                  const refFid = refUrl.searchParams.get('folder_id');
+                  if (refFid) this.originFolderId = refFid.trim();
+                } else if (refUrl.pathname.startsWith('/folders')) {
+                  this.originSource = 'keyword';
+                  this.originReturnUrl = this.originReturnUrl || (refUrl.pathname + refUrl.search);
+                  const refFid = refUrl.searchParams.get('id') || refUrl.searchParams.get('folder_id');
+                  if (refFid) this.originFolderId = refFid.trim();
+                } else if (refUrl.pathname !== '/' && !refUrl.pathname.startsWith('/api') && !refUrl.pathname.startsWith('/pin')) {
+                  const pathParts = refUrl.pathname.split('/').filter(Boolean);
+                  if (pathParts.length === 1 && !['keywords', 'discovery', 'folders', 'domains'].includes(pathParts[0].toLowerCase())) {
+                    this.originSource = 'creator';
+                    this.originCreator = pathParts[0].replace(/^@+/, '').trim();
+                    this.originReturnUrl = this.originReturnUrl || (refUrl.pathname + refUrl.search);
+                  }
+                }
+              }
+            } catch (_) {}
           }
 
           if (!this.pinId) {
@@ -1325,12 +1486,23 @@ export function getPinDetailPageHtml(pinId = '') {
           }
           await this.loadDossier();
 
+          // Tier 4: Fallback from Pin Dossier Metadata
+          if (!this.originCreator && !this.originKeyword) {
+            const creatorCtx = this.dossier?.pillar_1_creator_context;
+            const creatorUser = creatorCtx?.creator_username || this.dossier?.creative?.account_username;
+            if (creatorUser) {
+              this.originCreator = String(creatorUser).replace(/^@+/, '').trim();
+              this.originBoard = this.originBoard || creatorCtx?.board_name || '';
+              this.originSource = 'creator';
+            }
+          }
           if (!this.originKeyword) {
             const rankingKws = this.dossier?.pillar_2_keywords_context?.ranking_keywords;
             if (Array.isArray(rankingKws) && rankingKws.length > 0) {
               const firstKw = rankingKws[0];
               this.originKeyword = firstKw.keyword || firstKw.keyword_name || '';
               this.originKeywordId = firstKw.keyword_id || firstKw.id || this.originKeywordId;
+              if (!this.originSource) this.originSource = 'keyword';
             }
           }
         },

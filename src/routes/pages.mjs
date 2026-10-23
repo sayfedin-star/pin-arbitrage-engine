@@ -141,6 +141,39 @@ export async function handlePagesRoutes(routeCtx) {
     });
   }
 
+  // 5B. Canonical URL Unification: 301 Permanent Redirect for legacy /:username/pin/:pin_id
+  const pageSegments = normalizedPath.split('/').filter(Boolean);
+  if (pageSegments.length === 3) {
+    const seg0Lower = (pageSegments[0] || '').toLowerCase();
+    const seg1Lower = (pageSegments[1] || '').toLowerCase();
+    const cleanLegacyPinId = String(pageSegments[2] || '').trim();
+
+    if (
+      (seg1Lower === 'pin' || seg1Lower === 'pins') &&
+      seg0Lower !== 'api' &&
+      !RESERVED_KEYWORD_SLUGS.has(seg0Lower) &&
+      isValidPinId(cleanLegacyPinId)
+    ) {
+      if (method !== 'GET' && method !== 'HEAD') {
+        return methodNotAllowedResponse('GET, OPTIONS');
+      }
+      const cleanCreator = pageSegments[0].replace(/^@+/, '').trim();
+      const targetParams = new URLSearchParams(searchParams);
+      if (!targetParams.has('creator') && !targetParams.has('account')) {
+        targetParams.set('creator', cleanCreator);
+      }
+      const queryString = targetParams.toString();
+      const redirectLocation = `/pin/${cleanLegacyPinId}${queryString ? `?${queryString}` : ''}`;
+      return new Response(null, {
+        status: 301,
+        headers: {
+          'Location': redirectLocation,
+          'Cache-Control': 'public, max-age=86400'
+        }
+      });
+    }
+  }
+
   // 6. Level 4: Dedicated Campaign Folders & Crossover Studio (/folders and /folders/:id)
   if (pathLower === '/folders' || pathLower.startsWith('/folders/')) {
     if (method !== 'GET' && method !== 'HEAD') {

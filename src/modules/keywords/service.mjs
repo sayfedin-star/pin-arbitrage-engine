@@ -1361,7 +1361,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
       const comments = confirmedComments;
 
       const createdAt = item.created_at || item.createdAt || null;
-      const method = item.method || item.creation_method || item.creationMethod || item.attribution?.provider_name || 'pinterest_platform';
+      const method = item.method || item.creation_method || item.creationMethod || item.attribution?.provider_name || null;
       let pinAgeDays = null;
       if (createdAt) {
         const createdMs = new Date(createdAt).getTime();
@@ -1573,7 +1573,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
             board_name: s.board_name || s.metadata?.board_name || null,
             format: s.metadata?.format || 'ORGANIC PIN',
             created_at_pinterest: s.created_at_pinterest || s.metadata?.created_at_pinterest || s.metadata?.created_at || null,
-            creation_method: s.creation_method || s.metadata?.method || 'pinterest_platform',
+            creation_method: s.creation_method || s.metadata?.creation_method || s.metadata?.method || 'pinterest_platform',
             metadata: s.metadata || {},
             dropped_at: new Date().toISOString()
           });
@@ -1677,7 +1677,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
       dominant_color: p.dominant_color || '#888888',
       visual_annotations: p.visual_annotations || [],
       created_at_pinterest: p.created_at_pinterest,
-      creation_method: p.creation_method || 'pinterest_platform',
+      creation_method: p.creation_method || null,
       crawled_at: p.crawled_at || null,
       metadata: {
         prev_rank: p.metadata?.prev_rank ?? null,
@@ -1825,12 +1825,22 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
             ELSE COALESCE(keyword_serp_current.visual_annotations, '[]'::jsonb) 
           END,
           created_at_pinterest = COALESCE(EXCLUDED.created_at_pinterest, keyword_serp_current.created_at_pinterest),
-          creation_method = COALESCE(EXCLUDED.creation_method, keyword_serp_current.creation_method),
+          creation_method = CASE
+            WHEN EXCLUDED.creation_method IS NOT NULL AND LOWER(TRIM(EXCLUDED.creation_method)) NOT IN ('', 'pinterest_platform')
+            THEN EXCLUDED.creation_method
+            ELSE COALESCE(NULLIF(keyword_serp_current.creation_method, ''), EXCLUDED.creation_method, 'pinterest_platform')
+          END,
           metadata = (CASE WHEN jsonb_typeof(keyword_serp_current.metadata) = 'object' THEN keyword_serp_current.metadata ELSE '{}'::jsonb END)
             || EXCLUDED.metadata
             || jsonb_build_object(
               'is_deep_hydrated',
-              (COALESCE((keyword_serp_current.metadata->>'is_deep_hydrated')::boolean, false) OR COALESCE((EXCLUDED.metadata->>'is_deep_hydrated')::boolean, false))
+              (COALESCE((keyword_serp_current.metadata->>'is_deep_hydrated')::boolean, false) OR COALESCE((EXCLUDED.metadata->>'is_deep_hydrated')::boolean, false)),
+              'creation_method',
+              CASE
+                WHEN EXCLUDED.creation_method IS NOT NULL AND LOWER(TRIM(EXCLUDED.creation_method)) NOT IN ('', 'pinterest_platform')
+                THEN EXCLUDED.creation_method
+                ELSE COALESCE(NULLIF(keyword_serp_current.creation_method, ''), EXCLUDED.creation_method, 'pinterest_platform')
+              END
             ),
           crawled_at = COALESCE(EXCLUDED.crawled_at, keyword_serp_current.crawled_at),
           updated_at = NOW();
@@ -2975,8 +2985,17 @@ export async function getPinDeepDossier(sql, pinId, keywordId = null, options = 
   const isGoLinkless = Boolean(scraped?.is_go_linkless || mergedMeta.is_go_linkless || false);
   const categoryBreadcrumbs = scraped?.category_breadcrumbs || mergedMeta.category_breadcrumbs || [];
   const imageDimensions = scraped?.image_dimensions || mergedMeta.image_dimensions || null;
-  const imageSignature = displacedRow?.image_signature || scraped?.image_signature || mergedMeta.image_signature || `sig_${cleanPin.slice(-8)}`;
-  const creationMethod = displacedRow?.creation_method || scraped?.creation_method || latestSnapshot?.creation_method || mergedMeta.creation_method || mergedMeta.method || 'pinterest_platform';
+  const candidateDossierMethods = [
+    displacedRow?.creation_method,
+    scraped?.creation_method,
+    scraped?.method,
+    latestSnapshot?.creation_method,
+    mergedMeta.creation_method,
+    mergedMeta.method,
+    shardRow?.metadata?.creation_method,
+    shardRow?.metadata?.method
+  ].filter(m => m && typeof m === 'string' && m.trim().length > 0);
+  const creationMethod = candidateDossierMethods.find(m => m.trim().toLowerCase() !== 'pinterest_platform') || candidateDossierMethods[0] || 'pinterest_platform';
 
   const dossierPayload = {
     success: true,
@@ -3001,7 +3020,7 @@ export async function getPinDeepDossier(sql, pinId, keywordId = null, options = 
     created_at_pinterest: createdAt,
     first_pulled_at: displacedRow?.first_pulled_at || latestSnapshot?.created_at || new Date().toISOString(),
     last_archived_at: displacedRow?.last_checked_at || latestSnapshot?.created_at || new Date().toISOString(),
-    image_signature: imageSignature,
+    image_signature: scraped?.image_signature || mergedMeta.image_signature || shardRow?.metadata?.image_signature || null,
     canonical_id: cleanPin,
     creation_method: creationMethod,
     is_repin: isRepin,

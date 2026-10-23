@@ -256,7 +256,10 @@ export async function handleCompetitorsRoutes(routeCtx) {
         qualified_only: searchParams.get('qualified_only') === 'true',
         product_only: searchParams.get('product_only') === 'true',
         articles_only: searchParams.get('articles_only') === 'true',
-        ranked_only: searchParams.get('ranked_only') === 'true'
+        ranked_only: searchParams.get('ranked_only') === 'true',
+        stage: searchParams.get('stage') || '',
+        high_velocity: searchParams.get('high_velocity') === 'true',
+        changed_only: searchParams.get('changed_only') === 'true'
       };
       const cacheKey = buildCanonicalCacheKey(`competitors:all-pins:${shardKey}`, cacheParams);
       const allPinsData = await getCachedOrFetch(cacheKey, async () => {

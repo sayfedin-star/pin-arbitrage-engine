@@ -185,6 +185,13 @@ function evaluateHydrationGuard(pin, currentUtcTimestamp = Date.now()) {
     return { shouldFetch: true, reason: 'unhydrated_or_missing_treasures', reuseTelemetry: null };
   }
 
+  // Self-Healing: Invalidate cache if pin creation_method is missing or degraded to generic 'pinterest_platform'
+  const currentMethod = pin.creation_method || pin.method || meta.creation_method || meta.method;
+  const isGenericOrMissingMethod = !currentMethod || currentMethod === 'pinterest_platform';
+  if (isGenericOrMissingMethod) {
+    return { shouldFetch: true, reason: 'missing_or_generic_creation_method', reuseTelemetry: null };
+  }
+
   const lastCrawlDateStr = new Date(lastCrawlMs).toISOString().slice(0, 10);
   const currentUtcDateStr = new Date(currentUtcTimestamp).toISOString().slice(0, 10);
   const isSameCalendarDay = (lastCrawlDateStr === currentUtcDateStr);
@@ -461,6 +468,8 @@ async function inspectPin(pin, kw) {
   const validBoardCount = (rawBoardCount != null && !isNaN(rawBoardCount) && rawBoardCount > 0) ? rawBoardCount : null;
 
   const extraMeta = {
+    creation_method: method,
+    method: method,
     description: description ? String(description).trim() : null,
     seo_title: (detail?.seo_title || meta.seo_title || '').trim() || null,
     seo_description: (detail?.seo_description || meta.seo_description || '').trim() || null,
@@ -589,7 +598,10 @@ async function flushBatchToHub(pinsChunk, kw) {
         board_name = CASE WHEN u.board <> '' THEN u.board ELSE ksc.board_name END,
         dominant_color = CASE WHEN u.dominant_color <> '' THEN u.dominant_color ELSE ksc.dominant_color END,
         created_at_pinterest = CASE WHEN NULLIF(TRIM(u.created_at_pinterest), '')::timestamptz IS NOT NULL THEN NULLIF(TRIM(u.created_at_pinterest), '')::timestamptz ELSE ksc.created_at_pinterest END,
-        creation_method = CASE WHEN u.method <> '' THEN u.method ELSE ksc.creation_method END,
+        creation_method = CASE
+          WHEN u.method <> '' AND LOWER(TRIM(u.method)) <> 'pinterest_platform' THEN u.method
+          ELSE COALESCE(NULLIF(ksc.creation_method, ''), u.method, 'pinterest_platform')
+        END,
         vacuum_opportunity_score = CASE 
           WHEN COALESCE(ksc.last_known_rank, ksc.rank_position, 100) <= 5 THEN 85
           WHEN COALESCE(ksc.last_known_rank, ksc.rank_position, 100) <= 15 THEN 75
@@ -684,7 +696,10 @@ async function flushBatchToHub(pinsChunk, kw) {
         board_name = CASE WHEN u.board <> '' THEN u.board ELSE ksc.board_name END,
         dominant_color = CASE WHEN u.dominant_color <> '' THEN u.dominant_color ELSE ksc.dominant_color END,
         created_at_pinterest = CASE WHEN NULLIF(TRIM(u.created_at_pinterest), '')::timestamptz IS NOT NULL THEN NULLIF(TRIM(u.created_at_pinterest), '')::timestamptz ELSE ksc.created_at_pinterest END,
-        creation_method = CASE WHEN u.method <> '' THEN u.method ELSE ksc.creation_method END,
+        creation_method = CASE
+          WHEN u.method <> '' AND LOWER(TRIM(u.method)) <> 'pinterest_platform' THEN u.method
+          ELSE COALESCE(NULLIF(ksc.creation_method, ''), u.method, 'pinterest_platform')
+        END,
         vacuum_opportunity_score = CASE 
           WHEN COALESCE(ksc.last_known_rank, ksc.rank_position, 100) <= 5 THEN 85
           WHEN COALESCE(ksc.last_known_rank, ksc.rank_position, 100) <= 15 THEN 75
@@ -783,7 +798,10 @@ async function flushBatchToHub(pinsChunk, kw) {
         board_name = CASE WHEN u.board <> '' THEN u.board ELSE ksc.board_name END,
         dominant_color = CASE WHEN u.dominant_color <> '' THEN u.dominant_color ELSE ksc.dominant_color END,
         created_at_pinterest = CASE WHEN NULLIF(TRIM(u.created_at_pinterest), '')::timestamptz IS NOT NULL THEN NULLIF(TRIM(u.created_at_pinterest), '')::timestamptz ELSE ksc.created_at_pinterest END,
-        creation_method = CASE WHEN u.method <> '' THEN u.method ELSE ksc.creation_method END,
+        creation_method = CASE
+          WHEN u.method <> '' AND LOWER(TRIM(u.method)) <> 'pinterest_platform' THEN u.method
+          ELSE COALESCE(NULLIF(ksc.creation_method, ''), u.method, 'pinterest_platform')
+        END,
         vacuum_opportunity_score = CASE 
           WHEN COALESCE(ksc.last_known_rank, ksc.rank_position, 100) <= 5 THEN 85
           WHEN COALESCE(ksc.last_known_rank, ksc.rank_position, 100) <= 15 THEN 75
@@ -899,32 +917,41 @@ async function flushToStorageShards(enrichedPins) {
               return clean;
             };
 
-            const shardPayload = JSON.stringify(sortedPins.map(sp => ({
-              pin_id: String(sp.pin_id),
-              creator_username: String(sp.creator_username || ''),
-              board_name: String(sp.board_name || ''),
-              board_slug: String(sp.board_slug || ''),
-              title: String(sp.title || ''),
-              domain: String(sp.domain || ''),
-              destination_url: String(sp.destination_url || ''),
-              image_url: String(sp.image_url || ''),
-              description: String(sp.description || ''),
-              alt_text: String(sp.alt_text || ''),
-              dominant_color: String(sp.dominant_color || '#888888'),
-              visual_annotations: sp.visual_annotations || [],
-              created_at_pinterest: sp.created_at_pinterest ? new Date(sp.created_at_pinterest).toISOString() : null,
-              metadata: sanitizeShardMeta((sp.extra_meta && typeof sp.extra_meta === 'object') ? sp.extra_meta : sp.metadata),
-              keyword_id: Number(sp.keyword_id || 0),
-              rank_position: sp.rank_position ? Number(sp.rank_position) : null,
-              save_count: sp.save_count != null ? Number(sp.save_count) : null,
-              repin_count: sp.repin_count != null ? Number(sp.repin_count) : null,
-              comment_count: sp.comment_count != null ? Number(sp.comment_count) : null,
-              share_count: sp.share_count != null ? Number(sp.share_count) : null,
-              daily_save_velocity: sp.daily_save_velocity != null ? Number(sp.daily_save_velocity) : null,
-              is_displaced: Boolean(sp.is_displaced),
-              last_known_rank: sp.last_known_rank ? Number(sp.last_known_rank) : null,
-              catalog_rank: sp.catalog_rank ? Number(sp.catalog_rank) : (sp.rank_position ? Number(sp.rank_position) : null)
-            })));
+            const shardPayload = JSON.stringify(sortedPins.map(sp => {
+              const rawMeta = (sp.extra_meta && typeof sp.extra_meta === 'object') ? sp.extra_meta : (sp.metadata || {});
+              const methodVal = sp.creation_method || sp.method || rawMeta.creation_method || rawMeta.method || 'pinterest_platform';
+              const enrichedShardMeta = sanitizeShardMeta({
+                ...rawMeta,
+                creation_method: methodVal,
+                method: methodVal
+              });
+              return {
+                pin_id: String(sp.pin_id),
+                creator_username: String(sp.creator_username || ''),
+                board_name: String(sp.board_name || ''),
+                board_slug: String(sp.board_slug || ''),
+                title: String(sp.title || ''),
+                domain: String(sp.domain || ''),
+                destination_url: String(sp.destination_url || ''),
+                image_url: String(sp.image_url || ''),
+                description: String(sp.description || ''),
+                alt_text: String(sp.alt_text || ''),
+                dominant_color: String(sp.dominant_color || '#888888'),
+                visual_annotations: sp.visual_annotations || [],
+                created_at_pinterest: sp.created_at_pinterest ? new Date(sp.created_at_pinterest).toISOString() : null,
+                metadata: enrichedShardMeta,
+                keyword_id: Number(sp.keyword_id || 0),
+                rank_position: sp.rank_position ? Number(sp.rank_position) : null,
+                save_count: sp.save_count != null ? Number(sp.save_count) : null,
+                repin_count: sp.repin_count != null ? Number(sp.repin_count) : null,
+                comment_count: sp.comment_count != null ? Number(sp.comment_count) : null,
+                share_count: sp.share_count != null ? Number(sp.share_count) : null,
+                daily_save_velocity: sp.daily_save_velocity != null ? Number(sp.daily_save_velocity) : null,
+                is_displaced: Boolean(sp.is_displaced),
+                last_known_rank: sp.last_known_rank ? Number(sp.last_known_rank) : null,
+                catalog_rank: sp.catalog_rank ? Number(sp.catalog_rank) : (sp.rank_position ? Number(sp.rank_position) : null)
+              };
+            }));
 
             // [INVARIANT: HYPERDRIVE-ATOMIC-BUILDER]
             // [INVARIANT: ZERO-HUB-SNAPSHOTS]
@@ -962,7 +989,19 @@ async function flushToStorageShards(enrichedPins) {
                   ELSE universal_master_pins.visual_annotations
                 END,
                 created_at_pinterest = COALESCE(EXCLUDED.created_at_pinterest, universal_master_pins.created_at_pinterest),
-                metadata = (CASE WHEN jsonb_typeof(universal_master_pins.metadata) = 'object' THEN universal_master_pins.metadata ELSE '{}'::jsonb END) || jsonb_strip_nulls(COALESCE(EXCLUDED.metadata, '{}'::jsonb)),
+                metadata = (CASE WHEN jsonb_typeof(universal_master_pins.metadata) = 'object' THEN universal_master_pins.metadata ELSE '{}'::jsonb END)
+                  || jsonb_strip_nulls(COALESCE(EXCLUDED.metadata, '{}'::jsonb))
+                  || CASE
+                       WHEN COALESCE(NULLIF(universal_master_pins.metadata->>'creation_method', ''), NULLIF(universal_master_pins.metadata->>'method', '')) IS NOT NULL 
+                        AND LOWER(TRIM(COALESCE(NULLIF(universal_master_pins.metadata->>'creation_method', ''), NULLIF(universal_master_pins.metadata->>'method', '')))) NOT IN ('pinterest_platform')
+                        AND (COALESCE(NULLIF(EXCLUDED.metadata->>'creation_method', ''), NULLIF(EXCLUDED.metadata->>'method', '')) IS NULL 
+                             OR LOWER(TRIM(COALESCE(NULLIF(EXCLUDED.metadata->>'creation_method', ''), NULLIF(EXCLUDED.metadata->>'method', '')))) = 'pinterest_platform')
+                       THEN jsonb_build_object(
+                         'creation_method', COALESCE(NULLIF(universal_master_pins.metadata->>'creation_method', ''), NULLIF(universal_master_pins.metadata->>'method', '')),
+                         'method', COALESCE(NULLIF(universal_master_pins.metadata->>'creation_method', ''), NULLIF(universal_master_pins.metadata->>'method', ''))
+                       )
+                       ELSE '{}'::jsonb
+                     END,
                 updated_at = NOW();
             `;
 
@@ -1127,6 +1166,7 @@ function buildShardSyncList(candidatePins, enrichedPins, defaultKeywordId = null
     if (!cp || !cp.pin_id) continue;
     const pid = String(cp.pin_id);
     const enriched = enrichedMap.get(pid);
+    const baseMethod = cp.creation_method || cp.method || cp.metadata?.creation_method || cp.metadata?.method || 'pinterest_platform';
     const basePin = enriched ? { ...enriched } : {
       pin_id: pid,
       creator_username: cp.creator_username || cp.metadata?.pinner?.username || '',
@@ -1141,7 +1181,13 @@ function buildShardSyncList(candidatePins, enrichedPins, defaultKeywordId = null
       dominant_color: cp.dominant_color || '#888888',
       visual_annotations: Array.isArray(cp.visual_annotations) ? cp.visual_annotations : [],
       created_at_pinterest: cp.created_at_pinterest || null,
-      extra_meta: (cp.metadata && typeof cp.metadata === 'object') ? cp.metadata : {},
+      method: baseMethod,
+      creation_method: baseMethod,
+      extra_meta: {
+        ...((cp.metadata && typeof cp.metadata === 'object') ? cp.metadata : {}),
+        creation_method: baseMethod,
+        method: baseMethod
+      },
       keyword_id: cp.keyword_id || defaultKeywordId || null,
       rank_position: cp.rank_position,
       catalog_rank: cp.catalog_rank || cp.rank_position,
