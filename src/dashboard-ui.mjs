@@ -5370,10 +5370,10 @@ export function getDashboardHtml() {
                       <!-- Actions -->
                       <td class="py-2.5 px-3 text-center">
                         <div class="inline-flex items-center gap-1.5 justify-center">
-                          <button type="button" @click="openPinDossier(p)" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-400 text-[11px] font-bold hover:bg-rose-500/20 transition cursor-pointer" title="Inspect Pin">
+                          <a :href="'/pin/' + p.pin_id" @click.prevent="openPinDossier(p)" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-400 text-[11px] font-bold hover:bg-rose-500/20 transition cursor-pointer" title="Inspect Pin">
                             <i data-lucide="eye" class="w-3 h-3"></i>
                             <span>Inspect</span>
-                          </button>
+                          </a>
                           <a :href="'https://www.pinterest.com/pin/' + p.pin_id + '/'" target="_blank" rel="noopener noreferrer" class="inline-flex items-center justify-center h-7 w-7 rounded-lg text-slate-500 hover:text-rose-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition" title="Open on Pinterest">
                             <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
                           </a>
@@ -8171,7 +8171,7 @@ export function getDashboardHtml() {
                 }
                 this.openCreatorByHandle(first, targetTab);
               } else if (second) {
-                this.openCreatorByHandle(first, 'overview').then(() => {
+                this.openCreatorByHandle(first, 'overview', false).then(() => {
                   const targetSlug = this.normalizeBoardSlug(decodeURIComponent(second));
                   const matchBoard = (this.activeCreatorBoards || []).find(b => 
                     this.normalizeBoardSlug(b.name) === targetSlug ||
@@ -8229,12 +8229,12 @@ export function getDashboardHtml() {
                   if (pSecond.toLowerCase() === 'winning-pins' || pSecond.toLowerCase() === 'pins') {
                     this.creatorAllPinQualifiedOnly = true;
                   }
-                  await this.openCreatorByHandle(pFirst, targetTab);
+                  await this.openCreatorByHandle(pFirst, targetTab, false);
                 } else if (pSecond) {
                   if (this.activePinId) this.closePinPage(false);
                   const targetSlug = this.normalizeBoardSlug(decodeURIComponent(pSecond));
                   if (!this.activeCreator || (this.activeCreator.username || '').toLowerCase() !== pFirst.toLowerCase()) {
-                    await this.openCreatorByHandle(pFirst, 'overview');
+                    await this.openCreatorByHandle(pFirst, 'overview', false);
                   }
                   const matchBoard = (this.activeCreatorBoards || []).find(b => 
                     this.normalizeBoardSlug(b.name) === targetSlug ||
@@ -8245,7 +8245,7 @@ export function getDashboardHtml() {
                 } else {
                   if (this.activePinId) this.closePinPage(false);
                   if (this.activeBoardName) this.closeBoardPage(false);
-                  await this.openCreatorByHandle(pFirst, 'overview');
+                  await this.openCreatorByHandle(pFirst, 'overview', false);
                 }
               } else {
                 if (this.activePinId) this.closePinPage(false);
@@ -9443,7 +9443,7 @@ export function getDashboardHtml() {
           }
         },
 
-        async openCreatorPage(creator, tab = 'overview') {
+        async openCreatorPage(creator, tab = 'overview', updateHistory = true) {
           if (!creator) return;
           this.activeCreator = creator;
           this.activeCreatorTab = tab || 'overview';
@@ -9504,7 +9504,7 @@ export function getDashboardHtml() {
           }
           this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
 
-          if (typeof window !== 'undefined' && handle) {
+          if (updateHistory && typeof window !== 'undefined' && handle) {
             let targetPath = '/' + handle;
             if (this.activeCreatorTab === 'top_urls' || this.activeCreatorTab === 'links') targetPath = '/' + handle + '/links';
             else if (this.activeCreatorTab === 'related_pins') targetPath = '/' + handle + '/related-pins';
@@ -9971,14 +9971,14 @@ export function getDashboardHtml() {
           const pinId = typeof pinOrId === 'object' ? String(pinOrId.pin_id || pinOrId.id || '') : String(pinOrId);
           if (!pinId) return;
 
-          const cleanUser = (this.activeCreator?.username || (typeof pinOrId === 'object' && pinOrId?.account_username) || '').replace(/^@+/, '').trim().toLowerCase();
+          const cleanUser = (this.activeCreator?.username || (typeof pinOrId === 'object' && (pinOrId?.account_username || pinOrId?.creator_username || pinOrId?.username || pinOrId?.creator)) || '').replace(/^@+/, '').trim().toLowerCase();
           const currentBoard = this.activeBoardName || (typeof pinOrId === 'object' && (pinOrId?.board_name || pinOrId?.board)) || '';
 
           if (typeof window !== 'undefined' && window.sessionStorage) {
             try {
               sessionStorage.setItem('pae_pin_breadcrumb_ctx', JSON.stringify({
                 pinId: pinId,
-                source: 'creator',
+                source: cleanUser ? 'creator' : 'direct',
                 creator: cleanUser,
                 board: currentBoard,
                 tab: this.activeCreatorTab || 'all_pins',
@@ -10179,11 +10179,15 @@ export function getDashboardHtml() {
 
           if (typeof window !== 'undefined') {
             window.scrollTo({ top: 0, behavior: 'smooth' });
-            if (updateHistory && targetCreator) {
+            if (targetCreator) {
               const boardSlug = encodeURIComponent(this.normalizeBoardSlug(boardName));
               const targetPath = '/' + cleanUser + '/' + boardSlug;
               if (window.location.pathname !== targetPath) {
-                window.history.pushState({ board: boardName, username: cleanUser }, '', targetPath);
+                if (updateHistory) {
+                  window.history.pushState({ board: boardName, username: cleanUser }, '', targetPath);
+                } else {
+                  window.history.replaceState({ board: boardName, username: cleanUser }, '', targetPath);
+                }
               }
             }
             document.title = boardName + ' | ' + (targetCreator ? '@' + cleanUser + ' | ' : '') + 'Pinterest Intelligence';
@@ -10216,6 +10220,13 @@ export function getDashboardHtml() {
                   this.activeBoardName = dData.board.name;
                   if (typeof window !== 'undefined') {
                     document.title = dData.board.name + ' | ' + (targetCreator ? '@' + cleanUser + ' | ' : '') + 'Pinterest Intelligence';
+                    if (targetCreator) {
+                      const canonSlug = encodeURIComponent(this.normalizeBoardSlug(dData.board.name));
+                      const canonPath = '/' + cleanUser + '/' + canonSlug;
+                      if (window.location.pathname !== canonPath) {
+                        window.history.replaceState({ board: dData.board.name, username: cleanUser }, '', canonPath);
+                      }
+                    }
                   }
                 }
               }
@@ -10408,14 +10419,14 @@ export function getDashboardHtml() {
           this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
         },
 
-        async openCreatorByHandle(handle, tab = 'overview') {
+        async openCreatorByHandle(handle, tab = 'overview', updateHistory = true) {
           const clean = (handle || '').replace(/^@+/, '').trim();
           if (!clean) return;
           const existing = (this.competitors || []).find(c => (c.username || '').toLowerCase() === clean.toLowerCase());
           if (existing) {
-            await this.openCreatorPage(existing, tab);
+            await this.openCreatorPage(existing, tab, updateHistory);
           } else {
-            await this.openCreatorPage({ username: clean, display_name: clean }, tab);
+            await this.openCreatorPage({ username: clean, display_name: clean }, tab, updateHistory);
           }
         },
 

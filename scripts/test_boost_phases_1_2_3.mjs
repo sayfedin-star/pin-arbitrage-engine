@@ -296,6 +296,10 @@ runTest('Phase 3.5: Template literal regex escaping in getBoardSlug & normalizeB
   assert.strictEqual(boardSlug, "quick-dinner-recipes-easy-weeknight-meals", "Must produce full slug without swallowing words");
   assert.notStrictEqual(boardSlug, "p", "CRITICAL: getBoardSlug must NOT return 'p'!");
 
+  // Multi-symbol and punctuation edge cases
+  assert.strictEqual(getBoardSlugFn("Desserts & Sweets / Pastries — Easy"), "desserts-sweets-pastries-easy");
+  assert.strictEqual(getBoardSlugFn("100% Quick Recipes!"), "100-quick-recipes");
+
   // Verify normalizeBoardSlug evaluation from dashboard HTML
   const dashHtml = getDashboardHtml();
   assert.ok(dashHtml.includes('/[^\\p{L}\\p{N}]+/gu'), 'Generated dashboard HTML must contain properly escaped normalizeBoardSlug Unicode regex');
@@ -304,6 +308,13 @@ runTest('Phase 3.5: Template literal regex escaping in getBoardSlug & normalizeB
   const normFn = new Function('str', normMatch[1]);
   assert.strictEqual(normFn("Quick Dinner Recipes | Easy Weeknight Meals"), "quick-dinner-recipes-easy-weeknight-meals");
   assert.strictEqual(normFn("quick-dinner-recipes-easy-weeknight-meals"), "quick-dinner-recipes-easy-weeknight-meals");
+  assert.strictEqual(normFn("Desserts & Sweets / Pastries — Easy"), "desserts-sweets-pastries-easy");
+
+  // Verify clean getBackUrl logic without query pollution
+  const backMatch = pinHtml.match(/getBackUrl\(\)\s*\{([\s\S]*?)\n\s*\},/);
+  assert.ok(backMatch, 'Must find getBackUrl definition');
+  assert.ok(backMatch[1].includes("this.getBoardSlug(this.originBoard)"), 'getBackUrl must use getBoardSlug for board routing');
+  assert.ok(!backMatch[1].includes("'?board='"), 'getBackUrl must NOT return ?board= query param');
 });
 
 runTest('Phase 3.6: All-pins UI overhaul & metric wiring verification', () => {
@@ -326,12 +337,19 @@ runTest('Phase 3.6: All-pins UI overhaul & metric wiring verification', () => {
   assert.ok(!updatedDashUiCode.includes('<span>🏆 Qualified Only</span>'), 'Must eliminate duplicate Qualified Only checkbox');
   assert.ok(!updatedDashUiCode.includes('<span>🎯 Ranked Only</span>'), 'Must eliminate duplicate Ranked Only checkbox');
 
-  // Actions column Inspect button
-  assert.ok(updatedDashUiCode.includes('<span>Inspect</span>'), 'Must include Inspect button in table actions');
+  // Actions column Inspect anchor link
+  assert.ok(updatedDashUiCode.includes(':href="\'/pin/\' + p.pin_id"'), 'Must include anchor link with /pin/:id href in table actions');
+  assert.ok(updatedDashUiCode.includes('@click.prevent="openPinDossier(p)"'), 'Inspect link must wire openPinDossier');
+  assert.ok(updatedDashUiCode.includes('<span>Inspect</span>'), 'Must include Inspect label in table actions');
 
   // Clean navigation to /pin/:id without URL query pollution
   assert.ok(updatedDashUiCode.includes("window.location.href = '/pin/' + encodeURIComponent(pinId)"), 'openPinPage must navigate cleanly to /pin/:id without URL query pollution');
   assert.ok(updatedDashUiCode.includes("pinId: pinId"), 'openPinPage must record pinId in sessionStorage context');
+
+  // URL protection & updateHistory guard
+  assert.ok(updatedDashUiCode.includes("openCreatorPage(creator, tab = 'overview', updateHistory = true)"), 'openCreatorPage must support updateHistory flag');
+  assert.ok(updatedDashUiCode.includes("openCreatorByHandle(handle, tab = 'overview', updateHistory = true)"), 'openCreatorByHandle must support updateHistory flag');
+  assert.ok(updatedDashUiCode.includes("openCreatorByHandle(first, 'overview', false)"), 'initDashboard must pass updateHistory=false when opening nested board');
 
   // Postgres slug matching with REGEXP_REPLACE in competitor service
   assert.ok(updatedCompServiceCode.includes('[^[:alnum:]]+'), 'competitor service must use REGEXP_REPLACE for resilient board matching');

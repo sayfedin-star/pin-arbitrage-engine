@@ -178,14 +178,14 @@ export function getPinDetailPageHtml(pinId = '') {
           <span>Creator Archive</span>
         </a>
         <span class="text-slate-300 select-none">/</span>
-        <a :href="'/' + encodeURIComponent(originCreator)" class="hover:text-pink-600 font-semibold text-slate-700 transition-colors flex items-center gap-1">
+        <a :href="'/' + encodeURIComponent(originCreator.replace(/^@+/, ''))" class="hover:text-pink-600 font-semibold text-slate-700 transition-colors flex items-center gap-1">
           <span>🎯</span>
-          <span x-text="'@' + originCreator"></span>
+          <span x-text="'@' + originCreator.replace(/^@+/, '')"></span>
         </a>
         <template x-if="originBoard">
           <div class="flex items-center gap-2">
             <span class="text-slate-300 select-none">/</span>
-            <a :href="'/' + encodeURIComponent(originCreator) + (getBoardSlug(originBoard) ? '/' + encodeURIComponent(getBoardSlug(originBoard)) : '')" class="hover:text-pink-600 text-slate-600 flex items-center gap-1 transition-colors">
+            <a :href="'/' + encodeURIComponent(originCreator.replace(/^@+/, '')) + (getBoardSlug(originBoard) ? '/' + encodeURIComponent(getBoardSlug(originBoard)) : '')" class="hover:text-pink-600 text-slate-600 flex items-center gap-1 transition-colors">
               <span>📁</span>
               <span x-text="originBoard"></span>
             </a>
@@ -1334,13 +1334,15 @@ export function getPinDetailPageHtml(pinId = '') {
             return this.originReturnUrl;
           }
           if (this.originSource === 'creator' && this.originCreator) {
-            return '/' + encodeURIComponent(this.originCreator) + (this.originBoard ? '?board=' + encodeURIComponent(this.originBoard) : '');
+            const cleanUser = String(this.originCreator).replace(/^@+/, '').trim();
+            const bSlug = this.getBoardSlug(this.originBoard);
+            return '/' + encodeURIComponent(cleanUser) + (bSlug ? '/' + encodeURIComponent(bSlug) : '');
           }
           if (this.originSource === 'keyword' || this.originKeyword || this.originKeywordId) {
             return this.getBackToKeywordUrl();
           }
           if (this.originCreator) {
-            return '/' + encodeURIComponent(this.originCreator);
+            return '/' + encodeURIComponent(String(this.originCreator).replace(/^@+/, '').trim());
           }
           return '/keywords';
         },
@@ -1544,6 +1546,12 @@ export function getPinDetailPageHtml(pinId = '') {
               this.originCreator = String(creatorUser).replace(/^@+/, '').trim();
               this.originBoard = this.originBoard || creatorCtx?.board_name || '';
               this.originSource = 'creator';
+            }
+          }
+          if (this.dossier?.pillar_1_creator_context?.board_name) {
+            const authenticBoard = this.dossier.pillar_1_creator_context.board_name;
+            if (!this.originBoard || this.getBoardSlug(this.originBoard) === this.getBoardSlug(authenticBoard)) {
+              this.originBoard = authenticBoard;
             }
           }
           if (!this.originKeyword) {
