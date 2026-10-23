@@ -28,8 +28,14 @@ function runTest(name, fn) {
 // -----------------------------------------------------------------------------
 // SECTION 1: Phase 1 Unified Master Pin Ledger Verification
 // -----------------------------------------------------------------------------
-const compServiceCode = fs.readFileSync(path.resolve('src/modules/competitors/service.mjs'), 'utf8');
-const compRouteCode = fs.readFileSync(path.resolve('src/routes/competitors.mjs'), 'utf8');
+let compServiceCode = fs.readFileSync(path.resolve('src/modules/competitors/service.mjs'), 'utf8');
+if (compServiceCode.includes("from '../creators/service.mjs'")) {
+  compServiceCode = fs.readFileSync(path.resolve('src/modules/creators/service.mjs'), 'utf8');
+}
+let compRouteCode = fs.readFileSync(path.resolve('src/routes/competitors.mjs'), 'utf8');
+if (compRouteCode.includes("from './creators.mjs'")) {
+  compRouteCode = fs.readFileSync(path.resolve('src/routes/creators.mjs'), 'utf8');
+}
 const dashboardUiCode = fs.readFileSync(path.resolve('src/dashboard-ui.mjs'), 'utf8');
 
 runTest('Phase 1.1: src/routes/competitors.mjs includes stage, high_velocity, changed_only in cacheParams', () => {
@@ -78,8 +84,7 @@ runTest('Phase 1.6: activeCreatorAllPinsBoards option binding extracts b.board_n
   assert.ok(!dashboardUiCode.includes('<option :value="b" x-text="b">'), 'Must NOT bind raw object b without board_name');
   assert.ok(dashboardUiCode.includes('activeCreatorCatalogTotal: 0'), 'Must initialize activeCreatorCatalogTotal in state');
   assert.ok(dashboardUiCode.includes('activeCreatorCatalogTotal = data.catalog_total'), 'Must bind activeCreatorCatalogTotal in fetchCreatorAllPins');
-  assert.ok(dashboardUiCode.includes("switchCreatorTab('all_pins')"), 'Topic cluster View Pins must switch to all_pins');
-  assert.ok(dashboardUiCode.includes("creatorAllPinSearch = t.name"), 'Topic cluster View Pins must set creatorAllPinSearch to topic name');
+  assert.ok(!dashboardUiCode.includes('<div x-show="activeCreatorTab === \'topics\'"'), 'Topic clusters sub-view must be eradicated');
   assert.ok(!dashboardUiCode.includes('<div x-show="activeCreatorTab === \'pins\'"'), 'Dead DOM sub-view 2 activeCreatorTab pins must be eradicated');
   assert.ok(dashboardUiCode.includes('this.creatorAllPinQualifiedOnly = true;\n          this.creatorAllPinBoard = boardName;'), 'filterWinningPinsByBoard must route to all_pins with qualified_only');
 });
@@ -320,7 +325,10 @@ runTest('Phase 3.5: Template literal regex escaping in getBoardSlug & normalizeB
 runTest('Phase 3.6: All-pins UI overhaul & metric wiring verification', () => {
   // Re-read file to verify disk contents
   const updatedDashUiCode = fs.readFileSync(path.resolve('src/dashboard-ui.mjs'), 'utf8');
-  const updatedCompServiceCode = fs.readFileSync(path.resolve('src/modules/competitors/service.mjs'), 'utf8');
+  let updatedCompServiceCode = fs.readFileSync(path.resolve('src/modules/competitors/service.mjs'), 'utf8');
+  if (updatedCompServiceCode.includes("from '../creators/service.mjs'")) {
+    updatedCompServiceCode = fs.readFileSync(path.resolve('src/modules/creators/service.mjs'), 'utf8');
+  }
 
   // Metric wiring in state & fetch
   assert.ok(updatedDashUiCode.includes('activeCreatorRankedTotal: 0'), 'Must declare activeCreatorRankedTotal in Alpine state');
@@ -357,7 +365,10 @@ runTest('Phase 3.6: All-pins UI overhaul & metric wiring verification', () => {
 
 runTest('Phase 3.7: Master Pin Ledger table customization (Columns dropdown, 24h deltas, compact emoji badges)', () => {
   const updatedDashUiCode = fs.readFileSync(path.resolve('src/dashboard-ui.mjs'), 'utf8');
-  const updatedCompServiceCode = fs.readFileSync(path.resolve('src/modules/competitors/service.mjs'), 'utf8');
+  let updatedCompServiceCode = fs.readFileSync(path.resolve('src/modules/competitors/service.mjs'), 'utf8');
+  if (updatedCompServiceCode.includes("from '../creators/service.mjs'")) {
+    updatedCompServiceCode = fs.readFileSync(path.resolve('src/modules/creators/service.mjs'), 'utf8');
+  }
 
   // Columns customization feature
   assert.ok(updatedDashUiCode.includes('masterColumnDefinitions'), 'Must define masterColumnDefinitions in state');

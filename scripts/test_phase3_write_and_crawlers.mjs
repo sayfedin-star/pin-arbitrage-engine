@@ -101,7 +101,10 @@ console.log('\n[Test 3] Verifying PinArchive Service bulk writes & transactions.
 
 import { ingestPinsBatch } from '../src/modules/pinarchive/service.mjs';
 
-const pinarchiveServiceContent = fs.readFileSync('src/modules/pinarchive/service.mjs', 'utf8');
+let pinarchiveServiceContent = fs.readFileSync('src/modules/pinarchive/service.mjs', 'utf8');
+if (pinarchiveServiceContent.includes("from '../creators/service.mjs'")) {
+  pinarchiveServiceContent = fs.readFileSync('src/modules/creators/service.mjs', 'utf8');
+}
 
 // Ensure Neon HTTP array transaction and TCP begin are supported
 assert(

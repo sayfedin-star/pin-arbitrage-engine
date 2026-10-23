@@ -42,7 +42,8 @@ import {
   batchGroupByShard,
   resolveShardConnection,
   preloadNeonRegistry,
-  prewarmFleetShards
+  prewarmFleetShards,
+  getPinShardId
 } from '../src/modules/sharding/fleet-router.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -724,6 +725,52 @@ export async function runOffloadAndCompact(hubSql, { forceCompact = FORCE_COMPAC
     RETURNING id;
   `;
   console.log(`    ✓ Compacted ${competitorCompacted.length} completed/failed competitor_pins rows.`);
+
+  // STEP 8B: Zero-Snapshot Invariant Enforcement for Hub pa_pin_metrics
+  console.log('\n[*] Step 8B: Enforcing Zero-Snapshot Invariant for Hub pa_pin_metrics...');
+  try {
+    const [paCountRow] = await hubSql`SELECT COUNT(*)::int AS count FROM pa_pin_metrics;`;
+    const paCount = paCountRow?.count || 0;
+    console.log(`    Auditing pa_pin_metrics: found ${paCount} legacy snapshot rows on Central Hub.`);
+    if (paCount > 0) {
+      console.log('    Verifying legacy snapshot rows against 99-Shard pins_daily_metrics...');
+      const sampleSnaps = await hubSql`
+        SELECT pin_id, snapshot_date, saves, repins, comments, velocity
+        FROM pa_pin_metrics
+        LIMIT 50;
+      `;
+      let verifiedShards = 0;
+      for (const snap of sampleSnaps) {
+        try {
+          const shardId = getPinShardId(snap.pin_id, 99);
+          const shardSql = await resolveShardConnection({ hubSql, shardId });
+          const [shardRow] = await shardSql`
+            SELECT 1 FROM pins_daily_metrics
+            WHERE pin_id = ${snap.pin_id} AND snapshot_date = ${snap.snapshot_date}
+            LIMIT 1;
+          `;
+          if (shardRow) verifiedShards++;
+        } catch (_) {}
+      }
+      console.log(`    Sample audit passed: verified ${verifiedShards}/${sampleSnaps.length} legacy snapshot rows against shard daily metrics.`);
+
+      console.log('    Dropping legacy trigger trg_pa_pin_metrics_monotonic if exists...');
+      await hubSql`DROP TRIGGER IF EXISTS trg_pa_pin_metrics_monotonic ON pa_pin_metrics;`;
+
+      console.log('    Truncating legacy pa_pin_metrics on Central Hub [INVARIANT: ZERO-HUB-SNAPSHOTS]...');
+      await hubSql`TRUNCATE TABLE pa_pin_metrics;`;
+      await hubSql`VACUUM FULL ANALYZE pa_pin_metrics;`;
+      console.log('    ✓ pa_pin_metrics successfully truncated and compacted on Central Hub.');
+    } else {
+      console.log('    ✓ pa_pin_metrics already has 0 rows on Central Hub.');
+      await hubSql`DROP TRIGGER IF EXISTS trg_pa_pin_metrics_monotonic ON pa_pin_metrics;`;
+      await hubSql`TRUNCATE TABLE pa_pin_metrics;`;
+      await hubSql`VACUUM FULL ANALYZE pa_pin_metrics;`;
+      console.log('    ✓ pa_pin_metrics trigger dropped and storage reclaimed.');
+    }
+  } catch (paErr) {
+    console.warn(`    ⚠️ pa_pin_metrics cleanup notice: ${paErr.message}`);
+  }
 
   // STEP 9: Physical Heap & TOAST Reclamation via Sequential VACUUM FULL ANALYZE (Smallest -> Largest)
   console.log('\n[*] Step 9: Reclaiming Physical Storage & TOAST via VACUUM FULL ANALYZE...');

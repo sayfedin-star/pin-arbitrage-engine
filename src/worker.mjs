@@ -14,13 +14,12 @@ import { neon } from '@neondatabase/serverless';
 import postgres from 'postgres';
 import { handlePagesRoutes } from './routes/pages.mjs';
 import { handleFleetRoutes } from './routes/fleet.mjs';
-import { handlePinarchiveRoutes } from './routes/pinarchive.mjs';
+import { handleCreatorsRoutes, handlePinarchiveRoutes, handleCompetitorsRoutes } from './routes/creators.mjs';
 import { handleDomainsRoutes } from './routes/domains.mjs';
 import { isClusterRoute, handleClusterRoutes } from './routes/cluster.mjs';
 import { enforceNeonPoolerUrl, getFastEdgeDossier, getOrCreateShardSqlClient, getCachedShardSqlClient, setCachedShardSqlClient, shardSqlClients, wrapShardNeonTransaction, isValidShardDsn, normalizeAssignedShards } from './modules/sharding/fleet-router.mjs';
 import { isKeywordsRoute, handleKeywordsRoutes } from './routes/keywords.mjs';
 import { isPinsRoute, handlePinsRoutes } from './routes/pins.mjs';
-import { handleCompetitorsRoutes } from './routes/competitors.mjs';
 
 export const requestContextStorage = new AsyncLocalStorage();
 globalThis.__requestContextStorage = requestContextStorage;
@@ -1203,7 +1202,9 @@ export default {
     // Edge Circuit Breaker Gate for Pinterest Rate Limits (HTTP 429 & 403)
     const isLiveScrapeGet = method === 'GET' && searchParams.get('refresh') === 'true' && (
       pathname === '/api/competitors/board-detail' ||
+      pathname === '/api/creators/board-detail' ||
       pathname === '/api/pinarchive/pin-detail' ||
+      pathname === '/api/creators/pin-detail' ||
       pathname.startsWith('/api/pins/')
     );
     const isCrawlerEndpoint =
@@ -1211,12 +1212,23 @@ export default {
       pathname.startsWith('/api/crawl/') ||
       pathname === '/api/keywords/sync' ||
       pathname === '/api/competitors/dispatch-crawl' ||
+      pathname === '/api/creators/dispatch-crawl' ||
       pathname === '/api/competitors/sync' ||
+      pathname === '/api/creators/sync' ||
       pathname === '/api/competitors/sync-boards' ||
+      pathname === '/api/creators/sync-boards' ||
       pathname === '/api/competitors/sync-pins' ||
+      pathname === '/api/creators/sync-pins' ||
       pathname === '/api/competitors/fast-refresh' ||
+      pathname === '/api/creators/fast-refresh' ||
       pathname === '/api/competitors/audit-sweep' ||
+      pathname === '/api/creators/audit-sweep' ||
+      pathname === '/api/creators/quick-pulse' ||
+      pathname === '/api/competitors/quick-pulse' ||
+      pathname === '/api/creators/deep-harvest' ||
+      pathname === '/api/competitors/deep-harvest' ||
       pathname === '/api/competitors/related-pins/harvest-live' ||
+      pathname === '/api/creators/related-pins/harvest-live' ||
       (pathname.startsWith('/api/pins/') && pathname.endsWith('/sync')) ||
       isLiveScrapeGet;
 
@@ -1475,9 +1487,9 @@ export default {
         if (clusterRes) return clusterRes;
       }
 
-      // 15. Competitor Intelligence Sub-Router
-      if (pathname.startsWith('/api/competitors')) {
-        const competitorsRes = await handleCompetitorsRoutes({
+      // 15. Creator Hub Sub-Router (/api/creators/*, /api/competitors/*, /api/pinarchive/*)
+      if (pathname.startsWith('/api/creators') || pathname.startsWith('/api/competitors') || pathname.startsWith('/api/pinarchive')) {
+        const creatorsRes = await handleCreatorsRoutes({
           pathname,
           method,
           request,
@@ -1495,7 +1507,7 @@ export default {
           safeWaitUntil,
           tripPinterestCircuitBreaker
         });
-        if (competitorsRes) return competitorsRes;
+        if (creatorsRes) return creatorsRes;
       }
 
       // 16. Keywords, Folders & Settings Sub-Router

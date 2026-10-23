@@ -22,8 +22,8 @@ async function testRoutes() {
     const res = await worker.fetch(new Request('https://worker.test/accounts'), mockEnv);
     assert.strictEqual(res.status, 200);
     const html = await res.text();
-    assert(html.includes('Creator Intelligence & PinArchive'), 'GET /accounts should contain Creator & PinArchive');
-    console.log('  ✓ [PASS] GET /accounts -> Serves Creator & PinArchive');
+    assert(html.includes('Creator Hub'), 'GET /accounts should contain Creator Hub');
+    console.log('  ✓ [PASS] GET /accounts -> Serves Creator Hub');
   }
 
   // 3. /keywords -> Serves dedicated Keywords Fleet Dashboard
@@ -58,7 +58,7 @@ async function testRoutes() {
     const resAccounts = await worker.fetch(new Request('https://worker.test//accounts'), mockEnv);
     assert.strictEqual(resAccounts.status, 200);
     const htmlAccounts = await resAccounts.text();
-    assert(htmlAccounts.includes('Creator Intelligence & PinArchive'));
+    assert(htmlAccounts.includes('Creator Hub'));
 
     const resKeywords = await worker.fetch(new Request('https://worker.test//keywords'), mockEnv);
     assert.strictEqual(resKeywords.status, 200);

@@ -68,8 +68,14 @@ async function runAsyncTest(name, fn) {
 // =============================================================================
 console.log('[*] Section 1: Static Forensic Audit - Zero pa_pin_metrics Operations on Central Hub...');
 
-const pinarchiveCode = fs.readFileSync(path.resolve('src/modules/pinarchive/service.mjs'), 'utf8');
-const competitorsCode = fs.readFileSync(path.resolve('src/modules/competitors/service.mjs'), 'utf8');
+let pinarchiveCode = fs.readFileSync(path.resolve('src/modules/pinarchive/service.mjs'), 'utf8');
+if (pinarchiveCode.includes("from '../creators/service.mjs'")) {
+  pinarchiveCode = fs.readFileSync(path.resolve('src/modules/creators/service.mjs'), 'utf8');
+}
+let competitorsCode = fs.readFileSync(path.resolve('src/modules/competitors/service.mjs'), 'utf8');
+if (competitorsCode.includes("from '../creators/service.mjs'")) {
+  competitorsCode = fs.readFileSync(path.resolve('src/modules/creators/service.mjs'), 'utf8');
+}
 const fleetCode = fs.readFileSync(path.resolve('src/modules/fleet/service.mjs'), 'utf8');
 const crawlerCode = fs.readFileSync(path.resolve('scripts/crawler-engine.mjs'), 'utf8');
 
