@@ -2220,6 +2220,17 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
       GREATEST(COALESCE(cp.comment_count, 0), COALESCE(pa.comments, 0))::int AS comment_count,
       COALESCE(pa.share_count, 0)::bigint AS share_count,
       COALESCE(pa.velocity, 0)::numeric AS velocity,
+      COALESCE(
+        (cp.metadata->>'delta_saves_24h')::numeric,
+        (cp.metadata->>'delta_saves')::numeric,
+        pa.velocity,
+        0
+      )::numeric AS delta_saves_24h,
+      COALESCE(
+        (cp.metadata->>'delta_repins_24h')::numeric,
+        (cp.metadata->>'delta_repins')::numeric,
+        0
+      )::numeric AS delta_repins_24h,
       COALESCE(pa.dominant_color, '#888888') AS dominant_color,
       COALESCE(pa.annotations, cp.metadata->'annotations', '[]'::jsonb) AS annotations,
       COALESCE(pa.reactions, '{}'::jsonb) AS reactions,
@@ -2387,6 +2398,8 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
         comments: Number(r.comment_count || 0),
         share_count: Number(r.share_count || 0),
         velocity: Number(velocity.toFixed(1)),
+        delta_saves_24h: Number(r.delta_saves_24h || velocity || 0),
+        delta_repins_24h: Number(r.delta_repins_24h || 0),
         age_days: ageDays,
         stage,
         is_product: Boolean(r.is_product),

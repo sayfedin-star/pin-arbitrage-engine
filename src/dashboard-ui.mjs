@@ -5218,6 +5218,45 @@ export function getDashboardHtml() {
                     <i data-lucide="x" class="w-3 h-3"></i>
                     <span>Reset</span>
                   </button>
+
+                  <!-- Columns Customization Dropdown -->
+                  <div class="relative" x-data="{ isMasterColumnsOpen: false }" @click.outside="isMasterColumnsOpen = false" @keydown.escape.window="isMasterColumnsOpen = false">
+                    <button type="button" @click="isMasterColumnsOpen = !isMasterColumnsOpen" class="px-2.5 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer shadow-2xs hover:bg-slate-100 dark:hover:bg-slate-800" title="Customize visible table columns">
+                      <i data-lucide="columns-3" class="w-3.5 h-3.5 text-slate-400"></i>
+                      <span>Columns</span>
+                      <i data-lucide="chevron-down" class="w-3 h-3 text-slate-400 transition-transform" :class="isMasterColumnsOpen ? 'rotate-180' : ''"></i>
+                    </button>
+
+                    <!-- Dropdown Menu -->
+                    <div x-show="isMasterColumnsOpen" x-cloak
+                         x-transition:enter="transition ease-out duration-150"
+                         x-transition:enter-start="opacity-0 scale-95"
+                         x-transition:enter-end="opacity-100 scale-100"
+                         x-transition:leave="transition ease-in duration-100"
+                         x-transition:leave-start="opacity-100 scale-100"
+                         x-transition:leave-end="opacity-0 scale-95"
+                         class="absolute right-0 mt-2 w-56 rounded-xl bg-white dark:bg-[#0c1322] border border-slate-200 dark:border-slate-800 shadow-xl p-2 space-y-0.5 z-40 text-xs font-sans">
+                      <div class="px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400 font-mono border-b border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
+                        <span>Display Columns</span>
+                        <button type="button" @click="resetMasterColumns()" class="text-indigo-500 hover:underline capitalize text-[10px] cursor-pointer">Reset</button>
+                      </div>
+                      
+                      <template x-for="col in masterColumnDefinitions" :key="col.key">
+                        <label class="flex items-center space-x-2 px-2.5 py-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60 cursor-pointer select-none transition"
+                               :class="col.required ? 'opacity-60 cursor-not-allowed' : ''">
+                          <input type="checkbox"
+                                 :checked="visibleMasterColumns[col.key]"
+                                 :disabled="col.required"
+                                 @change="toggleMasterColumn(col.key)"
+                                 class="w-3.5 h-3.5 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 dark:border-slate-700 cursor-pointer">
+                          <span class="text-xs text-slate-700 dark:text-slate-300 font-medium" x-text="col.label"></span>
+                          <template x-if="col.required">
+                            <span class="text-[9px] text-slate-400 font-mono ml-auto">(Required)</span>
+                          </template>
+                        </label>
+                      </template>
+                    </div>
+                  </div>
                 </div>
 
                 <!-- Showing X-Y of Z results counter -->
@@ -5254,15 +5293,14 @@ export function getDashboardHtml() {
                     <th class="py-3 px-3 w-10 text-center">
                       <input type="checkbox" :checked="activeCreatorAllPins.length > 0 && activeCreatorAllPins.every(p => isPinSelected(p.pin_id))" @change="$event.target.checked ? selectAllCurrentPins(activeCreatorAllPins) : clearSelectedCreatorPins()" class="rounded border-slate-300 text-amber-500 cursor-pointer" />
                     </th>
-                    <th class="py-3 px-3 w-14">Media</th>
-                    <th class="py-3 px-4 font-semibold text-slate-900 dark:text-white">Pin Title &amp; Destination</th>
-                    <th class="py-3 px-3 font-semibold">Board</th>
-                    <th class="py-3 px-3 font-semibold text-right">Saves</th>
-                    <th class="py-3 px-3 font-semibold text-right">Repins</th>
-                    <th class="py-3 px-3 font-semibold text-right">Velocity</th>
-                    <th class="py-3 px-3 text-center font-semibold">Status &amp; Stage</th>
-                    <th class="py-3 px-3 font-semibold">Created / Discovered</th>
-                    <th class="py-3 px-3 text-center font-semibold">Actions</th>
+                    <th x-show="visibleMasterColumns.media" class="py-3 px-3 w-14">Media</th>
+                    <th x-show="visibleMasterColumns.title" class="py-3 px-4 font-semibold text-slate-900 dark:text-white">Pin Title &amp; Destination</th>
+                    <th x-show="visibleMasterColumns.board" class="py-3 px-3 font-semibold">Board</th>
+                    <th x-show="visibleMasterColumns.saves" class="py-3 px-3 font-semibold text-right">Saves</th>
+                    <th x-show="visibleMasterColumns.repins" class="py-3 px-3 font-semibold text-right">Repins</th>
+                    <th x-show="visibleMasterColumns.status" class="py-3 px-3 text-center font-semibold">Status</th>
+                    <th x-show="visibleMasterColumns.created_at" class="py-3 px-3 font-semibold">Created / Discovered</th>
+                    <th x-show="visibleMasterColumns.actions" class="py-3 px-3 text-center font-semibold">Actions</th>
                   </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono">
@@ -5273,7 +5311,7 @@ export function getDashboardHtml() {
                         <input type="checkbox" :checked="isPinSelected(p.pin_id)" @change="togglePinSelection(p.pin_id)" class="rounded border-slate-300 text-amber-500 cursor-pointer" />
                       </td>
                       <!-- Thumbnail with hover preview -->
-                      <td class="py-2.5 px-3 w-14">
+                      <td x-show="visibleMasterColumns.media" class="py-2.5 px-3 w-14">
                         <div class="relative group cursor-pointer" @click="openPinDossier(p)">
                           <img :src="p.image_url" loading="lazy" class="w-11 h-14 rounded-lg object-cover border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 hover:opacity-80 transition" />
                           <div class="hidden group-hover:block absolute left-14 top-0 z-40 w-44 rounded-xl overflow-hidden shadow-2xl border border-slate-200 dark:border-slate-700 pointer-events-none bg-white dark:bg-slate-900">
@@ -5283,7 +5321,7 @@ export function getDashboardHtml() {
                       </td>
 
                       <!-- Title & Destination -->
-                      <td class="py-2.5 px-4 font-sans font-bold text-slate-900 dark:text-white max-w-md">
+                      <td x-show="visibleMasterColumns.title" class="py-2.5 px-4 font-sans font-bold text-slate-900 dark:text-white max-w-md">
                         <div class="line-clamp-2 cursor-pointer hover:text-rose-500 transition" :title="p.title" x-text="p.title || 'Untitled Pin'" @click="openPinDossier(p)"></div>
                         <div class="flex items-center gap-2 mt-1 font-mono text-[10.5px] font-normal">
                           <span class="text-slate-400" x-text="'ID: ' + p.pin_id"></span>
@@ -5297,50 +5335,37 @@ export function getDashboardHtml() {
                       </td>
 
                       <!-- Board Name -->
-                      <td class="py-2.5 px-3 font-sans text-slate-600 dark:text-slate-300 truncate max-w-[130px]">
+                      <td x-show="visibleMasterColumns.board" class="py-2.5 px-3 font-sans text-slate-600 dark:text-slate-300 truncate max-w-[130px]">
                         <button type="button" @click="openBoardPage(p.board_name, activeCreator)" class="inline-block px-2 py-0.5 rounded-lg text-[10.5px] font-semibold bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 hover:bg-purple-100 dark:hover:bg-purple-950/40 hover:text-purple-600 dark:hover:text-purple-400 border border-slate-200 dark:border-slate-700/60 transition cursor-pointer" x-text="p.board_name || 'General'"></button>
                       </td>
 
-                      <!-- Saves -->
-                      <td class="py-2.5 px-3 text-right">
-                        <span class="font-extrabold" :class="Number(p.save_count || p.saves || 0) >= 100 ? 'text-rose-600 dark:text-rose-400 font-black' : 'text-slate-700 dark:text-slate-300'" x-text="formatNumber(p.save_count || p.saves || 0)"></span>
-                      </td>
-
-                      <!-- Repins -->
-                      <td class="py-2.5 px-3 text-right">
-                        <span class="font-bold text-slate-700 dark:text-slate-300" x-text="formatNumber(p.repin_count || p.repins || 0)"></span>
-                      </td>
-
-                      <!-- Velocity (/d badge) -->
-                      <td class="py-2.5 px-3 text-right">
-                        <template x-if="Number(p.velocity || 0) > 0">
-                          <span class="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[10px] font-bold font-mono" :class="Number(p.velocity) >= 10 ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30' : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'" x-text="Number(p.velocity).toFixed(1) + '/d'"></span>
-                        </template>
-                        <template x-if="!Number(p.velocity || 0)">
-                          <span class="text-slate-400 text-[11px]">—</span>
-                        </template>
-                      </td>
-
-                      <!-- Status Badge & Stage -->
-                      <td class="py-2.5 px-3 text-center">
-                        <div class="inline-flex items-center justify-center gap-1.5 flex-wrap">
-                          <template x-if="p.stage">
-                            <span 
-                              class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase"
-                              :class="{
-                                'bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30': p.stage === 'GROWING',
-                                'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30': p.stage === 'NEW',
-                                'bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30': p.stage === 'MATURE',
-                                'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30': p.stage === 'COOLING',
-                                'bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700': p.stage === 'DORMANT'
-                              }"
-                              x-text="p.stage"
-                            ></span>
+                      <!-- Saves + 24h delta -->
+                      <td x-show="visibleMasterColumns.saves" class="py-2.5 px-3 text-right">
+                        <div class="flex flex-col items-end">
+                          <span class="font-extrabold" :class="Number(p.save_count || p.saves || 0) >= 100 ? 'text-rose-600 dark:text-rose-400 font-black' : 'text-slate-700 dark:text-slate-300'" x-text="formatNumber(p.save_count || p.saves || 0)"></span>
+                          <template x-if="Number(p.delta_saves_24h || p.velocity || 0) > 0">
+                            <span class="inline-flex items-center text-[10px] font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.2 rounded border border-emerald-200/60 dark:border-emerald-800/60 mt-0.5" x-text="'+' + formatNumber(Math.round(p.delta_saves_24h || p.velocity || 0)) + ' 24h'"></span>
                           </template>
+                        </div>
+                      </td>
+
+                      <!-- Repins + 24h delta -->
+                      <td x-show="visibleMasterColumns.repins" class="py-2.5 px-3 text-right">
+                        <div class="flex flex-col items-end">
+                          <span class="font-bold text-slate-700 dark:text-slate-300" x-text="formatNumber(p.repin_count || p.repins || 0)"></span>
+                          <template x-if="Number(p.delta_repins_24h || 0) > 0">
+                            <span class="inline-flex items-center text-[10px] font-semibold text-pink-700 dark:text-pink-400 bg-pink-50 dark:bg-pink-950/40 px-1.5 py-0.2 rounded border border-pink-200/60 dark:border-pink-800/60 mt-0.5" x-text="'+' + formatNumber(Math.round(p.delta_repins_24h)) + ' 24h'"></span>
+                          </template>
+                        </div>
+                      </td>
+
+                      <!-- Status Badge (Clean: 🏆, 🎯, Product) -->
+                      <td x-show="visibleMasterColumns.status" class="py-2.5 px-3 text-center">
+                        <div class="inline-flex items-center justify-center gap-1.5 flex-wrap">
                           <template x-if="p.is_ranked">
-                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-500/15 text-sky-600 dark:text-sky-400 border border-sky-500/30 shadow-2xs" :title="'Ranked in SERP position #' + (p.rank_position || '—')">
-                              <span>🎯 SERP</span>
-                              <span x-text="p.rank_position ? '#' + p.rank_position : 'Ranked'"></span>
+                            <span class="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-500/15 text-sky-600 dark:text-sky-400 border border-sky-500/30 shadow-2xs" :title="'Ranked in SERP position #' + (p.rank_position || '—')">
+                              <span>🎯</span>
+                              <span x-text="p.rank_position ? '#' + p.rank_position : ''"></span>
                             </span>
                           </template>
                           <template x-if="p.is_product">
@@ -5350,11 +5375,11 @@ export function getDashboardHtml() {
                             </span>
                           </template>
                           <template x-if="p.is_qualified">
-                            <button @click="creatorAllPinQualifiedOnly = true; activeCreatorAllPinsPage = 1; fetchCreatorAllPins();" class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10.5px] font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 cursor-pointer hover:bg-amber-500/25 transition" title="Qualified Winner">
-                              <span>🏆 Qualified</span>
+                            <button @click="creatorAllPinQualifiedOnly = true; activeCreatorAllPinsPage = 1; fetchCreatorAllPins();" class="inline-flex items-center justify-center px-1.5 py-0.5 rounded-lg bg-amber-500/15 border border-amber-500/30 text-xs shadow-2xs cursor-pointer hover:bg-amber-500/25 transition" title="Qualified Winner">
+                              <span>🏆</span>
                             </button>
                           </template>
-                          <template x-if="!p.is_qualified && !p.is_product && !p.is_ranked && !p.stage">
+                          <template x-if="!p.is_qualified && !p.is_product && !p.is_ranked">
                             <span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700">
                               Standard
                             </span>
@@ -5363,16 +5388,15 @@ export function getDashboardHtml() {
                       </td>
 
                       <!-- Created / Discovered -->
-                      <td class="py-2.5 px-3 font-sans text-slate-500 text-[11px]">
+                      <td x-show="visibleMasterColumns.created_at" class="py-2.5 px-3 font-sans text-slate-500 text-[11px]">
                         <span x-text="p.created_at_pinterest ? new Date(p.created_at_pinterest).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : (p.first_seen_at ? new Date(p.first_seen_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—')"></span>
                       </td>
 
-                      <!-- Actions -->
-                      <td class="py-2.5 px-3 text-center">
+                      <!-- Actions: Eye icon and External Link -->
+                      <td x-show="visibleMasterColumns.actions" class="py-2.5 px-3 text-center">
                         <div class="inline-flex items-center gap-1.5 justify-center">
-                          <a :href="'/pin/' + p.pin_id" @click.prevent="openPinDossier(p)" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-400 text-[11px] font-bold hover:bg-rose-500/20 transition cursor-pointer" title="Inspect Pin">
-                            <i data-lucide="eye" class="w-3 h-3"></i>
-                            <span>Inspect</span>
+                          <a :href="'/pin/' + p.pin_id" @click.prevent="openPinDossier(p)" class="inline-flex items-center justify-center h-7 w-7 rounded-lg border border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-400 hover:bg-rose-500/20 transition cursor-pointer" title="Inspect Pin Dossier">
+                            <i data-lucide="eye" class="w-3.5 h-3.5"></i>
                           </a>
                           <a :href="'https://www.pinterest.com/pin/' + p.pin_id + '/'" target="_blank" rel="noopener noreferrer" class="inline-flex items-center justify-center h-7 w-7 rounded-lg text-slate-500 hover:text-rose-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition" title="Open on Pinterest">
                             <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
@@ -6362,6 +6386,50 @@ export function getDashboardHtml() {
         isLoadingAllPins: false,
         isHarvestingAllPins: false,
         isDispatchingGitHubCrawl: false,
+
+        // Master Pin Ledger Columns Customization State
+        masterColumnDefinitions: [
+          { key: 'media', label: 'Media / Thumbnail', required: false },
+          { key: 'title', label: 'Pin Title & Destination', required: true },
+          { key: 'board', label: 'Board', required: false },
+          { key: 'saves', label: 'Saves (with 24h Δ)', required: false },
+          { key: 'repins', label: 'Repins (with 24h Δ)', required: false },
+          { key: 'status', label: 'Status Badges', required: false },
+          { key: 'created_at', label: 'Created / Discovered', required: false },
+          { key: 'actions', label: 'Actions', required: false }
+        ],
+        visibleMasterColumns: {
+          media: true,
+          title: true,
+          board: true,
+          saves: true,
+          repins: true,
+          status: true,
+          created_at: true,
+          actions: true
+        },
+        toggleMasterColumn(key) {
+          if (key === 'title') return;
+          this.visibleMasterColumns[key] = !this.visibleMasterColumns[key];
+          try {
+            localStorage.setItem('creator_master_visible_columns', JSON.stringify(this.visibleMasterColumns));
+          } catch (_) {}
+        },
+        resetMasterColumns() {
+          this.visibleMasterColumns = {
+            media: true,
+            title: true,
+            board: true,
+            saves: true,
+            repins: true,
+            status: true,
+            created_at: true,
+            actions: true
+          };
+          try {
+            localStorage.removeItem('creator_master_visible_columns');
+          } catch (_) {}
+        },
 
         // Top Destination URLs State
         activeCreatorTopUrls: [],
@@ -8097,6 +8165,13 @@ export function getDashboardHtml() {
             const savedTheme = typeof localStorage !== 'undefined' ? localStorage.getItem('pin_theme') : null;
             if (savedTheme) {
               this.isDark = savedTheme === 'dark';
+            }
+          } catch (_) {}
+          try {
+            const savedCols = typeof localStorage !== 'undefined' ? localStorage.getItem('creator_master_visible_columns') : null;
+            if (savedCols) {
+              const parsed = JSON.parse(savedCols);
+              this.visibleMasterColumns = { ...this.visibleMasterColumns, ...parsed, title: true };
             }
           } catch (_) {}
           this.$watch('creatorSubTab', (val) => {

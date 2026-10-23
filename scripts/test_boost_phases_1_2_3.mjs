@@ -355,6 +355,39 @@ runTest('Phase 3.6: All-pins UI overhaul & metric wiring verification', () => {
   assert.ok(updatedCompServiceCode.includes('[^[:alnum:]]+'), 'competitor service must use REGEXP_REPLACE for resilient board matching');
 });
 
+runTest('Phase 3.7: Master Pin Ledger table customization (Columns dropdown, 24h deltas, compact emoji badges)', () => {
+  const updatedDashUiCode = fs.readFileSync(path.resolve('src/dashboard-ui.mjs'), 'utf8');
+  const updatedCompServiceCode = fs.readFileSync(path.resolve('src/modules/competitors/service.mjs'), 'utf8');
+
+  // Columns customization feature
+  assert.ok(updatedDashUiCode.includes('masterColumnDefinitions'), 'Must define masterColumnDefinitions in state');
+  assert.ok(updatedDashUiCode.includes('visibleMasterColumns'), 'Must define visibleMasterColumns in state');
+  assert.ok(updatedDashUiCode.includes('toggleMasterColumn(col.key)'), 'Must bind toggleMasterColumn');
+  assert.ok(updatedDashUiCode.includes('resetMasterColumns()'), 'Must bind resetMasterColumns');
+  assert.ok(updatedDashUiCode.includes('localStorage.getItem(\'creator_master_visible_columns\')'), 'Must hydrate visible columns from localStorage');
+
+  // Column header parity
+  assert.ok(updatedDashUiCode.includes('x-show="visibleMasterColumns.media"'), 'Media column must be toggleable');
+  assert.ok(updatedDashUiCode.includes('x-show="visibleMasterColumns.title"'), 'Title column must be toggleable');
+  assert.ok(updatedDashUiCode.includes('x-show="visibleMasterColumns.board"'), 'Board column must be toggleable');
+  assert.ok(updatedDashUiCode.includes('x-show="visibleMasterColumns.saves"'), 'Saves column must be toggleable');
+  assert.ok(updatedDashUiCode.includes('x-show="visibleMasterColumns.repins"'), 'Repins column must be toggleable');
+  assert.ok(updatedDashUiCode.includes('x-show="visibleMasterColumns.status"'), 'Status column must be toggleable');
+  assert.ok(updatedDashUiCode.includes('x-show="visibleMasterColumns.created_at"'), 'Created_at column must be toggleable');
+  assert.ok(updatedDashUiCode.includes('x-show="visibleMasterColumns.actions"'), 'Actions column must be toggleable');
+
+  // 24h delta indicators under Saves & Repins
+  assert.ok(updatedCompServiceCode.includes('delta_saves_24h'), 'Competitor service must project delta_saves_24h');
+  assert.ok(updatedCompServiceCode.includes('delta_repins_24h'), 'Competitor service must project delta_repins_24h');
+  assert.ok(updatedDashUiCode.includes("'+' + formatNumber(Math.round(p.delta_saves_24h || p.velocity || 0)) + ' 24h'"), 'Must render 24h saves delta badge');
+  assert.ok(updatedDashUiCode.includes("'+' + formatNumber(Math.round(p.delta_repins_24h)) + ' 24h'"), 'Must render 24h repins delta badge');
+
+  // Compact icon and emoji badges
+  assert.ok(updatedDashUiCode.includes('title="Qualified Winner">\n                              <span>🏆</span>'), 'Qualified badge must be compact 🏆');
+  assert.ok(updatedDashUiCode.includes('<span>🎯</span>'), 'SERP badge must be compact 🎯');
+  assert.ok(updatedDashUiCode.includes('title="Inspect Pin Dossier">\n                            <i data-lucide="eye" class="w-3.5 h-3.5"></i>'), 'Inspect action must be compact eye icon button');
+});
+
 console.log(`\n================================================================================`);
 console.log(`🎉 ALL ${passedTests}/${totalTests} BOOST PHASES 1, 2 & 3 INTEGRATION TESTS PASSED (100% GREEN)`);
 console.log(`================================================================================\n`);

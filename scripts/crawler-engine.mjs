@@ -1905,6 +1905,7 @@ async function runDailyScheduledMode(sqlClient, shardSql, shardNumber, shardTota
                 const freshComments = Math.max(prevComments, rawFreshComments);
                 const freshShares = Math.max(prevShares, rawFreshShares);
                 const deltaSaves = Math.max(0, freshSaves - prevSaves);
+                const deltaRepins = Math.max(0, freshRepins - prevRepins);
 
                 // Multi-Day Time-Normalized Velocity Calculation with Intraday Ratchet Protection
                 // [INVARIANT: VELOCITY-RATCHET-SYMMETRY]
@@ -1949,7 +1950,9 @@ async function runDailyScheduledMode(sqlClient, shardSql, shardNumber, shardTota
                   repins: freshRepins,
                   comments: freshComments,
                   share_count: freshShares,
-                  velocity: velocity
+                  velocity: velocity,
+                  delta_saves: deltaSaves,
+                  delta_repins: deltaRepins
                 });
 
                 metricSnapshots.push({
@@ -2002,12 +2005,15 @@ async function runDailyScheduledMode(sqlClient, shardSql, shardNumber, shardTota
             SET save_count = GREATEST(cp.save_count, x.saves::int),
                 repin_count = GREATEST(cp.repin_count, x.repins::int),
                 comment_count = GREATEST(cp.comment_count, x.comments::int),
+                metadata = COALESCE(cp.metadata, '{}'::jsonb) || jsonb_build_object('delta_saves_24h', x.delta_saves, 'delta_repins_24h', x.delta_repins),
                 updated_at = NOW()
             FROM jsonb_to_recordset(${jsonPayload}::jsonb) AS x(
               pin_id VARCHAR(64),
               saves BIGINT,
               repins BIGINT,
-              comments INT
+              comments INT,
+              delta_saves NUMERIC,
+              delta_repins NUMERIC
             )
             WHERE cp.competitor_id = ${acc.id}
               AND cp.pin_id = x.pin_id;
