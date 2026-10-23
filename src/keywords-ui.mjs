@@ -151,17 +151,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
         </div>
       </div>
 
-      <!-- Center: Fleet Multi-Project Selector -->
-      <div class="hidden lg:flex items-center space-x-2 px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs">
-        <i data-lucide="server" class="w-3.5 h-3.5 text-cyan-500"></i>
-        <span class="text-slate-400 font-medium">Fleet:</span>
-        <select x-model="selectedProjectId" @change="onProjectChange()" class="bg-transparent text-xs font-medium text-slate-900 dark:text-slate-100 focus:outline-none cursor-pointer">
-          <option value="">Central Hub (Default)</option>
-          <template x-for="p in fleetProjects" :key="p.project_id">
-            <option :value="p.project_id" x-text="p.project_name + (p.is_hub ? ' [Hub]' : '')"></option>
-          </template>
-        </select>
-      </div>
+
 
       <!-- Right Header Actions -->
       <div class="flex items-center space-x-1.5 sm:space-x-2">

@@ -91,6 +91,20 @@ export async function handlePagesRoutes(routeCtx) {
     });
   }
 
+  // 3B. Fast Edge /fleet Redirect (Redirect legacy Fleet Manager UI to Overview)
+  if (pathLower === '/fleet' || pathLower === '/fleet/') {
+    if (method !== 'GET' && method !== 'HEAD') {
+      return methodNotAllowedResponse('GET, OPTIONS');
+    }
+    return new Response(null, {
+      status: 302,
+      headers: {
+        'Location': '/',
+        'Cache-Control': 'no-cache, no-store, must-revalidate'
+      }
+    });
+  }
+
   // 4. Level 1B: Keyword Discovery & Autocomplete Hub
   if (
     pathLower === '/keywords/discovery' ||

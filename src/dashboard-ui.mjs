@@ -117,7 +117,7 @@ export function getDashboardHtml() {
           </div>
           <div>
             <div class="font-bold text-sm text-slate-900 dark:text-white">Pin Arbitrage</div>
-            <div class="text-[10px] text-slate-500 font-mono">Predictive V3 Fleet</div>
+            <div class="text-[10px] text-slate-500 font-mono">V3 Predictive</div>
           </div>
         </div>
         <button @click="isMobileMenuOpen = false" class="text-slate-400 hover:text-slate-700 dark:hover:text-white p-1 rounded-lg">
@@ -125,37 +125,7 @@ export function getDashboardHtml() {
         </button>
       </div>
 
-      <!-- Mobile Unified Storage Engine Status & Collapsible DevOps Shard Inspector -->
-      <div class="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 text-xs space-y-1.5">
-        <div class="flex items-center justify-between text-[11px] font-semibold text-slate-700 dark:text-slate-300">
-          <span class="flex items-center space-x-1.5">
-            <span class="relative flex h-2 w-2">
-              <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-            </span>
-            <span class="font-bold">Unified Fleet Engine</span>
-          </span>
-          <span class="font-mono text-[10px] text-cyan-600 dark:text-cyan-400 font-bold px-1.5 py-0.5 rounded bg-cyan-500/10 border border-cyan-500/20" x-text="(fleetProjects.length || 100) + ' Nodes (100 GB)'"></span>
-        </div>
-        <div class="flex items-center justify-between text-[10.5px] text-slate-500 pt-0.5">
-          <span class="truncate max-w-[170px]" x-text="selectedProject === 'all' ? '🌐 Mode: All Projects (Auto)' : '📦 Node: ' + selectedProject"></span>
-          <button type="button" @click="showDevOpsFleetSelector = !showDevOpsFleetSelector; $nextTick(() => { if (window.lucide) window.lucide.createIcons(); })" class="text-cyan-600 dark:text-cyan-400 hover:underline cursor-pointer shrink-0 ml-1 font-semibold flex items-center gap-0.5">
-            <span x-text="showDevOpsFleetSelector ? 'Close' : 'Inspect'"></span>
-            <i data-lucide="sliders-horizontal" class="w-3 h-3"></i>
-          </button>
-        </div>
-        <!-- Collapsible Shard Picker (DevOps Only) -->
-        <div x-show="showDevOpsFleetSelector" x-transition class="pt-1.5 space-y-1 border-t border-slate-200 dark:border-slate-800">
-          <div class="text-[10px] text-slate-400">Manual Node Override (DevOps):</div>
-          <select x-model="selectedProject" @change="switchProject(selectedProject); isMobileMenuOpen = false" class="w-full bg-white dark:bg-[#070c18] border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1.5 text-xs font-bold text-slate-800 dark:text-slate-200 outline-none">
-            <option value="all">🌐 All Projects (Fleet View - Recommended)</option>
-            <option value="weathered-band-34334459">⚡ weathered-band-34334459 (Hub)</option>
-            <template x-for="p in fleetProjects.filter(p => !p.is_hub)" :key="p.project_id">
-              <option :value="p.project_id" x-text="'📦 ' + p.project_name"></option>
-            </template>
-          </select>
-        </div>
-      </div>
+
 
       <!-- Mobile Quick Actions -->
       <div class="space-y-1.5">
@@ -228,14 +198,7 @@ export function getDashboardHtml() {
           </div>
         </button>
 
-        <!-- Neon Fleet Tab -->
-        <button @click="switchTab('fleet'); isMobileMenuOpen = false" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition" :class="currentTab === 'fleet' ? 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 font-bold border border-cyan-500/20' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900/60'">
-          <div class="flex items-center space-x-2.5">
-            <i data-lucide="server" class="w-4 h-4 text-cyan-500"></i>
-            <span>Neon Fleet (100)</span>
-          </div>
-          <span class="px-2 py-0.5 rounded-full text-[11px] font-mono font-bold bg-cyan-500/10 text-cyan-700 dark:text-cyan-400" x-text="fleetProjects.length"></span>
-        </button>
+
       </nav>
 
       <!-- Mobile Drawer Footer -->
@@ -280,37 +243,7 @@ export function getDashboardHtml() {
         </div>
       </div>
 
-      <!-- Unified Storage Engine Status & Collapsible DevOps Shard Inspector -->
-      <div class="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 text-xs shadow-inner space-y-1.5">
-        <div class="flex items-center justify-between text-[11px] font-semibold text-slate-700 dark:text-slate-300">
-          <span class="flex items-center space-x-1.5">
-            <span class="relative flex h-2 w-2">
-              <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-            </span>
-            <span class="font-bold">Unified Fleet Engine</span>
-          </span>
-          <span class="font-mono text-[10px] text-cyan-600 dark:text-cyan-400 font-bold px-1.5 py-0.5 rounded bg-cyan-500/10 border border-cyan-500/20" x-text="(fleetProjects.length || 100) + ' Nodes (100 GB)'"></span>
-        </div>
-        <div class="flex items-center justify-between text-[10.5px] text-slate-500 pt-0.5">
-          <span class="truncate max-w-[170px]" :title="selectedProject === 'all' ? 'Auto-routed across 100 shards' : selectedProject" x-text="selectedProject === 'all' ? '🌐 Mode: All Projects (Auto-Routed)' : '📦 Node: ' + selectedProject"></span>
-          <button type="button" @click="showDevOpsFleetSelector = !showDevOpsFleetSelector; $nextTick(() => { if (window.lucide) window.lucide.createIcons(); })" class="text-cyan-600 dark:text-cyan-400 hover:underline cursor-pointer shrink-0 ml-1 font-semibold flex items-center gap-0.5">
-            <span x-text="showDevOpsFleetSelector ? 'Close' : 'Inspect'"></span>
-            <i data-lucide="sliders-horizontal" class="w-3 h-3"></i>
-          </button>
-        </div>
-        <!-- Collapsible Shard Picker (DevOps Only) -->
-        <div x-show="showDevOpsFleetSelector" x-transition class="pt-1.5 space-y-1 border-t border-slate-200 dark:border-slate-800">
-          <div class="text-[10px] text-slate-400">Manual Node Override (DevOps):</div>
-          <select x-model="selectedProject" @change="switchProject(selectedProject)" class="w-full bg-white dark:bg-[#070c18] border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1.5 text-xs font-bold text-slate-800 dark:text-slate-200 outline-none cursor-pointer">
-            <option value="all">🌐 All Projects (Fleet View - Recommended)</option>
-            <option value="weathered-band-34334459">⚡ weathered-band-34334459 (Hub)</option>
-            <template x-for="p in fleetProjects.filter(p => !p.is_hub)" :key="p.project_id">
-              <option :value="p.project_id" x-text="'📦 ' + p.project_name"></option>
-            </template>
-          </select>
-        </div>
-      </div>
+
 
       <!-- Quick Action Buttons -->
       <div class="space-y-1.5 pt-1">
@@ -388,14 +321,7 @@ export function getDashboardHtml() {
           </div>
         </button>
 
-        <!-- Neon Projects Fleet (/fleet) -->
-        <button @click="switchTab('fleet')" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition" :class="currentTab === 'fleet' ? 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 font-bold border border-cyan-500/20 shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900/60 hover:text-slate-900 dark:hover:text-slate-200'">
-          <div class="flex items-center space-x-2.5">
-            <i data-lucide="server" class="w-4 h-4 text-cyan-500"></i>
-            <span>Neon Fleet (100)</span>
-          </div>
-          <span class="px-2 py-0.5 rounded-full text-[11px] font-mono font-bold bg-cyan-500/10 text-cyan-700 dark:text-cyan-400" x-text="fleetProjects.length"></span>
-        </button>
+
       </nav>
     </div>
 
@@ -1379,7 +1305,6 @@ export function getDashboardHtml() {
             <div class="flex flex-wrap items-center gap-2">
               <h1 class="text-xl sm:text-2xl font-black tracking-tight text-slate-900 dark:text-white">Executive Command Center</h1>
               <span class="px-2.5 py-0.5 text-[10px] font-bold uppercase rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30">V3 Predictive Hub</span>
-              <span class="px-2.5 py-0.5 text-[10px] font-mono font-bold rounded-full bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/30" x-text="(fleetProjects.length || 100) + ' Compute Nodes'"></span>
             </div>
             <p class="text-xs text-slate-500 dark:text-slate-400">
               Fast-access command hub across Creators & PinArchive, Keywords Fleet SERP, Board Ideas Radar, and Cluster Graph Telemetry.
@@ -1627,27 +1552,7 @@ export function getDashboardHtml() {
 
       </div>
 
-      <!-- Infrastructure Status & Neon Shard Engine Banner -->
-      <div class="p-4 sm:p-5 rounded-2xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div class="flex items-center space-x-3">
-          <div class="p-2 rounded-xl bg-cyan-500/10 text-cyan-500">
-            <i data-lucide="server" class="w-5 h-5"></i>
-          </div>
-          <div class="space-y-0.5">
-            <div class="flex items-center space-x-2 text-xs font-bold text-slate-800 dark:text-slate-200">
-              <span>Neon Multi-Project Fleet Engine</span>
-              <span class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold">100 Shards Operational</span>
-            </div>
-            <p class="text-[11px] text-slate-500">100 GB NVMe Storage Pool • Scale-to-Zero Architecture • Single Hub Concurrency</p>
-          </div>
-        </div>
-        <div class="flex items-center space-x-2">
-          <button @click="switchTab('fleet')" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-600 dark:text-cyan-400 border border-cyan-500/30 transition flex items-center space-x-1 cursor-pointer">
-            <i data-lucide="sliders-horizontal" class="w-3.5 h-3.5"></i>
-            <span>Inspect Fleet Shards</span>
-          </button>
-        </div>
-      </div>
+
 
     </div>
 
@@ -6645,320 +6550,7 @@ export function getDashboardHtml() {
     </div>
 
 
-    <!-- ======================================================== -->
-    <!-- TAB 6: ⚡ NEON MULTI-PROJECT FLEET MANAGER (ENTERPRISE UX) -->
-    <!-- 100 Serverless Projects & 100 GB Pooled Storage           -->
-    <!-- ======================================================== -->
-    <div x-show="currentTab === 'fleet'" class="space-y-6">
-      
-      <!-- Top Fleet Header -->
-      <div class="flex flex-col xl:flex-row xl:items-center justify-between gap-4 p-5 rounded-3xl bg-gradient-to-br from-white via-slate-50 to-cyan-50/20 dark:from-[#0b1120] dark:via-[#090d18] dark:to-cyan-950/10 border border-slate-200/90 dark:border-slate-800 shadow-sm">
-        <div class="flex items-start sm:items-center space-x-3.5">
-          <div class="h-12 w-12 rounded-2xl bg-gradient-to-tr from-cyan-600 to-blue-500 text-white flex items-center justify-center shadow-md shadow-cyan-500/20 shrink-0">
-            <i data-lucide="server" class="w-6 h-6"></i>
-          </div>
-          <div class="space-y-1">
-            <div class="flex flex-wrap items-center gap-2">
-              <h2 class="text-xl sm:text-2xl font-black tracking-tight text-slate-900 dark:text-white">Neon Multi-Project Fleet Manager</h2>
-              <span class="px-2.5 py-0.5 text-[10px] font-bold uppercase rounded-full bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/30">100 Compute Nodes</span>
-              <span class="px-2.5 py-0.5 text-[10px] font-bold rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">Free Plan ($0/mo)</span>
-            </div>
-            <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
-              <span class="inline-flex items-center gap-1.5 font-mono">
-                <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                <span>Org: <strong class="text-slate-700 dark:text-slate-200">pin-arbitrage-engine</strong></span>
-                <span class="text-slate-300 dark:text-slate-700">•</span>
-                <span class="text-cyan-600 dark:text-cyan-400 font-bold hover:underline cursor-pointer" title="Click to copy Org ID" @click="navigator.clipboard.writeText('org-bold-king-11968123'); showToast('Copied Org ID: org-bold-king-11968123')">org-bold-king-11968123</span>
-              </span>
-              <span class="text-slate-300 dark:text-slate-700 hidden sm:inline">•</span>
-              <span>100 GB NVMe Storage (1 GB/Node) • 10,000 CU-Hours • Scale-to-Zero</span>
-            </div>
-          </div>
-        </div>
 
-        <!-- Action Buttons -->
-        <div class="flex flex-wrap items-center gap-2">
-          <button @click="pingFleetBatchAction()" :disabled="isPingingAllFleet" class="px-3.5 py-2 text-xs font-bold rounded-xl border border-purple-500/30 bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 transition flex items-center space-x-1.5 shadow-2xs active:scale-95 disabled:opacity-50 cursor-pointer" title="Test network response time across a sample of Neon projects">
-            <i data-lucide="zap" class="w-3.5 h-3.5 text-purple-500" :class="isPingingAllFleet ? 'animate-bounce' : ''"></i>
-            <span x-text="isPingingAllFleet ? 'Pinging Sample...' : (fleetPingSummary ? '⚡ Latency: ' + fleetPingSummary.avg_ms + 'ms' : '⚡ Health Check')"></span>
-          </button>
-          <button @click="syncAllFleetDatabasesAction()" :disabled="isSyncingFleet" class="px-3.5 py-2 text-xs font-bold rounded-xl border border-cyan-500/30 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-600 dark:text-cyan-400 transition flex items-center space-x-1.5 shadow-2xs active:scale-95 disabled:opacity-50 cursor-pointer" title="Synchronize all competitor profiles & boards from Hub across all 99 Neon shard databases">
-            <i data-lucide="refresh-cw" class="w-3.5 h-3.5 text-cyan-500" :class="isSyncingFleet ? 'animate-spin' : ''"></i>
-            <span x-text="isSyncingFleet ? 'Syncing Fleet...' : '🔄 Sync Fleet (100 DBs)'"></span>
-          </button>
-          <button @click="isAddFleetModalOpen = true" class="px-3.5 py-2 text-xs font-bold rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white transition flex items-center space-x-1.5 shadow-sm shadow-cyan-950/20 active:scale-95 cursor-pointer">
-            <i data-lucide="plus" class="w-3.5 h-3.5"></i>
-            <span>+ Add Project</span>
-          </button>
-        </div>
-      </div>
-
-      <!-- Fleet KPI Cards -->
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <!-- Card 1: Registered Nodes -->
-        <div class="p-5 rounded-2xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 shadow-sm relative overflow-hidden group hover:border-cyan-500/40 transition">
-          <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider">
-            <span>REGISTERED NODES</span>
-            <div class="p-2 rounded-xl bg-cyan-500/10 text-cyan-500">
-              <i data-lucide="layers" class="w-4 h-4"></i>
-            </div>
-          </div>
-          <div class="mt-3 flex items-baseline space-x-2">
-            <span class="text-3xl font-extrabold text-cyan-600 dark:text-cyan-400 font-mono" x-text="fleetProjects.length"></span>
-            <span class="text-xs text-slate-400 font-mono">/ 100 Capacity</span>
-          </div>
-          <div class="mt-2.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
-            <div class="bg-gradient-to-r from-cyan-500 to-blue-500 h-1.5 rounded-full" :style="'width: ' + Math.min(100, (fleetProjects.length || 100)) + '%'"></div>
-          </div>
-          <div class="mt-3 flex items-center justify-between text-[11px] text-slate-500">
-            <span>1 Hub Master • 99 Shards</span>
-            <span class="font-bold text-emerald-600 dark:text-emerald-400">100% Free Quota</span>
-          </div>
-        </div>
-
-        <!-- Card 2: Pooled NVMe Storage -->
-        <div class="p-5 rounded-2xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 shadow-sm relative overflow-hidden group hover:border-emerald-500/40 transition">
-          <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider">
-            <span>TOTAL POOLED STORAGE</span>
-            <div class="p-2 rounded-xl bg-emerald-500/10 text-emerald-500">
-              <i data-lucide="hard-drive" class="w-4 h-4"></i>
-            </div>
-          </div>
-          <div class="mt-3 flex items-baseline space-x-2">
-            <span class="text-3xl font-extrabold text-emerald-600 dark:text-emerald-400 font-mono" x-text="(fleetProjects.length * 1.0) + ' GB'"></span>
-            <span class="text-xs text-slate-400 font-mono">NVMe</span>
-          </div>
-          <div class="mt-2.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
-            <div class="bg-gradient-to-r from-emerald-500 to-teal-400 h-1.5 rounded-full" style="width: 100%"></div>
-          </div>
-          <div class="mt-3 flex items-center justify-between text-[11px] text-slate-500">
-            <span>1 GB per isolated project</span>
-            <span class="font-bold text-cyan-600 dark:text-cyan-400">0% Bloat</span>
-          </div>
-        </div>
-
-        <!-- Card 3: Compute Budget -->
-        <div class="p-5 rounded-2xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 shadow-sm relative overflow-hidden group hover:border-purple-500/40 transition">
-          <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider">
-            <span>COMPUTE CAPACITY</span>
-            <div class="p-2 rounded-xl bg-purple-500/10 text-purple-500">
-              <i data-lucide="cpu" class="w-4 h-4"></i>
-            </div>
-          </div>
-          <div class="mt-3 flex items-baseline space-x-2">
-            <span class="text-3xl font-extrabold text-purple-600 dark:text-purple-400 font-mono" x-text="formatNumber(fleetProjects.length * 100) + ' hrs'"></span>
-            <span class="text-xs text-slate-400 font-mono">/ mo</span>
-          </div>
-          <div class="mt-2.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
-            <div class="bg-gradient-to-r from-purple-500 to-indigo-500 h-1.5 rounded-full" style="width: 100%"></div>
-          </div>
-          <div class="mt-3 flex items-center justify-between text-[11px] text-slate-500">
-            <span>Autoscales up to 2 CU</span>
-            <span class="font-bold text-purple-600 dark:text-purple-400">Scale-to-Zero (0 CU)</span>
-          </div>
-        </div>
-
-        <!-- Card 4: Architecture & Topology -->
-        <div class="p-5 rounded-2xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 shadow-sm relative overflow-hidden group hover:border-rose-500/40 transition">
-          <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider">
-            <span>TOPOLOGY & ISOLATION</span>
-            <div class="p-2 rounded-xl bg-rose-500/10 text-rose-500">
-              <i data-lucide="shield-check" class="w-4 h-4"></i>
-            </div>
-          </div>
-          <div class="mt-3 flex items-baseline space-x-2">
-            <span class="text-2xl font-extrabold text-rose-600 dark:text-rose-400 font-mono">Hub & Spoke</span>
-          </div>
-          <div class="mt-2.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
-            <div class="bg-gradient-to-r from-rose-500 to-amber-500 h-1.5 rounded-full" style="width: 100%"></div>
-          </div>
-          <div class="mt-3 flex items-center justify-between text-[11px] text-slate-500">
-            <span>AWS us-east-2 (Ohio)</span>
-            <span class="font-bold text-emerald-600 dark:text-emerald-400">Zero-Bleed Tenants</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- Fleet Projects Table Container -->
-      <div class="p-5 rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 space-y-4 shadow-sm">
-        
-        <!-- Controls Toolbar: Search, Filter Tabs, and View Options -->
-        <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3 border-b border-slate-200 dark:border-slate-800/80">
-          
-          <!-- Search & Filter Tabs -->
-          <div class="flex flex-wrap items-center gap-2.5 flex-1">
-            <!-- Search Input -->
-            <div class="relative min-w-[240px] max-w-sm flex-1">
-              <i data-lucide="search" class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"></i>
-              <input type="text" x-model="fleetSearch" @input="fleetPage = 1" placeholder="Search project name, ID, region, or host..." class="w-full pl-9 pr-8 py-2 rounded-xl text-xs bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:ring-2 focus:ring-cyan-500/40 text-slate-900 dark:text-white">
-              <button x-show="fleetSearch" @click="fleetSearch = ''; fleetPage = 1" class="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer">
-                <i data-lucide="x" class="w-3.5 h-3.5"></i>
-              </button>
-            </div>
-
-            <!-- Role Segmented Tabs -->
-            <div class="flex items-center p-1 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 text-xs">
-              <button type="button" @click="fleetRoleFilter = 'all'; fleetPage = 1" class="px-2.5 py-1 rounded-lg font-bold transition cursor-pointer" :class="fleetRoleFilter === 'all' ? 'bg-white dark:bg-[#0f172a] text-cyan-600 dark:text-cyan-400 shadow-xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">
-                All (<span x-text="fleetProjects.length"></span>)
-              </button>
-              <button type="button" @click="fleetRoleFilter = 'hub'; fleetPage = 1" class="px-2.5 py-1 rounded-lg font-bold transition cursor-pointer" :class="fleetRoleFilter === 'hub' ? 'bg-white dark:bg-[#0f172a] text-amber-600 dark:text-amber-400 shadow-xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">
-                👑 Hub (1)
-              </button>
-              <button type="button" @click="fleetRoleFilter = 'shard'; fleetPage = 1" class="px-2.5 py-1 rounded-lg font-bold transition cursor-pointer" :class="fleetRoleFilter === 'shard' ? 'bg-white dark:bg-[#0f172a] text-cyan-600 dark:text-cyan-400 shadow-xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">
-                📦 Shards (<span x-text="Math.max(0, fleetProjects.length - 1)"></span>)
-              </button>
-            </div>
-          </div>
-
-          <!-- Pagination & Page Size -->
-          <div class="flex items-center space-x-2 shrink-0 text-xs">
-            <span class="text-slate-400 text-[11px] font-mono hidden sm:inline" x-text="'Showing ' + (filteredFleetProjects.length > 0 ? ((fleetPage - 1) * fleetPageSize + 1) : 0) + '-' + Math.min(fleetPage * fleetPageSize, filteredFleetProjects.length) + ' of ' + filteredFleetProjects.length"></span>
-            
-            <select x-model="fleetPageSize" @change="fleetPage = 1" class="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-300 font-mono outline-none cursor-pointer">
-              <option :value="15">15 / page</option>
-              <option :value="25">25 / page</option>
-              <option :value="50">50 / page</option>
-              <option :value="100">All 100</option>
-            </select>
-
-            <button type="button" @click="if (fleetPage > 1) fleetPage--" :disabled="fleetPage <= 1" class="p-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 disabled:opacity-40 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer" title="Previous Page">
-              <i data-lucide="chevron-left" class="w-4 h-4"></i>
-            </button>
-            <span class="font-mono text-xs font-bold text-slate-700 dark:text-slate-300 px-1" x-text="fleetPage + ' / ' + fleetTotalPages"></span>
-            <button type="button" @click="if (fleetPage < fleetTotalPages) fleetPage++" :disabled="fleetPage >= fleetTotalPages" class="p-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 disabled:opacity-40 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer" title="Next Page">
-              <i data-lucide="chevron-right" class="w-4 h-4"></i>
-            </button>
-          </div>
-        </div>
-
-        <!-- The Fixed Table -->
-        <div class="overflow-x-auto rounded-2xl border border-slate-200/80 dark:border-slate-800/80">
-          <table class="w-full text-left text-xs border-collapse">
-            <thead>
-              <tr class="bg-slate-50/80 dark:bg-slate-900/60 border-b border-slate-200 dark:border-slate-800 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                <th class="py-3 px-3.5 whitespace-nowrap min-w-[110px]">Role</th>
-                <th class="py-3 px-3.5 whitespace-nowrap min-w-[170px]">Project Name</th>
-                <th class="py-3 px-3.5 whitespace-nowrap min-w-[170px]">Project ID</th>
-                <th class="py-3 px-3.5 whitespace-nowrap min-w-[110px]">Region</th>
-                <th class="py-3 px-3.5 whitespace-nowrap min-w-[95px]">Status</th>
-                <th class="py-3 px-3.5 whitespace-nowrap min-w-[210px]">Synced Inventory</th>
-                <th class="py-3 px-3.5 whitespace-nowrap min-w-[220px]">Connection Endpoint</th>
-                <th class="py-3 px-3.5 whitespace-nowrap min-w-[140px] text-center">Actions</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60">
-              <template x-for="p in paginatedFleetProjects" :key="p.id">
-                <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition">
-                  <!-- Role -->
-                  <td class="py-3 px-3.5 whitespace-nowrap">
-                    <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase font-mono" :class="p.is_hub ? 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700'">
-                      <span x-text="p.is_hub ? '👑 HUB MASTER' : '📦 SHARD'"></span>
-                    </span>
-                  </td>
-
-                  <!-- Project Name -->
-                  <td class="py-3 px-3.5 font-sans whitespace-nowrap">
-                    <div class="font-bold text-slate-900 dark:text-white" x-text="p.project_name"></div>
-                    <div class="text-[10px] text-slate-400 font-mono" x-text="p.is_hub ? 'Primary Ingestion Cluster' : 'Partition ' + (p.id ? '#' + p.id : '')"></div>
-                  </td>
-
-                  <!-- Project ID -->
-                  <td class="py-3 px-3.5 whitespace-nowrap font-mono text-[11px] text-slate-600 dark:text-slate-400">
-                    <button type="button" @click="navigator.clipboard.writeText(p.project_id); showToast('Copied project ID: ' + p.project_id)" class="inline-flex items-center gap-1.5 hover:text-cyan-500 transition cursor-pointer group" :title="'Click to copy project ID: ' + p.project_id">
-                      <span class="font-mono" x-text="p.project_id"></span>
-                      <i data-lucide="copy" class="w-3 h-3 text-slate-400 opacity-0 group-hover:opacity-100 transition"></i>
-                    </button>
-                  </td>
-
-                  <!-- Region -->
-                  <td class="py-3 px-3.5 whitespace-nowrap font-mono text-[11px] text-slate-600 dark:text-slate-400">
-                    <span class="inline-flex items-center gap-1">
-                      <i data-lucide="globe" class="w-3 h-3 text-cyan-500 shrink-0"></i>
-                      <span x-text="p.region_id || 'aws-us-east-2'"></span>
-                    </span>
-                  </td>
-
-                  <!-- Status (Fixed: No broken wrapping!) -->
-                  <td class="py-3 px-3.5 whitespace-nowrap">
-                    <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                      <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                      <span class="capitalize" x-text="p.status || 'Active'"></span>
-                    </span>
-                  </td>
-
-                  <!-- Synced Inventory -->
-                  <td class="py-3 px-3.5 whitespace-nowrap">
-                    <div class="flex items-center gap-1.5">
-                      <span title="Tracked Creators" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10.5px] font-mono font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
-                        <i data-lucide="users" class="w-2.5 h-2.5"></i>
-                        <span x-text="(p.stats?.competitors ?? 0) + 'c'"></span>
-                      </span>
-                      <span title="Thematic Boards" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10.5px] font-mono font-bold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
-                        <i data-lucide="layout-grid" class="w-2.5 h-2.5"></i>
-                        <span x-text="(p.stats?.boards ?? 0) + 'b'"></span>
-                      </span>
-                      <span title="Winning Pins" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10.5px] font-mono font-bold bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20">
-                        <i data-lucide="pin" class="w-2.5 h-2.5"></i>
-                        <span x-text="(p.stats?.pins ?? 0) + 'p'"></span>
-                      </span>
-                    </div>
-                  </td>
-
-                  <!-- Connection Endpoint (Fixed: Sleek pill, No 120-char stretch!) -->
-                  <td class="py-3 px-3.5 whitespace-nowrap">
-                    <div class="flex items-center space-x-1.5">
-                      <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[11px] font-mono text-slate-600 dark:text-slate-400 max-w-[210px]" :title="p.masked_url">
-                        <i data-lucide="shield-check" class="w-3 h-3 text-emerald-500 shrink-0"></i>
-                        <span class="truncate font-mono" x-text="formatFleetHost(p.masked_url)"></span>
-                      </div>
-                      <button type="button" @click="copyFleetUrl(p)" class="px-2 py-1 rounded-lg text-[10.5px] font-bold bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20 transition flex items-center gap-1 cursor-pointer shrink-0" title="Copy full connection string">
-                        <i data-lucide="copy" class="w-3 h-3"></i>
-                        <span x-text="copiedField === 'url-' + p.id ? 'Copied!' : 'Copy'"></span>
-                      </button>
-                    </div>
-                  </td>
-
-                  <!-- Actions -->
-                  <td class="py-3 px-3.5 whitespace-nowrap text-center">
-                    <div class="inline-flex items-center space-x-1.5">
-                      <button @click="pingFleetShard(p)" :disabled="pingingProjectId === p.project_id" class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-[10px] font-sans font-semibold transition flex items-center space-x-1 cursor-pointer border border-slate-200 dark:border-slate-700 active:scale-95" title="Test serverless roundtrip latency">
-                        <template x-if="pingingProjectId === p.project_id">
-                          <span class="text-purple-600 dark:text-purple-400 flex items-center gap-1 font-mono">
-                            <span class="w-2 h-2 rounded-full bg-purple-500 animate-ping"></span> Ping...
-                          </span>
-                        </template>
-                        <template x-if="pingingProjectId !== p.project_id">
-                          <span>
-                            <span x-show="!p.ping_latency">Test Ping</span>
-                            <span x-show="p.ping_latency" class="font-mono text-emerald-600 dark:text-emerald-400 font-bold" x-text="'⚡ ' + p.ping_latency + 'ms'"></span>
-                          </span>
-                        </template>
-                      </button>
-                      <button type="button" @click="inspectFleetNode(p)" class="p-1 rounded-lg text-slate-400 hover:text-cyan-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer" title="Inspect Node Configuration">
-                        <i data-lucide="info" class="w-3.5 h-3.5"></i>
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              </template>
-
-              <!-- Empty State -->
-              <tr x-show="filteredFleetProjects.length === 0">
-                <td colspan="8" class="py-8 text-center text-slate-500 text-xs">
-                  <div class="flex flex-col items-center justify-center space-y-2">
-                    <i data-lucide="filter-x" class="w-8 h-8 text-slate-400"></i>
-                    <p class="font-bold">No projects match your search filter</p>
-                    <button type="button" @click="fleetSearch = ''; fleetRoleFilter = 'all'; fleetPage = 1" class="text-xs text-cyan-600 dark:text-cyan-400 underline font-semibold cursor-pointer">Reset all filters</button>
-                  </div>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-      </div>
-
-    </div>
     </div> <!-- Close !activePinId wrapper -->
 
   </main>
@@ -6982,7 +6574,7 @@ export function getDashboardHtml() {
             const f = (segs[0] || '').toLowerCase();
             if (f === 'accounts' || f === 'creators' || f === 'pinarchive') return 'creators_archive';
             if (f === 'related-pins' || f === 'related_pins' || f === 'seeds' || f === 'intersections') return 'related_pins';
-            if (f === 'fleet') return 'fleet';
+            if (f === 'fleet') return 'overview';
             if (f && !['api', 'fleet', 'settings', 'admin', 'health', 'favicon.ico', 'robots.txt', 'index.html', 'assets', 'static', 'pin', 'related_pins', 'related-pins', 'intersections', 'archive', 'explorer', 'accounts', 'creators', 'pinarchive', 'board-idea', 'board-ideas', 'keywords', 'overview', 'home', 'dashboard', 'domains'].includes(f)) {
               return 'creators_archive';
             }
@@ -8128,12 +7720,7 @@ export function getDashboardHtml() {
               window.history.pushState(null, '', '/accounts');
             }
           } else if (tab === 'fleet') {
-            if (this.activeCreator) this.closeCreatorProfile(false);
-            this.currentTab = 'fleet';
-            if (this.fleetProjects.length === 0) this.fetchFleetProjects();
-            if (typeof window !== 'undefined' && window.location.pathname !== '/fleet') {
-              window.history.pushState(null, '', '/fleet');
-            }
+            this.switchTab('overview');
           } else {
             this.currentTab = tab;
           }
@@ -8827,8 +8414,10 @@ export function getDashboardHtml() {
             if (cleanFirst === 'pin' && second) {
               this.openPinPage(second, false);
             } else if (cleanFirst === 'fleet') {
-              this.currentTab = 'fleet';
-              this.fetchFleetProjects();
+              this.currentTab = 'overview';
+              if (typeof window !== 'undefined' && window.location.pathname !== '/') {
+                window.history.replaceState(null, '', '/');
+              }
             } else if (cleanFirst === 'accounts' || cleanFirst === 'creators' || cleanFirst === 'pinarchive') {
               this.currentTab = 'creators_archive';
               if (second && CREATOR_SUB_TABS[second.toLowerCase()]) {
@@ -8877,8 +8466,10 @@ export function getDashboardHtml() {
                 if (this.activePinId) this.closePinPage(false);
                 if (this.activeBoardName) this.closeBoardPage(false);
                 if (this.activeCreator) this.closeCreatorProfile(false);
-                this.currentTab = 'fleet';
-                this.fetchFleetProjects();
+                this.currentTab = 'overview';
+                if (typeof window !== 'undefined' && window.location.pathname !== '/') {
+                  window.history.replaceState(null, '', '/');
+                }
               } else if (cleanPFirst === 'accounts' || cleanPFirst === 'creators' || cleanPFirst === 'pinarchive') {
                 if (this.activePinId) this.closePinPage(false);
                 if (this.activeBoardName) this.closeBoardPage(false);
