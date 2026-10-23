@@ -761,13 +761,11 @@ export function getPinDetailPageHtml(pinId = '') {
             <table class="w-full text-left text-xs border-collapse table-fixed">
               <colgroup>
                 <col class="w-10">
-                <col class="w-44">
+                <col class="w-52">
+                <col class="w-40">
                 <col class="w-32">
-                <col class="w-24">
-                <col class="w-28">
-                <col class="w-24">
                 <col class="w-auto">
-                <col class="w-32">
+                <col class="w-16">
               </colgroup>
               <thead>
                 <tr class="bg-slate-50 text-slate-500 uppercase tracking-wider text-[10px] font-semibold border-b border-slate-200 h-9">
@@ -775,9 +773,7 @@ export function getPinDetailPageHtml(pinId = '') {
                   <th class="py-2 px-3 font-semibold text-slate-600">Date</th>
                   <th class="py-2 px-3 font-semibold text-right text-slate-600">Total Saves</th>
                   <th class="py-2 px-3 font-semibold text-right text-slate-600">Repins</th>
-                  <th class="py-2 px-3 font-semibold text-right text-slate-600">Velocity</th>
-                  <th class="py-2 px-3 font-semibold text-center text-slate-600">Peak Rank</th>
-                  <th class="py-2 px-3 font-semibold text-slate-600">SERP Coverage</th>
+                  <th class="py-2 px-3 font-semibold text-center text-slate-600" x-text="selectedKeywordFilter === 'ALL' ? 'Peak Rank' : 'Keyword Rank'">Peak Rank</th>
                   <th class="py-2 px-3 font-semibold text-right pr-4 text-slate-600">Actions</th>
                 </tr>
               </thead>
@@ -787,7 +783,7 @@ export function getPinDetailPageHtml(pinId = '') {
                   <!-- Crawler Paused Indicator (Gap detection between crawls) -->
                   <template x-if="hasCrawlGap(day, idx)">
                     <tr class="bg-slate-50/80">
-                      <td colspan="8" class="py-1.5 px-4 text-center">
+                      <td colspan="6" class="py-1.5 px-4 text-center">
                         <div class="inline-flex items-center gap-2 px-3 py-0.5 rounded-full bg-slate-100 border border-slate-200 text-[10px] text-slate-500 font-mono">
                           <span>⏸️</span>
                           <span x-text="getCrawlGapText(day, idx)"></span>
@@ -802,14 +798,14 @@ export function getPinDetailPageHtml(pinId = '') {
                       <span class="inline-block transition-transform duration-200 text-[10px]" :class="isDayExpanded(day.snapshot_date) ? 'rotate-90 text-pink-600 font-bold' : ''">▶</span>
                     </td>
                     <!-- Date & time stacked -->
-                    <td class="py-2 px-3">
+                    <td class="py-2.5 px-3">
                       <div class="flex flex-col">
                         <span class="font-bold text-slate-900 text-xs" x-text="day.snapshot_date"></span>
                         <span class="text-[10px] text-slate-400 font-mono mt-0.5" :title="formatLocalTime(day.crawled_at || day.updated_at)" x-text="formatDateTime(day.crawled_at || day.updated_at)"></span>
                       </div>
                     </td>
                     <!-- Saves + 24h delta stacked -->
-                    <td class="py-2 px-3 text-right">
+                    <td class="py-2.5 px-3 text-right">
                       <div class="flex flex-col items-end">
                         <span class="font-bold text-slate-900 text-xs font-mono" x-text="formatNumber(day.save_count)"></span>
                         <template x-if="computeDeltaByDate(day.snapshot_date, 'save_count') > 0">
@@ -830,7 +826,7 @@ export function getPinDetailPageHtml(pinId = '') {
                       </div>
                     </td>
                     <!-- Repins + delta stacked -->
-                    <td class="py-2 px-3 text-right">
+                    <td class="py-2.5 px-3 text-right">
                       <div class="flex flex-col items-end">
                         <span class="font-semibold text-slate-800 text-xs font-mono" x-text="formatNumber(day.repin_count)"></span>
                         <template x-if="computeDeltaByDate(day.snapshot_date, 'repin_count') > 0">
@@ -841,42 +837,21 @@ export function getPinDetailPageHtml(pinId = '') {
                         </template>
                       </div>
                     </td>
-                    <!-- Velocity -->
-                    <td class="py-2 px-3 text-right">
-                      <span class="inline-flex items-center px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-200 text-[11px] font-bold font-mono" x-text="'+' + (day.daily_save_velocity || 0) + '/d'"></span>
-                    </td>
-                    <!-- Peak Rank -->
-                    <td class="py-2 px-3 text-center">
-                      <template x-if="day.best_rank && day.best_rank !== 999">
-                        <span class="inline-flex items-center justify-center min-w-[32px] px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-bold font-mono" x-text="'#' + day.best_rank"></span>
-                      </template>
-                      <template x-if="!day.best_rank || day.best_rank === 999">
-                        <span class="text-slate-400 text-xs font-mono">--</span>
-                      </template>
-                    </td>
-                    <!-- Keyword Health / Targeted Keyword -->
-                    <td class="py-2 px-3">
-                      <!-- Default Mode: Summary Health Badges -->
+                    <!-- Peak Rank (ALL mode) or Keyword Rank (Filtered mode) -->
+                    <td class="py-2.5 px-3 text-center">
                       <template x-if="selectedKeywordFilter === 'ALL'">
-                        <div class="flex items-center gap-1.5 flex-wrap">
-                          <template x-if="dayKeywordSummary(day).top3 > 0">
-                            <span class="inline-flex items-center px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200/80 text-[10px] font-semibold" x-text="dayKeywordSummary(day).top3 + ' Top 3'"></span>
+                        <div class="flex flex-col items-center justify-center">
+                          <template x-if="day.best_rank && day.best_rank !== 999">
+                            <span class="inline-flex items-center justify-center min-w-[32px] px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-bold font-mono" x-text="'#' + day.best_rank"></span>
                           </template>
-                          <template x-if="dayKeywordSummary(day).top10 > 0">
-                            <span class="inline-flex items-center px-2 py-0.5 rounded-md bg-sky-50 text-sky-700 border border-sky-200/80 text-[10px] font-medium" x-text="dayKeywordSummary(day).top10 + ' Top 10'"></span>
+                          <template x-if="!day.best_rank || day.best_rank === 999">
+                            <span class="text-slate-400 text-xs font-mono">--</span>
                           </template>
-                          <template x-if="dayKeywordSummary(day).ranks11_100 > 0">
-                            <span class="inline-flex items-center px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 border border-indigo-200/80 text-[10px] font-medium" x-text="dayKeywordSummary(day).ranks11_100 + ' R11-100'"></span>
-                          </template>
-                          <template x-if="dayKeywordSummary(day).vault > 0">
-                            <span class="inline-flex items-center px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-200/80 text-[10px]" x-text="dayKeywordSummary(day).vault + ' Vault'"></span>
-                          </template>
-                          <span class="text-[11px] text-slate-500 font-medium ml-0.5 font-mono" x-text="'(' + dayKeywordSummary(day).total + ' kws)'"></span>
+                          <span class="text-[10px] text-slate-400 font-mono mt-0.5" x-text="(day.ranking_keywords?.length || 0) + ' kws'"></span>
                         </div>
                       </template>
-                      <!-- Filtered Mode: Show targeted keyword rank & movement cleanly -->
                       <template x-if="selectedKeywordFilter !== 'ALL'">
-                        <div class="flex items-center gap-2">
+                        <div class="flex flex-col items-center justify-center">
                           <template x-for="kw in getSpecificKeywordForDay(day, selectedKeywordFilter)" :key="kw.keyword">
                             <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border shadow-2xs" :class="kw.is_displaced ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'">
                               <span class="font-bold font-mono text-sm" x-text="kw.rank ? ('#' + kw.rank) : '[Vault]'"></span>
@@ -894,36 +869,29 @@ export function getPinDetailPageHtml(pinId = '') {
                               </template>
                             </div>
                           </template>
+                          <template x-if="!getSpecificKeywordForDay(day, selectedKeywordFilter).length">
+                            <span class="text-slate-400 text-xs font-mono">--</span>
+                          </template>
                         </div>
                       </template>
                     </td>
                     <!-- Action Buttons -->
-                    <td class="py-2 px-3 text-right pr-4" @click.stop>
-                      <div class="flex items-center justify-end gap-1.5">
-                        <button 
-                          @click="toggleDayExpanded(day.snapshot_date)" 
-                          class="px-2.5 py-1 rounded-lg font-medium text-[11px] transition-all flex items-center gap-1.5 border"
-                          :class="isDayExpanded(day.snapshot_date) ? 'bg-pink-50 text-pink-700 font-semibold border-pink-200 shadow-2xs' : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'"
-                        >
-                          <span x-text="isDayExpanded(day.snapshot_date) ? 'Close' : 'View ' + (day.ranking_keywords?.length || 0)"></span>
-                          <span class="text-[9px]" x-text="isDayExpanded(day.snapshot_date) ? '▲' : '▼'"></span>
-                        </button>
-                        <button 
-                          @click="requestDeleteDay(day.snapshot_date)" 
-                          class="p-1.5 rounded-lg border border-transparent hover:border-red-200 hover:bg-red-50 text-slate-400 hover:text-red-600 transition-colors"
-                          title="Delete telemetry for this day"
-                        >
-                          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                          </svg>
-                        </button>
-                      </div>
+                    <td class="py-2.5 px-3 text-right pr-4" @click.stop>
+                      <button 
+                        @click="requestDeleteDay(day.snapshot_date)" 
+                        class="p-1.5 rounded-lg border border-transparent hover:border-red-200 hover:bg-red-50 text-slate-400 hover:text-red-600 transition-colors inline-flex items-center"
+                        title="Delete telemetry for this day"
+                      >
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      </button>
                     </td>
                   </tr>
 
                   <!-- ACCORDION SUB-DRAWER: EXPANDED KEYWORDS TABLE -->
                   <tr x-show="isDayExpanded(day.snapshot_date)" class="bg-slate-50/70 border-t border-slate-200">
-                    <td colspan="8" class="p-3 sm:p-4">
+                    <td colspan="6" class="p-3 sm:p-4">
                       <div class="flex flex-col gap-3 bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
                         <!-- Drawer Controls Ribbon -->
                         <div class="flex items-center justify-between pb-2 border-b border-slate-100">
@@ -1085,7 +1053,7 @@ export function getPinDetailPageHtml(pinId = '') {
               </template>
               <tbody x-show="!filteredDays().length" class="bg-white">
                 <tr>
-                  <td colspan="8" class="p-8 text-center text-slate-400 font-mono text-xs">
+                  <td colspan="6" class="p-8 text-center text-slate-400 font-mono text-xs">
                     No telemetry records match the selected SERP filter.
                   </td>
                 </tr>
@@ -1793,8 +1761,17 @@ export function getPinDetailPageHtml(pinId = '') {
           if (!entry || !entry.previous) return { delta: 0, status: 'steady' };
           const prevKws = entry.previous.ranking_keywords || [];
           const prev = prevKws.find(p => p.keyword === kw.keyword || (kw.keyword_id && p.keyword_id === kw.keyword_id));
-          if (!prev || !prev.rank || prev.is_displaced) {
+          if (!prev) {
             return { delta: 0, status: 'new' };
+          }
+          if (kw.is_displaced && prev.is_displaced) {
+            return { delta: 0, status: 'steady' };
+          }
+          if (kw.is_displaced && !prev.is_displaced) {
+            return { delta: 0, status: 'down' };
+          }
+          if (!kw.is_displaced && prev.is_displaced) {
+            return { delta: 0, status: 'up' };
           }
           const currRank = Number(kw.rank || 999);
           const prevRank = Number(prev.rank || 999);
