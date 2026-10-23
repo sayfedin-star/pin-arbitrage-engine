@@ -318,7 +318,7 @@ export function getPinDetailPageHtml(pinId = '') {
           <!-- Creation Method Row -->
           <div class="flex items-center justify-between gap-2 text-xs">
             <span class="text-slate-500 font-medium">Method</span>
-            <span class="font-mono text-[11px] px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200" x-text="dossier?.algorithmic_intelligence?.creation_method || 'pinterest_platform'"></span>
+            <span :class="getPinMethodBadgeClass()" class="font-mono text-[11px] px-2.5 py-0.5 rounded-md border font-semibold inline-flex items-center gap-1" x-text="formatPinMethodLabel()"></span>
           </div>
 
           <!-- Perceptual Image Signature -->
@@ -538,10 +538,10 @@ export function getPinDetailPageHtml(pinId = '') {
           <div class="text-[10px] text-slate-400 font-mono mt-0.5">Peak Position</div>
         </div>
 
-        <div class="bg-white border border-slate-200 rounded-xl p-3.5 flex flex-col justify-between shadow-2xs">
-          <div class="text-[11px] font-mono text-slate-500">Total Engagement</div>
-          <div class="text-xl font-bold font-mono text-purple-700 mt-1.5" x-text="formatNumber(totalEngagementScore())"></div>
-          <div class="text-[10px] text-slate-400 font-mono mt-0.5">Comments + Shares</div>
+        <div class="bg-white border border-slate-200 rounded-xl p-3.5 flex flex-col justify-between shadow-2xs" title="Direct Outbound Shares">
+          <div class="text-[11px] font-mono text-slate-500">Total Shares</div>
+          <div class="text-xl font-bold font-mono text-purple-700 mt-1.5" x-text="formatNumber(totalShares())"></div>
+          <div class="text-[10px] text-slate-400 font-mono mt-0.5">Direct Shares</div>
         </div>
       </div>
 
@@ -1734,6 +1734,13 @@ export function getPinDetailPageHtml(pinId = '') {
           return kw || null;
         },
 
+        totalShares() {
+          const s = this.latestSnapshot();
+          const snapSh = Number(s?.share_count || 0);
+          const aiSh = Number(this.dossier?.algorithmic_intelligence?.share_count || 0);
+          return Math.max(snapSh, aiSh);
+        },
+
         totalEngagementScore() {
           const s = this.latestSnapshot();
           const snapC = Number(s?.comment_count || 0);
@@ -1745,6 +1752,39 @@ export function getPinDetailPageHtml(pinId = '') {
           const r = Math.max(snapR, aiR);
           const sh = Math.max(snapSh, aiSh);
           return c + r + sh;
+        },
+
+        getPinMethod() {
+          const m = this.dossier?.algorithmic_intelligence?.creation_method || this.dossier?.pillar_1_storage_shard?.universal_pin?.creation_method;
+          return m ? String(m).toLowerCase().trim() : 'pinterest_platform';
+        },
+
+        formatPinMethodLabel() {
+          const m = this.getPinMethod();
+          if (m.includes('schedule') || m.includes('tailwind') || m.includes('buffer')) return 'Pin Scheduling ⏱️';
+          if (m.includes('extension') || m.includes('button')) return 'Browser Extension 🌐';
+          if (m.includes('api') || m.includes('developer')) return 'Pinterest API ⚡';
+          if (m.includes('publishing') || m.includes('native')) return 'Native Publish 📌';
+          if (m.includes('carousel')) return 'Carousel 🎠';
+          if (m.includes('platform') || m.includes('web') || m.includes('mobile')) return 'Pinterest Platform';
+          return m.replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase());
+        },
+
+        getPinMethodBadgeClass() {
+          const m = this.getPinMethod();
+          if (m.includes('schedule')) {
+            return 'bg-blue-50 text-blue-700 border-blue-200';
+          }
+          if (m.includes('extension')) {
+            return 'bg-amber-50 text-amber-700 border-amber-200';
+          }
+          if (m.includes('carousel')) {
+            return 'bg-purple-50 text-purple-700 border-purple-200';
+          }
+          if (m.includes('publishing') || m.includes('native')) {
+            return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+          }
+          return 'bg-slate-100 text-slate-700 border-slate-200';
         },
 
         copyAltText() {

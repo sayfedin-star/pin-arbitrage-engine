@@ -1802,11 +1802,14 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     const elapsedDays = Math.max(1, Math.round((currDate - prevDate) / 86400000));
     const diff = curr.save_count - prev.save_count;
 
-    if (diff > 0) {
-      curr.daily_save_velocity = Math.max(Number(curr.daily_save_velocity || 0), Math.round((diff / elapsedDays) * 10) / 10);
-    } else if (diff === 0) {
-      if (elapsedDays >= 1 && (!curr.daily_save_velocity || curr.daily_save_velocity === 0)) {
+    // [INVARIANT: VELOCITY-RATCHET-SYMMETRY]
+    // Symmetrically compute inter-day velocity based on real save delta and elapsed calendar days
+    // Prevents trapping stalled or slowing pins in an eternal monotonic GREATEST ratchet
+    if (elapsedDays >= 1) {
+      if (diff === 0) {
         curr.daily_save_velocity = 0;
+      } else if (diff > 0) {
+        curr.daily_save_velocity = Math.round((diff / elapsedDays) * 10) / 10;
       }
     }
   }

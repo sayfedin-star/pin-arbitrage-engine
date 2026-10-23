@@ -6497,6 +6497,8 @@ export function getKeywordsPageHtml(initialSlug = '') {
           if (m.includes('schedule') || m.includes('tailwind') || m.includes('buffer')) return 'Pin Scheduling';
           if (m.includes('extension') || m.includes('button')) return 'Browser Extension';
           if (m.includes('api') || m.includes('developer')) return 'Pinterest API';
+          if (m.includes('publishing') || m.includes('native')) return 'Native Publish';
+          if (m.includes('carousel')) return 'Carousel';
           if (m.includes('platform') || m.includes('web') || m.includes('mobile')) return 'Pinterest Platform';
           return m.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
         },

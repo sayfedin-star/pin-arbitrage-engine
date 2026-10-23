@@ -460,9 +460,11 @@ export function formatPin(pin) {
     pin.method ||
     pin.creation_method ||
     pin.creationMethod ||
+    pin.originType ||
+    pin.origin_type ||
+    pin.pinJoin?.originType ||
     pin.attribution?.provider_name ||
     pin.provider_name ||
-    pin.origin_type ||
     'pinterest_platform'
   );
 
@@ -728,8 +730,11 @@ export function extractPinData(rawHtml, pinId) {
           mergedRelayPin.method = 'carousel';
           mergedRelayPin.creation_method = 'carousel';
         } else {
-          if (v3.method) mergedRelayPin.method = v3.method;
-          if (v3.creationMethod || v3.creation_method) mergedRelayPin.creation_method = v3.creationMethod || v3.creation_method;
+          const detectedMethod = v3.method || v3.creationMethod || v3.creation_method || v3.originType || v3.origin_type || v3.pinJoin?.originType || v3.attribution?.provider_name;
+          if (detectedMethod) {
+            mergedRelayPin.method = detectedMethod;
+            mergedRelayPin.creation_method = detectedMethod;
+          }
         }
         if (v3.attribution?.provider_name) mergedRelayPin.provider_name = v3.attribution.provider_name;
 

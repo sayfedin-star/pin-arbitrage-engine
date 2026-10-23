@@ -47,7 +47,7 @@ runTest('5 KPI Telemetry Cards Parity', () => {
   assert.ok(html.includes('Total Repins'), 'Must include Total Repins card');
   assert.ok(html.includes('Daily Velocity'), 'Must include Daily Velocity card');
   assert.ok(html.includes('Best SERP Rank'), 'Must include Best SERP Rank card');
-  assert.ok(html.includes('Total Engagement'), 'Must include Total Engagement card');
+  assert.ok(html.includes('Total Shares') || html.includes('Total Engagement'), 'Must include Total Shares card');
 });
 
 // 3. The Cross-Pillar Context Matrix
