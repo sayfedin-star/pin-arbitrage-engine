@@ -5059,121 +5059,93 @@ export function getDashboardHtml() {
           <!-- SUB-VIEW: ALL ACCOUNT PINS (FULL DISCOVERED INVENTORY)    -->
           <!-- ======================================================== -->
           <div x-show="activeCreatorTab === 'all_pins'" class="space-y-5">
-            <!-- Header Card -->
-            <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-5 shadow-xs flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-              <div>
-                <div class="flex items-center gap-2">
-                  <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-500 font-bold text-sm">📋</span>
-                  <h3 class="text-base font-bold text-slate-900 dark:text-white">All Account Pins (Raw Catalog)</h3>
-                  <span class="text-xs font-mono font-bold px-2.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20" x-text="(activeCreatorCatalogTotal || activeCreatorAllPinsTotal || 0) + ' total pins'"></span>
+            <!-- Unified Ledger Command Header -->
+            <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-4 sm:p-5 shadow-xs space-y-4">
+              <!-- Top Row: Title, Totals & Refresh -->
+              <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div class="flex items-center gap-2.5">
+                  <span class="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-500/10 text-indigo-500 font-bold text-base shadow-2xs">📌</span>
+                  <div>
+                    <div class="flex items-center gap-2">
+                      <h3 class="text-base font-bold text-slate-900 dark:text-white">Master Pin Ledger</h3>
+                      <span class="text-xs font-mono font-bold px-2.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20" x-text="formatNumber(activeCreatorCatalogTotal || activeCreatorAllPinsTotal || 0) + ' pins'"></span>
+                    </div>
+                    <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Discovered pins catalog for @<span x-text="(activeCreator?.username || '').replace(/^@+/, '')"></span>. Deeply synchronized across Neon Shards.</p>
+                  </div>
                 </div>
-                <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Complete discovered pin inventory for this account. Qualified winning pins meeting 3-tier rules can be filtered instantly using the <button type="button" @click="creatorAllPinQualifiedOnly = true; activeCreatorAllPinsPage = 1; fetchCreatorAllPins()" class="text-amber-500 font-bold hover:underline cursor-pointer inline-flex items-center gap-0.5">🏆 Qualified Winners</button> filter.</p>
+
+                <!-- Right Side: Light Refresh & Quick Pagination Badge -->
+                <div class="flex items-center gap-2 self-start sm:self-auto">
+                  <button type="button" @click="fetchCreatorAllPins()" class="px-3 py-1.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/80 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition flex items-center gap-1.5 cursor-pointer shadow-2xs" title="Refresh pins catalog">
+                    <i data-lucide="refresh-cw" class="w-3.5 h-3.5" :class="isLoadingAllPins ? 'animate-spin text-indigo-500' : ''"></i>
+                    <span>Refresh</span>
+                  </button>
+                  <span class="text-xs font-mono font-medium text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-900 px-2.5 py-1 rounded-xl border border-slate-200/60 dark:border-slate-800" x-text="'Page ' + (activeCreatorAllPinsPage || 1) + ' / ' + (activeCreatorAllPinsTotalPages || 1)"></span>
+                </div>
               </div>
 
-              <!-- Action buttons -->
-              <div class="flex items-center gap-2 flex-wrap">
-                <!-- Discover Full Catalog -->
-                <button type="button" @click="discoverFullCatalogAction(activeCreator)" :disabled="discoveringCatalogCompetitorId === activeCreator.id" class="px-3.5 py-2 text-xs font-bold rounded-xl border border-purple-500/30 bg-purple-500/10 text-purple-600 dark:text-purple-400 hover:bg-purple-500/20 transition flex items-center gap-1.5 cursor-pointer shadow-2xs disabled:opacity-50" title="Discover full catalog (crawls all pages until end of feed without early-stop)">
-                  <i data-lucide="library" class="w-3.5 h-3.5" :class="discoveringCatalogCompetitorId === activeCreator.id ? 'animate-bounce' : ''"></i>
-                  <span x-text="discoveringCatalogCompetitorId === activeCreator.id ? 'Discovering...' : 'Discover Full Catalog'"></span>
+              <!-- Bottom Row: Smart Segmented Filter Pills with Live Backend Counts -->
+              <div class="flex items-center gap-2 overflow-x-auto pb-1 pt-1 select-none border-t border-slate-100 dark:border-slate-800/80">
+                <!-- All Catalog -->
+                <button 
+                  type="button" 
+                  @click="creatorAllPinQualifiedOnly = false; creatorAllPinRankedOnly = false; creatorAllPinHighVelocity = false; creatorAllPinArticlesOnly = false; creatorAllPinStage = ''; activeCreatorAllPinsPage = 1; fetchCreatorAllPins()"
+                  class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border shadow-2xs whitespace-nowrap shrink-0"
+                  :class="(!creatorAllPinQualifiedOnly && !creatorAllPinRankedOnly && !creatorAllPinHighVelocity && !creatorAllPinArticlesOnly && !creatorAllPinStage) ? 'bg-indigo-600 text-white border-indigo-700 shadow-xs' : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:text-slate-900 dark:hover:text-white'"
+                >
+                  <span>📋 All Catalog</span>
+                  <span class="px-1.5 py-0.2 rounded text-[10.5px] font-mono" :class="(!creatorAllPinQualifiedOnly && !creatorAllPinRankedOnly && !creatorAllPinHighVelocity && !creatorAllPinArticlesOnly && !creatorAllPinStage) ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'" x-text="formatNumber(activeCreatorCatalogTotal || activeCreatorAllPinsTotal || 0)"></span>
                 </button>
-                <!-- Fast Refresh -->
-                <button type="button" @click="fastRefreshCompetitorAction(activeCreator)" :disabled="fastRefreshingCompetitorId === activeCreator.id" class="px-3 py-2 text-xs font-bold rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 transition flex items-center gap-1.5 cursor-pointer shadow-2xs disabled:opacity-50" title="Instant live refresh of saves/repins for all winning archived pins from Pinterest">
-                  <i data-lucide="zap" class="w-3.5 h-3.5" :class="fastRefreshingCompetitorId === activeCreator.id ? 'animate-spin' : ''"></i>
-                  <span x-text="fastRefreshingCompetitorId === activeCreator.id ? 'Refreshing...' : 'Fast Refresh'"></span>
+
+                <!-- Qualified Winners -->
+                <button 
+                  type="button" 
+                  @click="creatorAllPinQualifiedOnly = true; creatorAllPinRankedOnly = false; creatorAllPinHighVelocity = false; creatorAllPinArticlesOnly = false; activeCreatorAllPinsPage = 1; fetchCreatorAllPins()"
+                  class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border shadow-2xs whitespace-nowrap shrink-0"
+                  :class="(creatorAllPinQualifiedOnly && !creatorAllPinRankedOnly && !creatorAllPinHighVelocity && !creatorAllPinArticlesOnly) ? 'bg-amber-500 text-white border-amber-600 shadow-xs' : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:text-slate-900 dark:hover:text-white'"
+                >
+                  <span>🏆 Qualified Winners</span>
+                  <span class="px-1.5 py-0.2 rounded text-[10.5px] font-mono" :class="(creatorAllPinQualifiedOnly && !creatorAllPinRankedOnly && !creatorAllPinHighVelocity && !creatorAllPinArticlesOnly) ? 'bg-white/20 text-white' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'" x-text="formatNumber(activeCreatorWinningPinsTotal || 0)"></span>
                 </button>
-                <!-- Audit Sweep Now -->
-                <button type="button" @click="auditSweepCompetitorAction(activeCreator)" :disabled="auditSweepingCompetitorId === activeCreator.id" class="px-3 py-2 text-xs font-bold rounded-xl border border-indigo-500/30 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-500/20 transition flex items-center gap-1.5 cursor-pointer shadow-2xs disabled:opacity-50" title="Comprehensive audit sweep: profile reach, monotonic checks, boards inventory, destination URLs">
-                  <i data-lucide="shield-check" class="w-3.5 h-3.5" :class="auditSweepingCompetitorId === activeCreator.id ? 'animate-spin' : ''"></i>
-                  <span x-text="auditSweepingCompetitorId === activeCreator.id ? 'Auditing...' : 'Audit Sweep Now'"></span>
+
+                <!-- SERP Ranked -->
+                <button 
+                  type="button" 
+                  @click="creatorAllPinRankedOnly = true; creatorAllPinQualifiedOnly = false; creatorAllPinHighVelocity = false; creatorAllPinArticlesOnly = false; activeCreatorAllPinsPage = 1; fetchCreatorAllPins()"
+                  class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border shadow-2xs whitespace-nowrap shrink-0"
+                  :class="(creatorAllPinRankedOnly) ? 'bg-sky-600 text-white border-sky-700 shadow-xs' : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:text-slate-900 dark:hover:text-white'"
+                >
+                  <span>🎯 SERP Ranked</span>
+                  <span class="px-1.5 py-0.2 rounded text-[10.5px] font-mono" :class="(creatorAllPinRankedOnly) ? 'bg-white/20 text-white' : 'bg-sky-500/10 text-sky-600 dark:text-sky-400'" x-text="formatNumber(activeCreatorRankedTotal || 0)"></span>
                 </button>
-                <!-- Refresh Local Table -->
-                <button type="button" @click="fetchCreatorAllPins()" class="px-3 py-2 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0d1526] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition flex items-center gap-1.5 cursor-pointer shadow-2xs">
-                  <i data-lucide="refresh-cw" class="w-3.5 h-3.5" :class="isLoadingAllPins ? 'animate-spin text-indigo-500' : ''"></i>
-                  <span>Refresh</span>
+
+                <!-- High Velocity (>=10/d) -->
+                <button 
+                  type="button" 
+                  @click="creatorAllPinHighVelocity = true; creatorAllPinQualifiedOnly = false; creatorAllPinRankedOnly = false; creatorAllPinArticlesOnly = false; activeCreatorAllPinsPage = 1; fetchCreatorAllPins()"
+                  class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border shadow-2xs whitespace-nowrap shrink-0"
+                  :class="(creatorAllPinHighVelocity) ? 'bg-rose-600 text-white border-rose-700 shadow-xs' : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:text-slate-900 dark:hover:text-white'"
+                >
+                  <span>🔥 High Velocity (≥10/d)</span>
+                  <span class="px-1.5 py-0.2 rounded text-[10.5px] font-mono" :class="(creatorAllPinHighVelocity) ? 'bg-white/20 text-white' : 'bg-rose-500/10 text-rose-600 dark:text-rose-400'" x-text="formatNumber(activeCreatorHighVelocityTotal || 0)"></span>
                 </button>
-                <!-- GHA Crawler -->
-                <button type="button" @click="openGhaCrawlerModal(activeCreator)" :disabled="isDispatchingGitHubCrawl" class="px-4 py-2 text-xs font-bold rounded-xl bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white transition flex items-center gap-2 cursor-pointer shadow-sm active:scale-95 disabled:opacity-50" title="Harvest creator pins using 20 parallel GitHub Actions runner shards">
-                  <i data-lucide="cpu" class="w-4 h-4" :class="isDispatchingGitHubCrawl ? 'animate-spin' : ''"></i>
-                  <span x-text="isDispatchingGitHubCrawl ? 'Dispatching...' : 'Harvest via GitHub Actions (20 Shards)'"></span>
+
+                <!-- Articles Only -->
+                <button 
+                  type="button" 
+                  @click="creatorAllPinArticlesOnly = !creatorAllPinArticlesOnly; activeCreatorAllPinsPage = 1; fetchCreatorAllPins()"
+                  class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border shadow-2xs whitespace-nowrap shrink-0"
+                  :class="(creatorAllPinArticlesOnly) ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs' : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:text-slate-900 dark:hover:text-white'"
+                >
+                  <span>📰 Articles Only</span>
                 </button>
               </div>
-            </div>
-
-            <!-- 4 Summary Stat Mini-Cards -->
-            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
-              <div class="bg-white dark:bg-[#0d1526] rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 shadow-2xs">
-                <span class="text-[10.5px] font-bold text-slate-400 uppercase tracking-wider block">Discovered Pins</span>
-                <span class="text-xl font-black text-slate-900 dark:text-white mt-1 block font-mono" x-text="formatNumber(activeCreatorCatalogTotal || activeCreatorAllPinsTotal || 0)"></span>
-              </div>
-              <div class="bg-white dark:bg-[#0d1526] rounded-2xl border border-emerald-500/20 dark:border-emerald-500/30 p-4 shadow-2xs bg-emerald-50/20 dark:bg-emerald-950/10">
-                <span class="text-[10.5px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider block">🏆 Qualified (In Archive)</span>
-                <span class="text-xl font-black text-emerald-600 dark:text-emerald-400 mt-1 block font-mono" x-text="formatNumber(activeCreatorWinningPinsTotal || activeCreatorPins.length || 0)"></span>
-              </div>
-              <div class="bg-white dark:bg-[#0d1526] rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 shadow-2xs">
-                <span class="text-[10.5px] font-bold text-slate-400 uppercase tracking-wider block">Discovered Boards</span>
-                <span class="text-xl font-black text-slate-900 dark:text-white mt-1 block font-mono" x-text="activeCreatorAllPinsBoards.length"></span>
-              </div>
-              <div class="bg-white dark:bg-[#0d1526] rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 shadow-2xs">
-                <span class="text-[10.5px] font-bold text-slate-400 uppercase tracking-wider block">Active Page</span>
-                <span class="text-xl font-black text-indigo-600 dark:text-indigo-400 mt-1 block font-mono" x-text="(activeCreatorAllPinsPage || 1) + ' / ' + (activeCreatorAllPinsTotalPages || 1)"></span>
-              </div>
-            </div>
-
-            <!-- Sleek Segmented Filter Pill Bar -->
-            <div class="flex items-center gap-2 overflow-x-auto pb-1 select-none">
-              <button 
-                type="button" 
-                @click="creatorAllPinQualifiedOnly = false; creatorAllPinRankedOnly = false; creatorAllPinHighVelocity = false; creatorAllPinArticlesOnly = false; creatorAllPinStage = ''; activeCreatorAllPinsPage = 1; fetchCreatorAllPins()"
-                class="px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border shadow-2xs"
-                :class="(!creatorAllPinQualifiedOnly && !creatorAllPinRankedOnly && !creatorAllPinHighVelocity && !creatorAllPinArticlesOnly && !creatorAllPinStage) ? 'bg-indigo-600 text-white border-indigo-700 shadow-xs' : 'bg-white dark:bg-[#0d1526] text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:text-slate-900 dark:hover:text-white'"
-              >
-                <span>📋 All Catalog</span>
-                <span class="px-1.5 py-0.2 rounded text-[10px] font-mono" :class="(!creatorAllPinQualifiedOnly && !creatorAllPinRankedOnly && !creatorAllPinHighVelocity && !creatorAllPinArticlesOnly && !creatorAllPinStage) ? 'bg-white/20 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'" x-text="formatNumber(activeCreatorCatalogTotal || activeCreatorAllPinsTotal || 0)"></span>
-              </button>
-
-              <button 
-                type="button" 
-                @click="creatorAllPinQualifiedOnly = true; creatorAllPinRankedOnly = false; creatorAllPinHighVelocity = false; creatorAllPinArticlesOnly = false; activeCreatorAllPinsPage = 1; fetchCreatorAllPins()"
-                class="px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border shadow-2xs"
-                :class="(creatorAllPinQualifiedOnly && !creatorAllPinRankedOnly && !creatorAllPinHighVelocity && !creatorAllPinArticlesOnly) ? 'bg-amber-500 text-white border-amber-600 shadow-xs' : 'bg-white dark:bg-[#0d1526] text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:text-slate-900 dark:hover:text-white'"
-              >
-                <span>🏆 Qualified Winners</span>
-                <span class="px-1.5 py-0.2 rounded text-[10px] font-mono" :class="(creatorAllPinQualifiedOnly && !creatorAllPinRankedOnly && !creatorAllPinHighVelocity && !creatorAllPinArticlesOnly) ? 'bg-white/20 text-white' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'" x-text="formatNumber(activeCreatorWinningPinsTotal || 0)"></span>
-              </button>
-
-              <button 
-                type="button" 
-                @click="creatorAllPinRankedOnly = true; creatorAllPinQualifiedOnly = false; creatorAllPinHighVelocity = false; creatorAllPinArticlesOnly = false; activeCreatorAllPinsPage = 1; fetchCreatorAllPins()"
-                class="px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border shadow-2xs"
-                :class="(creatorAllPinRankedOnly) ? 'bg-sky-600 text-white border-sky-700 shadow-xs' : 'bg-white dark:bg-[#0d1526] text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:text-slate-900 dark:hover:text-white'"
-              >
-                <span>🎯 SERP Ranked</span>
-              </button>
-
-              <button 
-                type="button" 
-                @click="creatorAllPinHighVelocity = true; creatorAllPinQualifiedOnly = false; creatorAllPinRankedOnly = false; creatorAllPinArticlesOnly = false; activeCreatorAllPinsPage = 1; fetchCreatorAllPins()"
-                class="px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border shadow-2xs"
-                :class="(creatorAllPinHighVelocity) ? 'bg-rose-600 text-white border-rose-700 shadow-xs' : 'bg-white dark:bg-[#0d1526] text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:text-slate-900 dark:hover:text-white'"
-              >
-                <span>🔥 High Velocity (≥10/d)</span>
-              </button>
-
-              <button 
-                type="button" 
-                @click="creatorAllPinArticlesOnly = true; creatorAllPinQualifiedOnly = false; creatorAllPinRankedOnly = false; creatorAllPinHighVelocity = false; activeCreatorAllPinsPage = 1; fetchCreatorAllPins()"
-                class="px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border shadow-2xs"
-                :class="(creatorAllPinArticlesOnly) ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs' : 'bg-white dark:bg-[#0d1526] text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:text-slate-900 dark:hover:text-white'"
-              >
-                <span>📰 Articles Only</span>
-              </button>
             </div>
 
             <!-- Filters & Search Toolbar -->
-            <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-4 shadow-xs flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-              <!-- Search bar -->
-              <div class="relative flex-1 max-w-sm">
+            <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-3.5 shadow-xs flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+              <!-- Search bar: roomy and flexible -->
+              <div class="relative w-full lg:w-80 min-w-[240px] flex-1">
                 <input
                   type="text"
                   x-model="creatorAllPinSearch"
@@ -5184,82 +5156,74 @@ export function getDashboardHtml() {
                 <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-2.5"></i>
               </div>
 
-              <!-- Filter Dropdowns -->
-              <div class="flex flex-wrap items-center gap-2">
-                <!-- Board Select -->
-                <div class="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 py-1.5">
-                  <label class="text-xs font-semibold text-slate-500 whitespace-nowrap">Board:</label>
-                  <select x-model="creatorAllPinBoard" @change="activeCreatorAllPinsPage = 1; fetchCreatorAllPins()" class="bg-transparent text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer max-w-[140px] truncate">
-                    <option value="">All Boards</option>
-                    <template x-for="b in activeCreatorAllPinsBoards" :key="typeof b === 'object' && b !== null ? b.board_name : b">
-                      <option :value="typeof b === 'object' && b !== null ? b.board_name : b" x-text="typeof b === 'object' && b !== null ? (b.board_name + ' (' + (b.count || 0) + ')') : b"></option>
-                    </template>
-                  </select>
+              <!-- Filter Dropdowns & Showing Counter -->
+              <div class="flex flex-wrap items-center gap-2 justify-between lg:justify-end flex-1">
+                <div class="flex flex-wrap items-center gap-2">
+                  <!-- Board Select -->
+                  <div class="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 py-1.5">
+                    <label class="text-xs font-semibold text-slate-500 whitespace-nowrap">Board:</label>
+                    <select x-model="creatorAllPinBoard" @change="activeCreatorAllPinsPage = 1; fetchCreatorAllPins()" class="bg-transparent text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer max-w-[130px] truncate">
+                      <option value="">All Boards</option>
+                      <template x-for="b in activeCreatorAllPinsBoards" :key="typeof b === 'object' && b !== null ? b.board_name : b">
+                        <option :value="typeof b === 'object' && b !== null ? b.board_name : b" x-text="typeof b === 'object' && b !== null ? (b.board_name + ' (' + (b.count || 0) + ')') : b"></option>
+                      </template>
+                    </select>
+                  </div>
+
+                  <!-- Stage Filter -->
+                  <div class="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 py-1.5">
+                    <label class="text-xs font-semibold text-slate-500 whitespace-nowrap">Stage:</label>
+                    <select x-model="creatorAllPinStage" @change="activeCreatorAllPinsPage = 1; fetchCreatorAllPins()" class="bg-transparent text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer">
+                      <option value="">All Stages</option>
+                      <option value="GROWING">📈 GROWING</option>
+                      <option value="NEW">🟢 NEW (≤14d)</option>
+                      <option value="MATURE">🟣 MATURE</option>
+                      <option value="COOLING">📉 COOLING</option>
+                      <option value="DORMANT">⚪ DORMANT</option>
+                    </select>
+                  </div>
+
+                  <!-- Min Saves Filter -->
+                  <div class="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 py-1.5">
+                    <label class="text-xs font-semibold text-slate-500 whitespace-nowrap">Saves:</label>
+                    <select x-model.number="creatorAllPinMinSaves" @change="activeCreatorAllPinsPage = 1; fetchCreatorAllPins()" class="bg-transparent text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer">
+                      <option value="0">All Saves</option>
+                      <option value="10">10+ saves</option>
+                      <option value="50">50+ saves</option>
+                      <option value="100">100+ (Tier 1)</option>
+                      <option value="500">500+ saves</option>
+                    </select>
+                  </div>
+
+                  <!-- Sort Order -->
+                  <div class="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 py-1.5">
+                    <label class="text-xs font-semibold text-slate-500 whitespace-nowrap">Sort:</label>
+                    <select x-model="creatorAllPinSort" @change="activeCreatorAllPinsPage = 1; fetchCreatorAllPins()" class="bg-transparent text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer">
+                      <option value="saves_desc">Highest Saves</option>
+                      <option value="velocity_desc">Highest Velocity (/d)</option>
+                      <option value="repins_desc">Highest Repins</option>
+                      <option value="created_desc">Newest Pin</option>
+                      <option value="created_asc">Oldest Pin</option>
+                    </select>
+                  </div>
+
+                  <!-- Clear / Reset filters button -->
+                  <button
+                    type="button"
+                    x-show="creatorAllPinSearch || creatorAllPinBoard || creatorAllPinMinSaves > 0 || creatorAllPinQualifiedOnly || creatorAllPinArticlesOnly || creatorAllPinRankedOnly || creatorAllPinHighVelocity || creatorAllPinStage"
+                    @click="creatorAllPinSearch = ''; creatorAllPinBoard = ''; creatorAllPinMinSaves = 0; creatorAllPinQualifiedOnly = false; creatorAllPinArticlesOnly = false; creatorAllPinRankedOnly = false; creatorAllPinHighVelocity = false; creatorAllPinStage = ''; activeCreatorAllPinsPage = 1; fetchCreatorAllPins()"
+                    class="px-2.5 py-1.5 rounded-xl text-xs font-semibold text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 border border-rose-200/60 dark:border-rose-900/40 transition cursor-pointer flex items-center gap-1"
+                    title="Reset all active filters"
+                  >
+                    <i data-lucide="x" class="w-3 h-3"></i>
+                    <span>Reset</span>
+                  </button>
                 </div>
 
-                <!-- Stage Filter -->
-                <div class="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 py-1.5">
-                  <label class="text-xs font-semibold text-slate-500 whitespace-nowrap">Stage:</label>
-                  <select x-model="creatorAllPinStage" @change="activeCreatorAllPinsPage = 1; fetchCreatorAllPins()" class="bg-transparent text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer">
-                    <option value="">All Stages</option>
-                    <option value="GROWING">📈 GROWING</option>
-                    <option value="NEW">🟢 NEW (≤14d)</option>
-                    <option value="MATURE">🟣 MATURE</option>
-                    <option value="COOLING">📉 COOLING</option>
-                    <option value="DORMANT">⚪ DORMANT</option>
-                  </select>
+                <!-- Showing X-Y of Z results counter -->
+                <div class="text-xs font-mono text-slate-400 select-none whitespace-nowrap pl-2">
+                  <span x-show="activeCreatorAllPinsTotal > 0" x-text="'Showing ' + (((activeCreatorAllPinsPage - 1) * 25) + 1) + '–' + Math.min(activeCreatorAllPinsPage * 25, activeCreatorAllPinsTotal) + ' of ' + formatNumber(activeCreatorAllPinsTotal)"></span>
                 </div>
-
-                <!-- Min Saves Filter -->
-                <div class="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 py-1.5">
-                  <label class="text-xs font-semibold text-slate-500 whitespace-nowrap">Saves:</label>
-                  <select x-model.number="creatorAllPinMinSaves" @change="activeCreatorAllPinsPage = 1; fetchCreatorAllPins()" class="bg-transparent text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer">
-                    <option value="0">All Saves</option>
-                    <option value="10">10+ saves</option>
-                    <option value="50">50+ saves</option>
-                    <option value="100">100+ (Tier 1)</option>
-                    <option value="500">500+ saves</option>
-                  </select>
-                </div>
-
-                <!-- Sort Order -->
-                <div class="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 py-1.5">
-                  <label class="text-xs font-semibold text-slate-500 whitespace-nowrap">Sort:</label>
-                  <select x-model="creatorAllPinSort" @change="activeCreatorAllPinsPage = 1; fetchCreatorAllPins()" class="bg-transparent text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer">
-                    <option value="saves_desc">Highest Saves</option>
-                    <option value="velocity_desc">Highest Velocity (/d)</option>
-                    <option value="repins_desc">Highest Repins</option>
-                    <option value="created_desc">Newest Pin</option>
-                    <option value="created_asc">Oldest Pin</option>
-                  </select>
-                </div>
-
-                <!-- Qualified Only Toggle -->
-                <label class="inline-flex items-center gap-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 py-1.5 cursor-pointer text-xs font-medium text-slate-800 dark:text-slate-200 select-none">
-                  <input type="checkbox" x-model="creatorAllPinQualifiedOnly" @change="activeCreatorAllPinsPage = 1; fetchCreatorAllPins()" class="rounded border-slate-300 text-indigo-600 h-4 w-4" />
-                  <span>🏆 Qualified Only</span>
-                </label>
-
-                <!-- Ranked in SERP Only Toggle -->
-                <label class="inline-flex items-center gap-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 py-1.5 cursor-pointer text-xs font-medium text-slate-800 dark:text-slate-200 select-none" title="Filter strictly for pins currently tracked in Google or Pinterest SERP rankings">
-                  <input type="checkbox" x-model="creatorAllPinRankedOnly" @change="activeCreatorAllPinsPage = 1; fetchCreatorAllPins()" class="rounded border-slate-300 text-sky-600 h-4 w-4" />
-                  <span>🎯 Ranked Only</span>
-                </label>
-
-                <!-- Articles Only Toggle (!is_product) -->
-                <label class="inline-flex items-center gap-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 py-1.5 cursor-pointer text-xs font-medium text-slate-800 dark:text-slate-200 select-none" title="Filter strictly for content/editorial articles and exclude shopping product pins">
-                  <input type="checkbox" x-model="creatorAllPinArticlesOnly" @change="activeCreatorAllPinsPage = 1; fetchCreatorAllPins()" class="rounded border-slate-300 text-emerald-600 h-4 w-4" />
-                  <span>📰 Articles Only</span>
-                </label>
-
-                <!-- Clear filters button -->
-                <button
-                  x-show="creatorAllPinSearch || creatorAllPinBoard || creatorAllPinMinSaves > 0 || creatorAllPinQualifiedOnly || creatorAllPinArticlesOnly || creatorAllPinRankedOnly || creatorAllPinHighVelocity || creatorAllPinStage"
-                  @click="creatorAllPinSearch = ''; creatorAllPinBoard = ''; creatorAllPinMinSaves = 0; creatorAllPinQualifiedOnly = false; creatorAllPinArticlesOnly = false; creatorAllPinRankedOnly = false; creatorAllPinHighVelocity = false; creatorAllPinStage = ''; activeCreatorAllPinsPage = 1; fetchCreatorAllPins()"
-                  class="px-2.5 py-1.5 rounded-xl text-xs font-semibold text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition cursor-pointer"
-                >
-                  Clear Filters
-                </button>
               </div>
             </div>
 
@@ -5359,7 +5323,7 @@ export function getDashboardHtml() {
 
                       <!-- Status Badge & Stage -->
                       <td class="py-2.5 px-3 text-center">
-                        <div class="flex items-center justify-center gap-1 flex-wrap">
+                        <div class="inline-flex items-center justify-center gap-1.5 flex-wrap">
                           <template x-if="p.stage">
                             <span 
                               class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase"
@@ -5405,7 +5369,11 @@ export function getDashboardHtml() {
 
                       <!-- Actions -->
                       <td class="py-2.5 px-3 text-center">
-                        <div class="flex items-center justify-center">
+                        <div class="inline-flex items-center gap-1.5 justify-center">
+                          <button type="button" @click="openPinDossier(p)" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-400 text-[11px] font-bold hover:bg-rose-500/20 transition cursor-pointer" title="Inspect Pin">
+                            <i data-lucide="eye" class="w-3 h-3"></i>
+                            <span>Inspect</span>
+                          </button>
                           <a :href="'https://www.pinterest.com/pin/' + p.pin_id + '/'" target="_blank" rel="noopener noreferrer" class="inline-flex items-center justify-center h-7 w-7 rounded-lg text-slate-500 hover:text-rose-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition" title="Open on Pinterest">
                             <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
                           </a>
@@ -6376,6 +6344,8 @@ export function getDashboardHtml() {
         activeCreatorAllPinsTotal: 0,
         activeCreatorCatalogTotal: 0,
         activeCreatorWinningPinsTotal: 0,
+        activeCreatorRankedTotal: 0,
+        activeCreatorHighVelocityTotal: 0,
         activeCreatorAllPinsPage: 1,
         activeCreatorAllPinsTotalPages: 1,
         activeCreatorAllPinsBoards: [],
@@ -7415,6 +7385,11 @@ export function getDashboardHtml() {
           });
         },
 
+        normalizeBoardSlug(str) {
+          if (!str) return '';
+          return String(str).toLowerCase().replace(/[^\\p{L}\\p{N}]+/gu, '-').replace(/^-|-$/g, '');
+        },
+
         formatNumber(num, abbrev = false) {
           if (num === null || num === undefined) return '0';
           const val = Number(num);
@@ -8197,11 +8172,12 @@ export function getDashboardHtml() {
                 this.openCreatorByHandle(first, targetTab);
               } else if (second) {
                 this.openCreatorByHandle(first, 'overview').then(() => {
-                  const rawBoard = decodeURIComponent(second).replace(/-/g, ' ');
+                  const targetSlug = this.normalizeBoardSlug(decodeURIComponent(second));
                   const matchBoard = (this.activeCreatorBoards || []).find(b => 
-                    (b.name || '').toLowerCase() === rawBoard.toLowerCase() ||
-                    (b.name || '').toLowerCase().replace(/\s+/g, '-') === second.toLowerCase()
-                  ) || { name: rawBoard };
+                    this.normalizeBoardSlug(b.name) === targetSlug ||
+                    (b.board_slug && b.board_slug === targetSlug) ||
+                    (b.name || '').toLowerCase() === decodeURIComponent(second).replace(/-/g, ' ').toLowerCase()
+                  ) || { name: decodeURIComponent(second).replace(/-/g, ' ') };
                   this.openBoardPage(matchBoard, this.activeCreator, false);
                 });
               } else {
@@ -8256,14 +8232,15 @@ export function getDashboardHtml() {
                   await this.openCreatorByHandle(pFirst, targetTab);
                 } else if (pSecond) {
                   if (this.activePinId) this.closePinPage(false);
-                  const rawBoard = decodeURIComponent(pSecond).replace(/-/g, ' ');
+                  const targetSlug = this.normalizeBoardSlug(decodeURIComponent(pSecond));
                   if (!this.activeCreator || (this.activeCreator.username || '').toLowerCase() !== pFirst.toLowerCase()) {
                     await this.openCreatorByHandle(pFirst, 'overview');
                   }
                   const matchBoard = (this.activeCreatorBoards || []).find(b => 
-                    (b.name || '').toLowerCase() === rawBoard.toLowerCase() ||
-                    (b.name || '').toLowerCase().replace(/\s+/g, '-') === pSecond.toLowerCase()
-                  ) || { name: rawBoard };
+                    this.normalizeBoardSlug(b.name) === targetSlug ||
+                    (b.board_slug && b.board_slug === targetSlug) ||
+                    (b.name || '').toLowerCase() === decodeURIComponent(pSecond).replace(/-/g, ' ').toLowerCase()
+                  ) || { name: decodeURIComponent(pSecond).replace(/-/g, ' ') };
                   await this.openBoardPage(matchBoard, this.activeCreator, false);
                 } else {
                   if (this.activePinId) this.closePinPage(false);
@@ -8993,6 +8970,8 @@ export function getDashboardHtml() {
           this.activeCreatorAllPinsTotal = 0;
           this.activeCreatorCatalogTotal = 0;
           this.activeCreatorWinningPinsTotal = 0;
+          this.activeCreatorRankedTotal = 0;
+          this.activeCreatorHighVelocityTotal = 0;
           this.activeCreatorAllPinsBoards = [];
           this.activeCreatorTopics = [];
           this.activeCreatorBoards = [];
@@ -9510,6 +9489,8 @@ export function getDashboardHtml() {
             this.activeCreatorAllPinsTotal = 0;
             this.activeCreatorCatalogTotal = 0;
             this.activeCreatorWinningPinsTotal = 0;
+            this.activeCreatorRankedTotal = 0;
+            this.activeCreatorHighVelocityTotal = 0;
             this.activeCreatorAllPinsBoards = [];
             this.activeCreatorTopics = [];
             this.activeCreatorBoards = [];
@@ -9867,6 +9848,8 @@ export function getDashboardHtml() {
               this.activeCreatorAllPinsTotal = data.total || 0;
               this.activeCreatorCatalogTotal = data.catalog_total ?? data.total ?? 0;
               this.activeCreatorWinningPinsTotal = data.qualified_total ?? 0;
+              this.activeCreatorRankedTotal = data.ranked_total ?? 0;
+              this.activeCreatorHighVelocityTotal = data.high_velocity_total ?? 0;
               this.activeCreatorAllPinsPage = data.page || 1;
               this.activeCreatorAllPinsTotalPages = data.total_pages || 1;
               if (data.boards) this.activeCreatorAllPinsBoards = data.boards;
@@ -9994,6 +9977,7 @@ export function getDashboardHtml() {
           if (typeof window !== 'undefined' && window.sessionStorage) {
             try {
               sessionStorage.setItem('pae_pin_breadcrumb_ctx', JSON.stringify({
+                pinId: pinId,
                 source: 'creator',
                 creator: cleanUser,
                 board: currentBoard,
@@ -10005,8 +9989,7 @@ export function getDashboardHtml() {
           }
 
           if (updateHistory && typeof window !== 'undefined') {
-            const targetUrl = '/pin/' + encodeURIComponent(pinId) + (cleanUser ? '?creator=' + encodeURIComponent(cleanUser) + (currentBoard ? '&board=' + encodeURIComponent(currentBoard) : '') : '');
-            window.location.href = targetUrl;
+            window.location.href = '/pin/' + encodeURIComponent(pinId);
             return;
           }
 
@@ -10111,7 +10094,7 @@ export function getDashboardHtml() {
             if (this.activeBoardName && (this.activeBoardCreator || this.activeCreator)) {
               const creator = this.activeBoardCreator || this.activeCreator;
               const cleanUser = (creator.username || '').replace(/^@+/, '').trim();
-              const boardSlug = encodeURIComponent(this.activeBoardName.toLowerCase().replace(/\s+/g, '-'));
+              const boardSlug = encodeURIComponent(this.normalizeBoardSlug(this.activeBoardName));
               targetPath = '/' + cleanUser + '/' + boardSlug;
               document.title = this.activeBoardName + ' | @' + cleanUser + ' | Pinterest Intelligence';
             } else if (this.activeCreator) {
@@ -10197,7 +10180,7 @@ export function getDashboardHtml() {
           if (typeof window !== 'undefined') {
             window.scrollTo({ top: 0, behavior: 'smooth' });
             if (updateHistory && targetCreator) {
-              const boardSlug = encodeURIComponent(boardName.toLowerCase().replace(/\s+/g, '-'));
+              const boardSlug = encodeURIComponent(this.normalizeBoardSlug(boardName));
               const targetPath = '/' + cleanUser + '/' + boardSlug;
               if (window.location.pathname !== targetPath) {
                 window.history.pushState({ board: boardName, username: cleanUser }, '', targetPath);
@@ -10229,6 +10212,12 @@ export function getDashboardHtml() {
                   board_vase: Array.isArray(dData.board.board_vase) ? dData.board.board_vase : (updatedBoard.board_vase || [])
                 };
                 this.activeBoard = updatedBoard;
+                if (dData.board.name) {
+                  this.activeBoardName = dData.board.name;
+                  if (typeof window !== 'undefined') {
+                    document.title = dData.board.name + ' | ' + (targetCreator ? '@' + cleanUser + ' | ' : '') + 'Pinterest Intelligence';
+                  }
+                }
               }
             }
 
@@ -10401,6 +10390,8 @@ export function getDashboardHtml() {
           this.activeCreatorAllPinsTotal = 0;
           this.activeCreatorCatalogTotal = 0;
           this.activeCreatorWinningPinsTotal = 0;
+          this.activeCreatorRankedTotal = 0;
+          this.activeCreatorHighVelocityTotal = 0;
           this.activeCreatorAllPinsBoards = [];
           this.activeCreatorTopics = [];
           this.activeCreatorBoards = [];

@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { handlePagesRoutes } from '../src/routes/pages.mjs';
 import { getPinDetailPageHtml } from '../src/pin-details-ui.mjs';
+import { getDashboardHtml } from '../src/dashboard-ui.mjs';
 import { computePinStage } from '../src/modules/pinarchive/service.mjs';
 
 console.log('================================================================================');
@@ -281,6 +282,59 @@ runTest('Phase 3.4: src/pin-details-ui.mjs persists Tier-1 query context to sess
   const res3 = parseReferrer('/wifesrecipesbyme');
   assert.strictEqual(res3.creator, 'wifesrecipesbyme');
   assert.strictEqual(res3.board, null);
+});
+
+runTest('Phase 3.5: Template literal regex escaping in getBoardSlug & normalizeBoardSlug', () => {
+  const pinHtml = getPinDetailPageHtml('1098245059158914830');
+  assert.ok(pinHtml.includes('/[^\\p{L}\\p{N}]+/gu'), 'Generated HTML must contain properly escaped Unicode regex property escapes');
+
+  // Verify getBoardSlug evaluation in browser-like execution
+  const slugMatch = pinHtml.match(/getBoardSlug\(name\)\s*\{([\s\S]*?)\n\s*\},/);
+  assert.ok(slugMatch, 'Must find getBoardSlug definition in pin details HTML');
+  const getBoardSlugFn = new Function('name', slugMatch[1]);
+  const boardSlug = getBoardSlugFn("Quick Dinner Recipes | Easy Weeknight Meals");
+  assert.strictEqual(boardSlug, "quick-dinner-recipes-easy-weeknight-meals", "Must produce full slug without swallowing words");
+  assert.notStrictEqual(boardSlug, "p", "CRITICAL: getBoardSlug must NOT return 'p'!");
+
+  // Verify normalizeBoardSlug evaluation from dashboard HTML
+  const dashHtml = getDashboardHtml();
+  assert.ok(dashHtml.includes('/[^\\p{L}\\p{N}]+/gu'), 'Generated dashboard HTML must contain properly escaped normalizeBoardSlug Unicode regex');
+  const normMatch = dashHtml.match(/normalizeBoardSlug\(str\)\s*\{([\s\S]*?)\n\s*\},/);
+  assert.ok(normMatch, 'Must find normalizeBoardSlug definition in dashboard HTML');
+  const normFn = new Function('str', normMatch[1]);
+  assert.strictEqual(normFn("Quick Dinner Recipes | Easy Weeknight Meals"), "quick-dinner-recipes-easy-weeknight-meals");
+  assert.strictEqual(normFn("quick-dinner-recipes-easy-weeknight-meals"), "quick-dinner-recipes-easy-weeknight-meals");
+});
+
+runTest('Phase 3.6: All-pins UI overhaul & metric wiring verification', () => {
+  // Re-read file to verify disk contents
+  const updatedDashUiCode = fs.readFileSync(path.resolve('src/dashboard-ui.mjs'), 'utf8');
+  const updatedCompServiceCode = fs.readFileSync(path.resolve('src/modules/competitors/service.mjs'), 'utf8');
+
+  // Metric wiring in state & fetch
+  assert.ok(updatedDashUiCode.includes('activeCreatorRankedTotal: 0'), 'Must declare activeCreatorRankedTotal in Alpine state');
+  assert.ok(updatedDashUiCode.includes('activeCreatorHighVelocityTotal: 0'), 'Must declare activeCreatorHighVelocityTotal in Alpine state');
+  assert.ok(updatedDashUiCode.includes('activeCreatorRankedTotal = data.ranked_total'), 'Must wire activeCreatorRankedTotal in fetchCreatorAllPins');
+  assert.ok(updatedDashUiCode.includes('activeCreatorHighVelocityTotal = data.high_velocity_total'), 'Must wire activeCreatorHighVelocityTotal in fetchCreatorAllPins');
+
+  // Unified command header & filter pill badges
+  assert.ok(updatedDashUiCode.includes('Master Pin Ledger'), 'Must include Master Pin Ledger command header');
+  assert.ok(updatedDashUiCode.includes('activeCreatorRankedTotal || 0'), 'Must display live ranked count badge on pill');
+  assert.ok(updatedDashUiCode.includes('activeCreatorHighVelocityTotal || 0'), 'Must display live high-velocity count badge on pill');
+
+  // Duplicate checkboxes elimination
+  assert.ok(!updatedDashUiCode.includes('<span>🏆 Qualified Only</span>'), 'Must eliminate duplicate Qualified Only checkbox');
+  assert.ok(!updatedDashUiCode.includes('<span>🎯 Ranked Only</span>'), 'Must eliminate duplicate Ranked Only checkbox');
+
+  // Actions column Inspect button
+  assert.ok(updatedDashUiCode.includes('<span>Inspect</span>'), 'Must include Inspect button in table actions');
+
+  // Clean navigation to /pin/:id without URL query pollution
+  assert.ok(updatedDashUiCode.includes("window.location.href = '/pin/' + encodeURIComponent(pinId)"), 'openPinPage must navigate cleanly to /pin/:id without URL query pollution');
+  assert.ok(updatedDashUiCode.includes("pinId: pinId"), 'openPinPage must record pinId in sessionStorage context');
+
+  // Postgres slug matching with REGEXP_REPLACE in competitor service
+  assert.ok(updatedCompServiceCode.includes('[^[:alnum:]]+'), 'competitor service must use REGEXP_REPLACE for resilient board matching');
 });
 
 console.log(`\n================================================================================`);

@@ -1365,7 +1365,7 @@ export function getPinDetailPageHtml(pinId = '') {
 
         getBoardSlug(name) {
           if (!name) return '';
-          return String(name).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '');
+          return String(name).toLowerCase().replace(/[^\\p{L}\\p{N}]+/gu, '-').replace(/^-|-$/g, '');
         },
 
         async init() {

@@ -841,6 +841,7 @@ export async function getOrSyncBoardDetail(sql, username, boardNameOrSlug, optio
             LOWER(TRIM(name)) = ${rawBoard.toLowerCase()} OR
             REPLACE(LOWER(TRIM(name)), ' ', '-') = REPLACE(${rawBoard.toLowerCase()}, ' ', '-') OR
             REPLACE(LOWER(TRIM(name)), '-', ' ') = REPLACE(${rawBoard.toLowerCase()}, '-', ' ') OR
+            LOWER(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(name), '[^[:alnum:]]+', '-', 'g'), '^-|-$', '', 'g')) = LOWER(REGEXP_REPLACE(REGEXP_REPLACE(${rawBoard}, '[^[:alnum:]]+', '-', 'g'), '^-|-$', '', 'g')) OR
             url ILIKE ${'%' + encodeURIComponent(rawBoard.toLowerCase().replace(/\s+/g, '-')) + '%'} OR
             url ILIKE ${'%' + rawBoard.toLowerCase().replace(/\s+/g, '-') + '%'}
           )
@@ -902,7 +903,8 @@ export async function getOrSyncBoardDetail(sql, username, boardNameOrSlug, optio
               AND board_id LIKE 'cb-%'
               AND (
                 LOWER(TRIM(name)) = ${rawBoard.toLowerCase()} OR
-                LOWER(TRIM(name)) = LOWER(TRIM(${scraped.name || ''}))
+                LOWER(TRIM(name)) = LOWER(TRIM(${scraped.name || ''})) OR
+                LOWER(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(name), '[^[:alnum:]]+', '-', 'g'), '^-|-$', '', 'g')) = LOWER(REGEXP_REPLACE(REGEXP_REPLACE(${rawBoard}, '[^[:alnum:]]+', '-', 'g'), '^-|-$', '', 'g'))
               );
           `.catch(() => {});
         }
@@ -2257,7 +2259,8 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
         LOWER(TRIM(cp.board_name)) = ${boardPattern} OR
         REPLACE(LOWER(TRIM(cp.board_name)), '-', ' ') = REPLACE(${boardPattern}, '-', ' ') OR
         REPLACE(LOWER(TRIM(cp.board_name)), ' ', '-') = REPLACE(${boardPattern}, ' ', '-') OR
-        REPLACE(REPLACE(LOWER(TRIM(cp.board_name)), '-', ''), ' ', '') = REPLACE(REPLACE(${boardPattern}, '-', ''), ' ', '')
+        REPLACE(REPLACE(LOWER(TRIM(cp.board_name)), '-', ''), ' ', '') = REPLACE(REPLACE(${boardPattern}, '-', ''), ' ', '') OR
+        (${boardSlugPattern}::text IS NOT NULL AND LOWER(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(cp.board_name), '[^[:alnum:]]+', '-', 'g'), '^-|-$', '', 'g')) = ${boardSlugPattern})
       )
       AND (${qualified_only} = FALSE OR pa.pin_id IS NOT NULL)
       AND (${isHighVelocity} = FALSE OR COALESCE(pa.velocity, 0) >= 10)
@@ -2311,7 +2314,8 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
         LOWER(TRIM(cp.board_name)) = ${boardPattern} OR
         REPLACE(LOWER(TRIM(cp.board_name)), '-', ' ') = REPLACE(${boardPattern}, '-', ' ') OR
         REPLACE(LOWER(TRIM(cp.board_name)), ' ', '-') = REPLACE(${boardPattern}, ' ', '-') OR
-        REPLACE(REPLACE(LOWER(TRIM(cp.board_name)), '-', ''), ' ', '') = REPLACE(REPLACE(${boardPattern}, '-', ''), ' ', '')
+        REPLACE(REPLACE(LOWER(TRIM(cp.board_name)), '-', ''), ' ', '') = REPLACE(REPLACE(${boardPattern}, '-', ''), ' ', '') OR
+        (${boardSlugPattern}::text IS NOT NULL AND LOWER(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(cp.board_name), '[^[:alnum:]]+', '-', 'g'), '^-|-$', '', 'g')) = ${boardSlugPattern})
       )
       AND (${qualified_only} = FALSE OR pa.pin_id IS NOT NULL)
       AND (${isHighVelocity} = FALSE OR COALESCE(pa.velocity, 0) >= 10)
