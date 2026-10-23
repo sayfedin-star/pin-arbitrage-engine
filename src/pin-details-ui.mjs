@@ -784,6 +784,17 @@ export function getPinDetailPageHtml(pinId = '') {
               <template x-for="(day, idx) in filteredDays()" :key="day.snapshot_date">
                 <!-- Each Day gets its own semantic tbody to allow multi-tr rendering in Alpine -->
                 <tbody class="border-b border-slate-200 bg-white divide-y divide-slate-100">
+                  <!-- Crawler Paused Indicator (Gap detection between crawls) -->
+                  <template x-if="hasCrawlGap(day, idx)">
+                    <tr class="bg-slate-50/80">
+                      <td colspan="8" class="py-1.5 px-4 text-center">
+                        <div class="inline-flex items-center gap-2 px-3 py-0.5 rounded-full bg-slate-100 border border-slate-200 text-[10px] text-slate-500 font-mono">
+                          <span>⏸️</span>
+                          <span x-text="getCrawlGapText(day, idx)"></span>
+                        </div>
+                      </td>
+                    </tr>
+                  </template>
                   <!-- Master Day Row -->
                   <tr class="hover:bg-slate-50/80 transition-colors group cursor-pointer" @click="toggleDayExpanded(day.snapshot_date)">
                     <!-- Expand chevron -->
@@ -854,20 +865,34 @@ export function getPinDetailPageHtml(pinId = '') {
                           <template x-if="dayKeywordSummary(day).top10 > 0">
                             <span class="inline-flex items-center px-2 py-0.5 rounded-md bg-sky-50 text-sky-700 border border-sky-200/80 text-[10px] font-medium" x-text="dayKeywordSummary(day).top10 + ' Top 10'"></span>
                           </template>
+                          <template x-if="dayKeywordSummary(day).ranks11_100 > 0">
+                            <span class="inline-flex items-center px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 border border-indigo-200/80 text-[10px] font-medium" x-text="dayKeywordSummary(day).ranks11_100 + ' R11-100'"></span>
+                          </template>
                           <template x-if="dayKeywordSummary(day).vault > 0">
                             <span class="inline-flex items-center px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-200/80 text-[10px]" x-text="dayKeywordSummary(day).vault + ' Vault'"></span>
                           </template>
-                          <span class="text-[11px] text-slate-500 font-medium ml-0.5" x-text="'(' + dayKeywordSummary(day).total + ' kws)'"></span>
+                          <span class="text-[11px] text-slate-500 font-medium ml-0.5 font-mono" x-text="'(' + dayKeywordSummary(day).total + ' kws)'"></span>
                         </div>
                       </template>
-                      <!-- Filtered Mode: Show targeted keyword badge directly -->
+                      <!-- Filtered Mode: Show targeted keyword rank & movement cleanly -->
                       <template x-if="selectedKeywordFilter !== 'ALL'">
-                        <div class="flex items-center gap-1.5">
+                        <div class="flex items-center gap-2">
                           <template x-for="kw in getSpecificKeywordForDay(day, selectedKeywordFilter)" :key="kw.keyword">
-                            <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[11px] font-medium border" :class="kw.is_displaced ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'">
-                              <span class="font-bold font-mono" x-text="kw.rank ? ('#' + kw.rank) : 'Unranked'"></span>
-                              <span x-text="kw.keyword"></span>
-                            </span>
+                            <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border shadow-2xs" :class="kw.is_displaced ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'">
+                              <span class="font-bold font-mono text-sm" x-text="kw.rank ? ('#' + kw.rank) : '[Vault]'"></span>
+                              <template x-if="keywordRankMovement(day.snapshot_date, kw).status === 'up'">
+                                <span class="text-[10px] text-emerald-800 font-bold font-mono" x-text="'▲ ' + keywordRankMovement(day.snapshot_date, kw).delta"></span>
+                              </template>
+                              <template x-if="keywordRankMovement(day.snapshot_date, kw).status === 'down'">
+                                <span class="text-[10px] text-rose-700 font-bold font-mono" x-text="'▼ ' + keywordRankMovement(day.snapshot_date, kw).delta"></span>
+                              </template>
+                              <template x-if="keywordRankMovement(day.snapshot_date, kw).status === 'steady'">
+                                <span class="text-[10px] text-slate-400 font-normal">―</span>
+                              </template>
+                              <template x-if="keywordRankMovement(day.snapshot_date, kw).status === 'new'">
+                                <span class="text-[9px] text-sky-700 font-medium">NEW</span>
+                              </template>
+                            </div>
                           </template>
                         </div>
                       </template>
@@ -901,6 +926,18 @@ export function getPinDetailPageHtml(pinId = '') {
                     <td colspan="8" class="p-3 sm:p-4">
                       <div class="flex flex-col gap-3 bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
                         <!-- Drawer Controls Ribbon -->
+                        <div class="flex items-center justify-between pb-2 border-b border-slate-100">
+                          <div class="inline-flex items-center gap-2.5 px-3 py-1 rounded-lg bg-slate-50 border border-slate-200/70 text-[11px] font-mono text-slate-600">
+                            <span>📌 <strong>Pin Baseline:</strong> <span class="text-slate-900 font-bold" x-text="formatNumber(day.save_count)"></span> Saves</span>
+                            <span class="text-slate-300">•</span>
+                            <span><strong>Velocity:</strong> <span class="text-amber-800 font-bold" x-text="'+ ' + (day.daily_save_velocity || 0) + '/d'"></span></span>
+                            <span class="text-slate-300">•</span>
+                            <span><strong>Repins:</strong> <span class="text-pink-700 font-bold" x-text="formatNumber(day.repin_count)"></span></span>
+                          </div>
+                          <div class="text-[11px] text-slate-400 font-mono">
+                            Snapshot: <span x-text="day.snapshot_date"></span>
+                          </div>
+                        </div>
                         <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-slate-100">
                           <!-- Category Filter Pills -->
                           <div class="flex flex-wrap items-center gap-1.5 text-xs">
@@ -925,6 +962,13 @@ export function getPinDetailPageHtml(pinId = '') {
                               class="px-2.5 py-1 rounded-lg text-[11px] transition-colors"
                             >
                               Ranks 4-10 (<span x-text="dayKeywordSummary(day).top10"></span>)
+                            </button>
+                            <button 
+                              @click="drawerCategoryFilter = 'RANKS11_100'" 
+                              :class="drawerCategoryFilter === 'RANKS11_100' ? 'bg-indigo-600 text-white font-semibold shadow-2xs' : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200/60'" 
+                              class="px-2.5 py-1 rounded-lg text-[11px] transition-colors"
+                            >
+                              Ranks 11-100 (<span x-text="dayKeywordSummary(day).ranks11_100"></span>)
                             </button>
                             <button 
                               @click="drawerCategoryFilter = 'VAULT'" 
@@ -960,8 +1004,8 @@ export function getPinDetailPageHtml(pinId = '') {
                               <tr class="bg-slate-50 text-slate-500 text-[10px] uppercase font-semibold tracking-wider border-b border-slate-200/80 h-8">
                                 <th class="py-2 px-3 font-semibold">Target Keyword</th>
                                 <th class="py-2 px-3 font-semibold text-center w-36">SERP Position</th>
-                                <th class="py-2 px-3 font-semibold text-right w-36">Attributed Saves</th>
-                                <th class="py-2 px-3 font-semibold text-right w-32">Daily Velocity</th>
+                                <th class="py-2 px-3 font-semibold text-center w-40">SERP Tier</th>
+                                <th class="py-2 px-3 font-semibold text-center w-36">24h Movement</th>
                                 <th class="py-2 px-3 font-semibold text-right pr-4 w-24">Action</th>
                               </tr>
                             </thead>
@@ -976,30 +1020,42 @@ export function getPinDetailPageHtml(pinId = '') {
                                       <span class="text-[10px] text-slate-400 font-mono">↗</span>
                                     </a>
                                   </td>
-                                  <!-- Rank + Movement -->
+                                  <!-- Rank Position -->
                                   <td class="py-2 px-3 text-center whitespace-nowrap">
                                     <template x-if="kw.rank && !kw.is_displaced">
-                                      <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold text-[11px] font-mono">
+                                      <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold text-xs font-mono">
                                         <span x-text="'#' + kw.rank"></span>
-                                        <template x-if="keywordRankMovement(day.snapshot_date, kw).status === 'up'">
-                                          <span class="text-[9px] text-emerald-800 font-bold" x-text="'▲ ' + keywordRankMovement(day.snapshot_date, kw).delta"></span>
-                                        </template>
-                                        <template x-if="keywordRankMovement(day.snapshot_date, kw).status === 'down'">
-                                          <span class="text-[9px] text-rose-700 font-bold" x-text="'▼ ' + keywordRankMovement(day.snapshot_date, kw).delta"></span>
-                                        </template>
-                                        <template x-if="keywordRankMovement(day.snapshot_date, kw).status === 'new'">
-                                          <span class="text-[9px] text-sky-700 font-medium">NEW</span>
-                                        </template>
                                       </span>
                                     </template>
                                     <template x-if="kw.is_displaced">
-                                      <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-200 font-semibold text-[11px] font-mono" x-text="'[Vault #' + (kw.rank || 101) + ']'"></span>
+                                      <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-200 font-semibold text-[11px] font-mono" x-text="'[Vault #' + (kw.rank || 101) + ']'"></span>
                                     </template>
                                   </td>
-                                  <!-- Attributed saves -->
-                                  <td class="py-2 px-3 text-right text-emerald-700 font-bold font-mono whitespace-nowrap" x-text="formatNumber(kw.saves || day.save_count)"></td>
-                                  <!-- Velocity -->
-                                  <td class="py-2 px-3 text-right text-amber-800 font-semibold font-mono whitespace-nowrap" x-text="'+' + (kw.velocity || day.daily_save_velocity || 0) + '/d'"></td>
+                                  <!-- SERP Tier -->
+                                  <td class="py-2 px-3 text-center whitespace-nowrap">
+                                    <span class="inline-block px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider" :class="getKeywordTierClass(kw)" x-text="getKeywordTierLabel(kw)"></span>
+                                  </td>
+                                  <!-- 24h Movement -->
+                                  <td class="py-2 px-3 text-center whitespace-nowrap font-mono text-[11px]">
+                                    <template x-if="keywordRankMovement(day.snapshot_date, kw).status === 'up'">
+                                      <span class="inline-flex items-center gap-1 text-emerald-700 font-bold">
+                                        <span>▲</span>
+                                        <span x-text="'+ ' + keywordRankMovement(day.snapshot_date, kw).delta + ' spots'"></span>
+                                      </span>
+                                    </template>
+                                    <template x-if="keywordRankMovement(day.snapshot_date, kw).status === 'down'">
+                                      <span class="inline-flex items-center gap-1 text-rose-700 font-bold">
+                                        <span>▼</span>
+                                        <span x-text="'- ' + keywordRankMovement(day.snapshot_date, kw).delta + ' spots'"></span>
+                                      </span>
+                                    </template>
+                                    <template x-if="keywordRankMovement(day.snapshot_date, kw).status === 'steady'">
+                                      <span class="text-slate-400">― Steady</span>
+                                    </template>
+                                    <template x-if="keywordRankMovement(day.snapshot_date, kw).status === 'new'">
+                                      <span class="inline-flex items-center px-1.5 py-0.2 rounded bg-sky-50 text-sky-700 border border-sky-200 text-[10px] font-semibold font-sans">★ NEW</span>
+                                    </template>
+                                  </td>
                                   <!-- Remove rank badge button -->
                                   <td class="py-2 px-3 text-right pr-4 whitespace-nowrap">
                                     <button 
@@ -1666,8 +1722,48 @@ export function getPinDetailPageHtml(pinId = '') {
           const total = kws.length;
           const top3 = kws.filter(k => !k.is_displaced && k.rank && Number(k.rank) <= 3).length;
           const top10 = kws.filter(k => !k.is_displaced && k.rank && Number(k.rank) > 3 && Number(k.rank) <= 10).length;
+          const ranks11_100 = kws.filter(k => !k.is_displaced && k.rank && Number(k.rank) > 10 && Number(k.rank) <= 100).length;
           const vault = kws.filter(k => k.is_displaced || (k.rank && Number(k.rank) > 100)).length;
-          return { total, top3, top10, vault };
+          return { total, top3, top10, ranks11_100, vault };
+        },
+
+        getKeywordTierLabel(kw) {
+          if (kw.is_displaced) return 'Displaced Vault';
+          const r = Number(kw.rank || 999);
+          if (r <= 3) return 'Top 3 (Prime)';
+          if (r <= 10) return 'Top 10 (Page 1)';
+          if (r <= 50) return 'Ranks 11-50';
+          if (r <= 100) return 'Ranks 51-100';
+          return 'Vault';
+        },
+
+        getKeywordTierClass(kw) {
+          if (kw.is_displaced) return 'bg-amber-50 text-amber-800 border border-amber-200/80';
+          const r = Number(kw.rank || 999);
+          if (r <= 3) return 'bg-emerald-50 text-emerald-800 border border-emerald-200/80';
+          if (r <= 10) return 'bg-sky-50 text-sky-800 border border-sky-200/80';
+          if (r <= 50) return 'bg-indigo-50 text-indigo-700 border border-indigo-200/80';
+          return 'bg-slate-100 text-slate-700 border border-slate-200/80';
+        },
+
+        hasCrawlGap(day, idx) {
+          const days = this.filteredDays();
+          if (idx >= days.length - 1) return false;
+          const nextDay = days[idx + 1];
+          const currD = new Date(day.snapshot_date + 'T00:00:00Z');
+          const nextD = new Date(nextDay.snapshot_date + 'T00:00:00Z');
+          const diffDays = Math.round((currD.getTime() - nextD.getTime()) / 86400000);
+          return diffDays > 1;
+        },
+
+        getCrawlGapText(day, idx) {
+          const days = this.filteredDays();
+          const nextDay = days[idx + 1];
+          const currD = new Date(day.snapshot_date + 'T00:00:00Z');
+          const nextD = new Date(nextDay.snapshot_date + 'T00:00:00Z');
+          const diffDays = Math.round((currD.getTime() - nextD.getTime()) / 86400000);
+          const skipped = diffDays - 1;
+          return 'Crawler Paused: ' + skipped + (skipped > 1 ? ' days' : ' day') + ' gap (' + nextDay.snapshot_date + ' → ' + day.snapshot_date + ')';
         },
 
         filteredKeywordsForDay(day) {
@@ -1683,6 +1779,8 @@ export function getPinDetailPageHtml(pinId = '') {
             list = list.filter(k => !k.is_displaced && k.rank && Number(k.rank) <= 3);
           } else if (this.drawerCategoryFilter === 'TOP10') {
             list = list.filter(k => !k.is_displaced && k.rank && Number(k.rank) > 3 && Number(k.rank) <= 10);
+          } else if (this.drawerCategoryFilter === 'RANKS11_100') {
+            list = list.filter(k => !k.is_displaced && k.rank && Number(k.rank) > 10 && Number(k.rank) <= 100);
           } else if (this.drawerCategoryFilter === 'VAULT') {
             list = list.filter(k => k.is_displaced || (k.rank && Number(k.rank) > 100));
           }
