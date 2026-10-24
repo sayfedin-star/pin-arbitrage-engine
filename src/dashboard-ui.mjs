@@ -7989,6 +7989,7 @@ export function getDashboardHtml() {
               this.showToast('⚡ Quick Pulse complete for @' + username + '!');
               await this.fetchCompetitors();
               if (this.activeCreator && (this.activeCreator.id === compId || (this.activeCreator.username || '').replace(/^@+/, '') === username)) {
+                this._clientCache?.creators?.delete(username.toLowerCase());
                 await this.openCreatorDossier(this.activeCreator);
               }
             } else {
@@ -8020,6 +8021,7 @@ export function getDashboardHtml() {
               this.showToast('🌊 Deep Harvest complete for @' + username + ' (' + promoted + ' pins qualified into PinArchive)!');
               await this.fetchCompetitors();
               if (this.activeCreator && (this.activeCreator.id === compId || (this.activeCreator.username || '').replace(/^@+/, '') === username)) {
+                this._clientCache?.creators?.delete(username.toLowerCase());
                 await this.openCreatorDossier(this.activeCreator);
               }
             } else {
@@ -8162,6 +8164,7 @@ export function getDashboardHtml() {
             } catch (_) {}
           }
           this.showToast('✓ Bulk Pulse complete (' + successCount + '/' + count + ' creators updated)!');
+          this._clientCache?.creators?.clear();
           await this.fetchCompetitors();
           this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
         },
@@ -9434,6 +9437,8 @@ export function getDashboardHtml() {
               })
             });
             if (res.ok) {
+              const cleanHandle = (this.activeCreator.username || '').replace(/^@+/, '').trim().toLowerCase();
+              this._clientCache?.creators?.delete(cleanHandle);
               this.showToast('✅ Qualification rules saved for @' + (this.activeCreator.username || '').replace(/^@+/, ''));
             } else {
               const err = await res.json().catch(() => ({}));
@@ -9459,11 +9464,15 @@ export function getDashboardHtml() {
             });
             const data = await res.json();
             if (res.ok && data.ok) {
-              this.reEvaluateMessage = 'Qualified ' + data.qualified_count + ' pins into archive based on active rules!';
-              this.showToast('🎯 Re-evaluation complete: ' + data.qualified_count + ' pins qualified');
-              if (typeof this.fetchCreatorWinningPins === 'function') {
-                this.fetchCreatorWinningPins(this.activeCreator);
-              }
+              const prunedText = data.pruned_count ? (' (' + data.pruned_count + ' demoted)') : '';
+              this.reEvaluateMessage = 'Qualified ' + data.qualified_count + ' pins into archive' + prunedText + ' based on active rules!';
+              this.showToast('🎯 Re-evaluation complete: ' + data.qualified_count + ' qualified' + prunedText);
+              const cleanHandle = (this.activeCreator.username || '').replace(/^@+/, '').trim().toLowerCase();
+              this._clientCache?.creators?.delete(cleanHandle);
+              await Promise.all([
+                this.fetchCreatorAllPins(),
+                typeof this.fetchCreatorWinningPins === 'function' ? this.fetchCreatorWinningPins(this.activeCreator) : Promise.resolve()
+              ]);
             } else {
               this.showToast('Re-evaluation error: ' + (data.error || data.message || 'Failed'));
             }
@@ -9960,7 +9969,7 @@ export function getDashboardHtml() {
           const target = creator || this.activeCreator;
           if (!target) return;
           this.ghaTargetAccount = (target.username || '').replace(/^@+/, '').trim();
-          this.ghaCrawlMode = options.mode || 'refresh';
+          this.ghaCrawlMode = options.mode || 'discovery';
           if (options.scope === 'custom') {
             this.ghaBoardScope = 'custom';
             this.ghaTargetBoards = Array.isArray(options.boards) ? [...options.boards] : [];
@@ -10040,18 +10049,20 @@ export function getDashboardHtml() {
             ? ('⚡ Dispatching fleet crawler for ' + bulkUsernames.length + ' creators...')
             : ('⚡ Dispatching fleet crawler for @' + handle + boardMsg + '...'));
 
+          const resolvedMaxPages = this.ghaCrawlMode === 'discovery' ? 3 : (this.ghaCrawlMode === 'refresh' ? 10 : 500);
+
           try {
             const payload = isBulk
               ? {
                   usernames: bulkUsernames,
                   crawl_mode: this.ghaCrawlMode,
-                  max_pages: this.ghaCrawlMode === 'refresh' || this.ghaCrawlMode === 'discovery' ? 3 : 500,
+                  max_pages: resolvedMaxPages,
                   target_boards: targetBoards
                 }
               : {
                   username: handle,
                   crawl_mode: this.ghaCrawlMode,
-                  max_pages: this.ghaCrawlMode === 'refresh' || this.ghaCrawlMode === 'discovery' ? 3 : 500,
+                  max_pages: resolvedMaxPages,
                   target_boards: targetBoards
                 };
 

@@ -83,18 +83,21 @@ export async function handleCreatorsRoutes(routeCtx) {
       invalidateEdgeCache('creators');
       invalidateEdgeCache('competitors');
       invalidateEdgeCache('pinarchive');
+      invalidateEdgeCache('topics');
     }
   };
 
   // 0. Smart Sync Endpoints (Quick Pulse & Deep Harvest)
   if (method === 'POST' && (pathname === '/api/creators/quick-pulse' || pathname === '/api/competitors/quick-pulse')) {
-    invalidateCreatorsCache();
     const body = await request.json().catch(() => ({}));
     const targetId = body.id || body.username || searchParams.get('id') || searchParams.get('username');
     if (!targetId) return jsonResponse({ error: 'Creator ID or username is required' }, 400);
     const cookie = body.cookie || env?.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env?.PINTEREST_COOKIE : null);
     try {
       const result = await quickPulseCreator(targetSql, targetId, cookie);
+      if (result?.username && typeof safeWaitUntil === 'function') {
+        safeWaitUntil(ctx, syncCompetitorAcrossFleet(sql, result.username), 'syncCompetitorAcrossFleet');
+      }
       return jsonResponse({ success: true, ...result });
     } catch (err) {
       if (err.message && (err.message.includes('429') || err.message.includes('403')) && typeof tripPinterestCircuitBreaker === 'function') {
@@ -107,7 +110,6 @@ export async function handleCreatorsRoutes(routeCtx) {
   }
 
   if (method === 'POST' && (pathname === '/api/creators/deep-harvest' || pathname === '/api/competitors/deep-harvest')) {
-    invalidateCreatorsCache();
     const body = await request.json().catch(() => ({}));
     const targetId = body.id || body.username || searchParams.get('id') || searchParams.get('username');
     if (!targetId) return jsonResponse({ error: 'Creator ID or username is required' }, 400);
@@ -129,7 +131,6 @@ export async function handleCreatorsRoutes(routeCtx) {
 
   // POST /api/competitors/sync
   if (method === 'POST' && pathname === '/api/competitors/sync') {
-    invalidateEdgeCache('competitors');
     const body = await request.json().catch(() => ({}));
     const username = body.username;
     if (!username) return jsonResponse({ error: 'username is required' }, 400);
@@ -149,6 +150,8 @@ export async function handleCreatorsRoutes(routeCtx) {
         return jsonResponse({ error: 'PINTEREST_ACCESS_DENIED', message: err.message }, 403);
       }
       throw err;
+    } finally {
+      invalidateCreatorsCache();
     }
   }
 
@@ -169,7 +172,6 @@ export async function handleCreatorsRoutes(routeCtx) {
 
   // POST /api/competitors/sync-boards
   if (method === 'POST' && pathname === '/api/competitors/sync-boards') {
-    invalidateEdgeCache('competitors');
     try {
       const body = await request.json().catch(() => ({}));
       const { competitor_id, username } = body;
@@ -183,24 +185,30 @@ export async function handleCreatorsRoutes(routeCtx) {
       return jsonResponse({ success: true, ...result });
     } catch (err) {
       return jsonResponse({ success: false, error: err.message }, 500);
+    } finally {
+      invalidateCreatorsCache();
     }
   }
 
   // POST /api/competitors/sync-pins
   if (method === 'POST' && pathname === '/api/competitors/sync-pins') {
-    invalidateEdgeCache('competitors');
-    const body = await request.json().catch(() => ({}));
-    const { competitor_id, username, mode, max_pages } = body;
-    if (!username && !competitor_id) return jsonResponse({ error: 'username or competitor_id is required' }, 400);
-    const cookie = env.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env.PINTEREST_COOKIE : null);
-    const result = await syncCompetitorPins(targetSql, competitor_id, username, { mode, maxPages: max_pages, cookie });
-    if (!result.ok) return jsonResponse({ success: false, ...result }, 400);
-    return jsonResponse({ success: true, ...result });
+    try {
+      const body = await request.json().catch(() => ({}));
+      const { competitor_id, username, mode, max_pages } = body;
+      if (!username && !competitor_id) return jsonResponse({ error: 'username or competitor_id is required' }, 400);
+      const cookie = env.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env.PINTEREST_COOKIE : null);
+      const result = await syncCompetitorPins(targetSql, competitor_id, username, { mode, maxPages: max_pages, cookie });
+      if (!result.ok) return jsonResponse({ success: false, ...result }, 400);
+      return jsonResponse({ success: true, ...result });
+    } catch (err) {
+      return jsonResponse({ success: false, error: err.message }, 500);
+    } finally {
+      invalidateCreatorsCache();
+    }
   }
 
   // POST /api/competitors/fast-refresh
   if (method === 'POST' && pathname === '/api/competitors/fast-refresh') {
-    invalidateEdgeCache('competitors');
     const body = await request.json().catch(() => ({}));
     const { competitor_id, username, competitor_ids } = body;
     try {
@@ -229,12 +237,13 @@ export async function handleCreatorsRoutes(routeCtx) {
       return jsonResponse({ success: true, ...result });
     } catch (err) {
       return jsonResponse({ success: false, error: err.message }, 500);
+    } finally {
+      invalidateCreatorsCache();
     }
   }
 
   // POST /api/competitors/audit-sweep
   if (method === 'POST' && pathname === '/api/competitors/audit-sweep') {
-    invalidateEdgeCache('competitors');
     const body = await request.json().catch(() => ({}));
     const { competitor_id, username, competitor_ids } = body;
     try {
@@ -266,6 +275,8 @@ export async function handleCreatorsRoutes(routeCtx) {
       return jsonResponse({ success: true, ...result });
     } catch (err) {
       return jsonResponse({ success: false, error: err.message }, 500);
+    } finally {
+      invalidateCreatorsCache();
     }
   }
 
@@ -602,27 +613,33 @@ export async function handleCreatorsRoutes(routeCtx) {
 
   // DELETE /api/competitors/snapshot or snapshots
   if (method === 'DELETE' && (pathname === '/api/competitors/snapshot' || pathname === '/api/competitors/snapshots')) {
-    invalidateEdgeCache('competitors');
-    let snapshotId = searchParams.get('id') || searchParams.get('snapshot_id');
-    if (!snapshotId) {
-      try {
-        const body = await request.json();
-        snapshotId = body.snapshot_id || body.id;
-      } catch (_) {}
+    try {
+      let snapshotId = searchParams.get('id') || searchParams.get('snapshot_id');
+      if (!snapshotId) {
+        try {
+          const body = await request.json();
+          snapshotId = body.snapshot_id || body.id;
+        } catch (_) {}
+      }
+      if (!snapshotId) return jsonResponse({ error: 'snapshot_id is required' }, 400);
+      await deleteCompetitorSnapshot(targetSql, snapshotId);
+      return jsonResponse({ success: true, deleted_snapshot_id: snapshotId });
+    } finally {
+      invalidateCreatorsCache();
     }
-    if (!snapshotId) return jsonResponse({ error: 'snapshot_id is required' }, 400);
-    await deleteCompetitorSnapshot(targetSql, snapshotId);
-    return jsonResponse({ success: true, deleted_snapshot_id: snapshotId });
   }
 
   // POST /api/competitors/status or toggle
   if (method === 'POST' && (pathname === '/api/competitors/status' || pathname === '/api/competitors/toggle')) {
-    invalidateEdgeCache('competitors');
-    const body = await request.json();
-    const idOrUser = body.username || body.id || body.competitor_id;
-    if (!idOrUser) return jsonResponse({ error: 'id or username is required' }, 400);
-    const row = await updateCompetitorStatus(targetSql, idOrUser, body.is_active);
-    return jsonResponse({ success: true, competitor: row });
+    try {
+      const body = await request.json();
+      const idOrUser = body.username || body.id || body.competitor_id;
+      if (!idOrUser) return jsonResponse({ error: 'id or username is required' }, 400);
+      const row = await updateCompetitorStatus(targetSql, idOrUser, body.is_active);
+      return jsonResponse({ success: true, competitor: row });
+    } finally {
+      invalidateCreatorsCache();
+    }
   }
 
   // 2. Base Resource /api/competitors (Strict Exact Equality)
@@ -670,36 +687,42 @@ export async function handleCreatorsRoutes(routeCtx) {
 
   // POST /api/competitors
   if (method === 'POST' && pathname === '/api/competitors') {
-    invalidateEdgeCache('competitors');
-    const body = await request.json().catch(() => ({}));
-    const row = await trackCompetitor(targetSql, body);
-    if (row?.username) {
-      safeWaitUntil(ctx, syncCompetitorAcrossFleet(sql, row.username), 'syncCompetitorAcrossFleet');
+    try {
+      const body = await request.json().catch(() => ({}));
+      const row = await trackCompetitor(targetSql, body);
+      if (row?.username) {
+        safeWaitUntil(ctx, syncCompetitorAcrossFleet(sql, row.username), 'syncCompetitorAcrossFleet');
+      }
+      return jsonResponse({ success: true, competitor: row });
+    } finally {
+      invalidateCreatorsCache();
     }
-    return jsonResponse({ success: true, competitor: row });
   }
 
   // DELETE /api/competitors
   if (method === 'DELETE' && pathname === '/api/competitors') {
-    invalidateEdgeCache('competitors');
-    let id = searchParams.get('id');
-    let username = searchParams.get('username');
-    if (!id && !username) {
-      try {
-        const body = await request.json();
-        id = body.id || body.competitor_id;
-        username = body.username;
-      } catch (_) {}
+    try {
+      let id = searchParams.get('id');
+      let username = searchParams.get('username');
+      if (!id && !username) {
+        try {
+          const body = await request.json();
+          id = body.id || body.competitor_id;
+          username = body.username;
+        } catch (_) {}
+      }
+      if (username) {
+        const cleanUser = String(username).replace(/^@/, '').trim().toLowerCase();
+        await targetSql`DELETE FROM competitor_profiles WHERE LOWER(username) = ${cleanUser};`;
+        return jsonResponse({ success: true, deleted_username: cleanUser });
+      } else if (id && !isNaN(Number(id))) {
+        await targetSql`DELETE FROM competitor_profiles WHERE id = ${Number(id)};`;
+        return jsonResponse({ success: true, deleted_id: Number(id) });
+      }
+      return jsonResponse({ error: 'id or username is required to delete competitor' }, 400);
+    } finally {
+      invalidateCreatorsCache();
     }
-    if (username) {
-      const cleanUser = String(username).replace(/^@/, '').trim().toLowerCase();
-      await targetSql`DELETE FROM competitor_profiles WHERE LOWER(username) = ${cleanUser};`;
-      return jsonResponse({ success: true, deleted_username: cleanUser });
-    } else if (id && !isNaN(Number(id))) {
-      await targetSql`DELETE FROM competitor_profiles WHERE id = ${Number(id)};`;
-      return jsonResponse({ success: true, deleted_id: Number(id) });
-    }
-    return jsonResponse({ error: 'id or username is required to delete competitor' }, 400);
   }
 
   
@@ -747,30 +770,34 @@ export async function handleCreatorsRoutes(routeCtx) {
 
   // 3. Qualification Rules (POST)
   if (method === 'POST' && pathname === '/api/pinarchive/rules') {
-    invalidateEdgeCache('pinarchive');
-    invalidateEdgeCache('topics');
-    const body = await request.json().catch(() => ({}));
-    const rules = await updateQualificationRules(targetSql, body);
-    return jsonResponse({ success: true, rules });
+    try {
+      const body = await request.json().catch(() => ({}));
+      const rules = await updateQualificationRules(targetSql, body);
+      return jsonResponse({ success: true, rules });
+    } finally {
+      invalidateCreatorsCache();
+    }
   }
 
   // 4. Re-evaluate Archived Pins
   if (method === 'POST' && pathname === '/api/pinarchive/re-evaluate') {
-    invalidateEdgeCache('pinarchive');
-    invalidateEdgeCache('topics');
-    const body = await request.json().catch(() => ({}));
-    const account = searchParams.get('account') || searchParams.get('username') || body.account_username || null;
-    const hasRuleOverride = Boolean(body && (
-      body.tier1_min_saves !== undefined ||
-      body.tier2_min_repins !== undefined ||
-      body.tier3_max_age_days !== undefined ||
-      body.tier3_min_saves !== undefined ||
-      body.master_ingest_enabled !== undefined ||
-      (body.rules && typeof body.rules === 'object')
-    ));
-    const rulesPayload = hasRuleOverride ? (body.rules || body) : null;
-    const audit = await reEvaluateArchivedPins(targetSql, rulesPayload, account);
-    return jsonResponse({ success: true, ...audit });
+    try {
+      const body = await request.json().catch(() => ({}));
+      const account = searchParams.get('account') || searchParams.get('username') || body.account_username || null;
+      const hasRuleOverride = Boolean(body && (
+        body.tier1_min_saves !== undefined ||
+        body.tier2_min_repins !== undefined ||
+        body.tier3_max_age_days !== undefined ||
+        body.tier3_min_saves !== undefined ||
+        body.master_ingest_enabled !== undefined ||
+        (body.rules && typeof body.rules === 'object')
+      ));
+      const rulesPayload = hasRuleOverride ? (body.rules || body) : null;
+      const audit = await reEvaluateArchivedPins(targetSql, rulesPayload, account);
+      return jsonResponse({ success: true, ...audit });
+    } finally {
+      invalidateCreatorsCache();
+    }
   }
 
   // 5. Topic Clusters API

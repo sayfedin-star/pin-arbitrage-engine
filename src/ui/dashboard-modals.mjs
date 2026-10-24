@@ -1232,8 +1232,8 @@ export function getDashboardModalsHtml() {
         <div>
           <label class="block font-bold text-slate-800 dark:text-slate-200 mb-2">Crawl Architecture & Depth:</label>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-            <label class="flex items-start gap-2.5 p-3 rounded-2xl border cursor-pointer transition" :class="ghaCrawlMode === 'refresh' ? 'bg-amber-50/50 dark:bg-amber-950/30 border-amber-500 text-amber-700 dark:text-amber-300 font-bold shadow-2xs' : 'border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'">
-              <input type="radio" value="refresh" x-model="ghaCrawlMode" class="mt-0.5 text-amber-600">
+            <label class="flex items-start gap-2.5 p-3 rounded-2xl border cursor-pointer transition" :class="ghaCrawlMode === 'discovery' ? 'bg-amber-50/50 dark:bg-amber-950/30 border-amber-500 text-amber-700 dark:text-amber-300 font-bold shadow-2xs' : 'border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'">
+              <input type="radio" value="discovery" x-model="ghaCrawlMode" class="mt-0.5 text-amber-600">
               <div>
                 <div class="text-xs font-bold">⚡ Recent Pins Feed (Early-Stop: 3 pages)</div>
                 <div class="text-[10.5px] font-normal text-slate-500 dark:text-slate-400 mt-0.5">Fetches newest ~75 pins. Fast check for daily additions and fresh breakouts.</div>

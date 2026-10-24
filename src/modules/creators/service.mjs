@@ -993,7 +993,7 @@ export async function getOrSyncBoardDetail(sql, username, boardNameOrSlug, optio
  * Harvest winning pins for a competitor into PinArchive using Early-Stop (daily) or Deep Sweep (audit)
  * Evaluates all pins against active Pin Qualification Rules (Tier 1/2/3 OR Criteria).
  */
-export async function syncCompetitorPins(sql, competitorId, username, { mode = 'daily', maxPages = null, cookie = '' } = {}) {
+export async function syncCompetitorPins(sql, competitorId, username, { mode = 'daily', maxPages = null, cookie = '', fastJitter = false } = {}) {
   let cleanUsername = normalizePinterestUsername(username);
   let numericId = parseInt(competitorId, 10);
 
@@ -1095,9 +1095,9 @@ export async function syncCompetitorPins(sql, competitorId, username, { mode = '
     if (!currentBookmark || currentBookmark === '-end-' || currentBookmark === lastSeenBookmark) break; // End of feed
     lastSeenBookmark = currentBookmark;
 
-    // Inject jitter delay between pages (discovery: 250-450ms for high-speed indexing; refresh: 1500-2500ms)
+    // Inject jitter delay between pages (discovery or fastJitter: 250-450ms for high-speed indexing; refresh/daily: 1500-2500ms)
     if (page < pageLimit) {
-      const delay = (mode === 'discovery') ? randomJitterMs(250, 450) : randomJitterMs(1500, 2500);
+      const delay = (mode === 'discovery' || fastJitter === true) ? randomJitterMs(250, 450) : randomJitterMs(1500, 2500);
       await sleep(delay);
     }
   }
@@ -3621,7 +3621,7 @@ export async function quickPulseCreator(sql, idOrUsername, cookie = '') {
  * one-way promotion reconciliation to pa_pins, and an in-process 4-worker pool
  * live metric refresh with deterministic shard snapshots on pins_daily_metrics.
  */
-export async function deepHarvestCreator(sql, idOrUsername, { cookie = '', env = null } = {}) {
+export async function deepHarvestCreator(sql, idOrUsername, { cookie = '', env = null, maxPinRefresh = 20 } = {}) {
   const pulse = await quickPulseCreator(sql, idOrUsername, cookie);
   const numericId = pulse.creator_id;
   const cleanUsername = pulse.username;
@@ -3629,7 +3629,7 @@ export async function deepHarvestCreator(sql, idOrUsername, { cookie = '', env =
   let pinsSyncRes = null;
   if (numericId) {
     try {
-      pinsSyncRes = await syncCompetitorPins(sql, numericId, cleanUsername, { mode: 'daily', maxPages: 5, cookie });
+      pinsSyncRes = await syncCompetitorPins(sql, numericId, cleanUsername, { mode: 'daily', maxPages: 3, fastJitter: true, cookie });
     } catch (err) {
       console.warn(`[deepHarvestCreator] syncCompetitorPins warning:`, err.message);
     }
@@ -3644,14 +3644,15 @@ export async function deepHarvestCreator(sql, idOrUsername, { cookie = '', env =
     }
   }
 
-  // 4-Worker pool live metric refresh on winning pins
+  // 4-Worker pool live metric refresh on winning pins (bounded to max 25 to protect Cloudflare subrequest budget)
   let refreshedCount = 0;
+  const limitPins = Math.max(1, Math.min(Number(maxPinRefresh) || 20, 25));
   const archivedPins = await sql`
     SELECT pin_id, title, saves, repins, comments
     FROM pa_pins
     WHERE LOWER(REPLACE(account_username, '@', '')) = ${cleanUsername.toLowerCase()}
     ORDER BY saves DESC
-    LIMIT 50;
+    LIMIT ${limitPins};
   `;
 
   if (archivedPins.length > 0) {
@@ -3675,7 +3676,7 @@ export async function deepHarvestCreator(sql, idOrUsername, { cookie = '', env =
             refreshedCount++;
           }
         } catch (_) {}
-        await sleep(randomJitterMs(100, 250));
+        await sleep(randomJitterMs(50, 120));
       }
     });
     await Promise.all(workers);
