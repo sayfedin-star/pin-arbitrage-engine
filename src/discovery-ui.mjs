@@ -6,6 +6,7 @@
  */
 
 import { getEdgeShieldClientScript } from './edge-shield-client.mjs';
+import { renderAppSidebar } from './ui/app-sidebar.mjs';
 
 export function getDiscoveryPageHtml() {
   return `<!DOCTYPE html>
@@ -42,7 +43,17 @@ export function getDiscoveryPageHtml() {
         }
       }
     };
+    // Pre-hydrate dark mode immediately to avoid layout flash
+    try {
+      const savedTheme = localStorage.getItem('pin_theme') || localStorage.getItem('pa_theme');
+      if (savedTheme === 'light') {
+        document.documentElement.classList.remove('dark');
+      } else {
+        document.documentElement.classList.add('dark');
+      }
+    } catch (_) {}
   </script>
+  <script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.js" defer></script>
   <script defer src="https://unpkg.com/alpinejs@3.14.8/dist/cdn.min.js"></script>
   <style>
     [x-cloak] { display: none !important; }
@@ -51,6 +62,13 @@ export function getDiscoveryPageHtml() {
     ::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.2); border-radius: 9999px; }
     ::-webkit-scrollbar-thumb:hover { background: rgba(148, 163, 184, 0.4); }
   </style>
+  <script>
+    setTimeout(function() {
+      if (typeof document !== 'undefined' && document.body && document.body.hasAttribute('x-cloak')) {
+        document.body.removeAttribute('x-cloak');
+      }
+    }, 1200);
+  </script>
   <script>
 (function() {
   if (typeof window === 'undefined' || window.__paeAuthInterceptorInstalled) return;
@@ -86,7 +104,7 @@ export function getDiscoveryPageHtml() {
 })();
   </script>
 </head>
-<body class="bg-slate-950 text-slate-100 min-h-screen antialiased flex flex-col font-sans" x-data="discoveryApp()">
+<body x-cloak class="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 min-h-screen antialiased flex flex-col font-sans transition-colors duration-150" x-data="discoveryApp()">
 
   <!-- Toast Notification Container -->
   <div 
@@ -106,45 +124,41 @@ export function getDiscoveryPageHtml() {
     <button @click="toast.show = false" class="text-slate-400 hover:text-white ml-2">✕</button>
   </div>
 
-  <!-- Top Navigation Header -->
-  <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-40 px-6 py-3.5 flex items-center justify-between">
-    <div class="flex items-center gap-6">
-      <div class="flex items-center gap-3">
-        <a href="/keywords" class="flex items-center gap-2 group">
-          <div class="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-bold group-hover:scale-105 transition-transform">
-            ⚡
+  ${renderAppSidebar({ activeNav: 'keywords', refreshHandler: 'window.location.reload()' })}
+
+  <!-- Main Exploration Hub (Offset for Unified Desktop Sidebar) [INVARIANT: UNIFIED-SIDEBAR-LAYOUT] -->
+  <main class="flex-1 min-h-screen p-4 sm:p-6 lg:p-8 space-y-6 max-w-full overflow-x-hidden transition-all duration-300 ease-in-out" :class="isSidebarCollapsed ? 'md:ml-20' : 'md:ml-64 lg:ml-72'">
+
+    <!-- [INVARIANT: UNIFIED-SIDEBAR-LAYOUT] Studio Header Card -->
+    <section class="p-4 sm:p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div class="flex items-center space-x-3.5">
+        <div class="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 flex items-center justify-center shadow-xs shrink-0">
+          <i data-lucide="compass" class="w-5 h-5"></i>
+        </div>
+        <div>
+          <div class="flex items-center space-x-2">
+            <h2 class="text-lg sm:text-xl font-bold tracking-tight text-slate-900 dark:text-white">Keyword Discovery &amp; Autocomplete Hub</h2>
+            <span class="px-2 py-0.5 rounded-md text-[10px] font-mono font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">Pinterest Typeahead</span>
           </div>
-          <div>
-            <div class="text-sm font-bold tracking-tight text-white flex items-center gap-2">
-              PinArbitrage
-              <span class="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">Discovery Hub</span>
-            </div>
-            <div class="text-[11px] text-slate-400">Pinterest v3_typeahead Real-time Explorer</div>
-          </div>
-        </a>
+          <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-normal">Real-time Pinterest v3_typeahead radar &amp; search exploration</p>
+        </div>
       </div>
 
-      <nav class="hidden md:flex items-center gap-1 text-xs">
-        <a href="/keywords" class="px-3 py-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors">Keywords Radar</a>
-        <a href="/keywords/discovery" class="px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 font-semibold border border-emerald-500/20">Discovery & Autocomplete</a>
-        <a href="/folders" class="px-3 py-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors">Campaign Folders</a>
-        <a href="/domains" class="px-3 py-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors">Domain Radar</a>
-        <a href="/" class="px-3 py-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors">Creator Archive</a>
-      </nav>
-    </div>
-
-    <div class="flex items-center gap-3">
-      <button @click="openBulkModal = true" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 transition-colors flex items-center gap-1.5">
-        <span>📥</span> Import Keywords in Bulk
-      </button>
-      <a href="/keywords" class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-sm transition-colors flex items-center gap-1.5">
-        <span>📊</span> View Keywords Radar
-      </a>
-    </div>
-  </header>
-
-  <!-- Main Exploration Hub -->
-  <main class="flex-1 max-w-7xl w-full mx-auto p-6 flex flex-col gap-6">
+      <div class="flex flex-wrap items-center gap-2">
+        <a href="/keywords" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition inline-flex items-center space-x-1.5 shadow-2xs">
+          <i data-lucide="arrow-left" class="w-3.5 h-3.5 text-slate-400"></i>
+          <span>Keywords Fleet</span>
+        </a>
+        <a href="/folders" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition inline-flex items-center space-x-1.5 shadow-2xs">
+          <i data-lucide="folder-kanban" class="w-3.5 h-3.5 text-pink-500"></i>
+          <span>Campaign Folders</span>
+        </a>
+        <button @click="openBulkModal = true" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition inline-flex items-center space-x-1.5 shadow-xs active:scale-95 cursor-pointer">
+          <i data-lucide="upload" class="w-3.5 h-3.5"></i>
+          <span>Bulk Import</span>
+        </button>
+      </div>
+    </section>
 
     <!-- Search Omnibar & Typeahead Controls -->
     <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl relative overflow-hidden">
@@ -895,6 +909,38 @@ export function getDiscoveryPageHtml() {
   <script>
     function discoveryApp() {
       return {
+        isSidebarCollapsed: (() => {
+          try {
+            return typeof localStorage !== 'undefined' ? localStorage.getItem('pae_sidebar_collapsed') === 'true' : false;
+          } catch (_) { return false; }
+        })(),
+        isMobileMenuOpen: false,
+        toggleSidebar() {
+          this.isSidebarCollapsed = !this.isSidebarCollapsed;
+          try {
+            if (typeof localStorage !== 'undefined') {
+              localStorage.setItem('pae_sidebar_collapsed', this.isSidebarCollapsed ? 'true' : 'false');
+            }
+          } catch (_) {}
+          this.$nextTick(() => {
+            if (window.lucide) window.lucide.createIcons();
+          });
+        },
+        darkMode: localStorage.getItem('pa_theme') !== 'light',
+        toggleTheme() {
+          this.darkMode = !this.darkMode;
+          if (this.darkMode) {
+            document.documentElement.classList.add('dark');
+            localStorage.setItem('pa_theme', 'dark');
+            localStorage.setItem('pin_theme', 'dark');
+            this.showToast('Dark theme activated', 'info');
+          } else {
+            document.documentElement.classList.remove('dark');
+            localStorage.setItem('pa_theme', 'light');
+            localStorage.setItem('pin_theme', 'light');
+            this.showToast('Light theme activated', 'info');
+          }
+        },
         searchQuery: '',
         loading: false,
         results: [],
@@ -932,6 +978,31 @@ export function getDiscoveryPageHtml() {
         toastTimeout: null,
 
         async init() {
+          if (typeof window !== 'undefined') {
+            window.addEventListener('keydown', (e) => {
+              if ((e.ctrlKey || e.metaKey) && (e.key === 'b' || e.key === 'B')) {
+                const activeTag = document.activeElement ? document.activeElement.tagName.toLowerCase() : '';
+                if (activeTag !== 'input' && activeTag !== 'textarea') {
+                  e.preventDefault();
+                  this.toggleSidebar();
+                }
+              }
+            });
+          }
+
+          if (this.darkMode) {
+            document.documentElement.classList.add('dark');
+          } else {
+            document.documentElement.classList.remove('dark');
+          }
+
+          if (window.lucide) {
+            window.lucide.createIcons();
+          }
+          setTimeout(() => {
+            if (window.lucide) window.lucide.createIcons();
+          }, 300);
+
           await this.loadFolders();
         },
 

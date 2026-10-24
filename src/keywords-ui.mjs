@@ -16,6 +16,7 @@
 
 import { getEdgeShieldClientScript } from './edge-shield-client.mjs';
 import { getKeywordDrawersAndModalsHtml } from './ui/keywords-drawers.mjs';
+import { renderAppSidebar } from './ui/app-sidebar.mjs';
 
 export function getKeywordsPageHtml(initialSlug = '') {
   return `<!DOCTYPE html>
@@ -100,8 +101,25 @@ export function getKeywordsPageHtml(initialSlug = '') {
   };
 })();
   </script>
+  <script>
+    try {
+      const savedTheme = localStorage.getItem('pin_theme') || localStorage.getItem('pa_theme');
+      if (savedTheme === 'dark' || (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+        document.documentElement.classList.add('dark');
+      } else if (savedTheme === 'light') {
+        document.documentElement.classList.remove('dark');
+      }
+    } catch (_) {}
+  </script>
+  <script>
+    setTimeout(function() {
+      if (typeof document !== 'undefined' && document.body && document.body.hasAttribute('x-cloak')) {
+        document.body.removeAttribute('x-cloak');
+      }
+    }, 1200);
+  </script>
 </head>
-<body class="bg-slate-50 dark:bg-[#070b14] text-slate-900 dark:text-slate-100 min-h-screen font-sans antialiased selection:bg-emerald-500 selection:text-white"
+<body x-cloak class="bg-slate-50 dark:bg-[#070b14] text-slate-900 dark:text-slate-100 min-h-screen font-sans antialiased selection:bg-emerald-500 selection:text-white"
       x-data="keywordStudio()">
 
   <!-- Toast Notification -->
@@ -118,89 +136,10 @@ export function getKeywordsPageHtml(initialSlug = '') {
     <span x-text="toast.message"></span>
   </div>
 
-  <!-- Top Executive Navigation Bar -->
-  <header class="sticky top-0 z-40 bg-white/80 dark:bg-[#070b14]/80 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800/80 px-4 lg:px-8 py-2.5 transition-colors">
-    <div class="max-w-[1920px] mx-auto flex items-center justify-between gap-4">
-      
-      <!-- Brand & Breadcrumbs -->
-      <div class="flex items-center space-x-3.5">
-        <a href="/" class="flex items-center space-x-2.5 group">
-          <div class="w-8 h-8 rounded-lg bg-emerald-600 dark:bg-emerald-500 text-white flex items-center justify-center shadow-xs shrink-0 group-hover:scale-102 transition">
-            <i data-lucide="sparkles" class="w-4 h-4"></i>
-          </div>
-          <div>
-            <div class="flex items-center space-x-1.5">
-              <span class="text-xs font-bold tracking-tight text-slate-900 dark:text-white">PinArbitrage</span>
-              <span class="px-1.5 py-0.2 text-[9px] font-semibold uppercase rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 font-mono">SERP Studio</span>
-            </div>
-            <p class="text-[9px] text-slate-400 font-mono">Executive Organic Intelligence</p>
-          </div>
-        </a>
+  ${renderAppSidebar({ activeNav: 'keywords', refreshHandler: 'fetchKeywords(true)' })}
 
-        <span class="text-slate-300 dark:text-slate-700 hidden md:inline">/</span>
-
-        <!-- Active Keyword Breadcrumb & Navigation -->
-        <div class="hidden md:flex items-center space-x-2 text-xs">
-          <a href="/keywords" @click.prevent="switchToDashboard()" class="text-slate-400 hover:text-emerald-500 transition font-medium cursor-pointer">Keywords</a>
-          <template x-if="viewModeLevel === 'serp_studio'">
-            <div class="flex items-center space-x-2">
-              <span class="text-slate-300 dark:text-slate-700">/</span>
-              <span class="font-semibold text-emerald-600 dark:text-emerald-400 font-mono capitalize" x-text="selectedKeyword?.keyword || activeKeywordQuery || 'Overview'"></span>
-            </div>
-          </template>
-        </div>
-      </div>
-
-
-
-      <!-- Right Header Actions -->
-      <div class="flex items-center space-x-1.5 sm:space-x-2">
-        <!-- Keyword Discovery Hub Link (Level 1B) -->
-        <a href="/keywords/discovery"
-           class="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-emerald-500/10 hover:bg-emerald-500/20 dark:bg-emerald-950/30 dark:hover:bg-emerald-900/40 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 transition flex items-center space-x-1.5 cursor-pointer">
-          <i data-lucide="compass" class="w-3.5 h-3.5 text-emerald-500"></i>
-          <span class="hidden sm:inline">Keyword Discovery</span>
-          <span class="sm:hidden">Discovery</span>
-        </a>
-
-        <!-- Campaign Folders Fleet Link (Level 4) -->
-        <a href="/folders"
-           class="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-pink-500/10 hover:bg-pink-500/20 dark:bg-pink-950/30 dark:hover:bg-pink-900/40 border border-pink-500/20 text-pink-600 dark:text-pink-400 transition flex items-center space-x-1.5 cursor-pointer">
-          <i data-lucide="folder-kanban" class="w-3.5 h-3.5 text-pink-500"></i>
-          <span class="hidden sm:inline">Campaign Folders</span>
-          <span class="sm:hidden">Folders</span>
-          <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-pink-500/20 text-pink-600 dark:text-pink-300 font-mono font-medium" x-text="folders.length"></span>
-        </a>
-
-        <!-- Domain Radar Studio Link (Level 4B) -->
-        <a href="/domains"
-           class="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-sky-500/10 hover:bg-sky-500/20 dark:bg-sky-950/30 dark:hover:bg-sky-900/40 border border-sky-500/20 text-sky-600 dark:text-sky-400 transition flex items-center space-x-1.5 cursor-pointer">
-          <i data-lucide="globe" class="w-3.5 h-3.5 text-sky-500"></i>
-          <span class="hidden sm:inline">Domain Radar</span>
-          <span class="sm:hidden">Domains</span>
-        </a>
-
-        <a href="/accounts" class="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 transition hidden sm:flex items-center space-x-1.5">
-          <i data-lucide="users" class="w-3.5 h-3.5 text-purple-500"></i>
-          <span>Creators</span>
-        </a>
-
-        <a href="/" class="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 transition flex items-center space-x-1.5">
-          <i data-lucide="home" class="w-3.5 h-3.5"></i>
-          <span class="hidden sm:inline">Main Hub</span>
-        </a>
-
-        <!-- Dark/Light Theme Toggle -->
-        <button @click="toggleTheme()" class="p-1.5 rounded-lg text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 transition cursor-pointer">
-          <i :data-lucide="darkMode ? 'sun' : 'moon'" class="w-3.5 h-3.5"></i>
-        </button>
-      </div>
-
-    </div>
-  </header>
-
-  <!-- Main Full-Width Executive Container -->
-  <main class="w-full max-w-[1920px] mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
+  <!-- Main Full-Width Executive Container (Offset for Unified Desktop Sidebar) [INVARIANT: UNIFIED-SIDEBAR-LAYOUT] -->
+  <main class="flex-1 min-h-screen p-4 sm:p-6 lg:p-8 space-y-6 max-w-full overflow-x-hidden transition-all duration-300 ease-in-out" :class="isSidebarCollapsed ? 'md:ml-20' : 'md:ml-64 lg:ml-72'">
 
     <!-- ========================================================================= -->
     <!-- LEVEL 1A: EXECUTIVE KEYWORDS DASHBOARD (viewModeLevel === 'dashboard')   -->
@@ -223,11 +162,28 @@ export function getKeywordsPageHtml(initialSlug = '') {
         </div>
 
         <div class="flex flex-wrap items-center gap-2">
+          <!-- Keyword Discovery Hub Link (Level 1B) -->
+          <a href="/keywords/discovery"
+             class="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-emerald-500/10 hover:bg-emerald-500/20 dark:bg-emerald-950/30 dark:hover:bg-emerald-900/40 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 transition inline-flex items-center space-x-1.5 shadow-2xs">
+            <i data-lucide="compass" class="w-3.5 h-3.5 text-emerald-500"></i>
+            <span class="hidden sm:inline">Discovery</span>
+          </a>
+
+          <!-- Campaign Folders Fleet Link (Level 4) -->
+          <a href="/folders"
+             class="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-pink-500/10 hover:bg-pink-500/20 dark:bg-pink-950/30 dark:hover:bg-pink-900/40 border border-pink-500/20 text-pink-600 dark:text-pink-400 transition inline-flex items-center space-x-1.5 shadow-2xs">
+            <i data-lucide="folder-kanban" class="w-3.5 h-3.5 text-pink-500"></i>
+            <span class="hidden sm:inline">Folders</span>
+            <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-pink-500/20 text-pink-600 dark:text-pink-300 font-mono font-medium" x-text="folders.length"></span>
+          </a>
+
           <!-- Refresh Hub Button -->
           <button @click="fetchKeywords(true)" :disabled="isKeywordsLoading"
                   class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/80 dark:hover:bg-slate-700/80 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition inline-flex items-center space-x-1.5 shadow-2xs cursor-pointer active:scale-95"
                   title="Sync with Neon Central Hub">
             <i data-lucide="refresh-cw" class="w-3.5 h-3.5" :class="isKeywordsLoading ? 'animate-spin text-emerald-500' : 'text-slate-400'"></i>
+            <span class="hidden sm:inline">Refresh</span>
+          </button>
             <span class="hidden sm:inline">Refresh</span>
           </button>
 
@@ -4138,6 +4094,23 @@ export function getKeywordsPageHtml(initialSlug = '') {
     function keywordStudio() {
       return {
         viewModeLevel: (window.__INITIAL_KEYWORD_SLUG__ && window.__INITIAL_KEYWORD_SLUG__.trim()) ? 'serp_studio' : 'dashboard',
+        isSidebarCollapsed: (() => {
+          try {
+            return typeof localStorage !== 'undefined' ? localStorage.getItem('pae_sidebar_collapsed') === 'true' : false;
+          } catch (_) { return false; }
+        })(),
+        isMobileMenuOpen: false,
+        toggleSidebar() {
+          this.isSidebarCollapsed = !this.isSidebarCollapsed;
+          try {
+            if (typeof localStorage !== 'undefined') {
+              localStorage.setItem('pae_sidebar_collapsed', this.isSidebarCollapsed ? 'true' : 'false');
+            }
+          } catch (_) {}
+          this.$nextTick(() => {
+            if (window.lucide) window.lucide.createIcons();
+          });
+        },
         keywords: [],
         selectedKeyword: null,
         selectedKeywordDetails: null,
@@ -5232,6 +5205,18 @@ export function getKeywordsPageHtml(initialSlug = '') {
           this.fetchSettings();
           this.fetchFleetProjects();
 
+          if (typeof window !== 'undefined') {
+            window.addEventListener('keydown', (e) => {
+              if ((e.ctrlKey || e.metaKey) && (e.key === 'b' || e.key === 'B')) {
+                const activeTag = document.activeElement ? document.activeElement.tagName.toLowerCase() : '';
+                if (activeTag !== 'input' && activeTag !== 'textarea') {
+                  e.preventDefault();
+                  this.toggleSidebar();
+                }
+              }
+            });
+          }
+
           try {
             const savedCols = localStorage.getItem('keywords_visible_columns');
             if (savedCols) {
@@ -5539,9 +5524,11 @@ export function getKeywordsPageHtml(initialSlug = '') {
           if (this.darkMode) {
             document.documentElement.classList.add('dark');
             localStorage.setItem('pa_theme', 'dark');
+            localStorage.setItem('pin_theme', 'dark');
           } else {
             document.documentElement.classList.remove('dark');
             localStorage.setItem('pa_theme', 'light');
+            localStorage.setItem('pin_theme', 'light');
           }
         },
 

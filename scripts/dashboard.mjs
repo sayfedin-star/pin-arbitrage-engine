@@ -19,6 +19,9 @@ import { getDashboardHtml } from '../src/dashboard-ui.mjs';
 import { redactSecrets } from '../src/worker.mjs';
 import { getKeywordsPageHtml } from '../src/keywords-ui.mjs';
 import { getDomainsPageHtml } from '../src/domains-ui.mjs';
+import { getDiscoveryPageHtml } from '../src/discovery-ui.mjs';
+import { getCampaignFoldersPageHtml } from '../src/campaign-folders-ui.mjs';
+import { getPinDetailPageHtml } from '../src/pin-details-ui.mjs';
 import {
   listDomainsIntelligence,
   getDomainDeepDossier,
@@ -2669,9 +2672,50 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
+    // 8. GET or HEAD /keywords/discovery or /discovery -> Dedicated Keyword Discovery Hub
+    if ((method === 'GET' || method === 'HEAD') && (
+      pathname === '/keywords/discovery' ||
+      pathname === '/discovery' ||
+      pathname.startsWith('/keywords/discovery/') ||
+      pathname.startsWith('/discovery/')
+    )) {
+      const html = getDiscoveryPageHtml();
+      res.writeHead(200, {
+        ...HTML_SECURITY_HEADERS,
+        'Content-Length': Buffer.byteLength(html)
+      });
+      if (method === 'HEAD') return res.end();
+      return res.end(html);
+    }
+
+    // 8B. GET or HEAD /folders or /folders/:id -> Dedicated Campaign Folders Studio
+    if ((method === 'GET' || method === 'HEAD') && (pathname === '/folders' || pathname.startsWith('/folders/'))) {
+      const folderId = pathname.startsWith('/folders/') ? decodeURIComponent(pathname.slice('/folders/'.length)) : '';
+      const html = getCampaignFoldersPageHtml(folderId);
+      res.writeHead(200, {
+        ...HTML_SECURITY_HEADERS,
+        'Content-Length': Buffer.byteLength(html)
+      });
+      if (method === 'HEAD') return res.end();
+      return res.end(html);
+    }
+
+    // 8C. GET or HEAD /pins/:id or /pin/:id -> Dedicated Pin Intelligence Page
+    if ((method === 'GET' || method === 'HEAD') && (pathname.startsWith('/pins/') || pathname.startsWith('/pin/'))) {
+      const pinId = pathname.replace(/^\/pins?\//, '').split('/')[0];
+      const html = getPinDetailPageHtml(pinId);
+      res.writeHead(200, {
+        ...HTML_SECURITY_HEADERS,
+        'Content-Length': Buffer.byteLength(html)
+      });
+      if (method === 'HEAD') return res.end();
+      return res.end(html);
+    }
+
     // 9. GET or HEAD /domains or /domains/* -> Dedicated Domain Intelligence Studio
     if ((method === 'GET' || method === 'HEAD') && (pathname === '/domains' || pathname.startsWith('/domains/'))) {
-      const html = getDomainsPageHtml();
+      const domain = pathname.startsWith('/domains/') ? decodeURIComponent(pathname.slice('/domains/'.length)) : '';
+      const html = getDomainsPageHtml(domain);
       res.writeHead(200, {
         ...HTML_SECURITY_HEADERS,
         'Content-Length': Buffer.byteLength(html)
@@ -2683,6 +2727,25 @@ const server = http.createServer(async (req, res) => {
     // 10. GET or HEAD /keywords or /keywords/:slug -> Dedicated Keywords Studio
     if ((method === 'GET' || method === 'HEAD') && (pathname === '/keywords' || pathname.startsWith('/keywords/'))) {
       const slug = pathname.startsWith('/keywords/') ? decodeURIComponent(pathname.slice('/keywords/'.length)) : '';
+      const slugLower = (slug || '').toLowerCase();
+      if (slugLower === 'discovery') {
+        const html = getDiscoveryPageHtml();
+        res.writeHead(200, { ...HTML_SECURITY_HEADERS, 'Content-Length': Buffer.byteLength(html) });
+        if (method === 'HEAD') return res.end();
+        return res.end(html);
+      }
+      if (slugLower === 'folders') {
+        const html = getCampaignFoldersPageHtml();
+        res.writeHead(200, { ...HTML_SECURITY_HEADERS, 'Content-Length': Buffer.byteLength(html) });
+        if (method === 'HEAD') return res.end();
+        return res.end(html);
+      }
+      if (slugLower === 'domains') {
+        const html = getDomainsPageHtml();
+        res.writeHead(200, { ...HTML_SECURITY_HEADERS, 'Content-Length': Buffer.byteLength(html) });
+        if (method === 'HEAD') return res.end();
+        return res.end(html);
+      }
       const html = getKeywordsPageHtml(slug);
       res.writeHead(200, {
         ...HTML_SECURITY_HEADERS,

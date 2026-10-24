@@ -12,6 +12,18 @@ export function getDashboardHtml() {
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script>
+    (function() {
+      try {
+        var t = localStorage.getItem('pin_theme');
+        if (t === 'dark' || (!t && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+          document.documentElement.classList.add('dark');
+        } else {
+          document.documentElement.classList.remove('dark');
+        }
+      } catch (_) {}
+    })();
+  </script>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
@@ -79,8 +91,15 @@ export function getDashboardHtml() {
   };
 })();
   </script>
+  <script>
+    setTimeout(function() {
+      if (typeof document !== 'undefined' && document.body && document.body.hasAttribute('x-cloak')) {
+        document.body.removeAttribute('x-cloak');
+      }
+    }, 1200);
+  </script>
 </head>
-<body class="bg-slate-50 text-slate-900 dark:bg-[#080d1a] dark:text-slate-100 min-h-screen font-sans selection:bg-rose-500 selection:text-white antialiased transition-colors duration-200">
+<body x-cloak class="bg-slate-50 text-slate-900 dark:bg-[#080d1a] dark:text-slate-100 min-h-screen font-sans selection:bg-rose-500 selection:text-white antialiased transition-colors duration-200">
 
   <!-- Mobile Top Header (Visible on screens < md) -->
   <header class="md:hidden border-b border-slate-200/90 dark:border-slate-800/80 bg-white/95 dark:bg-[#0b1120]/90 backdrop-blur-xl sticky top-0 z-40 px-4 py-3 flex items-center justify-between shadow-sm">
@@ -214,135 +233,219 @@ export function getDashboardHtml() {
   </div>
 
   <!-- Desktop Permanent Sidebar (<aside>) -->
-  <aside class="hidden md:flex w-64 lg:w-72 fixed inset-y-0 left-0 z-40 bg-white/95 dark:bg-[#0b1120] border-r border-slate-200/90 dark:border-slate-800/80 flex-col justify-between shadow-sm overflow-y-auto">
+  <aside 
+    class="hidden md:flex fixed inset-y-0 left-0 z-40 bg-white/95 dark:bg-[#0b1120] border-r border-slate-200/90 dark:border-slate-800/80 flex-col justify-between shadow-sm overflow-y-auto overflow-x-hidden transition-all duration-300 ease-in-out"
+    :class="isSidebarCollapsed ? 'w-20' : 'w-64 lg:w-72'">
     <!-- Top section: Logo, DB Project Switcher, Quick Actions, Nav Links -->
-    <div class="p-4 lg:p-5 space-y-4">
-      <!-- App Brand & Title -->
-      <div class="flex items-center space-x-3">
-        <div class="h-10 w-10 rounded-xl bg-gradient-to-tr from-rose-600 via-rose-500 to-amber-500 flex items-center justify-center shadow-md shadow-rose-500/20 text-white shrink-0">
-          <i data-lucide="cpu" class="w-5 h-5"></i>
-        </div>
-        <div class="overflow-hidden">
-          <div class="flex items-center space-x-1.5">
-            <span class="font-bold text-sm lg:text-base tracking-tight text-slate-900 dark:text-white truncate">
-              Pin Cluster Analyzer
-            </span>
+    <div class="transition-all duration-300" :class="isSidebarCollapsed ? 'p-3 space-y-4' : 'p-4 lg:p-5 space-y-4'">
+      <!-- App Brand & Title + Collapse Toggle -->
+      <div class="flex items-center transition-all duration-300" :class="isSidebarCollapsed ? 'flex-col space-y-2.5 items-center' : 'justify-between'">
+        <!-- Logo & Title -->
+        <div class="flex items-center space-x-3 overflow-hidden">
+          <div class="h-10 w-10 rounded-xl bg-gradient-to-tr from-rose-600 via-rose-500 to-amber-500 flex items-center justify-center shadow-md shadow-rose-500/20 text-white shrink-0">
+            <i data-lucide="cpu" class="w-5 h-5"></i>
           </div>
-          <div class="flex items-center space-x-1.5 mt-0.5">
-            <span class="px-1.5 py-0.5 text-[9px] font-mono font-bold uppercase rounded-full bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30">
-              V3 Predictive
-            </span>
-            <template x-if="crawlStatus.is_crawling">
-              <span class="px-1.5 py-0.5 text-[9px] font-mono font-bold rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 flex items-center space-x-1 animate-pulse">
-                <span class="w-1 h-1 rounded-full bg-amber-400 animate-ping"></span>
-                <span>Active</span>
+          <div x-show="!isSidebarCollapsed" x-transition.opacity.duration.200ms class="overflow-hidden whitespace-nowrap">
+            <div class="flex items-center space-x-1.5">
+              <span class="font-bold text-sm lg:text-base tracking-tight text-slate-900 dark:text-white truncate">
+                Pin Cluster Analyzer
               </span>
-            </template>
+            </div>
+            <div class="flex items-center space-x-1.5 mt-0.5">
+              <span class="px-1.5 py-0.5 text-[9px] font-mono font-bold uppercase rounded-full bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30">
+                V3 Predictive
+              </span>
+              <template x-if="crawlStatus.is_crawling">
+                <span class="px-1.5 py-0.5 text-[9px] font-mono font-bold rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 flex items-center space-x-1 animate-pulse">
+                  <span class="w-1 h-1 rounded-full bg-amber-400 animate-ping"></span>
+                  <span>Active</span>
+                </span>
+              </template>
+            </div>
           </div>
         </div>
+
+        <!-- Sideways Collapse / Expand Toggle Button -->
+        <button 
+          @click="toggleSidebar()" 
+          class="p-1.5 rounded-lg text-slate-400 hover:text-slate-800 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800/80 transition active:scale-95 shrink-0" 
+          :class="isSidebarCollapsed ? 'w-8 h-8 flex items-center justify-center' : ''"
+          :title="isSidebarCollapsed ? 'Expand Sidebar (Ctrl+B)' : 'Collapse Sidebar (Ctrl+B)'">
+          <i x-show="!isSidebarCollapsed" data-lucide="chevrons-left" class="w-4 h-4"></i>
+          <i x-show="isSidebarCollapsed" data-lucide="chevrons-right" class="w-4 h-4"></i>
+        </button>
       </div>
 
-
-
       <!-- Quick Action Buttons -->
-      <div class="space-y-1.5 pt-1">
+      <div class="pt-1 transition-all duration-300" :class="isSidebarCollapsed ? 'space-y-2 flex flex-col items-center' : 'space-y-1.5'">
         <!-- + Track Creator (Unified Modal) -->
-        <button @click="openAddCompetitorModal()" class="w-full flex items-center justify-center space-x-2 px-3 py-2 text-xs font-bold rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-rose-600 hover:from-purple-500 hover:to-rose-500 text-white shadow-md shadow-indigo-950/20 active:scale-95 transition">
-          <i data-lucide="user-plus" class="w-3.5 h-3.5"></i>
-          <span>+ Track Creator</span>
+        <button 
+          @click="openAddCompetitorModal()" 
+          class="flex items-center justify-center rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-rose-600 hover:from-purple-500 hover:to-rose-500 text-white shadow-md shadow-indigo-950/20 active:scale-95 transition"
+          :class="isSidebarCollapsed ? 'w-10 h-10 p-0' : 'w-full px-3 py-2 space-x-2 text-xs font-bold'"
+          title="Track Creator">
+          <i data-lucide="user-plus" class="w-3.5 h-3.5 shrink-0"></i>
+          <span x-show="!isSidebarCollapsed" class="truncate">+ Track Creator</span>
         </button>
 
-        <div class="grid grid-cols-2 gap-1.5">
+        <div :class="isSidebarCollapsed ? 'flex flex-col space-y-2 w-full items-center' : 'grid grid-cols-2 gap-1.5'">
           <!-- + Add Seeds -->
-          <button @click="openAddSeedModal()" class="flex items-center justify-center space-x-1 px-2.5 py-1.5 text-xs font-semibold rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-900/90 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-800 transition active:scale-95 shadow-sm">
-            <i data-lucide="plus-circle" class="w-3 h-3 text-rose-500"></i>
-            <span>Add Seeds</span>
+          <button 
+            @click="openAddSeedModal()" 
+            class="flex items-center justify-center rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-900/90 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-800 transition active:scale-95 shadow-sm"
+            :class="isSidebarCollapsed ? 'w-10 h-10 p-0' : 'px-2.5 py-1.5 space-x-1 text-xs font-semibold'"
+            title="Add Seeds">
+            <i data-lucide="plus-circle" class="w-3 h-3 text-rose-500 shrink-0"></i>
+            <span x-show="!isSidebarCollapsed" class="truncate">Add Seeds</span>
           </button>
 
-          <!-- ⚡ Crawl -->
-          <button @click="openCrawlModal()" class="flex items-center justify-center space-x-1 px-2.5 py-1.5 text-xs font-bold rounded-xl transition shadow-sm active:scale-95" :class="crawlStatus.is_crawling ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30' : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-900/90 dark:hover:bg-slate-800 text-amber-600 dark:text-amber-400 border border-slate-200 dark:border-slate-800'">
-            <i data-lucide="zap" :class="{'animate-spin': crawlStatus.is_crawling}" class="w-3 h-3"></i>
-            <span>Crawl</span>
+          <!-- Crawl -->
+          <button 
+            @click="openCrawlModal()" 
+            class="flex items-center justify-center rounded-xl transition shadow-sm active:scale-95" 
+            :class="[
+              isSidebarCollapsed ? 'w-10 h-10 p-0' : 'px-2.5 py-1.5 space-x-1 text-xs font-bold',
+              crawlStatus.is_crawling 
+                ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30' 
+                : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-900/90 dark:hover:bg-slate-800 text-amber-600 dark:text-amber-400 border border-slate-200 dark:border-slate-800'
+            ]"
+            title="Crawl">
+            <i data-lucide="zap" :class="{'animate-spin': crawlStatus.is_crawling}" class="w-3 h-3 shrink-0"></i>
+            <span x-show="!isSidebarCollapsed" class="truncate">Crawl</span>
           </button>
         </div>
       </div>
 
       <!-- Navigation Links (Desktop) -->
-      <nav class="space-y-1 pt-2">
+      <nav class="space-y-1 pt-2" :class="isSidebarCollapsed ? 'flex flex-col items-center' : ''">
         <!-- Overview & Command Center (Home) -->
-        <button @click="switchTab('overview')" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition" :class="currentTab === 'overview' ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 font-bold border border-indigo-500/20 shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900/60 hover:text-slate-900 dark:hover:text-slate-200'">
-          <div class="flex items-center space-x-2.5">
-            <i data-lucide="layout-dashboard" class="w-4 h-4 text-indigo-500"></i>
-            <span>Overview & Hub</span>
+        <button 
+          @click="switchTab('overview')" 
+          class="relative flex items-center rounded-xl text-xs font-semibold transition" 
+          :class="[
+            isSidebarCollapsed ? 'w-10 h-10 justify-center' : 'w-full justify-between px-3 py-2.5',
+            currentTab === 'overview' 
+              ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 font-bold border border-indigo-500/20 shadow-sm' 
+              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900/60 hover:text-slate-900 dark:hover:text-slate-200'
+          ]"
+          title="Overview & Hub">
+          <div class="flex items-center" :class="isSidebarCollapsed ? 'justify-center' : 'space-x-2.5'">
+            <i data-lucide="layout-dashboard" class="w-4 h-4 text-indigo-500 shrink-0"></i>
+            <span x-show="!isSidebarCollapsed" class="truncate">Overview & Hub</span>
           </div>
-          <span class="px-1.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-indigo-500/15 text-indigo-700 dark:text-indigo-300">Home</span>
+          <span x-show="!isSidebarCollapsed" class="px-1.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-indigo-500/15 text-indigo-700 dark:text-indigo-300">Home</span>
         </button>
 
         <!-- Creator Hub (/accounts) -->
-        <button @click="switchTab('creators_archive')" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition" :class="(currentTab === 'creators_archive' || currentTab === 'competitors' || currentTab === 'pinarchive') ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400 font-bold border border-purple-500/20 shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900/60 hover:text-slate-900 dark:hover:text-slate-200'">
-          <div class="flex items-center space-x-2.5">
-            <i data-lucide="users" class="w-4 h-4 text-purple-500"></i>
-            <span>Creator Hub</span>
+        <button 
+          @click="switchTab('creators_archive')" 
+          class="relative flex items-center rounded-xl text-xs font-semibold transition" 
+          :class="[
+            isSidebarCollapsed ? 'w-10 h-10 justify-center' : 'w-full justify-between px-3 py-2.5',
+            (currentTab === 'creators_archive' || currentTab === 'competitors' || currentTab === 'pinarchive') 
+              ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400 font-bold border border-purple-500/20 shadow-sm' 
+              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900/60 hover:text-slate-900 dark:hover:text-slate-200'
+          ]"
+          title="Creator Hub">
+          <div class="flex items-center" :class="isSidebarCollapsed ? 'justify-center' : 'space-x-2.5'">
+            <i data-lucide="users" class="w-4 h-4 text-purple-500 shrink-0"></i>
+            <span x-show="!isSidebarCollapsed" class="truncate">Creator Hub</span>
           </div>
-          <div class="flex items-center space-x-1">
+          <div x-show="!isSidebarCollapsed" class="flex items-center space-x-1">
             <span class="px-1.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-purple-500/15 text-purple-700 dark:text-purple-300" x-text="competitors.length"></span>
           </div>
+          <span x-show="isSidebarCollapsed && competitors.length > 0" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-purple-500"></span>
         </button>
 
         <!-- Keywords Fleet Dashboard (/keywords - Dedicated Studio) -->
-        <a href="/keywords" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900/60 hover:text-slate-900 dark:hover:text-slate-200 transition">
-          <div class="flex items-center space-x-2.5">
-            <i data-lucide="search" class="w-4 h-4 text-emerald-500"></i>
-            <span>Keywords Fleet</span>
+        <a 
+          href="/keywords" 
+          class="relative flex items-center rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900/60 hover:text-slate-900 dark:hover:text-slate-200 transition"
+          :class="isSidebarCollapsed ? 'w-10 h-10 justify-center' : 'w-full justify-between px-3 py-2.5'"
+          title="Keywords Fleet">
+          <div class="flex items-center" :class="isSidebarCollapsed ? 'justify-center' : 'space-x-2.5'">
+            <i data-lucide="search" class="w-4 h-4 text-emerald-500 shrink-0"></i>
+            <span x-show="!isSidebarCollapsed" class="truncate">Keywords Fleet</span>
           </div>
-          <span class="px-2 py-0.5 rounded-full text-[11px] font-mono font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" x-text="keywords.length"></span>
+          <span x-show="!isSidebarCollapsed" class="px-2 py-0.5 rounded-full text-[11px] font-mono font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" x-text="keywords.length"></span>
+          <span x-show="isSidebarCollapsed && keywords.length > 0" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-emerald-500"></span>
         </a>
 
         <!-- Domain Radar (/domains - Dedicated Studio) -->
-        <a href="/domains" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900/60 hover:text-slate-900 dark:hover:text-slate-200 transition">
-          <div class="flex items-center space-x-2.5">
-            <i data-lucide="globe" class="w-4 h-4 text-sky-500"></i>
-            <span>Domain Radar</span>
+        <a 
+          href="/domains" 
+          class="relative flex items-center rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900/60 hover:text-slate-900 dark:hover:text-slate-200 transition"
+          :class="isSidebarCollapsed ? 'w-10 h-10 justify-center' : 'w-full justify-between px-3 py-2.5'"
+          title="Domain Radar">
+          <div class="flex items-center" :class="isSidebarCollapsed ? 'justify-center' : 'space-x-2.5'">
+            <i data-lucide="globe" class="w-4 h-4 text-sky-500 shrink-0"></i>
+            <span x-show="!isSidebarCollapsed" class="truncate">Domain Radar</span>
           </div>
-          <span class="px-1.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-sky-500/10 text-sky-700 dark:text-sky-400 border border-sky-500/20">WHOIS</span>
+          <span x-show="!isSidebarCollapsed" class="px-1.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-sky-500/10 text-sky-700 dark:text-sky-400 border border-sky-500/20">WHOIS</span>
         </a>
 
         <!-- Related Pins Tab (/related-pins) -->
-        <button @click="switchTab('related_pins')" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition" :class="(currentTab === 'related_pins' || currentTab === 'seeds' || currentTab === 'intersections' || currentTab === 'explorer') ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 font-bold border border-rose-500/20 shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900/60 hover:text-slate-900 dark:hover:text-slate-200'">
-          <div class="flex items-center space-x-2.5">
-            <i data-lucide="git-fork" class="w-4 h-4 text-rose-500"></i>
-            <span>Related Pins</span>
+        <button 
+          @click="switchTab('related_pins')" 
+          class="relative flex items-center rounded-xl text-xs font-semibold transition" 
+          :class="[
+            isSidebarCollapsed ? 'w-10 h-10 justify-center' : 'w-full justify-between px-3 py-2.5',
+            (currentTab === 'related_pins' || currentTab === 'seeds' || currentTab === 'intersections' || currentTab === 'explorer') 
+              ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 font-bold border border-rose-500/20 shadow-sm' 
+              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900/60 hover:text-slate-900 dark:hover:text-slate-200'
+          ]"
+          title="Related Pins">
+          <div class="flex items-center" :class="isSidebarCollapsed ? 'justify-center' : 'space-x-2.5'">
+            <i data-lucide="git-fork" class="w-4 h-4 text-rose-500 shrink-0"></i>
+            <span x-show="!isSidebarCollapsed" class="truncate">Related Pins</span>
           </div>
-          <div class="flex items-center space-x-1 font-mono">
+          <div x-show="!isSidebarCollapsed" class="flex items-center space-x-1 font-mono">
             <span class="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-rose-500/15 text-rose-700 dark:text-rose-300" x-text="seeds.length + 's'"></span>
             <span class="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300" x-text="intersections.length + 'i'"></span>
           </div>
+          <span x-show="isSidebarCollapsed && (seeds.length > 0 || intersections.length > 0)" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500"></span>
         </button>
-
-
       </nav>
     </div>
 
     <!-- Bottom Footer section: Pinterest Auth Status, Theme toggle, Refresh -->
-    <div class="p-4 border-t border-slate-200/80 dark:border-slate-800/80 space-y-3 bg-slate-50/50 dark:bg-slate-950/20">
+    <div class="border-t border-slate-200/80 dark:border-slate-800/80 bg-slate-50/50 dark:bg-slate-950/20 transition-all duration-300" :class="isSidebarCollapsed ? 'p-3 space-y-2' : 'p-4 space-y-3'">
       <!-- Pinterest Session Status -->
-      <button @click="isCookieModalOpen = true" class="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold rounded-xl border transition active:scale-95" :class="cookieStatus.has_cookie ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/20' : 'bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20'" title="Pinterest Session Authentication Status">
-        <span class="flex items-center space-x-2 truncate">
+      <button 
+        @click="isCookieModalOpen = true" 
+        class="flex items-center rounded-xl border transition active:scale-95" 
+        :class="[
+          isSidebarCollapsed ? 'w-10 h-10 p-0 justify-center mx-auto' : 'w-full justify-between px-3 py-2 text-xs font-semibold',
+          cookieStatus.has_cookie ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/20' : 'bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20'
+        ]" 
+        :title="cookieStatus.has_cookie ? 'Pinterest: Authenticated' : 'Guest Mode (No Cookie)'">
+        <span class="flex items-center truncate" :class="isSidebarCollapsed ? 'justify-center' : 'space-x-2'">
           <span class="w-2 h-2 rounded-full shrink-0" :class="cookieStatus.has_cookie ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'"></span>
-          <span class="truncate text-[11px]" x-text="cookieStatus.has_cookie ? 'Pinterest: Authenticated' : 'Guest Mode (No Cookie)'"></span>
+          <span x-show="!isSidebarCollapsed" class="truncate text-[11px]" x-text="cookieStatus.has_cookie ? 'Pinterest: Authenticated' : 'Guest Mode (No Cookie)'"></span>
         </span>
-        <i data-lucide="key" class="w-3.5 h-3.5 shrink-0 opacity-70"></i>
+        <i x-show="!isSidebarCollapsed" data-lucide="key" class="w-3.5 h-3.5 shrink-0 opacity-70"></i>
       </button>
 
-      <div class="flex items-center justify-between pt-1">
+      <!-- Theme Toggle & Refresh -->
+      <div :class="isSidebarCollapsed ? 'flex flex-col space-y-2 items-center' : 'flex items-center justify-between pt-1'">
         <!-- Theme Toggle -->
-        <button @click="toggleTheme()" class="flex-1 mr-2 flex items-center justify-center space-x-2 py-2 px-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 transition active:scale-95 shadow-sm">
-          <i :data-lucide="isDark ? 'sun' : 'moon'" class="w-3.5 h-3.5"></i>
-          <span x-text="isDark ? 'Light' : 'Dark'"></span>
+        <button 
+          @click="toggleTheme()" 
+          class="flex items-center justify-center rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 transition active:scale-95 shadow-sm"
+          :class="isSidebarCollapsed ? 'w-10 h-10 p-0' : 'flex-1 mr-2 space-x-2 py-2 px-3'"
+          :title="isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'">
+          <i x-show="!isDark" data-lucide="moon" class="w-3.5 h-3.5"></i>
+          <i x-show="isDark" data-lucide="sun" class="w-3.5 h-3.5"></i>
+          <span x-show="!isSidebarCollapsed" x-text="isDark ? 'Light' : 'Dark'"></span>
         </button>
 
         <!-- Refresh Data -->
-        <button @click="refreshAll()" :disabled="isLoading" class="p-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition active:scale-95 shadow-sm" title="Refresh All Data">
+        <button 
+          @click="refreshAll()" 
+          :disabled="isLoading" 
+          class="flex items-center justify-center rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition active:scale-95 shadow-sm" 
+          :class="isSidebarCollapsed ? 'w-10 h-10 p-0' : 'p-2'"
+          title="Refresh All Data">
           <i data-lucide="rotate-cw" :class="{'animate-spin': isLoading}" class="w-4 h-4"></i>
         </button>
       </div>
@@ -350,7 +453,7 @@ export function getDashboardHtml() {
   </aside>
 
   <!-- Main Content Area (Offset for Desktop Sidebar) -->
-  <main class="md:ml-64 lg:ml-72 flex-1 min-h-screen p-4 sm:p-6 lg:p-8 space-y-6 max-w-full overflow-x-hidden">
+  <main class="flex-1 min-h-screen p-4 sm:p-6 lg:p-8 space-y-6 max-w-full overflow-x-hidden transition-all duration-300 ease-in-out" :class="isSidebarCollapsed ? 'md:ml-20' : 'md:ml-64 lg:ml-72'">
 
     <!-- Active Crawl Notification Banner -->
     <div x-show="crawlStatus.is_crawling" x-cloak class="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-3 px-4 flex items-center justify-between text-xs text-amber-700 dark:text-amber-300 backdrop-blur-sm animate-pulse">
@@ -1285,13 +1388,13 @@ export function getDashboardHtml() {
     <!-- ======================================================== -->
     <!-- MAIN DASHBOARD TABS (Hidden when viewing dedicated Pin/Board) -->
     <!-- ======================================================== -->
-    <div x-show="!activePinId && !activeBoardName" class="space-y-6">
+    <div x-show="!activePinId && !activeBoardName" x-cloak class="space-y-6">
 
     <!-- ======================================================== -->
     <!-- TAB 0: 🏠 EXECUTIVE COMMAND CENTER & QUICK ACCESS HUB       -->
     <!-- Route: / (Default landing page with fast access)         -->
     <!-- ======================================================== -->
-    <div x-show="currentTab === 'overview'" class="space-y-6">
+    <div x-show="currentTab === 'overview'" x-cloak class="space-y-6">
       
       <!-- Mission Control Executive Hero Header -->
       <div class="p-5 sm:p-6 rounded-3xl bg-gradient-to-br from-white via-slate-50 to-indigo-50/30 dark:from-[#0b1120] dark:via-[#090d18] dark:to-indigo-950/20 border border-slate-200/90 dark:border-slate-800 shadow-sm flex flex-col xl:flex-row xl:items-center justify-between gap-4">
@@ -1558,7 +1661,7 @@ export function getDashboardHtml() {
     <!-- UNIFIED TAB: 🌿 RELATED PINS HUB (SEEDS, INTERSECTIONS, EXPLORER) -->
     <!-- Combines Tracked Seeds, Global Intersections & Master Explorer -->
     <!-- ======================================================== -->
-    <div x-show="currentTab === 'related_pins' || currentTab === 'seeds' || currentTab === 'intersections' || currentTab === 'explorer'" class="space-y-6">
+    <div x-show="currentTab === 'related_pins' || currentTab === 'seeds' || currentTab === 'intersections' || currentTab === 'explorer'" x-cloak class="space-y-6">
       
       <!-- Unified Related Pins Header -->
       <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -3520,7 +3623,7 @@ export function getDashboardHtml() {
     <!-- TAB 4: 👥 CREATOR INTELLIGENCE & PINARCHIVE (UNIFIED PAGE)-->
     <!-- Unified Creator Tracking, Boards, and Winning Pin Archive -->
     <!-- ======================================================== -->
-    <div x-show="currentTab === 'creators_archive' || currentTab === 'competitors' || currentTab === 'pinarchive'" class="space-y-6">
+    <div x-show="currentTab === 'creators_archive' || currentTab === 'competitors' || currentTab === 'pinarchive'" x-cloak class="space-y-6">
       
       <!-- ======================================================== -->
       <!-- VIEW A: ALL CREATORS OVERVIEW & GLOBAL PINARCHIVE        -->
@@ -3554,28 +3657,6 @@ export function getDashboardHtml() {
           <button @click="openAddCompetitorModal()" class="px-3.5 py-2 text-xs font-bold rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-rose-600 hover:from-purple-500 hover:to-rose-500 text-white transition flex items-center space-x-1.5 shadow-md shadow-indigo-950/20 active:scale-95">
             <i data-lucide="user-plus" class="w-3.5 h-3.5"></i>
             <span>+ Track Creator</span>
-          </button>
-        </div>
-      </div>
-
-      <!-- Automated Pipeline Status Bar -->
-      <div class="p-3 px-4 rounded-2xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs shadow-sm">
-        <div class="flex items-center space-x-2">
-          <span class="p-1 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-            <i data-lucide="clock" class="w-4 h-4"></i>
-          </span>
-          <span class="font-bold text-slate-900 dark:text-white">Automated Pipeline</span>
-          <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">Active</span>
-          <span class="text-slate-400 font-mono text-[11px]">Matrix Sharding Ingest</span>
-        </div>
-        <div class="flex items-center space-x-4 text-slate-500 dark:text-slate-400">
-          <span class="flex items-center space-x-1.5">
-            <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
-            <span>Provider: <strong>FastCron / GH Actions</strong></span>
-          </span>
-          <button @click="fetchCompetitors()" class="hover:text-slate-900 dark:hover:text-white flex items-center space-x-1 text-purple-600 dark:text-purple-400 font-semibold">
-            <i data-lucide="rotate-cw" class="w-3.5 h-3.5"></i>
-            <span>Refresh Vault</span>
           </button>
         </div>
       </div>
@@ -3850,29 +3931,17 @@ export function getDashboardHtml() {
                 </div>
               </div>
 
-              <!-- Right: Account Age & Strategy Age Metric Badges -->
-              <div class="flex flex-wrap items-center gap-3 self-start lg:self-auto">
-                <!-- Account Age Metric Badge -->
-                <div class="flex items-center gap-3.5 bg-slate-50 dark:bg-slate-900/60 rounded-2xl p-4 border border-slate-200/80 dark:border-slate-800 shadow-2xs">
-                  <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-500/10 text-blue-500 border border-blue-500/20">
-                    <i data-lucide="user-check" class="w-5 h-5"></i>
+              <!-- Right: High-Density Quick Stat Summary -->
+              <div class="flex items-center gap-3 self-start lg:self-auto">
+                <div class="flex items-center gap-3 bg-slate-50 dark:bg-slate-900/60 rounded-2xl px-4 py-2.5 border border-slate-200/80 dark:border-slate-800 shadow-2xs">
+                  <div class="text-right">
+                    <span class="text-[10px] font-mono text-slate-400 uppercase tracking-wider block">Total Catalog</span>
+                    <span class="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white font-mono tabular-nums" x-text="formatNumber(activeCreator.total_pins || activeCreatorCatalogTotal || 0)"></span>
                   </div>
-                  <div>
-                    <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Account Age</span>
-                    <div class="text-lg font-extrabold text-slate-900 dark:text-white font-mono tabular-nums" x-text="(activeCreatorDetail?.account_age?.days || activeCreatorDetail?.strategy_age?.days || 0) + ' Days'"></div>
-                    <span class="text-[10px] text-slate-400" x-text="'Created: ' + (activeCreatorDetail?.account_age?.created_at || activeCreatorDetail?.strategy_age?.oldest_board_date || '—')"></span>
-                  </div>
-                </div>
-
-                <!-- Strategy Age Metric Badge (Oldest Board Created Date) -->
-                <div class="flex items-center gap-3.5 bg-slate-50 dark:bg-slate-900/60 rounded-2xl p-4 border border-slate-200/80 dark:border-slate-800 shadow-2xs">
-                  <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-rose-500/10 text-rose-500 border border-rose-500/20">
-                    <i data-lucide="calendar" class="w-5 h-5"></i>
-                  </div>
-                  <div>
-                    <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Strategy Age (Oldest Board)</span>
-                    <div class="text-lg font-extrabold text-slate-900 dark:text-white font-mono tabular-nums" x-text="(activeCreatorDetail?.strategy_age?.days || 0) + ' Days'"></div>
-                    <span class="text-[10px] text-slate-400" x-text="'Oldest board: ' + (activeCreatorDetail?.strategy_age?.oldest_board_date || '—')"></span>
+                  <div class="h-6 w-px bg-slate-200 dark:bg-slate-800"></div>
+                  <div class="text-left">
+                    <span class="text-[10px] font-mono text-slate-400 uppercase tracking-wider block">Followers</span>
+                    <span class="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white font-mono tabular-nums" x-text="formatNumber(activeCreator.follower_count || 0)"></span>
                   </div>
                 </div>
               </div>
@@ -3975,32 +4044,34 @@ export function getDashboardHtml() {
             </div>
           </div>
 
-          <!-- ═══ In-Page Sub-Navigation Tabs ═══ -->
-          <div class="flex items-center space-x-2 border-b border-slate-200 dark:border-slate-800 pb-3 overflow-x-auto">
-            <button @click="switchCreatorTab('overview')" class="flex items-center space-x-2 px-4 py-2 text-xs font-bold rounded-xl transition cursor-pointer" :class="activeCreatorTab === 'overview' ? 'bg-rose-500 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
-              <i data-lucide="line-chart" class="w-4 h-4"></i>
-              <span>Overview &amp; Growth Trends</span>
-            </button>
-            <button @click="switchCreatorTab('all_pins')" class="flex items-center space-x-2 px-4 py-2 text-xs font-bold rounded-xl transition cursor-pointer" :class="activeCreatorTab === 'all_pins' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
-              <i data-lucide="list" class="w-4 h-4"></i>
-              <span>📋 All Account Pins</span>
-              <span class="px-2 py-0.5 rounded text-[10px] font-mono" :class="activeCreatorTab === 'all_pins' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800'" x-text="formatNumber(activeCreatorCatalogTotal || activeCreatorAllPinsTotal || 0)"></span>
-            </button>
-            <button @click="switchCreatorTab('top_urls')" class="flex items-center space-x-2 px-4 py-2 text-xs font-bold rounded-xl transition cursor-pointer" :class="activeCreatorTab === 'top_urls' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
-              <i data-lucide="link" class="w-4 h-4"></i>
-              <span>🔗 [Link Explorer]</span>
-              <span class="px-2 py-0.5 rounded text-[10px] font-mono" :class="activeCreatorTab === 'top_urls' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800'" x-text="creatorTopUrlsTotal || 0"></span>
-            </button>
-            <button @click="switchCreatorTab('related_pins')" class="flex items-center space-x-2 px-4 py-2 text-xs font-bold rounded-xl transition cursor-pointer" :class="activeCreatorTab === 'related_pins' ? 'bg-amber-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
-              <i data-lucide="network" class="w-4 h-4"></i>
-              <span>🕸️ Related Pins Radar</span>
-              <span class="px-2 py-0.5 rounded text-[10px] font-mono" :class="activeCreatorTab === 'related_pins' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800'" x-text="(creatorRelatedStats.total_intersections || 0) + 'i'"></span>
-            </button>
-            <button @click="switchCreatorTab('boards')" class="flex items-center space-x-2 px-4 py-2 text-xs font-bold rounded-xl transition cursor-pointer" :class="activeCreatorTab === 'boards' ? 'bg-slate-800 dark:bg-slate-700 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
-              <i data-lucide="layout-grid" class="w-4 h-4"></i>
-              <span>Pinterest Board Strategy</span>
-              <span class="px-2 py-0.5 rounded text-[10px] font-mono" :class="activeCreatorTab === 'boards' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800'" x-text="activeCreatorBoards.length || activeCreator.total_boards || 0"></span>
-            </button>
+          <!-- ═══ In-Page Sub-Navigation Tabs (Taste-Design Monochromatic Track) ═══ -->
+          <div class="border-b border-slate-200 dark:border-slate-800 pb-3">
+            <div class="inline-flex items-center gap-1.5 p-1 rounded-2xl bg-slate-100 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 overflow-x-auto max-w-full">
+              <button @click="switchCreatorTab('overview')" class="flex items-center gap-2 px-4 py-2 text-xs rounded-xl transition cursor-pointer whitespace-nowrap" :class="activeCreatorTab === 'overview' ? 'bg-rose-500 text-white font-bold shadow-2xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white font-semibold'">
+                <i data-lucide="line-chart" class="w-4 h-4"></i>
+                <span>Overview &amp; Growth Trends</span>
+              </button>
+              <button @click="switchCreatorTab('all_pins')" class="flex items-center gap-2 px-4 py-2 text-xs rounded-xl transition cursor-pointer whitespace-nowrap" :class="activeCreatorTab === 'all_pins' ? 'bg-rose-500 text-white font-bold shadow-2xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white font-semibold'">
+                <i data-lucide="list" class="w-4 h-4"></i>
+                <span>All Account Pins</span>
+                <span class="px-2 py-0.5 rounded text-[10px] font-mono tabular-nums" :class="activeCreatorTab === 'all_pins' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'" x-text="formatNumber(activeCreatorCatalogTotal || activeCreatorAllPinsTotal || 0)"></span>
+              </button>
+              <button @click="switchCreatorTab('top_urls')" class="flex items-center gap-2 px-4 py-2 text-xs rounded-xl transition cursor-pointer whitespace-nowrap" :class="activeCreatorTab === 'top_urls' ? 'bg-rose-500 text-white font-bold shadow-2xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white font-semibold'">
+                <i data-lucide="link" class="w-4 h-4"></i>
+                <span>Link Explorer</span>
+                <span class="px-2 py-0.5 rounded text-[10px] font-mono tabular-nums" :class="activeCreatorTab === 'top_urls' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'" x-text="creatorTopUrlsTotal || 0"></span>
+              </button>
+              <button @click="switchCreatorTab('related_pins')" class="flex items-center gap-2 px-4 py-2 text-xs rounded-xl transition cursor-pointer whitespace-nowrap" :class="activeCreatorTab === 'related_pins' ? 'bg-rose-500 text-white font-bold shadow-2xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white font-semibold'">
+                <i data-lucide="network" class="w-4 h-4"></i>
+                <span>Related Pins Radar</span>
+                <span class="px-2 py-0.5 rounded text-[10px] font-mono tabular-nums" :class="activeCreatorTab === 'related_pins' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'" x-text="(creatorRelatedStats.total_intersections || 0) + 'i'"></span>
+              </button>
+              <button @click="switchCreatorTab('boards')" class="flex items-center gap-2 px-4 py-2 text-xs rounded-xl transition cursor-pointer whitespace-nowrap" :class="activeCreatorTab === 'boards' ? 'bg-rose-500 text-white font-bold shadow-2xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white font-semibold'">
+                <i data-lucide="layout-grid" class="w-4 h-4"></i>
+                <span>Pinterest Board Strategy</span>
+                <span class="px-2 py-0.5 rounded text-[10px] font-mono tabular-nums" :class="activeCreatorTab === 'boards' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'" x-text="activeCreatorBoards.length || activeCreator.total_boards || 0"></span>
+              </button>
+            </div>
           </div>
 
           <!-- ======================================================== -->
@@ -4133,221 +4204,155 @@ export function getDashboardHtml() {
                   </div>
                 </div>
 
-                <!-- Dynamic SVG Spline Chart Canvas -->
+                <!-- Dynamic SVG Spline Chart Canvas (Taste-Design Native SVG Namespace) -->
                 <div class="relative w-full h-56 overflow-hidden">
-                  <template x-if="!activeCreatorSnapshots || activeCreatorSnapshots.length === 0">
-                    <div class="w-full h-full flex items-center justify-center text-xs text-slate-400 font-sans">
-                      No historical snapshot data recorded yet.
-                    </div>
-                  </template>
-                  <template x-if="activeCreatorSnapshots && activeCreatorSnapshots.length > 0">
+                  <div x-show="!activeCreatorSnapshots || activeCreatorSnapshots.length === 0" class="w-full h-full flex items-center justify-center text-xs text-slate-400 font-sans">
+                    No historical snapshot data recorded yet.
+                  </div>
+                  <div x-show="activeCreatorSnapshots && activeCreatorSnapshots.length > 0" class="w-full h-full">
                     <svg class="w-full h-full" viewBox="0 0 800 220" preserveAspectRatio="none">
                       <defs>
-                        <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stop-color="#f43f5e" stop-opacity="0.2"/>
+                        <linearGradient id="chartGradientRose" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stop-color="#f43f5e" stop-opacity="0.25"/>
                           <stop offset="100%" stop-color="#f43f5e" stop-opacity="0.0"/>
                         </linearGradient>
                         <linearGradient id="chartGradientSky" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stop-color="#0ea5e9" stop-opacity="0.2"/>
+                          <stop offset="0%" stop-color="#0ea5e9" stop-opacity="0.25"/>
                           <stop offset="100%" stop-color="#0ea5e9" stop-opacity="0.0"/>
                         </linearGradient>
                       </defs>
 
-                      <template x-if="creatorChartData.dual">
-                        <g>
-                          <!-- Reach (Rose) Area & Stroke -->
-                          <path :d="creatorChartData.areaPathA" fill="url(#chartGradient)" />
-                          <path :d="creatorChartData.strokePathA" fill="none" stroke="#f43f5e" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
-                          <!-- Views (Sky) Stroke -->
-                          <path :d="creatorChartData.strokePathB" fill="none" stroke="#0ea5e9" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
-                          <template x-for="(pt, idx) in creatorChartData.pointsA" :key="'dual-a-' + idx">
-                            <circle :cx="pt.x" :cy="pt.y" r="3.5" fill="white" stroke="#f43f5e" stroke-width="2" />
-                          </template>
-                          <template x-for="(pt, idx) in creatorChartData.pointsB" :key="'dual-b-' + idx">
-                            <circle :cx="pt.x" :cy="pt.y" r="3.5" fill="white" stroke="#0ea5e9" stroke-width="2" />
-                          </template>
-                        </g>
-                      </template>
+                      <!-- Dual Series Mode -->
+                      <g x-show="creatorChartData.dual">
+                        <path :d="creatorChartData.areaPathA" fill="url(#chartGradientRose)" />
+                        <path :d="creatorChartData.strokePathA" fill="none" stroke="#f43f5e" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+                        <path :d="creatorChartData.strokePathB" fill="none" stroke="#0ea5e9" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+                        <g x-html="creatorChartData.svgPointsDualHtml"></g>
+                      </g>
 
-                      <template x-if="!creatorChartData.dual">
-                        <g>
-                          <!-- Area Fill -->
-                          <path :d="creatorChartData.areaPath" :fill="creatorChartMode === 'views' ? 'url(#chartGradientSky)' : 'url(#chartGradient)'" />
-                          <!-- Stroke Path -->
-                          <path :d="creatorChartData.strokePath" fill="none" :stroke="creatorChartMode === 'views' ? '#0ea5e9' : (creatorChartMode === 'followers' ? '#a855f7' : (creatorChartMode === 'pins' ? '#10b981' : '#f43f5e'))" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
-                          <!-- Data Point Dots -->
-                          <template x-for="(pt, idx) in creatorChartData.points" :key="idx">
-                            <g>
-                              <circle :cx="pt.x" :cy="pt.y" r="4" fill="white" :stroke="creatorChartMode === 'views' ? '#0ea5e9' : '#f43f5e'" stroke-width="2" class="cursor-pointer hover:r-6 transition-all" />
-                              <text :x="pt.x" y="210" text-anchor="middle" class="text-[10px] fill-slate-400 font-mono" x-text="pt.label"></text>
-                            </g>
-                          </template>
-                        </g>
-                      </template>
+                      <!-- Single Series Mode -->
+                      <g x-show="!creatorChartData.dual">
+                        <path :d="creatorChartData.areaPath" :fill="creatorChartMode === 'views' ? 'url(#chartGradientSky)' : 'url(#chartGradientRose)'" />
+                        <path :d="creatorChartData.strokePath" fill="none" :stroke="creatorChartMode === 'views' ? '#0ea5e9' : (creatorChartMode === 'followers' ? '#a855f7' : (creatorChartMode === 'pins' ? '#10b981' : '#f43f5e'))" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+                        <g x-html="creatorChartData.svgPointsHtml"></g>
+                      </g>
                     </svg>
-                  </template>
+                  </div>
                 </div>
               </div>
 
-              <!-- Pinning Velocity Metric Card (1 Col) -->
+              <!-- Strategy Horizon Ledger Card (1 Col) -->
               <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-5 sm:p-6 shadow-xs flex flex-col justify-between space-y-4">
                 <div>
-                  <div class="flex items-center justify-between mb-1.5">
-                    <span class="text-[10.5px] font-semibold text-slate-500 uppercase tracking-wider">PINNING VELOCITY</span>
-                    <span class="rounded-full bg-amber-500/10 px-2.5 py-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400 border border-amber-500/20">⚡ Output Speed</span>
+                  <div class="flex items-center justify-between mb-3">
+                    <span class="text-[10.5px] font-mono uppercase tracking-wider text-slate-400 dark:text-slate-500 font-bold">Strategy Horizon</span>
+                    <span class="rounded-full bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-[10px] font-mono font-bold text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700" x-text="(activeCreator.total_boards || activeCreatorBoards.length || 0) + ' Boards'"></span>
                   </div>
-                  <div class="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight font-mono tabular-nums" x-text="(activeCreatorDetail?.pinning_velocity?.pins_per_day || '0.0') + ' Pins/Day'"></div>
-                  <p class="text-xs text-slate-500 mt-1" x-text="'Rolling pacing evaluated over ' + (activeCreatorDetail?.pinning_velocity?.days_span || 1) + ' day(s).'"></p>
+                  <div class="space-y-3">
+                    <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800/80 pb-2">
+                      <span class="text-xs text-slate-500">Account Age:</span>
+                      <span class="text-xs font-bold font-mono text-slate-900 dark:text-white tabular-nums" x-text="(activeCreatorDetail?.account_age?.days || activeCreatorDetail?.strategy_age?.days || 0) + ' Days'"></span>
+                    </div>
+                    <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800/80 pb-2">
+                      <span class="text-xs text-slate-500">Oldest Board Age:</span>
+                      <span class="text-xs font-bold font-mono text-slate-900 dark:text-white tabular-nums" x-text="(activeCreatorDetail?.strategy_age?.days || 0) + ' Days'"></span>
+                    </div>
+                    <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800/80 pb-2">
+                      <span class="text-xs text-slate-500">Total Catalog Pins:</span>
+                      <span class="text-xs font-bold font-mono text-slate-900 dark:text-white tabular-nums" x-text="formatNumber(activeCreator.total_pins || activeCreatorCatalogTotal || 0)"></span>
+                    </div>
+                    <div class="flex items-center justify-between">
+                      <span class="text-xs text-slate-500">Pins Added (Horizon):</span>
+                      <span class="text-xs font-bold font-mono text-emerald-600 dark:text-emerald-400 tabular-nums" x-text="'+' + (activeCreatorDetail?.pinning_velocity?.pins_added || 0)"></span>
+                    </div>
+                  </div>
                 </div>
 
-                <div class="border-t border-slate-200 dark:border-slate-800 pt-4 space-y-2.5 text-xs">
-                  <div class="flex items-center justify-between">
-                    <span class="text-slate-500">Pins Added (Selected Range):</span>
-                    <span class="font-bold text-slate-900 dark:text-white font-mono tabular-nums" x-text="'+' + (activeCreatorDetail?.pinning_velocity?.pins_added || 0)"></span>
-                  </div>
-                  <div class="flex items-center justify-between">
-                    <span class="text-slate-500">Time Horizon Evaluated:</span>
-                    <span class="font-bold text-slate-900 dark:text-white font-mono" x-text="(activeCreatorDetail?.pinning_velocity?.days_span || 1) + ' days'"></span>
-                  </div>
-                  <div class="flex items-center justify-between">
-                    <span class="text-slate-500">Pacing Estimate:</span>
-                    <span class="font-bold text-rose-500 font-mono tabular-nums" x-text="'~' + (activeCreatorDetail?.pinning_velocity?.pacing_estimate || 0) + ' pins/mo'"></span>
+                <div class="border-t border-slate-100 dark:border-slate-800/80 pt-3">
+                  <div class="flex items-center justify-between text-[11px] text-slate-400 font-mono">
+                    <span>Created:</span>
+                    <span x-text="activeCreatorDetail?.account_age?.created_at || activeCreatorDetail?.strategy_age?.oldest_board_date || '—'"></span>
                   </div>
                 </div>
               </div>
             </div>
 
-            <!-- 4 Engagement & Virality Metric Stat Cards (Total Saves, Shares, 24h Deltas) -->
-            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <!-- Card 1: Total Saves -->
-              <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-4 sm:p-5 shadow-xs hover:border-rose-500/30 transition-all flex flex-col justify-between group">
-                <div class="flex items-center justify-between">
-                  <span class="text-[10.5px] font-bold text-slate-500 uppercase tracking-wider">TOTAL SAVES</span>
-                  <div class="w-8 h-8 rounded-full bg-rose-50 dark:bg-rose-950/40 text-rose-500 flex items-center justify-center border border-rose-100 dark:border-rose-900/40">
-                    <i data-lucide="heart" class="w-4 h-4"></i>
+            <!-- ═══ Unified 5-Cell Telemetry Ribbon (Taste-Design Standard) ═══ -->
+            <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] shadow-xs overflow-hidden">
+              <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 divide-y sm:divide-y-0 sm:divide-x divide-slate-100 dark:divide-slate-800/80">
+                
+                <!-- Cell 1: Total Audience -->
+                <div class="p-4 sm:p-5 flex flex-col justify-between space-y-2 hover:bg-slate-50/50 dark:hover:bg-slate-900/30 transition">
+                  <div class="flex items-center justify-between">
+                    <span class="text-[10px] font-mono uppercase tracking-wider text-slate-400 dark:text-slate-500 font-bold">Total audience</span>
+                    <span class="rounded-full px-2 py-0.5 text-[10px] font-bold font-mono" :class="(activeCreatorDetail?.deltas?.reach?.change || 0) > 0 ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'" x-text="((activeCreatorDetail?.deltas?.reach?.change || 0) > 0 ? '+' : '') + (activeCreatorDetail?.deltas?.reach?.percent || 0) + '%'"></span>
+                  </div>
+                  <div>
+                    <div class="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white font-mono tabular-nums" x-text="formatNumber(activeCreator.monthly_reach || (activeCreatorSnapshots && activeCreatorSnapshots.length > 0 ? (activeCreatorSnapshots[activeCreatorSnapshots.length - 1].monthly_reach || activeCreatorSnapshots[0].monthly_reach) : 0) || 0)"></div>
+                    <div class="mt-1 text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5 font-medium">
+                      <span class="h-1.5 w-1.5 rounded-full" :class="(activeCreatorDetail?.deltas?.reach?.change || 0) > 0 ? 'bg-emerald-500' : 'bg-slate-400'"></span>
+                      <span x-text="(activeCreatorDetail?.deltas?.reach?.change || 0) !== 0 ? ((activeCreatorDetail?.deltas?.reach?.change || 0) > 0 ? '+' : '') + formatNumber(activeCreatorDetail?.deltas?.reach?.change) + ' vs prev' : 'Stable baseline'"></span>
+                    </div>
                   </div>
                 </div>
-                <div>
-                  <div class="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white mt-2 font-mono tabular-nums" x-text="formatNumber(activeCreatorDetail?.engagement?.total_saves || 0)"></div>
-                  <div class="mt-2 text-[11px] text-slate-500 flex items-center gap-1.5 font-medium">
-                    <span class="h-1.5 w-1.5 rounded-full bg-rose-500"></span>
-                    <span>Cumulative saves</span>
-                  </div>
-                </div>
-              </div>
 
-              <!-- Card 2: Total Shares -->
-              <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-4 sm:p-5 shadow-xs hover:border-blue-500/30 transition-all flex flex-col justify-between group">
-                <div class="flex items-center justify-between">
-                  <span class="text-[10.5px] font-bold text-slate-500 uppercase tracking-wider">TOTAL SHARES</span>
-                  <div class="w-8 h-8 rounded-full bg-blue-50 dark:bg-blue-950/40 text-blue-500 flex items-center justify-center border border-blue-100 dark:border-blue-900/40">
-                    <i data-lucide="share-2" class="w-4 h-4"></i>
+                <!-- Cell 2: Impressions -->
+                <div class="p-4 sm:p-5 flex flex-col justify-between space-y-2 hover:bg-slate-50/50 dark:hover:bg-slate-900/30 transition">
+                  <div class="flex items-center justify-between">
+                    <span class="text-[10px] font-mono uppercase tracking-wider text-slate-400 dark:text-slate-500 font-bold">Impressions</span>
+                    <span class="rounded-full px-2 py-0.5 text-[10px] font-bold font-mono" :class="(activeCreatorDetail?.deltas?.views?.change || 0) > 0 ? 'bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'" x-text="((activeCreatorDetail?.deltas?.views?.change || 0) > 0 ? '+' : '') + (activeCreatorDetail?.deltas?.views?.percent || 0) + '%'"></span>
+                  </div>
+                  <div>
+                    <div class="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white font-mono tabular-nums" x-text="formatNumber(activeCreator.profile_views || (activeCreatorSnapshots && activeCreatorSnapshots.length > 0 ? (activeCreatorSnapshots[activeCreatorSnapshots.length - 1].profile_views || activeCreatorSnapshots[0].profile_views) : 0) || 0)"></div>
+                    <div class="mt-1 text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5 font-medium">
+                      <span class="h-1.5 w-1.5 rounded-full" :class="(activeCreatorDetail?.deltas?.views?.change || 0) > 0 ? 'bg-sky-500' : 'bg-slate-400'"></span>
+                      <span x-text="(activeCreatorDetail?.deltas?.views?.change || 0) !== 0 ? ((activeCreatorDetail?.deltas?.views?.change || 0) > 0 ? '+' : '') + formatNumber(activeCreatorDetail?.deltas?.views?.change) + ' vs prev' : 'Stable baseline'"></span>
+                    </div>
                   </div>
                 </div>
-                <div>
-                  <div class="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white mt-2 font-mono tabular-nums" x-text="formatNumber(activeCreatorDetail?.engagement?.total_shares || 0)"></div>
-                  <div class="mt-2 text-[11px] text-slate-500 flex items-center gap-1.5 font-medium">
-                    <span class="h-1.5 w-1.5 rounded-full bg-blue-500"></span>
-                    <span>Engagement signals</span>
-                  </div>
-                </div>
-              </div>
 
-              <!-- Card 3: 24H Saves Δ -->
-              <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-4 sm:p-5 shadow-xs hover:border-rose-500/30 transition-all flex flex-col justify-between group">
-                <div class="flex items-center justify-between">
-                  <span class="text-[10.5px] font-bold text-rose-500 dark:text-rose-400 uppercase tracking-wider">24H SAVES &Delta;</span>
-                  <div class="w-8 h-8 rounded-full bg-rose-50 dark:bg-rose-950/40 text-rose-500 flex items-center justify-center border border-rose-100 dark:border-rose-900/40 font-bold text-xs">
-                    <span>$</span>
+                <!-- Cell 3: Followers -->
+                <div class="p-4 sm:p-5 flex flex-col justify-between space-y-2 hover:bg-slate-50/50 dark:hover:bg-slate-900/30 transition">
+                  <div class="flex items-center justify-between">
+                    <span class="text-[10px] font-mono uppercase tracking-wider text-slate-400 dark:text-slate-500 font-bold">Followers</span>
+                    <span class="rounded-full px-2 py-0.5 text-[10px] font-bold font-mono" :class="(activeCreatorDetail?.deltas?.followers?.change || 0) > 0 ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'" x-text="((activeCreatorDetail?.deltas?.followers?.change || 0) > 0 ? '+' : '') + (activeCreatorDetail?.deltas?.followers?.percent || 0) + '%'"></span>
+                  </div>
+                  <div>
+                    <div class="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white font-mono tabular-nums" x-text="formatNumber(activeCreator.follower_count || 0)"></div>
+                    <div class="mt-1 text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5 font-medium">
+                      <span class="h-1.5 w-1.5 rounded-full" :class="(activeCreatorDetail?.deltas?.followers?.change || 0) > 0 ? 'bg-purple-500' : 'bg-slate-400'"></span>
+                      <span x-text="(activeCreatorDetail?.deltas?.followers?.change || 0) !== 0 ? ((activeCreatorDetail?.deltas?.followers?.change || 0) > 0 ? '+' : '') + formatNumber(activeCreatorDetail?.deltas?.followers?.change) + ' vs prev' : 'Stable baseline'"></span>
+                    </div>
                   </div>
                 </div>
-                <div>
-                  <div class="text-2xl sm:text-3xl font-extrabold tracking-tight text-rose-600 dark:text-rose-400 mt-2 font-mono tabular-nums" x-text="activeCreatorDetail?.engagement?.delta_saves_24h != null ? ((activeCreatorDetail.engagement.delta_saves_24h >= 0 ? '+' : '') + formatNumber(activeCreatorDetail.engagement.delta_saves_24h)) : '—'"></div>
-                  <div class="mt-2 text-[11px] text-slate-500 flex items-center gap-1.5 font-medium">
-                    <span class="h-1.5 w-1.5 rounded-full" :class="activeCreatorDetail?.engagement?.delta_saves_24h != null ? 'bg-rose-500' : 'bg-slate-400'"></span>
-                    <span x-text="activeCreatorDetail?.engagement?.delta_saves_24h != null ? 'Past 24h saves gained' : 'Requires 2+ snapshots (Baseline recorded)'"></span>
-                  </div>
-                </div>
-              </div>
 
-              <!-- Card 4: 24H Repins Δ -->
-              <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-4 sm:p-5 shadow-xs hover:border-emerald-500/30 transition-all flex flex-col justify-between group">
-                <div class="flex items-center justify-between">
-                  <span class="text-[10.5px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">24H REPINS &Delta;</span>
-                  <div class="w-8 h-8 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-500 flex items-center justify-center border border-emerald-100 dark:border-emerald-900/40">
-                    <i data-lucide="repeat" class="w-4 h-4"></i>
+                <!-- Cell 4: Pinning Velocity -->
+                <div class="p-4 sm:p-5 flex flex-col justify-between space-y-2 hover:bg-slate-50/50 dark:hover:bg-slate-900/30 transition">
+                  <div class="flex items-center justify-between">
+                    <span class="text-[10px] font-mono uppercase tracking-wider text-slate-400 dark:text-slate-500 font-bold">Output Velocity</span>
+                    <span class="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400 border border-amber-500/20 font-mono" x-text="(activeCreatorDetail?.pinning_velocity?.days_span || 20) + 'd span'"></span>
+                  </div>
+                  <div>
+                    <div class="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white font-mono tabular-nums" x-text="(activeCreatorDetail?.pinning_velocity?.pins_per_day || '0.0') + ' Pins/Day'"></div>
+                    <div class="mt-1 text-[11px] text-rose-500 font-mono font-semibold" x-text="'~' + (activeCreatorDetail?.pinning_velocity?.pacing_estimate || 0) + ' pins/mo pacing'"></div>
                   </div>
                 </div>
-                <div>
-                  <div class="text-2xl sm:text-3xl font-extrabold tracking-tight text-emerald-600 dark:text-emerald-400 mt-2 font-mono tabular-nums" x-text="activeCreatorDetail?.engagement?.delta_repins_24h != null ? ((activeCreatorDetail.engagement.delta_repins_24h >= 0 ? '+' : '') + formatNumber(activeCreatorDetail.engagement.delta_repins_24h)) : '—'"></div>
-                  <div class="mt-2 text-[11px] text-slate-500 flex items-center gap-1.5 font-medium">
-                    <span class="h-1.5 w-1.5 rounded-full" :class="activeCreatorDetail?.engagement?.delta_repins_24h != null ? 'bg-emerald-500' : 'bg-slate-400'"></span>
-                    <span x-text="activeCreatorDetail?.engagement?.delta_repins_24h != null ? 'Past 24h viral repins' : 'Requires 2+ snapshots (Baseline recorded)'"></span>
-                  </div>
-                </div>
-              </div>
-            </div>
 
-            <!-- 4 Primary Metric Stat Cards (Audience & Reach) -->
-            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <!-- Card 1: Total Audience -->
-              <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-4 sm:p-5 shadow-xs hover:border-emerald-500/30 transition-all flex flex-col justify-between group">
-                <div class="flex items-center justify-between">
-                  <span class="text-[10.5px] font-semibold text-slate-500 uppercase tracking-wider">TOTAL AUDIENCE</span>
-                  <span class="rounded-full px-2 py-0.5 text-[10px] font-bold" :class="(activeCreatorDetail?.deltas?.reach?.change || 0) > 0 ? 'bg-emerald-500/10 text-emerald-600 border border-emerald-500/20' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'" x-text="((activeCreatorDetail?.deltas?.reach?.change || 0) > 0 ? '+' : '') + (activeCreatorDetail?.deltas?.reach?.percent || 0) + '%'"></span>
-                </div>
-                <div>
-                  <div class="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white mt-2 font-mono tabular-nums" x-text="formatNumber(activeCreator.monthly_reach || (activeCreatorSnapshots && activeCreatorSnapshots.length > 0 ? (activeCreatorSnapshots[activeCreatorSnapshots.length - 1].monthly_reach || activeCreatorSnapshots[0].monthly_reach) : 0) || 0)"></div>
-                  <div class="mt-2 text-[11px] text-slate-500 flex items-center gap-1.5">
-                    <span class="h-1.5 w-1.5 rounded-full" :class="(activeCreatorDetail?.deltas?.reach?.change || 0) > 0 ? 'bg-emerald-500' : 'bg-slate-400'"></span>
-                    <span x-text="(activeCreatorDetail?.deltas?.reach?.change || 0) !== 0 ? ((activeCreatorDetail?.deltas?.reach?.change || 0) > 0 ? '+' : '') + formatNumber(activeCreatorDetail?.deltas?.reach?.change) + ' vs previous snapshot' : 'No change vs previous snapshot'"></span>
+                <!-- Cell 5: 24H Saves Gain & Cumulative Virality -->
+                <div class="p-4 sm:p-5 flex flex-col justify-between space-y-2 hover:bg-slate-50/50 dark:hover:bg-slate-900/30 transition">
+                  <div class="flex items-center justify-between">
+                    <span class="text-[10px] font-mono uppercase tracking-wider text-slate-400 dark:text-slate-500 font-bold">24H Saves Gain</span>
+                    <span class="text-[10px] font-mono text-slate-400" x-text="formatNumber(activeCreatorDetail?.engagement?.total_saves || 0) + ' total'"></span>
+                  </div>
+                  <div>
+                    <div class="text-xl sm:text-2xl font-bold tracking-tight text-emerald-600 dark:text-emerald-400 font-mono tabular-nums" x-text="activeCreatorDetail?.engagement?.delta_saves_24h != null ? ((activeCreatorDetail.engagement.delta_saves_24h >= 0 ? '+' : '') + formatNumber(activeCreatorDetail.engagement.delta_saves_24h)) : '—'"></div>
+                    <div class="mt-1 text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5 font-medium">
+                      <span class="h-1.5 w-1.5 rounded-full" :class="activeCreatorDetail?.engagement?.delta_saves_24h != null ? 'bg-emerald-500' : 'bg-slate-400'"></span>
+                      <span x-text="activeCreatorDetail?.engagement?.delta_saves_24h != null ? 'Past 24h viral velocity' : 'Baseline recorded'"></span>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <!-- Card 2: Impressions -->
-              <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-4 sm:p-5 shadow-xs hover:border-sky-500/30 transition-all flex flex-col justify-between group">
-                <div class="flex items-center justify-between">
-                  <span class="text-[10.5px] font-semibold text-slate-500 uppercase tracking-wider">IMPRESSIONS</span>
-                  <span class="rounded-full px-2 py-0.5 text-[10px] font-bold" :class="(activeCreatorDetail?.deltas?.views?.change || 0) > 0 ? 'bg-sky-500/10 text-sky-600 border border-sky-500/20' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'" x-text="((activeCreatorDetail?.deltas?.views?.change || 0) > 0 ? '+' : '') + (activeCreatorDetail?.deltas?.views?.percent || 0) + '%'"></span>
-                </div>
-                <div>
-                  <div class="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white mt-2 font-mono tabular-nums" x-text="formatNumber(activeCreator.profile_views || (activeCreatorSnapshots && activeCreatorSnapshots.length > 0 ? (activeCreatorSnapshots[activeCreatorSnapshots.length - 1].profile_views || activeCreatorSnapshots[0].profile_views) : 0) || 0)"></div>
-                  <div class="mt-2 text-[11px] text-slate-500 flex items-center gap-1.5">
-                    <span class="h-1.5 w-1.5 rounded-full" :class="(activeCreatorDetail?.deltas?.views?.change || 0) > 0 ? 'bg-sky-500' : 'bg-slate-400'"></span>
-                    <span x-text="(activeCreatorDetail?.deltas?.views?.change || 0) !== 0 ? ((activeCreatorDetail?.deltas?.views?.change || 0) > 0 ? '+' : '') + formatNumber(activeCreatorDetail?.deltas?.views?.change) + ' vs previous snapshot' : 'No change vs previous snapshot'"></span>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Card 3: Followers -->
-              <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-4 sm:p-5 shadow-xs hover:border-purple-500/30 transition-all flex flex-col justify-between group">
-                <div class="flex items-center justify-between">
-                  <span class="text-[10.5px] font-semibold text-slate-500 uppercase tracking-wider">FOLLOWERS</span>
-                  <span class="rounded-full px-2 py-0.5 text-[10px] font-bold" :class="(activeCreatorDetail?.deltas?.followers?.change || 0) > 0 ? 'bg-purple-500/10 text-purple-600 border border-purple-500/20' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'" x-text="((activeCreatorDetail?.deltas?.followers?.change || 0) > 0 ? '+' : '') + (activeCreatorDetail?.deltas?.followers?.percent || 0) + '%'"></span>
-                </div>
-                <div>
-                  <div class="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white mt-2 font-mono tabular-nums" x-text="formatNumber(activeCreator.follower_count || 0)"></div>
-                  <div class="mt-2 text-[11px] text-slate-500 flex items-center gap-1.5">
-                    <span class="h-1.5 w-1.5 rounded-full" :class="(activeCreatorDetail?.deltas?.followers?.change || 0) > 0 ? 'bg-purple-500' : 'bg-slate-400'"></span>
-                    <span x-text="(activeCreatorDetail?.deltas?.followers?.change || 0) !== 0 ? ((activeCreatorDetail?.deltas?.followers?.change || 0) > 0 ? '+' : '') + formatNumber(activeCreatorDetail?.deltas?.followers?.change) + ' vs previous snapshot' : 'No change vs previous snapshot'"></span>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Card 4: Total Pins -->
-              <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-4 sm:p-5 shadow-xs hover:border-rose-500/30 transition-all flex flex-col justify-between group">
-                <div class="flex items-center justify-between">
-                  <span class="text-[10.5px] font-semibold text-slate-500 uppercase tracking-wider">TOTAL PINS</span>
-                  <span class="rounded-full px-2 py-0.5 text-[10px] font-bold" :class="(activeCreatorDetail?.deltas?.pins?.change || 0) > 0 ? 'bg-rose-500/10 text-rose-600 border border-rose-500/20' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'" x-text="((activeCreatorDetail?.deltas?.pins?.change || 0) > 0 ? '+' : '') + (activeCreatorDetail?.deltas?.pins?.percent || 0) + '%'"></span>
-                </div>
-                <div>
-                  <div class="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white mt-2 font-mono tabular-nums" x-text="formatNumber(activeCreator.total_pins || activeCreatorAllPinsTotal || activeCreatorPins.length || 0)"></div>
-                  <div class="mt-2 text-[11px] text-slate-500 flex items-center gap-1.5">
-                    <span class="h-1.5 w-1.5 rounded-full" :class="(activeCreatorDetail?.deltas?.pins?.change || 0) > 0 ? 'bg-rose-500' : 'bg-slate-400'"></span>
-                    <span x-text="(activeCreatorDetail?.deltas?.pins?.change || 0) !== 0 ? ((activeCreatorDetail?.deltas?.pins?.change || 0) > 0 ? '+' : '') + formatNumber(activeCreatorDetail?.deltas?.pins?.change) + ' vs previous snapshot' : 'No change vs previous snapshot'"></span>
-                  </div>
-                </div>
               </div>
             </div>
 
@@ -4439,7 +4444,7 @@ export function getDashboardHtml() {
                   </thead>
                   <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono">
                     <template x-for="(s, idx) in paginatedCreatorSnapshots" :key="s.id || idx">
-                      <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition" :class="creatorSnapDensity === 'comfortable' ? 'py-4' : 'py-2.5'">
+                      <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition group" :class="creatorSnapDensity === 'comfortable' ? 'py-4' : 'py-2.5'">
                         <td class="px-5 font-sans text-slate-700 dark:text-slate-300 font-medium" :class="creatorSnapDensity === 'comfortable' ? 'py-4' : 'py-2.5'" x-text="formatSnapshotDate(s.recorded_date || s.created_at)"></td>
                         <td x-show="creatorSnapColVisible.reach" class="px-4 text-right font-extrabold text-slate-900 dark:text-white" :class="creatorSnapDensity === 'comfortable' ? 'py-4' : 'py-2.5'" x-text="formatNumber(s.monthly_reach)"></td>
                         <td x-show="creatorSnapColVisible.views" class="px-4 text-right font-extrabold text-slate-900 dark:text-white" :class="creatorSnapDensity === 'comfortable' ? 'py-4' : 'py-2.5'" x-text="formatNumber(s.profile_views)"></td>
@@ -4450,7 +4455,7 @@ export function getDashboardHtml() {
                           </div>
                         </td>
                         <td class="px-5 text-right" :class="creatorSnapDensity === 'comfortable' ? 'py-4' : 'py-2.5'">
-                          <button @click="deleteSnapshotAction(s.id)" class="p-1 rounded text-slate-400 hover:text-rose-500 transition cursor-pointer" title="Delete snapshot">
+                          <button @click="deleteSnapshotAction(s.id)" class="p-1 rounded text-slate-400 hover:text-rose-500 transition cursor-pointer opacity-20 group-hover:opacity-100" title="Delete snapshot">
                             <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
                           </button>
                         </td>
@@ -5751,7 +5756,27 @@ export function getDashboardHtml() {
   <script>
     function dashboardApp() {
       return {
-        isDark: false,
+        isDark: (() => {
+          try {
+            return typeof localStorage !== 'undefined' ? localStorage.getItem('pin_theme') === 'dark' : false;
+          } catch (_) { return false; }
+        })(),
+        isSidebarCollapsed: (() => {
+          try {
+            return typeof localStorage !== 'undefined' ? localStorage.getItem('pae_sidebar_collapsed') === 'true' : false;
+          } catch (_) { return false; }
+        })(),
+        toggleSidebar() {
+          this.isSidebarCollapsed = !this.isSidebarCollapsed;
+          try {
+            if (typeof localStorage !== 'undefined') {
+              localStorage.setItem('pae_sidebar_collapsed', this.isSidebarCollapsed ? 'true' : 'false');
+            }
+          } catch (_) {}
+          this.$nextTick(() => {
+            if (window.lucide) window.lucide.createIcons();
+          });
+        },
         currentTab: (() => {
           if (typeof window !== 'undefined') {
             const segs = (window.location.pathname || '').split('/').filter(Boolean);
@@ -6392,6 +6417,8 @@ export function getDashboardHtml() {
             const firstReach = ptsReach[0] || { x: padL, y: padT + cH };
             const areaReach = strokeReach ? (strokeReach + ' L ' + lastReach.x + ' ' + (padT + cH) + ' L ' + firstReach.x + ' ' + (padT + cH) + ' Z') : '';
 
+            const svgPointsDualHtml = ptsReach.map(p => '<circle cx="' + p.x + '" cy="' + p.y + '" r="3.5" fill="white" stroke="#f43f5e" stroke-width="2" /><text x="' + p.x + '" y="210" text-anchor="middle" class="text-[10px] fill-slate-400 font-mono">' + p.label + '</text>').join('') + ptsViews.map(p => '<circle cx="' + p.x + '" cy="' + p.y + '" r="3.5" fill="white" stroke="#0ea5e9" stroke-width="2" />').join('');
+
             return {
               dual: true,
               min,
@@ -6404,7 +6431,8 @@ export function getDashboardHtml() {
               strokePathA: strokeReach,
               strokePathB: strokeViews,
               areaPath: areaReach,
-              areaPathA: areaReach
+              areaPathA: areaReach,
+              svgPointsDualHtml
             };
           }
 
@@ -6449,7 +6477,10 @@ export function getDashboardHtml() {
           const firstPt = pts[0] || { x: padL, y: padT + cH };
           const areaPath = strokePath ? (strokePath + ' L ' + lastPt.x + ' ' + (padT + cH) + ' L ' + firstPt.x + ' ' + (padT + cH) + ' Z') : '';
 
-          return { dual: false, min, max, latest, points: pts, strokePath, areaPath };
+          const strokeColor = this.creatorChartMode === 'views' ? '#0ea5e9' : (this.creatorChartMode === 'followers' ? '#a855f7' : (this.creatorChartMode === 'pins' ? '#10b981' : '#f43f5e'));
+          const svgPointsHtml = pts.map(p => '<circle cx="' + p.x + '" cy="' + p.y + '" r="4" fill="white" stroke="' + strokeColor + '" stroke-width="2" class="cursor-pointer hover:r-6 transition-all" /><text x="' + p.x + '" y="210" text-anchor="middle" class="text-[10px] fill-slate-400 font-mono">' + p.label + '</text>').join('');
+
+          return { dual: false, min, max, latest, points: pts, strokePath, areaPath, svgPointsHtml };
         },
 
         get filteredCreatorBoards() {
@@ -7601,6 +7632,20 @@ export function getDashboardHtml() {
               this.isDark = savedTheme === 'dark';
             }
           } catch (_) {}
+          try {
+            const savedSidebar = typeof localStorage !== 'undefined' ? localStorage.getItem('pae_sidebar_collapsed') : null;
+            if (savedSidebar !== null) {
+              this.isSidebarCollapsed = savedSidebar === 'true';
+            }
+          } catch (_) {}
+          if (typeof window !== 'undefined') {
+            window.addEventListener('keydown', (e) => {
+              if ((e.ctrlKey || e.metaKey) && (e.key === 'b' || e.key === 'B')) {
+                e.preventDefault();
+                this.toggleSidebar();
+              }
+            });
+          }
           try {
             const savedCols = typeof localStorage !== 'undefined' ? localStorage.getItem('creator_master_visible_columns') : null;
             if (savedCols) {

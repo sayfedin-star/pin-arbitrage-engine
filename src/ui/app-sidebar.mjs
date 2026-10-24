@@ -1,0 +1,357 @@
+/**
+ * src/ui/app-sidebar.mjs
+ * 
+ * Canonical Unified App Sidebar & Shell Layout Component
+ * Single Source of Truth (SSOT) for PAE desktop sidebar and mobile navigation drawer.
+ * Ensures 100% layout parity across Overview (/), Creator Hub (/accounts),
+ * Keywords Fleet (/keywords), Domain Radar (/domains), and Related Pins (/related-pins).
+ * 
+ * [INVARIANT: UNIFIED-SIDEBAR-LAYOUT]
+ */
+
+export function renderAppSidebar({
+  activeNav = 'overview', // 'overview' | 'creators' | 'keywords' | 'domains' | 'related_pins'
+  refreshHandler = 'window.location.reload()'
+} = {}) {
+  const isOverview = activeNav === 'overview';
+  const isCreators = activeNav === 'creators';
+  const isKeywords = activeNav === 'keywords';
+  const isDomains = activeNav === 'domains';
+  const isRelated = activeNav === 'related_pins';
+
+  const inactiveClass = 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900/60 hover:text-slate-900 dark:hover:text-slate-200';
+
+  const overviewActive = isOverview
+    ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 font-bold border border-indigo-500/20 shadow-sm'
+    : inactiveClass;
+
+  const creatorsActive = isCreators
+    ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400 font-bold border border-purple-500/20 shadow-sm'
+    : inactiveClass;
+
+  const keywordsActive = isKeywords
+    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold border border-emerald-500/20 shadow-sm'
+    : inactiveClass;
+
+  const domainsActive = isDomains
+    ? 'bg-sky-500/10 text-sky-600 dark:text-sky-400 font-bold border border-sky-500/20 shadow-sm'
+    : inactiveClass;
+
+  const relatedActive = isRelated
+    ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 font-bold border border-rose-500/20 shadow-sm'
+    : inactiveClass;
+
+  return `
+  <!-- Mobile Top Header (Visible on screens < md) [INVARIANT: UNIFIED-SIDEBAR-LAYOUT] -->
+  <header class="md:hidden border-b border-slate-200/90 dark:border-slate-800/80 bg-white/95 dark:bg-[#0b1120]/90 backdrop-blur-xl sticky top-0 z-40 px-4 py-3 flex items-center justify-between shadow-sm">
+    <div class="flex items-center space-x-2.5">
+      <button @click="isMobileMenuOpen = !isMobileMenuOpen" class="p-2 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition active:scale-95" title="Toggle Navigation Menu">
+        <i data-lucide="menu" class="w-5 h-5"></i>
+      </button>
+      <a href="/" class="flex items-center space-x-2">
+        <div class="h-8 w-8 rounded-lg bg-gradient-to-tr from-rose-600 via-rose-500 to-amber-500 flex items-center justify-center text-white shadow-sm">
+          <i data-lucide="cpu" class="w-4 h-4"></i>
+        </div>
+        <div>
+          <span class="font-bold text-sm tracking-tight text-slate-900 dark:text-white">Pin Arbitrage</span>
+          <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-600 dark:text-rose-400 font-bold ml-1 border border-rose-500/20">V3</span>
+        </div>
+      </a>
+    </div>
+    <div class="flex items-center space-x-2">
+      <button @click="toggleTheme()" class="p-2 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition" :title="(darkMode || isDark) ? 'Light Mode' : 'Dark Mode'">
+        <i :data-lucide="(darkMode || isDark) ? 'sun' : 'moon'" class="w-4 h-4"></i>
+      </button>
+      <button @click="${refreshHandler}" class="p-2 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition" title="Refresh Data">
+        <i data-lucide="rotate-cw" class="w-4 h-4"></i>
+      </button>
+    </div>
+  </header>
+
+  <!-- Mobile Drawer Backdrop & Drawer [INVARIANT: UNIFIED-SIDEBAR-LAYOUT] -->
+  <div x-show="isMobileMenuOpen" x-cloak class="fixed inset-0 z-50 md:hidden bg-slate-950/70 backdrop-blur-sm transition-opacity" @click="isMobileMenuOpen = false">
+    <div class="w-72 bg-white dark:bg-[#0b1120] border-r border-slate-200 dark:border-slate-800 h-full flex flex-col justify-between p-5 space-y-4 shadow-2xl overflow-y-auto" @click.stop>
+      <!-- Mobile Drawer Header -->
+      <div class="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
+        <a href="/" class="flex items-center space-x-2.5">
+          <div class="h-9 w-9 rounded-xl bg-gradient-to-tr from-rose-600 via-rose-500 to-amber-500 flex items-center justify-center text-white shadow-sm">
+            <i data-lucide="cpu" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <div class="font-bold text-sm text-slate-900 dark:text-white">Pin Arbitrage</div>
+            <div class="text-[10px] text-slate-500 font-mono">V3 Predictive</div>
+          </div>
+        </a>
+        <button @click="isMobileMenuOpen = false" class="text-slate-400 hover:text-slate-700 dark:hover:text-white p-1 rounded-lg">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- Mobile Quick Actions -->
+      <div class="space-y-1.5">
+        <a href="/accounts?action=new" class="w-full flex items-center justify-center space-x-2 px-3 py-2 text-xs font-bold rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-rose-600 hover:from-purple-500 hover:to-rose-500 text-white shadow-sm active:scale-95 transition">
+          <i data-lucide="user-plus" class="w-3.5 h-3.5"></i>
+          <span>+ Track Creator</span>
+        </a>
+        <div class="grid grid-cols-2 gap-1.5">
+          <a href="/related-pins" class="flex items-center justify-center space-x-1 px-2.5 py-1.5 text-xs font-semibold rounded-xl bg-slate-100 dark:bg-slate-900 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-800">
+            <i data-lucide="plus-circle" class="w-3 h-3 text-rose-500"></i>
+            <span>Add Seeds</span>
+          </a>
+          <a href="/" class="flex items-center justify-center space-x-1 px-2.5 py-1.5 text-xs font-bold rounded-xl bg-slate-100 dark:bg-slate-900 text-amber-600 dark:text-amber-400 border border-slate-200 dark:border-slate-800">
+            <i data-lucide="zap" class="w-3 h-3"></i>
+            <span>Crawl</span>
+          </a>
+        </div>
+      </div>
+
+      <!-- Mobile Navigation Links -->
+      <nav class="space-y-1">
+        <!-- Overview & Command Center (Home) -->
+        <a href="/" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition ${overviewActive}">
+          <div class="flex items-center space-x-2.5">
+            <i data-lucide="layout-dashboard" class="w-4 h-4 text-indigo-500"></i>
+            <span>Overview & Hub</span>
+          </div>
+          <span class="px-1.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-indigo-500/15 text-indigo-700 dark:text-indigo-300">Home</span>
+        </a>
+
+        <!-- Creator Hub -->
+        <a href="/accounts" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition ${creatorsActive}">
+          <div class="flex items-center space-x-2.5">
+            <i data-lucide="users" class="w-4 h-4 text-purple-500"></i>
+            <span>Creator Hub</span>
+          </div>
+          <span class="px-1.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-purple-500/15 text-purple-700 dark:text-purple-300">Ledger</span>
+        </a>
+
+        <!-- Keywords Fleet Dashboard -->
+        <a href="/keywords" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition ${keywordsActive}">
+          <div class="flex items-center space-x-2.5">
+            <i data-lucide="search" class="w-4 h-4 text-emerald-500"></i>
+            <span>Keywords Fleet</span>
+          </div>
+          <span class="px-1.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-emerald-500/15 text-emerald-700 dark:text-emerald-400">SERP</span>
+        </a>
+
+        <!-- Domain Radar -->
+        <a href="/domains" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition ${domainsActive}">
+          <div class="flex items-center space-x-2.5">
+            <i data-lucide="globe" class="w-4 h-4 text-sky-500"></i>
+            <span>Domain Radar</span>
+          </div>
+          <span class="px-1.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-sky-500/10 text-sky-700 dark:text-sky-400 border border-sky-500/20">WHOIS</span>
+        </a>
+
+        <!-- Related Pins Tab -->
+        <a href="/related-pins" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition ${relatedActive}">
+          <div class="flex items-center space-x-2.5">
+            <i data-lucide="git-fork" class="w-4 h-4 text-rose-500"></i>
+            <span>Related Pins</span>
+          </div>
+          <span class="px-1.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-rose-500/15 text-rose-700 dark:text-rose-300">Graph</span>
+        </a>
+      </nav>
+
+      <!-- Mobile Drawer Footer -->
+      <div class="pt-3 border-t border-slate-200 dark:border-slate-800 space-y-2">
+        <div class="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold rounded-xl border bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-400">
+          <span class="flex items-center space-x-2 truncate">
+            <span class="w-2 h-2 rounded-full shrink-0 bg-emerald-500 animate-pulse"></span>
+            <span class="truncate">System: Operational</span>
+          </span>
+          <i data-lucide="shield-check" class="w-3.5 h-3.5"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Desktop Permanent Sidebar (<aside>) [INVARIANT: UNIFIED-SIDEBAR-LAYOUT] -->
+  <aside 
+    class="hidden md:flex fixed inset-y-0 left-0 z-40 bg-white/95 dark:bg-[#0b1120] border-r border-slate-200/90 dark:border-slate-800/80 flex-col justify-between shadow-sm overflow-y-auto overflow-x-hidden transition-all duration-300 ease-in-out"
+    :class="isSidebarCollapsed ? 'w-20' : 'w-64 lg:w-72'">
+    <!-- Top section: Logo, DB Project Switcher, Quick Actions, Nav Links -->
+    <div class="transition-all duration-300" :class="isSidebarCollapsed ? 'p-3 space-y-4' : 'p-4 lg:p-5 space-y-4'">
+      <!-- App Brand & Title + Collapse Toggle -->
+      <div class="flex items-center transition-all duration-300" :class="isSidebarCollapsed ? 'flex-col space-y-2.5 items-center' : 'justify-between'">
+        <!-- Logo & Title -->
+        <a href="/" class="flex items-center space-x-3 overflow-hidden group">
+          <div class="h-10 w-10 rounded-xl bg-gradient-to-tr from-rose-600 via-rose-500 to-amber-500 flex items-center justify-center shadow-md shadow-rose-500/20 text-white shrink-0 group-hover:scale-102 transition">
+            <i data-lucide="cpu" class="w-5 h-5"></i>
+          </div>
+          <div x-show="!isSidebarCollapsed" x-transition.opacity.duration.200ms class="overflow-hidden whitespace-nowrap">
+            <div class="flex items-center space-x-1.5">
+              <span class="font-bold text-sm lg:text-base tracking-tight text-slate-900 dark:text-white truncate">
+                Pin Cluster Analyzer
+              </span>
+            </div>
+            <div class="flex items-center space-x-1.5 mt-0.5">
+              <span class="px-1.5 py-0.5 text-[9px] font-mono font-bold uppercase rounded-full bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30">
+                V3 Predictive
+              </span>
+            </div>
+          </div>
+        </a>
+
+        <!-- Sideways Collapse / Expand Toggle Button -->
+        <button 
+          @click="toggleSidebar()" 
+          class="p-1.5 rounded-lg text-slate-400 hover:text-slate-800 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800/80 transition active:scale-95 shrink-0" 
+          :class="isSidebarCollapsed ? 'w-8 h-8 flex items-center justify-center' : ''"
+          :title="isSidebarCollapsed ? 'Expand Sidebar (Ctrl+B)' : 'Collapse Sidebar (Ctrl+B)'">
+          <i x-show="!isSidebarCollapsed" data-lucide="chevrons-left" class="w-4 h-4"></i>
+          <i x-show="isSidebarCollapsed" data-lucide="chevrons-right" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <!-- Quick Action Buttons -->
+      <div class="pt-1 transition-all duration-300" :class="isSidebarCollapsed ? 'space-y-2 flex flex-col items-center' : 'space-y-1.5'">
+        <!-- + Track Creator -->
+        <a 
+          href="/accounts?action=new" 
+          class="flex items-center justify-center rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-rose-600 hover:from-purple-500 hover:to-rose-500 text-white shadow-md shadow-indigo-950/20 active:scale-95 transition"
+          :class="isSidebarCollapsed ? 'w-10 h-10 p-0' : 'w-full px-3 py-2 space-x-2 text-xs font-bold'"
+          title="Track Creator">
+          <i data-lucide="user-plus" class="w-3.5 h-3.5 shrink-0"></i>
+          <span x-show="!isSidebarCollapsed" class="truncate">+ Track Creator</span>
+        </a>
+
+        <div :class="isSidebarCollapsed ? 'flex flex-col space-y-2 w-full items-center' : 'grid grid-cols-2 gap-1.5'">
+          <!-- + Add Seeds -->
+          <a 
+            href="/related-pins" 
+            class="flex items-center justify-center rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-900/90 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-800 transition active:scale-95 shadow-sm"
+            :class="isSidebarCollapsed ? 'w-10 h-10 p-0' : 'px-2.5 py-1.5 space-x-1 text-xs font-semibold'"
+            title="Add Seeds">
+            <i data-lucide="plus-circle" class="w-3 h-3 text-rose-500 shrink-0"></i>
+            <span x-show="!isSidebarCollapsed" class="truncate">Add Seeds</span>
+          </a>
+
+          <!-- Crawl -->
+          <a 
+            href="/" 
+            class="flex items-center justify-center rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-900/90 dark:hover:bg-slate-800 text-amber-600 dark:text-amber-400 border border-slate-200 dark:border-slate-800 transition shadow-sm active:scale-95" 
+            :class="isSidebarCollapsed ? 'w-10 h-10 p-0' : 'px-2.5 py-1.5 space-x-1 text-xs font-bold'"
+            title="Crawl">
+            <i data-lucide="zap" class="w-3 h-3 shrink-0"></i>
+            <span x-show="!isSidebarCollapsed" class="truncate">Crawl</span>
+          </a>
+        </div>
+      </div>
+
+      <!-- Navigation Links (Desktop) -->
+      <nav class="space-y-1 pt-2" :class="isSidebarCollapsed ? 'flex flex-col items-center' : ''">
+        <!-- Overview & Command Center (Home) -->
+        <a 
+          href="/" 
+          class="relative flex items-center rounded-xl text-xs font-semibold transition ${overviewActive}" 
+          :class="isSidebarCollapsed ? 'w-10 h-10 justify-center' : 'w-full justify-between px-3 py-2.5'"
+          title="Overview & Hub">
+          <div class="flex items-center" :class="isSidebarCollapsed ? 'justify-center' : 'space-x-2.5'">
+            <i data-lucide="layout-dashboard" class="w-4 h-4 text-indigo-500 shrink-0"></i>
+            <span x-show="!isSidebarCollapsed" class="truncate">Overview & Hub</span>
+          </div>
+          <span x-show="!isSidebarCollapsed" class="px-1.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-indigo-500/15 text-indigo-700 dark:text-indigo-300">Home</span>
+        </a>
+
+        <!-- Creator Hub (/accounts) -->
+        <a 
+          href="/accounts" 
+          class="relative flex items-center rounded-xl text-xs font-semibold transition ${creatorsActive}" 
+          :class="isSidebarCollapsed ? 'w-10 h-10 justify-center' : 'w-full justify-between px-3 py-2.5'"
+          title="Creator Hub">
+          <div class="flex items-center" :class="isSidebarCollapsed ? 'justify-center' : 'space-x-2.5'">
+            <i data-lucide="users" class="w-4 h-4 text-purple-500 shrink-0"></i>
+            <span x-show="!isSidebarCollapsed" class="truncate">Creator Hub</span>
+          </div>
+          <span x-show="!isSidebarCollapsed && (typeof competitors !== 'undefined' && competitors && competitors.length > 0)" class="px-1.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-purple-500/15 text-purple-700 dark:text-purple-300" x-text="competitors.length"></span>
+          <span x-show="!isSidebarCollapsed && (typeof competitors === 'undefined' || !competitors || !competitors.length)" class="px-1.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-purple-500/15 text-purple-700 dark:text-purple-300">Ledger</span>
+          <span x-show="isSidebarCollapsed" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-purple-500"></span>
+        </a>
+
+        <!-- Keywords Fleet Dashboard (/keywords) -->
+        <a 
+          href="/keywords" 
+          class="relative flex items-center rounded-xl text-xs font-semibold transition ${keywordsActive}" 
+          :class="isSidebarCollapsed ? 'w-10 h-10 justify-center' : 'w-full justify-between px-3 py-2.5'"
+          title="Keywords Fleet">
+          <div class="flex items-center" :class="isSidebarCollapsed ? 'justify-center' : 'space-x-2.5'">
+            <i data-lucide="search" class="w-4 h-4 text-emerald-500 shrink-0"></i>
+            <span x-show="!isSidebarCollapsed" class="truncate">Keywords Fleet</span>
+          </div>
+          <span x-show="!isSidebarCollapsed && (typeof keywords !== 'undefined' && keywords && keywords.length > 0)" class="px-2 py-0.5 rounded-full text-[11px] font-mono font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" x-text="keywords.length"></span>
+          <span x-show="!isSidebarCollapsed && (typeof keywords === 'undefined' || !keywords || !keywords.length)" class="px-2 py-0.5 rounded-full text-[11px] font-mono font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400">SERP</span>
+          <span x-show="isSidebarCollapsed" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-emerald-500"></span>
+        </a>
+
+        <!-- Domain Radar (/domains) -->
+        <a 
+          href="/domains" 
+          class="relative flex items-center rounded-xl text-xs font-semibold transition ${domainsActive}" 
+          :class="isSidebarCollapsed ? 'w-10 h-10 justify-center' : 'w-full justify-between px-3 py-2.5'"
+          title="Domain Radar">
+          <div class="flex items-center" :class="isSidebarCollapsed ? 'justify-center' : 'space-x-2.5'">
+            <i data-lucide="globe" class="w-4 h-4 text-sky-500 shrink-0"></i>
+            <span x-show="!isSidebarCollapsed" class="truncate">Domain Radar</span>
+          </div>
+          <span x-show="!isSidebarCollapsed && (typeof overview !== 'undefined' && overview && overview.total_domains > 0)" class="px-1.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-sky-500/10 text-sky-700 dark:text-sky-400 border border-sky-500/20" x-text="overview.total_domains"></span>
+          <span x-show="!isSidebarCollapsed && (typeof overview === 'undefined' || !overview || !overview.total_domains)" class="px-1.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-sky-500/10 text-sky-700 dark:text-sky-400 border border-sky-500/20">WHOIS</span>
+          <span x-show="isSidebarCollapsed" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-sky-500"></span>
+        </a>
+
+        <!-- Related Pins Tab (/related-pins) -->
+        <a 
+          href="/related-pins" 
+          class="relative flex items-center rounded-xl text-xs font-semibold transition ${relatedActive}" 
+          :class="isSidebarCollapsed ? 'w-10 h-10 justify-center' : 'w-full justify-between px-3 py-2.5'"
+          title="Related Pins">
+          <div class="flex items-center" :class="isSidebarCollapsed ? 'justify-center' : 'space-x-2.5'">
+            <i data-lucide="git-fork" class="w-4 h-4 text-rose-500 shrink-0"></i>
+            <span x-show="!isSidebarCollapsed" class="truncate">Related Pins</span>
+          </div>
+          <span x-show="!isSidebarCollapsed" class="px-1.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-rose-500/15 text-rose-700 dark:text-rose-300">Graph</span>
+          <span x-show="isSidebarCollapsed" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500"></span>
+        </a>
+      </nav>
+    </div>
+
+    <!-- Bottom Footer section: Pinterest Auth Status, Theme toggle, Refresh -->
+    <div class="border-t border-slate-200/80 dark:border-slate-800/80 bg-slate-50/50 dark:bg-slate-950/20 transition-all duration-300" :class="isSidebarCollapsed ? 'p-3 space-y-2' : 'p-4 space-y-3'">
+      <!-- Status Indicator -->
+      <div 
+        class="flex items-center rounded-xl border bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-400" 
+        :class="isSidebarCollapsed ? 'w-10 h-10 p-0 justify-center mx-auto' : 'w-full justify-between px-3 py-2 text-xs font-semibold'" 
+        title="PAE Distributed System: Active">
+        <span class="flex items-center truncate" :class="isSidebarCollapsed ? 'justify-center' : 'space-x-2'">
+          <span class="w-2 h-2 rounded-full shrink-0 bg-emerald-500 animate-pulse"></span>
+          <span x-show="!isSidebarCollapsed" class="truncate text-[11px]">System: Operational</span>
+        </span>
+        <i x-show="!isSidebarCollapsed" data-lucide="shield-check" class="w-3.5 h-3.5 shrink-0 opacity-70"></i>
+      </div>
+
+      <!-- Theme Toggle & Refresh -->
+      <div :class="isSidebarCollapsed ? 'flex flex-col space-y-2 items-center' : 'flex items-center justify-between pt-1'">
+        <!-- Theme Toggle -->
+        <button 
+          @click="toggleTheme()" 
+          class="flex items-center justify-center rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 transition active:scale-95 shadow-sm"
+          :class="isSidebarCollapsed ? 'w-10 h-10 p-0' : 'flex-1 mr-2 space-x-2 py-2 px-3'"
+          title="Switch Theme">
+          <i x-show="!darkMode && !isDark" data-lucide="moon" class="w-3.5 h-3.5"></i>
+          <i x-show="darkMode || isDark" data-lucide="sun" class="w-3.5 h-3.5"></i>
+          <span x-show="!isSidebarCollapsed" x-text="(darkMode || isDark) ? 'Light' : 'Dark'"></span>
+        </button>
+
+        <!-- Refresh Data -->
+        <button 
+          @click="${refreshHandler}" 
+          class="flex items-center justify-center rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition active:scale-95 shadow-sm" 
+          :class="isSidebarCollapsed ? 'w-10 h-10 p-0' : 'p-2'"
+          title="Refresh Studio Data">
+          <i data-lucide="rotate-cw" class="w-4 h-4"></i>
+        </button>
+      </div>
+    </div>
+  </aside>
+`;
+}

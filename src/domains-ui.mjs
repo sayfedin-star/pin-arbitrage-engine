@@ -14,6 +14,7 @@
  */
 
 import { getEdgeShieldClientScript } from './edge-shield-client.mjs';
+import { renderAppSidebar } from './ui/app-sidebar.mjs';
 
 export function getDomainsPageHtml(initialDomain = '') {
   const rawDomain = String(initialDomain || '').trim();
@@ -93,8 +94,25 @@ export function getDomainsPageHtml(initialDomain = '') {
   };
 })();
   </script>
+  <script>
+    try {
+      const savedTheme = localStorage.getItem('pin_theme') || localStorage.getItem('pa_theme');
+      if (savedTheme === 'light') {
+        document.documentElement.classList.remove('dark');
+      } else {
+        document.documentElement.classList.add('dark');
+      }
+    } catch (_) {}
+  </script>
+  <script>
+    setTimeout(function() {
+      if (typeof document !== 'undefined' && document.body && document.body.hasAttribute('x-cloak')) {
+        document.body.removeAttribute('x-cloak');
+      }
+    }, 1200);
+  </script>
 </head>
-<body class="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 min-h-screen antialiased flex flex-col font-sans transition-colors duration-150" x-data="domainsApp('${safeInitialDomain}')" @keydown.escape.window="if (isBlueprintModalOpen) closeBlueprintModal(); else if (isDossierOpen) closeDossier();">
+<body x-cloak class="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 min-h-screen antialiased flex flex-col font-sans transition-colors duration-150" x-data="domainsApp('${safeInitialDomain}')" @keydown.escape.window="if (isBlueprintModalOpen) closeBlueprintModal(); else if (isDossierOpen) closeDossier();">
 
   <!-- Toast Notification Container -->
   <div class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 max-w-sm pointer-events-none">
@@ -112,56 +130,41 @@ export function getDomainsPageHtml(initialDomain = '') {
     </template>
   </div>
 
-  <!-- Top Navigation Header -->
-  <header class="border-b border-slate-200 dark:border-slate-800 bg-white/85 dark:bg-slate-900/80 backdrop-blur sticky top-0 z-40 px-6 py-3.5 flex items-center justify-between transition-colors">
-    <div class="flex items-center gap-6">
-      <div class="flex items-center gap-3">
-        <a href="/domains" class="flex items-center gap-2 group">
-          <div class="w-8 h-8 rounded-lg bg-sky-500/10 border border-sky-500/30 flex items-center justify-center text-sky-600 dark:text-sky-400 font-bold group-hover:scale-105 transition-transform">
-            🌐
+  ${renderAppSidebar({ activeNav: 'domains', refreshHandler: 'refreshDomains()' })}
+
+  <!-- Main Container (Offset for Unified Desktop Sidebar) [INVARIANT: UNIFIED-SIDEBAR-LAYOUT] -->
+  <main class="flex-1 min-h-screen p-4 sm:p-6 lg:p-8 space-y-6 max-w-full overflow-x-hidden transition-all duration-300 ease-in-out" :class="isSidebarCollapsed ? 'md:ml-20' : 'md:ml-64 lg:ml-72'">
+
+    <!-- [INVARIANT: UNIFIED-SIDEBAR-LAYOUT] Studio Header Card -->
+    <section class="p-4 sm:p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div class="flex items-center space-x-3.5">
+        <div class="w-10 h-10 rounded-xl bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20 flex items-center justify-center shadow-xs shrink-0">
+          <i data-lucide="globe" class="w-5 h-5"></i>
+        </div>
+        <div>
+          <div class="flex items-center space-x-2">
+            <h2 class="text-lg sm:text-xl font-bold tracking-tight text-slate-900 dark:text-white">Domain Intelligence Studio</h2>
+            <span class="px-2 py-0.5 rounded-md text-[10px] font-mono font-semibold bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">Level 4B</span>
           </div>
-          <div>
-            <div class="text-sm font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
-              Domain Intelligence Studio
-              <span class="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/30 font-normal">Level 4B</span>
-            </div>
-            <div class="text-[11px] text-slate-500 dark:text-slate-400">SERP Monopoly, WHOIS Age & Pin-to-URL Multipliers</div>
-          </div>
-        </a>
+          <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-normal">SERP Monopoly, WHOIS Age &amp; Pin-to-URL Multipliers</p>
+        </div>
       </div>
 
-      <nav class="hidden md:flex items-center gap-1 text-xs">
-        <a href="/" class="px-3 py-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-colors">Overview</a>
-        <a href="/accounts" class="px-3 py-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-colors">Creator & PinArchive</a>
-        <a href="/keywords" class="px-3 py-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-colors">Keywords Radar</a>
-        <a href="/keywords/discovery" class="px-3 py-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-colors">Discovery</a>
-        <a href="/folders" class="px-3 py-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-colors">Campaign Folders</a>
-        <a href="/domains" class="px-3 py-1.5 rounded-lg bg-sky-500/10 text-sky-600 dark:text-sky-400 font-semibold border border-sky-500/20">Domain Radar</a>
-      </nav>
-    </div>
-
-    <div class="flex items-center gap-3">
-      <!-- Theme Switcher -->
-      <button @click="toggleTheme()"
-              class="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold border border-slate-300 dark:border-slate-700 transition-colors flex items-center gap-1.5 shadow-sm"
-              :title="darkMode ? 'Switch to Light Theme' : 'Switch to Dark Theme'">
-        <span x-text="darkMode ? '☀️' : '🌙'">🌙</span>
-        <span class="hidden sm:inline font-mono text-[11px]" x-text="darkMode ? 'Light' : 'Dark'">Dark</span>
-      </button>
-
-      <!-- Refresh Button -->
-      <button @click="refreshDomains()"
-              :disabled="refreshingRollup || loading"
-              class="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-xs font-semibold shadow-sm transition-all flex items-center gap-1.5"
-              title="Re-aggregate live domain intelligence from rankings & purge edge cache">
-        <span :class="{ 'animate-spin': refreshingRollup || loading }">🔄</span>
-        <span class="hidden sm:inline" x-text="refreshingRollup ? 'Refreshing...' : 'Refresh'">Refresh</span>
-      </button>
-    </div>
-  </header>
-
-  <!-- Main Container -->
-  <main class="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 flex flex-col gap-6">
+      <div class="flex flex-wrap items-center gap-2">
+        <a href="/keywords/discovery" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition inline-flex items-center space-x-1.5 shadow-2xs">
+          <i data-lucide="compass" class="w-3.5 h-3.5 text-emerald-500"></i>
+          <span>Discovery</span>
+        </a>
+        <a href="/folders" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition inline-flex items-center space-x-1.5 shadow-2xs">
+          <i data-lucide="folder-kanban" class="w-3.5 h-3.5 text-pink-500"></i>
+          <span>Campaign Folders</span>
+        </a>
+        <button @click="refreshDomains()" :disabled="refreshingRollup || loading" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-sky-600 hover:bg-sky-500 text-white transition inline-flex items-center space-x-1.5 shadow-xs active:scale-95 disabled:opacity-50">
+          <i data-lucide="refresh-cw" class="w-3.5 h-3.5" :class="(refreshingRollup || loading) ? 'animate-spin' : ''"></i>
+          <span x-text="refreshingRollup ? 'Refreshing...' : 'Refresh'">Refresh</span>
+        </button>
+      </div>
+    </section>
 
     <!-- DOMAIN RADAR LEADERBOARD VIEW -->
     <div x-show="!isDossierOpen" class="flex flex-col gap-6" ${hasInitialDomain ? 'style="display:none;"' : ''}>
@@ -1861,6 +1864,23 @@ export function getDomainsPageHtml(initialDomain = '') {
   <script>
     function domainsApp(initialDomain = '') {
       return {
+        isSidebarCollapsed: (() => {
+          try {
+            return typeof localStorage !== 'undefined' ? localStorage.getItem('pae_sidebar_collapsed') === 'true' : false;
+          } catch (_) { return false; }
+        })(),
+        isMobileMenuOpen: false,
+        toggleSidebar() {
+          this.isSidebarCollapsed = !this.isSidebarCollapsed;
+          try {
+            if (typeof localStorage !== 'undefined') {
+              localStorage.setItem('pae_sidebar_collapsed', this.isSidebarCollapsed ? 'true' : 'false');
+            }
+          } catch (_) {}
+          this.$nextTick(() => {
+            if (window.lucide) window.lucide.createIcons();
+          });
+        },
         darkMode: localStorage.getItem('pa_theme') !== 'light',
         loading: false,
         refreshingRollup: false,
@@ -1950,6 +1970,17 @@ export function getDomainsPageHtml(initialDomain = '') {
         loadError: null,
 
         init() {
+          if (typeof window !== 'undefined') {
+            window.addEventListener('keydown', (e) => {
+              if ((e.ctrlKey || e.metaKey) && (e.key === 'b' || e.key === 'B')) {
+                const activeTag = document.activeElement ? document.activeElement.tagName.toLowerCase() : '';
+                if (activeTag !== 'input' && activeTag !== 'textarea') {
+                  e.preventDefault();
+                  this.toggleSidebar();
+                }
+              }
+            });
+          }
           this.fetchFolders();
           this.loadDomains();
           // Defer heavy database-wide aggregations to background idle so leaderboard query gets 100% database priority
@@ -1988,9 +2019,11 @@ export function getDomainsPageHtml(initialDomain = '') {
           if (this.darkMode) {
             document.documentElement.classList.add('dark');
             localStorage.setItem('pa_theme', 'dark');
+            localStorage.setItem('pin_theme', 'dark');
           } else {
             document.documentElement.classList.remove('dark');
             localStorage.setItem('pa_theme', 'light');
+            localStorage.setItem('pin_theme', 'light');
           }
         },
 

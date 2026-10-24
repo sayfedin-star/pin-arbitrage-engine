@@ -7,6 +7,7 @@
  */
 
 import { getEdgeShieldClientScript } from './edge-shield-client.mjs';
+import { renderAppSidebar } from './ui/app-sidebar.mjs';
 
 export function getCampaignFoldersPageHtml(folderId = '') {
   // Sanitize folderId against script/attribute injection
@@ -38,12 +39,16 @@ export function getCampaignFoldersPageHtml(folderId = '') {
       }
     };
     // Pre-hydrate dark mode immediately to avoid layout flash
-    if (localStorage.getItem('pa_theme') === 'light') {
-      document.documentElement.classList.remove('dark');
-    } else {
-      document.documentElement.classList.add('dark');
-    }
+    try {
+      const savedTheme = localStorage.getItem('pin_theme') || localStorage.getItem('pa_theme');
+      if (savedTheme === 'light') {
+        document.documentElement.classList.remove('dark');
+      } else {
+        document.documentElement.classList.add('dark');
+      }
+    } catch (_) {}
   </script>
+  <script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.js" defer></script>
   <script defer src="https://unpkg.com/alpinejs@3.14.8/dist/cdn.min.js"></script>
   <style>
     [x-cloak] { display: none !important; }
@@ -52,6 +57,13 @@ export function getCampaignFoldersPageHtml(folderId = '') {
     ::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.2); border-radius: 9999px; }
     ::-webkit-scrollbar-thumb:hover { background: rgba(148, 163, 184, 0.4); }
   </style>
+  <script>
+    setTimeout(function() {
+      if (typeof document !== 'undefined' && document.body && document.body.hasAttribute('x-cloak')) {
+        document.body.removeAttribute('x-cloak');
+      }
+    }, 1200);
+  </script>
   <script>
 (function() {
   if (typeof window === 'undefined' || window.__paeAuthInterceptorInstalled) return;
@@ -87,7 +99,7 @@ export function getCampaignFoldersPageHtml(folderId = '') {
 })();
   </script>
 </head>
-<body class="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 min-h-screen antialiased flex flex-col font-sans transition-colors duration-150" x-data="foldersApp('${safeFolderId}')">
+<body x-cloak class="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 min-h-screen antialiased flex flex-col font-sans transition-colors duration-150" x-data="foldersApp('${safeFolderId}')">
 
   <!-- Toast Notification Container -->
   <div class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 max-w-sm pointer-events-none">
@@ -105,54 +117,47 @@ export function getCampaignFoldersPageHtml(folderId = '') {
     </template>
   </div>
 
-  <!-- Top Navigation Header -->
-  <header class="border-b border-slate-200 dark:border-slate-800 bg-white/85 dark:bg-slate-900/80 backdrop-blur sticky top-0 z-40 px-6 py-3.5 flex items-center justify-between transition-colors">
-    <div class="flex items-center gap-6">
-      <div class="flex items-center gap-3">
-        <a href="/folders" class="flex items-center gap-2 group">
-          <div class="w-8 h-8 rounded-lg bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-600 dark:text-indigo-400 font-bold group-hover:scale-105 transition-transform">
-            📁
+  ${renderAppSidebar({ activeNav: 'keywords', refreshHandler: 'loadFolders()' })}
+
+  <!-- Main View (Offset for Unified Desktop Sidebar) [INVARIANT: UNIFIED-SIDEBAR-LAYOUT] -->
+  <main class="flex-1 min-h-screen p-4 sm:p-6 lg:p-8 space-y-6 max-w-full overflow-x-hidden transition-all duration-300 ease-in-out" :class="isSidebarCollapsed ? 'md:ml-20' : 'md:ml-64 lg:ml-72'">
+
+    <!-- [INVARIANT: UNIFIED-SIDEBAR-LAYOUT] Studio Header Card -->
+    <section class="p-4 sm:p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div class="flex items-center space-x-3.5">
+        <div class="w-10 h-10 rounded-xl bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/20 flex items-center justify-center shadow-xs shrink-0">
+          <i data-lucide="folder-kanban" class="w-5 h-5"></i>
+        </div>
+        <div>
+          <div class="flex items-center space-x-2">
+            <h2 class="text-lg sm:text-xl font-bold tracking-tight text-slate-900 dark:text-white">Campaign Folders Studio</h2>
+            <span class="px-2 py-0.5 rounded-md text-[10px] font-mono font-semibold bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/20">Level 4</span>
           </div>
-          <div>
-            <div class="text-sm font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
-              Campaign Folders Studio
-              <span class="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30 font-normal">Level 4</span>
-            </div>
-            <div class="text-[11px] text-slate-500 dark:text-slate-400">Multi-Keyword Clustering & Crossover Matrix</div>
-          </div>
-        </a>
+          <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-normal">Multi-Keyword Clustering &amp; Crossover Matrix</p>
+        </div>
       </div>
 
-      <nav class="hidden md:flex items-center gap-1 text-xs">
-        <a href="/keywords" class="px-3 py-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-colors">Keywords Radar</a>
-        <a href="/keywords/discovery" class="px-3 py-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-colors">Discovery & Autocomplete</a>
-        <a href="/folders" class="px-3 py-1.5 rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 font-semibold border border-indigo-500/20">Campaign Folders</a>
-        <a href="/domains" class="px-3 py-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-colors">Domain Radar</a>
-      </nav>
-    </div>
-
-    <div class="flex items-center gap-3">
-      <!-- Dark / Light Mode Toggle Button -->
-      <button @click="toggleTheme()" 
-              class="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold border border-slate-300 dark:border-slate-700 transition-colors flex items-center gap-1.5 shadow-sm"
-              :title="darkMode ? 'Switch to Light Theme' : 'Switch to Dark Theme'">
-        <span x-show="darkMode">☀️ Light Mode</span>
-        <span x-show="!darkMode">🌙 Dark Mode</span>
-      </button>
-
-      <template x-if="activeFolderId">
-        <a href="/folders" class="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold border border-slate-300 dark:border-slate-700 transition-colors flex items-center gap-1.5">
-          <span>←</span> Back to Hub
+      <div class="flex flex-wrap items-center gap-2">
+        <a href="/keywords" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition inline-flex items-center space-x-1.5 shadow-2xs">
+          <i data-lucide="arrow-left" class="w-3.5 h-3.5 text-slate-400"></i>
+          <span>Keywords Fleet</span>
         </a>
-      </template>
-      <button @click="openNewFolderModal = true" class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-sm transition-colors flex items-center gap-1.5">
-        <span>+</span> New Campaign Folder
-      </button>
-    </div>
-  </header>
-
-  <!-- Main View -->
-  <main class="flex-1 max-w-7xl w-full mx-auto p-6 flex flex-col gap-6">
+        <a href="/keywords/discovery" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition inline-flex items-center space-x-1.5 shadow-2xs">
+          <i data-lucide="compass" class="w-3.5 h-3.5 text-emerald-500"></i>
+          <span>Discovery</span>
+        </a>
+        <template x-if="activeFolderId">
+          <a href="/folders" class="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold border border-slate-300 dark:border-slate-700 transition-colors inline-flex items-center space-x-1.5">
+            <i data-lucide="arrow-left" class="w-3.5 h-3.5"></i>
+            <span>All Folders</span>
+          </a>
+        </template>
+        <button @click="openNewFolderModal = true" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-pink-600 hover:bg-pink-500 text-white transition inline-flex items-center space-x-1.5 shadow-xs active:scale-95 cursor-pointer">
+          <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+          <span>+ New Folder</span>
+        </button>
+      </div>
+    </section>
 
     <!-- ========================================================================= -->
     <!-- VIEW A: STUDIO VIEW (/folders/:id)                                       -->
@@ -1559,6 +1564,23 @@ export function getCampaignFoldersPageHtml(folderId = '') {
     function foldersApp(activeFolderId) {
       return {
         activeFolderId,
+        isSidebarCollapsed: (() => {
+          try {
+            return typeof localStorage !== 'undefined' ? localStorage.getItem('pae_sidebar_collapsed') === 'true' : false;
+          } catch (_) { return false; }
+        })(),
+        isMobileMenuOpen: false,
+        toggleSidebar() {
+          this.isSidebarCollapsed = !this.isSidebarCollapsed;
+          try {
+            if (typeof localStorage !== 'undefined') {
+              localStorage.setItem('pae_sidebar_collapsed', this.isSidebarCollapsed ? 'true' : 'false');
+            }
+          } catch (_) {}
+          this.$nextTick(() => {
+            if (window.lucide) window.lucide.createIcons();
+          });
+        },
         darkMode: localStorage.getItem('pa_theme') !== 'light',
         foldersList: [],
         foldersLoading: false,
@@ -1775,6 +1797,18 @@ export function getCampaignFoldersPageHtml(folderId = '') {
         colorOptions: ['#6366f1', '#ec4899', '#10b981', '#f59e0b', '#8b5cf6', '#06b6d4'],
 
         async init() {
+          if (typeof window !== 'undefined') {
+            window.addEventListener('keydown', (e) => {
+              if ((e.ctrlKey || e.metaKey) && (e.key === 'b' || e.key === 'B')) {
+                const activeTag = document.activeElement ? document.activeElement.tagName.toLowerCase() : '';
+                if (activeTag !== 'input' && activeTag !== 'textarea') {
+                  e.preventDefault();
+                  this.toggleSidebar();
+                }
+              }
+            });
+          }
+
           if (this.darkMode) {
             document.documentElement.classList.add('dark');
           } else {
@@ -1793,10 +1827,12 @@ export function getCampaignFoldersPageHtml(folderId = '') {
           if (this.darkMode) {
             document.documentElement.classList.add('dark');
             localStorage.setItem('pa_theme', 'dark');
+            localStorage.setItem('pin_theme', 'dark');
             this.showToast('Dark theme activated', 'info');
           } else {
             document.documentElement.classList.remove('dark');
             localStorage.setItem('pa_theme', 'light');
+            localStorage.setItem('pin_theme', 'light');
             this.showToast('Light theme activated', 'info');
           }
         },
