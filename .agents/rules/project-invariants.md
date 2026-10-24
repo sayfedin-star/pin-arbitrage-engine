@@ -98,4 +98,24 @@ Refer to `PROJECT_CHARTER_AND_DIRECTIVES.md` for full context. The following rul
   - `pa_pins` is strictly an operational winner showcase for qualified pins (~2.3% of catalog).
   - Pins flow strictly in one direction: `competitor_pins` $\xrightarrow{\text{qualify}}$ `pa_pins`. Re-hydrating catalog pins back from `pa_pins` is strictly prohibited.
 
+## 14. Hyperdrive Non-Blocking Drain Loop & Crawl Fencing (Wave 1 Invariant)
+- **Non-Blocking Socket Drain:** Sockets must never block HTTP responses. `src/worker.mjs` must drain pending Hyperdrive promises iteratively up to a 26,000ms ceiling using `while (processedCount < store.bgPromises.length)` with guaranteed `clearTimeout(drainTimerId)` cleanup, delegated exclusively to `ctx.waitUntil(closePromise)` under the comment `// [INVARIANT: NON-BLOCKING-SOCKET-CLEANUP]`.
+- **Crawl Lease Fencing & Heartbeat:** Crawl tasks must acquire a UUID fencing token and emit a heartbeat every 5 pages. Forced crawls (`force = true`) must be restricted to active leaseholders or expired leases (> 300s) to prevent concurrent split-brain crawling.
+- **Shard-Affine Runner Partitioning:** Fleet crawlers must deterministically partition target shards using `(s - 1) % workerTotal === workerIndex % workerTotal`. Workers must only connect to their assigned subset of shards, capping peak fleet connections at 99 instead of 1,980.
+
+## 15. SSOT Dossier Retrieval & confirmedPinIds Batch Commits (Wave 2 Invariant)
+- **SSOT Dossier Wrapper:** `getPinDeepDossier` and `getPinDetailWithMetrics` must remain thin wrappers around `fetchUniversalPinDossier`, using Schema Projection Adapters to preserve UI and test contracts.
+- **Atomic Batch Commits with Confirmation:** Batch shard writes via `writeBatchToDeterministicShards` must use `jsonb_to_recordset` and return `confirmedPinIds`. Only successfully confirmed pin IDs may be acknowledged or pruned from upstream processing queues.
+- **KV Dual Trajectory Contract:** Edge KV caches storing pin trajectory must preserve the dual contract (`trajectory.snapshots = trajectory`). Deserialization layers must explicitly re-attach `.snapshots` to prevent breaking frontend chart components.
+
+## 16. Database Acceleration: HOT Updates, Fillfactor 80 & Skeletal Compaction (Wave 3 Invariant)
+- **PostgreSQL 100% HOT Updates:** Tables receiving high-frequency updates (`competitor_pins`, `keyword_serp_current`) must maintain `fillfactor = 80` and remain free of secondary indexes covering updated columns (such as `idx_cp_domain_rollup_covering`).
+- **IEEE 802.3 Bitwise CRC32 Sharding:** All database triggers and functions computing shard IDs must use `pae_crc32_shard_id(pin_id, 99)`, strictly implementing IEEE 802.3 CRC32 polynomial `0xEDB88320` with 100% bit-for-bit parity to Node.js `@node-rs/crc32`. `hashtext()` is strictly prohibited.
+- **Skeletal Compaction on Central Hub:** `competitor_pins` on Central Hub must store only numeric telemetry and identity references (`pin_id`, `competitor_id`, `board_name`, `save_count`, `repin_count`, `created_at_pinterest`). Large text and creative assets must reside exclusively on the 99 Storage Shards.
+
+## 17. Edge Route Lazy Loading & Memory Shield (Wave 4 Invariant)
+- **Dynamic Route Imports:** Static top-level page imports are prohibited in `src/routes/pages.mjs`. All HTML view renderers must be imported on demand via `await import(...)` inside the route handler to keep Worker isolate boot memory footprint under 5MB (saving 1.65MB per isolate).
+- **Instant HEAD 200 OK:** Static page routes must return an immediate HTTP 200 OK on `HEAD` requests with standard headers, avoiding template execution and database queries.
+- **Zero-Account-Sharding SSOT:** All competitor intelligence functions (`getFleetCompetitors`, `listCompetitors`, `getCompetitorsOverview`) query Central Hub directly. Never query or loop through Storage Shards for competitor profiles or boards.
+
 

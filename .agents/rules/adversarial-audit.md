@@ -44,4 +44,23 @@ trigger: always_on
 - **The ByteString Crash Invariant:** `@neondatabase/serverless` communicates over HTTP by sending `headers: { "Neon-Connection-String": dsn }`. Unicode bullets (`•` code 8226) or non-ASCII characters crash the HTTP request with `NeonDbError: invalid header: neon-connection-string`.
 - **Mandatory Validation:** Always validate resolved DSNs with `isValidShardDsn()` before instantiating SQL clients, and normalize array formats with `normalizeAssignedShards()`.
 
+## 9. SARGable SQL Queries & Clean B-Tree Index Seeking (Anti-Expression Wrapping)
+- **The Expression Wrap Anti-Pattern:** Never wrap indexed database columns in functional transformations (`LOWER()`, `REGEXP_REPLACE()`, `REPLACE()`, `TRIM()`) inside `WHERE` or `JOIN` predicates.
+  - ❌ `WHERE LOWER(REGEXP_REPLACE(ksc.domain, '^www\.', '')) = ${cleanDomain}` (forces sequential table scan).
+  - ✅ `WHERE ksc.domain = ${cleanDomain}` (enables instant B-tree index seek via `idx_ksc_domain_clean`).
+  - ❌ `WHERE LOWER(REPLACE(account_username, '@', '')) = ${cleanUsername}`.
+  - ✅ `WHERE account_username = ${cleanUsername}` (enables instant B-tree seek via `idx_pa_pins_account_username_clean`).
+- **Sanitize in Application Layer:** Always clean and normalize query inputs in JavaScript (`normalizeCleanDomain()`, `normalizePinterestUsername()`) prior to SQL parameterization. Ingestion triggers guarantee database columns are already normalized.
+
+## 10. Sharding Hash Parity: PL/pgSQL CRC32 vs Jenkins `hashtext`
+- **The `hashtext()` Invariant:** PostgreSQL's built-in `hashtext(string)` function implements Bob Jenkins' `lookup3` algorithm, NOT IEEE 802.3 CRC32. Applying `(hashtext(pin_id) % 99) + 1` in SQL mismatches application sharding `(crc32(pin_id) % 99) + 1` by 98.9%, scattering pins across incorrect shards.
+- **Mandatory Canonical Function:** In SQL triggers, migrations, and DDL, strictly use `pae_crc32_shard_id(pin_id, 99)`. Never substitute `hashtext` for CRC32.
+
+## 11. Adversarial Peer Review Anti-Hallucination Gate
+- **Zero Blind Trust in External Reviews:** External audit reports (human or LLM peer reviews) must be treated as untrusted input.
+- **Mandatory Grep Verification:** Before applying any patch suggested by a peer reviewer:
+  1. Grep the exact variable name in the codebase (e.g. `requestContextStorage` vs reviewer's hallucinated `requestContextStore`).
+  2. Verify column names against the live PostgreSQL `information_schema.columns`.
+  3. Verify existing test assertions (`scripts/verify_*.mjs`, `scripts/test_*.mjs`) to avoid renaming variables guarded by literal string checks (e.g. `closePromise`, `// [INVARIANT: NON-BLOCKING-SOCKET-CLEANUP]`).
+
 
