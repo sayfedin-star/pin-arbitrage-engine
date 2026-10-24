@@ -1827,7 +1827,7 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
         COALESCE(ksc.metadata, '{}'::jsonb) AS metadata
       FROM keyword_serp_current ksc
       LEFT JOIN tracked_keywords tk ON tk.id = ksc.keyword_id
-      WHERE LOWER(REGEXP_REPLACE(ksc.domain, '^www\\.', '')) = ${cleanDomain}
+      WHERE ksc.domain = ${cleanDomain}
         AND (${fId}::int IS NULL OR ksc.keyword_id IN (SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${fId}))
         AND (${kId}::int IS NULL OR ksc.keyword_id = ${kId})
       ORDER BY ksc.is_displaced ASC, ksc.rank_position ASC NULLS LAST, ksc.save_count DESC;
@@ -1847,7 +1847,7 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
         pa.annotations AS visual_annotations,
         pa.created_at_pinterest
       FROM pa_pins pa
-      WHERE LOWER(REGEXP_REPLACE(pa.domain, '^www\\.', '')) = ${cleanDomain}
+      WHERE pa.domain = ${cleanDomain}
       ORDER BY pa.saves DESC
       LIMIT 200;
     `.catch(() => []),
@@ -1864,7 +1864,7 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
         cp.created_at_pinterest
       FROM competitor_pins cp
       LEFT JOIN competitor_profiles prof ON prof.id = cp.competitor_id
-      WHERE LOWER(REGEXP_REPLACE(cp.link_domain, '^www\\.', '')) = ${cleanDomain}
+      WHERE cp.link_domain = ${cleanDomain}
       ORDER BY cp.save_count DESC
       LIMIT 200;
     `.catch(() => []),
@@ -1891,7 +1891,7 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
         '{}'::jsonb AS metadata
       FROM keyword_displaced_index kdi
       LEFT JOIN tracked_keywords tk ON tk.id = kdi.keyword_id
-      WHERE LOWER(REGEXP_REPLACE(kdi.domain, '^www\\.', '')) = ${cleanDomain}
+      WHERE kdi.domain = ${cleanDomain}
         AND (${fId}::int IS NULL OR kdi.keyword_id IN (SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${fId}))
         AND (${kId}::int IS NULL OR kdi.keyword_id = ${kId})
       ORDER BY kdi.save_count DESC;
@@ -2325,7 +2325,7 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
         FROM keyword_serp_current
         WHERE LOWER(REPLACE(COALESCE(creator_username, ''), '@', '')) = ANY(${accountUsernames})
           AND domain IS NOT NULL AND domain <> ''
-          AND LOWER(REGEXP_REPLACE(domain, '^www\\.', '')) <> ${cleanDomain}
+          AND domain <> ${cleanDomain}
         GROUP BY 1, 2
         ORDER BY 3 DESC
         LIMIT 60;

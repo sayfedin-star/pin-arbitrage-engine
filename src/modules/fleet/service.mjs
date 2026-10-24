@@ -4,7 +4,7 @@
  */
 
 import { neon } from '@neondatabase/serverless';
-import { getCompetitorsOverview, listCompetitors, formatMetric } from '../competitors/service.mjs';
+import { getCompetitorsOverview, listCompetitors } from '../competitors/service.mjs';
 import { getShardNumberForEntity, enforceNeonPoolerUrl } from '../sharding/fleet-router.mjs';
 import { maskDatabaseUrl } from '../../utils.mjs';
 export { enforceNeonPoolerUrl, maskDatabaseUrl };
@@ -105,89 +105,18 @@ export async function registerNewProject(sql, { project_id, project_name, databa
 }
 
 /**
- * Aggregates competitor intelligence KPIs and lists across all active fleet projects
+ * Aggregates competitor intelligence KPIs and lists across all active fleet projects.
+ * // [INVARIANT: ZERO-ACCOUNT-SHARDING] Competitor intelligence lives exclusively on Central Hub
  */
 export async function getFleetCompetitors(sql, { account_type = 'all', search = '', limit = 50, offset = 0 } = {}) {
-  const activeProjects = await sql`
-    SELECT project_id, project_name, database_url, is_hub, stats
-    FROM neon_projects_registry
-    WHERE status = 'active' AND (
-      is_hub = TRUE 
-      OR stats IS NULL 
-      OR (stats->>'competitors')::int > 0
-    )
-    ORDER BY is_hub DESC, id ASC;
-  `;
-
-  const CHUNK_SIZE = 5;
-  const results = [];
-  for (let i = 0; i < activeProjects.length; i += CHUNK_SIZE) {
-    const chunk = activeProjects.slice(i, i + CHUNK_SIZE);
-    const chunkResults = await Promise.allSettled(chunk.map(async (p) => {
-      const pSql = p.is_hub ? sql : neon(enforceNeonPoolerUrl(p.database_url));
-      const overview = await getCompetitorsOverview(pSql);
-      let list = [];
-      if (overview.tracked_profiles > 0) {
-        list = await listCompetitors(pSql, { account_type, search, limit: 100, offset: 0 });
-        list = list.map(item => ({
-          ...item,
-          _shard_name: p.project_name,
-          _project_id: p.project_id
-        }));
-      }
-      return { project: p, overview, list };
-    }));
-    results.push(...chunkResults);
-  }
-
-  let total_profiles = 0;
-  let competitor_count = 0;
-  let own_count = 0;
-  let combined_reach = 0;
-  let total_audience = 0;
-  let pins_tracked = 0;
-  let allCompetitors = [];
-  let topCompetitor = null;
-  let maxReach = -1;
-
-  for (const res of results) {
-    if (res.status === 'fulfilled') {
-      const { overview, list } = res.value;
-      total_profiles += overview.tracked_profiles || 0;
-      competitor_count += overview.competitor_count || 0;
-      own_count += overview.own_count || 0;
-      combined_reach += overview.combined_reach || 0;
-      total_audience += overview.total_audience || 0;
-      pins_tracked += overview.pins_tracked || 0;
-      allCompetitors.push(...list);
-      for (const c of list) {
-        if (Number(c.monthly_reach || 0) > maxReach) {
-          maxReach = Number(c.monthly_reach || 0);
-          topCompetitor = {
-            handle: c.handle || `@${c.username}`,
-            reach: formatMetric(c.monthly_reach, true)
-          };
-        }
-      }
-    }
-  }
-
-  allCompetitors.sort((a, b) => Number(b.monthly_reach || 0) - Number(a.monthly_reach || 0));
-
-  const lim = Math.max(1, Math.min(isNaN(Number(limit)) ? 50 : Number(limit), 200));
-  const off = Math.max(0, isNaN(Number(offset)) ? 0 : Number(offset));
+  const [overview, competitors] = await Promise.all([
+    getCompetitorsOverview(sql),
+    listCompetitors(sql, { account_type, search, limit, offset })
+  ]);
 
   return {
-    overview: {
-      tracked_profiles: total_profiles,
-      competitor_count,
-      own_count,
-      combined_reach,
-      total_audience,
-      pins_tracked,
-      top_competitor: topCompetitor
-    },
-    competitors: allCompetitors.slice(off, off + lim)
+    overview,
+    competitors
   };
 }
 

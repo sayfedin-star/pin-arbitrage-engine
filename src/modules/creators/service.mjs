@@ -605,7 +605,7 @@ export async function getCompetitorBoards(sql, competitorId, { username = '' } =
           LOWER(TRIM(board_name)) AS b_name,
           image_url
         FROM pa_pins
-        WHERE LOWER(REPLACE(account_username, '@', '')) = ${cleanUser}
+        WHERE account_username = ${cleanUser}
           AND image_url IS NOT NULL AND image_url <> ''
         ORDER BY LOWER(TRIM(board_name)), saves DESC;
       `;
@@ -1349,7 +1349,7 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
               ELSE NULL
             END,
             (SELECT MIN(created_at_pinterest) FROM competitor_pins WHERE competitor_id = cb.competitor_id AND LOWER(TRIM(board_name)) = LOWER(TRIM(cb.name))),
-            (SELECT MIN(created_at_pinterest) FROM pa_pins WHERE LOWER(REPLACE(account_username, '@', '')) = ${cleanUsername} AND LOWER(TRIM(board_name)) = LOWER(TRIM(cb.name))),
+            (SELECT MIN(created_at_pinterest) FROM pa_pins WHERE account_username = ${cleanUsername} AND LOWER(TRIM(board_name)) = LOWER(TRIM(cb.name))),
             cb.created_at,
             cb.last_pinned_at
           ) AS board_created_at
@@ -1378,7 +1378,7 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
           MAX(created_at_pinterest) AS last_pinned_at,
           MIN(created_at_pinterest) AS created_at
         FROM pa_pins
-        WHERE LOWER(REPLACE(account_username, '@', '')) = ${cleanUsername}
+        WHERE account_username = ${cleanUsername}
         GROUP BY name
         ORDER BY pin_count DESC;
       `;
@@ -1474,7 +1474,7 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
           LOWER(TRIM(board_name)) AS b_name,
           image_url
         FROM pa_pins
-        WHERE LOWER(REPLACE(account_username, '@', '')) = ${cleanUsername}
+        WHERE account_username = ${cleanUsername}
           AND image_url IS NOT NULL AND image_url <> ''
         ORDER BY LOWER(TRIM(board_name)), saves DESC;
       `;
@@ -1518,7 +1518,7 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
       const [oldestPin] = await sql`
         SELECT MIN(COALESCE(created_at_pinterest, first_seen_at)) AS oldest
         FROM pa_pins
-        WHERE LOWER(REPLACE(account_username, '@', '')) = ${cleanUsername};
+        WHERE account_username = ${cleanUsername};
       `;
       if (oldestPin && oldestPin.oldest) {
         const oTime = new Date(oldestPin.oldest).getTime();
@@ -1603,7 +1603,7 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
       const [earliestPaPin] = await sql`
         SELECT MIN(COALESCE(created_at_pinterest, first_seen_at)) AS oldest
         FROM pa_pins
-        WHERE LOWER(REPLACE(account_username, '@', '')) = ${cleanUsername} AND COALESCE(created_at_pinterest, first_seen_at) IS NOT NULL;
+        WHERE account_username = ${cleanUsername} AND COALESCE(created_at_pinterest, first_seen_at) IS NOT NULL;
       `;
       if (earliestPaPin && earliestPaPin.oldest) {
         const pTime = new Date(earliestPaPin.oldest).getTime();
@@ -1780,7 +1780,7 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
       const [latestPaPin] = await sql`
         SELECT MAX(created_at_pinterest) AS max_date
         FROM pa_pins
-        WHERE LOWER(REPLACE(account_username, '@', '')) = ${cleanUsername};
+        WHERE account_username = ${cleanUsername};
       `;
       if (latestPaPin && latestPaPin.max_date) {
         latestPinDateStr = new Date(latestPaPin.max_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -1818,7 +1818,7 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
           COALESCE(SUM(repins), 0)::bigint AS total_repins,
           COALESCE(SUM(COALESCE(share_count, 0)), 0)::bigint AS total_shares
         FROM pa_pins
-        WHERE LOWER(REPLACE(account_username, '@', '')) = ${cleanUsername};
+        WHERE account_username = ${cleanUsername};
       `;
       if (paPinStats) {
         totalSaves = Math.max(totalSaves, Number(paPinStats.total_saves || 0));
@@ -2745,13 +2745,13 @@ export async function reEvaluateCompetitorPins(sql, competitorId) {
       const deletedRows = qualifiedIds.length > 0
         ? await sql`
             DELETE FROM pa_pins
-            WHERE LOWER(REPLACE(account_username, '@', '')) = ${cleanUser}
+            WHERE account_username = ${cleanUser}
               AND NOT (pin_id = ANY(${qualifiedIds}))
             RETURNING pin_id;
           `
         : await sql`
             DELETE FROM pa_pins
-            WHERE LOWER(REPLACE(account_username, '@', '')) = ${cleanUser}
+            WHERE account_username = ${cleanUser}
             RETURNING pin_id;
           `;
       prunedCount = deletedRows.length;
@@ -3419,7 +3419,7 @@ export async function fastRefreshCompetitorArchivedPins(sql, competitorIdOrUsern
   const pinsToRefresh = await sql`
     SELECT pin_id, title, saves, repins, comments
     FROM pa_pins
-    WHERE LOWER(REPLACE(account_username, '@', '')) = ${cleanUsername.toLowerCase()}
+    WHERE account_username = ${cleanUsername.toLowerCase()}
     ORDER BY saves DESC;
   `;
 
@@ -3650,7 +3650,7 @@ export async function deepHarvestCreator(sql, idOrUsername, { cookie = '', env =
   const archivedPins = await sql`
     SELECT pin_id, title, saves, repins, comments
     FROM pa_pins
-    WHERE LOWER(REPLACE(account_username, '@', '')) = ${cleanUsername.toLowerCase()}
+    WHERE account_username = ${cleanUsername.toLowerCase()}
     ORDER BY saves DESC
     LIMIT ${limitPins};
   `;
@@ -3889,7 +3889,7 @@ export async function reEvaluateArchivedPins(sql, rules = null, accountUsername 
     const [cnt] = await sql`
       SELECT count(*)::int AS total
       FROM pa_pins
-      WHERE (${cleanUser}::text IS NULL OR LOWER(REPLACE(account_username, '@', '')) = ${cleanUser});
+      WHERE (${cleanUser}::text IS NULL OR account_username = ${cleanUser});
     `;
     const total = cnt?.total || 0;
     return {
@@ -3914,7 +3914,7 @@ export async function reEvaluateArchivedPins(sql, rules = null, accountUsername 
     WITH target_pins AS (
       SELECT pin_id, saves, repins, created_at_pinterest
       FROM pa_pins
-      WHERE (${cleanUser}::text IS NULL OR LOWER(REPLACE(account_username, '@', '')) = ${cleanUser})
+      WHERE (${cleanUser}::text IS NULL OR account_username = ${cleanUser})
     ),
     evaluated AS (
       SELECT
@@ -4331,7 +4331,7 @@ export async function getTopicClusters(sql, { minPins = 1, search = '', account 
           p.velocity
         FROM pa_pins p
         LEFT JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(p.annotations) = 'array' THEN p.annotations ELSE '[]'::jsonb END) AS ann ON TRUE
-        WHERE LOWER(REPLACE(p.account_username, '@', '')) = ${cleanAccount}
+        WHERE p.account_username = ${cleanAccount}
       ),
       aggregated AS (
         SELECT
@@ -4480,7 +4480,7 @@ export async function listArchivedPins(sql, {
             )
           )
         ))
-        AND (${accountPattern}::text IS NULL OR COALESCE(LOWER(REPLACE(account_username, '@', '')), '') LIKE ${accountPattern})
+        AND (${accountPattern}::text IS NULL OR COALESCE(account_username, '') LIKE ${accountPattern})
         AND (
           ${stageFilter}::text IS NULL OR
           (${stageFilter} = 'DORMANT' AND velocity < 0.5) OR
@@ -4534,7 +4534,7 @@ export async function listArchivedPins(sql, {
             )
           )
         ))
-        AND (${accountPattern}::text IS NULL OR COALESCE(LOWER(REPLACE(account_username, '@', '')), '') LIKE ${accountPattern})
+        AND (${accountPattern}::text IS NULL OR COALESCE(account_username, '') LIKE ${accountPattern})
         AND (
           ${stageFilter}::text IS NULL OR
           (${stageFilter} = 'DORMANT' AND velocity < 0.5) OR
