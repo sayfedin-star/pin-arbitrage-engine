@@ -448,77 +448,15 @@ export async function bulkUpdateCompetitorPins(sqlClient, updates) {
 }
 
 /**
- * Cross-Shard Shard Pin Synchronization
- * Updates pins on the fleet shard database using the natural unique key (competitor_id, pin_id).
- * Guarantees zero ID mismatch between Hub auto-incrementing serials and Shard serials.
+ * Cross-Shard Shard Pin Synchronization (Legacy Stub)
+ * [INVARIANT: CENTRAL-HUB-CATALOG-AUTHORITY]
+ * competitor_pins is maintained exclusively on Central Hub (~41k rows).
+ * Shards strictly store universal_master_pins and pins_daily_metrics via bulkSyncPinsToDeterministicShards.
  */
 export async function bulkSyncCompetitorPinsToShard(shardSql, shardCompId, statusUpdates) {
-  if (!shardSql || !shardCompId || !Array.isArray(statusUpdates) || statusUpdates.length === 0) return 0;
-
-  const validUpdates = statusUpdates.filter(u => u && u.pin_id);
-  if (validUpdates.length === 0) return 0;
-
-  const uniqueMap = new Map();
-  for (const u of validUpdates) {
-    if (!u.board_slug && u.board_name) {
-      u.board_slug = String(u.board_name).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '');
-    }
-    uniqueMap.set(String(u.pin_id), u);
-  }
-  const sorted = Array.from(uniqueMap.values()).sort((a, b) => String(a.pin_id).localeCompare(String(b.pin_id)));
-
-  try {
-    const res = await shardSql`
-      INSERT INTO competitor_pins (
-        competitor_id, pin_id, enrichment_status, enrich_attempts, save_count, repin_count, comment_count,
-        alt_text, is_product, destination_url, link_domain, title, description, image_url,
-        board_name, board_slug, created_at_pinterest, first_seen_at, last_seen_at, updated_at
-      )
-      SELECT 
-        ${shardCompId}, x.pin_id, x.status, COALESCE(x.enrich_attempts, 1), COALESCE(x.saves, 0), COALESCE(x.repins, 0), COALESCE(x.comments, 0),
-        x.alt_text, COALESCE(x.is_product, false), COALESCE(x.destination_url, ''), COALESCE(x.link_domain, ''),
-        COALESCE(x.title, ''), COALESCE(x.description, ''), COALESCE(x.image_url, ''), COALESCE(x.board_name, ''),
-        COALESCE(NULLIF(x.board_slug, ''), LOWER(REGEXP_REPLACE(REGEXP_REPLACE(x.board_name, '[^[:alnum:]]+', '-', 'g'), '^-|-$', '', 'g'))),
-        x.created_at_pinterest, NOW(), NOW(), NOW()
-      FROM jsonb_to_recordset(${JSON.stringify(sanitizeForJsonb(sorted))}::jsonb) AS x(
-        pin_id VARCHAR(64), status VARCHAR(32), enrich_attempts INT, saves INT, repins INT, comments INT, alt_text TEXT,
-        is_product BOOLEAN, destination_url TEXT, link_domain VARCHAR(255), title TEXT, description TEXT, image_url TEXT,
-        board_name VARCHAR(255), board_slug VARCHAR(255), created_at_pinterest TIMESTAMPTZ
-      )
-      ORDER BY x.pin_id ASC
-      ON CONFLICT (competitor_id, pin_id) DO UPDATE SET
-        enrichment_status = EXCLUDED.enrichment_status,
-        enrich_attempts = COALESCE(EXCLUDED.enrich_attempts, competitor_pins.enrich_attempts, 0),
-        save_count = GREATEST(competitor_pins.save_count, EXCLUDED.save_count),
-        repin_count = GREATEST(competitor_pins.repin_count, EXCLUDED.repin_count),
-        comment_count = GREATEST(competitor_pins.comment_count, EXCLUDED.comment_count),
-        alt_text = CASE 
-          WHEN competitor_pins.enrichment_status = 'compacted' THEN competitor_pins.alt_text 
-          ELSE COALESCE(NULLIF(EXCLUDED.alt_text, ''), competitor_pins.alt_text) 
-        END,
-        is_product = (competitor_pins.is_product OR EXCLUDED.is_product),
-        destination_url = CASE WHEN EXCLUDED.destination_url <> '' THEN EXCLUDED.destination_url ELSE competitor_pins.destination_url END,
-        link_domain = CASE WHEN EXCLUDED.link_domain <> '' THEN EXCLUDED.link_domain ELSE competitor_pins.link_domain END,
-        title = CASE WHEN EXCLUDED.title <> '' THEN EXCLUDED.title ELSE competitor_pins.title END,
-        description = CASE 
-          WHEN competitor_pins.enrichment_status = 'compacted' THEN competitor_pins.description 
-          WHEN EXCLUDED.description <> '' THEN EXCLUDED.description 
-          ELSE competitor_pins.description 
-        END,
-        image_url = CASE WHEN EXCLUDED.image_url <> '' THEN EXCLUDED.image_url ELSE competitor_pins.image_url END,
-        board_name = CASE WHEN EXCLUDED.board_name <> '' THEN EXCLUDED.board_name ELSE competitor_pins.board_name END,
-        board_slug = COALESCE(EXCLUDED.board_slug, competitor_pins.board_slug),
-        created_at_pinterest = COALESCE(EXCLUDED.created_at_pinterest, competitor_pins.created_at_pinterest),
-        last_seen_at = NOW(),
-        updated_at = NOW()
-      RETURNING pin_id;
-    `;
-    return res.length;
-  } catch (err) {
-    console.warn(`[bulkSyncCompetitorPinsToShard] Warning:`, err.message);
-    return 0;
-  }
+  return 0;
 }
+
 
 /**
  * Stale Job Reclamation: Rescues zombie/abandoned jobs (>5 minutes) back to 'pending'
@@ -782,9 +720,6 @@ async function runDiscoveryJob(sqlClient, shardSql, cleanUser, maxPages, cookie,
     console.log(`[*] [1/3 Profile] Refreshing profile stats for @${cleanUser}...`);
     const profRes = await syncCompetitorProfile(sqlClient, cleanUser, cookie);
     compProfile = profRes?.profile || profRes || null;
-    if (shardSql) {
-      await syncCompetitorProfile(shardSql, cleanUser, cookie).catch(() => {});
-    }
     console.log(`    [✓] Profile synced (Reach: ${compProfile?.monthly_reach ?? 'N/A'}, Views: ${compProfile?.profile_views ?? 'N/A'})`);
   } catch (err) {
     console.warn(`[!] Profile sync warning:`, err.message);
@@ -1051,25 +986,6 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
   console.log(`   Mode: ${crawlMode.toUpperCase()} (3x Micro-Concurrency Worker Pool)`);
   console.log(`   Lock Model: Monotonic ORDER BY cp.id ASC FOR UPDATE OF cp SKIP LOCKED`);
   console.log(`================================================================\n`);
-
-  // Resolve local surrogate ID on Shard database using canonical natural key (username)
-  let shardCompId = null;
-  if (shardSql && cleanUser) {
-    try {
-      shardCompId = await resolveLocalCompetitorId(shardSql, cleanUser);
-      if (!shardCompId) {
-        const [sprov] = await shardSql`
-          INSERT INTO competitor_profiles (username, display_name, account_type, is_active, updated_at)
-          VALUES (${cleanUser}, ${cleanUser}, 'competitor', TRUE, NOW())
-          ON CONFLICT (username) DO UPDATE SET updated_at = NOW()
-          RETURNING id;
-        `;
-        shardCompId = sprov?.id || null;
-      }
-    } catch (sErr) {
-      console.warn(`[!] [Shard ${sNum}] Warning resolving local competitor profile on shardSql:`, sErr.message);
-    }
-  }
 
   // Fetch active 3-tier qualification rules (prioritize competitor-specific rules if set)
   let qualRules = null;
@@ -1665,13 +1581,7 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
       }
 
       if (statusUpdates.length > 0) {
-        const hubCommit = bulkUpdateCompetitorPins(sqlClient, statusUpdates);
-        const shardCommit = (shardSql && shardCompId)
-          ? bulkSyncCompetitorPinsToShard(shardSql, shardCompId, statusUpdates)
-          : Promise.resolve(0);
-
-        await Promise.allSettled([hubCommit, shardCommit]);
-
+        await bulkUpdateCompetitorPins(sqlClient, statusUpdates);
         completedCount = statusUpdates.filter(s => s.status === 'completed').length;
         winningPinsArchivedCount = enrichedPins.length;
         const failedCount = statusUpdates.filter(s => s.status === 'failed').length;
@@ -1757,9 +1667,6 @@ async function runEnrichmentQueue(sqlClient, shardSql, shardNumber, shardTotal, 
           if (recon?.promoted_or_updated > 0) {
             console.log(`[*] [Stage 2 Reconciliation Sweeper] Reconciled and archived ${recon.promoted_or_updated} qualified pins into pa_pins.`);
           }
-          if (shardSql) {
-            await reconcileQualifiedCatalogPins(shardSql, shardCompId || cleanUser).catch(() => {});
-          }
         } catch (rErr) {
           console.warn(`[!] [Stage 2 Reconciliation Sweeper] Warning:`, rErr.message);
         }
@@ -1814,9 +1721,6 @@ async function runDailyScheduledMode(sqlClient, shardSql, shardNumber, shardTota
     console.log(`[*] [1/4 Profile] Updating reach & daily snapshot for @${username}...`);
     try {
       await syncCompetitorProfile(sqlClient, username, cookie);
-      if (shardSql) {
-        await syncCompetitorProfile(shardSql, username, cookie).catch(() => {});
-      }
     } catch (pErr) {
       console.warn(`[!] Profile sync warning:`, pErr.message);
     }

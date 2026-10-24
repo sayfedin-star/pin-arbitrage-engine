@@ -32,3 +32,4 @@ scratch/
 scripts/populate_neon_fleet.mjs
 .wrangler/
 .stitch/
+.agents/teamwork/

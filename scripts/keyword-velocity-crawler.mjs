@@ -66,8 +66,20 @@ if (!DATABASE_URL) {
 
 const sql = neon(DATABASE_URL);
 const mode = (process.env.MODE || 'keyword_sweep').toLowerCase().trim();
-const workerIndex = parseInt(process.env.WORKER_INDEX || '0', 10);
-const workerTotal = Math.max(1, parseInt(process.env.WORKER_TOTAL || '1', 10));
+const rawWorkerIndex = parseInt(process.env.WORKER_INDEX || '0', 10);
+const workerIndex = Number.isFinite(rawWorkerIndex) ? Math.max(0, rawWorkerIndex) : 0;
+const rawWorkerTotal = parseInt(process.env.WORKER_TOTAL || '20', 10);
+const workerTotal = Number.isFinite(rawWorkerTotal) && rawWorkerTotal > 0 ? rawWorkerTotal : 20;
+
+// [INVARIANT: SHARD-AFFINE-RUNNER-PARTITIONING]
+// Deterministically partition the 99 storage shards across the 20 matrix runners
+const assignedShards = [];
+for (let s = 1; s <= 99; s++) {
+  if (((s - 1) % workerTotal) === (workerIndex % workerTotal)) {
+    assignedShards.push(s);
+  }
+}
+const assignedShardSet = new Set(assignedShards);
 const targetKeyword = (process.env.KEYWORD_IDS || process.env.ALL_KEYWORD_IDS)
   ? ''
   : (process.env.TARGET_KEYWORD || '').trim().toLowerCase();
@@ -1524,7 +1536,8 @@ async function run() {
       allPins = allPins.slice(0, maxCatalogInspect);
     }
 
-    const myPins = allPins.filter(p => (crc32(p.pin_id) % workerTotal) === workerIndex);
+    // [INVARIANT: SHARD-AFFINE-RUNNER-PARTITIONING]
+    const myPins = allPins.filter(p => assignedShardSet.has(getPinShardId(p.pin_id, 99)));
     myPins.sort((a, b) => {
       const rA = Number(a.rank_position) || Number(a.last_known_rank) || 9999;
       const rB = Number(b.rank_position) || Number(b.last_known_rank) || 9999;
@@ -1713,8 +1726,9 @@ async function run() {
       allPins = allPins.slice(0, maxCatalogInspect);
     }
 
-    // Deterministic Hash Disjoint Partition (Immune to dynamic catalog size variations across worker start times)
-    const myPins = allPins.filter(p => (crc32(p.pin_id) % workerTotal) === workerIndex);
+    // [INVARIANT: SHARD-AFFINE-RUNNER-PARTITIONING]
+    // Deterministic Shard-Affine Partition (Runner processes only pins belonging to its assigned shards)
+    const myPins = allPins.filter(p => assignedShardSet.has(getPinShardId(p.pin_id, 99)));
     myPins.sort((a, b) => {
       const rA = Number(a.rank_position) || Number(a.last_known_rank) || 9999;
       const rB = Number(b.rank_position) || Number(b.last_known_rank) || 9999;
@@ -1860,7 +1874,7 @@ async function run() {
     }
 
     // -------------------------------------------------------------------------
-    // PHASE 1B: Push-Down SQL Hash Slice (Protected with ::bigint against INT_MIN overflow)
+    // PHASE 1B: Push-Down SQL Shard-Affine Partitioning [INVARIANT: SHARD-AFFINE-RUNNER-PARTITIONING]
     // -------------------------------------------------------------------------
     let myPins = [];
     if (crawlScope === 'active_serp') {
@@ -1876,7 +1890,10 @@ async function run() {
           WHERE ksc.keyword_id = ANY(${allFleetKeywordIds})
             AND ksc.pin_id IS NOT NULL AND ksc.pin_id <> ''
             AND ksc.is_displaced = FALSE
-            AND mod(abs(hashtext(ksc.pin_id::text)::bigint), ${workerTotal}) = ${workerIndex}
+            AND (
+              ksc.shard_id = ANY(${assignedShards}::smallint[])
+              OR (ksc.shard_id IS NULL AND mod(abs(hashtext(ksc.pin_id::text)::bigint), ${workerTotal}) = ${workerIndex})
+            )
             AND NOT EXISTS (
               SELECT 1 FROM keyword_ignored_pins kip
               WHERE kip.keyword_id = ksc.keyword_id AND kip.pin_id = ksc.pin_id
@@ -1917,7 +1934,10 @@ async function run() {
           FROM keyword_serp_current ksc
           WHERE ksc.keyword_id = ANY(${allFleetKeywordIds})
             AND ksc.pin_id IS NOT NULL AND ksc.pin_id <> ''
-            AND mod(abs(hashtext(ksc.pin_id::text)::bigint), ${workerTotal}) = ${workerIndex}
+            AND (
+              ksc.shard_id = ANY(${assignedShards}::smallint[])
+              OR (ksc.shard_id IS NULL AND mod(abs(hashtext(ksc.pin_id::text)::bigint), ${workerTotal}) = ${workerIndex})
+            )
             AND NOT EXISTS (
               SELECT 1 FROM keyword_ignored_pins kip
               WHERE kip.keyword_id = ksc.keyword_id AND kip.pin_id = ksc.pin_id
@@ -1937,7 +1957,10 @@ async function run() {
           FROM keyword_displaced_index kdi
           WHERE kdi.keyword_id = ANY(${allFleetKeywordIds})
             AND kdi.pin_id IS NOT NULL AND kdi.pin_id <> ''
-            AND mod(abs(hashtext(kdi.pin_id::text)::bigint), ${workerTotal}) = ${workerIndex}
+            AND (
+              kdi.shard_id = ANY(${assignedShards}::smallint[])
+              OR (kdi.shard_id IS NULL AND mod(abs(hashtext(kdi.pin_id::text)::bigint), ${workerTotal}) = ${workerIndex})
+            )
             AND NOT EXISTS (
               SELECT 1 FROM keyword_ignored_pins kip
               WHERE kip.keyword_id = kdi.keyword_id AND kip.pin_id = kdi.pin_id

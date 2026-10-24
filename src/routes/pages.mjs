@@ -4,14 +4,12 @@
  * Serves all static and server-rendered HTML dashboard views.
  * Dispatched BEFORE API authentication gate to guarantee 405 Method Not Allowed
  * on mutative HTTP verbs (POST/PUT/DELETE) without requiring API authorization.
+ * 
+ * [INVARIANT: DYNAMIC-UI-LAZY-LOADING]
+ * All 6 UI template modules are loaded lazily via dynamic await import() inside
+ * handlePagesRoutes to eliminate 1.65 MB of cold-start V8 compilation overhead
+ * on all /api/... requests and health checks.
  */
-
-import { getDashboardHtml } from '../dashboard-ui.mjs';
-import { getKeywordsPageHtml } from '../keywords-ui.mjs';
-import { getDiscoveryPageHtml } from '../discovery-ui.mjs';
-import { getPinDetailPageHtml } from '../pin-details-ui.mjs';
-import { getCampaignFoldersPageHtml } from '../campaign-folders-ui.mjs';
-import { getDomainsPageHtml } from '../domains-ui.mjs';
 
 // [INVARIANT: FAST-EDGE-FAVICON]
 // Clean inline SVG pin favicon to serve browser requests instantly (0ms network round-trip)
@@ -115,7 +113,11 @@ export async function handlePagesRoutes(routeCtx) {
     if (method !== 'GET' && method !== 'HEAD') {
       return methodNotAllowedResponse('GET, OPTIONS');
     }
-    return new Response(method === 'HEAD' ? null : getDiscoveryPageHtml(), {
+    if (method === 'HEAD') {
+      return new Response(null, { status: 200, headers: HTML_HEADERS });
+    }
+    const { getDiscoveryPageHtml } = await import('../discovery-ui.mjs');
+    return new Response(getDiscoveryPageHtml(), {
       status: 200,
       headers: HTML_HEADERS
     });
@@ -135,7 +137,11 @@ export async function handlePagesRoutes(routeCtx) {
         400
       );
     }
-    return new Response(method === 'HEAD' ? null : getPinDetailPageHtml(cleanPinId), {
+    if (method === 'HEAD') {
+      return new Response(null, { status: 200, headers: HTML_HEADERS });
+    }
+    const { getPinDetailPageHtml } = await import('../pin-details-ui.mjs');
+    return new Response(getPinDetailPageHtml(cleanPinId), {
       status: 200,
       headers: HTML_HEADERS
     });
@@ -179,9 +185,15 @@ export async function handlePagesRoutes(routeCtx) {
     if (method !== 'GET' && method !== 'HEAD') {
       return methodNotAllowedResponse('GET, OPTIONS');
     }
+    if (method === 'HEAD') {
+      return new Response(null, { status: 200, headers: HTML_HEADERS });
+    }
     const segments = normalizedPath.split('/').filter(Boolean);
     const folderId = segments[1] || '';
-    return new Response(method === 'HEAD' ? null : getCampaignFoldersPageHtml(decodeURIComponent(folderId)), {
+    let cleanFolderId = folderId;
+    try { cleanFolderId = decodeURIComponent(folderId); } catch (_) {}
+    const { getCampaignFoldersPageHtml } = await import('../campaign-folders-ui.mjs');
+    return new Response(getCampaignFoldersPageHtml(cleanFolderId), {
       status: 200,
       headers: HTML_HEADERS
     });
@@ -192,10 +204,14 @@ export async function handlePagesRoutes(routeCtx) {
     if (method !== 'GET' && method !== 'HEAD') {
       return methodNotAllowedResponse('GET, OPTIONS');
     }
+    if (method === 'HEAD') {
+      return new Response(null, { status: 200, headers: HTML_HEADERS });
+    }
     const segments = normalizedPath.split('/').filter(Boolean);
     let domain = segments[1] || '';
     try { domain = decodeURIComponent(domain); } catch (_) {}
-    return new Response(method === 'HEAD' ? null : getDomainsPageHtml(domain), {
+    const { getDomainsPageHtml } = await import('../domains-ui.mjs');
+    return new Response(getDomainsPageHtml(domain), {
       status: 200,
       headers: HTML_HEADERS
     });
@@ -213,22 +229,30 @@ export async function handlePagesRoutes(routeCtx) {
     // Defend against reserved slugs
     if (rawSlug && RESERVED_KEYWORD_SLUGS.has(slugLower)) {
       if (slugLower === 'discovery') {
-        return new Response(method === 'HEAD' ? null : getDiscoveryPageHtml(), {
+        if (method === 'HEAD') return new Response(null, { status: 200, headers: HTML_HEADERS });
+        const { getDiscoveryPageHtml } = await import('../discovery-ui.mjs');
+        return new Response(getDiscoveryPageHtml(), {
           status: 200,
           headers: HTML_HEADERS
         });
       }
       if (slugLower === 'folders') {
+        if (method === 'HEAD') return new Response(null, { status: 200, headers: HTML_HEADERS });
         const folderId = segments[2] || '';
-        return new Response(method === 'HEAD' ? null : getCampaignFoldersPageHtml(decodeURIComponent(folderId)), {
+        let cleanFolderId = folderId;
+        try { cleanFolderId = decodeURIComponent(folderId); } catch (_) {}
+        const { getCampaignFoldersPageHtml } = await import('../campaign-folders-ui.mjs');
+        return new Response(getCampaignFoldersPageHtml(cleanFolderId), {
           status: 200,
           headers: HTML_HEADERS
         });
       }
       if (slugLower === 'domains') {
+        if (method === 'HEAD') return new Response(null, { status: 200, headers: HTML_HEADERS });
         let domain = segments[2] || '';
         try { domain = decodeURIComponent(domain); } catch (_) {}
-        return new Response(method === 'HEAD' ? null : getDomainsPageHtml(domain), {
+        const { getDomainsPageHtml } = await import('../domains-ui.mjs');
+        return new Response(getDomainsPageHtml(domain), {
           status: 200,
           headers: HTML_HEADERS
         });
@@ -242,7 +266,11 @@ export async function handlePagesRoutes(routeCtx) {
       slug = queryParam.trim();
     }
 
-    return new Response(method === 'HEAD' ? null : getKeywordsPageHtml(slug), {
+    if (method === 'HEAD') {
+      return new Response(null, { status: 200, headers: HTML_HEADERS });
+    }
+    const { getKeywordsPageHtml } = await import('../keywords-ui.mjs');
+    return new Response(getKeywordsPageHtml(slug), {
       status: 200,
       headers: HTML_HEADERS
     });
@@ -253,7 +281,11 @@ export async function handlePagesRoutes(routeCtx) {
     if (method !== 'GET' && method !== 'HEAD') {
       return methodNotAllowedResponse('GET, OPTIONS');
     }
-    return new Response(method === 'HEAD' ? null : getDashboardHtml(), {
+    if (method === 'HEAD') {
+      return new Response(null, { status: 200, headers: HTML_HEADERS });
+    }
+    const { getDashboardHtml } = await import('../dashboard-ui.mjs');
+    return new Response(getDashboardHtml(), {
       status: 200,
       headers: HTML_HEADERS
     });

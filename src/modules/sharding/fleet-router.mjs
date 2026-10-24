@@ -64,6 +64,24 @@ export function parseD1DateMs(val) {
 }
 
 /**
+ * Safely converts date/timestamp string or Date object to ISO string.
+ * Returns fallback if invalid or null/undefined.
+ * @param {string|number|Date} val
+ * @param {string|null} fallback
+ * @returns {string|null}
+ */
+export function safeIsoDate(val, fallback = null) {
+  if (!val) return fallback;
+  try {
+    const d = new Date(val);
+    return !isNaN(d.getTime()) ? d.toISOString() : fallback;
+  } catch (_) {
+    return fallback;
+  }
+}
+
+
+/**
  * 1. Deterministic Pin Shard ID Resolution
  * Computes the 1-based shard ID (1 to totalShards) for any given Pinterest Pin ID.
  *
@@ -1466,16 +1484,6 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     return '';
   }
 
-  function safeIsoDate(val, fallback = null) {
-    if (!val) return fallback;
-    try {
-      const d = new Date(val);
-      return !isNaN(d.getTime()) ? d.toISOString() : fallback;
-    } catch (_) {
-      return fallback;
-    }
-  }
-
   function getSnapTimestamp(s) {
     const t = s.created_at || s.updated_at || s.snapshot_date;
     return t ? new Date(t).getTime() : 0;
@@ -2077,7 +2085,8 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
       share_count: Number(dailyTrajectory[0]?.share_count ?? hubSerpRows[0]?.share_count ?? 0),
       daily_save_velocity: Number(dailyTrajectory[0]?.daily_save_velocity ?? hubSerpRows[0]?.daily_save_velocity ?? 0),
       first_discovered_pillar: masterRecord?.first_discovered_pillar || 'keyword',
-      is_deleted: Boolean(masterRecord?.is_deleted || hubHistoricalSnap?.metadata?.is_deleted || (hubHistoricalSnap?.metadata?.status === 'archived_404'))
+      is_deleted: Boolean(masterRecord?.is_deleted || hubHistoricalSnap?.metadata?.is_deleted || (hubHistoricalSnap?.metadata?.status === 'archived_404')),
+      metadata: snapMeta
     },
     algorithmic_intelligence: algorithmicIntelligence,
     pillar_1_creator_context: {
@@ -2867,3 +2876,189 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
     dossier: refreshedDossier
   };
 }
+
+/**
+ * Canonical Deterministic Shard Batch Ingestion
+ * Groups pins by (crc32(pin_id) % 99) + 1, executes atomic bulk upserts via jsonb_to_recordset,
+ * and returns confirmedPinIds Set with zero-data-loss confirmation gate.
+ *
+ * // [INVARIANT: DETERMINISTIC-CRC32-SHARDING]
+ * // [INVARIANT: ZERO-HUB-SNAPSHOTS]
+ * // [INVARIANT: BYTESTRING-HEADER-SAFETY]
+ *
+ * @param {object} params
+ * @param {Array<object>} params.pins
+ * @param {Function} params.hubSql
+ * @param {object} [params.env]
+ * @param {object} [params.ctx]
+ * @param {object} [params.options]
+ * @returns {Promise<Set<string>>} Decorated confirmedPinIds Set
+ */
+export async function writeBatchToDeterministicShards(params = {}) {
+  const pins = params.pins || [];
+  const hubSql = params.hubSql;
+  const env = params.env || null;
+  const ctx = params.ctx || null;
+  const options = params.options || params;
+
+  const confirmedPinIds = new Set();
+  const failedShards = [];
+  confirmedPinIds.confirmedPinIds = confirmedPinIds;
+  confirmedPinIds.totalAttempted = Array.isArray(pins) ? pins.length : 0;
+  confirmedPinIds.failedShards = failedShards;
+
+  if (!Array.isArray(pins) || pins.length === 0) {
+    return confirmedPinIds;
+  }
+
+  const totalShards = options.totalShards || 99;
+  const shardGroups = batchGroupByShard(pins, totalShards);
+  const concurrency = Math.max(1, Math.min(8, options.concurrency || 4));
+
+  const entries = Array.from(shardGroups.entries());
+  for (let i = 0; i < entries.length; i += concurrency) {
+    const batch = entries.slice(i, i + concurrency);
+    await Promise.allSettled(batch.map(async ([shardId, rawShardPins]) => {
+      try {
+        const shardSql = await resolveShardConnection({ hubSql, shardId, env }).catch(() => null);
+        if (!shardSql) {
+          console.warn(`[writeBatchToDeterministicShards] Could not resolve shard #${shardId}`);
+          failedShards.push(shardId);
+          return;
+        }
+
+        // GUARDRAIL 2: Deduplicate shardPins in JavaScript before serialization (Map<pinId, pin>)
+        const pinMap = new Map();
+        for (const p of rawShardPins) {
+          const pid = String(p?.pin_id || p?.id || '').trim();
+          if (pid) pinMap.set(pid, p);
+        }
+        if (pinMap.size === 0) return;
+
+        const deduplicatedPins = Array.from(pinMap.values());
+        deduplicatedPins.sort((a, b) => String(a.pin_id || a.id).localeCompare(String(b.pin_id || b.id)));
+
+        const masterPayload = JSON.stringify(deduplicatedPins.map(p => {
+          const pid = String(p.pin_id || p.id || '').trim();
+          const reactions = p.reactions && typeof p.reactions === 'object' ? p.reactions : {};
+          const reactionCount = Number(
+            p.total_reaction_count ??
+            p.reaction_count ??
+            (typeof p.reactions === 'object' ? Object.values(reactions).reduce((acc, v) => acc + (Number(v) || 0), 0) : Number(p.reactions || 0))
+          );
+          return {
+            pin_id: pid,
+            creator_username: String(p.creator_username || p.account_username || ''),
+            board_name: String(p.board_name || ''),
+            title: String(p.title || ''),
+            domain: String(p.domain || p.link_domain || ''),
+            destination_url: String(p.destination_url || p.link || ''),
+            image_url: String(p.image_url || ''),
+            description: String(p.description || ''),
+            alt_text: String(p.alt_text || p.seo_alt_text || ''),
+            dominant_color: String(p.dominant_color || '#888888'),
+            visual_annotations: Array.isArray(p.visual_annotations || p.annotations) ? (p.visual_annotations || p.annotations) : [],
+            created_at_pinterest: safeIsoDate(p.created_at_pinterest),
+            metadata: {
+              is_product: Boolean(p.is_product),
+              is_video: Boolean(p.is_video),
+              reactions: reactions,
+              creation_method: p.creation_method || p.method || null
+            },
+            save_count: Math.max(0, Number(p.saves || p.save_count || 0)),
+            repin_count: Math.max(0, Number(p.repins || p.repin_count || 0)),
+            comment_count: Math.max(0, Number(p.comments || p.comment_count || 0)),
+            share_count: Math.max(0, Number(p.shares || p.share_count || 0)),
+            reaction_count: Math.max(0, Number(reactionCount || 0)),
+            daily_save_velocity: Number(p.velocity || p.daily_save_velocity || 0)
+          };
+        }));
+
+        // 1. Batch Upsert into universal_master_pins
+        // [INVARIANT: DETERMINISTIC-CRC32-SHARDING]
+        // GUARDRAIL 2: Enforce DISTINCT ON (u.pin_id) ORDER BY u.pin_id ASC
+        await shardSql`
+          INSERT INTO universal_master_pins (
+            pin_id, creator_username, board_name, title, domain, destination_url,
+            image_url, description, alt_text, dominant_color, visual_annotations, created_at_pinterest, metadata,
+            first_discovered_pillar, first_discovered_at, updated_at
+          )
+          SELECT DISTINCT ON (u.pin_id)
+            u.pin_id, u.creator_username, u.board_name, u.title, u.domain, u.destination_url,
+            u.image_url, u.description, u.alt_text, u.dominant_color, u.visual_annotations,
+            NULLIF(TRIM(u.created_at_pinterest), '')::timestamptz, u.metadata,
+            'batch_ingest', NOW(), NOW()
+          FROM jsonb_to_recordset(${masterPayload}::jsonb) AS u(
+            pin_id text, creator_username text, board_name text, title text, domain text, destination_url text,
+            image_url text, description text, alt_text text, dominant_color text, visual_annotations jsonb,
+            created_at_pinterest text, metadata jsonb
+          )
+          ORDER BY u.pin_id ASC
+          ON CONFLICT (pin_id) DO UPDATE SET
+            creator_username = COALESCE(NULLIF(EXCLUDED.creator_username, ''), universal_master_pins.creator_username),
+            board_name = COALESCE(NULLIF(EXCLUDED.board_name, ''), universal_master_pins.board_name),
+            title = COALESCE(NULLIF(EXCLUDED.title, ''), universal_master_pins.title),
+            domain = COALESCE(NULLIF(EXCLUDED.domain, ''), universal_master_pins.domain),
+            destination_url = COALESCE(NULLIF(EXCLUDED.destination_url, ''), universal_master_pins.destination_url),
+            image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), universal_master_pins.image_url),
+            description = COALESCE(NULLIF(EXCLUDED.description, ''), universal_master_pins.description),
+            alt_text = COALESCE(NULLIF(EXCLUDED.alt_text, ''), universal_master_pins.alt_text),
+            dominant_color = COALESCE(NULLIF(EXCLUDED.dominant_color, ''), universal_master_pins.dominant_color),
+            visual_annotations = CASE 
+              WHEN jsonb_typeof(EXCLUDED.visual_annotations) = 'array' AND jsonb_array_length(EXCLUDED.visual_annotations) > 0 
+              THEN EXCLUDED.visual_annotations 
+              ELSE universal_master_pins.visual_annotations 
+            END,
+            created_at_pinterest = COALESCE(EXCLUDED.created_at_pinterest, universal_master_pins.created_at_pinterest),
+            metadata = COALESCE(universal_master_pins.metadata, '{}'::jsonb) || EXCLUDED.metadata,
+            updated_at = NOW();
+        `;
+
+        // 2. Batch Upsert into pins_daily_metrics
+        // [INVARIANT: ZERO-HUB-SNAPSHOTS]
+        // GUARDRAIL 2: Enforce DISTINCT ON (u.pin_id) ORDER BY u.pin_id ASC
+        // GUARDRAIL 3: Wrap all numeric columns with COALESCE(u.save_count, 0)::bigint etc.
+        await shardSql`
+          INSERT INTO pins_daily_metrics (
+            pin_id, snapshot_date, save_count, repin_count, comment_count, share_count, reaction_count, daily_save_velocity, updated_at
+          )
+          SELECT DISTINCT ON (u.pin_id)
+            u.pin_id,
+            (NOW() AT TIME ZONE 'UTC')::date,
+            COALESCE(u.save_count, 0)::bigint,
+            COALESCE(u.repin_count, 0)::int,
+            COALESCE(u.comment_count, 0)::int,
+            COALESCE(u.share_count, 0)::int,
+            COALESCE(u.reaction_count, 0)::int,
+            COALESCE(u.daily_save_velocity, 0)::numeric,
+            NOW()
+          FROM jsonb_to_recordset(${masterPayload}::jsonb) AS u(
+            pin_id text, save_count bigint, repin_count int, comment_count int, share_count int, reaction_count int, daily_save_velocity numeric
+          )
+          ORDER BY u.pin_id ASC
+          ON CONFLICT (pin_id, snapshot_date) DO UPDATE SET
+            save_count = GREATEST(pins_daily_metrics.save_count, EXCLUDED.save_count),
+            repin_count = GREATEST(pins_daily_metrics.repin_count, EXCLUDED.repin_count),
+            comment_count = GREATEST(pins_daily_metrics.comment_count, EXCLUDED.comment_count),
+            share_count = GREATEST(pins_daily_metrics.share_count, EXCLUDED.share_count),
+            reaction_count = GREATEST(pins_daily_metrics.reaction_count, EXCLUDED.reaction_count),
+            daily_save_velocity = CASE
+              WHEN EXCLUDED.daily_save_velocity IS NOT NULL THEN EXCLUDED.daily_save_velocity
+              ELSE pins_daily_metrics.daily_save_velocity
+            END,
+            updated_at = NOW();
+        `;
+
+        for (const [pid] of pinMap) {
+          confirmedPinIds.add(pid);
+        }
+      } catch (shardErr) {
+        console.warn(`[writeBatchToDeterministicShards] Shard #${shardId} batch write failed:`, shardErr.message);
+        failedShards.push(shardId);
+      }
+    }));
+  }
+
+  return confirmedPinIds;
+}
+

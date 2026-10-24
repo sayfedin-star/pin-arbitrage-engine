@@ -47,7 +47,8 @@ export const KNOWN_TABLE_COLUMNS = {
     'updated_at',
     'prev_rank_position',
     'baseline_day_saves',
-    'baseline_day_date'
+    'baseline_day_date',
+    'shard_id'
   ]),
   keyword_displaced_index: new Set([
     'keyword_id',
@@ -61,7 +62,8 @@ export const KNOWN_TABLE_COLUMNS = {
     'share_count',
     'daily_save_velocity',
     'updated_at',
-    'domain'
+    'domain',
+    'shard_id'
   ]),
   pin_serp_positions: new Set([
     'pin_id',

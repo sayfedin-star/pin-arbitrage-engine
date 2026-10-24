@@ -28,7 +28,8 @@ import {
   executeShardQueryWithCircuitBreaker,
   batchGroupByShard,
   preloadNeonRegistry,
-  syncPinAcrossAllFourPillars
+  syncPinAcrossAllFourPillars,
+  fetchUniversalPinDossier
 } from '../sharding/fleet-router.mjs';
 
 /**
@@ -870,30 +871,36 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
   let leaseCommittedInTx = false;
   const skipLeaseRelease = Boolean(options?.skip_lease_release);
 
+  const isUuid = (val) => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+  const callerLeaseToken = isUuid(options?.lease_token) ? options.lease_token : null;
+  const effectiveToken = callerLeaseToken || (
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : (await import('node:crypto')).randomUUID()
+  );
+
   try {
-    const callerLeaseToken = options.lease_token || null;
+    // [INVARIANT: DISTRIBUTED-CRAWL-LEASE-FENCING]
+    // Even when force = true, active unexpired leases held by another node MUST be respected.
+    // force = true only bypasses local in-memory lock (activeKeywordCrawls) and stale SERP freshness,
+    // NEVER active distributed concurrency leases held by another worker.
     const leaseQuery = callerLeaseToken
       ? sql`
           UPDATE tracked_keywords
-          SET crawl_lease_until = GREATEST(COALESCE(crawl_lease_until, NOW()), NOW() + INTERVAL '15 minutes')
+          SET crawl_lease_token = ${effectiveToken}::uuid,
+              crawl_lease_until = GREATEST(COALESCE(crawl_lease_until, NOW()), NOW() + INTERVAL '15 minutes')
           WHERE id = ${kid}
-            AND (crawl_lease_token = ${callerLeaseToken} OR crawl_lease_until IS NULL OR crawl_lease_until < NOW())
+            AND (crawl_lease_token = ${effectiveToken}::uuid OR crawl_lease_until IS NULL OR crawl_lease_until < NOW())
           RETURNING id;
         `
-      : (force
-        ? sql`
-            UPDATE tracked_keywords
-            SET crawl_lease_until = GREATEST(COALESCE(crawl_lease_until, NOW()), NOW() + INTERVAL '60 seconds')
-            WHERE id = ${kid}
-            RETURNING id;
-          `
-        : sql`
-            UPDATE tracked_keywords
-            SET crawl_lease_until = NOW() + INTERVAL '60 seconds'
-            WHERE id = ${kid}
-              AND (crawl_lease_until IS NULL OR crawl_lease_until < NOW())
-            RETURNING id;
-          `);
+      : sql`
+          UPDATE tracked_keywords
+          SET crawl_lease_token = ${effectiveToken}::uuid,
+              crawl_lease_until = NOW() + INTERVAL '90 seconds'
+          WHERE id = ${kid}
+            AND (crawl_lease_until IS NULL OR crawl_lease_until < NOW() OR crawl_lease_token = ${effectiveToken}::uuid)
+          RETURNING id;
+        `;
 
     let leaseResult;
     try {
@@ -966,6 +973,20 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
     const seenPagingIds = new Set();
     let organicPinsCollected = 0;
     let paginationAbortedByHttp = false;
+
+    let lastHeartbeatTime = Date.now();
+    const renewLeaseHeartbeat = async (extSeconds = 90) => {
+      try {
+        await sql`
+          UPDATE tracked_keywords
+          SET crawl_lease_until = NOW() + (${extSeconds} * INTERVAL '1 second')
+          WHERE id = ${kid} AND crawl_lease_token = ${effectiveToken}::uuid;
+        `;
+        lastHeartbeatTime = Date.now();
+      } catch (hbErr) {
+        console.warn(`[crawlKeywordSERP] Lease heartbeat warning for keyword ${kid}:`, hbErr?.message);
+      }
+    };
 
     // Deep dynamic pagination: Follow bookmark stream up to maxPages / targetCount
     while (organicPinsCollected < targetCount && page <= maxPages) {
@@ -1053,6 +1074,10 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
             ? (800 + Math.floor(Math.random() * 600))
             : (2500 + Math.floor(Math.random() * 1500));
           await new Promise(r => setTimeout(r, jitter));
+        }
+
+        if (Date.now() - lastHeartbeatTime > 25000) {
+          await renewLeaseHeartbeat(90);
         }
       } catch (fetchErr) {
         if (page === 1) throw fetchErr;
@@ -1951,7 +1976,8 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
         crawl_lease_until = CASE WHEN ${skipLeaseRelease} THEN crawl_lease_until ELSE NULL END,
         updated_at = NOW(),
         metadata = ${JSON.stringify(updatedMetadata)}::jsonb
-      WHERE id = ${kid};
+      WHERE id = ${kid}
+        AND (crawl_lease_token = ${effectiveToken}::uuid OR crawl_lease_token IS NULL);
     `);
 
     // [INVARIANT: HYPERDRIVE-ATOMIC-BUILDER]
@@ -2025,7 +2051,8 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
         UPDATE tracked_keywords 
         SET crawl_lease_token = NULL,
             crawl_lease_until = NULL
-        WHERE id = ${kid};
+        WHERE id = ${kid}
+          AND crawl_lease_token = ${effectiveToken}::uuid;
       `.catch(() => {});
     }
   }
@@ -2744,317 +2771,142 @@ export async function getPinDeepDossier(sql, pinId, keywordId = null, options = 
     try {
       const kvCached = await env.PIN_ENGINE_KV.get(dossierKvKey, { type: 'json', cacheTtl: 600 });
       if (kvCached && kvCached.success && kvCached.pin_id === cleanPin) {
+        // Re-hydrate dual trajectory contract after JSON deserialization from KV
+        if (Array.isArray(kvCached.trajectory) && !kvCached.trajectory.snapshots) {
+          kvCached.trajectory.snapshots = kvCached.trajectory;
+        }
         return { ...kvCached, source: 'kv_edge' };
       }
     } catch (_) {}
   }
 
-  // 1-4. Concurrent scatter-gather for SERP current, snapshots, shard master, and trajectory
-  const [
-    displacedRows,
-    snapshotRows,
-    shardRow,
-    trajectory
-  ] = await Promise.all([
-    // 1. keyword_serp_current
-    (kid ? sql`
-      SELECT 
-        keyword_id, pin_id, title, domain, destination_url, image_url,
-        creator_username, board_name, last_known_rank, rank_position, displaced_date,
-        is_displaced, save_count, save_count as current_saves,
-        repin_count, repin_count as current_repins,
-        comment_count, comment_count as current_comments,
-        share_count, share_count as current_shares,
-        daily_save_velocity, vacuum_opportunity_score,
-        COALESCE(metadata->>'alt_text', '') as seo_alt_text,
-        COALESCE(visual_annotations, '[]'::jsonb) as annotations,
-        dominant_color, created_at_pinterest, creation_method, metadata, crawled_at as created_at
-      FROM keyword_serp_current 
-      WHERE keyword_id = ${kid} AND pin_id = ${cleanPin};
-    ` : sql`
-      SELECT 
-        keyword_id, pin_id, title, domain, destination_url, image_url,
-        creator_username, board_name, last_known_rank, rank_position, displaced_date,
-        is_displaced, save_count, save_count as current_saves,
-        repin_count, repin_count as current_repins,
-        comment_count, comment_count as current_comments,
-        share_count, share_count as current_shares,
-        daily_save_velocity, vacuum_opportunity_score,
-        COALESCE(metadata->>'alt_text', '') as seo_alt_text,
-        COALESCE(visual_annotations, '[]'::jsonb) as annotations,
-        dominant_color, created_at_pinterest, creation_method, metadata, crawled_at as created_at
-      FROM keyword_serp_current 
-      WHERE pin_id = ${cleanPin} 
-      LIMIT 1;
-    `).catch(() => []),
-
-    // [INVARIANT: ZERO-HUB-SNAPSHOTS] Central Hub holds zero historical snapshots
-    Promise.resolve([]),
-
-    // 3. D1 Edge Lookup first (< 3ms), then Shard master pin fallback with 2500ms timeout
-    (async () => {
-      try {
-        if (env?.PIN_D1_DB && !forceRefresh) {
-          const d1Map = await hydratePinsFromD1(env, [cleanPin]);
-          if (d1Map.has(cleanPin)) {
-            const d1Pin = d1Map.get(cleanPin);
-            // [INVARIANT: D1-RICH-OR-BYPASS-GUARD]
-            // Prevent hollow / empty D1 shells from being treated as valid cache hits
-            if (
-              d1Pin && d1Pin.pin_id &&
-              (d1Pin.title || d1Pin.image_url) &&
-              (d1Pin.description && d1Pin.description.length > 5) &&
-              d1Pin.created_at_pinterest
-            ) {
-              return d1Pin;
-            }
-          }
-        }
-        const shardId = getPinShardId(cleanPin, 99);
-        const shardSql = await resolveShardConnection({ hubSql: sql, shardId, env });
-        if (shardSql && shardSql !== sql) {
-          const shardPromise = shardSql`
-            SELECT * FROM universal_master_pins WHERE pin_id = ${cleanPin} LIMIT 1;
-          `.catch(() => []);
-          let timerId;
-          const timeoutPromise = new Promise((_, reject) => {
-            timerId = setTimeout(() => reject(new Error('timeout')), 5500);
-          });
-          try {
-            const [sMaster] = await Promise.race([
-              shardPromise,
-              timeoutPromise
-            ]);
-            // [INVARIANT: D1-ANTI-PRE-SCRAPE-POISONING] Do not backfill pre-scrape shard state during forceRefresh
-            if (sMaster && env?.PIN_D1_DB && !forceRefresh) {
-              syncPinsBatchToD1(env, [sMaster]).catch(() => {});
-            }
-            return sMaster || null;
-          } finally {
-            if (timerId) clearTimeout(timerId);
-          }
-        }
-      } catch (_) {}
-      return null;
-    })(),
-
-    // 4. Trajectory
-    getPinPerformanceTrajectory(sql, kid, cleanPin, 'all', { env, forceRefresh }).catch(() => [])
-  ]);
-
-  let displacedRow = displacedRows?.[0] || null;
-  if (!displacedRow && kid) {
-    const [fallbackRow] = await sql`
-      SELECT 
-        keyword_id, pin_id, title, domain, destination_url, image_url,
-        creator_username, board_name, last_known_rank, rank_position, displaced_date,
-        is_displaced, save_count, save_count as current_saves,
-        repin_count, repin_count as current_repins,
-        comment_count, comment_count as current_comments,
-        share_count, share_count as current_shares,
-        daily_save_velocity, vacuum_opportunity_score,
-        COALESCE(metadata->>'alt_text', '') as seo_alt_text,
-        COALESCE(visual_annotations, '[]'::jsonb) as annotations,
-        dominant_color, created_at_pinterest, creation_method, metadata, crawled_at as created_at
-      FROM keyword_serp_current 
-      WHERE pin_id = ${cleanPin} 
-      LIMIT 1;
-    `.catch(() => []);
-    displacedRow = fallbackRow || null;
-  }
-
-  // [INVARIANT: ZERO-HUB-SNAPSHOTS] Unpack Shard trajectory object ({ snapshots: [...] }) deterministically
-  const trajectorySnapshots = Array.isArray(trajectory)
-    ? trajectory
-    : (Array.isArray(trajectory?.snapshots) ? trajectory.snapshots : []);
-  const latestSnapshot = trajectorySnapshots.length > 0
-    ? trajectorySnapshots[trajectorySnapshots.length - 1]
-    : null;
-
-  // 4. Smart Dynamic On-Demand Scrape Trigger:
-  // Only scrape if explicitly requested via forceRefresh
-  let scraped = null;
-  let syncRes = null;
-  const needsScrape = Boolean(forceRefresh);
-
-  if (needsScrape) {
+  // Smart Dynamic On-Demand Scrape Trigger:
+  // If forceRefresh = true, execute live scraping via fetchPinFromPinterest and syncPinAcrossAllFourPillars BEFORE fetchUniversalPinDossier
+  if (forceRefresh) {
     try {
-      const pinResult = await fetchPinFromPinterest(cleanPin);
-      if (pinResult?.ok && pinResult.pin) {
-        scraped = pinResult.pin;
-        // [INVARIANT: 4-PILLAR-SYNC-PARITY]
-        // Delegate DB mutations & D1/KV cache invalidation to canonical SSOT function
-        syncRes = await syncPinAcrossAllFourPillars({
+      const liveRes = await fetchPinFromPinterest(cleanPin);
+      if (liveRes?.ok && liveRes.pin) {
+        await syncPinAcrossAllFourPillars({
           hubSql: sql,
           pinId: cleanPin,
-          scrapedPin: scraped,
+          scrapedPin: liveRes.pin,
+          keywordId: kid,
           env,
-          ctx: options?.ctx || null
+          ctx
         });
-
-        if (displacedRow) {
-          displacedRow.current_saves = Math.max(Number(displacedRow.current_saves || 0), Number(scraped.saves || 0));
-          displacedRow.current_repins = Math.max(Number(displacedRow.current_repins || 0), Number(scraped.repins || 0));
-          displacedRow.current_comments = Math.max(Number(displacedRow.current_comments || 0), Number(scraped.comments || 0));
-          displacedRow.current_shares = Math.max(Number(displacedRow.current_shares || 0), Number(scraped.share_count || 0));
-          if (Number.isFinite(syncRes?.syncVelocity) && syncRes.syncVelocity > 0) {
-            displacedRow.daily_save_velocity = syncRes.syncVelocity;
-          }
-          displacedRow.seo_alt_text = scraped.alt_text || scraped.seo_alt_text || displacedRow.seo_alt_text;
-          displacedRow.creator_username = scraped.creator_username || scraped.pinner?.username || displacedRow.creator_username;
-          displacedRow.board_name = scraped.board_name || scraped.board?.name || displacedRow.board_name;
-        }
-        if (latestSnapshot) {
-          latestSnapshot.save_count = Math.max(Number(latestSnapshot.save_count || 0), Number(scraped.saves || 0));
-          latestSnapshot.repin_count = Math.max(Number(latestSnapshot.repin_count || 0), Number(scraped.repins || 0));
-          latestSnapshot.comment_count = Math.max(Number(latestSnapshot.comment_count || 0), Number(scraped.comments || 0));
-          latestSnapshot.share_count = Math.max(Number(latestSnapshot.share_count || 0), Number(scraped.share_count || 0));
-          if (Number.isFinite(syncRes?.syncVelocity) && syncRes.syncVelocity > 0) {
-            latestSnapshot.daily_save_velocity = syncRes.syncVelocity;
-          }
-        }
       }
     } catch (err) {
-      console.warn(`[getPinDeepDossier] On-demand scrape warning for ${cleanPin}:`, err.message);
+      console.warn(`[getPinDeepDossier] Live scrape warning for ${cleanPin}:`, err?.message);
     }
   }
 
-  // 5. Build consolidated 48-parameter Dossier (Trajectory already retrieved in parallel)
-  function normalizeMeta(raw) {
-    if (!raw) return {};
-    if (typeof raw === 'string') {
-      try { return normalizeMeta(JSON.parse(raw)); } catch (_) { return {}; }
-    }
-    if (Array.isArray(raw)) {
-      let merged = {};
-      for (const item of raw) merged = { ...merged, ...normalizeMeta(item) };
-      return merged;
-    }
-    if (typeof raw === 'object') return raw;
-    return {};
-  }
+  // Canonical SSOT Dossier Retrieval
+  const universal = await fetchUniversalPinDossier({
+    hubSql: sql,
+    pinId: cleanPin,
+    keywordId: kid,
+    ctx,
+    env,
+    bypassEdgeCache: Boolean(forceRefresh)
+  });
 
-  const dMeta = normalizeMeta(displacedRow?.metadata);
-  const sMeta = normalizeMeta(shardRow?.metadata);
-  const snapMeta = normalizeMeta(latestSnapshot?.metadata);
-  const mergedMeta = { ...dMeta, ...snapMeta, ...sMeta };
+  // GUARDRAIL 5: Schema Projection Adapter
+  const creative = universal?.creative || {};
+  const creatorContext = universal?.pillar_1_creator_context || {};
+  const algoIntel = universal?.algorithmic_intelligence || {};
+  const competitorProfile = creatorContext?.competitor_profile || {};
+  const meta = creative.metadata || {};
+  const pinner = meta.pinner || {};
 
-  const title = displacedRow?.title || latestSnapshot?.title || scraped?.title || shardRow?.title || mergedMeta.seo_title || 'Untitled Pin';
-  const altText = displacedRow?.seo_alt_text || scraped?.alt_text || scraped?.seo_alt_text || shardRow?.alt_text || mergedMeta.alt_text || latestSnapshot?.metadata?.alt_text || '';
-  const description = scraped?.description || shardRow?.description || mergedMeta.description || latestSnapshot?.metadata?.description || '';
+  const traj = Array.isArray(universal?.daily_trajectory) ? universal.daily_trajectory : [];
+  const rawSnaps = Array.isArray(universal?.snapshots) && universal.snapshots.length > 0
+    ? universal.snapshots
+    : traj;
 
-  const allAnnoSet = new Set();
-  const addAnnos = (raw) => {
-    if (!raw) return;
-    const arr = Array.isArray(raw) ? raw : (typeof raw === 'string' ? [raw] : []);
-    for (const a of arr) {
-      const name = typeof a === 'string' ? a.trim() : (a?.name || a?.label || a?.display_label || a?.term || a?.title || '').trim();
-      if (name && name.length >= 2 && !/^not[\s-_]?given$/i.test(name)) allAnnoSet.add(name);
-    }
-  };
-  addAnnos(displacedRow?.annotations);
-  addAnnos(scraped?.annotations);
-  addAnnos(shardRow?.visual_annotations);
-  addAnnos(mergedMeta.visual_annotations);
-  addAnnos(snapMeta.visual_annotations);
-  const annotations = Array.from(allAnnoSet);
+  // GUARDRAIL 5: Dual Array/Object Trajectory Contract
+  const trajectory = [...rawSnaps];
+  trajectory.snapshots = rawSnaps;
 
-  const dominantColor = displacedRow?.dominant_color || scraped?.dominant_color || shardRow?.dominant_color || mergedMeta.dominant_color || '#b47732';
-  const createdAt = displacedRow?.created_at_pinterest || scraped?.created_at_pinterest || shardRow?.created_at_pinterest || mergedMeta.created_at_pinterest || mergedMeta.created_at || null;
-  const saves = Math.max(Number(scraped?.saves || 0), Number(displacedRow?.current_saves || 0), Number(latestSnapshot?.save_count || 0), Number(shardRow?.save_count || 0));
-  const repins = Math.max(Number(scraped?.repins || 0), Number(displacedRow?.current_repins || 0), Number(latestSnapshot?.repin_count || 0), Number(shardRow?.repin_count || 0));
-  const comments = Math.max(Number(scraped?.comments || 0), Number(displacedRow?.current_comments || 0), Number(latestSnapshot?.comment_count || 0));
-  const shares = Math.max(Number(scraped?.share_count || 0), Number(displacedRow?.current_shares || 0), Number(latestSnapshot?.share_count || 0));
-  const reactions = Math.max(Number(displacedRow?.current_reactions || 0), (typeof scraped?.reactions === 'object' ? Object.values(scraped.reactions).reduce((a, b) => a + Number(b || 0), 0) : 0), Number(latestSnapshot?.reaction_count || 0));
-  // [INVARIANT: DISPLACED-VELOCITY-PARITY] Preserve syncRes.syncVelocity when pin is outside active SERP (displacedRow === null)
-  const velocity = Number(displacedRow?.daily_save_velocity || syncRes?.syncVelocity || latestSnapshot?.daily_save_velocity || 0);
+  const latest = rawSnaps[0] || traj[0] || {};
+  const prev = rawSnaps[1] || traj[1] || latest;
 
-  const creatorUsername = displacedRow?.creator_username || displacedRow?.account_username || scraped?.creator_username || scraped?.pinner?.username || mergedMeta.pinner?.username || shardRow?.creator_username || '';
-  const creatorFullName = scraped?.creator_name || scraped?.pinner?.full_name || mergedMeta.pinner?.full_name || '';
-  const creatorFollowers = Number(scraped?.creator_followers || scraped?.pinner?.follower_count || mergedMeta.pinner?.follower_count || 0);
-  const creatorAvatar = scraped?.creator_avatar_url || scraped?.pinner?.image_url || mergedMeta.pinner?.image_small_url || null;
-  const creatorIsMerchant = Boolean(scraped?.creator_is_verified_merchant || scraped?.pinner?.is_verified_merchant || mergedMeta.pinner?.is_verified_merchant || false);
+  const saves24h = Math.max(0, Number(latest.save_count ?? creative.save_count ?? 0) - Number(prev.save_count ?? latest.save_count ?? 0));
+  const repins24h = Math.max(0, Number(latest.repin_count ?? creative.repin_count ?? 0) - Number(prev.repin_count ?? latest.repin_count ?? 0));
+  const shares24h = Math.max(0, Number(latest.share_count ?? creative.share_count ?? 0) - Number(prev.share_count ?? latest.share_count ?? 0));
+  const reactions24h = Math.max(0, Number(latest.reaction_count ?? 0) - Number(prev.reaction_count ?? 0));
 
-  const boardName = displacedRow?.board_name || mergedMeta.board_name || scraped?.board_name || scraped?.board?.name || shardRow?.board_name || '';
-  const boardUrl = scraped?.board_url || scraped?.board?.url || (creatorUsername && boardName ? `https://www.pinterest.com/${creatorUsername}/${boardName.toLowerCase().replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-')}/` : null);
-  const boardPinCount = Number(scraped?.board_pin_count || scraped?.board?.pin_count || mergedMeta.board_pin_count || 0);
+  const annotations = Array.isArray(creative.visual_annotations)
+    ? creative.visual_annotations.map(a => typeof a === 'string' ? a : (a?.name || a?.label || a?.display_label || a?.term || a?.title || '')).filter(Boolean)
+    : [];
 
-  const isRepin = Boolean(scraped?.is_repin || mergedMeta.is_repin || false);
-  const originPinner = scraped?.origin_pinner || mergedMeta.origin_pinner || null;
-  const isIndexedGoogle = !(scraped?.seo_noindex_reason || mergedMeta.seo_noindex_reason);
-  const isGoLinkless = Boolean(scraped?.is_go_linkless || mergedMeta.is_go_linkless || false);
-  const categoryBreadcrumbs = scraped?.category_breadcrumbs || mergedMeta.category_breadcrumbs || [];
-  const imageDimensions = scraped?.image_dimensions || mergedMeta.image_dimensions || null;
-  const candidateDossierMethods = [
-    displacedRow?.creation_method,
-    scraped?.creation_method,
-    scraped?.method,
-    latestSnapshot?.creation_method,
-    mergedMeta.creation_method,
-    mergedMeta.method,
-    shardRow?.metadata?.creation_method,
-    shardRow?.metadata?.method
-  ].filter(m => m && typeof m === 'string' && m.trim().length > 0);
-  const creationMethod = candidateDossierMethods.find(m => m.trim().toLowerCase() !== 'pinterest_platform') || candidateDossierMethods[0] || 'pinterest_platform';
+  const creatorUsername = creatorContext.creator_username || meta.creator_username || pinner.username || '';
+  const creatorName = competitorProfile.full_name || competitorProfile.name || pinner.full_name || '';
+  const creatorFollowers = Number(competitorProfile.follower_count || competitorProfile.followers || pinner.follower_count || 0);
+  const creatorAvatar = competitorProfile.avatar_url || competitorProfile.image_url || pinner.image_url || pinner.image_small_url || null;
+  const creatorIsMerchant = Boolean(competitorProfile.is_verified_merchant || pinner.is_verified_merchant);
+  const boardName = creatorContext.board_name || meta.board_name || '';
+  const boardUrl = creatorContext.board_url || (creatorUsername && boardName ? `https://www.pinterest.com/${creatorUsername}/${boardName.toLowerCase().replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-')}/` : null);
 
-  const dossierPayload = {
+  const title = creative.title || meta.seo_title || `Pin ${cleanPin}`;
+  const creationMethod = creative.creation_method || meta.creation_method || meta.method || 'pinterest_platform';
+
+  const projectedDossier = {
+    ...universal,
     success: true,
     pin_id: cleanPin,
     keyword_id: kid,
     title,
-    description,
-    domain: displacedRow?.domain || latestSnapshot?.domain || scraped?.domain || shardRow?.domain || '',
-    destination_url: displacedRow?.destination_url || latestSnapshot?.destination_url || scraped?.link || shardRow?.destination_url || '',
-    image_url: displacedRow?.image_url || latestSnapshot?.image_url || scraped?.image_url || shardRow?.image_url || '',
+    description: creative.description || meta.description || '',
+    domain: creative.domain || '',
+    destination_url: creative.destination_url || '',
+    image_url: creative.image_url || '',
     board_name: boardName,
     board_url: boardUrl,
-    board_pin_count: boardPinCount,
+    board_pin_count: Number(competitorProfile.board_pin_count || meta.board_pin_count || 0),
     creator_username: creatorUsername,
-    creator_name: creatorFullName,
+    creator_name: creatorName,
     creator_avatar_url: creatorAvatar,
     creator_followers: creatorFollowers,
     creator_is_verified_merchant: creatorIsMerchant,
-    creator_url: creatorUsername ? `https://www.pinterest.com/${creatorUsername}/` : '',
-    seo_alt_text: altText,
-    dominant_color: dominantColor,
-    created_at_pinterest: createdAt,
-    first_pulled_at: displacedRow?.first_pulled_at || latestSnapshot?.created_at || new Date().toISOString(),
-    last_archived_at: displacedRow?.last_checked_at || latestSnapshot?.created_at || new Date().toISOString(),
-    image_signature: scraped?.image_signature || mergedMeta.image_signature || shardRow?.metadata?.image_signature || null,
-    canonical_id: cleanPin,
+    creator_url: creatorContext.creator_url || (creatorUsername ? `https://www.pinterest.com/${creatorUsername}/` : ''),
+    seo_alt_text: creative.alt_text || meta.alt_text || '',
+    dominant_color: creative.dominant_color || '#888888',
+    created_at_pinterest: creative.created_at_pinterest || meta.created_at_pinterest || null,
+    first_pulled_at: creative.first_discovered_at || new Date().toISOString(),
+    last_archived_at: creative.updated_at || new Date().toISOString(),
+    image_signature: creative.image_signature || meta.image_signature || null,
+    canonical_id: creative.canonical_pin_id || cleanPin,
     creation_method: creationMethod,
-    is_repin: isRepin,
-    origin_pinner: originPinner,
-    is_indexed_google: isIndexedGoogle,
-    is_go_linkless: isGoLinkless,
-    category_breadcrumbs: categoryBreadcrumbs,
-    image_dimensions: imageDimensions,
-    annotations: Array.isArray(annotations)
-      ? annotations.map(a => typeof a === 'string' ? a : (a?.name || a?.label || a?.display_label || a?.term || a?.title || '')).filter(Boolean)
-      : [],
+    is_repin: Boolean(creative.is_repin || meta.is_repin),
+    origin_pinner: creative.origin_pinner || meta.origin_pinner || null,
+    is_indexed_google: algoIntel.is_indexed_google ?? !(meta.seo_noindex_reason),
+    is_go_linkless: Boolean(algoIntel.is_go_linkless || meta.is_go_linkless),
+    category_breadcrumbs: algoIntel.category_breadcrumbs || meta.category_breadcrumbs || [],
+    image_dimensions: algoIntel.image_dimensions || meta.image_dimensions || null,
+    annotations,
     kpis: {
-      total_saves: saves,
-      repins,
-      comments,
-      shares,
-      velocity,
-      reactions
+      total_saves: Number(creative.save_count || 0),
+      repins: Number(creative.repin_count || 0),
+      comments: Number(creative.comment_count || 0),
+      shares: Number(creative.share_count || 0),
+      velocity: Number(creative.daily_save_velocity || 0),
+      reactions: Number(latest.reaction_count || 0)
     },
     deltas: {
-      saves_24h: Number(displacedRow?.delta_saves_24h || 0),
-      repins_24h: Number(displacedRow?.delta_repins_24h || 0),
-      shares_24h: Number(displacedRow?.delta_shares_24h || 0),
-      reactions_24h: Number(displacedRow?.delta_reactions_24h || 0)
+      saves_24h: saves24h,
+      repins_24h: repins24h,
+      shares_24h: shares24h,
+      reactions_24h: reactions24h
     },
-    reactions_breakdown: (typeof scraped?.reactions === 'object' && scraped?.reactions) ? scraped.reactions : (latestSnapshot?.metadata?.reactions || {}),
-    trajectory: trajectorySnapshots
+    reactions_breakdown: meta.reactions || {},
+    trajectory
   };
 
   if (env?.PIN_ENGINE_KV && title && title !== 'Untitled Pin') {
     try {
-      await env.PIN_ENGINE_KV.put(dossierKvKey, JSON.stringify(dossierPayload), { expirationTtl: 21600 });
+      await env.PIN_ENGINE_KV.put(dossierKvKey, JSON.stringify(projectedDossier), { expirationTtl: 21600 });
     } catch (_) {}
   }
 
-  return dossierPayload;
+  return projectedDossier;
 }

@@ -1633,16 +1633,60 @@ export default {
       const store = requestContextStorage.getStore();
       if (store?.hyperdriveSql && typeof store.hyperdriveSql.end === 'function') {
         const hyperdriveClient = store.hyperdriveSql;
-        store.hyperdriveSql = null;
+
         // [INVARIANT: NON-BLOCKING-SOCKET-CLEANUP]
-        // Release Hyperdrive TCP socket asynchronously via ctx.waitUntil without blocking HTTP response stream.
-        // We do NOT await closePromise here so the HTTP response stream to the browser is flushed and
-        // finalized immediately without stalling for TCP socket close handshakes.
-        const closePromise = Promise.resolve()
-          .then(() => hyperdriveClient.end({ timeout: 3 }))
-          .catch((closeErr) => {
-            console.warn('[Hyperdrive Socket Close] Non-fatal teardown note:', redactSecrets(closeErr?.message || String(closeErr)));
-          });
+        // [INVARIANT: SAFE-DRAIN-BEFORE-SOCKET-CLOSE]
+        // Drain in-flight background promises iteratively with a 26-second ceiling
+        // before safely closing the Hyperdrive TCP socket. Offloaded completely to ctx.waitUntil
+        // so the HTTP response stream is returned immediately to the client without stalling.
+        const closePromise = (async () => {
+          let drainTimerId = null;
+          try {
+            const deadlineMs = Date.now() + 26000;
+            let processedCount = 0;
+
+            while (
+              Array.isArray(store.bgPromises) &&
+              processedCount < store.bgPromises.length &&
+              Date.now() < deadlineMs
+            ) {
+              const batch = store.bgPromises.slice(processedCount);
+              processedCount = store.bgPromises.length;
+              const remainingMs = Math.max(50, deadlineMs - Date.now());
+
+              const timeoutGuard = new Promise((resolve) => {
+                drainTimerId = setTimeout(resolve, remainingMs);
+                if (drainTimerId && typeof drainTimerId.unref === 'function') drainTimerId.unref();
+              });
+
+              try {
+                await Promise.race([
+                  Promise.allSettled(batch),
+                  timeoutGuard
+                ]);
+              } finally {
+                if (drainTimerId !== null) {
+                  clearTimeout(drainTimerId);
+                  drainTimerId = null;
+                }
+              }
+            }
+          } catch (drainErr) {
+            console.warn('[Hyperdrive Drain] Background tasks drain warning:', redactSecrets(drainErr?.message || String(drainErr)));
+          } finally {
+            if (drainTimerId !== null) {
+              clearTimeout(drainTimerId);
+              drainTimerId = null;
+            }
+            store.hyperdriveSql = null;
+            try {
+              await hyperdriveClient.end({ timeout: 3 });
+            } catch (closeErr) {
+              console.warn('[Hyperdrive Socket Close] Non-fatal teardown note:', redactSecrets(closeErr?.message || String(closeErr)));
+            }
+          }
+        })();
+
         if (ctx && typeof ctx.waitUntil === 'function') {
           ctx.waitUntil(closePromise);
         }

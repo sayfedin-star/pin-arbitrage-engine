@@ -217,202 +217,34 @@ export async function syncProjectCompetitorStats(sql, targetSql, projectId) {
 }
 
 /**
- * Synchronize a single competitor and its boards to its assigned fleet shard (or all shards if requested)
- * Hardened with:
- * - Single pa_pins pre-fetch (eliminates 99 redundant queries to Hub)
- * - Targeted Shard Replication: routes strictly to getShardNumberForEntity(username, 99) by default (1 shard connection)
- * - Safe fallback to replicateToAll when explicitly configured
+ * Synchronize a competitor across fleet.
+ * [INVARIANT: CENTRAL-HUB-CREATOR-AUTHORITY]
+ * Competitor profiles and boards are strictly maintained on Central Hub.
+ * Shards never store competitor profiles or boards; zero shard fan-out.
  */
 export async function syncCompetitorAcrossFleet(hubSql, competitorUsernameOrId, options = {}) {
   if (!competitorUsernameOrId) return { ok: false, error: 'competitor identifier required' };
   try {
     const cleanUser = String(competitorUsernameOrId).replace(/^@+/, '').trim().toLowerCase();
     const [p] = await hubSql`
-      SELECT * FROM competitor_profiles 
+      SELECT id, username FROM competitor_profiles 
       WHERE LOWER(username) = ${cleanUser} OR id::text = ${String(competitorUsernameOrId)} 
       LIMIT 1;
     `;
     if (!p) return { ok: false, error: 'Competitor profile not found on Hub' };
 
-    const boards = await hubSql`
-      SELECT * FROM competitor_boards WHERE competitor_id = ${p.id};
-    `;
-
-    // [INVARIANT: PA-PINS-CENTRAL-HUB-ONLY] pa_pins is exclusively maintained on Central Hub; zero shard replication.
-
-    const tagsArray = Array.isArray(p.tags) ? p.tags : [];
-
-    // 2. Resolve target shards: Targeted Shard Replication (Default) vs Fleet Replicate-All
-    const replicateToAll = options.replicateToAll === true;
-    let targetShards = [];
-
-    if (replicateToAll) {
-      targetShards = await hubSql`
-        SELECT project_id, project_name, database_url
-        FROM neon_projects_registry
-        WHERE NOT is_hub AND status = 'active' AND database_url IS NOT NULL;
-      `;
-    } else {
-      const assignedShardNum = options.targetShardId
-        ? parseInt(options.targetShardId, 10)
-        : getShardNumberForEntity(p.username, 99);
-      const shardName = `pin-arbitrage-shard-${String(assignedShardNum).padStart(2, '0')}`;
-      
-      targetShards = await hubSql`
-        SELECT project_id, project_name, database_url
-        FROM neon_projects_registry
-        WHERE project_name = ${shardName} AND status = 'active' AND database_url IS NOT NULL
-        LIMIT 1;
-      `;
-
-      if (targetShards.length === 0) {
-        targetShards = await hubSql`
-          SELECT project_id, project_name, database_url
-          FROM neon_projects_registry
-          WHERE assigned_shards @> ARRAY[${assignedShardNum}]::int[] AND status = 'active' AND database_url IS NOT NULL
-          LIMIT 1;
-        `;
-      }
-    }
-
-    if (targetShards.length === 0) {
-      return { ok: true, username: p.username, synced_shards: 0, boards_count: boards.length, message: 'No target shard configured' };
-    }
-
-    let syncedShards = 0;
-
-    const syncToShard = async (shard) => {
-      try {
-        const sSql = neon(enforceNeonPoolerUrl(shard.database_url));
-        const [insertedP] = await sSql`
-          INSERT INTO competitor_profiles (
-            username, display_name, avatar_url, bio, website_url,
-            account_type, monthly_reach, reach_delta_7d, profile_views,
-            views_delta_7d, total_pins, total_boards, follower_count,
-            following_count, activity_status, is_active, tags,
-            metadata, last_harvest_metadata, last_synced_at, updated_at
-          ) VALUES (
-            ${p.username}, ${p.display_name}, ${p.avatar_url}, ${p.bio}, ${p.website_url},
-            ${p.account_type || 'competitor'}, ${p.monthly_reach || 0}, ${p.reach_delta_7d || 0},
-            ${p.profile_views || 0}, ${p.views_delta_7d || 0}, ${p.total_pins || 0},
-            ${p.total_boards || 0}, ${p.follower_count || 0}, ${p.following_count || 0},
-            ${p.activity_status || 'active'}, ${p.is_active},
-            ${tagsArray},
-            ${JSON.stringify(p.metadata || {})}::jsonb,
-            ${JSON.stringify(p.last_harvest_metadata || {})}::jsonb,
-            ${p.last_synced_at}, NOW()
-          )
-          ON CONFLICT (username) DO UPDATE SET
-            display_name = EXCLUDED.display_name,
-            avatar_url = COALESCE(EXCLUDED.avatar_url, competitor_profiles.avatar_url),
-            bio = COALESCE(EXCLUDED.bio, competitor_profiles.bio),
-            website_url = COALESCE(EXCLUDED.website_url, competitor_profiles.website_url),
-            monthly_reach = CASE WHEN EXCLUDED.monthly_reach > 0 THEN EXCLUDED.monthly_reach ELSE competitor_profiles.monthly_reach END,
-            reach_delta_7d = CASE WHEN EXCLUDED.monthly_reach > 0 THEN EXCLUDED.reach_delta_7d ELSE competitor_profiles.reach_delta_7d END,
-            profile_views = CASE WHEN EXCLUDED.profile_views > 0 THEN EXCLUDED.profile_views ELSE competitor_profiles.profile_views END,
-            views_delta_7d = CASE WHEN EXCLUDED.profile_views > 0 THEN EXCLUDED.views_delta_7d ELSE competitor_profiles.views_delta_7d END,
-            total_pins = EXCLUDED.total_pins,
-            total_boards = EXCLUDED.total_boards,
-            follower_count = EXCLUDED.follower_count,
-            following_count = EXCLUDED.following_count,
-            activity_status = EXCLUDED.activity_status,
-            is_active = EXCLUDED.is_active,
-            tags = EXCLUDED.tags,
-            metadata = EXCLUDED.metadata,
-            last_harvest_metadata = EXCLUDED.last_harvest_metadata,
-            last_synced_at = EXCLUDED.last_synced_at,
-            updated_at = NOW()
-          RETURNING id;
-        `;
-
-        const targetCompId = insertedP?.id;
-        if (targetCompId && boards.length > 0) {
-          const boardRecords = boards.map(b => ({
-            competitor_id: targetCompId,
-            board_id: String(b.board_id),
-            name: b.name || 'Untitled Board',
-            url: b.url || '',
-            pin_count: Number(b.pin_count || 0),
-            follower_count: Number(b.follower_count || 0),
-            last_pinned_at: b.last_pinned_at ? new Date(b.last_pinned_at).toISOString() : null,
-            metadata: b.metadata || {}
-          }));
-
-          await sSql`
-            INSERT INTO competitor_boards (
-              competitor_id, board_id, name, url, pin_count, follower_count,
-              last_pinned_at, metadata, updated_at
-            )
-            SELECT
-              x.competitor_id,
-              x.board_id,
-              x.name,
-              x.url,
-              x.pin_count,
-              x.follower_count,
-              x.last_pinned_at::timestamptz,
-              x.metadata,
-              NOW()
-            FROM jsonb_to_recordset(${JSON.stringify(boardRecords)}::jsonb) AS x(
-              competitor_id int,
-              board_id varchar,
-              name text,
-              url text,
-              pin_count int,
-              follower_count int,
-              last_pinned_at text,
-              metadata jsonb
-            )
-            ON CONFLICT (competitor_id, board_id) DO UPDATE SET
-              name = EXCLUDED.name,
-              url = EXCLUDED.url,
-              pin_count = EXCLUDED.pin_count,
-              follower_count = EXCLUDED.follower_count,
-              last_pinned_at = EXCLUDED.last_pinned_at,
-              metadata = EXCLUDED.metadata,
-              updated_at = NOW();
-          `;
-
-          // Purge any synthetic duplicate boards on shard
-          await sSql`
-            DELETE FROM competitor_boards
-            WHERE competitor_id = ${targetCompId}
-              AND board_id LIKE 'cb-%'
-              AND EXISTS (
-                SELECT 1 FROM competitor_boards auth
-                WHERE auth.competitor_id = competitor_boards.competitor_id
-                  AND auth.board_id NOT LIKE 'cb-%'
-                  AND LOWER(TRIM(auth.name)) = LOWER(TRIM(competitor_boards.name))
-              );
-          `.catch(() => {});
-        }
-
-        // [INVARIANT: PA-PINS-CENTRAL-HUB-ONLY] pa_pins is maintained exclusively on Central Hub; zero shard replication.
-
-        syncedShards++;
-      } catch (sErr) {
-        console.warn(`[syncCompetitorAcrossFleet] Warning on shard ${shard.project_name}:`, sErr.message);
-      }
-    };
-
-    // Run across target shards with bounded concurrency
-    const BATCH = 5;
-    for (let i = 0; i < targetShards.length; i += BATCH) {
-      const chunk = targetShards.slice(i, i + BATCH);
-      await Promise.allSettled(chunk.map(syncToShard));
-    }
-
     return {
       ok: true,
       username: p.username,
-      synced_shards: syncedShards,
-      boards_count: boards.length,
-      mode: replicateToAll ? 'replicate_all' : 'targeted_shard'
+      synced_shards: 0,
+      boards_count: 0,
+      message: 'Competitors managed exclusively on Central Hub'
     };
   } catch (err) {
     return { ok: false, error: err.message };
   }
 }
+
 
 /**
  * Full fleet synchronization: synchronizes all competitor profiles, boards,
