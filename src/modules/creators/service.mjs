@@ -1014,7 +1014,18 @@ export async function syncCompetitorPins(sql, competitorId, username, { mode = '
 
   if (!cleanUsername) throw new Error('Username is required');
 
-  const rules = await getQualificationRules(sql);
+  const globalRules = await getQualificationRules(sql);
+  let compRules = null;
+  if (numericId && !isNaN(numericId)) {
+    try {
+      const cr = await getCompetitorRules(sql, numericId);
+      compRules = cr?.rules;
+    } catch (_) {}
+  }
+  const rules = {
+    ...globalRules,
+    ...(compRules || {})
+  };
   if (rules.master_ingest_enabled === false) {
     return { ok: false, error: 'Master Ingest is currently disabled in Pin Qualification Rules.' };
   }
@@ -1188,7 +1199,18 @@ export async function syncCompetitorBoardPins(sql, competitorId, username, board
     boardUrl = `/${cleanUsername}/${encodeURIComponent(boardName.toLowerCase().replace(/\s+/g, '-'))}/`;
   }
 
-  const rules = await getQualificationRules(sql);
+  const globalRules = await getQualificationRules(sql);
+  let compRules = null;
+  if (numericId && !isNaN(numericId)) {
+    try {
+      const cr = await getCompetitorRules(sql, numericId);
+      compRules = cr?.rules;
+    } catch (_) {}
+  }
+  const rules = {
+    ...globalRules,
+    ...(compRules || {})
+  };
   const formattedCookie = formatPinterestCookie(cookie);
 
   let currentBookmark = null;
@@ -2524,6 +2546,15 @@ export async function getTopDestinationUrls(sql, competitorId, {
 }
 
 /**
+ * Pure numeric rule parser that preserves valid 0 values and guards against NaN.
+ */
+export function parseRuleNumber(val, fallback, min = 0) {
+  if (val === null || val === undefined || val === '') return fallback;
+  const n = Number(val);
+  return Number.isFinite(n) ? Math.max(min, n) : fallback;
+}
+
+/**
  * Get qualification rules for a specific competitor.
  * Returns custom rules stored in competitor_profiles.metadata->'qualification_rules' or system defaults.
  */
@@ -2534,6 +2565,7 @@ export const STANDARD_QUALIFICATION_DEFAULTS = {
   tier2_max_age_days: 60,
   tier2_min_shares: 15,
   tier3_fresh_days: 14,
+  tier3_max_age_days: 14,
   tier3_min_saves: 25,
   articles_only: true,
   auto_pipeline: true
@@ -2569,14 +2601,16 @@ export async function saveCompetitorRules(sql, competitorId, newRules = {}) {
   const numericId = await resolveNumericCompetitorId(sql, competitorId);
   if (!numericId || isNaN(numericId)) throw new Error('Valid competitorId is required.');
 
+  const freshDaysVal = parseRuleNumber(newRules.tier3_fresh_days ?? newRules.tier3_max_age_days, 14, 1);
   const sanitizedRules = {
-    tier1_min_saves: Math.max(0, Number(newRules.tier1_min_saves) || 100),
-    tier2_min_repins: Math.max(0, Number(newRules.tier2_min_repins) || 100),
-    tier2_min_velocity: Math.max(0, Number(newRules.tier2_min_velocity) || 3.5),
-    tier2_max_age_days: Math.max(1, Number(newRules.tier2_max_age_days) || 60),
-    tier2_min_shares: Math.max(0, Number(newRules.tier2_min_shares) || 15),
-    tier3_fresh_days: Math.max(1, Number(newRules.tier3_fresh_days) || 14),
-    tier3_min_saves: Math.max(0, Number(newRules.tier3_min_saves) || 25),
+    tier1_min_saves: parseRuleNumber(newRules.tier1_min_saves, 100, 0),
+    tier2_min_repins: parseRuleNumber(newRules.tier2_min_repins, 100, 0),
+    tier2_min_velocity: parseRuleNumber(newRules.tier2_min_velocity, 3.5, 0),
+    tier2_max_age_days: parseRuleNumber(newRules.tier2_max_age_days, 60, 1),
+    tier2_min_shares: parseRuleNumber(newRules.tier2_min_shares, 15, 0),
+    tier3_fresh_days: freshDaysVal,
+    tier3_max_age_days: freshDaysVal,
+    tier3_min_saves: parseRuleNumber(newRules.tier3_min_saves, 25, 0),
     articles_only: Boolean(newRules.articles_only ?? true),
     auto_pipeline: Boolean(newRules.auto_pipeline ?? true)
   };
@@ -2603,12 +2637,12 @@ export async function reEvaluateCompetitorPins(sql, competitorId) {
 
   const { rules, username } = await getCompetitorRules(sql, numericId);
 
-  const minSaves = Number(rules.tier1_min_saves) || 100;
-  const minRepins = Number(rules.tier2_min_repins) || 100;
-  const minVelocity = Number(rules.tier2_min_velocity) || 3.5;
-  const maxAgeDays = Number(rules.tier2_max_age_days) || 60;
-  const freshDays = Number(rules.tier3_fresh_days) || 14;
-  const freshMinSaves = Number(rules.tier3_min_saves) || 25;
+  const minSaves = parseRuleNumber(rules.tier1_min_saves, 100, 0);
+  const minRepins = parseRuleNumber(rules.tier2_min_repins, 100, 0);
+  const minVelocity = parseRuleNumber(rules.tier2_min_velocity, 3.5, 0);
+  const maxAgeDays = parseRuleNumber(rules.tier2_max_age_days, 60, 1);
+  const freshDays = parseRuleNumber(rules.tier3_fresh_days ?? rules.tier3_max_age_days, 14, 1);
+  const freshMinSaves = parseRuleNumber(rules.tier3_min_saves, 25, 0);
   const articlesOnly = rules.articles_only ?? true;
 
   // Fetch all pins from competitor_pins meeting the 3-tier rules
@@ -2702,11 +2736,36 @@ export async function reEvaluateCompetitorPins(sql, competitorId) {
     }
   }
 
+  // Atomic demotion pass: Prune pins belonging to creator that no longer satisfy tightened rules
+  const qualifiedIds = qualifiedPins.map(p => String(p.pin_id)).filter(Boolean);
+  let prunedCount = 0;
+  if (username) {
+    const cleanUser = username.replace(/^@+/, '').trim().toLowerCase();
+    try {
+      const deletedRows = qualifiedIds.length > 0
+        ? await sql`
+            DELETE FROM pa_pins
+            WHERE LOWER(REPLACE(account_username, '@', '')) = ${cleanUser}
+              AND NOT (pin_id = ANY(${qualifiedIds}))
+            RETURNING pin_id;
+          `
+        : await sql`
+            DELETE FROM pa_pins
+            WHERE LOWER(REPLACE(account_username, '@', '')) = ${cleanUser}
+            RETURNING pin_id;
+          `;
+      prunedCount = deletedRows.length;
+    } catch (pruneErr) {
+      console.warn(`[reEvaluateCompetitorPins] Demotion prune warning for @${cleanUser}:`, pruneErr.message);
+    }
+  }
+
   return {
     ok: true,
     competitor_id: numericId,
     username,
     qualified_count: upsertedCount,
+    pruned_count: prunedCount,
     rules
   };
 }
@@ -2776,12 +2835,12 @@ export async function reconcileQualifiedCatalogPins(sql, competitorIdOrUsername 
     rules = { ...STANDARD_QUALIFICATION_DEFAULTS };
   }
 
-  const minSaves = Number(rules.tier1_min_saves ?? rules.min_saves) || 100;
-  const minRepins = Number(rules.tier2_min_repins ?? rules.min_repins) || 100;
-  const minVelocity = Number(rules.tier2_min_velocity) || 3.5;
-  const maxAgeDays = Number(rules.tier2_max_age_days) || 60;
-  const freshDays = Number(rules.tier3_fresh_days ?? rules.fresh_days) || 14;
-  const freshMinSaves = Number(rules.tier3_min_saves ?? rules.fresh_min_saves) || 25;
+  const minSaves = parseRuleNumber(rules.tier1_min_saves ?? rules.min_saves, 100, 0);
+  const minRepins = parseRuleNumber(rules.tier2_min_repins ?? rules.min_repins, 100, 0);
+  const minVelocity = parseRuleNumber(rules.tier2_min_velocity, 3.5, 0);
+  const maxAgeDays = parseRuleNumber(rules.tier2_max_age_days, 60, 1);
+  const freshDays = parseRuleNumber(rules.tier3_fresh_days ?? rules.fresh_days ?? rules.tier3_max_age_days, 14, 1);
+  const freshMinSaves = parseRuleNumber(rules.tier3_min_saves ?? rules.fresh_min_saves, 25, 0);
   const articlesOnly = rules.articles_only ?? true;
 
   const runReconcileQuery = async (includeDeletedCheck) => {
@@ -3804,7 +3863,8 @@ export function qualifyPin(pin, rules = DEFAULT_QUALIFICATION_RULES) {
 
   // Tier 3: Fresh High-Velocity Breakouts (Age & Saves)
   // Pin MUST have a verified non-negative age <= tier3_max_age_days
-  if (!isNaN(ageDays) && ageDays !== null && ageDays >= 0 && ageDays <= Number(rules.tier3_max_age_days ?? 14) && saves >= Number(rules.tier3_min_saves ?? 25)) {
+  const maxFreshDays = Number(rules.tier3_fresh_days ?? rules.tier3_max_age_days ?? 14);
+  if (!isNaN(ageDays) && ageDays !== null && ageDays >= 0 && ageDays <= maxFreshDays && saves >= Number(rules.tier3_min_saves ?? 25)) {
     return { qualified: true, matchedTier: 'tier3' };
   }
 

@@ -18,8 +18,8 @@ trigger: always_on
 | **Pin SERP History (`pin_serp_positions`)** | `getPinShardId(pinId, 99)` | `src/modules/sharding/fleet-router.mjs` | Neon Storage Shard `(crc32(pin_id) % 99) + 1` |
 | **Active SERP (`keyword_serp_current`)** | `keyword_id` direct index | `src/modules/keywords/service.mjs` | Central Neon Hub |
 | **Displaced Index (`keyword_displaced_index`)** | `(keyword_id, pin_id)` composite index | `src/modules/keywords/service.mjs` | Central Neon Hub (Numeric + Domain only) |
-| **Tracked Competitors (`competitor_profiles`)** | `id` or `username` natural key | `src/modules/competitors/service.mjs` | Central Neon Hub |
-| **PinArchive Master (`pa_pins`)** | `pin_id` natural key | `src/modules/pinarchive/service.mjs` | Central Neon Hub (Current state only) |
+| **Tracked Creators (`competitor_profiles`)** | `id` or `username` natural key | `src/modules/creators/service.mjs` | Central Neon Hub |
+| **Creator Qualified Winners (`pa_pins`)** | `pin_id` natural key | `src/modules/creators/service.mjs` | Central Neon Hub (Physical table, Qualified Pins only) |
 
 ---
 
@@ -77,6 +77,14 @@ trigger: always_on
   }
   ```
 
+### E. Creator Hub Operations & Synchronization
+* **Quick Pulse (Profile-Level Sync ~3s):** `quickPulseCreator({ sql, competitorId, env, ctx })`
+  - Fetches live creator profile metadata, followers, Impressions, and Total audience without crawling pins.
+* **Deep Harvest (Full Catalog Sweep ~30s):** `deepHarvestCreator({ sql, competitorId, env, ctx, options })`
+  - Uses in-process worker pool (`p-limit(4)`) to crawl feed + profile pins, upserts into `competitor_pins`, evaluates qualification, and executes one-way promotion to `pa_pins`.
+* **One-Way Qualified Pin Promotion:** `reconcileQualifiedCatalogPins({ sql, competitorId, options })`
+  - Single authority evaluating `competitor_pins` against `competitor_profiles.metadata->'qualification_rules'` and upserting into `pa_pins`.
+
 ---
 
 ## 3. Disallowed Anti-Patterns & Prohibitions
@@ -87,3 +95,5 @@ trigger: always_on
 4. ❌ **Raw Promise Array in Hyperdrive Transactions:** `sql.transaction([sql`...`, sql`...`])`.
 5. ❌ **Delete / Update on Views:** `DELETE FROM pins_daily_snapshots` (violates migration 033 View DDL).
 6. ❌ **BigInt Double Truncation:** `Number(snapshotId)` for 60-bit snowflake IDs (exceeds 53-bit `Number.MAX_SAFE_INTEGER`).
+7. ❌ **The View Upsert Ban:** Converting physical tables that receive `INSERT ... ON CONFLICT` (`pa_pins`, `competitor_pins`, `keyword_serp_current`) into PostgreSQL `VIEW`s. PostgreSQL rejects conflict arbitration on views.
+8. ❌ **Bi-Directional Pin Hydration:** Re-hydrating `competitor_pins` from `pa_pins` (`autoHydrateCompetitorPinsFromArchive`). Promotion is strictly one-way (`competitor_pins` ➡️ `pa_pins`).

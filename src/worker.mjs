@@ -14,7 +14,7 @@ import { neon } from '@neondatabase/serverless';
 import postgres from 'postgres';
 import { handlePagesRoutes } from './routes/pages.mjs';
 import { handleFleetRoutes } from './routes/fleet.mjs';
-import { handleCreatorsRoutes, handlePinarchiveRoutes, handleCompetitorsRoutes } from './routes/creators.mjs';
+import { handleCreatorsRoutes } from './routes/creators.mjs';
 import { handleDomainsRoutes } from './routes/domains.mjs';
 import { isClusterRoute, handleClusterRoutes } from './routes/cluster.mjs';
 import { enforceNeonPoolerUrl, getFastEdgeDossier, getOrCreateShardSqlClient, getCachedShardSqlClient, setCachedShardSqlClient, shardSqlClients, wrapShardNeonTransaction, isValidShardDsn, normalizeAssignedShards } from './modules/sharding/fleet-router.mjs';
@@ -1586,23 +1586,6 @@ export default {
         if (fleetRes) return fleetRes;
       }
 
-      // 18. PinArchive & Topic Clusters Sub-Router
-      if (pathname.startsWith('/api/pinarchive')) {
-        const pinarchiveRes = await handlePinarchiveRoutes({
-          pathname,
-          method,
-          request,
-          searchParams,
-          targetSql,
-          reqProjectId,
-          jsonResponse,
-          clampLimit,
-          buildCanonicalCacheKey,
-          getCachedOrFetch,
-          invalidateEdgeCache
-        });
-        if (pinarchiveRes) return pinarchiveRes;
-      }
 
       // 19. Domain Intelligence & SERP Monopoly Sub-Router
       if (pathname.startsWith('/api/domains')) {

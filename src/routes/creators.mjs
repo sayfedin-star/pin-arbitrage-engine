@@ -101,6 +101,8 @@ export async function handleCreatorsRoutes(routeCtx) {
         safeWaitUntil?.(ctx, tripPinterestCircuitBreaker(env, `Rate limit in quick-pulse: ${err.message}`, 900), 'tripPinterestCircuitBreaker');
       }
       return jsonResponse({ success: false, error: err.message }, 500);
+    } finally {
+      invalidateCreatorsCache();
     }
   }
 
@@ -118,6 +120,8 @@ export async function handleCreatorsRoutes(routeCtx) {
         safeWaitUntil?.(ctx, tripPinterestCircuitBreaker(env, `Rate limit in deep-harvest: ${err.message}`, 900), 'tripPinterestCircuitBreaker');
       }
       return jsonResponse({ success: false, error: err.message }, 500);
+    } finally {
+      invalidateCreatorsCache();
     }
   }
 
@@ -371,8 +375,8 @@ export async function handleCreatorsRoutes(routeCtx) {
     }
   }
 
-  // POST /api/competitors/rules
-  if (method === 'POST' && pathname === '/api/competitors/rules') {
+  // POST /api/competitors/rules and /api/creators/rules
+  if (method === 'POST' && (pathname === '/api/competitors/rules' || pathname === '/api/creators/rules')) {
     const body = await request.json().catch(() => ({}));
     const id = body.competitor_id || body.id;
     if (!id) return jsonResponse({ error: 'competitor_id is required' }, 400);
@@ -381,11 +385,13 @@ export async function handleCreatorsRoutes(routeCtx) {
       return jsonResponse({ success: true, ...result });
     } catch (err) {
       return jsonResponse({ success: false, error: err.message }, 500);
+    } finally {
+      invalidateCreatorsCache();
     }
   }
 
-  // POST /api/competitors/re-evaluate
-  if (method === 'POST' && pathname === '/api/competitors/re-evaluate') {
+  // POST /api/competitors/re-evaluate and /api/creators/re-evaluate
+  if (method === 'POST' && (pathname === '/api/competitors/re-evaluate' || pathname === '/api/creators/re-evaluate')) {
     const body = await request.json().catch(() => ({}));
     const id = body.competitor_id || body.id;
     if (!id) return jsonResponse({ error: 'competitor_id is required' }, 400);
@@ -394,15 +400,19 @@ export async function handleCreatorsRoutes(routeCtx) {
       return jsonResponse({ success: true, ...result });
     } catch (err) {
       return jsonResponse({ success: false, error: err.message }, 500);
+    } finally {
+      invalidateCreatorsCache();
     }
   }
 
-  // POST /api/competitors/dispatch-crawl
-  if (method === 'POST' && pathname === '/api/competitors/dispatch-crawl') {
+  // POST /api/competitors/dispatch-crawl and /api/creators/dispatch-crawl
+  if (method === 'POST' && (pathname === '/api/competitors/dispatch-crawl' || pathname === '/api/creators/dispatch-crawl')) {
     const body = await request.json().catch(() => ({}));
-    const username = (body.username || body.target_account || '').replace(/^@+/, '').trim();
-    if (!username) return jsonResponse({ error: 'username is required' }, 400);
-    const ghToken = env.GITHUB_TOKEN || env.GH_TOKEN || env.GH_REFRESH_TOKEN;
+    const rawUsernames = Array.isArray(body.usernames) ? body.usernames : [body.username || body.target_account || ''];
+    const usernames = rawUsernames.map(u => String(u || '').replace(/^@+/, '').trim()).filter(Boolean);
+    if (!usernames.length) return jsonResponse({ error: 'username or target_account is required' }, 400);
+
+    const ghToken = env?.GITHUB_TOKEN || env?.GH_TOKEN || env?.GH_REFRESH_TOKEN || (typeof process !== 'undefined' ? (process.env?.GITHUB_TOKEN || process.env?.GH_TOKEN) : null);
     if (!ghToken) {
       return jsonResponse({
         success: false,
@@ -412,39 +422,61 @@ export async function handleCreatorsRoutes(routeCtx) {
     const cleanToken = String(ghToken).replace(/^(token|Bearer)\s+/i, '').replace(/^["']|["']$/g, '').trim();
     const authHeader = cleanToken.startsWith('ghp_') ? `token ${cleanToken}` : `Bearer ${cleanToken}`;
     const repo = 'sayfedin-star/pin-arbitrage-engine';
-    const res = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/crawler-pipeline.yml/dispatches`, {
-      method: 'POST',
-      headers: {
-        'User-Agent': 'Cloudflare-Worker-Pin-Arbitrage-Engine',
-        'Accept': 'application/vnd.github.v3+json',
-        'Authorization': authHeader,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        ref: 'main',
-        inputs: {
-          target_account: username,
-          target_boards: String(body.target_boards || body.boards || '').trim(),
-          crawl_mode: body.crawl_mode || 'sharded_boards',
-          max_pages: String(body.max_pages || '1000'),
-          personal_boards_only: String(body.personal_boards_only !== false)
-        }
-      })
-    });
 
-    if (res.ok || res.status === 204) {
-      if (res?.body && !res.bodyUsed) await res.body.cancel().catch(() => {});
-      return jsonResponse({
-        success: true,
-        target_account: username,
-        target_boards: body.target_boards || '',
-        crawl_mode: body.crawl_mode || 'discovery',
-        message: `Two-Stage Pipeline (Discovery + 20-Shard Parallel Matrix) dispatched successfully on GitHub Actions for @${username}!${body.target_boards ? ` (Target Boards: ${body.target_boards})` : ''}`
-      });
-    } else {
-      const errText = await res.text();
-      return jsonResponse({ success: false, error: `GitHub API error (${res.status}): ${errText}` }, res.status);
+    const dispatchMode = body.crawl_mode || 'discovery';
+    const maxPages = String(body.max_pages || (dispatchMode === 'refresh' ? '10' : dispatchMode === 'discovery' ? '3' : '500'));
+    const personalOnly = String(body.personal_boards_only !== false);
+
+    const results = [];
+    for (const targetUser of usernames) {
+      try {
+        const res = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/crawler-pipeline.yml/dispatches`, {
+          method: 'POST',
+          headers: {
+            'User-Agent': 'Cloudflare-Worker-Pin-Arbitrage-Engine',
+            'Accept': 'application/vnd.github.v3+json',
+            'Authorization': authHeader,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            ref: 'main',
+            inputs: {
+              target_account: targetUser,
+              target_boards: String(body.target_boards || body.boards || '').trim(),
+              crawl_mode: dispatchMode,
+              max_pages: maxPages,
+              personal_boards_only: personalOnly
+            }
+          })
+        });
+        if (res.ok || res.status === 204) {
+          if (res?.body && !res.bodyUsed) await res.body.cancel().catch(() => {});
+          results.push({ username: targetUser, ok: true });
+        } else {
+          const errText = await res.text().catch(() => '');
+          results.push({ username: targetUser, ok: false, error: `GitHub API error (${res.status}): ${errText}` });
+        }
+      } catch (dErr) {
+        results.push({ username: targetUser, ok: false, error: dErr.message });
+      }
     }
+
+    const successCount = results.filter(r => r.ok).length;
+    const modeLabel = dispatchMode === 'refresh'
+      ? 'Winning Pins Refresh'
+      : dispatchMode === 'discovery'
+        ? `Recent Pins Discovery (${maxPages} pages)`
+        : `Full Catalog & Boards (${maxPages} pages)`;
+
+    return jsonResponse({
+      success: successCount > 0,
+      dispatched_count: successCount,
+      total: usernames.length,
+      crawl_mode: dispatchMode,
+      max_pages: maxPages,
+      message: `${modeLabel} dispatched successfully on GitHub Actions for ${successCount} creator(s)!`,
+      results
+    }, successCount > 0 ? 200 : 500);
   }
 
   // GET /api/competitors/related-pins/seeds

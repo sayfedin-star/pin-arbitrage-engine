@@ -733,26 +733,54 @@ export async function runOffloadAndCompact(hubSql, { forceCompact = FORCE_COMPAC
     const paCount = paCountRow?.count || 0;
     console.log(`    Auditing pa_pin_metrics: found ${paCount} legacy snapshot rows on Central Hub.`);
     if (paCount > 0) {
-      console.log('    Verifying legacy snapshot rows against 99-Shard pins_daily_metrics...');
-      const sampleSnaps = await hubSql`
-        SELECT pin_id, snapshot_date, saves, repins, comments, velocity
+      console.log('    Offloading legacy pa_pin_metrics rows to 99-Shard pins_daily_metrics before truncation...');
+      const legacyMetrics = await hubSql`
+        SELECT
+          pin_id,
+          (recorded_at AT TIME ZONE 'UTC')::date AS snapshot_date,
+          MAX(COALESCE(saves, 0))::bigint AS save_count,
+          MAX(COALESCE(repins, 0))::int AS repin_count,
+          MAX(COALESCE(comments, 0))::int AS comment_count
         FROM pa_pin_metrics
-        LIMIT 50;
+        WHERE pin_id IS NOT NULL AND pin_id <> ''
+        GROUP BY pin_id, (recorded_at AT TIME ZONE 'UTC')::date
+        ORDER BY pin_id ASC, snapshot_date ASC;
       `;
-      let verifiedShards = 0;
-      for (const snap of sampleSnaps) {
+      const paShardGroups = batchGroupByShard(legacyMetrics, 99);
+      let failedPaShards = 0;
+      for (const [shardId, rows] of paShardGroups.entries()) {
         try {
-          const shardId = getPinShardId(snap.pin_id, 99);
-          const shardSql = await resolveShardConnection({ hubSql, shardId });
-          const [shardRow] = await shardSql`
-            SELECT 1 FROM pins_daily_metrics
-            WHERE pin_id = ${snap.pin_id} AND snapshot_date = ${snap.snapshot_date}
-            LIMIT 1;
-          `;
-          if (shardRow) verifiedShards++;
-        } catch (_) {}
+          await executeShardWriteWithRetry(async () => {
+            const shardSql = await resolveShardConnection({ hubSql, shardId });
+            const payload = JSON.stringify(rows.map(r => ({
+              pin_id: String(r.pin_id),
+              snapshot_date: r.snapshot_date instanceof Date ? r.snapshot_date.toISOString().slice(0, 10) : String(r.snapshot_date).slice(0, 10),
+              save_count: Number(r.save_count || 0),
+              repin_count: Number(r.repin_count || 0),
+              comment_count: Number(r.comment_count || 0)
+            })));
+            await shardSql`
+              INSERT INTO pins_daily_metrics (pin_id, snapshot_date, save_count, repin_count, comment_count, updated_at)
+              SELECT u.pin_id, u.snapshot_date::date, u.save_count, u.repin_count, u.comment_count, NOW()
+              FROM jsonb_to_recordset(${payload}::jsonb) AS u(
+                pin_id text, snapshot_date text, save_count bigint, repin_count int, comment_count int
+              )
+              ORDER BY u.pin_id ASC, u.snapshot_date::date ASC
+              ON CONFLICT (pin_id, snapshot_date) DO UPDATE SET
+                save_count = GREATEST(pins_daily_metrics.save_count, EXCLUDED.save_count),
+                repin_count = GREATEST(pins_daily_metrics.repin_count, EXCLUDED.repin_count),
+                comment_count = GREATEST(pins_daily_metrics.comment_count, EXCLUDED.comment_count),
+                updated_at = NOW();
+            `;
+          }, shardId);
+        } catch (err) {
+          failedPaShards++;
+          console.warn(`    ⚠️ Failed offloading pa_pin_metrics to shard #${shardId}:`, err.message);
+        }
       }
-      console.log(`    Sample audit passed: verified ${verifiedShards}/${sampleSnaps.length} legacy snapshot rows against shard daily metrics.`);
+      if (failedPaShards > 0 && !forceCompact) {
+        throw new Error(`Aborted pa_pin_metrics truncation: ${failedPaShards} shard(s) failed to commit.`);
+      }
 
       console.log('    Dropping legacy trigger trg_pa_pin_metrics_monotonic if exists...');
       await hubSql`DROP TRIGGER IF EXISTS trg_pa_pin_metrics_monotonic ON pa_pin_metrics;`;
@@ -760,7 +788,7 @@ export async function runOffloadAndCompact(hubSql, { forceCompact = FORCE_COMPAC
       console.log('    Truncating legacy pa_pin_metrics on Central Hub [INVARIANT: ZERO-HUB-SNAPSHOTS]...');
       await hubSql`TRUNCATE TABLE pa_pin_metrics;`;
       await hubSql`VACUUM FULL ANALYZE pa_pin_metrics;`;
-      console.log('    ✓ pa_pin_metrics successfully truncated and compacted on Central Hub.');
+      console.log('    ✓ pa_pin_metrics successfully offloaded, truncated, and compacted on Central Hub.');
     } else {
       console.log('    ✓ pa_pin_metrics already has 0 rows on Central Hub.');
       await hubSql`DROP TRIGGER IF EXISTS trg_pa_pin_metrics_monotonic ON pa_pin_metrics;`;

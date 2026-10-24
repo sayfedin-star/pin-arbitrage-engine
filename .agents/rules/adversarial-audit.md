@@ -25,6 +25,7 @@ trigger: always_on
   - `keyword_displaced_index` uses `last_known_rank`, `save_count`, and `updated_at` (NOT `last_rank`, `last_saves`, `last_checked_at`).
   - `pin_serp_positions` uses `(pin_id, snapshot_date, keyword_id)` unique constraint.
 - **Naked Query Testing:** Never introduce `.catch(() => [])` or `.catch(() => {})` on database queries without first verifying that the query executes cleanly on live PostgreSQL. Error-swallowing catches must only absorb expected network timeouts, NEVER SQL syntax or non-existent column exceptions.
+- **The PostgreSQL View Upsert Landmine:** In PostgreSQL (`parse_clause.c`), `INSERT ... ON CONFLICT` (UPSERT) is strictly rejected on views—even auto-updatable views or views with `INSTEAD OF` triggers—because conflict arbitration requires a physical unique index on a base relation (`relkind = 'r'`). NEVER propose replacing physical tables that receive upserts (`pa_pins`, `competitor_pins`, `keyword_serp_current`, `universal_master_pins`) with PostgreSQL `VIEW`s.
 
 ## 5. Algorithmic Ratchet & Precedence Integrity
 - **COALESCE Precedence:** On updates of real-time telemetry (like `crawled_at`), fresh incoming values MUST take precedence: `COALESCE(EXCLUDED.crawled_at, existing.crawled_at)`.

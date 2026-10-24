@@ -84,4 +84,18 @@ Refer to `PROJECT_CHARTER_AND_DIRECTIVES.md` for full context. The following rul
 - **Mandatory DSN Sanitization:** All connection strings read from KV or cache MUST be validated with `isValidShardDsn()` before invoking `neon()`. Any poisoned entry must be purged from KV immediately and reloaded from the Central Hub `neon_projects_registry`.
 - **Array Format Parity:** Postgres `assigned_shards` can be returned as string `"{11}"` or array `[11]`. All routing checks MUST normalize with `normalizeAssignedShards()`.
 
+## 13. Creator Hub Unified Architecture, Pinterest Naming & One-Way Promotion
+- **Official Pinterest Business Analytics Parity:** Column headers and metrics MUST strictly align with official Pinterest Business terminology:
+  - `Profile Views` ➡️ **`Impressions`** (mapped internally to `competitor_profiles.profile_views`).
+  - `Monthly Reach` ➡️ **`Total audience`** (mapped internally to `competitor_profiles.monthly_reach`).
+  - Subsystem Title: Strictly **`Creator Hub`** (never "Creator Intelligence & PinArchive").
+- **Elimination of Redundant Abstractions:**
+  - `Smart Topic Clusters` are permanently eradicated from the system.
+  - Global `pa_qualification_rules` table is bypassed; **`competitor_profiles.metadata->'qualification_rules'`** is the single source of truth for qualification criteria.
+  - `/accounts` renders the Creator Ledger directly; the 5 legacy KPI cards and 4 sub-tabs are permanently removed.
+- **Strict One-Way Promotion Invariant:**
+  - `competitor_pins` is the complete catalog inventory (~41k+ rows, compacted).
+  - `pa_pins` is strictly an operational winner showcase for qualified pins (~2.3% of catalog).
+  - Pins flow strictly in one direction: `competitor_pins` $\xrightarrow{\text{qualify}}$ `pa_pins`. Re-hydrating catalog pins back from `pa_pins` is strictly prohibited.
+
 

@@ -3612,20 +3612,20 @@ export function getDashboardHtml() {
               <button @click="clearSelectedCompetitors()" class="text-[11px] text-slate-400 hover:text-white underline ml-2 cursor-pointer">Deselect All</button>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
-              <!-- ⚡ Fast Refresh -->
-              <button @click="bulkFastRefreshSelected()" :disabled="isBulkFastRefreshing" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shadow-sm" title="Fast Refresh live Pinterest saves & repins for all archived pins across selected creators">
-                <i data-lucide="zap" class="w-3.5 h-3.5" :class="isBulkFastRefreshing ? 'animate-spin' : ''"></i>
-                <span x-text="isBulkFastRefreshing ? 'Refreshing...' : '⚡ Fast Refresh'"></span>
+              <!-- ⚡ Pulse Selected -->
+              <button @click="bulkPulseSelected()" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 transition flex items-center gap-1.5 cursor-pointer shadow-sm" title="Instant Edge Pulse for selected creators (syncs Impressions & Total Audience)">
+                <i data-lucide="zap" class="w-3.5 h-3.5 text-amber-400"></i>
+                <span>⚡ Pulse Selected</span>
               </button>
-              <!-- 📋 Discover Full Catalog -->
-              <button @click="bulkDiscoverFullCatalogSelected()" :disabled="isBulkDiscoveringCatalog" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/40 transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shadow-sm" title="Discover full catalog (crawls all pages until end of feed) for selected creators">
-                <i data-lucide="library" class="w-3.5 h-3.5" :class="isBulkDiscoveringCatalog ? 'animate-bounce' : ''"></i>
-                <span x-text="isBulkDiscoveringCatalog ? 'Discovering...' : '📋 Discover Full Catalog'"></span>
+              <!-- 🏆 Refresh Winners Selected -->
+              <button @click="bulkRefreshWinnersSelected()" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/40 transition flex items-center gap-1.5 cursor-pointer shadow-sm" title="Dispatch winning pins refresh for selected creators on GitHub Actions">
+                <i data-lucide="award" class="w-3.5 h-3.5 text-purple-400"></i>
+                <span>🏆 Refresh Winners Selected</span>
               </button>
-              <!-- 🏛️ Audit Sweep Now -->
-              <button @click="bulkAuditSweepSelected()" :disabled="isBulkAuditSweeping" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/40 transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shadow-sm" title="Comprehensive audit sweep: profile reach, monotonic checks, boards inventory, destination URLs">
-                <i data-lucide="shield-check" class="w-3.5 h-3.5" :class="isBulkAuditSweeping ? 'animate-spin' : ''"></i>
-                <span x-text="isBulkAuditSweeping ? 'Auditing...' : '🏛️ Audit Sweep Now'"></span>
+              <!-- 🚀 Fleet Crawl Selected -->
+              <button @click="bulkOpenFleetCrawlModal()" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/40 transition flex items-center gap-1.5 cursor-pointer shadow-sm" title="Launch distributed fleet crawl for selected creators on GitHub Actions">
+                <i data-lucide="rocket" class="w-3.5 h-3.5 text-indigo-400"></i>
+                <span>🚀 Fleet Crawl Selected</span>
               </button>
               <!-- Pause -->
               <button @click="bulkToggleSelectedStatus(false)" class="px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700 transition cursor-pointer" title="Pause ingestion for selected creators">
@@ -3707,18 +3707,19 @@ export function getDashboardHtml() {
                         <button @click.stop="openCreatorDossier(c)" class="p-1.5 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 transition cursor-pointer" title="Inspect Creator Dossier (Analytics, Pins & URLs)">
                           <i data-lucide="eye" class="w-3.5 h-3.5"></i>
                         </button>
-                        <!-- Smart Sync Action Group -->
-                        <div class="inline-flex items-center rounded-lg border border-purple-500/30 bg-purple-500/10 p-0.5">
-                          <!-- ⚡ Quick Pulse (~3s) -->
-                          <button @click.stop="quickPulseCreatorAction(c)" :disabled="pulsingCreatorId === c.id || harvestingCreatorId === c.id" class="px-2 py-1 text-[11px] font-bold text-purple-700 dark:text-purple-300 hover:bg-purple-500/20 rounded transition flex items-center space-x-1 cursor-pointer disabled:opacity-50" title="⚡ Quick Pulse (~3s): Instant sync of impressions, total audience & boards">
-                            <i data-lucide="zap" class="w-3 h-3 text-amber-500" :class="pulsingCreatorId === c.id ? 'animate-spin' : ''"></i>
-                            <span x-text="pulsingCreatorId === c.id ? 'Pulsing...' : 'Pulse'"></span>
-                          </button>
-                          <!-- 🌊 Deep Harvest (~30s) -->
-                          <button @click.stop="deepHarvestCreatorAction(c)" :disabled="pulsingCreatorId === c.id || harvestingCreatorId === c.id" class="p-1 text-slate-400 hover:text-indigo-400 hover:bg-indigo-500/20 rounded transition cursor-pointer disabled:opacity-50" title="🌊 Deep Harvest (~30s): Full profile sync + 4-worker pin refresh & qualification">
-                            <i data-lucide="refresh-cw" class="w-3 h-3 text-indigo-400" :class="harvestingCreatorId === c.id ? 'animate-spin' : ''"></i>
-                          </button>
-                        </div>
+                        <!-- ⚡ Quick Pulse (~2s Edge) -->
+                        <button @click.stop="quickPulseCreatorAction(c)" :disabled="pulsingCreatorId === c.id" class="px-2 py-1 text-[11px] font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 rounded-lg border border-amber-500/30 transition flex items-center space-x-1 cursor-pointer disabled:opacity-50" title="⚡ Pulse Profile (~2s): Instant Edge sync of Impressions, Total Audience & Boards">
+                          <i data-lucide="zap" class="w-3 h-3 text-amber-500" :class="pulsingCreatorId === c.id ? 'animate-spin' : ''"></i>
+                          <span x-text="pulsingCreatorId === c.id ? 'Pulsing...' : 'Pulse'"></span>
+                        </button>
+                        <!-- 🏆 Refresh Winners (GitHub Actions) -->
+                        <button @click.stop="dispatchRefreshWinnersAction(c)" class="p-1.5 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 border border-purple-500/30 transition cursor-pointer" title="🏆 Refresh Winners: Dispatch background refresh of winning pin stats on GitHub Actions">
+                          <i data-lucide="award" class="w-3.5 h-3.5 text-purple-500"></i>
+                        </button>
+                        <!-- 🚀 Fleet Crawl (GitHub Actions with Modal) -->
+                        <button @click.stop="openGhaCrawlerModal(c)" class="p-1.5 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30 transition cursor-pointer" title="🚀 Fleet Crawl: Launch distributed crawler on GitHub Actions (Recent Pins vs Full Catalog)">
+                          <i data-lucide="rocket" class="w-3.5 h-3.5 text-indigo-500"></i>
+                        </button>
                         <!-- Delete Competitor -->
                         <button @click.stop="deleteCompetitor(c.id)" class="p-1.5 rounded-lg hover:bg-rose-100 dark:hover:bg-rose-950/40 text-slate-400 hover:text-rose-500 transition cursor-pointer" title="Delete competitor">
                           <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
@@ -3767,22 +3768,22 @@ export function getDashboardHtml() {
                 <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
               </a>
 
-              <!-- ⚡ Quick Pulse (~3s) -->
-              <button @click="quickPulseCreatorAction(activeCreator)" :disabled="pulsingCreatorId === activeCreator.id || harvestingCreatorId === activeCreator.id" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-purple-500/30 bg-purple-500/10 px-3 text-xs font-bold text-purple-700 dark:text-purple-300 hover:bg-purple-500/20 transition shadow-2xs cursor-pointer disabled:opacity-50" title="⚡ Quick Pulse (~3s): Instant sync of impressions, total audience & boards">
+              <!-- ⚡ Quick Pulse (~2s Edge) -->
+              <button @click="quickPulseCreatorAction(activeCreator)" :disabled="pulsingCreatorId === activeCreator.id" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 text-xs font-bold text-amber-700 dark:text-amber-400 hover:bg-amber-500/20 transition shadow-2xs cursor-pointer disabled:opacity-50" title="⚡ Pulse Profile (~2s): Instant Edge sync of Impressions, Total Audience & Boards">
                 <i data-lucide="zap" class="w-3.5 h-3.5 text-amber-500" :class="pulsingCreatorId === activeCreator.id ? 'animate-spin' : ''"></i>
-                <span x-text="pulsingCreatorId === activeCreator.id ? 'Pulsing...' : 'Quick Pulse'"></span>
+                <span x-text="pulsingCreatorId === activeCreator.id ? 'Pulsing...' : 'Pulse Profile'"></span>
               </button>
 
-              <!-- 🌊 Deep Harvest (~30s) -->
-              <button @click="deepHarvestCreatorAction(activeCreator)" :disabled="pulsingCreatorId === activeCreator.id || harvestingCreatorId === activeCreator.id" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-indigo-500/30 bg-indigo-500/10 px-3 text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-500/20 transition shadow-2xs cursor-pointer disabled:opacity-50" title="🌊 Deep Harvest (~30s): Full profile sync + 4-worker pin refresh & qualification">
-                <i data-lucide="refresh-cw" class="w-3.5 h-3.5" :class="harvestingCreatorId === activeCreator.id ? 'animate-spin' : ''"></i>
-                <span x-text="harvestingCreatorId === activeCreator.id ? 'Harvesting...' : 'Deep Harvest'"></span>
+              <!-- 🏆 Refresh Winners (GitHub Actions) -->
+              <button @click="dispatchRefreshWinnersAction(activeCreator)" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-purple-500/30 bg-purple-500/10 px-3 text-xs font-bold text-purple-700 dark:text-purple-300 hover:bg-purple-500/20 transition shadow-2xs cursor-pointer" title="🏆 Refresh Winners: Dispatch background refresh of winning pin stats on GitHub Actions">
+                <i data-lucide="award" class="w-3.5 h-3.5 text-purple-500"></i>
+                <span>Refresh Winners</span>
               </button>
 
-              <!-- GHA Distributed Matrix Crawler -->
-              <button @click="openGhaCrawlerModal(activeCreator)" :disabled="isDispatchingGitHubCrawl" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white px-3.5 text-xs font-bold transition shadow-md cursor-pointer disabled:opacity-50" title="Launch 20-Shard Parallel Matrix Crawler on GitHub Actions (Distributed IP Egress & 100% Reliability)">
-                <i data-lucide="cpu" class="w-3.5 h-3.5" :class="isDispatchingGitHubCrawl ? 'animate-spin' : ''"></i>
-                <span x-text="isDispatchingGitHubCrawl ? 'Dispatching...' : 'Harvest Pins (GHA)'"></span>
+              <!-- 🚀 Fleet Crawl (GitHub Actions) -->
+              <button @click="openGhaCrawlerModal(activeCreator)" :disabled="isDispatchingGitHubCrawl" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white px-3.5 text-xs font-bold transition shadow-md cursor-pointer disabled:opacity-50" title="Launch Distributed Fleet Crawler on GitHub Actions (Recent Pins vs Full Catalog)">
+                <i data-lucide="rocket" class="w-3.5 h-3.5" :class="isDispatchingGitHubCrawl ? 'animate-spin' : ''"></i>
+                <span x-text="isDispatchingGitHubCrawl ? 'Dispatching...' : 'Fleet Crawl'"></span>
               </button>
 
               <!-- Pause / Resume -->
@@ -6195,7 +6196,7 @@ export function getDashboardHtml() {
         },
 
         get filteredCompetitorsAudience() {
-          return (this.filteredCompetitors || []).reduce((acc, c) => acc + (Number(c.profile_views || c.follower_count) || 0), 0);
+          return (this.filteredCompetitors || []).reduce((acc, c) => acc + (Number(c.profile_views) || 0), 0);
         },
 
         get filteredCompetitorsPins() {
@@ -6243,19 +6244,6 @@ export function getDashboardHtml() {
           }
 
           return filtered.length > 0 ? filtered : snaps;
-        },
-
-        get availableCreatorMonths() {
-          const snaps = this.activeCreatorSnapshots || [];
-          const set = new Set();
-          for (const s of snaps) {
-            const d = new Date(s.recorded_date || s.created_at);
-            if (!isNaN(d.getTime())) {
-              const mKey = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
-              set.add(mKey);
-            }
-          }
-          return Array.from(set).sort();
         },
 
         get creatorMoMStats() {
@@ -8155,88 +8143,91 @@ export function getDashboardHtml() {
           }
         },
 
-        async bulkFastRefreshSelected() {
+        async bulkPulseSelected() {
           if (!this.selectedCompetitorIds.length) return;
-          this.isBulkFastRefreshing = true;
-          this.showToast('⚡ Bulk Fast Refreshing ' + this.selectedCompetitorIds.length + ' creators...');
-          try {
-            const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/competitors/fast-refresh'), {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ competitor_ids: this.selectedCompetitorIds })
-            });
-            const data = await res.json().catch(() => ({}));
-            if (res.ok && data?.success) {
-              const refreshedPins = data.total_refreshed ?? (data.results ? data.results.reduce((a, b) => a + (b.refreshed_count || 0), 0) : 0);
-              const refreshedCreators = data.creators_refreshed || (data.results ? data.results.filter(r => r.ok).length : this.selectedCompetitorIds.length);
-              this.showToast('⚡ Bulk Fast Refresh complete for ' + refreshedCreators + ' creators (' + refreshedPins + ' pins updated)!');
-              await this.fetchCompetitors();
-            } else {
-              this.showToast('❌ Bulk Fast Refresh failed: ' + (data?.error || res.statusText || 'Failed'));
-            }
-          } catch (e) {
-            this.showToast('❌ Bulk Fast Refresh network error: ' + e.message);
-          } finally {
-            this.isBulkFastRefreshing = false;
-            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
-          }
-        },
-
-        async bulkDiscoverFullCatalogSelected() {
-          if (!this.selectedCompetitorIds.length) return;
-          this.isBulkDiscoveringCatalog = true;
           const count = this.selectedCompetitorIds.length;
-          this.showToast('📋 Starting Full Catalog Discovery for ' + count + ' creators...');
+          this.showToast('⚡ Bulk Pulsing ' + count + ' creators (syncing impressions & audience)...');
+          let successCount = 0;
+          for (let i = 0; i < count; i++) {
+            const cid = this.selectedCompetitorIds[i];
+            const comp = (this.competitors || []).find(c => Number(c.id) === Number(cid));
+            if (!comp) continue;
+            try {
+              await (window.safeApiFetch || fetch)(this.getApiUrl('/api/creators/quick-pulse'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: cid })
+              });
+              successCount++;
+            } catch (_) {}
+          }
+          this.showToast('✓ Bulk Pulse complete (' + successCount + '/' + count + ' creators updated)!');
+          await this.fetchCompetitors();
+          this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+        },
+
+        async bulkRefreshWinnersSelected() {
+          if (!this.selectedCompetitorIds.length) return;
+          const usernames = this.selectedCompetitorIds.map(id => {
+            const comp = (this.competitors || []).find(c => Number(c.id) === Number(id));
+            return comp?.username ? comp.username.replace(/^@+/, '').trim() : null;
+          }).filter(Boolean);
+          if (!usernames.length) return;
+          this.showToast('🏆 Dispatching winning pins refresh for ' + usernames.length + ' creators on GitHub Actions...');
           try {
-            for (let i = 0; i < this.selectedCompetitorIds.length; i++) {
-              const cid = this.selectedCompetitorIds[i];
-              const comp = (this.competitors || []).find(c => Number(c.id) === Number(cid));
-              if (!comp) continue;
-              this.showToast('📋 Discovering catalog (' + (i + 1) + '/' + count + '): @' + comp.username + '...');
-              try {
-                await (window.safeApiFetch || fetch)(this.getApiUrl('/api/competitors/sync-pins'), {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ competitor_id: cid, username: comp.username, mode: 'all', max_pages: 100 })
-                });
-              } catch (err) {
-                console.warn('[bulkDiscoverFullCatalogSelected] Failed for', comp.username, err);
-              }
-              if (i < this.selectedCompetitorIds.length - 1) {
-                await new Promise(r => setTimeout(r, 2000));
-              }
+            const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/creators/dispatch-crawl'), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                usernames,
+                crawl_mode: 'refresh',
+                max_pages: 10
+              })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok && data?.success) {
+              this.showToast('🚀 ' + (data?.message || 'Winning pins refresh dispatched on GitHub Actions!'));
+            } else {
+              this.showToast('❌ Bulk dispatch failed: ' + (data?.error || res.statusText));
             }
-            this.showToast('📋 Bulk Full Catalog Discovery finished!');
-            await this.fetchCompetitors();
+          } catch (err) {
+            this.showToast('❌ Network error: ' + err.message);
           } finally {
-            this.isBulkDiscoveringCatalog = false;
             this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
           }
         },
 
-        async bulkAuditSweepSelected() {
+        bulkOpenFleetCrawlModal() {
           if (!this.selectedCompetitorIds.length) return;
-          this.isBulkAuditSweeping = true;
-          this.showToast('🏛️ Bulk Audit Sweeping ' + this.selectedCompetitorIds.length + ' creators...');
+          const firstComp = (this.competitors || []).find(c => Number(c.id) === Number(this.selectedCompetitorIds[0]));
+          this.openGhaCrawlerModal(firstComp || { username: this.selectedCompetitorIds.length + ' Selected Creators' });
+        },
+
+        async dispatchRefreshWinnersAction(creator) {
+          const target = creator || this.activeCreator;
+          if (!target) return;
+          const handle = (target.username || '').replace(/^@+/, '').trim();
+          if (!handle) return;
+          this.showToast('🏆 Dispatching winning pins refresh for @' + handle + ' on GitHub Actions...');
           try {
-            const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/competitors/audit-sweep'), {
+            const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/creators/dispatch-crawl'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ competitor_ids: this.selectedCompetitorIds })
+              body: JSON.stringify({
+                username: handle,
+                crawl_mode: 'refresh',
+                max_pages: 10
+              })
             });
             const data = await res.json().catch(() => ({}));
             if (res.ok && data?.success) {
-              const auditedCreators = data.creators_audited || (data.results ? data.results.filter(r => r.ok).length : this.selectedCompetitorIds.length);
-              const totalPins = data.total_pins_audited ?? (data.results ? data.results.reduce((a, b) => a + (b.total_pins_inventory || 0), 0) : 0);
-              this.showToast('🏛️ Bulk Audit Sweep complete for ' + auditedCreators + ' creators (' + totalPins + ' pins verified)!');
-              await this.fetchCompetitors();
+              this.showToast('🚀 Winning pins refresh launched on GitHub Actions for @' + handle + '!');
             } else {
-              this.showToast('❌ Bulk Audit Sweep failed: ' + (data?.error || res.statusText || 'Failed'));
+              this.showToast('❌ Dispatch failed: ' + (data?.error || res.statusText || 'Check GitHub token'));
             }
-          } catch (e) {
-            this.showToast('❌ Bulk Audit Sweep network error: ' + e.message);
+          } catch (err) {
+            this.showToast('❌ Network error: ' + err.message);
           } finally {
-            this.isBulkAuditSweeping = false;
             this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
           }
         },
@@ -9094,13 +9085,9 @@ export function getDashboardHtml() {
           }
 
           try {
-            const [detailRes, pinsRes] = await Promise.all([
-              fetch(this.getApiUrl('/api/competitors/detail?username=' + encodeURIComponent(handle) + '&id=' + encodeURIComponent(compId))),
-              fetch(this.getApiUrl('/api/pinarchive/pins?account=@' + encodeURIComponent(handle) + '&limit=500'))
-            ]);
+            const detailRes = await fetch(this.getApiUrl('/api/competitors/detail?username=' + encodeURIComponent(handle) + '&id=' + encodeURIComponent(compId)));
 
             let freshDetail = null;
-            let freshPins = null;
 
             if (detailRes.ok) {
               freshDetail = await detailRes.json();
@@ -9112,19 +9099,10 @@ export function getDashboardHtml() {
               }
             }
 
-            if (pinsRes.ok) {
-              const pinsData = await pinsRes.json();
-              freshPins = pinsData.pins || [];
-              this.activeCreatorPins = freshPins;
-              this.activeCreatorWinningPinsTotal = pinsData.total ?? (freshPins.length);
-            }
-
             // Save to SWR In-Memory Cache
             if (this._clientCache?.creators) {
               this._clientCache.creators.set(handle, {
                 detail: freshDetail || cachedCreator?.detail,
-                pins: freshPins || cachedCreator?.pins,
-                winningPinsTotal: this.activeCreatorWinningPinsTotal,
                 cachedAt: Date.now()
               });
             }
@@ -9982,7 +9960,7 @@ export function getDashboardHtml() {
           const target = creator || this.activeCreator;
           if (!target) return;
           this.ghaTargetAccount = (target.username || '').replace(/^@+/, '').trim();
-          this.ghaCrawlMode = options.mode || 'discovery';
+          this.ghaCrawlMode = options.mode || 'refresh';
           if (options.scope === 'custom') {
             this.ghaBoardScope = 'custom';
             this.ghaTargetBoards = Array.isArray(options.boards) ? [...options.boards] : [];
@@ -10043,25 +10021,44 @@ export function getDashboardHtml() {
         },
 
         async submitGhaCrawlerDispatch() {
+          const isBulk = this.selectedCompetitorIds.length > 1 && this.ghaTargetAccount.includes('Selected');
+          const bulkUsernames = isBulk
+            ? this.selectedCompetitorIds.map(id => {
+                const comp = (this.competitors || []).find(c => Number(c.id) === Number(id));
+                return comp?.username ? comp.username.replace(/^@+/, '').trim() : null;
+              }).filter(Boolean)
+            : null;
+
           const handle = (this.ghaTargetAccount || '').replace(/^@+/, '').trim();
-          if (!handle) return;
+          if (!handle && (!bulkUsernames || !bulkUsernames.length)) return;
           this.isDispatchingGitHubCrawl = true;
           this.isGhaCrawlerModalOpen = false;
 
           const targetBoards = this.ghaBoardScope === 'custom' ? this.ghaTargetBoards.join(',') : '';
-          const boardMsg = targetBoards ? (' (' + this.ghaTargetBoards.length + ' selected board(s))') : ' (Board-level sharded across 20 nodes)';
-          this.showToast('⚡ Dispatching 20-shard GHA crawler for @' + handle + boardMsg + '...');
+          const boardMsg = targetBoards ? (' (' + this.ghaTargetBoards.length + ' selected board(s))') : ' (Sharded across 20 nodes)';
+          this.showToast(isBulk
+            ? ('⚡ Dispatching fleet crawler for ' + bulkUsernames.length + ' creators...')
+            : ('⚡ Dispatching fleet crawler for @' + handle + boardMsg + '...'));
 
           try {
-            const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/competitors/dispatch-crawl'), {
+            const payload = isBulk
+              ? {
+                  usernames: bulkUsernames,
+                  crawl_mode: this.ghaCrawlMode,
+                  max_pages: this.ghaCrawlMode === 'refresh' || this.ghaCrawlMode === 'discovery' ? 3 : 500,
+                  target_boards: targetBoards
+                }
+              : {
+                  username: handle,
+                  crawl_mode: this.ghaCrawlMode,
+                  max_pages: this.ghaCrawlMode === 'refresh' || this.ghaCrawlMode === 'discovery' ? 3 : 500,
+                  target_boards: targetBoards
+                };
+
+            const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/creators/dispatch-crawl'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                username: handle,
-                crawl_mode: this.ghaCrawlMode,
-                max_pages: this.ghaCrawlMode === 'refresh' ? 3 : 500,
-                target_boards: targetBoards
-              })
+              body: JSON.stringify(payload)
             });
             const data = await res.json().catch(() => ({}));
             if (res.ok && data?.success) {
