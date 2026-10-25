@@ -614,6 +614,21 @@ async function runTests() {
     morDossier.money_urls.every(u => u.clean_slug && u.clean_slug !== '/')
   );
 
+  report(
+    'Backend getDomainDeepDossier preserves full catalog total_pins parity alongside visual_pins_count',
+    morDossier.summary.total_pins === morDossier.summary.all_catalog_pins_count &&
+    morDossier.summary.visual_pins_count !== undefined &&
+    morDossier.summary.active_pins_count !== undefined &&
+    morDossier.summary.displaced_pins_count !== undefined
+  );
+
+  report(
+    'Studio UI correctly nests Keyword Monopoly and Creators tabs inside single root of active dossier template',
+    studioHtml.indexOf("dossierTab === 'keywords'") < studioHtml.indexOf('<!-- TACTICAL ARBITRAGE ATTACK BLUEPRINT MODAL') &&
+    studioHtml.indexOf("dossierTab === 'accounts'") < studioHtml.indexOf('<!-- TACTICAL ARBITRAGE ATTACK BLUEPRINT MODAL') &&
+    studioHtml.indexOf("dossierTab === 'visual_dna'") < studioHtml.indexOf('<!-- TACTICAL ARBITRAGE ATTACK BLUEPRINT MODAL')
+  );
+
   console.log('\n================================================================================');
   console.log(`AUDIT COMPLETE: ${passed} PASSED | ${failed} FAILED`);
   console.log('================================================================================');

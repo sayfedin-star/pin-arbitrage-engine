@@ -1172,7 +1172,7 @@ export function getDomainsPageHtml(initialDomain = '') {
             <span>🎯 Ranked Pins</span>
             <span class="px-1.5 py-0.2 rounded-full text-[10px] font-bold"
                   :class="dossierTab === 'pins' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'"
-                  x-text="filteredDossierPins().length"></span>
+                  x-text="dossierData?.summary?.total_pins || filteredDossierPins().length"></span>
           </button>
 
           <!-- Button 3: Keyword Monopoly -->
@@ -1559,10 +1559,6 @@ export function getDomainsPageHtml(initialDomain = '') {
                       </button>
                     </div>
                   </div>
-                </template>
-              </div>
-                <template x-if="filteredDossierArticles().length === 0">
-                  <div class="py-12 text-center text-slate-400 font-mono text-xs">No articles matched your search or filters.</div>
                 </template>
               </div>
 
