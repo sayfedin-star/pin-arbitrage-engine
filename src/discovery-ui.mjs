@@ -755,7 +755,7 @@ export function getDiscoveryPageHtml() {
           </div>
           <div>
             <a 
-              :href="relatedData.main.link" 
+              :href="safeUrl(relatedData.main.link)" 
               target="_blank" 
               class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white text-xs font-mono border border-slate-700 transition-colors flex items-center gap-1.5"
             >
@@ -847,7 +847,7 @@ export function getDiscoveryPageHtml() {
                   <td class="p-3 text-[11px] text-slate-300 max-w-xs truncate" :title="item.category_tree" x-text="item.category_tree || '—'"></td>
                   <td class="p-3 font-mono text-[11px]">
                     <a 
-                      :href="item.link" 
+                      :href="safeUrl(item.link)" 
                       target="_blank" 
                       class="text-indigo-400 hover:text-indigo-300 underline flex items-center gap-1"
                     >
@@ -907,8 +907,20 @@ export function getDiscoveryPageHtml() {
   </div>
 
   <script>
+    // [INVARIANT: SAFE-URL PROTOCOL SANITIZATION]
+    function safeUrl(rawUrl, fallback = '#') {
+      if (!rawUrl || typeof rawUrl !== 'string') return fallback;
+      const trimmed = rawUrl.trim();
+      if (/^(javascript|data|vbscript):/i.test(trimmed)) {
+        console.warn('[Security] Dangerous URI scheme blocked:', trimmed);
+        return fallback;
+      }
+      return trimmed;
+    }
+
     function discoveryApp() {
       return {
+        safeUrl,
         isSidebarCollapsed: (() => {
           try {
             return typeof localStorage !== 'undefined' ? localStorage.getItem('pae_sidebar_collapsed') === 'true' : false;

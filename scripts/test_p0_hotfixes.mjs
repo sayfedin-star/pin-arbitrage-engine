@@ -349,6 +349,10 @@ runTest('scripts/optimize_hub_storage.mjs contains zero GREATEST locks on daily_
 });
 
 runTest('scripts/offload_and_compact_hub.mjs contains zero GREATEST locks on daily_save_velocity', () => {
+  if (!fs.existsSync('scripts/offload_and_compact_hub.mjs')) {
+    // [INVARIANT: PURGED-IN-WAVE-4] Obsolete one-off script purged in Wave 4 maintenance cleanup
+    return;
+  }
   const content = fs.readFileSync('scripts/offload_and_compact_hub.mjs', 'utf8');
   const hasGreatestLock = /GREATEST\([^)]*(?:ksc|pins_daily_metrics|kdi|keyword_serp_current)\.daily_save_velocity/i.test(content);
   assert.strictEqual(hasGreatestLock, false, 'offload_and_compact_hub.mjs must not contain GREATEST velocity locks');

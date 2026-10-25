@@ -29,7 +29,8 @@ import {
   batchGroupByShard,
   preloadNeonRegistry,
   syncPinAcrossAllFourPillars,
-  fetchUniversalPinDossier
+  fetchUniversalPinDossier,
+  fetchPinTrajectoryFromShard
 } from '../sharding/fleet-router.mjs';
 
 /**
@@ -2533,15 +2534,39 @@ export async function getKeywordDisplacedPins(sql, keywordId, options = {}) {
 }
 
 /**
- * Retrieve chronological Performance Trajectory time series from keyword_pins_snapshots
+ * Retrieve chronological Performance Trajectory time series
+ * Cleanly delegates exclusively to fetchPinTrajectoryFromShard from fleet-router.mjs.
  * Supports range filtering: '7d', '14d', '30d', 'all'
  */
-export async function getPinPerformanceTrajectory(sql, keywordId, pinId, range = 'all', { env = null, forceRefresh = false } = {}) {
-  const kid = Number(keywordId);
-  const cleanPin = String(pinId || '').trim();
+// [INVARIANT: SSOT-TRAJECTORY-FROM-SHARD]
+export async function getPinPerformanceTrajectory(sqlOrParams, keywordId, pinId, range = 'all', options = {}) {
+  let hubSql = null;
+  let shardSql = null;
+  let cleanPin = null;
+  let cleanRange = range;
+  let env = null;
+  let forceRefresh = false;
+
+  if (sqlOrParams && typeof sqlOrParams === 'object' && !sqlOrParams.apply && ('pinId' in sqlOrParams || 'shardSql' in sqlOrParams || 'hubSql' in sqlOrParams)) {
+    hubSql = sqlOrParams.hubSql || null;
+    shardSql = sqlOrParams.shardSql || null;
+    cleanPin = String(sqlOrParams.pinId || '').trim();
+    cleanRange = sqlOrParams.timeframe || sqlOrParams.range || 'all';
+    env = sqlOrParams.env || null;
+    forceRefresh = sqlOrParams.forceRefresh || false;
+  } else {
+    hubSql = sqlOrParams;
+    cleanPin = String(pinId || '').trim();
+    cleanRange = range || 'all';
+    if (typeof options === 'object') {
+      env = options?.env || null;
+      forceRefresh = options?.forceRefresh || false;
+    }
+  }
+
   if (!cleanPin) throw new Error('pin_id is required');
 
-  const trajKvKey = `traj:pin:${cleanPin}:${range}`;
+  const trajKvKey = `traj:pin:${cleanPin}:${cleanRange}`;
   if (env?.PIN_ENGINE_KV && !forceRefresh) {
     try {
       const kvCached = await env.PIN_ENGINE_KV.get(trajKvKey, { type: 'json', cacheTtl: 600 });
@@ -2551,168 +2576,24 @@ export async function getPinPerformanceTrajectory(sql, keywordId, pinId, range =
     } catch (_) {}
   }
 
+  const rawTraj = await fetchPinTrajectoryFromShard({
+    hubSql,
+    shardSql,
+    pinId: cleanPin,
+    timeframe: cleanRange,
+    env
+  });
+
+  let snapshots = Array.isArray(rawTraj?.snapshots) ? rawTraj.snapshots : (Array.isArray(rawTraj?.trajectory) ? rawTraj.trajectory : []);
+
   let intervalDays = null;
-  if (range === '7d') intervalDays = 7;
-  else if (range === '14d') intervalDays = 14;
-  else if (range === '30d') intervalDays = 30;
+  if (cleanRange === '7d') intervalDays = 7;
+  else if (cleanRange === '14d') intervalDays = 14;
+  else if (cleanRange === '30d') intervalDays = 30;
 
-  // 1. Hub Query (Active SERP or displaced state + rolling snapshots)
-  const hubPromise = (async () => {
-    try {
-      const activeHubPromise = (async () => {
-        try {
-          const serpRows = kid
-            ? await sql`
-                SELECT pin_id, rank_position, save_count, repin_count, COALESCE(comment_count, 0) AS comment_count,
-                       COALESCE(share_count, 0) AS share_count, 0 AS reaction_count,
-                       daily_save_velocity, COALESCE(crawled_at, updated_at) AS snapshot_date
-                FROM keyword_serp_current
-                WHERE keyword_id = ${kid} AND pin_id = ${cleanPin}
-                LIMIT 1;
-              `
-            : await sql`
-                SELECT pin_id, rank_position, save_count, repin_count, COALESCE(comment_count, 0) AS comment_count,
-                       COALESCE(share_count, 0) AS share_count, 0 AS reaction_count,
-                       daily_save_velocity, COALESCE(crawled_at, updated_at) AS snapshot_date
-                FROM keyword_serp_current
-                WHERE pin_id = ${cleanPin}
-                ORDER BY updated_at DESC
-                LIMIT 1;
-              `;
-          if (serpRows && serpRows.length > 0) return serpRows;
-
-          const displacedRows = kid
-            ? await sql`
-                SELECT pin_id, last_known_rank AS rank_position, save_count, repin_count, COALESCE(comment_count, 0) AS comment_count,
-                       COALESCE(share_count, 0) AS share_count, 0 AS reaction_count, daily_save_velocity, updated_at AS snapshot_date
-                FROM keyword_displaced_index
-                WHERE keyword_id = ${kid} AND pin_id = ${cleanPin}
-                LIMIT 1;
-              `
-            : await sql`
-                SELECT pin_id, last_known_rank AS rank_position, save_count, repin_count, COALESCE(comment_count, 0) AS comment_count,
-                       COALESCE(share_count, 0) AS share_count, 0 AS reaction_count, daily_save_velocity, updated_at AS snapshot_date
-                FROM keyword_displaced_index
-                WHERE pin_id = ${cleanPin}
-                ORDER BY updated_at DESC
-                LIMIT 1;
-              `;
-          return displacedRows || [];
-        } catch (_) {
-          return [];
-        }
-      })();
-
-      // [INVARIANT: ZERO-HUB-SNAPSHOTS] Central Hub holds zero historical snapshots
-      const snapshotsPromise = Promise.resolve([]);
-
-      const [activeRows, snapshotRows] = await Promise.all([activeHubPromise, snapshotsPromise]);
-      return [...(snapshotRows || []), ...(activeRows || [])];
-    } catch (_) {
-      return [];
-    }
-  })();
-
-  // 2. Shard Query (Full distributed time-series archive)
-  const shardPromise = (async () => {
-    try {
-      const shardId = getPinShardId(cleanPin, 99);
-      const shardSql = await resolveShardConnection({ hubSql: sql, shardId, env });
-      return await executeShardQueryWithCircuitBreaker({
-        shardId,
-        shardSql,
-        queryFn: async (client) => {
-          try {
-            const rollups = await client`
-              SELECT 
-                pin_id, snapshot_date, save_count, repin_count, comment_count,
-                share_count, reaction_count, daily_save_velocity, updated_at
-              FROM pins_daily_rollups_v2
-              WHERE pin_id = ${cleanPin}
-              ORDER BY snapshot_date ASC
-              LIMIT 365;
-            `;
-            if (rollups && rollups.length > 0) return rollups;
-          } catch (_) {}
-          return await client`
-            SELECT 
-              pin_id, snapshot_date, rank_position, save_count, repin_count, comment_count,
-              share_count, reaction_count, daily_save_velocity, created_at
-            FROM pins_daily_snapshots
-            WHERE pin_id = ${cleanPin}
-            ORDER BY snapshot_date ASC
-            LIMIT 365;
-          `;
-        },
-        fallbackFn: async () => [],
-        timeoutMs: 5500
-      });
-    } catch (_) {
-      return [];
-    }
-  })();
-
-  const [hubSnapshotsRaw, shardSnapshotsRaw] = await Promise.all([hubPromise, shardPromise]);
-  const hubRows = Array.isArray(hubSnapshotsRaw) ? hubSnapshotsRaw : [];
-  const shardRows = Array.isArray(shardSnapshotsRaw) ? shardSnapshotsRaw : [];
-
-  // Merge and deduplicate by ISO date string (Shard provides historical baseline; Hub provides today's live state)
-  const dateMap = new Map();
-
-  for (const s of shardRows) {
-    const dStr = s.snapshot_date instanceof Date ? s.snapshot_date.toISOString().slice(0, 10) : String(s.snapshot_date || '').slice(0, 10);
-    if (dStr) {
-      const crawlTs = s.crawled_at || s.updated_at || s.created_at || (dStr + 'T00:00:00Z');
-      dateMap.set(dStr, {
-        pin_id: cleanPin,
-        rank_position: s.rank_position ?? null,
-        save_count: Number(s.save_count || 0),
-        repin_count: Number(s.repin_count || 0),
-        comment_count: Number(s.comment_count || 0),
-        share_count: Number(s.share_count || 0),
-        reaction_count: Number(s.reaction_count || 0),
-        daily_save_velocity: Number(s.daily_save_velocity || 0),
-        snapshot_date: dStr,
-        crawled_at: crawlTs,
-        updated_at: s.updated_at || crawlTs
-      });
-    }
-  }
-
-  for (const h of hubRows) {
-    const dStr = h.snapshot_date instanceof Date ? h.snapshot_date.toISOString().slice(0, 10) : String(h.snapshot_date || '').slice(0, 10);
-    if (dStr) {
-      const existing = dateMap.get(dStr);
-      const crawlTs = h.crawled_at || h.updated_at || (dStr + 'T00:00:00Z');
-      dateMap.set(dStr, {
-        pin_id: cleanPin,
-        rank_position: h.rank_position ?? existing?.rank_position ?? null,
-        save_count: Math.max(Number(h.save_count || 0), Number(existing?.save_count || 0)),
-        repin_count: Math.max(Number(h.repin_count || 0), Number(existing?.repin_count || 0)),
-        comment_count: Math.max(Number(h.comment_count || 0), Number(existing?.comment_count || 0)),
-        share_count: Math.max(Number(h.share_count || 0), Number(existing?.share_count || 0)),
-        reaction_count: Math.max(Number(h.reaction_count || 0), Number(existing?.reaction_count || 0)),
-        daily_save_velocity: (h.daily_save_velocity !== undefined && h.daily_save_velocity !== null) ? Number(h.daily_save_velocity) : (existing?.daily_save_velocity || 0),
-        snapshot_date: dStr,
-        crawled_at: (crawlTs && (!existing?.crawled_at || new Date(crawlTs).getTime() >= new Date(existing.crawled_at).getTime())) ? crawlTs : (existing?.crawled_at || crawlTs),
-        updated_at: h.updated_at || existing?.updated_at || crawlTs
-      });
-    }
-  }
-
-  let snapshots = Array.from(dateMap.values()).sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date));
-
-  // Apply range cutoff if intervalDays specified
   if (intervalDays) {
     const cutoffDate = new Date(Date.now() - intervalDays * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    snapshots = snapshots.filter(s => s.snapshot_date >= cutoffDate);
-  }
-
-  // Enforce monotonic non-decreasing save_count
-  let runningMaxSaves = 0;
-  for (const s of snapshots) {
-    s.save_count = Math.max(runningMaxSaves, Number(s.save_count || 0));
-    runningMaxSaves = s.save_count;
+    snapshots = snapshots.filter(s => String(s.snapshot_date || '').slice(0, 10) >= cutoffDate);
   }
 
   // Calculate Net Growth summary (first snapshot vs latest snapshot)
@@ -2739,11 +2620,12 @@ export async function getPinPerformanceTrajectory(sql, keywordId, pinId, range =
   const trajResult = {
     success: true,
     pin_id: cleanPin,
-    keyword_id: kid || null,
-    range,
+    keyword_id: (typeof keywordId === 'number' || typeof keywordId === 'string') ? Number(keywordId) || null : null,
+    range: cleanRange,
     total_snapshots: snapshots.length,
     net_growth: netGrowth,
-    snapshots
+    snapshots,
+    trajectory: snapshots
   };
 
   if (env?.PIN_ENGINE_KV && snapshots.length > 0) {

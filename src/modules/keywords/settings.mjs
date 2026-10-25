@@ -146,16 +146,14 @@ export async function resolveKeywordBySlug(sql, slug, autoCreate = true) {
   const raw = decodeURIComponent(slug).trim();
   if (!raw) return null;
   const normalized = raw.replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
-  const slugified = normalized.replace(/\s+/g, '-');
+  const cleanSlug = raw.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 
-  // Query database for existing keyword matching either format
+  // [OPTIMIZED SARGABLE: Instant Unique Index Seek < 1ms via uq_canonical_tracked_keywords]
   const [existing] = await sql`
     SELECT *
     FROM tracked_keywords
-    WHERE LOWER(keyword) = ${normalized}
-       OR LOWER(keyword) = ${raw.toLowerCase()}
-       OR REPLACE(LOWER(keyword), ' ', '-') = ${slugified}
-       OR REPLACE(LOWER(keyword), ' ', '-') = ${raw.toLowerCase()}
+    WHERE canonical_keyword = ${cleanSlug}
+       OR keyword = ${normalized}
     ORDER BY created_at DESC
     LIMIT 1;
   `;
@@ -167,6 +165,7 @@ export async function resolveKeywordBySlug(sql, slug, autoCreate = true) {
     const [created] = await sql`
       INSERT INTO tracked_keywords (
         keyword,
+        canonical_keyword,
         category,
         target_pin_count,
         crawl_pages_limit,
@@ -176,6 +175,7 @@ export async function resolveKeywordBySlug(sql, slug, autoCreate = true) {
         updated_at
       ) VALUES (
         ${normalized},
+        ${cleanSlug},
         'Organic Search',
         50,
         2,
@@ -185,6 +185,7 @@ export async function resolveKeywordBySlug(sql, slug, autoCreate = true) {
         NOW()
       )
       ON CONFLICT (keyword) DO UPDATE SET
+        canonical_keyword = COALESCE(tracked_keywords.canonical_keyword, EXCLUDED.canonical_keyword),
         is_active = TRUE,
         target_pin_count = GREATEST(tracked_keywords.target_pin_count, EXCLUDED.target_pin_count),
         crawl_pages_limit = GREATEST(tracked_keywords.crawl_pages_limit, EXCLUDED.crawl_pages_limit),

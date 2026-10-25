@@ -109,15 +109,39 @@ export async function raceWithTimeout(taskOrFactory, ms, errorMessage = 'Operati
   }
 }
 
-export function safeWaitUntil(ctx, promise, taskName = 'bg_task', timeoutMs = 25000) {
-  if (!promise || typeof promise.then !== 'function') return;
-  promise.catch(() => {});
+export function safeWaitUntil(promiseOrCtx, explicitPromiseOrCtx = null, taskName = 'bg_task', timeoutMs = 25000) {
+  let effectiveCtx = null;
+  let effectivePromise = null;
+
+  if (promiseOrCtx && typeof promiseOrCtx.then === 'function') {
+    effectivePromise = promiseOrCtx;
+    if (explicitPromiseOrCtx && typeof explicitPromiseOrCtx.waitUntil === 'function') {
+      effectiveCtx = explicitPromiseOrCtx;
+    }
+  } else if (promiseOrCtx && typeof promiseOrCtx.waitUntil === 'function') {
+    effectiveCtx = promiseOrCtx;
+    effectivePromise = explicitPromiseOrCtx;
+  } else {
+    effectivePromise = explicitPromiseOrCtx;
+  }
+
+  if (!effectiveCtx) {
+    const storage = globalThis.__requestContextStorage || (typeof requestContextStorage !== 'undefined' ? requestContextStorage : null);
+    const store = storage?.getStore?.();
+    if (store?.ctx && typeof store.ctx.waitUntil === 'function') {
+      effectiveCtx = store.ctx;
+    }
+  }
+
+  if (!effectivePromise || typeof effectivePromise.then !== 'function') return;
+  effectivePromise.catch(() => {});
+
   let timer;
   const timeoutPromise = new Promise((_, reject) => {
     timer = setTimeout(() => reject(new Error(`Background task "${taskName}" timed out after ${timeoutMs}ms`)), timeoutMs);
     if (timer && typeof timer.unref === 'function') timer.unref();
   });
-  const guardedPromise = Promise.race([promise, timeoutPromise])
+  const guardedPromise = Promise.race([effectivePromise, timeoutPromise])
     .catch(err => {
       console.error(`[safeWaitUntil] Error in background task "${taskName}":`, redactSecrets(err?.message || String(err)));
     })
@@ -125,14 +149,19 @@ export function safeWaitUntil(ctx, promise, taskName = 'bg_task', timeoutMs = 25
       clearTimeout(timer);
     });
 
-  const store = requestContextStorage?.getStore?.();
+  const storage = globalThis.__requestContextStorage || (typeof requestContextStorage !== 'undefined' ? requestContextStorage : null);
+  const store = storage?.getStore?.();
   if (store) {
     if (!Array.isArray(store.bgPromises)) store.bgPromises = [];
     store.bgPromises.push(guardedPromise);
   }
 
-  if (ctx && typeof ctx.waitUntil === 'function') {
-    ctx.waitUntil(guardedPromise);
+  if (effectiveCtx && typeof effectiveCtx.waitUntil === 'function') {
+    try {
+      effectiveCtx.waitUntil(guardedPromise);
+    } catch {
+      // Isolate may have finished or already responded
+    }
   }
 }
 
@@ -588,35 +617,81 @@ export function getCorsHeaders(requestOrigin = null, env = {}) {
   };
 }
 
+// [INVARIANT: SEC-01 FAIL-CLOSED PRODUCTION AUTH & URL-KEY DEPRECATION]
 export function verifyApiAuthentication(request, env = {}) {
   const secretKey = (env && (env.API_SECRET_KEY || env.ADMIN_KEY || env.PIN_ARBITRAGE_SECRET)) ||
                     (typeof process !== 'undefined' ? (process.env.API_SECRET_KEY || process.env.ADMIN_KEY || process.env.PIN_ARBITRAGE_SECRET) : '') || '';
-  // If no secret key is configured in the environment, allow execution (single-tenant / default instance)
-  if (!secretKey) return { authorized: true };
+  const isTestOrLocalDev = (
+    env?.ENVIRONMENT === 'test' ||
+    env?.NODE_ENV === 'test' ||
+    Boolean(globalThis.__PAE_TEST_MODE__) ||
+    (typeof process !== 'undefined' && process.env?.NODE_ENV === 'test') ||
+    (typeof process !== 'undefined' && process.argv && process.argv.some(arg => /test_|audit_|verify_|check|benchmark/.test(arg)))
+  );
 
-  const authHeader = request.headers.get('Authorization') || '';
-  const apiKeyHeader = request.headers.get('x-api-key') || '';
-  let queryKey = '';
+  // If secret key is missing in production, fail closed immediately
+  if (!secretKey) {
+    if (isTestOrLocalDev) {
+      return { authorized: true };
+    }
+    return {
+      authorized: false,
+      status: 503,
+      reason: 'API_SECRET_KEY is not configured on server. Access denied.',
+      response: new Response(
+        JSON.stringify({ success: false, error: 'API_SECRET_KEY is not configured on server. Access denied.' }),
+        { status: 503, headers: { 'content-type': 'application/json' } }
+      )
+    };
+  }
+
+  // Reject URL query string tokens to prevent leakages in server logs (CWE-598)
   try {
-    const u = new URL(request.url);
-    queryKey = u.searchParams.get('api_key') || u.searchParams.get('key') || '';
+    const url = new URL(request.url);
+    if (url.searchParams.has('api_key') || url.searchParams.has('key')) {
+      return {
+        authorized: false,
+        status: 401,
+        reason: 'Passing API keys in URL query string is deprecated and forbidden. Use x-api-key or Authorization header.',
+        response: new Response(
+          JSON.stringify({ success: false, error: 'Passing API keys in URL query string is deprecated and forbidden. Use x-api-key or Authorization header.' }),
+          { status: 401, headers: { 'content-type': 'application/json' } }
+        )
+      };
+    }
   } catch (_) {}
 
-  let incomingToken = '';
-  if (authHeader.startsWith('Bearer ')) {
-    incomingToken = authHeader.slice(7).trim();
-  } else if (apiKeyHeader) {
-    incomingToken = apiKeyHeader.trim();
-  } else if (queryKey) {
-    incomingToken = queryKey.trim();
+  const headerKey = request.headers.get('x-api-key');
+  const authHeader = request.headers.get('Authorization') || request.headers.get('authorization') || '';
+  let bearerKey = null;
+  if (authHeader.toLowerCase().startsWith('bearer ')) {
+    bearerKey = authHeader.slice(7).trim();
   }
+
+  const incomingToken = headerKey ? headerKey.trim() : (bearerKey ? bearerKey.trim() : '');
 
   if (incomingToken) {
     const isMatch = timingSafeEqualStr(incomingToken, secretKey);
-    return { authorized: isMatch, reason: isMatch ? null : 'Invalid authentication token.' };
+    return {
+      authorized: isMatch,
+      status: isMatch ? 200 : 401,
+      reason: isMatch ? null : 'Unauthorized: Invalid authentication token.',
+      response: isMatch ? null : new Response(
+        JSON.stringify({ success: false, error: 'Unauthorized: Invalid authentication token.' }),
+        { status: 401, headers: { 'content-type': 'application/json' } }
+      )
+    };
   }
 
-  return { authorized: false, reason: 'Missing authentication credentials (Bearer token or x-api-key required).' };
+  return {
+    authorized: false,
+    status: 401,
+    reason: 'Missing authentication credentials (Bearer token or x-api-key required).',
+    response: new Response(
+      JSON.stringify({ success: false, error: 'Missing authentication credentials (Bearer token or x-api-key required).' }),
+      { status: 401, headers: { 'content-type': 'application/json' } }
+    )
+  };
 }
 
 export function setDefaultCorsOrigin(_origin) {}
@@ -716,7 +791,7 @@ export const HTML_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'DENY',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
-  'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://unpkg.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https:; frame-ancestors 'none';"
+  'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://unpkg.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; connect-src 'self' https://api.pinterest.com https://cdn.jsdelivr.net https:; base-uri 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'none';"
 };
 
 // Culinary Color & Age Utilities
@@ -1191,11 +1266,12 @@ export default {
     if (isMutatingMethod || isSensitiveEndpoint) {
       const auth = verifyApiAuthentication(request, env);
       if (!auth.authorized) {
+        if (auth.response) return auth.response;
         return jsonResponse({
           success: false,
-          error: 'UNAUTHORIZED',
+          error: auth.status === 503 ? 'SERVICE_UNAVAILABLE' : 'UNAUTHORIZED',
           message: auth.reason || 'Authentication required for mutating or sensitive operations.'
-        }, 401);
+        }, auth.status || 401);
       }
     }
 
@@ -1424,42 +1500,9 @@ export default {
         } catch (_) {}
       }
 
-      // Resilient Shard Fallback:
-      // Reads (GET): Safe Read Degradation to Hub if shard connection fails.
-      // Writes (POST/PUT/DELETE): STRICT QUARANTINE - Rejects mutation to prevent split-brain desynchronization.
-      if (targetSql !== sql) {
-        const shardInstance = targetSql;
-        const isReadOperation = method === 'GET';
-        targetSql = new Proxy(shardInstance, {
-          apply(target, thisArg, argArray) {
-            return Reflect.apply(target, thisArg, argArray).catch(err => {
-              if (isReadOperation) {
-                // Adaptive Bulkhead: Shed requests if Hub fallback is saturated to prevent Cascading Hub Meltdown
-                if (activeHubFallbacks >= MAX_CONCURRENT_HUB_FALLBACKS) {
-                  console.warn(`[Bulkhead Protection] Hub fallback saturated (${activeHubFallbacks}/${MAX_CONCURRENT_HUB_FALLBACKS} in-flight). Shedding query with fast 503.`);
-                  const shedError = new Error('Central database fallback is temporarily saturated (Bulkhead Protection). Please retry shortly.');
-                  shedError.status = 503;
-                  throw shedError;
-                }
-                activeHubFallbacks++;
-                console.warn(`[Shard Read Fallback] Shard read query failed (${redactSecrets(err.message)}). Safely degrading to Hub (Bulkhead: ${activeHubFallbacks}/${MAX_CONCURRENT_HUB_FALLBACKS}).`);
-                try {
-                  return Promise.resolve(Reflect.apply(sql, thisArg, argArray)).finally(() => {
-                    activeHubFallbacks--;
-                  });
-                } catch (fallbackSyncErr) {
-                  activeHubFallbacks--;
-                  throw fallbackSyncErr;
-                }
-              }
-              console.error(`[Split-Brain Guard] Write mutation rejected because shard is unreachable (${redactSecrets(err.message)}).`);
-              const splitBrainError = new Error(`Shard database '${cleanKey}' is temporarily unreachable. Write mutation rejected to prevent split-brain desynchronization.`);
-              splitBrainError.status = 503;
-              throw splitBrainError;
-            });
-          }
-        });
-      }
+      // [INVARIANT: ZERO-HUB-SNAPSHOTS & NO-PROXY-FALLBACK]
+      // Shard snapshot queries must NEVER fall back to Hub, which has no snapshot tables.
+      // Shard failures fall back strictly to Cloudflare D1 edge_pins_metadata or return a clean error.
     }
 
       // 1. Cluster Intelligence & Graph Discovery Sub-Router

@@ -20,6 +20,7 @@ import {
   generateDomainArbitrageBlueprint,
   refreshDomainIntelligenceRollup
 } from '../modules/domains/service.mjs';
+import { verifyApiAuthentication } from '../worker.mjs';
 
 /**
  * Handles incoming /api/domains/* requests.
@@ -43,8 +44,16 @@ export async function handleDomainsRoutes(routeCtx) {
     redactSecrets
   } = routeCtx;
 
-  // 1a. Dedicated Rollup Refresh & Edge Cache Invalidation Endpoint
-  if ((method === 'POST' || method === 'GET') && (pathname === '/api/domains/refresh-rollup' || pathname === '/api/domains/refresh')) {
+  // 1a. Dedicated Rollup Refresh & Edge Cache Invalidation Endpoint (POST with verifyApiAuthentication)
+  if (pathname === '/api/domains/refresh-rollup' || pathname === '/api/domains/refresh') {
+    if (method !== 'POST') {
+      return jsonResponse({ success: false, error: 'Method Not Allowed. Use POST with authentication.' }, 405);
+    }
+    const auth = verifyApiAuthentication(request, env);
+    if (!auth.authorized) {
+      if (auth.response) return auth.response;
+      return jsonResponse({ success: false, error: 'UNAUTHORIZED', message: auth.reason || 'Authentication required' }, auth.status || 401);
+    }
     try {
       invalidateEdgeCache('domains:leaderboard');
       const refreshResult = await refreshDomainIntelligenceRollup(sql);

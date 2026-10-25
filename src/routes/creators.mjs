@@ -299,15 +299,29 @@ export async function handleCreatorsRoutes(routeCtx) {
     }
   }
 
-  // GET /api/competitors/board-detail
+  // POST /api/competitors/board-detail/sync (or /api/competitors/board-detail with POST)
+  if (method === 'POST' && (pathname === '/api/competitors/board-detail/sync' || pathname === '/api/competitors/board-detail')) {
+    let body = {};
+    try { body = await request.json(); } catch (_) {}
+    const username = body.username || body.account || body.id || searchParams.get('username') || searchParams.get('account') || searchParams.get('id');
+    const board = body.board || body.board_name || body.slug || searchParams.get('board') || searchParams.get('board_name') || searchParams.get('slug');
+    if (!username || !board) return jsonResponse({ error: 'username and board are required' }, 400);
+    try {
+      const boardData = await getOrSyncBoardDetail(targetSql, username, board, { forceRefresh: true });
+      return jsonResponse({ success: true, board: boardData }, 200, 0);
+    } catch (err) {
+      return jsonResponse({ success: false, error: err.message }, 500);
+    }
+  }
+
+  // GET /api/competitors/board-detail (Read-only)
   if (method === 'GET' && pathname === '/api/competitors/board-detail') {
     const username = searchParams.get('username') || searchParams.get('account') || searchParams.get('id');
     const board = searchParams.get('board') || searchParams.get('board_name') || searchParams.get('slug');
     if (!username || !board) return jsonResponse({ error: 'username and board are required' }, 400);
     try {
-      const forceRefresh = searchParams.get('refresh') === 'true';
-      const boardData = await getOrSyncBoardDetail(targetSql, username, board, { forceRefresh });
-      return jsonResponse({ success: true, board: boardData }, 200, forceRefresh ? 0 : 60);
+      const boardData = await getOrSyncBoardDetail(targetSql, username, board, { forceRefresh: false });
+      return jsonResponse({ success: true, board: boardData }, 200, 60);
     } catch (err) {
       return jsonResponse({ success: false, error: err.message }, 500);
     }

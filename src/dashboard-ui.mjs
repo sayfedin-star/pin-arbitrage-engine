@@ -4543,7 +4543,7 @@ export function getDashboardHtml() {
                               <i data-lucide="zap" class="w-3 h-3"></i>
                               <span>Crawl</span>
                             </button>
-                            <a :href="b.url || ('https://www.pinterest.com/' + (activeCreator.username || '').replace(/^@+/, '') + '/' + encodeURIComponent(b.name.toLowerCase().replace(/\s+/g, '-')))" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 font-semibold text-rose-500 hover:underline">
+                            <a :href="safeUrl(b.url || ('https://www.pinterest.com/' + (activeCreator.username || '').replace(/^@+/, '') + '/' + encodeURIComponent(b.name.toLowerCase().replace(/\s+/g, '-'))))" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 font-semibold text-rose-500 hover:underline">
                               <span>Board</span>
                               <i data-lucide="external-link" class="w-3 h-3"></i>
                             </a>
@@ -5517,7 +5517,7 @@ export function getDashboardHtml() {
                         <i data-lucide="bookmark" class="w-2.5 h-2.5 text-purple-400"></i>
                         <span>Board</span>
                       </span>
-                      <a :href="b.url || ('https://www.pinterest.com/' + (activeCreator.username || '').replace(/^@+/, '') + '/' + encodeURIComponent(b.name.toLowerCase().replace(/\s+/g, '-')))" target="_blank" rel="noopener noreferrer" class="p-1.5 rounded-full bg-slate-900/70 backdrop-blur-md text-white/80 hover:text-white hover:bg-slate-900 transition border border-white/10 shadow-xs" title="Open on Pinterest">
+                      <a :href="safeUrl(b.url || ('https://www.pinterest.com/' + (activeCreator.username || '').replace(/^@+/, '') + '/' + encodeURIComponent(b.name.toLowerCase().replace(/\s+/g, '-'))))" target="_blank" rel="noopener noreferrer" class="p-1.5 rounded-full bg-slate-900/70 backdrop-blur-md text-white/80 hover:text-white hover:bg-slate-900 transition border border-white/10 shadow-xs" title="Open on Pinterest">
                         <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
                       </a>
                     </div>
@@ -5754,8 +5754,20 @@ export function getDashboardHtml() {
 
   <!-- Alpine Application Data Store -->
   <script>
+    // [INVARIANT: SAFE-URL PROTOCOL SANITIZATION]
+    function safeUrl(rawUrl, fallback = '#') {
+      if (!rawUrl || typeof rawUrl !== 'string') return fallback;
+      const trimmed = rawUrl.trim();
+      if (/^(javascript|data|vbscript):/i.test(trimmed)) {
+        console.warn('[Security] Dangerous URI scheme blocked:', trimmed);
+        return fallback;
+      }
+      return trimmed;
+    }
+
     function dashboardApp() {
       return {
+        safeUrl,
         isDark: (() => {
           try {
             return typeof localStorage !== 'undefined' ? localStorage.getItem('pin_theme') === 'dark' : false;
@@ -9865,7 +9877,12 @@ export function getDashboardHtml() {
           if (!handle) return;
           this.showToast('🔍 Scraping authentic Related Interests (board_vase) from Pinterest...');
           try {
-            const res = await fetch(this.getApiUrl('/api/competitors/board-detail?username=' + encodeURIComponent(handle) + '&board=' + encodeURIComponent(this.activeBoardName) + '&refresh=true'));
+            const fetchFn = window.safeApiFetch || fetch;
+            const res = await fetchFn(this.getApiUrl('/api/competitors/board-detail/sync'), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ username: handle, board: this.activeBoardName, refresh: true })
+            });
             if (res.ok) {
               const data = await res.json();
               if (data.board) {

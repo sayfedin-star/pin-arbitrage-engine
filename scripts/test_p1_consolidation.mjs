@@ -30,7 +30,7 @@ import {
   fetchPinTrajectoryFromShard
 } from '../src/modules/sharding/fleet-router.mjs';
 import { shardSqlCache, getCachedShardSql, setCachedShardSql } from '../src/worker.mjs';
-import { ingestPinsBatch, getPinDetailWithMetrics, deletePinMetricSnapshot } from '../src/modules/pinarchive/service.mjs';
+import { ingestPinsBatch, getPinDetailWithMetrics, deletePinMetricSnapshot } from '../src/modules/creators/service.mjs';
 
 console.log('================================================================================');
 console.log('🏛️  PACKAGE P1: ARCHITECTURAL CONSOLIDATION VERIFICATION SUITE');
@@ -68,11 +68,15 @@ async function runAsyncTest(name, fn) {
 // =============================================================================
 console.log('[*] Section 1: Static Forensic Audit - Zero pa_pin_metrics Operations on Central Hub...');
 
-let pinarchiveCode = fs.readFileSync(path.resolve('src/modules/pinarchive/service.mjs'), 'utf8');
+let pinarchiveCode = fs.existsSync(path.resolve('src/modules/pinarchive/service.mjs'))
+  ? fs.readFileSync(path.resolve('src/modules/pinarchive/service.mjs'), 'utf8')
+  : fs.readFileSync(path.resolve('src/modules/creators/service.mjs'), 'utf8');
 if (pinarchiveCode.includes("from '../creators/service.mjs'")) {
   pinarchiveCode = fs.readFileSync(path.resolve('src/modules/creators/service.mjs'), 'utf8');
 }
-let competitorsCode = fs.readFileSync(path.resolve('src/modules/competitors/service.mjs'), 'utf8');
+let competitorsCode = fs.existsSync(path.resolve('src/modules/competitors/service.mjs'))
+  ? fs.readFileSync(path.resolve('src/modules/competitors/service.mjs'), 'utf8')
+  : fs.readFileSync(path.resolve('src/modules/creators/service.mjs'), 'utf8');
 if (competitorsCode.includes("from '../creators/service.mjs'")) {
   competitorsCode = fs.readFileSync(path.resolve('src/modules/creators/service.mjs'), 'utf8');
 }

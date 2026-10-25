@@ -521,8 +521,21 @@ async function run() {
       ORDER BY id ASC;
     `;
 
-    // Filter deterministic slice: crc32(pin_id) % workerTotal === workerIndex
-    const myCatalogSlice = catalogPins.filter(p => (crc32(String(p.pin_id)) % workerTotal) === workerIndex);
+    // [INVARIANT: SHARD-AFFINE-PARTITIONING-CREATOR-FLEET]
+    // Binds worker connections to at most 5 shards: S_w = { s in [1, 99] | (s - 1) % workerTotal === workerIndex }
+    const assignedShards = new Set();
+    for (let s = 1; s <= 99; s++) {
+      if ((s - 1) % workerTotal === workerIndex) {
+        assignedShards.add(s);
+      }
+    }
+    console.log(`[Worker ${workerIndex + 1}/${workerTotal}] Shard-Affine Partition active: Assigned ${assignedShards.size} shards: [${Array.from(assignedShards).join(', ')}]`);
+
+    // Filtering pins in memory strictly to assigned shards:
+    const myCatalogSlice = catalogPins.filter(pin => {
+      const targetShard = getPinShardId(pin.pin_id, 99);
+      return assignedShards.has(targetShard);
+    });
     console.log(`[Phase 2] Worker #${workerIndex + 1}/${workerTotal} assigned ${myCatalogSlice.length}/${catalogPins.length} pins.`);
 
     let refreshedCount = 0;
@@ -836,9 +849,22 @@ async function run() {
       ORDER BY saves DESC;
     `;
 
-    // Filter slice for this worker using deterministic IEEE 802.3 CRC32
     // [INVARIANT: DETERMINISTIC-CRC32-SHARDING]
-    const myWinningSlice = allWinningPins.filter(p => (crc32(String(p.pin_id)) % workerTotal) === workerIndex);
+    // [INVARIANT: SHARD-AFFINE-PARTITIONING-CREATOR-FLEET]
+    // Filter slice for this worker using shard-affine partitioning
+    // Binds worker connections to at most 5 shards: S_w = { s in [1, 99] | (s - 1) % workerTotal === workerIndex }
+    const assignedWinningShards = new Set();
+    for (let s = 1; s <= 99; s++) {
+      if ((s - 1) % workerTotal === workerIndex) {
+        assignedWinningShards.add(s);
+      }
+    }
+    console.log(`[*] Worker #${workerIndex + 1}/${workerTotal} Shard-Affine Partition active: Assigned ${assignedWinningShards.size} shards: [${Array.from(assignedWinningShards).join(', ')}]`);
+
+    const myWinningSlice = allWinningPins.filter(p => {
+      const targetShard = getPinShardId(p.pin_id, 99);
+      return assignedWinningShards.has(targetShard);
+    });
     console.log(`[*] Worker #${workerIndex + 1}/${workerTotal} assigned ${myWinningSlice.length}/${allWinningPins.length} global winning pins.`);
 
     let refreshedWinningCount = 0;

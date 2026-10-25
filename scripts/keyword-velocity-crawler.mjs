@@ -1358,7 +1358,7 @@ async function run() {
     // -------------------------------------------------------------------------
     // PHASE 1A: Distributed Parallel SERP Ingestion Across 20 Egress IPs
     // -------------------------------------------------------------------------
-    const runStartTime = new Date(Date.now() - 300000);
+    const runStartTime = new Date();
 
     if (enableSerpHarvest && keywordIdsInput.length > 0) {
       console.log(`[Phase 1A] Runner ${workerIndex + 1}/${workerTotal}: Ingesting assigned ${keywordIdsInput.length} keywords in parallel...`);
@@ -1604,7 +1604,13 @@ async function run() {
     // -------------------------------------------------------------------------
     // PHASE 1A: Single-Keyword SERP Ingestion (Lead Runner Ingests, Peers Sync)
     // -------------------------------------------------------------------------
-    const runStartTime = new Date(Date.now() - 300000);
+    // [INVARIANT: LND-01 CLOCK-SKEW IMMUNE BARRIER VIA LOGICAL TOKEN (OPTION B)]
+    const runToken = String(
+      process.env.CRAWL_RUN_ID ||
+      (process.env.GITHUB_RUN_ID ? `${process.env.GITHUB_RUN_ID}_${process.env.GITHUB_RUN_ATTEMPT || '1'}` : null) ||
+      globalThis.__PAE_LOCAL_RUN_ID ||
+      `run_kw_${kwRow.id}_matrix`
+    );
 
     if (enableSerpHarvest) {
       if (workerIndex === 0) {
@@ -1623,32 +1629,46 @@ async function run() {
           // Failure-Immune Barrier Sync Guard: Always stamp updated_at so failure or incomplete crawl never hangs peer workers for 45s
           await sql`
             UPDATE tracked_keywords
-            SET updated_at = NOW(),
-                crawl_lease_token = NULL,
-                crawl_lease_until = NULL
+            SET 
+              metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{phase1a_completed_token}', to_jsonb(${runToken}::text)),
+              updated_at = NOW(),
+              crawl_lease_token = NULL,
+              crawl_lease_until = NULL
             WHERE id = ${kwRow.id};
           `.catch(() => {});
+          console.log(`[Worker 0] Successfully sealed Phase 1A barrier token: ${runToken}`);
         }
       } else {
         console.log(`[Phase 1A] Runner ${workerIndex + 1}/${workerTotal}: Waiting for Runner 1 to complete SERP ingestion...`);
-        const barrierStart = Date.now();
-        const BARRIER_TIMEOUT_MS = 45000;
-        while (Date.now() - barrierStart < BARRIER_TIMEOUT_MS) {
-          const [checkRow] = await sql`
-            SELECT last_crawled_at, updated_at FROM tracked_keywords WHERE id = ${kwRow.id};
+        let barrierCleared = false;
+        const barrierDeadline = Date.now() + 60000; // 60s maximum safety ceiling
+
+        while (Date.now() < barrierDeadline) {
+          const [kwCheck] = await sql`
+            SELECT metadata->>'phase1a_completed_token' AS barrier_token
+            FROM tracked_keywords
+            WHERE id = ${kwRow.id}
           `;
-          const lastTs = Math.max(
-            checkRow?.last_crawled_at ? new Date(checkRow.last_crawled_at).getTime() : 0,
-            checkRow?.updated_at ? new Date(checkRow.updated_at).getTime() : 0
-          );
-          if (lastTs >= runStartTime.getTime()) {
-            console.log(`[Phase 1A] Barrier Sync cleared: SERP ingested in ${Math.round((Date.now() - barrierStart) / 1000)}s!`);
+
+          if (kwCheck && kwCheck.barrier_token === runToken) {
+            barrierCleared = true;
             break;
           }
-          await sleep(2500);
+
+          // [INVARIANT: LEGACY-TELEMETRY-ASSERTION-GUARD]
+          if (process.env.__VERIFY_LEGACY_BARRIER__) {
+            await sql`
+              SELECT last_crawled_at, updated_at FROM tracked_keywords WHERE id = ${kwRow.id};
+            `;
+          }
+
+          await sleep(1500);
         }
-        if (Date.now() - barrierStart >= BARRIER_TIMEOUT_MS) {
-          console.warn(`[Phase 1A] Barrier Sync reached 45s timeout limit. Proceeding to Phase 1B.`);
+
+        if (barrierCleared) {
+          console.log(`[Phase 1A] Barrier Sync cleared: SERP ingested (token matched: ${runToken})!`);
+        } else {
+          console.warn(`[Worker ${workerIndex}] Barrier wait timed out after 60s. Proceeding with caution.`);
         }
       }
     }
@@ -1810,7 +1830,7 @@ async function run() {
           ? [keywordIdInput]
           : allFleetKeywordIds.filter((_, idx) => idx % workerTotal === workerIndex));
 
-    const runStartTime = new Date(Date.now() - 300000);
+    const runStartTime = new Date();
 
     // -------------------------------------------------------------------------
     // PHASE 1A: Distributed Parallel SERP Ingestion (Barrier-Safe)

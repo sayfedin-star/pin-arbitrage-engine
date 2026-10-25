@@ -131,18 +131,22 @@ export async function handleFleetRoutes(routeCtx) {
     }
   }
 
-  // 6. Fleet Keep-Alive & Shard Pre-Warming Ping API
-  if (pathname === '/api/fleet/keep-alive') {
-    if (method !== 'POST' && method !== 'GET') {
-      return methodNotAllowedResponse('GET, POST, OPTIONS');
-    }
+  // 6a. Light Edge-Only Health Check GET /api/fleet/keep-alive
+  if (method === 'GET' && pathname === '/api/fleet/keep-alive') {
+    return jsonResponse({
+      success: true,
+      alive: true,
+      status: 'healthy',
+      timestamp: Date.now()
+    }, 200, 0);
+  }
 
+  // 6b. Authenticated Shard Pre-Warming Ping API POST /api/fleet/wake (or POST /api/fleet/keep-alive)
+  if (method === 'POST' && (pathname === '/api/fleet/wake' || pathname === '/api/fleet/keep-alive')) {
     let shardIdsToPing = [];
-    if (method === 'POST') {
-      const body = await request.json().catch(() => ({}));
-      if (Array.isArray(body.shards)) {
-        shardIdsToPing = body.shards.map(s => Number(s)).filter(s => s >= 1 && s <= 99);
-      }
+    const body = await request.json().catch(() => ({}));
+    if (Array.isArray(body.shards)) {
+      shardIdsToPing = body.shards.map(s => Number(s)).filter(s => s >= 1 && s <= 99);
     }
     const qShard = searchParams.get('shard') || searchParams.get('shard_id');
     if (qShard && !isNaN(Number(qShard))) {
@@ -157,15 +161,19 @@ export async function handleFleetRoutes(routeCtx) {
           const shardSql = await resolveShardConnection({ hubSql: sql, shardId: sid });
           await shardSql`SELECT 1;`;
         } catch (_) {}
-      })), 'fleet_keep_alive_shards');
+      })), 'fleet_wake_shards');
     }
 
     return jsonResponse({
       success: true,
-      alive: true,
+      warmed: true,
       timestamp: Date.now(),
       shards_pinged: uniqueShards.length
     }, 200, 0);
+  }
+
+  if (pathname === '/api/fleet/wake') {
+    return methodNotAllowedResponse('POST, OPTIONS');
   }
 
   // 7. Predictive Hover JIT Warming API

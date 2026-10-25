@@ -33,9 +33,9 @@ import {
   resolveLocalCompetitorId,
   getCompetitorRules,
   reconcileQualifiedCatalogPins
-} from '../src/modules/competitors/service.mjs';
+} from '../src/modules/creators/service.mjs';
 import { syncCompetitorAcrossFleet } from '../src/modules/fleet/service.mjs';
-import { getQualificationRules, isPinQualified } from '../src/modules/pinarchive/service.mjs';
+import { getQualificationRules, isPinQualified } from '../src/modules/creators/service.mjs';
 import { fetchBoardsResource, fetchPinFromPinterest, fetchPinFromPinResource, setDefaultDispatcher, sleep, randomJitterMs } from './lib/pinterest.mjs';
 import { assertShardSchemaParity } from '../src/modules/fleet/guardrails.mjs';
 import { enforceNeonPoolerUrl, batchGroupByShard, resolveShardConnection, getPinShardId, getResilientShardNumberForEntity } from '../src/modules/sharding/fleet-router.mjs';

@@ -242,10 +242,10 @@ export function getEdgeShieldClientScript() {
             prefetchCache.add(pid);
             fetch('/api/pins/' + pid + '?prefetch=true', { method: 'GET' }).catch(function() {});
           }
-          // B. Predictive JIT Shard Pre-Warming (Targeted O(1) Wakeup)
+          // B. [INVARIANT: SAFE-PREFETCH-EDGE-ONLY - ZERO NETWORK HOVER WAKEUPS]
+          // Hover requests to /api/fleet/warm?pin_id= are permanently eradicated to protect sleeping shards
           if (!warmCache.has(pid)) {
             warmCache.add(pid);
-            fetch('/api/fleet/warm?pin_id=' + pid, { method: 'GET' }).catch(function() {});
           }
         }, 130);
       }

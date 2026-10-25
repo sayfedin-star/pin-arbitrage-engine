@@ -5,7 +5,7 @@
   "type": "module",
   "main": "src/worker.mjs",
   "scripts": {
-    "start": "node --use-system-ca scripts/cluster-intelligence.mjs",
+    "start": "node scripts/dashboard.mjs",
     "crawl": "node --use-system-ca scripts/cluster-intelligence.mjs",
     "crawl:creators": "node --use-system-ca scripts/crawler-engine.mjs",
     "crawl:account-related": "node --use-system-ca scripts/account-related-crawler.mjs",

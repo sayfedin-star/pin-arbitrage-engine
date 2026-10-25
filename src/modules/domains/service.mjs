@@ -593,19 +593,19 @@ export async function getDatabaseEnrichmentStats(sql) {
   try {
     const [stats] = await sql`
       WITH all_domains AS (
-        SELECT DISTINCT LOWER(REGEXP_REPLACE(domain, '^www\\.', '')) AS clean_domain
+        SELECT DISTINCT domain AS clean_domain
         FROM keyword_serp_current
         WHERE domain IS NOT NULL AND domain <> ''
         UNION
-        SELECT DISTINCT LOWER(REGEXP_REPLACE(domain, '^www\\.', '')) AS clean_domain
+        SELECT DISTINCT domain AS clean_domain
         FROM pa_pins
         WHERE domain IS NOT NULL AND domain <> ''
         UNION
-        SELECT DISTINCT LOWER(REGEXP_REPLACE(cp.link_domain, '^www\\.', '')) AS clean_domain
+        SELECT DISTINCT cp.link_domain AS clean_domain
         FROM competitor_pins cp
         WHERE cp.link_domain IS NOT NULL AND cp.link_domain <> ''
         UNION
-        SELECT DISTINCT LOWER(REGEXP_REPLACE(kdi.domain, '^www\\.', '')) AS clean_domain
+        SELECT DISTINCT kdi.domain AS clean_domain
         FROM keyword_displaced_index kdi
         WHERE kdi.domain IS NOT NULL AND kdi.domain <> ''
         UNION
@@ -667,42 +667,42 @@ export async function enrichNextUncheckedBatch(sql, { batchSize = 20, concurrenc
   const candidateRows = await sql`
     WITH all_candidates AS (
       SELECT
-        LOWER(REGEXP_REPLACE(ksc.domain, '^www\\.', '')) AS clean_domain,
+        ksc.domain AS clean_domain,
         SUM(GREATEST(0, (51 - COALESCE(ksc.rank_position, 50))))::bigint AS visibility_score,
         SUM(COALESCE(ksc.save_count, 0))::bigint AS total_saves
       FROM keyword_serp_current ksc
       WHERE ksc.domain IS NOT NULL AND ksc.domain <> ''
-      GROUP BY clean_domain
+      GROUP BY ksc.domain
 
       UNION ALL
 
       SELECT
-        LOWER(REGEXP_REPLACE(pa.domain, '^www\\.', '')) AS clean_domain,
+        pa.domain AS clean_domain,
         0::bigint AS visibility_score,
         SUM(COALESCE(pa.saves, 0))::bigint AS total_saves
       FROM pa_pins pa
       WHERE pa.domain IS NOT NULL AND pa.domain <> ''
-      GROUP BY clean_domain
+      GROUP BY pa.domain
 
       UNION ALL
 
       SELECT
-        LOWER(REGEXP_REPLACE(cp.link_domain, '^www\\.', '')) AS clean_domain,
+        cp.link_domain AS clean_domain,
         0::bigint AS visibility_score,
         SUM(COALESCE(cp.save_count, 0))::bigint AS total_saves
       FROM competitor_pins cp
       WHERE cp.link_domain IS NOT NULL AND cp.link_domain <> ''
-      GROUP BY clean_domain
+      GROUP BY cp.link_domain
 
       UNION ALL
 
       SELECT
-        LOWER(REGEXP_REPLACE(kdi.domain, '^www\\.', '')) AS clean_domain,
+        kdi.domain AS clean_domain,
         SUM(GREATEST(0, (51 - COALESCE(kdi.last_known_rank, 50))))::bigint AS visibility_score,
         SUM(COALESCE(kdi.save_count, 0))::bigint AS total_saves
       FROM keyword_displaced_index kdi
       WHERE kdi.domain IS NOT NULL AND kdi.domain <> ''
-      GROUP BY clean_domain
+      GROUP BY kdi.domain
     ),
     aggregated AS (
       SELECT
@@ -815,7 +815,7 @@ export async function listDomainsIntelligence(sql, {
     WITH raw_occurrences AS (
       -- Pillar 2: Keyword SERP Radar
       SELECT
-        LOWER(REGEXP_REPLACE(ksc.domain, '^www\\.', '')) AS clean_domain,
+        ksc.domain AS clean_domain,
         ksc.pin_id,
         ksc.keyword_id,
         CASE WHEN ksc.is_displaced = FALSE THEN ksc.rank_position ELSE NULL END AS active_rank,
@@ -836,7 +836,7 @@ export async function listDomainsIntelligence(sql, {
 
       -- Pillar 4: PinArchive Winning Pins
       SELECT
-        LOWER(REGEXP_REPLACE(pa.domain, '^www\\.', '')) AS clean_domain,
+        pa.domain AS clean_domain,
         pa.pin_id,
         NULL::int AS keyword_id,
         NULL::int AS active_rank,
@@ -856,7 +856,7 @@ export async function listDomainsIntelligence(sql, {
 
       -- Pillar 1: Competitor Catalog Pins (Used exclusively for account association & discovery, not for inflating ranked pin volume)
       SELECT
-        LOWER(REGEXP_REPLACE(cp.link_domain, '^www\\.', '')) AS clean_domain,
+        cp.link_domain AS clean_domain,
         cp.pin_id,
         NULL::int AS keyword_id,
         NULL::int AS active_rank,
@@ -877,7 +877,7 @@ export async function listDomainsIntelligence(sql, {
 
       -- Displaced Pillar: keyword_displaced_index
       SELECT
-        LOWER(REGEXP_REPLACE(kdi.domain, '^www\\.', '')) AS clean_domain,
+        kdi.domain AS clean_domain,
         kdi.pin_id,
         kdi.keyword_id,
         kdi.last_known_rank AS active_rank,
@@ -933,7 +933,7 @@ export async function listDomainsIntelligence(sql, {
         AND (${excludeMarketplaces} = FALSE OR clean_domain <> ALL(${ECOMMERCE_AND_SOCIAL_DOMAINS}::text[]))
         AND (${searchPattern}::text IS NULL OR clean_domain LIKE ${searchPattern})
         AND (${pillar} <> 'competitors' OR clean_domain IN (
-          SELECT LOWER(REGEXP_REPLACE(link_domain, '^www\\.', ''))
+          SELECT link_domain
           FROM competitor_pins
           WHERE link_domain IS NOT NULL AND link_domain <> ''
         ))
@@ -1245,7 +1245,7 @@ export async function refreshDomainIntelligenceRollup(sql) {
     const res = await sql`
       WITH raw_occurrences AS (
         SELECT
-          LOWER(REGEXP_REPLACE(ksc.domain, '^www\\.', '')) AS clean_domain,
+          ksc.domain AS clean_domain,
           ksc.pin_id,
           ksc.keyword_id,
           CASE WHEN ksc.is_displaced = FALSE THEN ksc.rank_position ELSE NULL END AS active_rank,
@@ -1262,7 +1262,7 @@ export async function refreshDomainIntelligenceRollup(sql) {
         UNION ALL
 
         SELECT
-          LOWER(REGEXP_REPLACE(pa.domain, '^www\\.', '')) AS clean_domain,
+          pa.domain AS clean_domain,
           pa.pin_id,
           NULL::int AS keyword_id,
           NULL::int AS active_rank,
@@ -1280,7 +1280,7 @@ export async function refreshDomainIntelligenceRollup(sql) {
 
         -- Competitor Pins: Used strictly for account association & discovery, not for inflating domain's ranked pin volume
         SELECT
-          LOWER(REGEXP_REPLACE(cp.link_domain, '^www\\.', '')) AS clean_domain,
+          cp.link_domain AS clean_domain,
           cp.pin_id,
           NULL::int AS keyword_id,
           NULL::int AS active_rank,
@@ -1299,7 +1299,7 @@ export async function refreshDomainIntelligenceRollup(sql) {
 
         -- Displaced Pillar: keyword_displaced_index
         SELECT
-          LOWER(REGEXP_REPLACE(kdi.domain, '^www\\.', '')) AS clean_domain,
+          kdi.domain AS clean_domain,
           kdi.pin_id,
           kdi.keyword_id,
           kdi.last_known_rank AS active_rank,
@@ -1316,7 +1316,7 @@ export async function refreshDomainIntelligenceRollup(sql) {
         UNION ALL
 
         SELECT
-          LOWER(REGEXP_REPLACE(TRIM(drm.domain), '^www\\.', '')) AS clean_domain,
+          drm.domain AS clean_domain,
           'reg_' || drm.domain AS pin_id,
           NULL::int AS keyword_id,
           NULL::int AS active_rank,

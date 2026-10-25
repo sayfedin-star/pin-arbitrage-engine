@@ -8,6 +8,7 @@
  */
 
 import http from 'node:http';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { URL } from 'node:url';
@@ -58,7 +59,7 @@ import {
   harvestSinglePinRelatedLive,
   fastRefreshCompetitorArchivedPins,
   auditSweepCompetitor
-} from '../src/modules/competitors/service.mjs';
+} from '../src/modules/creators/service.mjs';
 import {
   listKeywords,
   addKeyword,
@@ -94,7 +95,7 @@ import {
   reEvaluateArchivedPins,
   getPinDetailWithMetrics,
   deletePinMetricSnapshot
-} from '../src/modules/pinarchive/service.mjs';
+} from '../src/modules/creators/service.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -114,13 +115,22 @@ if (!DATABASE_URL) {
 const sql = neon(DATABASE_URL);
 const PORT = Number(process.env.PORT || 3456);
 
+// [INVARIANT: SEC-02 LOCALHOST CORS & CSRF GUARD]
+const DASHBOARD_CSRF_TOKEN = crypto.randomBytes(24).toString('hex');
+const ALLOWED_ORIGINS = new Set([
+  'http://localhost:3456',
+  'http://127.0.0.1:3456',
+  `http://localhost:${PORT}`,
+  `http://127.0.0.1:${PORT}`
+]);
+
 const HTML_SECURITY_HEADERS = {
   'Content-Type': 'text/html; charset=utf-8',
   'Cache-Control': 'no-cache',
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'DENY',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
-  'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://unpkg.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https:; frame-ancestors 'none';"
+  'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://unpkg.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; connect-src 'self' https:; base-uri 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'none';"
 };
 
 // Culinary Color Name Mapper
@@ -423,13 +433,51 @@ async function triggerCrawlerWorkflowDispatch(targetAccount = '', crawlMode = 'd
 
 // Helper to send JSON response
 function sendJson(res, statusCode, data) {
-  res.writeHead(statusCode, {
-    'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type'
-  });
+  res.setHeader('Content-Type', 'application/json');
+  res.statusCode = statusCode;
   res.end(JSON.stringify(data));
+}
+
+function handleCorsAndCsrf(req, res) {
+  const origin = req.headers['origin'];
+  const host = req.headers['host'];
+
+  // Enforce host header validation against DNS rebinding
+  if (host && !host.startsWith('localhost') && !host.startsWith('127.0.0.1')) {
+    res.writeHead(403, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Forbidden: Invalid Host header' }));
+    return false;
+  }
+
+  // Handle CORS
+  if (origin) {
+    if (!ALLOWED_ORIGINS.has(origin)) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Forbidden: Untrusted cross-origin request' }));
+      return false;
+    }
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-csrf-token');
+  }
+
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204);
+    res.end();
+    return false;
+  }
+
+  // Validate CSRF token for mutative POST requests originating from browsers
+  if (req.method === 'POST' && origin) {
+    const clientToken = req.headers['x-csrf-token'];
+    if (!clientToken || clientToken !== DASHBOARD_CSRF_TOKEN) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Forbidden: Missing or invalid CSRF token' }));
+      return false;
+    }
+  }
+
+  return true;
 }
 
 // Parse request body for POST with robust multibyte UTF-8 stream handling and 10MB limit
@@ -505,13 +553,9 @@ const server = http.createServer(async (req, res) => {
   const method = req.method;
   const searchParams = parsedUrl.searchParams;
 
-  if (method === 'OPTIONS') {
-    res.writeHead(204, {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type'
-    });
-    return res.end();
+  // [INVARIANT: SEC-02 LOCALHOST CORS & CSRF GUARD]
+  if (!handleCorsAndCsrf(req, res)) {
+    return;
   }
 
   try {
@@ -2757,7 +2801,8 @@ const server = http.createServer(async (req, res) => {
 
     // 10. GET or HEAD / or SPA creator routes (e.g. /wifesrecipesbyme)
     if ((method === 'GET' || method === 'HEAD') && !pathname.startsWith('/api/')) {
-      const html = getDashboardHtml();
+      let html = getDashboardHtml();
+      html = html.replace('</head>', `<script>window.__DASHBOARD_CSRF__ = "${DASHBOARD_CSRF_TOKEN}";</script></head>`);
       res.writeHead(200, {
         ...HTML_SECURITY_HEADERS,
         'Content-Length': Buffer.byteLength(html)

@@ -144,15 +144,40 @@ export const SHARD_MAP_TTL_MS = 10 * 60 * 1000; // 10 minutes (600,000ms)
 let inflightShardMapPromise = null;
 
 // Bounded Background Task Execution Guard for Cloudflare Worker Isolate Lifecycle
-export function safeWaitUntil(ctx, promise, taskName = 'bg_task', timeoutMs = 25000) {
-  if (!promise || typeof promise.then !== 'function') return;
-  promise.catch(() => {});
+export function safeWaitUntil(promiseOrCtx, explicitPromiseOrCtx = null, taskName = 'bg_task', timeoutMs = 25000) {
+  let effectiveCtx = null;
+  let effectivePromise = null;
+
+  if (promiseOrCtx && typeof promiseOrCtx.then === 'function') {
+    effectivePromise = promiseOrCtx;
+    if (explicitPromiseOrCtx && typeof explicitPromiseOrCtx.waitUntil === 'function') {
+      effectiveCtx = explicitPromiseOrCtx;
+    }
+  } else if (promiseOrCtx && typeof promiseOrCtx.waitUntil === 'function') {
+    effectiveCtx = promiseOrCtx;
+    effectivePromise = explicitPromiseOrCtx;
+  } else {
+    effectivePromise = explicitPromiseOrCtx;
+  }
+
+  if (!effectiveCtx) {
+    const storage = globalThis.__requestContextStorage || (typeof globalThis.requestContextStorage !== 'undefined' ? globalThis.requestContextStorage : null);
+    const store = storage?.getStore?.();
+    if (store?.ctx && typeof store.ctx.waitUntil === 'function') {
+      effectiveCtx = store.ctx;
+    }
+  }
+
+  if (!effectivePromise || typeof effectivePromise.then !== 'function') return;
+  effectivePromise.catch(() => {});
+
   let timer;
   const timeoutPromise = new Promise((_, reject) => {
     timer = setTimeout(() => reject(new Error(`Background task "${taskName}" timed out after ${timeoutMs}ms`)), timeoutMs);
     if (timer && typeof timer.unref === 'function') timer.unref();
   });
-  const guardedPromise = Promise.race([promise, timeoutPromise])
+
+  const guardedPromise = Promise.race([effectivePromise, timeoutPromise])
     .catch(err => {
       console.warn(`[safeWaitUntil] Background task "${taskName}" non-fatal warning:`, err?.message || err);
     })
@@ -160,15 +185,19 @@ export function safeWaitUntil(ctx, promise, taskName = 'bg_task', timeoutMs = 25
       clearTimeout(timer);
     });
 
-  const storage = globalThis.__requestContextStorage;
+  const storage = globalThis.__requestContextStorage || (typeof globalThis.requestContextStorage !== 'undefined' ? globalThis.requestContextStorage : null);
   const store = storage?.getStore?.();
   if (store) {
     if (!Array.isArray(store.bgPromises)) store.bgPromises = [];
     store.bgPromises.push(guardedPromise);
   }
 
-  if (ctx && typeof ctx.waitUntil === 'function') {
-    ctx.waitUntil(guardedPromise);
+  if (effectiveCtx && typeof effectiveCtx.waitUntil === 'function') {
+    try {
+      effectiveCtx.waitUntil(guardedPromise);
+    } catch {
+      // Isolate may have finished or already responded
+    }
   }
 }
 
@@ -2690,6 +2719,7 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
   `;
 
   // 8. Shard: Upsert SERP positions (pin_serp_positions) for each associated active or displaced keyword
+  // [INVARIANT: ATOMIC-BATCH-UPSERT-WITH-MAP-DEDUP]
   const combinedKeywordRows = [
     ...targetRows,
     ...displacedRows
@@ -2702,33 +2732,66 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
       }))
   ];
 
-  if (combinedKeywordRows.length > 0) {
-    for (const row of combinedKeywordRows) {
-      const shardKid = Number(row.keyword_id);
-      if (shardKid != null) {
-        if (shardKid > 0) {
-          const isDisp = Boolean(row.is_displaced);
-          const effLastRank = row.rank_position || row.last_known_rank || 100;
-          const effCatalogRank = isDisp ? (Number(effLastRank) + 250) : Number(row.rank_position || 1);
-          await shardSql`
-            INSERT INTO pin_serp_positions (
-              pin_id, snapshot_date, keyword_id, rank_position, is_displaced, last_known_rank, catalog_rank, updated_at
-            ) VALUES (
-              ${cleanPinId}, (NOW() AT TIME ZONE 'UTC')::date, ${shardKid},
-              ${isDisp ? null : row.rank_position},
-              ${isDisp}, ${effLastRank},
-              ${effCatalogRank}, NOW()
-            )
-            ON CONFLICT (pin_id, snapshot_date, keyword_id) DO UPDATE SET
-              rank_position = CASE WHEN EXCLUDED.is_displaced = TRUE THEN NULL ELSE EXCLUDED.rank_position END,
-              is_displaced = COALESCE(EXCLUDED.is_displaced, FALSE),
-              last_known_rank = COALESCE(EXCLUDED.last_known_rank, pin_serp_positions.last_known_rank),
-              catalog_rank = COALESCE(EXCLUDED.catalog_rank, pin_serp_positions.catalog_rank),
-              updated_at = NOW();
-          `;
-        }
+  const validPositions = [];
+  for (const row of combinedKeywordRows) {
+    const shardKid = Number(row.keyword_id);
+    if (shardKid != null) {
+      if (shardKid > 0) {
+        const isDisp = Boolean(row.is_displaced);
+        const effLastRank = row.rank_position || row.last_known_rank || 100;
+        const effCatalogRank = isDisp ? (Number(effLastRank) + 250) : Number(row.rank_position || 1);
+        validPositions.push({
+          pin_id: cleanPinId,
+          keyword_id: shardKid,
+          rank_position: isDisp ? null : row.rank_position,
+          is_displaced: isDisp,
+          last_known_rank: effLastRank,
+          catalog_rank: effCatalogRank
+        });
       }
     }
+  }
+
+  if (validPositions.length > 0) {
+    // Deduplicate by keyword_id prioritizing active rank over displaced
+    const dedupMap = new Map();
+    for (const pos of validPositions) {
+      const existing = dedupMap.get(pos.keyword_id);
+      if (!existing || (pos.rank_position != null && (existing.rank_position == null || pos.rank_position < existing.rank_position))) {
+        dedupMap.set(pos.keyword_id, pos);
+      }
+    }
+    const cleanPositions = Array.from(dedupMap.values()).sort((a, b) => a.keyword_id - b.keyword_id);
+    const positionsPayload = JSON.stringify(cleanPositions);
+
+    await shardSql`
+      INSERT INTO pin_serp_positions (
+        pin_id, snapshot_date, keyword_id, rank_position, is_displaced, last_known_rank, catalog_rank, updated_at
+      )
+      SELECT 
+        x.pin_id,
+        (NOW() AT TIME ZONE 'UTC')::date,
+        x.keyword_id,
+        x.rank_position,
+        x.is_displaced,
+        x.last_known_rank,
+        x.catalog_rank,
+        NOW()
+      FROM jsonb_to_recordset(${positionsPayload}::jsonb) AS x(
+        pin_id VARCHAR(64),
+        keyword_id INT,
+        rank_position INT,
+        is_displaced BOOLEAN,
+        last_known_rank INT,
+        catalog_rank INT
+      )
+      ON CONFLICT (pin_id, snapshot_date, keyword_id) DO UPDATE SET
+        rank_position = CASE WHEN EXCLUDED.is_displaced = TRUE THEN NULL ELSE EXCLUDED.rank_position END,
+        is_displaced = COALESCE(EXCLUDED.is_displaced, FALSE),
+        last_known_rank = COALESCE(EXCLUDED.last_known_rank, pin_serp_positions.last_known_rank),
+        catalog_rank = COALESCE(EXCLUDED.catalog_rank, pin_serp_positions.catalog_rank),
+        updated_at = NOW();
+    `;
   }
 
   // 9. Hub: Update active SERP state in keyword_serp_current

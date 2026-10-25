@@ -1,5 +1,5 @@
 import { neon } from '@neondatabase/serverless';
-import { getCompetitorsOverview, listCompetitors, trackCompetitor } from '../src/modules/competitors/service.mjs';
+import { getCompetitorsOverview, listCompetitors, trackCompetitor } from '../src/modules/creators/service.mjs';
 import { listKeywords, addKeyword, getKeywordPins } from '../src/modules/keywords/service.mjs';
 import { getFleetProjects, registerNewProject } from '../src/modules/fleet/service.mjs';
 

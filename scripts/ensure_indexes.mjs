@@ -140,10 +140,25 @@ async function optimizeIndexes() {
   await sql`CREATE INDEX IF NOT EXISTS idx_cp_lower_username ON competitor_profiles(LOWER(username));`.catch(err => console.warn('[Index Notice]', err.message));
   await sql`CREATE INDEX IF NOT EXISTS idx_cp_trgm_username ON competitor_profiles USING gin (LOWER(username) gin_trgm_ops);`.catch(err => console.warn('[Index Notice]', err.message));
   await sql`CREATE INDEX IF NOT EXISTS idx_cp_trgm_display_name ON competitor_profiles USING gin (LOWER(COALESCE(display_name, '')) gin_trgm_ops);`.catch(err => console.warn('[Index Notice]', err.message));
+  // [INVARIANT: 100% POSTGRESQL HOT UPDATES & CLEAN B-TREE INDEXES - MIGRATION 037]
+  await sql`DROP INDEX IF EXISTS idx_ksc_active_covering;`.catch(() => {});
+  await sql`DROP INDEX IF EXISTS idx_ksc_domain_serp_authority;`.catch(() => {});
+  await sql`DROP INDEX IF EXISTS idx_cp_link_domain_saves;`.catch(() => {});
+  await sql`DROP INDEX IF EXISTS idx_cp_domain_rollup_covering;`.catch(() => {});
   await sql`
-    CREATE INDEX IF NOT EXISTS idx_ksc_active_covering 
-    ON keyword_serp_current (keyword_id, is_displaced, rank_position)
-    INCLUDE (pin_id, save_count, daily_save_velocity);
+    CREATE INDEX IF NOT EXISTS idx_ksc_active_rank_clean 
+    ON keyword_serp_current (keyword_id, rank_position)
+    WHERE rank_position IS NOT NULL;
+  `.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_ksc_domain_rank_clean 
+    ON keyword_serp_current (domain, rank_position)
+    WHERE domain IS NOT NULL;
+  `.catch(err => console.warn('[Index Notice]', err.message));
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_cp_link_domain_clean 
+    ON competitor_pins (link_domain, created_at_pinterest DESC)
+    WHERE link_domain IS NOT NULL;
   `.catch(err => console.warn('[Index Notice]', err.message));
 
   console.log('[*] 13. Propagating core indexes across registered storage shards [CAP-21]...');

@@ -26,7 +26,7 @@ import { getKeywordsPageHtml } from '../src/keywords-ui.mjs';
 import { getDiscoveryPageHtml } from '../src/discovery-ui.mjs';
 import { getPinDetailPageHtml } from '../src/pin-details-ui.mjs';
 import { getCampaignFoldersPageHtml } from '../src/campaign-folders-ui.mjs';
-import { normalizePinterestUsername, RESERVED_PINTEREST_PATHS } from '../src/modules/competitors/service.mjs';
+import { normalizePinterestUsername, RESERVED_PINTEREST_PATHS } from '../src/modules/creators/service.mjs';
 import { fetchUniversalPinDossier, enforceNeonPoolerUrl } from '../src/modules/sharding/fleet-router.mjs';
 
 // Load .env

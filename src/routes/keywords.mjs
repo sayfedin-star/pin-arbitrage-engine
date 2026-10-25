@@ -618,6 +618,29 @@ export async function handleKeywordsRoutes({
     return jsonResponse(result, 200, 15);
   }
 
+  // 17b. POST /api/keywords/trends/refresh
+  if (method === 'POST' && (pathname === '/api/keywords/trends/refresh' || pathname === '/api/keywords/trends')) {
+    let body = {};
+    try { body = await request.json(); } catch (_) {}
+    const term = body.term || body.keyword || body.q || searchParams.get('term') || searchParams.get('q') || '';
+    const country = body.country || searchParams.get('country') || 'US';
+    if (!term) return jsonResponse({ error: 'term is required' }, 400);
+
+    const result = await fetchPinterestTrends(term, country, true);
+    if (result && result.success && sql && term) {
+      try {
+        const popResult = await fetchPinterestTrendsPopularPins(sql, term, country, true);
+        if (popResult?.success && popResult?.popular_pins) {
+          result.popular_pins = popResult.popular_pins;
+        }
+        if ((!result.collage_images || result.collage_images.length === 0) && popResult?.collage_images?.length > 0) {
+          result.collage_images = popResult.collage_images;
+        }
+      } catch (_) {}
+    }
+    return jsonResponse(result, result.success ? 200 : 400);
+  }
+
   // 18. GET /api/keywords/trends
   if (method === 'GET' && pathname === '/api/keywords/trends') {
     const term = searchParams.get('term') || searchParams.get('q') || searchParams.get('keyword') || '';

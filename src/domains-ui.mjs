@@ -2245,7 +2245,7 @@ export function getDomainsPageHtml(initialDomain = '') {
             const fetchFn = window.safeApiFetch || fetch;
             await fetchFn('/api/domains/refresh-rollup', {
               method: 'POST',
-              headers: { 'Accept': 'application/json' }
+              headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' }
             }).catch(() => {});
             await this.loadDomains(true);
             this.showToast('Domain intelligence refreshed successfully!', 'success');

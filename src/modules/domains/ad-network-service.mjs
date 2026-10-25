@@ -637,11 +637,11 @@ export async function getDatabaseMonetizationStats(sql) {
   try {
     const rows = await sql`
       WITH all_distinct AS (
-        SELECT LOWER(REGEXP_REPLACE(ksc.domain, '^www\\.', '')) AS clean_domain FROM keyword_serp_current ksc WHERE ksc.domain IS NOT NULL AND ksc.domain <> ''
+        SELECT ksc.domain AS clean_domain FROM keyword_serp_current ksc WHERE ksc.domain IS NOT NULL AND ksc.domain <> ''
         UNION
-        SELECT LOWER(REGEXP_REPLACE(pa.domain, '^www\\.', '')) AS clean_domain FROM pa_pins pa WHERE pa.domain IS NOT NULL AND pa.domain <> ''
+        SELECT pa.domain AS clean_domain FROM pa_pins pa WHERE pa.domain IS NOT NULL AND pa.domain <> ''
         UNION
-        SELECT LOWER(REGEXP_REPLACE(cp.link_domain, '^www\\.', '')) AS clean_domain FROM competitor_pins cp WHERE cp.link_domain IS NOT NULL AND cp.link_domain <> ''
+        SELECT cp.link_domain AS clean_domain FROM competitor_pins cp WHERE cp.link_domain IS NOT NULL AND cp.link_domain <> ''
       ),
       filtered_candidates AS (
         SELECT clean_domain
@@ -760,32 +760,32 @@ export async function enrichNextUncheckedAdsBatch(sql, { batchSize = 15, concurr
   const candidateRows = await sql`
     WITH all_candidates AS (
       SELECT
-        LOWER(REGEXP_REPLACE(ksc.domain, '^www\\.', '')) AS clean_domain,
+        ksc.domain AS clean_domain,
         SUM(CASE WHEN ksc.is_displaced = FALSE THEN GREATEST(1, 101 - ksc.rank_position) ELSE 1 END)::bigint AS visibility_score,
         SUM(COALESCE(ksc.save_count, 0))::bigint AS total_saves
       FROM keyword_serp_current ksc
       WHERE ksc.domain IS NOT NULL AND ksc.domain <> ''
-      GROUP BY clean_domain
+      GROUP BY ksc.domain
 
       UNION ALL
 
       SELECT
-        LOWER(REGEXP_REPLACE(pa.domain, '^www\\.', '')) AS clean_domain,
+        pa.domain AS clean_domain,
         0::bigint AS visibility_score,
         SUM(COALESCE(pa.saves, 0))::bigint AS total_saves
       FROM pa_pins pa
       WHERE pa.domain IS NOT NULL AND pa.domain <> ''
-      GROUP BY clean_domain
+      GROUP BY pa.domain
 
       UNION ALL
 
       SELECT
-        LOWER(REGEXP_REPLACE(cp.link_domain, '^www\\.', '')) AS clean_domain,
+        cp.link_domain AS clean_domain,
         0::bigint AS visibility_score,
         SUM(COALESCE(cp.save_count, 0))::bigint AS total_saves
       FROM competitor_pins cp
       WHERE cp.link_domain IS NOT NULL AND cp.link_domain <> ''
-      GROUP BY clean_domain
+      GROUP BY cp.link_domain
     ),
     aggregated AS (
       SELECT

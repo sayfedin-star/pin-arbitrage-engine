@@ -5716,10 +5716,25 @@ export function getKeywordsPageHtml(initialSlug = '') {
           if (!term) return;
           this.isTrendsLoading = true;
           try {
-            const forceParam = force ? '&force=true' : '';
+            if (force) {
+              const fetchFn = window.safeApiFetch || fetch;
+              const res = await fetchFn(this.getApiUrl('/api/keywords/trends/refresh'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ term, force: true })
+              });
+              if (res && res.ok) {
+                const data = await res.json();
+                if (data.success) {
+                  this.trendsData = { ...(this.trendsData || {}), ...data };
+                  return;
+                }
+              }
+            }
+
             const [trendsRes, popularRes] = await Promise.allSettled([
-              fetch(this.getApiUrl('/api/keywords/trends?term=' + encodeURIComponent(term) + forceParam)),
-              fetch(this.getApiUrl('/api/keywords/trends/popular-pins?term=' + encodeURIComponent(term) + forceParam))
+              fetch(this.getApiUrl('/api/keywords/trends?term=' + encodeURIComponent(term))),
+              fetch(this.getApiUrl('/api/keywords/trends/popular-pins?term=' + encodeURIComponent(term)))
             ]);
 
             let merged = {};

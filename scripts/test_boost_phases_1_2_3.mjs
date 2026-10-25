@@ -4,7 +4,7 @@ import path from 'node:path';
 import { handlePagesRoutes } from '../src/routes/pages.mjs';
 import { getPinDetailPageHtml } from '../src/pin-details-ui.mjs';
 import { getDashboardHtml } from '../src/dashboard-ui.mjs';
-import { computePinStage } from '../src/modules/pinarchive/service.mjs';
+import { computePinStage } from '../src/modules/creators/service.mjs';
 
 console.log('================================================================================');
 console.log('       BOOST ARCHITECTURAL PHASES 1, 2 & 3 INTEGRATION VERIFICATION');
@@ -28,11 +28,15 @@ function runTest(name, fn) {
 // -----------------------------------------------------------------------------
 // SECTION 1: Phase 1 Unified Master Pin Ledger Verification
 // -----------------------------------------------------------------------------
-let compServiceCode = fs.readFileSync(path.resolve('src/modules/competitors/service.mjs'), 'utf8');
+let compServiceCode = fs.existsSync(path.resolve('src/modules/competitors/service.mjs'))
+  ? fs.readFileSync(path.resolve('src/modules/competitors/service.mjs'), 'utf8')
+  : fs.readFileSync(path.resolve('src/modules/creators/service.mjs'), 'utf8');
 if (compServiceCode.includes("from '../creators/service.mjs'")) {
   compServiceCode = fs.readFileSync(path.resolve('src/modules/creators/service.mjs'), 'utf8');
 }
-let compRouteCode = fs.readFileSync(path.resolve('src/routes/competitors.mjs'), 'utf8');
+let compRouteCode = fs.existsSync(path.resolve('src/routes/competitors.mjs'))
+  ? fs.readFileSync(path.resolve('src/routes/competitors.mjs'), 'utf8')
+  : fs.readFileSync(path.resolve('src/routes/creators.mjs'), 'utf8');
 if (compRouteCode.includes("from './creators.mjs'")) {
   compRouteCode = fs.readFileSync(path.resolve('src/routes/creators.mjs'), 'utf8');
 }
@@ -325,7 +329,9 @@ runTest('Phase 3.5: Template literal regex escaping in getBoardSlug & normalizeB
 runTest('Phase 3.6: All-pins UI overhaul & metric wiring verification', () => {
   // Re-read file to verify disk contents
   const updatedDashUiCode = fs.readFileSync(path.resolve('src/dashboard-ui.mjs'), 'utf8');
-  let updatedCompServiceCode = fs.readFileSync(path.resolve('src/modules/competitors/service.mjs'), 'utf8');
+  let updatedCompServiceCode = fs.existsSync(path.resolve('src/modules/competitors/service.mjs'))
+    ? fs.readFileSync(path.resolve('src/modules/competitors/service.mjs'), 'utf8')
+    : fs.readFileSync(path.resolve('src/modules/creators/service.mjs'), 'utf8');
   if (updatedCompServiceCode.includes("from '../creators/service.mjs'")) {
     updatedCompServiceCode = fs.readFileSync(path.resolve('src/modules/creators/service.mjs'), 'utf8');
   }
@@ -365,7 +371,9 @@ runTest('Phase 3.6: All-pins UI overhaul & metric wiring verification', () => {
 
 runTest('Phase 3.7: Master Pin Ledger table customization (Columns dropdown, 24h deltas, compact emoji badges)', () => {
   const updatedDashUiCode = fs.readFileSync(path.resolve('src/dashboard-ui.mjs'), 'utf8');
-  let updatedCompServiceCode = fs.readFileSync(path.resolve('src/modules/competitors/service.mjs'), 'utf8');
+  let updatedCompServiceCode = fs.existsSync(path.resolve('src/modules/competitors/service.mjs'))
+    ? fs.readFileSync(path.resolve('src/modules/competitors/service.mjs'), 'utf8')
+    : fs.readFileSync(path.resolve('src/modules/creators/service.mjs'), 'utf8');
   if (updatedCompServiceCode.includes("from '../creators/service.mjs'")) {
     updatedCompServiceCode = fs.readFileSync(path.resolve('src/modules/creators/service.mjs'), 'utf8');
   }
