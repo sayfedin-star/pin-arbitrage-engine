@@ -2211,57 +2211,63 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
       if (p.best_rank !== null && p.best_rank <= 10) acc.top10_count++;
     }
 
-    const slugKey = p.clean_slug || '/';
-    if (!urlGroupsMap.has(slugKey)) {
-      urlGroupsMap.set(slugKey, {
-        clean_slug: slugKey,
-        sample_url: p.destination_url || `https://${cleanDomain}${slugKey}`,
-        pins_count: 0,
-        total_saves: 0,
-        total_repins: 0,
-        best_rank: null,
-        keywords_set: new Set(),
-        pins: [],
-        angles_targeted: new Set()
+    // [INVARIANT: CLEAN-MONEY-ARTICLES] An article must represent a genuine content path (clean_slug !== '/') with authentic creative pins
+    const hasValidImage = Boolean(p.image_url && p.image_url.trim());
+    const isRealArticle = p.clean_slug && p.clean_slug !== '/';
+
+    if (isRealArticle && hasValidImage) {
+      const slugKey = p.clean_slug;
+      if (!urlGroupsMap.has(slugKey)) {
+        urlGroupsMap.set(slugKey, {
+          clean_slug: slugKey,
+          sample_url: p.destination_url || `https://${cleanDomain}${slugKey}`,
+          pins_count: 0,
+          total_saves: 0,
+          total_repins: 0,
+          best_rank: null,
+          keywords_set: new Set(),
+          pins: [],
+          angles_targeted: new Set()
+        });
+      }
+      const uGroup = urlGroupsMap.get(slugKey);
+      uGroup.pins_count++;
+      uGroup.total_saves += p.saves;
+      uGroup.total_repins += p.repins;
+      if (p.best_rank !== null && (uGroup.best_rank === null || p.best_rank < uGroup.best_rank)) {
+        uGroup.best_rank = p.best_rank;
+      }
+      for (const sa of p.serp_appearances) {
+        if (sa.keyword_name) uGroup.keywords_set.add(sa.keyword_name);
+      }
+
+      // Detect Marketing Angle for this Pin
+      const angleInfo = detectMarketingAngle({
+        title: p.title,
+        keywords: Array.from(uGroup.keywords_set),
+        annotations: p.visual_annotations
+      });
+      uGroup.angles_targeted.add(angleInfo.angle);
+
+      uGroup.pins.push({
+        pin_id: p.pin_id,
+        title: p.title,
+        image_url: p.image_url,
+        saves: p.saves,
+        velocity: p.velocity,
+        best_rank: p.best_rank,
+        creator_username: p.creator_username,
+        dominant_color: p.dominant_color,
+        visual_annotations: p.visual_annotations,
+        created_at_pinterest: p.created_at_pinterest,
+        is_vulnerable: p.is_vulnerable,
+        vulnerability_score: p.vulnerability_score,
+        is_displaced: Boolean(p.is_displaced),
+        detected_angle: angleInfo.angle,
+        intent_tag: angleInfo.intent_tag,
+        badge_color: angleInfo.badge_color
       });
     }
-    const uGroup = urlGroupsMap.get(slugKey);
-    uGroup.pins_count++;
-    uGroup.total_saves += p.saves;
-    uGroup.total_repins += p.repins;
-    if (p.best_rank !== null && (uGroup.best_rank === null || p.best_rank < uGroup.best_rank)) {
-      uGroup.best_rank = p.best_rank;
-    }
-    for (const sa of p.serp_appearances) {
-      if (sa.keyword_name) uGroup.keywords_set.add(sa.keyword_name);
-    }
-
-    // Detect Marketing Angle for this Pin
-    const angleInfo = detectMarketingAngle({
-      title: p.title,
-      keywords: Array.from(uGroup.keywords_set),
-      annotations: p.visual_annotations
-    });
-    uGroup.angles_targeted.add(angleInfo.angle);
-
-    uGroup.pins.push({
-      pin_id: p.pin_id,
-      title: p.title,
-      image_url: p.image_url,
-      saves: p.saves,
-      velocity: p.velocity,
-      best_rank: p.best_rank,
-      creator_username: p.creator_username,
-      dominant_color: p.dominant_color,
-      visual_annotations: p.visual_annotations,
-      created_at_pinterest: p.created_at_pinterest,
-      is_vulnerable: p.is_vulnerable,
-      vulnerability_score: p.vulnerability_score,
-      is_displaced: Boolean(p.is_displaced),
-      detected_angle: angleInfo.angle,
-      intent_tag: angleInfo.intent_tag,
-      badge_color: angleInfo.badge_color
-    });
 
     return {
       ...p,
@@ -2275,6 +2281,9 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
     if (b.best_rank !== null) return 1;
     return b.saves - a.saves;
   });
+
+  // [INVARIANT: STRICT-VISUAL-PIN-FIDELITY] Every displayed pin must possess an authentic image URL
+  const visualPins = allPins.filter(p => Boolean(p.image_url && p.image_url.trim()));
 
   const moneyUrls = Array.from(urlGroupsMap.values())
     .map(u => {
@@ -2466,9 +2475,10 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
     needs_age_enrichment: Boolean(ageInfo?.needs_enrichment || ageInfo?.lookup_status === 'pending'),
     needs_ad_enrichment: Boolean(adInfo?.needs_enrichment || adInfo?.ads_txt_status === 'pending'),
     summary: {
-      total_pins: allPins.length,
+      total_pins: visualPins.length > 0 ? visualPins.length : allPins.length,
+      all_catalog_pins_count: allPins.length,
       unique_urls: moneyUrls.length,
-      pins_per_url: moneyUrls.length > 0 ? Number((allPins.length / moneyUrls.length).toFixed(2)) : 1,
+      pins_per_url: moneyUrls.length > 0 ? Number(((visualPins.length > 0 ? visualPins.length : allPins.length) / moneyUrls.length).toFixed(2)) : 1,
       ranked_keywords_count: keywordMonopoly.length,
       total_saves: allPins.reduce((acc, p) => acc + p.saves, 0),
       accounts_count: accountsMap.size,
@@ -2477,7 +2487,7 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
       sybil_accounts_count: accountsList.filter(a => a.role === 'SATELLITE_CREATOR').length,
       sister_domains_count: new Set(crossFootprintRows.map(r => r.cross_domain)).size
     },
-    ranked_pins: allPins,
+    ranked_pins: visualPins,
     money_urls: moneyUrls,
     keyword_monopoly: keywordMonopoly,
     accounts: accountsList,

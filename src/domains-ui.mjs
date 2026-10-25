@@ -1218,6 +1218,25 @@ export function getDomainsPageHtml(initialDomain = '') {
             </template>
           </div>
 
+          <!-- Status Filter: All / Active SERP / Displaced -->
+          <div class="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-0.5 text-xs font-mono">
+            <button @click="dossierStatusFilter = 'all'; dossierPinsPage = 1; dossierArticlesPage = 1"
+                    class="px-2.5 py-1 rounded-md transition font-medium"
+                    :class="dossierStatusFilter === 'all' ? 'bg-white dark:bg-slate-700 text-sky-600 dark:text-sky-400 shadow-sm font-bold' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'">
+              All
+            </button>
+            <button @click="dossierStatusFilter = 'active'; dossierPinsPage = 1; dossierArticlesPage = 1"
+                    class="px-2.5 py-1 rounded-md transition font-medium"
+                    :class="dossierStatusFilter === 'active' ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-sm font-bold' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'">
+              Active SERP
+            </button>
+            <button @click="dossierStatusFilter = 'displaced'; dossierPinsPage = 1; dossierArticlesPage = 1"
+                    class="px-2.5 py-1 rounded-md transition font-medium"
+                    :class="dossierStatusFilter === 'displaced' ? 'bg-white dark:bg-slate-700 text-amber-600 dark:text-amber-400 shadow-sm font-bold' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'">
+              Displaced
+            </button>
+          </div>
+
           <!-- Contextual Sort Dropdown -->
           <select x-model="dossierSort"
                   class="text-xs font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2.5 py-1.5 text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-sky-500">
@@ -1275,14 +1294,14 @@ export function getDomainsPageHtml(initialDomain = '') {
           <div class="flex flex-col gap-4">
               <!-- TAB 1: Ranked Pins -->
               <div x-show="dossierTab === 'pins'" class="space-y-3">
-                <template x-for="p in filteredDossierPins()" :key="p.pin_id">
+                <template x-for="p in paginatedDossierPins()" :key="p.pin_id">
                   <div :data-pin-id="p.pin_id" class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 flex items-center justify-between gap-4 shadow-sm hover:border-sky-500/50 transition">
                     <div class="flex items-center gap-3.5 min-w-0">
                       <img :src="p.image_url"
                            referrerpolicy="no-referrer"
                            class="w-14 h-20 rounded-xl object-cover bg-slate-200 dark:bg-slate-700 shrink-0 shadow-sm"
                            loading="lazy"
-                           onerror="this.onerror=null; this.src='https://placehold.co/80x120?text=Pin'">
+                           onerror="this.onerror=null; this.style.opacity='0.25'">
                       <div class="flex flex-col min-w-0">
                         <div class="flex items-center gap-2 flex-wrap">
                           <span class="text-sm font-bold text-slate-900 dark:text-white truncate" x-text="p.title"></span>
@@ -1355,11 +1374,35 @@ export function getDomainsPageHtml(initialDomain = '') {
                 <template x-if="filteredDossierPins().length === 0">
                   <div class="py-12 text-center text-slate-400 font-mono text-xs">No ranked pins matched your search or filters.</div>
                 </template>
+
+                <!-- Pins Pagination Controls -->
+                <template x-if="totalDossierPinsPages() > 1">
+                  <div class="flex items-center justify-between border-t border-slate-200 dark:border-slate-800 pt-3 px-1 text-xs font-mono">
+                    <span class="text-slate-500 dark:text-slate-400">
+                      Showing <span class="font-bold text-slate-800 dark:text-slate-200" x-text="((dossierPinsPage - 1) * dossierPinsPerPage) + 1"></span> - <span class="font-bold text-slate-800 dark:text-slate-200" x-text="Math.min(dossierPinsPage * dossierPinsPerPage, filteredDossierPins().length)"></span> of <span class="font-bold text-slate-800 dark:text-slate-200" x-text="filteredDossierPins().length"></span> pins
+                    </span>
+                    <div class="flex items-center gap-1.5">
+                      <button @click="prevDossierPinsPage()"
+                              :disabled="dossierPinsPage <= 1"
+                              class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-slate-700 transition">
+                        ← Prev
+                      </button>
+                      <span class="px-2 py-1 text-slate-600 dark:text-slate-400">
+                        Page <span class="font-bold text-slate-900 dark:text-white" x-text="dossierPinsPage"></span> / <span x-text="totalDossierPinsPages()"></span>
+                      </span>
+                      <button @click="nextDossierPinsPage()"
+                              :disabled="dossierPinsPage >= totalDossierPinsPages()"
+                              class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-slate-700 transition">
+                        Next →
+                      </button>
+                    </div>
+                  </div>
+                </template>
               </div>
 
               <!-- TAB 2: Money Articles & Multipliers -->
               <div x-show="dossierTab === 'urls'" class="space-y-4">
-                <template x-for="art in filteredDossierArticles()" :key="art.clean_slug">
+                <template x-for="art in paginatedDossierArticles()" :key="art.clean_slug">
                   <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-5 flex flex-col gap-3 shadow-sm hover:border-sky-500/40 transition">
                     <div class="flex items-start justify-between gap-3">
                       <div class="flex flex-col min-w-0">
@@ -1423,7 +1466,7 @@ export function getDomainsPageHtml(initialDomain = '') {
                         <template x-if="Array.isArray(art.target_keywords || art.keywords) && (art.target_keywords || art.keywords).length > 0">
                           <div class="flex items-center gap-1.5 flex-wrap mt-1.5">
                             <span class="text-[10px] font-mono text-slate-400 uppercase font-bold">Keywords:</span>
-                            <template x-for="kw in (art.target_keywords || art.keywords)" :key="kw">
+                            <template x-for="kw in (art.expandedKeywords ? (art.target_keywords || art.keywords) : (art.target_keywords || art.keywords).slice(0, 5))" :key="kw">
                               <button @click="filterToKeyword(kw)"
                                       class="text-[10px] font-mono px-2 py-0.5 rounded-md bg-sky-500/10 hover:bg-sky-500/20 text-sky-700 dark:text-sky-300 border border-sky-500/20 transition flex items-center gap-1"
                                       :title="'Jump to Keyword Monopoly view for ' + kw">
@@ -1431,48 +1474,93 @@ export function getDomainsPageHtml(initialDomain = '') {
                                 <span class="text-[9px]">→</span>
                               </button>
                             </template>
+                            <template x-if="(art.target_keywords || art.keywords).length > 5">
+                              <button @click="art.expandedKeywords = !art.expandedKeywords"
+                                      class="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition"
+                                      x-text="art.expandedKeywords ? 'Show less' : '+' + ((art.target_keywords || art.keywords).length - 5) + ' more'"></button>
+                            </template>
                           </div>
                         </template>
                       </div>
                     </div>
 
                     <!-- Creative Pin Variations Thumbnails Gallery (Pillar 2) -->
-                    <div class="grid grid-cols-3 sm:grid-cols-6 lg:grid-cols-8 gap-2.5 pt-2.5 border-t border-slate-100 dark:border-slate-800">
-                      <template x-for="p in art.pins" :key="p.pin_id">
-                        <div class="group relative rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-900 aspect-[2/3] flex flex-col justify-between">
-                          <img :src="p.image_url"
-                               referrerpolicy="no-referrer"
-                               class="w-full h-full object-cover group-hover:scale-105 transition-transform absolute inset-0"
-                               loading="lazy"
-                               onerror="this.onerror=null; this.src='https://placehold.co/80x120?text=Pin'">
-                          
-                          <!-- Top Badges Overlay (Age & Intent) -->
-                          <div class="relative z-10 p-1 flex items-start justify-between gap-1 w-full flex-wrap">
-                            <template x-if="getPinAgeBadge(p.created_at_pinterest)">
-                              <span class="px-1 py-0.2 rounded text-[8px] font-bold font-mono shadow-sm"
-                                    :class="getPinAgeBadge(p.created_at_pinterest).class"
-                                    :title="getPinAgeBadge(p.created_at_pinterest).title"
-                                    x-text="getPinAgeBadge(p.created_at_pinterest).label"></span>
-                            </template>
-                            <template x-if="p.intent_tag">
-                              <div class="px-1 py-0.2 rounded text-[8px] font-bold font-mono bg-black/75 text-amber-300 truncate max-w-[80%] shadow-sm"
-                                   x-text="p.intent_tag"></div>
-                            </template>
-                          </div>
+                    <div class="flex flex-col gap-2 pt-2.5 border-t border-slate-100 dark:border-slate-800">
+                      <div class="grid grid-cols-3 sm:grid-cols-6 lg:grid-cols-8 gap-2.5">
+                        <template x-for="p in (art.expandedPins ? art.pins : (art.pins || []).slice(0, 6))" :key="p.pin_id">
+                          <div class="group relative rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-900 aspect-[2/3] flex flex-col justify-between">
+                            <img :src="p.image_url"
+                                 referrerpolicy="no-referrer"
+                                 class="w-full h-full object-cover group-hover:scale-105 transition-transform absolute inset-0"
+                                 loading="lazy"
+                                 onerror="this.onerror=null; this.style.opacity='0.25'">
+                            
+                            <!-- Top Badges Overlay (Age & Intent) -->
+                            <div class="relative z-10 p-1 flex items-start justify-between gap-1 w-full flex-wrap">
+                              <template x-if="getPinAgeBadge(p.created_at_pinterest)">
+                                <span class="px-1 py-0.2 rounded text-[8px] font-bold font-mono shadow-sm"
+                                      :class="getPinAgeBadge(p.created_at_pinterest).class"
+                                      :title="getPinAgeBadge(p.created_at_pinterest).title"
+                                      x-text="getPinAgeBadge(p.created_at_pinterest).label"></span>
+                              </template>
+                              <template x-if="p.intent_tag">
+                                <div class="px-1 py-0.2 rounded text-[8px] font-bold font-mono bg-black/75 text-amber-300 truncate max-w-[80%] shadow-sm"
+                                     x-text="p.intent_tag"></div>
+                              </template>
+                            </div>
 
-                          <!-- Bottom Rank & Saves Overlay -->
-                          <div class="relative z-10 bg-slate-950/85 p-1 text-[9px] font-mono text-white flex items-center justify-between">
-                            <a :href="safeUrl('/pin/' + p.pin_id)" target="_blank" class="hover:underline flex items-center gap-0.5">
-                              <span x-text="p.best_rank ? '#' + p.best_rank : (p.is_displaced ? 'Displaced' : 'Pin')"></span>
-                              <span class="text-[8px]">↗</span>
-                            </a>
-                            <span class="text-emerald-400 font-bold" x-text="p.saves + 's'"></span>
+                            <!-- Bottom Rank & Saves Overlay -->
+                            <div class="relative z-10 bg-slate-950/85 p-1 text-[9px] font-mono text-white flex items-center justify-between">
+                              <a :href="safeUrl('/pin/' + p.pin_id)" target="_blank" class="hover:underline flex items-center gap-0.5">
+                                <span x-text="p.best_rank ? '#' + p.best_rank : (p.is_displaced ? 'Displaced' : 'Pin')"></span>
+                                <span class="text-[8px]">↗</span>
+                              </a>
+                              <span class="text-emerald-400 font-bold" x-text="p.saves + 's'"></span>
+                            </div>
                           </div>
+                        </template>
+                      </div>
+
+                      <!-- Expander Button if > 6 pins -->
+                      <template x-if="(art.pins || []).length > 6">
+                        <div class="flex justify-end">
+                          <button @click="art.expandedPins = !art.expandedPins"
+                                  class="text-[11px] font-mono font-semibold px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-sky-600 dark:text-sky-400 transition flex items-center gap-1">
+                            <span x-text="art.expandedPins ? 'Collapse to top 6 pins ↑' : 'View all ' + art.pins.length + ' creative variations (' + (art.pins.length - 6) + ' more) ↓'"></span>
+                          </button>
                         </div>
                       </template>
                     </div>
                   </div>
                 </template>
+                <template x-if="filteredDossierArticles().length === 0">
+                  <div class="py-12 text-center text-slate-400 font-mono text-xs">No articles matched your search or filters.</div>
+                </template>
+
+                <!-- Articles Pagination Controls -->
+                <template x-if="totalDossierArticlesPages() > 1">
+                  <div class="flex items-center justify-between border-t border-slate-200 dark:border-slate-800 pt-3 px-1 text-xs font-mono">
+                    <span class="text-slate-500 dark:text-slate-400">
+                      Showing <span class="font-bold text-slate-800 dark:text-slate-200" x-text="((dossierArticlesPage - 1) * dossierArticlesPerPage) + 1"></span> - <span class="font-bold text-slate-800 dark:text-slate-200" x-text="Math.min(dossierArticlesPage * dossierArticlesPerPage, filteredDossierArticles().length)"></span> of <span class="font-bold text-slate-800 dark:text-slate-200" x-text="filteredDossierArticles().length"></span> articles
+                    </span>
+                    <div class="flex items-center gap-1.5">
+                      <button @click="prevDossierArticlesPage()"
+                              :disabled="dossierArticlesPage <= 1"
+                              class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-slate-700 transition">
+                        ← Prev
+                      </button>
+                      <span class="px-2 py-1 text-slate-600 dark:text-slate-400">
+                        Page <span class="font-bold text-slate-900 dark:text-white" x-text="dossierArticlesPage"></span> / <span x-text="totalDossierArticlesPages()"></span>
+                      </span>
+                      <button @click="nextDossierArticlesPage()"
+                              :disabled="dossierArticlesPage >= totalDossierArticlesPages()"
+                              class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-slate-700 transition">
+                        Next →
+                      </button>
+                    </div>
+                  </div>
+                </template>
+              </div>
                 <template x-if="filteredDossierArticles().length === 0">
                   <div class="py-12 text-center text-slate-400 font-mono text-xs">No articles matched your search or filters.</div>
                 </template>
@@ -1936,6 +2024,11 @@ export function getDomainsPageHtml(initialDomain = '') {
         dossierTab: 'urls', // 'urls' | 'pins' | 'keywords' | 'accounts' | 'visual_dna'
         dossierSearch: '',
         dossierSort: 'saves',
+        dossierStatusFilter: 'all', // 'all' | 'active' | 'displaced'
+        dossierPinsPage: 1,
+        dossierPinsPerPage: 25,
+        dossierArticlesPage: 1,
+        dossierArticlesPerPage: 10,
 
         // Arbitrage Attack Blueprint Modal State (Pillar 6)
         isBlueprintModalOpen: false,
@@ -2423,6 +2516,9 @@ export function getDomainsPageHtml(initialDomain = '') {
           this.dossierTab = 'urls';
           this.dossierSearch = '';
           this.dossierSort = 'saves';
+          this.dossierPinsPage = 1;
+          this.dossierArticlesPage = 1;
+          this.dossierStatusFilter = 'all';
 
           if (pushState && typeof window !== 'undefined' && window.history && window.history.pushState) {
             const targetPath = '/domains/' + encodeURIComponent(domain);
@@ -2513,6 +2609,17 @@ export function getDomainsPageHtml(initialDomain = '') {
 
         filteredDossierPins() {
           let list = Array.isArray(this.dossierData?.ranked_pins) ? [...this.dossierData.ranked_pins] : [];
+
+          // [INVARIANT: STRICT-VISUAL-PIN-FIDELITY] Every displayed pin must have an authentic image
+          list = list.filter(p => Boolean(p.image_url && p.image_url.trim()));
+
+          // Status filter: all | active | displaced
+          if (this.dossierStatusFilter === 'active') {
+            list = list.filter(p => !p.is_displaced && p.best_rank !== null);
+          } else if (this.dossierStatusFilter === 'displaced') {
+            list = list.filter(p => Boolean(p.is_displaced));
+          }
+
           const q = (this.dossierSearch || '').toLowerCase().trim();
           if (q) {
             list = list.filter(p => {
@@ -2556,8 +2663,46 @@ export function getDomainsPageHtml(initialDomain = '') {
           return list;
         },
 
+        paginatedDossierPins() {
+          const list = this.filteredDossierPins();
+          const start = (this.dossierPinsPage - 1) * this.dossierPinsPerPage;
+          return list.slice(start, start + this.dossierPinsPerPage);
+        },
+
+        totalDossierPinsPages() {
+          return Math.max(1, Math.ceil(this.filteredDossierPins().length / this.dossierPinsPerPage));
+        },
+
+        prevDossierPinsPage() {
+          if (this.dossierPinsPage > 1) this.dossierPinsPage--;
+        },
+
+        nextDossierPinsPage() {
+          if (this.dossierPinsPage < this.totalDossierPinsPages()) this.dossierPinsPage++;
+        },
+
         filteredDossierArticles() {
           let list = Array.isArray(this.dossierData?.money_urls) ? [...this.dossierData.money_urls] : [];
+
+          // [INVARIANT: CLEAN-MONEY-ARTICLES] Exclude root domain '/' dump from Money Articles
+          list = list.filter(art => art.clean_slug && art.clean_slug !== '/');
+
+          // Ensure pins inside each article only contain valid image pins
+          list = list.map(art => {
+            const validPins = (art.pins || []).filter(p => Boolean(p.image_url && p.image_url.trim()));
+            return {
+              ...art,
+              pins: validPins,
+              pins_count: validPins.length
+            };
+          }).filter(art => art.pins.length > 0);
+
+          if (this.dossierStatusFilter === 'active') {
+            list = list.filter(art => art.pins.some(p => !p.is_displaced));
+          } else if (this.dossierStatusFilter === 'displaced') {
+            list = list.filter(art => art.pins.some(p => Boolean(p.is_displaced)));
+          }
+
           const q = (this.dossierSearch || '').toLowerCase().trim();
           if (q) {
             list = list.filter(art => {
@@ -2616,6 +2761,24 @@ export function getDomainsPageHtml(initialDomain = '') {
             });
           }
           return list;
+        },
+
+        paginatedDossierArticles() {
+          const list = this.filteredDossierArticles();
+          const start = (this.dossierArticlesPage - 1) * this.dossierArticlesPerPage;
+          return list.slice(start, start + this.dossierArticlesPerPage);
+        },
+
+        totalDossierArticlesPages() {
+          return Math.max(1, Math.ceil(this.filteredDossierArticles().length / this.dossierArticlesPerPage));
+        },
+
+        prevDossierArticlesPage() {
+          if (this.dossierArticlesPage > 1) this.dossierArticlesPage--;
+        },
+
+        nextDossierArticlesPage() {
+          if (this.dossierArticlesPage < this.totalDossierArticlesPages()) this.dossierArticlesPage++;
         },
 
         filteredDossierKeywords() {

@@ -571,6 +571,49 @@ async function runTests() {
     studioHtml.includes('(Number(a.best_rank) || 999) - (Number(b.best_rank) || 999)')
   );
 
+  // 11. Taste-Design Cockpit Pagination, Image Fidelity & Root Domain Sanitization Verification
+  console.log('\n[*] Testing Taste-Design Pagination, Image Fidelity & Root Domain Sanitization...');
+  report(
+    'Studio UI contains pagination controls and functions for Pins and Articles',
+    studioHtml.includes('paginatedDossierPins') &&
+    studioHtml.includes('paginatedDossierArticles') &&
+    studioHtml.includes('totalDossierPinsPages') &&
+    studioHtml.includes('totalDossierArticlesPages') &&
+    studioHtml.includes('dossierPinsPerPage') &&
+    studioHtml.includes('dossierArticlesPerPage')
+  );
+
+  report(
+    'Studio UI contains 3-way status segmented filter (All / Active SERP / Displaced)',
+    studioHtml.includes("dossierStatusFilter = 'all'") &&
+    studioHtml.includes("dossierStatusFilter = 'active'") &&
+    studioHtml.includes("dossierStatusFilter = 'displaced'")
+  );
+
+  report(
+    'Studio UI strictly eradicated third-party wireframe placeholders (zero placehold.co)',
+    !studioHtml.includes('placehold.co')
+  );
+
+  report(
+    'Studio UI limits article pin thumbnails and keywords preview with expanders',
+    studioHtml.includes('art.expandedPins') &&
+    studioHtml.includes('art.expandedKeywords')
+  );
+
+  report(
+    'Backend getDomainDeepDossier enforces strict visual fidelity (all ranked_pins have valid images)',
+    Array.isArray(morDossier.ranked_pins) &&
+    morDossier.ranked_pins.length > 0 &&
+    morDossier.ranked_pins.every(p => Boolean(p.image_url && p.image_url.trim()))
+  );
+
+  report(
+    'Backend getDomainDeepDossier strictly excludes Root Domain (/) dump from money_urls',
+    Array.isArray(morDossier.money_urls) &&
+    morDossier.money_urls.every(u => u.clean_slug && u.clean_slug !== '/')
+  );
+
   console.log('\n================================================================================');
   console.log(`AUDIT COMPLETE: ${passed} PASSED | ${failed} FAILED`);
   console.log('================================================================================');
