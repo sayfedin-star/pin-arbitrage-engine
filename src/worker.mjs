@@ -821,7 +821,7 @@ export function buildCanonicalCacheKey(prefix, params = {}) {
   return sortedEntries.length > 0 ? `${prefix}?${sortedEntries.join('&')}` : prefix;
 }
 
-export async function getCachedOrFetch(key, fetcher, ttlMs = 15000, staleMs = 60000, { forceRefresh = false } = {}) {
+export async function getCachedOrFetch(key, fetcher, ttlMs = 15000, staleMs = 60000, { forceRefresh = false, timeoutMs = 18000 } = {}) {
   const now = Date.now();
   const cached = edgeCache.get(key);
 
@@ -839,7 +839,7 @@ export async function getCachedOrFetch(key, fetcher, ttlMs = 15000, staleMs = 60
             const fetchTask = fetcher();
             fetchTask.catch(() => {});
             const timeoutPromise = new Promise((_, reject) => {
-              timerId = setTimeout(() => reject(new Error(`Timeout revalidating ${key}`)), 18000);
+              timerId = setTimeout(() => reject(new Error(`Timeout revalidating ${key}`)), timeoutMs);
             });
             const fresh = await Promise.race([
               fetchTask,
@@ -919,7 +919,7 @@ export async function getCachedOrFetch(key, fetcher, ttlMs = 15000, staleMs = 60
       const fetchTask = fetcher();
       fetchTask.catch(() => {});
       const timeoutPromise = new Promise((_, reject) => {
-        timerId = setTimeout(() => reject(new Error(`Timeout fetching ${key}`)), 18000);
+        timerId = setTimeout(() => reject(new Error(`Timeout fetching ${key}`)), timeoutMs);
       });
       const fresh = await Promise.race([
         fetchTask,

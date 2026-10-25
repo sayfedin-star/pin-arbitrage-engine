@@ -12,7 +12,7 @@ on:
         type: string
         default: ''
       crawl_mode:
-        description: 'Crawl Mode: sharded_boards (99-shard dynamic fleet matrix - RECOMMENDED for 100% full catalog), discovery (profile created feed), or refresh (early-stop: 3 pages)'
+        description: 'Crawl Mode: sharded_boards (20-worker swarm - RECOMMENDED for 100% full catalog), discovery (profile created feed), or refresh (early-stop: 3 pages)'
         required: true
         type: choice
         options:
@@ -45,178 +45,129 @@ permissions:
 
 jobs:
   # ============================================================================
-  # STAGE 0: Intelligent Dynamic Fleet Dispatcher (~15s)
-  # Queries Central Hub to find which of the 99 shards actually hold active
-  # competitors or pending queue work. Emits active_shards JSON array.
-  # Eliminates up to 90+ empty runners, saving queue latency and compute.
+  # STAGE 0: Intelligent Dynamic Fleet Dispatcher (~10s)
+  # Determines Mode:
+  # - Mode A (Scheduled Sweep): 20 persistent workers across all active creators
+  # - Mode B (Targeted Account Swarm): Catalog partitioned across 20 runners
   # ============================================================================
-  dispatch-fleet:
+  dispatch:
     name: Stage 0 - Fleet Orchestrator & Dispatcher
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     outputs:
-      active_shards: ${{ steps.dispatcher.outputs.active_shards }}
-      active_count: ${{ steps.dispatcher.outputs.active_count }}
-      canonical_shard: ${{ steps.dispatcher.outputs.canonical_shard }}
+      matrix_tasks: ${{ steps.dispatcher.outputs.matrix_tasks }}
+      mode: ${{ steps.dispatcher.outputs.mode }}
+      task_count: ${{ steps.dispatcher.outputs.task_count }}
     steps:
       - name: 1. Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
-      - name: 2. Setup Node.js 22 runtime with npm cache
+      - name: 2. Setup Node.js 22 runtime
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: 'npm'
 
       - name: 3. Install dependencies
-        run: npm ci
+        run: npm ci --prefer-offline --no-audit --no-fund
 
-      - name: 4. Resolve Active Shard Matrix
+      - name: 4. Execute Fleet Orchestrator & Dispatcher
         id: dispatcher
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          TARGET_ACCOUNT: ${{ inputs.target_account }}
-          SHARD_TOTAL: 99
-        run: node scripts/fleet-dispatcher.mjs
-
-  # ============================================================================
-  # STAGE 1: Discovery Job (Single runner, 100% pin ID ingestion)
-  # Discovers all boards & feeds, inserting pin IDs into competitor_pins as 'pending'.
-  # Only executes when a specific target_account is provided.
-  # ============================================================================
-  discovery:
-    name: Stage 1 - Ingest & Discover Account
-    needs: [dispatch-fleet]
-    if: "${{ inputs.target_account != '' }}"
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - name: 1. Checkout repository code (Shallow fetch for speed)
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
-
-      - name: 2. Setup Node.js 22 runtime with npm cache
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: 'npm'
-
-      - name: 3. Discovery Runner IP Diagnostics
-        run: |
-          echo "=== Stage 1 Discovery Runner Egress IP ==="
-          curl -s --max-time 5 https://api.ipify.org || echo "ip-diagnostics unavailable (non-fatal)"
-          echo ""
-          echo "=========================================="
-
-      - name: 4. Install dependencies
-        run: npm ci
-
-      - name: 5. Execute Discovery Job
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
           PINTEREST_COOKIE: ${{ secrets.PINTEREST_COOKIE }}
           TARGET_ACCOUNT: ${{ inputs.target_account }}
-          TARGET_BOARDS: ${{ inputs.target_boards }}
-          CRAWL_MODE: ${{ inputs.crawl_mode || 'sharded_boards' }}
-          CRAWL_PHASE: 'discovery'
+          CRAWL_MODE: ${{ inputs.crawl_mode || 'refresh' }}
           MAX_PAGES: ${{ inputs.max_pages || '1000' }}
           PERSONAL_BOARDS_ONLY: ${{ inputs.personal_boards_only == false && 'false' || 'true' }}
-          CANONICAL_SHARD: ${{ needs.dispatch-fleet.outputs.canonical_shard }}
-          ACTIVE_SHARDS: ${{ needs.dispatch-fleet.outputs.active_shards }}
-          SWARM_SIZE: ${{ needs.dispatch-fleet.outputs.active_count }}
-          SHARD_NUMBER: 1
-          SHARD_TOTAL: 99
-        run: node scripts/crawler-engine.mjs
+          TARGET_BOARDS: ${{ inputs.target_boards }}
+        run: node scripts/creator-fleet-dispatcher.mjs
 
   # ============================================================================
-  # STAGE 2: Dynamic Active-Shard Parallel Matrix
-  # Executes ONLY on shards that have real work assigned (0% empty runners).
-  # - If target_account is set: runs AFTER discovery to consume Postgres Queue
-  # - If target_account is empty (cron): runs daily scheduled pulse across active competitors
+  # STAGE 1: 20-Runner Concurrent Distributed Fleet Matrix
+  # Executes simultaneously across up to 20 isolated Azure runner VMs with distinct IPs
   # ============================================================================
-  crawl-shards:
-    name: Crawl Shard ${{ matrix.shard }}/99
-    needs: [dispatch-fleet, discovery]
-    if: "${{ always() && (needs.dispatch-fleet.result == 'success') && (needs.discovery.result == 'success' || needs.discovery.result == 'skipped') }}"
+  crawl-fleet:
+    name: Fleet Worker #${{ matrix.worker_slot }}/${{ matrix.worker_total }} - ${{ matrix.account_name }}
+    needs: [dispatch]
+    if: needs.dispatch.outputs.task_count != '0'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 55
     strategy:
-      fail-fast: false       # If one shard encounters an anomaly, other shards continue
-      max-parallel: 15       # Bounded parallel workers to prevent Neon Hub saturation
+      fail-fast: false
+      max-parallel: 20
       matrix:
-        shard: ${{ fromJson(needs.dispatch-fleet.outputs.active_shards) }}
+        include: ${{ fromJson(needs.dispatch.outputs.matrix_tasks) }}
 
     steps:
-      - name: 1. Checkout repository code (Shallow fetch for speed)
+      - name: 1. Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
-      - name: 2. Setup Node.js 22 runtime with npm cache
+      - name: 2. Setup Node.js 22 runtime
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: 'npm'
 
-      - name: 3. Shard Egress IP Diagnostics
+      - name: 3. Runner Egress IP Diagnostics
         run: |
-          echo "=== Shard ${{ matrix.shard }}/99 Egress IP ==="
-          curl -s --max-time 5 https://api.ipify.org || echo "ip-diagnostics unavailable (non-fatal)"
+          echo "=== Runner Egress IP ==="
+          curl -s --max-time 3 https://api.ipify.org || echo "ip-diagnostics unavailable (non-fatal)"
           echo ""
-          echo "=============================================="
+          echo "========================"
 
       - name: 4. Install dependencies
-        run: npm ci
+        run: npm ci --prefer-offline --no-audit --no-fund
 
-      - name: 5. Execute Distributed Shard Engine
+      - name: 5. Execute Fleet Worker
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           PINTEREST_COOKIE: ${{ secrets.PINTEREST_COOKIE }}
-          TARGET_ACCOUNT: ${{ inputs.target_account }}
-          TARGET_BOARDS: ${{ inputs.target_boards }}
-          CRAWL_MODE: ${{ inputs.crawl_mode || 'sharded_boards' }}
-          CRAWL_PHASE: "${{ inputs.target_account != '' && 'enrichment' || 'scheduled' }}"
-          MAX_PAGES: ${{ inputs.max_pages || '1000' }}
-          PERSONAL_BOARDS_ONLY: ${{ inputs.personal_boards_only == false && 'false' || 'true' }}
-          CANONICAL_SHARD: ${{ needs.dispatch-fleet.outputs.canonical_shard }}
-          ACTIVE_SHARDS: ${{ needs.dispatch-fleet.outputs.active_shards }}
-          SWARM_SIZE: ${{ needs.dispatch-fleet.outputs.active_count }}
-          SHARD_NUMBER: ${{ matrix.shard }}
-          SHARD_TOTAL: 99
-        run: node scripts/crawler-engine.mjs
+          MODE: ${{ matrix.mode }}
+          TARGET_ACCOUNT: ${{ matrix.target_account || '' }}
+          ACCOUNT_ID: ${{ matrix.account_id }}
+          ACCOUNT_IDS: ${{ matrix.account_ids || '' }}
+          ALL_ACCOUNT_IDS: ${{ matrix.all_account_ids || '' }}
+          WORKER_INDEX: ${{ matrix.worker_index }}
+          WORKER_TOTAL: ${{ matrix.worker_total }}
+          CRAWL_MODE: ${{ matrix.crawl_mode || 'refresh' }}
+          MAX_PAGES: ${{ matrix.max_pages }}
+          PERSONAL_BOARDS_ONLY: ${{ matrix.personal_boards_only }}
+          TARGET_BOARDS: ${{ matrix.target_boards || '' }}
+        run: node scripts/creator-velocity-crawler.mjs
 
   # ============================================================================
-  # STAGE 3: Fleet Rollup & Step Summary
-  # Publishes an execution summary to the GitHub Actions workflow tab
+  # STAGE 2: Fleet Velocity & Report Consolidation Engine (~10s)
+  # Consolidates metrics, generates Executive Report, and performs Hub maintenance
   # ============================================================================
-  fleet-summary:
-    name: Stage 3 - Fleet Telemetry Rollup
-    needs: [dispatch-fleet, crawl-shards]
-    if: always()
+  consolidate:
+    name: Stage 2 - Creator Telemetry & Executive Report Consolidation
+    needs: [dispatch, crawl-fleet]
+    if: always() && needs.dispatch.result == 'success'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - name: Publish Workflow Run Summary
-        run: |
-          ACTIVE_SHARDS='${{ needs.dispatch-fleet.outputs.active_shards }}'
-          ACTIVE_COUNT='${{ needs.dispatch-fleet.outputs.active_count }}'
-          CRAWL_STATUS='${{ needs.crawl-shards.result }}'
+      - name: 1. Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
-          COUNT="${ACTIVE_COUNT:-0}"
-          if ! [[ "$COUNT" =~ ^[0-9]+$ ]]; then COUNT=0; fi
-          REMAINING=$(( 99 - COUNT ))
-          if [ "$REMAINING" -lt 0 ]; then REMAINING=0; fi
+      - name: 2. Setup Node.js 22 runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
 
-          echo "## 🚀 99-Shard Distributed Fleet Execution Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "| :--- | :--- |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Fleet Total Shards** | 99 Shards |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Active Shards Dispatched** | ${COUNT} Shards |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Active Shard Set** | \`${ACTIVE_SHARDS:-"[]"}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Empty Runners Avoided** | ${REMAINING} Runners Saved |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Crawl Matrix Result** | **${CRAWL_STATUS}** |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "✨ *Zero empty runner waste. 100% Neon shard isolation.*" >> $GITHUB_STEP_SUMMARY
+      - name: 3. Install dependencies
+        run: npm ci --prefer-offline --no-audit --no-fund
+
+      - name: 4. Execute Consolidation & Report Engine
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          MODE: ${{ needs.dispatch.outputs.mode }}
+          TARGET_ACCOUNT: ${{ inputs.target_account }}
+        run: node scripts/creator-fleet-consolidator.mjs

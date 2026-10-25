@@ -283,7 +283,7 @@ export async function queryWhoisHttpsRdap(cleanDomain) {
  * Primary: https://api.domainee.dev/v1/tools/domain-age-checker?domain=http://<domain>/
  * Fallback: https://rdap.org/domain/<domain>
  */
-export async function fetchAndCacheDomainAge(sql, rawDomain, { forceRefresh = false } = {}) {
+export async function fetchAndCacheDomainAge(sql, rawDomain, { forceRefresh = false, fastPath = false } = {}) {
   const cleanDomain = normalizeCleanDomain(rawDomain);
   if (!cleanDomain) return null;
 
@@ -323,6 +323,22 @@ export async function fetchAndCacheDomainAge(sql, rawDomain, { forceRefresh = fa
         };
       }
     } catch (_) {}
+  }
+
+  // [INVARIANT: FAST-PATH-NON-BLOCKING] Uncached domains return immediately with pending status
+  if (fastPath) {
+    return {
+      domain: cleanDomain,
+      registered_at: null,
+      updated_at_whois: null,
+      expires_at: null,
+      lookup_source: null,
+      lookup_status: 'pending',
+      checked_at: null,
+      age_days: null,
+      age_years: null,
+      needs_enrichment: true
+    };
   }
 
   let created = null;
@@ -1794,7 +1810,7 @@ export function detectMarketingAngle({ title = '', keywords = [], annotations = 
  * 5. P2P Sybil Network (Primary Brand vs Satellite Creators & Cross-Domain Footprint)
  * 6. Reverse-Engineered Visual DNA (Computer Vision Annotations Cloud & Palette)
  */
-export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, keywordId = null, env = null, skipShardHydration = false } = {}) {
+export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, keywordId = null, env = null, skipShardHydration = false, fastPath = true } = {}) {
   const cleanDomain = normalizeCleanDomain(rawDomain);
   if (!cleanDomain) throw new Error('Valid domain is required.');
 
@@ -1802,8 +1818,8 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
   const kId = keywordId && !isNaN(Number(keywordId)) ? Number(keywordId) : null;
 
   const [ageInfo, adInfo, serpPins, archivePins, compPins, displacedPins] = await Promise.all([
-    fetchAndCacheDomainAge(sql, cleanDomain),
-    fetchAndCacheDomainAdNetwork(sql, cleanDomain).catch(() => null),
+    fetchAndCacheDomainAge(sql, cleanDomain, { fastPath }),
+    fetchAndCacheDomainAdNetwork(sql, cleanDomain, { fastPath }).catch(() => null),
     sql`
       SELECT
         ksc.pin_id,
@@ -1906,10 +1922,20 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
   const registerPin = (row, sourcePillar) => {
     const pid = String(row.pin_id || '').trim();
     if (!pid) return;
-    const cleanUser = String(row.creator_username || '').replace(/^@+/, '').trim().toLowerCase();
+    const rawUser = String(row.creator_username || '').replace(/^@+/, '').trim();
+    const cleanUser = rawUser.toLowerCase();
     if (cleanUser) {
       if (!accountsMap.has(cleanUser)) {
-        accountsMap.set(cleanUser, { username: cleanUser, pins_count: 0, total_saves: 0, top10_count: 0 });
+        accountsMap.set(cleanUser, {
+          username: cleanUser,
+          raw_usernames: new Set(),
+          pins_count: 0,
+          total_saves: 0,
+          top10_count: 0
+        });
+      }
+      if (rawUser) {
+        accountsMap.get(cleanUser).raw_usernames.add(rawUser);
       }
     }
 
@@ -2115,9 +2141,17 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
     }
   }
 
+  // [INVARIANT: EDGE-SUBREQUEST-PAGINATION-SHIELD] Invariant 9: strictly bound displaced pin shard hydration to top 30 pins
+  const MAX_DISPLACED_SHARD_HYDRATION = 30;
   if (missingDisplacedPids.size > 0 && !skipShardHydration) {
     try {
-      const rowsToHydrate = Array.from(missingDisplacedPids).map(pid => ({ pin_id: pid }));
+      const sortedMissingPids = displacedPins
+        .filter(dp => missingDisplacedPids.has(String(dp.pin_id || '').trim()))
+        .sort((a, b) => Number(b.saves || 0) - Number(a.saves || 0))
+        .map(dp => String(dp.pin_id).trim());
+
+      const boundedPids = Array.from(new Set(sortedMissingPids)).slice(0, MAX_DISPLACED_SHARD_HYDRATION);
+      const rowsToHydrate = boundedPids.map(pid => ({ pin_id: pid }));
       const hydratedRows = await hydrateDisplacedIndexFromShards(sql, rowsToHydrate, env, skipShardHydration);
       const hydratedMap = new Map();
       for (const h of (hydratedRows || [])) {
@@ -2311,19 +2345,28 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
     .sort((a, b) => b.active_slots - a.active_slots || (a.best_rank || 999) - (b.best_rank || 999));
 
   // 4. Pillar 4: P2P Sybil Network & Ghost Creators Tracking
-  const accountUsernames = Array.from(accountsMap.keys()).filter(Boolean);
   const brandRoot = cleanDomain.split('.')[0].replace(/[^a-z0-9]/g, '');
 
+  // [INVARIANT: SARGABLE-INDEX-SEEK] Rule 9: Query creator_username directly without wrapping indexed column in expressions
+  // Sort accounts by activity (pins_count & total_saves) to strictly bound to the true top 50 accounts
+  const sortedAccounts = Array.from(accountsMap.values())
+    .sort((a, b) => b.pins_count - a.pins_count || b.total_saves - a.total_saves);
+  const topAccounts = sortedAccounts.slice(0, 50);
+
+  // Collect both clean and raw database usernames to guarantee exact B-Tree seek across mixed-case entries
+  const cleanUsernames = Array.from(new Set(
+    topAccounts.flatMap(acc => [acc.username, ...Array.from(acc.raw_usernames || [])]).filter(Boolean)
+  ));
   let crossFootprintRows = [];
-  if (accountUsernames.length > 0) {
+  if (cleanUsernames.length > 0) {
     try {
       crossFootprintRows = await sql`
         SELECT
-          LOWER(REPLACE(COALESCE(creator_username, ''), '@', '')) AS username,
-          LOWER(REGEXP_REPLACE(domain, '^www\\.', '')) AS cross_domain,
+          creator_username AS username,
+          domain AS cross_domain,
           COUNT(DISTINCT pin_id)::int AS pins_count
         FROM keyword_serp_current
-        WHERE LOWER(REPLACE(COALESCE(creator_username, ''), '@', '')) = ANY(${accountUsernames})
+        WHERE creator_username = ANY(${cleanUsernames})
           AND domain IS NOT NULL AND domain <> ''
           AND domain <> ${cleanDomain}
         GROUP BY 1, 2
@@ -2335,8 +2378,9 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
 
   const crossMap = new Map();
   for (const r of crossFootprintRows) {
-    if (!crossMap.has(r.username)) crossMap.set(r.username, []);
-    crossMap.get(r.username).push({ domain: r.cross_domain, pins_count: r.pins_count });
+    const u = String(r.username || '').replace(/^@+/, '').trim().toLowerCase();
+    if (!crossMap.has(u)) crossMap.set(u, []);
+    crossMap.get(u).push({ domain: r.cross_domain, pins_count: r.pins_count });
   }
 
   const accountsList = Array.from(accountsMap.values()).map(acc => {
@@ -2419,6 +2463,8 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
     domain: cleanDomain,
     age_info: ageInfo,
     ad_info: adInfo,
+    needs_age_enrichment: Boolean(ageInfo?.needs_enrichment || ageInfo?.lookup_status === 'pending'),
+    needs_ad_enrichment: Boolean(adInfo?.needs_enrichment || adInfo?.ads_txt_status === 'pending'),
     summary: {
       total_pins: allPins.length,
       unique_urls: moneyUrls.length,

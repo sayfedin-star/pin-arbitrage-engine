@@ -1254,6 +1254,22 @@ export function getDomainsPageHtml(initialDomain = '') {
           </div>
         </template>
 
+        <!-- Error & Cold Start State -->
+        <template x-if="!dossierLoading && !dossierData">
+          <div class="py-20 text-center flex flex-col items-center justify-center gap-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-8 shadow-sm">
+            <div class="w-12 h-12 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center text-2xl font-bold">⚠️</div>
+            <div class="flex flex-col gap-1 max-w-md">
+              <span class="text-base font-bold text-slate-900 dark:text-white">Dossier Cold-Start or Timed Out</span>
+              <span class="text-xs text-slate-500 dark:text-slate-400">The serverless database or background compute may have experienced a cold start while compiling 4-pillar data for <span class="font-mono font-bold text-slate-700 dark:text-slate-300" x-text="dossierDomain"></span>.</span>
+            </div>
+            <button @click="openDossier(dossierDomain, false, true)"
+                    class="px-5 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-mono font-semibold shadow-sm transition flex items-center gap-2">
+              <span>🔄</span>
+              <span>Retry Loading Dossier</span>
+            </button>
+          </div>
+        </template>
+
         <!-- Main Studio Tab Views -->
         <template x-if="!dossierLoading && dossierData">
           <div class="flex flex-col gap-4">
@@ -2398,7 +2414,7 @@ export function getDomainsPageHtml(initialDomain = '') {
           this.showToast('Global verification paused. You can resume anytime.', 'info');
         },
 
-        async openDossier(domain, pushState = true) {
+        async openDossier(domain, pushState = true, forceRefresh = false) {
           if (!domain) return;
           this.dossierDomain = domain;
           this.isDossierOpen = true;
@@ -2416,7 +2432,8 @@ export function getDomainsPageHtml(initialDomain = '') {
           }
 
           try {
-            const res = await (window.safeApiFetch || fetch)('/api/domains/dossier?domain=' + encodeURIComponent(domain), { timeout: 18000 });
+            const apiUrl = '/api/domains/dossier?domain=' + encodeURIComponent(domain) + (forceRefresh ? '&refresh=true' : '');
+            const res = await (window.safeApiFetch || fetch)(apiUrl, { timeout: 28000 });
             if (!res.ok) throw new Error('HTTP ' + res.status);
             this.dossierData = await res.json();
           } catch (err) {

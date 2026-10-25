@@ -116,9 +116,87 @@ export async function handleDomainsRoutes(routeCtx) {
     const domain = searchParams.get('domain');
     if (!domain) return jsonResponse({ error: 'domain query parameter is required' }, 400);
     try {
+      const cleanDomain = normalizeCleanDomain(domain);
+      if (!cleanDomain) return jsonResponse({ error: 'Valid domain is required' }, 400);
+
+      const isForceRefresh = searchParams.get('refresh') === 'true' || searchParams.get('force') === 'true';
       const folderId = searchParams.get('folder_id') || null;
       const keywordId = searchParams.get('keyword_id') || null;
-      const dossier = await getDomainDeepDossier(sql, domain, { folderId, keywordId, env });
+
+      const cacheKey = buildCanonicalCacheKey('domains:dossier', { domain: cleanDomain, folderId, keywordId });
+      const kvKey = `dossier:domain:${cleanDomain}${folderId ? `:${folderId}` : ''}${keywordId ? `:${keywordId}` : ''}`;
+
+      if (isForceRefresh) {
+        if (typeof invalidateEdgeCache === 'function') {
+          invalidateEdgeCache(buildCanonicalCacheKey('domains:dossier', { domain: cleanDomain }));
+        }
+        if (env?.PIN_ENGINE_KV) {
+          safeWaitUntil(ctx, env.PIN_ENGINE_KV.delete(kvKey).catch(() => {}), 'kv_evict_domain_dossier');
+          if (kvKey !== `dossier:domain:${cleanDomain}`) {
+            safeWaitUntil(ctx, env.PIN_ENGINE_KV.delete(`dossier:domain:${cleanDomain}`).catch(() => {}), 'kv_evict_domain_dossier_base');
+          }
+        }
+      }
+
+      const fetchDossier = async () => {
+        // [INVARIANT: EDGE-KV-CACHE-FIRST] Check Workers KV first for sub-5ms response
+        if (env?.PIN_ENGINE_KV && !isForceRefresh) {
+          try {
+            const kvCached = await env.PIN_ENGINE_KV.get(kvKey, { type: 'json', cacheTtl: 300 });
+            if (kvCached) return kvCached;
+          } catch (_) {}
+        }
+
+        const freshDossier = await getDomainDeepDossier(sql, cleanDomain, { folderId, keywordId, env, fastPath: true });
+
+        // Cache in Workers KV: 900s (15 min) for full dossier, or short 30s TTL if enrichment is pending
+        if (env?.PIN_ENGINE_KV && freshDossier?.success) {
+          const isPending = Boolean(freshDossier?.needs_age_enrichment || freshDossier?.needs_ad_enrichment);
+          const expirationTtl = isPending ? 30 : 900;
+          safeWaitUntil(
+            ctx,
+            env.PIN_ENGINE_KV.put(kvKey, JSON.stringify(freshDossier), { expirationTtl }).catch(() => {}),
+            'kv_cache_domain_dossier'
+          );
+        }
+
+        return freshDossier;
+      };
+
+      const dossier = await getCachedOrFetch(cacheKey, fetchDossier, 60000, 900000, {
+        forceRefresh: isForceRefresh,
+        timeoutMs: 27000
+      });
+
+      // Non-blocking background enrichment for missing WHOIS or ads
+      if (dossier?.needs_age_enrichment || dossier?.needs_ad_enrichment) {
+        safeWaitUntil(
+          ctx,
+          (async () => {
+            const tasks = [];
+            if (dossier.needs_age_enrichment) {
+              tasks.push(fetchAndCacheDomainAge(sql, cleanDomain).catch(() => {}));
+            }
+            if (dossier.needs_ad_enrichment) {
+              tasks.push(fetchAndCacheDomainAdNetwork(sql, cleanDomain).catch(() => {}));
+            }
+            await Promise.all(tasks);
+
+            // Once background enrichment completes in Postgres, purge pending dossier from KV and edge cache
+            if (env?.PIN_ENGINE_KV) {
+              await env.PIN_ENGINE_KV.delete(kvKey).catch(() => {});
+              if (kvKey !== `dossier:domain:${cleanDomain}`) {
+                await env.PIN_ENGINE_KV.delete(`dossier:domain:${cleanDomain}`).catch(() => {});
+              }
+            }
+            if (typeof invalidateEdgeCache === 'function') {
+              invalidateEdgeCache(buildCanonicalCacheKey('domains:dossier', { domain: cleanDomain }));
+            }
+          })(),
+          'bg_dossier_enrichment'
+        );
+      }
+
       return jsonResponse(dossier, 200, 30);
     } catch (err) {
       return jsonResponse({ success: false, error: redactSecrets(err.message) }, 400);

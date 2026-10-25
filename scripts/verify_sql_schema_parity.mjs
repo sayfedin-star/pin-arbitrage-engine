@@ -232,7 +232,8 @@ export const KNOWN_TABLE_COLUMNS = {
     'updated_at',
     'enrich_attempts',
     'claim_token',
-    'board_slug'
+    'board_slug',
+    'is_deleted'
   ]),
   competitor_history_snapshots: new Set([
     'id',

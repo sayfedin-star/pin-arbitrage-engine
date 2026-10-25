@@ -2798,7 +2798,6 @@ export async function reconcileQualifiedCatalogPins(sql, competitorIdOrUsername 
   }
 
   // If specific competitor requested, resolve it
-  let compFilter = sql``;
   let numericId = null;
   let username = null;
 
@@ -2817,9 +2816,6 @@ export async function reconcileQualifiedCatalogPins(sql, competitorIdOrUsername 
           username = c.username;
         }
       }
-    }
-    if (numericId) {
-      compFilter = sql`AND cp.competitor_id = ${numericId}`;
     }
   }
 
@@ -2843,8 +2839,7 @@ export async function reconcileQualifiedCatalogPins(sql, competitorIdOrUsername 
   const freshMinSaves = parseRuleNumber(rules.tier3_min_saves ?? rules.fresh_min_saves, 25, 0);
   const articlesOnly = rules.articles_only ?? true;
 
-  const runReconcileQuery = async (includeDeletedCheck) => {
-    const deletedFilter = includeDeletedCheck ? sql`AND (cp.is_deleted IS NULL OR cp.is_deleted = FALSE)` : sql``;
+  const runReconcileQuery = async () => {
     return await sql`
       WITH candidate_pins AS (
         SELECT 
@@ -2873,8 +2868,9 @@ export async function reconcileQualifiedCatalogPins(sql, competitorIdOrUsername 
         FROM competitor_pins cp
         LEFT JOIN competitor_profiles prof ON cp.competitor_id = prof.id
         WHERE 1=1
-          ${deletedFilter}
-          ${compFilter}
+          AND (${numericId}::int IS NULL OR cp.competitor_id = ${numericId})
+          AND (cp.is_deleted IS NULL OR cp.is_deleted = FALSE)
+          AND (cp.metadata->>'is_deleted' IS NULL OR cp.metadata->>'is_deleted' <> 'true')
           AND (
             cp.save_count >= ${minSaves}
             OR cp.repin_count >= ${minRepins}
@@ -2922,16 +2918,7 @@ export async function reconcileQualifiedCatalogPins(sql, competitorIdOrUsername 
     `;
   };
 
-  let reconciled = [];
-  try {
-    reconciled = await runReconcileQuery(true);
-  } catch (err) {
-    if (err.message && err.message.includes('is_deleted')) {
-      reconciled = await runReconcileQuery(false);
-    } else {
-      throw err;
-    }
-  }
+  const reconciled = await runReconcileQuery();
 
   return {
     ok: true,

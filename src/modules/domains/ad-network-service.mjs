@@ -449,7 +449,7 @@ export function normalizeMonetizationRecord(record) {
 /**
  * Fetches, detects network, tracks transitions, and caches results into Neon Postgres.
  */
-export async function fetchAndCacheDomainAdNetwork(sql, rawDomain, { forceRefresh = false } = {}) {
+export async function fetchAndCacheDomainAdNetwork(sql, rawDomain, { forceRefresh = false, fastPath = false } = {}) {
   const cleanDomain = normalizeCleanDomain(rawDomain);
   if (!cleanDomain) return null;
 
@@ -479,6 +479,23 @@ export async function fetchAndCacheDomainAdNetwork(sql, rawDomain, { forceRefres
     (Date.now() - new Date(existing.checked_at).getTime()) < 14 * 86400000 // 14 days TTL
   ) {
     return normalizeMonetizationRecord(existing);
+  }
+
+  // [INVARIANT: FAST-PATH-NON-BLOCKING] Uncached domains return immediately with pending status
+  if (fastPath) {
+    return {
+      domain: cleanDomain,
+      current_ad_network: existing?.current_ad_network || 'unchecked',
+      ad_manager_domain: existing?.ad_manager_domain || null,
+      primary_pub_id: existing?.primary_pub_id || null,
+      previous_ad_network: existing?.previous_ad_network || null,
+      switched_at: existing?.switched_at || null,
+      network_history: normalizeMonetizationRecord(existing)?.network_history || [],
+      ads_txt_status: 'pending',
+      raw_header_snippet: existing?.raw_header_snippet || null,
+      checked_at: existing?.checked_at || null,
+      needs_enrichment: true
+    };
   }
 
   // 2. Fetch ads.txt
