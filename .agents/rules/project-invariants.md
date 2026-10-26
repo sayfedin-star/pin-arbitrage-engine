@@ -118,4 +118,44 @@ Refer to `PROJECT_CHARTER_AND_DIRECTIVES.md` for full context. The following rul
 - **Instant HEAD 200 OK:** Static page routes must return an immediate HTTP 200 OK on `HEAD` requests with standard headers, avoiding template execution and database queries.
 - **Zero-Account-Sharding SSOT:** All competitor intelligence functions (`getFleetCompetitors`, `listCompetitors`, `getCompetitorsOverview`) query Central Hub directly. Never query or loop through Storage Shards for competitor profiles or boards.
 
+## 18. Clock-Skew Immune Distributed Barrier Synchronization (Option B Invariant)
+- **Elimination of Timestamp Math:** Multi-phase crawlers must never synchronize distributed runners using relative timestamp subtraction (`new Date(Date.now() - 300000)`). NTP clock drift and virtualization scheduling delays cause premature barrier collapses ($\Delta t < 0$) or permanent 60-second timeouts ($\Delta t > 0$).
+- **Mandatory Logical State Tokens:** Phase barriers must be sealed with a unique logical token stamped in the database (`UPDATE tracked_keywords SET metadata = jsonb_set(metadata, '{phase1a_completed_token}', to_jsonb(${runToken}::text))`).
+- **Explicit Run-ID Parameter Passing:** Runners must propagate `process.env.CRAWL_RUN_ID` or GitHub Run ID to guarantee barrier token parity across minute boundaries.
+
+## 19. Shard-Affine Partitioning & Connection Cap (Anti-Blast Invariant)
+- **The GCD Connection Blast Trap:** When partitioning tasks across $W$ workers and $S$ storage shards, if $\gcd(W, S) = 1$, random item hashing (`crc32(id) % W`) scatters work across all $S$ shards for every worker, generating $W \times S$ concurrent connections ($20 \times 99 = 1{,}980$ connections).
+- **Mandatory Shard-Affine Slicing:** Workers must be assigned a fixed subset of shards: $S_w = \{s \in [1, 99] \mid (s - 1) \bmod W === w\}$. Each worker opens connections exclusively to its designated $\le \lceil S/W \rceil$ shards, capping fleet database connections to $S$ (99 connections, a 95% reduction).
+
+## 20. PostgreSQL Error 21000 Map Deduplication in Batch Upserts
+- **The Cardinality Landmine:** In multi-row batch upserts using `jsonb_to_recordset` with `ON CONFLICT (pin_id, snapshot_date, keyword_id) DO UPDATE`, duplicate compound keys within the same payload trigger fatal `PostgreSQL Error 21000: ON CONFLICT DO UPDATE command cannot affect row a second time`.
+- **Pre-Serialization Map Deduplication:** All payload rows must be deduplicated in-memory via `Map` keyed by target compound identifiers prior to JSON stringification, supported by database-level `DISTINCT ON` clauses.
+
+## 21. PostgreSQL 100% HOT Updates & Zero Volatile Index Columns
+- **The HOT Blocking Mechanism:** In PostgreSQL (`nbtinsert.c`), Heap-Only Tuple (HOT) updates are strictly forbidden if any modified column belongs to any secondary index on the table, even if the column is merely in an `INCLUDE` clause.
+- **Volatile Column Ban:** Frequently updated counters (`save_count`, `daily_save_velocity`, `repin_count`) must NEVER be included in secondary indexes on operational tables (`keyword_serp_current`, `competitor_pins`, `keyword_displaced_index`).
+- **Page Headroom:** Tables receiving continuous ingestion must maintain `fillfactor = 80`. Index maintenance scripts (`ensure_indexes.mjs`) must never re-create dropped covering indexes.
+
+## 22. Active Core Pillar 1 (Cluster Graph) Absolute Defense
+- **The Pillar 1 Invariant:** `scripts/cluster-intelligence.mjs`, `src/routes/cluster.mjs`, `src/modules/cluster/service.mjs`, and `.github/workflows/cluster-intelligence.yml` are permanent core infrastructure powering Seed Pin Cluster Graph, candidate graph nodes, and P2P Arbitrage.
+- **Strict Distinction:** They must never be confused with deprecated PinArchive `Smart Topic Clusters` (`pa_topic_clusters_page`). Pillar 1 files and workflows are strictly protected against deletion.
+
+## 23. SARGable SQL Queries & Optional B-Tree Filtering (User Directive 1)
+- **Zero Expression Wrapping in WHERE:** Never wrap indexed columns in functions (`LOWER()`, `REGEXP_REPLACE()`, `TRIM()`). Always normalize search arguments in the application layer.
+- **Optional Index Seeking:** When filtering on nullable criteria (e.g. `board_slug`), structure SQL predicates as:
+  `AND (${cleanBoardSlug}::text IS NULL OR cp.board_slug = ${cleanBoardSlug})`
+  This enables direct B-tree seeks when active while transparently returning all rows when omitted.
+- **Single-Pass Window Counting:** Always use `COUNT(*) OVER()::int AS full_count` in paginated queries to eliminate separate expensive `COUNT(*)` round-trips.
+
+## 24. Fail-Closed Edge Authentication & URL-Key Deprecation (SEC-01)
+- **Fail-Closed in Production:** If `API_SECRET_KEY` is missing in production environments, `verifyApiAuthentication` must immediately reject all incoming requests with `503 Service Unavailable`.
+- **URL Query-String Deprecation (CWE-598):** API keys passed via URL parameters (`?api_key=` or `?key=`) must be rejected with `401 Unauthorized` to prevent credential exposure in access logs and proxies. Authentication is strictly accepted via `x-api-key` or `Authorization: Bearer`.
+- **Test Mode Exception:** Local test suites and benchmark scripts are safely exempted via strict `isTestOrLocalDev` inspection.
+
+## 25. Localhost Loopback Binding & CSRF Session Shield (SEC-02)
+- **IPv4 Loopback Binding:** Local development servers (such as `scripts/dashboard.mjs`) must bind exclusively to `127.0.0.1`, never wildcard `0.0.0.0`.
+- **Strict Host & Origin Validation:** Reject requests with mismatched `Host` headers to prevent DNS rebinding attacks. Restrict CORS strictly to `http://localhost:3456` and `http://127.0.0.1:3456`.
+- **Session CSRF Token:** Generate a cryptographically secure token on startup, inject it into the dashboard window context, and validate `x-csrf-token` on all browser-originated mutative POST requests.
+
+
 

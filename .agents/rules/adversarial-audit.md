@@ -63,4 +63,17 @@ trigger: always_on
   2. Verify column names against the live PostgreSQL `information_schema.columns`.
   3. Verify existing test assertions (`scripts/verify_*.mjs`, `scripts/test_*.mjs`) to avoid renaming variables guarded by literal string checks (e.g. `closePromise`, `// [INVARIANT: NON-BLOCKING-SOCKET-CLEANUP]`).
 
+## 12. The Clock-Skew Simulation Rule
+- Never approve distributed barrier synchronizations that calculate timestamps backwards or forwards (`Date.now() - X`). Distributed runners across cloud VMs must synchronize strictly via logical state tokens (`metadata->'phase_token'`) with run-id parameter passing to survive clock drift, virtual machine freeze, and NTP steps.
+
+## 13. The Connection Blast GCD Invariant
+- When partitioning tasks across $W$ workers and $S$ shards, verify whether $\gcd(W, S) = 1$. If true, random item hashing (`crc32(id) % W`) scatters work across all $S$ shards for every worker, multiplying concurrent database connections to $W \times S$. Always partition the shards ($S_w$), never the items.
+
+## 14. The Multi-Row Upsert Duplicate Trap (PostgreSQL Error 21000)
+- Any batch `jsonb_to_recordset` query with `ON CONFLICT ... DO UPDATE` must guarantee pre-serialization deduplication via in-memory `Map`. A single repeated compound conflict key will abort the entire transaction with SQLSTATE 21000.
+
+## 15. The Volatile Column Covering Index Trap
+- Never approve `INCLUDE` clauses containing columns that update on daily crawls (`save_count`, `daily_save_velocity`, `repin_count`). Volatile covering indexes permanently disable PostgreSQL Heap-Only Tuple (HOT) updates, forcing sequential table bloat.
+
+
 
