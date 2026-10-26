@@ -75,5 +75,24 @@ trigger: always_on
 ## 15. The Volatile Column Covering Index Trap
 - Never approve `INCLUDE` clauses containing columns that update on daily crawls (`save_count`, `daily_save_velocity`, `repin_count`). Volatile covering indexes permanently disable PostgreSQL Heap-Only Tuple (HOT) updates, forcing sequential table bloat.
 
+## 16. The String Replacement Pattern Trap (`$'` Anti-Duplication & Anti-No-Op Assertions)
+- **The Special Pattern Hazard:** JavaScript's `String.prototype.replace(target, replacement)` parses `$` tokens in the replacement string (`$'` inserts the following text, `$&` inserts the match, `$\`` inserts preceding text, `$1..$9` insert captures). If replacement code contains `$'` (common in shell scripts, regex, or inline JS templates), `replace` blows up the file, duplicating thousands of lines into the target.
+- **Mandatory Functional Replacer:** Never pass raw strings with potential `$` characters to `.replace()`. Strictly use the arrow function replacer:
+  `content.replace(target, () => replacement)`
+- **Mandatory Target Existence Assertion:** Before applying any replacement or regex patch, assert that the target exists in the target string. Never execute blind replacements that silently fail (`no-op`):
+  `if (!content.includes(target)) throw new Error(`Target not found in file: ${target.slice(0, 50)}...`);`
+
+## 17. Headless & Node.js Execution Shield for Browser Globals (`localStorage`, `window`, `document`)
+- **The Headless Test Runner Crash:** Code embedded within UI template files (`src/*-ui.mjs`) is evaluated in Node.js environments during automated tests (`npm run check`, syntax validators, benchmark scripts). Top-level or un-guarded calls to browser globals (`localStorage.getItem(...)`, `window.location`, `document.querySelector`) throw fatal `ReferenceError: localStorage is not defined`.
+- **Mandatory Environment Guards:** Always guard browser-only globals:
+  `const theme = (typeof localStorage !== 'undefined') ? localStorage.getItem('pa_theme') : null;`
+  Ensure DOM-dependent logic is encapsulated inside browser event handlers (`document.addEventListener`) or Alpine component lifecycle hooks (`init()`).
+
+## 18. Aggregated Rollup Freshness & Post-Crawl Workflow Synchronization
+- **The Frozen Materialization Anti-Pattern:** Materialized aggregate tables (such as `domain_intelligence_rollup`) do not update automatically on base table upserts. Leaving workflows without post-crawl rollup triggers causes dashboards and leaderboards to freeze on stale snapshots.
+- **Mandatory Workflow Triggering:** Any workflow performing bulk data collection (`crawler-pipeline.yml`, `keyword-intelligence-velocity.yml`) MUST execute a downstream rollup step (e.g. `scripts/refresh-domain-rollup.mjs`) upon successful completion.
+- **Incremental Single-Entity Sync:** Point enrichments (such as single domain age, ad network, or pin deep sync) must incrementally update the rollup row via dedicated helper (`syncSingleDomainRollup`) so individual dossier views and leaderboards stay 100% coherent without awaiting full database rollups.
+
+
 
 

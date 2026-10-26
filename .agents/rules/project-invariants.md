@@ -157,5 +157,14 @@ Refer to `PROJECT_CHARTER_AND_DIRECTIVES.md` for full context. The following rul
 - **Strict Host & Origin Validation:** Reject requests with mismatched `Host` headers to prevent DNS rebinding attacks. Restrict CORS strictly to `http://localhost:3456` and `http://127.0.0.1:3456`.
 - **Session CSRF Token:** Generate a cryptographically secure token on startup, inject it into the dashboard window context, and validate `x-csrf-token` on all browser-originated mutative POST requests.
 
+## 26. User Search Casing Preservation vs. Database SARGability (UI Invariant)
+- **Display vs. Query Separation:** While database queries MUST normalize search arguments (`normalizeKeyword()`, `normalizeCleanDomain()`) to ensure SARGable index seeking, the user interface and drawer contracts MUST preserve the user's authentic casing in breadcrumbs, filter badges, and drawer titles.
+- **Contract Parity:** Never mutate or lowercase the display property of a keyword or entity when returning it to the frontend.
+
+## 27. Fast-Path Empty-Match Contract Integrity (API Invariant)
+- **Zero-Match Structural Contract:** When an endpoint query yields 0 results (e.g. newly discovered keyword, unranked domain, empty filter), the response MUST return the complete expected schema contract (e.g. `{ overview: { total: 0, ...defaults }, items: [] }`).
+- **Ban on Naked Empty Arrays:** Never return a bare array `[]` or `null` from an endpoint that normally returns an object container (`{ overview, domains }`), as this causes frontend destructuring and template property access to crash.
+
+
 
 
