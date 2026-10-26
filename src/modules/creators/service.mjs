@@ -50,7 +50,8 @@ export const RESERVED_PINTEREST_PATHS = new Set([
   'business', 'blog', 'help', 'password', 'login', 'signup',
   'explore', 'categories', 'news', 'shop', 'topics', 'notifications',
   'messages', 'edit', 'following', 'followers', 'analytics',
-  'board-idea', 'board-ideas', 'domains'
+  'board-idea', 'board-ideas', 'domains', 'folders', 'folder',
+  'campaign-folders', 'discovery', 'board', 'boards', 'feed'
 ]);
 
 /**
@@ -628,7 +629,9 @@ export async function getCompetitorBoards(sql, competitorId, { username = '' } =
 /**
  * Sync boards for a competitor from Pinterest BoardsResource
  */
-export async function syncCompetitorBoards(sql, competitorId, username, cookie = '') {
+export async function syncCompetitorBoards(sql, competitorId, username, cookie = '', options = {}) {
+  const opts = (typeof cookie === 'object' && cookie !== null) ? cookie : (typeof options === 'object' && options !== null ? options : {});
+  const effectiveCookie = typeof cookie === 'string' ? cookie : (opts.cookie || '');
   let cleanUsername = normalizePinterestUsername(username);
   let numericId = parseInt(competitorId, 10);
 
@@ -647,8 +650,8 @@ export async function syncCompetitorBoards(sql, competitorId, username, cookie =
     } catch (_) {}
   }
 
-  // Auto-provision competitor profile if cleanUsername is provided but profile doesn't exist yet
-  if (cleanUsername && isNaN(numericId)) {
+  // [INVARIANT: READ-ONLY-GET-SAFE] Never mutate database on unauthenticated requests unless explicitly requested
+  if (cleanUsername && isNaN(numericId) && (opts.autoCreate || opts.generateIfEmpty)) {
     try {
       const [c] = await sql`
         INSERT INTO competitor_profiles (username, display_name, account_type, is_active, updated_at)
@@ -667,7 +670,7 @@ export async function syncCompetitorBoards(sql, competitorId, username, cookie =
     throw new Error('Valid competitorId or username is required to sync boards');
   }
 
-  const formattedCookie = formatPinterestCookie(cookie);
+  const formattedCookie = formatPinterestCookie(effectiveCookie);
 
   const res = await fetchBoardsResource(cleanUsername, formattedCookie);
   if (!res.ok || !Array.isArray(res.boards)) {
@@ -1042,15 +1045,17 @@ export async function syncCompetitorPins(sql, competitorId, username, { mode = '
   }
   const shouldAutoArchive = profile?.metadata?.auto_archive_winning !== false;
 
-  // Determine pagination depth based on mode (strictly bounds daily mode to rules.early_stop_pages)
+  // Determine pagination depth based on mode (strictly bounds daily mode to rules.early_stop_pages, discovery/full to rules.max_pages)
   const numMaxPages = (maxPages !== null && maxPages !== undefined && !isNaN(Number(maxPages)) && Number(maxPages) > 0)
     ? Number(maxPages)
     : null;
-  let pageLimit = Number(rules.early_stop_pages) || 3;
+  const accountMaxPages = Number(rules.max_pages) || 500;
+  const accountEarlyStop = Number(rules.early_stop_pages) || 3;
+  let pageLimit = accountEarlyStop;
   if (mode === 'all' || mode === 'full') {
-    pageLimit = numMaxPages ? Math.min(numMaxPages, 1000) : 100;
+    pageLimit = numMaxPages ? Math.min(numMaxPages, 1000) : accountMaxPages;
   } else if (mode === 'deep' || mode === 'discovery') {
-    pageLimit = numMaxPages ? Math.min(numMaxPages, 2000) : (Number(rules.discovery_max_pages) || 1000);
+    pageLimit = numMaxPages ? Math.min(numMaxPages, 2000) : (Number(rules.max_pages) || Number(rules.discovery_max_pages) || 500);
   } else if (numMaxPages) {
     pageLimit = numMaxPages;
   }
@@ -1319,7 +1324,8 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
     }
   }
 
-  if (!profile && cleanUsername && isNaN(numericId)) {
+  // [INVARIANT: READ-ONLY-GET-SAFE] Never mutate database on GET requests unless explicitly requested
+  if (!profile && generateIfEmpty && cleanUsername && isNaN(numericId)) {
     try {
       [profile] = await sql`
         INSERT INTO competitor_profiles (username, display_name, account_type, is_active, updated_at)
@@ -1982,11 +1988,15 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
       GREATEST(COALESCE(cp.repin_count, 0), COALESCE(pa.repins, 0))::bigint AS repin_count,
       GREATEST(COALESCE(cp.comment_count, 0), COALESCE(pa.comments, 0))::int AS comment_count,
       COALESCE(pa.share_count, 0)::bigint AS share_count,
-      COALESCE(pa.velocity, 0)::numeric AS velocity,
+      -- [INVARIANT: UNIFIED-EFFECTIVE-VELOCITY] Unify across live catalog deltas and healed archive velocity
+      GREATEST(
+        COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0),
+        COALESCE((cp.metadata->>'daily_save_velocity')::numeric, 0),
+        CASE WHEN COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0) > 0 THEN COALESCE(pa.velocity, 0)::numeric ELSE 0::numeric END
+      )::numeric AS velocity,
       COALESCE(
         (cp.metadata->>'delta_saves_24h')::numeric,
         (cp.metadata->>'delta_saves')::numeric,
-        pa.velocity,
         0
       )::numeric AS delta_saves_24h,
       COALESCE(
@@ -2035,15 +2045,51 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
       AND (${searchPattern}::text IS NULL OR LOWER(cp.title) LIKE ${searchPattern} OR LOWER(COALESCE(cp.description, '')) LIKE ${searchPattern})
       AND (${cleanBoardSlug}::text IS NULL OR cp.board_slug = ${cleanBoardSlug})
       AND (${qualified_only} = FALSE OR pa.pin_id IS NOT NULL)
-      AND (${isHighVelocity} = FALSE OR COALESCE(pa.velocity, 0) >= 10)
-      AND (${isChangedOnly} = FALSE OR COALESCE(pa.velocity, 0) > 0)
+      AND (${isHighVelocity} = FALSE OR GREATEST(
+        COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0),
+        COALESCE((cp.metadata->>'daily_save_velocity')::numeric, 0),
+        CASE WHEN COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0) > 0 THEN COALESCE(pa.velocity, 0)::numeric ELSE 0::numeric END
+      ) >= 10)
+      AND (${isChangedOnly} = FALSE OR GREATEST(
+        COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0),
+        COALESCE((cp.metadata->>'daily_save_velocity')::numeric, 0),
+        CASE WHEN COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0) > 0 THEN COALESCE(pa.velocity, 0)::numeric ELSE 0::numeric END
+      ) > 0)
       AND (
         ${stageFilter}::text IS NULL OR
-        (${stageFilter} = 'DORMANT' AND COALESCE(pa.velocity, 0) < 0.5) OR
-        (${stageFilter} = 'COOLING' AND COALESCE(pa.velocity, 0) >= 0.5 AND COALESCE(pa.velocity, 0) < 2.0) OR
-        (${stageFilter} = 'NEW' AND COALESCE(pa.velocity, 0) >= 0.5 AND COALESCE(cp.created_at_pinterest, cp.first_seen_at) >= NOW() - INTERVAL '14 days') OR
-        (${stageFilter} = 'GROWING' AND COALESCE(pa.velocity, 0) >= 10.0 AND (COALESCE(cp.created_at_pinterest, cp.first_seen_at) < NOW() - INTERVAL '14 days' OR COALESCE(cp.created_at_pinterest, cp.first_seen_at) IS NULL)) OR
-        (${stageFilter} = 'MATURE' AND COALESCE(pa.velocity, 0) >= 2.0 AND COALESCE(pa.velocity, 0) < 10.0 AND (COALESCE(cp.created_at_pinterest, cp.first_seen_at) < NOW() - INTERVAL '14 days' OR COALESCE(cp.created_at_pinterest, cp.first_seen_at) IS NULL))
+        (${stageFilter} = 'DORMANT' AND GREATEST(
+          COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0),
+          COALESCE((cp.metadata->>'daily_save_velocity')::numeric, 0),
+          CASE WHEN COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0) > 0 THEN COALESCE(pa.velocity, 0)::numeric ELSE 0::numeric END
+        ) < 0.5) OR
+        (${stageFilter} = 'COOLING' AND GREATEST(
+          COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0),
+          COALESCE((cp.metadata->>'daily_save_velocity')::numeric, 0),
+          CASE WHEN COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0) > 0 THEN COALESCE(pa.velocity, 0)::numeric ELSE 0::numeric END
+        ) >= 0.5 AND GREATEST(
+          COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0),
+          COALESCE((cp.metadata->>'daily_save_velocity')::numeric, 0),
+          CASE WHEN COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0) > 0 THEN COALESCE(pa.velocity, 0)::numeric ELSE 0::numeric END
+        ) < 2.0) OR
+        (${stageFilter} = 'NEW' AND GREATEST(
+          COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0),
+          COALESCE((cp.metadata->>'daily_save_velocity')::numeric, 0),
+          CASE WHEN COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0) > 0 THEN COALESCE(pa.velocity, 0)::numeric ELSE 0::numeric END
+        ) >= 0.5 AND COALESCE(cp.created_at_pinterest, cp.first_seen_at) >= NOW() - INTERVAL '14 days') OR
+        (${stageFilter} = 'GROWING' AND GREATEST(
+          COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0),
+          COALESCE((cp.metadata->>'daily_save_velocity')::numeric, 0),
+          CASE WHEN COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0) > 0 THEN COALESCE(pa.velocity, 0)::numeric ELSE 0::numeric END
+        ) >= 10.0 AND (COALESCE(cp.created_at_pinterest, cp.first_seen_at) < NOW() - INTERVAL '14 days' OR COALESCE(cp.created_at_pinterest, cp.first_seen_at) IS NULL)) OR
+        (${stageFilter} = 'MATURE' AND GREATEST(
+          COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0),
+          COALESCE((cp.metadata->>'daily_save_velocity')::numeric, 0),
+          CASE WHEN COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0) > 0 THEN COALESCE(pa.velocity, 0)::numeric ELSE 0::numeric END
+        ) >= 2.0 AND GREATEST(
+          COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0),
+          COALESCE((cp.metadata->>'daily_save_velocity')::numeric, 0),
+          CASE WHEN COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0) > 0 THEN COALESCE(pa.velocity, 0)::numeric ELSE 0::numeric END
+        ) < 10.0 AND (COALESCE(cp.created_at_pinterest, cp.first_seen_at) < NOW() - INTERVAL '14 days' OR COALESCE(cp.created_at_pinterest, cp.first_seen_at) IS NULL))
       )
       AND (${product_only} = FALSE OR (
         COALESCE(cp.is_product, false) OR 
@@ -2058,7 +2104,11 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
     ORDER BY 
       CASE WHEN ${sort} = 'saves_desc' THEN GREATEST(COALESCE(cp.save_count, 0), COALESCE(pa.saves, 0)) END DESC NULLS LAST,
       CASE WHEN ${sort} = 'repins_desc' THEN GREATEST(COALESCE(cp.repin_count, 0), COALESCE(pa.repins, 0)) END DESC NULLS LAST,
-      CASE WHEN ${sort} = 'velocity' OR ${sort} = 'velocity_desc' THEN COALESCE(pa.velocity, 0) END DESC NULLS LAST,
+      CASE WHEN ${sort} = 'velocity' OR ${sort} = 'velocity_desc' THEN GREATEST(
+        COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0),
+        COALESCE((cp.metadata->>'daily_save_velocity')::numeric, 0),
+        CASE WHEN COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0) > 0 THEN COALESCE(pa.velocity, 0)::numeric ELSE 0::numeric END
+      ) END DESC NULLS LAST,
       CASE WHEN ${sort} = 'comments' OR ${sort} = 'comments_desc' THEN GREATEST(COALESCE(cp.comment_count, 0), COALESCE(pa.comments, 0)) END DESC NULLS LAST,
       CASE WHEN ${sort} = 'newest' OR ${sort} = 'created_desc' THEN cp.created_at_pinterest END DESC NULLS LAST,
       CASE WHEN ${sort} = 'oldest' OR ${sort} = 'created_asc' THEN cp.created_at_pinterest END ASC NULLS LAST,
@@ -2089,15 +2139,51 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
         AND (${searchPattern}::text IS NULL OR LOWER(cp.title) LIKE ${searchPattern} OR LOWER(COALESCE(cp.description, '')) LIKE ${searchPattern})
         AND (${cleanBoardSlug}::text IS NULL OR cp.board_slug = ${cleanBoardSlug})
         AND (${qualified_only} = FALSE OR pa.pin_id IS NOT NULL)
-        AND (${isHighVelocity} = FALSE OR COALESCE(pa.velocity, 0) >= 10)
-        AND (${isChangedOnly} = FALSE OR COALESCE(pa.velocity, 0) > 0)
+        AND (${isHighVelocity} = FALSE OR GREATEST(
+          COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0),
+          COALESCE((cp.metadata->>'daily_save_velocity')::numeric, 0),
+          CASE WHEN COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0) > 0 THEN COALESCE(pa.velocity, 0)::numeric ELSE 0::numeric END
+        ) >= 10)
+        AND (${isChangedOnly} = FALSE OR GREATEST(
+          COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0),
+          COALESCE((cp.metadata->>'daily_save_velocity')::numeric, 0),
+          CASE WHEN COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0) > 0 THEN COALESCE(pa.velocity, 0)::numeric ELSE 0::numeric END
+        ) > 0)
         AND (
           ${stageFilter}::text IS NULL OR
-          (${stageFilter} = 'DORMANT' AND COALESCE(pa.velocity, 0) < 0.5) OR
-          (${stageFilter} = 'COOLING' AND COALESCE(pa.velocity, 0) >= 0.5 AND COALESCE(pa.velocity, 0) < 2.0) OR
-          (${stageFilter} = 'NEW' AND COALESCE(pa.velocity, 0) >= 0.5 AND COALESCE(cp.created_at_pinterest, cp.first_seen_at) >= NOW() - INTERVAL '14 days') OR
-          (${stageFilter} = 'GROWING' AND COALESCE(pa.velocity, 0) >= 10.0 AND (COALESCE(cp.created_at_pinterest, cp.first_seen_at) < NOW() - INTERVAL '14 days' OR COALESCE(cp.created_at_pinterest, cp.first_seen_at) IS NULL)) OR
-          (${stageFilter} = 'MATURE' AND COALESCE(pa.velocity, 0) >= 2.0 AND COALESCE(pa.velocity, 0) < 10.0 AND (COALESCE(cp.created_at_pinterest, cp.first_seen_at) < NOW() - INTERVAL '14 days' OR COALESCE(cp.created_at_pinterest, cp.first_seen_at) IS NULL))
+          (${stageFilter} = 'DORMANT' AND GREATEST(
+            COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0),
+            COALESCE((cp.metadata->>'daily_save_velocity')::numeric, 0),
+            CASE WHEN COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0) > 0 THEN COALESCE(pa.velocity, 0)::numeric ELSE 0::numeric END
+          ) < 0.5) OR
+          (${stageFilter} = 'COOLING' AND GREATEST(
+            COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0),
+            COALESCE((cp.metadata->>'daily_save_velocity')::numeric, 0),
+            CASE WHEN COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0) > 0 THEN COALESCE(pa.velocity, 0)::numeric ELSE 0::numeric END
+          ) >= 0.5 AND GREATEST(
+            COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0),
+            COALESCE((cp.metadata->>'daily_save_velocity')::numeric, 0),
+            CASE WHEN COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0) > 0 THEN COALESCE(pa.velocity, 0)::numeric ELSE 0::numeric END
+          ) < 2.0) OR
+          (${stageFilter} = 'NEW' AND GREATEST(
+            COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0),
+            COALESCE((cp.metadata->>'daily_save_velocity')::numeric, 0),
+            CASE WHEN COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0) > 0 THEN COALESCE(pa.velocity, 0)::numeric ELSE 0::numeric END
+          ) >= 0.5 AND COALESCE(cp.created_at_pinterest, cp.first_seen_at) >= NOW() - INTERVAL '14 days') OR
+          (${stageFilter} = 'GROWING' AND GREATEST(
+            COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0),
+            COALESCE((cp.metadata->>'daily_save_velocity')::numeric, 0),
+            CASE WHEN COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0) > 0 THEN COALESCE(pa.velocity, 0)::numeric ELSE 0::numeric END
+          ) >= 10.0 AND (COALESCE(cp.created_at_pinterest, cp.first_seen_at) < NOW() - INTERVAL '14 days' OR COALESCE(cp.created_at_pinterest, cp.first_seen_at) IS NULL)) OR
+          (${stageFilter} = 'MATURE' AND GREATEST(
+            COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0),
+            COALESCE((cp.metadata->>'daily_save_velocity')::numeric, 0),
+            CASE WHEN COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0) > 0 THEN COALESCE(pa.velocity, 0)::numeric ELSE 0::numeric END
+          ) >= 2.0 AND GREATEST(
+            COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0),
+            COALESCE((cp.metadata->>'daily_save_velocity')::numeric, 0),
+            CASE WHEN COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0) > 0 THEN COALESCE(pa.velocity, 0)::numeric ELSE 0::numeric END
+          ) < 10.0 AND (COALESCE(cp.created_at_pinterest, cp.first_seen_at) < NOW() - INTERVAL '14 days' OR COALESCE(cp.created_at_pinterest, cp.first_seen_at) IS NULL))
         )
         AND (${product_only} = FALSE OR (
           COALESCE(cp.is_product, false) OR 
@@ -2119,7 +2205,11 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
       COUNT(*)::int AS catalog_total,
       COUNT(*) FILTER (WHERE pa.pin_id IS NOT NULL)::int AS qualified_total,
       COUNT(*) FILTER (WHERE ksc.pin_id IS NOT NULL OR kdi.pin_id IS NOT NULL)::int AS ranked_total,
-      COUNT(*) FILTER (WHERE COALESCE(pa.velocity, 0) >= 10)::int AS high_velocity_total
+      COUNT(*) FILTER (WHERE GREATEST(
+        COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0),
+        COALESCE((cp.metadata->>'daily_save_velocity')::numeric, 0),
+        CASE WHEN COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0) > 0 THEN COALESCE(pa.velocity, 0)::numeric ELSE 0::numeric END
+      ) >= 10)::int AS high_velocity_total
     FROM competitor_pins cp
     LEFT JOIN pa_pins pa ON pa.pin_id = cp.pin_id
     LEFT JOIN (
@@ -2161,7 +2251,10 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
         comments: Number(r.comment_count || 0),
         share_count: Number(r.share_count || 0),
         velocity: Number(velocity.toFixed(1)),
-        delta_saves_24h: Number(r.delta_saves_24h || velocity || 0),
+        delta_saves_24h: (() => {
+          const raw = (r.delta_saves_24h !== null && r.delta_saves_24h !== undefined && r.delta_saves_24h !== '') ? Number(r.delta_saves_24h) : NaN;
+          return Number.isFinite(raw) ? Number(raw.toFixed(1)) : Number(velocity.toFixed(1));
+        })(),
         delta_repins_24h: Number(r.delta_repins_24h || 0),
         age_days: ageDays,
         stage,
@@ -2353,7 +2446,9 @@ export const STANDARD_QUALIFICATION_DEFAULTS = {
   tier3_max_age_days: 14,
   tier3_min_saves: 25,
   articles_only: true,
-  auto_pipeline: true
+  auto_pipeline: true,
+  max_pages: 500,
+  early_stop_pages: 3
 };
 
 export async function getCompetitorRules(sql, competitorId) {
@@ -2397,7 +2492,9 @@ export async function saveCompetitorRules(sql, competitorId, newRules = {}) {
     tier3_max_age_days: freshDaysVal,
     tier3_min_saves: parseRuleNumber(newRules.tier3_min_saves, 25, 0),
     articles_only: Boolean(newRules.articles_only ?? true),
-    auto_pipeline: Boolean(newRules.auto_pipeline ?? true)
+    auto_pipeline: Boolean(newRules.auto_pipeline ?? true),
+    max_pages: parseRuleNumber(newRules.max_pages, 500, 1),
+    early_stop_pages: parseRuleNumber(newRules.early_stop_pages, 3, 1)
   };
 
   const [updated] = await sql`
@@ -2447,7 +2544,16 @@ export async function reEvaluateCompetitorPins(sql, competitorId) {
       cp.comment_count AS comments,
       0::bigint AS share_count,
       '{}'::jsonb AS reactions,
-      ROUND((cp.save_count::numeric / GREATEST(0.1, EXTRACT(EPOCH FROM (NOW() - cp.created_at_pinterest)) / 86400)), 2) AS velocity,
+      -- [INVARIANT: AGE-BOUNDED-VELOCITY-SHIELD] Prevent 10x multiplier explosion on recent/missing discovery dates
+      ROUND(
+        (COALESCE(cp.save_count, 0)::numeric / 
+         CASE 
+           WHEN cp.created_at_pinterest IS NOT NULL 
+           THEN GREATEST(1.0, EXTRACT(EPOCH FROM (NOW() - cp.created_at_pinterest)) / 86400)
+           ELSE GREATEST(30.0, EXTRACT(EPOCH FROM (NOW() - COALESCE(cp.first_seen_at, NOW() - INTERVAL '30 days'))) / 86400)
+         END
+        ), 2
+      ) AS velocity,
       '[]'::jsonb AS annotations,
       false AS is_video,
       COALESCE(cp.is_product, false) AS is_product,
@@ -2467,8 +2573,8 @@ export async function reEvaluateCompetitorPins(sql, competitorId) {
         OR (
           cp.created_at_pinterest >= NOW() - (${maxAgeDays} || ' days')::interval
           AND (
-            (cp.save_count::numeric / GREATEST(0.1, EXTRACT(EPOCH FROM (NOW() - cp.created_at_pinterest)) / 86400)) >= ${minVelocity}
-            OR (cp.save_count >= 50 AND (cp.save_count::numeric / GREATEST(0.1, EXTRACT(EPOCH FROM (NOW() - cp.created_at_pinterest)) / 86400)) >= 2.0)
+            (cp.save_count::numeric / GREATEST(1.0, EXTRACT(EPOCH FROM (NOW() - cp.created_at_pinterest)) / 86400)) >= ${minVelocity}
+            OR (cp.save_count >= 50 AND (cp.save_count::numeric / GREATEST(1.0, EXTRACT(EPOCH FROM (NOW() - cp.created_at_pinterest)) / 86400)) >= 2.0)
           )
         )
       )
@@ -2642,7 +2748,16 @@ export async function reconcileQualifiedCatalogPins(sql, competitorIdOrUsername 
           COALESCE(cp.comment_count, 0) AS comments,
           0::bigint AS share_count,
           '{}'::jsonb AS reactions,
-          ROUND((COALESCE(cp.save_count, 0)::numeric / GREATEST(0.1, EXTRACT(EPOCH FROM (NOW() - COALESCE(cp.created_at_pinterest, cp.first_seen_at, NOW()))) / 86400)), 2) AS velocity,
+          -- [INVARIANT: AGE-BOUNDED-VELOCITY-SHIELD] Prevent 10x multiplier explosion on recent/missing discovery dates
+          ROUND(
+            (COALESCE(cp.save_count, 0)::numeric / 
+             CASE 
+               WHEN cp.created_at_pinterest IS NOT NULL 
+               THEN GREATEST(1.0, EXTRACT(EPOCH FROM (NOW() - cp.created_at_pinterest)) / 86400)
+               ELSE GREATEST(30.0, EXTRACT(EPOCH FROM (NOW() - COALESCE(cp.first_seen_at, NOW() - INTERVAL '30 days'))) / 86400)
+             END
+            ), 2
+          ) AS velocity,
           '[]'::jsonb AS annotations,
           false AS is_video,
           COALESCE(cp.is_product, false) AS is_product,
@@ -2666,8 +2781,8 @@ export async function reconcileQualifiedCatalogPins(sql, competitorIdOrUsername 
             OR (
               cp.created_at_pinterest >= NOW() - (${maxAgeDays} || ' days')::interval
               AND (
-                (cp.save_count::numeric / GREATEST(0.1, EXTRACT(EPOCH FROM (NOW() - cp.created_at_pinterest)) / 86400)) >= ${minVelocity}
-                OR (cp.save_count >= 50 AND (cp.save_count::numeric / GREATEST(0.1, EXTRACT(EPOCH FROM (NOW() - cp.created_at_pinterest)) / 86400)) >= 2.0)
+                (cp.save_count::numeric / GREATEST(1.0, EXTRACT(EPOCH FROM (NOW() - cp.created_at_pinterest)) / 86400)) >= ${minVelocity}
+                OR (cp.save_count >= 50 AND (cp.save_count::numeric / GREATEST(1.0, EXTRACT(EPOCH FROM (NOW() - cp.created_at_pinterest)) / 86400)) >= 2.0)
               )
             )
           )
@@ -3697,7 +3812,7 @@ export async function reEvaluateArchivedPins(sql, rules = null, accountUsername 
           OR (
             created_at_pinterest IS NOT NULL
             AND created_at_pinterest >= NOW() - (${t2Days} * INTERVAL '1 day')
-            AND (saves::numeric / GREATEST(0.1, EXTRACT(EPOCH FROM (NOW() - created_at_pinterest)) / 86400.0)) >= ${t2Vel}
+            AND (saves::numeric / GREATEST(1.0, EXTRACT(EPOCH FROM (NOW() - created_at_pinterest)) / 86400.0)) >= ${t2Vel}
           )
           OR (
             created_at_pinterest IS NOT NULL
@@ -4375,8 +4490,8 @@ export async function getPinDetailWithMetrics(sql, pinId, options = {}) {
   const env = options?.env || null;
   const ctx = options?.ctx || null;
 
-  // Live enrichment if explicitly requested via forceRefresh
-  if (forceRefresh) {
+  // [INVARIANT: READ-ONLY-GET-SAFE] Live enrichment on GET requests is banned; dedicated to POST /api/pins/:id/sync
+  if (forceRefresh && options?.allowScrape === true && !options?.isReadOnly) {
     try {
       const pRes = await fetchPinFromPinterest(cleanId, '');
       if (pRes?.ok && pRes.pin) {

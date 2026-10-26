@@ -92,8 +92,8 @@ const allAccountIdsInput = (process.env.ALL_ACCOUNT_IDS || '')
   .filter(n => !isNaN(n));
 
 const crawlMode = (process.env.CRAWL_MODE || 'refresh').toLowerCase().trim();
-const maxPagesInput = process.env.MAX_PAGES ? parseInt(process.env.MAX_PAGES, 10) : (mode === 'creator_sweep' ? 3 : 1000);
-const maxPages = Number.isFinite(maxPagesInput) && maxPagesInput > 0 ? maxPagesInput : (mode === 'creator_sweep' ? 3 : 1000);
+const maxPagesInput = process.env.MAX_PAGES ? parseInt(process.env.MAX_PAGES, 10) : (mode === 'creator_sweep' ? 500 : 1000);
+const maxPages = Number.isFinite(maxPagesInput) && maxPagesInput > 0 ? maxPagesInput : (mode === 'creator_sweep' ? 500 : 1000);
 const cookie = process.env.PINTEREST_COOKIE || null;
 const personalBoardsOnly = process.env.PERSONAL_BOARDS_ONLY !== 'false';
 const targetBoardsInput = (process.env.TARGET_BOARDS || '').trim();
@@ -368,10 +368,11 @@ async function run() {
     // =========================================================================
     let targetAccount = targetAccountInput;
     let targetId = accountIdInput;
+    let targetMetadata = {};
 
     if (!targetId) {
       const [row] = await sql`
-        SELECT id, username FROM competitor_profiles WHERE username = ${targetAccount} LIMIT 1;
+        SELECT id, username, metadata FROM competitor_profiles WHERE username = ${targetAccount} LIMIT 1;
       `;
       if (!row) {
         console.error(`[-] FATAL: Account @${targetAccount} not found in database.`);
@@ -379,9 +380,24 @@ async function run() {
       }
       targetId = row.id;
       targetAccount = row.username;
+      targetMetadata = row.metadata || {};
+    } else {
+      const [row] = await sql`
+        SELECT id, username, metadata FROM competitor_profiles WHERE id = ${targetId} LIMIT 1;
+      `;
+      if (row) {
+        targetAccount = row.username || targetAccount;
+        targetMetadata = row.metadata || {};
+      }
     }
 
-    console.log(`\n[*] Target Creator: @${targetAccount} (ID: ${targetId})`);
+    const accRules = targetMetadata.qualification_rules || {};
+    const earlyStop = Number(accRules.early_stop_pages) || 3;
+    const targetPages = crawlMode === 'deep' || crawlMode === 'all'
+      ? (Number(accRules.max_pages) || maxPages || 500)
+      : (crawlMode === 'refresh' ? earlyStop : (maxPages || 500));
+
+    console.log(`\n[*] Target Creator: @${targetAccount} (ID: ${targetId}) [target: ${targetPages} pages, early-stop: ${earlyStop}]`);
 
     // -------------------------------------------------------------------------
     // Phase 1: Ingestion on Worker 0
@@ -418,7 +434,7 @@ async function run() {
       try {
         const feedRes = await syncCompetitorPins(sql, targetId, targetAccount, {
           mode: crawlMode === 'refresh' ? 'refresh' : 'sharded_boards',
-          maxPages: maxPages,
+          maxPages: targetPages,
           cookie: cookie
         });
         feedPinsCount = feedRes?.total_fetched ?? feedRes?.crawled ?? 0;
@@ -726,7 +742,7 @@ async function run() {
     let myAccounts = [];
     if (myAccountIds.length > 0) {
       myAccounts = await sql`
-        SELECT id, username, display_name
+        SELECT id, username, display_name, metadata
         FROM competitor_profiles
         WHERE id = ANY(${myAccountIds});
       `;
@@ -769,12 +785,17 @@ async function run() {
         await syncCompetitorBoards(sql, acc.id, cleanUser, cookie);
       } catch (_) {}
 
-      // 3. Discover Fresh Pins (early-stop: 3 pages)
+      // 3. Discover Fresh Pins (early-stop: per-account rules or 3 pages)
       try {
-        console.log(`[*] Checking for fresh pins (early stop: 3 pages)...`);
+        const accRules = acc.metadata?.qualification_rules || {};
+        const earlyStop = Number(accRules.early_stop_pages) || 3;
+        const targetPages = crawlMode === 'deep' || crawlMode === 'all'
+          ? (Number(accRules.max_pages) || maxPages || 500)
+          : earlyStop;
+        console.log(`[*] Checking for fresh pins (target: ${targetPages} pages, early-stop: ${earlyStop})...`);
         await syncCompetitorPins(sql, acc.id, cleanUser, {
           mode: 'refresh',
-          maxPages: Math.min(3, maxPages || 3),
+          maxPages: targetPages,
           cookie: cookie
         });
       } catch (_) {}

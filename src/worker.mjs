@@ -24,9 +24,15 @@ import { isPinsRoute, handlePinsRoutes } from './routes/pins.mjs';
 export const requestContextStorage = new AsyncLocalStorage();
 globalThis.__requestContextStorage = requestContextStorage;
 
-// Reserved Keyword Slugs (Defends against route swallowing on /keywords/:slug)
+// [INVARIANT: RESERVED-SYSTEM-SLUGS-SSOT]
+// Expanded reserved slugs registry synchronized across worker, UI, and router to prevent route swallowing
 export const RESERVED_KEYWORD_SLUGS = new Set([
-  'discovery', 'folders', 'export', 'sync', 'batch', 'api', 'add', 'manage', 'import', 'domains'
+  'discovery', 'discovery-hub', 'folders', 'folder', 'campaign-folders', 'export', 'sync',
+  'batch', 'api', 'add', 'manage', 'import', 'domains', 'domain', 'keywords', 'keyword',
+  'accounts', 'creators', 'creator', 'pinarchive', 'fleet', 'pin', 'pins', 'board', 'boards',
+  'feed', 'search', 'topics', 'all-pins', 'winning-pins', 'links', 'overview',
+  'dashboard', 'related-pins', 'related_pins', 'seeds', 'intersections', 'archive', 'explorer',
+  'settings', 'admin', 'health', 'favicon.ico', 'robots.txt', 'assets', 'static'
 ]);
 
 import { escapeSqlWildcards, maskDatabaseUrl } from './utils.mjs';
@@ -244,9 +250,33 @@ export function getPinKvKeysToEvict(pinId, associatedKids = []) {
 }
 
 
+let isEdgeFoldersTableReady = false;
+
+export async function ensureEdgeFoldersTable(env) {
+  if (isEdgeFoldersTableReady || !env?.PIN_D1_DB) return;
+  try {
+    await env.PIN_D1_DB.prepare(`
+      CREATE TABLE IF NOT EXISTS edge_campaign_folders (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        color TEXT DEFAULT '#e60023',
+        description TEXT,
+        item_count INTEGER DEFAULT 0,
+        updated_at TEXT DEFAULT (datetime('now'))
+      )
+    `).run().catch(() => {});
+    isEdgeFoldersTableReady = true;
+  } catch (err) {
+    console.warn('[ensureEdgeFoldersTable] Non-fatal init error:', redactSecrets(err.message));
+  }
+}
+
 // Edge D1 Database Synchronization Helpers
 export async function syncFolderToD1(env, folder) {
   if (!env?.PIN_D1_DB || !folder?.id) return;
+  if (!isEdgeFoldersTableReady) {
+    await ensureEdgeFoldersTable(env);
+  }
   try {
     const id = String(folder.id);
     const name = String(folder.name || 'Untitled');
@@ -277,6 +307,9 @@ export async function syncFolderToD1(env, folder) {
 
 export async function deleteFolderFromD1(env, folderId) {
   if (!env?.PIN_D1_DB || !folderId) return;
+  if (!isEdgeFoldersTableReady) {
+    await ensureEdgeFoldersTable(env);
+  }
   try {
     await env.PIN_D1_DB.prepare("DELETE FROM edge_campaign_folders WHERE id = ?").bind(String(folderId)).run();
   } catch (err) {
@@ -346,40 +379,43 @@ let isEdgeKeywordsTableReady = false;
 export async function ensureEdgeKeywordsCatalogTable(env) {
   if (isEdgeKeywordsTableReady || !env?.PIN_D1_DB) return;
   try {
-    await env.PIN_D1_DB.prepare(`
-      CREATE TABLE IF NOT EXISTS edge_keywords_catalog (
-        id INTEGER PRIMARY KEY,
-        keyword TEXT NOT NULL,
-        category TEXT DEFAULT 'General',
-        target_pin_count INTEGER DEFAULT 50,
-        refresh_interval_hours INTEGER DEFAULT 24,
-        last_crawled_at TEXT,
-        top_pin_id TEXT,
-        top_pin_title TEXT,
-        top_pin_image TEXT,
-        avg_daily_velocity REAL DEFAULT 0,
-        is_active INTEGER DEFAULT 1,
-        tags TEXT DEFAULT '{}',
-        metadata TEXT DEFAULT '{}',
-        created_at TEXT DEFAULT (datetime('now')),
-        updated_at TEXT DEFAULT (datetime('now')),
-        crawl_pages_limit INTEGER DEFAULT 2,
-        inspection_mode TEXT DEFAULT 'full_catalog',
-        canonical_keyword TEXT,
-        snapshots_count INTEGER DEFAULT 0,
-        total_pins_count INTEGER DEFAULT 0,
-        folders TEXT DEFAULT '[]'
-      )
-    `).run().catch(() => {});
-    await env.PIN_D1_DB.prepare(`CREATE INDEX IF NOT EXISTS idx_edge_keywords_kw ON edge_keywords_catalog(keyword)`).run().catch(() => {});
-    await env.PIN_D1_DB.prepare(`CREATE INDEX IF NOT EXISTS idx_edge_keywords_created ON edge_keywords_catalog(created_at DESC)`).run().catch(() => {});
-    await env.PIN_D1_DB.prepare(`
-      CREATE TABLE IF NOT EXISTS edge_keywords_meta (
-        key TEXT PRIMARY KEY,
-        value TEXT,
-        updated_at TEXT DEFAULT (datetime('now'))
-      )
-    `).run().catch(() => {});
+    // [INVARIANT: D1-BATCH-RPC-SETUP] Execute schema initialization in single batch round-trip (<15ms)
+    await env.PIN_D1_DB.batch([
+      env.PIN_D1_DB.prepare(`
+        CREATE TABLE IF NOT EXISTS edge_keywords_catalog (
+          id INTEGER PRIMARY KEY,
+          keyword TEXT NOT NULL,
+          category TEXT DEFAULT 'General',
+          target_pin_count INTEGER DEFAULT 50,
+          refresh_interval_hours INTEGER DEFAULT 24,
+          last_crawled_at TEXT,
+          top_pin_id TEXT,
+          top_pin_title TEXT,
+          top_pin_image TEXT,
+          avg_daily_velocity REAL DEFAULT 0,
+          is_active INTEGER DEFAULT 1,
+          tags TEXT DEFAULT '{}',
+          metadata TEXT DEFAULT '{}',
+          created_at TEXT DEFAULT (datetime('now')),
+          updated_at TEXT DEFAULT (datetime('now')),
+          crawl_pages_limit INTEGER DEFAULT 2,
+          inspection_mode TEXT DEFAULT 'full_catalog',
+          canonical_keyword TEXT,
+          snapshots_count INTEGER DEFAULT 0,
+          total_pins_count INTEGER DEFAULT 0,
+          folders TEXT DEFAULT '[]'
+        )
+      `),
+      env.PIN_D1_DB.prepare(`CREATE INDEX IF NOT EXISTS idx_edge_keywords_kw ON edge_keywords_catalog(keyword)`),
+      env.PIN_D1_DB.prepare(`CREATE INDEX IF NOT EXISTS idx_edge_keywords_created ON edge_keywords_catalog(created_at DESC)`),
+      env.PIN_D1_DB.prepare(`
+        CREATE TABLE IF NOT EXISTS edge_keywords_meta (
+          key TEXT PRIMARY KEY,
+          value TEXT,
+          updated_at TEXT DEFAULT (datetime('now'))
+        )
+      `)
+    ]).catch(() => {});
     isEdgeKeywordsTableReady = true;
   } catch (err) {
     console.warn('[ensureEdgeKeywordsCatalogTable] Non-fatal init error:', redactSecrets(err.message));
@@ -550,7 +586,24 @@ export async function syncKeywordsCatalogToD1(env, keywords, options = {}) {
       }
     }
 
-    if (isFullCatalog) {
+    if (isFullCatalog && keywords.length > 0) {
+      // [INVARIANT: ZERO-BLACKOUT-D1-CATALOG]
+      // Prune obsolete IDs after in-place upsert without blanking table during sync
+      const activeIds = keywords.map(k => Number(k.id)).filter(id => Number.isFinite(id) && id > 0);
+      if (activeIds.length > 0) {
+        const existingRows = await env.PIN_D1_DB.prepare('SELECT id FROM edge_keywords_catalog').all().catch(() => ({ results: [] }));
+        const currentIds = (existingRows?.results || []).map(r => Number(r.id));
+        const activeIdSet = new Set(activeIds);
+        const obsoleteIds = currentIds.filter(id => !activeIdSet.has(id));
+        if (obsoleteIds.length > 0) {
+          const PRUNE_CHUNK = 50;
+          for (let p = 0; p < obsoleteIds.length; p += PRUNE_CHUNK) {
+            const pSlice = obsoleteIds.slice(p, p + PRUNE_CHUNK);
+            const placeholders = pSlice.map(() => '?').join(',');
+            await env.PIN_D1_DB.prepare(`DELETE FROM edge_keywords_catalog WHERE id IN (${placeholders})`).bind(...pSlice).run().catch(() => {});
+          }
+        }
+      }
       await env.PIN_D1_DB.prepare(`
         INSERT INTO edge_keywords_meta (key, value, updated_at)
         VALUES (?, ?, datetime('now'))
@@ -571,8 +624,14 @@ export async function evictKeywordsCatalogFromD1(env, keywordId = null) {
     if (keywordId) {
       await env.PIN_D1_DB.prepare("DELETE FROM edge_keywords_catalog WHERE id = ?").bind(Number(keywordId)).run();
     } else {
-      await env.PIN_D1_DB.prepare("DELETE FROM edge_keywords_catalog").run();
-      await env.PIN_D1_DB.prepare("DELETE FROM edge_keywords_meta WHERE key = 'catalog_status'").run().catch(() => {});
+      // [INVARIANT: ZERO-BLACKOUT-D1-CATALOG] Mark catalog status as stale instead of wiping entire table
+      await env.PIN_D1_DB.prepare(`
+        INSERT INTO edge_keywords_meta (key, value, updated_at)
+        VALUES (?, ?, datetime('now'))
+        ON CONFLICT(key) DO UPDATE SET
+          value = excluded.value,
+          updated_at = excluded.updated_at
+      `).bind('catalog_status', JSON.stringify({ is_warmed: false, stale: true, invalidated_at: new Date().toISOString() })).run().catch(() => {});
     }
   } catch (err) {
     console.warn('[evictKeywordsCatalogFromD1] Non-fatal D1 eviction error:', redactSecrets(err.message));
@@ -639,7 +698,11 @@ export function verifyApiAuthentication(request, env = {}) {
       status: 503,
       reason: 'API_SECRET_KEY is not configured on server. Access denied.',
       response: new Response(
-        JSON.stringify({ success: false, error: 'API_SECRET_KEY is not configured on server. Access denied.' }),
+        JSON.stringify({
+          success: false,
+          error: 'AUTH_NOT_CONFIGURED',
+          message: 'API_SECRET_KEY is not configured on server. Access denied.'
+        }),
         { status: 503, headers: { 'content-type': 'application/json' } }
       )
     };
@@ -829,8 +892,9 @@ export function getCachedShardSql(key, factory) {
 }
 
 export function createHyperdriveClient(connectionString, customOpts = {}) {
+  // [INVARIANT: HYPERDRIVE-BOUNDED-POOL-4] Unlock concurrent Promise.all subqueries while preserving headroom for outbound fetch
   const pSql = postgres(connectionString, {
-    max: 1,
+    max: 4,
     fetch_types: false,
     prepare: false,
     idle_timeout: 5,
@@ -1051,7 +1115,7 @@ export async function getCachedOrFetch(key, fetcher, ttlMs = 15000, staleMs = 60
   return await promise;
 }
 
-export function invalidateEdgeCache(prefix = '') {
+export async function invalidateEdgeCache(prefix = '') {
   const keysToInvalidate = [];
   if (!prefix) {
     keysToInvalidate.push(...edgeCache.keys());
@@ -1086,13 +1150,9 @@ export function invalidateEdgeCache(prefix = '') {
 
   const store = requestContextStorage?.getStore?.();
   const env = store?.env;
-  const ctx = store?.ctx;
   if ((!prefix || prefix.startsWith('keywords')) && env?.PIN_D1_DB) {
-    if (ctx && typeof ctx.waitUntil === 'function') {
-      safeWaitUntil(ctx, evictKeywordsCatalogFromD1(env), 'd1_evict_keywords_catalog');
-    } else {
-      evictKeywordsCatalogFromD1(env).catch(() => {});
-    }
+    // [INVARIANT: AWAIT-MUTATION-EVICTIONS] Await D1 cache metadata invalidation synchronously
+    await evictKeywordsCatalogFromD1(env).catch(() => {});
   }
 
   return Promise.resolve();

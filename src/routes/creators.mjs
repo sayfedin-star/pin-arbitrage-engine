@@ -295,7 +295,8 @@ export async function handleCreatorsRoutes(routeCtx) {
       }, 20000, 60000);
       return jsonResponse(detailData, 200, 20);
     } catch (err) {
-      return jsonResponse({ success: false, error: err.message }, 500);
+      const isNotFound = err.message && err.message.toLowerCase().includes('not found');
+      return jsonResponse({ success: false, error: err.message }, isNotFound ? 404 : 500);
     }
   }
 
@@ -684,10 +685,11 @@ export async function handleCreatorsRoutes(routeCtx) {
         });
         const isDegraded = Boolean(overview?._degraded || competitors?._degraded);
         return { overview, competitors, ...(isDegraded ? { degraded: true } : {}) };
-      }, 8000, 30000);
+      }, 8000, 30000, { forceRefresh: searchParams.get('refresh') === 'true' || searchParams.has('_t') });
 
-      const isDegraded = Boolean(data?.degraded || data?.overview?._degraded || data?.competitors?._degraded);
-      return jsonResponse({ success: true, ...data }, 200, isDegraded ? 0 : 8);
+      return jsonResponse({ success: true, ...data }, 200, 0, {
+        'Cache-Control': 'private, no-cache, must-revalidate'
+      });
     } catch (err) {
       console.error('[Competitors Error]', err.message);
       return jsonResponse({
@@ -902,7 +904,8 @@ export async function handleCreatorsRoutes(routeCtx) {
     const pinId = searchParams.get('pin_id') || searchParams.get('id');
     if (!pinId) return jsonResponse({ error: 'pin_id is required' }, 400);
     const refresh = searchParams.get('refresh') === 'true';
-    const detail = await getPinDetailWithMetrics(targetSql, pinId, { refresh, env });
+    // [INVARIANT: READ-ONLY-GET-SAFE] Read-only GET cache-busting without live scraping
+    const detail = await getPinDetailWithMetrics(targetSql, pinId, { refresh, env, isReadOnly: true });
     if (!detail) return jsonResponse({ error: 'Pin not found' }, 404);
     return jsonResponse({ success: true, ...detail }, 200, refresh ? 0 : 60);
   }

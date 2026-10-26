@@ -17,28 +17,31 @@ export let isEdgePinsMetadataReady = false;
 export async function ensureEdgePinsMetadataTable(env) {
   if (isEdgePinsMetadataReady || !env?.PIN_D1_DB) return;
   try {
-    await env.PIN_D1_DB.prepare(`
-      CREATE TABLE IF NOT EXISTS edge_pins_metadata (
-        pin_id TEXT PRIMARY KEY,
-        title TEXT DEFAULT '',
-        domain TEXT DEFAULT '',
-        destination_url TEXT DEFAULT '',
-        image_url TEXT DEFAULT '',
-        creator_username TEXT DEFAULT '',
-        board_name TEXT DEFAULT '',
-        dominant_color TEXT DEFAULT '#888888',
-        visual_annotations TEXT DEFAULT '[]',
-        seo_alt_text TEXT DEFAULT '',
-        description TEXT DEFAULT '',
-        metadata TEXT DEFAULT '{}',
-        daily_trajectory TEXT DEFAULT '[]',
-        created_at_pinterest TEXT,
-        updated_at TEXT DEFAULT (datetime('now'))
-      )
-    `).run().catch(() => {});
-    // Defensive column upgrade if table was initialized by earlier migration
+    // [INVARIANT: D1-BATCH-RPC-SETUP] Batch table creation and index initialization
+    await env.PIN_D1_DB.batch([
+      env.PIN_D1_DB.prepare(`
+        CREATE TABLE IF NOT EXISTS edge_pins_metadata (
+          pin_id TEXT PRIMARY KEY,
+          title TEXT DEFAULT '',
+          domain TEXT DEFAULT '',
+          destination_url TEXT DEFAULT '',
+          image_url TEXT DEFAULT '',
+          creator_username TEXT DEFAULT '',
+          board_name TEXT DEFAULT '',
+          dominant_color TEXT DEFAULT '#888888',
+          visual_annotations TEXT DEFAULT '[]',
+          seo_alt_text TEXT DEFAULT '',
+          description TEXT DEFAULT '',
+          metadata TEXT DEFAULT '{}',
+          daily_trajectory TEXT DEFAULT '[]',
+          created_at_pinterest TEXT,
+          updated_at TEXT DEFAULT (datetime('now'))
+        )
+      `),
+      env.PIN_D1_DB.prepare(`CREATE INDEX IF NOT EXISTS idx_edge_pins_domain ON edge_pins_metadata(domain)`)
+    ]).catch(() => {});
+    // Defensive column upgrade if table was initialized by earlier migration (run separately to avoid batch failure on duplicate column)
     await env.PIN_D1_DB.prepare(`ALTER TABLE edge_pins_metadata ADD COLUMN daily_trajectory TEXT DEFAULT '[]'`).run().catch(() => {});
-    await env.PIN_D1_DB.prepare(`CREATE INDEX IF NOT EXISTS idx_edge_pins_domain ON edge_pins_metadata(domain)`).run().catch(() => {});
     isEdgePinsMetadataReady = true;
   } catch (_) {}
 }

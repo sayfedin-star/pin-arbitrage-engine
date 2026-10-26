@@ -190,3 +190,8 @@ jobs:
           TARGET_KEYWORD: ${{ inputs.target_keyword }}
           FOLDER_ID: ${{ inputs.folder_id }}
         run: node scripts/keyword-fleet-consolidator.mjs
+
+      - name: 5. Recompute Domain Intelligence Rollup
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: node scripts/refresh-domain-rollup.mjs

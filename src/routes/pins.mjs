@@ -166,8 +166,9 @@ export async function handlePinsRoutes({
       await env.PIN_D1_DB.prepare('DELETE FROM edge_pins_metadata WHERE pin_id = ?').bind(pinId).run().catch(() => {});
     }
     if (env?.PIN_ENGINE_KV) {
+      // [INVARIANT: AWAIT-MUTATION-EVICTIONS] Await KV key evictions synchronously on mutation
       const evictions = getPinKvKeysToEvict(pinId, [kwId]).map(k => env.PIN_ENGINE_KV.delete(k).catch(() => {}));
-      safeWaitUntil(ctx, Promise.all(evictions), `kv_delete_serp_${pinId}_${kwId}`);
+      await Promise.all(evictions);
     }
     return jsonResponse({
       success: true,
@@ -219,8 +220,9 @@ export async function handlePinsRoutes({
       await env.PIN_D1_DB.prepare('DELETE FROM edge_pins_metadata WHERE pin_id = ?').bind(pinId).run().catch(() => {});
     }
     if (env?.PIN_ENGINE_KV) {
+      // [INVARIANT: AWAIT-MUTATION-EVICTIONS] Await KV key evictions synchronously on mutation
       const evictions = getPinKvKeysToEvict(pinId).map(k => env.PIN_ENGINE_KV.delete(k).catch(() => {}));
-      safeWaitUntil(ctx, Promise.all(evictions), `kv_delete_daily_metrics_${pinId}`);
+      await Promise.all(evictions);
     }
     return jsonResponse({
       success: true,

@@ -257,34 +257,37 @@ console.log('[AXIS 1] Level 1A Executive Keywords Dashboard & Kinetic Delta Tele
 }
 
 {
-  // 1.3 Kinetic Delta Badges Resilience & Fail-Safe Calculations
+  // 1.3 Canonical Keyword Velocity & Momentum Tiers Verification
   const t0 = performance.now();
   const { app } = createKeywordsApp('/keywords');
 
-  // Test with full metadata
-  const kw1 = { saves_delta_24h: 125, repins_delta_24h: 18 };
-  assert.strictEqual(app.getKeywordSaveDelta(kw1), 125);
-  assert.strictEqual(app.getKeywordRepinDelta(kw1), 18);
+  // Test authentic avg_daily_velocity extraction
+  const kw1 = { avg_daily_velocity: 58.4 };
+  assert.strictEqual(app.getKeywordVelocity(kw1), 58.4);
+  assert.strictEqual(app.getKeywordVelocityTierLabel(kw1), '🔥 Explosive');
 
-  // Test with nested metadata.deltas
-  const kw2 = { metadata: { deltas: { saves_24h: 400, repins_24h: 60 } } };
-  assert.strictEqual(app.getKeywordSaveDelta(kw2), 400);
-  assert.strictEqual(app.getKeywordRepinDelta(kw2), 60);
+  const kw2 = { avg_daily_velocity: 12.0 };
+  assert.strictEqual(app.getKeywordVelocity(kw2), 12.0);
+  assert.strictEqual(app.getKeywordVelocityTierLabel(kw2), '📈 Trending');
 
-  // Test fallback to velocity
-  const kw3 = { avg_daily_velocity: 20 };
-  assert.strictEqual(app.getKeywordSaveDelta(kw3), 20);
-  assert.strictEqual(app.getKeywordRepinDelta(kw3), 3); // round(20 * 0.15) = 3
+  const kw3 = { avg_daily_velocity: 2.5 };
+  assert.strictEqual(app.getKeywordVelocity(kw3), 2.5);
+  assert.strictEqual(app.getKeywordVelocityTierLabel(kw3), '⏸ Steady');
 
   // Corrupted / adversarial cases: null, undefined, strings, NaN
-  assert.strictEqual(app.getKeywordSaveDelta(null), 0);
-  assert.strictEqual(app.getKeywordRepinDelta(null), 0);
-  assert.strictEqual(app.getKeywordSaveDelta({}), 0);
-  assert.strictEqual(app.getKeywordRepinDelta({}), 0);
-  assert.strictEqual(app.getKeywordSaveDelta({ saves_delta_24h: 'invalid' }), 0); // safe check
+  assert.strictEqual(app.getKeywordVelocity(null), 0);
+  assert.strictEqual(app.getKeywordVelocity({}), 0);
+  assert.strictEqual(app.getKeywordVelocity({ avg_daily_velocity: 'invalid' }), 0);
+  assert.strictEqual(app.getKeywordVelocityTierLabel(null), '⚪ Stagnant');
 
-  recordTest('Axis 1', '1.3 Kinetic Delta Badges Resilience & Corrupted Metadata Defense', 'PASS', performance.now() - t0,
-    'Verified saves and repins delta extractions with zero crash on empty, corrupted, or fallback inputs');
+  // Backward-compatible method signatures
+  assert.strictEqual(app.getKeywordSaveDelta(kw1), 58.4);
+  assert.strictEqual(app.getKeywordRepinDelta(kw1), 0);
+  assert.strictEqual(app.getKeywordSaveDelta({ saves_delta_24h: 125 }), 125);
+  assert.strictEqual(app.getKeywordRepinDelta({ repins_delta_24h: 18 }), 18);
+
+  recordTest('Axis 1', '1.3 Canonical Keyword Velocity & Momentum Tiers Verification', 'PASS', performance.now() - t0,
+    'Verified authentic velocity extractions and momentum tier labels with zero crash on empty or corrupted inputs');
 }
 
 {
@@ -532,9 +535,9 @@ console.log('\n[AXIS 3] Level 2 SERP Radar Studio Dual-Scope Switcher & Deep Lin
   const { html } = createKeywordsApp('/keywords/minimal-desk');
 
   // Verify deep links to /pins/:pin_id across table view, card view, and drawer
-  assert.ok(html.includes("href=\"'/pins/' + pin.pin_id\"") || html.includes(":href=\"'/pins/' + pin.pin_id\"") || html.includes("'/pins/' + pin.pin_id"),
+  assert.ok(html.includes("href=\"'/pins/' + pin.pin_id\"") || html.includes(":href=\"'/pins/' + pin.pin_id\"") || html.includes("'/pins/' + pin.pin_id") || html.includes("getPinDossierUrl(pin)"),
     'Deep link to Universal Pin Dossier missing in pin table/card view');
-  assert.ok(html.includes("'/pins/' + activeInspectorPin?.pin_id") || html.includes("'/pins/' + activeInspectorPin.pin_id"),
+  assert.ok(html.includes("'/pins/' + activeInspectorPin?.pin_id") || html.includes("'/pins/' + activeInspectorPin.pin_id") || html.includes("getPinDossierUrl(activeInspectorPin)"),
     'Full Dossier link missing in slide-over inspector drawer');
 
   recordTest('Axis 3', '3.3 Universal Pin Dossier Deep-Linking Verification', 'PASS', performance.now() - t0,

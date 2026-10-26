@@ -184,8 +184,6 @@ export function getKeywordsPageHtml(initialSlug = '') {
             <i data-lucide="refresh-cw" class="w-3.5 h-3.5" :class="isKeywordsLoading ? 'animate-spin text-emerald-500' : 'text-slate-400'"></i>
             <span class="hidden sm:inline">Refresh</span>
           </button>
-            <span class="hidden sm:inline">Refresh</span>
-          </button>
 
           <!-- Primary CTA: Track Keyword -->
           <button @click="openQuickTrackModal()"
@@ -243,7 +241,34 @@ export function getKeywordsPageHtml(initialSlug = '') {
           </template>
         </div>
 
-        <!-- Metric 2: Monitored Organic Pins -->
+        <!-- Metric 2: Fleet Daily Velocity (Level 1A Parity) -->
+        <div class="p-4 sm:p-5 flex flex-col justify-between space-y-2">
+          <div class="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+            <span class="font-medium text-[11px] uppercase tracking-wider font-mono">Fleet Daily Velocity</span>
+            <span class="p-1 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+              <i data-lucide="zap" class="w-3.5 h-3.5"></i>
+            </span>
+          </div>
+          <template x-if="isKeywordsLoading">
+            <div class="space-y-1 py-0.5">
+              <div class="h-7 w-20 bg-slate-200 dark:bg-slate-800 rounded animate-pulse"></div>
+              <div class="h-3 w-28 bg-slate-100 dark:bg-slate-800/60 rounded animate-pulse"></div>
+            </div>
+          </template>
+          <template x-if="!isKeywordsLoading">
+            <div>
+              <div class="flex items-baseline gap-2">
+                <span class="text-2xl sm:text-3xl font-extrabold text-emerald-600 dark:text-emerald-400 font-mono tracking-tight"
+                      x-text="(averageFleetVelocity > 0 ? '+' : '') + formatNumber(averageFleetVelocity) + '/d'"></span>
+              </div>
+              <div class="mt-1.5 text-[11px] font-mono text-slate-500 dark:text-slate-400">
+                <span>Active fleet average saves/day</span>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <!-- Metric 3: Monitored Organic Pins -->
         <div class="p-4 sm:p-5 flex flex-col justify-between space-y-2">
           <div class="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
             <span class="font-medium text-[11px] uppercase tracking-wider font-mono">Monitored Organic Pins</span>
@@ -270,29 +295,6 @@ export function getKeywordsPageHtml(initialSlug = '') {
             </div>
           </template>
         </div>
-
-        <!-- Metric 3: Campaign Folders Fleet -->
-        <a href="/folders" class="p-4 sm:p-5 flex flex-col justify-between space-y-2 hover:bg-slate-50/60 dark:hover:bg-slate-800/30 transition group cursor-pointer">
-          <div class="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-            <span class="font-medium text-[11px] uppercase tracking-wider font-mono group-hover:text-pink-600 dark:group-hover:text-pink-400 transition">Campaign Folders</span>
-            <span class="p-1 rounded-md bg-pink-500/10 text-pink-600 dark:text-pink-400 group-hover:scale-105 transition-transform">
-              <i data-lucide="folder-kanban" class="w-3.5 h-3.5"></i>
-            </span>
-          </div>
-          <div>
-            <div class="flex items-baseline gap-2">
-              <span class="text-2xl sm:text-3xl font-extrabold text-pink-600 dark:text-pink-400 font-mono tracking-tight" x-text="folders.length"></span>
-              <span class="text-xs text-slate-400 font-mono">folders</span>
-            </div>
-            <div class="mt-1.5 text-[11px] font-mono text-slate-500 dark:text-slate-400 flex items-center justify-between">
-              <span class="group-hover:text-pink-600 dark:group-hover:text-pink-400 transition font-medium">Organized Hub</span>
-              <span class="text-pink-600 dark:text-pink-400 font-medium inline-flex items-center gap-1">
-                <span>View</span>
-                <i data-lucide="arrow-right" class="w-3 h-3 group-hover:translate-x-0.5 transition-transform"></i>
-              </span>
-            </div>
-          </div>
-        </a>
 
         <!-- Metric 4: Nightly Crawler Fleet Status -->
         <div class="p-4 sm:p-5 flex flex-col justify-between space-y-2">
@@ -357,19 +359,18 @@ export function getKeywordsPageHtml(initialSlug = '') {
               <option value="PAUSED">Paused Only</option>
             </select>
 
-            <!-- Growth Momentum filter dropdown -->
+            <!-- Growth Momentum filter dropdown (Canonical 4 Tiers) -->
             <select x-model="dashboardGrowthFilter" class="px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800/90 text-xs font-medium text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 cursor-pointer">
-              <option value="ALL">All Growth</option>
-              <option value="HIGH">🔥 High Growth (+50)</option>
-              <option value="POSITIVE">📈 Positive (> 0)</option>
-              <option value="FLAT">⏸ Flat (= 0)</option>
-              <option value="DECLINING">📉 Declining (< 0)</option>
+              <option value="ALL">Momentum: All</option>
+              <option value="HIGH">🔥 Explosive (≥50/d)</option>
+              <option value="TRENDING">📈 Trending (≥10/d)</option>
+              <option value="POSITIVE">⏸ Steady (>0/d)</option>
+              <option value="FLAT">⚪ Stagnant (=0/d)</option>
             </select>
 
-            <!-- Sort filter dropdown -->
+            <!-- Sort filter dropdown (Velocity First) -->
             <select x-model="dashboardSort" class="px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800/90 text-xs font-medium text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 cursor-pointer">
-              <option value="saves_delta">Sort: 24h Saves Δ</option>
-              <option value="repins_delta">Sort: 24h Repins Δ</option>
+              <option value="velocity">Sort: Highest Velocity (/d)</option>
               <option value="total_pins">Sort: Total Pins</option>
               <option value="created_desc">Sort: Date Added (Newest)</option>
               <option value="created_asc">Sort: Date Added (Oldest)</option>
@@ -486,9 +487,8 @@ export function getKeywordsPageHtml(initialSlug = '') {
                 </th>
                 <th x-show="visibleColumns.preview" class="py-3 px-3 w-14">Preview</th>
                 <th x-show="visibleColumns.keyword" class="py-3 px-4 min-w-[240px]">Keyword & Folders</th>
-                <th x-show="visibleColumns.saves_delta" class="py-3 px-3 w-28">24h Saves Δ</th>
-                <th x-show="visibleColumns.repins_delta" class="py-3 px-3 w-28">24h Repins Δ</th>
-                <th x-show="visibleColumns.total_pins" class="py-3 px-3 w-32">Total Pins</th>
+                <th x-show="visibleColumns.velocity" class="py-3 px-3 w-36">Daily Velocity</th>
+                <th x-show="visibleColumns.total_pins" class="py-3 px-3 w-36">SERP Breakdown</th>
                 <th x-show="visibleColumns.status" class="py-3 px-3 w-24 text-center">Status</th>
                 <th x-show="visibleColumns.created_at" class="py-3 px-3 w-32">Date Added</th>
                 <th x-show="visibleColumns.last_crawled" class="py-3 px-3 w-32">Last Crawled</th>
@@ -508,9 +508,8 @@ export function getKeywordsPageHtml(initialSlug = '') {
                         <div class="h-2.5 w-20 bg-slate-100 dark:bg-slate-800/60 rounded"></div>
                       </div>
                     </td>
-                    <td x-show="visibleColumns.saves_delta" class="py-3.5 px-3"><div class="h-4 w-14 bg-slate-200 dark:bg-slate-800 rounded"></div></td>
-                    <td x-show="visibleColumns.repins_delta" class="py-3.5 px-3"><div class="h-4 w-12 bg-slate-200 dark:bg-slate-800 rounded"></div></td>
-                    <td x-show="visibleColumns.total_pins" class="py-3.5 px-3"><div class="h-4 w-16 bg-slate-200 dark:bg-slate-800 rounded"></div></td>
+                    <td x-show="visibleColumns.velocity" class="py-3.5 px-3"><div class="h-4 w-20 bg-slate-200 dark:bg-slate-800 rounded"></div></td>
+                    <td x-show="visibleColumns.total_pins" class="py-3.5 px-3"><div class="h-4 w-24 bg-slate-200 dark:bg-slate-800 rounded"></div></td>
                     <td x-show="visibleColumns.status" class="py-3.5 px-3 text-center"><div class="h-5 w-14 bg-slate-200 dark:bg-slate-800 rounded-full mx-auto"></div></td>
                     <td x-show="visibleColumns.created_at" class="py-3.5 px-3"><div class="h-3 w-16 bg-slate-200 dark:bg-slate-800 rounded"></div></td>
                     <td x-show="visibleColumns.last_crawled" class="py-3.5 px-3"><div class="h-3 w-16 bg-slate-200 dark:bg-slate-800 rounded"></div></td>
@@ -583,49 +582,41 @@ export function getKeywordsPageHtml(initialSlug = '') {
                       </div>
                     </td>
 
-                    <!-- 24h Saves Delta (Linear Tabular Figures) -->
-                    <td x-show="visibleColumns.saves_delta" class="py-3 px-3 font-mono">
-                      <div class="inline-flex items-center gap-1 text-xs font-semibold tabular-nums"
-                           :class="getKeywordSaveDelta(kw) > 0 ? 'text-emerald-600 dark:text-emerald-400' : (getKeywordSaveDelta(kw) < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-400 dark:text-slate-500')">
-                        <template x-if="getKeywordSaveDelta(kw) > 0">
-                          <i data-lucide="trending-up" class="w-3.5 h-3.5 shrink-0"></i>
-                        </template>
-                        <template x-if="getKeywordSaveDelta(kw) < 0">
-                          <i data-lucide="trending-down" class="w-3.5 h-3.5 shrink-0"></i>
-                        </template>
-                        <span x-text="(getKeywordSaveDelta(kw) > 0 ? '+' : '') + formatNumber(getKeywordSaveDelta(kw))"></span>
-                      </div>
-                    </td>
-
-                    <!-- 24h Repins Delta (Linear Tabular Figures) -->
-                    <td x-show="visibleColumns.repins_delta" class="py-3 px-3 font-mono">
-                      <div class="inline-flex items-center gap-1 text-xs font-semibold tabular-nums"
-                           :class="getKeywordRepinDelta(kw) > 0 ? 'text-emerald-600 dark:text-emerald-400' : (getKeywordRepinDelta(kw) < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-400 dark:text-slate-500')">
-                        <template x-if="getKeywordRepinDelta(kw) > 0">
-                          <i data-lucide="trending-up" class="w-3.5 h-3.5 shrink-0"></i>
-                        </template>
-                        <template x-if="getKeywordRepinDelta(kw) < 0">
-                          <i data-lucide="trending-down" class="w-3.5 h-3.5 shrink-0"></i>
-                        </template>
-                        <span x-text="(getKeywordRepinDelta(kw) > 0 ? '+' : '') + formatNumber(getKeywordRepinDelta(kw))"></span>
-                      </div>
-                    </td>
-
-                    <!-- Total Pins (Clean Minimalist Layout) -->
-                    <td x-show="visibleColumns.total_pins" class="py-3 px-3 font-mono">
-                      <div class="space-y-0.5" :title="(kw.active_pins_count ?? getKeywordTotalPins(kw)) + ' Active SERP + ' + (kw.displaced_pins_count || 0) + ' Displaced Vault'">
-                        <div class="flex items-center gap-1.5">
-                          <span class="font-bold text-slate-900 dark:text-white text-xs tabular-nums" x-text="formatNumber(getKeywordTotalPins(kw))"></span>
-                          <span class="text-[10px] text-slate-400 uppercase font-sans">pins</span>
+                    <!-- Daily Save Velocity & Momentum Tier (Linear Tabular Figures) -->
+                    <td x-show="visibleColumns.velocity" class="py-3 px-3 font-mono">
+                      <div class="space-y-1">
+                        <div class="inline-flex items-center gap-1 text-xs font-bold tabular-nums"
+                             :class="getKeywordVelocity(kw) > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-500'">
+                          <span x-text="(getKeywordVelocity(kw) > 0 ? '+' : '') + formatNumber(getKeywordVelocity(kw)) + '/d'"></span>
                         </div>
-                        <template x-if="Number(kw.displaced_pins_count || 0) > 0">
-                          <div class="text-[10px] text-slate-400 dark:text-slate-500 flex items-center gap-1">
-                            <span class="text-slate-600 dark:text-slate-400 font-medium" x-text="kw.active_pins_count || 0"></span>
-                            <span>active</span>
-                            <span>·</span>
-                            <span class="text-slate-500 dark:text-slate-400" x-text="kw.displaced_pins_count + ' vault'"></span>
+                        <div>
+                          <span class="inline-block px-1.5 py-0.5 rounded text-[9px] font-sans font-semibold border"
+                                :class="getKeywordVelocityTierClass(kw)"
+                                x-text="getKeywordVelocityTierLabel(kw)"></span>
+                        </div>
+                      </div>
+                    </td>
+
+                    <!-- SERP Topology & Total Pins (Two-Tone Topology Bar) -->
+                    <td x-show="visibleColumns.total_pins" class="py-3 px-3 font-mono">
+                      <div class="space-y-1.5 min-w-[120px]" :title="(kw.active_pins_count ?? getKeywordTotalPins(kw)) + ' Active SERP + ' + (kw.displaced_pins_count || 0) + ' Displaced Vault'">
+                        <div class="flex items-center justify-between text-xs">
+                          <div class="flex items-center gap-1 text-[11px]">
+                            <span class="font-bold text-emerald-600 dark:text-emerald-400 tabular-nums" x-text="(kw.active_pins_count || getKeywordTotalPins(kw)) + ' Act'"></span>
+                            <span class="text-slate-300 dark:text-slate-700">·</span>
+                            <span class="font-medium text-indigo-600 dark:text-indigo-400 tabular-nums" x-text="(kw.displaced_pins_count || 0) + ' Vault'"></span>
                           </div>
-                        </template>
+                          <span class="text-[10px] text-slate-400 font-mono" x-text="formatNumber(getKeywordTotalPins(kw))"></span>
+                        </div>
+                        <!-- Two-Tone Topology Progress Bar -->
+                        <div class="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden flex">
+                          <div class="bg-emerald-500 h-full transition-all duration-300"
+                                :style="'width: ' + getActiveSerpPercentage(kw) + '%'"
+                                :title="'Active SERP: ' + getActiveSerpPercentage(kw) + '%'"></div>
+                          <div class="bg-indigo-500 h-full transition-all duration-300"
+                                :style="'width: ' + (100 - getActiveSerpPercentage(kw)) + '%'"
+                                :title="'Displaced Vault: ' + (100 - getActiveSerpPercentage(kw)) + '%'"></div>
+                        </div>
                       </div>
                     </td>
 
@@ -882,33 +873,38 @@ export function getKeywordsPageHtml(initialSlug = '') {
                       </template>
                     </div>
 
-                    <!-- Metrics Ribbon -->
+                    <!-- Metrics Ribbon (Daily Velocity & Momentum Tier) -->
                     <div class="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 dark:border-slate-800/80 text-xs font-mono">
                       <div class="p-2 rounded-lg bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800">
-                        <span class="text-[10px] text-slate-400 block font-sans">24h Saves Δ</span>
-                        <span class="font-semibold text-slate-800 dark:text-slate-200"
-                              :class="getKeywordSaveDelta(kw) > 0 ? 'text-emerald-600 dark:text-emerald-400' : ''"
-                              x-text="(getKeywordSaveDelta(kw) > 0 ? '+' : '') + formatNumber(getKeywordSaveDelta(kw))"></span>
+                        <span class="text-[10px] text-slate-400 block font-sans">Daily Velocity</span>
+                        <span class="font-bold text-slate-800 dark:text-slate-200"
+                              :class="getKeywordVelocity(kw) > 0 ? 'text-emerald-600 dark:text-emerald-400' : ''"
+                              x-text="(getKeywordVelocity(kw) > 0 ? '+' : '') + formatNumber(getKeywordVelocity(kw)) + '/d'"></span>
                       </div>
                       <div class="p-2 rounded-lg bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800">
-                        <span class="text-[10px] text-slate-400 block font-sans">24h Repins Δ</span>
-                        <span class="font-semibold text-slate-800 dark:text-slate-200"
-                              :class="getKeywordRepinDelta(kw) > 0 ? 'text-emerald-600 dark:text-emerald-400' : ''"
-                              x-text="(getKeywordRepinDelta(kw) > 0 ? '+' : '') + formatNumber(getKeywordRepinDelta(kw))"></span>
+                        <span class="text-[10px] text-slate-400 block font-sans">Momentum Tier</span>
+                        <span class="text-[10px] font-bold"
+                              :class="getKeywordVelocityTierClass(kw)"
+                              x-text="getKeywordVelocityTierLabel(kw)"></span>
                       </div>
                     </div>
 
-                    <!-- Total Pins Status Ribbon -->
-                    <div class="flex items-center justify-between text-xs font-mono pt-1">
-                      <span class="text-slate-400">Total Pins:</span>
-                      <span class="font-semibold text-slate-900 dark:text-white inline-flex items-center space-x-1"
-                            :title="(kw.active_pins_count ?? getKeywordTotalPins(kw)) + ' Active + ' + (kw.displaced_pins_count || 0) + ' Vault'">
-                        <i data-lucide="pin" class="w-3 h-3 text-emerald-500"></i>
-                        <span x-text="getKeywordTotalPins(kw) + ' Pins'"></span>
-                        <template x-if="Number(kw.displaced_pins_count || 0) > 0">
-                          <span class="text-[10px] text-indigo-500 dark:text-indigo-400 font-medium ml-0.5" x-text="'(' + (kw.active_pins_count || 0) + ' Active + ' + kw.displaced_pins_count + ' Vault)'"></span>
-                        </template>
-                      </span>
+                    <!-- Total Pins & Topology Progress Bar -->
+                    <div class="space-y-1 pt-1.5 font-mono text-xs">
+                      <div class="flex items-center justify-between text-[11px]">
+                        <span class="text-slate-400 font-sans">SERP Topology:</span>
+                        <div>
+                          <span class="text-emerald-600 dark:text-emerald-400 font-bold" x-text="(kw.active_pins_count || getKeywordTotalPins(kw)) + ' Act'"></span>
+                          <span class="text-slate-300 dark:text-slate-700">·</span>
+                          <span class="text-indigo-600 dark:text-indigo-400 font-medium" x-text="(kw.displaced_pins_count || 0) + ' Vault'"></span>
+                        </div>
+                      </div>
+                      <div class="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden flex">
+                        <div class="bg-emerald-500 h-full transition-all duration-300"
+                             :style="'width: ' + getActiveSerpPercentage(kw) + '%'"></div>
+                        <div class="bg-indigo-500 h-full transition-all duration-300"
+                             :style="'width: ' + (100 - getActiveSerpPercentage(kw)) + '%'"></div>
+                      </div>
                     </div>
                   </div>
 
@@ -4134,7 +4130,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
         dashboardFolderFilter: 'ALL',
         dashboardGrowthFilter: 'ALL',
         dashboardPinsFilter: 'ALL',
-        dashboardSort: 'saves_delta',
+        dashboardSort: 'velocity',
         dashboardViewMode: 'table', // 'table' | 'grid'
         dashboardPage: 1,
         dashboardPageSize: 10,
@@ -4150,9 +4146,8 @@ export function getKeywordsPageHtml(initialSlug = '') {
         columnDefinitions: [
           { key: 'preview', label: 'Preview Image', required: false },
           { key: 'keyword', label: 'Keyword & Folders', required: true },
-          { key: 'saves_delta', label: '24h Saves Δ', required: false },
-          { key: 'repins_delta', label: '24h Repins Δ', required: false },
-          { key: 'total_pins', label: 'Total Pins', required: false },
+          { key: 'velocity', label: 'Daily Velocity', required: false },
+          { key: 'total_pins', label: 'SERP Breakdown', required: false },
           { key: 'status', label: 'Status', required: false },
           { key: 'created_at', label: 'Date Added', required: false },
           { key: 'last_crawled', label: 'Last Crawled', required: false },
@@ -4161,8 +4156,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
         visibleColumns: {
           preview: true,
           keyword: true,
-          saves_delta: true,
-          repins_delta: true,
+          velocity: true,
           total_pins: true,
           status: true,
           created_at: true,
@@ -4388,13 +4382,18 @@ export function getKeywordsPageHtml(initialSlug = '') {
           }
           if (this.dashboardGrowthFilter && this.dashboardGrowthFilter !== 'ALL') {
             if (this.dashboardGrowthFilter === 'HIGH') {
-              list = list.filter(k => (k._saveDelta !== undefined ? k._saveDelta : this.getKeywordSaveDelta(k)) >= 50);
+              list = list.filter(k => (k._velocity !== undefined ? k._velocity : this.getKeywordVelocity(k)) >= 50);
+            } else if (this.dashboardGrowthFilter === 'TRENDING') {
+              list = list.filter(k => {
+                const v = k._velocity !== undefined ? k._velocity : this.getKeywordVelocity(k);
+                return v >= 10 && v < 50;
+              });
             } else if (this.dashboardGrowthFilter === 'POSITIVE') {
-              list = list.filter(k => (k._saveDelta !== undefined ? k._saveDelta : this.getKeywordSaveDelta(k)) > 0);
+              list = list.filter(k => (k._velocity !== undefined ? k._velocity : this.getKeywordVelocity(k)) > 0);
             } else if (this.dashboardGrowthFilter === 'FLAT') {
-              list = list.filter(k => (k._saveDelta !== undefined ? k._saveDelta : this.getKeywordSaveDelta(k)) === 0);
+              list = list.filter(k => (k._velocity !== undefined ? k._velocity : this.getKeywordVelocity(k)) === 0);
             } else if (this.dashboardGrowthFilter === 'DECLINING') {
-              list = list.filter(k => (k._saveDelta !== undefined ? k._saveDelta : this.getKeywordSaveDelta(k)) < 0);
+              list = list.filter(k => (k._velocity !== undefined ? k._velocity : this.getKeywordVelocity(k)) < 0);
             }
           }
           if (this.dashboardPinsFilter && this.dashboardPinsFilter !== 'ALL') {
@@ -4412,7 +4411,9 @@ export function getKeywordsPageHtml(initialSlug = '') {
               this.getKeywordFolders(k).some(f => (f.name || '').toLowerCase().includes(q))
             ));
           }
-          if (this.dashboardSort === 'saves_delta') {
+          if (this.dashboardSort === 'velocity') {
+            return [...list].sort((a, b) => (b._velocity ?? this.getKeywordVelocity(b)) - (a._velocity ?? this.getKeywordVelocity(a)));
+          } else if (this.dashboardSort === 'saves_delta') {
             return [...list].sort((a, b) => (b._saveDelta ?? this.getKeywordSaveDelta(b)) - (a._saveDelta ?? this.getKeywordSaveDelta(a)));
           } else if (this.dashboardSort === 'repins_delta') {
             return [...list].sort((a, b) => (b._repinDelta ?? this.getKeywordRepinDelta(b)) - (a._repinDelta ?? this.getKeywordRepinDelta(a)));
@@ -4426,8 +4427,6 @@ export function getKeywordsPageHtml(initialSlug = '') {
             return [...list].sort((a, b) => (a.keyword || '').localeCompare(b.keyword || ''));
           } else if (this.dashboardSort === 'crawled') {
             return [...list].sort((a, b) => (b._crawledAtMs ?? (Date.parse(b.last_crawled_at) || 0)) - (a._crawledAtMs ?? (Date.parse(a.last_crawled_at) || 0)));
-          } else if (this.dashboardSort === 'velocity') {
-            return [...list].sort((a, b) => Number(b.avg_daily_velocity || 0) - Number(a.avg_daily_velocity || 0));
           }
           return list;
         },
@@ -4597,8 +4596,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
           this.visibleColumns = {
             preview: true,
             keyword: true,
-            saves_delta: true,
-            repins_delta: true,
+            velocity: true,
             total_pins: true,
             status: true,
             created_at: true,
@@ -4651,12 +4649,46 @@ export function getKeywordsPageHtml(initialSlug = '') {
           return 'Next Batch at 02:00 UTC (~' + hours + 'h ' + mins + 'm)';
         },
 
+        // [INVARIANT: NO-FABRICATED-TELEMETRY] Canonical velocity extraction & momentum tier assignment
+        getKeywordVelocity(kw) {
+          if (!kw) return 0;
+          let val = 0;
+          if (kw.avg_daily_velocity !== undefined && kw.avg_daily_velocity !== null) val = Number(kw.avg_daily_velocity);
+          else if (kw.daily_save_velocity !== undefined && kw.daily_save_velocity !== null) val = Number(kw.daily_save_velocity);
+          return Number.isFinite(val) ? val : 0;
+        },
+
+        getKeywordVelocityTierLabel(kw) {
+          const vel = this.getKeywordVelocity(kw);
+          if (vel >= 50) return '🔥 Explosive';
+          if (vel >= 10) return '📈 Trending';
+          if (vel > 0) return '⏸ Steady';
+          return '⚪ Stagnant';
+        },
+
+        getKeywordVelocityTierClass(kw) {
+          const vel = this.getKeywordVelocity(kw);
+          if (vel >= 50) return 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30';
+          if (vel >= 10) return 'bg-teal-500/10 text-teal-600 dark:text-teal-400 border-teal-500/30';
+          if (vel > 0) return 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30';
+          return 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700';
+        },
+
+        getActiveSerpPercentage(kw) {
+          const active = Number(kw?.active_pins_count ?? this.getKeywordTotalPins(kw) ?? 0);
+          const displaced = Number(kw?.displaced_pins_count || 0);
+          const total = active + displaced;
+          if (!total) return 100;
+          return Math.min(100, Math.max(0, Math.round((active / total) * 100)));
+        },
+
+        // Backward-compatible method signatures
         getKeywordSaveDelta(kw) {
           if (!kw) return 0;
           let val = 0;
           if (kw.saves_delta_24h !== undefined && kw.saves_delta_24h !== null) val = Number(kw.saves_delta_24h);
           else if (kw.metadata?.deltas?.saves_24h !== undefined) val = Number(kw.metadata.deltas.saves_24h);
-          else val = Number(kw.avg_daily_velocity || 0);
+          else val = Number(kw.avg_daily_velocity || kw.daily_save_velocity || 0);
           return Number.isFinite(val) ? val : 0;
         },
 
@@ -4665,7 +4697,6 @@ export function getKeywordsPageHtml(initialSlug = '') {
           let val = 0;
           if (kw.repins_delta_24h !== undefined && kw.repins_delta_24h !== null) val = Number(kw.repins_delta_24h);
           else if (kw.metadata?.deltas?.repins_24h !== undefined) val = Number(kw.metadata.deltas.repins_24h);
-          else val = Math.round(Number(kw.avg_daily_velocity || 0) * 0.15);
           return Number.isFinite(val) ? val : 0;
         },
 
@@ -5331,14 +5362,20 @@ export function getKeywordsPageHtml(initialSlug = '') {
           this.isBulkLoading = true;
           this.showToast('Initiating refresh for ' + this.selectedKeywordIds.length + ' keywords...', 'info');
           try {
-            await Promise.allSettled(this.selectedKeywordIds.map(id => 
+            const results = await Promise.allSettled(this.selectedKeywordIds.map(id => 
               (window.safeApiFetch || fetch)(this.getApiUrl('/api/keywords/sync'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ keyword_id: id, force: true })
               })
             ));
-            this.showToast('Refreshed ' + this.selectedKeywordIds.length + ' keywords!', 'success');
+            const successCount = results.filter(r => r.status === 'fulfilled' && r.value?.ok).length;
+            const failCount = results.length - successCount;
+            if (failCount > 0) {
+              this.showToast('Refreshed ' + successCount + ' keywords (' + failCount + ' failed due to rate limits or errors)', successCount > 0 ? 'warning' : 'error');
+            } else {
+              this.showToast('Refreshed ' + successCount + ' keywords!', 'success');
+            }
             await this.fetchKeywords();
           } catch (err) {
             this.showToast('Bulk refresh error: ' + err.message, 'error');
@@ -5346,6 +5383,10 @@ export function getKeywordsPageHtml(initialSlug = '') {
             this.isBulkLoading = false;
             this.selectedKeywordIds = [];
           }
+        },
+
+        async bulkRefreshKeywords() {
+          return this.bulkSyncKeywords();
         },
 
         async bulkToggleKeywordStatus(targetStatus) {
@@ -5567,6 +5608,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
         normalizeKeyword(k) {
           if (!k) return k;
           k._totalPins = this.getKeywordTotalPins(k);
+          k._velocity = this.getKeywordVelocity(k);
           k._saveDelta = this.getKeywordSaveDelta(k);
           k._repinDelta = this.getKeywordRepinDelta(k);
           k._createdAtMs = k.created_at ? (Date.parse(k.created_at) || 0) : 0;

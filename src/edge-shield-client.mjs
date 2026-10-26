@@ -15,30 +15,54 @@
  */
 export async function safeApiFetch(url, options = {}) {
   const timeoutMs = options.timeout || 15000;
+  const maxRetries = Number.isInteger(options.retries) ? Math.max(0, options.retries) : 0;
+  const retryDelay = options.retryDelay || 1000;
   const opts = { ...options };
   delete opts.timeout;
+  delete opts.retries;
+  delete opts.retryDelay;
 
-  if (!opts.signal) {
+  function createSignal() {
     if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
-      opts.signal = AbortSignal.timeout(timeoutMs);
+      return AbortSignal.timeout(timeoutMs);
     } else if (typeof AbortController !== 'undefined') {
       const controller = new AbortController();
-      opts.signal = controller.signal;
       setTimeout(() => {
         try { controller.abort(new Error(`Request timed out after ${timeoutMs}ms`)); } catch (_) {}
       }, timeoutMs);
+      return controller.signal;
     }
+    return undefined;
   }
 
   let rawRes;
-  try {
-    rawRes = await fetch(url, opts);
-  } catch (err) {
-    const isTimeout = err && (err.name === 'TimeoutError' || /timeout|aborted/i.test(err.message));
-    if (isTimeout) {
-      throw new Error(`Request timed out after ${Math.round(timeoutMs / 1000)}s (server or database cold-start). Please retry.`);
+  let attempt = 0;
+  while (true) {
+    // [INVARIANT: FRESH-SIGNAL-ON-RETRY] Inject a fresh AbortSignal.timeout on each attempt
+    const attemptOpts = { ...opts };
+    if (!options.signal) {
+      attemptOpts.signal = createSignal();
     }
-    throw err;
+    try {
+      rawRes = await fetch(url, attemptOpts);
+      if (!rawRes.ok && (rawRes.status === 502 || rawRes.status === 504) && attempt < maxRetries) {
+        attempt++;
+        await new Promise(r => setTimeout(r, retryDelay));
+        continue;
+      }
+      break;
+    } catch (err) {
+      const isTimeout = err && (err.name === 'TimeoutError' || /timeout|aborted/i.test(err.message));
+      if (attempt < maxRetries) {
+        attempt++;
+        await new Promise(r => setTimeout(r, retryDelay));
+        continue;
+      }
+      if (isTimeout) {
+        throw new Error(`Request timed out after ${Math.round(timeoutMs / 1000)}s (server or database cold-start). Please retry.`);
+      }
+      throw err;
+    }
   }
 
   const contentType = (rawRes.headers && rawRes.headers.get('content-type')) || '';
@@ -61,19 +85,40 @@ export async function safeApiFetch(url, options = {}) {
     try {
       rawText = await rawRes.text();
     } catch (_) {}
-    const isColdStartOrGateway = rawRes.status === 502 || rawRes.status === 503 || rawRes.status === 504;
+  }
+
+  // [INVARIANT: AUTH-503-DISTINCTION] Distinguish AUTH_NOT_CONFIGURED from Neon database cold start
+  const isAuthNotConfigured = rawRes.status === 503 && (
+    (parsedData && (parsedData.error === 'AUTH_NOT_CONFIGURED' || parsedData.code === 'AUTH_NOT_CONFIGURED')) ||
+    (rawText && (rawText.includes('API_SECRET_KEY is not configured') || rawText.includes('AUTH_NOT_CONFIGURED')))
+  );
+  const isColdStartOrGateway = !isAuthNotConfigured && (rawRes.status === 502 || rawRes.status === 503 || rawRes.status === 504);
+
+  if (!parsedData) {
     parsedData = {
       success: rawRes.ok,
       ok: rawRes.ok,
-      error: isColdStartOrGateway
-        ? `Upstream database or gateway cold start (HTTP ${rawRes.status}). Please retry in a few seconds.`
-        : (rawRes.ok ? null : (rawText || `HTTP ${rawRes.status}: ${rawRes.statusText || 'Error'}`)),
-      message: isColdStartOrGateway
-        ? `Upstream database or gateway cold start (HTTP ${rawRes.status}). Please retry in a few seconds.`
-        : rawText,
+      error: isAuthNotConfigured
+        ? 'AUTH_NOT_CONFIGURED'
+        : (isColdStartOrGateway
+          ? `Upstream database or gateway cold start (HTTP ${rawRes.status}). Please retry in a few seconds.`
+          : (rawRes.ok ? null : (rawText || `HTTP ${rawRes.status}: ${rawRes.statusText || 'Error'}`))),
+      message: isAuthNotConfigured
+        ? 'API_SECRET_KEY is not configured on server (HTTP 503). Please set API_SECRET_KEY in Cloudflare environment secrets.'
+        : (isColdStartOrGateway
+          ? `Upstream database or gateway cold start (HTTP ${rawRes.status}). Please retry in a few seconds.`
+          : rawText),
       raw_text: rawText,
       status: rawRes.status
     };
+  } else if (!rawRes.ok) {
+    if (isAuthNotConfigured) {
+      parsedData.error = 'AUTH_NOT_CONFIGURED';
+      parsedData.message = parsedData.message || 'API_SECRET_KEY is not configured on server (HTTP 503). Please set API_SECRET_KEY in Cloudflare environment secrets.';
+    } else if (rawRes.status === 401) {
+      parsedData.error = parsedData.error || 'UNAUTHORIZED';
+      parsedData.message = parsedData.message || 'Invalid or missing API key (HTTP 401).';
+    }
   }
 
   return {
@@ -111,30 +156,54 @@ export function getEdgeShieldClientScript() {
       window.safeApiFetch = async function safeApiFetch(url, options) {
         options = options || {};
         var timeoutMs = options.timeout || 15000;
+        var maxRetries = typeof options.retries === 'number' ? Math.max(0, options.retries) : 0;
+        var retryDelay = options.retryDelay || 1000;
         var fetchOptions = Object.assign({}, options);
         delete fetchOptions.timeout;
+        delete fetchOptions.retries;
+        delete fetchOptions.retryDelay;
 
-        if (!fetchOptions.signal) {
+        function createSignal() {
           if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
-            fetchOptions.signal = AbortSignal.timeout(timeoutMs);
+            return AbortSignal.timeout(timeoutMs);
           } else if (typeof AbortController !== 'undefined') {
             var controller = new AbortController();
-            fetchOptions.signal = controller.signal;
             setTimeout(function() {
               try { controller.abort(new Error('Request timed out after ' + timeoutMs + 'ms')); } catch (_) {}
             }, timeoutMs);
+            return controller.signal;
           }
+          return undefined;
         }
 
         var rawRes;
-        try {
-          rawRes = await fetch(url, fetchOptions);
-        } catch (networkErr) {
-          var isTimeout = networkErr && (networkErr.name === 'TimeoutError' || /timeout|aborted/i.test(networkErr.message));
-          if (isTimeout) {
-            throw new Error('Request timed out after ' + Math.round(timeoutMs / 1000) + 's (server or database cold-start). Please retry.');
+        var attempt = 0;
+        while (true) {
+          // [INVARIANT: FRESH-SIGNAL-ON-RETRY] Generate fresh timeout signal on each attempt
+          var attemptOpts = Object.assign({}, fetchOptions);
+          if (!options.signal) {
+            attemptOpts.signal = createSignal();
           }
-          throw networkErr;
+          try {
+            rawRes = await fetch(url, attemptOpts);
+            if (!rawRes.ok && (rawRes.status === 502 || rawRes.status === 504) && attempt < maxRetries) {
+              attempt++;
+              await new Promise(function(r) { setTimeout(r, retryDelay); });
+              continue;
+            }
+            break;
+          } catch (networkErr) {
+            var isTimeout = networkErr && (networkErr.name === 'TimeoutError' || /timeout|aborted/i.test(networkErr.message));
+            if (attempt < maxRetries) {
+              attempt++;
+              await new Promise(function(r) { setTimeout(r, retryDelay); });
+              continue;
+            }
+            if (isTimeout) {
+              throw new Error('Request timed out after ' + Math.round(timeoutMs / 1000) + 's (server or database cold-start). Please retry.');
+            }
+            throw networkErr;
+          }
         }
 
         var contentType = (rawRes.headers && rawRes.headers.get('content-type')) || '';
@@ -157,19 +226,40 @@ export function getEdgeShieldClientScript() {
           try {
             rawText = await rawRes.text();
           } catch (_) {}
-          var isColdStartOrGateway = rawRes.status === 502 || rawRes.status === 503 || rawRes.status === 504;
+        }
+
+        // [INVARIANT: AUTH-503-DISTINCTION] Distinguish AUTH_NOT_CONFIGURED from database cold start
+        var isAuthNotConfigured = rawRes.status === 503 && (
+          (parsedData && (parsedData.error === 'AUTH_NOT_CONFIGURED' || parsedData.code === 'AUTH_NOT_CONFIGURED')) ||
+          (rawText && (rawText.indexOf('API_SECRET_KEY is not configured') !== -1 || rawText.indexOf('AUTH_NOT_CONFIGURED') !== -1))
+        );
+        var isColdStartOrGateway = !isAuthNotConfigured && (rawRes.status === 502 || rawRes.status === 503 || rawRes.status === 504);
+
+        if (!parsedData) {
           parsedData = {
             success: rawRes.ok,
             ok: rawRes.ok,
-            error: isColdStartOrGateway
-              ? 'Upstream database or gateway cold start (HTTP ' + rawRes.status + '). Please retry in a few seconds.'
-              : (rawRes.ok ? null : (rawText || ('HTTP ' + rawRes.status + ': ' + (rawRes.statusText || 'Error')))),
-            message: isColdStartOrGateway
-              ? 'Upstream database or gateway cold start (HTTP ' + rawRes.status + '). Please retry in a few seconds.'
-              : rawText,
+            error: isAuthNotConfigured
+              ? 'AUTH_NOT_CONFIGURED'
+              : (isColdStartOrGateway
+                ? 'Upstream database or gateway cold start (HTTP ' + rawRes.status + '). Please retry in a few seconds.'
+                : (rawRes.ok ? null : (rawText || ('HTTP ' + rawRes.status + ': ' + (rawRes.statusText || 'Error'))))),
+            message: isAuthNotConfigured
+              ? 'API_SECRET_KEY is not configured on server (HTTP 503). Please set API_SECRET_KEY in Cloudflare environment secrets.'
+              : (isColdStartOrGateway
+                ? 'Upstream database or gateway cold start (HTTP ' + rawRes.status + '). Please retry in a few seconds.'
+                : rawText),
             raw_text: rawText,
             status: rawRes.status
           };
+        } else if (!rawRes.ok) {
+          if (isAuthNotConfigured) {
+            parsedData.error = 'AUTH_NOT_CONFIGURED';
+            parsedData.message = parsedData.message || 'API_SECRET_KEY is not configured on server (HTTP 503). Please set API_SECRET_KEY in Cloudflare environment secrets.';
+          } else if (rawRes.status === 401) {
+            parsedData.error = parsedData.error || 'UNAUTHORIZED';
+            parsedData.message = parsedData.message || 'Invalid or missing API key (HTTP 401).';
+          }
         }
 
         return {

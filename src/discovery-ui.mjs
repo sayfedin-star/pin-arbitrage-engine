@@ -96,6 +96,10 @@ export function getDiscoveryPageHtml() {
         const retryHeaders = new Headers(init.headers || {});
         retryHeaders.set('x-api-key', entered.trim());
         init.headers = retryHeaders;
+        // [INVARIANT: FRESH-SIGNAL-ON-RETRY] Inject a fresh timeout signal on retry to avoid expired signal
+        if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+          init.signal = AbortSignal.timeout(15000);
+        }
         res = await origFetch(input, init);
       }
     }
@@ -938,7 +942,12 @@ export function getDiscoveryPageHtml() {
             if (window.lucide) window.lucide.createIcons();
           });
         },
-        darkMode: localStorage.getItem('pa_theme') !== 'light',
+        // [INVARIANT: SAFE-STORAGE-GUARD] Guard against non-browser/headless execution contexts
+        darkMode: (() => {
+          try {
+            return typeof localStorage !== 'undefined' ? localStorage.getItem('pa_theme') !== 'light' : true;
+          } catch (_) { return true; }
+        })(),
         toggleTheme() {
           this.darkMode = !this.darkMode;
           if (this.darkMode) {
@@ -1271,11 +1280,17 @@ export function getDiscoveryPageHtml() {
         async trackSelectedRelated() {
           if (!this.selectedRelatedAnnotations.length) return;
           try {
-            const res = await fetch('/api/keywords/bulk-import', {
+            // [INVARIANT: SAFE-API-FETCH-GUARD] Route mutation through safeApiFetch with res.ok validation
+            const fetcher = (typeof window !== 'undefined' && window.safeApiFetch) || fetch;
+            const res = await fetcher('/api/keywords/bulk-import', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ keywords: this.selectedRelatedAnnotations })
             });
+            if (!res.ok) {
+              const errData = await res.json().catch(() => ({}));
+              throw new Error(errData.error || errData.message || ('Failed to track annotations (HTTP ' + res.status + ')'));
+            }
             const data = await res.json();
             if (data.success) {
               this.showToast('Successfully tracked ' + (data.added || this.selectedRelatedAnnotations.length) + ' annotations in Radar!');

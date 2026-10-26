@@ -126,9 +126,8 @@ export async function handleKeywordsRoutes({
     });
 
     if (forceRefresh) {
-      if (env?.PIN_D1_DB && evictKeywordsCatalogFromD1) {
-        await evictKeywordsCatalogFromD1(env).catch(() => {});
-      }
+      // [INVARIANT: ZERO-BLACKOUT-D1-CATALOG]
+      // Invalidate edge memory cache; do not blank D1 SQLite table during refresh
       await invalidateEdgeCache('keywords');
       await invalidateEdgeCache(cacheKey);
     }
@@ -184,7 +183,8 @@ export async function handleKeywordsRoutes({
   if (method === 'GET' && pathname === '/api/keywords/resolve') {
     const slug = searchParams.get('slug') || searchParams.get('keyword') || searchParams.get('q');
     if (!slug) return jsonResponse({ error: 'slug or keyword query parameter is required' }, 400);
-    const autoCreate = searchParams.get('auto_create') !== 'false';
+    // [INVARIANT: READ-ONLY-GET-SAFE] Auto-creation is strictly disabled by default on GET endpoints
+    const autoCreate = searchParams.get('auto_create') === 'true';
     const row = await resolveKeywordBySlug(sql, slug, autoCreate);
     if (!row) return jsonResponse({ error: 'Keyword not found and could not be resolved' }, 404);
     if (row && syncKeywordToD1) {
@@ -589,10 +589,11 @@ export async function handleKeywordsRoutes({
     const slug = searchParams.get('slug') || searchParams.get('keyword') || searchParams.get('q');
     let resolved = null;
     if (!keywordId && slug) {
-      resolved = await resolveKeywordBySlug(sql, slug, true);
+      // [INVARIANT: READ-ONLY-GET-SAFE] Disable auto-creation on GET SERP comparison
+      resolved = await resolveKeywordBySlug(sql, slug, false);
       if (resolved) keywordId = resolved.id;
     }
-    if (!keywordId) return jsonResponse({ error: 'keyword_id or valid slug is required' }, 400);
+    if (!keywordId) return jsonResponse({ error: 'keyword_id or valid slug is required' }, 404);
 
     const cacheKey = buildCanonicalCacheKey('keywords:serp-compare', {
       keyword_id: keywordId,
@@ -704,7 +705,8 @@ export async function handleKeywordsRoutes({
     const forceRefresh = searchParams.get('refresh') === 'true';
     const cacheKey = buildCanonicalCacheKey('keywords:pin-dossier', { pin_id: pinId, keyword_id: keywordId || '' });
     if (forceRefresh) await invalidateEdgeCache(cacheKey);
-    const result = await getCachedOrFetch(cacheKey, () => getPinDeepDossier(sql, pinId, keywordId, { forceRefresh, env }), 30000, 120000, { forceRefresh });
+    // [INVARIANT: READ-ONLY-GET-SAFE] Pass isReadOnly: true to prevent unauthenticated scraping storms
+    const result = await getCachedOrFetch(cacheKey, () => getPinDeepDossier(sql, pinId, keywordId, { forceRefresh, env, isReadOnly: true }), 30000, 120000, { forceRefresh });
     return jsonResponse(result, 200, 15);
   }
 

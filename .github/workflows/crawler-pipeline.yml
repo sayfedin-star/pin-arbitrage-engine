@@ -171,3 +171,8 @@ jobs:
           MODE: ${{ needs.dispatch.outputs.mode }}
           TARGET_ACCOUNT: ${{ inputs.target_account }}
         run: node scripts/creator-fleet-consolidator.mjs
+
+      - name: 5. Recompute Domain Intelligence Rollup
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: node scripts/refresh-domain-rollup.mjs

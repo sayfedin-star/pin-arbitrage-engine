@@ -2175,7 +2175,7 @@ export function getDomainsPageHtml(initialDomain = '') {
           } catch (_) {}
         },
 
-        async loadDomains(resetPage = false) {
+        async loadDomains(resetPage = false, forceRefresh = false) {
           if (resetPage) this.currentPage = 1;
           this.loading = true;
           this.loadError = null;
@@ -2188,6 +2188,12 @@ export function getDomainsPageHtml(initialDomain = '') {
             pillar: this.selectedPillar,
             exclude_marketplaces: String(this.excludeMarketplaces)
           });
+
+          // [INVARIANT: CACHE-BUSTED-DOMAIN-LOAD] Guarantee fresh reads on manual refreshes
+          if (forceRefresh) {
+            params.set('refresh', 'true');
+            params.set('_t', Date.now().toString());
+          }
 
           if (this.searchQuery.trim()) {
             params.set('search', this.searchQuery.trim());
@@ -2218,6 +2224,7 @@ export function getDomainsPageHtml(initialDomain = '') {
             const fetchFn = window.safeApiFetch || fetch;
             const res = await fetchFn('/api/domains?' + params.toString(), {
               timeout: 18000,
+              cache: forceRefresh ? 'no-store' : 'default',
               headers: { 'Accept': 'application/json' }
             });
             if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -2243,15 +2250,18 @@ export function getDomainsPageHtml(initialDomain = '') {
           this.showToast('Re-aggregating domain intelligence from live rankings...', 'info');
           try {
             const fetchFn = window.safeApiFetch || fetch;
-            await fetchFn('/api/domains/refresh-rollup', {
+            const res = await fetchFn('/api/domains/refresh-rollup', {
               method: 'POST',
               headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' }
-            }).catch(() => {});
-            await this.loadDomains(true);
+            }).catch(() => null);
+            if (res && !res.ok) {
+              console.warn('[DomainRadar] refresh-rollup returned HTTP ' + res.status);
+            }
+            await this.loadDomains(true, true);
             this.showToast('Domain intelligence refreshed successfully!', 'success');
           } catch (e) {
             console.error('[DomainRadar] refreshDomains error:', e);
-            await this.loadDomains(true);
+            await this.loadDomains(true, true);
           } finally {
             this.refreshingRollup = false;
           }
@@ -2536,9 +2546,29 @@ export function getDomainsPageHtml(initialDomain = '') {
         },
 
         closeDossier(pushState = true) {
+          // [INVARIANT: IN-MEMORY-DRAWER-SYNC] Synchronize drawer metrics back to leaderboard row
+          const domainToSync = this.dossierDomain || this.selectedDomain;
+          if (domainToSync && this.dossierData && Array.isArray(this.domains) && this.domains.length > 0) {
+            const target = this.domains.find(d => d.domain === domainToSync);
+            if (target) {
+              const s = this.dossierData.summary || this.dossierData.metrics || {};
+              if (s.total_pins != null) target.total_pins = s.total_pins;
+              if (s.total_saves != null) target.total_saves = s.total_saves;
+              if (s.accounts_count != null) target.accounts_count = s.accounts_count;
+              if (s.avg_velocity != null) target.avg_velocity = s.avg_velocity;
+              if (s.active_pins_count != null) target.active_serp_pins = s.active_pins_count;
+              if (s.displaced_pins_count != null) target.displaced_pins = s.displaced_pins_count;
+              if (this.dossierData.age_info?.age_days != null) target.age_days = this.dossierData.age_info.age_days;
+              if (this.dossierData.ad_info?.current_ad_network || this.dossierData.ad_info?.ad_network) {
+                target.ad_network = this.dossierData.ad_info.current_ad_network || this.dossierData.ad_info.ad_network;
+              }
+              if (this.dossierData.ad_info?.ad_manager_domain) target.ad_manager_domain = this.dossierData.ad_info.ad_manager_domain;
+            }
+          }
           this.isDossierOpen = false;
           this.dossierData = null;
           this.dossierDomain = '';
+          this.selectedDomain = null;
           this.dossierSearch = '';
           if (pushState && typeof window !== 'undefined' && window.history && window.history.pushState) {
             if (window.location.pathname !== '/domains') {

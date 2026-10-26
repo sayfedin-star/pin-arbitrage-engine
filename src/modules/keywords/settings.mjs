@@ -141,7 +141,8 @@ export async function addKeyword(sql, { keyword, category = 'General', target_pi
  * Resolve or auto-register a keyword from a URL slug or search query
  * Supports: 'tater-tot-casserole', 'tater%20tot%20casserole', 'tater tot casserole'
  */
-export async function resolveKeywordBySlug(sql, slug, autoCreate = true) {
+// [INVARIANT: READ-ONLY-GET-SAFE] Default autoCreate to false to protect read-only endpoints
+export async function resolveKeywordBySlug(sql, slug, autoCreate = false) {
   if (!slug || typeof slug !== 'string') return null;
   const raw = decodeURIComponent(slug).trim();
   if (!raw) return null;

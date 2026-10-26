@@ -593,6 +593,21 @@ export async function fetchAndCacheDomainAdNetwork(sql, rawDomain, { forceRefres
         checked_at = NOW()
       RETURNING *;
     `;
+    if (saved) {
+      // [INVARIANT: SYNC-ENRICHMENT-ROLLUP-ADS] Sync ads.txt monetization directly into domain_intelligence_rollup
+      sql`
+        UPDATE domain_intelligence_rollup
+        SET ad_network = ${saved.current_ad_network || finalNetwork},
+            ad_manager_domain = ${saved.ad_manager_domain || managerDomain},
+            primary_pub_id = ${saved.primary_pub_id || primaryPubId},
+            ads_txt_status = ${saved.ads_txt_status || adsTxtStatus},
+            ad_switched_at = ${saved.switched_at ? new Date(saved.switched_at) : (switchedAt ? new Date(switchedAt) : null)},
+            previous_ad_network = ${saved.previous_ad_network || prevNetwork},
+            refreshed_at = NOW()
+        WHERE domain = ${cleanDomain};
+      `.catch(() => {});
+    }
+
     return normalizeMonetizationRecord(saved);
   } catch (err) {
     return normalizeMonetizationRecord({
@@ -635,6 +650,59 @@ export async function enrichMissingAdNetworksBatch(sql, candidateDomains = [], m
  */
 export async function getDatabaseMonetizationStats(sql) {
   try {
+    // [INVARIANT: FAST-MONETIZATION-STATS-ROLLUP] Query domain_intelligence_rollup first for instant O(1) stats
+    const [rollupStats] = await sql`
+      SELECT
+        COUNT(*)::int AS total_domains,
+        COUNT(*) FILTER (WHERE ad_network IS NOT NULL AND ad_network <> 'unchecked')::int AS total_checked,
+        COUNT(*) FILTER (WHERE ad_network = 'raptive')::int AS raptive_count,
+        COUNT(*) FILTER (WHERE ad_network = 'mediavine')::int AS mediavine_count,
+        COUNT(*) FILTER (WHERE ad_network = 'journey')::int AS journey_count,
+        COUNT(*) FILTER (WHERE ad_network = 'ezoic')::int AS ezoic_count,
+        COUNT(*) FILTER (WHERE ad_network = 'hbagency')::int AS hbagency_count,
+        COUNT(*) FILTER (WHERE ad_network = 'monumetric')::int AS monumetric_count,
+        COUNT(*) FILTER (WHERE ad_network = 'shemedia')::int AS shemedia_count,
+        COUNT(*) FILTER (WHERE ad_network = 'freestar')::int AS freestar_count,
+        COUNT(*) FILTER (WHERE ad_network = 'playwire')::int AS playwire_count,
+        COUNT(*) FILTER (WHERE ad_network = 'snigel')::int AS snigel_count,
+        COUNT(*) FILTER (WHERE ad_network = 'adsense')::int AS adsense_count,
+        COUNT(*) FILTER (WHERE ad_network = 'affiliate_only')::int AS affiliate_count,
+        COUNT(*) FILTER (WHERE ad_network = 'protected')::int AS protected_count,
+        COUNT(*) FILTER (WHERE ad_network = 'failed')::int AS failed_count,
+        COUNT(*) FILTER (WHERE ad_switched_at IS NOT NULL)::int AS switched_count
+      FROM domain_intelligence_rollup;
+    `.catch(() => []);
+
+    if (rollupStats && Number(rollupStats.total_domains) > 0) {
+      const totalDomains = Number(rollupStats.total_domains || 0);
+      const checkedDomains = Number(rollupStats.total_checked || 0);
+      const uncheckedDomains = Math.max(0, totalDomains - checkedDomains);
+      const percentComplete = totalDomains > 0 ? Number(((checkedDomains / totalDomains) * 100).toFixed(1)) : 100;
+
+      return {
+        total_domains: totalDomains,
+        checked_domains: checkedDomains,
+        total_checked: checkedDomains,
+        unchecked_domains: uncheckedDomains,
+        percent_complete: percentComplete,
+        raptive_count: Number(rollupStats.raptive_count || 0),
+        mediavine_count: Number(rollupStats.mediavine_count || 0),
+        journey_count: Number(rollupStats.journey_count || 0),
+        ezoic_count: Number(rollupStats.ezoic_count || 0),
+        hbagency_count: Number(rollupStats.hbagency_count || 0),
+        monumetric_count: Number(rollupStats.monumetric_count || 0),
+        shemedia_count: Number(rollupStats.shemedia_count || 0),
+        freestar_count: Number(rollupStats.freestar_count || 0),
+        playwire_count: Number(rollupStats.playwire_count || 0),
+        snigel_count: Number(rollupStats.snigel_count || 0),
+        adsense_count: Number(rollupStats.adsense_count || 0),
+        affiliate_count: Number(rollupStats.affiliate_count || 0),
+        protected_count: Number(rollupStats.protected_count || 0),
+        failed_count: Number(rollupStats.failed_count || 0),
+        switched_count: Number(rollupStats.switched_count || 0)
+      };
+    }
+
     const rows = await sql`
       WITH all_distinct AS (
         SELECT ksc.domain AS clean_domain FROM keyword_serp_current ksc WHERE ksc.domain IS NOT NULL AND ksc.domain <> ''

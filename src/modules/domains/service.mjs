@@ -545,6 +545,22 @@ export async function fetchAndCacheDomainAge(sql, rawDomain, { forceRefresh = fa
           ELSE initial_age_years
         END AS age_years;
     `;
+    if (saved) {
+      // [INVARIANT: SYNC-ENRICHMENT-ROLLUP-AGE] Sync WHOIS age directly into domain_intelligence_rollup
+      const resolvedAgeDays = saved.age_days != null ? Number(saved.age_days) : null;
+      const resolvedAgeYears = saved.age_years != null ? Number(saved.age_years) : null;
+      sql`
+        UPDATE domain_intelligence_rollup
+        SET domain_created_at = ${saved.registered_at ? new Date(saved.registered_at) : null},
+            domain_expires_at = ${saved.expires_at ? new Date(saved.expires_at) : null},
+            age_days = ${resolvedAgeDays},
+            age_years = ${resolvedAgeYears},
+            age_status = ${saved.lookup_status || status},
+            refreshed_at = NOW()
+        WHERE domain = ${cleanDomain};
+      `.catch(() => {});
+    }
+
     return saved ? {
       ...saved,
       age_days: saved.age_days != null ? Number(saved.age_days) : null,
@@ -591,6 +607,29 @@ export async function enrichMissingDomainsBatch(sql, candidateDomains = [], maxB
  */
 export async function getDatabaseEnrichmentStats(sql) {
   try {
+    // [INVARIANT: FAST-ENRICHMENT-STATS-ROLLUP] Query domain_intelligence_rollup first for instant O(1) stats
+    const [rollupStats] = await sql`
+      SELECT
+        COUNT(*)::int AS total_domains,
+        COUNT(*) FILTER (WHERE age_status IN ('resolved', 'failed') OR age_days IS NOT NULL)::int AS checked_domains,
+        COUNT(*) FILTER (WHERE age_status = 'resolved' OR (age_status <> 'failed' AND age_days IS NOT NULL))::int AS resolved_domains,
+        COUNT(*) FILTER (WHERE age_status = 'failed')::int AS failed_domains,
+        (COUNT(*) - COUNT(*) FILTER (WHERE age_status IN ('resolved', 'failed') OR age_days IS NOT NULL))::int AS unchecked_domains,
+        ROUND((COUNT(*) FILTER (WHERE age_status IN ('resolved', 'failed') OR age_days IS NOT NULL)::numeric / GREATEST(1, COUNT(*))) * 100, 1) AS percent_complete
+      FROM domain_intelligence_rollup;
+    `.catch(() => []);
+
+    if (rollupStats && Number(rollupStats.total_domains) > 0) {
+      return {
+        total_domains: Number(rollupStats.total_domains || 0),
+        checked_domains: Number(rollupStats.checked_domains || 0),
+        resolved_domains: Number(rollupStats.resolved_domains || 0),
+        failed_domains: Number(rollupStats.failed_domains || 0),
+        unchecked_domains: Number(rollupStats.unchecked_domains || 0),
+        percent_complete: Number(rollupStats.percent_complete || 0)
+      };
+    }
+
     const [stats] = await sql`
       WITH all_domains AS (
         SELECT DISTINCT domain AS clean_domain
@@ -1287,7 +1326,8 @@ export async function refreshDomainIntelligenceRollup(sql) {
           FALSE AS is_displaced,
           COALESCE(cp.save_count, 0)::bigint AS saves,
           COALESCE(cp.repin_count, 0)::bigint AS repins,
-          0::numeric AS velocity,
+          -- [INVARIANT: ACCURATE-COMPETITOR-VELOCITY] Extract authentic live daily velocity from competitor pins
+          COALESCE((cp.metadata->>'daily_save_velocity')::numeric, (cp.metadata->>'delta_saves_24h')::numeric, 0::numeric) AS velocity,
           LOWER(REPLACE(COALESCE(cprof.username, ''), '@', '')) AS username,
           COALESCE(NULLIF(LOWER(REGEXP_REPLACE(REGEXP_REPLACE(COALESCE(cp.destination_url, ''), '^https?://(www\\.)?[^/]+', ''), '[?#].*$', '')), ''), '/') AS url_slug,
           FALSE AS is_serp_ranked
@@ -1413,10 +1453,13 @@ export async function refreshDomainIntelligenceRollup(sql) {
             THEN COALESCE(SUM(dp.repins) FILTER (WHERE dp.is_serp_ranked = TRUE), 0)::bigint
             ELSE COALESCE(SUM(dp.repins) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%')), 0)::bigint
           END AS total_repins,
+          -- [INVARIANT: DUAL-DOMAIN-VELOCITY] Non-diluted active pin average excluding 0-velocity displaced pins
           CASE
+            WHEN COUNT(DISTINCT dp.pin_id) FILTER (WHERE dp.is_serp_ranked = TRUE AND dp.velocity > 0) > 0
+            THEN ROUND(COALESCE(AVG(dp.velocity) FILTER (WHERE dp.is_serp_ranked = TRUE AND dp.velocity > 0), 0), 2)
             WHEN COUNT(DISTINCT dp.pin_id) FILTER (WHERE dp.is_serp_ranked = TRUE) > 0
-            THEN ROUND(COALESCE(AVG(dp.velocity) FILTER (WHERE dp.is_serp_ranked = TRUE), 0), 1)
-            ELSE ROUND(COALESCE(AVG(dp.velocity) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%')), 0), 1)
+            THEN ROUND(COALESCE(AVG(dp.velocity) FILTER (WHERE dp.is_serp_ranked = TRUE), 0), 2)
+            ELSE ROUND(COALESCE(AVG(dp.velocity) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%') AND dp.velocity > 0), 0), 2)
           END AS avg_velocity,
           COUNT(DISTINCT dp.sample_username) FILTER (WHERE dp.sample_username IS NOT NULL AND dp.sample_username <> '')::int AS accounts_count,
           (ARRAY_AGG(DISTINCT dp.sample_username) FILTER (WHERE dp.sample_username IS NOT NULL AND dp.sample_username <> ''))[1:5] AS sample_accounts
@@ -1522,6 +1565,86 @@ export async function refreshDomainIntelligenceRollup(sql) {
   } catch (err) {
     console.warn(`[refreshDomainIntelligenceRollup] Error refreshing rollup:`, err.message);
     return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Synchronizes a single domain's aggregated metrics directly into domain_intelligence_rollup.
+ * Designed for micro-sync on dossier request (<5ms) without full table re-aggregation.
+ * 
+ * // [INVARIANT: SINGLE-DOMAIN-SYNC-O1]
+ */
+export async function syncSingleDomainRollup(sql, cleanDomain, dossierData) {
+  if (!sql || !cleanDomain || !dossierData) return null;
+  const summary = dossierData.summary || dossierData.metrics || {};
+  const totalPins = Number(summary.total_pins || 0);
+  const totalSaves = Number(summary.total_saves || 0);
+  const uniqueUrls = Number(summary.unique_urls || 1);
+  const pinsPerUrl = Number(summary.pins_per_url || 1);
+  const activeSerpPins = Number(summary.active_pins_count || 0);
+  const displacedPins = Number(summary.displaced_pins_count || 0);
+  const accountsCount = Number(summary.accounts_count || 0);
+
+  // Compute non-diluted active velocity if not explicitly provided in summary
+  let avgVelocity = Number(summary.avg_velocity || 0);
+  if (!avgVelocity && Array.isArray(dossierData.ranked_pins)) {
+    const activePinsWithVelocity = dossierData.ranked_pins.filter(p => !p.is_displaced && Number(p.velocity || 0) > 0);
+    if (activePinsWithVelocity.length > 0) {
+      const sumVel = activePinsWithVelocity.reduce((sum, p) => sum + Number(p.velocity || 0), 0);
+      avgVelocity = Number((sumVel / activePinsWithVelocity.length).toFixed(2));
+    }
+  }
+
+  const ageInfo = dossierData.age_info || {};
+  const adInfo = dossierData.ad_info || {};
+
+  try {
+    const [result] = await sql`
+      INSERT INTO domain_intelligence_rollup (
+        domain, total_pins, total_saves, accounts_count, unique_urls, pins_per_url,
+        active_serp_pins, displaced_pins, avg_velocity,
+        ad_network, ad_manager_domain, primary_pub_id, ads_txt_status,
+        age_days, age_years, age_status, domain_created_at, domain_expires_at,
+        refreshed_at
+      ) VALUES (
+        ${cleanDomain}, ${totalPins}, ${totalSaves}, ${accountsCount}, ${uniqueUrls}, ${pinsPerUrl},
+        ${activeSerpPins}, ${displacedPins}, ${avgVelocity},
+        ${adInfo.current_ad_network || adInfo.ad_network || 'unchecked'},
+        ${adInfo.ad_manager_domain || null},
+        ${adInfo.primary_pub_id || null},
+        ${adInfo.ads_txt_status || 'pending'},
+        ${ageInfo.age_days != null ? Number(ageInfo.age_days) : null},
+        ${ageInfo.age_years != null ? Number(ageInfo.age_years) : null},
+        ${ageInfo.lookup_status || 'unchecked'},
+        ${ageInfo.registered_at ? new Date(ageInfo.registered_at) : null},
+        ${ageInfo.expires_at ? new Date(ageInfo.expires_at) : null},
+        NOW()
+      )
+      ON CONFLICT (domain) DO UPDATE SET
+        total_pins = EXCLUDED.total_pins,
+        total_saves = EXCLUDED.total_saves,
+        accounts_count = EXCLUDED.accounts_count,
+        unique_urls = EXCLUDED.unique_urls,
+        pins_per_url = EXCLUDED.pins_per_url,
+        active_serp_pins = EXCLUDED.active_serp_pins,
+        displaced_pins = EXCLUDED.displaced_pins,
+        avg_velocity = CASE WHEN EXCLUDED.avg_velocity > 0 THEN EXCLUDED.avg_velocity ELSE domain_intelligence_rollup.avg_velocity END,
+        ad_network = CASE WHEN EXCLUDED.ad_network <> 'unchecked' THEN EXCLUDED.ad_network ELSE domain_intelligence_rollup.ad_network END,
+        ad_manager_domain = COALESCE(EXCLUDED.ad_manager_domain, domain_intelligence_rollup.ad_manager_domain),
+        primary_pub_id = COALESCE(EXCLUDED.primary_pub_id, domain_intelligence_rollup.primary_pub_id),
+        ads_txt_status = CASE WHEN EXCLUDED.ads_txt_status <> 'pending' THEN EXCLUDED.ads_txt_status ELSE domain_intelligence_rollup.ads_txt_status END,
+        age_days = COALESCE(EXCLUDED.age_days, domain_intelligence_rollup.age_days),
+        age_years = COALESCE(EXCLUDED.age_years, domain_intelligence_rollup.age_years),
+        age_status = CASE WHEN EXCLUDED.age_status <> 'unchecked' THEN EXCLUDED.age_status ELSE domain_intelligence_rollup.age_status END,
+        domain_created_at = COALESCE(EXCLUDED.domain_created_at, domain_intelligence_rollup.domain_created_at),
+        domain_expires_at = COALESCE(EXCLUDED.domain_expires_at, domain_intelligence_rollup.domain_expires_at),
+        refreshed_at = NOW()
+      RETURNING *;
+    `;
+    return result || null;
+  } catch (err) {
+    console.warn(`[syncSingleDomainRollup] Failed for ${cleanDomain}:`, err.message);
+    return null;
   }
 }
 
@@ -1737,7 +1860,31 @@ export async function listDomainsIntelligenceFast(sql, options = {}) {
           cached: true
         };
       } else {
-        refreshDomainIntelligenceRollup(sql).catch(() => {});
+        // [INVARIANT: ZERO-ROW-FALLBACK-GUARD] Guard against unpopulated table without triggering storm on empty searches
+        const [countCheck] = await sql`SELECT 1 FROM domain_intelligence_rollup LIMIT 1;`.catch(() => []);
+        if (!countCheck) {
+          // Table is truly empty on Day-0: trigger background refresh and fallback
+          refreshDomainIntelligenceRollup(sql).catch(() => {});
+          return await listDomainsIntelligence(sql, options);
+        }
+        // Legitimate empty search/filter result: return full contract object with empty list
+        return {
+          overview: {
+            total_domains: 0,
+            top5_monopoly_pct: 0,
+            baby_giants_count: 0,
+            multi_account_count: 0,
+            avg_pins_per_url: 1.0
+          },
+          domains: [],
+          missing_age_domains: [],
+          missing_ad_domains: [],
+          page: Number(options.page || 1),
+          limit: Number(options.limit || 50),
+          total: 0,
+          total_pages: 1,
+          cached: true
+        };
       }
     } catch (fastErr) {
       console.warn(`[listDomainsIntelligenceFast] Rollup query fallback:`, fastErr.message);

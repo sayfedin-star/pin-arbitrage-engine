@@ -428,7 +428,7 @@ console.log('>>> [Axis 6] Zero-CDN & Strict Sandboxing (CSP Compliance)...');
   }
 
   for (const href of linkHrefs) {
-    const isApproved = approvedDomains.some(d => href.includes(d));
+    const isApproved = href.startsWith('data:') || approvedDomains.some(d => href.includes(d));
     assert.ok(isApproved, `Unauthorized external link detected: ${href}`);
   }
 

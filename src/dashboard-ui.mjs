@@ -3970,7 +3970,7 @@ export function getDashboardHtml() {
 
             <!-- Expandable Rules Form -->
             <div x-show="isRulesOpen" x-transition class="mt-5 pt-5 border-t border-slate-200/80 dark:border-slate-800/80 space-y-4">
-              <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
                 
                 <!-- Tier 1: Saves -->
                 <div class="rounded-2xl bg-slate-50 dark:bg-slate-900/50 p-3.5 border border-slate-200/60 dark:border-slate-800/60">
@@ -4010,6 +4010,26 @@ export function getDashboardHtml() {
                   </div>
                   <input type="number" x-model.number="creatorRules.tier3_min_saves" class="w-full h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#0b1120] px-3 text-xs font-bold text-slate-900 dark:text-white" placeholder="25" />
                   <span class="text-[10px] text-slate-400 mt-1 block">Early breakout acceleration</span>
+                </div>
+
+                <!-- Crawler Max Pages -->
+                <div class="rounded-2xl bg-slate-50 dark:bg-slate-900/50 p-3.5 border border-slate-200/60 dark:border-slate-800/60">
+                  <div class="flex items-center justify-between mb-1.5">
+                    <span class="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">Max Pages</span>
+                    <i data-lucide="layers" class="w-3.5 h-3.5 text-indigo-500"></i>
+                  </div>
+                  <input type="number" x-model.number="creatorRules.max_pages" class="w-full h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#0b1120] px-3 text-xs font-bold text-slate-900 dark:text-white" placeholder="500" />
+                  <span class="text-[10px] text-slate-400 mt-1 block">Full sweep depth limit</span>
+                </div>
+
+                <!-- Crawler Early Stop Pages -->
+                <div class="rounded-2xl bg-slate-50 dark:bg-slate-900/50 p-3.5 border border-slate-200/60 dark:border-slate-800/60">
+                  <div class="flex items-center justify-between mb-1.5">
+                    <span class="text-[11px] font-bold text-purple-600 dark:text-purple-400 uppercase tracking-wider">Early Stop Pages</span>
+                    <i data-lucide="shield-alert" class="w-3.5 h-3.5 text-purple-500"></i>
+                  </div>
+                  <input type="number" x-model.number="creatorRules.early_stop_pages" class="w-full h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#0b1120] px-3 text-xs font-bold text-slate-900 dark:text-white" placeholder="3" />
+                  <span class="text-[10px] text-slate-400 mt-1 block">Daily pulse depth limit</span>
                 </div>
               </div>
 
@@ -4446,12 +4466,28 @@ export function getDashboardHtml() {
                     <template x-for="(s, idx) in paginatedCreatorSnapshots" :key="s.id || idx">
                       <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition group" :class="creatorSnapDensity === 'comfortable' ? 'py-4' : 'py-2.5'">
                         <td class="px-5 font-sans text-slate-700 dark:text-slate-300 font-medium" :class="creatorSnapDensity === 'comfortable' ? 'py-4' : 'py-2.5'" x-text="formatSnapshotDate(s.recorded_date || s.created_at)"></td>
-                        <td x-show="creatorSnapColVisible.reach" class="px-4 text-right font-extrabold text-slate-900 dark:text-white" :class="creatorSnapDensity === 'comfortable' ? 'py-4' : 'py-2.5'" x-text="formatNumber(s.monthly_reach)"></td>
-                        <td x-show="creatorSnapColVisible.views" class="px-4 text-right font-extrabold text-slate-900 dark:text-white" :class="creatorSnapDensity === 'comfortable' ? 'py-4' : 'py-2.5'" x-text="formatNumber(s.profile_views)"></td>
+                        <td x-show="creatorSnapColVisible.reach" class="px-4 text-right" :class="creatorSnapDensity === 'comfortable' ? 'py-4' : 'py-2.5'">
+                          <div class="inline-flex items-center justify-end gap-1.5">
+                            <span class="font-extrabold text-slate-900 dark:text-white" x-text="formatNumber(s.monthly_reach)"></span>
+                            <template x-if="s.delta_reach !== undefined">
+                              <span class="font-bold text-[10.5px]" :class="(s.delta_reach || 0) > 0 ? 'text-emerald-500' : ((s.delta_reach || 0) < 0 ? 'text-rose-500' : 'text-slate-400')" x-text="(s.delta_reach || 0) > 0 ? '(+' + formatNumber(s.delta_reach) + ')' : ((s.delta_reach || 0) < 0 ? '(' + formatNumber(s.delta_reach) + ')' : '(0)')"></span>
+                            </template>
+                          </div>
+                        </td>
+                        <td x-show="creatorSnapColVisible.views" class="px-4 text-right" :class="creatorSnapDensity === 'comfortable' ? 'py-4' : 'py-2.5'">
+                          <div class="inline-flex items-center justify-end gap-1.5">
+                            <span class="font-extrabold text-slate-900 dark:text-white" x-text="formatNumber(s.profile_views)"></span>
+                            <template x-if="s.delta_views !== undefined">
+                              <span class="font-bold text-[10.5px]" :class="(s.delta_views || 0) > 0 ? 'text-emerald-500' : ((s.delta_views || 0) < 0 ? 'text-rose-500' : 'text-slate-400')" x-text="(s.delta_views || 0) > 0 ? '(+' + formatNumber(s.delta_views) + ')' : ((s.delta_views || 0) < 0 ? '(' + formatNumber(s.delta_views) + ')' : '(0)')"></span>
+                            </template>
+                          </div>
+                        </td>
                         <td x-show="creatorSnapColVisible.pins" class="px-4 text-right" :class="creatorSnapDensity === 'comfortable' ? 'py-4' : 'py-2.5'">
                           <div class="inline-flex items-center justify-end gap-1.5">
                             <span class="font-extrabold text-slate-900 dark:text-white" x-text="formatNumber(s.total_pins)"></span>
-                            <span class="font-bold text-[10.5px]" :class="(s.delta_pins || 0) > 0 ? 'text-emerald-500' : 'text-slate-400'" x-text="(s.delta_pins || 0) > 0 ? '(+' + s.delta_pins + ')' : ((s.delta_pins || 0) < 0 ? '(' + s.delta_pins + ')' : '')"></span>
+                            <template x-if="s.delta_pins !== undefined">
+                              <span class="font-bold text-[10.5px]" :class="(s.delta_pins || 0) > 0 ? 'text-emerald-500' : ((s.delta_pins || 0) < 0 ? 'text-rose-500' : 'text-slate-400')" x-text="(s.delta_pins || 0) > 0 ? '(+' + formatNumber(s.delta_pins) + ')' : ((s.delta_pins || 0) < 0 ? '(' + formatNumber(s.delta_pins) + ')' : '(0)')"></span>
+                            </template>
                           </div>
                         </td>
                         <td class="px-5 text-right" :class="creatorSnapDensity === 'comfortable' ? 'py-4' : 'py-2.5'">
@@ -4857,7 +4893,7 @@ export function getDashboardHtml() {
                         <div class="flex flex-col items-end">
                           <span class="font-extrabold" :class="Number(p.save_count || p.saves || 0) >= 100 ? 'text-rose-600 dark:text-rose-400 font-black' : 'text-slate-700 dark:text-slate-300'" x-text="formatNumber(p.save_count || p.saves || 0)"></span>
                           <template x-if="Number(p.delta_saves_24h || p.velocity || 0) > 0">
-                            <span class="inline-flex items-center text-[10px] font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.2 rounded border border-emerald-200/60 dark:border-emerald-800/60 mt-0.5" x-text="'+' + formatNumber(Math.round(p.delta_saves_24h || p.velocity || 0)) + ' 24h'"></span>
+                            <span class="inline-flex items-center text-[10px] font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.2 rounded border border-emerald-200/60 dark:border-emerald-800/60 mt-0.5" x-text="'+' + (Number(p.delta_saves_24h || p.velocity || 0) >= 1 ? formatNumber(Math.round(p.delta_saves_24h || p.velocity || 0)) : Number(p.delta_saves_24h || p.velocity || 0).toFixed(1)) + ' 24h'"></span>
                           </template>
                         </div>
                       </td>
@@ -5961,7 +5997,9 @@ export function getDashboardHtml() {
           tier3_fresh_days: 14,
           tier3_min_saves: 25,
           articles_only: true,
-          auto_pipeline: true
+          auto_pipeline: true,
+          max_pages: 500,
+          early_stop_pages: 3
         },
         isSavingCreatorRules: false,
         isReEvaluatingCreatorPins: false,
@@ -7683,7 +7721,8 @@ export function getDashboardHtml() {
             const RESERVED_SYSTEM_SLUGS = new Set([
               'api', 'fleet', 'settings', 'admin', 'health', 'favicon.ico', 
               'robots.txt', 'index.html', 'assets', 'static', 'pin', 'related_pins', 'related-pins', 'relatedpins', 'intersections', 'archive', 'explorer',
-              'accounts', 'creators', 'creator', 'pinarchive', 'keywords', 'keyword', 'board-idea', 'board-ideas', 'overview', 'home', 'dashboard', 'domains'
+              'accounts', 'creators', 'creator', 'pinarchive', 'keywords', 'keyword', 'board-idea', 'board-ideas', 'overview', 'home', 'dashboard', 'domains',
+              'folders', 'folder', 'campaign-folders', 'discovery', 'board', 'boards', 'feed', 'search'
             ]);
             const CREATOR_SUB_TABS = {
               'links': 'top_urls',
@@ -7872,9 +7911,10 @@ export function getDashboardHtml() {
           return base;
         },
 
-        async fetchCompetitors() {
+        async fetchCompetitors(bypassCache = false) {
           try {
-            const res = await fetch(this.getApiUrl('/api/competitors'));
+            const baseEndpoint = '/api/competitors' + (bypassCache ? ('?_t=' + Date.now() + '&refresh=true') : '');
+            const res = await (window.safeApiFetch || fetch)(this.getApiUrl(baseEndpoint), bypassCache ? { cache: 'no-store' } : {});
             if (res.ok) {
               const data = await res.json();
               this.competitorsOverview = data.overview || { tracked_profiles: 0, total_pins_stored: 0, high_velocity_pins: 0, top_competitors: [] };
@@ -7958,16 +7998,27 @@ export function getDashboardHtml() {
 
         async deleteCompetitor(id) {
           if (!confirm('Are you sure you want to stop tracking this competitor?')) return;
+          const previousCompetitors = [...(this.competitors || [])];
+          // Optimistically remove from UI
+          this.competitors = this.competitors.filter(c => Number(c.id) !== Number(id));
           try {
             const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/competitors?id=' + id), { method: 'DELETE' });
             if (res.ok) {
-              await this.fetchCompetitors();
-              if (this.activeCreator && this.activeCreator.id === id) {
+              if (this.activeCreator && Number(this.activeCreator.id) === Number(id)) {
                 this.closeCreatorProfile();
               }
+              await this.fetchCompetitors(true);
               this.showToast('Competitor removed.');
+            } else {
+              this.competitors = previousCompetitors;
+              const err = await res.json().catch(() => ({}));
+              const msg = err.error || err.message || (res.status === 503 ? 'Auth not configured (503)' : res.status === 401 ? 'Unauthorized (401)' : ('HTTP ' + res.status));
+              this.showToast('Failed to delete competitor: ' + msg);
             }
-          } catch (e) {}
+          } catch (e) {
+            this.competitors = previousCompetitors;
+            this.showToast('Error deleting competitor: ' + (e.message || 'Network error'));
+          }
         },
 
         exportCompetitorsCsv() {
@@ -8294,16 +8345,42 @@ export function getDashboardHtml() {
 
         async bulkDeleteSelectedCompetitors() {
           if (!this.selectedCompetitorIds.length) return;
-          if (!confirm('Are you sure you want to stop tracking ' + this.selectedCompetitorIds.length + ' selected competitors?')) return;
+          const count = this.selectedCompetitorIds.length;
+          if (!confirm('Are you sure you want to stop tracking ' + count + ' selected competitors?')) return;
+          const previousCompetitors = [...(this.competitors || [])];
+          const toDelete = new Set(this.selectedCompetitorIds.map(Number));
+          this.competitors = this.competitors.filter(c => !toDelete.has(Number(c.id)));
+          const idsToDelete = [...this.selectedCompetitorIds];
+          this.selectedCompetitorIds = [];
+
+          let failedCount = 0;
+          let lastErrorMessage = '';
           try {
-            for (const cid of this.selectedCompetitorIds) {
-              await (window.safeApiFetch || fetch)(this.getApiUrl('/api/competitors?id=' + cid), { method: 'DELETE' });
+            for (const cid of idsToDelete) {
+              try {
+                const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/competitors?id=' + cid), { method: 'DELETE' });
+                if (!res.ok) {
+                  failedCount++;
+                  const err = await res.json().catch(() => ({}));
+                  lastErrorMessage = err.error || err.message || (res.status === 503 ? 'Auth not configured (503)' : res.status === 401 ? 'Unauthorized (401)' : ('HTTP ' + res.status));
+                }
+              } catch (delErr) {
+                failedCount++;
+                lastErrorMessage = delErr.message;
+              }
             }
-            this.selectedCompetitorIds = [];
-            await this.fetchCompetitors();
-            this.showToast('Selected competitors removed.');
+            await this.fetchCompetitors(true);
+            if (failedCount === 0) {
+              this.showToast('Removed ' + count + ' selected competitors.');
+            } else if (failedCount === count) {
+              this.competitors = previousCompetitors;
+              this.showToast('Failed to delete competitors: ' + lastErrorMessage);
+            } else {
+              this.showToast('Removed ' + (count - failedCount) + ' competitors (' + failedCount + ' failed: ' + lastErrorMessage + ')');
+            }
           } catch (e) {
-            this.showToast('Error deleting competitors: ' + e.message);
+            this.competitors = previousCompetitors;
+            this.showToast('Error deleting competitors: ' + (e.message || 'Network error'));
           }
         },
 

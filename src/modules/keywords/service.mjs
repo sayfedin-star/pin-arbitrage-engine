@@ -2129,7 +2129,8 @@ export async function getKeywordSERPComparison(sql, keywordId, knownKeyword = nu
   // 1. Check Cloudflare Edge KV (`serp:comp:${kid}`) for sub-5ms response
   if (env?.PIN_ENGINE_KV && !forceRefresh) {
     try {
-      const kvCached = await env.PIN_ENGINE_KV.get(`serp:comp:${kid}`, { type: 'json', cacheTtl: 300 });
+      // [INVARIANT: NO-MUTABLE-KV-CACHE-TTL] Eliminate cacheTtl on mutable keys to prevent stale edge PoP reads
+      const kvCached = await env.PIN_ENGINE_KV.get(`serp:comp:${kid}`, { type: 'json' });
       if (kvCached && kvCached.status === 'active' && Array.isArray(kvCached.current_pins) && kvCached.current_pins.length > 0 && kvCached.total_displaced_count !== undefined) {
         return { ...kvCached, source: 'kv_edge' };
       }
@@ -2368,7 +2369,8 @@ export async function getKeywordDisplacedPins(sql, keywordId, options = {}) {
   const kvKey = `displaced:kw:${kid}:${lim}:${off}`;
   if (env?.PIN_ENGINE_KV && !forceRefresh) {
     try {
-      const kvCached = await env.PIN_ENGINE_KV.get(kvKey, { type: 'json', cacheTtl: 300 });
+      // [INVARIANT: NO-MUTABLE-KV-CACHE-TTL] Eliminate cacheTtl on mutable keys to prevent stale edge PoP reads
+      const kvCached = await env.PIN_ENGINE_KV.get(kvKey, { type: 'json' });
       if (kvCached && Array.isArray(kvCached.pins) && kvCached.pins.length > 0) {
         return { ...kvCached, source: 'kv_edge' };
       }
@@ -2569,7 +2571,8 @@ export async function getPinPerformanceTrajectory(sqlOrParams, keywordId, pinId,
   const trajKvKey = `traj:pin:${cleanPin}:${cleanRange}`;
   if (env?.PIN_ENGINE_KV && !forceRefresh) {
     try {
-      const kvCached = await env.PIN_ENGINE_KV.get(trajKvKey, { type: 'json', cacheTtl: 600 });
+      // [INVARIANT: NO-MUTABLE-KV-CACHE-TTL] Eliminate cacheTtl on mutable keys to prevent stale edge PoP reads
+      const kvCached = await env.PIN_ENGINE_KV.get(trajKvKey, { type: 'json' });
       if (kvCached && Array.isArray(kvCached.snapshots)) {
         return { ...kvCached, source: 'kv_edge' };
       }
@@ -2651,7 +2654,8 @@ export async function getPinDeepDossier(sql, pinId, keywordId = null, options = 
   const dossierKvKey = `dossier:pin:${cleanPin}:${kid || 0}`;
   if (env?.PIN_ENGINE_KV && !forceRefresh) {
     try {
-      const kvCached = await env.PIN_ENGINE_KV.get(dossierKvKey, { type: 'json', cacheTtl: 600 });
+      // [INVARIANT: NO-MUTABLE-KV-CACHE-TTL] Eliminate cacheTtl on mutable keys to prevent stale edge PoP reads
+      const kvCached = await env.PIN_ENGINE_KV.get(dossierKvKey, { type: 'json' });
       if (kvCached && kvCached.success && kvCached.pin_id === cleanPin) {
         // Re-hydrate dual trajectory contract after JSON deserialization from KV
         if (Array.isArray(kvCached.trajectory) && !kvCached.trajectory.snapshots) {
@@ -2662,9 +2666,9 @@ export async function getPinDeepDossier(sql, pinId, keywordId = null, options = 
     } catch (_) {}
   }
 
-  // Smart Dynamic On-Demand Scrape Trigger:
-  // If forceRefresh = true, execute live scraping via fetchPinFromPinterest and syncPinAcrossAllFourPillars BEFORE fetchUniversalPinDossier
-  if (forceRefresh) {
+  // [INVARIANT: READ-ONLY-GET-SAFE] Live scraping and 4-pillar sync are restricted to explicit POST endpoints (POST /api/pins/:id/sync)
+  // GET requests with ?refresh=true strictly bypass the edge cache without initiating external Pinterest scraping storms
+  if (forceRefresh && !options?.isReadOnly && options?.allowScrape === true) {
     try {
       const liveRes = await fetchPinFromPinterest(cleanPin);
       if (liveRes?.ok && liveRes.pin) {

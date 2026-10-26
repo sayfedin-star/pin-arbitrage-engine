@@ -2896,7 +2896,7 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
   // [INVARIANT: EDGE-EVICTION-TANDEM]
   // Step A: Evict Cloudflare D1 immediately to ensure subsequent reads fetch fresh data
   if (env?.PIN_D1_DB) {
-    await env.PIN_D1_DB.prepare('DELETE FROM edge_pins_metadata WHERE pin_id = ?').bind(cleanPinId).run();
+    await env.PIN_D1_DB.prepare('DELETE FROM edge_pins_metadata WHERE pin_id = ?').bind(cleanPinId).run().catch(() => {});
   }
 
   // Step B: Evict all Cloudflare KV key variants in tandem (active + displaced keyword scopes + all trajectory ranges)

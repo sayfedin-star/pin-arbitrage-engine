@@ -8,6 +8,7 @@
 import {
   listDomainsIntelligenceFast,
   getDomainDeepDossier,
+  syncSingleDomainRollup,
   fetchAndCacheDomainAge,
   enrichMissingDomainsBatch,
   getDatabaseEnrichmentStats,
@@ -69,7 +70,8 @@ export async function handleDomainsRoutes(routeCtx) {
       const isForceRefresh = searchParams.get('refresh') === 'true' || searchParams.get('force') === 'true';
       if (isForceRefresh) {
         invalidateEdgeCache('domains:leaderboard');
-        await refreshDomainIntelligenceRollup(sql);
+        // [INVARIANT: READ-ONLY-GET-SAFE] Ban full-table rollup mutation on unauthenticated GET.
+        // Dedicated rollup execution is strictly isolated to POST /api/domains/refresh-rollup.
       }
       const cacheParams = {
         search: searchParams.get('search') || '',
@@ -138,6 +140,7 @@ export async function handleDomainsRoutes(routeCtx) {
       if (isForceRefresh) {
         if (typeof invalidateEdgeCache === 'function') {
           invalidateEdgeCache(buildCanonicalCacheKey('domains:dossier', { domain: cleanDomain }));
+          invalidateEdgeCache('domains:leaderboard');
         }
         if (env?.PIN_ENGINE_KV) {
           safeWaitUntil(ctx, env.PIN_ENGINE_KV.delete(kvKey).catch(() => {}), 'kv_evict_domain_dossier');
@@ -151,12 +154,21 @@ export async function handleDomainsRoutes(routeCtx) {
         // [INVARIANT: EDGE-KV-CACHE-FIRST] Check Workers KV first for sub-5ms response
         if (env?.PIN_ENGINE_KV && !isForceRefresh) {
           try {
-            const kvCached = await env.PIN_ENGINE_KV.get(kvKey, { type: 'json', cacheTtl: 300 });
+            // [INVARIANT: NO-MUTABLE-KV-CACHE-TTL] Eliminate cacheTtl on mutable keys to prevent stale edge PoP reads
+            const kvCached = await env.PIN_ENGINE_KV.get(kvKey, { type: 'json' });
             if (kvCached) return kvCached;
           } catch (_) {}
         }
 
         const freshDossier = await getDomainDeepDossier(sql, cleanDomain, { folderId, keywordId, env, fastPath: true });
+
+        // [INVARIANT: DOSSIER-MICRO-SYNC-O1] Non-blocking single-domain rollup sync (<5ms)
+        if (freshDossier?.success) {
+          safeWaitUntil(ctx, syncSingleDomainRollup(sql, cleanDomain, freshDossier), 'sync_single_domain_rollup');
+          if (typeof invalidateEdgeCache === 'function') {
+            invalidateEdgeCache('domains:leaderboard');
+          }
+        }
 
         // Cache in Workers KV: 900s (15 min) for full dossier, or short 30s TTL if enrichment is pending
         if (env?.PIN_ENGINE_KV && freshDossier?.success) {

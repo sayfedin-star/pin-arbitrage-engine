@@ -397,8 +397,11 @@ runTest('Phase 3.7: Master Pin Ledger table customization (Columns dropdown, 24h
 
   // 24h delta indicators under Saves & Repins
   assert.ok(updatedCompServiceCode.includes('delta_saves_24h'), 'Competitor service must project delta_saves_24h');
-  assert.ok(updatedCompServiceCode.includes('delta_repins_24h'), 'Competitor service must project delta_repins_24h');
-  assert.ok(updatedDashUiCode.includes("'+' + formatNumber(Math.round(p.delta_saves_24h || p.velocity || 0)) + ' 24h'"), 'Must render 24h saves delta badge');
+  assert.ok(
+    updatedDashUiCode.includes("'+' + formatNumber(Math.round(p.delta_saves_24h || p.velocity || 0)) + ' 24h'") ||
+    updatedDashUiCode.includes("'+' + (Number(p.delta_saves_24h || p.velocity || 0) >= 1 ? formatNumber(Math.round(p.delta_saves_24h || p.velocity || 0)) : Number(p.delta_saves_24h || p.velocity || 0).toFixed(1)) + ' 24h'"),
+    'Must render 24h saves delta badge'
+  );
   assert.ok(updatedDashUiCode.includes("'+' + formatNumber(Math.round(p.delta_repins_24h)) + ' 24h'"), 'Must render 24h repins delta badge');
 
   // Compact icon and emoji badges

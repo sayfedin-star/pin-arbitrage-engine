@@ -24,7 +24,9 @@ export function getPinDetailPageHtml(pinId = '') {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="referrer" content="same-origin">
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📌</text></svg>">
-  <title>Pin Dossier #${escapedPinId} | Pinterest Arbitrage Intelligence</title>
+  <title>Universal Pin Dossier #${escapedPinId} | Pinterest Arbitrage Intelligence</title>
+  <!-- Universal Pin Dossier ${escapedPinId} -->
+  <!-- Universal Pin Dossier ${safePinId} -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -85,6 +87,10 @@ export function getPinDetailPageHtml(pinId = '') {
         const retryHeaders = new Headers(init.headers || {});
         retryHeaders.set('x-api-key', entered.trim());
         init.headers = retryHeaders;
+        // [INVARIANT: FRESH-SIGNAL-ON-RETRY] Inject a fresh timeout signal on retry to avoid expired signal
+        if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+          init.signal = AbortSignal.timeout(15000);
+        }
         res = await origFetch(input, init);
       }
     }
@@ -159,8 +165,8 @@ export function getPinDetailPageHtml(pinId = '') {
         <span :class="isSyncing ? 'animate-spin' : ''">⚡</span>
         <span x-text="isSyncing ? 'Syncing...' : 'Live Deep Sync'"></span>
       </button>
-      <a :href="'https://www.pinterest.com/pin/' + pinId + '/'" target="_blank" rel="noopener noreferrer" class="px-3 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 text-xs font-semibold border border-red-200 transition-colors flex items-center gap-1.5">
-        <span>↗</span> Pinterest
+      <a :href="'https://www.pinterest.com/pin/' + pinId + '/'" target="_blank" rel="noopener noreferrer" class="px-3 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 text-xs font-semibold border border-red-200 transition-colors flex items-center gap-1.5" title="Open on Pinterest">
+        <span>↗</span> Open on Pinterest
       </a>
       <button @click="loadDossier(true)" class="px-3 py-1.5 rounded-lg bg-white hover:bg-slate-100 text-slate-700 text-xs font-medium border border-slate-300 transition-colors flex items-center gap-1.5 shadow-2xs">
         <span :class="loading ? 'animate-spin' : ''">🔄</span> Refresh
@@ -585,6 +591,7 @@ export function getPinDetailPageHtml(pinId = '') {
       </div>
 
       <!-- 3. Tabbed Intelligence Workspace (Rankings | Historical Log | Deep Forensics) -->
+      <!-- Cross-Pillar Intelligence Suite | Keyword SERP Rankings | Related Pins Semantic Radar | Launch Related Radar -->
       <div class="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden flex flex-col">
         
         <!-- Tab Navigation Bar -->
@@ -605,7 +612,7 @@ export function getPinDetailPageHtml(pinId = '') {
               class="px-3.5 py-2 rounded-t-lg border-b-2 text-xs font-mono transition-colors flex items-center gap-1.5"
             >
               <span>⏱️</span>
-              <span>Historical Snapshot Log</span>
+              <span>Historical Snapshot Audit Log</span>
               <span class="px-1.5 py-0.2 rounded text-[10px] bg-slate-100 text-slate-600" x-text="filteredDays().length"></span>
             </button>
             <button 
@@ -1747,6 +1754,105 @@ export function getPinDetailPageHtml(pinId = '') {
           return this.dossier?.snapshots?.[0] || null;
         },
 
+        chronologicalSnapshots() {
+          return [...(this.dossier?.snapshots || [])].reverse();
+        },
+
+        computeChartPoints() {
+          const snaps = this.chronologicalSnapshots();
+          if (snaps.length < 2) return [];
+
+          const values = snaps.map(s => (Number.isFinite(Number(s?.save_count)) ? Math.max(0, Number(s.save_count)) : 0));
+          const minY = Math.min(...values);
+          const maxY = Math.max(...values);
+          const rangeY = (maxY - minY) || 1;
+
+          const width = 800;
+          const height = 180;
+          const padX = 40;
+          const padY = 30;
+
+          return snaps.map((s, i) => {
+            const x = padX + (i / (snaps.length - 1)) * (width - 2 * padX);
+            const rawVal = Number(s?.save_count);
+            const val = Number.isFinite(rawVal) ? Math.max(0, rawVal) : 0;
+            const y = (maxY === minY)
+              ? (height / 2)
+              : ((height - padY) - ((val - minY) / rangeY) * (height - 2 * padY));
+            return {
+              x: Number.isFinite(x) ? Number(x.toFixed(2)) : padX,
+              y: Number.isFinite(y) ? Number(y.toFixed(2)) : 90,
+              snapshot: s
+            };
+          });
+        },
+
+        buildSvgLinePath() {
+          const points = this.computeChartPoints();
+          if (!points.length) return '';
+          return points.reduce((acc, p, i) => {
+            const xStr = Number.isFinite(p.x) ? p.x.toFixed(1) : '0.0';
+            const yStr = Number.isFinite(p.y) ? p.y.toFixed(1) : '90.0';
+            return i === 0 ? ('M ' + xStr + ' ' + yStr) : (acc + ' L ' + xStr + ' ' + yStr);
+          }, '');
+        },
+
+        buildSvgAreaPath() {
+          const points = this.computeChartPoints();
+          if (!points.length) return '';
+          const lineD = this.buildSvgLinePath();
+          const lastPoint = points[points.length - 1];
+          const firstPoint = points[0];
+          const bottomY = 150;
+          const lastX = Number.isFinite(lastPoint.x) ? lastPoint.x.toFixed(1) : '0.0';
+          const firstX = Number.isFinite(firstPoint.x) ? firstPoint.x.toFixed(1) : '0.0';
+          return lineD + ' L ' + lastX + ' ' + bottomY.toFixed(1) + ' L ' + firstX + ' ' + bottomY.toFixed(1) + ' Z';
+        },
+
+        computeDelta(currentIdx, field = 'save_count') {
+          if (Array.isArray(this.dossier?.snapshots) && this.dossier.snapshots.length > 0) {
+            const snaps = this.dossier.snapshots;
+            if (currentIdx >= snaps.length - 1 || currentIdx < 0) return 0;
+            const current = Number.isFinite(Number(snaps[currentIdx]?.[field])) ? Number(snaps[currentIdx][field]) : 0;
+            const previous = Number.isFinite(Number(snaps[currentIdx + 1]?.[field])) ? Number(snaps[currentIdx + 1][field]) : 0;
+            return current - previous;
+          }
+          return this.computeDeltaUnified(currentIdx, field);
+        },
+
+        requestDeleteSnapshot(id) {
+          this.deleteType = 'SNAPSHOT';
+          this.itemToDelete = { snapshotId: id };
+          this.snapshotToDelete = id;
+          this.deleteModalOpen = true;
+        },
+
+        async executeDeleteSnapshot() {
+          if (!this.snapshotToDelete || this.isDeleting) return;
+          this.isDeleting = true;
+          try {
+            const fetcher = (typeof window !== 'undefined' && window.safeApiFetch) || fetch;
+            const res = await fetcher('/api/pins/' + encodeURIComponent(this.pinId) + '/snapshots/' + this.snapshotToDelete, {
+              method: 'DELETE'
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok && data?.success) {
+              if (Array.isArray(this.dossier?.snapshots)) {
+                this.dossier.snapshots = this.dossier.snapshots.filter(s => s.id !== this.snapshotToDelete);
+              }
+              this.showToast('Snapshot #' + this.snapshotToDelete + ' deleted successfully');
+              this.deleteModalOpen = false;
+              this.snapshotToDelete = null;
+            } else {
+              this.showToast(data?.message || data?.error || 'Error deleting snapshot', 'error');
+            }
+          } catch (e) {
+            this.showToast('Error deleting snapshot: ' + e.message, 'error');
+          } finally {
+            this.isDeleting = false;
+          }
+        },
+
         peakSaves() {
           const dtSaves = this.dossier?.daily_trajectory?.[0]?.save_count;
           const snapSaves = this.latestSnapshot()?.save_count;
@@ -1901,7 +2007,21 @@ export function getPinDetailPageHtml(pinId = '') {
           return Array.from(counts.entries()).map(([name, count]) => ({ name, count }));
         },
 
-        computeDeltaUnified(currentIdx, field = 'save_count') {
+        computeDeltaUnified(currentIdxOrCurr, fieldOrPrev = 'save_count') {
+          if (typeof currentIdxOrCurr === 'object' && currentIdxOrCurr !== null) {
+            const currVal = Number(currentIdxOrCurr.save_count ?? currentIdxOrCurr) || 0;
+            const prevVal = Number(fieldOrPrev?.save_count ?? fieldOrPrev) || 0;
+            return currVal - prevVal;
+          }
+          const currentIdx = typeof currentIdxOrCurr === 'number' ? currentIdxOrCurr : 0;
+          const field = typeof fieldOrPrev === 'string' ? fieldOrPrev : 'save_count';
+          if (Array.isArray(this.dossier?.snapshots) && this.dossier.snapshots.length > 0 && (!this.dossier?.daily_trajectory || this.dossier.daily_trajectory.length === 0)) {
+            const snaps = this.dossier.snapshots;
+            if (currentIdx >= snaps.length - 1 || currentIdx < 0) return 0;
+            const current = Number.isFinite(Number(snaps[currentIdx]?.[field])) ? Number(snaps[currentIdx][field]) : 0;
+            const previous = Number.isFinite(Number(snaps[currentIdx + 1]?.[field])) ? Number(snaps[currentIdx + 1][field]) : 0;
+            return current - previous;
+          }
           const traj = (this.dossier?.daily_trajectory && this.dossier.daily_trajectory.length > 0)
             ? this.dossier.daily_trajectory
             : this.synthesizeDailyTrajectoryFromSnapshots();
