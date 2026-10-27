@@ -8,6 +8,7 @@
 
 import { getEdgeShieldClientScript } from './edge-shield-client.mjs';
 import { renderAppSidebar } from './ui/app-sidebar.mjs';
+import { renderCampaignWorkspaceHeader } from './ui/campaign-workspace-header.mjs';
 
 export function getCampaignFoldersPageHtml(folderId = '') {
   // Sanitize folderId against script/attribute injection
@@ -164,38 +165,26 @@ export function getCampaignFoldersPageHtml(folderId = '') {
     <!-- ========================================================================= -->
     <div x-show="activeFolderId" class="flex flex-col gap-6" x-cloak>
 
-      <!-- Active Folder Studio Header -->
-      <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm dark:shadow-xl flex items-center justify-between flex-wrap gap-4 transition-colors">
-        <div class="flex items-center gap-4">
-          <div class="w-12 h-12 rounded-xl flex items-center justify-center text-2xl shadow-inner border border-slate-200 dark:border-white/10"
-               :style="'background-color: ' + (activeFolder?.color ? activeFolder.color + '20' : '#6366f120')">
-            <span x-text="activeFolder?.icon || '📁'">📁</span>
-          </div>
-          <div>
-            <div class="flex items-center gap-3 flex-wrap">
-              <h1 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight" x-text="activeFolder?.name || 'Loading Folder...'"></h1>
-              <span class="text-xs font-mono px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 border border-slate-200 dark:border-slate-700 font-semibold" 
-                    x-text="(activeFolder?.items?.length || crossoverData?.summary?.total_keywords || 0) + ' keywords in cluster'"></span>
-            </div>
-            <p class="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-2xl" x-text="activeFolder?.description || 'Campaign Topic Cluster & Cross-SERP Intelligence'"></p>
-          </div>
-        </div>
+      <!-- Shared Campaign Workspace Header -->
+      ${renderCampaignWorkspaceHeader({ activeRoom: 'crossover', folderId: safeFolderId })}
 
-        <div class="flex items-center gap-3">
-          <button @click="scrollToSection('blueprint-section')" class="px-3.5 py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/80 text-xs font-semibold shadow-sm transition-colors flex items-center gap-1.5">
+      <!-- Studio Action Shortcuts -->
+      <div class="flex items-center justify-between flex-wrap gap-3 -mt-2 mb-1">
+        <div class="flex items-center gap-2">
+          <span class="text-xs font-semibold text-slate-700 dark:text-slate-300">Room 1: Crossover & Super-Pins</span>
+          <span class="text-xs text-slate-400 font-mono" x-text="'(' + (activeFolder?.items?.length || crossoverData?.summary?.total_keywords || 0) + ' keywords in cluster)'"></span>
+        </div>
+        <div class="flex items-center gap-2 flex-wrap">
+          <button @click="scrollToSection('blueprint-section')" class="px-3.5 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/80 text-xs font-semibold shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer">
             <span>🎯</span>
             <span>Content Blueprint</span>
           </button>
-          <button @click="runCrossoverAnalysis(true)" :disabled="crossoverLoading" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-semibold shadow-md transition-colors flex items-center gap-2">
+          <button @click="runCrossoverAnalysis(true)" :disabled="crossoverLoading" class="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-semibold shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer">
             <span x-show="!crossoverLoading">⚡</span>
             <span x-show="crossoverLoading" class="animate-spin inline-block">⏳</span>
             <span x-text="crossoverLoading ? 'Recalculating Matrix...' : 'Re-Run Crossover Analysis'"></span>
           </button>
-          <button @click="openFolderSettingsModal()" class="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 text-xs font-semibold shadow-sm transition-colors flex items-center gap-1.5 cursor-pointer" title="Folder Settings & Cluster Fleet Dispatch Config">
-            <span>⚙️</span>
-            <span>Settings</span>
-          </button>
-          <button @click="dispatchFolderDeepAudit()" :disabled="auditDispatching" class="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white text-xs font-semibold shadow-md transition-colors flex items-center gap-2" title="Partition all cluster pins across 20 parallel GitHub runners to deep inspect authentic saves, repins & CV annotations">
+          <button @click="dispatchFolderDeepAudit()" :disabled="auditDispatching" class="px-3.5 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white text-xs font-semibold shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer" title="Partition all cluster pins across 20 parallel GitHub runners to deep inspect authentic saves, repins & CV annotations">
             <span x-show="!auditDispatching">🚀</span>
             <span x-show="auditDispatching" class="animate-spin inline-block">⏳</span>
             <span x-text="auditDispatching ? 'Launching 20 Runners...' : 'Deep Cluster Audit (20 Runners)'"></span>
@@ -1077,189 +1066,8 @@ export function getCampaignFoldersPageHtml(folderId = '') {
         </div>
       </div>
 
-      <!-- SECTION 5: Creator & Domain Monopoly Breakdown -->
-      <div class="space-y-6">
-
-        <!-- Domain Monopoly Breakdown -->
-        <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm dark:shadow-xl flex flex-col transition-colors">
-          <div class="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 flex-wrap">
-            <div class="flex items-center gap-2">
-              <span class="text-base">🌐</span>
-              <h3 class="text-sm font-semibold text-slate-900 dark:text-white tracking-tight">Domain Monopoly (Share of Voice)</h3>
-            </div>
-            <div class="flex items-center gap-2">
-              <div class="relative">
-                <input 
-                  type="text" 
-                  x-model.debounce.150ms="domainSearch" 
-                  @input="domainPage = 1; _domainCacheKey = ''" 
-                  placeholder="Search domain..." 
-                  class="px-2.5 py-1 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-sans w-32 sm:w-40"
-                />
-                <button 
-                  x-show="domainSearch" 
-                  @click="domainSearch = ''; domainPage = 1; _domainCacheKey = ''" 
-                  class="absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xs cursor-pointer">✕</button>
-              </div>
-              <span class="text-xs font-mono text-slate-500 dark:text-slate-400 shrink-0" x-text="(filteredDomainList().length) + ' domains'"></span>
-            </div>
-          </div>
-
-          <div class="overflow-x-auto flex-1">
-            <table class="w-full text-left text-xs font-mono">
-              <thead class="bg-slate-50 dark:bg-slate-950/80 border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 uppercase text-[10px]">
-                <tr>
-                  <th class="p-3.5 cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none transition-colors" @click="toggleDomainSort('domain')">
-                    <span class="inline-flex items-center gap-1">
-                      <span>Domain</span>
-                      <span class="text-[9px]" x-text="domainSort === 'domain_asc' ? '▲' : (domainSort === 'domain_desc' ? '▼' : '')"></span>
-                    </span>
-                  </th>
-                  <th class="p-3.5 cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none transition-colors" @click="toggleDomainSort('keywords')">
-                    <span class="inline-flex items-center gap-1">
-                      <span>Keywords Covered</span>
-                      <span class="text-[9px]" x-text="domainSort === 'kw_asc' ? '▲' : (domainSort === 'kw_desc' || domainSort === 'default' ? '▼' : '')"></span>
-                    </span>
-                  </th>
-                  <th class="p-3.5 cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none transition-colors" @click="toggleDomainSort('pins')">
-                    <span class="inline-flex items-center gap-1">
-                      <span>Pins & SOV %</span>
-                      <span class="text-[9px]" x-text="domainSort === 'pins_asc' ? '▲' : (domainSort === 'pins_desc' ? '▼' : '')"></span>
-                    </span>
-                  </th>
-                  <th class="p-3.5 cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none transition-colors" @click="toggleDomainSort('saves')">
-                    <span class="inline-flex items-center gap-1">
-                      <span>Total Saves</span>
-                      <span class="text-[9px]" x-text="domainSort === 'saves_asc' ? '▲' : (domainSort === 'saves_desc' ? '▼' : '')"></span>
-                    </span>
-                  </th>
-                  <th class="p-3.5 text-right">Drill-Down</th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-slate-200 dark:divide-slate-800/60 text-slate-700 dark:text-slate-300">
-                <template x-for="dm in paginatedDomains()" :key="dm.domain">
-                  <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                    <td class="p-3.5 font-bold text-slate-900 dark:text-white max-w-[140px] truncate" :title="dm.domain" x-text="dm.domain"></td>
-                    <td class="p-3.5 font-mono text-indigo-600 dark:text-indigo-400" x-text="dm.keywords_count + ' / ' + (crossoverData?.summary?.total_keywords || 1) + ' (' + dm.overlap_percentage + '%)'"></td>
-                    <td class="p-3.5">
-                      <div class="flex items-center gap-2">
-                        <span class="font-bold text-emerald-600 dark:text-emerald-400" x-text="dm.pin_count + ' pins'"></span>
-                        <span class="text-[10px] text-slate-400 dark:text-slate-500" x-text="'(' + calcSov(dm.pin_count) + '% SOV)'"></span>
-                      </div>
-                    </td>
-                    <td class="p-3.5">
-                      <span class="font-bold text-amber-600 dark:text-amber-400 font-mono" x-text="formatNumber(dm.total_saves) + ' saves'"></span>
-                    </td>
-                    <td class="p-3.5 text-right font-sans">
-                      <button @click="setEntityFilter('domain', dm.domain)" class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs border border-slate-300 dark:border-slate-700 transition-colors shadow-sm cursor-pointer">
-                        Filter →
-                      </button>
-                    </td>
-                  </tr>
-                </template>
-              </tbody>
-            </table>
-          </div>
-
-          <!-- Empty search results state -->
-          <div x-show="filteredDomainList().length === 0" class="py-8 text-center text-xs text-slate-400 font-mono">
-            No domains match "<span x-text="domainSearch"></span>".
-          </div>
-
-          <!-- Table Pagination Footer -->
-          <div class="flex items-center justify-between p-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40 text-xs font-mono" x-show="filteredDomainList().length > 0">
-            <div class="flex items-center gap-2.5">
-              <span class="text-slate-500 dark:text-slate-400 hidden sm:inline" 
-                    x-text="'Page ' + domainPage + ' of ' + totalDomainPages() + ' (' + filteredDomainList().length + ' domains)'"></span>
-              <div class="flex items-center gap-1 text-[11px] text-slate-400">
-                <span>Density:</span>
-                <select 
-                  x-model.number="domainPageSize" 
-                  @change="domainPage = 1; _domainCacheKey = ''"
-                  class="py-0.5 px-1.5 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono text-[11px] focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-900 dark:text-white cursor-pointer"
-                >
-                  <option :value="10">10 / page</option>
-                  <option :value="25">25 / page</option>
-                  <option :value="50">50 / page</option>
-                </select>
-              </div>
-            </div>
-            <div class="flex items-center gap-1.5 ml-auto sm:ml-0">
-              <button 
-                :disabled="domainPage <= 1" 
-                @click="domainPage = Math.max(1, (parseInt(domainPage, 10) || 1) - 1)" 
-                class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 disabled:opacity-40 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors shadow-2xs">
-                ← Prev
-              </button>
-              <div class="flex items-center gap-1 text-slate-500 dark:text-slate-400">
-                <span>Page</span>
-                <input 
-                  type="number" 
-                  min="1" 
-                  :max="totalDomainPages()" 
-                  x-model.number="domainPage" 
-                  @change="domainPage = Math.max(1, Math.min(totalDomainPages(), parseInt(domainPage, 10) || 1))"
-                  class="w-12 text-center py-0.5 px-1 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-900 dark:text-white" 
-                />
-                <span x-text="'/ ' + totalDomainPages()"></span>
-              </div>
-              <button 
-                :disabled="domainPage >= totalDomainPages()" 
-                @click="domainPage = Math.min(totalDomainPages(), (parseInt(domainPage, 10) || 1) + 1)" 
-                class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 disabled:opacity-40 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors shadow-2xs">
-                Next →
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Creator Monopoly Breakdown -->
-        <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm dark:shadow-xl flex flex-col transition-colors">
-          <div class="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
-            <div class="flex items-center gap-2">
-              <span class="text-base">👤</span>
-              <h3 class="text-sm font-semibold text-slate-900 dark:text-white tracking-tight">Creator Monopoly (Whale Accounts)</h3>
-            </div>
-            <span class="text-xs font-mono text-slate-500 dark:text-slate-400" x-text="(crossoverData?.creator_monopoly?.length || 0) + ' creators'"></span>
-          </div>
-
-          <div class="overflow-x-auto">
-            <table class="w-full text-left text-xs font-mono">
-              <thead class="bg-slate-50 dark:bg-slate-950/80 border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 uppercase text-[10px]">
-                <tr>
-                  <th class="p-3.5">Creator Handle</th>
-                  <th class="p-3.5">Keywords Covered</th>
-                  <th class="p-3.5">Pins & SOV %</th>
-                  <th class="p-3.5 text-right">Drill-Down</th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-slate-200 dark:divide-slate-800/60 text-slate-700 dark:text-slate-300">
-                <template x-for="cm in (crossoverData?.creator_monopoly || []).slice(0, 10)" :key="cm.username">
-                  <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                    <td class="p-3.5 max-w-xs sm:max-w-sm truncate">
-                      <span class="font-bold text-slate-900 dark:text-white block truncate" x-text="cm.display_name || cm.username"></span>
-                      <span class="text-[10px] text-slate-400 dark:text-slate-500 block truncate" x-text="'@' + cm.username"></span>
-                    </td>
-                    <td class="p-3.5 font-mono text-indigo-600 dark:text-indigo-400" x-text="cm.keywords_count + ' / ' + (crossoverData?.summary?.total_keywords || 1) + ' (' + cm.overlap_percentage + '%)'"></td>
-                    <td class="p-3.5">
-                      <div class="flex items-center gap-2">
-                        <span class="font-bold text-emerald-600 dark:text-emerald-400" x-text="cm.pin_count + ' pins'"></span>
-                        <span class="text-[10px] text-slate-400 dark:text-slate-500" x-text="'(' + calcSov(cm.pin_count) + '% SOV)'"></span>
-                      </div>
-                    </td>
-                    <td class="p-3.5 text-right font-sans">
-                      <button @click="setEntityFilter('creator', cm.username)" class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs border border-slate-300 dark:border-slate-700 transition-colors shadow-sm cursor-pointer">
-                        Filter →
-                      </button>
-                    </td>
-                  </tr>
-                </template>
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-      </div>
+      <!-- [INVARIANT: DEDICATED-STUDIO-ROOMS-OVER-SECTION-5] -->
+      <!-- Legacy Section 5 monopoly tables purged in favor of dedicated /folders/:id/domains and /folders/:id/creators rooms -->
 
     </div>
 
@@ -1302,40 +1110,69 @@ export function getCampaignFoldersPageHtml(folderId = '') {
       <!-- Folders Grid -->
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         <template x-for="f in foldersList" :key="f.id">
-          <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm dark:shadow-xl flex flex-col justify-between gap-5 hover:border-indigo-400 dark:hover:border-slate-700 transition-all group">
-            <div class="flex flex-col gap-3">
-              <div class="flex items-center justify-between">
-                <div class="w-10 h-10 rounded-xl flex items-center justify-center text-xl shadow-inner border border-slate-200 dark:border-white/10"
-                     :style="'background-color: ' + (f.color ? f.color + '20' : '#6366f120')">
-                  <span x-text="f.icon || '📁'">📁</span>
-                </div>
-                <span class="text-xs font-mono px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 border border-slate-200 dark:border-slate-700 font-semibold" 
-                      x-text="(f.keyword_count || 0) + ' keywords'"></span>
+          <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm dark:shadow-xl hover:border-indigo-400 dark:hover:border-slate-700 transition-all flex flex-col justify-between gap-4 group">
+            <!-- Card Header -->
+            <div class="flex items-center justify-between">
+              <div class="w-10 h-10 rounded-xl flex items-center justify-center text-xl shadow-inner border border-slate-200 dark:border-white/10"
+                   :style="'background-color: ' + (f.color ? f.color + '20' : '#6366f120')">
+                <span x-text="f.icon || '📁'">📁</span>
               </div>
+              <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 border border-slate-200 dark:border-slate-700 font-semibold" 
+                    x-text="'Folder #' + f.id"></span>
+            </div>
 
-              <div>
-                <h3 class="text-base font-bold text-slate-900 dark:text-white tracking-tight group-hover:text-indigo-600 dark:group-hover:text-indigo-300 transition-colors" x-text="f.name"></h3>
-                <p class="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-2" x-text="f.description || 'Campaign cluster for Pinterest arbitrage'"></p>
+            <!-- Card Titles -->
+            <div>
+              <h3 class="text-base font-bold text-slate-900 dark:text-white tracking-tight group-hover:text-indigo-600 dark:group-hover:text-indigo-300 transition-colors" x-text="f.name"></h3>
+              <p class="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-2" x-text="f.description || 'Campaign cluster for Pinterest arbitrage'"></p>
+            </div>
+
+            <!-- Keyword Preview Chips -->
+            <div class="flex items-center gap-1.5 flex-wrap pt-0.5">
+              <template x-for="kw in (f.keywords_preview || []).slice(0, 3)" :key="kw.id || kw.keyword">
+                <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700/60 truncate max-w-[120px]" x-text="kw.keyword"></span>
+              </template>
+              <template x-if="(f.keywords_preview || []).length > 3">
+                <span class="text-[10px] font-mono text-slate-400 dark:text-slate-500" x-text="'+' + ((f.keywords_preview || []).length - 3) + ' more'"></span>
+              </template>
+            </div>
+
+            <!-- 3 Live Telemetry Counters Grid -->
+            <div class="grid grid-cols-3 gap-2 py-2 px-3 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-100 dark:border-slate-800/80 font-mono text-center">
+              <div class="flex flex-col">
+                <span class="text-[9px] uppercase tracking-wider text-slate-400">Keywords</span>
+                <span class="text-sm font-bold text-emerald-600 dark:text-emerald-400" x-text="f.keyword_count || 0">0</span>
               </div>
-
-              <!-- Keyword Preview Chips -->
-              <div class="flex items-center gap-1.5 flex-wrap pt-1">
-                <template x-for="kw in (f.keywords_preview || []).slice(0, 3)" :key="kw.id || kw.keyword">
-                  <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700/60 truncate max-w-[120px]" x-text="kw.keyword"></span>
-                </template>
-                <template x-if="(f.keywords_preview || []).length > 3">
-                  <span class="text-[10px] font-mono text-slate-400 dark:text-slate-500" x-text="'+' + ((f.keywords_preview || []).length - 3) + ' more'"></span>
-                </template>
+              <div class="flex flex-col border-x border-slate-200 dark:border-slate-800">
+                <span class="text-[9px] uppercase tracking-wider text-slate-400">Creators</span>
+                <span class="text-sm font-bold text-purple-600 dark:text-purple-400" x-text="f.creator_count || 0">0</span>
+              </div>
+              <div class="flex flex-col">
+                <span class="text-[9px] uppercase tracking-wider text-slate-400">Domains</span>
+                <span class="text-sm font-bold text-sky-600 dark:text-sky-400" 
+                      x-text="(f.domain_count || 0) + (f.pinned_domain_count ? ' (' + f.pinned_domain_count + '📌)' : '')">0</span>
               </div>
             </div>
 
-            <div class="pt-4 border-t border-slate-200 dark:border-slate-800/80 flex items-center justify-between">
-              <a :href="'/folders/' + f.id" class="px-3 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-600/10 dark:hover:bg-indigo-600/20 text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 text-xs font-semibold border border-indigo-200 dark:border-indigo-500/20 transition-colors flex items-center gap-1.5">
-                Open Studio →
+            <!-- Action Footer with Room Shortcuts -->
+            <div class="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
+              <a :href="'/folders/' + f.id" class="px-3 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-600/10 dark:hover:bg-indigo-600/20 text-indigo-600 dark:text-indigo-400 text-xs font-semibold border border-indigo-200 dark:border-indigo-500/20 transition-colors flex items-center gap-1">
+                <span>Open Workspace →</span>
               </a>
-              <button @click="confirmDeleteFolder(f.id)" class="text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 text-xs transition-colors p-1">
-                Delete
-              </button>
+              <div class="flex items-center gap-1">
+                <a :href="'/folders/' + f.id + '/keywords'" class="p-1.5 rounded text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 transition" title="Keywords Fleet Room">
+                  <i data-lucide="search" class="w-3.5 h-3.5"></i>
+                </a>
+                <a :href="'/folders/' + f.id + '/creators'" class="p-1.5 rounded text-slate-400 hover:text-purple-600 dark:hover:text-purple-400 transition" title="Creator Hub Room">
+                  <i data-lucide="users" class="w-3.5 h-3.5"></i>
+                </a>
+                <a :href="'/folders/' + f.id + '/domains'" class="p-1.5 rounded text-slate-400 hover:text-sky-600 dark:hover:text-sky-400 transition" title="Domain Studio Room">
+                  <i data-lucide="globe" class="w-3.5 h-3.5"></i>
+                </a>
+                <button @click="confirmDeleteFolder(f.id)" class="text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 text-xs transition-colors p-1.5 cursor-pointer" title="Delete Folder">
+                  <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                </button>
+              </div>
             </div>
           </div>
         </template>

@@ -1,7 +1,10 @@
 import { getEdgeShieldClientScript } from './edge-shield-client.mjs';
 import { getDashboardModalsHtml } from './ui/dashboard-modals.mjs';
+import { renderCampaignWorkspaceHeader } from './ui/campaign-workspace-header.mjs';
 
-export function getDashboardHtml() {
+export function getDashboardHtml(folderId = '') {
+  const rawFolderId = String(folderId || '').trim();
+  const safeFolderId = rawFolderId.replace(/[^a-zA-Z0-9_-]/g, '');
   return `<!DOCTYPE html>
 <html lang="en" :class="isDark ? 'dark' : ''" x-data="dashboardApp()" x-init="initDashboard()">
 <head>
@@ -3630,6 +3633,7 @@ export function getDashboardHtml() {
       <!-- ======================================================== -->
       <template x-if="!activeCreator">
         <div class="space-y-6">
+          ${safeFolderId ? renderCampaignWorkspaceHeader({ activeRoom: 'creators', folderId: safeFolderId }) : ''}
           
           <!-- Unified Header Section -->
           <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -3673,6 +3677,17 @@ export function getDashboardHtml() {
               <button @click="competitorFilter = 'own'" class="px-3 py-1.5 rounded-lg transition" :class="competitorFilter === 'own' ? 'bg-white dark:bg-[#0b1120] text-slate-900 dark:text-white shadow-sm font-bold' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'">👤 My Accounts</button>
               <button @click="competitorFilter = 'competitor'" class="px-3 py-1.5 rounded-lg transition" :class="competitorFilter === 'competitor' ? 'bg-white dark:bg-[#0b1120] text-slate-900 dark:text-white shadow-sm font-bold' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'">🎯 Competitors</button>
               <button @click="competitorFilter = 'paused'" class="px-3 py-1.5 rounded-lg transition" :class="competitorFilter === 'paused' ? 'bg-white dark:bg-[#0b1120] text-amber-600 dark:text-amber-400 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'">⏸ Paused</button>
+            </div>
+
+            <!-- Campaign Folder Filter Dropdown -->
+            <div class="flex items-center gap-1.5 text-xs">
+              <span class="text-slate-500 dark:text-slate-400 font-mono">📁 Folder:</span>
+              <select x-model="folderFilter" @change="onFolderFilterChange()" class="py-1 px-2.5 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-purple-500 font-mono cursor-pointer">
+                <option value="">All Folders</option>
+                <template x-for="f in foldersList" :key="f.id">
+                  <option :value="String(f.id)" x-text="f.name + ' (' + (f.creator_count || 0) + ')'"></option>
+                </template>
+              </select>
             </div>
 
             <!-- Search Bar -->
@@ -3801,6 +3816,26 @@ export function getDashboardHtml() {
                         <button @click.stop="openGhaCrawlerModal(c)" class="p-1.5 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30 transition cursor-pointer" title="🚀 Fleet Crawl: Launch distributed crawler on GitHub Actions (Recent Pins vs Full Catalog)">
                           <i data-lucide="rocket" class="w-3.5 h-3.5 text-indigo-500"></i>
                         </button>
+                        <!-- Folder Assignment Menu -->
+                        <div class="relative inline-block text-left" x-data="{ openFolderMenu: false }">
+                          <button @click.stop="openFolderMenu = !openFolderMenu" class="p-1.5 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-950/40 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition cursor-pointer" title="Assign to Campaign Folder">
+                            <i data-lucide="folder-plus" class="w-3.5 h-3.5"></i>
+                          </button>
+                          <div x-show="openFolderMenu" @click.away="openFolderMenu = false" class="absolute right-0 z-50 mt-1 w-48 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl py-1 text-xs text-left" x-cloak>
+                            <div class="px-3 py-1.5 text-[10px] font-mono uppercase text-slate-400 border-b border-slate-100 dark:border-slate-800">
+                              Assign to Folder
+                            </div>
+                            <template x-for="f in foldersList" :key="f.id">
+                              <button @click.stop="assignCreatorToFolder(c.id, f.id); openFolderMenu = false" class="w-full text-left px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800/80 text-slate-700 dark:text-slate-300 flex items-center justify-between transition-colors cursor-pointer">
+                                <span class="truncate" x-text="f.name"></span>
+                                <span class="text-[10px] text-indigo-500 font-mono" x-show="isCreatorInFolder(c.id, f.id)">✓</span>
+                              </button>
+                            </template>
+                            <div x-show="!foldersList.length" class="px-3 py-2 text-slate-400 text-[11px]">
+                              No folders available
+                            </div>
+                          </div>
+                        </div>
                         <!-- Delete Competitor -->
                         <button @click.stop="deleteCompetitor(c.id)" class="p-1.5 rounded-lg hover:bg-rose-100 dark:hover:bg-rose-950/40 text-slate-400 hover:text-rose-500 transition cursor-pointer" title="Delete competitor">
                           <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
@@ -5829,15 +5864,21 @@ export function getDashboardHtml() {
           if (typeof window !== 'undefined') {
             const segs = (window.location.pathname || '').split('/').filter(Boolean);
             const f = (segs[0] || '').toLowerCase();
-            if (f === 'accounts' || f === 'creators' || f === 'pinarchive') return 'creators_archive';
+            if (f === 'accounts' || f === 'creators' || f === 'pinarchive' || (f === 'folders' && (segs[2] || '').toLowerCase() === 'creators')) return 'creators_archive';
             if (f === 'related-pins' || f === 'related_pins' || f === 'seeds' || f === 'intersections') return 'related_pins';
             if (f === 'fleet') return 'overview';
             if (f && !['api', 'fleet', 'settings', 'admin', 'health', 'favicon.ico', 'robots.txt', 'index.html', 'assets', 'static', 'pin', 'related_pins', 'related-pins', 'intersections', 'archive', 'explorer', 'accounts', 'creators', 'pinarchive', 'board-idea', 'board-ideas', 'keywords', 'overview', 'home', 'dashboard', 'domains'].includes(f)) {
               return 'creators_archive';
             }
           }
-          return 'overview';
+          return '${safeFolderId}' ? 'creators_archive' : 'overview';
         })(),
+        scopedFolderId: '${safeFolderId}',
+        folderFilter: '${safeFolderId}',
+        foldersList: [],
+        folderCreatorMap: {},
+        scopedFolderCreatorIds: null,
+        openFolderMenuId: null,
         isMobileMenuOpen: false,
         isLoading: false,
         isAddSeedOpen: false,
@@ -6257,6 +6298,13 @@ export function getDashboardHtml() {
               list = list.filter(c => c.is_active !== false);
             } else {
               list = list.filter(c => c.account_type === this.competitorFilter);
+            }
+          }
+          if (this.folderFilter) {
+            const fid = String(this.folderFilter).trim();
+            const creatorIds = this.folderCreatorMap[fid] || this.scopedFolderCreatorIds || null;
+            if (creatorIds && creatorIds instanceof Set) {
+              list = list.filter(c => creatorIds.has(Number(c.id)) || creatorIds.has(String(c.id)));
             }
           }
           if (this.competitorSearch) {
@@ -7716,6 +7764,10 @@ export function getDashboardHtml() {
               this.fetchCreatorAllPins();
             }
           });
+          this.loadFolders();
+          if (this.scopedFolderId) {
+            this.loadFolderCreators(this.scopedFolderId);
+          }
           // Immediate Deep Link URL Hydration (e.g. /freshmancook, /freshmancook/links, /freshmancook/related-pins)
           if (typeof window !== 'undefined') {
             const RESERVED_SYSTEM_SLUGS = new Set([
@@ -8022,6 +8074,84 @@ export function getDashboardHtml() {
             this.showToast('Error deleting competitor: ' + (e.message || 'Network error'));
           } finally {
             this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+          }
+        },
+
+        async assignCreatorToFolder(competitorId, folderId) {
+          if (!competitorId || !folderId) return;
+          const fid = String(folderId);
+          const cid = Number(competitorId);
+          const isAlreadyIn = this.isCreatorInFolder(cid, fid);
+          const method = isAlreadyIn ? 'DELETE' : 'POST';
+          const url = isAlreadyIn 
+            ? '/api/folders/' + encodeURIComponent(fid) + '/creators/' + cid
+            : '/api/folders/' + encodeURIComponent(fid) + '/creators';
+          try {
+            const res = await (window.safeApiFetch || fetch)(url, {
+              method,
+              headers: { 'Content-Type': 'application/json' },
+              body: isAlreadyIn ? undefined : JSON.stringify({ competitor_id: cid })
+            });
+            if (res.ok) {
+              if (!this.folderCreatorMap[fid]) this.folderCreatorMap[fid] = new Set();
+              if (isAlreadyIn) {
+                this.folderCreatorMap[fid].delete(cid);
+                this.showToast('Creator unlinked from folder');
+              } else {
+                this.folderCreatorMap[fid].add(cid);
+                this.showToast('Creator linked to folder');
+              }
+              const folderObj = this.foldersList.find(f => String(f.id) === fid);
+              if (folderObj) {
+                folderObj.creator_count = this.folderCreatorMap[fid].size;
+              }
+            } else {
+              const err = await res.json().catch(() => ({}));
+              this.showToast(err.message || 'Failed to update folder assignment');
+            }
+          } catch (e) {
+            this.showToast('Network error: ' + e.message);
+          }
+        },
+
+        isCreatorInFolder(competitorId, folderId) {
+          const fid = String(folderId || this.folderFilter || this.scopedFolderId || '');
+          if (!fid || !this.folderCreatorMap[fid]) return false;
+          return this.folderCreatorMap[fid].has(Number(competitorId)) || this.folderCreatorMap[fid].has(String(competitorId));
+        },
+
+        async loadFolderCreators(folderId) {
+          if (!folderId) return;
+          const fid = String(folderId);
+          try {
+            const res = await (window.safeApiFetch || fetch)('/api/folders/' + encodeURIComponent(fid) + '/creators');
+            if (res.ok) {
+              const data = await res.json();
+              const ids = new Set((data.creators || data.items || []).map(c => Number(c.id || c.competitor_id)));
+              this.folderCreatorMap[fid] = ids;
+              if (this.scopedFolderId && String(this.scopedFolderId) === fid) {
+                this.scopedFolderCreatorIds = ids;
+              }
+            }
+          } catch (_) {}
+        },
+
+        async loadFolders() {
+          try {
+            const res = await (window.safeApiFetch || fetch)('/api/folders');
+            if (res.ok) {
+              const data = await res.json();
+              this.foldersList = data.folders || [];
+              if (this.scopedFolderId) {
+                this.activeFolder = this.foldersList.find(f => String(f.id) === String(this.scopedFolderId)) || null;
+              }
+            }
+          } catch (_) {}
+        },
+
+        async onFolderFilterChange() {
+          if (this.folderFilter) {
+            await this.loadFolderCreators(this.folderFilter);
           }
         },
 

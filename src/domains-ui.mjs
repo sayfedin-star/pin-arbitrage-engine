@@ -15,11 +15,14 @@
 
 import { getEdgeShieldClientScript } from './edge-shield-client.mjs';
 import { renderAppSidebar } from './ui/app-sidebar.mjs';
+import { renderCampaignWorkspaceHeader } from './ui/campaign-workspace-header.mjs';
 
-export function getDomainsPageHtml(initialDomain = '') {
+export function getDomainsPageHtml(initialDomain = '', folderId = '') {
   const rawDomain = String(initialDomain || '').trim();
   const safeInitialDomain = rawDomain.replace(/[^a-zA-Z0-9.-]/g, '').toLowerCase();
   const hasInitialDomain = Boolean(safeInitialDomain);
+  const rawFolderId = String(folderId || '').trim();
+  const safeFolderId = rawFolderId.replace(/[^a-zA-Z0-9_-]/g, '');
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -45,7 +48,8 @@ export function getDomainsPageHtml(initialDomain = '') {
         }
       }
     };
-    if (localStorage.getItem('pa_theme') === 'light') {
+    const theme = (typeof localStorage !== 'undefined') ? localStorage.getItem('pa_theme') : null;
+    if (theme === 'light') {
       document.documentElement.classList.remove('dark');
     } else {
       document.documentElement.classList.add('dark');
@@ -112,7 +116,7 @@ export function getDomainsPageHtml(initialDomain = '') {
     }, 1200);
   </script>
 </head>
-<body x-cloak class="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 min-h-screen antialiased flex flex-col font-sans transition-colors duration-150" x-data="domainsApp('${safeInitialDomain}')" @keydown.escape.window="if (isBlueprintModalOpen) closeBlueprintModal(); else if (isDossierOpen) closeDossier();">
+<body x-cloak class="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 min-h-screen antialiased flex flex-col font-sans transition-colors duration-150" x-data="domainsApp('${safeInitialDomain}'${safeFolderId ? `, '${safeFolderId}'` : ''})" @keydown.escape.window="if (isBlueprintModalOpen) closeBlueprintModal(); else if (isDossierOpen) closeDossier();">
 
   <!-- Toast Notification Container -->
   <div class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 max-w-sm pointer-events-none">
@@ -134,6 +138,8 @@ export function getDomainsPageHtml(initialDomain = '') {
 
   <!-- Main Container (Offset for Unified Desktop Sidebar) [INVARIANT: UNIFIED-SIDEBAR-LAYOUT] -->
   <main class="flex-1 min-h-screen p-4 sm:p-6 lg:p-8 space-y-6 max-w-full overflow-x-hidden transition-all duration-300 ease-in-out" :class="isSidebarCollapsed ? 'md:ml-20' : 'md:ml-64 lg:ml-72'">
+
+    ${safeFolderId ? renderCampaignWorkspaceHeader({ activeRoom: 'domains', folderId: safeFolderId }) : ''}
 
     <!-- [INVARIANT: UNIFIED-SIDEBAR-LAYOUT] Studio Header Card -->
     <section class="p-4 sm:p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -234,275 +240,113 @@ export function getDomainsPageHtml(initialDomain = '') {
       </div>
     </div>
 
-    <!-- STRATEGIC LENSES TOOLBAR -->
-    <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 flex flex-col gap-4 shadow-sm">
+    <!-- [INVARIANT: CONSOLIDATED-NEUTRAL-CONTROL-BAR] 2-Tier Control Bar (78px height) -->
+    <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-2.5 sm:p-3 flex flex-col gap-2.5 shadow-sm">
+      <!-- Tier 1: Search, Presets & Batch Actions (~38px) -->
       <div class="flex items-center justify-between flex-wrap gap-2">
-        <div class="flex items-center gap-2">
-          <span class="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider font-mono">Arbitrage Lenses:</span>
-          <span class="text-xs text-slate-400 dark:text-slate-500">Quick strategic presets</span>
-        </div>
-        <div class="flex items-center gap-2 flex-wrap">
-          <!-- Verify Entire Database Global Button -->
-          <button @click="toggleGlobalEnrichment()"
-                  class="px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all flex items-center gap-1.5 shadow-sm"
-                  :class="globalEnriching ? 'bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20' : 'bg-gradient-to-r from-sky-500 to-indigo-600 text-white hover:from-sky-600 hover:to-indigo-700 border-transparent'"
-                  :title="globalEnriching ? 'Pause global verification queue' : 'Automatically verify WHOIS age for all unverified domains in the entire database'">
-            <span :class="{ 'animate-spin': globalEnriching }">🚀</span>
-            <span x-text="globalEnriching ? 'Pause Auto-Age (' + (globalStats.percent_complete || 0) + '%)' : 'Verify Entire Database'">Verify Entire Database</span>
-          </button>
-
-          <!-- Auto-Verify All Ads Button -->
-          <button @click="toggleGlobalAdsEnrichment()"
-                  class="px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all flex items-center gap-1.5 shadow-sm"
-                  :class="globalAdsEnriching ? 'bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20' : 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white hover:from-emerald-600 hover:to-teal-700 border-transparent'"
-                  :title="globalAdsEnriching ? 'Pause automated ads.txt scan' : 'Automatically scan ads.txt for all unverified domains in the entire database'">
-            <span :class="{ 'animate-spin': globalAdsEnriching }">💰</span>
-            <span x-text="globalAdsEnriching ? 'Pause Auto-Ads (' + (globalAdsStats.percent_complete || 0) + '%)' : 'Auto-Verify All Ads'">Auto-Verify All Ads</span>
-          </button>
-
-          <!-- Batch Check Visible Domains Button (Age) -->
-          <button @click="batchEnrichVisible()"
-                  :disabled="batchEnriching || globalEnriching"
-                  class="px-2.5 py-1.5 rounded-xl border border-sky-300 dark:border-sky-800 bg-sky-50 hover:bg-sky-100 dark:bg-sky-950/40 dark:hover:bg-sky-900/60 text-xs font-semibold text-sky-700 dark:text-sky-300 transition-colors flex items-center gap-1.5 shadow-sm disabled:opacity-50"
-                  title="Check WHOIS age for unverified domains on the current page">
-            <span :class="{ 'animate-spin': batchEnriching }">⚡</span>
-            <span x-text="batchEnriching ? 'Checking (' + batchProgress.done + '/' + batchProgress.total + ')...' : 'Batch Check Page'">Batch Check Page</span>
-          </button>
-
-          <!-- Batch Check Visible Ads Button (ads.txt) -->
-          <button @click="batchEnrichAdsVisible()"
-                  :disabled="batchAdsEnriching || globalAdsEnriching"
-                  class="px-2.5 py-1.5 rounded-xl border border-emerald-300 dark:border-emerald-800 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/60 text-xs font-semibold text-emerald-700 dark:text-emerald-300 transition-colors flex items-center gap-1.5 shadow-sm disabled:opacity-50"
-                  title="Scan ads.txt for unverified domains on the current page">
-            <span :class="{ 'animate-spin': batchAdsEnriching }">⚡</span>
-            <span x-text="batchAdsEnriching ? 'Checking (' + batchAdsProgress.done + '/' + batchAdsProgress.total + ')...' : 'Batch Check Ads'">Batch Check Ads</span>
-          </button>
-
-          <button @click="downloadDomainsCsv()"
-                  class="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700/60 text-xs font-semibold text-slate-700 dark:text-slate-200 transition-colors flex items-center gap-1.5 shadow-sm">
-            <span>📥</span>
-            <span>Export CSV</span>
-          </button>
-        </div>
-      </div>
-
-      <!-- Preset Pills -->
-      <div class="flex items-center gap-2 flex-wrap">
-        <button @click="setPreset('all')"
-                class="px-3 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5"
-                :class="activePreset === 'all' ? 'bg-sky-600 text-white shadow-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700'">
-          <span>🌐</span> All Domains
-        </button>
-
-        <button @click="setPreset('baby_giants')"
-                class="px-3 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5"
-                :class="activePreset === 'baby_giants' ? 'bg-emerald-600 text-white shadow-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700'">
-          <span>🌱</span> Baby Giants (&lt; 2 Years & Top 10)
-        </button>
-
-        <button @click="setPreset('easy_arbitrage')"
-                class="px-3 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5"
-                :class="activePreset === 'easy_arbitrage' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700'">
-          <span>🚀</span> Easy Arbitrage (&lt;= 25 Pins & Top 10)
-        </button>
-
-        <button @click="setPreset('bleeding_giants')"
-                class="px-3 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5"
-                :class="activePreset === 'bleeding_giants' ? 'bg-rose-600 text-white shadow-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700'">
-          <span>🩸</span> Bleeding Giants (&gt;= 30% Displaced)
-        </button>
-
-        <button @click="setPreset('high_multipliers')"
-                class="px-3 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5"
-                :class="activePreset === 'high_multipliers' ? 'bg-amber-600 text-white shadow-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700'">
-          <span>🔁</span> High Multipliers (&gt;= 3.0x Pins/URL)
-        </button>
-
-        <button @click="setPreset('multi_account')"
-                class="px-3 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5"
-                :class="activePreset === 'multi_account' ? 'bg-purple-600 text-white shadow-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700'">
-          <span>🕸️</span> Multi-Account Networks
-        </button>
-
-        <button @click="setPreset('decaying_monopoly')"
-                class="px-3 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5"
-                :class="activePreset === 'decaying_monopoly' ? 'bg-rose-600 text-white shadow-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700'">
-          <span>⚡</span> Decaying Monopoly (Vulnerable)
-        </button>
-      </div>
-
-      <!-- Composable Modular Filter Builder (Age / Rank / Saves / Size + AND/OR Logic Switch) -->
-      <div class="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex flex-col gap-2.5">
-        <div class="flex items-center justify-between flex-wrap gap-2">
-          <div class="flex items-center gap-2">
-            <span class="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider font-mono">🎛️ Custom Modular Filters:</span>
-            <span class="text-[11px] text-slate-400 dark:text-slate-500">Combine Age, SERP Rank, Saves & Pin Size independently</span>
-          </div>
-
-          <!-- AND / OR Logic Mode Toggle -->
-          <div class="inline-flex items-center rounded-xl p-0.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-            <button @click="setLogicMode('and')"
-                    type="button"
-                    class="px-2.5 py-1 rounded-lg text-[11px] font-mono font-bold transition-all flex items-center gap-1"
-                    :class="logicMode === 'and' ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
-                    title="Match ALL selected modular conditions simultaneously (Intersection)">
-              <span>🔗</span>
-              <span>AND (Match All)</span>
-            </button>
-            <button @click="setLogicMode('or')"
-                    type="button"
-                    class="px-2.5 py-1 rounded-lg text-[11px] font-mono font-bold transition-all flex items-center gap-1"
-                    :class="logicMode === 'or' ? 'bg-amber-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
-                    title="Match ANY of the selected modular conditions (Union)">
-              <span>⚡</span>
-              <span>OR (Match Any)</span>
-            </button>
-          </div>
-        </div>
-
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          <!-- 1. Independent Domain Age Filter -->
-          <div>
-            <select x-model="ageFilter"
-                    @change="applyModularFilter()"
-                    class="w-full bg-slate-50 dark:bg-slate-800 border rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/40 font-medium"
-                    :class="ageFilter !== 'all' ? 'border-emerald-500 ring-1 ring-emerald-500/30 bg-emerald-500/5' : 'border-slate-200 dark:border-slate-700'">
-              <option value="all">🌱 Age: Any Domain Age</option>
-              <option value="le_0_5">🌱 Age: &lt;= 6 Months (Ultra-New)</option>
-              <option value="le_1">🌱 Age: &lt;= 1 Year</option>
-              <option value="le_2">🌱 Age: &lt;= 2 Years (Baby Giant Age)</option>
-              <option value="le_3">🏢 Age: &lt;= 3 Years</option>
-              <option value="le_5">🏢 Age: &lt;= 5 Years</option>
-              <option value="gt_5">🏛️ Age: &gt; 5 Years (Established)</option>
-              <option value="verified">✅ Age: Verified WHOIS Only</option>
-              <option value="unchecked">❓ Age: Unchecked Only</option>
-            </select>
-          </div>
-
-          <!-- 2. Independent SERP Rank Filter -->
-          <div>
-            <select x-model="rankFilter"
-                    @change="applyModularFilter()"
-                    class="w-full bg-slate-50 dark:bg-slate-800 border rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500/40 font-medium"
-                    :class="rankFilter !== 'all' ? 'border-sky-500 ring-1 ring-sky-500/30 bg-sky-500/5' : 'border-slate-200 dark:border-slate-700'">
-              <option value="all">🎯 Rank: Any SERP Position</option>
-              <option value="top3">🥇 Rank: Top 3 Winners</option>
-              <option value="top5">🏆 Rank: Top 5 Leaders</option>
-              <option value="top10">🎯 Rank: Top 10 (Page 1)</option>
-              <option value="top20">📈 Rank: Top 20</option>
-              <option value="top50">🌐 Rank: Any SERP Ranked (Top 50)</option>
-              <option value="displaced">📉 Rank: Has Displaced Pins</option>
-              <option value="bleeding">🩸 Rank: Bleeding (&gt;= 30% Displaced)</option>
-            </select>
-          </div>
-
-          <!-- 3. Independent Saves & Velocity Filter -->
-          <div>
-            <select x-model="savesFilter"
-                    @change="applyModularFilter()"
-                    class="w-full bg-slate-50 dark:bg-slate-800 border rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500/40 font-medium"
-                    :class="savesFilter !== 'all' ? 'border-amber-500 ring-1 ring-amber-500/30 bg-amber-500/5' : 'border-slate-200 dark:border-slate-700'">
-              <option value="all">🔥 Saves: Any Save Volume</option>
-              <option value="ge_500">🔥 Saves: &gt;= 500 Saves</option>
-              <option value="ge_1k">🔥 Saves: &gt;= 1,000 Saves (1k+)</option>
-              <option value="ge_5k">🔥 Saves: &gt;= 5,000 Saves (5k+)</option>
-              <option value="ge_10k">🔥 Saves: &gt;= 10,000 Saves (10k+)</option>
-              <option value="ge_50k">🔥 Saves: &gt;= 50,000 Saves (50k+)</option>
-              <option value="ge_100k">🔥 Saves: &gt;= 100,000 Saves (100k+)</option>
-              <option value="ge_500k">🔥 Saves: &gt;= 500,000 Saves (500k+)</option>
-              <option value="vel_5">⚡ Velocity: &gt;= +5 Saves/Day</option>
-              <option value="vel_20">🚀 Velocity: &gt;= +20 Saves/Day</option>
-            </select>
-          </div>
-
-          <!-- 4. Independent Pin Count & URL Multiplier Filter -->
-          <div>
-            <select x-model="sizeFilter"
-                    @change="applyModularFilter()"
-                    class="w-full bg-slate-50 dark:bg-slate-800 border rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500/40 font-medium"
-                    :class="sizeFilter !== 'all' ? 'border-purple-500 ring-1 ring-purple-500/30 bg-purple-500/5' : 'border-slate-200 dark:border-slate-700'">
-              <option value="all">📌 Size: Any Pins / Multiplier</option>
-              <option value="pins_le_25">🚀 Size: &lt;= 25 Pins (Easy Micro)</option>
-              <option value="pins_le_100">📌 Size: &lt;= 100 Pins</option>
-              <option value="pins_ge_100">📌 Size: &gt;= 100 Pins</option>
-              <option value="pins_ge_500">📦 Size: &gt;= 500 Pins (Authority)</option>
-              <option value="mult_ge_2">🔁 Multiplier: &gt;= 2.0x Pins/URL</option>
-              <option value="mult_ge_3">🔁 Multiplier: &gt;= 3.0x Pins/URL</option>
-              <option value="mult_ge_5">🔁 Multiplier: &gt;= 5.0x Pins/URL</option>
-              <option value="multi_acct">🕸️ Accounts: &gt;= 2 Accounts</option>
-              <option value="pbn_3">🕸️ Accounts: &gt;= 3 Accounts (PBN)</option>
-            </select>
-          </div>
-        </div>
-
-        <!-- Active Filter Chips Strip -->
-        <template x-if="hasActiveFilters()">
-          <div class="flex items-center justify-between flex-wrap gap-2 pt-2">
-            <div class="flex items-center gap-1.5 flex-wrap text-[11px] font-mono">
-              <span class="text-slate-400">Active:</span>
-              <template x-if="activePreset !== 'all'">
-                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-sky-500/10 text-sky-700 dark:text-sky-300 border border-sky-500/20">
-                  <span x-text="'Preset: ' + activePreset"></span>
-                  <button @click="activePreset = 'all'; loadDomains(true)" class="hover:text-rose-500 font-bold">✕</button>
-                </span>
-              </template>
-              <template x-if="ageFilter !== 'all'">
-                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20">
-                  <span x-text="'Age: ' + ageFilter"></span>
-                  <button @click="ageFilter = 'all'; loadDomains(true)" class="hover:text-rose-500 font-bold">✕</button>
-                </span>
-              </template>
-              <template x-if="rankFilter !== 'all'">
-                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-sky-500/10 text-sky-700 dark:text-sky-300 border border-sky-500/20">
-                  <span x-text="(ageFilter !== 'all' ? logicMode.toUpperCase() + ' ' : '') + 'Rank: ' + rankFilter"></span>
-                  <button @click="rankFilter = 'all'; loadDomains(true)" class="hover:text-rose-500 font-bold">✕</button>
-                </span>
-              </template>
-              <template x-if="savesFilter !== 'all'">
-                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20">
-                  <span x-text="((ageFilter !== 'all' || rankFilter !== 'all') ? logicMode.toUpperCase() + ' ' : '') + 'Saves: ' + savesFilter"></span>
-                  <button @click="savesFilter = 'all'; loadDomains(true)" class="hover:text-rose-500 font-bold">✕</button>
-                </span>
-              </template>
-              <template x-if="sizeFilter !== 'all'">
-                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-purple-500/10 text-purple-700 dark:text-purple-300 border border-purple-500/20">
-                  <span x-text="((ageFilter !== 'all' || rankFilter !== 'all' || savesFilter !== 'all') ? logicMode.toUpperCase() + ' ' : '') + 'Size: ' + sizeFilter"></span>
-                  <button @click="sizeFilter = 'all'; loadDomains(true)" class="hover:text-rose-500 font-bold">✕</button>
-                </span>
-              </template>
-              <template x-if="selectedAdNetwork !== 'all'">
-                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-teal-500/10 text-teal-700 dark:text-teal-300 border border-teal-500/20">
-                  <span x-text="'Ads: ' + selectedAdNetwork"></span>
-                  <button @click="selectedAdNetwork = 'all'; loadDomains(true)" class="hover:text-rose-500 font-bold">✕</button>
-                </span>
-              </template>
-            </div>
-            <button @click="resetFilters()"
-                    class="text-xs font-semibold text-rose-600 dark:text-rose-400 hover:underline font-mono">
-              ✕ Reset All Filters
-            </button>
-          </div>
-        </template>
-      </div>
-
-      <!-- Filter Controls Grid -->
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 pt-3 border-t border-slate-100 dark:border-slate-800/80">
-        <!-- Search Input -->
-        <div class="relative">
+        <!-- Search Input (Left) -->
+        <div class="relative w-48 sm:w-60">
           <input type="text"
                  x-model="searchQuery"
                  @input.debounce.400ms="applySearch()"
                  placeholder="Search domain (e.g. tasty)..."
-                 class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/40">
-          <span class="absolute right-3 top-2.5 text-xs text-slate-400">🔍</span>
+                 class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700/80 rounded-xl pl-8 pr-7 py-1.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/40">
+          <span class="absolute left-2.5 top-2 text-xs text-slate-400">🔍</span>
+          <button x-show="searchQuery"
+                  @click="searchQuery = ''; applySearch()"
+                  class="absolute right-2 top-2 text-slate-400 hover:text-slate-600 text-xs font-bold">✕</button>
         </div>
 
-        <!-- Ad Network Dropdown -->
+        <!-- Presets & Target Domains (Center) -->
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <button @click="setPreset('all')"
+                  class="px-2.5 py-1 rounded-xl text-xs font-medium transition-all"
+                  :class="activePreset === 'all' && !pinnedOnly ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 font-semibold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200/60 dark:border-slate-800'">
+            All
+          </button>
+          <button @click="setPreset(activePreset === 'baby_giants' ? 'all' : 'baby_giants')"
+                  class="px-2.5 py-1 rounded-xl text-xs font-medium transition-all"
+                  :class="activePreset === 'baby_giants' ? 'bg-emerald-600 text-white font-semibold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200/60 dark:border-slate-800'">
+            <span>🌱 Baby Giants</span>
+          </button>
+          <button @click="setPreset(activePreset === 'easy_arbitrage' ? 'all' : 'easy_arbitrage')"
+                  class="px-2.5 py-1 rounded-xl text-xs font-medium transition-all"
+                  :class="activePreset === 'easy_arbitrage' ? 'bg-indigo-600 text-white font-semibold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200/60 dark:border-slate-800'">
+            <span>🚀 Easy Arb</span>
+          </button>
+          <button @click="setPreset(activePreset === 'bleeding_giants' ? 'all' : 'bleeding_giants')"
+                  class="px-2.5 py-1 rounded-xl text-xs font-medium transition-all"
+                  :class="activePreset === 'bleeding_giants' ? 'bg-rose-600 text-white font-semibold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200/60 dark:border-slate-800'">
+            <span>🩸 Bleeding</span>
+          </button>
+          <button @click="setPreset(activePreset === 'high_multipliers' ? 'all' : 'high_multipliers')"
+                  class="px-2.5 py-1 rounded-xl text-xs font-medium transition-all"
+                  :class="activePreset === 'high_multipliers' ? 'bg-amber-600 text-white font-semibold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200/60 dark:border-slate-800'">
+            <span>🔁 High Mult</span>
+          </button>
+          <button @click="setPreset(activePreset === 'multi_account' ? 'all' : 'multi_account')"
+                  class="px-2.5 py-1 rounded-xl text-xs font-medium transition-all"
+                  :class="activePreset === 'multi_account' ? 'bg-purple-600 text-white font-semibold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200/60 dark:border-slate-800'">
+            <span>🕸️ Multi-Acct</span>
+          </button>
+          <!-- Target Domains Toggle -->
+          <button @click="pinnedOnly = !pinnedOnly; loadDomains(true)"
+                  class="px-2.5 py-1 rounded-xl text-xs font-semibold transition-all flex items-center gap-1 shadow-2xs"
+                  :class="pinnedOnly ? 'bg-indigo-600 text-white ring-2 ring-indigo-500/20' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200/80 dark:border-slate-700'"
+                  title="Toggle view between all ranked domains and pinned campaign targets">
+            <span>📌 Target Domains</span>
+            <template x-if="pinnedDomains.size > 0">
+              <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-indigo-500/20 text-indigo-700 dark:text-indigo-300" x-text="pinnedDomains.size"></span>
+            </template>
+          </button>
+        </div>
+
+        <!-- Action Buttons (Right) -->
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <button @click="batchEnrichVisible()"
+                  :disabled="batchEnriching || globalEnriching"
+                  class="px-2.5 py-1 rounded-xl border border-sky-300 dark:border-sky-800 bg-sky-50 hover:bg-sky-100 dark:bg-sky-950/40 dark:hover:bg-sky-900/60 text-xs font-semibold text-sky-700 dark:text-sky-300 transition-colors flex items-center gap-1 shadow-2xs disabled:opacity-50"
+                  title="Check WHOIS age for unverified domains on the current page">
+            <span :class="{ 'animate-spin': batchEnriching }">⚡</span>
+            <span x-text="batchEnriching ? 'Checking (' + batchProgress.done + '/' + batchProgress.total + ')...' : 'Batch Page'">Batch Page</span>
+          </button>
+          <button @click="batchEnrichAdsVisible()"
+                  :disabled="batchAdsEnriching || globalAdsEnriching"
+                  class="px-2.5 py-1 rounded-xl border border-emerald-300 dark:border-emerald-800 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/60 text-xs font-semibold text-emerald-700 dark:text-emerald-300 transition-colors flex items-center gap-1 shadow-2xs disabled:opacity-50"
+                  title="Scan ads.txt for unverified domains on the current page">
+            <span :class="{ 'animate-spin': batchAdsEnriching }">💰</span>
+            <span x-text="batchAdsEnriching ? 'Checking (' + batchAdsProgress.done + '/' + batchAdsProgress.total + ')...' : 'Batch Check Ads'">Batch Check Ads</span>
+          </button>
+          <button @click="toggleGlobalEnrichment()"
+                  class="px-2.5 py-1 rounded-xl border text-xs font-semibold transition-all flex items-center gap-1 shadow-2xs"
+                  :class="globalEnriching ? 'bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'"
+                  :title="globalEnriching ? 'Pause global verification' : 'Auto-verify WHOIS age in background'">
+            <span :class="{ 'animate-spin': globalEnriching }">🚀</span>
+            <span x-text="globalEnriching ? 'Pause Auto-Age (' + (globalStats.percent_complete || 0) + '%)' : 'Verify Entire Database'">Verify Entire Database</span>
+          </button>
+          <button @click="toggleGlobalAdsEnrichment()"
+                  class="px-2.5 py-1 rounded-xl border text-xs font-semibold transition-all flex items-center gap-1 shadow-2xs"
+                  :class="globalAdsEnriching ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'"
+                  :title="globalAdsEnriching ? 'Pause global ads verification' : 'Auto-verify ads.txt in background'">
+            <span :class="{ 'animate-spin': globalAdsEnriching }">💰</span>
+            <span x-text="globalAdsEnriching ? 'Pause Auto-Ads (' + (globalAdsStats.percent_complete || 0) + '%)' : 'Auto-Verify All Ads'">Auto-Verify All Ads</span>
+          </button>
+          <button @click="downloadDomainsCsv()"
+                  class="px-2.5 py-1 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700/60 text-xs font-semibold text-slate-700 dark:text-slate-200 transition-colors flex items-center gap-1 shadow-2xs">
+            <span>📥</span>
+            <span>CSV</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Tier 2: Refined Attribute Selects & Quick Toggles (~36px) -->
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-8 gap-2 pt-2 border-t border-slate-100 dark:border-slate-800/80 items-center">
+        <!-- 1. Ad Network -->
         <div>
           <select x-model="selectedAdNetwork"
                   @change="loadDomains(true)"
-                  class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500/40">
-            <option value="all">💰 All Ad Networks</option>
+                  class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-sky-500 font-medium">
+            <option value="all">💰 All Ads</option>
             <option value="raptive">💎 Raptive</option>
             <option value="mediavine">🍇 Mediavine</option>
             <option value="journey">🚀 Journey</option>
@@ -510,62 +354,118 @@ export function getDomainsPageHtml(initialDomain = '') {
             <option value="hbagency">⚡ HBAgency</option>
             <option value="adsense">🟡 AdSense</option>
             <option value="affiliate_only">🛒 Affiliate Only</option>
-            <option value="switched">🔄 Switched Networks</option>
+            <option value="switched">🔄 Switched</option>
             <option value="unchecked">❓ Unchecked</option>
           </select>
         </div>
 
-        <!-- Campaign Folder Dropdown -->
+        <!-- 2. Campaign Folder -->
         <div>
           <select x-model="selectedFolderId"
                   @change="loadDomains(true)"
-                  class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500/40">
+                  class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-sky-500 font-medium">
             <option value="">📁 All Folders</option>
             <template x-for="f in folders" :key="f.id">
-              <option :value="f.id" x-text="f.name + ' (' + (f.item_count || 0) + ')'"></option>
+              <option :value="f.id" x-text="f.name + ' (' + (f.item_count || f.keyword_count || 0) + ')'"></option>
             </template>
           </select>
         </div>
 
-        <!-- Pillar Dropdown -->
+        <!-- 3. Domain Age -->
         <div>
-          <select x-model="selectedPillar"
-                  @change="loadDomains(true)"
-                  class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500/40">
-            <option value="all">🏛️ All Pillars (P1 + P2 + P4)</option>
-            <option value="serp">🎯 SERP Radar (P2 Only)</option>
-            <option value="archive">📦 PinArchive (P4 Only)</option>
-            <option value="competitors">👥 Competitors (P1 Only)</option>
+          <select x-model="ageFilter"
+                  @change="applyModularFilter()"
+                  class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-emerald-500 font-medium"
+                  :class="ageFilter !== 'all' ? 'border-emerald-500 bg-emerald-500/5' : ''">
+            <option value="all">🌱 Any Age</option>
+            <option value="le_0_5">🌱 &lt;= 6m</option>
+            <option value="le_1">🌱 &lt;= 1y</option>
+            <option value="le_2">🌱 &lt;= 2y (Baby Giant)</option>
+            <option value="le_3">🏢 &lt;= 3y</option>
+            <option value="le_5">🏢 &lt;= 5y</option>
+            <option value="gt_5">🏛️ &gt; 5y</option>
+            <option value="verified">✅ Verified Only</option>
+            <option value="unchecked">❓ Unchecked</option>
           </select>
         </div>
 
-        <!-- Sort By Dropdown -->
+        <!-- 4. SERP Rank -->
+        <div>
+          <select x-model="rankFilter"
+                  @change="applyModularFilter()"
+                  class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-sky-500 font-medium"
+                  :class="rankFilter !== 'all' ? 'border-sky-500 bg-sky-500/5' : ''">
+            <option value="all">🎯 Any Rank</option>
+            <option value="top3">🥇 Top 3</option>
+            <option value="top5">🏆 Top 5</option>
+            <option value="top10">🎯 Top 10</option>
+            <option value="top20">📈 Top 20</option>
+            <option value="displaced">📉 Displaced</option>
+            <option value="bleeding">🩸 Bleeding (&gt;= 30%)</option>
+          </select>
+        </div>
+
+        <!-- 5. Saves & Velocity -->
+        <div>
+          <select x-model="savesFilter"
+                  @change="applyModularFilter()"
+                  class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-amber-500 font-medium"
+                  :class="savesFilter !== 'all' ? 'border-amber-500 bg-amber-500/5' : ''">
+            <option value="all">🔥 Any Saves</option>
+            <option value="ge_500">🔥 &gt;= 500</option>
+            <option value="ge_1k">🔥 &gt;= 1k</option>
+            <option value="ge_5k">🔥 &gt;= 5k</option>
+            <option value="ge_10k">🔥 &gt;= 10k</option>
+            <option value="ge_50k">🔥 &gt;= 50k</option>
+            <option value="vel_5">⚡ Vel &gt;= +5/d</option>
+            <option value="vel_20">🚀 Vel &gt;= +20/d</option>
+          </select>
+        </div>
+
+        <!-- 6. Sort By -->
         <div>
           <select x-model="sortBy"
                   @change="loadDomains(true)"
-                  class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500/40 font-mono">
-            <option value="visibility">Sort: SERP Visibility Score</option>
-            <option value="arbitrage_score">Sort: Arbitrage Velocity / Age</option>
-            <option value="age_asc">Sort: Youngest Domain Age</option>
-            <option value="pins_count">Sort: Total Pins Count</option>
-            <option value="saves">Sort: Total Saves</option>
-            <option value="velocity">Sort: Daily Save Velocity</option>
-            <option value="avg_rank">Sort: Best Average Rank</option>
-            <option value="multiplier">Sort: Pin-to-URL Multiplier</option>
+                  class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-sky-500 font-mono">
+            <option value="visibility">Sort: Visibility</option>
+            <option value="arbitrage_score">Sort: Arb Score</option>
+            <option value="age_asc">Sort: Youngest</option>
+            <option value="pins_count">Sort: Pins</option>
+            <option value="saves">Sort: Saves</option>
+            <option value="velocity">Sort: Velocity</option>
+            <option value="avg_rank">Sort: Best Rank</option>
+            <option value="multiplier">Sort: Multiplier</option>
           </select>
         </div>
 
-        <!-- Marketplace Toggle -->
-        <div class="flex items-center justify-between px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800">
-          <label for="marketplaces-toggle" class="text-xs font-medium text-slate-700 dark:text-slate-300 flex items-center gap-1.5 cursor-pointer">
+        <!-- 7. Blogs Only Checkbox -->
+        <div class="flex items-center justify-between px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800">
+          <label for="marketplaces-toggle" class="text-xs font-medium text-slate-700 dark:text-slate-300 flex items-center gap-1 cursor-pointer">
             <span>📰</span>
-            <span>Blogs Only</span>
+            <span>Blogs</span>
           </label>
           <input id="marketplaces-toggle"
                  type="checkbox"
                  x-model="excludeMarketplaces"
                  @change="loadDomains(true)"
                  class="rounded border-slate-300 text-sky-600 focus:ring-sky-500 cursor-pointer">
+        </div>
+
+        <!-- 8. Logic Toggle & Reset -->
+        <div class="flex items-center justify-between gap-1">
+          <button @click="setLogicMode(logicMode === 'and' ? 'or' : 'and')"
+                  type="button"
+                  class="px-2 py-1 rounded-lg text-[10px] font-mono font-bold transition-all border"
+                  :class="logicMode === 'and' ? 'bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 border-sky-300 dark:border-sky-700' : 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-700'"
+                  :title="'Logic mode: ' + logicMode.toUpperCase() + '. Click to switch.'">
+            <span x-text="logicMode.toUpperCase()">AND</span>
+          </button>
+          <template x-if="hasActiveFilters()">
+            <button @click="resetFilters()"
+                    class="text-xs font-semibold text-rose-600 dark:text-rose-400 hover:underline font-mono">
+              ✕ Reset
+            </button>
+          </template>
         </div>
       </div>
     </div>
@@ -646,9 +546,8 @@ export function getDomainsPageHtml(initialDomain = '') {
         <table class="w-full text-left text-xs border-collapse">
           <thead>
             <tr class="bg-slate-50/80 dark:bg-slate-950/60 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800 font-mono text-[11px] uppercase select-none">
-              <th class="py-3 px-4 font-semibold"># & Domain</th>
-              <th @click="toggleSortColumn('age_asc')" class="py-3 px-4 font-semibold cursor-pointer hover:text-sky-600 dark:hover:text-sky-400 transition-colors">
-                Domain Age & Registry <span x-show="sortBy === 'age_asc' || sortBy === 'age_desc'" x-text="sortBy === 'age_asc' ? '↑' : '↓'"></span>
+              <th @click="toggleSortColumn('domain')" class="py-3 px-4 font-semibold cursor-pointer hover:text-sky-600 dark:hover:text-sky-400 transition-colors">
+                # & Domain <span x-show="sortBy === 'domain_asc' || sortBy === 'domain_desc'" x-text="sortBy === 'domain_asc' ? '↑' : '↓'"></span>
               </th>
               <th class="py-3 px-4 font-semibold">Ad Network</th>
               <th @click="toggleSortColumn('pins_count')" class="py-3 px-4 font-semibold cursor-pointer hover:text-sky-600 dark:hover:text-sky-400 transition-colors">
@@ -670,7 +569,7 @@ export function getDomainsPageHtml(initialDomain = '') {
             <!-- Loading Row -->
             <template x-if="loading">
               <tr>
-                <td colspan="8" class="py-12 text-center text-slate-400 font-mono">
+                <td colspan="7" class="py-12 text-center text-slate-400 font-mono">
                   <div class="inline-flex items-center gap-2">
                     <span class="animate-spin text-base">⏳</span>
                     <span>Querying cross-pillar domain authority...</span>
@@ -682,7 +581,7 @@ export function getDomainsPageHtml(initialDomain = '') {
             <!-- Error / Timeout Row -->
             <template x-if="!loading && loadError">
               <tr>
-                <td colspan="8" class="py-12 text-center text-rose-500 font-mono">
+                <td colspan="7" class="py-12 text-center text-rose-500 font-mono">
                   <div class="flex flex-col items-center gap-2">
                     <span class="text-2xl">⚠️</span>
                     <span class="font-semibold text-slate-700 dark:text-slate-300" x-text="loadError"></span>
@@ -698,7 +597,7 @@ export function getDomainsPageHtml(initialDomain = '') {
             <!-- Empty Row -->
             <template x-if="!loading && !loadError && domains.length === 0">
               <tr>
-                <td colspan="8" class="py-12 text-center text-slate-400">
+                <td colspan="7" class="py-12 text-center text-slate-400">
                   <div class="flex flex-col items-center gap-2">
                     <span class="text-2xl">🔍</span>
                     <span class="font-semibold text-slate-700 dark:text-slate-300">No domains match the selected filters</span>
@@ -712,7 +611,7 @@ export function getDomainsPageHtml(initialDomain = '') {
             <template x-for="(d, idx) in domains" :key="d.domain">
               <tr @click="openDossier(d.domain)"
                   class="hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors group">
-                <!-- 1. Rank & Domain -->
+                <!-- 1. Rank & Domain (with Age relocated to sub-line, 5 redundant badges purged) -->
                 <td class="py-3 px-4">
                   <div class="flex items-center gap-2.5">
                     <span class="text-slate-400 font-mono text-[11px] w-6 shrink-0" x-text="((currentPage - 1) * limit) + idx + 1"></span>
@@ -726,24 +625,9 @@ export function getDomainsPageHtml(initialDomain = '') {
                            onerror="this.onerror=null; this.style.display='none'">
                     </template>
                     <div class="flex flex-col min-w-0">
+                      <!-- Line 1: Domain Name + External Link -->
                       <div class="flex items-center gap-1.5 flex-wrap">
                         <span class="font-bold text-slate-900 dark:text-white truncate group-hover:text-sky-600 dark:group-hover:text-sky-400 transition-colors" x-text="d.domain"></span>
-                        <template x-if="d.domain && d.domain.toLowerCase() === 'uploaded by user'">
-                          <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 shrink-0" title="100% Organic Vacuum: Highly ranked pins with zero outbound affiliate/ad links">🎯 Arbitrage Vacuum</span>
-                        </template>
-                        <!-- Smart Badges -->
-                        <template x-if="d.age_years !== null && d.age_years <= 2.0 && (d.top10_pins >= 1 || d.total_saves >= 1000)">
-                          <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 shrink-0" title="Baby Giant: <= 2 Years with Top-10 Pins or 1k+ Saves">🌱 Baby Giant</span>
-                        </template>
-                        <template x-if="d.accounts_count >= 2">
-                          <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20 shrink-0" :title="'Multi-Account Network: ' + d.accounts_count + ' accounts pushing traffic'" x-text="'🕸️ ' + d.accounts_count + ' Accts'"></span>
-                        </template>
-                        <template x-if="d.pins_per_url >= 3.0 && (!d.domain || d.domain.toLowerCase() !== 'uploaded by user')">
-                          <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 shrink-0" :title="'High URL Multiplier: ' + d.pins_per_url + 'x pins/URL'" x-text="'🔁 ' + d.pins_per_url + 'x URL'"></span>
-                        </template>
-                        <template x-if="d.displaced_pins >= 3 && d.decay_rate_pct >= 30">
-                          <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 shrink-0" :title="'Bleeding Giant: ' + d.decay_rate_pct + '% displacement'">🩸 Bleeding</span>
-                        </template>
                         <template x-if="!d.domain || d.domain.toLowerCase() !== 'uploaded by user'">
                           <a :href="safeUrl('https://' + d.domain)"
                              target="_blank"
@@ -755,63 +639,60 @@ export function getDomainsPageHtml(initialDomain = '') {
                           </a>
                         </template>
                       </div>
-                      <span class="text-[10px] text-slate-400 font-mono" x-text="(d.domain && d.domain.toLowerCase() === 'uploaded by user') ? '0 (Direct Uploads)' : (d.unique_urls + ' unique URLs')"></span>
+
+                      <!-- Line 2: Relocated Domain Age Sub-Line -->
+                      <div class="flex items-center gap-1 flex-wrap text-[10px] text-slate-400 font-mono mt-0.5">
+                        <template x-if="d.domain && d.domain.toLowerCase() === 'uploaded by user'">
+                          <span class="text-amber-600 dark:text-amber-400 font-semibold">✨ Direct Uploads • Organic Vacuum</span>
+                        </template>
+                        <template x-if="!d.domain || d.domain.toLowerCase() !== 'uploaded by user'">
+                          <div class="flex items-center gap-1 flex-wrap">
+                            <!-- Resolved Age with Universal Strict Formatting -->
+                            <template x-if="d.age_years !== null && d.age_years !== undefined">
+                              <span class="inline-flex items-center gap-0.5 font-bold px-1.5 py-0.2 rounded"
+                                    :class="{
+                                      'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20': d.age_years <= 2.0,
+                                      'bg-sky-500/10 text-sky-700 dark:text-sky-400 border border-sky-500/20': d.age_years > 2.0 && d.age_years <= 5.0,
+                                      'bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20': d.age_years > 5.0
+                                    }"
+                                    :title="d.domain_created_at ? 'Registered: ' + d.domain_created_at.slice(0, 10) : 'Age'">
+                                <span x-text="d.age_years <= 2.0 ? '🌱' : (d.age_years <= 5.0 ? '🏢' : '🏛️')"></span>
+                                <span x-text="formatDomainAge(d.age_days)"></span>
+                              </span>
+                            </template>
+                            <!-- Privacy Shielded / Redacted -->
+                            <template x-if="(d.age_years === null || d.age_years === undefined) && d.age_status === 'failed'">
+                              <span class="inline-flex items-center gap-0.5 text-amber-700 dark:text-amber-400 font-semibold"
+                                    title="Checked: Registry Withheld / Privacy Shielded">
+                                <span>🔒</span>
+                                <span>Redacted / Shielded</span>
+                                <button @click.stop="enrichAge(d.domain, true)"
+                                        :disabled="enrichingDomains[d.domain]"
+                                        class="hover:text-slate-600 dark:hover:text-slate-200 transition text-[9px] ml-0.5"
+                                        title="Re-check WHOIS">
+                                  <span :class="{ 'animate-spin': enrichingDomains[d.domain] }">🔄</span>
+                                </button>
+                              </span>
+                            </template>
+                            <!-- Unchecked -->
+                            <template x-if="(d.age_years === null || d.age_years === undefined) && d.age_status !== 'failed'">
+                              <button @click.stop="enrichAge(d.domain)"
+                                      :disabled="enrichingDomains[d.domain]"
+                                      class="hover:text-sky-600 dark:hover:text-sky-400 underline font-semibold transition"
+                                      title="Check WHOIS age">
+                                <span x-text="enrichingDomains[d.domain] ? '⏳...' : '🔍 Check'"></span>
+                              </button>
+                            </template>
+
+                            <template x-if="d.domain_created_at">
+                              <span x-text="'• Reg: ' + d.domain_created_at.slice(0, 4)"></span>
+                            </template>
+                            <span x-text="'• ' + (d.unique_urls || 0) + ' URLs'"></span>
+                          </div>
+                        </template>
+                      </div>
                     </div>
                   </div>
-                </td>
-
-                <!-- 2. Domain Age & Registry -->
-                <td class="py-3 px-4">
-                  <template x-if="d.domain && d.domain.toLowerCase() === 'uploaded by user'">
-                    <span class="inline-flex items-center gap-1 font-mono text-[10px] font-semibold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-400">N/A (Organic)</span>
-                  </template>
-                  <template x-if="!d.domain || d.domain.toLowerCase() !== 'uploaded by user'">
-                    <div>
-                  <!-- State 1: Resolved Age -->
-                  <template x-if="d.age_years !== null && d.age_years !== undefined">
-                    <div class="flex flex-col gap-0.5">
-                      <span class="inline-flex items-center gap-1 font-mono text-[11px] font-bold px-2 py-0.5 rounded-md w-fit"
-                            :class="{
-                              'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30': d.age_years <= 2.0,
-                              'bg-sky-500/10 text-sky-700 dark:text-sky-400 border border-sky-500/30': d.age_years > 2.0 && d.age_years <= 5.0,
-                              'bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/30': d.age_years > 5.0
-                            }"
-                            :title="d.domain_created_at ? 'Registered: ' + d.domain_created_at.slice(0, 10) + ' (' + (d.lookup_source || 'whois') + ')' : 'Age'">
-                        <span x-text="d.age_years <= 2.0 ? '🌱' : (d.age_years <= 5.0 ? '🏢' : '🏛️')"></span>
-                        <span x-text="d.age_years + 'y (' + formatNumber(d.age_days) + 'd)'"></span>
-                      </span>
-                      <span class="text-[10px] text-slate-400 font-mono" x-text="d.domain_created_at ? 'Reg: ' + d.domain_created_at.slice(0, 10) : ''"></span>
-                    </div>
-                  </template>
-
-                  <!-- State 2: Checked & Privacy Shielded / Redacted Date -->
-                  <template x-if="(d.age_years === null || d.age_years === undefined) && d.age_status === 'failed'">
-                    <div class="flex items-center gap-1.5" @click.stop>
-                      <span class="inline-flex items-center gap-1 font-mono text-[10px] font-semibold px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20"
-                            title="Checked via WHOIS/RDAP: Registry withholds public registration date or is privacy-shielded">
-                        <span>🔒</span>
-                        <span>Redacted / Shielded</span>
-                      </span>
-                      <button @click.stop="enrichAge(d.domain, true)"
-                              :disabled="enrichingDomains[d.domain]"
-                              class="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-[11px] transition"
-                              title="Force Re-check WHOIS/RDAP">
-                        <span :class="{ 'animate-spin': enrichingDomains[d.domain] }">🔄</span>
-                      </button>
-                    </div>
-                  </template>
-
-                  <!-- State 3: Unchecked Domain -->
-                  <template x-if="(d.age_years === null || d.age_years === undefined) && d.age_status !== 'failed'">
-                    <button @click.stop="enrichAge(d.domain)"
-                            :disabled="enrichingDomains[d.domain]"
-                            class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-[10px] font-mono border border-slate-200 dark:border-slate-700 transition flex items-center gap-1 disabled:opacity-60 shadow-sm">
-                      <span :class="{ 'animate-spin': enrichingDomains[d.domain] }" x-text="enrichingDomains[d.domain] ? '⏳' : '🔍'">🔍</span>
-                      <span x-text="enrichingDomains[d.domain] ? 'Checking...' : 'Check Age'">Check Age</span>
-                    </button>
-                  </template>
-                    </div>
-                  </template>
                 </td>
 
                 <!-- 3. Ad Network & Monetization -->
@@ -942,10 +823,19 @@ export function getDomainsPageHtml(initialDomain = '') {
 
                 <!-- 7. Actions -->
                 <td class="py-3 px-4 text-right">
-                  <button @click.stop="openDossier(d.domain)"
-                          class="px-2.5 py-1.5 rounded-lg bg-sky-50 dark:bg-sky-950/60 hover:bg-sky-100 dark:hover:bg-sky-900/60 text-sky-600 dark:text-sky-400 text-xs font-semibold transition border border-sky-200 dark:border-sky-800">
-                    Dossier →
-                  </button>
+                  <div class="flex items-center justify-end gap-1.5">
+                    <button @click.stop="togglePinDomain(d.domain)"
+                            class="px-2 py-1 rounded-lg text-xs font-semibold transition flex items-center gap-1 shadow-2xs"
+                            :class="pinnedDomains.has(d.domain.toLowerCase()) ? 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30' : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700'"
+                            :title="pinnedDomains.has(d.domain.toLowerCase()) ? 'Unpin domain from folder' : 'Pin domain to campaign folder'">
+                      <span>📌</span>
+                      <span x-text="pinnedDomains.has(d.domain.toLowerCase()) ? 'Pinned' : 'Pin'"></span>
+                    </button>
+                    <button @click.stop="openDossier(d.domain)"
+                            class="px-2.5 py-1.5 rounded-lg bg-sky-50 dark:bg-sky-950/60 hover:bg-sky-100 dark:hover:bg-sky-900/60 text-sky-600 dark:text-sky-400 text-xs font-semibold transition border border-sky-200 dark:border-sky-800">
+                      Dossier →
+                    </button>
+                  </div>
                 </td>
               </tr>
             </template>
@@ -1112,7 +1002,7 @@ export function getDomainsPageHtml(initialDomain = '') {
                 :class="dossierData?.age_info?.age_years != null ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20' : (dossierData?.age_info?.lookup_status === 'failed' ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700')"
                 :title="dossierData?.age_info?.registered_at ? 'Registered: ' + dossierData.age_info.registered_at.slice(0, 10) : 'Age'">
             <span>🌱</span>
-            <span x-text="dossierData?.age_info?.age_years != null ? dossierData.age_info.age_years + 'y (' + formatNumber(dossierData.age_info.age_days) + 'd)' : (dossierData?.age_info?.lookup_status === 'failed' ? 'Registry Withheld / Privacy Shielded' : 'Unverified Age')"></span>
+            <span x-text="dossierData?.age_info?.age_days != null ? formatDomainAge(dossierData.age_info.age_days) : (dossierData?.age_info?.lookup_status === 'failed' ? 'Registry Withheld / Privacy Shielded' : 'Unverified Age')"></span>
           </span>
 
           <!-- Registration Date -->
@@ -2035,8 +1925,11 @@ export function getDomainsPageHtml(initialDomain = '') {
 
   <!-- Client-Side Application Script -->
   <script>
-    function domainsApp(initialDomain = '') {
+    function domainsApp(initialDomain = '', scopedFolderId = '') {
       return {
+        scopedFolderId: scopedFolderId || '',
+        pinnedDomains: new Set(),
+        pinnedOnly: false,
         isSidebarCollapsed: (() => {
           try {
             return typeof localStorage !== 'undefined' ? localStorage.getItem('pae_sidebar_collapsed') === 'true' : false;
@@ -2073,7 +1966,7 @@ export function getDomainsPageHtml(initialDomain = '') {
 
         // Filters
         searchQuery: '',
-        selectedFolderId: '',
+        selectedFolderId: scopedFolderId || '',
         selectedPillar: 'all',
         activePreset: 'all',
         selectedAdNetwork: 'all',
@@ -2161,6 +2054,10 @@ export function getDomainsPageHtml(initialDomain = '') {
               }
             });
           }
+          if (this.scopedFolderId) {
+            this.selectedFolderId = this.scopedFolderId;
+            this.fetchPinnedDomains();
+          }
           this.fetchFolders();
           this.loadDomains();
           // Defer heavy database-wide aggregations to background idle so leaderboard query gets 100% database priority
@@ -2170,10 +2067,11 @@ export function getDomainsPageHtml(initialDomain = '') {
           }, 1500);
 
           // Sync Dedicated Full-Page Route & Browser History
+          // [INVARIANT: FOLDER-SCOPED-POPSTATE-PRESERVATION]
           if (typeof window !== 'undefined') {
             window.addEventListener('popstate', (e) => {
               const stateDomain = e.state?.domain;
-              const pathMatch = window.location.pathname.match(/^\\/(?:keywords\\/)?domains\\/([^/?#]+)/);
+              const pathMatch = window.location.pathname.match(/(?:\\/folders\\/[^/]+)?\\/(?:keywords\\/)?domains\\/([^/?#]+)/);
               const urlDomain = pathMatch ? decodeURIComponent(pathMatch[1]) : '';
               const target = stateDomain || urlDomain;
               if (target) {
@@ -2186,7 +2084,7 @@ export function getDomainsPageHtml(initialDomain = '') {
             if (this.dossierDomain) {
               this.openDossier(this.dossierDomain, false);
             } else {
-              const pathMatch = window.location.pathname.match(/^\\/(?:keywords\\/)?domains\\/([^/?#]+)/);
+              const pathMatch = window.location.pathname.match(/(?:\\/folders\\/[^/]+)?\\/(?:keywords\\/)?domains\\/([^/?#]+)/);
               if (pathMatch && pathMatch[1]) {
                 this.openDossier(decodeURIComponent(pathMatch[1]), false);
               }
@@ -2276,6 +2174,9 @@ export function getDomainsPageHtml(initialDomain = '') {
           if (this.selectedFolderId) {
             params.set('folder_id', this.selectedFolderId);
           }
+          if (this.pinnedOnly) {
+            params.set('pinned_only', 'true');
+          }
           if (this.selectedAdNetwork && this.selectedAdNetwork !== 'all') {
             params.set('ad_network', this.selectedAdNetwork);
           }
@@ -2306,7 +2207,11 @@ export function getDomainsPageHtml(initialDomain = '') {
             const data = await res.json();
             if (data.success === false) throw new Error(data.error || 'Server error');
 
-            this.domains = Array.isArray(data.domains) ? data.domains : [];
+            let rawDomains = Array.isArray(data.domains) ? data.domains : [];
+            if (this.pinnedOnly && this.pinnedDomains.size > 0) {
+              rawDomains = rawDomains.filter(d => this.pinnedDomains.has((d.domain || '').toLowerCase()));
+            }
+            this.domains = rawDomains;
             this.overview = data.overview || this.overview;
             this.totalDomains = data.total || (data.overview?.total_domains || 0);
             this.totalPages = data.total_pages || Math.max(1, Math.ceil(this.totalDomains / this.limit));
@@ -2369,13 +2274,14 @@ export function getDomainsPageHtml(initialDomain = '') {
         hasActiveFilters() {
           return (
             this.activePreset !== 'all' ||
+            this.pinnedOnly ||
             this.ageFilter !== 'all' ||
             this.rankFilter !== 'all' ||
             this.savesFilter !== 'all' ||
             this.sizeFilter !== 'all' ||
             this.selectedAdNetwork !== 'all' ||
             this.selectedPillar !== 'all' ||
-            Boolean(this.selectedFolderId) ||
+            Boolean(this.selectedFolderId && this.selectedFolderId !== this.scopedFolderId) ||
             Boolean(this.searchQuery && this.searchQuery.trim())
           );
         },
@@ -2395,7 +2301,8 @@ export function getDomainsPageHtml(initialDomain = '') {
 
         resetFilters() {
           this.searchQuery = '';
-          this.selectedFolderId = '';
+          this.selectedFolderId = this.scopedFolderId || '';
+          this.pinnedOnly = false;
           this.selectedPillar = 'all';
           this.activePreset = 'all';
           this.selectedAdNetwork = 'all';
@@ -2588,6 +2495,91 @@ export function getDomainsPageHtml(initialDomain = '') {
           this.showToast('Global verification paused. You can resume anytime.', 'info');
         },
 
+        // [INVARIANT: FOLDER-SCOPED-POPSTATE-PRESERVATION]
+        getBaseStudioPath() {
+          if (this.scopedFolderId) {
+            return '/folders/' + encodeURIComponent(this.scopedFolderId) + '/domains';
+          }
+          return '/domains';
+        },
+
+        // [INVARIANT: STRICT-TIME-FORMATTING-SSOT]
+        formatDomainAge(days) {
+          if (days == null || days === '' || isNaN(days)) return '—';
+          const numDays = Math.max(0, Math.floor(Number(days)));
+          if (numDays >= 365) {
+            const years = (numDays / 365.25).toFixed(1);
+            return years + 'y';
+          }
+          return numDays + 'd';
+        },
+
+        formatAgeFromIso(isoStr) {
+          if (!isoStr) return '—';
+          try {
+            const d = new Date(isoStr);
+            if (isNaN(d.getTime())) return '—';
+            const diffDays = Math.max(0, Math.floor((Date.now() - d.getTime()) / (1000 * 60 * 60 * 24)));
+            if (diffDays >= 365) {
+              const years = (diffDays / 365.25).toFixed(1);
+              return years + 'y';
+            }
+            return diffDays + 'd';
+          } catch (_) {
+            return '—';
+          }
+        },
+
+        async fetchPinnedDomains() {
+          if (!this.scopedFolderId) return;
+          try {
+            const res = await (window.safeApiFetch || fetch)('/api/folders/' + encodeURIComponent(this.scopedFolderId) + '/domains');
+            if (res.ok) {
+              const data = await res.json();
+              const list = data.pinned_domains || data.domains || [];
+              this.pinnedDomains = new Set(list.map(p => (typeof p === 'string' ? p : (p.domain || '')).toLowerCase()));
+            }
+          } catch (_) {}
+        },
+
+        async togglePinDomain(domain) {
+          if (!domain) return;
+          const cleanDomain = domain.toLowerCase().trim();
+          const targetFolderId = this.scopedFolderId || this.selectedFolderId;
+          if (!targetFolderId) {
+            this.showToast('Select a Campaign Folder to pin target domains', 'warning');
+            return;
+          }
+          const isPinned = this.pinnedDomains.has(cleanDomain);
+          const method = isPinned ? 'DELETE' : 'POST';
+          const url = isPinned
+            ? '/api/folders/' + encodeURIComponent(targetFolderId) + '/domains/' + encodeURIComponent(cleanDomain)
+            : '/api/folders/' + encodeURIComponent(targetFolderId) + '/domains';
+
+          try {
+            const res = await (window.safeApiFetch || fetch)(url, {
+              method,
+              headers: { 'Content-Type': 'application/json' },
+              body: isPinned ? undefined : JSON.stringify({ domain: cleanDomain })
+            });
+            if (res.ok) {
+              if (isPinned) {
+                this.pinnedDomains.delete(cleanDomain);
+                this.showToast('Unpinned ' + cleanDomain + ' from folder', 'info');
+              } else {
+                this.pinnedDomains.add(cleanDomain);
+                this.showToast('Pinned ' + cleanDomain + ' to folder', 'success');
+              }
+              this.pinnedDomains = new Set(this.pinnedDomains);
+            } else {
+              const errData = await res.json().catch(() => ({}));
+              throw new Error(errData.error || 'HTTP ' + res.status);
+            }
+          } catch (err) {
+            this.showToast('Failed to update domain pin: ' + err.message, 'error');
+          }
+        },
+
         async openDossier(domain, pushState = true, forceRefresh = false) {
           if (!domain) return;
           this.dossierDomain = domain;
@@ -2603,9 +2595,10 @@ export function getDomainsPageHtml(initialDomain = '') {
           this.dossierStatusFilter = 'all';
 
           if (pushState && typeof window !== 'undefined' && window.history && window.history.pushState) {
-            const targetPath = '/domains/' + encodeURIComponent(domain);
+            const basePath = this.getBaseStudioPath();
+            const targetPath = basePath + '/' + encodeURIComponent(domain);
             if (window.location.pathname !== targetPath) {
-              window.history.pushState({ domain }, '', targetPath);
+              window.history.pushState({ domain, folderId: this.scopedFolderId }, '', targetPath);
             }
           }
 
@@ -2644,32 +2637,22 @@ export function getDomainsPageHtml(initialDomain = '') {
         },
 
         closeDossier(pushState = true) {
-          // [INVARIANT: IN-MEMORY-DRAWER-SYNC] Synchronize drawer metrics back to leaderboard row
+          // [INVARIANT: PRESERVE-LEADERBOARD-TELEMETRY]
+          // Only WHOIS age and Ads.txt enrichments sync back; core table metrics remain 100% INVARIANT!
           const domainToSync = this.dossierDomain || this.selectedDomain;
           if (domainToSync && this.dossierData && Array.isArray(this.domains) && this.domains.length > 0) {
             const target = this.domains.find(d => d.domain === domainToSync);
             if (target) {
-              const s = this.dossierData.summary || this.dossierData.metrics || {};
-              // [INVARIANT: PRESERVE-GLOBAL-CATALOG-COUNTS] Never overwrite true global catalog counts with partial visual counts
-              if (s.total_pins != null && s.total_pins >= (target.total_pins || 0)) target.total_pins = s.total_pins;
-              if (s.total_saves != null && s.total_saves >= (target.total_saves || 0)) target.total_saves = s.total_saves;
-              if (s.accounts_count != null) target.accounts_count = s.accounts_count;
-              if (s.avg_velocity != null) target.avg_velocity = s.avg_velocity;
-              if (s.active_pins_count != null) target.active_serp_pins = s.active_pins_count;
-              if (s.displaced_pins_count != null) target.displaced_pins = s.displaced_pins_count;
-              if (s.top3_pins != null) target.top3_pins = s.top3_pins;
-              if (s.top10_pins != null) target.top10_pins = s.top10_pins;
-              if (s.rank_11_50_pins != null) target.rank_11_50_pins = s.rank_11_50_pins;
-              if (s.best_rank != null) target.best_rank = s.best_rank;
-              if (s.avg_rank != null) target.avg_rank = s.avg_rank;
-              if (s.visibility_score != null) target.visibility_score = s.visibility_score;
-              if (s.unique_urls != null) target.unique_urls = s.unique_urls;
-              if (s.pins_per_url != null) target.pins_per_url = s.pins_per_url;
               if (this.dossierData.age_info?.age_days != null) target.age_days = this.dossierData.age_info.age_days;
+              if (this.dossierData.age_info?.created_date || this.dossierData.age_info?.registered_at) {
+                target.domain_created_at = this.dossierData.age_info.created_date || this.dossierData.age_info.registered_at;
+              }
+              if (this.dossierData.age_info?.lookup_status) target.age_status = this.dossierData.age_info.lookup_status;
               if (this.dossierData.ad_info?.current_ad_network || this.dossierData.ad_info?.ad_network) {
                 target.ad_network = this.dossierData.ad_info.current_ad_network || this.dossierData.ad_info.ad_network;
               }
               if (this.dossierData.ad_info?.ad_manager_domain) target.ad_manager_domain = this.dossierData.ad_info.ad_manager_domain;
+              if (this.dossierData.ad_info?.previous_ad_network) target.previous_ad_network = this.dossierData.ad_info.previous_ad_network;
             }
           }
           this.isDossierOpen = false;
@@ -2678,8 +2661,9 @@ export function getDomainsPageHtml(initialDomain = '') {
           this.selectedDomain = null;
           this.dossierSearch = '';
           if (pushState && typeof window !== 'undefined' && window.history && window.history.pushState) {
-            if (window.location.pathname !== '/domains') {
-              window.history.pushState({}, '', '/domains');
+            const basePath = this.getBaseStudioPath();
+            if (window.location.pathname !== basePath) {
+              window.history.pushState({ folderId: this.scopedFolderId }, '', basePath);
             }
           }
         },

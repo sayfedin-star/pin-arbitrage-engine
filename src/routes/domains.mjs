@@ -160,9 +160,8 @@ export async function handleDomainsRoutes(routeCtx) {
             // [INVARIANT: NO-MUTABLE-KV-CACHE-TTL] Eliminate cacheTtl on mutable keys to prevent stale edge PoP reads
             const kvCached = await env.PIN_ENGINE_KV.get(kvKey, { type: 'json' });
             if (kvCached) {
-              safeWaitUntil(ctx, syncSingleDomainRollup(sql, cleanDomain, kvCached), 'sync_single_domain_rollup_kv');
-              if (typeof invalidateEdgeCache === 'function') {
-                invalidateEdgeCache('domains:leaderboard');
+              if (!folderId) {
+                safeWaitUntil(ctx, syncSingleDomainRollup(sql, cleanDomain, kvCached), 'sync_single_domain_rollup_kv');
               }
               return kvCached;
             }
@@ -172,11 +171,9 @@ export async function handleDomainsRoutes(routeCtx) {
         const freshDossier = await getDomainDeepDossier(sql, cleanDomain, { folderId, keywordId, env, fastPath: true, displacedLimit });
 
         // [INVARIANT: DOSSIER-MICRO-SYNC-O1] Non-blocking single-domain rollup sync (<5ms)
-        if (freshDossier?.success) {
+        // Guard: NEVER execute syncSingleDomainRollup if folderId is present in the request
+        if (freshDossier?.success && !folderId) {
           safeWaitUntil(ctx, syncSingleDomainRollup(sql, cleanDomain, freshDossier), 'sync_single_domain_rollup');
-          if (typeof invalidateEdgeCache === 'function') {
-            invalidateEdgeCache('domains:leaderboard');
-          }
         }
 
         // Cache in Workers KV: 900s (15 min) for full dossier, or short 30s TTL if enrichment is pending

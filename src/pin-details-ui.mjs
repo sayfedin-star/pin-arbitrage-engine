@@ -1711,9 +1711,13 @@ export function getPinDetailPageHtml(pinId = '') {
           if (!isoStr) return '';
           try {
             const d = new Date(isoStr);
-            const diffDays = Math.round((Date.now() - d.getTime()) / (1000 * 60 * 60 * 24));
-            if (diffDays > 0) return '(' + diffDays + 'd ago)';
-            return '(today)';
+            if (isNaN(d.getTime())) return '';
+            const diffDays = Math.max(0, Math.floor((Date.now() - d.getTime()) / (1000 * 60 * 60 * 24)));
+            if (diffDays >= 365) {
+              const years = (diffDays / 365).toFixed(1);
+              return '(' + years + 'y)';
+            }
+            return '(' + diffDays + 'd)';
           } catch (_) { return ''; }
         },
 

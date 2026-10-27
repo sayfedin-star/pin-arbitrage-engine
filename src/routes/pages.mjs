@@ -180,7 +180,8 @@ export async function handlePagesRoutes(routeCtx) {
     }
   }
 
-  // 6. Level 4: Dedicated Campaign Folders & Crossover Studio (/folders and /folders/:id)
+  // [INVARIANT: SSR-WORKSPACE-ROOM-ROUTING]
+  // 6. Level 4: Dedicated Campaign Workspace Rooms (/folders, /folders/:id, and /folders/:id/*)
   if (pathLower === '/folders' || pathLower.startsWith('/folders/')) {
     if (method !== 'GET' && method !== 'HEAD') {
       return methodNotAllowedResponse('GET, OPTIONS');
@@ -188,15 +189,48 @@ export async function handlePagesRoutes(routeCtx) {
     if (method === 'HEAD') {
       return new Response(null, { status: 200, headers: HTML_HEADERS });
     }
+
     const segments = normalizedPath.split('/').filter(Boolean);
-    const folderId = segments[1] || '';
-    let cleanFolderId = folderId;
-    try { cleanFolderId = decodeURIComponent(folderId); } catch (_) {}
+    // segments: ['folders'] or ['folders', ':id'] or ['folders', ':id', 'keywords'|'creators'|'domains']
+    if (segments.length <= 1) {
+      // /folders -> Folder Hub Index
+      const { getCampaignFoldersPageHtml } = await import('../campaign-folders-ui.mjs');
+      return new Response(getCampaignFoldersPageHtml(''), { status: 200, headers: HTML_HEADERS });
+    }
+
+    let folderId = segments[1] || '';
+    try { folderId = decodeURIComponent(folderId); } catch (_) {}
+    const room = (segments[2] || '').toLowerCase();
+
+    if (!room) {
+      // Room 1: /folders/:id -> Crossover & Super-Pins Room
+      const { getCampaignFoldersPageHtml } = await import('../campaign-folders-ui.mjs');
+      return new Response(getCampaignFoldersPageHtml(folderId), { status: 200, headers: HTML_HEADERS });
+    }
+
+    if (room === 'keywords') {
+      // Room 2: /folders/:id/keywords -> Scoped Keywords Fleet Dashboard
+      const { getKeywordsPageHtml } = await import('../keywords-ui.mjs');
+      return new Response(getKeywordsPageHtml('', '', folderId), { status: 200, headers: HTML_HEADERS });
+    }
+
+    if (room === 'creators') {
+      // Room 3: /folders/:id/creators -> Scoped Creator Hub
+      const { getDashboardHtml } = await import('../dashboard-ui.mjs');
+      return new Response(getDashboardHtml(folderId), { status: 200, headers: HTML_HEADERS });
+    }
+
+    if (room === 'domains') {
+      // Room 4: /folders/:id/domains -> Scoped Domain Intelligence Studio
+      let domainParam = segments[3] || '';
+      try { domainParam = decodeURIComponent(domainParam); } catch (_) {}
+      const { getDomainsPageHtml } = await import('../domains-ui.mjs');
+      return new Response(getDomainsPageHtml(domainParam, folderId), { status: 200, headers: HTML_HEADERS });
+    }
+
+    // Fallback to Room 1
     const { getCampaignFoldersPageHtml } = await import('../campaign-folders-ui.mjs');
-    return new Response(getCampaignFoldersPageHtml(cleanFolderId), {
-      status: 200,
-      headers: HTML_HEADERS
-    });
+    return new Response(getCampaignFoldersPageHtml(folderId), { status: 200, headers: HTML_HEADERS });
   }
 
   // 7. Level 4B: Dedicated Domain Intelligence & SERP Monopoly Studio (/domains & /domains/:domain)

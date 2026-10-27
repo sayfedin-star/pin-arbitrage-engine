@@ -165,6 +165,19 @@ export const KNOWN_TABLE_COLUMNS = {
     'added_at',
     'metadata'
   ]),
+  folder_competitor_items: new Set([
+    'id',
+    'folder_id',
+    'competitor_id',
+    'added_at'
+  ]),
+  folder_pinned_domains: new Set([
+    'id',
+    'folder_id',
+    'domain',
+    'notes',
+    'pinned_at'
+  ]),
   keyword_ignored_pins: new Set([
     'keyword_id',
     'pin_id',

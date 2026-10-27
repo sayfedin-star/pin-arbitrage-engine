@@ -152,12 +152,51 @@ export function getCulinaryColorName(hex) {
   return 'Artisan Blend / Culinary Accent';
 }
 
+// [INVARIANT: STRICT-TIME-FORMATTING-SSOT]
 /**
- * Human-readable age formatter
+ * Format entity age from numeric days
+ * >= 365d: display in years only (e.g. '11.2y', '2.1y' - strictly NO parenthetical days, NO 'ago' suffix)
+ * < 365d: display in days only (e.g. '145d', '12d')
+ * @param {number|string|null} days - Age in days
+ * @returns {string} Formatted age (e.g. '11.2y' or '145d')
+ */
+export function formatEntityAgeFromDays(days) {
+  if (days == null || days === '') return '—';
+  const numDays = Number(days);
+  if (!isFinite(numDays) || numDays < 0) return '—';
+  if (numDays >= 365) {
+    const years = (numDays / 365).toFixed(1);
+    return `${years}y`;
+  }
+  return `${Math.round(numDays)}d`;
+}
+
+/**
+ * Format entity age from an ISO date string
+ * >= 365d: display in years only (e.g. '11.2y', '2.1y' - strictly NO parenthetical days, NO 'ago' suffix)
+ * < 365d: display in days only (e.g. '145d', '12d')
+ * @param {string|Date|null} dateInput - ISO timestamp or Date object
+ * @returns {string} Formatted age (e.g. '2.1y' or '85d')
+ */
+export function formatEntityAgeFromIso(dateInput) {
+  if (!dateInput) return '—';
+  try {
+    const d = new Date(dateInput);
+    if (isNaN(d.getTime())) return '—';
+    const diffDays = Math.max(0, Math.floor((Date.now() - d.getTime()) / (1000 * 60 * 60 * 24)));
+    if (diffDays >= 365) {
+      const years = (diffDays / 365).toFixed(1);
+      return `${years}y`;
+    }
+    return `${diffDays}d`;
+  } catch (_) {
+    return '—';
+  }
+}
+
+/**
+ * Human-readable age formatter (delegates to canonical formatEntityAgeFromDays)
  */
 export function formatAge(days) {
-  const d = Number(days || 1);
-  if (d < 30) return `${d}d ago`;
-  if (d < 365) return `${Math.floor(d / 30)}mo ago`;
-  return `${(d / 365).toFixed(1)}y ago`;
+  return formatEntityAgeFromDays(days);
 }

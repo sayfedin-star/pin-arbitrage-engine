@@ -418,6 +418,7 @@ async function inspectPin(pin, kw) {
         baselineSaves,
         currentDate: new Date(),
         baselineDate: baseDateRaw,
+        createdAt: pin.created_at_pinterest || detail?.created_at || detail?.createdAt || null,
         maxCap: 25000
       });
     } else if (rawDelta === 0 && baseDateRaw) {
@@ -1040,19 +1041,29 @@ async function flushToStorageShards(enrichedPins) {
                   COALESCE(MAX(rb.repin_count), 0) AS repin_count,
                   COALESCE(MAX(rb.comment_count), 0) AS comment_count,
                   COALESCE(MAX(rb.share_count), 0) AS share_count,
-                  LEAST(
-                    25000::numeric,
-                    GREATEST(
-                      COALESCE(MAX(rb.daily_save_velocity), 0),
-                      COALESCE(
-                        ROUND(
-                          GREATEST(0, COALESCE(MAX(rb.save_count), 0) - prev.save_count)::numeric
-                          / GREATEST(1, ((NOW() AT TIME ZONE 'UTC')::date - prev.snapshot_date))
-                        , 2),
-                        0
-                      )
-                    )
-                  ) AS daily_save_velocity
+                  CASE
+                    -- Symmetrical ratchet: when JS computed velocity is available, allow downward decay without monotonic GREATEST lock
+                    WHEN MAX(rb.daily_save_velocity) IS NOT NULL THEN LEAST(25000::numeric, GREATEST(0::numeric, MAX(rb.daily_save_velocity)))
+                    WHEN prev.save_count IS NOT NULL AND prev.snapshot_date IS NOT NULL THEN
+                      -- Shield against unhydrated 0-baseline jump in SQL fallback
+                      CASE
+                        WHEN (COALESCE(MAX(rb.save_count), 0) - prev.save_count) > 2000
+                         AND prev.save_count < 500
+                         AND (prev.save_count = 0 OR (COALESCE(MAX(rb.save_count), 0)::numeric / GREATEST(1, prev.save_count)) > 20)
+                        THEN 0::numeric
+                        ELSE LEAST(
+                          25000::numeric,
+                          COALESCE(
+                            ROUND(
+                              GREATEST(0, COALESCE(MAX(rb.save_count), 0) - prev.save_count)::numeric
+                              / GREATEST(1, ((NOW() AT TIME ZONE 'UTC')::date - prev.snapshot_date))
+                            , 2),
+                            0::numeric
+                          )
+                        )
+                      END
+                    ELSE 0::numeric
+                  END AS daily_save_velocity
                 FROM raw_batch rb
                 LEFT JOIN LATERAL (
                   SELECT pm.save_count, pm.snapshot_date

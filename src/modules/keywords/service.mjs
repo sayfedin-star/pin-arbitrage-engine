@@ -1311,6 +1311,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
           baselineSaves: baseSavesForPin,
           currentDate: todayDate,
           baselineDate: baseDateStr || baselineSnapshotDate,
+          createdAt: item.created_at_pinterest || item.created_at || null,
           maxCap: 25000
         });
       } else if (immediateData) {
@@ -1324,6 +1325,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
             baselineSaves: immediateData.saves,
             currentDate: todayDate,
             baselineDate: immediateData.snapshotDate,
+            createdAt: item.created_at_pinterest || item.created_at || null,
             maxCap: 25000
           });
         }
@@ -1922,6 +1924,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
             vacuum_opportunity_score = GREATEST(keyword_displaced_index.vacuum_opportunity_score, EXCLUDED.vacuum_opportunity_score),
             save_count = GREATEST(keyword_displaced_index.save_count, EXCLUDED.save_count),
             repin_count = GREATEST(keyword_displaced_index.repin_count, EXCLUDED.repin_count),
+            daily_save_velocity = EXCLUDED.daily_save_velocity,
             updated_at = NOW();
         `);
 

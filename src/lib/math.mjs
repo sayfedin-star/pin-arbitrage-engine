@@ -34,7 +34,8 @@ export function calculateDailyVelocity(params) {
     baselineSaves = 0,
     currentDate = new Date(),
     baselineDate = null,
-    maxCap = 25000
+    maxCap = 25000,
+    createdAt = null
   } = params;
 
   const curSavesNum = Number(currentSaves);
@@ -53,6 +54,28 @@ export function calculateDailyVelocity(params) {
 
   const rawDelta = Math.max(0, curSavesNum - baseSavesNum);
   if (rawDelta === 0) {
+    return 0;
+  }
+
+  // [INVARIANT: ANTI-HYDRATION-SPIKE]
+  // Eliminate unhydrated 0-baseline jumps:
+  // A save delta > 2000 when baseline saves < 500 and (baseline = 0 or current / baseline > 20)
+  // indicates an unhydrated stub pin suddenly receiving its true lifetime saves.
+  const isHydrationJump = rawDelta > 2000 && (
+    baseSavesNum < 500 && (baseSavesNum === 0 || (curSavesNum / Math.max(1, baseSavesNum)) > 20)
+  );
+
+  if (isHydrationJump) {
+    if (createdAt) {
+      const createdD = createdAt instanceof Date ? createdAt : new Date(createdAt);
+      if (!isNaN(createdD.getTime())) {
+        const curD = currentDate instanceof Date ? currentDate : new Date(currentDate);
+        const lifetimeMs = Math.max(86400000, (curD.getTime() - createdD.getTime()));
+        const lifetimeDays = Math.max(1, Math.round(lifetimeMs / 86400000));
+        const lifetimeVelocity = Math.round((curSavesNum / lifetimeDays) * 10) / 10;
+        return Math.min(lifetimeVelocity, capNum);
+      }
+    }
     return 0;
   }
 

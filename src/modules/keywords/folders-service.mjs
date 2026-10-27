@@ -53,9 +53,22 @@ export function invalidateFolderCache(folderId) {
 
 /**
  * List all folders with item counts and keyword previews
+ * // [INVARIANT: FOLDER-SINGLE-PASS-CTE]
  */
 export async function listFolders(sql, { projectId = 'default' } = {}) {
   const rows = await sql`
+    WITH kw_counts AS (
+      SELECT folder_id, COUNT(keyword_id)::int AS keyword_count
+      FROM keyword_folder_items GROUP BY folder_id
+    ),
+    creator_counts AS (
+      SELECT folder_id, COUNT(competitor_id)::int AS creator_count
+      FROM folder_competitor_items GROUP BY folder_id
+    ),
+    pinned_counts AS (
+      SELECT folder_id, COUNT(id)::int AS pinned_domain_count
+      FROM folder_pinned_domains GROUP BY folder_id
+    )
     SELECT 
       f.id,
       f.name,
@@ -66,18 +79,24 @@ export async function listFolders(sql, { projectId = 'default' } = {}) {
       f.metadata,
       f.created_at,
       f.updated_at,
-      COUNT(i.id)::int as keyword_count,
+      COALESCE(kw.keyword_count, 0) AS keyword_count,
+      COALESCE(cr.creator_count, 0) AS creator_count,
+      COALESCE(pd.pinned_domain_count, 0) AS pinned_domain_count,
+      COALESCE(pd.pinned_domain_count, 0) AS domain_count,
       COALESCE(
-        json_agg(
-          json_build_object('id', tk.id, 'keyword', tk.keyword)
-        ) FILTER (WHERE tk.id IS NOT NULL),
+        (
+          SELECT json_agg(json_build_object('id', tk.id, 'keyword', tk.keyword))
+          FROM keyword_folder_items kfi
+          JOIN tracked_keywords tk ON tk.id = kfi.keyword_id
+          WHERE kfi.folder_id = f.id
+        ),
         '[]'::json
-      ) as keywords_preview
+      ) AS keywords_preview
     FROM keyword_folders f
-    LEFT JOIN keyword_folder_items i ON i.folder_id = f.id
-    LEFT JOIN tracked_keywords tk ON tk.id = i.keyword_id
+    LEFT JOIN kw_counts kw ON kw.folder_id = f.id
+    LEFT JOIN creator_counts cr ON cr.folder_id = f.id
+    LEFT JOIN pinned_counts pd ON pd.folder_id = f.id
     WHERE f.project_id = ${projectId}
-    GROUP BY f.id
     ORDER BY f.updated_at DESC, f.created_at DESC;
   `;
   return rows.map(r => ({ ...r, metadata: normalizeFolderMetadata(r.metadata) }));
@@ -85,15 +104,36 @@ export async function listFolders(sql, { projectId = 'default' } = {}) {
 
 /**
  * Get single folder with all tracked keyword details
+ * // [INVARIANT: FOLDER-SINGLE-PASS-CTE]
  */
 export async function getFolder(sql, folderId) {
   const fid = Number(folderId);
   if (!fid) return null;
 
   const [folder] = await sql`
-    SELECT *
-    FROM keyword_folders
-    WHERE id = ${fid}
+    WITH kw_counts AS (
+      SELECT folder_id, COUNT(keyword_id)::int AS keyword_count
+      FROM keyword_folder_items WHERE folder_id = ${fid} GROUP BY folder_id
+    ),
+    creator_counts AS (
+      SELECT folder_id, COUNT(competitor_id)::int AS creator_count
+      FROM folder_competitor_items WHERE folder_id = ${fid} GROUP BY folder_id
+    ),
+    pinned_counts AS (
+      SELECT folder_id, COUNT(id)::int AS pinned_domain_count
+      FROM folder_pinned_domains WHERE folder_id = ${fid} GROUP BY folder_id
+    )
+    SELECT 
+      f.*,
+      COALESCE(kw.keyword_count, 0) AS keyword_count,
+      COALESCE(cr.creator_count, 0) AS creator_count,
+      COALESCE(pd.pinned_domain_count, 0) AS pinned_domain_count,
+      COALESCE(pd.pinned_domain_count, 0) AS domain_count
+    FROM keyword_folders f
+    LEFT JOIN kw_counts kw ON kw.folder_id = f.id
+    LEFT JOIN creator_counts cr ON cr.folder_id = f.id
+    LEFT JOIN pinned_counts pd ON pd.folder_id = f.id
+    WHERE f.id = ${fid}
     LIMIT 1;
   `;
 
@@ -144,6 +184,9 @@ export async function getFolder(sql, folderId) {
     ...folder,
     metadata: normalizeFolderMetadata(folder.metadata),
     keyword_count: resolvedCount,
+    creator_count: Number(folder.creator_count || 0),
+    pinned_domain_count: Number(folder.pinned_domain_count || 0),
+    domain_count: Number(folder.domain_count || 0),
     item_count: resolvedCount,
     items
   };
@@ -373,6 +416,198 @@ export async function removeKeywordFromFolder(sql, folderId, keywordId) {
 
   invalidateFolderCache(fid);
   return deleted;
+}
+
+/**
+ * Pin a domain to a campaign folder
+ * // [INVARIANT: FOLDER-PINNED-DOMAINS]
+ */
+export async function pinDomainToFolder(sql, folderId, domain, notes = '') {
+  const fid = Number(folderId);
+  if (!fid) throw new Error('Invalid folder ID');
+  const cleanDomain = String(domain || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//i, '')
+    .replace(/^www\./i, '')
+    .split('/')[0]
+    .split('?')[0];
+  if (!cleanDomain) throw new Error('Valid domain is required');
+
+  const [item] = await sql`
+    INSERT INTO folder_pinned_domains (
+      folder_id,
+      domain,
+      notes,
+      pinned_at
+    ) VALUES (
+      ${fid},
+      ${cleanDomain},
+      ${String(notes || '').trim()},
+      NOW()
+    )
+    ON CONFLICT (folder_id, domain) DO UPDATE SET
+      notes = EXCLUDED.notes,
+      pinned_at = NOW()
+    RETURNING *;
+  `;
+
+  await sql`
+    UPDATE keyword_folders 
+    SET updated_at = NOW() 
+    WHERE id = ${fid};
+  `;
+
+  invalidateFolderCache(fid);
+  return item;
+}
+
+/**
+ * Unpin a domain from a campaign folder
+ */
+export async function unpinDomainFromFolder(sql, folderId, domain) {
+  const fid = Number(folderId);
+  if (!fid) throw new Error('Invalid folder ID');
+  const cleanDomain = String(domain || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//i, '')
+    .replace(/^www\./i, '')
+    .split('/')[0]
+    .split('?')[0];
+  if (!cleanDomain) throw new Error('Valid domain is required');
+
+  const [deleted] = await sql`
+    DELETE FROM folder_pinned_domains
+    WHERE folder_id = ${fid} AND domain = ${cleanDomain}
+    RETURNING id, domain;
+  `;
+
+  await sql`
+    UPDATE keyword_folders 
+    SET updated_at = NOW() 
+    WHERE id = ${fid};
+  `;
+
+  invalidateFolderCache(fid);
+  return deleted || { success: true, unpinned: cleanDomain };
+}
+
+/**
+ * List all pinned domains for a campaign folder
+ */
+export async function listFolderPinnedDomains(sql, folderId) {
+  const fid = Number(folderId);
+  if (!fid) return [];
+
+  const rows = await sql`
+    SELECT 
+      fpd.id,
+      fpd.folder_id,
+      fpd.domain,
+      fpd.notes,
+      fpd.pinned_at,
+      r.total_pins,
+      r.total_saves,
+      r.avg_velocity,
+      r.ad_network,
+      r.age_years,
+      r.age_status
+    FROM folder_pinned_domains fpd
+    LEFT JOIN domain_intelligence_rollup r ON r.domain = fpd.domain
+    WHERE fpd.folder_id = ${fid}
+    ORDER BY fpd.pinned_at DESC;
+  `;
+
+  return rows;
+}
+
+/**
+ * Link a creator (competitor) to a campaign folder
+ * // [INVARIANT: FOLDER-COMPETITOR-ITEMS]
+ */
+export async function linkCreatorToFolder(sql, folderId, competitorId) {
+  const fid = Number(folderId);
+  const cid = Number(competitorId);
+  if (!fid || !cid) throw new Error('Invalid folderId or competitorId');
+
+  const [item] = await sql`
+    INSERT INTO folder_competitor_items (
+      folder_id,
+      competitor_id,
+      added_at
+    ) VALUES (
+      ${fid},
+      ${cid},
+      NOW()
+    )
+    ON CONFLICT (folder_id, competitor_id) DO NOTHING
+    RETURNING *;
+  `;
+
+  await sql`
+    UPDATE keyword_folders 
+    SET updated_at = NOW() 
+    WHERE id = ${fid};
+  `;
+
+  invalidateFolderCache(fid);
+  return item || { folder_id: fid, competitor_id: cid, already_linked: true };
+}
+
+/**
+ * Unlink a creator from a campaign folder
+ */
+export async function unlinkCreatorFromFolder(sql, folderId, competitorId) {
+  const fid = Number(folderId);
+  const cid = Number(competitorId);
+  if (!fid || !cid) throw new Error('Invalid folderId or competitorId');
+
+  const [deleted] = await sql`
+    DELETE FROM folder_competitor_items
+    WHERE folder_id = ${fid} AND competitor_id = ${cid}
+    RETURNING id;
+  `;
+
+  await sql`
+    UPDATE keyword_folders 
+    SET updated_at = NOW() 
+    WHERE id = ${fid};
+  `;
+
+  invalidateFolderCache(fid);
+  return deleted || { success: true };
+}
+
+/**
+ * List all creators linked to a campaign folder
+ */
+export async function listFolderCreators(sql, folderId) {
+  const fid = Number(folderId);
+  if (!fid) return [];
+
+  const rows = await sql`
+    SELECT 
+      fci.id as folder_item_id,
+      fci.folder_id,
+      fci.competitor_id,
+      fci.added_at,
+      cp.username,
+      cp.display_name,
+      cp.avatar_url,
+      cp.monthly_reach,
+      cp.profile_views,
+      cp.total_pins,
+      cp.total_boards,
+      cp.follower_count,
+      cp.activity_status
+    FROM folder_competitor_items fci
+    JOIN competitor_profiles cp ON cp.id = fci.competitor_id
+    WHERE fci.folder_id = ${fid}
+    ORDER BY fci.added_at DESC;
+  `;
+
+  return rows;
 }
 
 /**

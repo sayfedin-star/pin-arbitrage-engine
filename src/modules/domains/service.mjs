@@ -854,7 +854,10 @@ export async function listDomainsIntelligence(sql, {
     WITH raw_occurrences AS (
       -- Pillar 2: Keyword SERP Radar
       SELECT
-        ksc.domain AS clean_domain,
+        CASE 
+          WHEN LOWER(TRIM(ksc.domain)) IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN 'Uploaded by user'
+          ELSE LOWER(TRIM(ksc.domain))
+        END AS clean_domain,
         ksc.pin_id,
         ksc.keyword_id,
         CASE WHEN ksc.is_displaced = FALSE THEN ksc.rank_position ELSE NULL END AS active_rank,
@@ -875,7 +878,10 @@ export async function listDomainsIntelligence(sql, {
 
       -- Pillar 4: PinArchive Winning Pins
       SELECT
-        pa.domain AS clean_domain,
+        CASE 
+          WHEN LOWER(TRIM(pa.domain)) IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN 'Uploaded by user'
+          ELSE LOWER(TRIM(pa.domain))
+        END AS clean_domain,
         pa.pin_id,
         NULL::int AS keyword_id,
         NULL::int AS active_rank,
@@ -895,7 +901,10 @@ export async function listDomainsIntelligence(sql, {
 
       -- Pillar 1: Competitor Catalog Pins (Used exclusively for account association & discovery, not for inflating ranked pin volume)
       SELECT
-        cp.link_domain AS clean_domain,
+        CASE 
+          WHEN LOWER(TRIM(cp.link_domain)) IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN 'Uploaded by user'
+          ELSE LOWER(TRIM(cp.link_domain))
+        END AS clean_domain,
         cp.pin_id,
         NULL::int AS keyword_id,
         NULL::int AS active_rank,
@@ -916,10 +925,13 @@ export async function listDomainsIntelligence(sql, {
 
       -- Displaced Pillar: keyword_displaced_index
       SELECT
-        kdi.domain AS clean_domain,
+        CASE 
+          WHEN LOWER(TRIM(kdi.domain)) IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN 'Uploaded by user'
+          ELSE LOWER(TRIM(kdi.domain))
+        END AS clean_domain,
         kdi.pin_id,
         kdi.keyword_id,
-        kdi.last_known_rank AS active_rank,
+        NULL::int AS active_rank,
         TRUE AS is_displaced,
         COALESCE(kdi.save_count, 0)::bigint AS saves,
         COALESCE(kdi.repin_count, 0)::bigint AS repins,
@@ -1284,7 +1296,10 @@ export async function refreshDomainIntelligenceRollup(sql) {
     const res = await sql`
       WITH raw_occurrences AS (
         SELECT
-          ksc.domain AS clean_domain,
+          CASE 
+            WHEN LOWER(TRIM(ksc.domain)) IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN 'Uploaded by user'
+            ELSE LOWER(TRIM(ksc.domain))
+          END AS clean_domain,
           ksc.pin_id,
           ksc.keyword_id,
           CASE WHEN ksc.is_displaced = FALSE THEN ksc.rank_position ELSE NULL END AS active_rank,
@@ -1301,7 +1316,10 @@ export async function refreshDomainIntelligenceRollup(sql) {
         UNION ALL
 
         SELECT
-          pa.domain AS clean_domain,
+          CASE 
+            WHEN LOWER(TRIM(pa.domain)) IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN 'Uploaded by user'
+            ELSE LOWER(TRIM(pa.domain))
+          END AS clean_domain,
           pa.pin_id,
           NULL::int AS keyword_id,
           NULL::int AS active_rank,
@@ -1319,7 +1337,10 @@ export async function refreshDomainIntelligenceRollup(sql) {
 
         -- Competitor Pins: Used strictly for account association & discovery, not for inflating domain's ranked pin volume
         SELECT
-          cp.link_domain AS clean_domain,
+          CASE 
+            WHEN LOWER(TRIM(cp.link_domain)) IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN 'Uploaded by user'
+            ELSE LOWER(TRIM(cp.link_domain))
+          END AS clean_domain,
           cp.pin_id,
           NULL::int AS keyword_id,
           NULL::int AS active_rank,
@@ -1339,10 +1360,13 @@ export async function refreshDomainIntelligenceRollup(sql) {
 
         -- Displaced Pillar: keyword_displaced_index
         SELECT
-          kdi.domain AS clean_domain,
+          CASE 
+            WHEN LOWER(TRIM(kdi.domain)) IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN 'Uploaded by user'
+            ELSE LOWER(TRIM(kdi.domain))
+          END AS clean_domain,
           kdi.pin_id,
           kdi.keyword_id,
-          kdi.last_known_rank AS active_rank,
+          NULL::int AS active_rank,
           TRUE AS is_displaced,
           COALESCE(kdi.save_count, 0)::bigint AS saves,
           COALESCE(kdi.repin_count, 0)::bigint AS repins,
@@ -1385,7 +1409,7 @@ export async function refreshDomainIntelligenceRollup(sql) {
         FROM raw_occurrences
         WHERE clean_domain IS NOT NULL
           AND clean_domain <> ''
-          AND clean_domain NOT IN ('pinterest.com', 'www.pinterest.com', 'pin.it', 'uploaded by user', 'localhost')
+          AND clean_domain NOT IN ('pinterest.com', 'www.pinterest.com', 'pin.it', 'localhost')
         GROUP BY clean_domain, pin_id
       ),
       domain_agg AS (
@@ -1424,11 +1448,11 @@ export async function refreshDomainIntelligenceRollup(sql) {
             ), 
             2
           ) AS pins_per_url,
-          COUNT(dp.pin_id) FILTER (WHERE dp.active_rank IS NOT NULL)::int AS active_serp_pins,
-          COUNT(dp.pin_id) FILTER (WHERE dp.active_rank <= 3)::int AS top3_pins,
-          COUNT(dp.pin_id) FILTER (WHERE dp.active_rank <= 10)::int AS top10_pins,
-          COUNT(dp.pin_id) FILTER (WHERE dp.active_rank BETWEEN 11 AND 50)::int AS rank_11_50_pins,
-          COUNT(dp.pin_id) FILTER (WHERE dp.is_displaced = TRUE AND dp.is_serp_ranked = TRUE)::int AS displaced_pins,
+          COUNT(dp.pin_id) FILTER (WHERE dp.active_rank IS NOT NULL AND NOT (dp.pin_id LIKE 'reg_%'))::int AS active_serp_pins,
+          COUNT(dp.pin_id) FILTER (WHERE dp.active_rank <= 3 AND NOT (dp.pin_id LIKE 'reg_%'))::int AS top3_pins,
+          COUNT(dp.pin_id) FILTER (WHERE dp.active_rank <= 10 AND NOT (dp.pin_id LIKE 'reg_%'))::int AS top10_pins,
+          COUNT(dp.pin_id) FILTER (WHERE dp.active_rank BETWEEN 11 AND 50 AND NOT (dp.pin_id LIKE 'reg_%'))::int AS rank_11_50_pins,
+          COUNT(dp.pin_id) FILTER (WHERE dp.is_displaced = TRUE AND dp.is_serp_ranked = TRUE AND NOT (dp.pin_id LIKE 'reg_%'))::int AS displaced_pins,
           MIN(dp.active_rank) AS best_rank,
           ROUND(AVG(dp.active_rank), 1) AS avg_rank,
           ROUND(
@@ -1579,35 +1603,20 @@ export async function refreshDomainIntelligenceRollup(sql) {
  * 
  * // [INVARIANT: SINGLE-DOMAIN-SYNC-O1]
  */
-export async function syncSingleDomainRollup(sql, cleanDomain, dossierData) {
+export async function syncSingleDomainRollup(sql, cleanDomain, dossierData, options = {}) {
   if (!sql || !cleanDomain || !dossierData) return null;
-  const isOrganicVault = String(cleanDomain).trim().toLowerCase() === 'uploaded by user' || String(cleanDomain).trim().toLowerCase() === 'uploaded-by-user';
-  const summary = dossierData.summary || dossierData.metrics || {};
-  const totalPins = Number(summary.total_pins || 0);
-  const totalSaves = Number(summary.total_saves || 0);
-  const uniqueUrls = isOrganicVault ? 0 : Number(summary.unique_urls || 1);
-  const pinsPerUrl = Number(summary.pins_per_url || 1);
-  const activeSerpPins = Number(summary.active_pins_count || 0);
-  const displacedPins = Number(summary.displaced_pins_count || 0);
-  const top3Pins = Number(summary.top3_pins || 0);
-  const top10Pins = Number(summary.top10_pins || 0);
-  const rank1150Pins = Number(summary.rank_11_50_pins || 0);
-  const bestRank = summary.best_rank !== null && summary.best_rank !== undefined ? Number(summary.best_rank) : null;
-  const avgRank = summary.avg_rank !== null && summary.avg_rank !== undefined ? Number(summary.avg_rank) : null;
-  const visibilityScore = Number(summary.visibility_score || 0);
-  const accountsCount = Number(summary.accounts_count || 0);
+  // Guard: NEVER execute syncSingleDomainRollup if folderId is present
+  if (options?.folderId || dossierData?.folderId) return null;
 
-  // Compute aggregate domain velocity: SUM of pin velocities
-  let avgVelocity = Number(summary.avg_velocity || 0);
-  if (!avgVelocity && Array.isArray(dossierData.ranked_pins)) {
-    const sumVel = dossierData.ranked_pins.reduce((sum, p) => sum + Math.max(0, Number(p.velocity || 0)), 0);
-    avgVelocity = Number(sumVel.toFixed(1));
-  }
+  const isOrganicVault = String(cleanDomain).trim().toLowerCase() === 'uploaded by user' || String(cleanDomain).trim().toLowerCase() === 'uploaded-by-user' || String(cleanDomain).trim().toLowerCase() === 'organic';
+  const canonicalDomain = isOrganicVault ? 'Uploaded by user' : cleanDomain;
 
   const ageInfo = dossierData.age_info || {};
   const adInfo = dossierData.ad_info || {};
 
   try {
+    // Decoupled SSOT: ONLY update WHOIS age and ads.txt monetization fields.
+    // NEVER overwrite total_pins, displaced_pins, active_serp_pins, total_saves, or avg_velocity.
     const [result] = await sql`
       INSERT INTO domain_intelligence_rollup (
         domain, total_pins, total_saves, accounts_count, unique_urls, pins_per_url,
@@ -1617,42 +1626,40 @@ export async function syncSingleDomainRollup(sql, cleanDomain, dossierData) {
         age_days, age_years, age_status, domain_created_at, domain_expires_at,
         refreshed_at
       ) VALUES (
-        ${cleanDomain}, ${totalPins}, ${totalSaves}, ${accountsCount}, ${uniqueUrls}, ${pinsPerUrl},
-        ${activeSerpPins}, ${displacedPins}, ${top3Pins}, ${top10Pins}, ${rank1150Pins},
-        ${bestRank}, ${avgRank}, ${visibilityScore}, ${avgVelocity},
+        ${canonicalDomain}, 0, 0, 0, 1, 1,
+        0, 0, 0, 0, 0,
+        null, null, 0, 0,
         ${adInfo.current_ad_network || adInfo.ad_network || 'unchecked'},
         ${adInfo.ad_manager_domain || null},
         ${adInfo.primary_pub_id || null},
         ${adInfo.ads_txt_status || 'pending'},
         ${ageInfo.age_days != null ? Number(ageInfo.age_days) : null},
         ${ageInfo.age_years != null ? Number(ageInfo.age_years) : null},
-        ${ageInfo.lookup_status || 'unchecked'},
+        ${ageInfo.lookup_status || ageInfo.age_status || 'unchecked'},
         ${ageInfo.registered_at ? new Date(ageInfo.registered_at) : null},
         ${ageInfo.expires_at ? new Date(ageInfo.expires_at) : null},
         NOW()
       )
       ON CONFLICT (domain) DO UPDATE SET
-        total_pins = EXCLUDED.total_pins,
-        total_saves = EXCLUDED.total_saves,
-        accounts_count = EXCLUDED.accounts_count,
-        unique_urls = EXCLUDED.unique_urls,
-        pins_per_url = EXCLUDED.pins_per_url,
-        active_serp_pins = EXCLUDED.active_serp_pins,
-        displaced_pins = EXCLUDED.displaced_pins,
-        top3_pins = EXCLUDED.top3_pins,
-        top10_pins = EXCLUDED.top10_pins,
-        rank_11_50_pins = EXCLUDED.rank_11_50_pins,
-        best_rank = EXCLUDED.best_rank,
-        avg_rank = EXCLUDED.avg_rank,
-        visibility_score = EXCLUDED.visibility_score,
-        avg_velocity = CASE WHEN EXCLUDED.avg_velocity > 0 THEN EXCLUDED.avg_velocity ELSE domain_intelligence_rollup.avg_velocity END,
-        ad_network = CASE WHEN EXCLUDED.ad_network <> 'unchecked' THEN EXCLUDED.ad_network ELSE domain_intelligence_rollup.ad_network END,
+        ad_network = CASE 
+          WHEN EXCLUDED.ad_network <> 'unchecked' AND EXCLUDED.ad_network <> '' 
+          THEN EXCLUDED.ad_network 
+          ELSE domain_intelligence_rollup.ad_network 
+        END,
         ad_manager_domain = COALESCE(EXCLUDED.ad_manager_domain, domain_intelligence_rollup.ad_manager_domain),
         primary_pub_id = COALESCE(EXCLUDED.primary_pub_id, domain_intelligence_rollup.primary_pub_id),
-        ads_txt_status = CASE WHEN EXCLUDED.ads_txt_status <> 'pending' THEN EXCLUDED.ads_txt_status ELSE domain_intelligence_rollup.ads_txt_status END,
+        ads_txt_status = CASE 
+          WHEN EXCLUDED.ads_txt_status <> 'pending' AND EXCLUDED.ads_txt_status <> '' 
+          THEN EXCLUDED.ads_txt_status 
+          ELSE domain_intelligence_rollup.ads_txt_status 
+        END,
         age_days = COALESCE(EXCLUDED.age_days, domain_intelligence_rollup.age_days),
         age_years = COALESCE(EXCLUDED.age_years, domain_intelligence_rollup.age_years),
-        age_status = CASE WHEN EXCLUDED.age_status <> 'unchecked' THEN EXCLUDED.age_status ELSE domain_intelligence_rollup.age_status END,
+        age_status = CASE 
+          WHEN EXCLUDED.age_status <> 'unchecked' AND EXCLUDED.age_status <> '' 
+          THEN EXCLUDED.age_status 
+          ELSE domain_intelligence_rollup.age_status 
+        END,
         domain_created_at = COALESCE(EXCLUDED.domain_created_at, domain_intelligence_rollup.domain_created_at),
         domain_expires_at = COALESCE(EXCLUDED.domain_expires_at, domain_intelligence_rollup.domain_expires_at),
         refreshed_at = NOW()
