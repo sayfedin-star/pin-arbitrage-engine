@@ -28,6 +28,7 @@ trigger: always_on
 - **The PostgreSQL View Upsert Landmine:** In PostgreSQL (`parse_clause.c`), `INSERT ... ON CONFLICT` (UPSERT) is strictly rejected on views—even auto-updatable views or views with `INSTEAD OF` triggers—because conflict arbitration requires a physical unique index on a base relation (`relkind = 'r'`). NEVER propose replacing physical tables that receive upserts (`pa_pins`, `competitor_pins`, `keyword_serp_current`, `universal_master_pins`) with PostgreSQL `VIEW`s.
 
 ## 5. Algorithmic Ratchet & Precedence Integrity
+- **Anti-Hydration Delta Check (`[INVARIANT: ANTI-HYDRATION-SPIKE]`):** Never allow a transition from an unhydrated or discovery state (`save_count = 0` or missing prior crawl snapshot) to evaluate as a single-day save delta. Any delta where `prevSaves === 0` while current saves are large must be treated as `isHydrationJump` and suppressed to 0 or amortized across pin age.
 - **COALESCE Precedence:** On updates of real-time telemetry (like `crawled_at`), fresh incoming values MUST take precedence: `COALESCE(EXCLUDED.crawled_at, existing.crawled_at)`.
 - **Velocity Ratchet Symmetry:** When updating `daily_save_velocity`, ensure live/un-cached crawls can adjust velocity downward if saves slowed: `WHEN NOT u.from_hydration_cache AND u.daily_save_velocity IS NOT NULL THEN u.daily_save_velocity::numeric`. Do not trap velocity in an eternal monotonic `GREATEST` ratchet unless explicitly intended.
 
@@ -92,6 +93,11 @@ trigger: always_on
 - **The Frozen Materialization Anti-Pattern:** Materialized aggregate tables (such as `domain_intelligence_rollup`) do not update automatically on base table upserts. Leaving workflows without post-crawl rollup triggers causes dashboards and leaderboards to freeze on stale snapshots.
 - **Mandatory Workflow Triggering:** Any workflow performing bulk data collection (`crawler-pipeline.yml`, `keyword-intelligence-velocity.yml`) MUST execute a downstream rollup step (e.g. `scripts/refresh-domain-rollup.mjs`) upon successful completion.
 - **Incremental Single-Entity Sync:** Point enrichments (such as single domain age, ad network, or pin deep sync) must incrementally update the rollup row via dedicated helper (`syncSingleDomainRollup`) so individual dossier views and leaderboards stay 100% coherent without awaiting full database rollups.
+
+## 19. The Bounded Dossier Rollup Poisoning Trap (`displacedLimit` vs Global Materialization)
+- **The Truncation Landmine:** Detail drawers frequently cap child queries (e.g. `LIMIT 30` on displaced pins) for low-latency rendering. If a drawer service executes a post-load sync (`syncSingleDomainRollup`) that recalculates rollup columns using the truncated memory object, it overwrites the base table with truncated counts.
+- **Mandatory Guard:** Any point-enrichment sync helper called from drawer routes must be strictly restricted to point-enrichment columns (`domain_age_days`, `ad_network`) and must NEVER overwrite aggregate counters (`displaced_pins`, `total_pins`, `total_saves`).
+
 
 
 

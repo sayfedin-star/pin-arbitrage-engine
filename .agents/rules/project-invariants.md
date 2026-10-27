@@ -165,6 +165,27 @@ Refer to `PROJECT_CHARTER_AND_DIRECTIVES.md` for full context. The following rul
 - **Zero-Match Structural Contract:** When an endpoint query yields 0 results (e.g. newly discovered keyword, unranked domain, empty filter), the response MUST return the complete expected schema contract (e.g. `{ overview: { total: 0, ...defaults }, items: [] }`).
 - **Ban on Naked Empty Arrays:** Never return a bare array `[]` or `null` from an endpoint that normally returns an object container (`{ overview, domains }`), as this causes frontend destructuring and template property access to crash.
 
+## 28. Anti-Hydration-Spike & Symmetrical Velocity Ratchet Invariant
+- **The Hydration Spike Trap:** Pins discovered in Stage 0 SERPs start with `save_count = 0` (or null baseline). When deep closeup hydration discovers 100k+ lifetime saves, calculating `currentSaves - 0` treats lifetime saves as a 1-day delta, hitting the 25,000 ceiling.
+- **Mandatory 0-Baseline Guard (`[INVARIANT: ANTI-HYDRATION-SPIKE]`):** Never compute a daily velocity delta if `baseline_day_saves = 0` or if the pin was unhydrated prior to the crawl (`isHydrationJump`). Lifetime saves must be amortized across pin age or suppressed to 0 until an authentic Day-2 crawl differential exists.
+- **Symmetric Velocity Updates:** Monotonic clamps like `GREATEST(COALESCE(MAX(daily_save_velocity), 0), ...)` are strictly prohibited. Daily save velocity must update symmetrically downward when save activity slows or ceases.
+
+## 29. Dossier Rollup Decoupling & Read-Path Mutation Shield
+- **The Read-Path Mutation Hazard:** Dossier drawer endpoints optimize response times by bounding query result sets (e.g. `displacedLimit = 30`).
+- **Strict Decoupling:** Bounded/paginated dossier read paths (`getDomainDeepDossier`) MUST NEVER trigger full-entity rollup mutations (`syncSingleDomainRollup`). Global rollups belong strictly to complete post-crawl aggregations or surgical single-column updates (WHOIS age, ads.txt). Opening or closing a drawer/dossier must leave leaderboard metrics 100% invariant.
+
+## 30. Multi-Room Campaign Workspace & Popstate URL Preservation
+- **SSR Room Architecture:** Campaign folder rooms (`/folders/:id`, `/folders/:id/keywords`, `/folders/:id/creators`, `/folders/:id/domains`) MUST reuse canonical studio UI modules (`campaign-folders-ui.mjs`, `keywords-ui.mjs`, `dashboard-ui.mjs`, `domains-ui.mjs`) scoped by `folderId`.
+- **Central Hub Relational Invariant:** Folder item mappings (`folder_competitor_items`, `folder_pinned_domains`) reside exclusively on Central Hub with single-pass zero-Cartesian CTEs (< 5ms SLA). Heavy pin snapshots remain on 99 storage shards.
+- **Popstate Preservation (`[INVARIANT: FOLDER-SCOPED-POPSTATE-PRESERVATION]`):** Detail drawer URLs opened within a folder sub-route MUST preserve the `/folders/:id/*` route prefix. Browser Back/Forward (`popstate`) must never eject the operator into global routes.
+
+## 31. Universal Strict Time Formatting Rule
+- **Standardized Display Rule:**
+  - If duration/age is $\ge 365\text{ days}$: display strictly in **years only** (e.g. `11.2y`, `2.1y` — NEVER show days in parentheses).
+  - If duration/age is $< 365\text{ days}$: display strictly in **days only** (e.g. `145d`).
+- **Universal Parity:** Apply this rule uniformly across tables, cards, drawer headers, and Pin Dossier trajectories via `formatUniversalAge()`.
+
+
 
 
 
