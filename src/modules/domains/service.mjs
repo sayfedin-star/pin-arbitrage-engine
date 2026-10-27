@@ -902,7 +902,7 @@ export async function listDomainsIntelligence(sql, {
         FALSE AS is_displaced,
         COALESCE(cp.save_count, 0)::bigint AS saves,
         COALESCE(cp.repin_count, 0)::bigint AS repins,
-        0::numeric AS velocity,
+        COALESCE(NULLIF((cp.metadata->>'delta_saves_24h')::numeric, 0), NULLIF((cp.metadata->>'daily_save_velocity')::numeric, 0), 0::numeric) AS velocity,
         LOWER(COALESCE(prof.username, '')) AS username,
         COALESCE(NULLIF(LOWER(REGEXP_REPLACE(REGEXP_REPLACE(COALESCE(cp.destination_url, ''), '^https?://(www\\.)?[^/]+', ''), '[?#].*$', '')), ''), '/') AS url_slug,
         FALSE AS is_serp_ranked
@@ -1052,8 +1052,8 @@ export async function listDomainsIntelligence(sql, {
         END AS total_repins,
         CASE
           WHEN COUNT(DISTINCT dp.pin_id) FILTER (WHERE dp.is_serp_ranked = TRUE) > 0
-          THEN ROUND(COALESCE(AVG(dp.velocity) FILTER (WHERE dp.is_serp_ranked = TRUE), 0), 2)
-          ELSE ROUND(COALESCE(AVG(dp.velocity), 0), 2)
+          THEN ROUND(COALESCE(SUM(dp.velocity) FILTER (WHERE dp.is_serp_ranked = TRUE AND dp.velocity > 0), 0), 1)
+          ELSE ROUND(COALESCE(SUM(dp.velocity) FILTER (WHERE dp.velocity > 0), 0), 1)
         END AS avg_velocity,
         COUNT(DISTINCT dp.username) FILTER (WHERE dp.username IS NOT NULL)::int AS accounts_count,
         (ARRAY_AGG(DISTINCT dp.username) FILTER (WHERE dp.username IS NOT NULL))[1:5] AS sample_accounts
@@ -1327,7 +1327,7 @@ export async function refreshDomainIntelligenceRollup(sql) {
           COALESCE(cp.save_count, 0)::bigint AS saves,
           COALESCE(cp.repin_count, 0)::bigint AS repins,
           -- [INVARIANT: ACCURATE-COMPETITOR-VELOCITY] Extract authentic live daily velocity from competitor pins
-          COALESCE((cp.metadata->>'daily_save_velocity')::numeric, (cp.metadata->>'delta_saves_24h')::numeric, 0::numeric) AS velocity,
+          COALESCE(NULLIF((cp.metadata->>'delta_saves_24h')::numeric, 0), NULLIF((cp.metadata->>'daily_save_velocity')::numeric, 0), 0::numeric) AS velocity,
           LOWER(REPLACE(COALESCE(cprof.username, ''), '@', '')) AS username,
           COALESCE(NULLIF(LOWER(REGEXP_REPLACE(REGEXP_REPLACE(COALESCE(cp.destination_url, ''), '^https?://(www\\.)?[^/]+', ''), '[?#].*$', '')), ''), '/') AS url_slug,
           FALSE AS is_serp_ranked
@@ -1453,13 +1453,11 @@ export async function refreshDomainIntelligenceRollup(sql) {
             THEN COALESCE(SUM(dp.repins) FILTER (WHERE dp.is_serp_ranked = TRUE), 0)::bigint
             ELSE COALESCE(SUM(dp.repins) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%')), 0)::bigint
           END AS total_repins,
-          -- [INVARIANT: DUAL-DOMAIN-VELOCITY] Non-diluted active pin average excluding 0-velocity displaced pins
+          -- [INVARIANT: DUAL-DOMAIN-VELOCITY] Non-diluted active pin aggregate daily velocity
           CASE
-            WHEN COUNT(DISTINCT dp.pin_id) FILTER (WHERE dp.is_serp_ranked = TRUE AND dp.velocity > 0) > 0
-            THEN ROUND(COALESCE(AVG(dp.velocity) FILTER (WHERE dp.is_serp_ranked = TRUE AND dp.velocity > 0), 0), 2)
             WHEN COUNT(DISTINCT dp.pin_id) FILTER (WHERE dp.is_serp_ranked = TRUE) > 0
-            THEN ROUND(COALESCE(AVG(dp.velocity) FILTER (WHERE dp.is_serp_ranked = TRUE), 0), 2)
-            ELSE ROUND(COALESCE(AVG(dp.velocity) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%') AND dp.velocity > 0), 0), 2)
+            THEN ROUND(COALESCE(SUM(dp.velocity) FILTER (WHERE dp.is_serp_ranked = TRUE AND dp.velocity > 0), 0), 1)
+            ELSE ROUND(COALESCE(SUM(dp.velocity) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%') AND dp.velocity > 0), 0), 1)
           END AS avg_velocity,
           COUNT(DISTINCT dp.sample_username) FILTER (WHERE dp.sample_username IS NOT NULL AND dp.sample_username <> '')::int AS accounts_count,
           (ARRAY_AGG(DISTINCT dp.sample_username) FILTER (WHERE dp.sample_username IS NOT NULL AND dp.sample_username <> ''))[1:5] AS sample_accounts
@@ -1583,16 +1581,19 @@ export async function syncSingleDomainRollup(sql, cleanDomain, dossierData) {
   const pinsPerUrl = Number(summary.pins_per_url || 1);
   const activeSerpPins = Number(summary.active_pins_count || 0);
   const displacedPins = Number(summary.displaced_pins_count || 0);
+  const top3Pins = Number(summary.top3_pins || 0);
+  const top10Pins = Number(summary.top10_pins || 0);
+  const rank1150Pins = Number(summary.rank_11_50_pins || 0);
+  const bestRank = summary.best_rank !== null && summary.best_rank !== undefined ? Number(summary.best_rank) : null;
+  const avgRank = summary.avg_rank !== null && summary.avg_rank !== undefined ? Number(summary.avg_rank) : null;
+  const visibilityScore = Number(summary.visibility_score || 0);
   const accountsCount = Number(summary.accounts_count || 0);
 
-  // Compute non-diluted active velocity if not explicitly provided in summary
+  // Compute aggregate domain velocity: SUM of pin velocities
   let avgVelocity = Number(summary.avg_velocity || 0);
   if (!avgVelocity && Array.isArray(dossierData.ranked_pins)) {
-    const activePinsWithVelocity = dossierData.ranked_pins.filter(p => !p.is_displaced && Number(p.velocity || 0) > 0);
-    if (activePinsWithVelocity.length > 0) {
-      const sumVel = activePinsWithVelocity.reduce((sum, p) => sum + Number(p.velocity || 0), 0);
-      avgVelocity = Number((sumVel / activePinsWithVelocity.length).toFixed(2));
-    }
+    const sumVel = dossierData.ranked_pins.reduce((sum, p) => sum + Math.max(0, Number(p.velocity || 0)), 0);
+    avgVelocity = Number(sumVel.toFixed(1));
   }
 
   const ageInfo = dossierData.age_info || {};
@@ -1602,13 +1603,15 @@ export async function syncSingleDomainRollup(sql, cleanDomain, dossierData) {
     const [result] = await sql`
       INSERT INTO domain_intelligence_rollup (
         domain, total_pins, total_saves, accounts_count, unique_urls, pins_per_url,
-        active_serp_pins, displaced_pins, avg_velocity,
+        active_serp_pins, displaced_pins, top3_pins, top10_pins, rank_11_50_pins,
+        best_rank, avg_rank, visibility_score, avg_velocity,
         ad_network, ad_manager_domain, primary_pub_id, ads_txt_status,
         age_days, age_years, age_status, domain_created_at, domain_expires_at,
         refreshed_at
       ) VALUES (
         ${cleanDomain}, ${totalPins}, ${totalSaves}, ${accountsCount}, ${uniqueUrls}, ${pinsPerUrl},
-        ${activeSerpPins}, ${displacedPins}, ${avgVelocity},
+        ${activeSerpPins}, ${displacedPins}, ${top3Pins}, ${top10Pins}, ${rank1150Pins},
+        ${bestRank}, ${avgRank}, ${visibilityScore}, ${avgVelocity},
         ${adInfo.current_ad_network || adInfo.ad_network || 'unchecked'},
         ${adInfo.ad_manager_domain || null},
         ${adInfo.primary_pub_id || null},
@@ -1628,6 +1631,12 @@ export async function syncSingleDomainRollup(sql, cleanDomain, dossierData) {
         pins_per_url = EXCLUDED.pins_per_url,
         active_serp_pins = EXCLUDED.active_serp_pins,
         displaced_pins = EXCLUDED.displaced_pins,
+        top3_pins = EXCLUDED.top3_pins,
+        top10_pins = EXCLUDED.top10_pins,
+        rank_11_50_pins = EXCLUDED.rank_11_50_pins,
+        best_rank = EXCLUDED.best_rank,
+        avg_rank = EXCLUDED.avg_rank,
+        visibility_score = EXCLUDED.visibility_score,
         avg_velocity = CASE WHEN EXCLUDED.avg_velocity > 0 THEN EXCLUDED.avg_velocity ELSE domain_intelligence_rollup.avg_velocity END,
         ad_network = CASE WHEN EXCLUDED.ad_network <> 'unchecked' THEN EXCLUDED.ad_network ELSE domain_intelligence_rollup.ad_network END,
         ad_manager_domain = COALESCE(EXCLUDED.ad_manager_domain, domain_intelligence_rollup.ad_manager_domain),
@@ -2024,6 +2033,7 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
         cp.board_name,
         COALESCE(cp.save_count, 0)::bigint AS saves,
         COALESCE(cp.repin_count, 0)::bigint AS repins,
+        COALESCE(NULLIF((cp.metadata->>'delta_saves_24h')::numeric, 0), NULLIF((cp.metadata->>'daily_save_velocity')::numeric, 0), 0::numeric) AS velocity,
         cp.created_at_pinterest
       FROM competitor_pins cp
       LEFT JOIN competitor_profiles prof ON prof.id = cp.competitor_id
@@ -2337,6 +2347,9 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
     if (!existing.created_at_pinterest && r.created_at_pinterest) existing.created_at_pinterest = r.created_at_pinterest;
     if (!existing.creator_username && r.creator_username) existing.creator_username = r.creator_username;
     if (!existing.board_name && r.board_name) existing.board_name = r.board_name;
+    existing.saves = Math.max(existing.saves, Number(r.saves || 0));
+    existing.repins = Math.max(existing.repins, Number(r.repins || 0));
+    existing.velocity = Math.max(existing.velocity, Number(r.velocity || 0));
     if ((!existing.destination_url || existing.clean_slug === '/') && (r.destination_url || r.link)) {
       existing.destination_url = r.destination_url || r.link;
       try {
@@ -2345,8 +2358,13 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
       } catch (_) {}
     }
   };
-  for (const r of compPins) enrichFromCatalogRow(r);
-  for (const r of archivePins) enrichFromCatalogRow(r);
+  if (serpPins.length === 0 && displacedPins.length === 0) {
+    for (const r of compPins) registerPin(r, 'competitor');
+    for (const r of archivePins) registerPin(r, 'archive');
+  } else {
+    for (const r of compPins) enrichFromCatalogRow(r);
+    for (const r of archivePins) enrichFromCatalogRow(r);
+  }
 
   // 2. Finalize Pins & Group by Money Article URLs (Pillar 2: Creative Multiplier)
   const urlGroupsMap = new Map();
@@ -2622,17 +2640,27 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
     needs_age_enrichment: Boolean(ageInfo?.needs_enrichment || ageInfo?.lookup_status === 'pending'),
     needs_ad_enrichment: Boolean(adInfo?.needs_enrichment || adInfo?.ads_txt_status === 'pending'),
     summary: {
-      total_pins: allPins.length,
+      total_pins: visualPins.length,
       all_catalog_pins_count: allPins.length,
       visual_pins_count: visualPins.length,
-      active_pins_count: serpPins.length,
-      displaced_pins_count: displacedPins.length,
+      active_pins_count: visualPins.filter(p => p.best_rank !== null).length,
+      top3_pins: visualPins.filter(p => p.best_rank !== null && p.best_rank <= 3).length,
+      top10_pins: visualPins.filter(p => p.best_rank !== null && p.best_rank <= 10).length,
+      rank_11_50_pins: visualPins.filter(p => p.best_rank !== null && p.best_rank >= 11 && p.best_rank <= 50).length,
+      displaced_pins_count: visualPins.filter(p => p.best_rank === null && p.is_displaced).length,
       unique_urls: moneyUrls.length,
-      pins_per_url: moneyUrls.length > 0 ? Number((allPins.length / moneyUrls.length).toFixed(2)) : 1,
+      pins_per_url: moneyUrls.length > 0 ? Number((visualPins.length / moneyUrls.length).toFixed(2)) : 1,
       ranked_keywords_count: keywordMonopoly.length,
-      total_saves: allPins.reduce((acc, p) => acc + p.saves, 0),
+      total_saves: visualPins.reduce((acc, p) => acc + (Number(p.saves) || 0), 0),
+      avg_velocity: Number(visualPins.reduce((acc, p) => acc + Math.max(0, Number(p.velocity || 0)), 0).toFixed(1)),
+      best_rank: visualPins.reduce((min, p) => p.best_rank !== null ? (min === null ? p.best_rank : Math.min(min, p.best_rank)) : min, null),
+      avg_rank: (() => {
+        const r = visualPins.filter(p => p.best_rank !== null);
+        return r.length > 0 ? Number((r.reduce((sum, p) => sum + p.best_rank, 0) / r.length).toFixed(1)) : null;
+      })(),
+      visibility_score: Number(((visualPins.filter(p => p.best_rank !== null && p.best_rank <= 3).length * 100) + (visualPins.filter(p => p.best_rank !== null && p.best_rank > 3 && p.best_rank <= 10).length * 45) + (visualPins.filter(p => p.best_rank !== null && p.best_rank > 10 && p.best_rank <= 50).length * 12)).toFixed(1)),
       accounts_count: accountsMap.size,
-      vulnerable_pins_count: allPins.filter(p => p.is_vulnerable).length,
+      vulnerable_pins_count: visualPins.filter(p => p.is_vulnerable).length,
       decaying_monopoly_count: keywordMonopoly.filter(k => k.is_decaying_monopoly).length,
       sybil_accounts_count: accountsList.filter(a => a.role === 'SATELLITE_CREATOR').length,
       sister_domains_count: new Set(crossFootprintRows.map(r => r.cross_domain)).size

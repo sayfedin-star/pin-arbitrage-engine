@@ -7932,6 +7932,8 @@ export function getDashboardHtml() {
           } catch (e) {
             this.competitorsOverview = { tracked_profiles: 0, total_pins_stored: 0, high_velocity_pins: 0, top_competitors: [] };
             this.competitors = [];
+          } finally {
+            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
           }
         },
 
@@ -8018,6 +8020,8 @@ export function getDashboardHtml() {
           } catch (e) {
             this.competitors = previousCompetitors;
             this.showToast('Error deleting competitor: ' + (e.message || 'Network error'));
+          } finally {
+            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
           }
         },
 
@@ -8381,6 +8385,8 @@ export function getDashboardHtml() {
           } catch (e) {
             this.competitors = previousCompetitors;
             this.showToast('Error deleting competitors: ' + (e.message || 'Network error'));
+          } finally {
+            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
           }
         },
 
@@ -9234,6 +9240,15 @@ export function getDashboardHtml() {
               if (freshDetail.profile) {
                 this.activeCreator = { ...this.activeCreator, ...freshDetail.profile };
               }
+            } else {
+              // Untracked creator / 404
+              this.closeCreatorProfile(true);
+              this.currentTab = 'creators_archive';
+              if (typeof window !== 'undefined') {
+                window.history.replaceState({}, '', '/accounts');
+              }
+              this.showToast('⚠️ Creator profile @' + handle + ' is not tracked.');
+              return;
             }
 
             // Save to SWR In-Memory Cache

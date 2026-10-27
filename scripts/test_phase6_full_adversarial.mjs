@@ -195,7 +195,7 @@ console.log('[AXIS 1] Level 1A Executive Keywords Dashboard & Kinetic Delta Tele
   assert.ok(html.includes('filteredDashboardKeywords'), 'Dashboard keywords iteration missing');
   assert.ok(html.includes('activeKeywordsCount'), 'Active keywords KPI card missing');
   assert.ok(html.includes('totalMonitoredPins'), 'Total monitored pins KPI card missing');
-  assert.ok(html.includes('averageFleetVelocity'), 'Fleet velocity pulse KPI card missing');
+  assert.ok(html.includes('folders.length'), 'Campaign Folders KPI card missing');
   assert.ok(html.includes('nightlySyncCountdown'), 'Nightly crawler fleet sync status missing');
   assert.ok(html.includes('selectedKeywordIds.length'), 'Bulk action bar reactive condition missing');
 

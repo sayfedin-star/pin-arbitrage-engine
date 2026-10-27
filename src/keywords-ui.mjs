@@ -241,34 +241,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
           </template>
         </div>
 
-        <!-- Metric 2: Fleet Daily Velocity (Level 1A Parity) -->
-        <div class="p-4 sm:p-5 flex flex-col justify-between space-y-2">
-          <div class="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-            <span class="font-medium text-[11px] uppercase tracking-wider font-mono">Fleet Daily Velocity</span>
-            <span class="p-1 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-              <i data-lucide="zap" class="w-3.5 h-3.5"></i>
-            </span>
-          </div>
-          <template x-if="isKeywordsLoading">
-            <div class="space-y-1 py-0.5">
-              <div class="h-7 w-20 bg-slate-200 dark:bg-slate-800 rounded animate-pulse"></div>
-              <div class="h-3 w-28 bg-slate-100 dark:bg-slate-800/60 rounded animate-pulse"></div>
-            </div>
-          </template>
-          <template x-if="!isKeywordsLoading">
-            <div>
-              <div class="flex items-baseline gap-2">
-                <span class="text-2xl sm:text-3xl font-extrabold text-emerald-600 dark:text-emerald-400 font-mono tracking-tight"
-                      x-text="(averageFleetVelocity > 0 ? '+' : '') + formatNumber(averageFleetVelocity) + '/d'"></span>
-              </div>
-              <div class="mt-1.5 text-[11px] font-mono text-slate-500 dark:text-slate-400">
-                <span>Active fleet average saves/day</span>
-              </div>
-            </div>
-          </template>
-        </div>
-
-        <!-- Metric 3: Monitored Organic Pins -->
+        <!-- Metric 2: Monitored Organic Pins -->
         <div class="p-4 sm:p-5 flex flex-col justify-between space-y-2">
           <div class="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
             <span class="font-medium text-[11px] uppercase tracking-wider font-mono">Monitored Organic Pins</span>
@@ -291,6 +264,36 @@ export function getKeywordsPageHtml(initialSlug = '') {
               <div class="mt-1.5 text-[11px] font-mono text-slate-500 dark:text-slate-400">
                 <span>Quota: </span>
                 <span class="text-blue-600 dark:text-blue-400 font-medium" x-text="'~' + (appSettings.default_max_pins || 250) + ' pins / query'"></span>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <!-- Metric 3: Campaign Folders -->
+        <div class="p-4 sm:p-5 flex flex-col justify-between space-y-2">
+          <div class="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+            <span class="font-medium text-[11px] uppercase tracking-wider font-mono">Campaign Folders</span>
+            <span class="p-1 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400">
+              <i data-lucide="folder" class="w-3.5 h-3.5"></i>
+            </span>
+          </div>
+          <template x-if="isKeywordsLoading">
+            <div class="space-y-1 py-0.5">
+              <div class="h-7 w-20 bg-slate-200 dark:bg-slate-800 rounded animate-pulse"></div>
+              <div class="h-3 w-28 bg-slate-100 dark:bg-slate-800/60 rounded animate-pulse"></div>
+            </div>
+          </template>
+          <template x-if="!isKeywordsLoading">
+            <div>
+              <div class="flex items-baseline gap-2">
+                <span class="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white font-mono tracking-tight" x-text="folders.length"></span>
+                <span class="text-xs text-slate-400 font-mono">organized</span>
+              </div>
+              <div class="mt-1.5 text-[11px] font-mono text-slate-500 dark:text-slate-400">
+                <a href="/folders" class="text-amber-600 dark:text-amber-400 hover:underline font-medium inline-flex items-center gap-1">
+                  <span>Manage folders</span>
+                  <i data-lucide="arrow-right" class="w-3 h-3"></i>
+                </a>
               </div>
             </div>
           </template>
@@ -359,18 +362,8 @@ export function getKeywordsPageHtml(initialSlug = '') {
               <option value="PAUSED">Paused Only</option>
             </select>
 
-            <!-- Growth Momentum filter dropdown (Canonical 4 Tiers) -->
-            <select x-model="dashboardGrowthFilter" class="px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800/90 text-xs font-medium text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 cursor-pointer">
-              <option value="ALL">Momentum: All</option>
-              <option value="HIGH">🔥 Explosive (≥50/d)</option>
-              <option value="TRENDING">📈 Trending (≥10/d)</option>
-              <option value="POSITIVE">⏸ Steady (>0/d)</option>
-              <option value="FLAT">⚪ Stagnant (=0/d)</option>
-            </select>
-
-            <!-- Sort filter dropdown (Velocity First) -->
+            <!-- Sort filter dropdown -->
             <select x-model="dashboardSort" class="px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800/90 text-xs font-medium text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 cursor-pointer">
-              <option value="velocity">Sort: Highest Velocity (/d)</option>
               <option value="total_pins">Sort: Total Pins</option>
               <option value="created_desc">Sort: Date Added (Newest)</option>
               <option value="created_asc">Sort: Date Added (Oldest)</option>
@@ -487,7 +480,6 @@ export function getKeywordsPageHtml(initialSlug = '') {
                 </th>
                 <th x-show="visibleColumns.preview" class="py-3 px-3 w-14">Preview</th>
                 <th x-show="visibleColumns.keyword" class="py-3 px-4 min-w-[240px]">Keyword & Folders</th>
-                <th x-show="visibleColumns.velocity" class="py-3 px-3 w-36">Daily Velocity</th>
                 <th x-show="visibleColumns.total_pins" class="py-3 px-3 w-36">SERP Breakdown</th>
                 <th x-show="visibleColumns.status" class="py-3 px-3 w-24 text-center">Status</th>
                 <th x-show="visibleColumns.created_at" class="py-3 px-3 w-32">Date Added</th>
@@ -508,7 +500,6 @@ export function getKeywordsPageHtml(initialSlug = '') {
                         <div class="h-2.5 w-20 bg-slate-100 dark:bg-slate-800/60 rounded"></div>
                       </div>
                     </td>
-                    <td x-show="visibleColumns.velocity" class="py-3.5 px-3"><div class="h-4 w-20 bg-slate-200 dark:bg-slate-800 rounded"></div></td>
                     <td x-show="visibleColumns.total_pins" class="py-3.5 px-3"><div class="h-4 w-24 bg-slate-200 dark:bg-slate-800 rounded"></div></td>
                     <td x-show="visibleColumns.status" class="py-3.5 px-3 text-center"><div class="h-5 w-14 bg-slate-200 dark:bg-slate-800 rounded-full mx-auto"></div></td>
                     <td x-show="visibleColumns.created_at" class="py-3.5 px-3"><div class="h-3 w-16 bg-slate-200 dark:bg-slate-800 rounded"></div></td>
@@ -578,21 +569,6 @@ export function getKeywordsPageHtml(initialSlug = '') {
                           <template x-if="kw.annotation_id">
                             <span class="text-[10px] font-mono text-slate-400" x-text="'ID: ' + kw.annotation_id"></span>
                           </template>
-                        </div>
-                      </div>
-                    </td>
-
-                    <!-- Daily Save Velocity & Momentum Tier (Linear Tabular Figures) -->
-                    <td x-show="visibleColumns.velocity" class="py-3 px-3 font-mono">
-                      <div class="space-y-1">
-                        <div class="inline-flex items-center gap-1 text-xs font-bold tabular-nums"
-                             :class="getKeywordVelocity(kw) > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-500'">
-                          <span x-text="(getKeywordVelocity(kw) > 0 ? '+' : '') + formatNumber(getKeywordVelocity(kw)) + '/d'"></span>
-                        </div>
-                        <div>
-                          <span class="inline-block px-1.5 py-0.5 rounded text-[9px] font-sans font-semibold border"
-                                :class="getKeywordVelocityTierClass(kw)"
-                                x-text="getKeywordVelocityTierLabel(kw)"></span>
                         </div>
                       </div>
                     </td>
@@ -871,22 +847,6 @@ export function getKeywordsPageHtml(initialSlug = '') {
                           <span class="max-w-[110px] truncate" x-text="f.name"></span>
                         </button>
                       </template>
-                    </div>
-
-                    <!-- Metrics Ribbon (Daily Velocity & Momentum Tier) -->
-                    <div class="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 dark:border-slate-800/80 text-xs font-mono">
-                      <div class="p-2 rounded-lg bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800">
-                        <span class="text-[10px] text-slate-400 block font-sans">Daily Velocity</span>
-                        <span class="font-bold text-slate-800 dark:text-slate-200"
-                              :class="getKeywordVelocity(kw) > 0 ? 'text-emerald-600 dark:text-emerald-400' : ''"
-                              x-text="(getKeywordVelocity(kw) > 0 ? '+' : '') + formatNumber(getKeywordVelocity(kw)) + '/d'"></span>
-                      </div>
-                      <div class="p-2 rounded-lg bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800">
-                        <span class="text-[10px] text-slate-400 block font-sans">Momentum Tier</span>
-                        <span class="text-[10px] font-bold"
-                              :class="getKeywordVelocityTierClass(kw)"
-                              x-text="getKeywordVelocityTierLabel(kw)"></span>
-                      </div>
                     </div>
 
                     <!-- Total Pins & Topology Progress Bar -->
@@ -2119,7 +2079,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
           <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono">Related Trends & Comparison</h4>
           <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             <template x-for="r in (trendsData?.related_trends || [])" :key="r.term">
-              <div @click="loadKeywordBySlugOrText(r.term, true)"
+              <div @click="loadKeywordBySlugOrText(r.term, true, true)"
                    class="p-3.5 rounded-2xl bg-slate-50/80 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 hover:border-blue-500/50 transition cursor-pointer flex items-center justify-between">
                 <div class="min-w-0 pr-2">
                   <p class="text-xs font-bold text-slate-900 dark:text-white capitalize truncate" x-text="r.term"></p>
@@ -2196,7 +2156,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
             <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono">Pinterest Guided Search Capsules (Pivots)</h4>
             <div class="flex flex-wrap gap-2">
               <template x-for="p in trendsData.ideas_pivots" :key="p.label">
-                <button @click="loadKeywordBySlugOrText(p.full_name, true)"
+                <button @click="loadKeywordBySlugOrText(p.full_name, true, true)"
                         class="px-3.5 py-1.5 rounded-full text-xs font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:text-emerald-500 dark:hover:text-emerald-400 transition cursor-pointer flex items-center space-x-1">
                   <span>+</span>
                   <span x-text="p.label"></span>
@@ -2212,7 +2172,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
             <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono">Pinterest Taxonomy Related Interests</h4>
             <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5">
               <template x-for="ri in trendsData.related_interests" :key="ri">
-                <div @click="loadKeywordBySlugOrText(ri, true)"
+                <div @click="loadKeywordBySlugOrText(ri, true, true)"
                      class="p-3 rounded-2xl bg-slate-50/70 dark:bg-slate-900/50 border border-slate-200/80 dark:border-slate-800 hover:border-emerald-500/40 transition cursor-pointer group">
                   <p class="text-xs font-bold text-slate-900 dark:text-white capitalize group-hover:text-emerald-500 transition line-clamp-1" x-text="ri"></p>
                   <span class="text-[10px] text-emerald-500 font-mono mt-1 block">+ Track Interest</span>
@@ -4130,7 +4090,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
         dashboardFolderFilter: 'ALL',
         dashboardGrowthFilter: 'ALL',
         dashboardPinsFilter: 'ALL',
-        dashboardSort: 'velocity',
+        dashboardSort: 'total_pins',
         dashboardViewMode: 'table', // 'table' | 'grid'
         dashboardPage: 1,
         dashboardPageSize: 10,
@@ -4146,7 +4106,6 @@ export function getKeywordsPageHtml(initialSlug = '') {
         columnDefinitions: [
           { key: 'preview', label: 'Preview Image', required: false },
           { key: 'keyword', label: 'Keyword & Folders', required: true },
-          { key: 'velocity', label: 'Daily Velocity', required: false },
           { key: 'total_pins', label: 'SERP Breakdown', required: false },
           { key: 'status', label: 'Status', required: false },
           { key: 'created_at', label: 'Date Added', required: false },
@@ -4156,7 +4115,6 @@ export function getKeywordsPageHtml(initialSlug = '') {
         visibleColumns: {
           preview: true,
           keyword: true,
-          velocity: true,
           total_pins: true,
           status: true,
           created_at: true,
@@ -4341,7 +4299,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
           if (!term) return;
           this.isQuickTrackModalOpen = false;
           this.showToast('Loading "' + term + '" into SERP Studio...', 'info');
-          await this.loadKeywordBySlugOrText(term, true);
+          await this.loadKeywordBySlugOrText(term, true, true);
         },
 
         get activeSlug() {
@@ -4596,7 +4554,6 @@ export function getKeywordsPageHtml(initialSlug = '') {
           this.visibleColumns = {
             preview: true,
             keyword: true,
-            velocity: true,
             total_pins: true,
             status: true,
             created_at: true,
@@ -5253,7 +5210,13 @@ export function getKeywordsPageHtml(initialSlug = '') {
             if (savedCols) {
               const parsed = JSON.parse(savedCols);
               if (parsed && typeof parsed === 'object') {
+                delete parsed.velocity;
+                delete parsed.saves_delta;
+                delete parsed.repins_delta;
                 this.visibleColumns = { ...this.visibleColumns, ...parsed, keyword: true };
+                delete this.visibleColumns.velocity;
+                delete this.visibleColumns.saves_delta;
+                delete this.visibleColumns.repins_delta;
               }
             }
           } catch (_) {}
@@ -5640,7 +5603,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
           }
         },
 
-        async loadKeywordBySlugOrText(slugOrText, updateHistory = true) {
+        async loadKeywordBySlugOrText(slugOrText, updateHistory = true, allowCreate = false) {
           if (!slugOrText) return;
           const cleanText = slugOrText.replace(/[-_]+/g, ' ').trim().toLowerCase();
           const cleanSlug = cleanText.replace(/\\s+/g, '-');
@@ -5659,7 +5622,8 @@ export function getKeywordsPageHtml(initialSlug = '') {
           } else {
             this.isDetailsLoading = true;
             try {
-              const res = await fetch(this.getApiUrl('/api/keywords/serp-compare?slug=' + encodeURIComponent(cleanSlug)));
+              const autoParam = allowCreate ? '&auto_create=true' : '';
+              const res = await fetch(this.getApiUrl('/api/keywords/serp-compare?slug=' + encodeURIComponent(cleanSlug) + autoParam));
               const data = await res.json();
               if (data.success && data.keyword) {
                 this.selectedKeyword = data.keyword;
@@ -6266,13 +6230,13 @@ export function getKeywordsPageHtml(initialSlug = '') {
           if (!raw) return;
           this.isOmnibarDropdownOpen = false;
           this.omnibarQuery = '';
-          await this.loadKeywordBySlugOrText(raw, true);
+          await this.loadKeywordBySlugOrText(raw, true, true);
         },
 
         async trackNewKeyword(term) {
           const clean = term.trim();
           if (!clean) return;
-          await this.loadKeywordBySlugOrText(clean, true);
+          await this.loadKeywordBySlugOrText(clean, true, true);
         },
 
         async rescanActiveKeyword(force = true) {
@@ -6638,7 +6602,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
 
         researchKeywordTag(tag) {
           this.closePinInspector();
-          this.loadKeywordBySlugOrText(tag, true);
+          this.loadKeywordBySlugOrText(tag, true, true);
           window.scrollTo({ top: 0, behavior: 'smooth' });
         },
 

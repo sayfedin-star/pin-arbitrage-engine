@@ -1988,11 +1988,14 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
       GREATEST(COALESCE(cp.repin_count, 0), COALESCE(pa.repins, 0))::bigint AS repin_count,
       GREATEST(COALESCE(cp.comment_count, 0), COALESCE(pa.comments, 0))::int AS comment_count,
       COALESCE(pa.share_count, 0)::bigint AS share_count,
-      -- [INVARIANT: UNIFIED-EFFECTIVE-VELOCITY] Unify across live catalog deltas and healed archive velocity
-      GREATEST(
-        COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0),
-        COALESCE((cp.metadata->>'daily_save_velocity')::numeric, 0),
-        CASE WHEN COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0) > 0 THEN COALESCE(pa.velocity, 0)::numeric ELSE 0::numeric END
+      -- [INVARIANT: UNIFIED-EFFECTIVE-VELOCITY] Priority COALESCE: delta_saves_24h takes strict precedence over lifetime archive velocity
+      COALESCE(
+        NULLIF((cp.metadata->>'delta_saves_24h')::numeric, 0),
+        NULLIF((cp.metadata->>'daily_save_velocity')::numeric, 0),
+        CASE
+          WHEN (cp.metadata->>'delta_saves_24h') IS NOT NULL THEN 0::numeric
+          ELSE COALESCE(pa.velocity, 0)::numeric
+        END
       )::numeric AS velocity,
       COALESCE(
         (cp.metadata->>'delta_saves_24h')::numeric,
@@ -2045,51 +2048,78 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
       AND (${searchPattern}::text IS NULL OR LOWER(cp.title) LIKE ${searchPattern} OR LOWER(COALESCE(cp.description, '')) LIKE ${searchPattern})
       AND (${cleanBoardSlug}::text IS NULL OR cp.board_slug = ${cleanBoardSlug})
       AND (${qualified_only} = FALSE OR pa.pin_id IS NOT NULL)
-      AND (${isHighVelocity} = FALSE OR GREATEST(
-        COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0),
-        COALESCE((cp.metadata->>'daily_save_velocity')::numeric, 0),
-        CASE WHEN COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0) > 0 THEN COALESCE(pa.velocity, 0)::numeric ELSE 0::numeric END
-      ) >= 10)
-      AND (${isChangedOnly} = FALSE OR GREATEST(
-        COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0),
-        COALESCE((cp.metadata->>'daily_save_velocity')::numeric, 0),
-        CASE WHEN COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0) > 0 THEN COALESCE(pa.velocity, 0)::numeric ELSE 0::numeric END
-      ) > 0)
+      AND (${isHighVelocity} = FALSE OR COALESCE(
+        NULLIF((cp.metadata->>'delta_saves_24h')::numeric, 0),
+        NULLIF((cp.metadata->>'daily_save_velocity')::numeric, 0),
+        CASE
+          WHEN (cp.metadata->>'delta_saves_24h') IS NOT NULL THEN 0::numeric
+          ELSE COALESCE(pa.velocity, 0)::numeric
+        END
+      )::numeric >= 10)
+      AND (${isChangedOnly} = FALSE OR COALESCE(
+        NULLIF((cp.metadata->>'delta_saves_24h')::numeric, 0),
+        NULLIF((cp.metadata->>'daily_save_velocity')::numeric, 0),
+        CASE
+          WHEN (cp.metadata->>'delta_saves_24h') IS NOT NULL THEN 0::numeric
+          ELSE COALESCE(pa.velocity, 0)::numeric
+        END
+      )::numeric > 0)
       AND (
         ${stageFilter}::text IS NULL OR
-        (${stageFilter} = 'DORMANT' AND GREATEST(
-          COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0),
-          COALESCE((cp.metadata->>'daily_save_velocity')::numeric, 0),
-          CASE WHEN COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0) > 0 THEN COALESCE(pa.velocity, 0)::numeric ELSE 0::numeric END
-        ) < 0.5) OR
-        (${stageFilter} = 'COOLING' AND GREATEST(
-          COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0),
-          COALESCE((cp.metadata->>'daily_save_velocity')::numeric, 0),
-          CASE WHEN COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0) > 0 THEN COALESCE(pa.velocity, 0)::numeric ELSE 0::numeric END
-        ) >= 0.5 AND GREATEST(
-          COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0),
-          COALESCE((cp.metadata->>'daily_save_velocity')::numeric, 0),
-          CASE WHEN COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0) > 0 THEN COALESCE(pa.velocity, 0)::numeric ELSE 0::numeric END
-        ) < 2.0) OR
-        (${stageFilter} = 'NEW' AND GREATEST(
-          COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0),
-          COALESCE((cp.metadata->>'daily_save_velocity')::numeric, 0),
-          CASE WHEN COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0) > 0 THEN COALESCE(pa.velocity, 0)::numeric ELSE 0::numeric END
-        ) >= 0.5 AND COALESCE(cp.created_at_pinterest, cp.first_seen_at) >= NOW() - INTERVAL '14 days') OR
-        (${stageFilter} = 'GROWING' AND GREATEST(
-          COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0),
-          COALESCE((cp.metadata->>'daily_save_velocity')::numeric, 0),
-          CASE WHEN COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0) > 0 THEN COALESCE(pa.velocity, 0)::numeric ELSE 0::numeric END
-        ) >= 10.0 AND (COALESCE(cp.created_at_pinterest, cp.first_seen_at) < NOW() - INTERVAL '14 days' OR COALESCE(cp.created_at_pinterest, cp.first_seen_at) IS NULL)) OR
-        (${stageFilter} = 'MATURE' AND GREATEST(
-          COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0),
-          COALESCE((cp.metadata->>'daily_save_velocity')::numeric, 0),
-          CASE WHEN COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0) > 0 THEN COALESCE(pa.velocity, 0)::numeric ELSE 0::numeric END
-        ) >= 2.0 AND GREATEST(
-          COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0),
-          COALESCE((cp.metadata->>'daily_save_velocity')::numeric, 0),
-          CASE WHEN COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0) > 0 THEN COALESCE(pa.velocity, 0)::numeric ELSE 0::numeric END
-        ) < 10.0 AND (COALESCE(cp.created_at_pinterest, cp.first_seen_at) < NOW() - INTERVAL '14 days' OR COALESCE(cp.created_at_pinterest, cp.first_seen_at) IS NULL))
+        (${stageFilter} = 'DORMANT' AND COALESCE(
+          NULLIF((cp.metadata->>'delta_saves_24h')::numeric, 0),
+          NULLIF((cp.metadata->>'daily_save_velocity')::numeric, 0),
+          CASE
+            WHEN (cp.metadata->>'delta_saves_24h') IS NOT NULL THEN 0::numeric
+            ELSE COALESCE(pa.velocity, 0)::numeric
+          END
+        )::numeric < 0.5) OR
+        (${stageFilter} = 'COOLING' AND COALESCE(
+          NULLIF((cp.metadata->>'delta_saves_24h')::numeric, 0),
+          NULLIF((cp.metadata->>'daily_save_velocity')::numeric, 0),
+          CASE
+            WHEN (cp.metadata->>'delta_saves_24h') IS NOT NULL THEN 0::numeric
+            ELSE COALESCE(pa.velocity, 0)::numeric
+          END
+        )::numeric >= 0.5 AND COALESCE(
+          NULLIF((cp.metadata->>'delta_saves_24h')::numeric, 0),
+          NULLIF((cp.metadata->>'daily_save_velocity')::numeric, 0),
+          CASE
+            WHEN (cp.metadata->>'delta_saves_24h') IS NOT NULL THEN 0::numeric
+            ELSE COALESCE(pa.velocity, 0)::numeric
+          END
+        )::numeric < 2.0) OR
+        (${stageFilter} = 'NEW' AND COALESCE(
+          NULLIF((cp.metadata->>'delta_saves_24h')::numeric, 0),
+          NULLIF((cp.metadata->>'daily_save_velocity')::numeric, 0),
+          CASE
+            WHEN (cp.metadata->>'delta_saves_24h') IS NOT NULL THEN 0::numeric
+            ELSE COALESCE(pa.velocity, 0)::numeric
+          END
+        )::numeric >= 0.5 AND COALESCE(cp.created_at_pinterest, cp.first_seen_at) >= NOW() - INTERVAL '14 days') OR
+        (${stageFilter} = 'GROWING' AND COALESCE(
+          NULLIF((cp.metadata->>'delta_saves_24h')::numeric, 0),
+          NULLIF((cp.metadata->>'daily_save_velocity')::numeric, 0),
+          CASE
+            WHEN (cp.metadata->>'delta_saves_24h') IS NOT NULL THEN 0::numeric
+            ELSE COALESCE(pa.velocity, 0)::numeric
+          END
+        )::numeric >= 10.0 AND (COALESCE(cp.created_at_pinterest, cp.first_seen_at) < NOW() - INTERVAL '14 days' OR COALESCE(cp.created_at_pinterest, cp.first_seen_at) IS NULL)) OR
+        (${stageFilter} = 'MATURE' AND COALESCE(
+          NULLIF((cp.metadata->>'delta_saves_24h')::numeric, 0),
+          NULLIF((cp.metadata->>'daily_save_velocity')::numeric, 0),
+          CASE
+            WHEN (cp.metadata->>'delta_saves_24h') IS NOT NULL THEN 0::numeric
+            ELSE COALESCE(pa.velocity, 0)::numeric
+          END
+        )::numeric >= 2.0 AND COALESCE(
+          NULLIF((cp.metadata->>'delta_saves_24h')::numeric, 0),
+          NULLIF((cp.metadata->>'daily_save_velocity')::numeric, 0),
+          CASE
+            WHEN (cp.metadata->>'delta_saves_24h') IS NOT NULL THEN 0::numeric
+            ELSE COALESCE(pa.velocity, 0)::numeric
+          END
+        )::numeric < 10.0 AND (COALESCE(cp.created_at_pinterest, cp.first_seen_at) < NOW() - INTERVAL '14 days' OR COALESCE(cp.created_at_pinterest, cp.first_seen_at) IS NULL))
       )
       AND (${product_only} = FALSE OR (
         COALESCE(cp.is_product, false) OR 
@@ -2104,11 +2134,14 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
     ORDER BY 
       CASE WHEN ${sort} = 'saves_desc' THEN GREATEST(COALESCE(cp.save_count, 0), COALESCE(pa.saves, 0)) END DESC NULLS LAST,
       CASE WHEN ${sort} = 'repins_desc' THEN GREATEST(COALESCE(cp.repin_count, 0), COALESCE(pa.repins, 0)) END DESC NULLS LAST,
-      CASE WHEN ${sort} = 'velocity' OR ${sort} = 'velocity_desc' THEN GREATEST(
-        COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0),
-        COALESCE((cp.metadata->>'daily_save_velocity')::numeric, 0),
-        CASE WHEN COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0) > 0 THEN COALESCE(pa.velocity, 0)::numeric ELSE 0::numeric END
-      ) END DESC NULLS LAST,
+      CASE WHEN ${sort} = 'velocity' OR ${sort} = 'velocity_desc' THEN COALESCE(
+        NULLIF((cp.metadata->>'delta_saves_24h')::numeric, 0),
+        NULLIF((cp.metadata->>'daily_save_velocity')::numeric, 0),
+        CASE
+          WHEN (cp.metadata->>'delta_saves_24h') IS NOT NULL THEN 0::numeric
+          ELSE COALESCE(pa.velocity, 0)::numeric
+        END
+      )::numeric END DESC NULLS LAST,
       CASE WHEN ${sort} = 'comments' OR ${sort} = 'comments_desc' THEN GREATEST(COALESCE(cp.comment_count, 0), COALESCE(pa.comments, 0)) END DESC NULLS LAST,
       CASE WHEN ${sort} = 'newest' OR ${sort} = 'created_desc' THEN cp.created_at_pinterest END DESC NULLS LAST,
       CASE WHEN ${sort} = 'oldest' OR ${sort} = 'created_asc' THEN cp.created_at_pinterest END ASC NULLS LAST,
@@ -2139,51 +2172,78 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
         AND (${searchPattern}::text IS NULL OR LOWER(cp.title) LIKE ${searchPattern} OR LOWER(COALESCE(cp.description, '')) LIKE ${searchPattern})
         AND (${cleanBoardSlug}::text IS NULL OR cp.board_slug = ${cleanBoardSlug})
         AND (${qualified_only} = FALSE OR pa.pin_id IS NOT NULL)
-        AND (${isHighVelocity} = FALSE OR GREATEST(
-          COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0),
-          COALESCE((cp.metadata->>'daily_save_velocity')::numeric, 0),
-          CASE WHEN COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0) > 0 THEN COALESCE(pa.velocity, 0)::numeric ELSE 0::numeric END
-        ) >= 10)
-        AND (${isChangedOnly} = FALSE OR GREATEST(
-          COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0),
-          COALESCE((cp.metadata->>'daily_save_velocity')::numeric, 0),
-          CASE WHEN COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0) > 0 THEN COALESCE(pa.velocity, 0)::numeric ELSE 0::numeric END
-        ) > 0)
+        AND (${isHighVelocity} = FALSE OR COALESCE(
+          NULLIF((cp.metadata->>'delta_saves_24h')::numeric, 0),
+          NULLIF((cp.metadata->>'daily_save_velocity')::numeric, 0),
+          CASE
+            WHEN (cp.metadata->>'delta_saves_24h') IS NOT NULL THEN 0::numeric
+            ELSE COALESCE(pa.velocity, 0)::numeric
+          END
+        )::numeric >= 10)
+        AND (${isChangedOnly} = FALSE OR COALESCE(
+          NULLIF((cp.metadata->>'delta_saves_24h')::numeric, 0),
+          NULLIF((cp.metadata->>'daily_save_velocity')::numeric, 0),
+          CASE
+            WHEN (cp.metadata->>'delta_saves_24h') IS NOT NULL THEN 0::numeric
+            ELSE COALESCE(pa.velocity, 0)::numeric
+          END
+        )::numeric > 0)
         AND (
           ${stageFilter}::text IS NULL OR
-          (${stageFilter} = 'DORMANT' AND GREATEST(
-            COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0),
-            COALESCE((cp.metadata->>'daily_save_velocity')::numeric, 0),
-            CASE WHEN COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0) > 0 THEN COALESCE(pa.velocity, 0)::numeric ELSE 0::numeric END
-          ) < 0.5) OR
-          (${stageFilter} = 'COOLING' AND GREATEST(
-            COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0),
-            COALESCE((cp.metadata->>'daily_save_velocity')::numeric, 0),
-            CASE WHEN COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0) > 0 THEN COALESCE(pa.velocity, 0)::numeric ELSE 0::numeric END
-          ) >= 0.5 AND GREATEST(
-            COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0),
-            COALESCE((cp.metadata->>'daily_save_velocity')::numeric, 0),
-            CASE WHEN COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0) > 0 THEN COALESCE(pa.velocity, 0)::numeric ELSE 0::numeric END
-          ) < 2.0) OR
-          (${stageFilter} = 'NEW' AND GREATEST(
-            COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0),
-            COALESCE((cp.metadata->>'daily_save_velocity')::numeric, 0),
-            CASE WHEN COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0) > 0 THEN COALESCE(pa.velocity, 0)::numeric ELSE 0::numeric END
-          ) >= 0.5 AND COALESCE(cp.created_at_pinterest, cp.first_seen_at) >= NOW() - INTERVAL '14 days') OR
-          (${stageFilter} = 'GROWING' AND GREATEST(
-            COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0),
-            COALESCE((cp.metadata->>'daily_save_velocity')::numeric, 0),
-            CASE WHEN COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0) > 0 THEN COALESCE(pa.velocity, 0)::numeric ELSE 0::numeric END
-          ) >= 10.0 AND (COALESCE(cp.created_at_pinterest, cp.first_seen_at) < NOW() - INTERVAL '14 days' OR COALESCE(cp.created_at_pinterest, cp.first_seen_at) IS NULL)) OR
-          (${stageFilter} = 'MATURE' AND GREATEST(
-            COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0),
-            COALESCE((cp.metadata->>'daily_save_velocity')::numeric, 0),
-            CASE WHEN COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0) > 0 THEN COALESCE(pa.velocity, 0)::numeric ELSE 0::numeric END
-          ) >= 2.0 AND GREATEST(
-            COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0),
-            COALESCE((cp.metadata->>'daily_save_velocity')::numeric, 0),
-            CASE WHEN COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0) > 0 THEN COALESCE(pa.velocity, 0)::numeric ELSE 0::numeric END
-          ) < 10.0 AND (COALESCE(cp.created_at_pinterest, cp.first_seen_at) < NOW() - INTERVAL '14 days' OR COALESCE(cp.created_at_pinterest, cp.first_seen_at) IS NULL))
+          (${stageFilter} = 'DORMANT' AND COALESCE(
+            NULLIF((cp.metadata->>'delta_saves_24h')::numeric, 0),
+            NULLIF((cp.metadata->>'daily_save_velocity')::numeric, 0),
+            CASE
+              WHEN (cp.metadata->>'delta_saves_24h') IS NOT NULL THEN 0::numeric
+              ELSE COALESCE(pa.velocity, 0)::numeric
+            END
+          )::numeric < 0.5) OR
+          (${stageFilter} = 'COOLING' AND COALESCE(
+            NULLIF((cp.metadata->>'delta_saves_24h')::numeric, 0),
+            NULLIF((cp.metadata->>'daily_save_velocity')::numeric, 0),
+            CASE
+              WHEN (cp.metadata->>'delta_saves_24h') IS NOT NULL THEN 0::numeric
+              ELSE COALESCE(pa.velocity, 0)::numeric
+            END
+          )::numeric >= 0.5 AND COALESCE(
+            NULLIF((cp.metadata->>'delta_saves_24h')::numeric, 0),
+            NULLIF((cp.metadata->>'daily_save_velocity')::numeric, 0),
+            CASE
+              WHEN (cp.metadata->>'delta_saves_24h') IS NOT NULL THEN 0::numeric
+              ELSE COALESCE(pa.velocity, 0)::numeric
+            END
+          )::numeric < 2.0) OR
+          (${stageFilter} = 'NEW' AND COALESCE(
+            NULLIF((cp.metadata->>'delta_saves_24h')::numeric, 0),
+            NULLIF((cp.metadata->>'daily_save_velocity')::numeric, 0),
+            CASE
+              WHEN (cp.metadata->>'delta_saves_24h') IS NOT NULL THEN 0::numeric
+              ELSE COALESCE(pa.velocity, 0)::numeric
+            END
+          )::numeric >= 0.5 AND COALESCE(cp.created_at_pinterest, cp.first_seen_at) >= NOW() - INTERVAL '14 days') OR
+          (${stageFilter} = 'GROWING' AND COALESCE(
+            NULLIF((cp.metadata->>'delta_saves_24h')::numeric, 0),
+            NULLIF((cp.metadata->>'daily_save_velocity')::numeric, 0),
+            CASE
+              WHEN (cp.metadata->>'delta_saves_24h') IS NOT NULL THEN 0::numeric
+              ELSE COALESCE(pa.velocity, 0)::numeric
+            END
+          )::numeric >= 10.0 AND (COALESCE(cp.created_at_pinterest, cp.first_seen_at) < NOW() - INTERVAL '14 days' OR COALESCE(cp.created_at_pinterest, cp.first_seen_at) IS NULL)) OR
+          (${stageFilter} = 'MATURE' AND COALESCE(
+            NULLIF((cp.metadata->>'delta_saves_24h')::numeric, 0),
+            NULLIF((cp.metadata->>'daily_save_velocity')::numeric, 0),
+            CASE
+              WHEN (cp.metadata->>'delta_saves_24h') IS NOT NULL THEN 0::numeric
+              ELSE COALESCE(pa.velocity, 0)::numeric
+            END
+          )::numeric >= 2.0 AND COALESCE(
+            NULLIF((cp.metadata->>'delta_saves_24h')::numeric, 0),
+            NULLIF((cp.metadata->>'daily_save_velocity')::numeric, 0),
+            CASE
+              WHEN (cp.metadata->>'delta_saves_24h') IS NOT NULL THEN 0::numeric
+              ELSE COALESCE(pa.velocity, 0)::numeric
+            END
+          )::numeric < 10.0 AND (COALESCE(cp.created_at_pinterest, cp.first_seen_at) < NOW() - INTERVAL '14 days' OR COALESCE(cp.created_at_pinterest, cp.first_seen_at) IS NULL))
         )
         AND (${product_only} = FALSE OR (
           COALESCE(cp.is_product, false) OR 
@@ -2205,11 +2265,14 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
       COUNT(*)::int AS catalog_total,
       COUNT(*) FILTER (WHERE pa.pin_id IS NOT NULL)::int AS qualified_total,
       COUNT(*) FILTER (WHERE ksc.pin_id IS NOT NULL OR kdi.pin_id IS NOT NULL)::int AS ranked_total,
-      COUNT(*) FILTER (WHERE GREATEST(
-        COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0),
-        COALESCE((cp.metadata->>'daily_save_velocity')::numeric, 0),
-        CASE WHEN COALESCE((cp.metadata->>'delta_saves_24h')::numeric, 0) > 0 THEN COALESCE(pa.velocity, 0)::numeric ELSE 0::numeric END
-      ) >= 10)::int AS high_velocity_total
+      COUNT(*) FILTER (WHERE COALESCE(
+        NULLIF((cp.metadata->>'delta_saves_24h')::numeric, 0),
+        NULLIF((cp.metadata->>'daily_save_velocity')::numeric, 0),
+        CASE
+          WHEN (cp.metadata->>'delta_saves_24h') IS NOT NULL THEN 0::numeric
+          ELSE COALESCE(pa.velocity, 0)::numeric
+        END
+      )::numeric >= 10)::int AS high_velocity_total
     FROM competitor_pins cp
     LEFT JOIN pa_pins pa ON pa.pin_id = cp.pin_id
     LEFT JOIN (

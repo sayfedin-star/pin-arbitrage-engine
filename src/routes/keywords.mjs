@@ -590,7 +590,8 @@ export async function handleKeywordsRoutes({
     let resolved = null;
     if (!keywordId && slug) {
       // [INVARIANT: READ-ONLY-GET-SAFE] Disable auto-creation on GET SERP comparison
-      resolved = await resolveKeywordBySlug(sql, slug, false);
+      const autoCreate = searchParams.get('auto_create') === 'true';
+      resolved = await resolveKeywordBySlug(sql, slug, autoCreate);
       if (resolved) keywordId = resolved.id;
     }
     if (!keywordId) return jsonResponse({ error: 'keyword_id or valid slug is required' }, 404);

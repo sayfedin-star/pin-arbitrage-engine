@@ -730,9 +730,11 @@ export async function handleCreatorsRoutes(routeCtx) {
       if (username) {
         const cleanUser = String(username).replace(/^@/, '').trim().toLowerCase();
         await targetSql`DELETE FROM competitor_profiles WHERE LOWER(username) = ${cleanUser};`;
+        await targetSql`DELETE FROM competitor_profiles WHERE username IS NULL OR TRIM(username) = '' OR username = '@';`.catch(() => {});
         return jsonResponse({ success: true, deleted_username: cleanUser });
       } else if (id && !isNaN(Number(id))) {
         await targetSql`DELETE FROM competitor_profiles WHERE id = ${Number(id)};`;
+        await targetSql`DELETE FROM competitor_profiles WHERE username IS NULL OR TRIM(username) = '' OR username = '@';`.catch(() => {});
         return jsonResponse({ success: true, deleted_id: Number(id) });
       }
       return jsonResponse({ error: 'id or username is required to delete competitor' }, 400);

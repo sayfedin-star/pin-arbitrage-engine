@@ -2558,6 +2558,14 @@ export function getDomainsPageHtml(initialDomain = '') {
               if (s.avg_velocity != null) target.avg_velocity = s.avg_velocity;
               if (s.active_pins_count != null) target.active_serp_pins = s.active_pins_count;
               if (s.displaced_pins_count != null) target.displaced_pins = s.displaced_pins_count;
+              if (s.top3_pins != null) target.top3_pins = s.top3_pins;
+              if (s.top10_pins != null) target.top10_pins = s.top10_pins;
+              if (s.rank_11_50_pins != null) target.rank_11_50_pins = s.rank_11_50_pins;
+              if (s.best_rank != null) target.best_rank = s.best_rank;
+              if (s.avg_rank != null) target.avg_rank = s.avg_rank;
+              if (s.visibility_score != null) target.visibility_score = s.visibility_score;
+              if (s.unique_urls != null) target.unique_urls = s.unique_urls;
+              if (s.pins_per_url != null) target.pins_per_url = s.pins_per_url;
               if (this.dossierData.age_info?.age_days != null) target.age_days = this.dossierData.age_info.age_days;
               if (this.dossierData.ad_info?.current_ad_network || this.dossierData.ad_info?.ad_network) {
                 target.ad_network = this.dossierData.ad_info.current_ad_network || this.dossierData.ad_info.ad_network;
