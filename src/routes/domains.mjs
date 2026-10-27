@@ -127,15 +127,18 @@ export async function handleDomainsRoutes(routeCtx) {
     const domain = searchParams.get('domain');
     if (!domain) return jsonResponse({ error: 'domain query parameter is required' }, 400);
     try {
-      const cleanDomain = normalizeCleanDomain(domain);
-      if (!cleanDomain) return jsonResponse({ error: 'Valid domain is required' }, 400);
+      const rawDomain = domain.trim();
+      const isOrganicVault = rawDomain.toLowerCase() === 'uploaded by user' || rawDomain.toLowerCase() === 'uploaded-by-user' || rawDomain.toLowerCase() === 'organic';
+      const cleanDomain = isOrganicVault ? 'Uploaded by user' : normalizeCleanDomain(rawDomain);
+      if (!cleanDomain || (!isOrganicVault && !cleanDomain.includes('.'))) return jsonResponse({ error: 'Valid domain is required' }, 400);
 
       const isForceRefresh = searchParams.get('refresh') === 'true' || searchParams.get('force') === 'true';
       const folderId = searchParams.get('folder_id') || null;
       const keywordId = searchParams.get('keyword_id') || null;
+      const displacedLimit = Math.min(200, Math.max(30, Number(searchParams.get('displaced_limit') || 30)));
 
-      const cacheKey = buildCanonicalCacheKey('domains:dossier', { domain: cleanDomain, folderId, keywordId });
-      const kvKey = `dossier:domain:${cleanDomain}${folderId ? `:${folderId}` : ''}${keywordId ? `:${keywordId}` : ''}`;
+      const cacheKey = buildCanonicalCacheKey('domains:dossier', { domain: cleanDomain, folderId, keywordId, displacedLimit });
+      const kvKey = `dossier:domain:${cleanDomain}${folderId ? `:${folderId}` : ''}${keywordId ? `:${keywordId}` : ''}${displacedLimit !== 30 ? `:${displacedLimit}` : ''}`;
 
       if (isForceRefresh) {
         if (typeof invalidateEdgeCache === 'function') {
@@ -166,7 +169,7 @@ export async function handleDomainsRoutes(routeCtx) {
           } catch (_) {}
         }
 
-        const freshDossier = await getDomainDeepDossier(sql, cleanDomain, { folderId, keywordId, env, fastPath: true });
+        const freshDossier = await getDomainDeepDossier(sql, cleanDomain, { folderId, keywordId, env, fastPath: true, displacedLimit });
 
         // [INVARIANT: DOSSIER-MICRO-SYNC-O1] Non-blocking single-domain rollup sync (<5ms)
         if (freshDossier?.success) {

@@ -716,13 +716,21 @@ export function getDomainsPageHtml(initialDomain = '') {
                 <td class="py-3 px-4">
                   <div class="flex items-center gap-2.5">
                     <span class="text-slate-400 font-mono text-[11px] w-6 shrink-0" x-text="((currentPage - 1) * limit) + idx + 1"></span>
-                    <img :src="'https://www.google.com/s2/favicons?domain=' + encodeURIComponent(d.domain) + '&sz=32'"
-                         class="w-4 h-4 rounded shrink-0 bg-slate-200 dark:bg-slate-700"
-                         loading="lazy"
-                         onerror="this.onerror=null; this.style.display='none'">
+                    <template x-if="d.domain && d.domain.toLowerCase() === 'uploaded by user'">
+                      <span class="w-4 h-4 rounded shrink-0 bg-amber-500/10 text-amber-500 flex items-center justify-center text-[10px]" title="Direct Organic Uploads (Unlinked Pins)">✨</span>
+                    </template>
+                    <template x-if="!d.domain || d.domain.toLowerCase() !== 'uploaded by user'">
+                      <img :src="'https://www.google.com/s2/favicons?domain=' + encodeURIComponent(d.domain) + '&sz=32'"
+                           class="w-4 h-4 rounded shrink-0 bg-slate-200 dark:bg-slate-700"
+                           loading="lazy"
+                           onerror="this.onerror=null; this.style.display='none'">
+                    </template>
                     <div class="flex flex-col min-w-0">
                       <div class="flex items-center gap-1.5 flex-wrap">
                         <span class="font-bold text-slate-900 dark:text-white truncate group-hover:text-sky-600 dark:group-hover:text-sky-400 transition-colors" x-text="d.domain"></span>
+                        <template x-if="d.domain && d.domain.toLowerCase() === 'uploaded by user'">
+                          <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 shrink-0" title="100% Organic Vacuum: Highly ranked pins with zero outbound affiliate/ad links">🎯 Arbitrage Vacuum</span>
+                        </template>
                         <!-- Smart Badges -->
                         <template x-if="d.age_years !== null && d.age_years <= 2.0 && (d.top10_pins >= 1 || d.total_saves >= 1000)">
                           <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 shrink-0" title="Baby Giant: <= 2 Years with Top-10 Pins or 1k+ Saves">🌱 Baby Giant</span>
@@ -730,28 +738,35 @@ export function getDomainsPageHtml(initialDomain = '') {
                         <template x-if="d.accounts_count >= 2">
                           <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20 shrink-0" :title="'Multi-Account Network: ' + d.accounts_count + ' accounts pushing traffic'" x-text="'🕸️ ' + d.accounts_count + ' Accts'"></span>
                         </template>
-                        <template x-if="d.pins_per_url >= 3.0">
+                        <template x-if="d.pins_per_url >= 3.0 && (!d.domain || d.domain.toLowerCase() !== 'uploaded by user')">
                           <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 shrink-0" :title="'High URL Multiplier: ' + d.pins_per_url + 'x pins/URL'" x-text="'🔁 ' + d.pins_per_url + 'x URL'"></span>
                         </template>
                         <template x-if="d.displaced_pins >= 3 && d.decay_rate_pct >= 30">
                           <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 shrink-0" :title="'Bleeding Giant: ' + d.decay_rate_pct + '% displacement'">🩸 Bleeding</span>
                         </template>
-                        <a :href="safeUrl('https://' + d.domain)"
-                           target="_blank"
-                           rel="noopener noreferrer"
-                           @click.stop
-                           class="text-slate-400 hover:text-slate-700 dark:hover:text-white text-xs shrink-0"
-                           title="Visit website in new tab">
-                          ↗
-                        </a>
+                        <template x-if="!d.domain || d.domain.toLowerCase() !== 'uploaded by user'">
+                          <a :href="safeUrl('https://' + d.domain)"
+                             target="_blank"
+                             rel="noopener noreferrer"
+                             @click.stop
+                             class="text-slate-400 hover:text-slate-700 dark:hover:text-white text-xs shrink-0"
+                             title="Visit website in new tab">
+                            ↗
+                          </a>
+                        </template>
                       </div>
-                      <span class="text-[10px] text-slate-400 font-mono" x-text="d.unique_urls + ' unique URLs'"></span>
+                      <span class="text-[10px] text-slate-400 font-mono" x-text="(d.domain && d.domain.toLowerCase() === 'uploaded by user') ? '0 (Direct Uploads)' : (d.unique_urls + ' unique URLs')"></span>
                     </div>
                   </div>
                 </td>
 
                 <!-- 2. Domain Age & Registry -->
                 <td class="py-3 px-4">
+                  <template x-if="d.domain && d.domain.toLowerCase() === 'uploaded by user'">
+                    <span class="inline-flex items-center gap-1 font-mono text-[10px] font-semibold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-400">N/A (Organic)</span>
+                  </template>
+                  <template x-if="!d.domain || d.domain.toLowerCase() !== 'uploaded by user'">
+                    <div>
                   <!-- State 1: Resolved Age -->
                   <template x-if="d.age_years !== null && d.age_years !== undefined">
                     <div class="flex flex-col gap-0.5">
@@ -795,10 +810,19 @@ export function getDomainsPageHtml(initialDomain = '') {
                       <span x-text="enrichingDomains[d.domain] ? 'Checking...' : 'Check Age'">Check Age</span>
                     </button>
                   </template>
+                    </div>
+                  </template>
                 </td>
 
                 <!-- 3. Ad Network & Monetization -->
                 <td class="py-3 px-4">
+                  <template x-if="d.domain && d.domain.toLowerCase() === 'uploaded by user'">
+                    <span class="inline-flex items-center gap-1 font-mono text-[11px] font-bold px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 shadow-sm">
+                      <span>✨</span>
+                      <span>100% Organic (Unmonetized)</span>
+                    </span>
+                  </template>
+                  <template x-if="!d.domain || d.domain.toLowerCase() !== 'uploaded by user'">
                   <div class="flex flex-col gap-1">
                     <!-- State 1: Recognized Ad Network -->
                     <template x-if="d.ad_network && d.ad_network !== 'unchecked'">
@@ -836,6 +860,7 @@ export function getDomainsPageHtml(initialDomain = '') {
                       </button>
                     </template>
                   </div>
+                  </template>
                 </td>
 
                 <!-- 3. Pins & Multiplier -->
@@ -1009,21 +1034,31 @@ export function getDomainsPageHtml(initialDomain = '') {
         <!-- Top Row: Identity & External Shortcuts -->
         <div class="flex items-center justify-between flex-wrap gap-4">
           <div class="flex items-center gap-3.5">
-            <img :src="'https://www.google.com/s2/favicons?domain=' + encodeURIComponent(dossierDomain) + '&sz=32'"
-                 class="w-8 h-8 rounded-xl shadow-sm bg-slate-200 dark:bg-slate-800 shrink-0"
-                 loading="lazy"
-                 onerror="this.onerror=null; this.style.display='none'">
+            <template x-if="dossierDomain && dossierDomain.toLowerCase() === 'uploaded by user'">
+              <span class="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-500 flex items-center justify-center text-lg shadow-sm font-bold">✨</span>
+            </template>
+            <template x-if="!dossierDomain || dossierDomain.toLowerCase() !== 'uploaded by user'">
+              <img :src="'https://www.google.com/s2/favicons?domain=' + encodeURIComponent(dossierDomain) + '&sz=32'"
+                   class="w-8 h-8 rounded-xl shadow-sm bg-slate-200 dark:bg-slate-800 shrink-0"
+                   loading="lazy"
+                   onerror="this.onerror=null; this.style.display='none'">
+            </template>
             <div class="flex items-center gap-3 flex-wrap">
               <h2 class="text-xl font-bold text-slate-900 dark:text-white font-mono tracking-tight" x-text="dossierDomain"></h2>
-              <div class="flex items-center gap-2 text-xs font-mono text-slate-400">
-                <a :href="safeUrl('https://' + dossierDomain)" target="_blank" rel="noopener noreferrer" class="text-sky-600 dark:text-sky-400 hover:underline font-medium">Visit ↗</a>
-                <span>•</span>
-                <a :href="safeUrl('https://www.similarweb.com/website/' + dossierDomain)" target="_blank" rel="noopener noreferrer" class="hover:text-slate-600 dark:hover:text-slate-200 hover:underline">Similarweb ↗</a>
-                <span>•</span>
-                <a :href="safeUrl('https://web.archive.org/web/*/' + dossierDomain)" target="_blank" rel="noopener noreferrer" class="hover:text-slate-600 dark:hover:text-slate-200 hover:underline">Wayback ↗</a>
-                <span>•</span>
-                <a :href="safeUrl('https://www.google.com/search?q=site%3A' + encodeURIComponent(dossierDomain))" target="_blank" rel="noopener noreferrer" class="hover:text-slate-600 dark:hover:text-slate-200 hover:underline">Google Site ↗</a>
-              </div>
+              <template x-if="dossierDomain && dossierDomain.toLowerCase() === 'uploaded by user'">
+                <span class="text-xs font-mono text-amber-600 dark:text-amber-400 font-bold">🎯 100% Organic Direct Uploads • Unlinked Pinterest Traffic • Vacuum Opportunity</span>
+              </template>
+              <template x-if="!dossierDomain || dossierDomain.toLowerCase() !== 'uploaded by user'">
+                <div class="flex items-center gap-2 text-xs font-mono text-slate-400">
+                  <a :href="safeUrl('https://' + dossierDomain)" target="_blank" rel="noopener noreferrer" class="text-sky-600 dark:text-sky-400 hover:underline font-medium">Visit ↗</a>
+                  <span>•</span>
+                  <a :href="safeUrl('https://www.similarweb.com/website/' + dossierDomain)" target="_blank" rel="noopener noreferrer" class="hover:text-slate-600 dark:hover:text-slate-200 hover:underline">Similarweb ↗</a>
+                  <span>•</span>
+                  <a :href="safeUrl('https://web.archive.org/web/*/' + dossierDomain)" target="_blank" rel="noopener noreferrer" class="hover:text-slate-600 dark:hover:text-slate-200 hover:underline">Wayback ↗</a>
+                  <span>•</span>
+                  <a :href="safeUrl('https://www.google.com/search?q=site%3A' + encodeURIComponent(dossierDomain))" target="_blank" rel="noopener noreferrer" class="hover:text-slate-600 dark:hover:text-slate-200 hover:underline">Google Site ↗</a>
+                </div>
+              </template>
             </div>
           </div>
 
@@ -1034,22 +1069,43 @@ export function getDomainsPageHtml(initialDomain = '') {
                     title="Generate instant 6-pillar Arbitrage Attack Blueprint">
               <span>⚡ Attack Plan</span>
             </button>
-            <button @click="recheckAgeForDossier()"
-                    :disabled="enrichingDomains[dossierDomain]"
-                    class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 transition flex items-center gap-1 shadow-sm disabled:opacity-60">
-              <span :class="{ 'animate-spin': enrichingDomains[dossierDomain] }">🔄</span>
-              <span x-text="enrichingDomains[dossierDomain] ? 'Checking...' : 'Re-check Age'">Re-check Age</span>
-            </button>
-            <button @click="recheckAdsForDossier()"
-                    :disabled="enrichingAds[dossierDomain]"
-                    class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 transition flex items-center gap-1 shadow-sm disabled:opacity-60">
-              <span :class="{ 'animate-spin': enrichingAds[dossierDomain] }">🔄</span>
-              <span x-text="enrichingAds[dossierDomain] ? 'Scanning...' : 'Re-scan ads.txt'">Re-scan ads.txt</span>
-            </button>
+            <template x-if="!dossierDomain || dossierDomain.toLowerCase() !== 'uploaded by user'">
+              <div class="flex items-center gap-2">
+                <button @click="recheckAgeForDossier()"
+                        :disabled="enrichingDomains[dossierDomain]"
+                        class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 transition flex items-center gap-1 shadow-sm disabled:opacity-60">
+                  <span :class="{ 'animate-spin': enrichingDomains[dossierDomain] }">🔄</span>
+                  <span x-text="enrichingDomains[dossierDomain] ? 'Checking...' : 'Re-check Age'">Re-check Age</span>
+                </button>
+                <button @click="recheckAdsForDossier()"
+                        :disabled="enrichingAds[dossierDomain]"
+                        class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 transition flex items-center gap-1 shadow-sm disabled:opacity-60">
+                  <span :class="{ 'animate-spin': enrichingAds[dossierDomain] }">🔄</span>
+                  <span x-text="enrichingAds[dossierDomain] ? 'Scanning...' : 'Re-scan ads.txt'">Re-scan ads.txt</span>
+                </button>
+              </div>
+            </template>
           </div>
         </div>
 
-        <!-- Sleek Horizontal Bento Metadata Chips (Single Streamlined Row) -->
+        <!-- Sleek Horizontal Bento Metadata Chips -->
+        <template x-if="dossierData?.summary?.is_organic_vault">
+          <div class="flex items-center gap-2 flex-wrap font-mono text-xs pt-3 border-t border-slate-100 dark:border-slate-800/80">
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20 font-bold shadow-sm">
+              <span>🎯</span>
+              <span>100% Unmonetized Arbitrage Vacuum</span>
+            </span>
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 font-bold shadow-sm">
+              <span>⚡</span>
+              <span>0 Outbound Links • Top SERP Search Rankings</span>
+            </span>
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-purple-500/10 text-purple-700 dark:text-purple-400 border border-purple-500/20 font-bold shadow-sm">
+              <span>👤</span>
+              <span x-text="(dossierData?.summary?.accounts_count || 0) + ' Organic Creator Accounts'"></span>
+            </span>
+          </div>
+        </template>
+        <template x-if="!dossierData?.summary?.is_organic_vault">
         <div class="flex items-center gap-2 flex-wrap font-mono text-xs pt-3 border-t border-slate-100 dark:border-slate-800/80">
           <!-- Age Badge -->
           <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-semibold shadow-sm"
@@ -1115,19 +1171,20 @@ export function getDomainsPageHtml(initialDomain = '') {
             </span>
           </template>
         </div>
+        </template>
       </div>
 
       <!-- Dossier High-Level 6 KPI Summary Cards -->
       <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5 font-mono text-center">
         <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-sm flex flex-col gap-1">
           <div class="text-[10px] text-slate-400 uppercase tracking-wider">Ranked Pins</div>
-          <div class="text-2xl font-bold text-slate-900 dark:text-white" x-text="dossierData?.summary?.total_pins || 0"></div>
-          <div class="text-[11px] text-slate-400">Total SERP pins</div>
+          <div class="text-2xl font-bold text-slate-900 dark:text-white" x-text="formatNumber(dossierData?.summary?.total_pins || 0)"></div>
+          <div class="text-[11px] text-slate-400" x-text="(dossierData?.summary?.visual_pins_count != null && dossierData?.summary?.visual_pins_count < dossierData?.summary?.total_pins) ? (formatNumber(dossierData.summary.visual_pins_count) + ' visual cards loaded') : 'Total SERP pins'"></div>
         </div>
         <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-sm flex flex-col gap-1">
-          <div class="text-[10px] text-slate-400 uppercase tracking-wider">Money Articles</div>
-          <div class="text-2xl font-bold text-slate-900 dark:text-white" x-text="dossierData?.summary?.unique_urls || 0"></div>
-          <div class="text-[11px] text-slate-400">Unique URLs</div>
+          <div class="text-[10px] text-slate-400 uppercase tracking-wider" x-text="dossierData?.summary?.is_organic_vault ? 'Upload Boards' : 'Money Articles'"></div>
+          <div class="text-2xl font-bold text-slate-900 dark:text-white" x-text="dossierData?.summary?.is_organic_vault ? filteredDossierArticles().length : (dossierData?.summary?.unique_urls || 0)"></div>
+          <div class="text-[11px] text-slate-400" x-text="dossierData?.summary?.is_organic_vault ? 'Niche board groups' : 'Unique URLs'"></div>
         </div>
         <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-sm flex flex-col gap-1">
           <div class="text-[10px] text-slate-400 uppercase tracking-wider">Multiplier</div>
@@ -1159,7 +1216,7 @@ export function getDomainsPageHtml(initialDomain = '') {
           <button @click="dossierTab = 'urls'"
                   class="px-3 py-1.5 rounded-xl text-xs font-semibold font-mono transition flex items-center gap-1.5"
                   :class="dossierTab === 'urls' ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'">
-            <span>🔗 Money Articles</span>
+            <span x-text="dossierData?.summary?.is_organic_vault ? '📁 Direct Upload Boards' : '🔗 Money Articles'"></span>
             <span class="px-1.5 py-0.2 rounded-full text-[10px] font-bold"
                   :class="dossierTab === 'urls' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'"
                   x-text="filteredDossierArticles().length"></span>
@@ -1396,6 +1453,22 @@ export function getDomainsPageHtml(initialDomain = '') {
                         Next →
                       </button>
                     </div>
+                  </div>
+                </template>
+
+                <!-- On-Demand Shard Displaced Pins Loader -->
+                <template x-if="dossierData?.summary?.displaced_remaining_count > 0">
+                  <div class="mt-4 p-4 rounded-2xl bg-sky-50 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-800 flex items-center justify-between flex-wrap gap-3 font-mono text-xs">
+                    <div class="flex items-center gap-2">
+                      <span class="text-sky-600 dark:text-sky-400 font-bold">📦 Historical Shard Archive:</span>
+                      <span class="text-slate-600 dark:text-slate-300" x-text="formatNumber(dossierData.summary.displaced_remaining_count) + ' additional historical displaced pins are stored in Neon Shards.'"></span>
+                    </div>
+                    <button @click="loadMoreDisplaced()"
+                            :disabled="dossierLoadingMore"
+                            class="px-3.5 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold transition flex items-center gap-1.5 shadow-sm disabled:opacity-50">
+                      <span :class="{ 'animate-spin': dossierLoadingMore }">🔄</span>
+                      <span x-text="dossierLoadingMore ? 'Hydrating Shards...' : 'Load +50 Displaced Pins from Shards'">Load +50 Displaced Pins from Shards</span>
+                    </button>
                   </div>
                 </template>
               </div>
@@ -2025,6 +2098,8 @@ export function getDomainsPageHtml(initialDomain = '') {
         dossierPinsPerPage: 25,
         dossierArticlesPage: 1,
         dossierArticlesPerPage: 10,
+        currentDisplacedLimit: 30,
+        dossierLoadingMore: false,
 
         // Arbitrage Attack Blueprint Modal State (Pillar 6)
         isBlueprintModalOpen: false,
@@ -2519,7 +2594,8 @@ export function getDomainsPageHtml(initialDomain = '') {
           this.isDossierOpen = true;
           this.dossierLoading = true;
           this.dossierData = null;
-          this.dossierTab = 'urls';
+          this.dossierTab = (domain && domain.toLowerCase() === 'uploaded by user') ? 'pins' : 'urls';
+          this.currentDisplacedLimit = 30;
           this.dossierSearch = '';
           this.dossierSort = 'saves';
           this.dossierPinsPage = 1;
@@ -2545,6 +2621,28 @@ export function getDomainsPageHtml(initialDomain = '') {
           }
         },
 
+        async loadMoreDisplaced() {
+          if (!this.dossierDomain || this.dossierLoadingMore) return;
+          this.currentDisplacedLimit += 50;
+          this.dossierLoadingMore = true;
+          try {
+            const apiUrl = '/api/domains/dossier?domain=' + encodeURIComponent(this.dossierDomain) + '&displaced_limit=' + this.currentDisplacedLimit;
+            const res = await (window.safeApiFetch || fetch)(apiUrl, { timeout: 28000 });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            const data = await res.json();
+            if (data?.ranked_pins) {
+              this.dossierData.ranked_pins = data.ranked_pins;
+              this.dossierData.summary = data.summary;
+              this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+              this.showToast('Loaded ' + data.ranked_pins.length + ' visual pins!', 'success');
+            }
+          } catch (err) {
+            this.showToast('Failed to load more displaced pins: ' + err.message, 'error');
+          } finally {
+            this.dossierLoadingMore = false;
+          }
+        },
+
         closeDossier(pushState = true) {
           // [INVARIANT: IN-MEMORY-DRAWER-SYNC] Synchronize drawer metrics back to leaderboard row
           const domainToSync = this.dossierDomain || this.selectedDomain;
@@ -2552,8 +2650,9 @@ export function getDomainsPageHtml(initialDomain = '') {
             const target = this.domains.find(d => d.domain === domainToSync);
             if (target) {
               const s = this.dossierData.summary || this.dossierData.metrics || {};
-              if (s.total_pins != null) target.total_pins = s.total_pins;
-              if (s.total_saves != null) target.total_saves = s.total_saves;
+              // [INVARIANT: PRESERVE-GLOBAL-CATALOG-COUNTS] Never overwrite true global catalog counts with partial visual counts
+              if (s.total_pins != null && s.total_pins >= (target.total_pins || 0)) target.total_pins = s.total_pins;
+              if (s.total_saves != null && s.total_saves >= (target.total_saves || 0)) target.total_saves = s.total_saves;
               if (s.accounts_count != null) target.accounts_count = s.accounts_count;
               if (s.avg_velocity != null) target.avg_velocity = s.avg_velocity;
               if (s.active_pins_count != null) target.active_serp_pins = s.active_pins_count;

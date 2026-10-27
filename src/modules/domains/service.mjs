@@ -1399,6 +1399,7 @@ export async function refreshDomainIntelligenceRollup(sql) {
             ELSE COUNT(DISTINCT dp.pin_id) FILTER (WHERE NOT (dp.pin_id LIKE 'reg_%'))::int
           END AS total_pins,
           CASE
+            WHEN dp.clean_domain = 'Uploaded by user' THEN 0
             WHEN COUNT(DISTINCT dp.pin_id) FILTER (WHERE dp.is_serp_ranked = TRUE) > 0
             THEN GREATEST(1, COUNT(DISTINCT dp.url_slug) FILTER (WHERE dp.is_serp_ranked = TRUE AND dp.url_slug IS NOT NULL AND dp.url_slug <> '/'))::int
             ELSE GREATEST(1, COUNT(DISTINCT dp.url_slug) FILTER (WHERE dp.url_slug IS NOT NULL AND dp.url_slug <> '/'))::int
@@ -1477,8 +1478,14 @@ export async function refreshDomainIntelligenceRollup(sql) {
             WHEN drm.registered_at IS NOT NULL THEN ROUND((EXTRACT(EPOCH FROM (${referenceTime}::timestamptz - drm.registered_at)) / 31557600)::numeric, 2)
             ELSE drm.initial_age_years
           END AS age_years,
-          COALESCE(drm.lookup_status, 'unchecked') AS age_status,
-          COALESCE(dmm.current_ad_network, 'unchecked') AS ad_network,
+          CASE
+            WHEN da.domain = 'Uploaded by user' THEN 'organic_unlinked'
+            ELSE COALESCE(drm.lookup_status, 'unchecked')
+          END AS age_status,
+          CASE
+            WHEN da.domain = 'Uploaded by user' THEN 'unmonetized'
+            ELSE COALESCE(dmm.current_ad_network, 'unchecked')
+          END AS ad_network,
           dmm.ad_manager_domain,
           dmm.primary_pub_id,
           dmm.previous_ad_network,
@@ -1574,10 +1581,11 @@ export async function refreshDomainIntelligenceRollup(sql) {
  */
 export async function syncSingleDomainRollup(sql, cleanDomain, dossierData) {
   if (!sql || !cleanDomain || !dossierData) return null;
+  const isOrganicVault = String(cleanDomain).trim().toLowerCase() === 'uploaded by user' || String(cleanDomain).trim().toLowerCase() === 'uploaded-by-user';
   const summary = dossierData.summary || dossierData.metrics || {};
   const totalPins = Number(summary.total_pins || 0);
   const totalSaves = Number(summary.total_saves || 0);
-  const uniqueUrls = Number(summary.unique_urls || 1);
+  const uniqueUrls = isOrganicVault ? 0 : Number(summary.unique_urls || 1);
   const pinsPerUrl = Number(summary.pins_per_url || 1);
   const activeSerpPins = Number(summary.active_pins_count || 0);
   const displacedPins = Number(summary.displaced_pins_count || 0);
@@ -1966,16 +1974,33 @@ export function detectMarketingAngle({ title = '', keywords = [], annotations = 
  * 5. P2P Sybil Network (Primary Brand vs Satellite Creators & Cross-Domain Footprint)
  * 6. Reverse-Engineered Visual DNA (Computer Vision Annotations Cloud & Palette)
  */
-export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, keywordId = null, env = null, skipShardHydration = false, fastPath = true } = {}) {
-  const cleanDomain = normalizeCleanDomain(rawDomain);
+export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, keywordId = null, env = null, skipShardHydration = false, fastPath = true, displacedLimit = 30 } = {}) {
+  const isOrganicVault = typeof rawDomain === 'string' && (
+    rawDomain.trim().toLowerCase() === 'uploaded by user' || 
+    rawDomain.trim().toLowerCase() === 'uploaded-by-user' ||
+    rawDomain.trim().toLowerCase() === 'organic'
+  );
+  const cleanDomain = isOrganicVault ? 'Uploaded by user' : normalizeCleanDomain(rawDomain);
   if (!cleanDomain) throw new Error('Valid domain is required.');
 
   const fId = folderId && !isNaN(Number(folderId)) ? Number(folderId) : null;
   const kId = keywordId && !isNaN(Number(keywordId)) ? Number(keywordId) : null;
 
   const [ageInfo, adInfo, serpPins, archivePins, compPins, displacedPins] = await Promise.all([
-    fetchAndCacheDomainAge(sql, cleanDomain, { fastPath }),
-    fetchAndCacheDomainAdNetwork(sql, cleanDomain, { fastPath }).catch(() => null),
+    isOrganicVault ? Promise.resolve({
+      domain: 'Uploaded by user',
+      age_days: null,
+      age_years: null,
+      age_status: 'organic_unlinked',
+      lookup_status: 'organic_vault'
+    }) : fetchAndCacheDomainAge(sql, cleanDomain, { fastPath }),
+    isOrganicVault ? Promise.resolve({
+      domain: 'Uploaded by user',
+      current_ad_network: 'unmonetized',
+      ad_network: 'unmonetized',
+      ad_network_history: [],
+      ads_txt_status: 'organic_unlinked'
+    }) : fetchAndCacheDomainAdNetwork(sql, cleanDomain, { fastPath }).catch(() => null),
     sql`
       SELECT
         ksc.pin_id,
@@ -1999,7 +2024,7 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
         COALESCE(ksc.metadata, '{}'::jsonb) AS metadata
       FROM keyword_serp_current ksc
       LEFT JOIN tracked_keywords tk ON tk.id = ksc.keyword_id
-      WHERE ksc.domain = ${cleanDomain}
+      WHERE (ksc.domain = ${cleanDomain} OR (${isOrganicVault}::boolean AND LOWER(ksc.domain) = 'uploaded by user'))
         AND (${fId}::int IS NULL OR ksc.keyword_id IN (SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${fId}))
         AND (${kId}::int IS NULL OR ksc.keyword_id = ${kId})
       ORDER BY ksc.is_displaced ASC, ksc.rank_position ASC NULLS LAST, ksc.save_count DESC;
@@ -2019,7 +2044,7 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
         pa.annotations AS visual_annotations,
         pa.created_at_pinterest
       FROM pa_pins pa
-      WHERE pa.domain = ${cleanDomain}
+      WHERE (pa.domain = ${cleanDomain} OR (${isOrganicVault}::boolean AND LOWER(pa.domain) = 'uploaded by user'))
       ORDER BY pa.saves DESC
       LIMIT 200;
     `.catch(() => []),
@@ -2037,7 +2062,7 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
         cp.created_at_pinterest
       FROM competitor_pins cp
       LEFT JOIN competitor_profiles prof ON prof.id = cp.competitor_id
-      WHERE cp.link_domain = ${cleanDomain}
+      WHERE (cp.link_domain = ${cleanDomain} OR (${isOrganicVault}::boolean AND LOWER(cp.link_domain) = 'uploaded by user'))
       ORDER BY cp.save_count DESC
       LIMIT 200;
     `.catch(() => []),
@@ -2064,7 +2089,7 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
         '{}'::jsonb AS metadata
       FROM keyword_displaced_index kdi
       LEFT JOIN tracked_keywords tk ON tk.id = kdi.keyword_id
-      WHERE kdi.domain = ${cleanDomain}
+      WHERE (kdi.domain = ${cleanDomain} OR (${isOrganicVault}::boolean AND LOWER(kdi.domain) = 'uploaded by user'))
         AND (${fId}::int IS NULL OR kdi.keyword_id IN (SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${fId}))
         AND (${kId}::int IS NULL OR kdi.keyword_id = ${kId})
       ORDER BY kdi.save_count DESC;
@@ -2121,7 +2146,9 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
     }
 
     let cleanSlug = '/';
-    if (row.destination_url) {
+    if (isOrganicVault) {
+      cleanSlug = row.board_name ? `/${row.board_name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')}` : '/direct-uploads';
+    } else if (row.destination_url) {
       try {
         const u = new URL(row.destination_url.startsWith('http') ? row.destination_url : `https://${row.destination_url}`);
         cleanSlug = (u.pathname.replace(/\/+$/, '') || '/').toLowerCase();
@@ -2298,8 +2325,8 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
     }
   }
 
-  // [INVARIANT: EDGE-SUBREQUEST-PAGINATION-SHIELD] Invariant 9: strictly bound displaced pin shard hydration to top 30 pins
-  const MAX_DISPLACED_SHARD_HYDRATION = 30;
+  // [INVARIANT: EDGE-SUBREQUEST-PAGINATION-SHIELD] Invariant 9: strictly bound displaced pin shard hydration (default top 30 pins, expandable on demand up to 200)
+  const MAX_DISPLACED_SHARD_HYDRATION = Math.min(200, Math.max(30, Number(displacedLimit || 30)));
   if (missingDisplacedPids.size > 0 && !skipShardHydration) {
     try {
       const sortedMissingPids = displacedPins
@@ -2376,16 +2403,16 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
       if (p.best_rank !== null && p.best_rank <= 10) acc.top10_count++;
     }
 
-    // [INVARIANT: CLEAN-MONEY-ARTICLES] An article must represent a genuine content path (clean_slug !== '/') with authentic creative pins
+    // [INVARIANT: CLEAN-MONEY-ARTICLES] An article must represent a genuine content path (clean_slug !== '/') with authentic creative pins (or a dedicated direct-upload board for organic vault)
     const hasValidImage = Boolean(p.image_url && p.image_url.trim());
-    const isRealArticle = p.clean_slug && p.clean_slug !== '/';
+    const isRealArticle = isOrganicVault ? Boolean(p.title || p.pin_id) : (p.clean_slug && p.clean_slug !== '/');
 
     if (isRealArticle && hasValidImage) {
       const slugKey = p.clean_slug;
       if (!urlGroupsMap.has(slugKey)) {
         urlGroupsMap.set(slugKey, {
           clean_slug: slugKey,
-          sample_url: p.destination_url || `https://${cleanDomain}${slugKey}`,
+          sample_url: isOrganicVault ? `Direct Upload Board: ${p.board_name || 'Personal Pins'}` : (p.destination_url || `https://${cleanDomain}${slugKey}`),
           pins_count: 0,
           total_saves: 0,
           total_repins: 0,
@@ -2640,7 +2667,7 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
     needs_age_enrichment: Boolean(ageInfo?.needs_enrichment || ageInfo?.lookup_status === 'pending'),
     needs_ad_enrichment: Boolean(adInfo?.needs_enrichment || adInfo?.ads_txt_status === 'pending'),
     summary: {
-      total_pins: visualPins.length,
+      total_pins: allPins.length,
       all_catalog_pins_count: allPins.length,
       visual_pins_count: visualPins.length,
       active_pins_count: visualPins.filter(p => p.best_rank !== null).length,
@@ -2648,11 +2675,14 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
       top10_pins: visualPins.filter(p => p.best_rank !== null && p.best_rank <= 10).length,
       rank_11_50_pins: visualPins.filter(p => p.best_rank !== null && p.best_rank >= 11 && p.best_rank <= 50).length,
       displaced_pins_count: visualPins.filter(p => p.best_rank === null && p.is_displaced).length,
-      unique_urls: moneyUrls.length,
+      displaced_total_count: allPins.filter(p => p.is_displaced).length,
+      displaced_remaining_count: Math.max(0, allPins.filter(p => p.is_displaced).length - visualPins.filter(p => p.is_displaced).length),
+      unique_urls: isOrganicVault ? 0 : moneyUrls.length,
       pins_per_url: moneyUrls.length > 0 ? Number((visualPins.length / moneyUrls.length).toFixed(2)) : 1,
       ranked_keywords_count: keywordMonopoly.length,
-      total_saves: visualPins.reduce((acc, p) => acc + (Number(p.saves) || 0), 0),
-      avg_velocity: Number(visualPins.reduce((acc, p) => acc + Math.max(0, Number(p.velocity || 0)), 0).toFixed(1)),
+      total_saves: allPins.reduce((acc, p) => acc + (Number(p.saves) || 0), 0),
+      visual_saves: visualPins.reduce((acc, p) => acc + (Number(p.saves) || 0), 0),
+      avg_velocity: Number(allPins.reduce((acc, p) => acc + Math.max(0, Number(p.velocity || 0)), 0).toFixed(1)),
       best_rank: visualPins.reduce((min, p) => p.best_rank !== null ? (min === null ? p.best_rank : Math.min(min, p.best_rank)) : min, null),
       avg_rank: (() => {
         const r = visualPins.filter(p => p.best_rank !== null);
@@ -2663,7 +2693,8 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
       vulnerable_pins_count: visualPins.filter(p => p.is_vulnerable).length,
       decaying_monopoly_count: keywordMonopoly.filter(k => k.is_decaying_monopoly).length,
       sybil_accounts_count: accountsList.filter(a => a.role === 'SATELLITE_CREATOR').length,
-      sister_domains_count: new Set(crossFootprintRows.map(r => r.cross_domain)).size
+      sister_domains_count: new Set(crossFootprintRows.map(r => r.cross_domain)).size,
+      is_organic_vault: isOrganicVault
     },
     ranked_pins: visualPins,
     money_urls: moneyUrls,
