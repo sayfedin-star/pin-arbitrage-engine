@@ -6006,6 +6006,9 @@ export function getDashboardHtml(folderId = '') {
           return '${safeFolderId}' ? 'creators_archive' : 'overview';
         })(),
         scopedFolderId: '${safeFolderId}',
+        activeFolderId: '${safeFolderId}',
+        activeFolder: null,
+        crossoverData: null,
         folderFilter: '${safeFolderId}',
         foldersList: [],
         folderCreatorMap: {},

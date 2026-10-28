@@ -26,6 +26,7 @@ import { getPinDetailPageHtml } from '../src/pin-details-ui.mjs';
 import {
   listDomainsIntelligence,
   getDomainDeepDossier,
+  generateDomainArbitrageBlueprint,
   fetchAndCacheDomainAge,
   enrichMissingDomainsBatch,
   getDatabaseEnrichmentStats,
@@ -2627,8 +2628,21 @@ const server = http.createServer(async (req, res) => {
       try {
         const folderId = searchParams.get('folder_id') || null;
         const keywordId = searchParams.get('keyword_id') || null;
-        const dossier = await getDomainDeepDossier(sql, domain, { folderId, keywordId });
+        const displacedLimit = Math.min(200, Math.max(30, Number(searchParams.get('displaced_limit') || 30)));
+        const dossier = await getDomainDeepDossier(sql, domain, { folderId, keywordId, displacedLimit });
         return sendJson(res, 200, dossier);
+      } catch (err) {
+        return sendJson(res, 400, { success: false, error: redactSecrets(err.message) });
+      }
+    }
+
+    if (method === 'GET' && pathname === '/api/domains/blueprint') {
+      const domain = searchParams.get('domain');
+      if (!domain) return sendJson(res, 400, { error: 'domain query parameter is required' });
+      try {
+        const folderId = searchParams.get('folder_id') || null;
+        const blueprint = await generateDomainArbitrageBlueprint(sql, domain, { folderId });
+        return sendJson(res, 200, blueprint);
       } catch (err) {
         return sendJson(res, 400, { success: false, error: redactSecrets(err.message) });
       }
@@ -2732,10 +2746,34 @@ const server = http.createServer(async (req, res) => {
       return res.end(html);
     }
 
-    // 8B. GET or HEAD /folders or /folders/:id -> Dedicated Campaign Folders Studio
+    // 8B. GET or HEAD /folders or /folders/:id -> Dedicated Campaign Folders Studio & Scoped Rooms
     if ((method === 'GET' || method === 'HEAD') && (pathname === '/folders' || pathname.startsWith('/folders/'))) {
-      const folderId = pathname.startsWith('/folders/') ? decodeURIComponent(pathname.slice('/folders/'.length)) : '';
-      const html = getCampaignFoldersPageHtml(folderId);
+      const segments = pathname.split('/').filter(Boolean);
+      let folderId = segments[1] || '';
+      try { folderId = decodeURIComponent(folderId); } catch (_) {}
+      const room = (segments[2] || '').toLowerCase();
+
+      let html;
+      if (!folderId) {
+        html = getCampaignFoldersPageHtml();
+      } else if (!room) {
+        // Room 1: /folders/:id -> Crossover & Super-Pins Room
+        html = getCampaignFoldersPageHtml(folderId);
+      } else if (room === 'keywords') {
+        // Room 2: /folders/:id/keywords -> Scoped Keywords Fleet Dashboard
+        html = getKeywordsPageHtml('', '', folderId);
+      } else if (room === 'creators') {
+        // Room 3: /folders/:id/creators -> Scoped Creator Hub
+        html = getDashboardHtml(folderId);
+      } else if (room === 'domains') {
+        // Room 4: /folders/:id/domains -> Scoped Domain Intelligence Studio
+        let domainParam = segments[3] || '';
+        try { domainParam = decodeURIComponent(domainParam); } catch (_) {}
+        html = getDomainsPageHtml(domainParam, folderId);
+      } else {
+        html = getCampaignFoldersPageHtml(folderId);
+      }
+
       res.writeHead(200, {
         ...HTML_SECURITY_HEADERS,
         'Content-Length': Buffer.byteLength(html)

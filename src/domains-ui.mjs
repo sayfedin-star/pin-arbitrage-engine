@@ -396,7 +396,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                   class="w-full bg-slate-50 dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] rounded-lg px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-sky-500 font-medium cursor-pointer">
             <option value="">All Folders</option>
             <template x-for="f in folders" :key="f.id">
-              <option :value="f.id" x-text="f.name + ' (' + (f.item_count || f.keyword_count || 0) + ')'"></option>
+              <option :value="String(f.id)" :selected="String(f.id) === String(selectedFolderId)" x-text="f.name + ' (' + (f.item_count || f.keyword_count || 0) + ')'"></option>
             </template>
           </select>
         </div>
@@ -910,7 +910,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
           </button>
           <span class="text-slate-300 dark:text-slate-700">|</span>
           <nav class="flex items-center gap-1.5 text-slate-500">
-            <a href="/domains" @click.prevent="closeDossier()" class="hover:text-sky-600 dark:hover:text-sky-400 flex items-center gap-1 transition">
+            <a :href="getBaseStudioPath()" href="/domains" @click.prevent="closeDossier()" class="hover:text-sky-600 dark:hover:text-sky-400 flex items-center gap-1 transition">
               <span>🌐 Domain Radar</span>
             </a>
             <span class="text-slate-300 dark:text-slate-700">/</span>
@@ -1955,6 +1955,9 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
     function domainsApp(initialDomain = '', scopedFolderId = '') {
       return {
         scopedFolderId: scopedFolderId || '',
+        activeFolderId: scopedFolderId || '',
+        activeFolder: null,
+        crossoverData: null,
         actionsOpen: false,
         pinnedDomains: new Set(),
         pinnedOnly: false,
@@ -2092,8 +2095,18 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
             });
           }
           if (this.scopedFolderId) {
-            this.selectedFolderId = this.scopedFolderId;
+            this.selectedFolderId = String(this.scopedFolderId);
             this.fetchPinnedDomains();
+            (async () => {
+              try {
+                const res = await (window.safeApiFetch || fetch)('/api/folders/' + encodeURIComponent(this.scopedFolderId));
+                if (res.ok) {
+                  const data = await res.json();
+                  if (data?.folder) this.activeFolder = data.folder;
+                  else if (data?.id) this.activeFolder = data;
+                }
+              } catch (_) {}
+            })();
           }
           this.fetchFolders();
           this.loadDomains();
@@ -2196,6 +2209,11 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
             if (res.ok) {
               const data = await res.json();
               this.folders = Array.isArray(data.folders) ? data.folders : (Array.isArray(data) ? data : []);
+              if (this.scopedFolderId) {
+                this.selectedFolderId = String(this.scopedFolderId);
+                const matched = this.folders.find(f => String(f.id) === String(this.scopedFolderId));
+                if (matched) this.activeFolder = matched;
+              }
             }
           } catch (_) {}
         },
@@ -2655,7 +2673,9 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
           }
 
           try {
-            const apiUrl = '/api/domains/dossier?domain=' + encodeURIComponent(domain) + (forceRefresh ? '&refresh=true' : '');
+            const activeFid = this.scopedFolderId || this.selectedFolderId || '';
+            const folderParam = activeFid ? '&folder_id=' + encodeURIComponent(activeFid) : '';
+            const apiUrl = '/api/domains/dossier?domain=' + encodeURIComponent(domain) + folderParam + (forceRefresh ? '&refresh=true' : '');
             const res = await (window.safeApiFetch || fetch)(apiUrl, { timeout: 28000 });
             if (!res.ok) throw new Error('HTTP ' + res.status);
             this.dossierData = await res.json();
@@ -2671,7 +2691,9 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
           this.currentDisplacedLimit += 50;
           this.dossierLoadingMore = true;
           try {
-            const apiUrl = '/api/domains/dossier?domain=' + encodeURIComponent(this.dossierDomain) + '&displaced_limit=' + this.currentDisplacedLimit;
+            const activeFid = this.scopedFolderId || this.selectedFolderId || '';
+            const folderParam = activeFid ? '&folder_id=' + encodeURIComponent(activeFid) : '';
+            const apiUrl = '/api/domains/dossier?domain=' + encodeURIComponent(this.dossierDomain) + folderParam + '&displaced_limit=' + this.currentDisplacedLimit;
             const res = await (window.safeApiFetch || fetch)(apiUrl, { timeout: 28000 });
             if (!res.ok) throw new Error('HTTP ' + res.status);
             const data = await res.json();
@@ -3010,7 +3032,9 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
           this.blueprintData = null;
 
           try {
-            const res = await (window.safeApiFetch || fetch)('/api/domains/blueprint?domain=' + encodeURIComponent(domain), { timeout: 18000 });
+            const activeFid = this.scopedFolderId || this.selectedFolderId || '';
+            const folderParam = activeFid ? '&folder_id=' + encodeURIComponent(activeFid) : '';
+            const res = await (window.safeApiFetch || fetch)('/api/domains/blueprint?domain=' + encodeURIComponent(domain) + folderParam, { timeout: 18000 });
             if (!res.ok) throw new Error('HTTP ' + res.status);
             this.blueprintData = await res.json();
           } catch (err) {

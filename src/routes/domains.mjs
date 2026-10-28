@@ -235,7 +235,8 @@ export async function handleDomainsRoutes(routeCtx) {
     const domain = searchParams.get('domain');
     if (!domain) return jsonResponse({ error: 'domain query parameter is required' }, 400);
     try {
-      const blueprint = await generateDomainArbitrageBlueprint(sql, domain);
+      const folderId = searchParams.get('folder_id') || null;
+      const blueprint = await generateDomainArbitrageBlueprint(sql, domain, { folderId });
       return jsonResponse(blueprint, 200, 30);
     } catch (err) {
       return jsonResponse({ success: false, error: redactSecrets(err.message) }, 400);

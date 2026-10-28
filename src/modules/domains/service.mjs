@@ -2579,6 +2579,7 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
         WHERE creator_username = ANY(${cleanUsernames})
           AND domain IS NOT NULL AND domain <> ''
           AND domain <> ${cleanDomain}
+          AND (${fId}::int IS NULL OR keyword_id IN (SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${fId}))
         GROUP BY 1, 2
         ORDER BY 3 DESC
         LIMIT 60;
@@ -2668,6 +2669,18 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
     top_title_keywords: topTitleKeywords
   };
 
+  // [INVARIANT: FOLDER-SCOPED-LEADERBOARD-DOSSIER-PARITY]
+  // When fId !== null, align total_pins, unique_urls and total_saves with active SERP pins in that folder
+  const activePins = allPins.filter(p => p.best_rank !== null);
+  const activePinsCount = activePins.length;
+  const activeUniqueUrls = isOrganicVault ? 0 : new Set(activePins.filter(p => p.clean_slug && p.clean_slug !== '/').map(p => p.clean_slug)).size;
+  const activeTotalSaves = activePins.reduce((acc, p) => acc + (Number(p.saves) || 0), 0);
+
+  const totalPinsCount = (fId !== null && activePinsCount > 0) ? activePinsCount : allPins.length;
+  const summaryUniqueUrls = (fId !== null && activePinsCount > 0) ? activeUniqueUrls : (isOrganicVault ? 0 : moneyUrls.length);
+  const summaryPinsPerUrl = summaryUniqueUrls > 0 ? Number((totalPinsCount / summaryUniqueUrls).toFixed(2)) : 1;
+  const summaryTotalSaves = (fId !== null && activePinsCount > 0) ? activeTotalSaves : allPins.reduce((acc, p) => acc + (Number(p.saves) || 0), 0);
+
   return {
     success: true,
     domain: cleanDomain,
@@ -2676,20 +2689,20 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
     needs_age_enrichment: Boolean(ageInfo?.needs_enrichment || ageInfo?.lookup_status === 'pending'),
     needs_ad_enrichment: Boolean(adInfo?.needs_enrichment || adInfo?.ads_txt_status === 'pending'),
     summary: {
-      total_pins: allPins.length,
+      total_pins: totalPinsCount,
       all_catalog_pins_count: allPins.length,
       visual_pins_count: visualPins.length,
-      active_pins_count: visualPins.filter(p => p.best_rank !== null).length,
+      active_pins_count: (fId !== null && activePinsCount > 0) ? activePinsCount : visualPins.filter(p => p.best_rank !== null).length,
       top3_pins: visualPins.filter(p => p.best_rank !== null && p.best_rank <= 3).length,
       top10_pins: visualPins.filter(p => p.best_rank !== null && p.best_rank <= 10).length,
       rank_11_50_pins: visualPins.filter(p => p.best_rank !== null && p.best_rank >= 11 && p.best_rank <= 50).length,
       displaced_pins_count: visualPins.filter(p => p.best_rank === null && p.is_displaced).length,
       displaced_total_count: allPins.filter(p => p.is_displaced).length,
       displaced_remaining_count: Math.max(0, allPins.filter(p => p.is_displaced).length - visualPins.filter(p => p.is_displaced).length),
-      unique_urls: isOrganicVault ? 0 : moneyUrls.length,
-      pins_per_url: moneyUrls.length > 0 ? Number((visualPins.length / moneyUrls.length).toFixed(2)) : 1,
+      unique_urls: summaryUniqueUrls,
+      pins_per_url: summaryPinsPerUrl,
       ranked_keywords_count: keywordMonopoly.length,
-      total_saves: allPins.reduce((acc, p) => acc + (Number(p.saves) || 0), 0),
+      total_saves: summaryTotalSaves,
       visual_saves: visualPins.reduce((acc, p) => acc + (Number(p.saves) || 0), 0),
       avg_velocity: Number(allPins.reduce((acc, p) => acc + Math.max(0, Number(p.velocity || 0)), 0).toFixed(1)),
       best_rank: visualPins.reduce((min, p) => p.best_rank !== null ? (min === null ? p.best_rank : Math.min(min, p.best_rank)) : min, null),
@@ -2716,8 +2729,8 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
 /**
  * Pillar 6: Generates the One-Click Arbitrage Attack Blueprint
  */
-export async function generateDomainArbitrageBlueprint(sql, rawDomain) {
-  const dossier = await getDomainDeepDossier(sql, rawDomain);
+export async function generateDomainArbitrageBlueprint(sql, rawDomain, options = {}) {
+  const dossier = await getDomainDeepDossier(sql, rawDomain, options);
   const cleanDomain = dossier.domain;
 
   // 1. Top 5 Target Articles to Clone & Outrank

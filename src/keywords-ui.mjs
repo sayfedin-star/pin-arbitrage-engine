@@ -6777,9 +6777,14 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                   k._searchCorpus = ((k.keyword || '') + ' ' + (k.category || '') + ' ' + (fList.map(f => f.name || '').join(' '))).toLowerCase();
                 });
               }
-              if (this.folders.length > 0 && !this.activeFolder) {
-                this.activeFolder = this.folders[0];
-                if (this.activeTab === 'crossover') {
+              if (this.folders.length > 0) {
+                if (this.activeFolderId) {
+                  const matched = this.folders.find(f => String(f.id) === String(this.activeFolderId));
+                  if (matched) this.activeFolder = matched;
+                } else if (!this.activeFolder) {
+                  this.activeFolder = this.folders[0];
+                }
+                if (this.activeTab === 'crossover' && this.activeFolder) {
                   this.fetchFolderCrossover(this.activeFolder.id);
                 }
               }

@@ -517,6 +517,33 @@ async function runAllChecks() {
       report(9, 'Folder Card 3-Counter Grid & 4-Room Workspace Tabs', 'FAIL',
         `hasKw=${hasKeywordCount}, hasCr=${hasCreatorCount}, hasDom=${hasDomainCount}, rooms=${hasRoom1 && hasRoom2 && hasRoom3 && hasRoom4}`);
     }
+
+    // [INVARIANT: FOLDER-SCOPED-DOMAIN-DOSSIER-PARITY]
+    // Verify getDomainsPageHtml('payhip.com', '6') and renderCampaignWorkspaceHeader({ activeRoom: 'domains', folderId: '6' })
+    const payhipFolderHtml = getDomainsPageHtml('payhip.com', '6');
+    const header6Html = renderCampaignWorkspaceHeader({ activeRoom: 'domains', folderId: '6' });
+
+    const payhipHasActiveFolderId = payhipFolderHtml.includes('activeFolderId: scopedFolderId ||');
+    const payhipHasActiveFolder = payhipFolderHtml.includes('activeFolder: null');
+    const payhipHasFolderDossierParam = payhipFolderHtml.includes('folderParam') && payhipFolderHtml.includes('&folder_id=');
+    const payhipHasScopedBreadcrumb = payhipFolderHtml.includes(':href="getBaseStudioPath()"');
+
+    const header6HasRoom1 = header6Html.includes('href="/folders/6"');
+    const header6HasRoom2 = header6Html.includes('href="/folders/6/keywords"');
+    const header6HasRoom3 = header6Html.includes('href="/folders/6/creators"');
+    const header6HasRoom4 = header6Html.includes('href="/folders/6/domains"');
+    const header6HasGuards = header6Html.includes('typeof activeFolder') && header6Html.includes('typeof crossoverData') && header6Html.includes('typeof activeFolderId');
+
+    const folderDossierParityPass = payhipHasActiveFolderId && payhipHasActiveFolder && payhipHasFolderDossierParam &&
+      payhipHasScopedBreadcrumb && header6HasRoom1 && header6HasRoom2 && header6HasRoom3 && header6HasRoom4 && header6HasGuards;
+
+    if (folderDossierParityPass) {
+      report('9B', 'Folder-Scoped Domain Dossier Parity & Workspace Header Guard Integrity', 'PASS',
+        'domainsApp initializes activeFolderId/activeFolder; /api/domains/dossier scopes folder_id; header links all 4 rooms with guarded Alpine state');
+    } else {
+      report('9B', 'Folder-Scoped Domain Dossier Parity & Workspace Header Guard Integrity', 'FAIL',
+        `payhipFolder: fid=${payhipHasActiveFolderId}, folder=${payhipHasActiveFolder}, param=${payhipHasFolderDossierParam}, breadcrumb=${payhipHasScopedBreadcrumb}; header6: r1=${header6HasRoom1}, r2=${header6HasRoom2}, r3=${header6HasRoom3}, r4=${header6HasRoom4}, guards=${header6HasGuards}`);
+    }
   }
 
   // ===========================================================================
