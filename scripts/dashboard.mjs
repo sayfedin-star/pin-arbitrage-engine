@@ -23,6 +23,7 @@ import { getDomainsPageHtml } from '../src/domains-ui.mjs';
 import { getDiscoveryPageHtml } from '../src/discovery-ui.mjs';
 import { getCampaignFoldersPageHtml } from '../src/campaign-folders-ui.mjs';
 import { getPinDetailPageHtml } from '../src/pin-details-ui.mjs';
+import { isPinsRoute, handlePinsRoutes } from '../src/routes/pins.mjs';
 import {
   listDomainsIntelligence,
   getDomainDeepDossier,
@@ -2780,6 +2781,37 @@ const server = http.createServer(async (req, res) => {
       });
       if (method === 'HEAD') return res.end();
       return res.end(html);
+    }
+
+    // 8B-2. Universal Pin Intelligence Sub-Router (/api/pins/*)
+    if (isPinsRoute(pathname)) {
+      const fakeReq = {
+        method,
+        headers: req.headers,
+        json: async () => parseJsonBody(req).catch(() => ({}))
+      };
+      const pinsRes = await handlePinsRoutes({
+        pathname,
+        method,
+        request: fakeReq,
+        searchParams,
+        env: process.env,
+        ctx: { waitUntil: (p) => { if (p && typeof p.catch === 'function') p.catch(() => {}); } },
+        sql,
+        targetSql,
+        jsonResponse: (data, status = 200) => ({ status, body: data }),
+        methodNotAllowedResponse: (allowed) => ({ status: 405, body: { error: 'Method Not Allowed', allowed } }),
+        buildCanonicalCacheKey: (prefix, id) => `${prefix}:${id}`,
+        getCachedOrFetch: async (key, fetcher) => fetcher(),
+        invalidateEdgeCache: async () => {},
+        safeWaitUntil: (ctx, p) => { if (p && typeof p.catch === 'function') p.catch(() => {}); },
+        getPinKvKeysToEvict: (id) => [`pin:dossier?pin_id=${id}`, `pin:edge:${id}`],
+        isValidPinId: (id) => /^[0-9]{1,30}$/.test(String(id || '').trim()),
+        redactSecrets
+      });
+      if (pinsRes) {
+        return sendJson(res, pinsRes.status || 200, pinsRes.body);
+      }
     }
 
     // 8C. GET or HEAD /pins/:id or /pin/:id -> Dedicated Pin Intelligence Page

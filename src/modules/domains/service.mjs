@@ -2036,7 +2036,8 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
       WHERE (ksc.domain = ${cleanDomain} OR (${isOrganicVault}::boolean AND LOWER(ksc.domain) = 'uploaded by user'))
         AND (${fId}::int IS NULL OR ksc.keyword_id IN (SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${fId}))
         AND (${kId}::int IS NULL OR ksc.keyword_id = ${kId})
-      ORDER BY ksc.is_displaced ASC, ksc.rank_position ASC NULLS LAST, ksc.save_count DESC;
+      ORDER BY ksc.is_displaced ASC, ksc.rank_position ASC NULLS LAST, ksc.save_count DESC
+      LIMIT 300;
     `.catch(() => []),
     sql`
       SELECT
@@ -2101,7 +2102,8 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
       WHERE (kdi.domain = ${cleanDomain} OR (${isOrganicVault}::boolean AND LOWER(kdi.domain) = 'uploaded by user'))
         AND (${fId}::int IS NULL OR kdi.keyword_id IN (SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${fId}))
         AND (${kId}::int IS NULL OR kdi.keyword_id = ${kId})
-      ORDER BY kdi.save_count DESC;
+      ORDER BY kdi.save_count DESC
+      LIMIT 300;
     `.catch(() => [])
   ]);
 

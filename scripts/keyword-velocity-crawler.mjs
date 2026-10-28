@@ -168,10 +168,19 @@ function evaluateHydrationGuard(pin, currentUtcTimestamp = Date.now()) {
   const crawlTime = pin.crawled_at || pin.metadata?.crawled_at || null;
   const meta = (pin.metadata && typeof pin.metadata === 'object') ? pin.metadata : {};
   const isDeepHydrated = Boolean(
+    pin.is_deep_hydrated === true ||
+    pin.is_deep_hydrated === 'true' ||
     meta.is_deep_hydrated === true ||
     meta.is_deep_hydrated === 'true'
   );
-  const hasRichTreasures = Boolean(meta.has_treasures === true || meta.image_signature || meta.canonical_pin_id || meta.board_pin_count);
+  const imgSig = pin.image_signature || meta.image_signature || '';
+  const hasRichTreasures = Boolean(
+    meta.has_treasures === true ||
+    imgSig ||
+    pin.has_visual_annotations === true ||
+    meta.canonical_pin_id ||
+    meta.board_pin_count
+  );
   const isDisplaced = Boolean(pin.is_displaced);
 
   const lastCrawlMs = crawlTime ? new Date(crawlTime).getTime() : NaN;
@@ -306,6 +315,8 @@ async function inspectPin(pin, kw) {
 
   const meta = (pin.metadata && typeof pin.metadata === 'object') ? pin.metadata : {};
   const wasDeepHydrated = Boolean(
+    pin.is_deep_hydrated === true ||
+    pin.is_deep_hydrated === 'true' ||
     meta.is_deep_hydrated === true ||
     meta.is_deep_hydrated === 'true' ||
     (pin.creation_method && pin.creation_method !== 'pinterest_platform')
@@ -1443,12 +1454,17 @@ async function run() {
           SELECT 
             ksc.pin_id, ksc.keyword_id, ksc.rank_position, ksc.last_known_rank, ksc.title, ksc.domain, ksc.destination_url, ksc.image_url,
             ksc.save_count, ksc.repin_count, ksc.daily_save_velocity, ksc.creator_username,
-            ksc.board_name, ksc.dominant_color, ksc.visual_annotations, ksc.created_at_pinterest, ksc.creation_method,
-            ksc.metadata, ksc.crawled_at, ksc.updated_at, FALSE as is_displaced,
+            ksc.board_name, ksc.dominant_color,
+            (jsonb_typeof(ksc.visual_annotations) = 'array' AND jsonb_array_length(ksc.visual_annotations) > 0) AS has_visual_annotations,
+            ksc.created_at_pinterest, ksc.creation_method,
+            (ksc.metadata->>'is_deep_hydrated')::boolean AS is_deep_hydrated,
+            COALESCE(ksc.metadata->>'image_signature', '') AS image_signature,
+            ksc.crawled_at, ksc.updated_at, FALSE as is_displaced,
             ksc.baseline_day_saves, ksc.baseline_day_date
           FROM keyword_serp_current ksc
           JOIN keyword_folder_items kfi ON kfi.keyword_id = ksc.keyword_id
           WHERE kfi.folder_id = ${fid} AND ksc.pin_id IS NOT NULL AND ksc.pin_id <> '' AND ksc.is_displaced = FALSE
+            AND ksc.shard_id = ANY(${assignedShards}::smallint[])
             AND NOT EXISTS (
               SELECT 1 FROM keyword_ignored_pins kip
               WHERE kip.keyword_id = ksc.keyword_id AND kip.pin_id = ksc.pin_id
@@ -1469,8 +1485,8 @@ async function run() {
         SELECT DISTINCT ON (f.pin_id)
           f.pin_id, f.keyword_id, f.rank_position, f.last_known_rank, f.title, f.domain, f.destination_url, f.image_url,
           f.save_count, f.repin_count, f.daily_save_velocity, f.creator_username,
-          f.board_name, f.dominant_color, f.visual_annotations, f.created_at_pinterest, f.creation_method,
-          f.metadata, f.crawled_at, f.updated_at, f.is_displaced,
+          f.board_name, f.dominant_color, f.has_visual_annotations, f.created_at_pinterest, f.creation_method,
+          f.is_deep_hydrated, f.image_signature, f.crawled_at, f.updated_at, f.is_displaced,
           f.baseline_day_saves, f.baseline_day_date,
           ap.folder_positions
         FROM folder_ksc f
@@ -1483,12 +1499,17 @@ async function run() {
           SELECT 
             ksc.pin_id, ksc.keyword_id, ksc.rank_position, ksc.last_known_rank, ksc.title, ksc.domain, ksc.destination_url, ksc.image_url,
             ksc.save_count, ksc.repin_count, ksc.daily_save_velocity, ksc.creator_username,
-            ksc.board_name, ksc.dominant_color, ksc.visual_annotations, ksc.created_at_pinterest, ksc.creation_method,
-            ksc.metadata, ksc.crawled_at, ksc.updated_at, ksc.is_displaced,
+            ksc.board_name, ksc.dominant_color,
+            (jsonb_typeof(ksc.visual_annotations) = 'array' AND jsonb_array_length(ksc.visual_annotations) > 0) AS has_visual_annotations,
+            ksc.created_at_pinterest, ksc.creation_method,
+            (ksc.metadata->>'is_deep_hydrated')::boolean AS is_deep_hydrated,
+            COALESCE(ksc.metadata->>'image_signature', '') AS image_signature,
+            ksc.crawled_at, ksc.updated_at, ksc.is_displaced,
             ksc.baseline_day_saves, ksc.baseline_day_date
           FROM keyword_serp_current ksc
           JOIN keyword_folder_items kfi ON kfi.keyword_id = ksc.keyword_id
           WHERE kfi.folder_id = ${fid} AND ksc.pin_id IS NOT NULL AND ksc.pin_id <> ''
+            AND ksc.shard_id = ANY(${assignedShards}::smallint[])
             AND NOT EXISTS (
               SELECT 1 FROM keyword_ignored_pins kip
               WHERE kip.keyword_id = ksc.keyword_id AND kip.pin_id = ksc.pin_id
@@ -1499,12 +1520,14 @@ async function run() {
           SELECT
             kdi.pin_id, kdi.keyword_id, NULL as rank_position, kdi.last_known_rank, '' as title, COALESCE(kdi.domain, '') as domain, '' as destination_url, '' as image_url,
             kdi.save_count, kdi.repin_count, kdi.daily_save_velocity, '' as creator_username,
-            '' as board_name, '#888888' as dominant_color, '[]'::jsonb as visual_annotations, NULL as created_at_pinterest, 'pinterest_platform' as creation_method,
-            '{}'::jsonb as metadata, kdi.updated_at as crawled_at, kdi.updated_at, TRUE as is_displaced,
+            '' as board_name, '#888888' as dominant_color, false AS has_visual_annotations, NULL as created_at_pinterest, 'pinterest_platform' as creation_method,
+            false AS is_deep_hydrated, '' AS image_signature,
+            kdi.updated_at as crawled_at, kdi.updated_at, TRUE as is_displaced,
             NULL::bigint as baseline_day_saves, NULL::date as baseline_day_date
           FROM keyword_displaced_index kdi
           JOIN keyword_folder_items kfi ON kfi.keyword_id = kdi.keyword_id
           WHERE kfi.folder_id = ${fid} AND kdi.pin_id IS NOT NULL AND kdi.pin_id <> ''
+            AND kdi.shard_id = ANY(${assignedShards}::smallint[])
             AND NOT EXISTS (
               SELECT 1 FROM keyword_ignored_pins kip
               WHERE kip.keyword_id = kdi.keyword_id AND kip.pin_id = kdi.pin_id
@@ -1525,8 +1548,8 @@ async function run() {
         SELECT DISTINCT ON (cp.pin_id)
           cp.pin_id, cp.keyword_id, cp.rank_position, cp.last_known_rank, cp.title, cp.domain, cp.destination_url, cp.image_url,
           cp.save_count, cp.repin_count, cp.daily_save_velocity, cp.creator_username,
-          cp.board_name, cp.dominant_color, cp.visual_annotations, cp.created_at_pinterest, cp.creation_method,
-          cp.metadata, cp.crawled_at, cp.updated_at, cp.is_displaced,
+          cp.board_name, cp.dominant_color, cp.has_visual_annotations, cp.created_at_pinterest, cp.creation_method,
+          cp.is_deep_hydrated, cp.image_signature, cp.crawled_at, cp.updated_at, cp.is_displaced,
           cp.baseline_day_saves, cp.baseline_day_date,
           ap.folder_positions
         FROM combined_pins cp
@@ -1694,11 +1717,16 @@ async function run() {
         SELECT 
           pin_id, keyword_id, rank_position, last_known_rank, title, domain, destination_url, image_url,
           save_count, repin_count, daily_save_velocity, creator_username,
-          board_name, dominant_color, visual_annotations, created_at_pinterest, creation_method,
-          metadata, crawled_at, updated_at, FALSE as is_displaced,
+          board_name, dominant_color,
+          (jsonb_typeof(visual_annotations) = 'array' AND jsonb_array_length(visual_annotations) > 0) AS has_visual_annotations,
+          created_at_pinterest, creation_method,
+          (metadata->>'is_deep_hydrated')::boolean AS is_deep_hydrated,
+          COALESCE(metadata->>'image_signature', '') AS image_signature,
+          crawled_at, updated_at, FALSE as is_displaced,
           baseline_day_saves, baseline_day_date
         FROM keyword_serp_current
         WHERE keyword_id = ${kwRow.id} AND pin_id IS NOT NULL AND pin_id <> '' AND is_displaced = FALSE
+          AND shard_id = ANY(${assignedShards}::smallint[])
           AND NOT EXISTS (
             SELECT 1 FROM keyword_ignored_pins kip
             WHERE kip.keyword_id = ${kwRow.id} AND kip.pin_id = keyword_serp_current.pin_id
@@ -1712,11 +1740,16 @@ async function run() {
           SELECT 
             pin_id, keyword_id, rank_position, last_known_rank, title, domain, destination_url, image_url,
             save_count, repin_count, daily_save_velocity, creator_username,
-            board_name, dominant_color, visual_annotations, created_at_pinterest, creation_method,
-            metadata, crawled_at, updated_at, is_displaced,
+            board_name, dominant_color,
+            (jsonb_typeof(visual_annotations) = 'array' AND jsonb_array_length(visual_annotations) > 0) AS has_visual_annotations,
+            created_at_pinterest, creation_method,
+            (metadata->>'is_deep_hydrated')::boolean AS is_deep_hydrated,
+            COALESCE(metadata->>'image_signature', '') AS image_signature,
+            crawled_at, updated_at, is_displaced,
             baseline_day_saves, baseline_day_date
           FROM keyword_serp_current
           WHERE keyword_id = ${kwRow.id} AND pin_id IS NOT NULL AND pin_id <> ''
+            AND shard_id = ANY(${assignedShards}::smallint[])
             AND NOT EXISTS (
               SELECT 1 FROM keyword_ignored_pins kip
               WHERE kip.keyword_id = ${kwRow.id} AND kip.pin_id = keyword_serp_current.pin_id
@@ -1727,11 +1760,13 @@ async function run() {
           SELECT
             kdi.pin_id, kdi.keyword_id, NULL as rank_position, kdi.last_known_rank, '' as title, '' as domain, '' as destination_url, '' as image_url,
             kdi.save_count, kdi.repin_count, kdi.daily_save_velocity, '' as creator_username,
-            '' as board_name, '#888888' as dominant_color, '[]'::jsonb as visual_annotations, NULL as created_at_pinterest, 'pinterest_platform' as creation_method,
-            '{}'::jsonb as metadata, kdi.updated_at as crawled_at, kdi.updated_at, TRUE as is_displaced,
+            '' as board_name, '#888888' as dominant_color, false AS has_visual_annotations, NULL as created_at_pinterest, 'pinterest_platform' as creation_method,
+            false AS is_deep_hydrated, '' AS image_signature,
+            kdi.updated_at as crawled_at, kdi.updated_at, TRUE as is_displaced,
             NULL::bigint as baseline_day_saves, NULL::date as baseline_day_date
           FROM keyword_displaced_index kdi
           WHERE kdi.keyword_id = ${kwRow.id} AND kdi.pin_id IS NOT NULL AND kdi.pin_id <> ''
+            AND kdi.shard_id = ANY(${assignedShards}::smallint[])
             AND NOT EXISTS (
               SELECT 1 FROM keyword_ignored_pins kip
               WHERE kip.keyword_id = ${kwRow.id} AND kip.pin_id = kdi.pin_id
@@ -1914,8 +1949,12 @@ async function run() {
           SELECT 
             ksc.pin_id, ksc.keyword_id, ksc.rank_position, ksc.last_known_rank, ksc.title, ksc.domain, ksc.destination_url, ksc.image_url,
             ksc.save_count, ksc.repin_count, ksc.daily_save_velocity, ksc.creator_username,
-            ksc.board_name, ksc.dominant_color, ksc.visual_annotations, ksc.created_at_pinterest, ksc.creation_method,
-            ksc.metadata, ksc.crawled_at, ksc.updated_at, FALSE as is_displaced,
+            ksc.board_name, ksc.dominant_color,
+            (jsonb_typeof(ksc.visual_annotations) = 'array' AND jsonb_array_length(ksc.visual_annotations) > 0) AS has_visual_annotations,
+            ksc.created_at_pinterest, ksc.creation_method,
+            (ksc.metadata->>'is_deep_hydrated')::boolean AS is_deep_hydrated,
+            COALESCE(ksc.metadata->>'image_signature', '') AS image_signature,
+            ksc.crawled_at, ksc.updated_at, FALSE as is_displaced,
             ksc.baseline_day_saves, ksc.baseline_day_date
           FROM keyword_serp_current ksc
           WHERE ksc.keyword_id = ANY(${allFleetKeywordIds})
@@ -1945,8 +1984,8 @@ async function run() {
         SELECT DISTINCT ON (g.pin_id)
           g.pin_id, g.keyword_id, g.rank_position, g.last_known_rank, g.title, g.domain, g.destination_url, g.image_url,
           g.save_count, g.repin_count, g.daily_save_velocity, g.creator_username,
-          g.board_name, g.dominant_color, g.visual_annotations, g.created_at_pinterest, g.creation_method,
-          g.metadata, g.crawled_at, g.updated_at, g.is_displaced,
+          g.board_name, g.dominant_color, g.has_visual_annotations, g.created_at_pinterest, g.creation_method,
+          g.is_deep_hydrated, g.image_signature, g.crawled_at, g.updated_at, g.is_displaced,
           g.baseline_day_saves, g.baseline_day_date,
           ap.folder_positions
         FROM global_ksc g
@@ -1959,8 +1998,12 @@ async function run() {
           SELECT 
             ksc.pin_id, ksc.keyword_id, ksc.rank_position, ksc.last_known_rank, ksc.title, ksc.domain, ksc.destination_url, ksc.image_url,
             ksc.save_count, ksc.repin_count, ksc.daily_save_velocity, ksc.creator_username,
-            ksc.board_name, ksc.dominant_color, ksc.visual_annotations, ksc.created_at_pinterest, ksc.creation_method,
-            ksc.metadata, ksc.crawled_at, ksc.updated_at, ksc.is_displaced,
+            ksc.board_name, ksc.dominant_color,
+            (jsonb_typeof(ksc.visual_annotations) = 'array' AND jsonb_array_length(ksc.visual_annotations) > 0) AS has_visual_annotations,
+            ksc.created_at_pinterest, ksc.creation_method,
+            (ksc.metadata->>'is_deep_hydrated')::boolean AS is_deep_hydrated,
+            COALESCE(ksc.metadata->>'image_signature', '') AS image_signature,
+            ksc.crawled_at, ksc.updated_at, ksc.is_displaced,
             ksc.baseline_day_saves, ksc.baseline_day_date
           FROM keyword_serp_current ksc
           WHERE ksc.keyword_id = ANY(${allFleetKeywordIds})
@@ -1979,8 +2022,8 @@ async function run() {
           SELECT
             kdi.pin_id, kdi.keyword_id, NULL as rank_position, kdi.last_known_rank, '' as title, COALESCE(kdi.domain, '') as domain, '' as destination_url, '' as image_url,
             kdi.save_count, kdi.repin_count, kdi.daily_save_velocity, '' as creator_username,
-            '' as board_name, '#888888' as dominant_color, '[]'::jsonb as visual_annotations, NULL as created_at_pinterest, 'pinterest_platform' as creation_method,
-            '{}'::jsonb as metadata,
+            '' as board_name, '#888888' as dominant_color, false AS has_visual_annotations, NULL as created_at_pinterest, 'pinterest_platform' as creation_method,
+            false AS is_deep_hydrated, '' AS image_signature,
             CASE WHEN kdi.updated_at >= ${runStartTime} THEN (kdi.updated_at - INTERVAL '6 hours') ELSE kdi.updated_at END as crawled_at,
             kdi.updated_at, TRUE as is_displaced,
             NULL::bigint as baseline_day_saves,
@@ -2012,8 +2055,8 @@ async function run() {
         SELECT DISTINCT ON (cp.pin_id)
           cp.pin_id, cp.keyword_id, cp.rank_position, cp.last_known_rank, cp.title, cp.domain, cp.destination_url, cp.image_url,
           cp.save_count, cp.repin_count, cp.daily_save_velocity, cp.creator_username,
-          cp.board_name, cp.dominant_color, cp.visual_annotations, cp.created_at_pinterest, cp.creation_method,
-          cp.metadata, cp.crawled_at, cp.updated_at, cp.is_displaced,
+          cp.board_name, cp.dominant_color, cp.has_visual_annotations, cp.created_at_pinterest, cp.creation_method,
+          cp.is_deep_hydrated, cp.image_signature, cp.crawled_at, cp.updated_at, cp.is_displaced,
           cp.baseline_day_saves, cp.baseline_day_date,
           ap.folder_positions
         FROM combined_pins cp

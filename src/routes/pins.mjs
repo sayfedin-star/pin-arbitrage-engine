@@ -97,16 +97,53 @@ export async function handlePinsRoutes({
           DELETE FROM pin_serp_positions
           WHERE pin_id = ${pinId} AND snapshot_date = ${targetDate}::date AND keyword_id = ${targetKwId};
         `.catch(() => {});
+        // [INVARIANT: PRESERVE-METRICS-IF-POSITIONS-REMAIN] Only prune metrics if zero positions remain (L-05)
+        const [remaining] = await shardSql`
+          SELECT COUNT(*)::int AS count FROM pin_serp_positions
+          WHERE pin_id = ${pinId} AND snapshot_date = ${targetDate}::date;
+        `.catch(() => [{ count: 0 }]);
+        if (!remaining || remaining.count === 0) {
+          await shardSql`
+            DELETE FROM pins_daily_metrics
+            WHERE pin_id = ${pinId} AND snapshot_date = ${targetDate}::date;
+          `.catch(() => {});
+          // [INVARIANT: TOMBSTONE-DELETED-SNAPSHOT] Record deleted date to prevent zombie resurrection (L-04)
+          await shardSql`
+            UPDATE universal_master_pins
+            SET metadata = jsonb_set(
+              COALESCE(metadata, '{}'::jsonb),
+              '{deleted_snapshot_dates}',
+              (
+                SELECT jsonb_agg(DISTINCT elem)
+                FROM jsonb_array_elements_text(COALESCE(metadata->'deleted_snapshot_dates', '[]'::jsonb) || to_jsonb(${targetDate}::text)) AS elem
+              )
+            )
+            WHERE pin_id = ${pinId};
+          `.catch(() => {});
+        }
       } else {
         await shardSql`
           DELETE FROM pin_serp_positions
           WHERE pin_id = ${pinId} AND snapshot_date = ${targetDate}::date;
         `.catch(() => {});
+        await shardSql`
+          DELETE FROM pins_daily_metrics
+          WHERE pin_id = ${pinId} AND snapshot_date = ${targetDate}::date;
+        `.catch(() => {});
+        // [INVARIANT: TOMBSTONE-DELETED-SNAPSHOT] Record deleted date to prevent zombie resurrection (L-04)
+        await shardSql`
+          UPDATE universal_master_pins
+          SET metadata = jsonb_set(
+            COALESCE(metadata, '{}'::jsonb),
+            '{deleted_snapshot_dates}',
+            (
+              SELECT jsonb_agg(DISTINCT elem)
+              FROM jsonb_array_elements_text(COALESCE(metadata->'deleted_snapshot_dates', '[]'::jsonb) || to_jsonb(${targetDate}::text)) AS elem
+            )
+          )
+          WHERE pin_id = ${pinId};
+        `.catch(() => {});
       }
-      await shardSql`
-        DELETE FROM pins_daily_metrics
-        WHERE pin_id = ${pinId} AND snapshot_date = ${targetDate}::date;
-      `.catch(() => {});
     }
 
     await invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
@@ -116,8 +153,9 @@ export async function handlePinsRoutes({
       await env.PIN_D1_DB.prepare('DELETE FROM edge_pins_metadata WHERE pin_id = ?').bind(pinId).run().catch(() => {});
     }
     if (env?.PIN_ENGINE_KV) {
+      // [INVARIANT: AWAIT-MUTATION-EVICTIONS] Await KV key evictions synchronously on mutation (L-12)
       const evictions = getPinKvKeysToEvict(pinId, targetKwId ? [targetKwId] : []).map(k => env.PIN_ENGINE_KV.delete(k).catch(() => {}));
-      safeWaitUntil(ctx, Promise.all(evictions), `kv_delete_snapshot_${rawSnapshotParam}`);
+      await Promise.all(evictions);
     }
     return jsonResponse({ success: true, deleted_snapshot: rawSnapshotParam, pin_id: pinId });
   }
@@ -158,6 +196,31 @@ export async function handlePinsRoutes({
       DELETE FROM pin_serp_positions
       WHERE pin_id = ${pinId} AND snapshot_date = ${snapshotDate}::date AND keyword_id = ${kwId};
     `.catch(() => {});
+
+    // [INVARIANT: PRESERVE-METRICS-IF-POSITIONS-REMAIN] Only prune metrics if zero positions remain (L-05)
+    const [remaining] = await shardSql`
+      SELECT COUNT(*)::int AS count FROM pin_serp_positions
+      WHERE pin_id = ${pinId} AND snapshot_date = ${snapshotDate}::date;
+    `.catch(() => [{ count: 0 }]);
+    if (!remaining || remaining.count === 0) {
+      await shardSql`
+        DELETE FROM pins_daily_metrics
+        WHERE pin_id = ${pinId} AND snapshot_date = ${snapshotDate}::date;
+      `.catch(() => {});
+      // [INVARIANT: TOMBSTONE-DELETED-SNAPSHOT] Record deleted date to prevent zombie resurrection (L-04)
+      await shardSql`
+        UPDATE universal_master_pins
+        SET metadata = jsonb_set(
+          COALESCE(metadata, '{}'::jsonb),
+          '{deleted_snapshot_dates}',
+          (
+            SELECT jsonb_agg(DISTINCT elem)
+            FROM jsonb_array_elements_text(COALESCE(metadata->'deleted_snapshot_dates', '[]'::jsonb) || to_jsonb(${snapshotDate}::text)) AS elem
+          )
+        )
+        WHERE pin_id = ${pinId};
+      `.catch(() => {});
+    }
 
     await invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
     await invalidateEdgeCache(buildCanonicalCacheKey('pin:dossier', { pin_id: pinId }));
@@ -211,6 +274,20 @@ export async function handlePinsRoutes({
     await shardSql`
       DELETE FROM pin_serp_positions
       WHERE pin_id = ${pinId} AND snapshot_date = ${snapshotDate}::date;
+    `.catch(() => {});
+
+    // [INVARIANT: TOMBSTONE-DELETED-SNAPSHOT] Record deleted date in master pin metadata (L-04)
+    await shardSql`
+      UPDATE universal_master_pins
+      SET metadata = jsonb_set(
+        COALESCE(metadata, '{}'::jsonb),
+        '{deleted_snapshot_dates}',
+        (
+          SELECT jsonb_agg(DISTINCT elem)
+          FROM jsonb_array_elements_text(COALESCE(metadata->'deleted_snapshot_dates', '[]'::jsonb) || to_jsonb(${snapshotDate}::text)) AS elem
+        )
+      )
+      WHERE pin_id = ${pinId};
     `.catch(() => {});
 
     await invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
@@ -287,10 +364,47 @@ export async function handlePinsRoutes({
     }
   }
 
-  // 3. GET /api/pins/:pin_id (Universal 4-Pillar Dossier via fleet-router - Zero-Blocking)
+  // 3. GET/DELETE /api/pins/:pin_id (Universal 4-Pillar Dossier & Complete Pin Purge)
   if (parts.length === 1) {
+    if (method === 'DELETE') {
+      if (!pinId || !isValidPinId(pinId)) {
+        return jsonResponse({
+          success: false,
+          error: 'INVALID_PIN_ID',
+          message: 'Pin ID must be a valid identifier (alphanumeric, 10-128 chars)'
+        }, 400);
+      }
+      const shardId = getPinShardId(pinId, 99);
+      const shardSql = await resolveShardConnection({ hubSql: sql, shardId, env }).catch(() => targetSql);
+      
+      // Cascade delete on target Shard
+      await shardSql`DELETE FROM universal_master_pins WHERE pin_id = ${pinId};`.catch(() => {});
+      await shardSql`DELETE FROM pins_daily_metrics WHERE pin_id = ${pinId};`.catch(() => {});
+      await shardSql`DELETE FROM pin_serp_positions WHERE pin_id = ${pinId};`.catch(() => {});
+
+      // Delete from Central Hub operational tables
+      await sql`DELETE FROM keyword_serp_current WHERE pin_id = ${pinId};`.catch(() => {});
+      await sql`DELETE FROM keyword_displaced_index WHERE pin_id = ${pinId};`.catch(() => {});
+      await sql`DELETE FROM competitor_pins WHERE pin_id = ${pinId};`.catch(() => {});
+      await sql`DELETE FROM pa_pins WHERE pin_id = ${pinId};`.catch(() => {});
+
+      // Invalidate Edge Caches synchronously
+      await invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
+      await invalidateEdgeCache(buildCanonicalCacheKey('pin:dossier', { pin_id: pinId }));
+      await invalidateEdgeCache(`pin:trajectory?pin_id=${pinId}`);
+      await invalidateEdgeCache('keywords:pin-dossier');
+      if (env?.PIN_D1_DB) {
+        await env.PIN_D1_DB.prepare('DELETE FROM edge_pins_metadata WHERE pin_id = ?').bind(pinId).run().catch(() => {});
+      }
+      if (env?.PIN_ENGINE_KV) {
+        const evictions = getPinKvKeysToEvict(pinId).map(k => env.PIN_ENGINE_KV.delete(k).catch(() => {}));
+        await Promise.all(evictions);
+      }
+      return jsonResponse({ success: true, purged: true, pin_id: pinId });
+    }
+
     if (method !== 'GET') {
-      return methodNotAllowedResponse('GET, OPTIONS');
+      return methodNotAllowedResponse('GET, DELETE, OPTIONS');
     }
     if (!pinId || !isValidPinId(pinId)) {
       return jsonResponse({

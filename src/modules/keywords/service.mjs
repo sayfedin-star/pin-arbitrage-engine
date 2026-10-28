@@ -925,7 +925,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
     leaseAcquired = true;
 
     const [keywordRow] = await sql`
-      SELECT * FROM tracked_keywords WHERE id = ${kid};
+      SELECT id, keyword, crawl_pages_limit, is_active, metadata FROM tracked_keywords WHERE id = ${kid};
     `;
     if (!keywordRow) throw new Error(`Keyword ID ${kid} not found.`);
 
@@ -2076,7 +2076,11 @@ export async function getKeywordPins(sql, keywordId) {
 
   // 1. Direct Ultra-Low Latency Read from Active Catalog (keyword_serp_current)
   const activeRows = await sql`
-    SELECT *
+    SELECT 
+      pin_id, keyword_id, rank_position, last_known_rank, title, domain, destination_url, image_url,
+      save_count, repin_count, daily_save_velocity, creator_username,
+      board_name, dominant_color, visual_annotations, created_at_pinterest, creation_method,
+      metadata, crawled_at, updated_at, is_displaced, vacuum_opportunity_score
     FROM keyword_serp_current
     WHERE keyword_id = ${kid}
       AND is_displaced = FALSE
@@ -2145,9 +2149,17 @@ export async function getKeywordSERPComparison(sql, keywordId, knownKeyword = nu
 
   // Parallel fetch: keyword metadata (if not already known), active catalog pins, distinct dates, dropped pins, guided capsules, and true displaced count
   const [keywordRows, activeCatalogPins, dates, displacedResultRaw, guides, displacedCountRow] = await Promise.all([
-    actualKeyword ? Promise.resolve([actualKeyword]) : sql`SELECT * FROM tracked_keywords WHERE id = ${kid};`,
+    actualKeyword ? Promise.resolve([actualKeyword]) : sql`
+      SELECT id, keyword, category, is_active, last_crawled_at, updated_at, search_volume, cpc, competition, metadata
+      FROM tracked_keywords 
+      WHERE id = ${kid};
+    `,
     sql`
-      SELECT *
+      SELECT 
+        pin_id, keyword_id, rank_position, last_known_rank, title, domain, destination_url, image_url,
+        save_count, repin_count, daily_save_velocity, creator_username,
+        board_name, dominant_color, visual_annotations, created_at_pinterest, creation_method,
+        metadata, crawled_at, updated_at, is_displaced, vacuum_opportunity_score
       FROM keyword_serp_current
       WHERE keyword_id = ${kid}
         AND is_displaced = FALSE
@@ -2336,7 +2348,7 @@ export async function getKeywordIntelligence(sql, keywordId) {
   if (!kid) throw new Error('Valid keyword ID is required');
 
   const [keyword] = await sql`
-    SELECT * FROM tracked_keywords WHERE id = ${kid};
+    SELECT id, keyword, category, is_active FROM tracked_keywords WHERE id = ${kid};
   `;
   if (!keyword) throw new Error(`Keyword ID ${kid} not found`);
 

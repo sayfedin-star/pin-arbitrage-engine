@@ -1500,7 +1500,13 @@ export default {
         }
         if (directNeonUrl) {
           const pooledDirectUrl = enforceNeonPoolerUrl(directNeonUrl);
-          const directSql = getCachedShardSql(pooledDirectUrl, () => neon(pooledDirectUrl));
+          let directSql = null;
+          const getDirectSql = () => {
+            if (!directSql) {
+              directSql = getCachedShardSql(pooledDirectUrl, () => neon(pooledDirectUrl));
+            }
+            return directSql;
+          };
           sql = new Proxy(hyperdriveSql, {
             apply(target, thisArg, argArray) {
               try {
@@ -1508,13 +1514,13 @@ export default {
                 if (res && typeof res.catch === 'function') {
                   return res.catch(err => {
                     console.warn(`[Hyperdrive Fallback] Query failed (${redactSecrets(err.message)}). Degrading to direct Neon HTTP.`);
-                    return Reflect.apply(directSql, thisArg, argArray);
+                    return Reflect.apply(getDirectSql(), thisArg, argArray);
                   });
                 }
                 return res;
               } catch (syncErr) {
                 console.warn(`[Hyperdrive Sync Fallback] Query failed synchronously (${redactSecrets(syncErr.message)}). Degrading to direct Neon HTTP.`);
-                return Reflect.apply(directSql, thisArg, argArray);
+                return Reflect.apply(getDirectSql(), thisArg, argArray);
               }
             },
             get(target, prop, receiver) {
@@ -1535,7 +1541,7 @@ export default {
                     }
                     console.warn(`[Hyperdrive Tx Fallback] Tx failed (${redactSecrets(err.message)}). Degrading to direct Neon HTTP tx.`);
                     if (typeof queriesOrFn === 'function') {
-                      return await directSql.transaction(queriesOrFn);
+                      return await getDirectSql().transaction(queriesOrFn);
                     }
                     if (Array.isArray(queriesOrFn)) {
                       if (queriesOrFn.length === 0) return [];
@@ -1544,7 +1550,7 @@ export default {
                           '[INVARIANT: HYPERDRIVE-ATOMIC-BUILDER] sql.transaction() strictly requires lazy query builder functions `(db) => db`...``.'
                         );
                       }
-                      return await directSql.transaction(queriesOrFn);
+                      return await getDirectSql().transaction(queriesOrFn);
                     }
                     throw new TypeError(
                       '[INVARIANT: HYPERDRIVE-ATOMIC-BUILDER] sql.transaction() strictly requires lazy query builders.'

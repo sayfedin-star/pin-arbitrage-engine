@@ -879,6 +879,16 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
 
   const shardId = getPinShardId(cleanPinId, 99);
 
+  // L1.5 Tier: Check Cloudflare Workers KV dossier cache (< 1.5ms) before touching any databases
+  if (env?.PIN_ENGINE_KV && !bypassEdgeCache) {
+    try {
+      const kvCached = await env.PIN_ENGINE_KV.get(`pin:dossier?pin_id=${cleanPinId}`, { type: 'json' });
+      if (kvCached && kvCached.success && kvCached.creative && Array.isArray(kvCached.daily_trajectory)) {
+        return { ...kvCached, source: 'edge_kv' };
+      }
+    } catch (_) {}
+  }
+
   // Tier 1: Check Cloudflare D1 edge database (3.4ms latency) with 12h TTL freshness guard
   // [INVARIANT: EDGE-D1-SNAPSHOT-MIRRORING]
   let d1Record = null;
@@ -1529,10 +1539,16 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
   // [INVARIANT: ZERO-HUB-SNAPSHOTS]
   // Synthesize live in-memory SERP points from Hub active catalog (read-time only, no DB writes)
   // Decoupled from strict todayUtc: Any valid crawl date represents a valid telemetry capture point
+  const deletedSnapshotDates = new Set(
+    Array.isArray(masterRecord?.metadata?.deleted_snapshot_dates)
+      ? masterRecord.metadata.deleted_snapshot_dates
+      : []
+  );
+
   for (const sc of hubSerpRows) {
     const crawlDate = sc.crawled_at || sc.updated_at;
     const crawlIso = formatUtcDate(crawlDate);
-    if (crawlIso) {
+    if (crawlIso && !deletedSnapshotDates.has(crawlIso)) {
       const dedupKey = `${crawlIso}_${sc.keyword_id || 'global'}`;
       const crawlIsoStr = safeIsoDate(sc.crawled_at) || safeIsoDate(sc.updated_at) || (crawlIso + 'T00:00:00.000Z');
       const updatedIsoStr = safeIsoDate(sc.updated_at) || crawlIsoStr;
@@ -1593,7 +1609,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
 
     if (rawBaseDate && rawBaseSaves != null) {
       const baseDateStr = formatUtcDate(rawBaseDate);
-      if (baseDateStr && (!crawlIso || baseDateStr < crawlIso)) {
+      if (baseDateStr && !deletedSnapshotDates.has(baseDateStr) && (!crawlIso || baseDateStr < crawlIso)) {
         const baseKey = `${baseDateStr}_${sc.keyword_id || 'global'}`;
         if (!snapshotMap.has(baseKey)) {
           const baseIsoStr = baseDateStr + 'T00:00:00.000Z';
@@ -1850,15 +1866,32 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
       day.best_rank = Math.min(day.best_rank, effRank);
     }
     if (s.keyword_name) {
-      day.ranking_keywords.push({
+      const isDisplaced = Boolean(s.is_displaced);
+      const liveRank = isDisplaced ? null : (Number(s.rank_position) || null);
+      const vaultRank = isDisplaced ? (Number(s.last_known_rank) || 1) : null;
+      const sortRank = isDisplaced ? (vaultRank + 250) : (liveRank || 999);
+      const kwObj = {
         keyword_id: s.keyword_id,
         keyword: s.keyword_name,
         rank: effRank,
         rank_position: s.rank_position || null,
         last_known_rank: s.last_known_rank || null,
-        is_displaced: Boolean(s.is_displaced),
+        is_displaced: isDisplaced,
+        live_serp_rank: liveRank,
+        vault_rank: vaultRank,
+        effective_sort_rank: sortRank,
+        catalog_rank: sortRank,
         saves: Number(s.save_count) || 0
-      });
+      };
+      const existingKwIdx = day.ranking_keywords.findIndex(k => (
+        (k.keyword_id && s.keyword_id && k.keyword_id === s.keyword_id) ||
+        (String(k.keyword || '').toLowerCase() === String(s.keyword_name || '').toLowerCase())
+      ));
+      if (existingKwIdx >= 0) {
+        day.ranking_keywords[existingKwIdx] = kwObj;
+      } else {
+        day.ranking_keywords.push(kwObj);
+      }
     }
   }
 
@@ -1896,16 +1929,25 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
   // 3. Central Hub Relational Cross-Pillar Context (In-Memory ranking_keywords + conditional competitor lookup)
   const rankingKeywordsFromMem = hubSerpRows
     .filter(sc => sc.keyword_id && (sc.keyword_name || kwMap.get(Number(sc.keyword_id))))
-    .map(sc => ({
-      keyword_id: Number(sc.keyword_id),
-      keyword: sc.keyword_name || kwMap.get(Number(sc.keyword_id)),
-      rank: sc.rank_position ?? sc.last_known_rank ?? null,
-      rank_position: sc.rank_position ?? null,
-      last_known_rank: sc.last_known_rank ?? null,
-      is_displaced: Boolean(sc.is_displaced),
-      catalog_rank: sc.is_displaced ? ((Number(sc.last_known_rank) || 1) + 250) : (Number(sc.rank_position) || 1),
-      velocity: Number(sc.daily_save_velocity || 0)
-    }));
+    .map(sc => {
+      const isDisplaced = Boolean(sc.is_displaced);
+      const liveRank = isDisplaced ? null : (Number(sc.rank_position) || null);
+      const vaultRank = isDisplaced ? (Number(sc.last_known_rank) || 1) : null;
+      const sortRank = isDisplaced ? (vaultRank + 250) : (liveRank || 999);
+      return {
+        keyword_id: Number(sc.keyword_id),
+        keyword: sc.keyword_name || kwMap.get(Number(sc.keyword_id)),
+        rank: sc.rank_position ?? sc.last_known_rank ?? null,
+        rank_position: sc.rank_position ?? null,
+        last_known_rank: sc.last_known_rank ?? null,
+        is_displaced: isDisplaced,
+        live_serp_rank: liveRank,
+        vault_rank: vaultRank,
+        effective_sort_rank: sortRank,
+        catalog_rank: sortRank,
+        velocity: Number(sc.daily_save_velocity || 0)
+      };
+    });
 
   let competitorInfo = null;
   if (masterRecord?.creator_username) {
@@ -2027,9 +2069,11 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
   const algorithmicIntelligence = {
     is_repin: Boolean(snapMeta.is_repin ?? false),
     origin_pinner: snapMeta.origin_pinner || null,
+    origin_pinner_followers: snapMeta.origin_pinner_followers ?? snapMeta.origin_pinner?.follower_count ?? null,
     domain_official_user: snapMeta.domain_official_user || null,
     creator_is_verified_merchant: Boolean(snapMeta.creator_is_verified_merchant ?? false),
     image_signature: snapMeta.image_signature || '',
+    image_dimensions: snapMeta.image_dimensions || snapMeta.imageDimensions || null,
     seo_noindex_reason: snapMeta.seo_noindex_reason || null,
     is_indexed_google: !snapMeta.seo_noindex_reason,
     is_go_linkless: Boolean(snapMeta.is_go_linkless ?? false),
@@ -2055,7 +2099,10 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
     visual_objects: Array.isArray(snapMeta.visual_objects) ? snapMeta.visual_objects : [],
     reactions: snapMeta.reactions || {},
     utm_link: snapMeta.utm_link || masterRecord?.destination_url || '',
-    tracked_link: snapMeta.tracked_link || masterRecord?.destination_url || ''
+    tracked_link: snapMeta.tracked_link || masterRecord?.destination_url || '',
+    is_product: Boolean(snapMeta.is_product || snapMeta.isProduct || (Array.isArray(snapMeta.shopping_flags) && snapMeta.shopping_flags.includes('is_product'))),
+    is_video: Boolean(snapMeta.is_video || snapMeta.isVideo || snapMeta.video_url),
+    shopping_data: snapMeta.shopping_data || snapMeta.shoppingData || null
   };
 
   const latestLiveAnnotations = new Set(
@@ -2507,7 +2554,26 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
     closeupUnifiedAttribution: scrapedPin.closeupUnifiedAttribution || null,
     closeup_attribution: scrapedPin.closeup_attribution || null,
     link_domain: scrapedPin.link_domain || scrapedPin.domain || null,
-    shopping_flags: Array.isArray(scrapedPin.shopping_flags) ? scrapedPin.shopping_flags : []
+    shopping_flags: Array.isArray(scrapedPin.shopping_flags) ? scrapedPin.shopping_flags : [],
+    // [INVARIANT: 48-FIELD-TELEMETRY-PRESERVATION] Complete SEO, canonical, visual, and shopping telemetry (L-07)
+    seo_title: scrapedPin.seo_title || scrapedPin.alt_text || '',
+    seo_description: scrapedPin.seo_description || scrapedPin.description || '',
+    seo_canonical_url: scrapedPin.seo_canonical_url || scrapedPin.canonical_url || '',
+    canonical_pin_id: scrapedPin.canonical_pin_id || scrapedPin.canonicalPinId || '',
+    seo_related_interests: Array.isArray(scrapedPin.seo_related_interests) ? scrapedPin.seo_related_interests : (scrapedPin.related_interests || []),
+    rich_metadata: scrapedPin.rich_metadata || scrapedPin.richMetadata || null,
+    image_signature: scrapedPin.image_signature || scrapedPin.imageSignature || null,
+    image_dimensions: scrapedPin.image_dimensions || scrapedPin.imageDimensions || (scrapedPin.width && scrapedPin.height ? { width: scrapedPin.width, height: scrapedPin.height } : null),
+    seo_noindex_reason: scrapedPin.seo_noindex_reason || null,
+    is_go_linkless: Boolean(scrapedPin.is_go_linkless || scrapedPin.isGoLinkless),
+    category_breadcrumbs: Array.isArray(scrapedPin.category_breadcrumbs) ? scrapedPin.category_breadcrumbs : (scrapedPin.breadcrumbs || []),
+    board_pin_count: scrapedPin.board_pin_count ?? scrapedPin.boardPinCount ?? null,
+    visual_objects: Array.isArray(scrapedPin.visual_objects) ? scrapedPin.visual_objects : (scrapedPin.visualObjects || []),
+    reactions: scrapedPin.reactions && typeof scrapedPin.reactions === 'object' ? scrapedPin.reactions : null,
+    origin_pinner_followers: scrapedPin.origin_pinner_followers ?? scrapedPin.origin_pinner?.follower_count ?? null,
+    is_product: Boolean(scrapedPin.is_product || scrapedPin.isProduct || (Array.isArray(scrapedPin.shopping_flags) && scrapedPin.shopping_flags.includes('is_product'))),
+    is_video: Boolean(scrapedPin.is_video || scrapedPin.isVideo || scrapedPin.video_url),
+    shopping_data: scrapedPin.shopping_data || scrapedPin.shoppingData || null
   };
 
   const metaToStore = {};
