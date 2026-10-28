@@ -34,7 +34,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
   <title>Domain Intelligence & SERP Monopoly Studio | Pinterest Arbitrage</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
@@ -42,7 +42,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
       theme: {
         extend: {
           fontFamily: {
-            sans: ['Inter', 'sans-serif'],
+            sans: ['Geist', 'system-ui', '-apple-system', 'sans-serif'],
             mono: ['JetBrains Mono', 'monospace']
           }
         }
@@ -116,7 +116,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
     }, 1200);
   </script>
 </head>
-<body x-cloak class="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 min-h-screen antialiased flex flex-col font-sans transition-colors duration-150" :class="(isDark || darkMode) ? 'dark' : ''" x-data="domainsApp('${safeInitialDomain}'${safeFolderId ? `, '${safeFolderId}'` : ''})" @keydown.escape.window="if (isBlueprintModalOpen) closeBlueprintModal(); else if (isDossierOpen) closeDossier();">
+<body x-cloak class="bg-slate-50 dark:bg-[#09090B] text-slate-900 dark:text-zinc-100 min-h-screen antialiased flex flex-col font-sans transition-colors duration-150" :class="(isDark || darkMode) ? 'dark' : ''" x-data="domainsApp('${safeInitialDomain}'${safeFolderId ? `, '${safeFolderId}'` : ''})" @keydown.escape.window="if (isBlueprintModalOpen) closeBlueprintModal(); else if (isDossierOpen) closeDossier();">
 
   <!-- Toast Notification Container -->
   <div class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 max-w-sm pointer-events-none">
@@ -143,7 +143,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
 
     <!-- [INVARIANT: UNIFIED-SIDEBAR-LAYOUT] Studio Header Card -->
     <template x-if="!scopedFolderId">
-      <section class="p-4 sm:p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <section class="p-4 sm:p-5 rounded-2xl bg-white dark:bg-[#121215] border border-slate-200/80 dark:border-[#27272A]/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div class="flex items-center space-x-3.5">
           <div class="w-10 h-10 rounded-xl bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20 flex items-center justify-center shadow-xs shrink-0">
             <i data-lucide="globe" class="w-5 h-5"></i>
@@ -151,18 +151,18 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
           <div>
             <div class="flex items-center space-x-2">
               <h2 class="text-lg sm:text-xl font-bold tracking-tight text-slate-900 dark:text-white">Domain Intelligence Studio</h2>
-              <span class="px-2 py-0.5 rounded-md text-[10px] font-mono font-semibold bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">Level 4B</span>
+              <span class="px-2 py-0.5 rounded-md text-[10px] font-mono tabular-nums font-semibold bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">Level 4B</span>
             </div>
             <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-normal">SERP Monopoly, WHOIS Age &amp; Pin-to-URL Multipliers</p>
           </div>
         </div>
 
         <div class="flex flex-wrap items-center gap-2">
-          <a href="/keywords/discovery" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition inline-flex items-center space-x-1.5 shadow-2xs">
+          <a href="/keywords/discovery" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-[#27272A] transition inline-flex items-center space-x-1.5 shadow-2xs">
             <i data-lucide="compass" class="w-3.5 h-3.5 text-emerald-500"></i>
             <span>Discovery</span>
           </a>
-          <a href="/folders" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition inline-flex items-center space-x-1.5 shadow-2xs">
+          <a href="/folders" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-[#27272A] transition inline-flex items-center space-x-1.5 shadow-2xs">
             <i data-lucide="folder-kanban" class="w-3.5 h-3.5 text-pink-500"></i>
             <span>Campaign Folders</span>
           </a>
@@ -181,69 +181,69 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
     <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
       <!-- 1. Total Ranked Domains -->
       <div @click="setPreset('all')"
-           class="bg-white dark:bg-slate-900 border rounded-2xl p-4 flex flex-col gap-1 shadow-sm cursor-pointer transition-all hover:border-sky-500/50"
-           :class="activePreset === 'all' ? 'border-sky-500 ring-2 ring-sky-500/20' : 'border-slate-200 dark:border-slate-800'"
+           class="bg-white dark:bg-[#121215] border rounded-2xl p-4 flex flex-col gap-1 shadow-sm cursor-pointer transition-all hover:border-sky-500/50"
+           :class="activePreset === 'all' ? 'border-sky-500 ring-2 ring-sky-500/20' : 'border-slate-200 dark:border-[#27272A]'"
            title="Click to reset filters and view all domains">
         <div class="flex items-center justify-between text-slate-500 dark:text-slate-400">
-          <span class="text-[10px] font-mono uppercase tracking-wider">Ranked Domains</span>
+          <span class="text-[10px] font-mono tabular-nums uppercase tracking-wider">Ranked Domains</span>
           <span class="text-xs">🌐</span>
         </div>
-        <span class="text-2xl font-bold font-mono text-slate-900 dark:text-white" x-text="formatNumber(overview.total_domains)">0</span>
+        <span class="text-2xl font-bold font-mono tabular-nums text-slate-900 dark:text-white" x-text="formatNumber(overview.total_domains)">0</span>
         <span class="text-[11px] text-slate-400 dark:text-slate-500">Indexed sites (Click to reset)</span>
       </div>
 
       <!-- 2. Top-10 SERP Monopoly -->
-      <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 flex flex-col gap-1 shadow-sm">
+      <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl p-4 flex flex-col gap-1 shadow-sm">
         <div class="flex items-center justify-between text-slate-500 dark:text-slate-400">
-          <span class="text-[10px] font-mono uppercase tracking-wider">Top-5 Monopoly</span>
+          <span class="text-[10px] font-mono tabular-nums uppercase tracking-wider">Top-5 Monopoly</span>
           <span class="text-xs">🏆</span>
         </div>
-        <span class="text-2xl font-bold font-mono text-amber-600 dark:text-amber-400" x-text="(overview.top5_monopoly_pct || 0) + '%'">0%</span>
-        <div class="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 mt-1 overflow-hidden">
+        <span class="text-2xl font-bold font-mono tabular-nums text-amber-600 dark:text-amber-400" x-text="(overview.top5_monopoly_pct || 0) + '%'">0%</span>
+        <div class="w-full bg-slate-100 dark:bg-[#18181B] rounded-full h-1.5 mt-1 overflow-hidden">
           <div class="bg-amber-500 h-1.5 rounded-full transition-all duration-500" :style="'width: ' + Math.min(100, overview.top5_monopoly_pct || 0) + '%'"></div>
         </div>
       </div>
 
       <!-- 3. Baby Giants (< 2 Years) -->
       <div @click="setPreset(activePreset === 'baby_giants' ? 'all' : 'baby_giants')"
-           class="bg-white dark:bg-slate-900 border rounded-2xl p-4 flex flex-col gap-1 shadow-sm cursor-pointer transition-all hover:border-emerald-500/50"
-           :class="activePreset === 'baby_giants' ? 'border-emerald-500 ring-2 ring-emerald-500/20' : 'border-slate-200 dark:border-slate-800'">
+           class="bg-white dark:bg-[#121215] border rounded-2xl p-4 flex flex-col gap-1 shadow-sm cursor-pointer transition-all hover:border-emerald-500/50"
+           :class="activePreset === 'baby_giants' ? 'border-emerald-500 ring-2 ring-emerald-500/20' : 'border-slate-200 dark:border-[#27272A]'">
         <div class="flex items-center justify-between text-slate-500 dark:text-slate-400">
-          <span class="text-[10px] font-mono uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Baby Giants (&lt; 2y)</span>
+          <span class="text-[10px] font-mono tabular-nums uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Baby Giants (&lt; 2y)</span>
           <span class="text-xs">🌱</span>
         </div>
-        <span class="text-2xl font-bold font-mono text-emerald-600 dark:text-emerald-400" x-text="formatNumber(overview.baby_giants_count)">0</span>
+        <span class="text-2xl font-bold font-mono tabular-nums text-emerald-600 dark:text-emerald-400" x-text="formatNumber(overview.baby_giants_count)">0</span>
         <span class="text-[11px] text-slate-400 dark:text-slate-500">&lt; 2y with Top 10 or 1k+ saves</span>
       </div>
 
       <!-- 4. Multi-Account Networks -->
       <div @click="setPreset(activePreset === 'multi_account' ? 'all' : 'multi_account')"
-           class="bg-white dark:bg-slate-900 border rounded-2xl p-4 flex flex-col gap-1 shadow-sm cursor-pointer transition-all hover:border-purple-500/50"
-           :class="activePreset === 'multi_account' ? 'border-purple-500 ring-2 ring-purple-500/20' : 'border-slate-200 dark:border-slate-800'">
+           class="bg-white dark:bg-[#121215] border rounded-2xl p-4 flex flex-col gap-1 shadow-sm cursor-pointer transition-all hover:border-purple-500/50"
+           :class="activePreset === 'multi_account' ? 'border-purple-500 ring-2 ring-purple-500/20' : 'border-slate-200 dark:border-[#27272A]'">
         <div class="flex items-center justify-between text-slate-500 dark:text-slate-400">
-          <span class="text-[10px] font-mono uppercase tracking-wider text-purple-600 dark:text-purple-400">PBN / Multi-Acct</span>
+          <span class="text-[10px] font-mono tabular-nums uppercase tracking-wider text-purple-600 dark:text-purple-400">PBN / Multi-Acct</span>
           <span class="text-xs">🕸️</span>
         </div>
-        <span class="text-2xl font-bold font-mono text-purple-600 dark:text-purple-400" x-text="formatNumber(overview.multi_account_count)">0</span>
+        <span class="text-2xl font-bold font-mono tabular-nums text-purple-600 dark:text-purple-400" x-text="formatNumber(overview.multi_account_count)">0</span>
         <span class="text-[11px] text-slate-400 dark:text-slate-500">&gt;= 2 accounts pushing traffic</span>
       </div>
 
       <!-- 5. Avg Pin-to-URL Multiplier -->
       <div @click="setPreset(activePreset === 'high_multipliers' ? 'all' : 'high_multipliers')"
-           class="bg-white dark:bg-slate-900 border rounded-2xl p-4 flex flex-col gap-1 shadow-sm cursor-pointer transition-all hover:border-amber-500/50"
-           :class="activePreset === 'high_multipliers' ? 'border-amber-500 ring-2 ring-amber-500/20' : 'border-slate-200 dark:border-slate-800'"
+           class="bg-white dark:bg-[#121215] border rounded-2xl p-4 flex flex-col gap-1 shadow-sm cursor-pointer transition-all hover:border-amber-500/50"
+           :class="activePreset === 'high_multipliers' ? 'border-amber-500 ring-2 ring-amber-500/20' : 'border-slate-200 dark:border-[#27272A]'"
            title="Click to filter by High Multipliers (>= 3.0x pins/URL)">
         <div class="flex items-center justify-between text-slate-500 dark:text-slate-400">
-          <span class="text-[10px] font-mono uppercase tracking-wider text-amber-600 dark:text-amber-400">Avg Pin / URL</span>
+          <span class="text-[10px] font-mono tabular-nums uppercase tracking-wider text-amber-600 dark:text-amber-400">Avg Pin / URL</span>
           <span class="text-xs">🔁</span>
         </div>
-        <span class="text-2xl font-bold font-mono text-amber-600 dark:text-amber-400" x-text="(overview.avg_pins_per_url || 1.0) + 'x'">1.0x</span>
+        <span class="text-2xl font-bold font-mono tabular-nums text-amber-600 dark:text-amber-400" x-text="(overview.avg_pins_per_url || 1.0) + 'x'">1.0x</span>
         <span class="text-[11px] text-slate-400 dark:text-slate-500">Click for High Multipliers (&gt;= 3x)</span>
       </div>
     </div>
 
     <!-- [INVARIANT: CONSOLIDATED-NEUTRAL-CONTROL-BAR] 2-Tier Control Bar (78px height) -->
-    <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-2.5 sm:p-3 flex flex-col gap-2.5 shadow-sm">
+    <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl p-2.5 sm:p-3 flex flex-col gap-2.5 shadow-sm">
       <!-- Tier 1: Search, Presets & Batch Actions (~38px) -->
       <div class="flex items-center justify-between flex-wrap gap-2">
         <!-- Search Input (Left) -->
@@ -252,7 +252,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                  x-model="searchQuery"
                  @input.debounce.400ms="applySearch()"
                  placeholder="Search domain (e.g. tasty)..."
-                 class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700/80 rounded-xl pl-8 pr-7 py-1.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/40">
+                 class="w-full bg-slate-50 dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A]/80 rounded-xl pl-8 pr-7 py-1.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/40">
           <span class="absolute left-2.5 top-2 text-xs text-slate-400">🔍</span>
           <button x-show="searchQuery"
                   @click="searchQuery = ''; applySearch()"
@@ -263,42 +263,42 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
         <div class="flex items-center gap-1.5 flex-wrap">
           <button @click="setPreset('all')"
                   class="px-2.5 py-1 rounded-xl text-xs font-medium transition-all cursor-pointer"
-                  :class="activePreset === 'all' && !pinnedOnly ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 font-semibold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200/60 dark:border-slate-800'">
+                  :class="activePreset === 'all' && !pinnedOnly ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 font-semibold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#27272A] border border-slate-200/60 dark:border-[#27272A]'">
             All
           </button>
           <button @click="setPreset(activePreset === 'baby_giants' ? 'all' : 'baby_giants')"
                   class="px-2.5 py-1 rounded-xl text-xs font-medium transition-all cursor-pointer"
-                  :class="activePreset === 'baby_giants' ? 'bg-emerald-600 text-white font-semibold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200/60 dark:border-slate-800'">
+                  :class="activePreset === 'baby_giants' ? 'bg-emerald-600 text-white font-semibold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#27272A] border border-slate-200/60 dark:border-[#27272A]'">
             <span>Baby Giants</span>
           </button>
           <button @click="setPreset(activePreset === 'easy_arbitrage' ? 'all' : 'easy_arbitrage')"
                   class="px-2.5 py-1 rounded-xl text-xs font-medium transition-all cursor-pointer"
-                  :class="activePreset === 'easy_arbitrage' ? 'bg-indigo-600 text-white font-semibold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200/60 dark:border-slate-800'">
+                  :class="activePreset === 'easy_arbitrage' ? 'bg-indigo-600 text-white font-semibold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#27272A] border border-slate-200/60 dark:border-[#27272A]'">
             <span>Easy Arb</span>
           </button>
           <button @click="setPreset(activePreset === 'bleeding_giants' ? 'all' : 'bleeding_giants')"
                   class="px-2.5 py-1 rounded-xl text-xs font-medium transition-all cursor-pointer"
-                  :class="activePreset === 'bleeding_giants' ? 'bg-rose-600 text-white font-semibold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200/60 dark:border-slate-800'">
+                  :class="activePreset === 'bleeding_giants' ? 'bg-rose-600 text-white font-semibold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#27272A] border border-slate-200/60 dark:border-[#27272A]'">
             <span>Bleeding</span>
           </button>
           <button @click="setPreset(activePreset === 'high_multipliers' ? 'all' : 'high_multipliers')"
                   class="px-2.5 py-1 rounded-xl text-xs font-medium transition-all cursor-pointer"
-                  :class="activePreset === 'high_multipliers' ? 'bg-amber-600 text-white font-semibold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200/60 dark:border-slate-800'">
+                  :class="activePreset === 'high_multipliers' ? 'bg-amber-600 text-white font-semibold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#27272A] border border-slate-200/60 dark:border-[#27272A]'">
             <span>High Mult</span>
           </button>
           <button @click="setPreset(activePreset === 'multi_account' ? 'all' : 'multi_account')"
                   class="px-2.5 py-1 rounded-xl text-xs font-medium transition-all cursor-pointer"
-                  :class="activePreset === 'multi_account' ? 'bg-purple-600 text-white font-semibold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200/60 dark:border-slate-800'">
+                  :class="activePreset === 'multi_account' ? 'bg-purple-600 text-white font-semibold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#27272A] border border-slate-200/60 dark:border-[#27272A]'">
             <span>Multi-Acct</span>
           </button>
           <!-- Target Domains Toggle -->
           <button @click="pinnedOnly = !pinnedOnly; loadDomains(true)"
                   class="px-2.5 py-1 rounded-xl text-xs font-semibold transition-all flex items-center gap-1 shadow-2xs cursor-pointer"
-                  :class="pinnedOnly ? 'bg-indigo-600 text-white ring-2 ring-indigo-500/20' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200/80 dark:border-slate-700'"
+                  :class="pinnedOnly ? 'bg-indigo-600 text-white ring-2 ring-indigo-500/20' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#27272A] border border-slate-200/80 dark:border-[#27272A]'"
                   title="Toggle view between all ranked domains and pinned campaign targets">
             <span>Target Domains</span>
             <template x-if="pinnedDomains.size > 0">
-              <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-indigo-500/20 text-indigo-700 dark:text-indigo-300" x-text="pinnedDomains.size"></span>
+              <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono tabular-nums bg-indigo-500/20 text-indigo-700 dark:text-indigo-300" x-text="pinnedDomains.size"></span>
             </template>
           </button>
         </div>
@@ -308,7 +308,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
           <!-- Actions ▾ Dropdown -->
           <div class="relative">
             <button @click="actionsOpen = !actionsOpen"
-                    class="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700/60 text-xs font-semibold text-slate-700 dark:text-slate-200 transition-colors flex items-center gap-1.5 shadow-2xs cursor-pointer">
+                    class="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] hover:bg-slate-50 dark:hover:bg-[#27272A]/60 text-xs font-semibold text-slate-700 dark:text-slate-200 transition-colors flex items-center gap-1.5 shadow-2xs cursor-pointer">
               <span>Actions</span>
               <span :class="actionsOpen ? 'rotate-180' : ''" class="transition-transform duration-150 text-[10px]">▾</span>
               <template x-if="globalEnriching || globalAdsEnriching || batchEnriching || batchAdsEnriching">
@@ -323,11 +323,11 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                  x-transition:leave="transition ease-in duration-75"
                  x-transition:leave-start="transform opacity-100 scale-100"
                  x-transition:leave-end="transform opacity-0 scale-95"
-                 class="absolute right-0 mt-1.5 w-56 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl py-1.5 z-40 text-xs flex flex-col font-medium">
+                 class="absolute right-0 mt-1.5 w-56 rounded-2xl bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] shadow-xl py-1.5 z-40 text-xs flex flex-col font-medium">
               
               <button @click="batchEnrichVisible(); actionsOpen = false"
                       :disabled="batchEnriching || globalEnriching"
-                      class="px-3.5 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 disabled:opacity-40 transition-colors flex items-center justify-between cursor-pointer">
+                      class="px-3.5 py-2 text-left hover:bg-slate-50 dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-300 disabled:opacity-40 transition-colors flex items-center justify-between cursor-pointer">
                 <span>Verify Page WHOIS</span>
                 <span x-show="batchEnriching" class="animate-spin text-[10px]">⏳</span>
               </button>
@@ -335,34 +335,34 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
               <button @click="batchEnrichAdsVisible(); actionsOpen = false"
                       :disabled="batchAdsEnriching || globalAdsEnriching"
                       title="Batch Check Ads"
-                      class="px-3.5 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 disabled:opacity-40 transition-colors flex items-center justify-between cursor-pointer">
+                      class="px-3.5 py-2 text-left hover:bg-slate-50 dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-300 disabled:opacity-40 transition-colors flex items-center justify-between cursor-pointer">
                 <span>Scan Page Ads.txt</span>
                 <span class="sr-only">Batch Check Ads</span>
                 <span x-show="batchAdsEnriching" class="animate-spin text-[10px]">⏳</span>
               </button>
 
-              <div class="h-px bg-slate-100 dark:bg-slate-800 my-1"></div>
+              <div class="h-px bg-slate-100 dark:bg-[#18181B] my-1"></div>
 
               <button @click="toggleGlobalEnrichment(); actionsOpen = false"
                       title="Verify Entire Database"
-                      class="px-3.5 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 transition-colors flex items-center justify-between cursor-pointer">
+                      class="px-3.5 py-2 text-left hover:bg-slate-50 dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-300 transition-colors flex items-center justify-between cursor-pointer">
                 <span x-text="globalEnriching ? 'Pause Auto-Age' : 'Auto-Verify Database Age'">Verify Entire Database</span>
-                <span x-show="globalEnriching" class="text-[10px] text-amber-500 font-mono font-bold" x-text="(globalStats.percent_complete || 0) + '%'"></span>
+                <span x-show="globalEnriching" class="text-[10px] text-amber-500 font-mono tabular-nums font-bold" x-text="(globalStats.percent_complete || 0) + '%'"></span>
               </button>
 
               <button @click="toggleGlobalAdsEnrichment(); actionsOpen = false"
                       title="Auto-Verify All Ads"
-                      class="px-3.5 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 transition-colors flex items-center justify-between cursor-pointer">
+                      class="px-3.5 py-2 text-left hover:bg-slate-50 dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-300 transition-colors flex items-center justify-between cursor-pointer">
                 <span x-text="globalAdsEnriching ? 'Pause Auto-Ads' : 'Auto-Verify All Ads'">Auto-Verify All Ads</span>
-                <span x-show="globalAdsEnriching" class="text-[10px] text-emerald-500 font-mono font-bold" x-text="(globalAdsStats.percent_complete || 0) + '%'"></span>
+                <span x-show="globalAdsEnriching" class="text-[10px] text-emerald-500 font-mono tabular-nums font-bold" x-text="(globalAdsStats.percent_complete || 0) + '%'"></span>
               </button>
 
-              <div class="h-px bg-slate-100 dark:bg-slate-800 my-1"></div>
+              <div class="h-px bg-slate-100 dark:bg-[#18181B] my-1"></div>
 
               <button @click="downloadDomainsCsv(); actionsOpen = false"
-                      class="px-3.5 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 transition-colors flex items-center justify-between cursor-pointer">
+                      class="px-3.5 py-2 text-left hover:bg-slate-50 dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-300 transition-colors flex items-center justify-between cursor-pointer">
                 <span>Export CSV</span>
-                <span class="text-[10px] text-slate-400 font-mono">.csv</span>
+                <span class="text-[10px] text-slate-400 font-mono tabular-nums">.csv</span>
               </button>
             </div>
           </div>
@@ -370,12 +370,12 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
       </div>
 
       <!-- Tier 2: Refined Attribute Selects & Quick Toggles (~36px) -->
-      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-8 gap-2 pt-2 border-t border-slate-100 dark:border-slate-800/80 items-center">
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-8 gap-2 pt-2 border-t border-slate-100 dark:border-[#27272A]/80 items-center">
         <!-- 1. Ad Network -->
         <div>
           <select x-model="selectedAdNetwork"
                   @change="loadDomains(true)"
-                  class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-sky-500 font-medium cursor-pointer">
+                  class="w-full bg-slate-50 dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] rounded-lg px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-sky-500 font-medium cursor-pointer">
             <option value="all">All Ads</option>
             <option value="raptive">Raptive</option>
             <option value="mediavine">Mediavine</option>
@@ -393,7 +393,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
         <div>
           <select x-model="selectedFolderId"
                   @change="loadDomains(true)"
-                  class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-sky-500 font-medium cursor-pointer">
+                  class="w-full bg-slate-50 dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] rounded-lg px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-sky-500 font-medium cursor-pointer">
             <option value="">All Folders</option>
             <template x-for="f in folders" :key="f.id">
               <option :value="f.id" x-text="f.name + ' (' + (f.item_count || f.keyword_count || 0) + ')'"></option>
@@ -405,7 +405,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
         <div>
           <select x-model="ageFilter"
                   @change="applyModularFilter()"
-                  class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-emerald-500 font-medium cursor-pointer"
+                  class="w-full bg-slate-50 dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] rounded-lg px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-emerald-500 font-medium cursor-pointer"
                   :class="ageFilter !== 'all' ? 'border-emerald-500 bg-emerald-500/5' : ''">
             <option value="all">Any Age</option>
             <option value="le_0_5">&lt;= 6m</option>
@@ -423,7 +423,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
         <div>
           <select x-model="rankFilter"
                   @change="applyModularFilter()"
-                  class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-sky-500 font-medium cursor-pointer"
+                  class="w-full bg-slate-50 dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] rounded-lg px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-sky-500 font-medium cursor-pointer"
                   :class="rankFilter !== 'all' ? 'border-sky-500 bg-sky-500/5' : ''">
             <option value="all">Any Rank</option>
             <option value="top3">Top 3</option>
@@ -439,7 +439,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
         <div>
           <select x-model="savesFilter"
                   @change="applyModularFilter()"
-                  class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-amber-500 font-medium cursor-pointer"
+                  class="w-full bg-slate-50 dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] rounded-lg px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-amber-500 font-medium cursor-pointer"
                   :class="savesFilter !== 'all' ? 'border-amber-500 bg-amber-500/5' : ''">
             <option value="all">Any Saves</option>
             <option value="ge_500">&gt;= 500</option>
@@ -456,7 +456,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
         <div>
           <select x-model="sortBy"
                   @change="loadDomains(true)"
-                  class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-sky-500 font-mono cursor-pointer">
+                  class="w-full bg-slate-50 dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] rounded-lg px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-sky-500 font-mono tabular-nums cursor-pointer">
             <option value="visibility">Sort: Visibility</option>
             <option value="arbitrage_score">Sort: Arb Score</option>
             <option value="age_asc">Sort: Youngest</option>
@@ -469,7 +469,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
         </div>
 
         <!-- 7. Blogs Only Checkbox -->
-        <div class="flex items-center justify-between px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800">
+        <div class="flex items-center justify-between px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B]">
           <label for="marketplaces-toggle" class="text-xs font-medium text-slate-700 dark:text-slate-300 flex items-center gap-1 cursor-pointer">
             <span>Blogs Only</span>
           </label>
@@ -484,14 +484,14 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
         <div class="flex items-center justify-between gap-1">
           <button @click="setLogicMode(logicMode === 'and' ? 'or' : 'and')"
                   type="button"
-                  class="px-2 py-1 rounded-lg text-[10px] font-mono font-bold transition-all border"
+                  class="px-2 py-1 rounded-lg text-[10px] font-mono tabular-nums font-bold transition-all border"
                   :class="logicMode === 'and' ? 'bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 border-sky-300 dark:border-sky-700' : 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-700'"
                   :title="'Logic mode: ' + logicMode.toUpperCase() + '. Click to switch.'">
             <span x-text="logicMode.toUpperCase()">AND</span>
           </button>
           <template x-if="hasActiveFilters()">
             <button @click="resetFilters()"
-                    class="text-xs font-semibold text-rose-600 dark:text-rose-400 hover:underline font-mono">
+                    class="text-xs font-semibold text-rose-600 dark:text-rose-400 hover:underline font-mono tabular-nums">
               ✕ Reset
             </button>
           </template>
@@ -500,21 +500,21 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
     </div>
 
     <!-- DOMAINS LEADERBOARD TABLE -->
-    <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm flex flex-col">
+    <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl overflow-hidden shadow-sm flex flex-col">
       <!-- Table Header Bar -->
-      <div class="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between flex-wrap gap-2">
+      <div class="px-5 py-4 border-b border-slate-200 dark:border-[#27272A] flex items-center justify-between flex-wrap gap-2">
         <div class="flex items-center gap-2">
           <span class="text-base">🏆</span>
           <h2 class="text-sm font-bold text-slate-900 dark:text-white tracking-tight">Domain Authority & Monopoly Leaderboard</h2>
-          <span class="text-xs text-slate-400 font-mono" x-text="'(' + formatNumber(totalDomains) + ' domains matching)'"></span>
+          <span class="text-xs text-slate-400 font-mono tabular-nums" x-text="'(' + formatNumber(totalDomains) + ' domains matching)'"></span>
         </div>
-        <div class="text-xs text-slate-400 font-mono" x-text="'Page ' + currentPage + ' of ' + totalPages"></div>
+        <div class="text-xs text-slate-400 font-mono tabular-nums" x-text="'Page ' + currentPage + ' of ' + totalPages"></div>
       </div>
 
       <!-- Global Verification Active Banner -->
       <template x-if="globalEnriching">
         <div class="px-5 py-3 bg-gradient-to-r from-sky-500/10 via-indigo-500/10 to-emerald-500/10 border-b border-sky-500/20 flex flex-col gap-2">
-          <div class="flex items-center justify-between text-xs font-mono flex-wrap gap-2">
+          <div class="flex items-center justify-between text-xs font-mono tabular-nums flex-wrap gap-2">
             <div class="flex items-center gap-2">
               <span class="animate-spin text-sm">🚀</span>
               <span class="font-bold text-sky-800 dark:text-sky-300">Global Verification In Progress:</span>
@@ -523,7 +523,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
             <div class="flex items-center gap-3">
               <span class="text-emerald-700 dark:text-emerald-400 font-bold" x-text="'🌱 ' + formatNumber(globalStats.resolved_domains) + ' resolved'"></span>
               <span class="text-amber-700 dark:text-amber-400 font-bold" x-text="'🔒 ' + formatNumber(globalStats.failed_domains) + ' shielded'"></span>
-              <span class="text-slate-500 font-mono" x-text="'⏳ ' + formatNumber(globalStats.unchecked_domains) + ' remaining'"></span>
+              <span class="text-slate-500 font-mono tabular-nums" x-text="'⏳ ' + formatNumber(globalStats.unchecked_domains) + ' remaining'"></span>
               <button @click="stopGlobalEnrichment()"
                       class="px-2.5 py-1 rounded bg-rose-500/10 hover:bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-500/30 text-[11px] font-semibold transition flex items-center gap-1 shadow-sm">
                 <span>⏸️</span>
@@ -542,7 +542,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
       <!-- Global Ads Verification Active Banner -->
       <template x-if="globalAdsEnriching">
         <div class="px-5 py-3 bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-sky-500/10 border-b border-emerald-500/20 flex flex-col gap-2">
-          <div class="flex items-center justify-between text-xs font-mono flex-wrap gap-2">
+          <div class="flex items-center justify-between text-xs font-mono tabular-nums flex-wrap gap-2">
             <div class="flex items-center gap-2">
               <span class="animate-spin text-sm">💰</span>
               <span class="font-bold text-emerald-800 dark:text-emerald-300">Automated Ads.txt Verification In Progress:</span>
@@ -554,7 +554,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
               <span class="text-sky-600 dark:text-sky-400 font-bold" x-text="'🚀 ' + formatNumber(globalAdsStats.journey_count) + ' Journey'"></span>
               <span class="text-emerald-600 dark:text-emerald-400 font-bold" x-text="'⚡ ' + formatNumber(globalAdsStats.hbagency_count) + ' HBAgency'"></span>
               <span class="text-amber-600 dark:text-amber-400 font-bold" x-text="'🟡 ' + formatNumber(globalAdsStats.adsense_count) + ' AdSense'"></span>
-              <span class="text-slate-500 font-mono" x-text="'⏳ ' + formatNumber(globalAdsStats.unchecked_domains) + ' remaining'"></span>
+              <span class="text-slate-500 font-mono tabular-nums" x-text="'⏳ ' + formatNumber(globalAdsStats.unchecked_domains) + ' remaining'"></span>
               <button @click="stopGlobalAdsEnrichment()"
                       class="px-2.5 py-1 rounded bg-rose-500/10 hover:bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-500/30 text-[11px] font-semibold transition flex items-center gap-1 shadow-sm">
                 <span>⏸️</span>
@@ -574,7 +574,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
       <div class="overflow-x-auto">
         <table class="w-full text-left text-xs border-collapse min-w-[1020px]">
           <thead>
-            <tr class="bg-slate-50/80 dark:bg-slate-950/60 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800 font-mono text-[11px] uppercase select-none">
+            <tr class="bg-slate-50/80 dark:bg-[#09090B]/60 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-[#27272A] font-mono tabular-nums text-[11px] uppercase select-none">
               <th @click="toggleSortColumn('domain')" class="py-3 px-4 font-semibold cursor-pointer hover:text-sky-600 dark:hover:text-sky-400 transition-colors">
                 # & Domain <span x-show="sortBy === 'domain_asc' || sortBy === 'domain_desc'" x-text="sortBy === 'domain_asc' ? '↑' : '↓'"></span>
               </th>
@@ -591,14 +591,14 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
               <th @click="toggleSortColumn('arbitrage_score')" class="py-3 px-4 font-semibold cursor-pointer hover:text-sky-600 dark:hover:text-sky-400 transition-colors">
                 Arbitrage & Accounts <span x-show="sortBy === 'arbitrage_score'" x-text="'↓'"></span>
               </th>
-              <th class="py-3 px-4 text-right font-semibold sticky right-0 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs shadow-[-6px_0_8px_-2px_rgba(0,0,0,0.06)] z-10 select-none">Actions</th>
+              <th class="py-3 px-4 text-right font-semibold sticky right-0 bg-slate-50/95 dark:bg-[#09090B]/95 backdrop-blur-xs shadow-[-6px_0_8px_-2px_rgba(0,0,0,0.06)] z-10 select-none">Actions</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100 dark:divide-slate-800/80 text-slate-700 dark:text-slate-200">
             <!-- Loading Row -->
             <template x-if="loading">
               <tr>
-                <td colspan="7" class="py-12 text-center text-slate-400 font-mono">
+                <td colspan="7" class="py-12 text-center text-slate-400 font-mono tabular-nums">
                   <div class="inline-flex items-center gap-2">
                     <span class="animate-spin text-base">⏳</span>
                     <span>Querying cross-pillar domain authority...</span>
@@ -610,7 +610,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
             <!-- Error / Timeout Row -->
             <template x-if="!loading && loadError">
               <tr>
-                <td colspan="7" class="py-12 text-center text-rose-500 font-mono">
+                <td colspan="7" class="py-12 text-center text-rose-500 font-mono tabular-nums">
                   <div class="flex flex-col items-center gap-2">
                     <span class="text-2xl">⚠️</span>
                     <span class="font-semibold text-slate-700 dark:text-slate-300" x-text="loadError"></span>
@@ -639,11 +639,11 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
             <!-- Data Rows -->
             <template x-for="(d, idx) in domains" :key="d.domain">
               <tr @click="openDossier(d.domain)"
-                  class="hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors group">
+                  class="hover:bg-slate-50 dark:hover:bg-[#27272A]/50 cursor-pointer transition-colors group">
                 <!-- 1. Rank & Domain (with Age relocated to sub-line, 5 redundant badges purged) -->
                 <td class="py-3 px-4">
                   <div class="flex items-center gap-2.5">
-                    <span class="text-slate-400 font-mono text-[11px] w-6 shrink-0" x-text="((currentPage - 1) * limit) + idx + 1"></span>
+                    <span class="text-slate-400 font-mono tabular-nums text-[11px] w-6 shrink-0" x-text="((currentPage - 1) * limit) + idx + 1"></span>
                     <template x-if="d.domain && d.domain.toLowerCase() === 'uploaded by user'">
                       <span class="w-4 h-4 rounded shrink-0 bg-amber-500/10 text-amber-500 flex items-center justify-center text-[10px]" title="Direct Organic Uploads (Unlinked Pins)">✨</span>
                     </template>
@@ -670,7 +670,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                       </div>
 
                       <!-- Line 2: Domain Age & URL Count Sub-Line (Clean Universal Time Format) -->
-                      <div class="flex items-center gap-1.5 flex-wrap text-[10px] text-slate-400 font-mono mt-0.5">
+                      <div class="flex items-center gap-1.5 flex-wrap text-[10px] text-slate-400 font-mono tabular-nums mt-0.5">
                         <template x-if="d.domain && d.domain.toLowerCase() === 'uploaded by user'">
                           <span class="text-amber-600 dark:text-amber-400 font-semibold">Direct Uploads • Organic Vacuum</span>
                         </template>
@@ -725,7 +725,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                 <!-- 3. Ad Network & Monetization -->
                 <td class="py-3 px-4">
                   <template x-if="d.domain && d.domain.toLowerCase() === 'uploaded by user'">
-                    <span class="inline-flex items-center gap-1 font-mono text-[11px] font-bold px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 shadow-sm">
+                    <span class="inline-flex items-center gap-1 font-mono tabular-nums text-[11px] font-bold px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 shadow-sm">
                       <span>✨</span>
                       <span>100% Organic (Unmonetized)</span>
                     </span>
@@ -735,7 +735,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                     <!-- State 1: Recognized Ad Network -->
                     <template x-if="d.ad_network && d.ad_network !== 'unchecked'">
                       <div class="flex items-center gap-1.5 flex-wrap">
-                        <span class="inline-flex items-center gap-1 font-mono text-[11px] font-bold px-2 py-0.5 rounded-md shadow-sm w-fit"
+                        <span class="inline-flex items-center gap-1 font-mono tabular-nums text-[11px] font-bold px-2 py-0.5 rounded-md shadow-sm w-fit"
                               :class="getAdNetworkBadgeClasses(d.ad_network)"
                               :title="d.ad_manager_domain ? 'Managed by: ' + d.ad_manager_domain : 'Ad Network'">
                           <span x-text="getAdNetworkBadgeText(d.ad_network)"></span>
@@ -743,7 +743,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
 
                         <!-- Switch Detection Pill -->
                         <template x-if="d.previous_ad_network">
-                          <span class="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 shrink-0"
+                          <span class="px-1.5 py-0.5 rounded text-[9px] font-mono tabular-nums font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 shrink-0"
                                 :title="'Migrated from ' + d.previous_ad_network + (d.ad_switched_at ? ' on ' + d.ad_switched_at.slice(0, 10) : '')"
                                 x-text="'↗️ Ex-' + capitalize(d.previous_ad_network)"></span>
                         </template>
@@ -751,7 +751,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                         <!-- Force Re-check Button on hover -->
                         <button @click.stop="enrichAd(d.domain, true)"
                                 :disabled="enrichingAds[d.domain]"
-                                class="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-[10px] transition"
+                                class="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-slate-200 dark:hover:bg-[#27272A] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-[10px] transition"
                                 title="Re-scan ads.txt">
                           <span :class="{ 'animate-spin': enrichingAds[d.domain] }">🔄</span>
                         </button>
@@ -762,7 +762,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                     <template x-if="!d.ad_network || d.ad_network === 'unchecked'">
                       <button @click.stop="enrichAd(d.domain)"
                               :disabled="enrichingAds[d.domain]"
-                              class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-[10px] font-mono border border-slate-200 dark:border-slate-700 transition flex items-center gap-1 disabled:opacity-60 shadow-sm w-fit">
+                              class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-600 dark:text-slate-300 text-[10px] font-mono tabular-nums border border-slate-200 dark:border-[#27272A] transition flex items-center gap-1 disabled:opacity-60 shadow-sm w-fit">
                         <span :class="{ 'animate-spin': enrichingAds[d.domain] }" x-text="enrichingAds[d.domain] ? '⏳' : '💰'">💰</span>
                         <span x-text="enrichingAds[d.domain] ? 'Checking...' : 'Check Ads'">Check Ads</span>
                       </button>
@@ -772,14 +772,14 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                 </td>
 
                 <!-- 3. Pins & Multiplier -->
-                <td class="py-3 px-4 font-mono">
+                <td class="py-3 px-4 font-mono tabular-nums">
                   <div class="flex flex-col gap-0.5">
                     <div class="flex items-center gap-1.5">
                       <span class="font-bold text-slate-900 dark:text-white" x-text="formatNumber(d.total_pins)"></span>
                       <span class="text-slate-400 text-[10px]">pins</span>
                     </div>
                     <span class="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.2 rounded w-fit"
-                          :class="d.pins_per_url >= 3.0 ? 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'">
+                          :class="d.pins_per_url >= 3.0 ? 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30' : 'bg-slate-100 dark:bg-[#18181B] text-slate-600 dark:text-slate-400'">
                       <span>🔁</span>
                       <span x-text="d.pins_per_url + 'x Pins/URL'"></span>
                     </span>
@@ -790,14 +790,14 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                 <td class="py-3 px-4">
                   <template x-if="d.active_serp_pins > 0 || d.displaced_pins > 0">
                     <div class="flex flex-col gap-1">
-                      <div class="flex items-center gap-2 text-[11px] font-mono">
+                      <div class="flex items-center gap-2 text-[11px] font-mono tabular-nums">
                         <span class="text-emerald-600 dark:text-emerald-400 font-bold" title="Top 3 Pins" x-text="'🥇 ' + d.top3_pins"></span>
                         <span class="text-sky-600 dark:text-sky-400 font-bold" title="Top 10 Pins" x-text="'🎯 ' + d.top10_pins"></span>
                         <template x-if="d.displaced_pins > 0">
                           <span class="text-rose-600 dark:text-rose-400 font-bold" :title="'Displaced: ' + d.decay_rate_pct + '%'" x-text="'📉 ' + d.displaced_pins"></span>
                         </template>
                       </div>
-                      <div class="text-[10px] text-slate-400 font-mono flex items-center gap-2">
+                      <div class="text-[10px] text-slate-400 font-mono tabular-nums flex items-center gap-2">
                         <span x-text="'Avg #' + (d.avg_rank || '—')"></span>
                         <span class="text-slate-300 dark:text-slate-700">|</span>
                         <span class="text-sky-600 dark:text-sky-400 font-semibold" x-text="'Vis: ' + d.visibility_score"></span>
@@ -805,8 +805,8 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                     </div>
                   </template>
                   <template x-if="!d.active_serp_pins && !d.displaced_pins">
-                    <div class="flex flex-col gap-0.5 font-mono">
-                      <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700 w-fit"
+                    <div class="flex flex-col gap-0.5 font-mono tabular-nums">
+                      <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 dark:bg-[#18181B] text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-[#27272A] w-fit"
                             title="This domain was discovered via Competitor Profiles (P1) or PinArchive (P4) and has no tracked SERP keywords yet">
                         <span>📦</span>
                         <span>Catalog / Archive Only</span>
@@ -817,7 +817,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                 </td>
 
                 <!-- 5. Saves & Velocity -->
-                <td class="py-3 px-4 font-mono">
+                <td class="py-3 px-4 font-mono tabular-nums">
                   <div class="flex flex-col gap-0.5">
                     <div class="flex items-center gap-1">
                       <span class="font-bold text-slate-900 dark:text-white" x-text="formatNumber(d.total_saves)"></span>
@@ -831,7 +831,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                 <td class="py-3 px-4">
                   <div class="flex flex-col gap-1">
                     <div class="flex items-center gap-1.5">
-                      <span class="inline-flex items-center gap-1 text-[11px] font-mono font-bold px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 border border-indigo-500/20"
+                      <span class="inline-flex items-center gap-1 text-[11px] font-mono tabular-nums font-bold px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 border border-indigo-500/20"
                             :title="'Arbitrage Velocity / Age Score: ' + d.arbitrage_score">
                         <span>⚡</span>
                         <span x-text="d.arbitrage_score"></span>
@@ -839,21 +839,21 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                     </div>
                     <div class="flex items-center gap-1 flex-wrap">
                       <template x-for="acc in (d.sample_accounts || []).slice(0, 2)" :key="acc">
-                        <span class="text-[10px] font-mono text-purple-600 dark:text-purple-400 bg-purple-500/10 px-1 py-0.2 rounded" x-text="'@' + acc"></span>
+                        <span class="text-[10px] font-mono tabular-nums text-purple-600 dark:text-purple-400 bg-purple-500/10 px-1 py-0.2 rounded" x-text="'@' + acc"></span>
                       </template>
                       <template x-if="d.accounts_count > 2">
-                        <span class="text-[10px] text-slate-400 font-mono" x-text="'+' + (d.accounts_count - 2)"></span>
+                        <span class="text-[10px] text-slate-400 font-mono tabular-nums" x-text="'+' + (d.accounts_count - 2)"></span>
                       </template>
                     </div>
                   </div>
                 </td>
 
                 <!-- 7. Actions -->
-                <td class="py-3 px-4 text-right sticky right-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xs group-hover:bg-slate-50/95 dark:group-hover:bg-slate-800/95 shadow-[-6px_0_8px_-2px_rgba(0,0,0,0.06)] z-10">
+                <td class="py-3 px-4 text-right sticky right-0 bg-white/95 dark:bg-[#121215]/95 backdrop-blur-xs group-hover:bg-slate-50/95 dark:group-hover:bg-slate-800/95 shadow-[-6px_0_8px_-2px_rgba(0,0,0,0.06)] z-10">
                   <div class="flex items-center justify-end gap-1.5 whitespace-nowrap">
                     <button @click.stop="togglePinDomain(d.domain)"
                             class="px-2 py-1 rounded-lg text-xs font-semibold transition flex items-center gap-1 shadow-2xs"
-                            :class="pinnedDomains.has(d.domain.toLowerCase()) ? 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30' : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700'"
+                            :class="pinnedDomains.has(d.domain.toLowerCase()) ? 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30' : 'bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-[#27272A]'"
                             :title="pinnedDomains.has(d.domain.toLowerCase()) ? 'Unpin domain from folder' : 'Pin domain to campaign folder'">
                       <span>📌</span>
                       <span x-text="pinnedDomains.has(d.domain.toLowerCase()) ? 'Pinned' : 'Pin'"></span>
@@ -871,8 +871,8 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
       </div>
 
       <!-- Pagination Footer -->
-      <div class="px-5 py-3.5 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between flex-wrap gap-2 text-xs text-slate-500">
-        <div class="flex items-center gap-2 font-mono">
+      <div class="px-5 py-3.5 border-t border-slate-200 dark:border-[#27272A] flex items-center justify-between flex-wrap gap-2 text-xs text-slate-500">
+        <div class="flex items-center gap-2 font-mono tabular-nums">
           <span>Showing</span>
           <span class="font-bold text-slate-900 dark:text-white" x-text="Math.min(totalDomains, ((currentPage - 1) * limit) + 1) + ' - ' + Math.min(totalDomains, currentPage * limit)"></span>
           <span>of</span>
@@ -882,13 +882,13 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
         <div class="flex items-center gap-2">
           <button @click="changePage(currentPage - 1)"
                   :disabled="currentPage <= 1 || loading"
-                  class="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition">
+                  class="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] hover:bg-slate-50 dark:hover:bg-[#27272A] text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition">
             ← Previous
           </button>
-          <span class="font-mono text-xs text-slate-700 dark:text-slate-300 font-bold px-2" x-text="currentPage + ' / ' + totalPages"></span>
+          <span class="font-mono tabular-nums text-xs text-slate-700 dark:text-slate-300 font-bold px-2" x-text="currentPage + ' / ' + totalPages"></span>
           <button @click="changePage(currentPage + 1)"
                   :disabled="currentPage >= totalPages || loading"
-                  class="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition">
+                  class="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] hover:bg-slate-50 dark:hover:bg-[#27272A] text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition">
             Next →
           </button>
         </div>
@@ -901,10 +901,10 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
     <div x-show="isDossierOpen" x-cloak class="flex flex-col gap-6 w-full" ${hasInitialDomain ? 'style="display:flex;"' : ''}>
 
       <!-- Breadcrumbs & Studio Action Bar -->
-      <div class="flex items-center justify-between flex-wrap gap-4 pb-2 border-b border-slate-200 dark:border-slate-800">
-        <div class="flex items-center gap-3 text-xs font-mono">
+      <div class="flex items-center justify-between flex-wrap gap-4 pb-2 border-b border-slate-200 dark:border-[#27272A]">
+        <div class="flex items-center gap-3 text-xs font-mono tabular-nums">
           <button @click="closeDossier()"
-                  class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold flex items-center gap-1.5 transition shadow-sm"
+                  class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-300 font-bold flex items-center gap-1.5 transition shadow-sm"
                   title="Return to Domain Radar Leaderboard (Esc)">
             <span>← Back to Leaderboard</span>
           </button>
@@ -927,18 +927,18 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
           </button>
           <button @click="recheckAgeForDossier()"
                   :disabled="enrichingDomains[dossierDomain]"
-                  class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-300 transition flex items-center gap-1 shadow-sm disabled:opacity-60">
+                  class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] hover:bg-slate-50 dark:hover:bg-[#27272A] text-xs font-semibold text-slate-700 dark:text-slate-300 transition flex items-center gap-1 shadow-sm disabled:opacity-60">
             <span :class="{ 'animate-spin': enrichingDomains[dossierDomain] }">🔄</span>
             <span x-text="enrichingDomains[dossierDomain] ? 'Checking...' : 'Re-check Age'">Re-check Age</span>
           </button>
           <button @click="recheckAdsForDossier()"
                   :disabled="enrichingAds[dossierDomain]"
-                  class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-300 transition flex items-center gap-1 shadow-sm disabled:opacity-60">
+                  class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] hover:bg-slate-50 dark:hover:bg-[#27272A] text-xs font-semibold text-slate-700 dark:text-slate-300 transition flex items-center gap-1 shadow-sm disabled:opacity-60">
             <span :class="{ 'animate-spin': enrichingAds[dossierDomain] }">🔄</span>
             <span x-text="enrichingAds[dossierDomain] ? 'Scanning...' : 'Re-scan ads.txt'">Re-scan ads.txt</span>
           </button>
           <button @click="closeDossier()"
-                  class="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-bold transition flex items-center gap-1"
+                  class="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-600 dark:text-slate-300 text-xs font-bold transition flex items-center gap-1"
                   title="Close Studio (Esc)">
             <span>Esc</span>
             <span>✕</span>
@@ -947,7 +947,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
       </div>
 
       <!-- Stitch Minimalist Domain Header Strip -->
-      <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm flex flex-col gap-4">
+      <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl p-5 shadow-sm flex flex-col gap-4">
         <!-- Top Row: Identity & External Shortcuts -->
         <div class="flex items-center justify-between flex-wrap gap-4">
           <div class="flex items-center gap-3.5">
@@ -956,17 +956,17 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
             </template>
             <template x-if="!dossierDomain || dossierDomain.toLowerCase() !== 'uploaded by user'">
               <img :src="'https://www.google.com/s2/favicons?domain=' + encodeURIComponent(dossierDomain) + '&sz=32'"
-                   class="w-8 h-8 rounded-xl shadow-sm bg-slate-200 dark:bg-slate-800 shrink-0"
+                   class="w-8 h-8 rounded-xl shadow-sm bg-slate-200 dark:bg-[#18181B] shrink-0"
                    loading="lazy"
                    onerror="this.onerror=null; this.style.display='none'">
             </template>
             <div class="flex items-center gap-3 flex-wrap">
-              <h2 class="text-xl font-bold text-slate-900 dark:text-white font-mono tracking-tight" x-text="dossierDomain"></h2>
+              <h2 class="text-xl font-bold text-slate-900 dark:text-white font-mono tabular-nums tracking-tight" x-text="dossierDomain"></h2>
               <template x-if="dossierDomain && dossierDomain.toLowerCase() === 'uploaded by user'">
-                <span class="text-xs font-mono text-amber-600 dark:text-amber-400 font-bold">🎯 100% Organic Direct Uploads • Unlinked Pinterest Traffic • Vacuum Opportunity</span>
+                <span class="text-xs font-mono tabular-nums text-amber-600 dark:text-amber-400 font-bold">🎯 100% Organic Direct Uploads • Unlinked Pinterest Traffic • Vacuum Opportunity</span>
               </template>
               <template x-if="!dossierDomain || dossierDomain.toLowerCase() !== 'uploaded by user'">
-                <div class="flex items-center gap-2 text-xs font-mono text-slate-400">
+                <div class="flex items-center gap-2 text-xs font-mono tabular-nums text-slate-400">
                   <a :href="safeUrl('https://' + dossierDomain)" target="_blank" rel="noopener noreferrer" class="text-sky-600 dark:text-sky-400 hover:underline font-medium">Visit ↗</a>
                   <span>•</span>
                   <a :href="safeUrl('https://www.similarweb.com/website/' + dossierDomain)" target="_blank" rel="noopener noreferrer" class="hover:text-slate-600 dark:hover:text-slate-200 hover:underline">Similarweb ↗</a>
@@ -990,13 +990,13 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
               <div class="flex items-center gap-2">
                 <button @click="recheckAgeForDossier()"
                         :disabled="enrichingDomains[dossierDomain]"
-                        class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 transition flex items-center gap-1 shadow-sm disabled:opacity-60">
+                        class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B]/80 hover:bg-slate-100 dark:hover:bg-[#27272A] text-xs font-semibold text-slate-700 dark:text-slate-300 transition flex items-center gap-1 shadow-sm disabled:opacity-60">
                   <span :class="{ 'animate-spin': enrichingDomains[dossierDomain] }">🔄</span>
                   <span x-text="enrichingDomains[dossierDomain] ? 'Checking...' : 'Re-check Age'">Re-check Age</span>
                 </button>
                 <button @click="recheckAdsForDossier()"
                         :disabled="enrichingAds[dossierDomain]"
-                        class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 transition flex items-center gap-1 shadow-sm disabled:opacity-60">
+                        class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B]/80 hover:bg-slate-100 dark:hover:bg-[#27272A] text-xs font-semibold text-slate-700 dark:text-slate-300 transition flex items-center gap-1 shadow-sm disabled:opacity-60">
                   <span :class="{ 'animate-spin': enrichingAds[dossierDomain] }">🔄</span>
                   <span x-text="enrichingAds[dossierDomain] ? 'Scanning...' : 'Re-scan ads.txt'">Re-scan ads.txt</span>
                 </button>
@@ -1007,7 +1007,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
 
         <!-- Sleek Horizontal Bento Metadata Chips -->
         <template x-if="dossierData?.summary?.is_organic_vault">
-          <div class="flex items-center gap-2 flex-wrap font-mono text-xs pt-3 border-t border-slate-100 dark:border-slate-800/80">
+          <div class="flex items-center gap-2 flex-wrap font-mono tabular-nums text-xs pt-3 border-t border-slate-100 dark:border-[#27272A]/80">
             <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20 font-bold shadow-sm">
               <span>🎯</span>
               <span>100% Unmonetized Arbitrage Vacuum</span>
@@ -1023,10 +1023,10 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
           </div>
         </template>
         <template x-if="!dossierData?.summary?.is_organic_vault">
-        <div class="flex items-center gap-2 flex-wrap font-mono text-xs pt-3 border-t border-slate-100 dark:border-slate-800/80">
+        <div class="flex items-center gap-2 flex-wrap font-mono tabular-nums text-xs pt-3 border-t border-slate-100 dark:border-[#27272A]/80">
           <!-- Age Badge -->
           <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-semibold shadow-sm"
-                :class="dossierData?.age_info?.age_years != null ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20' : (dossierData?.age_info?.lookup_status === 'failed' ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700')"
+                :class="dossierData?.age_info?.age_years != null ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20' : (dossierData?.age_info?.lookup_status === 'failed' ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20' : 'bg-slate-100 dark:bg-[#18181B] text-slate-500 border-slate-200 dark:border-[#27272A]')"
                 :title="dossierData?.age_info?.registered_at ? 'Registered: ' + dossierData.age_info.registered_at.slice(0, 10) : 'Age'">
             <span>🌱</span>
             <span x-text="dossierData?.age_info?.age_days != null ? formatDomainAge(dossierData.age_info.age_days) : (dossierData?.age_info?.lookup_status === 'failed' ? 'Registry Withheld / Privacy Shielded' : 'Unverified Age')"></span>
@@ -1034,7 +1034,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
 
           <!-- Registration Date -->
           <template x-if="dossierData?.age_info?.registered_at">
-            <span class="px-2.5 py-1 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 text-slate-600 dark:text-slate-300">
+            <span class="px-2.5 py-1 rounded-lg bg-slate-50 dark:bg-[#18181B]/60 border border-slate-200 dark:border-[#27272A]/80 text-slate-600 dark:text-slate-300">
               <span class="text-slate-400">Reg: </span>
               <span class="font-bold text-slate-800 dark:text-slate-200" x-text="dossierData.age_info.registered_at.slice(0, 10)"></span>
             </span>
@@ -1042,7 +1042,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
 
           <!-- Expiry Date -->
           <template x-if="dossierData?.age_info?.expires_at">
-            <span class="px-2.5 py-1 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 text-slate-600 dark:text-slate-300">
+            <span class="px-2.5 py-1 rounded-lg bg-slate-50 dark:bg-[#18181B]/60 border border-slate-200 dark:border-[#27272A]/80 text-slate-600 dark:text-slate-300">
               <span class="text-slate-400">Expires: </span>
               <span class="font-bold text-slate-800 dark:text-slate-200" x-text="dossierData.age_info.expires_at.slice(0, 10)"></span>
             </span>
@@ -1057,7 +1057,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
 
           <!-- Ad Manager Domain -->
           <template x-if="dossierData?.ad_info?.ad_manager_domain">
-            <span class="px-2.5 py-1 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 text-slate-600 dark:text-slate-300">
+            <span class="px-2.5 py-1 rounded-lg bg-slate-50 dark:bg-[#18181B]/60 border border-slate-200 dark:border-[#27272A]/80 text-slate-600 dark:text-slate-300">
               <span class="text-slate-400">Manager: </span>
               <span class="font-bold text-sky-600 dark:text-sky-400" x-text="dossierData.ad_info.ad_manager_domain"></span>
             </span>
@@ -1065,7 +1065,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
 
           <!-- Publisher ID -->
           <template x-if="dossierData?.ad_info?.primary_pub_id">
-            <span class="px-2.5 py-1 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 text-slate-600 dark:text-slate-300">
+            <span class="px-2.5 py-1 rounded-lg bg-slate-50 dark:bg-[#18181B]/60 border border-slate-200 dark:border-[#27272A]/80 text-slate-600 dark:text-slate-300">
               <span class="text-slate-400">Pub ID: </span>
               <span class="font-bold text-slate-800 dark:text-slate-200" x-text="dossierData.ad_info.primary_pub_id"></span>
             </span>
@@ -1073,7 +1073,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
 
           <!-- ads.txt Status -->
           <span class="px-2.5 py-1 rounded-lg border text-xs font-semibold flex items-center gap-1"
-                :class="dossierData?.ad_info?.ads_txt_status === 'valid' ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20' : 'bg-slate-50 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700'">
+                :class="dossierData?.ad_info?.ads_txt_status === 'valid' ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20' : 'bg-slate-50 dark:bg-[#18181B]/60 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-[#27272A]'">
             <span :class="dossierData?.ad_info?.ads_txt_status === 'valid' ? 'text-emerald-500' : 'text-slate-400'">●</span>
             <span x-text="'ads.txt: ' + (dossierData?.ad_info?.ads_txt_status || 'Pending')"></span>
           </span>
@@ -1092,33 +1092,33 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
       </div>
 
       <!-- Dossier High-Level 6 KPI Summary Cards -->
-      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5 font-mono text-center">
-        <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-sm flex flex-col gap-1">
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5 font-mono tabular-nums text-center">
+        <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] p-4 rounded-2xl shadow-sm flex flex-col gap-1">
           <div class="text-[10px] text-slate-400 uppercase tracking-wider">Ranked Pins</div>
           <div class="text-2xl font-bold text-slate-900 dark:text-white" x-text="formatNumber(dossierData?.summary?.total_pins || 0)"></div>
           <div class="text-[11px] text-slate-400" x-text="(dossierData?.summary?.visual_pins_count != null && dossierData?.summary?.visual_pins_count < dossierData?.summary?.total_pins) ? (formatNumber(dossierData.summary.visual_pins_count) + ' visual cards loaded') : 'Total SERP pins'"></div>
         </div>
-        <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-sm flex flex-col gap-1">
+        <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] p-4 rounded-2xl shadow-sm flex flex-col gap-1">
           <div class="text-[10px] text-slate-400 uppercase tracking-wider" x-text="dossierData?.summary?.is_organic_vault ? 'Upload Boards' : 'Money Articles'"></div>
           <div class="text-2xl font-bold text-slate-900 dark:text-white" x-text="dossierData?.summary?.is_organic_vault ? filteredDossierArticles().length : (dossierData?.summary?.unique_urls || 0)"></div>
           <div class="text-[11px] text-slate-400" x-text="dossierData?.summary?.is_organic_vault ? 'Niche board groups' : 'Unique URLs'"></div>
         </div>
-        <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-sm flex flex-col gap-1">
+        <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] p-4 rounded-2xl shadow-sm flex flex-col gap-1">
           <div class="text-[10px] text-slate-400 uppercase tracking-wider">Multiplier</div>
           <div class="text-2xl font-bold text-amber-600 dark:text-amber-400" x-text="(dossierData?.summary?.pins_per_url || 1) + 'x'"></div>
           <div class="text-[11px] text-slate-400">Pins per article</div>
         </div>
-        <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-sm flex flex-col gap-1">
+        <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] p-4 rounded-2xl shadow-sm flex flex-col gap-1">
           <div class="text-[10px] text-slate-400 uppercase tracking-wider">Keywords</div>
           <div class="text-2xl font-bold text-sky-600 dark:text-sky-400" x-text="dossierData?.summary?.ranked_keywords_count || 0"></div>
           <div class="text-[11px] text-slate-400">Targeted keywords</div>
         </div>
-        <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-sm flex flex-col gap-1">
+        <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] p-4 rounded-2xl shadow-sm flex flex-col gap-1">
           <div class="text-[10px] text-slate-400 uppercase tracking-wider">Total Saves</div>
           <div class="text-2xl font-bold text-emerald-600 dark:text-emerald-400" x-text="formatNumber(dossierData?.summary?.total_saves || 0)"></div>
           <div class="text-[11px] text-slate-400">Aggregate saves</div>
         </div>
-        <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-sm flex flex-col gap-1">
+        <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] p-4 rounded-2xl shadow-sm flex flex-col gap-1">
           <div class="text-[10px] text-slate-400 uppercase tracking-wider">Creators</div>
           <div class="text-2xl font-bold text-purple-600 dark:text-purple-400" x-text="dossierData?.summary?.accounts_count || 0"></div>
           <div class="text-[11px] text-slate-400">Associated accounts</div>
@@ -1126,13 +1126,13 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
       </div>
 
       <!-- Unified Studio Smart View Switcher & Action Toolbar -->
-      <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-3.5 shadow-sm flex items-center justify-between flex-wrap gap-3">
+      <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl p-3.5 shadow-sm flex items-center justify-between flex-wrap gap-3">
         <!-- 3-Way Main Toggle + 2 Secondary Tabs -->
         <div class="flex items-center gap-1.5 flex-wrap">
           <!-- Button 1: Articles / URLs -->
           <button @click="dossierTab = 'urls'"
-                  class="px-3 py-1.5 rounded-xl text-xs font-semibold font-mono transition flex items-center gap-1.5"
-                  :class="dossierTab === 'urls' ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'">
+                  class="px-3 py-1.5 rounded-xl text-xs font-semibold font-mono tabular-nums transition flex items-center gap-1.5"
+                  :class="dossierTab === 'urls' ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#27272A]'">
             <span x-text="dossierData?.summary?.is_organic_vault ? '📁 Direct Upload Boards' : '🔗 Money Articles'"></span>
             <span class="px-1.5 py-0.2 rounded-full text-[10px] font-bold"
                   :class="dossierTab === 'urls' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'"
@@ -1141,8 +1141,8 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
 
           <!-- Button 2: Ranked Pins -->
           <button @click="dossierTab = 'pins'"
-                  class="px-3 py-1.5 rounded-xl text-xs font-semibold font-mono transition flex items-center gap-1.5"
-                  :class="dossierTab === 'pins' ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'">
+                  class="px-3 py-1.5 rounded-xl text-xs font-semibold font-mono tabular-nums transition flex items-center gap-1.5"
+                  :class="dossierTab === 'pins' ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#27272A]'">
             <span>🎯 Ranked Pins</span>
             <span class="px-1.5 py-0.2 rounded-full text-[10px] font-bold"
                   :class="dossierTab === 'pins' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'"
@@ -1151,8 +1151,8 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
 
           <!-- Button 3: Keyword Monopoly -->
           <button @click="dossierTab = 'keywords'"
-                  class="px-3 py-1.5 rounded-xl text-xs font-semibold font-mono transition flex items-center gap-1.5"
-                  :class="dossierTab === 'keywords' ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'">
+                  class="px-3 py-1.5 rounded-xl text-xs font-semibold font-mono tabular-nums transition flex items-center gap-1.5"
+                  :class="dossierTab === 'keywords' ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#27272A]'">
             <span>🕸️ Keyword Monopoly</span>
             <span class="px-1.5 py-0.2 rounded-full text-[10px] font-bold"
                   :class="dossierTab === 'keywords' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'"
@@ -1163,8 +1163,8 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
 
           <!-- Button 4: Associated Accounts -->
           <button @click="dossierTab = 'accounts'"
-                  class="px-3 py-1.5 rounded-xl text-xs font-semibold font-mono transition flex items-center gap-1.5"
-                  :class="dossierTab === 'accounts' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'">
+                  class="px-3 py-1.5 rounded-xl text-xs font-semibold font-mono tabular-nums transition flex items-center gap-1.5"
+                  :class="dossierTab === 'accounts' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#27272A]'">
             <span>👤 Creators</span>
             <span class="px-1.5 py-0.2 rounded-full text-[10px] font-bold"
                   :class="dossierTab === 'accounts' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'"
@@ -1173,8 +1173,8 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
 
           <!-- Button 5: Visual DNA -->
           <button @click="dossierTab = 'visual_dna'"
-                  class="px-3 py-1.5 rounded-xl text-xs font-semibold font-mono transition flex items-center gap-1.5"
-                  :class="dossierTab === 'visual_dna' ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'">
+                  class="px-3 py-1.5 rounded-xl text-xs font-semibold font-mono tabular-nums transition flex items-center gap-1.5"
+                  :class="dossierTab === 'visual_dna' ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#27272A]'">
             <span>🧬 Visual DNA</span>
           </button>
         </div>
@@ -1186,14 +1186,14 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
             <input type="text"
                    x-model="dossierSearch"
                    placeholder="Search in studio..."
-                   class="w-full text-xs font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-sky-500">
+                   class="w-full text-xs font-mono tabular-nums rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] px-3 py-1.5 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-sky-500">
             <template x-if="dossierSearch">
               <button @click="dossierSearch = ''" class="absolute right-2 top-1.5 text-slate-400 hover:text-slate-600 text-xs">✕</button>
             </template>
           </div>
 
           <!-- Status Filter: All / Active SERP / Displaced -->
-          <div class="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-0.5 text-xs font-mono">
+          <div class="inline-flex rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] p-0.5 text-xs font-mono tabular-nums">
             <button @click="dossierStatusFilter = 'all'; dossierPinsPage = 1; dossierArticlesPage = 1"
                     class="px-2.5 py-1 rounded-md transition font-medium"
                     :class="dossierStatusFilter === 'all' ? 'bg-white dark:bg-slate-700 text-sky-600 dark:text-sky-400 shadow-sm font-bold' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'">
@@ -1213,7 +1213,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
 
           <!-- Contextual Sort Dropdown -->
           <select x-model="dossierSort"
-                  class="text-xs font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2.5 py-1.5 text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-sky-500">
+                  class="text-xs font-mono tabular-nums rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] px-2.5 py-1.5 text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-sky-500">
             <option value="saves">Sort: Highest Saves</option>
             <option value="age_asc">Sort: Newest Pin (Fresh)</option>
             <option value="age_desc">Sort: Oldest Pin (Evergreen)</option>
@@ -1223,13 +1223,13 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
 
           <!-- 1-Click Copy Buttons -->
           <button @click="copyAllArticleUrls()"
-                  class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-mono font-semibold text-slate-700 dark:text-slate-300 transition flex items-center gap-1 shadow-sm"
+                  class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] hover:bg-slate-100 dark:hover:bg-[#27272A] text-xs font-mono tabular-nums font-semibold text-slate-700 dark:text-slate-300 transition flex items-center gap-1 shadow-sm"
                   title="Copy all discovered article URLs to clipboard">
             <span>📋</span>
             <span>Copy URLs</span>
           </button>
           <button @click="copyAllKeywords()"
-                  class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-mono font-semibold text-slate-700 dark:text-slate-300 transition flex items-center gap-1 shadow-sm"
+                  class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] hover:bg-slate-100 dark:hover:bg-[#27272A] text-xs font-mono tabular-nums font-semibold text-slate-700 dark:text-slate-300 transition flex items-center gap-1 shadow-sm"
                   title="Copy all monopolized keywords to clipboard">
             <span>📋</span>
             <span>Copy Keywords</span>
@@ -1241,7 +1241,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
       <div class="flex flex-col gap-4">
         <!-- Loading State -->
         <template x-if="dossierLoading">
-          <div class="py-24 text-center text-slate-400 font-mono flex flex-col items-center justify-center gap-3">
+          <div class="py-24 text-center text-slate-400 font-mono tabular-nums flex flex-col items-center justify-center gap-3">
             <span class="animate-spin text-3xl">🔄</span>
             <span class="text-sm">De-obfuscating domain intelligence & 4-pillar data...</span>
           </div>
@@ -1249,14 +1249,14 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
 
         <!-- Error & Cold Start State -->
         <template x-if="!dossierLoading && !dossierData">
-          <div class="py-20 text-center flex flex-col items-center justify-center gap-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-8 shadow-sm">
+          <div class="py-20 text-center flex flex-col items-center justify-center gap-4 bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl p-8 shadow-sm">
             <div class="w-12 h-12 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center text-2xl font-bold">⚠️</div>
             <div class="flex flex-col gap-1 max-w-md">
               <span class="text-base font-bold text-slate-900 dark:text-white">Dossier Cold-Start or Timed Out</span>
-              <span class="text-xs text-slate-500 dark:text-slate-400">The serverless database or background compute may have experienced a cold start while compiling 4-pillar data for <span class="font-mono font-bold text-slate-700 dark:text-slate-300" x-text="dossierDomain"></span>.</span>
+              <span class="text-xs text-slate-500 dark:text-slate-400">The serverless database or background compute may have experienced a cold start while compiling 4-pillar data for <span class="font-mono tabular-nums font-bold text-slate-700 dark:text-slate-300" x-text="dossierDomain"></span>.</span>
             </div>
             <button @click="openDossier(dossierDomain, false, true)"
-                    class="px-5 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-mono font-semibold shadow-sm transition flex items-center gap-2">
+                    class="px-5 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-mono tabular-nums font-semibold shadow-sm transition flex items-center gap-2">
               <span>🔄</span>
               <span>Retry Loading Dossier</span>
             </button>
@@ -1269,7 +1269,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
               <!-- TAB 1: Ranked Pins -->
               <div x-show="dossierTab === 'pins'" class="space-y-3">
                 <template x-for="p in paginatedDossierPins()" :key="p.pin_id">
-                  <div :data-pin-id="p.pin_id" class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 flex items-center justify-between gap-4 shadow-sm hover:border-sky-500/50 transition">
+                  <div :data-pin-id="p.pin_id" class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl p-4 flex items-center justify-between gap-4 shadow-sm hover:border-sky-500/50 transition">
                     <div class="flex items-center gap-3.5 min-w-0">
                       <img :src="p.image_url"
                            referrerpolicy="no-referrer"
@@ -1280,20 +1280,20 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                         <div class="flex items-center gap-2 flex-wrap">
                           <span class="text-sm font-bold text-slate-900 dark:text-white truncate" x-text="p.title"></span>
                           <template x-if="p.is_vulnerable">
-                            <span class="px-1.5 py-0.5 rounded text-[9px] font-bold font-mono bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30 shrink-0"
+                            <span class="px-1.5 py-0.5 rounded text-[9px] font-bold font-mono tabular-nums bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30 shrink-0"
                                   title="Decaying Monopoly: High Saves + Stale Velocity. Vulnerable to Fresh Pin Overhaul!">
                               ⚡ Decaying Monopoly
                             </span>
                           </template>
                           <!-- Pin Age Badge -->
                           <template x-if="getPinAgeBadge(p.created_at_pinterest)">
-                            <span class="px-1.5 py-0.5 rounded text-[9px] font-bold font-mono shrink-0"
+                            <span class="px-1.5 py-0.5 rounded text-[9px] font-bold font-mono tabular-nums shrink-0"
                                   :class="getPinAgeBadge(p.created_at_pinterest).class"
                                   :title="getPinAgeBadge(p.created_at_pinterest).title"
                                   x-text="getPinAgeBadge(p.created_at_pinterest).label"></span>
                           </template>
                         </div>
-                        <div class="flex items-center gap-2 text-xs text-slate-400 font-mono mt-1 flex-wrap">
+                        <div class="flex items-center gap-2 text-xs text-slate-400 font-mono tabular-nums mt-1 flex-wrap">
                           <span x-text="'Pin #' + p.pin_id"></span>
                           <span class="text-slate-300 dark:text-slate-600">•</span>
                           <template x-if="p.creator_username">
@@ -1325,7 +1325,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                         <div class="flex items-center gap-1.5 flex-wrap mt-2">
                           <template x-for="app in (p.serp_appearances || []).slice(0, 6)" :key="app.keyword_id">
                             <button @click="filterToKeyword(app.keyword_name)"
-                                    class="text-[10px] font-mono px-2 py-0.5 rounded-md bg-sky-500/10 hover:bg-sky-500/20 text-sky-700 dark:text-sky-300 border border-sky-500/20 transition-colors inline-flex items-center gap-1"
+                                    class="text-[10px] font-mono tabular-nums px-2 py-0.5 rounded-md bg-sky-500/10 hover:bg-sky-500/20 text-sky-700 dark:text-sky-300 border border-sky-500/20 transition-colors inline-flex items-center gap-1"
                                     :title="'Drilldown to keyword monopoly for ' + app.keyword_name">
                               <span x-text="app.rank_position ? '#' + app.rank_position : 'Displaced'" class="font-bold"></span>
                               <span class="text-slate-500 dark:text-slate-400 truncate max-w-[150px]" x-text="app.keyword_name"></span>
@@ -1339,26 +1339,26 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                     <div class="flex items-center gap-2 shrink-0">
                       <a :href="safeUrl('/pin/' + p.pin_id)"
                          target="_blank"
-                         class="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold transition font-mono">
+                         class="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-200 text-xs font-semibold transition font-mono tabular-nums">
                         Inspect ↗
                       </a>
                     </div>
                   </div>
                 </template>
                 <template x-if="filteredDossierPins().length === 0">
-                  <div class="py-12 text-center text-slate-400 font-mono text-xs">No ranked pins matched your search or filters.</div>
+                  <div class="py-12 text-center text-slate-400 font-mono tabular-nums text-xs">No ranked pins matched your search or filters.</div>
                 </template>
 
                 <!-- Pins Pagination Controls -->
                 <template x-if="totalDossierPinsPages() > 1">
-                  <div class="flex items-center justify-between border-t border-slate-200 dark:border-slate-800 pt-3 px-1 text-xs font-mono">
+                  <div class="flex items-center justify-between border-t border-slate-200 dark:border-[#27272A] pt-3 px-1 text-xs font-mono tabular-nums">
                     <span class="text-slate-500 dark:text-slate-400">
                       Showing <span class="font-bold text-slate-800 dark:text-slate-200" x-text="((dossierPinsPage - 1) * dossierPinsPerPage) + 1"></span> - <span class="font-bold text-slate-800 dark:text-slate-200" x-text="Math.min(dossierPinsPage * dossierPinsPerPage, filteredDossierPins().length)"></span> of <span class="font-bold text-slate-800 dark:text-slate-200" x-text="filteredDossierPins().length"></span> pins
                     </span>
                     <div class="flex items-center gap-1.5">
                       <button @click="prevDossierPinsPage()"
                               :disabled="dossierPinsPage <= 1"
-                              class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-slate-700 transition">
+                              class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-[#27272A] transition">
                         ← Prev
                       </button>
                       <span class="px-2 py-1 text-slate-600 dark:text-slate-400">
@@ -1366,7 +1366,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                       </span>
                       <button @click="nextDossierPinsPage()"
                               :disabled="dossierPinsPage >= totalDossierPinsPages()"
-                              class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-slate-700 transition">
+                              class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-[#27272A] transition">
                         Next →
                       </button>
                     </div>
@@ -1375,7 +1375,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
 
                 <!-- On-Demand Shard Displaced Pins Loader -->
                 <template x-if="dossierData?.summary?.displaced_remaining_count > 0">
-                  <div class="mt-4 p-4 rounded-2xl bg-sky-50 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-800 flex items-center justify-between flex-wrap gap-3 font-mono text-xs">
+                  <div class="mt-4 p-4 rounded-2xl bg-sky-50 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-800 flex items-center justify-between flex-wrap gap-3 font-mono tabular-nums text-xs">
                     <div class="flex items-center gap-2">
                       <span class="text-sky-600 dark:text-sky-400 font-bold">📦 Historical Shard Archive:</span>
                       <span class="text-slate-600 dark:text-slate-300" x-text="formatNumber(dossierData.summary.displaced_remaining_count) + ' additional historical displaced pins are stored in Neon Shards.'"></span>
@@ -1393,13 +1393,13 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
               <!-- TAB 2: Money Articles & Multipliers -->
               <div x-show="dossierTab === 'urls'" class="space-y-4">
                 <template x-for="art in paginatedDossierArticles()" :key="art.clean_slug">
-                  <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-5 flex flex-col gap-3 shadow-sm hover:border-sky-500/40 transition">
+                  <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl p-4 sm:p-5 flex flex-col gap-3 shadow-sm hover:border-sky-500/40 transition">
                     <div class="flex items-start justify-between gap-3">
                       <div class="flex flex-col min-w-0">
                         <div class="flex items-center gap-2 flex-wrap">
-                          <span class="text-sm font-bold font-mono text-slate-900 dark:text-white truncate" x-text="art.clean_slug === '/' ? 'Root Domain (/)' : art.clean_slug"></span>
+                          <span class="text-sm font-bold font-mono tabular-nums text-slate-900 dark:text-white truncate" x-text="art.clean_slug === '/' ? 'Root Domain (/)' : art.clean_slug"></span>
                           <button @click="copyToClipboard(art.sample_url || art.clean_slug, 'Copied article URL!')"
-                                  class="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-xs px-1.5 py-0.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800"
+                                  class="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-xs px-1.5 py-0.5 rounded hover:bg-slate-100 dark:hover:bg-[#27272A]"
                                   title="Copy URL">
                             📋
                           </button>
@@ -1410,10 +1410,10 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                             Open Article ↗
                           </a>
                         </div>
-                        <div class="flex items-center gap-2 text-xs font-mono text-slate-400 mt-1 flex-wrap">
+                        <div class="flex items-center gap-2 text-xs font-mono tabular-nums text-slate-400 mt-1 flex-wrap">
                           <!-- Article Pin Age Badge -->
                           <template x-if="getPinAgeBadge(art.created_at_pinterest || art.newest_pin_date)">
-                            <span class="px-1.5 py-0.5 rounded text-[9px] font-bold font-mono shrink-0"
+                            <span class="px-1.5 py-0.5 rounded text-[9px] font-bold font-mono tabular-nums shrink-0"
                                   :class="getPinAgeBadge(art.created_at_pinterest || art.newest_pin_date).class"
                                   :title="getPinAgeBadge(art.created_at_pinterest || art.newest_pin_date).title"
                                   x-text="getPinAgeBadge(art.created_at_pinterest || art.newest_pin_date).label"></span>
@@ -1444,9 +1444,9 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                         <!-- Targeted Marketing Angles -->
                         <template x-if="Array.isArray(art.angles_targeted) && art.angles_targeted.length > 0">
                           <div class="flex items-center gap-1.5 flex-wrap mt-2">
-                            <span class="text-[10px] font-mono text-slate-400 uppercase font-bold">Search Intents:</span>
+                            <span class="text-[10px] font-mono tabular-nums text-slate-400 uppercase font-bold">Search Intents:</span>
                             <template x-for="ang in art.angles_targeted" :key="ang">
-                              <span class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700"
+                              <span class="text-[10px] font-mono tabular-nums px-2 py-0.5 rounded-full bg-slate-100 dark:bg-[#18181B] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#27272A]"
                                     x-text="'🎯 ' + ang"></span>
                             </template>
                           </div>
@@ -1455,10 +1455,10 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                         <!-- Cross-View Drilldown Keywords -->
                         <template x-if="Array.isArray(art.target_keywords || art.keywords) && (art.target_keywords || art.keywords).length > 0">
                           <div class="flex items-center gap-1.5 flex-wrap mt-1.5">
-                            <span class="text-[10px] font-mono text-slate-400 uppercase font-bold">Keywords:</span>
+                            <span class="text-[10px] font-mono tabular-nums text-slate-400 uppercase font-bold">Keywords:</span>
                             <template x-for="kw in (art.expandedKeywords ? (art.target_keywords || art.keywords) : (art.target_keywords || art.keywords).slice(0, 5))" :key="kw">
                               <button @click="filterToKeyword(kw)"
-                                      class="text-[10px] font-mono px-2 py-0.5 rounded-md bg-sky-500/10 hover:bg-sky-500/20 text-sky-700 dark:text-sky-300 border border-sky-500/20 transition flex items-center gap-1"
+                                      class="text-[10px] font-mono tabular-nums px-2 py-0.5 rounded-md bg-sky-500/10 hover:bg-sky-500/20 text-sky-700 dark:text-sky-300 border border-sky-500/20 transition flex items-center gap-1"
                                       :title="'Jump to Keyword Monopoly view for ' + kw">
                                 <span x-text="kw"></span>
                                 <span class="text-[9px]">→</span>
@@ -1466,7 +1466,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                             </template>
                             <template x-if="(art.target_keywords || art.keywords).length > 5">
                               <button @click="art.expandedKeywords = !art.expandedKeywords"
-                                      class="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition"
+                                      class="text-[10px] font-mono tabular-nums font-bold px-2 py-0.5 rounded-md bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-600 dark:text-slate-300 transition"
                                       x-text="art.expandedKeywords ? 'Show less' : '+' + ((art.target_keywords || art.keywords).length - 5) + ' more'"></button>
                             </template>
                           </div>
@@ -1475,10 +1475,10 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                     </div>
 
                     <!-- Creative Pin Variations Thumbnails Gallery (Pillar 2) -->
-                    <div class="flex flex-col gap-2 pt-2.5 border-t border-slate-100 dark:border-slate-800">
+                    <div class="flex flex-col gap-2 pt-2.5 border-t border-slate-100 dark:border-[#27272A]">
                       <div class="grid grid-cols-3 sm:grid-cols-6 lg:grid-cols-8 gap-2.5">
                         <template x-for="p in (art.expandedPins ? art.pins : (art.pins || []).slice(0, 6))" :key="p.pin_id">
-                          <div class="group relative rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-900 aspect-[2/3] flex flex-col justify-between">
+                          <div class="group relative rounded-xl overflow-hidden border border-slate-200 dark:border-[#27272A] bg-slate-100 dark:bg-[#121215] aspect-[2/3] flex flex-col justify-between">
                             <img :src="p.image_url"
                                  referrerpolicy="no-referrer"
                                  class="w-full h-full object-cover group-hover:scale-105 transition-transform absolute inset-0"
@@ -1488,19 +1488,19 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                             <!-- Top Badges Overlay (Age & Intent) -->
                             <div class="relative z-10 p-1 flex items-start justify-between gap-1 w-full flex-wrap">
                               <template x-if="getPinAgeBadge(p.created_at_pinterest)">
-                                <span class="px-1 py-0.2 rounded text-[8px] font-bold font-mono shadow-sm"
+                                <span class="px-1 py-0.2 rounded text-[8px] font-bold font-mono tabular-nums shadow-sm"
                                       :class="getPinAgeBadge(p.created_at_pinterest).class"
                                       :title="getPinAgeBadge(p.created_at_pinterest).title"
                                       x-text="getPinAgeBadge(p.created_at_pinterest).label"></span>
                               </template>
                               <template x-if="p.intent_tag">
-                                <div class="px-1 py-0.2 rounded text-[8px] font-bold font-mono bg-black/75 text-amber-300 truncate max-w-[80%] shadow-sm"
+                                <div class="px-1 py-0.2 rounded text-[8px] font-bold font-mono tabular-nums bg-black/75 text-amber-300 truncate max-w-[80%] shadow-sm"
                                      x-text="p.intent_tag"></div>
                               </template>
                             </div>
 
                             <!-- Bottom Rank & Saves Overlay -->
-                            <div class="relative z-10 bg-slate-950/85 p-1 text-[9px] font-mono text-white flex items-center justify-between">
+                            <div class="relative z-10 bg-slate-950/85 p-1 text-[9px] font-mono tabular-nums text-white flex items-center justify-between">
                               <a :href="safeUrl('/pin/' + p.pin_id)" target="_blank" class="hover:underline flex items-center gap-0.5">
                                 <span x-text="p.best_rank ? '#' + p.best_rank : (p.is_displaced ? 'Displaced' : 'Pin')"></span>
                                 <span class="text-[8px]">↗</span>
@@ -1515,7 +1515,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                       <template x-if="(art.pins || []).length > 6">
                         <div class="flex justify-end">
                           <button @click="art.expandedPins = !art.expandedPins"
-                                  class="text-[11px] font-mono font-semibold px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-sky-600 dark:text-sky-400 transition flex items-center gap-1">
+                                  class="text-[11px] font-mono tabular-nums font-semibold px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 hover:bg-slate-100 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-sky-600 dark:text-sky-400 transition flex items-center gap-1">
                             <span x-text="art.expandedPins ? 'Collapse to top 6 pins ↑' : 'View all ' + art.pins.length + ' creative variations (' + (art.pins.length - 6) + ' more) ↓'"></span>
                           </button>
                         </div>
@@ -1524,19 +1524,19 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                   </div>
                 </template>
                 <template x-if="filteredDossierArticles().length === 0">
-                  <div class="py-12 text-center text-slate-400 font-mono text-xs">No articles matched your search or filters.</div>
+                  <div class="py-12 text-center text-slate-400 font-mono tabular-nums text-xs">No articles matched your search or filters.</div>
                 </template>
 
                 <!-- Articles Pagination Controls -->
                 <template x-if="totalDossierArticlesPages() > 1">
-                  <div class="flex items-center justify-between border-t border-slate-200 dark:border-slate-800 pt-3 px-1 text-xs font-mono">
+                  <div class="flex items-center justify-between border-t border-slate-200 dark:border-[#27272A] pt-3 px-1 text-xs font-mono tabular-nums">
                     <span class="text-slate-500 dark:text-slate-400">
                       Showing <span class="font-bold text-slate-800 dark:text-slate-200" x-text="((dossierArticlesPage - 1) * dossierArticlesPerPage) + 1"></span> - <span class="font-bold text-slate-800 dark:text-slate-200" x-text="Math.min(dossierArticlesPage * dossierArticlesPerPage, filteredDossierArticles().length)"></span> of <span class="font-bold text-slate-800 dark:text-slate-200" x-text="filteredDossierArticles().length"></span> articles
                     </span>
                     <div class="flex items-center gap-1.5">
                       <button @click="prevDossierArticlesPage()"
                               :disabled="dossierArticlesPage <= 1"
-                              class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-slate-700 transition">
+                              class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-[#27272A] transition">
                         ← Prev
                       </button>
                       <span class="px-2 py-1 text-slate-600 dark:text-slate-400">
@@ -1544,7 +1544,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                       </span>
                       <button @click="nextDossierArticlesPage()"
                               :disabled="dossierArticlesPage >= totalDossierArticlesPages()"
-                              class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-slate-700 transition">
+                              class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-[#27272A] transition">
                         Next →
                       </button>
                     </div>
@@ -1555,37 +1555,37 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
               <!-- TAB 3: Keyword Monopoly Matrix -->
               <div x-show="dossierTab === 'keywords' || dossierTab === 'monopoly'" class="space-y-3">
                 <template x-for="kw in filteredDossierKeywords()" :key="kw.keyword_id">
-                  <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 flex flex-col gap-2.5 shadow-sm hover:border-sky-500/40 transition">
+                  <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl p-4 flex flex-col gap-2.5 shadow-sm hover:border-sky-500/40 transition">
                     <div class="flex items-start justify-between gap-3">
                       <div class="flex flex-col min-w-0">
                         <div class="flex items-center gap-2 flex-wrap">
                           <span class="text-sm font-bold text-slate-900 dark:text-white" x-text="kw.keyword_name"></span>
                           <a :href="safeUrl('/keywords/' + encodeURIComponent(kw.keyword_name))"
                              target="_blank"
-                             class="text-[11px] text-sky-600 hover:underline font-mono">
+                             class="text-[11px] text-sky-600 hover:underline font-mono tabular-nums">
                             SERP Radar ↗
                           </a>
                           <!-- Strategy Badge (Pillar 1) -->
                           <template x-if="kw.strategy === 'URL_FLOODING'">
-                            <span class="text-[10px] font-mono px-2 py-0.5 rounded-full font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30"
+                            <span class="text-[10px] font-mono tabular-nums px-2 py-0.5 rounded-full font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30"
                                   title="URL Creative Flooding: The competitor launched multiple creative pins pointing to the exact same article!">
                               💣 URL Flooding (1 Article, Multi-Pin)
                             </span>
                           </template>
                           <template x-if="kw.strategy === 'TOPIC_CLUSTER'">
-                            <span class="text-[10px] font-mono px-2 py-0.5 rounded-full font-bold bg-sky-500/15 text-sky-700 dark:text-sky-300 border border-sky-500/30"
+                            <span class="text-[10px] font-mono tabular-nums px-2 py-0.5 rounded-full font-bold bg-sky-500/15 text-sky-700 dark:text-sky-300 border border-sky-500/30"
                                   title="Topic Cluster: The competitor dominates this keyword through distinct specialized articles!">
                               🌳 Topic Cluster (<span x-text="kw.unique_urls_count"></span> Articles)
                             </span>
                           </template>
                           <template x-if="kw.strategy === 'HYBRID_FLOODING'">
-                            <span class="text-[10px] font-mono px-2 py-0.5 rounded-full font-bold bg-purple-500/15 text-purple-700 dark:text-purple-300 border border-purple-500/30">
+                            <span class="text-[10px] font-mono tabular-nums px-2 py-0.5 rounded-full font-bold bg-purple-500/15 text-purple-700 dark:text-purple-300 border border-purple-500/30">
                               ⚡ Hybrid Domination
                             </span>
                           </template>
                           <!-- Decaying Monopoly Warning (Pillar 5) -->
                           <template x-if="kw.is_decaying_monopoly">
-                            <span class="text-[10px] font-mono px-2 py-0.5 rounded font-bold bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30"
+                            <span class="text-[10px] font-mono tabular-nums px-2 py-0.5 rounded font-bold bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30"
                                   title="Decaying Monopoly: Competitor holds top slots with stagnant velocity. High vulnerability to fresh pin takeover!">
                               ⚡ Decaying Monopoly (Vulnerable)
                             </span>
@@ -1594,16 +1594,16 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
 
                         <!-- Slot Positions -->
                         <div class="flex items-center gap-1.5 mt-2 flex-wrap">
-                          <span class="text-[10px] font-mono font-bold text-slate-500 uppercase">Positions:</span>
+                          <span class="text-[10px] font-mono tabular-nums font-bold text-slate-500 uppercase">Positions:</span>
                           <template x-for="r in kw.ranks" :key="r">
-                            <span class="text-[10px] font-mono font-bold px-2 py-0.5 rounded"
-                                  :class="r <= 3 ? 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30' : (r <= 10 ? 'bg-sky-500/15 text-sky-700 dark:text-sky-400 border border-sky-500/30' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300')"
+                            <span class="text-[10px] font-mono tabular-nums font-bold px-2 py-0.5 rounded"
+                                  :class="r <= 3 ? 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30' : (r <= 10 ? 'bg-sky-500/15 text-sky-700 dark:text-sky-400 border border-sky-500/30' : 'bg-slate-100 dark:bg-[#18181B] text-slate-700 dark:text-slate-300')"
                                   x-text="'#' + r"></span>
                           </template>
                         </div>
                       </div>
 
-                      <div class="flex flex-col items-end shrink-0 font-mono text-xs">
+                      <div class="flex flex-col items-end shrink-0 font-mono tabular-nums text-xs">
                         <span class="font-bold text-sky-600 dark:text-sky-400" x-text="kw.active_slots + ' slots (' + kw.serp_share_pct + '% SERP)'"></span>
                         <span class="text-[11px] text-emerald-600 dark:text-emerald-400 font-bold" x-text="formatNumber(kw.total_saves) + ' saves'"></span>
                       </div>
@@ -1611,7 +1611,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
 
                     <!-- Top Slot Traffic Attribution with Cross-View Drilldown -->
                     <template x-if="kw.top_slot_attribution">
-                      <div class="pt-2 border-t border-slate-100 dark:border-slate-800 text-[11px] font-mono text-slate-500 flex items-center justify-between flex-wrap gap-2">
+                      <div class="pt-2 border-t border-slate-100 dark:border-[#27272A] text-[11px] font-mono tabular-nums text-slate-500 flex items-center justify-between flex-wrap gap-2">
                         <div class="flex items-center gap-1.5 min-w-0">
                           <span class="font-bold text-amber-600 dark:text-amber-400">🏆 Top Slot Driver:</span>
                           <span class="font-bold text-slate-800 dark:text-slate-200" x-text="'Rank #' + kw.top_slot_attribution.rank_position"></span>
@@ -1628,17 +1628,17 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                   </div>
                 </template>
                 <template x-if="filteredDossierKeywords().length === 0">
-                  <div class="py-12 text-center text-slate-400 font-mono text-xs">No keywords matched your search or filters.</div>
+                  <div class="py-12 text-center text-slate-400 font-mono tabular-nums text-xs">No keywords matched your search or filters.</div>
                 </template>
               </div>
 
               <!-- TAB 4: Associated Pinterest Accounts -->
               <div x-show="dossierTab === 'accounts'" class="space-y-3">
                 <template x-for="acc in (dossierData.accounts || [])" :key="acc.username">
-                  <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 flex flex-col gap-3 shadow-sm">
+                  <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl p-4 flex flex-col gap-3 shadow-sm">
                     <div class="flex items-center justify-between gap-3">
                       <div class="flex items-center gap-3.5 min-w-0">
-                        <div class="w-10 h-10 rounded-2xl flex items-center justify-center font-bold font-mono text-sm shrink-0"
+                        <div class="w-10 h-10 rounded-2xl flex items-center justify-center font-bold font-mono tabular-nums text-sm shrink-0"
                              :class="acc.role === 'PRIMARY_BRAND' ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30' : 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/30'">
                           <span x-text="acc.role === 'PRIMARY_BRAND' ? '👑' : '@'"></span>
                         </div>
@@ -1649,11 +1649,11 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                                rel="noopener noreferrer"
                                class="text-sm font-bold text-slate-900 dark:text-white hover:text-sky-600 transition truncate"
                                x-text="'@' + acc.username"></a>
-                            <span class="text-[10px] font-mono px-2 py-0.5 rounded-full font-bold"
+                            <span class="text-[10px] font-mono tabular-nums px-2 py-0.5 rounded-full font-bold"
                                   :class="acc.role === 'PRIMARY_BRAND' ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30' : 'bg-purple-500/15 text-purple-700 dark:text-purple-300 border border-purple-500/30'"
                                   x-text="acc.role === 'PRIMARY_BRAND' ? '👑 Primary Brand Account' : '🛰️ Satellite / Ghost Creator'"></span>
                           </div>
-                          <div class="flex items-center gap-2 text-xs text-slate-400 font-mono mt-1">
+                          <div class="flex items-center gap-2 text-xs text-slate-400 font-mono tabular-nums mt-1">
                             <span x-text="acc.pins_count + ' pins linked'"></span>
                             <span>•</span>
                             <span class="text-sky-600 dark:text-sky-400 font-bold" x-text="acc.top10_count + ' top-10 slots'"></span>
@@ -1662,13 +1662,13 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                       </div>
 
                       <div class="flex items-center gap-3 shrink-0">
-                        <div class="text-right font-mono text-xs">
+                        <div class="text-right font-mono tabular-nums text-xs">
                           <div class="font-bold text-emerald-600 dark:text-emerald-400 text-sm" x-text="formatNumber(acc.total_saves)"></div>
                           <div class="text-[10px] text-slate-400">total saves</div>
                         </div>
                         <a :href="safeUrl('/?tab=competitors&action=track&creator=' + encodeURIComponent(acc.username))"
                            target="_blank"
-                           class="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold shadow-sm transition font-mono">
+                           class="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold shadow-sm transition font-mono tabular-nums">
                           + Track
                         </a>
                       </div>
@@ -1676,7 +1676,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
 
                     <!-- Cross-Domain Sybil Footprint (Pillar 4) -->
                     <template x-if="Array.isArray(acc.sister_domains) && acc.sister_domains.length > 0">
-                      <div class="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center gap-1.5 flex-wrap text-xs font-mono">
+                      <div class="pt-2 border-t border-slate-100 dark:border-[#27272A] flex items-center gap-1.5 flex-wrap text-xs font-mono tabular-nums">
                         <span class="text-amber-600 dark:text-amber-400 font-bold">⚠️ Sybil Sister Domains Fingerprint:</span>
                         <template x-for="sd in acc.sister_domains" :key="sd.domain">
                           <span class="px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-800 dark:text-amber-300 border border-amber-500/20"
@@ -1692,7 +1692,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
               <!-- TAB 6: Visual DNA & Computer Vision Reverse-Engineering -->
               <div x-show="dossierTab === 'visual_dna'" class="space-y-4 font-sans">
                 <!-- Top Overview Card -->
-                <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700/80 rounded-2xl p-4 shadow-sm flex flex-col gap-3">
+                <div class="bg-white dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A]/80 rounded-2xl p-4 shadow-sm flex flex-col gap-3">
                   <div class="flex items-center gap-2">
                     <span class="text-xl">🧬</span>
                     <div>
@@ -1702,16 +1702,16 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                   </div>
 
                   <!-- Visual Tags Cloud -->
-                  <div class="pt-2 border-t border-slate-100 dark:border-slate-700/60">
+                  <div class="pt-2 border-t border-slate-100 dark:border-[#27272A]/60">
                     <div class="flex items-center justify-between mb-2">
-                      <span class="text-[11px] font-bold uppercase tracking-wider font-mono text-slate-700 dark:text-slate-300">
+                      <span class="text-[11px] font-bold uppercase tracking-wider font-mono tabular-nums text-slate-700 dark:text-slate-300">
                         🏷️ Top Computer Vision Object Annotations (AI Eye)
                       </span>
-                      <span class="text-[10px] text-slate-400 font-mono">Elements Pinterest AI identifies in images</span>
+                      <span class="text-[10px] text-slate-400 font-mono tabular-nums">Elements Pinterest AI identifies in images</span>
                     </div>
                     <div class="flex items-center gap-2 flex-wrap">
                       <template x-for="t in (dossierData?.visual_dna?.visual_tags_cloud || [])" :key="typeof t.tag === 'object' && t.tag !== null ? (t.tag.name || t.tag.tag || '') : t.tag">
-                        <span class="px-2.5 py-1 rounded-lg text-xs font-mono font-medium bg-sky-500/10 text-sky-700 dark:text-sky-300 border border-sky-500/20 flex items-center gap-1.5 shadow-sm">
+                        <span class="px-2.5 py-1 rounded-lg text-xs font-mono tabular-nums font-medium bg-sky-500/10 text-sky-700 dark:text-sky-300 border border-sky-500/20 flex items-center gap-1.5 shadow-sm">
                           <span x-text="typeof t.tag === 'object' && t.tag !== null ? (t.tag.name || t.tag.tag || '') : t.tag"></span>
                           <span class="px-1.5 py-0.2 rounded-full bg-sky-500/20 text-[9px] font-bold" x-text="t.count + 'x'"></span>
                         </span>
@@ -1723,16 +1723,16 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                   </div>
 
                   <!-- Dominant Color Palette -->
-                  <div class="pt-3 border-t border-slate-100 dark:border-slate-700/60">
+                  <div class="pt-3 border-t border-slate-100 dark:border-[#27272A]/60">
                     <div class="flex items-center justify-between mb-2">
-                      <span class="text-[11px] font-bold uppercase tracking-wider font-mono text-slate-700 dark:text-slate-300">
+                      <span class="text-[11px] font-bold uppercase tracking-wider font-mono tabular-nums text-slate-700 dark:text-slate-300">
                         🎨 Dominant Color Palette Distribution
                       </span>
-                      <span class="text-[10px] text-slate-400 font-mono">HEX color breakdown across creative pins</span>
+                      <span class="text-[10px] text-slate-400 font-mono tabular-nums">HEX color breakdown across creative pins</span>
                     </div>
-                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 font-mono text-xs">
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 font-mono tabular-nums text-xs">
                       <template x-for="col in (dossierData?.visual_dna?.dominant_colors_palette || [])" :key="col.color">
-                        <div class="p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 flex items-center gap-3">
+                        <div class="p-2.5 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215]/60 flex items-center gap-3">
                           <span class="w-7 h-7 rounded-lg border border-slate-300 dark:border-slate-600 shrink-0 shadow-sm" :style="'background-color: ' + col.color"></span>
                           <div class="flex flex-col min-w-0">
                             <span class="font-bold text-slate-800 dark:text-slate-200 uppercase truncate" x-text="col.color"></span>
@@ -1744,16 +1744,16 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                   </div>
 
                   <!-- High-Converting Title Keywords -->
-                  <div class="pt-3 border-t border-slate-100 dark:border-slate-700/60">
+                  <div class="pt-3 border-t border-slate-100 dark:border-[#27272A]/60">
                     <div class="flex items-center justify-between mb-2">
-                      <span class="text-[11px] font-bold uppercase tracking-wider font-mono text-slate-700 dark:text-slate-300">
+                      <span class="text-[11px] font-bold uppercase tracking-wider font-mono tabular-nums text-slate-700 dark:text-slate-300">
                         ✍️ Winning SEO Title Semantic Keywords
                       </span>
-                      <span class="text-[10px] text-slate-400 font-mono">Most frequent high-CTR title tokens</span>
+                      <span class="text-[10px] text-slate-400 font-mono tabular-nums">Most frequent high-CTR title tokens</span>
                     </div>
                     <div class="flex items-center gap-1.5 flex-wrap">
                       <template x-for="w in (dossierData?.visual_dna?.top_title_keywords || [])" :key="w.word">
-                        <span class="px-2 py-0.5 rounded-md text-[11px] font-mono font-bold bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20">
+                        <span class="px-2 py-0.5 rounded-md text-[11px] font-mono tabular-nums font-bold bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20">
                           <span x-text="w.word"></span>
                           <span class="text-[9px] text-amber-500 font-normal" x-text="'(' + w.count + ')'"></span>
                         </span>
@@ -1797,18 +1797,18 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
          x-transition:leave="ease-in duration-200"
          x-transition:leave-start="opacity-100 translate-y-0 sm:scale-100"
          x-transition:leave-end="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
-         class="relative bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden z-10">
+         class="relative bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-3xl max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden z-10">
 
       <!-- Modal Header -->
-      <div class="px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-950/50 flex items-center justify-between gap-4">
+      <div class="px-6 py-4 border-b border-slate-200 dark:border-[#27272A] bg-slate-50/80 dark:bg-[#09090B]/50 flex items-center justify-between gap-4">
         <div class="flex items-center gap-3">
           <div class="w-10 h-10 rounded-2xl bg-gradient-to-br from-amber-500 to-rose-600 flex items-center justify-center text-white text-lg font-bold shadow-md shadow-rose-500/20">
             ⚡
           </div>
           <div>
             <div class="flex items-center gap-2">
-              <h2 class="text-base font-bold text-slate-900 dark:text-white font-mono" x-text="blueprintData?.domain || 'Generating Blueprint...'"></h2>
-              <span class="px-2 py-0.5 rounded-full text-[10px] font-bold font-mono bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30">
+              <h2 class="text-base font-bold text-slate-900 dark:text-white font-mono tabular-nums" x-text="blueprintData?.domain || 'Generating Blueprint...'"></h2>
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-bold font-mono tabular-nums bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30">
                 Arbitrage Attack Plan
               </span>
             </div>
@@ -1819,18 +1819,18 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
         <div class="flex items-center gap-2">
           <button @click="copyBlueprintMarkdown()"
                   :disabled="!blueprintData"
-                  class="px-3 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold font-mono transition flex items-center gap-1.5 shadow-sm disabled:opacity-50">
+                  class="px-3 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold font-mono tabular-nums transition flex items-center gap-1.5 shadow-sm disabled:opacity-50">
             <span>📋</span>
             <span>Copy Markdown</span>
           </button>
           <button @click="exportBlueprintJson()"
                   :disabled="!blueprintData"
-                  class="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold font-mono transition flex items-center gap-1.5 border border-slate-200 dark:border-slate-700 disabled:opacity-50">
+                  class="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-200 text-xs font-semibold font-mono tabular-nums transition flex items-center gap-1.5 border border-slate-200 dark:border-[#27272A] disabled:opacity-50">
             <span>📥</span>
             <span>JSON</span>
           </button>
           <button @click="closeBlueprintModal()"
-                  class="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 hover:text-slate-900 dark:hover:text-white flex items-center justify-center text-sm font-bold transition">
+                  class="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-500 hover:text-slate-900 dark:hover:text-white flex items-center justify-center text-sm font-bold transition">
             ✕
           </button>
         </div>
@@ -1840,7 +1840,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
       <div class="p-6 overflow-y-auto space-y-5">
         <!-- Loading -->
         <template x-if="blueprintLoading">
-          <div class="py-20 text-center text-slate-400 font-mono flex flex-col items-center justify-center gap-2">
+          <div class="py-20 text-center text-slate-400 font-mono tabular-nums flex flex-col items-center justify-center gap-2">
             <span class="animate-spin text-2xl">⚡</span>
             <span>Computing 6-Pillar Arbitrage Attack Blueprint...</span>
           </div>
@@ -1849,45 +1849,45 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
         <template x-if="!blueprintLoading && blueprintData">
           <div class="space-y-5 font-sans">
             <!-- 1. Top Target Articles (Pillar 6 & Pillar 2) -->
-            <div class="bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 space-y-3">
+            <div class="bg-slate-50 dark:bg-[#09090B]/60 border border-slate-200 dark:border-[#27272A] rounded-2xl p-4 space-y-3">
               <div class="flex items-center justify-between">
                 <div class="flex items-center gap-2">
                   <span class="text-base">🎯</span>
-                  <h3 class="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-white font-mono">1. Top Target Articles to Clone & Outrank</h3>
+                  <h3 class="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-white font-mono tabular-nums">1. Top Target Articles to Clone & Outrank</h3>
                 </div>
-                <span class="text-[11px] text-slate-400 font-mono">Ranked by traffic velocity and monopoly slots</span>
+                <span class="text-[11px] text-slate-400 font-mono tabular-nums">Ranked by traffic velocity and monopoly slots</span>
               </div>
 
               <div class="space-y-2.5">
                 <template x-for="art in blueprintData.top_articles" :key="art.slug">
-                  <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3 flex flex-col gap-2 shadow-sm">
+                  <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-xl p-3 flex flex-col gap-2 shadow-sm">
                     <div class="flex items-start justify-between gap-3">
                       <div class="flex items-center gap-2 flex-wrap min-w-0">
-                        <span class="w-5 h-5 rounded-full bg-rose-500/15 text-rose-600 dark:text-rose-400 font-mono text-[11px] font-bold flex items-center justify-center" x-text="art.priority"></span>
-                        <span class="font-mono text-xs font-bold text-slate-900 dark:text-white truncate" x-text="art.slug"></span>
+                        <span class="w-5 h-5 rounded-full bg-rose-500/15 text-rose-600 dark:text-rose-400 font-mono tabular-nums text-[11px] font-bold flex items-center justify-center" x-text="art.priority"></span>
+                        <span class="font-mono tabular-nums text-xs font-bold text-slate-900 dark:text-white truncate" x-text="art.slug"></span>
                         <template x-if="art.is_vulnerable">
-                          <span class="px-1.5 py-0.2 rounded text-[9px] font-bold font-mono bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30">
+                          <span class="px-1.5 py-0.2 rounded text-[9px] font-bold font-mono tabular-nums bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30">
                             ⚡ CRITICAL VULNERABLE
                           </span>
                         </template>
                       </div>
-                      <div class="flex items-center gap-3 shrink-0 font-mono text-xs">
+                      <div class="flex items-center gap-3 shrink-0 font-mono tabular-nums text-xs">
                         <span class="text-emerald-600 dark:text-emerald-400 font-bold" x-text="formatNumber(art.total_saves) + ' saves'"></span>
                         <span class="text-sky-600 dark:text-sky-400 font-bold" x-text="'#' + art.best_rank"></span>
                       </div>
                     </div>
 
-                    <div class="flex items-center justify-between gap-2 flex-wrap text-[11px] pt-1 border-t border-slate-100 dark:border-slate-800">
+                    <div class="flex items-center justify-between gap-2 flex-wrap text-[11px] pt-1 border-t border-slate-100 dark:border-[#27272A]">
                       <div class="flex items-center gap-1.5 flex-wrap">
-                        <span class="text-slate-400 font-mono">Keywords:</span>
+                        <span class="text-slate-400 font-mono tabular-nums">Keywords:</span>
                         <template x-for="kw in art.target_keywords" :key="kw">
-                          <span class="px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-700 dark:text-sky-300 font-mono text-[10px]" x-text="kw"></span>
+                          <span class="px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-700 dark:text-sky-300 font-mono tabular-nums text-[10px]" x-text="kw"></span>
                         </template>
                       </div>
                       <div class="flex items-center gap-1.5 flex-wrap">
-                        <span class="text-slate-400 font-mono">Angle Used:</span>
+                        <span class="text-slate-400 font-mono tabular-nums">Angle Used:</span>
                         <template x-for="ang in art.angles_used_by_competitor" :key="ang">
-                          <span class="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono text-[10px]" x-text="ang"></span>
+                          <span class="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-[#18181B] text-slate-700 dark:text-slate-300 font-mono tabular-nums text-[10px]" x-text="ang"></span>
                         </template>
                       </div>
                     </div>
@@ -1899,14 +1899,14 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
             <!-- 2. Winning Title Formulas & Visual Tags (Pillars 3 & 6) -->
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
               <!-- Title Blueprints -->
-              <div class="bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 space-y-2.5">
+              <div class="bg-slate-50 dark:bg-[#09090B]/60 border border-slate-200 dark:border-[#27272A] rounded-2xl p-4 space-y-2.5">
                 <div class="flex items-center gap-2">
                   <span class="text-base">✍️</span>
-                  <h3 class="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-white font-mono">2. Winning Title Blueprint Formulas</h3>
+                  <h3 class="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-white font-mono tabular-nums">2. Winning Title Blueprint Formulas</h3>
                 </div>
                 <div class="space-y-2">
                   <template x-for="(t, idx) in blueprintData.title_blueprints" :key="idx">
-                    <div class="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 font-mono text-xs flex items-center justify-between gap-2 shadow-sm">
+                    <div class="p-2.5 rounded-xl bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] font-mono tabular-nums text-xs flex items-center justify-between gap-2 shadow-sm">
                       <span class="text-slate-800 dark:text-slate-200" x-text="t"></span>
                       <button @click="copyToClipboard(t, 'Copied title formula!')" class="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-xs">📋</button>
                     </div>
@@ -1915,14 +1915,14 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
               </div>
 
               <!-- Computer Vision Tags -->
-              <div class="bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 space-y-2.5">
+              <div class="bg-slate-50 dark:bg-[#09090B]/60 border border-slate-200 dark:border-[#27272A] rounded-2xl p-4 space-y-2.5">
                 <div class="flex items-center gap-2">
                   <span class="text-base">🧬</span>
-                  <h3 class="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-white font-mono">3. Pinterest Computer Vision Targets</h3>
+                  <h3 class="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-white font-mono tabular-nums">3. Pinterest Computer Vision Targets</h3>
                 </div>
                 <div class="flex items-center gap-1.5 flex-wrap">
                   <template x-for="tag in blueprintData.visual_tags_checklist" :key="tag.tag">
-                    <span class="px-2 py-1 rounded-lg bg-sky-500/10 text-sky-700 dark:text-sky-300 font-mono text-xs border border-sky-500/20 flex items-center gap-1 shadow-sm">
+                    <span class="px-2 py-1 rounded-lg bg-sky-500/10 text-sky-700 dark:text-sky-300 font-mono tabular-nums text-xs border border-sky-500/20 flex items-center gap-1 shadow-sm">
                       <span x-text="tag.tag"></span>
                       <span class="text-[9px] text-sky-500" x-text="'(' + tag.count + 'x)'"></span>
                     </span>
@@ -1932,7 +1932,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
             </div>
 
             <!-- 3. Deployment Multiplier Strategy (Pillar 2 & 5) -->
-            <div class="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 font-mono text-xs text-amber-900 dark:text-amber-300 space-y-2">
+            <div class="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 font-mono tabular-nums text-xs text-amber-900 dark:text-amber-300 space-y-2">
               <div class="font-bold flex items-center gap-2">
                 <span>🚀</span>
                 <span>Recommended 3-Pin Multiplier Strategy:</span>

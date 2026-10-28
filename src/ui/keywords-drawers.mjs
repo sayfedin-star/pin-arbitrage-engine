@@ -8,7 +8,7 @@
 export function getKeywordDrawersAndModalsHtml() {
   return `  <!-- PIN DETAIL SLIDE-OVER INSPECTOR DRAWER (PinClicks Parity - Image 5) -->
   <!-- PIN DEEP DOSSIER SLIDE-OVER INSPECTOR (Image 2 Parity) -->
-  <div x-show="isPinDrawerOpen" x-cloak class="relative z-50">
+  <div x-show="isPinDrawerOpen" x-cloak class="relative z-50" @keydown.escape.window="closePinInspector()">
     <div x-show="isPinDrawerOpen"
          x-transition:enter="transition-opacity ease-linear duration-300"
          x-transition:enter-start="opacity-0"
@@ -27,10 +27,10 @@ export function getKeywordDrawersAndModalsHtml() {
            x-transition:leave="transform transition ease-in-out duration-300"
            x-transition:leave-start="translate-x-0"
            x-transition:leave-end="translate-x-full"
-           class="w-screen max-w-xl md:max-w-2xl bg-white dark:bg-[#0c1322] border-l border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col h-full overflow-hidden">
+           class="w-screen max-w-xl md:max-w-2xl bg-white dark:bg-[#121215] border-l border-slate-200 dark:border-[#27272A] shadow-2xl flex flex-col h-full overflow-hidden" role="dialog" aria-modal="true" aria-label="Pin Deep Dossier">
         
         <!-- Drawer Header with Quick-Copy Toolbar (Image 2 Parity) -->
-        <div class="p-4 sm:p-5 border-b border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/50 dark:bg-slate-900/40 shrink-0">
+        <div class="p-4 sm:p-5 border-b border-slate-200 dark:border-[#27272A] flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/50 dark:bg-[#18181B]/40 shrink-0">
           
           <div class="flex items-center space-x-2">
             <template x-if="activeInspectorPin?.is_displaced || (!activeInspectorPin?.rank_position && activeInspectorPin?.last_known_rank)">
@@ -45,7 +45,7 @@ export function getKeywordDrawersAndModalsHtml() {
               <span class="px-2.5 py-1 rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-mono font-black text-xs border border-emerald-500/30"
                     x-text="'#' + activeInspectorPin.rank_position"></span>
             </template>
-            <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">Pin Deep Dossier</h3>
+            <h3 class="text-sm font-bold text-slate-900 dark:text-[#FAFAFA] uppercase tracking-wider font-mono">Pin Deep Dossier</h3>
             <span class="px-2 py-0.5 rounded-lg text-[10px] font-mono font-bold border"
                   :class="getPinMethodBadgeClass(activeInspectorPin)"
                   :title="'Method: ' + formatPinMethodLabel(activeInspectorPin)"
@@ -104,7 +104,7 @@ export function getKeywordDrawersAndModalsHtml() {
               <span>Full Dossier</span>
             </a>
 
-            <div class="flex items-center space-x-1 border-l border-slate-200 dark:border-slate-800 pl-1.5 ml-1">
+            <div class="flex items-center space-x-1 border-l border-slate-200 dark:border-[#27272A] pl-1.5 ml-1">
               <button @click="prevInspectorPin()" :disabled="activeInspectorPinIndex <= 0"
                       class="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 disabled:opacity-40 transition cursor-pointer"
                       title="Previous Pin">
@@ -134,7 +134,7 @@ export function getKeywordDrawersAndModalsHtml() {
           <!-- Large Pin Creative, Dominant Color Accent & Meta -->
           <div class="space-y-3">
             <template x-if="dossierData?.image_url || activeInspectorPin?.image_url">
-              <div class="rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 max-h-96 flex items-center justify-center bg-slate-100 dark:bg-slate-900 shadow-sm relative">
+              <div class="rounded-2xl overflow-hidden border border-slate-200 dark:border-[#27272A] max-h-96 flex items-center justify-center bg-slate-100 dark:bg-slate-900 shadow-sm relative">
                 <img :src="dossierData?.image_url || activeInspectorPin?.image_url" class="w-full max-h-96 object-contain">
                 <template x-if="dossierData?.dominant_color">
                   <div class="absolute bottom-3 right-3 px-2 py-1 rounded-lg bg-black/70 backdrop-blur-xs text-[10px] font-mono text-white flex items-center space-x-1.5">
@@ -184,7 +184,7 @@ export function getKeywordDrawersAndModalsHtml() {
             </div>
 
             <!-- Publishing Method, Creation Date & Algorithmic Signals Strip -->
-            <div class="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-200/60 dark:border-slate-800/60 font-mono text-xs">
+            <div class="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-200/60 dark:border-[#27272A]/60 font-mono text-xs">
               <!-- Method Badge -->
               <div class="flex items-center space-x-1.5 px-2.5 py-1 rounded-xl border text-[11px] font-bold"
                    :class="getPinMethodBadgeClass(activeInspectorPin)">
@@ -223,7 +223,7 @@ export function getKeywordDrawersAndModalsHtml() {
           </div>
 
           <!-- PINTEREST SEO ALT TEXT CONTAINER (Image 2 Exact Parity) -->
-          <div class="p-4 rounded-2xl bg-slate-100/90 dark:bg-[#070d18] border border-slate-200 dark:border-slate-800 space-y-2">
+          <div class="p-4 rounded-2xl bg-slate-100/90 dark:bg-[#070d18] border border-slate-200 dark:border-[#27272A] space-y-2">
             <div class="flex items-center justify-between">
               <div class="flex items-center space-x-1.5">
                 <i data-lucide="file-text" class="w-4 h-4 text-amber-500"></i>
@@ -237,12 +237,12 @@ export function getKeywordDrawersAndModalsHtml() {
               </button>
             </div>
 
-            <p class="text-xs text-slate-800 dark:text-slate-200 leading-relaxed font-sans bg-white dark:bg-slate-900/60 p-3 rounded-xl border border-slate-200/80 dark:border-slate-800/80"
+            <p class="text-xs text-slate-800 dark:text-slate-200 leading-relaxed font-sans bg-white dark:bg-slate-900/60 p-3 rounded-xl border border-slate-200/80 dark:border-[#27272A]/80"
                x-text="dossierData?.seo_alt_text || activeInspectorPin?.seo_alt_text || (isDossierLoading ? 'Extracting official Pinterest SEO Alt text...' : 'No SEO Alt Text detected for this creative.')"></p>
           </div>
 
           <!-- PIN CLOSEUP BODY DESCRIPTION CONTAINER -->
-          <div class="p-4 rounded-2xl bg-slate-100/90 dark:bg-[#070d18] border border-slate-200 dark:border-slate-800 space-y-2">
+          <div class="p-4 rounded-2xl bg-slate-100/90 dark:bg-[#070d18] border border-slate-200 dark:border-[#27272A] space-y-2">
             <div class="flex items-center justify-between">
               <div class="flex items-center space-x-1.5">
                 <i data-lucide="align-left" class="w-4 h-4 text-emerald-500"></i>
@@ -256,7 +256,7 @@ export function getKeywordDrawersAndModalsHtml() {
               </button>
             </div>
 
-            <p class="text-xs text-slate-800 dark:text-slate-200 leading-relaxed font-sans bg-white dark:bg-slate-900/60 p-3 rounded-xl border border-slate-200/80 dark:border-slate-800/80"
+            <p class="text-xs text-slate-800 dark:text-slate-200 leading-relaxed font-sans bg-white dark:bg-slate-900/60 p-3 rounded-xl border border-slate-200/80 dark:border-[#27272A]/80"
                x-text="dossierData?.description || activeInspectorPin?.metadata?.description || (isDossierLoading ? 'Extracting pin closeup body...' : 'No description captured for this creative.')"></p>
           </div>
 
@@ -293,7 +293,7 @@ export function getKeywordDrawersAndModalsHtml() {
             <div class="grid grid-cols-3 sm:grid-cols-6 gap-2">
               
               <!-- Total Saves -->
-              <div class="p-3 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-center space-y-0.5">
+              <div class="p-3 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-[#27272A] text-center space-y-0.5">
                 <span class="text-[10px] font-bold text-slate-400 block">Total Saves</span>
                 <span class="text-sm sm:text-base font-black text-rose-600 dark:text-rose-400 font-mono block"
                       x-text="formatNumber(dossierData?.kpis?.total_saves ?? activeInspectorPin?.save_count ?? activeInspectorPin?.metadata?.raw_saves ?? 0)"></span>
@@ -303,7 +303,7 @@ export function getKeywordDrawersAndModalsHtml() {
               </div>
 
               <!-- Repins -->
-              <div class="p-3 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-center space-y-0.5">
+              <div class="p-3 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-[#27272A] text-center space-y-0.5">
                 <span class="text-[10px] font-bold text-slate-400 block">Repins</span>
                 <span class="text-sm sm:text-base font-black text-blue-600 dark:text-blue-400 font-mono block"
                       x-text="formatNumber(dossierData?.kpis?.repins ?? activeInspectorPin?.repin_count ?? 0)"></span>
@@ -313,14 +313,14 @@ export function getKeywordDrawersAndModalsHtml() {
               </div>
 
               <!-- Comments -->
-              <div class="p-3 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-center space-y-0.5">
+              <div class="p-3 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-[#27272A] text-center space-y-0.5">
                 <span class="text-[10px] font-bold text-slate-400 block">Comments</span>
                 <span class="text-sm sm:text-base font-black text-slate-900 dark:text-white font-mono block"
                       x-text="dossierData?.kpis?.comments ?? activeInspectorPin?.comment_count ?? 0"></span>
               </div>
 
               <!-- Shares -->
-              <div class="p-3 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-center space-y-0.5">
+              <div class="p-3 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-[#27272A] text-center space-y-0.5">
                 <span class="text-[10px] font-bold text-slate-400 block">Shares</span>
                 <span class="text-sm sm:text-base font-black text-slate-900 dark:text-white font-mono block"
                       x-text="formatNumber(dossierData?.kpis?.shares ?? activeInspectorPin?.share_count ?? 0)"></span>
@@ -330,14 +330,14 @@ export function getKeywordDrawersAndModalsHtml() {
               </div>
 
               <!-- Velocity -->
-              <div class="p-3 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-center space-y-0.5">
+              <div class="p-3 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-[#27272A] text-center space-y-0.5">
                 <span class="text-[10px] font-bold text-slate-400 block">Velocity</span>
                 <span class="text-sm sm:text-base font-black text-emerald-600 dark:text-emerald-400 font-mono block"
                       x-text="(Number(dossierData?.kpis?.velocity ?? activeInspectorPin?.daily_save_velocity ?? 0) > 0 ? '+' : '') + (dossierData?.kpis?.velocity ?? activeInspectorPin?.daily_save_velocity ?? 0) + ' /d'"></span>
               </div>
 
               <!-- Reactions -->
-              <div class="p-3 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-center space-y-0.5">
+              <div class="p-3 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-[#27272A] text-center space-y-0.5">
                 <span class="text-[10px] font-bold text-slate-400 block">Reactions</span>
                 <span class="text-sm sm:text-base font-black text-rose-500 font-mono block"
                       x-text="formatNumber(dossierData?.kpis?.reactions ?? activeInspectorPin?.reaction_count ?? activeInspectorPin?.metadata?.reactions ?? 0)"></span>
@@ -350,9 +350,9 @@ export function getKeywordDrawersAndModalsHtml() {
           </div>
 
           <!-- PERFORMANCE TRAJECTORY DUAL-LINE SVG (Image 2 Exact Parity) -->
-          <div class="p-5 rounded-2xl bg-slate-100/80 dark:bg-[#070d18] border border-slate-200 dark:border-slate-800 space-y-4">
+          <div class="p-5 rounded-2xl bg-slate-100/80 dark:bg-[#070d18] border border-slate-200 dark:border-[#27272A] space-y-4">
             
-            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-200 dark:border-slate-800">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-200 dark:border-[#27272A]">
               <div>
                 <div class="flex items-center space-x-2">
                   <i data-lucide="trending-up" class="w-4 h-4 text-emerald-500"></i>
@@ -387,7 +387,7 @@ export function getKeywordDrawersAndModalsHtml() {
             </div>
 
             <!-- Trajectory Chart SVG Area -->
-            <div class="relative bg-white dark:bg-slate-900/60 p-4 rounded-xl border border-slate-200/80 dark:border-slate-800/80 min-h-[220px] flex items-center justify-center">
+            <div class="relative bg-white dark:bg-slate-900/60 p-4 rounded-xl border border-slate-200/80 dark:border-[#27272A]/80 min-h-[220px] flex items-center justify-center">
               
               <template x-if="isTrajectoryLoading">
                 <div class="py-10 text-center space-y-2">
@@ -446,7 +446,7 @@ export function getKeywordDrawersAndModalsHtml() {
 
             <!-- Historical Net Growth Summary Table (Image 2 Parity) -->
             <template x-if="trajectoryData?.net_growth">
-              <div class="p-3 rounded-xl bg-white dark:bg-slate-900/40 border border-slate-200/80 dark:border-slate-800/80">
+              <div class="p-3 rounded-xl bg-white dark:bg-slate-900/40 border border-slate-200/80 dark:border-[#27272A]/80">
                 <div class="flex items-center justify-between text-xs font-mono">
                   <span class="font-bold text-slate-700 dark:text-slate-300">Σ Total Net Growth:</span>
                   <div class="flex items-center space-x-3 text-[11px]">
@@ -479,15 +479,15 @@ export function getKeywordDrawersAndModalsHtml() {
   </div>
 
   <!-- Engine & Crawl Depth Settings Modal (Global Scope) -->
-  <div x-show="isSettingsModalOpen" x-cloak class="relative z-50">
+  <div x-show="isSettingsModalOpen" x-cloak class="relative z-50" @keydown.escape.window="isSettingsModalOpen = false">
     <div class="fixed inset-0 bg-slate-950/75 backdrop-blur-xs" @click="isSettingsModalOpen = false"></div>
     <div class="fixed inset-0 flex items-center justify-center p-4">
-      <div class="w-full max-w-xl bg-white dark:bg-[#0c1322] border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto">
+      <div class="w-full max-w-xl bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-3xl p-6 shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto" role="dialog" aria-modal="true" aria-label="Crawl Intelligence & Depth Settings">
         
         <!-- Header -->
-        <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+        <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-[#27272A]">
           <div class="flex items-center space-x-3">
-            <div class="w-9 h-9 rounded-2xl bg-gradient-to-tr from-violet-600 to-indigo-600 text-white flex items-center justify-center shadow-md shadow-violet-600/20">
+            <div class="w-9 h-9 rounded-2xl bg-rose-600 text-white flex items-center justify-center shadow-xs">
               <i data-lucide="sliders" class="w-4 h-4"></i>
             </div>
             <div>
@@ -526,12 +526,12 @@ export function getKeywordDrawersAndModalsHtml() {
             </div>
             <label class="relative inline-flex items-center cursor-pointer shrink-0">
               <input type="checkbox" x-model="settingsEnableSerpHarvest" class="sr-only peer">
-              <div class="w-11 h-6 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+              <div class="w-11 h-6 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-rose-600"></div>
             </label>
           </div>
 
           <!-- Synchronized Custom Quota & Presets (Visible when Harvest is ON) -->
-          <div x-show="settingsEnableSerpHarvest" class="space-y-3 pt-2.5 border-t border-slate-100 dark:border-slate-800">
+          <div x-show="settingsEnableSerpHarvest" class="space-y-3 pt-2.5 border-t border-slate-100 dark:border-[#27272A]">
             <div class="flex items-center justify-between">
               <span class="text-xs font-semibold text-slate-700 dark:text-slate-300">Live Search Harvest Quota (MAX_SERP_PINS)</span>
               <span class="text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400"
@@ -545,8 +545,8 @@ export function getKeywordDrawersAndModalsHtml() {
                         @click="settingsMaxSerpPins = q; settingsMaxPins = q; settingsCrawlPages = Math.ceil(q / 25)"
                         class="px-2.5 py-1.5 rounded-xl text-xs font-mono font-bold border text-center transition cursor-pointer"
                         :class="settingsMaxSerpPins === q
-                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
-                          : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:border-slate-300'">
+                          ? 'bg-rose-600 text-white border-rose-600 shadow-xs'
+                          : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-[#A1A1AA] hover:text-slate-900 dark:hover:text-[#FAFAFA] border-slate-200 dark:border-[#27272A] hover:border-slate-300'">
                   <span x-text="q + ' pins'"></span>
                 </button>
               </template>
@@ -562,7 +562,7 @@ export function getKeywordDrawersAndModalsHtml() {
                 <input type="number" min="10" max="2000" step="5"
                        x-model.number="settingsMaxSerpPins"
                        @input="settingsMaxPins = settingsMaxSerpPins; settingsCrawlPages = Math.ceil(settingsMaxSerpPins / 25)"
-                       class="w-20 px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-bold font-mono text-slate-900 dark:text-white text-right focus:outline-none focus:ring-1 focus:ring-indigo-500">
+                       class="w-20 px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] text-xs font-bold font-mono text-slate-900 dark:text-white text-right focus:outline-none focus:ring-1 focus:ring-indigo-500">
                 <span class="text-xs font-mono text-slate-400">pins</span>
               </div>
             </div>
@@ -578,14 +578,14 @@ export function getKeywordDrawersAndModalsHtml() {
         </div>
 
         <!-- PART 2: Catalog Scope & Inspection Cap -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/40">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5 p-4 rounded-2xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-slate-900/40">
           <!-- Left: Crawl Scope -->
           <div class="flex flex-col gap-1.5">
             <label class="text-xs font-black text-slate-900 dark:text-white uppercase font-mono tracking-wider">
               2. Crawl Scope
             </label>
             <select x-model="settingsCrawlScope"
-                    class="w-full text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-3 py-2 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium">
+                    class="w-full text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] px-3 py-2 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium">
               <option value="all_pins">Unified Full Catalog (Active + Vault Archive)</option>
               <option value="active_serp">Active SERP Only (Top 100 Organic Only)</option>
             </select>
@@ -603,7 +603,7 @@ export function getKeywordDrawersAndModalsHtml() {
             <div class="flex items-center gap-2">
               <input type="number" min="0" max="10000" step="50" x-model.number="settingsMaxCatalogInspect"
                      placeholder="0 = Unlimited"
-                     class="flex-1 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-3 py-2 text-slate-800 dark:text-slate-200 font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500 font-semibold">
+                     class="flex-1 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] px-3 py-2 text-slate-800 dark:text-slate-200 font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500 font-semibold">
               <button type="button" @click="settingsMaxCatalogInspect = 0"
                       class="px-2.5 py-2 rounded-xl text-xs font-mono font-semibold border transition cursor-pointer"
                       :class="settingsMaxCatalogInspect === 0 ? 'bg-violet-600 text-white border-violet-600' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'">
@@ -615,7 +615,7 @@ export function getKeywordDrawersAndModalsHtml() {
         </div>
 
         <!-- PART 3: Collapsible Advanced Rules (<details>) -->
-        <details class="group rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 overflow-hidden">
+        <details class="group rounded-2xl border border-slate-200 dark:border-[#27272A] bg-slate-50/50 dark:bg-slate-900/40 overflow-hidden">
           <summary class="flex items-center justify-between p-3.5 cursor-pointer text-xs font-bold text-slate-700 dark:text-slate-300 select-none hover:bg-slate-100/60 dark:hover:bg-slate-800/50 transition">
             <div class="flex items-center space-x-2">
               <i data-lucide="sliders-horizontal" class="w-4 h-4 text-violet-500"></i>
@@ -624,18 +624,18 @@ export function getKeywordDrawersAndModalsHtml() {
             <i data-lucide="chevron-down" class="w-4 h-4 text-slate-400 group-open:rotate-180 transition-transform duration-200"></i>
           </summary>
 
-          <div class="p-4 pt-1 space-y-4 border-t border-slate-200/60 dark:border-slate-800/60">
+          <div class="p-4 pt-1 space-y-4 border-t border-slate-200/60 dark:border-[#27272A]/60">
             <!-- Telemetry Mode -->
             <div class="space-y-1.5">
               <label class="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase font-mono">Inspection & Telemetry Mode</label>
               <div class="grid grid-cols-2 gap-2">
                 <label class="flex items-start space-x-2.5 p-2.5 rounded-xl border cursor-pointer transition text-xs"
-                       :class="settingsInspectionMode === 'full_catalog' ? 'bg-violet-500/10 border-violet-500/40 text-violet-700 dark:text-violet-300 font-semibold' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300'">
+                       :class="settingsInspectionMode === 'full_catalog' ? 'bg-violet-500/10 border-violet-500/40 text-violet-700 dark:text-violet-300 font-semibold' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-[#27272A] text-slate-700 dark:text-slate-300'">
                   <input type="radio" value="full_catalog" x-model="settingsInspectionMode" class="mt-0.5 text-violet-600">
                   <span>Full Catalog Deep Scan</span>
                 </label>
                 <label class="flex items-start space-x-2.5 p-2.5 rounded-xl border cursor-pointer transition text-xs"
-                       :class="settingsInspectionMode === 'smart_breakout' ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-700 dark:text-emerald-300 font-semibold' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300'">
+                       :class="settingsInspectionMode === 'smart_breakout' ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-700 dark:text-emerald-300 font-semibold' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-[#27272A] text-slate-700 dark:text-slate-300'">
                   <input type="radio" value="smart_breakout" x-model="settingsInspectionMode" class="mt-0.5 text-emerald-600">
                   <span>Smart Breakout Filter</span>
                 </label>
@@ -649,12 +649,12 @@ export function getKeywordDrawersAndModalsHtml() {
                 <div>
                   <label class="text-[10px] text-slate-400 font-mono block mb-1">Max Pin Age (Days)</label>
                   <input type="number" min="3" max="60" x-model.number="settingsMaxPinAgeDays"
-                         class="w-full px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-900 dark:text-white">
+                         class="w-full px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] text-xs font-semibold text-slate-900 dark:text-white">
                 </div>
                 <div>
                   <label class="text-[10px] text-slate-400 font-mono block mb-1">Min Daily Velocity (Saves/Day)</label>
                   <input type="number" min="0.5" max="50" step="0.5" x-model.number="settingsMinVelocity"
-                         class="w-full px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-900 dark:text-white">
+                         class="w-full px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] text-xs font-semibold text-slate-900 dark:text-white">
                 </div>
               </div>
             </div>
@@ -663,15 +663,15 @@ export function getKeywordDrawersAndModalsHtml() {
             <div class="space-y-2">
               <label class="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase font-mono">Data Quality & Filtration</label>
               <div class="space-y-1.5">
-                <label class="flex items-center justify-between p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 cursor-pointer text-xs">
+                <label class="flex items-center justify-between p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] cursor-pointer text-xs">
                   <span class="text-slate-700 dark:text-slate-300 font-medium">Exclude Promoted & Sponsored Ads</span>
                   <input type="checkbox" x-model="settingsExcludePromoted" class="w-4 h-4 text-violet-600 rounded accent-violet-600">
                 </label>
-                <label class="flex items-center justify-between p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 cursor-pointer text-xs">
+                <label class="flex items-center justify-between p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] cursor-pointer text-xs">
                   <span class="text-slate-700 dark:text-slate-300 font-medium">Exclude Boards & Suggestion Cards</span>
                   <input type="checkbox" x-model="settingsExcludeBoardsAndSuggestions" class="w-4 h-4 text-violet-600 rounded accent-violet-600">
                 </label>
-                <label class="flex items-center justify-between p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 cursor-pointer text-xs">
+                <label class="flex items-center justify-between p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] cursor-pointer text-xs">
                   <span class="text-slate-700 dark:text-slate-300 font-medium">Exclude Ignored / Tombstoned Pins</span>
                   <input type="checkbox" x-model="settingsExcludeIgnoredPins" class="w-4 h-4 text-violet-600 rounded accent-violet-600">
                 </label>
@@ -679,7 +679,7 @@ export function getKeywordDrawersAndModalsHtml() {
             </div>
 
             <!-- Scope Target Selection -->
-            <div class="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs">
+            <div class="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] flex items-center justify-between text-xs">
               <span class="text-slate-600 dark:text-slate-400 font-medium">Apply as global default to all keywords</span>
               <label class="relative inline-flex items-center cursor-pointer">
                 <input type="checkbox" x-model="settingsApplyGlobal" class="sr-only peer">
@@ -716,18 +716,18 @@ export function getKeywordDrawersAndModalsHtml() {
        class="fixed inset-0 z-50 overflow-y-auto bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
     
     <div @click.away="closeVisualLens()"
-         class="bg-white dark:bg-[#0c1322] border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden transition-all">
+         class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-3xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden transition-all" role="dialog" aria-modal="true" aria-label="Pinterest Visual Similarity Lens">
       
         <!-- Modal Header -->
-        <div class="p-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-900/40">
+        <div class="p-5 border-b border-slate-200 dark:border-[#27272A] flex items-center justify-between bg-slate-50/50 dark:bg-slate-900/40">
         <div class="flex items-center space-x-3">
-          <div class="w-10 h-10 rounded-2xl bg-gradient-to-tr from-purple-600 to-indigo-500 text-white flex items-center justify-center shadow-lg shadow-purple-600/20 shrink-0">
+          <div class="w-10 h-10 rounded-2xl bg-rose-600 text-white flex items-center justify-center shadow-xs shrink-0">
             <i data-lucide="camera" class="w-5 h-5"></i>
           </div>
           <div>
             <div class="flex items-center space-x-2">
               <h3 class="text-base font-black text-slate-900 dark:text-white">Pinterest Visual Similarity Lens</h3>
-              <span class="px-2 py-0.5 text-[10px] font-bold uppercase rounded-full bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/30 font-mono">v3_visual_search</span>
+              <span class="px-2 py-0.5 text-[10px] font-mono tabular-nums font-bold uppercase rounded-full bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">v3_visual_search</span>
             </div>
             <p class="text-[11px] text-slate-500 dark:text-slate-400">Reverse-engineers visual duplicates, competitor clones, and high-velocity templates</p>
           </div>
@@ -740,7 +740,7 @@ export function getKeywordDrawersAndModalsHtml() {
 
       <!-- Seed Pin Context -->
       <template x-if="visualLensPin">
-        <div class="p-4 bg-purple-500/5 border-b border-slate-200 dark:border-slate-800/80 flex items-center justify-between gap-4">
+        <div class="p-4 bg-purple-500/5 border-b border-slate-200 dark:border-[#27272A]/80 flex items-center justify-between gap-4">
           <div class="flex items-center space-x-3 min-w-0">
             <template x-if="visualLensPin.image_url">
               <img :src="visualLensPin.image_url" class="w-10 h-14 rounded-lg object-cover border border-slate-200 dark:border-slate-700 shrink-0 shadow-xs">
@@ -760,7 +760,7 @@ export function getKeywordDrawersAndModalsHtml() {
           </div>
 
           <a :href="'https://www.pinterest.com/pin/' + visualLensPin.pin_id + '/'" target="_blank"
-             class="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition flex items-center space-x-1.5 shadow-sm active:scale-95 shrink-0">
+             class="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition flex items-center space-x-1.5 shadow-xs active:scale-95 shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500">
             <span>View Seed Pin</span>
             <i data-lucide="external-link" class="w-3 h-3"></i>
           </a>
@@ -800,7 +800,7 @@ export function getKeywordDrawersAndModalsHtml() {
 
         <template x-if="!isVisualLensLoading && !visualLensError && visualLensResults.length > 0">
           <div class="space-y-3">
-            <div class="flex items-center justify-between text-xs text-slate-500 pb-2 border-b border-slate-100 dark:border-slate-800">
+            <div class="flex items-center justify-between text-xs text-slate-500 pb-2 border-b border-slate-100 dark:border-[#27272A]">
               <span class="font-bold text-slate-700 dark:text-slate-300" x-text="visualLensResults.length + ' Visual Matches Discovered'"></span>
               <span class="text-[11px] font-mono">Ranked by Visual Proximity</span>
             </div>
@@ -808,7 +808,7 @@ export function getKeywordDrawersAndModalsHtml() {
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
               <template x-for="match in visualLensResults" :key="match.pin_id">
                 <div class="p-3.5 rounded-2xl border transition flex items-start space-x-3.5"
-                     :class="match.similarity_type === 'DOMAIN_CLONE' ? 'bg-rose-500/5 border-rose-500/30 dark:bg-rose-950/15' : 'bg-slate-50/80 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800'">
+                     :class="match.similarity_type === 'DOMAIN_CLONE' ? 'bg-rose-500/5 border-rose-500/30 dark:bg-rose-950/15' : 'bg-slate-50/80 dark:bg-slate-900/40 border-slate-200 dark:border-[#27272A]'">
                   <template x-if="match.image_url">
                     <img :src="match.image_url" class="w-14 h-20 rounded-xl object-cover border border-slate-200 dark:border-slate-700 shrink-0 shadow-sm hover:scale-105 transition">
                   </template>
@@ -842,7 +842,7 @@ export function getKeywordDrawersAndModalsHtml() {
 
       </div>
 
-      <div class="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 flex items-center justify-between">
+      <div class="p-4 border-t border-slate-200 dark:border-[#27272A] bg-slate-50/50 dark:bg-slate-900/40 flex items-center justify-between">
         <span class="text-[11px] text-slate-500 font-mono">Pinterest Reverse Visual Lens Discovery</span>
         <button @click="closeVisualLens()" class="px-4 py-2 rounded-xl text-xs font-bold bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition">
           Close Lens
@@ -853,7 +853,7 @@ export function getKeywordDrawersAndModalsHtml() {
   </div>
 
   <!-- SLIDE-OVER DRAWER: CAMPAIGN FOLDERS MANAGER -->
-  <div x-show="isFolderManagerOpen" x-cloak class="relative z-50">
+  <div x-show="isFolderManagerOpen" x-cloak class="relative z-50" @keydown.escape.window="isFolderManagerOpen = false">
     <div x-show="isFolderManagerOpen"
          x-transition:enter="transition-opacity ease-linear duration-300"
          x-transition:enter-start="opacity-0"
@@ -872,12 +872,12 @@ export function getKeywordDrawersAndModalsHtml() {
            x-transition:leave="transform transition ease-in-out duration-300"
            x-transition:leave-start="translate-x-0"
            x-transition:leave-end="translate-x-full"
-           class="w-screen max-w-md bg-white dark:bg-[#0c1322] border-l border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col">
+           class="w-screen max-w-md bg-white dark:bg-[#121215] border-l border-slate-200 dark:border-[#27272A] shadow-2xl flex flex-col" role="dialog" aria-modal="true" aria-label="Campaign Folders">
         
         <!-- Drawer Header -->
-        <div class="p-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+        <div class="p-5 border-b border-slate-200 dark:border-[#27272A] flex items-center justify-between">
           <div class="flex items-center space-x-2.5">
-            <div class="w-8 h-8 rounded-xl bg-pink-500/10 text-pink-500 flex items-center justify-center">
+            <div class="w-8 h-8 rounded-xl bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center justify-center">
               <i data-lucide="folder-kanban" class="w-4 h-4"></i>
             </div>
             <div>
@@ -891,9 +891,9 @@ export function getKeywordDrawersAndModalsHtml() {
         </div>
 
         <!-- Create Button -->
-        <div class="p-4 border-b border-slate-100 dark:border-slate-800/80">
+        <div class="p-4 border-b border-slate-100 dark:border-[#27272A]/80">
           <button @click="openCreateFolderModal()"
-                  class="w-full py-2.5 px-4 rounded-xl text-xs font-bold bg-pink-600 hover:bg-pink-500 text-white transition flex items-center justify-center space-x-2 shadow-sm cursor-pointer">
+                  class="w-full py-2.5 px-4 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white transition flex items-center justify-center space-x-2 shadow-xs cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500">
             <i data-lucide="plus" class="w-4 h-4"></i>
             <span>Create New Campaign Folder</span>
           </button>
@@ -903,7 +903,7 @@ export function getKeywordDrawersAndModalsHtml() {
         <div class="p-4 flex-1 overflow-y-auto space-y-2.5">
           <template x-for="f in folders" :key="f.id">
             <div class="p-4 rounded-2xl border transition group"
-                 :class="activeFolder?.id === f.id ? 'bg-pink-500/10 border-pink-500/40 shadow-xs' : 'bg-slate-50/70 dark:bg-slate-900/40 border-slate-200/80 dark:border-slate-800/80 hover:border-slate-300 dark:hover:border-slate-700'">
+                 :class="activeFolder?.id === f.id ? 'bg-pink-500/10 border-pink-500/40 shadow-xs' : 'bg-slate-50/70 dark:bg-slate-900/40 border-slate-200/80 dark:border-[#27272A]/80 hover:border-slate-300 dark:hover:border-slate-700'">
               
               <div class="flex items-start justify-between gap-2">
                 <div class="flex items-center space-x-2.5 min-w-0">
@@ -932,7 +932,7 @@ export function getKeywordDrawersAndModalsHtml() {
 
               <!-- Keywords Preview Chips -->
               <template x-if="f.keywords_preview && f.keywords_preview.length > 0">
-                <div class="mt-2.5 pt-2 border-t border-slate-200/60 dark:border-slate-800/60 flex flex-wrap gap-1">
+                <div class="mt-2.5 pt-2 border-t border-slate-200/60 dark:border-[#27272A]/60 flex flex-wrap gap-1">
                   <template x-for="kw in f.keywords_preview.slice(0, 4)" :key="kw.id">
                     <span class="px-2 py-0.5 rounded text-[9px] font-mono font-semibold bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700"
                           x-text="kw.keyword"></span>
@@ -958,7 +958,7 @@ export function getKeywordDrawersAndModalsHtml() {
   </div>
 
   <!-- MODAL: CREATE / EDIT CAMPAIGN FOLDER -->
-  <div x-show="isCreateFolderModalOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4">
+  <div x-show="isCreateFolderModalOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" @keydown.escape.window="isCreateFolderModalOpen = false">
     <div x-show="isCreateFolderModalOpen"
          x-transition:enter="transition-opacity ease-linear duration-200"
          x-transition:enter-start="opacity-0"
@@ -976,11 +976,11 @@ export function getKeywordDrawersAndModalsHtml() {
          x-transition:leave="transition ease-in duration-150"
          x-transition:leave-start="opacity-100 scale-100"
          x-transition:leave-end="opacity-0 scale-95"
-         class="relative w-full max-w-md bg-white dark:bg-[#0c1322] border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl p-6 space-y-4 z-10">
+         class="relative w-full max-w-md bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-3xl shadow-2xl p-6 space-y-4 z-10" role="dialog" aria-modal="true" aria-label="Create Campaign Folder">
       
-      <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-[#27272A]">
         <div class="flex items-center space-x-2">
-          <i data-lucide="folder-plus" class="w-4 h-4 text-pink-500"></i>
+          <i data-lucide="folder-plus" class="w-4 h-4 text-rose-500"></i>
           <h3 class="text-sm font-black text-slate-900 dark:text-white">Create Campaign Folder</h3>
         </div>
         <button @click="isCreateFolderModalOpen = false" class="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-white">
@@ -992,13 +992,13 @@ export function getKeywordDrawersAndModalsHtml() {
         <div>
           <label class="block font-bold text-slate-700 dark:text-slate-300 mb-1">Folder Name *</label>
           <input type="text" x-model="newFolder.name" placeholder="e.g. Autumn Casseroles & Dinners"
-                 class="w-full px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-pink-500/40">
+                 class="w-full px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-pink-500/40">
         </div>
 
         <div>
           <label class="block font-bold text-slate-700 dark:text-slate-300 mb-1">Description (Optional)</label>
           <textarea x-model="newFolder.description" rows="2" placeholder="Campaign niche focus, monetization angle or content objective..."
-                    class="w-full px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-pink-500/40"></textarea>
+                    class="w-full px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-pink-500/40"></textarea>
         </div>
 
         <div>
@@ -1016,14 +1016,14 @@ export function getKeywordDrawersAndModalsHtml() {
         </div>
       </div>
 
-      <div class="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+      <div class="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100 dark:border-[#27272A]">
         <button @click="isCreateFolderModalOpen = false"
                 class="px-4 py-2 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition">
           Cancel
         </button>
         <button @click="saveNewCampaignFolder()"
                 :disabled="!newFolder.name?.trim()"
-                class="px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider bg-pink-600 hover:bg-pink-500 text-white transition shadow-sm disabled:opacity-50 cursor-pointer">
+                class="px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider bg-rose-600 hover:bg-rose-500 text-white transition shadow-xs disabled:opacity-50 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500">
           Create Folder
         </button>
       </div>
@@ -1032,7 +1032,7 @@ export function getKeywordDrawersAndModalsHtml() {
   </div>
 
   <!-- MODAL: ADD / SELECT KEYWORDS IN ACTIVE FOLDER -->
-  <div x-show="isAddKeywordsModalOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4">
+  <div x-show="isAddKeywordsModalOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" @keydown.escape.window="isAddKeywordsModalOpen = false">
     <div x-show="isAddKeywordsModalOpen"
          x-transition:enter="transition-opacity ease-linear duration-200"
          x-transition:enter-start="opacity-0"
@@ -1050,11 +1050,11 @@ export function getKeywordDrawersAndModalsHtml() {
          x-transition:leave="transition ease-in duration-150"
          x-transition:leave-start="opacity-100 scale-100"
          x-transition:leave-end="opacity-0 scale-95"
-         class="relative w-full max-w-lg bg-white dark:bg-[#0c1322] border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl p-6 space-y-4 z-10 max-h-[85vh] flex flex-col">
+         class="relative w-full max-w-lg bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-3xl shadow-2xl p-6 space-y-4 z-10 max-h-[85vh] flex flex-col" role="dialog" aria-modal="true" aria-label="Add Keywords to Folder">
       
-      <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800 shrink-0">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-[#27272A] shrink-0">
         <div class="flex items-center space-x-2">
-          <i data-lucide="plus-circle" class="w-4 h-4 text-pink-500"></i>
+          <i data-lucide="plus-circle" class="w-4 h-4 text-rose-500"></i>
           <div>
             <h3 class="text-sm font-black text-slate-900 dark:text-white" x-text="'Add Keywords to ' + (activeFolder?.name || 'Folder')"></h3>
             <p class="text-[10px] text-slate-400 font-mono">Select search queries to include in this crossover cluster</p>
@@ -1068,7 +1068,7 @@ export function getKeywordDrawersAndModalsHtml() {
       <!-- Filter Input -->
       <div class="shrink-0">
         <input type="text" x-model="folderKeywordSearch" placeholder="Filter tracked keywords..."
-               class="w-full px-3 py-2 rounded-xl text-xs bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-pink-500/40">
+               class="w-full px-3 py-2 rounded-xl text-xs bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-pink-500/40">
       </div>
 
       <!-- Keywords Checkbox List -->
@@ -1076,7 +1076,7 @@ export function getKeywordDrawersAndModalsHtml() {
         <template x-for="kw in selectableKeywordsForFolder" :key="kw.id">
           <div @click="toggleKeywordSelection(kw.id)"
                class="p-2.5 rounded-xl border transition flex items-center justify-between cursor-pointer text-xs"
-               :class="isKeywordSelected(kw.id) ? 'bg-pink-500/10 border-pink-500/40' : 'bg-slate-50/70 dark:bg-slate-900/40 border-slate-200/80 dark:border-slate-800/80 hover:border-slate-300 dark:hover:border-slate-700'">
+               :class="isKeywordSelected(kw.id) ? 'bg-pink-500/10 border-pink-500/40' : 'bg-slate-50/70 dark:bg-slate-900/40 border-slate-200/80 dark:border-[#27272A]/80 hover:border-slate-300 dark:hover:border-slate-700'">
             <div class="flex items-center space-x-2.5 min-w-0">
               <input type="checkbox" :checked="isKeywordSelected(kw.id)" @click.stop="toggleKeywordSelection(kw.id)"
                      class="w-4 h-4 rounded text-pink-600 focus:ring-pink-500 border-slate-300 dark:border-slate-700">
@@ -1091,13 +1091,13 @@ export function getKeywordDrawersAndModalsHtml() {
       </div>
 
       <!-- Modal Footer -->
-      <div class="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-800 shrink-0">
+      <div class="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-[#27272A] shrink-0">
         <span class="text-xs font-mono text-slate-400" x-text="selectedFolderKeywordIds.length + ' Keywords Selected'"></span>
         <div class="flex items-center space-x-2">
           <button @click="isAddKeywordsModalOpen = false" class="px-4 py-2 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition">
             Cancel
           </button>
-          <button @click="commitFolderKeywords()" class="px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider bg-pink-600 hover:bg-pink-500 text-white transition shadow-sm cursor-pointer">
+          <button @click="commitFolderKeywords()" class="px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider bg-rose-600 hover:bg-rose-500 text-white transition shadow-xs cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500">
             Save Cluster
           </button>
         </div>

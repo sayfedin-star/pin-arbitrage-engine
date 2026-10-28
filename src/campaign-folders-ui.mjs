@@ -25,7 +25,7 @@ export function getCampaignFoldersPageHtml(folderId = '') {
   <title>Campaign Folders & Crossover Studio | Pinterest Arbitrage</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
@@ -33,7 +33,7 @@ export function getCampaignFoldersPageHtml(folderId = '') {
       theme: {
         extend: {
           fontFamily: {
-            sans: ['Inter', 'sans-serif'],
+            sans: ['Geist', 'system-ui', '-apple-system', 'sans-serif'],
             mono: ['JetBrains Mono', 'monospace']
           }
         }
@@ -125,7 +125,7 @@ export function getCampaignFoldersPageHtml(folderId = '') {
 
     <!-- [INVARIANT: UNIFIED-SIDEBAR-LAYOUT] Studio Header Card -->
     <template x-if="!activeFolderId">
-      <section class="p-4 sm:p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <section class="p-4 sm:p-5 rounded-2xl bg-white dark:bg-[#121215] border border-slate-200/80 dark:border-[#27272A]/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div class="flex items-center space-x-3.5">
           <div class="w-10 h-10 rounded-xl bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/20 flex items-center justify-center shadow-xs shrink-0">
             <i data-lucide="folder-kanban" class="w-5 h-5"></i>
@@ -133,18 +133,18 @@ export function getCampaignFoldersPageHtml(folderId = '') {
           <div>
             <div class="flex items-center space-x-2">
               <h2 class="text-lg sm:text-xl font-bold tracking-tight text-slate-900 dark:text-white">Campaign Folders Studio</h2>
-              <span class="px-2 py-0.5 rounded-md text-[10px] font-mono font-semibold bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/20">Level 4</span>
+              <span class="px-2 py-0.5 rounded-md text-[10px] font-mono tabular-nums font-semibold bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/20">Level 4</span>
             </div>
             <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-normal">Multi-Keyword Clustering &amp; Crossover Matrix</p>
           </div>
         </div>
 
         <div class="flex flex-wrap items-center gap-2">
-          <a href="/keywords" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition inline-flex items-center space-x-1.5 shadow-2xs">
+          <a href="/keywords" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-[#27272A] transition inline-flex items-center space-x-1.5 shadow-2xs">
             <i data-lucide="arrow-left" class="w-3.5 h-3.5 text-slate-400"></i>
             <span>Keywords Fleet</span>
           </a>
-          <a href="/keywords/discovery" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition inline-flex items-center space-x-1.5 shadow-2xs">
+          <a href="/keywords/discovery" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-[#27272A] transition inline-flex items-center space-x-1.5 shadow-2xs">
             <i data-lucide="compass" class="w-3.5 h-3.5 text-emerald-500"></i>
             <span>Discovery</span>
           </a>
@@ -168,7 +168,7 @@ export function getCampaignFoldersPageHtml(folderId = '') {
       <div class="flex items-center justify-between flex-wrap gap-3 -mt-2 mb-1">
         <div class="flex items-center gap-2">
           <span class="text-xs font-semibold text-slate-700 dark:text-slate-300">Room 1: Crossover & Super-Pins</span>
-          <span class="text-xs text-slate-400 font-mono" x-text="'(' + (activeFolder?.items?.length || crossoverData?.summary?.total_keywords || 0) + ' keywords in cluster)'"></span>
+          <span class="text-xs text-slate-400 font-mono tabular-nums" x-text="'(' + (activeFolder?.items?.length || crossoverData?.summary?.total_keywords || 0) + ' keywords in cluster)'"></span>
         </div>
         <div class="flex items-center gap-2 flex-wrap">
           <button @click="scrollToSection('blueprint-section')" class="px-3.5 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/80 text-xs font-semibold shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer">
@@ -190,34 +190,34 @@ export function getCampaignFoldersPageHtml(folderId = '') {
 
       <!-- Telemetry KPIs Bar -->
       <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-        <div class="bg-white/90 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 rounded-xl p-3.5 flex flex-col gap-1 shadow-sm">
-          <span class="text-[10px] font-mono uppercase tracking-wider text-slate-500 dark:text-slate-400">Cluster Keywords</span>
-          <span class="text-xl font-bold font-mono text-slate-900 dark:text-white" x-text="crossoverData?.summary?.total_keywords || 0">0</span>
+        <div class="bg-white/90 dark:bg-[#121215]/90 border border-slate-200 dark:border-[#27272A] rounded-xl p-3.5 flex flex-col gap-1 shadow-sm">
+          <span class="text-[10px] font-mono tabular-nums uppercase tracking-wider text-slate-500 dark:text-slate-400">Cluster Keywords</span>
+          <span class="text-xl font-bold font-mono tabular-nums text-slate-900 dark:text-white" x-text="crossoverData?.summary?.total_keywords || 0">0</span>
           <span class="text-[10px] text-slate-400 dark:text-slate-500">Tracked search SERPs</span>
         </div>
-        <div class="bg-white/90 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 rounded-xl p-3.5 flex flex-col gap-1 shadow-sm">
-          <span class="text-[10px] font-mono uppercase tracking-wider text-slate-500 dark:text-slate-400">Total Unique Pins</span>
-          <span class="text-xl font-bold font-mono text-sky-600 dark:text-sky-400" x-text="formatNumber(crossoverData?.summary?.total_unique_pins || (crossoverData?.all_pins?.length || 0))">0</span>
+        <div class="bg-white/90 dark:bg-[#121215]/90 border border-slate-200 dark:border-[#27272A] rounded-xl p-3.5 flex flex-col gap-1 shadow-sm">
+          <span class="text-[10px] font-mono tabular-nums uppercase tracking-wider text-slate-500 dark:text-slate-400">Total Unique Pins</span>
+          <span class="text-xl font-bold font-mono tabular-nums text-sky-600 dark:text-sky-400" x-text="formatNumber(crossoverData?.summary?.total_unique_pins || (crossoverData?.all_pins?.length || 0))">0</span>
           <span class="text-[10px] text-slate-400 dark:text-slate-500">In folder snapshots</span>
         </div>
-        <div class="bg-white/90 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 rounded-xl p-3.5 flex flex-col gap-1 shadow-sm">
-          <span class="text-[10px] font-mono uppercase tracking-wider text-slate-500 dark:text-slate-400">Super-Pins (>=2 Kw)</span>
-          <span class="text-xl font-bold font-mono text-pink-600 dark:text-pink-400" x-text="formatNumber(crossoverData?.summary?.super_pins_count || (crossoverData?.super_pins?.length || 0))">0</span>
+        <div class="bg-white/90 dark:bg-[#121215]/90 border border-slate-200 dark:border-[#27272A] rounded-xl p-3.5 flex flex-col gap-1 shadow-sm">
+          <span class="text-[10px] font-mono tabular-nums uppercase tracking-wider text-slate-500 dark:text-slate-400">Super-Pins (>=2 Kw)</span>
+          <span class="text-xl font-bold font-mono tabular-nums text-pink-600 dark:text-pink-400" x-text="formatNumber(crossoverData?.summary?.super_pins_count || (crossoverData?.super_pins?.length || 0))">0</span>
           <span class="text-[10px] text-slate-400 dark:text-slate-500">Cross-SERP dominators</span>
         </div>
-        <div class="bg-white/90 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 rounded-xl p-3.5 flex flex-col gap-1 shadow-sm">
-          <span class="text-[10px] font-mono uppercase tracking-wider text-slate-500 dark:text-slate-400">Universal Bridges</span>
-          <span class="text-xl font-bold font-mono text-indigo-600 dark:text-indigo-400" x-text="formatNumber(crossoverData?.summary?.universal_tags_count || 0)">0</span>
+        <div class="bg-white/90 dark:bg-[#121215]/90 border border-slate-200 dark:border-[#27272A] rounded-xl p-3.5 flex flex-col gap-1 shadow-sm">
+          <span class="text-[10px] font-mono tabular-nums uppercase tracking-wider text-slate-500 dark:text-slate-400">Universal Bridges</span>
+          <span class="text-xl font-bold font-mono tabular-nums text-indigo-600 dark:text-indigo-400" x-text="formatNumber(crossoverData?.summary?.universal_tags_count || 0)">0</span>
           <span class="text-[10px] text-slate-400 dark:text-slate-500">Visual tags (>=50% SERPs)</span>
         </div>
-        <div class="bg-white/90 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 rounded-xl p-3.5 flex flex-col gap-1 shadow-sm">
-          <span class="text-[10px] font-mono uppercase tracking-wider text-slate-500 dark:text-slate-400">Shared Pivots</span>
-          <span class="text-xl font-bold font-mono text-amber-600 dark:text-amber-400" x-text="formatNumber(crossoverData?.summary?.shared_pivots_count || 0)">0</span>
+        <div class="bg-white/90 dark:bg-[#121215]/90 border border-slate-200 dark:border-[#27272A] rounded-xl p-3.5 flex flex-col gap-1 shadow-sm">
+          <span class="text-[10px] font-mono tabular-nums uppercase tracking-wider text-slate-500 dark:text-slate-400">Shared Pivots</span>
+          <span class="text-xl font-bold font-mono tabular-nums text-amber-600 dark:text-amber-400" x-text="formatNumber(crossoverData?.summary?.shared_pivots_count || 0)">0</span>
           <span class="text-[10px] text-slate-400 dark:text-slate-500">Guided search connectors</span>
         </div>
-        <div class="bg-white/90 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 rounded-xl p-3.5 flex flex-col gap-1 shadow-sm">
-          <span class="text-[10px] font-mono uppercase tracking-wider text-slate-500 dark:text-slate-400">Monopoly Entities</span>
-          <span class="text-xl font-bold font-mono text-emerald-600 dark:text-emerald-400" x-text="(crossoverData?.domain_monopoly?.length || 0) + ' domains'">0</span>
+        <div class="bg-white/90 dark:bg-[#121215]/90 border border-slate-200 dark:border-[#27272A] rounded-xl p-3.5 flex flex-col gap-1 shadow-sm">
+          <span class="text-[10px] font-mono tabular-nums uppercase tracking-wider text-slate-500 dark:text-slate-400">Monopoly Entities</span>
+          <span class="text-xl font-bold font-mono tabular-nums text-emerald-600 dark:text-emerald-400" x-text="(crossoverData?.domain_monopoly?.length || 0) + ' domains'">0</span>
           <span class="text-[10px] text-slate-400 dark:text-slate-500">Top commercial players</span>
         </div>
       </div>
@@ -226,8 +226,8 @@ export function getCampaignFoldersPageHtml(folderId = '') {
       <div x-show="entityFilter.type" class="bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-500/30 rounded-xl p-3 flex items-center justify-between shadow-sm" x-cloak>
         <div class="flex items-center gap-2 text-xs text-indigo-900 dark:text-indigo-200">
           <span class="font-bold">🎯 Active Drill-Down Filter:</span>
-          <span class="font-mono uppercase text-[10px] px-1.5 py-0.5 rounded bg-indigo-200/60 dark:bg-indigo-500/20 text-indigo-800 dark:text-indigo-300" x-text="entityFilter.type"></span>
-          <span class="font-mono font-semibold text-indigo-950 dark:text-white" x-text="entityFilter.value"></span>
+          <span class="font-mono tabular-nums uppercase text-[10px] px-1.5 py-0.5 rounded bg-indigo-200/60 dark:bg-indigo-500/20 text-indigo-800 dark:text-indigo-300" x-text="entityFilter.type"></span>
+          <span class="font-mono tabular-nums font-semibold text-indigo-950 dark:text-white" x-text="entityFilter.value"></span>
         </div>
         <button @click="clearEntityFilter()" class="text-xs px-2.5 py-1 rounded-lg bg-indigo-100 hover:bg-indigo-200 dark:bg-indigo-500/20 dark:hover:bg-indigo-500/30 text-indigo-700 dark:text-indigo-300 transition-colors">
           ✕ Clear Drill-Down Filter
@@ -235,10 +235,10 @@ export function getCampaignFoldersPageHtml(folderId = '') {
       </div>
 
       <!-- SECTION 1: Full Pins Table (Paginated 1,788 Unique Pins / Super-Pins) -->
-      <div id="pins-table-section" class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm dark:shadow-xl flex flex-col transition-colors">
+      <div id="pins-table-section" class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl overflow-hidden shadow-sm dark:shadow-xl flex flex-col transition-colors">
         
         <!-- Table Title & Meta Bar -->
-        <div class="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between flex-wrap gap-3">
+        <div class="p-4 border-b border-slate-200 dark:border-[#27272A] flex items-center justify-between flex-wrap gap-3">
           <div class="flex items-center gap-2">
             <span class="text-base" x-text="scopeFilter === 'super_only' ? '⭐' : '📌'">📌</span>
             <h3 class="text-sm font-semibold text-slate-900 dark:text-white tracking-tight" 
@@ -247,28 +247,28 @@ export function getCampaignFoldersPageHtml(folderId = '') {
                   x-text="scopeFilter === 'super_only' ? '(Pins ranking across >= 2 cluster search terms)' : '(Every verified pin across cluster search snapshots)'"></span>
           </div>
           <div class="flex items-center gap-3">
-            <span class="text-xs font-mono text-indigo-600 dark:text-indigo-400 font-bold" x-text="formatNumber(filteredPinsList().length) + ' pins matching'"></span>
+            <span class="text-xs font-mono tabular-nums text-indigo-600 dark:text-indigo-400 font-bold" x-text="formatNumber(filteredPinsList().length) + ' pins matching'"></span>
             <span class="text-xs text-slate-300 dark:text-slate-600">|</span>
-            <span class="text-xs text-slate-500 dark:text-slate-400 font-mono" x-text="'Page ' + currentPage + ' of ' + totalPages()"></span>
+            <span class="text-xs text-slate-500 dark:text-slate-400 font-mono tabular-nums" x-text="'Page ' + currentPage + ' of ' + totalPages()"></span>
           </div>
         </div>
 
         <!-- Integrated Toolbar: Scope Switcher, Sorter & Search Filter Bar -->
-        <div class="p-3.5 bg-slate-50/80 dark:bg-slate-950/60 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between flex-wrap gap-3">
+        <div class="p-3.5 bg-slate-50/80 dark:bg-slate-950/60 border-b border-slate-200 dark:border-[#27272A] flex items-center justify-between flex-wrap gap-3">
           <div class="flex items-center gap-2 flex-wrap">
             <span class="text-xs font-medium text-slate-500 dark:text-slate-400 mr-1">Scope:</span>
             <button @click="scopeFilter = 'all'; currentPage = 1" 
                     class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
-                    :class="scopeFilter === 'all' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700'">
+                    :class="scopeFilter === 'all' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#27272A] border border-slate-200 dark:border-[#27272A]'">
               All Cluster Pins (<span x-text="formatNumber(crossoverData?.summary?.total_unique_pins || (crossoverData?.all_pins?.length || 0))"></span>)
             </button>
             <button @click="scopeFilter = 'super_only'; currentPage = 1" 
                     class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5"
-                    :class="scopeFilter === 'super_only' ? 'bg-pink-600 text-white shadow-sm' : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700'">
+                    :class="scopeFilter === 'super_only' ? 'bg-pink-600 text-white shadow-sm' : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#27272A] border border-slate-200 dark:border-[#27272A]'">
               <span>⭐</span> Super-Pins Only (<span x-text="formatNumber(crossoverData?.summary?.super_pins_count || (crossoverData?.super_pins?.length || 0))"></span>)
             </button>
             <template x-if="activeFolder?.items?.length">
-              <select x-model="scopeFilter" @change="currentPage = 1" class="bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-lg text-xs py-1.5 px-2.5 font-mono shadow-sm">
+              <select x-model="scopeFilter" @change="currentPage = 1" class="bg-white dark:bg-[#18181B] text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-[#27272A] rounded-lg text-xs py-1.5 px-2.5 font-mono tabular-nums shadow-sm">
                 <option value="all">Filter by Keyword (All)</option>
                 <template x-for="item in activeFolder.items" :key="item.keyword">
                   <option :value="item.keyword" x-text="item.keyword"></option>
@@ -281,7 +281,7 @@ export function getCampaignFoldersPageHtml(folderId = '') {
             <!-- Sort Dropdown -->
             <div class="flex items-center gap-1.5 text-xs">
               <span class="text-slate-500 dark:text-slate-400">Sort:</span>
-              <select x-model="sortBy" @change="currentPage = 1" class="bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-lg text-xs py-1.5 px-2.5 font-mono shadow-sm">
+              <select x-model="sortBy" @change="currentPage = 1" class="bg-white dark:bg-[#18181B] text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-[#27272A] rounded-lg text-xs py-1.5 px-2.5 font-mono tabular-nums shadow-sm">
                 <option value="saves_desc">Total Saves (High → Low)</option>
                 <option value="saves_asc">Total Saves (Low → High)</option>
                 <option value="velocity_desc">Daily Velocity (Fastest)</option>
@@ -294,7 +294,7 @@ export function getCampaignFoldersPageHtml(folderId = '') {
             <!-- Search Filter -->
             <div class="relative">
               <input type="text" x-model.debounce.150ms="searchQuery" @input="currentPage = 1" placeholder="Filter pins by title, domain, or tag..."
-                     class="w-64 pl-8 pr-3 py-1.5 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg text-xs text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 font-sans focus:outline-none focus:border-indigo-500 shadow-sm">
+                     class="w-64 pl-8 pr-3 py-1.5 bg-white dark:bg-slate-950 border border-slate-300 dark:border-[#27272A] rounded-lg text-xs text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 font-sans focus:outline-none focus:border-indigo-500 shadow-sm">
               <span class="absolute left-2.5 top-1.5 text-slate-400 text-xs">🔍</span>
             </div>
             
@@ -305,8 +305,8 @@ export function getCampaignFoldersPageHtml(folderId = '') {
         </div>
 
         <div class="overflow-x-auto">
-          <table class="w-full text-left text-xs font-mono">
-            <thead class="bg-slate-50 dark:bg-slate-950/80 border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 uppercase text-[10px]">
+          <table class="w-full text-left text-xs font-mono tabular-nums">
+            <thead class="bg-slate-50 dark:bg-slate-950/80 border-b border-slate-200 dark:border-[#27272A] text-slate-500 dark:text-slate-400 uppercase text-[10px]">
               <tr>
                 <th class="p-3.5 w-12 text-center">#</th>
                 <th class="p-3.5">Pin Image & Dossier</th>
@@ -323,11 +323,11 @@ export function getCampaignFoldersPageHtml(folderId = '') {
             </thead>
             <tbody class="divide-y divide-slate-200 dark:divide-slate-800/60 text-slate-700 dark:text-slate-300">
               <template x-for="(sp, idx) in paginatedPins()" :key="sp.pin_id">
-                <tr :data-pin-id="sp.pin_id" class="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                  <td class="p-3.5 text-center font-mono text-slate-400 dark:text-slate-500 text-[11px]" x-text="(currentPage - 1) * pageSize + idx + 1"></td>
+                <tr :data-pin-id="sp.pin_id" class="hover:bg-slate-50 dark:hover:bg-[#27272A]/40 transition-colors">
+                  <td class="p-3.5 text-center font-mono tabular-nums text-slate-400 dark:text-slate-500 text-[11px]" x-text="(currentPage - 1) * pageSize + idx + 1"></td>
                   <td class="p-3.5">
                     <div class="flex items-center gap-3">
-                      <div class="w-10 h-14 rounded bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 overflow-hidden flex-shrink-0">
+                      <div class="w-10 h-14 rounded bg-slate-100 dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] overflow-hidden flex-shrink-0">
                         <img :src="sp.image_url || 'https://via.placeholder.com/60x90'" 
                              class="w-full h-full object-cover"
                              onerror="this.src='https://via.placeholder.com/60x90?text=Pin'">
@@ -337,21 +337,21 @@ export function getCampaignFoldersPageHtml(folderId = '') {
                            class="font-semibold text-slate-900 dark:text-white hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors truncate block" 
                            x-text="sp.title || ('Pin #' + sp.pin_id)"></a>
                         <div class="flex items-center gap-1.5 flex-wrap">
-                          <span class="text-[9px] font-mono px-1 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700" 
+                          <span class="text-[9px] font-mono tabular-nums px-1 py-0.2 rounded bg-slate-100 dark:bg-[#18181B] text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-[#27272A]" 
                                 x-text="sp.format || 'ORGANIC PIN'"></span>
-                          <span class="text-[9px] font-mono text-slate-500" x-text="sp.aspect_ratio || '2:3'"></span>
+                          <span class="text-[9px] font-mono tabular-nums text-slate-500" x-text="sp.aspect_ratio || '2:3'"></span>
                         </div>
 
                         <!-- Pinterest Computer Vision Visual Annotations -->
                         <div class="flex items-center gap-1 flex-wrap pt-1" x-show="sp.visual_annotations?.length">
                           <template x-for="va in (sp.visual_annotations || []).slice(0, 3)" :key="va">
                             <button @click="searchQuery = va; currentPage = 1" 
-                                    class="text-[9px] font-mono px-1.5 py-0.5 rounded bg-indigo-50/80 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/60 transition-colors truncate max-w-[130px] text-left" 
+                                    class="text-[9px] font-mono tabular-nums px-1.5 py-0.5 rounded bg-indigo-50/80 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/60 transition-colors truncate max-w-[130px] text-left" 
                                     :title="'Filter cluster pins by visual tag: ' + va"
                                     x-text="'👁️ ' + va"></button>
                           </template>
                           <span x-show="sp.visual_annotations?.length > 3" 
-                                class="text-[9px] font-mono text-slate-400 dark:text-slate-500 cursor-help"
+                                class="text-[9px] font-mono tabular-nums text-slate-400 dark:text-slate-500 cursor-help"
                                 :title="(sp.visual_annotations || []).slice(3).join(', ')"
                                 x-text="'+' + (sp.visual_annotations.length - 3) + ' more'"></span>
                         </div>
@@ -363,12 +363,12 @@ export function getCampaignFoldersPageHtml(folderId = '') {
                     <div class="flex flex-col gap-1.5">
                       <div class="flex items-center gap-1.5 flex-wrap">
                         <template x-for="rk in (sp.rankings || [])" :key="rk.keyword_id || rk.keyword">
-                          <span class="px-2 py-0.5 rounded text-[10px] font-mono border flex items-center gap-1"
+                          <span class="px-2 py-0.5 rounded text-[10px] font-mono tabular-nums border flex items-center gap-1"
                                 :class="rk.rank_position <= 3 
                                   ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30' 
                                   : rk.rank_position <= 10 
                                   ? 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border-indigo-500/30' 
-                                  : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'">
+                                  : 'bg-slate-100 dark:bg-[#18181B] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-[#27272A]'">
                             <span x-text="rk.keyword"></span>
                             <span class="font-bold" x-text="'#' + rk.rank_position"></span>
                           </span>
@@ -377,7 +377,7 @@ export function getCampaignFoldersPageHtml(folderId = '') {
                       <div class="flex items-center gap-2 flex-wrap">
                         <span class="text-[10px] text-slate-500 dark:text-slate-400" x-text="'Ranks in ' + sp.overlap_count + ' keyword' + (sp.overlap_count > 1 ? 's' : '') + ' (' + sp.overlap_percentage + '% coverage)'"></span>
                         <template x-if="sp.bridge_tags && sp.bridge_tags.length">
-                          <span class="text-[9px] font-mono px-1.5 py-0.2 rounded bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 font-semibold"
+                          <span class="text-[9px] font-mono tabular-nums px-1.5 py-0.2 rounded bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 font-semibold"
                                 :title="'Universal Bridge Tags: ' + sp.bridge_tags.join(', ')"
                                 x-text="'🌉 ' + sp.bridge_tags.length + ' Bridges'"></span>
                         </template>
@@ -396,11 +396,11 @@ export function getCampaignFoldersPageHtml(folderId = '') {
                     </div>
                   </td>
 
-                  <td class="p-3.5 font-bold font-mono text-emerald-600 dark:text-emerald-400" x-text="formatNumber(sp.save_count)"></td>
-                  <td class="p-3.5 font-mono text-amber-600 dark:text-amber-400" x-text="'+' + formatNumber(sp.daily_save_velocity) + '/d'"></td>
+                  <td class="p-3.5 font-bold font-mono tabular-nums text-emerald-600 dark:text-emerald-400" x-text="formatNumber(sp.save_count)"></td>
+                  <td class="p-3.5 font-mono tabular-nums text-amber-600 dark:text-amber-400" x-text="'+' + formatNumber(sp.daily_save_velocity) + '/d'"></td>
 
                   <td class="p-3.5 text-right font-sans">
-                    <a :href="'/pins/' + sp.pin_id" class="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-medium border border-slate-300 dark:border-slate-700 transition-colors inline-block shadow-sm">
+                    <a :href="'/pins/' + sp.pin_id" class="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-[#18181B] hover:bg-slate-200 dark:hover:bg-[#27272A] text-slate-800 dark:text-slate-200 text-xs font-medium border border-slate-300 dark:border-[#27272A] transition-colors inline-block shadow-sm">
                       View Dossier →
                     </a>
                   </td>
@@ -426,7 +426,7 @@ export function getCampaignFoldersPageHtml(folderId = '') {
         </div>
 
         <!-- Table Pagination Footer -->
-        <div class="flex items-center justify-between p-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40 text-xs font-mono" x-show="filteredPinsList().length > 0">
+        <div class="flex items-center justify-between p-3 border-t border-slate-200 dark:border-[#27272A] bg-slate-50/60 dark:bg-slate-950/40 text-xs font-mono tabular-nums" x-show="filteredPinsList().length > 0">
           <div class="flex items-center gap-2.5">
             <span class="text-slate-500 dark:text-slate-400 hidden sm:inline" 
                   x-text="'Showing ' + (filteredPinsList().length ? ((currentPage - 1) * pageSize + 1) : 0) + '–' + Math.min(currentPage * pageSize, filteredPinsList().length) + ' of ' + formatNumber(filteredPinsList().length) + ' pins'"></span>
@@ -435,7 +435,7 @@ export function getCampaignFoldersPageHtml(folderId = '') {
               <select 
                 x-model.number="pageSize" 
                 @change="currentPage = 1"
-                class="py-0.5 px-1.5 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono text-[11px] focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-900 dark:text-white cursor-pointer"
+                class="py-0.5 px-1.5 rounded border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] font-mono tabular-nums text-[11px] focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-900 dark:text-white cursor-pointer"
               >
                 <option :value="10">10 / page</option>
                 <option :value="25">25 / page</option>
@@ -448,7 +448,7 @@ export function getCampaignFoldersPageHtml(folderId = '') {
             <button 
               :disabled="currentPage <= 1" 
               @click="currentPage = Math.max(1, (parseInt(currentPage, 10) || 1) - 1); scrollToSection('pins-table-section')" 
-              class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 disabled:opacity-40 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors shadow-2xs">
+              class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] disabled:opacity-40 cursor-pointer hover:bg-slate-50 dark:hover:bg-[#27272A] transition-colors shadow-2xs">
               ← Prev
             </button>
             <div class="flex items-center gap-1 text-slate-500 dark:text-slate-400">
@@ -459,14 +459,14 @@ export function getCampaignFoldersPageHtml(folderId = '') {
                 :max="totalPages()" 
                 x-model.number="currentPage" 
                 @change="currentPage = Math.max(1, Math.min(totalPages(), parseInt(currentPage, 10) || 1)); scrollToSection('pins-table-section')"
-                class="w-12 text-center py-0.5 px-1 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-900 dark:text-white" 
+                class="w-12 text-center py-0.5 px-1 rounded border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] font-mono tabular-nums text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-900 dark:text-white" 
               />
               <span x-text="'/ ' + totalPages()"></span>
             </div>
             <button 
               :disabled="currentPage >= totalPages()" 
               @click="currentPage = Math.min(totalPages(), (parseInt(currentPage, 10) || 1) + 1); scrollToSection('pins-table-section')" 
-              class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 disabled:opacity-40 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors shadow-2xs">
+              class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] disabled:opacity-40 cursor-pointer hover:bg-slate-50 dark:hover:bg-[#27272A] transition-colors shadow-2xs">
               Next →
             </button>
           </div>
@@ -474,9 +474,9 @@ export function getCampaignFoldersPageHtml(folderId = '') {
       </div>
 
       <!-- SECTION 2: 1-Click Algorithmic Topic Cluster Blueprint & Content Studio -->
-      <div id="blueprint-section" x-show="crossoverData?.topic_cluster_blueprint" class="bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-500/20 rounded-2xl overflow-hidden shadow-sm dark:shadow-xl flex flex-col transition-colors" x-cloak>
+      <div id="blueprint-section" x-show="crossoverData?.topic_cluster_blueprint" class="bg-white dark:bg-[#121215] border border-indigo-200 dark:border-indigo-500/20 rounded-2xl overflow-hidden shadow-sm dark:shadow-xl flex flex-col transition-colors" x-cloak>
         <!-- Blueprint Header with Quick Actions -->
-        <div class="p-4 border-b border-slate-200 dark:border-slate-800 bg-gradient-to-r from-indigo-50/70 via-white to-purple-50/30 dark:from-slate-900 dark:via-slate-900 dark:to-indigo-950/40 flex items-center justify-between flex-wrap gap-4">
+        <div class="p-4 border-b border-slate-200 dark:border-[#27272A] bg-gradient-to-r from-indigo-50/70 via-white to-purple-50/30 dark:from-slate-900 dark:via-slate-900 dark:to-indigo-950/40 flex items-center justify-between flex-wrap gap-4">
           <div class="flex items-center gap-3">
             <div class="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-600 dark:text-indigo-400 font-bold text-lg">
               🎯
@@ -484,7 +484,7 @@ export function getCampaignFoldersPageHtml(folderId = '') {
             <div>
               <div class="flex items-center gap-2">
                 <h3 class="text-sm font-bold text-slate-900 dark:text-white tracking-tight">Algorithmic Topic Cluster Blueprint</h3>
-                <span class="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30 font-semibold">Auto-Synthesized</span>
+                <span class="text-[10px] uppercase font-mono tabular-nums px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30 font-semibold">Auto-Synthesized</span>
               </div>
               <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">High-converting pillar concept and 5 spoke pins generated from verified SERP intersections.</p>
             </div>
@@ -494,13 +494,13 @@ export function getCampaignFoldersPageHtml(folderId = '') {
             <button @click="copyAiPrompt()" class="px-3 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 text-xs font-semibold border border-indigo-200 dark:border-indigo-800 transition-colors flex items-center gap-1.5 shadow-sm">
               <span>🤖</span> Copy AI Prompt
             </button>
-            <button @click="copyClusterSummary()" class="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold border border-slate-300 dark:border-slate-700 transition-colors flex items-center gap-1.5 shadow-sm">
+            <button @click="copyClusterSummary()" class="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-200 text-xs font-semibold border border-slate-300 dark:border-[#27272A] transition-colors flex items-center gap-1.5 shadow-sm">
               <span>📋</span> Copy Blueprint
             </button>
             <button @click="downloadClusterCsv()" class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition-colors flex items-center gap-1.5 shadow-sm">
               <span>📥</span> Export CSV Content Plan
             </button>
-            <button @click="showBlueprint = !showBlueprint" class="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-semibold border border-slate-200 dark:border-slate-700 transition-colors flex items-center gap-1 shadow-sm">
+            <button @click="showBlueprint = !showBlueprint" class="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-600 dark:text-slate-300 text-xs font-semibold border border-slate-200 dark:border-[#27272A] transition-colors flex items-center gap-1 shadow-sm">
               <span x-text="showBlueprint ? 'Collapse' : 'Expand'"></span>
               <span class="inline-block transition-transform duration-200 text-[10px]" :class="showBlueprint ? 'rotate-180' : ''">▼</span>
             </button>
@@ -511,64 +511,64 @@ export function getCampaignFoldersPageHtml(folderId = '') {
         <div x-show="showBlueprint" class="p-6 flex flex-col gap-6" x-cloak>
           <!-- Pillar Concept & Seasonality Launch Window -->
           <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div class="md:col-span-2 bg-slate-50/70 dark:bg-slate-950/50 border border-slate-200 dark:border-slate-800 rounded-xl p-4 flex flex-col gap-2 shadow-sm">
+            <div class="md:col-span-2 bg-slate-50/70 dark:bg-slate-950/50 border border-slate-200 dark:border-[#27272A] rounded-xl p-4 flex flex-col gap-2 shadow-sm">
               <div class="flex items-center justify-between">
-                <span class="text-[10px] font-mono uppercase text-indigo-600 dark:text-indigo-400 tracking-wider font-semibold">🏛️ Pillar Pin & Article Concept</span>
-                <span class="text-[10px] text-slate-400 font-mono" x-text="(crossoverData?.topic_cluster_blueprint?.target_keywords?.length || 0) + ' keywords targeted'"></span>
+                <span class="text-[10px] font-mono tabular-nums uppercase text-indigo-600 dark:text-indigo-400 tracking-wider font-semibold">🏛️ Pillar Pin & Article Concept</span>
+                <span class="text-[10px] text-slate-400 font-mono tabular-nums" x-text="(crossoverData?.topic_cluster_blueprint?.target_keywords?.length || 0) + ' keywords targeted'"></span>
               </div>
               <div class="text-sm font-bold text-slate-900 dark:text-white tracking-tight" x-text="crossoverData?.topic_cluster_blueprint?.pillar_concept"></div>
               <div class="flex items-center gap-1.5 flex-wrap pt-1">
                 <span class="text-[11px] text-slate-500 dark:text-slate-400">Target Keywords:</span>
                 <template x-for="kw in (crossoverData?.topic_cluster_blueprint?.target_keywords || []).slice(0, 6)" :key="kw">
                   <button @click="scopeFilter = kw; currentPage = 1; scrollToSection('pins-table-section')" 
-                          class="text-[10px] font-mono px-2 py-0.5 rounded bg-white dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:border-indigo-300 transition-colors shadow-sm" 
+                          class="text-[10px] font-mono tabular-nums px-2 py-0.5 rounded bg-white dark:bg-[#18181B] hover:bg-indigo-50 dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#27272A] hover:border-indigo-300 transition-colors shadow-sm" 
                           x-text="kw"></button>
                 </template>
               </div>
             </div>
 
-            <div class="bg-slate-50/70 dark:bg-slate-950/50 border border-slate-200 dark:border-slate-800 rounded-xl p-4 flex flex-col gap-2 shadow-sm">
-              <span class="text-[10px] font-mono uppercase text-amber-600 dark:text-amber-400 tracking-wider font-semibold">📅 Seasonality & Launch Window</span>
+            <div class="bg-slate-50/70 dark:bg-slate-950/50 border border-slate-200 dark:border-[#27272A] rounded-xl p-4 flex flex-col gap-2 shadow-sm">
+              <span class="text-[10px] font-mono tabular-nums uppercase text-amber-600 dark:text-amber-400 tracking-wider font-semibold">📅 Seasonality & Launch Window</span>
               <div class="text-xs font-bold text-slate-900 dark:text-white" x-text="crossoverData?.seasonality?.recommended_launch_window || 'Year-round Evergreen'"></div>
               <div class="flex items-center gap-1 flex-wrap pt-1">
                 <span class="text-[10px] text-slate-500 dark:text-slate-400">Peak Months:</span>
                 <template x-for="pm in (crossoverData?.seasonality?.peak_months || [])" :key="pm">
-                  <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20" x-text="pm"></span>
+                  <span class="text-[10px] font-mono tabular-nums px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20" x-text="pm"></span>
                 </template>
               </div>
             </div>
           </div>
 
           <!-- Spoke Pins Header -->
-          <div class="flex items-center justify-between pt-2 border-t border-slate-200 dark:border-slate-800">
-            <h4 class="text-xs font-bold text-slate-900 dark:text-white uppercase font-mono tracking-wider">📌 5 Spoke Content Blueprints (Actionable Pin Angles)</h4>
+          <div class="flex items-center justify-between pt-2 border-t border-slate-200 dark:border-[#27272A]">
+            <h4 class="text-xs font-bold text-slate-900 dark:text-white uppercase font-mono tabular-nums tracking-wider">📌 5 Spoke Content Blueprints (Actionable Pin Angles)</h4>
             <span class="text-xs text-slate-500 dark:text-slate-400">Click "Copy Angle" on any card to copy title, hook & directive</span>
           </div>
 
           <!-- Spoke Pins Grid -->
           <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             <template x-for="spoke in (crossoverData?.topic_cluster_blueprint?.spoke_angles || [])" :key="spoke.angle_number">
-              <div class="bg-slate-50/80 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 hover:border-indigo-300 dark:hover:border-indigo-700 rounded-xl p-4 flex flex-col justify-between gap-3 shadow-sm hover:shadow transition-all">
+              <div class="bg-slate-50/80 dark:bg-slate-950/60 border border-slate-200 dark:border-[#27272A] hover:border-indigo-300 dark:hover:border-indigo-700 rounded-xl p-4 flex flex-col justify-between gap-3 shadow-sm hover:shadow transition-all">
                 <div class="flex flex-col gap-2">
                   <div class="flex items-center justify-between">
-                    <span class="text-[10px] font-mono font-bold text-indigo-600 dark:text-indigo-400" x-text="'Spoke #' + spoke.angle_number"></span>
-                    <span class="text-[9px] font-mono px-2 py-0.5 rounded font-semibold"
-                          :class="spoke.recommended_format.includes('VIDEO') ? 'bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700'"
+                    <span class="text-[10px] font-mono tabular-nums font-bold text-indigo-600 dark:text-indigo-400" x-text="'Spoke #' + spoke.angle_number"></span>
+                    <span class="text-[9px] font-mono tabular-nums px-2 py-0.5 rounded font-semibold"
+                          :class="spoke.recommended_format.includes('VIDEO') ? 'bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800' : 'bg-slate-100 dark:bg-[#18181B] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#27272A]'"
                           x-text="spoke.recommended_format"></span>
                   </div>
                   <h4 class="text-xs font-bold text-slate-900 dark:text-white tracking-tight leading-snug" x-text="spoke.angle_title"></h4>
-                  <div class="p-2.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed font-sans">
+                  <div class="p-2.5 rounded-lg bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed font-sans">
                     <span class="font-semibold text-slate-800 dark:text-slate-200">🎬 Visual Hook: </span>
                     <span x-text="spoke.hook_concept"></span>
                   </div>
                 </div>
 
-                <div class="pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2">
+                <div class="pt-3 border-t border-slate-200 dark:border-[#27272A] flex items-center justify-between gap-2">
                   <div class="flex flex-col gap-0.5 truncate text-[10px]">
-                    <span class="text-slate-400 dark:text-slate-500 font-mono">Target Kw:</span>
-                    <span class="text-slate-700 dark:text-slate-300 font-mono font-semibold truncate" x-text="spoke.target_keyword"></span>
+                    <span class="text-slate-400 dark:text-slate-500 font-mono tabular-nums">Target Kw:</span>
+                    <span class="text-slate-700 dark:text-slate-300 font-mono tabular-nums font-semibold truncate" x-text="spoke.target_keyword"></span>
                   </div>
-                  <button @click="copySpoke(spoke)" class="px-2.5 py-1.5 rounded-lg bg-white hover:bg-indigo-50 dark:bg-slate-800 dark:hover:bg-slate-700 text-indigo-600 dark:text-indigo-400 text-xs font-semibold border border-slate-200 dark:border-slate-700 hover:border-indigo-300 transition-colors flex items-center gap-1 shadow-sm flex-shrink-0">
+                  <button @click="copySpoke(spoke)" class="px-2.5 py-1.5 rounded-lg bg-white hover:bg-indigo-50 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-indigo-600 dark:text-indigo-400 text-xs font-semibold border border-slate-200 dark:border-[#27272A] hover:border-indigo-300 transition-colors flex items-center gap-1 shadow-sm flex-shrink-0">
                     <span>📋</span> Copy Angle
                   </button>
                 </div>
@@ -579,9 +579,9 @@ export function getCampaignFoldersPageHtml(folderId = '') {
       </div>
 
       <!-- SECTION 3: VISUAL ANNOTATIONS CROSSOVER HUB (Across 1,788 Unique Pins) -->
-      <div id="visual-crossover-hub" class="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-6 shadow-sm dark:shadow-xl transition-colors">
+      <div id="visual-crossover-hub" class="p-6 rounded-3xl bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] space-y-6 shadow-sm dark:shadow-xl transition-colors">
         <!-- Hub Header -->
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-200 dark:border-slate-800">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-200 dark:border-[#27272A]">
           <div class="flex items-center space-x-3">
             <div class="w-10 h-10 rounded-2xl bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center text-lg font-bold">
               ✨
@@ -589,7 +589,7 @@ export function getCampaignFoldersPageHtml(folderId = '') {
             <div>
               <div class="flex items-center space-x-2">
                 <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">Visual Annotations Crossover Hub</h3>
-                <span class="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30"
+                <span class="px-2.5 py-0.5 rounded-full text-[10px] font-mono tabular-nums font-bold bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30"
                       x-text="powerPairs.length + ' Power Pairs Computed'"></span>
               </div>
               <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Computer-vision tag co-occurrences, intra-SERP algorithmic lift, and visual prompt blueprint combinations across 1,788 unique pins.</p>
@@ -607,10 +607,10 @@ export function getCampaignFoldersPageHtml(folderId = '') {
         <!-- Subsection A: Co-Occurring Power Pairs Grid & Table -->
         <div class="space-y-4">
           <!-- Sub-header & Controls Bar -->
-          <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 p-3 rounded-2xl bg-slate-50/80 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800">
+          <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 p-3 rounded-2xl bg-slate-50/80 dark:bg-slate-950/60 border border-slate-200 dark:border-[#27272A]">
             <div class="flex items-center gap-2.5 flex-wrap">
-              <h4 class="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 font-mono">Co-Occurring Visual Power Pairs</h4>
-              <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30"
+              <h4 class="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 font-mono tabular-nums">Co-Occurring Visual Power Pairs</h4>
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-mono tabular-nums font-bold bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30"
                     x-text="powerPairs.length + ' Pairs Computed'"></span>
             </div>
 
@@ -621,15 +621,15 @@ export function getCampaignFoldersPageHtml(folderId = '') {
                        x-model="powerPairsSearch" 
                        @input="powerPairsPage = 1"
                        placeholder="Filter pairs (e.g. Steak, Chicken)..." 
-                       class="px-3 py-1.5 pl-8 rounded-xl text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/30 w-44 sm:w-52 font-sans">
+                       class="px-3 py-1.5 pl-8 rounded-xl text-xs bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/30 w-44 sm:w-52 font-sans">
                 <span class="absolute left-2.5 top-2 text-xs text-slate-400">🔍</span>
                 <button x-show="powerPairsSearch" @click="powerPairsSearch = ''; powerPairsPage = 1" class="absolute right-2.5 top-1.5 text-xs text-slate-400 hover:text-slate-600 cursor-pointer">✕</button>
               </div>
 
               <!-- Sort Selector (Pins Frequency, Lift, Synergy) -->
-              <div class="flex items-center gap-1.5 text-xs font-mono">
+              <div class="flex items-center gap-1.5 text-xs font-mono tabular-nums">
                 <span class="text-slate-400">Sort:</span>
-                <select x-model="powerPairsSort" @change="powerPairsPage = 1" class="px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 text-xs font-sans focus:outline-none cursor-pointer">
+                <select x-model="powerPairsSort" @change="powerPairsPage = 1" class="px-2.5 py-1.5 rounded-xl bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] text-slate-800 dark:text-slate-200 text-xs font-sans focus:outline-none cursor-pointer">
                   <option value="synergy_desc">⚡ Balanced Synergy (Default)</option>
                   <option value="freq_desc">🔥 Pins Frequency (High → Low)</option>
                   <option value="lift_desc">🚀 Algorithmic Lift (High → Low)</option>
@@ -638,7 +638,7 @@ export function getCampaignFoldersPageHtml(folderId = '') {
               </div>
 
               <!-- View Switcher -->
-              <div class="flex items-center rounded-xl bg-white dark:bg-slate-900 p-0.5 border border-slate-200 dark:border-slate-800 text-xs font-mono">
+              <div class="flex items-center rounded-xl bg-white dark:bg-[#121215] p-0.5 border border-slate-200 dark:border-[#27272A] text-xs font-mono tabular-nums">
                 <button @click="powerPairsView = 'cards'" 
                         :class="powerPairsView === 'cards' ? 'bg-purple-600 text-white font-bold shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
                         class="px-2.5 py-1 rounded-lg transition flex items-center gap-1.5 cursor-pointer">
@@ -659,12 +659,12 @@ export function getCampaignFoldersPageHtml(folderId = '') {
           <div x-show="powerPairsView === 'cards' && filteredPowerPairs().length > 0" class="space-y-4">
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
               <template x-for="(pair, idx) in filteredPowerPairs().slice(0, powerPairsLimit)" :key="idx">
-                <div class="p-4 rounded-2xl bg-white dark:bg-slate-950/80 border border-slate-200 dark:border-slate-800 flex flex-col justify-between gap-3 hover:border-purple-500/50 hover:shadow-md transition group shadow-sm">
+                <div class="p-4 rounded-2xl bg-white dark:bg-slate-950/80 border border-slate-200 dark:border-[#27272A] flex flex-col justify-between gap-3 hover:border-purple-500/50 hover:shadow-md transition group shadow-sm">
                   <!-- Top Metrics Bar -->
                   <div class="flex items-center justify-between">
-                    <span class="px-2.5 py-0.5 rounded-lg text-[10px] font-mono font-black bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30"
+                    <span class="px-2.5 py-0.5 rounded-lg text-[10px] font-mono tabular-nums font-black bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30"
                           x-text="pair.lift + 'x Lift'"></span>
-                    <span class="text-[10px] font-mono text-slate-500 dark:text-slate-400" x-text="pair.joint_count + ' Pins (' + pair.support_pct + '%)'"></span>
+                    <span class="text-[10px] font-mono tabular-nums text-slate-500 dark:text-slate-400" x-text="pair.joint_count + ' Pins (' + pair.support_pct + '%)'"></span>
                   </div>
 
                   <!-- Stacked Full-Width Tags (No Truncation) -->
@@ -677,12 +677,12 @@ export function getCampaignFoldersPageHtml(folderId = '') {
                                 :title="'Filter Pins: #' + pair.tag_a" 
                                 x-text="pair.tag_a"></button>
                       </div>
-                      <span class="text-[9px] font-mono text-emerald-600 dark:text-emerald-400 font-bold flex-shrink-0 uppercase">Tag A</span>
+                      <span class="text-[9px] font-mono tabular-nums text-emerald-600 dark:text-emerald-400 font-bold flex-shrink-0 uppercase">Tag A</span>
                     </div>
 
                     <!-- Synergy Connector -->
                     <div class="flex items-center justify-center -my-1">
-                      <span class="text-[9px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-purple-600 dark:text-purple-400 flex items-center gap-1 shadow-2xs">
+                      <span class="text-[9px] font-mono tabular-nums font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] text-purple-600 dark:text-purple-400 flex items-center gap-1 shadow-2xs">
                         <span>⚡</span>
                         <span>High Synergy With</span>
                       </span>
@@ -697,13 +697,13 @@ export function getCampaignFoldersPageHtml(folderId = '') {
                                 :title="'Filter Pins: #' + pair.tag_b" 
                                 x-text="pair.tag_b"></button>
                       </div>
-                      <span class="text-[9px] font-mono text-purple-600 dark:text-purple-400 font-bold flex-shrink-0 uppercase">Tag B</span>
+                      <span class="text-[9px] font-mono tabular-nums text-purple-600 dark:text-purple-400 font-bold flex-shrink-0 uppercase">Tag B</span>
                     </div>
                   </div>
 
                   <!-- Copy Blueprint Button -->
                   <button @click="copyVisualBlueprint(pair)"
-                          class="w-full py-2 rounded-xl bg-slate-100 hover:bg-purple-600 hover:text-white dark:bg-slate-900 dark:hover:bg-purple-600 text-slate-700 dark:text-slate-300 text-xs font-bold font-mono transition flex items-center justify-center gap-1.5 border border-slate-200 dark:border-slate-800 cursor-pointer shadow-2xs group-hover:border-purple-500/40">
+                          class="w-full py-2 rounded-xl bg-slate-100 hover:bg-purple-600 hover:text-white dark:bg-[#121215] dark:hover:bg-purple-600 text-slate-700 dark:text-slate-300 text-xs font-bold font-mono tabular-nums transition flex items-center justify-center gap-1.5 border border-slate-200 dark:border-[#27272A] cursor-pointer shadow-2xs group-hover:border-purple-500/40">
                     <span>📋</span>
                     <span>Copy Visual Blueprint</span>
                   </button>
@@ -712,23 +712,23 @@ export function getCampaignFoldersPageHtml(folderId = '') {
             </div>
 
             <!-- Cards Expansion Controls -->
-            <div class="flex items-center justify-between p-3 rounded-2xl bg-slate-50/60 dark:bg-slate-950/40 border border-slate-200 dark:border-slate-800 text-xs">
-              <span class="font-mono text-slate-500 dark:text-slate-400" 
+            <div class="flex items-center justify-between p-3 rounded-2xl bg-slate-50/60 dark:bg-slate-950/40 border border-slate-200 dark:border-[#27272A] text-xs">
+              <span class="font-mono tabular-nums text-slate-500 dark:text-slate-400" 
                     x-text="'Showing ' + Math.min(powerPairsLimit, filteredPowerPairs().length) + ' of ' + filteredPowerPairs().length + ' Power Pairs'"></span>
               <div class="flex items-center gap-2">
                 <button x-show="powerPairsLimit < filteredPowerPairs().length" 
                         @click="powerPairsLimit += 12" 
-                        class="px-3 py-1.5 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 font-bold font-mono transition cursor-pointer">
+                        class="px-3 py-1.5 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 font-bold font-mono tabular-nums transition cursor-pointer">
                   <span>↓ Show More (+12)</span>
                 </button>
                 <button x-show="powerPairsLimit < filteredPowerPairs().length" 
                         @click="powerPairsLimit = filteredPowerPairs().length" 
-                        class="px-3 py-1.5 rounded-xl bg-slate-200/80 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold font-mono transition cursor-pointer">
+                        class="px-3 py-1.5 rounded-xl bg-slate-200/80 hover:bg-slate-300 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-800 dark:text-slate-200 font-bold font-mono tabular-nums transition cursor-pointer">
                   <span>Show All (<span x-text="filteredPowerPairs().length"></span>)</span>
                 </button>
                 <button x-show="powerPairsLimit > 12" 
                         @click="powerPairsLimit = 12" 
-                        class="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 font-bold font-mono transition cursor-pointer">
+                        class="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-500 font-bold font-mono tabular-nums transition cursor-pointer">
                   <span>↑ Collapse to 12</span>
                 </button>
               </div>
@@ -737,9 +737,9 @@ export function getCampaignFoldersPageHtml(folderId = '') {
 
           <!-- 2. TABLE VIEW -->
           <div x-show="powerPairsView === 'table' && filteredPowerPairs().length > 0" class="space-y-3">
-            <div class="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950">
-              <table class="w-full text-left text-xs font-mono">
-                <thead class="bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 uppercase text-[10px]">
+            <div class="overflow-x-auto rounded-2xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-slate-950">
+              <table class="w-full text-left text-xs font-mono tabular-nums">
+                <thead class="bg-slate-50 dark:bg-[#121215] border-b border-slate-200 dark:border-[#27272A] text-slate-500 dark:text-slate-400 uppercase text-[10px]">
                   <tr>
                     <th @click="togglePowerPairsSort('synergy')" class="p-3 w-12 text-center cursor-pointer hover:text-indigo-600 select-none" title="Sort by Balanced Synergy">
                       # <span x-show="powerPairsSort === 'synergy_desc'">⚡</span>
@@ -760,8 +760,8 @@ export function getCampaignFoldersPageHtml(folderId = '') {
                 </thead>
                 <tbody class="divide-y divide-slate-200 dark:divide-slate-800/60 text-slate-700 dark:text-slate-300">
                   <template x-for="(pair, idx) in paginatedPowerPairsTable()" :key="idx">
-                    <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
-                      <td class="p-3 text-center text-slate-400 font-mono" x-text="((powerPairsPage - 1) * powerPairsPageSize) + idx + 1"></td>
+                    <tr class="hover:bg-slate-50/80 dark:hover:bg-[#27272A]/40 transition-colors">
+                      <td class="p-3 text-center text-slate-400 font-mono tabular-nums" x-text="((powerPairsPage - 1) * powerPairsPageSize) + idx + 1"></td>
                       <td class="p-3">
                         <button @click="searchQuery = pair.tag_a; currentPage = 1; scrollToSection('pins-table-section')" 
                                 class="px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold hover:underline cursor-pointer border border-emerald-500/20 text-left inline-block" 
@@ -774,9 +774,9 @@ export function getCampaignFoldersPageHtml(folderId = '') {
                                 x-text="'🏷️ ' + pair.tag_b"></button>
                       </td>
                       <td class="p-3">
-                        <span class="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30" x-text="pair.lift + 'x Lift'"></span>
+                        <span class="px-2 py-0.5 rounded-md text-[10px] font-mono tabular-nums font-bold bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30" x-text="pair.lift + 'x Lift'"></span>
                       </td>
-                      <td class="p-3 font-mono">
+                      <td class="p-3 font-mono tabular-nums">
                         <span class="font-bold text-slate-900 dark:text-white" x-text="pair.joint_count + ' pins'"></span>
                         <span class="text-slate-400 text-[10px]" x-text="' (' + pair.support_pct + '%)'"></span>
                       </td>
@@ -793,18 +793,18 @@ export function getCampaignFoldersPageHtml(folderId = '') {
             </div>
 
             <!-- Table Pagination -->
-            <div class="flex items-center justify-between p-3 rounded-2xl bg-slate-50/60 dark:bg-slate-950/40 border border-slate-200 dark:border-slate-800 text-xs font-mono">
+            <div class="flex items-center justify-between p-3 rounded-2xl bg-slate-50/60 dark:bg-slate-950/40 border border-slate-200 dark:border-[#27272A] text-xs font-mono tabular-nums">
               <span class="text-slate-500 dark:text-slate-400" 
                     x-text="'Page ' + powerPairsPage + ' of ' + totalPowerPairsPages() + ' (' + filteredPowerPairs().length + ' pairs)'"></span>
               <div class="flex items-center gap-1.5">
-                <button :disabled="powerPairsPage <= 1" @click="powerPairsPage--" class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 disabled:opacity-40 cursor-pointer">← Prev</button>
-                <button :disabled="powerPairsPage >= totalPowerPairsPages()" @click="powerPairsPage++" class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 disabled:opacity-40 cursor-pointer">Next →</button>
+                <button :disabled="powerPairsPage <= 1" @click="powerPairsPage--" class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] disabled:opacity-40 cursor-pointer">← Prev</button>
+                <button :disabled="powerPairsPage >= totalPowerPairsPages()" @click="powerPairsPage++" class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] disabled:opacity-40 cursor-pointer">Next →</button>
               </div>
             </div>
           </div>
 
           <!-- Empty state when searching -->
-          <div x-show="filteredPowerPairs().length === 0" class="py-8 text-center text-xs text-slate-400 font-mono rounded-2xl bg-slate-50/70 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800">
+          <div x-show="filteredPowerPairs().length === 0" class="py-8 text-center text-xs text-slate-400 font-mono tabular-nums rounded-2xl bg-slate-50/70 dark:bg-slate-950/60 border border-slate-200 dark:border-[#27272A]">
             No visual power pairs match "<span x-text="powerPairsSearch"></span>".
           </div>
         </div>
@@ -812,32 +812,32 @@ export function getCampaignFoldersPageHtml(folderId = '') {
         <!-- Subsection B: Core Visual Anchors Matrix -->
         <div class="space-y-4 pt-2">
           <!-- Controls Bar -->
-          <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 p-3 rounded-2xl bg-slate-50/80 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800">
+          <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 p-3 rounded-2xl bg-slate-50/80 dark:bg-slate-950/60 border border-slate-200 dark:border-[#27272A]">
             <div class="flex items-center gap-2.5 flex-wrap">
-              <h4 class="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 font-mono">Core Visual Anchors</h4>
-              <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30"
+              <h4 class="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 font-mono tabular-nums">Core Visual Anchors</h4>
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-mono tabular-nums font-bold bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30"
                     x-text="filteredAnchorsList().length + ' / ' + coreAnchorsList.length + ' Anchors'"></span>
             </div>
 
             <!-- Tier Filter Pills -->
-            <div class="flex items-center gap-1.5 flex-wrap text-xs font-mono">
+            <div class="flex items-center gap-1.5 flex-wrap text-xs font-mono tabular-nums">
               <button @click="anchorsTier = 'all'; anchorsPage = 1" 
-                      :class="anchorsTier === 'all' ? 'bg-indigo-600 text-white font-bold' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700'"
+                      :class="anchorsTier === 'all' ? 'bg-indigo-600 text-white font-bold' : 'bg-white dark:bg-[#121215] text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-[#27272A]'"
                       class="px-2.5 py-1 rounded-lg transition cursor-pointer">
                 All
               </button>
               <button @click="anchorsTier = 'whales'; anchorsPage = 1" 
-                      :class="anchorsTier === 'whales' ? 'bg-indigo-600 text-white font-bold' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700'"
+                      :class="anchorsTier === 'whales' ? 'bg-indigo-600 text-white font-bold' : 'bg-white dark:bg-[#121215] text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-[#27272A]'"
                       class="px-2.5 py-1 rounded-lg transition cursor-pointer" title="Anchors with >= 25 Pins">
                 💎 Whales (≥25)
               </button>
               <button @click="anchorsTier = 'high'; anchorsPage = 1" 
-                      :class="anchorsTier === 'high' ? 'bg-indigo-600 text-white font-bold' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700'"
+                      :class="anchorsTier === 'high' ? 'bg-indigo-600 text-white font-bold' : 'bg-white dark:bg-[#121215] text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-[#27272A]'"
                       class="px-2.5 py-1 rounded-lg transition cursor-pointer" title="Anchors with >= 10 Pins">
                 🔥 High (≥10)
               </button>
               <button @click="anchorsTier = 'core'; anchorsPage = 1" 
-                      :class="anchorsTier === 'core' ? 'bg-indigo-600 text-white font-bold' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700'"
+                      :class="anchorsTier === 'core' ? 'bg-indigo-600 text-white font-bold' : 'bg-white dark:bg-[#121215] text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-[#27272A]'"
                       class="px-2.5 py-1 rounded-lg transition cursor-pointer" title="Anchors with >= 5 Pins">
                 ⚡ Core (≥5)
               </button>
@@ -850,13 +850,13 @@ export function getCampaignFoldersPageHtml(folderId = '') {
                        x-model="anchorsSearch" 
                        @input="anchorsPage = 1"
                        placeholder="Filter anchors (e.g. Steak, Pasta)..." 
-                       class="px-3 py-1.5 pl-8 rounded-xl text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/30 w-44 sm:w-52 font-sans">
+                       class="px-3 py-1.5 pl-8 rounded-xl text-xs bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/30 w-44 sm:w-52 font-sans">
                 <span class="absolute left-2.5 top-2 text-xs text-slate-400">🔍</span>
                 <button x-show="anchorsSearch" @click="anchorsSearch = ''; anchorsPage = 1" class="absolute right-2.5 top-1.5 text-xs text-slate-400 hover:text-slate-600 cursor-pointer">✕</button>
               </div>
 
               <!-- View Switcher -->
-              <div class="flex items-center rounded-xl bg-white dark:bg-slate-900 p-0.5 border border-slate-200 dark:border-slate-800 text-xs font-mono">
+              <div class="flex items-center rounded-xl bg-white dark:bg-[#121215] p-0.5 border border-slate-200 dark:border-[#27272A] text-xs font-mono tabular-nums">
                 <button @click="anchorsView = 'cards'" 
                         :class="anchorsView === 'cards' ? 'bg-purple-600 text-white font-bold shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
                         class="px-2.5 py-1 rounded-lg transition flex items-center gap-1.5 cursor-pointer" title="Cards Grid">
@@ -884,9 +884,9 @@ export function getCampaignFoldersPageHtml(folderId = '') {
             <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
               <template x-for="(anchor, idx) in filteredAnchorsList().slice(0, anchorsLimit)" :key="anchor.tag">
                 <button @click="searchQuery = anchor.tag; currentPage = 1; scrollToSection('pins-table-section')"
-                        class="p-2.5 rounded-2xl bg-slate-50/70 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 text-left hover:border-purple-500/40 transition cursor-pointer flex flex-col justify-between group shadow-sm"
+                        class="p-2.5 rounded-2xl bg-slate-50/70 dark:bg-slate-950/60 border border-slate-200 dark:border-[#27272A] text-left hover:border-purple-500/40 transition cursor-pointer flex flex-col justify-between group shadow-sm"
                         :class="searchQuery.toLowerCase() === anchor.tag.toLowerCase() ? 'border-purple-500 ring-2 ring-purple-500/20' : ''">
-                  <div class="flex items-center justify-between text-[10px] font-mono text-slate-400 mb-1">
+                  <div class="flex items-center justify-between text-[10px] font-mono tabular-nums text-slate-400 mb-1">
                     <span x-text="'#' + (idx + 1)"></span>
                     <span class="font-bold text-purple-600 dark:text-purple-400" x-text="anchor.count + ' Pins'"></span>
                   </div>
@@ -896,10 +896,10 @@ export function getCampaignFoldersPageHtml(folderId = '') {
             </div>
 
             <!-- Cards Expansion Controls -->
-            <div class="flex items-center justify-between p-3 rounded-2xl bg-slate-50/60 dark:bg-slate-950/40 border border-slate-200 dark:border-slate-800 text-xs">
-              <span class="font-mono text-slate-500 dark:text-slate-400" 
+            <div class="flex items-center justify-between p-3 rounded-2xl bg-slate-50/60 dark:bg-slate-950/40 border border-slate-200 dark:border-[#27272A] text-xs">
+              <span class="font-mono tabular-nums text-slate-500 dark:text-slate-400" 
                     x-text="'Showing ' + Math.min(anchorsLimit, filteredAnchorsList().length) + ' of ' + filteredAnchorsList().length + ' Visual Anchors'"></span>
-              <div class="flex items-center gap-2 font-mono">
+              <div class="flex items-center gap-2 font-mono tabular-nums">
                 <button x-show="anchorsLimit < filteredAnchorsList().length" 
                         @click="anchorsLimit += 36" 
                         class="px-3 py-1.5 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 font-bold transition cursor-pointer">
@@ -907,12 +907,12 @@ export function getCampaignFoldersPageHtml(folderId = '') {
                 </button>
                 <button x-show="anchorsLimit < filteredAnchorsList().length" 
                         @click="anchorsLimit = filteredAnchorsList().length" 
-                        class="px-3 py-1.5 rounded-xl bg-slate-200/80 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold transition cursor-pointer">
+                        class="px-3 py-1.5 rounded-xl bg-slate-200/80 hover:bg-slate-300 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-800 dark:text-slate-200 font-bold transition cursor-pointer">
                   <span>Show All (<span x-text="filteredAnchorsList().length"></span>)</span>
                 </button>
                 <button x-show="anchorsLimit > 24" 
                         @click="anchorsLimit = 24" 
-                        class="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 font-bold transition cursor-pointer">
+                        class="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-500 font-bold transition cursor-pointer">
                   <span>↑ Collapse to 24</span>
                 </button>
               </div>
@@ -920,8 +920,8 @@ export function getCampaignFoldersPageHtml(folderId = '') {
           </div>
 
           <!-- 2. SEMANTIC TAG CLOUD VIEW -->
-          <div x-show="anchorsView === 'cloud' && filteredAnchorsList().length > 0" class="p-4 rounded-2xl bg-slate-50/70 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 space-y-3">
-            <div class="flex items-center justify-between text-xs text-slate-400 font-mono pb-2 border-b border-slate-200 dark:border-slate-800">
+          <div x-show="anchorsView === 'cloud' && filteredAnchorsList().length > 0" class="p-4 rounded-2xl bg-slate-50/70 dark:bg-slate-950/60 border border-slate-200 dark:border-[#27272A] space-y-3">
+            <div class="flex items-center justify-between text-xs text-slate-400 font-mono tabular-nums pb-2 border-b border-slate-200 dark:border-[#27272A]">
               <span>Dynamic Tag Cloud (Size & Glow scaled by Pin Frequency across cluster)</span>
               <span>Click any tag to filter 1,788 pins</span>
             </div>
@@ -935,10 +935,10 @@ export function getCampaignFoldersPageHtml(folderId = '') {
                             ? 'px-3.5 py-1.5 text-sm bg-purple-500/20 text-purple-700 dark:text-purple-300 border border-purple-500/40 hover:bg-purple-500/30 shadow-xs' 
                             : (anchor.count >= 15 
                               ? 'px-3 py-1 text-xs bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30 hover:bg-indigo-500/25' 
-                              : 'px-2.5 py-0.5 text-[11px] bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:border-purple-400')
+                              : 'px-2.5 py-0.5 text-[11px] bg-white dark:bg-[#121215] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#27272A] hover:border-purple-400')
                         ]">
                   <span x-text="anchor.tag"></span>
-                  <span class="text-[9px] font-mono opacity-70 px-1 py-0.2 rounded bg-black/10 dark:bg-white/10" x-text="anchor.count"></span>
+                  <span class="text-[9px] font-mono tabular-nums opacity-70 px-1 py-0.2 rounded bg-black/10 dark:bg-white/10" x-text="anchor.count"></span>
                 </button>
               </template>
             </div>
@@ -946,9 +946,9 @@ export function getCampaignFoldersPageHtml(folderId = '') {
 
           <!-- 3. TABLE VIEW -->
           <div x-show="anchorsView === 'table' && filteredAnchorsList().length > 0" class="space-y-3">
-            <div class="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950">
-              <table class="w-full text-left text-xs font-mono">
-                <thead class="bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 uppercase text-[10px]">
+            <div class="overflow-x-auto rounded-2xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-slate-950">
+              <table class="w-full text-left text-xs font-mono tabular-nums">
+                <thead class="bg-slate-50 dark:bg-[#121215] border-b border-slate-200 dark:border-[#27272A] text-slate-500 dark:text-slate-400 uppercase text-[10px]">
                   <tr>
                     <th class="p-3 w-16 text-center">Rank #</th>
                     <th class="p-3">Visual Anchor Tag</th>
@@ -959,8 +959,8 @@ export function getCampaignFoldersPageHtml(folderId = '') {
                 </thead>
                 <tbody class="divide-y divide-slate-200 dark:divide-slate-800/60 text-slate-700 dark:text-slate-300">
                   <template x-for="(anchor, idx) in paginatedAnchorsTable()" :key="anchor.tag">
-                    <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
-                      <td class="p-3 text-center text-slate-400 font-mono" x-text="'#' + (((anchorsPage - 1) * anchorsPageSize) + idx + 1)"></td>
+                    <tr class="hover:bg-slate-50/80 dark:hover:bg-[#27272A]/40 transition-colors">
+                      <td class="p-3 text-center text-slate-400 font-mono tabular-nums" x-text="'#' + (((anchorsPage - 1) * anchorsPageSize) + idx + 1)"></td>
                       <td class="p-3">
                         <button @click="searchQuery = anchor.tag; currentPage = 1; scrollToSection('pins-table-section')" 
                                 class="font-bold text-slate-900 dark:text-white hover:text-purple-600 dark:hover:text-purple-400 hover:underline cursor-pointer flex items-center gap-1.5 text-left">
@@ -970,17 +970,17 @@ export function getCampaignFoldersPageHtml(folderId = '') {
                       </td>
                       <td class="p-3">
                         <div class="flex items-center gap-2">
-                          <div class="w-24 bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                          <div class="w-24 bg-slate-100 dark:bg-[#18181B] rounded-full h-1.5 overflow-hidden">
                             <div class="h-full rounded-full bg-purple-500" :style="'width: ' + Math.min(100, Math.round((anchor.count / (coreAnchorsList[0]?.count || 1)) * 100)) + '%'"></div>
                           </div>
-                          <span class="font-bold text-purple-600 dark:text-purple-400 font-mono" x-text="anchor.count + ' pins'"></span>
+                          <span class="font-bold text-purple-600 dark:text-purple-400 font-mono tabular-nums" x-text="anchor.count + ' pins'"></span>
                         </div>
                       </td>
-                      <td class="p-3 text-slate-500 dark:text-slate-400 font-mono" 
+                      <td class="p-3 text-slate-500 dark:text-slate-400 font-mono tabular-nums" 
                           x-text="((anchor.count / (crossoverData?.all_pins?.length || 1788)) * 100).toFixed(1) + '%'"></td>
                       <td class="p-3 text-right">
                         <button @click="searchQuery = anchor.tag; currentPage = 1; scrollToSection('pins-table-section')" 
-                                class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-purple-600 hover:text-white dark:bg-slate-900 dark:hover:bg-purple-600 text-slate-700 dark:text-slate-200 text-xs font-semibold border border-slate-200 dark:border-slate-800 transition-colors shadow-2xs">
+                                class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-purple-600 hover:text-white dark:bg-[#121215] dark:hover:bg-purple-600 text-slate-700 dark:text-slate-200 text-xs font-semibold border border-slate-200 dark:border-[#27272A] transition-colors shadow-2xs">
                           Filter Pins →
                         </button>
                       </td>
@@ -991,17 +991,17 @@ export function getCampaignFoldersPageHtml(folderId = '') {
             </div>
 
             <!-- Anchors Table Pagination -->
-            <div class="flex items-center justify-between p-3 rounded-2xl bg-slate-50/60 dark:bg-slate-950/40 border border-slate-200 dark:border-slate-800 text-xs font-mono">
+            <div class="flex items-center justify-between p-3 rounded-2xl bg-slate-50/60 dark:bg-slate-950/40 border border-slate-200 dark:border-[#27272A] text-xs font-mono tabular-nums">
               <span class="text-slate-500 dark:text-slate-400" 
                     x-text="'Page ' + anchorsPage + ' of ' + totalAnchorsPages() + ' (' + filteredAnchorsList().length + ' anchors)'"></span>
               <div class="flex items-center gap-1.5">
-                <button :disabled="anchorsPage <= 1" @click="anchorsPage--" class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 disabled:opacity-40 cursor-pointer">← Prev</button>
-                <button :disabled="anchorsPage >= totalAnchorsPages()" @click="anchorsPage++" class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 disabled:opacity-40 cursor-pointer">Next →</button>
+                <button :disabled="anchorsPage <= 1" @click="anchorsPage--" class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] disabled:opacity-40 cursor-pointer">← Prev</button>
+                <button :disabled="anchorsPage >= totalAnchorsPages()" @click="anchorsPage++" class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] disabled:opacity-40 cursor-pointer">Next →</button>
               </div>
             </div>
           </div>
 
-          <div x-show="filteredAnchorsList().length === 0" class="py-8 text-center text-xs text-slate-400 font-mono rounded-2xl bg-slate-50/70 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800">
+          <div x-show="filteredAnchorsList().length === 0" class="py-8 text-center text-xs text-slate-400 font-mono tabular-nums rounded-2xl bg-slate-50/70 dark:bg-slate-950/60 border border-slate-200 dark:border-[#27272A]">
             No visual anchors match current filter.
           </div>
         </div>
@@ -1010,15 +1010,15 @@ export function getCampaignFoldersPageHtml(folderId = '') {
         <div class="space-y-3 pt-2" x-show="filteredTagBridges().length">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2">
-              <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono">Universal Visual Tag Bridges (Cluster SERP Intersections)</h4>
-              <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20" x-text="filteredTagBridges().length + ' Bridges'"></span>
+              <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono tabular-nums">Universal Visual Tag Bridges (Cluster SERP Intersections)</h4>
+              <span class="text-[10px] font-mono tabular-nums px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20" x-text="filteredTagBridges().length + ' Bridges'"></span>
             </div>
-            <span class="text-[10px] text-slate-400 font-mono">Tags bridging multiple search queries across cluster</span>
+            <span class="text-[10px] text-slate-400 font-mono tabular-nums">Tags bridging multiple search queries across cluster</span>
           </div>
 
-          <div class="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
-            <table class="w-full text-left text-xs font-mono">
-              <thead class="bg-slate-50 dark:bg-slate-950/80 border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 uppercase text-[10px]">
+          <div class="overflow-x-auto rounded-2xl border border-slate-200 dark:border-[#27272A]">
+            <table class="w-full text-left text-xs font-mono tabular-nums">
+              <thead class="bg-slate-50 dark:bg-slate-950/80 border-b border-slate-200 dark:border-[#27272A] text-slate-500 dark:text-slate-400 uppercase text-[10px]">
                 <tr>
                   <th class="p-3">Bridge Visual Tag</th>
                   <th class="p-3">Cluster Overlap %</th>
@@ -1029,7 +1029,7 @@ export function getCampaignFoldersPageHtml(folderId = '') {
               </thead>
               <tbody class="divide-y divide-slate-200 dark:divide-slate-800/60 text-slate-700 dark:text-slate-300">
                 <template x-for="tb in filteredTagBridges().slice(0, 15)" :key="tb.raw_tag || tb.tag">
-                  <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
+                  <tr class="hover:bg-slate-50/80 dark:hover:bg-[#27272A]/40 transition-colors">
                     <td class="p-3 font-bold text-slate-900 dark:text-white">
                       <button @click="searchQuery = tb.raw_tag || tb.tag; currentPage = 1; scrollToSection('pins-table-section')" class="hover:text-indigo-600 dark:hover:text-indigo-400 hover:underline flex items-center gap-1.5 cursor-pointer text-left">
                         <span>🌉</span>
@@ -1038,7 +1038,7 @@ export function getCampaignFoldersPageHtml(folderId = '') {
                     </td>
                     <td class="p-3">
                       <div class="flex items-center gap-2">
-                        <div class="w-16 bg-slate-200 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                        <div class="w-16 bg-slate-200 dark:bg-[#18181B] rounded-full h-1.5 overflow-hidden">
                           <div class="h-full rounded-full bg-indigo-500" :style="'width: ' + tb.overlap_percentage + '%'"></div>
                         </div>
                         <span class="font-bold text-xs text-indigo-600 dark:text-indigo-400" x-text="tb.overlap_percentage + '%'"></span>
@@ -1047,13 +1047,13 @@ export function getCampaignFoldersPageHtml(folderId = '') {
                     <td class="p-3">
                       <div class="flex items-center gap-1 flex-wrap">
                         <template x-for="kw in (tb.keywords || []).slice(0, 4)" :key="kw">
-                          <span class="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 text-[9px]" x-text="kw"></span>
+                          <span class="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-[#18181B] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#27272A] text-[9px]" x-text="kw"></span>
                         </template>
-                        <span x-show="(tb.keywords || []).length > 4" class="text-[9px] text-slate-400 font-mono" x-text="'+' + ((tb.keywords || []).length - 4)"></span>
+                        <span x-show="(tb.keywords || []).length > 4" class="text-[9px] text-slate-400 font-mono tabular-nums" x-text="'+' + ((tb.keywords || []).length - 4)"></span>
                       </div>
                     </td>
-                    <td class="p-3 font-bold font-mono text-sky-600 dark:text-sky-400" x-text="formatNumber(tb.pin_count) + ' pins'"></td>
-                    <td class="p-3 font-bold font-mono text-emerald-600 dark:text-emerald-400 text-right" x-text="formatNumber(tb.total_saves)"></td>
+                    <td class="p-3 font-bold font-mono tabular-nums text-sky-600 dark:text-sky-400" x-text="formatNumber(tb.pin_count) + ' pins'"></td>
+                    <td class="p-3 font-bold font-mono tabular-nums text-emerald-600 dark:text-emerald-400 text-right" x-text="formatNumber(tb.total_saves)"></td>
                   </tr>
                 </template>
               </tbody>
@@ -1073,11 +1073,11 @@ export function getCampaignFoldersPageHtml(folderId = '') {
     <div x-show="!activeFolderId" class="flex flex-col gap-6" x-cloak>
 
       <!-- Hub Header & Summary -->
-      <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm dark:shadow-xl flex items-center justify-between flex-wrap gap-4 transition-colors">
+      <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl p-6 shadow-sm dark:shadow-xl flex items-center justify-between flex-wrap gap-4 transition-colors">
         <div>
           <div class="flex items-center gap-3">
             <h1 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">Campaign Folders Hub</h1>
-            <span class="text-xs font-mono px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30 font-semibold" x-text="foldersList.length + ' clusters'"></span>
+            <span class="text-xs font-mono tabular-nums px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30 font-semibold" x-text="foldersList.length + ' clusters'"></span>
           </div>
           <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Organize tracked keywords into niche topic clusters and analyze cross-SERP super-pin crossover.</p>
         </div>
@@ -1089,31 +1089,31 @@ export function getCampaignFoldersPageHtml(folderId = '') {
 
       <!-- Quick KPI Stats for All Folders -->
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 flex flex-col gap-1 shadow-sm">
-          <span class="text-[11px] font-mono text-slate-500 dark:text-slate-400">Total Campaign Folders</span>
-          <span class="text-2xl font-bold font-mono text-slate-900 dark:text-white" x-text="foldersList.length">0</span>
+        <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-xl p-4 flex flex-col gap-1 shadow-sm">
+          <span class="text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400">Total Campaign Folders</span>
+          <span class="text-2xl font-bold font-mono tabular-nums text-slate-900 dark:text-white" x-text="foldersList.length">0</span>
         </div>
-        <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 flex flex-col gap-1 shadow-sm">
-          <span class="text-[11px] font-mono text-slate-500 dark:text-slate-400">Tracked Keywords Across Folders</span>
-          <span class="text-2xl font-bold font-mono text-indigo-600 dark:text-indigo-400" x-text="totalKeywordsCount()">0</span>
+        <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-xl p-4 flex flex-col gap-1 shadow-sm">
+          <span class="text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400">Tracked Keywords Across Folders</span>
+          <span class="text-2xl font-bold font-mono tabular-nums text-indigo-600 dark:text-indigo-400" x-text="totalKeywordsCount()">0</span>
         </div>
-        <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 flex flex-col gap-1 shadow-sm">
-          <span class="text-[11px] font-mono text-slate-500 dark:text-slate-400">Crossover Engine Readiness</span>
-          <span class="text-2xl font-bold font-mono text-emerald-600 dark:text-emerald-400">100% Operational</span>
+        <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-xl p-4 flex flex-col gap-1 shadow-sm">
+          <span class="text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400">Crossover Engine Readiness</span>
+          <span class="text-2xl font-bold font-mono tabular-nums text-emerald-600 dark:text-emerald-400">100% Operational</span>
         </div>
       </div>
 
       <!-- Folders Grid -->
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         <template x-for="f in foldersList" :key="f.id">
-          <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm dark:shadow-xl hover:border-indigo-400 dark:hover:border-slate-700 transition-all flex flex-col justify-between gap-4 group">
+          <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl p-5 shadow-sm dark:shadow-xl hover:border-indigo-400 dark:hover:border-slate-700 transition-all flex flex-col justify-between gap-4 group">
             <!-- Card Header -->
             <div class="flex items-center justify-between">
               <div class="w-10 h-10 rounded-xl flex items-center justify-center text-xl shadow-inner border border-slate-200 dark:border-white/10"
                    :style="'background-color: ' + (f.color ? f.color + '20' : '#6366f120')">
                 <span x-text="f.icon || '📁'">📁</span>
               </div>
-              <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 border border-slate-200 dark:border-slate-700 font-semibold" 
+              <span class="text-[10px] font-mono tabular-nums px-2 py-0.5 rounded bg-slate-100 dark:bg-[#18181B] text-indigo-600 dark:text-indigo-400 border border-slate-200 dark:border-[#27272A] font-semibold" 
                     x-text="'Folder #' + f.id"></span>
             </div>
 
@@ -1126,20 +1126,20 @@ export function getCampaignFoldersPageHtml(folderId = '') {
             <!-- Keyword Preview Chips -->
             <div class="flex items-center gap-1.5 flex-wrap pt-0.5">
               <template x-for="kw in (f.keywords_preview || []).slice(0, 3)" :key="kw.id || kw.keyword">
-                <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700/60 truncate max-w-[120px]" x-text="kw.keyword"></span>
+                <span class="text-[10px] font-mono tabular-nums px-2 py-0.5 rounded bg-slate-100 dark:bg-[#18181B]/80 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#27272A]/60 truncate max-w-[120px]" x-text="kw.keyword"></span>
               </template>
               <template x-if="(f.keywords_preview || []).length > 3">
-                <span class="text-[10px] font-mono text-slate-400 dark:text-slate-500" x-text="'+' + ((f.keywords_preview || []).length - 3) + ' more'"></span>
+                <span class="text-[10px] font-mono tabular-nums text-slate-400 dark:text-slate-500" x-text="'+' + ((f.keywords_preview || []).length - 3) + ' more'"></span>
               </template>
             </div>
 
             <!-- 3 Live Telemetry Counters Grid -->
-            <div class="grid grid-cols-3 gap-2 py-2 px-3 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-100 dark:border-slate-800/80 font-mono text-center">
+            <div class="grid grid-cols-3 gap-2 py-2 px-3 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-100 dark:border-[#27272A]/80 font-mono tabular-nums text-center">
               <div class="flex flex-col">
                 <span class="text-[9px] uppercase tracking-wider text-slate-400">Keywords</span>
                 <span class="text-sm font-bold text-emerald-600 dark:text-emerald-400" x-text="f.keyword_count || 0">0</span>
               </div>
-              <div class="flex flex-col border-x border-slate-200 dark:border-slate-800">
+              <div class="flex flex-col border-x border-slate-200 dark:border-[#27272A]">
                 <span class="text-[9px] uppercase tracking-wider text-slate-400">Creators</span>
                 <span class="text-sm font-bold text-purple-600 dark:text-purple-400" x-text="f.creator_count || 0">0</span>
               </div>
@@ -1151,7 +1151,7 @@ export function getCampaignFoldersPageHtml(folderId = '') {
             </div>
 
             <!-- Action Footer with Room Shortcuts -->
-            <div class="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
+            <div class="pt-3 border-t border-slate-100 dark:border-[#27272A]/80 flex items-center justify-between">
               <a :href="'/folders/' + f.id" class="px-3 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-600/10 dark:hover:bg-indigo-600/20 text-indigo-600 dark:text-indigo-400 text-xs font-semibold border border-indigo-200 dark:border-indigo-500/20 transition-colors flex items-center gap-1">
                 <span>Open Workspace →</span>
               </a>
@@ -1175,7 +1175,7 @@ export function getCampaignFoldersPageHtml(folderId = '') {
       </div>
 
       <!-- Empty State -->
-      <div x-show="!foldersList.length && !foldersLoading" class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-12 text-center flex flex-col items-center justify-center gap-4 shadow-sm" x-cloak>
+      <div x-show="!foldersList.length && !foldersLoading" class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl p-12 text-center flex flex-col items-center justify-center gap-4 shadow-sm" x-cloak>
         <div class="w-16 h-16 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-3xl">
           📁
         </div>
@@ -1196,8 +1196,8 @@ export function getCampaignFoldersPageHtml(folderId = '') {
 
   <!-- New Folder Modal -->
   <div x-show="openNewFolderModal" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4" x-cloak>
-    <div @click.away="openNewFolderModal = false" class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl flex flex-col gap-4">
-      <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+    <div @click.away="openNewFolderModal = false" class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl max-w-md w-full p-6 shadow-2xl flex flex-col gap-4">
+      <div class="flex items-center justify-between border-b border-slate-200 dark:border-[#27272A] pb-3">
         <h3 class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
           <span>📁</span> Create New Campaign Folder
         </h3>
@@ -1207,11 +1207,11 @@ export function getCampaignFoldersPageHtml(folderId = '') {
       <div class="flex flex-col gap-3">
         <div>
           <label class="text-xs text-slate-500 dark:text-slate-400 block mb-1">Folder Name *</label>
-          <input type="text" x-model="newFolderName" placeholder="e.g. High-Velocity Dinners 2026" class="w-full p-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-xs font-mono focus:outline-none focus:border-indigo-500">
+          <input type="text" x-model="newFolderName" placeholder="e.g. High-Velocity Dinners 2026" class="w-full p-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-[#27272A] rounded-xl text-slate-900 dark:text-white text-xs font-mono tabular-nums focus:outline-none focus:border-indigo-500">
         </div>
         <div>
           <label class="text-xs text-slate-500 dark:text-slate-400 block mb-1">Description (Optional)</label>
-          <textarea x-model="newFolderDesc" rows="3" placeholder="Target niche, seasonal strategy, and monetized destination links..." class="w-full p-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-xs font-sans focus:outline-none focus:border-indigo-500"></textarea>
+          <textarea x-model="newFolderDesc" rows="3" placeholder="Target niche, seasonal strategy, and monetized destination links..." class="w-full p-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-[#27272A] rounded-xl text-slate-900 dark:text-white text-xs font-sans focus:outline-none focus:border-indigo-500"></textarea>
         </div>
         <div>
           <label class="text-xs text-slate-500 dark:text-slate-400 block mb-1">Color Theme</label>
@@ -1226,8 +1226,8 @@ export function getCampaignFoldersPageHtml(folderId = '') {
         </div>
       </div>
 
-      <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-200 dark:border-slate-800">
-        <button @click="openNewFolderModal = false" class="px-4 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs">Cancel</button>
+      <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-200 dark:border-[#27272A]">
+        <button @click="openNewFolderModal = false" class="px-4 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-300 text-xs">Cancel</button>
         <button @click="createFolder()" :disabled="!newFolderName.trim()" class="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-bold">Create Folder</button>
       </div>
     </div>
@@ -1235,7 +1235,7 @@ export function getCampaignFoldersPageHtml(folderId = '') {
 
   <!-- Delete Confirmation Modal -->
   <div x-show="deleteModalFolderId" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4" x-cloak>
-    <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-sm w-full p-6 shadow-2xl flex flex-col gap-4 text-center">
+    <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl max-w-sm w-full p-6 shadow-2xl flex flex-col gap-4 text-center">
       <div class="w-12 h-12 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 flex items-center justify-center text-xl mx-auto">
         🗑️
       </div>
@@ -1244,7 +1244,7 @@ export function getCampaignFoldersPageHtml(folderId = '') {
         <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">This will remove the folder grouping. The underlying tracked keywords and pin snapshots will remain preserved.</p>
       </div>
       <div class="flex items-center justify-center gap-3 pt-2">
-        <button @click="deleteModalFolderId = null" class="px-4 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-medium">Cancel</button>
+        <button @click="deleteModalFolderId = null" class="px-4 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-300 text-xs font-medium">Cancel</button>
         <button @click="executeDeleteFolder()" class="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold">Delete Folder</button>
       </div>
     </div>
@@ -1252,10 +1252,10 @@ export function getCampaignFoldersPageHtml(folderId = '') {
 
   <!-- Folder Settings & Fleet Dispatch Modal -->
   <div x-show="isSettingsModalOpen" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4" x-cloak>
-    <div class="bg-white dark:bg-[#0c1322] border border-slate-200 dark:border-slate-800 rounded-3xl max-w-xl w-full p-6 shadow-2xl flex flex-col gap-5 max-h-[90vh] overflow-y-auto" @click.away="isSettingsModalOpen = false">
+    <div class="bg-white dark:bg-[#0c1322] border border-slate-200 dark:border-[#27272A] rounded-3xl max-w-xl w-full p-6 shadow-2xl flex flex-col gap-5 max-h-[90vh] overflow-y-auto" @click.away="isSettingsModalOpen = false">
       
       <!-- Modal Header -->
-      <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-[#27272A]">
         <div class="flex items-center gap-3">
           <div class="w-10 h-10 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-600 dark:text-indigo-400 flex items-center justify-center text-lg font-bold">
             ⚙️
@@ -1265,7 +1265,7 @@ export function getCampaignFoldersPageHtml(folderId = '') {
             <p class="text-xs text-slate-500 dark:text-slate-400">Configure cluster harvest depth, live SERP ingestion and metadata</p>
           </div>
         </div>
-        <button @click="isSettingsModalOpen = false" class="p-1 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition">✕</button>
+        <button @click="isSettingsModalOpen = false" class="p-1 rounded-xl hover:bg-slate-100 dark:hover:bg-[#27272A] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition">✕</button>
       </div>
 
       <!-- Section 1: 20-Runner Cluster Fleet Engine -->
@@ -1275,15 +1275,15 @@ export function getCampaignFoldersPageHtml(folderId = '') {
             <span class="text-base">🚀</span>
             <span class="text-xs font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-300">Cluster Fleet Engine (20 Parallel Runners)</span>
           </div>
-          <span class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 font-bold border border-indigo-500/20">Stage 0 + Stage 1 Matrix</span>
+          <span class="text-[10px] font-mono tabular-nums px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 font-bold border border-indigo-500/20">Stage 0 + Stage 1 Matrix</span>
         </div>
 
         <!-- Live SERP Ingestion Toggle -->
-        <div class="flex items-start justify-between gap-4 p-3 rounded-xl bg-white/70 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800">
+        <div class="flex items-start justify-between gap-4 p-3 rounded-xl bg-white/70 dark:bg-[#121215]/60 border border-slate-200/80 dark:border-[#27272A]">
           <div class="flex flex-col gap-0.5">
             <div class="flex items-center gap-2">
               <span class="text-xs font-bold text-slate-900 dark:text-white">Live Search Discovery & SERP Ingestion</span>
-              <span class="text-[10px] font-mono px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">Essential</span>
+              <span class="text-[10px] font-mono tabular-nums px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">Essential</span>
             </div>
             <p class="text-[11px] text-slate-500 dark:text-slate-400">Harvest fresh Pinterest search SERPs across cluster keywords before partitioning pins. Prevents newly added keywords from remaining at 0 pins.</p>
           </div>
@@ -1297,15 +1297,15 @@ export function getCampaignFoldersPageHtml(folderId = '') {
         <div class="flex flex-col gap-2">
           <label class="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center justify-between">
             <span>Pin Quota per Keyword (Harvest Depth)</span>
-            <span class="text-xs font-mono text-indigo-600 dark:text-indigo-400 font-bold" x-text="(folderSettings.max_pins || 50) + ' pins/KW (~' + Math.ceil((parseInt(folderSettings.max_pins, 10) || 50) / 25) + ' pages)'"></span>
+            <span class="text-xs font-mono tabular-nums text-indigo-600 dark:text-indigo-400 font-bold" x-text="(folderSettings.max_pins || 50) + ' pins/KW (~' + Math.ceil((parseInt(folderSettings.max_pins, 10) || 50) / 25) + ' pages)'"></span>
           </label>
           <div class="grid grid-cols-4 gap-2">
             <template x-for="q in ['50', '100', '250', '500']" :key="q">
               <button type="button" @click="folderSettings.max_pins = q; folderSettings.max_serp_pins = q"
-                      class="px-2.5 py-1.5 rounded-xl text-xs font-mono font-medium border text-center transition cursor-pointer"
+                      class="px-2.5 py-1.5 rounded-xl text-xs font-mono tabular-nums font-medium border text-center transition cursor-pointer"
                       :class="String(folderSettings.max_pins) === q 
                         ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm' 
-                        : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:border-slate-300'">
+                        : 'bg-white dark:bg-[#121215] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-[#27272A] hover:border-slate-300'">
                 <span x-text="q + ' pins'"></span>
               </button>
             </template>
@@ -1316,8 +1316,8 @@ export function getCampaignFoldersPageHtml(folderId = '') {
                    class="flex-1 accent-indigo-600 dark:accent-indigo-500 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-lg cursor-pointer">
             <div class="flex items-center gap-1 shrink-0">
               <input type="number" min="10" max="2000" step="5" x-model="folderSettings.max_pins" @input="folderSettings.max_serp_pins = folderSettings.max_pins"
-                     class="w-20 px-2 py-1 text-xs font-mono font-bold text-center rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500">
-              <span class="text-[10px] text-slate-400 font-mono">pins</span>
+                     class="w-20 px-2 py-1 text-xs font-mono tabular-nums font-bold text-center rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500">
+              <span class="text-[10px] text-slate-400 font-mono tabular-nums">pins</span>
             </div>
           </div>
         </div>
@@ -1326,7 +1326,7 @@ export function getCampaignFoldersPageHtml(folderId = '') {
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div class="flex flex-col gap-1.5">
             <label class="text-xs font-semibold text-slate-700 dark:text-slate-300">Crawl Scope</label>
-            <select x-model="folderSettings.crawl_scope" class="w-full text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-3 py-2 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500">
+            <select x-model="folderSettings.crawl_scope" class="w-full text-xs rounded-xl bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] px-3 py-2 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500">
               <option value="all_pins">all_pins (Active + Vault Archive)</option>
               <option value="active_serp">active_serp (Top 100 Organic Only)</option>
             </select>
@@ -1334,10 +1334,10 @@ export function getCampaignFoldersPageHtml(folderId = '') {
           <div class="flex flex-col gap-1.5">
             <label class="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center justify-between">
               <span>Inspection Cap</span>
-              <span class="text-[10px] text-slate-400 font-mono" x-text="folderSettings.max_catalog_inspect === '0' ? 'Unlimited' : folderSettings.max_catalog_inspect + ' pins'"></span>
+              <span class="text-[10px] text-slate-400 font-mono tabular-nums" x-text="folderSettings.max_catalog_inspect === '0' ? 'Unlimited' : folderSettings.max_catalog_inspect + ' pins'"></span>
             </label>
             <input type="number" x-model="folderSettings.max_catalog_inspect" min="0" step="50" placeholder="0 = Unlimited"
-                   class="w-full text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-3 py-2 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500">
+                   class="w-full text-xs rounded-xl bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] px-3 py-2 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500">
           </div>
         </div>
       </div>
@@ -1349,13 +1349,13 @@ export function getCampaignFoldersPageHtml(folderId = '') {
         <div class="flex flex-col gap-1.5">
           <label class="text-xs font-semibold text-slate-700 dark:text-slate-300">Folder Name</label>
           <input type="text" x-model="folderSettings.name" placeholder="e.g. Crockpot Meals Cluster"
-                 class="w-full text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-3 py-2 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500">
+                 class="w-full text-xs rounded-xl bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] px-3 py-2 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500">
         </div>
 
         <div class="flex flex-col gap-1.5">
           <label class="text-xs font-semibold text-slate-700 dark:text-slate-300">Campaign Description</label>
           <textarea x-model="folderSettings.description" rows="2" placeholder="Campaign Topic Cluster & Cross-SERP Intelligence"
-                    class="w-full text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-3 py-2 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"></textarea>
+                    class="w-full text-xs rounded-xl bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] px-3 py-2 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"></textarea>
         </div>
 
         <div class="flex flex-col gap-1.5">
@@ -1372,24 +1372,24 @@ export function getCampaignFoldersPageHtml(folderId = '') {
       </div>
 
       <!-- Section 3: Cluster Keywords Summary -->
-      <div class="p-3 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs">
+      <div class="p-3 rounded-2xl bg-slate-50 dark:bg-[#121215]/60 border border-slate-200 dark:border-[#27272A] flex items-center justify-between text-xs">
         <div class="flex items-center gap-2">
           <span class="font-bold text-slate-700 dark:text-slate-300">Cluster Status:</span>
-          <span class="font-mono text-emerald-600 dark:text-emerald-400 font-semibold" x-text="crawledKeywordsCount + ' Crawled'"></span>
+          <span class="font-mono tabular-nums text-emerald-600 dark:text-emerald-400 font-semibold" x-text="crawledKeywordsCount + ' Crawled'"></span>
           <span class="text-slate-400">•</span>
-          <span class="font-mono text-amber-600 dark:text-amber-400 font-semibold" x-text="pendingKeywordsCount + ' Pending Harvest'"></span>
+          <span class="font-mono tabular-nums text-amber-600 dark:text-amber-400 font-semibold" x-text="pendingKeywordsCount + ' Pending Harvest'"></span>
         </div>
-        <span class="text-[11px] font-mono text-slate-500" x-text="totalKeywordsCount + ' Total Keywords'"></span>
+        <span class="text-[11px] font-mono tabular-nums text-slate-500" x-text="totalKeywordsCount + ' Total Keywords'"></span>
       </div>
 
       <!-- Modal Footer -->
-      <div class="flex items-center justify-between gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
-        <button type="button" @click="isSettingsModalOpen = false" class="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition">
+      <div class="flex items-center justify-between gap-3 pt-3 border-t border-slate-100 dark:border-[#27272A]">
+        <button type="button" @click="isSettingsModalOpen = false" class="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-600 dark:text-slate-300 transition">
           Cancel
         </button>
         <div class="flex items-center gap-2">
           <button type="button" @click="saveFolderSettings(false)" :disabled="settingsLoading"
-                  class="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 transition">
+                  class="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-200 hover:bg-slate-300 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-800 dark:text-slate-200 transition">
             <span x-text="settingsLoading ? 'Saving...' : 'Save Settings'"></span>
           </button>
           <button type="button" @click="saveFolderSettings(true)" :disabled="settingsLoading || auditDispatching"

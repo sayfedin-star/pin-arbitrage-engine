@@ -31,7 +31,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
   <title>Keyword Intelligence & Velocity | Pinterest SERP Radar Studio</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
@@ -39,7 +39,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
       theme: {
         extend: {
           fontFamily: {
-            sans: ['Inter', 'sans-serif'],
+            sans: ['Geist', 'system-ui', '-apple-system', 'sans-serif'],
             mono: ['JetBrains Mono', 'monospace']
           },
           colors: {
@@ -122,7 +122,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
     }, 1200);
   </script>
 </head>
-<body x-cloak class="bg-slate-50 dark:bg-[#070b14] text-slate-900 dark:text-slate-100 min-h-screen font-sans antialiased selection:bg-emerald-500 selection:text-white"
+<body x-cloak class="bg-slate-50 dark:bg-[#09090B] text-slate-900 dark:text-slate-100 min-h-screen font-sans antialiased selection:bg-emerald-500 selection:text-white"
       x-data="keywordStudio()">
 
   <!-- Toast Notification -->
@@ -153,7 +153,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
 
       <!-- [INVARIANT: MODERN-MINIMALIST-HEADER] Linear / Vercel Executive Header -->
       <template x-if="!activeFolderId">
-        <section class="p-4 sm:p-5 rounded-2xl bg-white dark:bg-[#0c101b] border border-slate-200/80 dark:border-slate-800/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <section class="p-4 sm:p-5 rounded-2xl bg-white dark:bg-[#121215] border border-slate-200/80 dark:border-[#27272A]/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div class="flex items-center space-x-3.5">
             <div class="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 flex items-center justify-center shadow-xs shrink-0">
               <i data-lucide="layers" class="w-5 h-5"></i>
@@ -161,7 +161,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
             <div>
               <div class="flex items-center space-x-2">
                 <h2 class="text-lg sm:text-xl font-bold tracking-tight text-slate-900 dark:text-white">Keywords Fleet Dashboard</h2>
-                <span class="px-2 py-0.5 rounded-md text-[10px] font-mono font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">Level 1A</span>
+                <span class="px-2 py-0.5 rounded-md text-[10px] font-mono tabular-nums font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">Level 1A</span>
               </div>
               <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-normal">Multi-Cluster Organic SERP Monitoring · Velocity Tracking & Fleet Telemetry</p>
             </div>
@@ -180,12 +180,12 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                class="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-pink-500/10 hover:bg-pink-500/20 dark:bg-pink-950/30 dark:hover:bg-pink-900/40 border border-pink-500/20 text-pink-600 dark:text-pink-400 transition inline-flex items-center space-x-1.5 shadow-2xs">
               <i data-lucide="folder-kanban" class="w-3.5 h-3.5 text-pink-500"></i>
               <span class="hidden sm:inline">Folders</span>
-              <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-pink-500/20 text-pink-600 dark:text-pink-300 font-mono font-medium" x-text="folders.length"></span>
+              <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-pink-500/20 text-pink-600 dark:text-pink-300 font-mono tabular-nums font-medium" x-text="folders.length"></span>
             </a>
 
             <!-- Refresh Hub Button -->
             <button @click="fetchKeywords(true)" :disabled="isKeywordsLoading"
-                    class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/80 dark:hover:bg-slate-700/80 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition inline-flex items-center space-x-1.5 shadow-2xs cursor-pointer active:scale-95"
+                    class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/80 dark:hover:bg-slate-700/80 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-[#27272A] transition inline-flex items-center space-x-1.5 shadow-2xs cursor-pointer active:scale-95"
                     title="Sync with Neon Central Hub">
               <i data-lucide="refresh-cw" class="w-3.5 h-3.5" :class="isKeywordsLoading ? 'animate-spin text-emerald-500' : 'text-slate-400'"></i>
               <span class="hidden sm:inline">Refresh</span>
@@ -200,7 +200,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
 
             <!-- Settings -->
             <button @click="openSettingsModal()"
-                    class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/80 dark:hover:bg-slate-700/80 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition inline-flex items-center space-x-1.5 shadow-2xs cursor-pointer"
+                    class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/80 dark:hover:bg-slate-700/80 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-[#27272A] transition inline-flex items-center space-x-1.5 shadow-2xs cursor-pointer"
                     title="Configure Crawl Depth & Breakout Hunter">
               <i data-lucide="sliders" class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400"></i>
               <span>Settings</span>
@@ -217,12 +217,12 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
       </template>
 
       <!-- [INVARIANT: MODERN-MINIMALIST-TELEMETRY-PARITY] Consolidated high-density telemetry strip eliminating card bloat while preserving all 4-pillar fleet telemetry metrics -->
-      <section class="rounded-2xl bg-white dark:bg-[#0c101b] border border-slate-200/80 dark:border-slate-800/80 shadow-xs divide-y sm:divide-y-0 sm:divide-x divide-slate-100 dark:divide-slate-800/80 grid grid-cols-2 lg:grid-cols-4 overflow-hidden">
+      <section class="rounded-2xl bg-white dark:bg-[#121215] border border-slate-200/80 dark:border-[#27272A]/80 shadow-xs divide-y sm:divide-y-0 sm:divide-x divide-slate-100 dark:divide-slate-800/80 grid grid-cols-2 lg:grid-cols-4 overflow-hidden">
         
         <!-- Metric 1: Tracked Queries Fleet -->
         <div class="p-4 sm:p-5 flex flex-col justify-between space-y-2">
           <div class="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-            <span class="font-medium text-[11px] uppercase tracking-wider font-mono">Tracked Queries</span>
+            <span class="font-medium text-[11px] uppercase tracking-wider font-mono tabular-nums">Tracked Queries</span>
             <span class="p-1 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
               <i data-lucide="tags" class="w-3.5 h-3.5"></i>
             </span>
@@ -236,10 +236,10 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
           <template x-if="!isKeywordsLoading">
             <div>
               <div class="flex items-baseline gap-2">
-                <span class="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white font-mono tracking-tight" x-text="activeFolderId ? filteredDashboardKeywords.length : keywords.length"></span>
-                <span class="text-xs text-slate-400 font-mono">monitored</span>
+                <span class="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white font-mono tabular-nums tracking-tight" x-text="activeFolderId ? filteredDashboardKeywords.length : keywords.length"></span>
+                <span class="text-xs text-slate-400 font-mono tabular-nums">monitored</span>
               </div>
-              <div class="flex items-center gap-2 mt-1.5 text-[11px] font-mono">
+              <div class="flex items-center gap-2 mt-1.5 text-[11px] font-mono tabular-nums">
                 <span class="text-emerald-600 dark:text-emerald-400 font-semibold" x-text="activeKeywordsCount + ' active'"></span>
                 <span class="text-slate-300 dark:text-slate-700">·</span>
                 <span class="text-amber-600 dark:text-amber-400 font-medium" x-text="pausedKeywordsCount + ' paused'"></span>
@@ -251,7 +251,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
         <!-- Metric 2: Monitored Organic Pins -->
         <div class="p-4 sm:p-5 flex flex-col justify-between space-y-2">
           <div class="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-            <span class="font-medium text-[11px] uppercase tracking-wider font-mono" x-text="activeFolderId ? 'Active Crawled Pins' : 'Monitored Organic Pins'"></span>
+            <span class="font-medium text-[11px] uppercase tracking-wider font-mono tabular-nums" x-text="activeFolderId ? 'Active Crawled Pins' : 'Monitored Organic Pins'"></span>
             <span class="p-1 rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400">
               <i data-lucide="database" class="w-3.5 h-3.5"></i>
             </span>
@@ -265,10 +265,10 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
           <template x-if="!isKeywordsLoading">
             <div>
               <div class="flex items-baseline gap-2">
-                <span class="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white font-mono tracking-tight" x-text="formatNumber(totalMonitoredPins)"></span>
-                <span class="text-xs text-slate-400 font-mono">pins</span>
+                <span class="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white font-mono tabular-nums tracking-tight" x-text="formatNumber(totalMonitoredPins)"></span>
+                <span class="text-xs text-slate-400 font-mono tabular-nums">pins</span>
               </div>
-              <div class="mt-1.5 text-[11px] font-mono text-slate-500 dark:text-slate-400">
+              <div class="mt-1.5 text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400">
                 <span>Quota: </span>
                 <span class="text-blue-600 dark:text-blue-400 font-medium" x-text="'~' + (appSettings.default_max_pins || 250) + ' pins / query'"></span>
               </div>
@@ -279,7 +279,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
         <!-- Metric 3: Campaign Folders (Global) / Displaced Pins (Folder Scoped) -->
         <div class="p-4 sm:p-5 flex flex-col justify-between space-y-2">
           <div class="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-            <span class="font-medium text-[11px] uppercase tracking-wider font-mono" x-text="activeFolderId ? 'Displaced Pins' : 'Campaign Folders'"></span>
+            <span class="font-medium text-[11px] uppercase tracking-wider font-mono tabular-nums" x-text="activeFolderId ? 'Displaced Pins' : 'Campaign Folders'"></span>
             <span class="p-1 rounded-md" :class="activeFolderId ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'">
               <i :data-lucide="activeFolderId ? 'archive' : 'folder'" class="w-3.5 h-3.5"></i>
             </span>
@@ -293,10 +293,10 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
           <template x-if="!isKeywordsLoading">
             <div>
               <div class="flex items-baseline gap-2">
-                <span class="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white font-mono tracking-tight" x-text="formatNumber(activeFolderId ? totalDisplacedPinsCount : folders.length)"></span>
-                <span class="text-xs text-slate-400 font-mono" x-text="activeFolderId ? 'in vault' : 'organized'"></span>
+                <span class="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white font-mono tabular-nums tracking-tight" x-text="formatNumber(activeFolderId ? totalDisplacedPinsCount : folders.length)"></span>
+                <span class="text-xs text-slate-400 font-mono tabular-nums" x-text="activeFolderId ? 'in vault' : 'organized'"></span>
               </div>
-              <div class="mt-1.5 text-[11px] font-mono text-slate-500 dark:text-slate-400">
+              <div class="mt-1.5 text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400">
                 <template x-if="!activeFolderId">
                   <a href="/folders" class="text-amber-600 dark:text-amber-400 hover:underline font-medium inline-flex items-center gap-1">
                     <span>Manage folders</span>
@@ -314,7 +314,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
         <!-- Metric 4: Nightly Crawler Fleet Status (Global) / Average Velocity (Folder Scoped) -->
         <div class="p-4 sm:p-5 flex flex-col justify-between space-y-2">
           <div class="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-            <span class="font-medium text-[11px] uppercase tracking-wider font-mono" x-text="activeFolderId ? 'Average Velocity' : 'Nightly Crawler Fleet'"></span>
+            <span class="font-medium text-[11px] uppercase tracking-wider font-mono tabular-nums" x-text="activeFolderId ? 'Average Velocity' : 'Nightly Crawler Fleet'"></span>
             <span class="p-1 rounded-md" :class="activeFolderId ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400' : 'bg-purple-500/10 text-purple-600 dark:text-purple-400'">
               <i :data-lucide="activeFolderId ? 'zap' : 'clock'" class="w-3.5 h-3.5"></i>
             </span>
@@ -323,12 +323,12 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
             <template x-if="!activeFolderId">
               <div>
                 <div class="flex items-center gap-2">
-                  <span class="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25 inline-flex items-center gap-1.5">
+                  <span class="px-2 py-0.5 rounded-md text-[10px] font-mono tabular-nums font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25 inline-flex items-center gap-1.5">
                     <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
                     <span>OPERATIONAL</span>
                   </span>
                 </div>
-                <div class="mt-2 text-[11px] font-mono text-slate-500 dark:text-slate-400 truncate" :title="nightlySyncCountdown">
+                <div class="mt-2 text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400 truncate" :title="nightlySyncCountdown">
                   <span x-text="nightlySyncCountdown"></span>
                 </div>
               </div>
@@ -336,10 +336,10 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
             <template x-if="activeFolderId">
               <div>
                 <div class="flex items-baseline gap-2">
-                  <span class="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white font-mono tracking-tight" x-text="averageFleetVelocity"></span>
-                  <span class="text-xs text-slate-400 font-mono">saves / day</span>
+                  <span class="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white font-mono tabular-nums tracking-tight" x-text="averageFleetVelocity"></span>
+                  <span class="text-xs text-slate-400 font-mono tabular-nums">saves / day</span>
                 </div>
-                <div class="mt-1.5 text-[11px] font-mono text-purple-600 dark:text-purple-400 font-medium">
+                <div class="mt-1.5 text-[11px] font-mono tabular-nums text-purple-600 dark:text-purple-400 font-medium">
                   <span>Cluster save velocity</span>
                 </div>
               </div>
@@ -350,7 +350,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
       </section>
 
       <!-- FILTER & SORT CONTROLS STRIP (LINEAR STYLE) -->
-      <section class="p-3.5 rounded-2xl bg-white dark:bg-[#0c101b] border border-slate-200/80 dark:border-slate-800/80 shadow-xs space-y-2.5">
+      <section class="p-3.5 rounded-2xl bg-white dark:bg-[#121215] border border-slate-200/80 dark:border-[#27272A]/80 shadow-xs space-y-2.5">
         <div class="flex flex-col md:flex-row md:items-center justify-between gap-2.5">
           <!-- Left: Search and Dropdowns -->
           <div class="flex flex-wrap items-center gap-2 flex-1">
@@ -358,7 +358,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
             <div class="relative flex-1 min-w-[220px] max-w-sm">
               <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
               <input type="text" x-model="dashboardSearch" placeholder="Search keywords, categories, or folders..."
-                     class="w-full pl-8 pr-7 py-1.5 text-xs rounded-lg bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800/90 text-slate-800 dark:text-slate-200 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 focus:border-emerald-500/50 transition">
+                     class="w-full pl-8 pr-7 py-1.5 text-xs rounded-lg bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-[#27272A]/90 text-slate-800 dark:text-slate-200 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 focus:border-emerald-500/50 transition">
               <button x-show="dashboardSearch" @click="dashboardSearch = ''"
                       class="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-white p-0.5 cursor-pointer">
                 <i data-lucide="x" class="w-3 h-3"></i>
@@ -366,7 +366,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
             </div>
 
             <!-- Campaign Folders filter dropdown -->
-            <select x-model="dashboardFolderFilter" class="px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800/90 text-xs font-medium text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 cursor-pointer">
+            <select x-model="dashboardFolderFilter" class="px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-[#27272A]/90 text-xs font-medium text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 cursor-pointer">
               <option value="ALL">📁 All Folders</option>
               <option value="UNASSIGNED">Unassigned (No Folder)</option>
               <template x-for="f in folders" :key="f.id">
@@ -375,7 +375,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
             </select>
 
             <!-- Category filter dropdown -->
-            <select x-model="dashboardCategoryFilter" class="px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800/90 text-xs font-medium text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 cursor-pointer">
+            <select x-model="dashboardCategoryFilter" class="px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-[#27272A]/90 text-xs font-medium text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 cursor-pointer">
               <option value="ALL">All Categories</option>
               <template x-for="cat in uniqueCategories" :key="cat">
                 <option :value="cat" x-text="cat"></option>
@@ -383,14 +383,14 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
             </select>
 
             <!-- Status filter dropdown -->
-            <select x-model="dashboardStatusFilter" class="px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800/90 text-xs font-medium text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 cursor-pointer">
+            <select x-model="dashboardStatusFilter" class="px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-[#27272A]/90 text-xs font-medium text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 cursor-pointer">
               <option value="ALL">All Statuses</option>
               <option value="ACTIVE">Active Only</option>
               <option value="PAUSED">Paused Only</option>
             </select>
 
             <!-- Sort filter dropdown -->
-            <select x-model="dashboardSort" class="px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800/90 text-xs font-medium text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 cursor-pointer">
+            <select x-model="dashboardSort" class="px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-[#27272A]/90 text-xs font-medium text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 cursor-pointer">
               <option value="total_pins">Sort: Total Pins</option>
               <option value="created_desc">Sort: Date Added (Newest)</option>
               <option value="created_asc">Sort: Date Added (Oldest)</option>
@@ -401,13 +401,13 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
 
           <!-- Right: Counter, Columns Visibility & Table/Grid View Switcher -->
           <div class="flex items-center space-x-2 shrink-0">
-            <span class="text-xs font-mono text-slate-500 dark:text-slate-400 font-medium hidden md:inline"
+            <span class="text-xs font-mono tabular-nums text-slate-500 dark:text-slate-400 font-medium hidden md:inline"
                   x-text="filteredDashboardKeywords.length + ' of ' + (activeFolderId ? filteredDashboardKeywords.length : keywords.length) + ' Queries'"></span>
 
             <!-- Column Visibility Dropdown -->
             <div x-show="dashboardViewMode === 'table'" class="relative" x-data="{ isColumnsOpen: false }" @click.outside="isColumnsOpen = false" @keydown.escape.window="isColumnsOpen = false">
               <button type="button" @click="isColumnsOpen = !isColumnsOpen"
-                      class="px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 text-xs font-medium transition flex items-center space-x-1.5 cursor-pointer shadow-2xs">
+                      class="px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-200 dark:border-[#27272A] text-slate-700 dark:text-slate-300 text-xs font-medium transition flex items-center space-x-1.5 cursor-pointer shadow-2xs">
                 <i data-lucide="columns-3" class="w-3.5 h-3.5 text-slate-400"></i>
                 <span>Columns</span>
                 <i data-lucide="chevron-down" class="w-3 h-3 text-slate-400 transition-transform" :class="isColumnsOpen ? 'rotate-180' : ''"></i>
@@ -421,8 +421,8 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                    x-transition:leave="transition ease-in duration-100"
                    x-transition:leave-start="opacity-100 scale-100"
                    x-transition:leave-end="opacity-0 scale-95"
-                   class="absolute right-0 mt-2 w-56 rounded-xl bg-white dark:bg-[#0c1322] border border-slate-200 dark:border-slate-800 shadow-xl p-2 space-y-0.5 z-40 text-xs font-sans">
-                <div class="px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400 font-mono border-b border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
+                   class="absolute right-0 mt-2 w-56 rounded-xl bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] shadow-xl p-2 space-y-0.5 z-40 text-xs font-sans">
+                <div class="px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400 font-mono tabular-nums border-b border-slate-100 dark:border-[#27272A]/80 flex items-center justify-between">
                   <span>Display Columns</span>
                   <button type="button" @click="resetColumns()" class="text-emerald-500 hover:underline capitalize text-[10px]">Reset</button>
                 </div>
@@ -434,10 +434,10 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                            :checked="visibleColumns[col.key]"
                            :disabled="col.required"
                            @change="toggleColumn(col.key)"
-                           class="w-3.5 h-3.5 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300 dark:border-slate-700 cursor-pointer">
+                           class="w-3.5 h-3.5 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300 dark:border-[#27272A] cursor-pointer">
                     <span class="text-xs text-slate-700 dark:text-slate-300 font-medium" x-text="col.label"></span>
                     <template x-if="col.required">
-                      <span class="text-[9px] text-slate-400 font-mono ml-auto">(Required)</span>
+                      <span class="text-[9px] text-slate-400 font-mono tabular-nums ml-auto">(Required)</span>
                     </template>
                   </label>
                 </template>
@@ -445,7 +445,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
             </div>
 
             <!-- View Switcher (Table vs Grid) -->
-            <div class="flex items-center p-0.5 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+            <div class="flex items-center p-0.5 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-[#27272A]">
               <button @click="dashboardViewMode = 'table'"
                       :class="dashboardViewMode === 'table' ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs font-semibold' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'"
                       class="px-2 py-1 rounded-md text-xs transition flex items-center space-x-1 cursor-pointer"
@@ -465,9 +465,9 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
         </div>
 
         <!-- Category Quick Pills & Active Folder Pill -->
-        <div class="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-slate-800/80 text-xs">
+        <div class="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-[#27272A]/80 text-xs">
           <div class="flex flex-wrap items-center gap-1.5">
-            <span class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider font-mono mr-1">Categories:</span>
+            <span class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider font-mono tabular-nums mr-1">Categories:</span>
             <button @click="dashboardCategoryFilter = 'ALL'"
                     class="px-2 py-0.5 rounded-md text-xs font-medium transition cursor-pointer"
                     :class="dashboardCategoryFilter === 'ALL' ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-2xs' : 'bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'">
@@ -483,7 +483,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
 
           <!-- Active Folder Filter Indicator -->
           <template x-if="dashboardFolderFilter !== 'ALL'">
-            <div class="inline-flex items-center space-x-1.5 px-2 py-0.5 rounded-md bg-pink-500/10 text-pink-700 dark:text-pink-300 text-xs font-semibold border border-pink-500/20 font-mono">
+            <div class="inline-flex items-center space-x-1.5 px-2 py-0.5 rounded-md bg-pink-500/10 text-pink-700 dark:text-pink-300 text-xs font-semibold border border-pink-500/20 font-mono tabular-nums">
               <i data-lucide="folder" class="w-3 h-3 text-pink-500"></i>
               <span>Folder: <span x-text="activeFolderName"></span></span>
               <button @click="clearFolderFilter()" class="hover:text-pink-900 dark:hover:text-white p-0.5 cursor-pointer ml-1" title="Clear Folder Filter">
@@ -495,15 +495,15 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
       </section>
 
       <!-- [INVARIANT: HIGH-DENSITY-SERP-TABLE] Modern Minimalist SaaS table with Linear-grade tabular figures, dot status indicators, and clean nested vault pins breakdown -->
-      <section id="keywords-dashboard-table" x-show="dashboardViewMode === 'table'" class="rounded-2xl bg-white dark:bg-[#0c101b] border border-slate-200/80 dark:border-slate-800/80 shadow-xs overflow-hidden">
+      <section id="keywords-dashboard-table" x-show="dashboardViewMode === 'table'" class="rounded-2xl bg-white dark:bg-[#121215] border border-slate-200/80 dark:border-[#27272A]/80 shadow-xs overflow-hidden">
         <div class="overflow-x-auto">
           <table class="w-full text-left border-collapse">
             <thead>
-              <tr class="table-sticky-header bg-slate-50/90 dark:bg-[#080d19]/90 border-b border-slate-200/80 dark:border-slate-800/80 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 font-mono">
+              <tr class="table-sticky-header bg-slate-50/90 dark:bg-[#121215]/90 border-b border-slate-200/80 dark:border-[#27272A]/80 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 font-mono tabular-nums">
                 <th class="py-3 px-3.5 w-10 text-center">
                   <input type="checkbox" @click="toggleSelectAllDashboardKeywords()"
                          :checked="paginatedDashboardKeywords.length > 0 && paginatedDashboardKeywords.every(k => isDashboardKeywordSelected(k.id))"
-                         class="w-3.5 h-3.5 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 cursor-pointer">
+                         class="w-3.5 h-3.5 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300 dark:border-[#27272A] bg-white dark:bg-slate-900 cursor-pointer">
                 </th>
                 <th x-show="visibleColumns.preview" class="py-3 px-3 w-14">Preview</th>
                 <th x-show="visibleColumns.keyword" class="py-3 px-4 min-w-[240px]">Keyword & Folders</th>
@@ -546,12 +546,12 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                     <!-- Checkbox -->
                     <td class="py-3 px-3.5 text-center" @click.stop>
                       <input type="checkbox" :checked="isDashboardKeywordSelected(kw.id)" @click="toggleDashboardKeywordSelection(kw.id)"
-                             class="w-3.5 h-3.5 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 cursor-pointer">
+                             class="w-3.5 h-3.5 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300 dark:border-[#27272A] bg-white dark:bg-slate-900 cursor-pointer">
                     </td>
 
                     <!-- Thumbnail with Zoom -->
                     <td x-show="visibleColumns.preview" class="py-3 px-3">
-                      <div class="w-10 h-14 rounded-lg overflow-hidden bg-slate-100 dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-2xs relative">
+                      <div class="w-10 h-14 rounded-lg overflow-hidden bg-slate-100 dark:bg-slate-900 border border-slate-200/80 dark:border-[#27272A] shadow-2xs relative">
                         <template x-if="kw.top_pin_image">
                           <img :src="kw.top_pin_image" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200">
                         </template>
@@ -569,13 +569,13 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                         <span class="font-semibold text-slate-900 dark:text-slate-100 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 text-sm capitalize block transition-colors leading-snug"
                               x-text="kw.keyword"></span>
                         <div class="flex flex-wrap items-center gap-1.5">
-                          <span class="px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700/60"
+                          <span class="px-1.5 py-0.5 rounded text-[10px] font-mono tabular-nums font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/60 dark:border-[#27272A]/60"
                                 x-text="kw.category || 'General'"></span>
                           
                           <!-- Campaign Folders Tags -->
                           <template x-for="f in getKeywordFolders(kw)" :key="f.id">
                             <button type="button" @click.stop="filterByFolder(f.id)"
-                                    class="px-1.5 py-0.5 rounded text-[10px] font-medium font-mono transition inline-flex items-center gap-1 border cursor-pointer hover:opacity-85 shadow-2xs"
+                                    class="px-1.5 py-0.5 rounded text-[10px] font-medium font-mono tabular-nums transition inline-flex items-center gap-1 border cursor-pointer hover:opacity-85 shadow-2xs"
                                     :style="'background-color: ' + (f.color || '#ec4899') + '12; color: ' + (f.color || '#ec4899') + '; border-color: ' + (f.color || '#ec4899') + '30;'"
                                     :title="'Filter by folder: ' + f.name">
                               <i data-lucide="folder" class="w-2.5 h-2.5 shrink-0"></i>
@@ -586,7 +586,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                           <!-- If no folders, quick add button -->
                           <template x-if="getKeywordFolders(kw).length === 0">
                             <button type="button" @click.stop="openQuickFolderModal(kw)"
-                                    class="px-1.5 py-0.5 rounded text-[10px] font-mono text-slate-400 hover:text-pink-500 hover:bg-pink-500/10 transition border border-dashed border-slate-200 dark:border-slate-800 inline-flex items-center gap-1 cursor-pointer"
+                                    class="px-1.5 py-0.5 rounded text-[10px] font-mono tabular-nums text-slate-400 hover:text-pink-500 hover:bg-pink-500/10 transition border border-dashed border-slate-200 dark:border-[#27272A] inline-flex items-center gap-1 cursor-pointer"
                                     title="Add to Campaign Folder">
                               <i data-lucide="folder-plus" class="w-2.5 h-2.5"></i>
                               <span>Folder</span>
@@ -594,14 +594,14 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                           </template>
 
                           <template x-if="kw.annotation_id">
-                            <span class="text-[10px] font-mono text-slate-400" x-text="'ID: ' + kw.annotation_id"></span>
+                            <span class="text-[10px] font-mono tabular-nums text-slate-400" x-text="'ID: ' + kw.annotation_id"></span>
                           </template>
                         </div>
                       </div>
                     </td>
 
                     <!-- SERP Topology & Total Pins (Two-Tone Topology Bar) -->
-                    <td x-show="visibleColumns.total_pins" class="py-3 px-3 font-mono">
+                    <td x-show="visibleColumns.total_pins" class="py-3 px-3 font-mono tabular-nums">
                       <div class="space-y-1.5 min-w-[120px]" :title="(kw.active_pins_count ?? getKeywordTotalPins(kw)) + ' Active SERP + ' + (kw.displaced_pins_count || 0) + ' Displaced Vault'">
                         <div class="flex items-center justify-between text-xs">
                           <div class="flex items-center gap-1 text-[11px]">
@@ -609,7 +609,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                             <span class="text-slate-300 dark:text-slate-700">·</span>
                             <span class="font-medium text-indigo-600 dark:text-indigo-400 tabular-nums" x-text="(kw.displaced_pins_count || 0) + ' Vault'"></span>
                           </div>
-                          <span class="text-[10px] text-slate-400 font-mono" x-text="formatNumber(getKeywordTotalPins(kw))"></span>
+                          <span class="text-[10px] text-slate-400 font-mono tabular-nums" x-text="formatNumber(getKeywordTotalPins(kw))"></span>
                         </div>
                         <!-- Two-Tone Topology Progress Bar -->
                         <div class="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden flex">
@@ -626,7 +626,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                     <!-- Status Indicator (Linear Dot Badge) -->
                     <td x-show="visibleColumns.status" class="py-3 px-3 text-center" @click.stop>
                       <button @click="toggleKeywordStatus(kw)"
-                              class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-mono font-medium transition cursor-pointer border shadow-2xs"
+                              class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-mono tabular-nums font-medium transition cursor-pointer border shadow-2xs"
                               :class="kw.is_active !== false ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20 hover:bg-amber-500/20'"
                               :title="kw.is_active !== false ? 'Click to Pause Tracking' : 'Click to Resume Tracking'">
                         <span class="w-1.5 h-1.5 rounded-full" :class="kw.is_active !== false ? 'bg-emerald-500' : 'bg-amber-500'"></span>
@@ -636,7 +636,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
 
                     <!-- Date Added -->
                     <td x-show="visibleColumns.created_at" class="py-3 px-3">
-                      <div class="space-y-0.5 font-mono text-xs">
+                      <div class="space-y-0.5 font-mono tabular-nums text-xs">
                         <span class="font-medium text-slate-700 dark:text-slate-300 block" x-text="kw._relativeCreatedAt || formatRelativeTime(kw.created_at)"></span>
                         <span class="text-[10px] text-slate-400 dark:text-slate-500 block truncate" x-text="kw._formattedCreatedAt || formatDate(kw.created_at)"></span>
                       </div>
@@ -644,7 +644,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
 
                     <!-- Last Crawled -->
                     <td x-show="visibleColumns.last_crawled" class="py-3 px-3">
-                      <div class="space-y-0.5 font-mono text-xs">
+                      <div class="space-y-0.5 font-mono tabular-nums text-xs">
                         <span class="font-medium text-slate-700 dark:text-slate-300 block" x-text="kw._relativeCrawledAt || formatRelativeTime(kw.last_crawled_at)"></span>
                         <span class="text-[10px] text-slate-400 dark:text-slate-500 block truncate" x-text="kw._formattedCrawledAt || formatDate(kw.last_crawled_at)"></span>
                       </div>
@@ -691,7 +691,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                       <div class="flex items-center gap-2 max-w-sm mx-auto pt-1">
                         <input type="text" x-model="quickKeywordInput" @keydown.enter="submitQuickKeyword()"
                                placeholder="e.g. breakfast ideas, high protein meals..."
-                               class="flex-1 px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-emerald-500/50">
+                               class="flex-1 px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-[#27272A] text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-emerald-500/50">
                         <button @click="submitQuickKeyword()"
                                 class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition inline-flex items-center gap-1 shrink-0 cursor-pointer">
                           <i data-lucide="plus" class="w-3.5 h-3.5"></i>
@@ -708,10 +708,10 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
 
         <!-- DASHBOARD TABLE PAGINATION FOOTER -->
         <template x-if="!isKeywordsLoading && filteredDashboardKeywords && filteredDashboardKeywords.length > 0">
-          <div class="px-4 py-3 border-t border-slate-200/80 dark:border-slate-800/80 bg-slate-50/50 dark:bg-slate-900/30 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+          <div class="px-4 py-3 border-t border-slate-200/80 dark:border-[#27272A]/80 bg-slate-50/50 dark:bg-slate-900/30 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
             
             <!-- Left: Items range & Page Size selector -->
-            <div class="flex flex-wrap items-center gap-3 text-slate-500 font-mono text-[11px]">
+            <div class="flex flex-wrap items-center gap-3 text-slate-500 font-mono tabular-nums text-[11px]">
               <div>
                 <span>Showing </span>
                 <span class="font-bold text-slate-900 dark:text-white" x-text="dashboardRangeStart"></span>
@@ -725,7 +725,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
               <!-- Per Page Selector -->
               <div class="flex items-center space-x-1.5">
                 <span class="text-slate-400 font-sans">Rows:</span>
-                <select x-model="dashboardPageSize" class="px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[11px] font-mono font-medium text-slate-700 dark:text-slate-300 focus:outline-none cursor-pointer">
+                <select x-model="dashboardPageSize" class="px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] text-[11px] font-mono tabular-nums font-medium text-slate-700 dark:text-slate-300 focus:outline-none cursor-pointer">
                   <option :value="10">10 / page</option>
                   <option :value="25">25 / page</option>
                   <option :value="50">50 / page</option>
@@ -744,14 +744,14 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
               <div class="flex items-center space-x-1">
                 <!-- First Page -->
                 <button type="button" @click="setDashboardPage(1)" :disabled="dashboardPage <= 1"
-                        class="p-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer text-slate-600 dark:text-slate-400"
+                        class="p-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer text-slate-600 dark:text-slate-400"
                         title="First Page">
                   <i data-lucide="chevrons-left" class="w-3.5 h-3.5"></i>
                 </button>
 
                 <!-- Previous Page -->
                 <button type="button" @click="setDashboardPage(dashboardPage - 1)" :disabled="dashboardPage <= 1"
-                        class="p-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer text-slate-600 dark:text-slate-400"
+                        class="p-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer text-slate-600 dark:text-slate-400"
                         title="Previous Page">
                   <i data-lucide="chevron-left" class="w-3.5 h-3.5"></i>
                 </button>
@@ -760,10 +760,10 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                 <div class="flex items-center space-x-1 px-1">
                   <template x-for="(p, pIdx) in dashboardPageNumbers" :key="'p-' + pIdx + '-' + p">
                     <div>
-                      <span x-show="p === '...'" class="px-1.5 py-0.5 text-slate-400 font-mono text-xs">...</span>
+                      <span x-show="p === '...'" class="px-1.5 py-0.5 text-slate-400 font-mono tabular-nums text-xs">...</span>
                       <button x-show="p !== '...'" type="button" @click="setDashboardPage(p)"
-                              class="min-w-7 h-7 px-1.5 rounded-md text-xs font-mono font-medium transition cursor-pointer"
-                              :class="dashboardPage === p ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-2xs' : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'"
+                              class="min-w-7 h-7 px-1.5 rounded-md text-xs font-mono tabular-nums font-medium transition cursor-pointer"
+                              :class="dashboardPage === p ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-2xs' : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'"
                               x-text="p"></button>
                     </div>
                   </template>
@@ -771,14 +771,14 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
 
                 <!-- Next Page -->
                 <button type="button" @click="setDashboardPage(dashboardPage + 1)" :disabled="dashboardPage >= dashboardTotalPages"
-                        class="p-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer text-slate-600 dark:text-slate-400"
+                        class="p-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer text-slate-600 dark:text-slate-400"
                         title="Next Page">
                   <i data-lucide="chevron-right" class="w-3.5 h-3.5"></i>
                 </button>
 
                 <!-- Last Page -->
                 <button type="button" @click="setDashboardPage(dashboardTotalPages)" :disabled="dashboardPage >= dashboardTotalPages"
-                        class="p-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer text-slate-600 dark:text-slate-400"
+                        class="p-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer text-slate-600 dark:text-slate-400"
                         title="Last Page">
                   <i data-lucide="chevrons-right" class="w-3.5 h-3.5"></i>
                 </button>
@@ -794,7 +794,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
         <template x-if="isKeywordsLoading">
           <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
             <template x-for="i in [1, 2, 3, 4]" :key="i">
-              <div class="rounded-2xl bg-white dark:bg-[#0c101b] border border-slate-200/80 dark:border-slate-800/80 p-3.5 space-y-3 animate-pulse">
+              <div class="rounded-2xl bg-white dark:bg-[#121215] border border-slate-200/80 dark:border-[#27272A]/80 p-3.5 space-y-3 animate-pulse">
                 <div class="w-full h-44 bg-slate-200 dark:bg-slate-800 rounded-xl"></div>
                 <div class="h-4 w-32 bg-slate-200 dark:bg-slate-800 rounded"></div>
                 <div class="h-3 w-20 bg-slate-100 dark:bg-slate-800/60 rounded"></div>
@@ -808,7 +808,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
           <div class="space-y-4">
             <!-- Grid Empty State -->
             <template x-if="!filteredDashboardKeywords || filteredDashboardKeywords.length === 0">
-              <div class="p-12 text-center rounded-2xl bg-white dark:bg-[#0c101b] border border-slate-200/80 dark:border-slate-800/80 shadow-xs">
+              <div class="p-12 text-center rounded-2xl bg-white dark:bg-[#121215] border border-slate-200/80 dark:border-[#27272A]/80 shadow-xs">
                 <div class="max-w-md mx-auto space-y-3">
                   <div class="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 mx-auto flex items-center justify-center">
                     <i data-lucide="search" class="w-5 h-5"></i>
@@ -822,11 +822,11 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
             <div x-show="filteredDashboardKeywords && filteredDashboardKeywords.length > 0"
                  class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
               <template x-for="kw in paginatedDashboardKeywords" :key="kw.id">
-                <div class="rounded-2xl bg-white dark:bg-[#0c101b] border border-slate-200/80 dark:border-slate-800/80 p-3.5 shadow-xs hover:border-slate-300 dark:hover:border-slate-700 transition duration-150 group flex flex-col justify-between cursor-pointer space-y-3"
+                <div class="rounded-2xl bg-white dark:bg-[#121215] border border-slate-200/80 dark:border-[#27272A]/80 p-3.5 shadow-xs hover:border-slate-300 dark:hover:border-slate-700 transition duration-150 group flex flex-col justify-between cursor-pointer space-y-3"
                      @click="switchToSerpStudio(kw)">
                   
                   <!-- Card Header: Image Banner with Floating Badges -->
-                  <div class="w-full h-44 rounded-xl overflow-hidden bg-slate-100 dark:bg-slate-900 border border-slate-200/70 dark:border-slate-800 relative">
+                  <div class="w-full h-44 rounded-xl overflow-hidden bg-slate-100 dark:bg-slate-900 border border-slate-200/70 dark:border-[#27272A] relative">
                     <template x-if="kw.top_pin_image">
                       <img :src="kw.top_pin_image" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300">
                     </template>
@@ -838,11 +838,11 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
 
                     <!-- Top Badges Overlay -->
                     <div class="absolute top-2 left-2 right-2 flex items-center justify-between">
-                      <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-medium backdrop-blur-md"
+                      <span class="px-2 py-0.5 rounded-full text-[10px] font-mono tabular-nums font-medium backdrop-blur-md"
                             :class="kw.is_active !== false ? 'bg-slate-950/80 text-emerald-400 border border-emerald-500/30' : 'bg-slate-950/80 text-amber-400 border border-amber-500/30'"
                             x-text="kw.is_active !== false ? '● Active' : '● Paused'"></span>
 
-                      <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-medium bg-slate-950/80 text-slate-200 backdrop-blur-md border border-slate-700/60 inline-flex items-center space-x-1"
+                      <span class="px-2 py-0.5 rounded-full text-[10px] font-mono tabular-nums font-medium bg-slate-950/80 text-slate-200 backdrop-blur-md border border-slate-700/60 inline-flex items-center space-x-1"
                             :title="(kw.active_pins_count ?? getKeywordTotalPins(kw)) + ' Active + ' + (kw.displaced_pins_count || 0) + ' Vault'">
                         <i data-lucide="pin" class="w-3 h-3 text-emerald-400"></i>
                         <span x-text="getKeywordTotalPins(kw) + ' Pins'"></span>
@@ -861,13 +861,13 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                     </div>
 
                     <div class="flex flex-wrap items-center gap-1">
-                      <span class="inline-block px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700/60"
+                      <span class="inline-block px-1.5 py-0.5 rounded text-[10px] font-mono tabular-nums font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/60 dark:border-[#27272A]/60"
                             x-text="kw.category || 'General'"></span>
                       
                       <!-- Folder Tags -->
                       <template x-for="f in getKeywordFolders(kw)" :key="f.id">
                         <button type="button" @click.stop="filterByFolder(f.id)"
-                                class="px-1.5 py-0.5 rounded text-[10px] font-medium font-mono transition inline-flex items-center space-x-1 border cursor-pointer hover:opacity-85 shadow-2xs"
+                                class="px-1.5 py-0.5 rounded text-[10px] font-medium font-mono tabular-nums transition inline-flex items-center space-x-1 border cursor-pointer hover:opacity-85 shadow-2xs"
                                 :style="'background-color: ' + (f.color || '#ec4899') + '12; color: ' + (f.color || '#ec4899') + '; border-color: ' + (f.color || '#ec4899') + '30;'"
                                 :title="'Click to filter keywords in: ' + f.name">
                           <i data-lucide="folder" class="w-2.5 h-2.5 shrink-0"></i>
@@ -877,7 +877,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                     </div>
 
                     <!-- Total Pins & Topology Progress Bar -->
-                    <div class="space-y-1 pt-1.5 font-mono text-xs">
+                    <div class="space-y-1 pt-1.5 font-mono tabular-nums text-xs">
                       <div class="flex items-center justify-between text-[11px]">
                         <span class="text-slate-400 font-sans">SERP Topology:</span>
                         <div>
@@ -896,8 +896,8 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                   </div>
 
                   <!-- Card Footer Actions -->
-                  <div class="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
-                    <div class="space-y-0.5 text-[10px] font-mono">
+                  <div class="pt-2 border-t border-slate-100 dark:border-[#27272A] flex items-center justify-between text-xs">
+                    <div class="space-y-0.5 text-[10px] font-mono tabular-nums">
                       <span class="block text-slate-500 dark:text-slate-400 truncate" x-text="'Added: ' + (kw._formattedCreatedAt || formatDate(kw.created_at))"></span>
                       <span class="block text-slate-400 truncate" x-text="'Crawled: ' + (kw._relativeCrawledAt || formatRelativeTime(kw.last_crawled_at))"></span>
                     </div>
@@ -920,10 +920,10 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
 
             <!-- DASHBOARD GRID PAGINATION FOOTER -->
             <template x-if="filteredDashboardKeywords && filteredDashboardKeywords.length > 0">
-              <div class="px-4 py-3 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 bg-white dark:bg-[#0c101b] flex flex-col sm:flex-row items-center justify-between gap-3 text-xs shadow-xs">
+              <div class="px-4 py-3 rounded-2xl border border-slate-200/80 dark:border-[#27272A]/80 bg-white dark:bg-[#121215] flex flex-col sm:flex-row items-center justify-between gap-3 text-xs shadow-xs">
                 
                 <!-- Left: Items range & Page Size selector -->
-                <div class="flex flex-wrap items-center gap-3 text-slate-500 font-mono text-[11px]">
+                <div class="flex flex-wrap items-center gap-3 text-slate-500 font-mono tabular-nums text-[11px]">
                   <div>
                     <span>Showing </span>
                     <span class="font-bold text-slate-900 dark:text-white" x-text="dashboardRangeStart"></span>
@@ -937,7 +937,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                   <!-- Per Page Selector -->
                   <div class="flex items-center space-x-1.5">
                     <span class="text-slate-400 font-sans">Rows:</span>
-                    <select x-model="dashboardPageSize" class="px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[11px] font-mono font-medium text-slate-700 dark:text-slate-300 focus:outline-none cursor-pointer">
+                    <select x-model="dashboardPageSize" class="px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] text-[11px] font-mono tabular-nums font-medium text-slate-700 dark:text-slate-300 focus:outline-none cursor-pointer">
                       <option :value="10">10 / page</option>
                       <option :value="25">25 / page</option>
                       <option :value="50">50 / page</option>
@@ -951,14 +951,14 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                   <div class="flex items-center space-x-1">
                     <!-- First Page -->
                     <button type="button" @click="setDashboardPage(1)" :disabled="dashboardPage <= 1"
-                            class="p-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer text-slate-600 dark:text-slate-400"
+                            class="p-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer text-slate-600 dark:text-slate-400"
                             title="First Page">
                       <i data-lucide="chevrons-left" class="w-3.5 h-3.5"></i>
                     </button>
 
                     <!-- Previous Page -->
                     <button type="button" @click="setDashboardPage(dashboardPage - 1)" :disabled="dashboardPage <= 1"
-                            class="p-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer text-slate-600 dark:text-slate-400"
+                            class="p-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer text-slate-600 dark:text-slate-400"
                             title="Previous Page">
                       <i data-lucide="chevron-left" class="w-3.5 h-3.5"></i>
                     </button>
@@ -967,10 +967,10 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                     <div class="flex items-center space-x-1 px-1">
                       <template x-for="(p, pIdx) in dashboardPageNumbers" :key="'gp-' + pIdx + '-' + p">
                         <div>
-                          <span x-show="p === '...'" class="px-1.5 py-0.5 text-slate-400 font-mono text-xs">...</span>
+                          <span x-show="p === '...'" class="px-1.5 py-0.5 text-slate-400 font-mono tabular-nums text-xs">...</span>
                           <button x-show="p !== '...'" type="button" @click="setDashboardPage(p)"
-                                  class="min-w-7 h-7 px-1.5 rounded-md text-xs font-mono font-medium transition cursor-pointer"
-                                  :class="dashboardPage === p ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-2xs' : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'"
+                                  class="min-w-7 h-7 px-1.5 rounded-md text-xs font-mono tabular-nums font-medium transition cursor-pointer"
+                                  :class="dashboardPage === p ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-2xs' : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'"
                                   x-text="p"></button>
                         </div>
                       </template>
@@ -978,14 +978,14 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
 
                     <!-- Next Page -->
                     <button type="button" @click="setDashboardPage(dashboardPage + 1)" :disabled="dashboardPage >= dashboardTotalPages"
-                            class="p-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer text-slate-600 dark:text-slate-400"
+                            class="p-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer text-slate-600 dark:text-slate-400"
                             title="Next Page">
                       <i data-lucide="chevron-right" class="w-3.5 h-3.5"></i>
                     </button>
 
                     <!-- Last Page -->
                     <button type="button" @click="setDashboardPage(dashboardTotalPages)" :disabled="dashboardPage >= dashboardTotalPages"
-                            class="p-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer text-slate-600 dark:text-slate-400"
+                            class="p-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer text-slate-600 dark:text-slate-400"
                             title="Last Page">
                       <i data-lucide="chevrons-right" class="w-3.5 h-3.5"></i>
                     </button>
@@ -1001,8 +1001,8 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
       <div x-show="isQuickTrackModalOpen" x-cloak class="relative z-50">
         <div class="fixed inset-0 bg-slate-950/70 backdrop-blur-xs" @click="isQuickTrackModalOpen = false"></div>
         <div class="fixed inset-0 flex items-center justify-center p-4">
-          <div class="w-full max-w-md bg-white dark:bg-[#0c1322] border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-2xl space-y-4">
-            <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+          <div class="w-full max-w-md bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-3xl p-6 shadow-2xl space-y-4">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-[#27272A]">
               <div class="flex items-center space-x-2.5">
                 <div class="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center">
                   <i data-lucide="plus-circle" class="w-4 h-4"></i>
@@ -1015,16 +1015,16 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
             </div>
             <div class="space-y-3">
               <div>
-                <label class="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase font-mono block mb-1">Search Query / Keyword</label>
+                <label class="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase font-mono tabular-nums block mb-1">Search Query / Keyword</label>
                 <input type="text" x-model="quickKeywordInput" @keydown.enter="submitQuickKeyword()"
                        placeholder="e.g. breakfast ideas, avocado toast..."
-                       class="w-full px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/40">
+                       class="w-full px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/40">
               </div>
               <div>
-                <label class="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase font-mono block mb-1">Category (Optional)</label>
+                <label class="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase font-mono tabular-nums block mb-1">Category (Optional)</label>
                 <input type="text" x-model="quickKeywordCategory"
                        placeholder="e.g. Food & Recipes, General..."
-                       class="w-full px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/40">
+                       class="w-full px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/40">
               </div>
             </div>
             <div class="flex items-center justify-end space-x-2 pt-2">
@@ -1050,15 +1050,15 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
       <!-- Studio Return Button -->
       <div class="flex items-center justify-between">
         <button @click="switchToDashboard()"
-                class="px-4 py-2 rounded-2xl text-xs font-bold bg-white dark:bg-[#0b1120] hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200/80 dark:border-slate-800 text-slate-700 dark:text-slate-300 transition flex items-center space-x-2 shadow-xs cursor-pointer">
+                class="px-4 py-2 rounded-2xl text-xs font-bold bg-white dark:bg-[#121215] hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200/80 dark:border-[#27272A] text-slate-700 dark:text-slate-300 transition flex items-center space-x-2 shadow-xs cursor-pointer">
           <i data-lucide="arrow-left" class="w-4 h-4 text-emerald-500"></i>
           <span>← Back to Keywords Dashboard</span>
         </button>
-        <span class="text-xs font-mono text-slate-400">Level 2: SERP Radar Studio</span>
+        <span class="text-xs font-mono tabular-nums text-slate-400">Level 2: SERP Radar Studio</span>
       </div>
 
     <!-- EXECUTIVE CONTROL BAR: KEYWORD OMNIBAR & DIRECT ACTIONS -->
-    <section class="p-4 sm:p-6 rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-4">
+    <section class="p-4 sm:p-6 rounded-3xl bg-white dark:bg-[#121215] border border-slate-200/80 dark:border-[#27272A] shadow-xs space-y-4">
       <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         
         <!-- Left: Active Keyword Title, Volume & Deep Metadata -->
@@ -1072,7 +1072,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                   x-text="selectedKeyword?.keyword || activeKeywordQuery || 'Enter Keyword'"></h2>
               
               <!-- Official Pinterest Monthly Search Volume Badge (PinClicks & Pinterest Parity) -->
-              <div class="flex items-center space-x-1.5 px-3 py-0.5 rounded-full bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/30 text-xs font-mono font-black"
+              <div class="flex items-center space-x-1.5 px-3 py-0.5 rounded-full bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/30 text-xs font-mono tabular-nums font-black"
                    :title="trendsData?.exact_volume ? 'Official Pinterest Annotation Search Count (Live)' : 'Estimated Pinterest Monthly Search Volume'">
                 <i data-lucide="bar-chart-2" class="w-3.5 h-3.5"></i>
                 <span>Volume:</span>
@@ -1081,35 +1081,35 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
 
               <!-- Official Pinterest Category Tree Tag -->
               <template x-if="trendsData?.category_tree && trendsData.category_tree.length > 0">
-                <span class="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 truncate max-w-[240px]"
+                <span class="px-2.5 py-0.5 rounded-full text-[10px] font-mono tabular-nums font-bold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 truncate max-w-[240px]"
                       :title="'Taxonomy: ' + trendsData.category_tree.join(' > ')"
                       x-text="trendsData.category_tree.join(' > ')"></span>
               </template>
               <template x-if="!trendsData?.category_tree || trendsData.category_tree.length === 0">
-                <span class="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300"
+                <span class="px-2.5 py-0.5 rounded-full text-[10px] font-mono tabular-nums font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300"
                       x-text="selectedKeyword?.category || 'Organic Search'"></span>
               </template>
 
               <!-- Annotation ID Badge -->
               <template x-if="trendsData?.annotation_id">
-                <span class="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-slate-100 dark:bg-slate-800/80 text-slate-500"
+                <span class="px-2.5 py-0.5 rounded-full text-[10px] font-mono tabular-nums font-semibold bg-slate-100 dark:bg-slate-800/80 text-slate-500"
                       :title="'Official Pinterest Annotation ID: ' + trendsData.annotation_id"
                       x-text="'ID: ' + trendsData.annotation_id"></span>
               </template>
 
-              <span class="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30"
+              <span class="px-2.5 py-0.5 rounded-full text-[10px] font-mono tabular-nums font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30"
                     x-text="(selectedKeyword?.target_pin_count || 250) + ' Pins Target (' + (selectedKeyword?.crawl_pages_limit || 10) + ' Pages)'">
                 250 Pins Target
               </span>
               <template x-if="selectedKeyword?.last_crawled_at">
-                <span class="text-[11px] text-slate-400 font-mono flex items-center space-x-1">
+                <span class="text-[11px] text-slate-400 font-mono tabular-nums flex items-center space-x-1">
                   <i data-lucide="clock" class="w-3 h-3"></i>
                   <span x-text="'Crawled ' + formatDate(selectedKeyword.last_crawled_at)"></span>
                 </span>
               </template>
             </div>
             <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">
-              Live SERP Radar • Direct deep-link URL: <code class="text-emerald-500 font-mono text-[11px]" x-text="'/keywords/' + encodeURIComponent(activeSlug)"></code>
+              Live SERP Radar • Direct deep-link URL: <code class="text-emerald-500 font-mono tabular-nums text-[11px]" x-text="'/keywords/' + encodeURIComponent(activeSlug)"></code>
             </p>
           </div>
         </div>
@@ -1137,11 +1137,11 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                     class="px-3.5 py-2.5 rounded-2xl text-xs font-bold bg-pink-500/10 hover:bg-pink-500/20 dark:bg-pink-950/30 dark:hover:bg-pink-900/40 border border-pink-500/30 text-pink-600 dark:text-pink-400 transition flex items-center space-x-1.5 cursor-pointer">
               <i data-lucide="folder-plus" class="w-3.5 h-3.5 text-pink-500"></i>
               <span class="hidden sm:inline">Folder</span>
-              <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-pink-500/20 text-pink-500 dark:text-pink-300 font-mono" x-text="currentKeywordFolders.length"></span>
+              <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-pink-500/20 text-pink-500 dark:text-pink-300 font-mono tabular-nums" x-text="currentKeywordFolders.length"></span>
             </button>
             <div x-show="folderDropdownOpen" x-cloak
-                 class="absolute right-0 mt-2 w-64 bg-white dark:bg-[#0c1322] border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-50 p-2 space-y-1">
-              <div class="p-2 border-b border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
+                 class="absolute right-0 mt-2 w-64 bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl shadow-2xl z-50 p-2 space-y-1">
+              <div class="p-2 border-b border-slate-100 dark:border-[#27272A]/80 flex items-center justify-between">
                 <span class="text-[11px] font-bold text-slate-700 dark:text-slate-300">Campaign Folders</span>
                 <button @click="folderDropdownOpen = false; openCreateFolderModal()" class="text-[10px] text-pink-500 font-bold hover:underline">+ New Folder</button>
               </div>
@@ -1165,20 +1165,20 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
           </div>
 
           <button @click="openFleetDispatchModal()" :disabled="isWorkflowDispatching"
-                  class="px-3.5 py-2.5 rounded-2xl text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 transition flex items-center space-x-1.5 disabled:opacity-50 cursor-pointer"
+                  class="px-3.5 py-2.5 rounded-2xl text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 border border-slate-200 dark:border-[#27272A] text-slate-700 dark:text-slate-300 transition flex items-center space-x-1.5 disabled:opacity-50 cursor-pointer"
                   title="Run Autonomous 24h Crawler Fleet via GitHub Actions">
             <i data-lucide="play" class="w-3.5 h-3.5 text-emerald-500" :class="isWorkflowDispatching ? 'animate-spin' : ''"></i>
             <span class="hidden sm:inline">Trigger Fleet</span>
           </button>
 
           <button @click="copySEOFormula()"
-                  class="p-2.5 rounded-2xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 transition"
+                  class="p-2.5 rounded-2xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 border border-slate-200 dark:border-[#27272A] text-slate-600 dark:text-slate-300 transition"
                   title="Copy SEO Title Formula">
             <i data-lucide="copy" class="w-4 h-4"></i>
           </button>
 
           <a :href="'https://www.pinterest.com/search/pins/?q=' + encodeURIComponent(selectedKeyword?.keyword || activeKeywordQuery || '')" target="_blank"
-             class="p-2.5 rounded-2xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 transition"
+             class="p-2.5 rounded-2xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 border border-slate-200 dark:border-[#27272A] text-slate-600 dark:text-slate-300 transition"
              title="Open on Pinterest">
             <i data-lucide="external-link" class="w-4 h-4"></i>
           </a>
@@ -1187,7 +1187,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
       </div>
 
       <!-- Center Omnibar: Instant Switcher & Predictive Autocomplete (v3_typeahead) -->
-      <div class="relative pt-2 border-t border-slate-100 dark:border-slate-800/80">
+      <div class="relative pt-2 border-t border-slate-100 dark:border-[#27272A]/80">
         <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
           <div class="relative flex-1">
             <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2"></i>
@@ -1196,7 +1196,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                    @keydown.enter="submitOmnibarKeyword()"
                    @focus="isOmnibarDropdownOpen = true"
                    placeholder="Switch to tracked keyword or search new query (e.g. tater tot casserole, rustic farmhouse, fall fashion)..."
-                   class="w-full pl-11 pr-10 py-3 rounded-2xl bg-slate-100/80 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 text-sm font-medium text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 shadow-xs transition">
+                   class="w-full pl-11 pr-10 py-3 rounded-2xl bg-slate-100/80 dark:bg-slate-900/90 border border-slate-200 dark:border-[#27272A] text-sm font-medium text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 shadow-xs transition">
             <div x-show="isTypeaheadLoading" class="absolute right-4 top-1/2 -translate-y-1/2">
               <i data-lucide="loader-2" class="w-4 h-4 text-emerald-500 animate-spin"></i>
             </div>
@@ -1212,11 +1212,11 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
         <!-- Dropdown Menu -->
         <div x-show="isOmnibarDropdownOpen && (omnibarTrackedMatches.length > 0 || typeaheadSuggestions.length > 0)" x-cloak
              @click.away="isOmnibarDropdownOpen = false"
-             class="absolute left-0 right-0 top-full mt-2 z-50 bg-white dark:bg-[#0d1526] border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl overflow-hidden p-3 space-y-2 max-h-96 overflow-y-auto">
+             class="absolute left-0 right-0 top-full mt-2 z-50 bg-white dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] rounded-3xl shadow-2xl overflow-hidden p-3 space-y-2 max-h-96 overflow-y-auto">
           
           <template x-if="omnibarTrackedMatches.length > 0">
             <div class="space-y-1">
-              <div class="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 font-mono flex items-center justify-between">
+              <div class="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 font-mono tabular-nums flex items-center justify-between">
                 <span>Already Tracked in Engine</span>
                 <span class="text-emerald-500">1-Click Jump</span>
               </div>
@@ -1227,15 +1227,15 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                     <i data-lucide="check-circle" class="w-3.5 h-3.5 text-emerald-500"></i>
                     <span class="capitalize" x-text="kw.keyword"></span>
                   </div>
-                  <span class="text-[10px] text-slate-400 font-mono" x-text="getKeywordTotalPins(kw) + ' Pins'"></span>
+                  <span class="text-[10px] text-slate-400 font-mono tabular-nums" x-text="getKeywordTotalPins(kw) + ' Pins'"></span>
                 </div>
               </template>
             </div>
           </template>
 
           <template x-if="typeaheadSuggestions.length > 0">
-            <div class="space-y-1 pt-1 border-t border-slate-100 dark:border-slate-800/80">
-              <div class="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 font-mono flex items-center justify-between">
+            <div class="space-y-1 pt-1 border-t border-slate-100 dark:border-[#27272A]/80">
+              <div class="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 font-mono tabular-nums flex items-center justify-between">
                 <span>Pinterest Trending Autocomplete (v3_typeahead)</span>
                 <span class="text-purple-500">+ Track & Crawl</span>
               </div>
@@ -1246,7 +1246,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                     <i data-lucide="trending-up" class="w-3.5 h-3.5 text-purple-500"></i>
                     <span class="capitalize" x-text="sug"></span>
                   </div>
-                  <span class="text-[10px] text-purple-500 font-mono" x-text="'+ Index ' + (appSettings.default_max_pins || 250) + ' Pins'"></span>
+                  <span class="text-[10px] text-purple-500 font-mono tabular-nums" x-text="'+ Index ' + (appSettings.default_max_pins || 250) + ' Pins'"></span>
                 </div>
               </template>
             </div>
@@ -1256,7 +1256,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
 
       <!-- GUIDED CAPSULES RIBBON (Zone 1 - Official Pinterest Semantic Intent) -->
       <template x-if="selectedKeywordDetails?.guides && selectedKeywordDetails.guides.length > 0">
-        <div class="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div class="pt-3 border-t border-slate-100 dark:border-[#27272A]/80 flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div class="flex items-center space-x-2 text-xs font-bold text-slate-500 dark:text-slate-400 shrink-0">
             <i data-lucide="compass" class="w-4 h-4 text-cyan-500"></i>
             <span>Guided Keywords:</span>
@@ -1264,7 +1264,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
           <div class="flex-1 flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-thin">
             <template x-for="(g, i) in selectedKeywordDetails.guides" :key="g.id || g.term">
               <button @click="researchKeywordTag(selectedKeyword.keyword + ' ' + (g.display_label || g.term))"
-                      class="px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-cyan-500/10 hover:text-cyan-500 dark:hover:text-cyan-400 border border-slate-200 dark:border-slate-700/80 transition flex items-center space-x-1.5 shrink-0 cursor-pointer group"
+                      class="px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-cyan-500/10 hover:text-cyan-500 dark:hover:text-cyan-400 border border-slate-200 dark:border-[#27272A]/80 transition flex items-center space-x-1.5 shrink-0 cursor-pointer group"
                       :title="'Score: ' + Number(g.score || 0).toFixed(1)">
                 <span class="w-2 h-2 rounded-full shrink-0" :style="'background-color: ' + (g.dominant_color || '#06b6d4')"></span>
                 <span class="capitalize" x-text="g.display_label || g.term"></span>
@@ -1284,7 +1284,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
     <section class="grid grid-cols-2 lg:grid-cols-4 gap-4">
       
       <!-- KPI 1: Organic SERP Volatility -->
-      <div class="p-5 rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 space-y-3 shadow-xs">
+      <div class="p-5 rounded-3xl bg-white dark:bg-[#121215] border border-slate-200/80 dark:border-[#27272A] space-y-3 shadow-xs">
         <div class="flex items-center justify-between">
           <span class="text-xs font-bold text-slate-500 dark:text-slate-400">SERP Movement</span>
           <span class="p-1.5 rounded-xl bg-emerald-500/10 text-emerald-500">
@@ -1292,27 +1292,27 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
           </span>
         </div>
         <div class="flex items-center space-x-2">
-          <span class="text-xl font-black text-slate-900 dark:text-white font-mono" x-text="selectedKeywordDetails?.current_pins?.length || 0"></span>
-          <span class="text-xs text-slate-400 font-mono" x-text="'/ ' + (selectedKeyword?.target_pin_count || 250) + ' Organic Pins'"></span>
+          <span class="text-xl font-black text-slate-900 dark:text-white font-mono tabular-nums" x-text="selectedKeywordDetails?.current_pins?.length || 0"></span>
+          <span class="text-xs text-slate-400 font-mono tabular-nums" x-text="'/ ' + (selectedKeyword?.target_pin_count || 250) + ' Organic Pins'"></span>
         </div>
-        <div class="grid grid-cols-4 gap-1 pt-1 border-t border-slate-100 dark:border-slate-800/80 text-center">
-          <div class="p-1 rounded-lg bg-emerald-500/10 text-[10px] font-mono font-bold text-emerald-600 dark:text-emerald-400" title="Climbed">
+        <div class="grid grid-cols-4 gap-1 pt-1 border-t border-slate-100 dark:border-[#27272A]/80 text-center">
+          <div class="p-1 rounded-lg bg-emerald-500/10 text-[10px] font-mono tabular-nums font-bold text-emerald-600 dark:text-emerald-400" title="Climbed">
             ▲ <span x-text="selectedKeywordDetails?.stats?.climbed || 0"></span>
           </div>
-          <div class="p-1 rounded-lg bg-rose-500/10 text-[10px] font-mono font-bold text-rose-600 dark:text-rose-400" title="Dropped">
+          <div class="p-1 rounded-lg bg-rose-500/10 text-[10px] font-mono tabular-nums font-bold text-rose-600 dark:text-rose-400" title="Dropped">
             ▼ <span x-text="selectedKeywordDetails?.stats?.dropped || 0"></span>
           </div>
-          <div class="p-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-[10px] font-mono font-bold text-slate-600 dark:text-slate-400" title="Stable">
+          <div class="p-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-[10px] font-mono tabular-nums font-bold text-slate-600 dark:text-slate-400" title="Stable">
             = <span x-text="selectedKeywordDetails?.stats?.stable || 0"></span>
           </div>
-          <div class="p-1 rounded-lg bg-amber-500/10 text-[10px] font-mono font-bold text-amber-600 dark:text-amber-400" title="New Entries">
+          <div class="p-1 rounded-lg bg-amber-500/10 text-[10px] font-mono tabular-nums font-bold text-amber-600 dark:text-amber-400" title="New Entries">
             ★ <span x-text="selectedKeywordDetails?.stats?.new_entries || 0"></span>
           </div>
         </div>
       </div>
 
       <!-- KPI 2: 24h Daily Save Velocity Pulse -->
-      <div class="p-5 rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 space-y-3 shadow-xs">
+      <div class="p-5 rounded-3xl bg-white dark:bg-[#121215] border border-slate-200/80 dark:border-[#27272A] space-y-3 shadow-xs">
         <div class="flex items-center justify-between">
           <span class="text-xs font-bold text-slate-500 dark:text-slate-400">Save Velocity Pulse</span>
           <span class="p-1.5 rounded-xl bg-cyan-500/10 text-cyan-500">
@@ -1320,17 +1320,17 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
           </span>
         </div>
         <div class="flex items-center space-x-2">
-          <span class="text-xl font-black text-emerald-600 dark:text-emerald-400 font-mono"
+          <span class="text-xl font-black text-emerald-600 dark:text-emerald-400 font-mono tabular-nums"
                 x-text="'+' + (selectedKeywordDetails?.avg_velocity ?? selectedKeyword?.avg_daily_velocity ?? 0) + ' /day'"></span>
         </div>
-        <div class="flex items-center justify-between text-[11px] pt-1 border-t border-slate-100 dark:border-slate-800/80">
-          <span class="text-slate-400 font-mono">Explosive Pins:</span>
-          <span class="font-bold text-cyan-600 dark:text-cyan-400 font-mono" x-text="(selectedKeywordDetails?.velocity_chart?.explosive || 0) + ' Pins (≥50/d)'"></span>
+        <div class="flex items-center justify-between text-[11px] pt-1 border-t border-slate-100 dark:border-[#27272A]/80">
+          <span class="text-slate-400 font-mono tabular-nums">Explosive Pins:</span>
+          <span class="font-bold text-cyan-600 dark:text-cyan-400 font-mono tabular-nums" x-text="(selectedKeywordDetails?.velocity_chart?.explosive || 0) + ' Pins (≥50/d)'"></span>
         </div>
       </div>
 
       <!-- KPI 3: PinClicks Arbitrage Verdict -->
-      <div class="p-5 rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 space-y-3 shadow-xs">
+      <div class="p-5 rounded-3xl bg-white dark:bg-[#121215] border border-slate-200/80 dark:border-[#27272A] space-y-3 shadow-xs">
         <div class="flex items-center justify-between">
           <span class="text-xs font-bold text-slate-500 dark:text-slate-400">Arbitrage Verdict</span>
           <span class="p-1.5 rounded-xl bg-purple-500/10 text-purple-500">
@@ -1339,7 +1339,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
         </div>
         <div class="flex items-center space-x-2">
           <template x-if="selectedKeywordDetails?.intelligence?.opportunity">
-            <span class="px-2.5 py-1 rounded-xl text-xs font-black font-mono"
+            <span class="px-2.5 py-1 rounded-xl text-xs font-black font-mono tabular-nums"
                   :class="selectedKeywordDetails.intelligence.opportunity.verdict === 'WIDE_OPEN' ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400' : (selectedKeywordDetails.intelligence.opportunity.verdict === 'COMPETITIVE' ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400' : 'bg-rose-500/20 text-rose-600 dark:text-rose-400')"
                   x-text="selectedKeywordDetails.intelligence.opportunity.verdict === 'WIDE_OPEN' ? '🟢 WIDE OPEN' : (selectedKeywordDetails.intelligence.opportunity.verdict === 'COMPETITIVE' ? '🟡 MODERATE' : '🔴 SATURATED')"></span>
           </template>
@@ -1347,14 +1347,14 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
             <span class="text-sm font-bold text-slate-400">Calculating...</span>
           </template>
         </div>
-        <div class="flex items-center justify-between text-[11px] pt-1 border-t border-slate-100 dark:border-slate-800/80">
-          <span class="text-slate-400 font-mono">Opportunity Score:</span>
-          <span class="font-bold text-purple-600 dark:text-purple-400 font-mono" x-text="(selectedKeywordDetails?.intelligence?.opportunity?.opportunity_score ?? 85) + ' / 100'"></span>
+        <div class="flex items-center justify-between text-[11px] pt-1 border-t border-slate-100 dark:border-[#27272A]/80">
+          <span class="text-slate-400 font-mono tabular-nums">Opportunity Score:</span>
+          <span class="font-bold text-purple-600 dark:text-purple-400 font-mono tabular-nums" x-text="(selectedKeywordDetails?.intelligence?.opportunity?.opportunity_score ?? 85) + ' / 100'"></span>
         </div>
       </div>
 
       <!-- KPI 4: Semantic Guided Capsules -->
-      <div class="p-5 rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 space-y-3 shadow-xs">
+      <div class="p-5 rounded-3xl bg-white dark:bg-[#121215] border border-slate-200/80 dark:border-[#27272A] space-y-3 shadow-xs">
         <div class="flex items-center justify-between">
           <span class="text-xs font-bold text-slate-500 dark:text-slate-400">Semantic Modifiers</span>
           <span class="p-1.5 rounded-xl bg-amber-500/10 text-amber-500">
@@ -1362,12 +1362,12 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
           </span>
         </div>
         <div class="flex items-center space-x-2">
-          <span class="text-xl font-black text-slate-900 dark:text-white font-mono" x-text="selectedKeywordDetails?.guides?.length || 0"></span>
-          <span class="text-xs text-slate-400 font-mono">Capsules</span>
+          <span class="text-xl font-black text-slate-900 dark:text-white font-mono tabular-nums" x-text="selectedKeywordDetails?.guides?.length || 0"></span>
+          <span class="text-xs text-slate-400 font-mono tabular-nums">Capsules</span>
         </div>
-        <div class="flex items-center justify-between text-[11px] pt-1 border-t border-slate-100 dark:border-slate-800/80 truncate">
-          <span class="text-slate-400 font-mono">Top:</span>
-          <span class="font-bold text-amber-600 dark:text-amber-400 font-mono truncate max-w-[150px]"
+        <div class="flex items-center justify-between text-[11px] pt-1 border-t border-slate-100 dark:border-[#27272A]/80 truncate">
+          <span class="text-slate-400 font-mono tabular-nums">Top:</span>
+          <span class="font-bold text-amber-600 dark:text-amber-400 font-mono tabular-nums truncate max-w-[150px]"
                 x-text="selectedKeywordDetails?.guides?.[0]?.display_label || 'None'"></span>
         </div>
       </div>
@@ -1375,10 +1375,10 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
     </section>
 
     <!-- ZONE 3: FULL-WIDTH TABBED WORKSPACE -->
-    <section class="rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 shadow-xs overflow-hidden">
+    <section class="rounded-3xl bg-white dark:bg-[#121215] border border-slate-200/80 dark:border-[#27272A] shadow-xs overflow-hidden">
       
       <!-- TOP NAVIGATION BAR: Tabs (Left) + View Mode & Growth Pace (Right) -->
-      <div class="px-4 sm:px-6 py-3.5 border-b border-slate-200/80 dark:border-slate-800/80 flex flex-col md:flex-row md:items-center justify-between gap-3 bg-white dark:bg-[#0b1120]">
+      <div class="px-4 sm:px-6 py-3.5 border-b border-slate-200/80 dark:border-[#27272A]/80 flex flex-col md:flex-row md:items-center justify-between gap-3 bg-white dark:bg-[#121215]">
         
         <!-- Workspace Tabs -->
         <div class="flex flex-wrap items-center gap-1.5 sm:gap-2">
@@ -1387,7 +1387,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                   :class="activeTab === 'serp' ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shadow-xs' : 'text-slate-500 hover:text-slate-800 dark:hover:text-white'">
             <i data-lucide="list-ordered" class="w-4 h-4"></i>
             <span>SERP Rankings Matrix</span>
-            <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-600 dark:text-emerald-400"
+            <span class="px-2 py-0.5 rounded-full text-[10px] font-mono tabular-nums font-bold bg-emerald-500/20 text-emerald-600 dark:text-emerald-400"
                   x-text="'#' + (filteredPins.length || 0)"></span>
           </button>
 
@@ -1397,7 +1397,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                   :class="activeTab === 'trends' ? 'bg-blue-500/15 text-blue-600 dark:text-blue-400 border border-blue-500/30 shadow-xs' : 'text-slate-500 hover:text-slate-800 dark:hover:text-white'">
             <i data-lucide="trending-up" class="w-4 h-4 text-blue-500"></i>
             <span>Pinterest Trends (52w & Popular)</span>
-            <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-blue-500/20 text-blue-600"
+            <span class="px-2 py-0.5 rounded-full text-[10px] font-mono tabular-nums font-bold bg-blue-500/20 text-blue-600"
                   x-text="trendsData?.current_index ? trendsData.current_index + '/100' : '52w'"></span>
           </button>
 
@@ -1414,40 +1414,40 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
         <div class="flex items-center gap-2 self-start md:self-auto shrink-0" x-show="activeTab === 'serp'">
           
           <!-- Compact Growth Pace Selector -->
-          <div class="flex items-center p-1 rounded-xl bg-slate-100/90 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 gap-0.5">
-            <span class="text-[10px] font-mono font-bold text-slate-400 uppercase px-1.5 hidden sm:inline">Pace:</span>
+          <div class="flex items-center p-1 rounded-xl bg-slate-100/90 dark:bg-slate-900/90 border border-slate-200 dark:border-[#27272A] gap-0.5">
+            <span class="text-[10px] font-mono tabular-nums font-bold text-slate-400 uppercase px-1.5 hidden sm:inline">Pace:</span>
             <button @click="growthPaceFilter = '24h'"
                     class="px-2 py-1 rounded-lg text-xs font-bold transition cursor-pointer flex items-center space-x-1"
                     :class="growthPaceFilter === '24h' ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/40 shadow-xs' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'"
                     title="Velocity over Last 24 Hours">
               <span>🔥</span>
-              <span class="font-mono">24h</span>
+              <span class="font-mono tabular-nums">24h</span>
             </button>
             <button @click="growthPaceFilter = '3d'"
                     class="px-2 py-1 rounded-lg text-xs font-bold transition cursor-pointer flex items-center space-x-1"
                     :class="growthPaceFilter === '3d' ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/40 shadow-xs' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'"
                     title="Velocity over Last 3 Days">
               <span>⏱</span>
-              <span class="font-mono">3d</span>
+              <span class="font-mono tabular-nums">3d</span>
             </button>
             <button @click="growthPaceFilter = '7d'"
                     class="px-2 py-1 rounded-lg text-xs font-bold transition cursor-pointer flex items-center space-x-1"
                     :class="growthPaceFilter === '7d' ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/40 shadow-xs' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'"
                     title="Velocity over Last 7 Days">
               <span>📅</span>
-              <span class="font-mono">7d</span>
+              <span class="font-mono tabular-nums">7d</span>
             </button>
             <button @click="growthPaceFilter = 'all'"
                     class="px-2 py-1 rounded-lg text-xs font-bold transition cursor-pointer flex items-center space-x-1"
                     :class="growthPaceFilter === 'all' ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/40 shadow-xs' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'"
                     title="All-Time Total Engagement">
               <span>⭐</span>
-              <span class="font-mono">All</span>
+              <span class="font-mono tabular-nums">All</span>
             </button>
           </div>
 
           <!-- Cards vs Table Toggle Button -->
-          <div class="flex items-center p-1 rounded-xl bg-slate-100/90 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800">
+          <div class="flex items-center p-1 rounded-xl bg-slate-100/90 dark:bg-slate-900/90 border border-slate-200 dark:border-[#27272A]">
             <button @click="viewMode = 'table'"
                     class="px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center space-x-1 cursor-pointer"
                     :class="viewMode === 'table' ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'"
@@ -1468,53 +1468,53 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
       </div>
 
       <!-- SECONDARY CONTROL BAR: SERP Filter & Search Controls (Exclusively for SERP Tab) -->
-      <div x-show="activeTab === 'serp'" class="px-4 sm:px-6 py-3 border-b border-slate-200/80 dark:border-slate-800/80 bg-slate-50/70 dark:bg-slate-900/40 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+      <div x-show="activeTab === 'serp'" class="px-4 sm:px-6 py-3 border-b border-slate-200/80 dark:border-[#27272A]/80 bg-slate-50/70 dark:bg-slate-900/40 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
         
         <!-- Left: Scope Segment Filter: All Pins vs Active SERP vs Displaced Vault vs Breakouts vs High Velocity -->
         <div class="flex flex-wrap items-center gap-1.5">
-          <span class="text-[10px] font-bold text-slate-400 font-mono uppercase tracking-wider shrink-0 mr-1 hidden sm:inline">Filter:</span>
+          <span class="text-[10px] font-bold text-slate-400 font-mono tabular-nums uppercase tracking-wider shrink-0 mr-1 hidden sm:inline">Filter:</span>
           
           <button @click="serpScope = 'all'"
                   class="px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center space-x-1.5 border"
-                  :class="serpScope === 'all' ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/40 shadow-xs' : 'bg-white dark:bg-slate-900/80 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-700'"
+                  :class="serpScope === 'all' ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/40 shadow-xs' : 'bg-white dark:bg-slate-900/80 border-slate-200 dark:border-[#27272A] text-slate-600 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-700'"
                   :title="'Showing ' + allCombinedPins.length + ' of ' + totalCatalogCount + ' total catalog pins'">
             <span>🔘 All Pins</span>
-            <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold"
+            <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono tabular-nums font-bold"
                   :class="serpScope === 'all' ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'"
                   x-text="totalCatalogCount > allCombinedPins.length ? (allCombinedPins.length + ' / ' + totalCatalogCount) : totalCatalogCount"></span>
           </button>
           
           <button @click="serpScope = 'active'"
                   class="px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center space-x-1.5 border"
-                  :class="serpScope === 'active' ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/40 shadow-xs' : 'bg-white dark:bg-slate-900/80 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-700'">
+                  :class="serpScope === 'active' ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/40 shadow-xs' : 'bg-white dark:bg-slate-900/80 border-slate-200 dark:border-[#27272A] text-slate-600 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-700'">
             <span>🟢 Active SERP</span>
-            <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold"
+            <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono tabular-nums font-bold"
                   :class="serpScope === 'active' ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'"
                   x-text="(selectedKeywordDetails?.current_pins || []).length"></span>
           </button>
 
           <button @click="serpScope = 'displaced'; if(selectedKeyword && displacedVaultPins.length === 0) fetchDisplacedPins()"
                   class="px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center space-x-1.5 border"
-                  :class="serpScope === 'displaced' ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/40 shadow-xs' : 'bg-white dark:bg-slate-900/80 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-700'"
+                  :class="serpScope === 'displaced' ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/40 shadow-xs' : 'bg-white dark:bg-slate-900/80 border-slate-200 dark:border-[#27272A] text-slate-600 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-700'"
                   :title="'Showing ' + displacedVaultPins.length + ' of ' + totalDisplacedCount + ' displaced vault pins'">
             <span>🔴 Displaced Vault</span>
-            <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold"
+            <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono tabular-nums font-bold"
                   :class="serpScope === 'displaced' ? 'bg-rose-500/20 text-rose-600 dark:text-rose-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'"
                   x-text="totalDisplacedCount > displacedVaultPins.length ? (displacedVaultPins.length + ' / ' + totalDisplacedCount) : totalDisplacedCount"></span>
           </button>
 
           <button @click="serpScope = 'breakout'"
                   class="px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center space-x-1.5 border"
-                  :class="serpScope === 'breakout' ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/40 shadow-xs' : 'bg-white dark:bg-slate-900/80 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-700'">
+                  :class="serpScope === 'breakout' ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/40 shadow-xs' : 'bg-white dark:bg-slate-900/80 border-slate-200 dark:border-[#27272A] text-slate-600 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-700'">
             <span>🚀 Breakouts</span>
-            <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold"
+            <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono tabular-nums font-bold"
                   :class="serpScope === 'breakout' ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'"
                   x-text="breakoutPins.length"></span>
           </button>
 
           <button @click="serpScope = 'velocity'"
                   class="px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center space-x-1.5 border"
-                  :class="serpScope === 'velocity' ? 'bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 border-cyan-500/40 shadow-xs' : 'bg-white dark:bg-slate-900/80 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-700'">
+                  :class="serpScope === 'velocity' ? 'bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 border-cyan-500/40 shadow-xs' : 'bg-white dark:bg-slate-900/80 border-slate-200 dark:border-[#27272A] text-slate-600 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-700'">
             <span>⚡ High Velocity</span>
           </button>
 
@@ -1522,7 +1522,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
           <template x-if="activeVisualTagFilter">
             <div class="flex items-center space-x-1.5 px-3 py-1 rounded-xl bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30 text-xs">
               <i data-lucide="tag" class="w-3.5 h-3.5"></i>
-              <span class="font-bold font-mono" x-text="'Tag: #' + activeVisualTagFilter"></span>
+              <span class="font-bold font-mono tabular-nums" x-text="'Tag: #' + activeVisualTagFilter"></span>
               <button @click="activeVisualTagFilter = ''" class="hover:text-purple-800 dark:hover:text-white transition ml-1 cursor-pointer" title="Clear visual tag filter">
                 <i data-lucide="x" class="w-3 h-3"></i>
               </button>
@@ -1533,7 +1533,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
           <template x-if="activeDomainFilter">
             <div class="flex items-center space-x-1.5 px-3 py-1 rounded-xl bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 border border-cyan-500/30 text-xs">
               <i data-lucide="globe" class="w-3.5 h-3.5"></i>
-              <span class="font-bold font-mono" x-text="'Domain: ' + activeDomainFilter"></span>
+              <span class="font-bold font-mono tabular-nums" x-text="'Domain: ' + activeDomainFilter"></span>
               <button @click="activeDomainFilter = ''" class="hover:text-cyan-800 dark:hover:text-white transition ml-1 cursor-pointer" title="Clear domain filter">
                 <i data-lucide="x" class="w-3 h-3"></i>
               </button>
@@ -1548,14 +1548,14 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
           <div class="relative">
             <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
             <input type="text" x-model="pinSearch" placeholder="Filter title, author, domain..."
-                   class="w-44 sm:w-52 pl-8 pr-7 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/40">
+                   class="w-44 sm:w-52 pl-8 pr-7 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/40">
             <button x-show="pinSearch" @click="pinSearch = ''" class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 cursor-pointer">
               <i data-lucide="x" class="w-3 h-3"></i>
             </button>
           </div>
 
           <!-- Format Filter -->
-          <select x-model="formatFilter" class="px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 focus:outline-none cursor-pointer">
+          <select x-model="formatFilter" class="px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] text-xs font-semibold text-slate-700 dark:text-slate-300 focus:outline-none cursor-pointer">
             <option value="ALL">All Formats</option>
             <option value="ORGANIC PIN">Organic Pin</option>
             <option value="VIDEO PIN">Video Pin</option>
@@ -1564,7 +1564,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
           </select>
 
           <!-- Pin Sort -->
-          <select x-model="pinSort" class="px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 focus:outline-none cursor-pointer">
+          <select x-model="pinSort" class="px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] text-xs font-semibold text-slate-700 dark:text-slate-300 focus:outline-none cursor-pointer">
             <option value="rank" x-text="'Sort: SERP Rank #1-' + (selectedKeyword?.target_pin_count || 250)">Sort: SERP Rank (Ascending)</option>
             <option value="velocity">Sort: 24h Velocity (Highest)</option>
             <option value="saves">Sort: Saves / Likes (Highest)</option>
@@ -1572,7 +1572,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
           </select>
 
           <!-- Per Page Select -->
-          <select x-model="pinPageSize" class="px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-mono font-bold text-slate-700 dark:text-slate-300 focus:outline-none cursor-pointer">
+          <select x-model="pinPageSize" class="px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] text-xs font-mono tabular-nums font-bold text-slate-700 dark:text-slate-300 focus:outline-none cursor-pointer">
             <option :value="25">25 / page</option>
             <option :value="50">50 / page</option>
             <option :value="100">100 / page</option>
@@ -1592,7 +1592,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
               <i data-lucide="loader-2" class="w-6 h-6 animate-spin"></i>
             </div>
             <p class="text-sm font-bold text-slate-700 dark:text-slate-300">Loading Full SERP Report...</p>
-            <p class="text-xs text-slate-400 font-mono">Comparing rank positions & calculating 24h save velocity baselines</p>
+            <p class="text-xs text-slate-400 font-mono tabular-nums">Comparing rank positions & calculating 24h save velocity baselines</p>
           </div>
         </template>
 
@@ -1616,11 +1616,11 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
           <div class="overflow-x-auto">
             <table class="w-full text-left border-collapse">
               <thead>
-                <tr class="table-sticky-header bg-slate-100/90 dark:bg-[#080d19]/90 border-b border-slate-200 dark:border-slate-800 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 font-mono">
+                <tr class="table-sticky-header bg-slate-100/90 dark:bg-[#121215]/90 border-b border-slate-200 dark:border-[#27272A] text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 font-mono tabular-nums">
                   <th class="py-3.5 px-3 w-10 text-center">
                     <input type="checkbox" @click="toggleSelectAllPins()"
                            :checked="paginatedPins.length > 0 && paginatedPins.every(p => isPinSelected(p.pin_id))"
-                           class="w-3.5 h-3.5 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300 dark:border-slate-700">
+                           class="w-3.5 h-3.5 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300 dark:border-[#27272A]">
                   </th>
                   <th class="py-3.5 px-3 w-14">Preview</th>
                   <th class="py-3.5 px-4 min-w-[260px]">Pin Title & ID</th>
@@ -1644,14 +1644,14 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                     <!-- Checkbox -->
                     <td class="py-3.5 px-3 text-center" @click.stop>
                       <input type="checkbox" :checked="isPinSelected(pin.pin_id)" @click="togglePinSelection(pin.pin_id)"
-                             class="w-3.5 h-3.5 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300 dark:border-slate-700">
+                             class="w-3.5 h-3.5 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300 dark:border-[#27272A]">
                     </td>
 
                     <!-- Preview Thumbnail -->
                     <td class="py-3.5 px-3">
                       <a :href="getPinDossierUrl(pin)" @click.stop class="relative group/img shrink-0 block" title="Open Dedicated Pin Intelligence (/pins/:pin_id)">
                         <template x-if="pin.image_url">
-                          <img :src="pin.image_url" class="w-10 h-14 rounded-lg object-cover border border-slate-200 dark:border-slate-700 shadow-xs group-hover/img:scale-105 transition">
+                          <img :src="pin.image_url" class="w-10 h-14 rounded-lg object-cover border border-slate-200 dark:border-[#27272A] shadow-xs group-hover/img:scale-105 transition">
                         </template>
                         <template x-if="!pin.image_url">
                           <div class="w-10 h-14 rounded-lg bg-slate-200 dark:bg-slate-800 flex items-center justify-center">
@@ -1668,9 +1668,9 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                            class="font-bold text-slate-900 dark:text-white hover:text-emerald-500 line-clamp-2 block transition"
                            title="Open Dedicated Pin Intelligence (/pins/:pin_id)"
                            x-text="pin.title || 'Untitled Pin'"></a>
-                        <div class="flex items-center flex-wrap gap-1.5 text-[10px] text-slate-400 font-mono">
+                        <div class="flex items-center flex-wrap gap-1.5 text-[10px] text-slate-400 font-mono tabular-nums">
                           <a :href="getPinDossierUrl(pin)" @click.stop
-                             class="text-slate-500 dark:text-slate-400 hover:text-emerald-500 truncate font-mono"
+                             class="text-slate-500 dark:text-slate-400 hover:text-emerald-500 truncate font-mono tabular-nums"
                              title="Open Dedicated Pin Intelligence"
                              x-text="'ID: ' + pin.pin_id"></a>
                           <template x-if="pin.metadata?.pinner || pin.creator_username">
@@ -1682,13 +1682,13 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                             </span>
                           </template>
                           <!-- Method Badge -->
-                          <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold border shrink-0"
+                          <span class="px-1.5 py-0.2 rounded text-[9px] font-mono tabular-nums font-bold border shrink-0"
                                 :class="getPinMethodBadgeClass(pin)"
                                 :title="'Method: ' + formatPinMethodLabel(pin)"
                                 x-text="getPinMethod(pin)"></span>
                           <!-- Created Timestamp / Age Badge -->
                           <template x-if="getPinCreatedDate(pin)">
-                            <span class="text-slate-500 dark:text-slate-400 font-mono text-[9px] truncate shrink-0"
+                            <span class="text-slate-500 dark:text-slate-400 font-mono tabular-nums text-[9px] truncate shrink-0"
                                   :title="'Created: ' + formatPinCreated(pin)"
                                   x-text="'📅 ' + (formatPinAge(pin) || formatPinCreated(pin))"></span>
                           </template>
@@ -1698,7 +1698,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                           <div class="flex flex-wrap items-center gap-1 mt-1">
                             <template x-for="vtag in (pin._cachedVisualTagsSlice || getPinVisualTags(pin).slice(0, 4))" :key="vtag">
                               <button @click.stop="filterByVisualTag(vtag)"
-                                      class="px-1.5 py-0.5 rounded-md text-[9px] font-mono transition cursor-pointer flex items-center gap-1"
+                                      class="px-1.5 py-0.5 rounded-md text-[9px] font-mono tabular-nums transition cursor-pointer flex items-center gap-1"
                                       :class="activeVisualTagFilter === vtag.toLowerCase() 
                                         ? 'bg-purple-600 text-white font-bold shadow-sm' 
                                         : (isCoreAnchorTag(vtag) 
@@ -1719,7 +1719,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                               </button>
                             </template>
                             <template x-if="(pin._extraTagsCount !== undefined ? pin._extraTagsCount : Math.max(0, getPinVisualTags(pin).length - 4)) > 0">
-                              <span class="text-[9px] text-slate-400 font-mono" x-text="'+' + (pin._extraTagsCount !== undefined ? pin._extraTagsCount : (getPinVisualTags(pin).length - 4)) + ' tags'"></span>
+                              <span class="text-[9px] text-slate-400 font-mono tabular-nums" x-text="'+' + (pin._extraTagsCount !== undefined ? pin._extraTagsCount : (getPinVisualTags(pin).length - 4)) + ' tags'"></span>
                             </template>
                           </div>
                         </template>
@@ -1727,7 +1727,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                     </td>
 
                     <!-- # Rank & Delta Movement -->
-                    <td class="py-3.5 px-3 font-mono font-bold">
+                    <td class="py-3.5 px-3 font-mono tabular-nums font-bold">
                       <template x-if="!pin.is_displaced">
                         <div class="flex items-center space-x-1.5">
                           <span class="px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300"
@@ -1757,19 +1757,19 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                       <template x-if="pin.is_displaced">
                         <div class="flex flex-col space-y-1">
                           <div class="flex items-center space-x-1.5 flex-wrap gap-y-0.5">
-                            <span class="px-2 py-0.5 rounded-lg bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 text-xs font-mono font-bold"
+                            <span class="px-2 py-0.5 rounded-lg bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 text-xs font-mono tabular-nums font-bold"
                                   :title="'Catalog Rank #' + (pin.catalog_rank || ((selectedKeyword?.target_pin_count || 250) + (getPinGlobalIndex(idx) + 1)))"
                                   x-text="'#' + (pin.catalog_rank || ((selectedKeyword?.target_pin_count || 250) + (getPinGlobalIndex(idx) + 1)))"></span>
                             <span class="px-1.5 py-0.5 rounded-md bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30 text-[10px] font-black uppercase tracking-wider shrink-0"
                                   x-text="'Was #' + (pin.last_known_rank || pin.rank_position || '?')"></span>
                           </div>
                           <template x-if="pin.is_deleted || pin.metadata?.is_deleted || pin.metadata?.status === 'archived_404'">
-                            <span class="text-[9px] text-rose-400 font-mono font-bold flex items-center gap-1">
+                            <span class="text-[9px] text-rose-400 font-mono tabular-nums font-bold flex items-center gap-1">
                               <span>🗑️ Removed (404)</span>
                             </span>
                           </template>
                           <template x-if="!(pin.is_deleted || pin.metadata?.is_deleted || pin.metadata?.status === 'archived_404')">
-                            <span class="text-[9px] text-slate-400 font-mono" x-text="'Vault • ' + (pin.status || 'displaced_active')"></span>
+                            <span class="text-[9px] text-slate-400 font-mono tabular-nums" x-text="'Vault • ' + (pin.status || 'displaced_active')"></span>
                           </template>
                         </div>
                       </template>
@@ -1783,7 +1783,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                     </td>
 
                     <!-- Saves & Growth Pace Delta (Image 1 Parity) -->
-                    <td class="py-3.5 px-3 space-y-0.5 font-mono">
+                    <td class="py-3.5 px-3 space-y-0.5 font-mono tabular-nums">
                       <div class="font-bold text-slate-900 dark:text-white"
                            x-text="formatNumber(pin.save_count || pin.metadata?.raw_saves || 0)"></div>
                       <template x-if="getPaceDelta(pin, 'saves') && getPaceDelta(pin, 'saves') !== '0'">
@@ -1793,7 +1793,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                     </td>
 
                     <!-- Repins & Growth Pace Delta -->
-                    <td class="py-3.5 px-3 space-y-0.5 font-mono">
+                    <td class="py-3.5 px-3 space-y-0.5 font-mono tabular-nums">
                       <div class="font-bold text-slate-700 dark:text-slate-300"
                            x-text="formatNumber(pin.repin_count || pin.metadata?.repin_count || 0)"></div>
                       <template x-if="getPaceDelta(pin, 'repins') && getPaceDelta(pin, 'repins') !== '0'">
@@ -1803,15 +1803,15 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                     </td>
 
                     <!-- Comments -->
-                    <td class="py-3.5 px-2 font-mono text-slate-600 dark:text-slate-400"
+                    <td class="py-3.5 px-2 font-mono tabular-nums text-slate-600 dark:text-slate-400"
                         x-text="pin.comment_count || 0"></td>
 
                     <!-- Shares -->
-                    <td class="py-3.5 px-2 font-mono text-slate-600 dark:text-slate-400"
+                    <td class="py-3.5 px-2 font-mono tabular-nums text-slate-600 dark:text-slate-400"
                         x-text="pin.share_count || 0"></td>
 
                     <!-- 24h Velocity -->
-                    <td class="py-3.5 px-3 font-mono">
+                    <td class="py-3.5 px-3 font-mono tabular-nums">
                       <span class="px-2 py-0.5 rounded-lg text-xs font-black block w-fit"
                             :class="Number(pin.daily_save_velocity || 0) >= 10 ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : (Number(pin.daily_save_velocity || 0) > 0 ? 'bg-cyan-500/15 text-cyan-600 dark:text-cyan-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-500')"
                             x-text="(Number(pin.daily_save_velocity || 0) > 0 ? '+' : '') + Number(pin.daily_save_velocity || 0) + ' /d'"></span>
@@ -1819,7 +1819,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
 
                     <!-- Domain Authority -->
                     <td class="py-3.5 px-3">
-                      <span class="text-xs font-mono text-slate-600 dark:text-slate-400 truncate max-w-[130px] block"
+                      <span class="text-xs font-mono tabular-nums text-slate-600 dark:text-slate-400 truncate max-w-[130px] block"
                             x-text="pin.domain || 'Pinterest Direct'"></span>
                     </td>
 
@@ -1862,7 +1862,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
             <template x-for="pin in paginatedPins" :key="pin.pin_id">
               <div :data-pin-id="pin.pin_id"
                    @click="openPinInspector(pin)"
-                   class="p-4 rounded-3xl bg-slate-50/70 dark:bg-slate-900/40 border border-slate-200/80 dark:border-slate-800 hover:border-emerald-500/40 transition group cursor-pointer flex flex-col justify-between space-y-3.5">
+                   class="p-4 rounded-3xl bg-slate-50/70 dark:bg-slate-900/40 border border-slate-200/80 dark:border-[#27272A] hover:border-emerald-500/40 transition group cursor-pointer flex flex-col justify-between space-y-3.5">
                 
                 <div class="space-y-3">
                   <!-- Thumbnail with Rank & Format overlays -->
@@ -1871,16 +1871,16 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                       <img :src="pin.image_url" class="w-full h-full object-cover group-hover:scale-105 transition duration-300">
                     </template>
                     <template x-if="!pin.is_displaced">
-                      <div class="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-lg bg-slate-950/80 text-white font-mono font-black text-xs backdrop-blur-xs"
+                      <div class="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-lg bg-slate-950/80 text-white font-mono tabular-nums font-black text-xs backdrop-blur-xs"
                            x-text="'#' + pin.rank_position"></div>
                     </template>
                     <template x-if="pin.is_displaced">
-                      <div class="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-lg bg-amber-950/90 text-amber-300 font-mono font-black text-[10px] backdrop-blur-xs border border-amber-500/40 flex items-center gap-1 shadow-sm">
+                      <div class="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-lg bg-amber-950/90 text-amber-300 font-mono tabular-nums font-black text-[10px] backdrop-blur-xs border border-amber-500/40 flex items-center gap-1 shadow-sm">
                         <span x-text="'#' + (pin.catalog_rank || 101)"></span>
                         <span class="text-rose-400 text-[9px] font-semibold" x-text="'(Was #' + (pin.last_known_rank || '?') + ')'"></span>
                       </div>
                     </template>
-                    <div class="absolute top-2.5 right-2.5 px-2 py-0.5 rounded-md bg-slate-950/70 text-[10px] font-mono text-slate-200 backdrop-blur-xs uppercase"
+                    <div class="absolute top-2.5 right-2.5 px-2 py-0.5 rounded-md bg-slate-950/70 text-[10px] font-mono tabular-nums text-slate-200 backdrop-blur-xs uppercase"
                          x-text="pin.metadata?.format || pin.format || 'ORGANIC'"></div>
                   </a>
 
@@ -1890,11 +1890,11 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                        class="text-xs font-bold text-slate-900 dark:text-white hover:text-emerald-500 line-clamp-2 leading-snug transition block"
                        title="Open Dedicated Pin Intelligence (/pins/:pin_id)"
                        x-text="pin.title || 'Untitled Pin'"></a>
-                    <div class="flex items-center space-x-1.5 text-[10px] font-mono">
+                    <div class="flex items-center space-x-1.5 text-[10px] font-mono tabular-nums">
                       <a :href="getPinDossierUrl(pin)" @click.stop
                          class="text-slate-400 hover:text-emerald-500 truncate"
                          x-text="pin.board_name || pin.metadata?.board_name || ('ID: ' + pin.pin_id)"></a>
-                      <span class="px-1.5 py-0.2 rounded text-[8px] font-mono font-bold border shrink-0"
+                      <span class="px-1.5 py-0.2 rounded text-[8px] font-mono tabular-nums font-bold border shrink-0"
                             :class="getPinMethodBadgeClass(pin)"
                             :title="'Method: ' + formatPinMethodLabel(pin)"
                             x-text="getPinMethod(pin)"></span>
@@ -1907,7 +1907,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                       <div class="flex flex-wrap items-center gap-1 mt-1">
                         <template x-for="vtag in (pin._cachedVisualTagsSlice || getPinVisualTags(pin).slice(0, 3))" :key="vtag">
                           <button @click.stop="filterByVisualTag(vtag)"
-                                  class="px-1.5 py-0.2 rounded-md text-[9px] font-mono transition cursor-pointer"
+                                  class="px-1.5 py-0.2 rounded-md text-[9px] font-mono tabular-nums transition cursor-pointer"
                                   :class="activeVisualTagFilter === vtag.toLowerCase() ? 'bg-purple-600 text-white font-bold' : 'bg-purple-500/10 text-purple-600 dark:text-purple-400 hover:bg-purple-500/20 border border-purple-500/20'"
                                   :title="'Filter by visual tag: #' + vtag">
                             <span x-text="'#' + vtag"></span>
@@ -1919,8 +1919,8 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                 </div>
 
                 <!-- Engagement Bar & Actions -->
-                <div class="pt-2.5 border-t border-slate-200/60 dark:border-slate-800/60 space-y-2">
-                  <div class="flex items-center justify-between text-xs font-mono">
+                <div class="pt-2.5 border-t border-slate-200/60 dark:border-[#27272A]/60 space-y-2">
+                  <div class="flex items-center justify-between text-xs font-mono tabular-nums">
                     <div>
                       <span class="text-slate-400 text-[10px]">Saves:</span>
                       <strong class="text-slate-900 dark:text-white" x-text="formatNumber(pin.save_count || pin.metadata?.raw_saves || 0)"></strong>
@@ -1928,13 +1928,13 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                         <span class="text-emerald-500 text-[10px] font-bold" x-text="getPaceDelta(pin, 'saves')"></span>
                       </template>
                     </div>
-                    <span class="px-2 py-0.5 rounded text-[10px] font-bold font-mono"
+                    <span class="px-2 py-0.5 rounded text-[10px] font-bold font-mono tabular-nums"
                           :class="Number(pin.daily_save_velocity || 0) > 0 ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : 'bg-slate-200 dark:bg-slate-800 text-slate-500'"
                           x-text="(Number(pin.daily_save_velocity || 0) > 0 ? '+' : '') + (pin.daily_save_velocity || 0) + ' v/d'"></span>
                   </div>
 
                   <div class="flex items-center justify-between text-[11px] text-slate-400 pt-1" @click.stop>
-                    <span class="truncate max-w-[120px] font-mono text-[10px]" x-text="pin.domain || 'Pinterest'"></span>
+                    <span class="truncate max-w-[120px] font-mono tabular-nums text-[10px]" x-text="pin.domain || 'Pinterest'"></span>
                     <div class="flex items-center space-x-1">
                       <a :href="getPinDossierUrl(pin)" class="p-1 rounded bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20" title="Open Dossier (/pins/:pin_id)">
                         <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
@@ -1959,10 +1959,10 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
 
         <!-- TAB 1 PAGINATION & STATUS FOOTER -->
         <template x-if="!isDetailsLoading && filteredPins && filteredPins.length > 0">
-          <div class="px-5 py-3.5 border-t border-slate-200/80 dark:border-slate-800/80 bg-slate-50/50 dark:bg-slate-900/30 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+          <div class="px-5 py-3.5 border-t border-slate-200/80 dark:border-[#27272A]/80 bg-slate-50/50 dark:bg-slate-900/30 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
             
             <!-- Left: Items range & Selection -->
-            <div class="flex items-center space-x-3 text-slate-500 font-mono text-[11px] flex-wrap gap-y-1">
+            <div class="flex items-center space-x-3 text-slate-500 font-mono tabular-nums text-[11px] flex-wrap gap-y-1">
               <div>
                 <span>Showing </span>
                 <span class="font-bold text-slate-900 dark:text-white"
@@ -1989,7 +1989,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
               <!-- Load More Displaced Pins Action -->
               <template x-if="(serpScope === 'displaced' || serpScope === 'all') && totalDisplacedCount > displacedVaultPins.length">
                 <button type="button" @click="loadMoreDisplacedPins()" :disabled="isLoadingMoreDisplaced"
-                        class="px-2.5 py-1 rounded-lg font-mono font-bold text-[11px] bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/30 transition flex items-center space-x-1.5 cursor-pointer disabled:opacity-50 ml-2"
+                        class="px-2.5 py-1 rounded-lg font-mono tabular-nums font-bold text-[11px] bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/30 transition flex items-center space-x-1.5 cursor-pointer disabled:opacity-50 ml-2"
                         title="Load next 24 displaced pins from Vault">
                   <i data-lucide="download" class="w-3 h-3" :class="isLoadingMoreDisplaced ? 'animate-bounce' : ''"></i>
                   <span x-text="isLoadingMoreDisplaced ? 'Loading Vault...' : ('Load More Displaced (' + Math.min(24, totalDisplacedCount - displacedVaultPins.length) + ' more)')"></span>
@@ -2002,14 +2002,14 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
               <div class="flex items-center space-x-1">
                 <!-- First Page -->
                 <button type="button" @click="setPinPage(1)" :disabled="pinPage <= 1"
-                        class="p-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer text-slate-600 dark:text-slate-400"
+                        class="p-1.5 rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer text-slate-600 dark:text-slate-400"
                         title="First Page">
                   <i data-lucide="chevrons-left" class="w-4 h-4"></i>
                 </button>
 
                 <!-- Previous Page -->
                 <button type="button" @click="setPinPage(pinPage - 1)" :disabled="pinPage <= 1"
-                        class="p-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer text-slate-600 dark:text-slate-400"
+                        class="p-1.5 rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer text-slate-600 dark:text-slate-400"
                         title="Previous Page">
                   <i data-lucide="chevron-left" class="w-4 h-4"></i>
                 </button>
@@ -2019,12 +2019,12 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                   <template x-for="p in pinPageNumbers" :key="p">
                     <div>
                       <template x-if="p === '...'">
-                        <span class="px-2 py-1 text-slate-400 font-mono text-xs">...</span>
+                        <span class="px-2 py-1 text-slate-400 font-mono tabular-nums text-xs">...</span>
                       </template>
                       <template x-if="p !== '...'">
                         <button type="button" @click="setPinPage(p)"
-                                class="min-w-8 h-8 px-2 rounded-xl text-xs font-mono font-bold transition cursor-pointer"
-                                :class="pinPage === p ? 'bg-emerald-600 text-white shadow-xs' : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'"
+                                class="min-w-8 h-8 px-2 rounded-xl text-xs font-mono tabular-nums font-bold transition cursor-pointer"
+                                :class="pinPage === p ? 'bg-emerald-600 text-white shadow-xs' : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'"
                                 x-text="p"></button>
                       </template>
                     </div>
@@ -2033,14 +2033,14 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
 
                 <!-- Next Page -->
                 <button type="button" @click="setPinPage(pinPage + 1)" :disabled="pinPage >= pinTotalPages"
-                        class="p-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer text-slate-600 dark:text-slate-400"
+                        class="p-1.5 rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer text-slate-600 dark:text-slate-400"
                         title="Next Page">
                   <i data-lucide="chevron-right" class="w-4 h-4"></i>
                 </button>
 
                 <!-- Last Page -->
                 <button type="button" @click="setPinPage(pinTotalPages)" :disabled="pinPage >= pinTotalPages"
-                        class="p-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer text-slate-600 dark:text-slate-400"
+                        class="p-1.5 rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer text-slate-600 dark:text-slate-400"
                         title="Last Page">
                   <i data-lucide="chevrons-right" class="w-4 h-4"></i>
                 </button>
@@ -2055,16 +2055,16 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
       <!-- TAB 2: PINTEREST TRENDS (52-WEEK SEASONALITY & DEMOGRAPHICS) -->
       <div x-show="activeTab === 'trends'" class="p-6 space-y-6">
         
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800/80 gap-3">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 dark:border-[#27272A]/80 gap-3">
           <div>
             <div class="flex items-center space-x-2">
               <h3 class="text-base font-black text-slate-900 dark:text-white">Interest Over Time (52-Week Official Curve)</h3>
-              <span class="px-2 py-0.5 text-[10px] font-bold uppercase rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/30 font-mono">trends.pinterest.com</span>
+              <span class="px-2 py-0.5 text-[10px] font-bold uppercase rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/30 font-mono tabular-nums">trends.pinterest.com</span>
             </div>
             <p class="text-xs text-slate-500">Weekly relative search popularity indexed from 0 to 100 over the past 12 months</p>
           </div>
 
-          <div class="flex items-center space-x-3 text-xs font-mono">
+          <div class="flex items-center space-x-3 text-xs font-mono tabular-nums">
             <div class="px-3 py-1 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
               Peak: <strong x-text="trendsData?.peak_value || 100"></strong>/100
             </div>
@@ -2076,7 +2076,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
 
         <!-- 52-Week Interactive SVG Chart (Exact Pinterest Trends Parity) -->
         <div class="p-6 rounded-3xl bg-slate-900/80 border border-slate-800 space-y-3 relative overflow-hidden">
-          <div class="flex items-center justify-between text-xs text-slate-400 font-mono px-2">
+          <div class="flex items-center justify-between text-xs text-slate-400 font-mono tabular-nums px-2">
             <span>52 Weeks Ago</span>
             <span>26 Weeks Ago (Mid-Year)</span>
             <span class="text-blue-400 font-bold">Current Week</span>
@@ -2103,14 +2103,14 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
 
         <!-- Related Trends Chips with Sparklines (Image 2 Parity) -->
         <div class="space-y-3">
-          <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono">Related Trends & Comparison</h4>
+          <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono tabular-nums">Related Trends & Comparison</h4>
           <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             <template x-for="r in (trendsData?.related_trends || [])" :key="r.term">
               <div @click="loadKeywordBySlugOrText(r.term, true, true)"
-                   class="p-3.5 rounded-2xl bg-slate-50/80 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 hover:border-blue-500/50 transition cursor-pointer flex items-center justify-between">
+                   class="p-3.5 rounded-2xl bg-slate-50/80 dark:bg-slate-900/50 border border-slate-200 dark:border-[#27272A] hover:border-blue-500/50 transition cursor-pointer flex items-center justify-between">
                 <div class="min-w-0 pr-2">
                   <p class="text-xs font-bold text-slate-900 dark:text-white capitalize truncate" x-text="r.term"></p>
-                  <span class="text-[10px] text-blue-500 font-mono">+ Track Query</span>
+                  <span class="text-[10px] text-blue-500 font-mono tabular-nums">+ Track Query</span>
                 </div>
                 <svg class="w-20 h-5 overflow-visible shrink-0" viewBox="0 0 80 20">
                   <path :d="generateSparklinePath(r.counts, 80, 20)" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round"/>
@@ -2123,12 +2123,12 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
         <!-- Demographics: Age & Gender Distribution (Image 2 Parity) -->
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
           <!-- Age Distribution -->
-          <div class="p-5 rounded-3xl bg-slate-50/70 dark:bg-slate-900/50 border border-slate-200/80 dark:border-slate-800 space-y-3">
-            <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono">Audience Age Distribution</h4>
+          <div class="p-5 rounded-3xl bg-slate-50/70 dark:bg-slate-900/50 border border-slate-200/80 dark:border-[#27272A] space-y-3">
+            <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono tabular-nums">Audience Age Distribution</h4>
             <div class="space-y-2">
               <template x-for="a in (trendsData?.demographics?.age || [])" :key="a.group">
                 <div class="space-y-1">
-                  <div class="flex items-center justify-between text-xs font-mono">
+                  <div class="flex items-center justify-between text-xs font-mono tabular-nums">
                     <span class="text-slate-500" x-text="a.group"></span>
                     <span class="font-bold text-slate-900 dark:text-white" x-text="a.display_pct || (a.pct + '%')"></span>
                   </div>
@@ -2141,11 +2141,11 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
           </div>
 
           <!-- Gender Distribution -->
-          <div class="p-5 rounded-3xl bg-slate-50/70 dark:bg-slate-900/50 border border-slate-200/80 dark:border-slate-800 space-y-3">
-            <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono">Audience Gender Distribution</h4>
+          <div class="p-5 rounded-3xl bg-slate-50/70 dark:bg-slate-900/50 border border-slate-200/80 dark:border-[#27272A] space-y-3">
+            <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono tabular-nums">Audience Gender Distribution</h4>
             <div class="space-y-4 pt-2">
               <div class="space-y-1">
-                <div class="flex items-center justify-between text-xs font-mono">
+                <div class="flex items-center justify-between text-xs font-mono tabular-nums">
                   <span class="text-slate-500">Female</span>
                   <span class="font-bold text-rose-500" x-text="trendsData?.demographics?.gender?.female_display || ((trendsData?.demographics?.gender?.female_pct || 86) + '%')"></span>
                 </div>
@@ -2155,7 +2155,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
               </div>
 
               <div class="space-y-1">
-                <div class="flex items-center justify-between text-xs font-mono">
+                <div class="flex items-center justify-between text-xs font-mono tabular-nums">
                   <span class="text-slate-500">Male</span>
                   <span class="font-bold text-cyan-500" x-text="trendsData?.demographics?.gender?.male_display || ((trendsData?.demographics?.gender?.male_pct || 4) + '%')"></span>
                 </div>
@@ -2165,7 +2165,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
               </div>
 
               <div class="space-y-1">
-                <div class="flex items-center justify-between text-xs font-mono">
+                <div class="flex items-center justify-between text-xs font-mono tabular-nums">
                   <span class="text-slate-500">Unspecified / Custom</span>
                   <span class="font-bold text-slate-400" x-text="trendsData?.demographics?.gender?.unspecified_display || ((trendsData?.demographics?.gender?.unspecified_pct || 10) + '%')"></span>
                 </div>
@@ -2180,11 +2180,11 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
         <!-- Pinterest Official Guided Search Pivots (Image 2 Parity) -->
         <template x-if="trendsData?.ideas_pivots && trendsData.ideas_pivots.length > 0">
           <div class="space-y-3 pt-2">
-            <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono">Pinterest Guided Search Capsules (Pivots)</h4>
+            <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono tabular-nums">Pinterest Guided Search Capsules (Pivots)</h4>
             <div class="flex flex-wrap gap-2">
               <template x-for="p in trendsData.ideas_pivots" :key="p.label">
                 <button @click="loadKeywordBySlugOrText(p.full_name, true, true)"
-                        class="px-3.5 py-1.5 rounded-full text-xs font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:text-emerald-500 dark:hover:text-emerald-400 transition cursor-pointer flex items-center space-x-1">
+                        class="px-3.5 py-1.5 rounded-full text-xs font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 border border-slate-200 dark:border-[#27272A] text-slate-700 dark:text-slate-300 hover:text-emerald-500 dark:hover:text-emerald-400 transition cursor-pointer flex items-center space-x-1">
                   <span>+</span>
                   <span x-text="p.label"></span>
                 </button>
@@ -2196,13 +2196,13 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
         <!-- Pinterest Official Related Interests Taxonomy (Image 3 Parity) -->
         <template x-if="trendsData?.related_interests && trendsData.related_interests.length > 0">
           <div class="space-y-3 pt-2">
-            <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono">Pinterest Taxonomy Related Interests</h4>
+            <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono tabular-nums">Pinterest Taxonomy Related Interests</h4>
             <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5">
               <template x-for="ri in trendsData.related_interests" :key="ri">
                 <div @click="loadKeywordBySlugOrText(ri, true, true)"
-                     class="p-3 rounded-2xl bg-slate-50/70 dark:bg-slate-900/50 border border-slate-200/80 dark:border-slate-800 hover:border-emerald-500/40 transition cursor-pointer group">
+                     class="p-3 rounded-2xl bg-slate-50/70 dark:bg-slate-900/50 border border-slate-200/80 dark:border-[#27272A] hover:border-emerald-500/40 transition cursor-pointer group">
                   <p class="text-xs font-bold text-slate-900 dark:text-white capitalize group-hover:text-emerald-500 transition line-clamp-1" x-text="ri"></p>
-                  <span class="text-[10px] text-emerald-500 font-mono mt-1 block">+ Track Interest</span>
+                  <span class="text-[10px] text-emerald-500 font-mono tabular-nums mt-1 block">+ Track Interest</span>
                 </div>
               </template>
             </div>
@@ -2210,19 +2210,19 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
         </template>
 
         <!-- Pinterest Official Popular Pins (Image 2 Parity) -->
-        <div class="space-y-4 pt-4 border-t border-slate-100 dark:border-slate-800/80">
+        <div class="space-y-4 pt-4 border-t border-slate-100 dark:border-[#27272A]/80">
           <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div class="space-y-0.5">
               <div class="flex items-center space-x-2">
                 <h4 class="text-sm font-bold text-slate-900 dark:text-white font-sans tracking-tight">Popular Pins</h4>
-                <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-blue-500/15 text-blue-600 dark:text-blue-400 border border-blue-500/30">736x HD</span>
+                <span class="px-2 py-0.5 rounded-full text-[10px] font-mono tabular-nums font-bold bg-blue-500/15 text-blue-600 dark:text-blue-400 border border-blue-500/30">736x HD</span>
               </div>
               <p class="text-xs text-slate-500">Browse official popular Pins based on your keywords in high definition</p>
             </div>
             
             <div class="flex items-center space-x-2">
               <!-- View Switcher: Full Pins (736x) vs Official Collage vs Interactive Cards -->
-              <div class="inline-flex rounded-xl bg-slate-100 dark:bg-slate-800/90 p-1 border border-slate-200/80 dark:border-slate-700/60 text-xs">
+              <div class="inline-flex rounded-xl bg-slate-100 dark:bg-slate-800/90 p-1 border border-slate-200/80 dark:border-[#27272A]/60 text-xs">
                 <button @click="popularPinsView = 'full'; $nextTick(() => { if (window.lucide) window.lucide.createIcons(); })"
                         :class="popularPinsView === 'full' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 font-medium'"
                         class="px-2.5 py-1 rounded-lg transition flex items-center space-x-1 cursor-pointer"
@@ -2260,7 +2260,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
               <div class="space-y-3">
                 <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-3 gap-4">
                   <template x-for="(imgUrl, idx) in (trendsData?.collage_images || []).filter(Boolean)" :key="idx">
-                    <div class="group relative rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 hover:border-blue-500/50 shadow-xs hover:shadow-md transition duration-300 overflow-hidden flex flex-col justify-between cursor-pointer"
+                    <div class="group relative rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-[#27272A] hover:border-blue-500/50 shadow-xs hover:shadow-md transition duration-300 overflow-hidden flex flex-col justify-between cursor-pointer"
                          @click="window.open((imgUrl || '').replace('/236x/', '/736x/').replace('/474x/', '/736x/'), '_blank')">
                       
                       <!-- Full Pin Image Container with fixed 2:3 aspect ratio -->
@@ -2273,12 +2273,12 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                              @error="if ($el.src.includes('/736x/')) { $el.src = $el.src.replace('/736x/', '/474x/'); } else if ($el.src.includes('/474x/')) { $el.src = $el.src.replace('/474x/', '/236x/'); }">
                         
                         <!-- Rank Badge -->
-                        <div class="absolute top-4 left-4 px-2.5 py-1 rounded-lg bg-slate-950/80 text-white font-mono font-black text-xs backdrop-blur-xs shadow-md">
+                        <div class="absolute top-4 left-4 px-2.5 py-1 rounded-lg bg-slate-950/80 text-white font-mono tabular-nums font-black text-xs backdrop-blur-xs shadow-md">
                           <span x-text="'#' + (idx + 1)"></span>
                         </div>
 
                         <!-- 736x HD Badge -->
-                        <div class="absolute top-4 right-4 px-2 py-0.5 rounded-md bg-blue-600 text-white font-mono font-bold text-[10px] backdrop-blur-xs shadow-md uppercase tracking-wider">
+                        <div class="absolute top-4 right-4 px-2 py-0.5 rounded-md bg-blue-600 text-white font-mono tabular-nums font-bold text-[10px] backdrop-blur-xs shadow-md uppercase tracking-wider">
                           736x HD
                         </div>
 
@@ -2292,7 +2292,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                       </div>
 
                       <!-- Card Details Bottom Strip -->
-                      <div class="p-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-xs" @click.stop>
+                      <div class="p-3 border-t border-slate-100 dark:border-[#27272A]/80 flex items-center justify-between text-xs" @click.stop>
                         <div class="flex items-center space-x-2 min-w-0 pr-2">
                           <span class="w-2 h-2 rounded-full bg-blue-500 shrink-0"></span>
                           <span class="font-bold text-slate-800 dark:text-slate-200 truncate capitalize"
@@ -2320,7 +2320,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
 
             <!-- Loading or Empty state -->
             <template x-if="!trendsData?.collage_images || trendsData.collage_images.length === 0">
-              <div class="py-12 text-center text-xs text-slate-400 italic rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30">
+              <div class="py-12 text-center text-xs text-slate-400 italic rounded-2xl border border-slate-200 dark:border-[#27272A] bg-slate-50/50 dark:bg-slate-900/30">
                 <i data-lucide="image" class="w-8 h-8 text-slate-300 dark:text-slate-600 mx-auto mb-2"></i>
                 <p>Loading full 736x popular pins...</p>
               </div>
@@ -2333,7 +2333,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
               <div class="space-y-2">
                 <!-- The 5-Column Collage Card -->
                 <div @click="window.open('https://www.pinterest.com/search/pins/?q=' + encodeURIComponent(trendsData?.term || selectedKeyword?.keyword || activeKeywordQuery || ''), '_blank')"
-                     class="group relative h-[440px] sm:h-[480px] md:h-[520px] w-full rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900/60 cursor-pointer shadow-sm hover:shadow-md transition">
+                     class="group relative h-[440px] sm:h-[480px] md:h-[520px] w-full rounded-2xl overflow-hidden border border-slate-200 dark:border-[#27272A] bg-slate-100 dark:bg-slate-900/60 cursor-pointer shadow-sm hover:shadow-md transition">
                   
                   <div class="grid grid-cols-5 h-full w-full gap-[3px] bg-slate-200 dark:bg-slate-800">
                     <!-- Column 1: Full Height Image A[0] -->
@@ -2438,7 +2438,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
 
             <!-- Loading or Empty state for collage -->
             <template x-if="!trendsData?.collage_images || trendsData.collage_images.length < 5">
-              <div class="py-12 text-center text-xs text-slate-400 italic rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30">
+              <div class="py-12 text-center text-xs text-slate-400 italic rounded-2xl border border-slate-200 dark:border-[#27272A] bg-slate-50/50 dark:bg-slate-900/30">
                 <i data-lucide="image" class="w-8 h-8 text-slate-300 dark:text-slate-600 mx-auto mb-2"></i>
                 <p>Loading official Pinterest Trends collage...</p>
               </div>
@@ -2457,7 +2457,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
               <template x-for="p in (trendsData?.popular_pins || [])" :key="p.pin_id || p.id">
                 <div :data-pin-id="p.pin_id || p.id"
                      @click="openPinInspector({ pin_id: p.pin_id || p.id, title: p.title, image_url: p.image_url, domain: p.domain, save_count: p.save_count, repin_count: p.repin_count })"
-                     class="group rounded-2xl bg-slate-50/80 dark:bg-slate-900/50 border border-slate-200/80 dark:border-slate-800 hover:border-blue-500/50 overflow-hidden transition cursor-pointer flex flex-col justify-between">
+                     class="group rounded-2xl bg-slate-50/80 dark:bg-slate-900/50 border border-slate-200/80 dark:border-[#27272A] hover:border-blue-500/50 overflow-hidden transition cursor-pointer flex flex-col justify-between">
                   
                   <div class="relative aspect-[2/3] bg-slate-200 dark:bg-slate-800 overflow-hidden">
                     <template x-if="p.image_url">
@@ -2474,7 +2474,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                   <div class="p-2.5 space-y-1">
                     <h5 class="text-xs font-bold text-slate-900 dark:text-white line-clamp-2 leading-tight group-hover:text-blue-500 transition"
                         x-text="p.title || 'Popular Pin'"></h5>
-                    <div class="flex items-center justify-between text-[10px] text-slate-400 font-mono">
+                    <div class="flex items-center justify-between text-[10px] text-slate-400 font-mono tabular-nums">
                       <span class="truncate max-w-[80px]" x-text="p.pinner?.full_name || p.domain || 'Pinterest'"></span>
                       <a :href="'https://www.pinterest.com/pin/' + (p.pin_id || p.id) + '/'" target="_blank" @click.stop class="text-blue-500 hover:underline">
                         <i data-lucide="external-link" class="w-3 h-3"></i>
@@ -2494,7 +2494,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
       <div x-show="activeTab === 'intelligence'" class="p-4 sm:p-6 space-y-6">
 
         <!-- Scope Segment Selector: Active SERP vs Full Catalog (All Pins) -->
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl bg-slate-50/90 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl bg-slate-50/90 dark:bg-slate-900/80 border border-slate-200/80 dark:border-[#27272A]">
           <div class="flex items-center space-x-3">
             <div class="w-8 h-8 rounded-xl bg-purple-500/10 text-purple-500 flex items-center justify-center shrink-0">
               <i data-lucide="layers" class="w-4 h-4"></i>
@@ -2502,19 +2502,19 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
             <div>
               <div class="flex items-center space-x-2">
                 <span class="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-slate-200">Intelligence Scope</span>
-                <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-purple-500/15 text-purple-500"
+                <span class="px-2 py-0.5 rounded-full text-[10px] font-mono tabular-nums font-bold bg-purple-500/15 text-purple-500"
                       x-text="intelScope === 'all' ? ('Full Historical Catalog (#' + totalCatalogCount + ' Pins)') : ('Active Live SERP (#' + (selectedKeywordDetails?.current_pins?.length || 0) + ' Pins)')"></span>
               </div>
               <p class="text-[11px] text-slate-500">Toggle analysis between live ranking active SERP pins and the full collected catalog (including Displaced Vault pins).</p>
             </div>
           </div>
 
-          <div class="flex items-center p-1 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 gap-1 self-start sm:self-auto shrink-0">
+          <div class="flex items-center p-1 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-[#27272A] gap-1 self-start sm:self-auto shrink-0">
             <button @click="intelScope = 'all'"
                     class="px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center space-x-1.5"
                     :class="intelScope === 'all' ? 'bg-purple-500 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'">
               <span>🔘 Full Catalog</span>
-              <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold"
+              <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono tabular-nums font-bold"
                     :class="intelScope === 'all' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'"
                     x-text="totalCatalogCount > allCombinedPins.length ? ('#' + allCombinedPins.length + ' / ' + totalCatalogCount) : ('#' + totalCatalogCount)"></span>
             </button>
@@ -2522,7 +2522,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                     class="px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center space-x-1.5"
                     :class="intelScope === 'active' ? 'bg-emerald-500 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'">
               <span>🟢 Active SERP</span>
-              <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold"
+              <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono tabular-nums font-bold"
                     :class="intelScope === 'active' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'"
                     x-text="'#' + (selectedKeywordDetails?.current_pins?.length || 0)"></span>
             </button>
@@ -2532,9 +2532,9 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
         <!-- Top 4-Metric Grid -->
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <!-- 1: StaticRank & Saves Baseline -->
-          <div class="p-5 rounded-3xl bg-slate-50/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800/80 space-y-3">
+          <div class="p-5 rounded-3xl bg-slate-50/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-[#27272A]/80 space-y-3">
             <div class="flex items-center justify-between">
-              <span class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono">SERP Engagement</span>
+              <span class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono tabular-nums">SERP Engagement</span>
               <div class="w-7 h-7 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center">
                 <i data-lucide="bookmark" class="w-3.5 h-3.5"></i>
               </div>
@@ -2542,23 +2542,23 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
             <div class="space-y-2">
               <div class="flex items-center justify-between text-xs">
                 <span class="text-slate-500">Total Analyzed Pins</span>
-                <span class="font-mono font-bold text-slate-900 dark:text-white" x-text="totalAnalyzedPinsCount"></span>
+                <span class="font-mono tabular-nums font-bold text-slate-900 dark:text-white" x-text="totalAnalyzedPinsCount"></span>
               </div>
               <div class="flex items-center justify-between text-xs">
                 <span class="text-slate-500">Avg Saves / Pin</span>
-                <span class="font-mono font-bold text-emerald-500" x-text="formatNumber(analyzedAvgSaves)"></span>
+                <span class="font-mono tabular-nums font-bold text-emerald-500" x-text="formatNumber(analyzedAvgSaves)"></span>
               </div>
               <div class="flex items-center justify-between text-xs">
                 <span class="text-slate-500">Median Saves</span>
-                <span class="font-mono font-bold text-slate-700 dark:text-slate-300" x-text="formatNumber(analyzedMedianSaves)"></span>
+                <span class="font-mono tabular-nums font-bold text-slate-700 dark:text-slate-300" x-text="formatNumber(analyzedMedianSaves)"></span>
               </div>
             </div>
           </div>
 
           <!-- 2: Domain Concentration & Repeat Frequency -->
-          <div class="p-5 rounded-3xl bg-slate-50/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800/80 space-y-3">
+          <div class="p-5 rounded-3xl bg-slate-50/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-[#27272A]/80 space-y-3">
             <div class="flex items-center justify-between">
-              <span class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono">Domain Authority</span>
+              <span class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono tabular-nums">Domain Authority</span>
               <div class="w-7 h-7 rounded-xl bg-cyan-500/10 text-cyan-500 flex items-center justify-center">
                 <i data-lucide="globe" class="w-3.5 h-3.5"></i>
               </div>
@@ -2566,23 +2566,23 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
             <div class="space-y-2">
               <div class="flex items-center justify-between text-xs">
                 <span class="text-slate-500">Unique Domains</span>
-                <span class="font-mono font-bold text-slate-900 dark:text-white" x-text="uniqueDomainsCount"></span>
+                <span class="font-mono tabular-nums font-bold text-slate-900 dark:text-white" x-text="uniqueDomainsCount"></span>
               </div>
               <div class="flex items-center justify-between text-xs">
                 <span class="text-slate-500">Repeated Domains (>1 Pin)</span>
-                <span class="font-mono font-bold text-amber-500" x-text="repeatedDomainsCount"></span>
+                <span class="font-mono tabular-nums font-bold text-amber-500" x-text="repeatedDomainsCount"></span>
               </div>
               <div class="flex items-center justify-between text-xs">
                 <span class="text-slate-500">Top Ranked Domain</span>
-                <span class="font-mono font-bold text-purple-400 truncate max-w-[120px]" x-text="selectedKeywordDetails?.intelligence?.top_domain || domainBreakdownList[0]?.domain || 'N/A'"></span>
+                <span class="font-mono tabular-nums font-bold text-purple-400 truncate max-w-[120px]" x-text="selectedKeywordDetails?.intelligence?.top_domain || domainBreakdownList[0]?.domain || 'N/A'"></span>
               </div>
             </div>
           </div>
 
           <!-- 3: Creative Formats & Canvas Aspect Ratios -->
-          <div class="p-5 rounded-3xl bg-slate-50/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800/80 space-y-3">
+          <div class="p-5 rounded-3xl bg-slate-50/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-[#27272A]/80 space-y-3">
             <div class="flex items-center justify-between">
-              <span class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono">Visual Formats</span>
+              <span class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono tabular-nums">Visual Formats</span>
               <div class="w-7 h-7 rounded-xl bg-purple-500/10 text-purple-500 flex items-center justify-center">
                 <i data-lucide="image" class="w-3.5 h-3.5"></i>
               </div>
@@ -2590,23 +2590,23 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
             <div class="space-y-2">
               <div class="flex items-center justify-between text-xs">
                 <span class="text-slate-500">Standard Static (2:3)</span>
-                <span class="font-mono font-bold text-emerald-500" x-text="analyzedVisualFormats.standard_pct + '%'"></span>
+                <span class="font-mono tabular-nums font-bold text-emerald-500" x-text="analyzedVisualFormats.standard_pct + '%'"></span>
               </div>
               <div class="flex items-center justify-between text-xs">
                 <span class="text-slate-500">Extra Tall (1:2)</span>
-                <span class="font-mono font-bold text-amber-400" x-text="analyzedVisualFormats.extra_tall_pct + '%'"></span>
+                <span class="font-mono tabular-nums font-bold text-amber-400" x-text="analyzedVisualFormats.extra_tall_pct + '%'"></span>
               </div>
               <div class="flex items-center justify-between text-xs">
                 <span class="text-slate-500">Video & Idea Pins</span>
-                <span class="font-mono font-bold text-cyan-500" x-text="analyzedVisualFormats.video_idea_pct + '%'"></span>
+                <span class="font-mono tabular-nums font-bold text-cyan-500" x-text="analyzedVisualFormats.video_idea_pct + '%'"></span>
               </div>
             </div>
           </div>
 
           <!-- 4: Opportunity Verdict -->
-          <div class="p-5 rounded-3xl bg-slate-50/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800/80 space-y-3">
+          <div class="p-5 rounded-3xl bg-slate-50/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-[#27272A]/80 space-y-3">
             <div class="flex items-center justify-between">
-              <span class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono">Opportunity Verdict</span>
+              <span class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono tabular-nums">Opportunity Verdict</span>
               <div class="w-7 h-7 rounded-xl bg-pink-500/10 text-pink-500 flex items-center justify-center">
                 <i data-lucide="trending-up" class="w-3.5 h-3.5"></i>
               </div>
@@ -2619,8 +2619,8 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
         </div>
 
         <!-- SECTION 1: DOMAIN AUTHORITY & REPEAT FREQUENCY BREAKDOWN -->
-        <div class="p-5 rounded-3xl bg-slate-50/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800/80 space-y-4">
-          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200/80 dark:border-slate-800">
+        <div class="p-5 rounded-3xl bg-slate-50/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-[#27272A]/80 space-y-4">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200/80 dark:border-[#27272A]">
             <div class="flex items-center space-x-3">
               <div class="w-8 h-8 rounded-xl bg-cyan-500/10 text-cyan-500 flex items-center justify-center">
                 <i data-lucide="globe" class="w-4 h-4"></i>
@@ -2628,7 +2628,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
               <div>
                 <div class="flex items-center space-x-2">
                   <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">Domain Authority & Repeat Frequency Breakdown</h3>
-                  <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-500/15 text-amber-500 border border-amber-500/30"
+                  <span class="px-2 py-0.5 rounded-full text-[10px] font-mono tabular-nums font-bold bg-amber-500/15 text-amber-500 border border-amber-500/30"
                         x-text="repeatedDomainsCount + ' Repeated Domains'"></span>
                 </div>
                 <p class="text-xs text-slate-500 mt-0.5">Footprint analysis of websites ranking in organic SERP. Multi-pin presence indicates authority concentration or programmatic scale.</p>
@@ -2642,12 +2642,12 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                        x-model="domainSearch"
                        @input="domainPage = 1"
                        placeholder="Filter domains..."
-                       class="px-3 py-1.5 pl-8 rounded-xl text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-cyan-500/30 w-40 sm:w-48 font-sans">
+                       class="px-3 py-1.5 pl-8 rounded-xl text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-cyan-500/30 w-40 sm:w-48 font-sans">
                 <span class="absolute left-2.5 top-2 text-xs text-slate-400">🔍</span>
                 <button x-show="domainSearch" @click="domainSearch = ''; domainPage = 1" class="absolute right-2.5 top-1.5 text-xs text-slate-400 hover:text-slate-600 cursor-pointer">✕</button>
               </div>
 
-              <span class="text-xs text-slate-500 font-mono" x-text="filteredDomainsList().length + ' Domains'"></span>
+              <span class="text-xs text-slate-500 font-mono tabular-nums" x-text="filteredDomainsList().length + ' Domains'"></span>
 
               <template x-if="activeDomainFilter">
                 <button @click="activeDomainFilter = ''" class="px-2 py-1 rounded-xl text-[11px] font-bold bg-rose-500/15 text-rose-500 hover:bg-rose-500/25 transition flex items-center space-x-1 cursor-pointer">
@@ -2659,9 +2659,9 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
           </div>
 
           <!-- Domain Table -->
-          <div class="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
+          <div class="overflow-x-auto rounded-2xl border border-slate-200 dark:border-[#27272A]">
             <table class="w-full text-left text-xs">
-              <thead class="bg-slate-100/70 dark:bg-slate-900/80 text-slate-500 uppercase font-mono text-[10px] tracking-wider border-b border-slate-200 dark:border-slate-800">
+              <thead class="bg-slate-100/70 dark:bg-slate-900/80 text-slate-500 uppercase font-mono tabular-nums text-[10px] tracking-wider border-b border-slate-200 dark:border-[#27272A]">
                 <tr>
                   <th class="py-3 px-3 w-12 text-center">#</th>
                   <th class="py-3 px-4">Domain Name</th>
@@ -2672,31 +2672,31 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                   <th class="py-3 px-3 text-center w-28">Action</th>
                 </tr>
               </thead>
-              <tbody class="divide-y divide-slate-200/80 dark:divide-slate-800/80 bg-white dark:bg-[#0c1322]">
+              <tbody class="divide-y divide-slate-200/80 dark:divide-slate-800/80 bg-white dark:bg-[#121215]">
                 <template x-for="(dom, idx) in paginatedDomainsList()" :key="dom.domain">
                   <tr class="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition">
-                    <td class="py-3 px-3 text-center font-mono text-slate-400 font-bold" x-text="((domainPage - 1) * domainPageSize) + idx + 1"></td>
+                    <td class="py-3 px-3 text-center font-mono tabular-nums text-slate-400 font-bold" x-text="((domainPage - 1) * domainPageSize) + idx + 1"></td>
                     <td class="py-3 px-4">
                       <div class="flex items-center space-x-2">
                         <a :href="'https://' + dom.domain" target="_blank" rel="noopener noreferrer"
-                           class="font-mono font-bold text-slate-900 dark:text-white hover:text-cyan-500 dark:hover:text-cyan-400 transition flex items-center space-x-1.5 group">
+                           class="font-mono tabular-nums font-bold text-slate-900 dark:text-white hover:text-cyan-500 dark:hover:text-cyan-400 transition flex items-center space-x-1.5 group">
                           <span x-text="dom.domain"></span>
                           <i data-lucide="external-link" class="w-3 h-3 text-slate-400 group-hover:text-cyan-400 transition"></i>
                         </a>
                         <template x-if="dom.pin_count > 1">
-                          <span class="px-2 py-0.5 rounded-full text-[9px] font-mono font-black bg-amber-500/15 text-amber-500 border border-amber-500/30"
+                          <span class="px-2 py-0.5 rounded-full text-[9px] font-mono tabular-nums font-black bg-amber-500/15 text-amber-500 border border-amber-500/30"
                                 x-text="'🔥 ' + dom.pin_count + ' Pins'"></span>
                         </template>
                       </div>
                     </td>
                     <td class="py-3 px-3 text-center">
-                      <span class="px-2 py-0.5 rounded-lg text-xs font-mono font-bold"
+                      <span class="px-2 py-0.5 rounded-lg text-xs font-mono tabular-nums font-bold"
                             :class="dom.pin_count > 1 ? 'bg-amber-500/15 text-amber-500 font-black' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'"
                             x-text="dom.pin_count"></span>
                     </td>
                     <td class="py-3 px-4">
                       <div class="space-y-1 max-w-[140px]">
-                        <div class="flex items-center justify-between text-[11px] font-mono font-bold">
+                        <div class="flex items-center justify-between text-[11px] font-mono tabular-nums font-bold">
                           <span class="text-purple-400" x-text="dom.share_pct + '%'"></span>
                         </div>
                         <div class="h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
@@ -2705,15 +2705,15 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                         </div>
                       </div>
                     </td>
-                    <td class="py-3 px-3 text-right font-mono font-bold text-emerald-500" x-text="formatNumber(dom.total_saves)"></td>
+                    <td class="py-3 px-3 text-right font-mono tabular-nums font-bold text-emerald-500" x-text="formatNumber(dom.total_saves)"></td>
                     <td class="py-3 px-3 text-center">
-                      <span class="px-2 py-0.5 rounded-lg text-[11px] font-mono font-bold"
+                      <span class="px-2 py-0.5 rounded-lg text-[11px] font-mono tabular-nums font-bold"
                             :class="dom.best_rank <= 5 ? 'bg-emerald-500/15 text-emerald-500 border border-emerald-500/30' : (dom.best_rank <= 20 ? 'bg-cyan-500/15 text-cyan-500' : 'bg-slate-100 dark:bg-slate-800 text-slate-400')"
                             x-text="'#' + dom.best_rank"></span>
                     </td>
                     <td class="py-3 px-3 text-center">
                       <button @click="filterByDomain(dom.domain)"
-                              class="px-2.5 py-1 rounded-xl text-[11px] font-bold font-mono transition flex items-center justify-center space-x-1 w-full cursor-pointer"
+                              class="px-2.5 py-1 rounded-xl text-[11px] font-bold font-mono tabular-nums transition flex items-center justify-center space-x-1 w-full cursor-pointer"
                               :class="activeDomainFilter === dom.domain.toLowerCase() ? 'bg-cyan-600 text-white shadow-xs' : 'bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-600 dark:text-cyan-400 border border-cyan-500/25'">
                         <i data-lucide="filter" class="w-3 h-3"></i>
                         <span x-text="activeDomainFilter === dom.domain.toLowerCase() ? 'Filtered' : 'Filter Pins'"></span>
@@ -2724,7 +2724,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
 
                 <template x-if="filteredDomainsList().length === 0">
                   <tr>
-                    <td colspan="7" class="py-8 text-center text-xs text-slate-400 font-mono">
+                    <td colspan="7" class="py-8 text-center text-xs text-slate-400 font-mono tabular-nums">
                       No domain data matches current search filter.
                     </td>
                   </tr>
@@ -2734,20 +2734,20 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
           </div>
 
           <!-- Domain Pagination Footer -->
-          <div x-show="filteredDomainsList().length > domainPageSize" class="flex items-center justify-between p-3 rounded-2xl bg-white/60 dark:bg-slate-950/40 border border-slate-200 dark:border-slate-800 text-xs font-mono">
+          <div x-show="filteredDomainsList().length > domainPageSize" class="flex items-center justify-between p-3 rounded-2xl bg-white/60 dark:bg-slate-950/40 border border-slate-200 dark:border-[#27272A] text-xs font-mono tabular-nums">
             <span class="text-slate-500 dark:text-slate-400"
                   x-text="'Showing ' + (((domainPage - 1) * domainPageSize) + 1) + '-' + Math.min(domainPage * domainPageSize, filteredDomainsList().length) + ' of ' + filteredDomainsList().length + ' domains'"></span>
             <div class="flex items-center gap-1.5">
-              <button :disabled="domainPage <= 1" @click="domainPage--" class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 disabled:opacity-40 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition">← Prev</button>
+              <button :disabled="domainPage <= 1" @click="domainPage--" class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-slate-900 disabled:opacity-40 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition">← Prev</button>
               <span class="px-2 py-1 font-bold text-slate-700 dark:text-slate-300" x-text="domainPage + ' / ' + totalDomainsPages()"></span>
-              <button :disabled="domainPage >= totalDomainsPages()" @click="domainPage++" class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 disabled:opacity-40 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition">Next →</button>
+              <button :disabled="domainPage >= totalDomainsPages()" @click="domainPage++" class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-slate-900 disabled:opacity-40 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition">Next →</button>
             </div>
           </div>
         </div>
 
         <!-- SECTION 2: VISUAL ANNOTATIONS CROSSOVER HUB & CO-OCCURRING POWER PAIRS -->
-        <div class="p-5 rounded-3xl bg-slate-50/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800/80 space-y-5">
-          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200/80 dark:border-slate-800">
+        <div class="p-5 rounded-3xl bg-slate-50/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-[#27272A]/80 space-y-5">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200/80 dark:border-[#27272A]">
             <div class="flex items-center space-x-3">
               <div class="w-8 h-8 rounded-xl bg-purple-500/10 text-purple-500 flex items-center justify-center">
                 <i data-lucide="sparkles" class="w-4 h-4"></i>
@@ -2755,7 +2755,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
               <div>
                 <div class="flex items-center space-x-2">
                   <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">Visual Annotations Crossover Hub</h3>
-                  <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-purple-500/15 text-purple-400 border border-purple-500/30"
+                  <span class="px-2 py-0.5 rounded-full text-[10px] font-mono tabular-nums font-bold bg-purple-500/15 text-purple-400 border border-purple-500/30"
                         x-text="computeSerpPowerPairs().length + ' Power Pairs Computed'"></span>
                 </div>
                 <p class="text-xs text-slate-500 mt-0.5">Computer-vision tag co-occurrences, intra-SERP algorithmic lift, and visual prompt blueprint combinations.</p>
@@ -2773,19 +2773,19 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
           <!-- Subsection A: Co-Occurring Power Pairs Grid -->
           <div class="space-y-3">
             <div class="flex items-center justify-between">
-              <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono">Co-Occurring Visual Power Pairs (Algorithmic Lift)</h4>
-              <span class="text-[10px] text-slate-400 font-mono">Top combinations with high intra-SERP affinity</span>
+              <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono tabular-nums">Co-Occurring Visual Power Pairs (Algorithmic Lift)</h4>
+              <span class="text-[10px] text-slate-400 font-mono tabular-nums">Top combinations with high intra-SERP affinity</span>
             </div>
 
             <template x-if="computeSerpPowerPairs().length > 0">
               <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                 <template x-for="(pair, idx) in computeSerpPowerPairs()" :key="idx">
-                  <div class="p-3.5 rounded-2xl bg-white dark:bg-[#0c1322] border border-slate-200 dark:border-slate-800 flex flex-col justify-between space-y-2.5 hover:border-purple-500/40 transition group">
+                  <div class="p-3.5 rounded-2xl bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] flex flex-col justify-between space-y-2.5 hover:border-purple-500/40 transition group">
                     <div class="space-y-2">
                       <div class="flex items-center justify-between">
-                        <span class="px-2 py-0.5 rounded-md text-[9px] font-mono font-black bg-purple-500/15 text-purple-400 border border-purple-500/30"
+                        <span class="px-2 py-0.5 rounded-md text-[9px] font-mono tabular-nums font-black bg-purple-500/15 text-purple-400 border border-purple-500/30"
                               x-text="pair.lift + 'x Lift'"></span>
-                        <span class="text-[9px] font-mono text-slate-400" x-text="pair.count + ' Pins (' + pair.supportPct + '%)'"></span>
+                        <span class="text-[9px] font-mono tabular-nums text-slate-400" x-text="pair.count + ' Pins (' + pair.supportPct + '%)'"></span>
                       </div>
                       <div class="flex items-center space-x-1.5 text-xs font-bold text-slate-900 dark:text-white truncate">
                         <button @click="filterByVisualTag(pair.tagA)" class="capitalize text-emerald-500 hover:underline truncate cursor-pointer" :title="'Filter SERP: #' + pair.tagA" x-text="pair.tagA"></button>
@@ -2794,7 +2794,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                       </div>
                     </div>
                     <button @click="copySerpVisualBlueprint(pair)"
-                            class="w-full py-1.5 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 text-[10px] font-bold font-mono transition flex items-center justify-center space-x-1 cursor-pointer">
+                            class="w-full py-1.5 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 text-[10px] font-bold font-mono tabular-nums transition flex items-center justify-center space-x-1 cursor-pointer">
                       <i data-lucide="copy" class="w-3 h-3"></i>
                       <span>📋 Copy Visual Blueprint</span>
                     </button>
@@ -2804,20 +2804,20 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
             </template>
 
             <template x-if="computeSerpPowerPairs().length === 0">
-              <div class="py-6 text-center text-xs text-slate-400 font-mono rounded-2xl bg-white dark:bg-[#0c1322] border border-slate-200 dark:border-slate-800">
+              <div class="py-6 text-center text-xs text-slate-400 font-mono tabular-nums rounded-2xl bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A]">
                 Indexing visual tags... Co-occurring power pairs require at least 2 pins with shared visual annotations.
               </div>
             </template>
           </div>
 
           <!-- Unified Suite: Computer Vision Signals & Visual Anchors -->
-          <div class="space-y-4 pt-3 border-t border-slate-200/80 dark:border-slate-800">
+          <div class="space-y-4 pt-3 border-t border-slate-200/80 dark:border-[#27272A]">
             <!-- Header with Title, Search, Tier Pills, and View Switcher -->
             <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
               <div>
                 <div class="flex items-center space-x-2">
-                  <h4 class="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-white font-mono">Computer Vision Signals & Visual Anchors</h4>
-                  <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-purple-500/15 text-purple-400 border border-purple-500/30"
+                  <h4 class="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-white font-mono tabular-nums">Computer Vision Signals & Visual Anchors</h4>
+                  <span class="px-2 py-0.5 rounded-full text-[10px] font-mono tabular-nums font-bold bg-purple-500/15 text-purple-400 border border-purple-500/30"
                         x-text="filteredAnchorsList().length + ' Anchors'"></span>
                 </div>
                 <p class="text-xs text-slate-500 mt-0.5">Semantic AI entity tags detected by Pinterest Computer Vision across ranking pins. Click any anchor to isolate ranking SERP pins.</p>
@@ -2830,13 +2830,13 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                          x-model="anchorsSearch"
                          @input="anchorsPage = 1"
                          placeholder="Filter anchors (e.g. food, dress)..."
-                         class="px-3 py-1.5 pl-8 rounded-xl text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/30 w-44 sm:w-52 font-sans">
+                         class="px-3 py-1.5 pl-8 rounded-xl text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/30 w-44 sm:w-52 font-sans">
                   <span class="absolute left-2.5 top-2 text-xs text-slate-400">🔍</span>
                   <button x-show="anchorsSearch" @click="anchorsSearch = ''; anchorsPage = 1" class="absolute right-2.5 top-1.5 text-xs text-slate-400 hover:text-slate-600 cursor-pointer">✕</button>
                 </div>
 
                 <!-- Tier Filter Pills -->
-                <div class="flex items-center p-0.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-mono">
+                <div class="flex items-center p-0.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] text-xs font-mono tabular-nums">
                   <button @click="anchorsTier = 'all'; anchorsPage = 1"
                           :class="anchorsTier === 'all' ? 'bg-purple-600 text-white font-bold shadow-xs' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'"
                           class="px-2 py-1 rounded-lg transition cursor-pointer">
@@ -2855,7 +2855,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                 </div>
 
                 <!-- View Switcher (Cloud / Cards / Table) -->
-                <div class="flex items-center p-0.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-mono">
+                <div class="flex items-center p-0.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] text-xs font-mono tabular-nums">
                   <button @click="anchorsView = 'cloud'"
                           :class="anchorsView === 'cloud' ? 'bg-purple-600 text-white font-bold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
                           class="px-2.5 py-1 rounded-lg transition flex items-center gap-1.5 cursor-pointer" title="Semantic Tag Cloud">
@@ -2880,8 +2880,8 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
 
             <!-- VIEW 1: SEMANTIC CLOUD VIEW (DEFAULT) -->
             <div x-show="anchorsView === 'cloud' && filteredAnchorsList().length > 0"
-                 class="p-5 rounded-2xl bg-white dark:bg-[#0c1322] border border-slate-200 dark:border-slate-800 space-y-3">
-              <div class="flex items-center justify-between text-xs text-slate-400 font-mono pb-2 border-b border-slate-100 dark:border-slate-800/80">
+                 class="p-5 rounded-2xl bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] space-y-3">
+              <div class="flex items-center justify-between text-xs text-slate-400 font-mono tabular-nums pb-2 border-b border-slate-100 dark:border-[#27272A]/80">
                 <span>Weighted Semantic Cloud (Visual weight scaled by pin occurrence frequency)</span>
                 <span class="text-[11px] text-purple-400">Click any tag to filter SERP</span>
               </div>
@@ -2895,10 +2895,10 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                               ? 'px-3.5 py-1.5 text-sm bg-purple-500/20 text-purple-600 dark:text-purple-300 border border-purple-500/40 hover:bg-purple-500/30 shadow-xs'
                               : (anchor.count >= 8
                                 ? 'px-3 py-1 text-xs bg-indigo-500/15 text-indigo-600 dark:text-indigo-300 border border-indigo-500/30 hover:bg-indigo-500/25'
-                                : 'px-2.5 py-0.5 text-[11px] bg-slate-100/80 dark:bg-slate-900/80 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:border-purple-400')
+                                : 'px-2.5 py-0.5 text-[11px] bg-slate-100/80 dark:bg-slate-900/80 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#27272A] hover:border-purple-400')
                           ]">
                     <span x-text="'#' + anchor.tag"></span>
-                    <span class="text-[9px] font-mono opacity-75 px-1 py-0.2 rounded bg-black/10 dark:bg-white/10" x-text="anchor.count"></span>
+                    <span class="text-[9px] font-mono tabular-nums opacity-75 px-1 py-0.2 rounded bg-black/10 dark:bg-white/10" x-text="anchor.count"></span>
                   </button>
                 </template>
               </div>
@@ -2909,9 +2909,9 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
               <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
                 <template x-for="(anchor, idx) in filteredAnchorsList().slice(0, anchorsLimit)" :key="anchor.tag">
                   <button @click="filterByVisualTag(anchor.tag)"
-                          class="p-2.5 rounded-2xl bg-white dark:bg-[#0c1322] border border-slate-200 dark:border-slate-800 text-left hover:border-purple-500/40 transition cursor-pointer flex flex-col justify-between group shadow-xs"
+                          class="p-2.5 rounded-2xl bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] text-left hover:border-purple-500/40 transition cursor-pointer flex flex-col justify-between group shadow-xs"
                           :class="activeVisualTagFilter === anchor.tag.toLowerCase() ? 'border-purple-500 ring-2 ring-purple-500/20 bg-purple-500/5' : ''">
-                    <div class="flex items-center justify-between text-[10px] font-mono text-slate-400 mb-1">
+                    <div class="flex items-center justify-between text-[10px] font-mono tabular-nums text-slate-400 mb-1">
                       <span x-text="'#' + (idx + 1)"></span>
                       <span class="font-bold text-purple-600 dark:text-purple-400" x-text="anchor.count + ' Pins'"></span>
                     </div>
@@ -2921,10 +2921,10 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
               </div>
 
               <!-- Cards Expansion Controls -->
-              <div class="flex items-center justify-between p-3 rounded-2xl bg-white/60 dark:bg-[#0c1322]/60 border border-slate-200 dark:border-slate-800 text-xs">
-                <span class="font-mono text-slate-500 dark:text-slate-400"
+              <div class="flex items-center justify-between p-3 rounded-2xl bg-white/60 dark:bg-[#121215]/60 border border-slate-200 dark:border-[#27272A] text-xs">
+                <span class="font-mono tabular-nums text-slate-500 dark:text-slate-400"
                       x-text="'Showing ' + Math.min(anchorsLimit, filteredAnchorsList().length) + ' of ' + filteredAnchorsList().length + ' Visual Anchors'"></span>
-                <div class="flex items-center gap-2 font-mono">
+                <div class="flex items-center gap-2 font-mono tabular-nums">
                   <button x-show="anchorsLimit < filteredAnchorsList().length"
                           @click="anchorsLimit += 36"
                           class="px-3 py-1.5 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 font-bold transition cursor-pointer">
@@ -2946,9 +2946,9 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
 
             <!-- VIEW 3: TABLE VIEW -->
             <div x-show="anchorsView === 'table' && filteredAnchorsList().length > 0" class="space-y-3">
-              <div class="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0c1322]">
-                <table class="w-full text-left text-xs font-mono">
-                  <thead class="bg-slate-100/70 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 uppercase text-[10px]">
+              <div class="overflow-x-auto rounded-2xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215]">
+                <table class="w-full text-left text-xs font-mono tabular-nums">
+                  <thead class="bg-slate-100/70 dark:bg-slate-900/80 border-b border-slate-200 dark:border-[#27272A] text-slate-500 dark:text-slate-400 uppercase text-[10px]">
                     <tr>
                       <th class="p-3 w-16 text-center">Rank #</th>
                       <th class="p-3">Visual Anchor Tag</th>
@@ -2960,7 +2960,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                   <tbody class="divide-y divide-slate-200/80 dark:divide-slate-800/80 text-slate-700 dark:text-slate-300">
                     <template x-for="(anchor, idx) in paginatedAnchorsTable()" :key="anchor.tag">
                       <tr class="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
-                        <td class="p-3 text-center text-slate-400 font-mono" x-text="'#' + (((anchorsPage - 1) * anchorsPageSize) + idx + 1)"></td>
+                        <td class="p-3 text-center text-slate-400 font-mono tabular-nums" x-text="'#' + (((anchorsPage - 1) * anchorsPageSize) + idx + 1)"></td>
                         <td class="p-3">
                           <button @click="filterByVisualTag(anchor.tag)"
                                   class="font-bold text-slate-900 dark:text-white hover:text-purple-600 dark:hover:text-purple-400 hover:underline cursor-pointer flex items-center gap-1.5 text-left capitalize">
@@ -2974,10 +2974,10 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                               <div class="h-full rounded-full bg-gradient-to-r from-purple-500 to-indigo-500"
                                    :style="'width: ' + Math.min(100, Math.round((anchor.count / (coreAnchorsList[0]?.count || 1)) * 100)) + '%'"></div>
                             </div>
-                            <span class="font-bold text-purple-600 dark:text-purple-400 font-mono" x-text="anchor.count + ' pins'"></span>
+                            <span class="font-bold text-purple-600 dark:text-purple-400 font-mono tabular-nums" x-text="anchor.count + ' pins'"></span>
                           </div>
                         </td>
-                        <td class="p-3 text-slate-500 dark:text-slate-400 font-mono"
+                        <td class="p-3 text-slate-500 dark:text-slate-400 font-mono tabular-nums"
                             x-text="((anchor.count / (totalAnalyzedPinsCount || 1)) * 100).toFixed(1) + '%'"></td>
                         <td class="p-3 text-right">
                           <button @click="filterByVisualTag(anchor.tag)"
@@ -2993,19 +2993,19 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
               </div>
 
               <!-- Anchors Table Pagination Footer -->
-              <div class="flex items-center justify-between p-3 rounded-2xl bg-white/60 dark:bg-[#0c1322]/60 border border-slate-200 dark:border-slate-800 text-xs font-mono">
+              <div class="flex items-center justify-between p-3 rounded-2xl bg-white/60 dark:bg-[#121215]/60 border border-slate-200 dark:border-[#27272A] text-xs font-mono tabular-nums">
                 <span class="text-slate-500 dark:text-slate-400"
                       x-text="'Page ' + anchorsPage + ' of ' + totalAnchorsPages() + ' (' + filteredAnchorsList().length + ' anchors)'"></span>
                 <div class="flex items-center gap-1.5">
-                  <button :disabled="anchorsPage <= 1" @click="anchorsPage--" class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 disabled:opacity-40 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition">← Prev</button>
+                  <button :disabled="anchorsPage <= 1" @click="anchorsPage--" class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-slate-900 disabled:opacity-40 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition">← Prev</button>
                   <span class="px-2 py-1 font-bold text-slate-700 dark:text-slate-300" x-text="anchorsPage + ' / ' + totalAnchorsPages()"></span>
-                  <button :disabled="anchorsPage >= totalAnchorsPages()" @click="anchorsPage++" class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 disabled:opacity-40 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition">Next →</button>
+                  <button :disabled="anchorsPage >= totalAnchorsPages()" @click="anchorsPage++" class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-slate-900 disabled:opacity-40 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition">Next →</button>
                 </div>
               </div>
             </div>
 
             <!-- Empty State for Visual Anchors -->
-            <div x-show="filteredAnchorsList().length === 0" class="py-8 text-center text-xs text-slate-400 font-mono rounded-2xl bg-white dark:bg-[#0c1322] border border-slate-200 dark:border-slate-800">
+            <div x-show="filteredAnchorsList().length === 0" class="py-8 text-center text-xs text-slate-400 font-mono tabular-nums rounded-2xl bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A]">
               No visual anchors match current search or tier filter.
             </div>
           </div>
@@ -3018,13 +3018,13 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
       <div x-show="activeTab === 'dropped'" class="hidden">
         
         <!-- Vault Header & Growth Pace Ribbon (Image 1 Parity) -->
-        <div class="p-4 sm:p-5 border-b border-slate-200/80 dark:border-slate-800/80 flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-slate-50/50 dark:bg-slate-900/30">
+        <div class="p-4 sm:p-5 border-b border-slate-200/80 dark:border-[#27272A]/80 flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-slate-50/50 dark:bg-slate-900/30">
           
           <div class="space-y-1">
             <div class="flex items-center space-x-2">
               <i data-lucide="archive" class="w-4 h-4 text-rose-500"></i>
               <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">Displaced Pins Vault</h3>
-              <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-rose-500/15 text-rose-600 dark:text-rose-400"
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-mono tabular-nums font-bold bg-rose-500/15 text-rose-600 dark:text-rose-400"
                     x-text="filteredDisplacedPins.length + ' Tracked in Vault'"></span>
             </div>
             <p class="text-xs text-slate-500">Pins that dropped out of the active SERP reach — monitored daily for engagement growth and vacuum ranking opportunities</p>
@@ -3033,7 +3033,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
           <div class="flex flex-wrap items-center gap-2">
             
             <!-- Growth Pace Selector -->
-            <div class="flex items-center p-1 rounded-2xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 gap-1">
+            <div class="flex items-center p-1 rounded-2xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] gap-1">
               <button @click="growthPaceFilter = '24h'"
                       class="px-2.5 py-1 rounded-xl text-xs font-bold transition cursor-pointer"
                       :class="growthPaceFilter === '24h' ? 'bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/40 shadow-xs' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'">
@@ -3057,7 +3057,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
             </div>
 
             <!-- Cards vs Table Toggle -->
-            <div class="flex items-center p-1 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+            <div class="flex items-center p-1 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-[#27272A]">
               <button @click="viewMode = 'table'"
                       class="px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center space-x-1 cursor-pointer"
                       :class="viewMode === 'table' ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'">
@@ -3074,7 +3074,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
 
             <!-- Status Dropdown -->
             <select x-model="displacedStatusFilter" @change="fetchDisplacedPins()"
-                    class="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 focus:outline-none">
+                    class="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] text-xs font-semibold text-slate-700 dark:text-slate-300 focus:outline-none">
               <option value="ALL">All Vault Pins</option>
               <option value="displaced_active">Displaced Active</option>
               <option value="re_entered_serp">Resurged to SERP</option>
@@ -3113,11 +3113,11 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
           <div class="overflow-x-auto">
             <table class="w-full text-left border-collapse">
               <thead>
-                <tr class="table-sticky-header bg-slate-100/90 dark:bg-[#080d19]/90 border-b border-slate-200 dark:border-slate-800 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 font-mono">
+                <tr class="table-sticky-header bg-slate-100/90 dark:bg-[#121215]/90 border-b border-slate-200 dark:border-[#27272A] text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 font-mono tabular-nums">
                   <th class="py-3.5 px-3 w-10 text-center">
                     <input type="checkbox" @click="toggleSelectAllPins()"
                            :checked="selectedPinIds.length === filteredDisplacedPins.length && filteredDisplacedPins.length > 0"
-                           class="w-3.5 h-3.5 rounded text-rose-600 focus:ring-rose-500 border-slate-300 dark:border-slate-700">
+                           class="w-3.5 h-3.5 rounded text-rose-600 focus:ring-rose-500 border-slate-300 dark:border-[#27272A]">
                   </th>
                   <th class="py-3.5 px-3 w-14">Preview</th>
                   <th class="py-3.5 px-4 min-w-[260px]">Pin Title & ID</th>
@@ -3140,13 +3140,13 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                     
                     <td class="py-3.5 px-3 text-center" @click.stop>
                       <input type="checkbox" :checked="isPinSelected(pin.pin_id)" @click="togglePinSelection(pin.pin_id)"
-                             class="w-3.5 h-3.5 rounded text-rose-600 focus:ring-rose-500 border-slate-300 dark:border-slate-700">
+                             class="w-3.5 h-3.5 rounded text-rose-600 focus:ring-rose-500 border-slate-300 dark:border-[#27272A]">
                     </td>
 
                     <td class="py-3.5 px-3">
                       <div class="relative group/img shrink-0">
                         <template x-if="pin.image_url">
-                          <img :src="pin.image_url" class="w-10 h-14 rounded-lg object-cover border border-slate-200 dark:border-slate-700 shadow-xs group-hover/img:scale-105 transition">
+                          <img :src="pin.image_url" class="w-10 h-14 rounded-lg object-cover border border-slate-200 dark:border-[#27272A] shadow-xs group-hover/img:scale-105 transition">
                         </template>
                         <template x-if="!pin.image_url">
                           <div class="w-10 h-14 rounded-lg bg-slate-200 dark:bg-slate-800 flex items-center justify-center">
@@ -3160,17 +3160,17 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                       <div class="space-y-1">
                         <span class="font-bold text-slate-900 dark:text-white group-hover:text-rose-500 line-clamp-2 block transition"
                               x-text="pin.title || 'Untitled Pin'"></span>
-                        <div class="flex items-center flex-wrap gap-1.5 text-[10px] text-slate-400 font-mono">
-                          <span class="text-slate-500 dark:text-slate-400 truncate font-mono" x-text="'ID: ' + pin.pin_id"></span>
+                        <div class="flex items-center flex-wrap gap-1.5 text-[10px] text-slate-400 font-mono tabular-nums">
+                          <span class="text-slate-500 dark:text-slate-400 truncate font-mono tabular-nums" x-text="'ID: ' + pin.pin_id"></span>
                           <span class="text-slate-400" x-text="'Displaced: ' + formatDate(pin.displaced_date)"></span>
                           <!-- Method Badge -->
-                          <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold border shrink-0"
+                          <span class="px-1.5 py-0.2 rounded text-[9px] font-mono tabular-nums font-bold border shrink-0"
                                 :class="getPinMethodBadgeClass(pin)"
                                 :title="'Method: ' + formatPinMethodLabel(pin)"
                                 x-text="getPinMethod(pin)"></span>
                           <!-- Created Timestamp / Age Badge -->
                           <template x-if="getPinCreatedDate(pin)">
-                            <span class="text-slate-500 dark:text-slate-400 font-mono text-[9px] truncate shrink-0"
+                            <span class="text-slate-500 dark:text-slate-400 font-mono tabular-nums text-[9px] truncate shrink-0"
                                   :title="'Created: ' + formatPinCreated(pin)"
                                   x-text="'📅 ' + (formatPinAge(pin) || formatPinCreated(pin))"></span>
                           </template>
@@ -3179,7 +3179,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                     </td>
 
                     <!-- Status & Last Known Rank -->
-                    <td class="py-3.5 px-3 font-mono space-y-1">
+                    <td class="py-3.5 px-3 font-mono tabular-nums space-y-1">
                       <template x-if="pin.status === 're_entered_serp'">
                         <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 block w-fit">
                           🟢 Resurged
@@ -3194,14 +3194,14 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                     </td>
 
                     <!-- Vacuum Opportunity Score -->
-                    <td class="py-3.5 px-3 font-mono">
+                    <td class="py-3.5 px-3 font-mono tabular-nums">
                       <span class="px-2.5 py-1 rounded-xl text-xs font-black block w-fit"
                             :class="Number(pin.vacuum_opportunity_score || 0) >= 70 ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/40' : (Number(pin.vacuum_opportunity_score || 0) >= 40 ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/40' : 'bg-slate-100 dark:bg-slate-800 text-slate-500')"
                             x-text="(pin.vacuum_opportunity_score || 50) + '/100'"></span>
                     </td>
 
                     <!-- Saves & Growth Pace Delta -->
-                    <td class="py-3.5 px-3 space-y-0.5 font-mono">
+                    <td class="py-3.5 px-3 space-y-0.5 font-mono tabular-nums">
                       <div class="font-bold text-slate-900 dark:text-white"
                            x-text="formatNumber(pin.save_count ?? pin.current_saves ?? 0)"></div>
                       <template x-if="getPaceDelta(pin, 'saves') && getPaceDelta(pin, 'saves') !== '0'">
@@ -3211,7 +3211,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                     </td>
 
                     <!-- Repins & Growth Pace Delta -->
-                    <td class="py-3.5 px-3 space-y-0.5 font-mono">
+                    <td class="py-3.5 px-3 space-y-0.5 font-mono tabular-nums">
                       <div class="font-bold text-slate-700 dark:text-slate-300"
                            x-text="formatNumber(pin.repin_count ?? pin.current_repins ?? 0)"></div>
                       <template x-if="getPaceDelta(pin, 'repins') && getPaceDelta(pin, 'repins') !== '0'">
@@ -3221,15 +3221,15 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                     </td>
 
                     <!-- Comments -->
-                    <td class="py-3.5 px-2 font-mono text-slate-600 dark:text-slate-400"
+                    <td class="py-3.5 px-2 font-mono tabular-nums text-slate-600 dark:text-slate-400"
                         x-text="pin.comment_count ?? pin.current_comments ?? 0"></td>
 
                     <!-- Shares -->
-                    <td class="py-3.5 px-2 font-mono text-slate-600 dark:text-slate-400"
+                    <td class="py-3.5 px-2 font-mono tabular-nums text-slate-600 dark:text-slate-400"
                         x-text="pin.share_count ?? pin.current_shares ?? 0"></td>
 
                     <!-- Velocity -->
-                    <td class="py-3.5 px-3 font-mono">
+                    <td class="py-3.5 px-3 font-mono tabular-nums">
                       <span class="px-2 py-0.5 rounded-lg text-xs font-black block w-fit"
                             :class="Number(pin.daily_save_velocity || pin.calculated_velocity || 0) > 0 ? 'bg-cyan-500/15 text-cyan-600 dark:text-cyan-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'"
                             x-text="(Number(pin.daily_save_velocity || pin.calculated_velocity || 0) > 0 ? '+' : '') + Number(pin.daily_save_velocity || pin.calculated_velocity || 0) + ' /d'"></span>
@@ -3237,7 +3237,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
 
                     <!-- Domain -->
                     <td class="py-3.5 px-3">
-                      <span class="text-xs font-mono text-slate-600 dark:text-slate-400 truncate max-w-[130px] block"
+                      <span class="text-xs font-mono tabular-nums text-slate-600 dark:text-slate-400 truncate max-w-[130px] block"
                             x-text="pin.domain || 'Pinterest Direct'"></span>
                     </td>
 
@@ -3275,16 +3275,16 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
             <template x-for="pin in filteredDisplacedPins" :key="pin.pin_id">
               <div :data-pin-id="pin.pin_id"
                    @click="openPinInspector(pin)"
-                   class="p-4 rounded-3xl bg-slate-50/70 dark:bg-slate-900/40 border border-slate-200/80 dark:border-slate-800 hover:border-rose-500/40 transition group cursor-pointer flex flex-col justify-between space-y-3.5">
+                   class="p-4 rounded-3xl bg-slate-50/70 dark:bg-slate-900/40 border border-slate-200/80 dark:border-[#27272A] hover:border-rose-500/40 transition group cursor-pointer flex flex-col justify-between space-y-3.5">
                 
                 <div class="space-y-3">
                   <div class="relative rounded-2xl overflow-hidden aspect-[2/3] max-h-56 bg-slate-200 dark:bg-slate-800">
                     <template x-if="pin.image_url">
                       <img :src="pin.image_url" class="w-full h-full object-cover group-hover:scale-105 transition duration-300">
                     </template>
-                    <div class="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-lg bg-slate-950/80 text-white font-mono font-black text-xs backdrop-blur-xs"
+                    <div class="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-lg bg-slate-950/80 text-white font-mono tabular-nums font-black text-xs backdrop-blur-xs"
                          x-text="'Was #' + (pin.last_known_rank || '?')"></div>
-                    <div class="absolute top-2.5 right-2.5 px-2 py-0.5 rounded-md text-[10px] font-mono backdrop-blur-xs uppercase font-bold"
+                    <div class="absolute top-2.5 right-2.5 px-2 py-0.5 rounded-md text-[10px] font-mono tabular-nums backdrop-blur-xs uppercase font-bold"
                          :class="pin.status === 're_entered_serp' ? 'bg-emerald-950/80 text-emerald-400' : 'bg-rose-950/80 text-rose-300'"
                          x-text="pin.status === 're_entered_serp' ? 'Resurged' : 'Displaced'"></div>
                   </div>
@@ -3292,10 +3292,10 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                   <div class="space-y-1">
                     <h4 class="text-xs font-bold text-slate-900 dark:text-white group-hover:text-rose-500 line-clamp-2 leading-snug transition"
                         x-text="pin.title || 'Untitled Pin'"></h4>
-                    <div class="flex items-center justify-between text-[10px] font-mono text-slate-400">
+                    <div class="flex items-center justify-between text-[10px] font-mono tabular-nums text-slate-400">
                       <div class="flex items-center space-x-1.5 truncate">
                         <span x-text="'ID: ' + pin.pin_id"></span>
-                        <span class="px-1.5 py-0.2 rounded text-[8px] font-mono font-bold border shrink-0"
+                        <span class="px-1.5 py-0.2 rounded text-[8px] font-mono tabular-nums font-bold border shrink-0"
                               :class="getPinMethodBadgeClass(pin)"
                               :title="'Method: ' + formatPinMethodLabel(pin)"
                               x-text="getPinMethod(pin)"></span>
@@ -3308,8 +3308,8 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                   </div>
                 </div>
 
-                <div class="pt-2.5 border-t border-slate-200/60 dark:border-slate-800/60 space-y-2">
-                  <div class="flex items-center justify-between text-xs font-mono">
+                <div class="pt-2.5 border-t border-slate-200/60 dark:border-[#27272A]/60 space-y-2">
+                  <div class="flex items-center justify-between text-xs font-mono tabular-nums">
                     <div>
                       <span class="text-slate-400 text-[10px]">Saves:</span>
                       <strong class="text-slate-900 dark:text-white" x-text="formatNumber(pin.save_count ?? pin.current_saves ?? 0)"></strong>
@@ -3317,13 +3317,13 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                         <span class="text-emerald-500 text-[10px] font-bold" x-text="getPaceDelta(pin, 'saves')"></span>
                       </template>
                     </div>
-                    <span class="px-2 py-0.5 rounded text-[10px] font-bold font-mono"
+                    <span class="px-2 py-0.5 rounded text-[10px] font-bold font-mono tabular-nums"
                           :class="Number(pin.daily_save_velocity || pin.calculated_velocity || 0) > 0 ? 'bg-cyan-500/15 text-cyan-600 dark:text-cyan-400' : 'bg-slate-200 dark:bg-slate-800 text-slate-500'"
                           x-text="(Number(pin.daily_save_velocity || pin.calculated_velocity || 0) > 0 ? '+' : '') + (pin.daily_save_velocity || pin.calculated_velocity || 0) + ' v/d'"></span>
                   </div>
 
                   <div class="flex items-center justify-between text-[11px] text-slate-400 pt-1" @click.stop>
-                    <span class="truncate max-w-[120px] font-mono text-[10px]" x-text="pin.domain || 'Pinterest'"></span>
+                    <span class="truncate max-w-[120px] font-mono tabular-nums text-[10px]" x-text="pin.domain || 'Pinterest'"></span>
                     <div class="flex items-center space-x-1">
                       <button @click="openPinInspector(pin)" class="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-400 hover:text-slate-200" title="Dossier">
                         <i data-lucide="eye" class="w-3.5 h-3.5"></i>
@@ -3345,8 +3345,8 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
 
         <!-- Displaced Vault Pagination / Load More Footer -->
         <template x-if="!isDisplacedLoading && displacedVaultPins.length > 0">
-          <div class="p-4 border-t border-slate-200/80 dark:border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-4 bg-slate-50/50 dark:bg-slate-900/30 rounded-b-3xl">
-            <div class="text-xs text-slate-500 font-mono">
+          <div class="p-4 border-t border-slate-200/80 dark:border-[#27272A] flex flex-col sm:flex-row items-center justify-between gap-4 bg-slate-50/50 dark:bg-slate-900/30 rounded-b-3xl">
+            <div class="text-xs text-slate-500 font-mono tabular-nums">
               <span>Showing </span>
               <span class="font-bold text-slate-900 dark:text-white" x-text="displacedVaultPins.length"></span>
               <span> of </span>
@@ -3356,7 +3356,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
             <template x-if="displacedVaultPins.length < totalDisplacedCount">
               <button type="button" @click="loadMoreDisplacedPins()"
                       :disabled="isLoadingMoreDisplaced"
-                      class="px-4 py-2 rounded-xl text-xs font-bold font-mono bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/30 transition flex items-center space-x-2 cursor-pointer disabled:opacity-50">
+                      class="px-4 py-2 rounded-xl text-xs font-bold font-mono tabular-nums bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/30 transition flex items-center space-x-2 cursor-pointer disabled:opacity-50">
                 <template x-if="isLoadingMoreDisplaced">
                   <i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i>
                 </template>
@@ -3367,7 +3367,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
               </button>
             </template>
             <template x-if="displacedVaultPins.length >= totalDisplacedCount">
-              <div class="text-xs font-mono text-emerald-500 font-bold flex items-center space-x-1">
+              <div class="text-xs font-mono tabular-nums text-emerald-500 font-bold flex items-center space-x-1">
                 <i data-lucide="check" class="w-3.5 h-3.5"></i>
                 <span>All Displaced Pins Loaded</span>
               </div>
@@ -3381,16 +3381,16 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
       <div x-show="activeTab === 'crossover'" class="hidden">
         
         <!-- Folder Switcher & Management Strip -->
-        <div class="flex flex-wrap items-center justify-between gap-3 p-4 rounded-2xl bg-slate-100/80 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800">
+        <div class="flex flex-wrap items-center justify-between gap-3 p-4 rounded-2xl bg-slate-100/80 dark:bg-slate-900/60 border border-slate-200 dark:border-[#27272A]">
           <div class="flex flex-wrap items-center gap-2">
-            <span class="text-xs font-bold text-slate-400 font-mono uppercase tracking-wider mr-1">Folders:</span>
+            <span class="text-xs font-bold text-slate-400 font-mono tabular-nums uppercase tracking-wider mr-1">Folders:</span>
             <template x-for="f in folders" :key="f.id">
               <button @click="selectFolder(f)"
                       class="px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-2 cursor-pointer border"
-                      :class="activeFolder?.id === f.id ? 'bg-pink-500/20 text-pink-600 dark:text-pink-300 border-pink-500/50 shadow-xs' : 'bg-white dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-slate-400'">
+                      :class="activeFolder?.id === f.id ? 'bg-pink-500/20 text-pink-600 dark:text-pink-300 border-pink-500/50 shadow-xs' : 'bg-white dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-[#27272A] hover:border-slate-400'">
                 <span class="w-2.5 h-2.5 rounded-full shrink-0" :style="'background-color: ' + (f.color || '#ec4899')"></span>
                 <span x-text="f.name"></span>
-                <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-slate-200 dark:bg-slate-700/60" x-text="f.keyword_count || 0"></span>
+                <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono tabular-nums bg-slate-200 dark:bg-slate-700/60" x-text="f.keyword_count || 0"></span>
               </button>
             </template>
             <button @click="openCreateFolderModal()"
@@ -3402,7 +3402,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
 
           <div class="flex items-center space-x-2">
             <button @click="isFolderManagerOpen = true"
-                    class="px-3 py-1.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 transition flex items-center space-x-1.5">
+                    class="px-3 py-1.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-[#27272A] hover:bg-slate-50 dark:hover:bg-slate-700 transition flex items-center space-x-1.5">
               <i data-lucide="settings" class="w-3.5 h-3.5"></i>
               <span>Manage All Folders</span>
             </button>
@@ -3411,7 +3411,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
 
         <!-- Empty State: No Folders Yet -->
         <template x-if="folders.length === 0">
-          <div class="py-16 text-center space-y-4 max-w-lg mx-auto p-6 rounded-3xl border border-dashed border-slate-300 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/20">
+          <div class="py-16 text-center space-y-4 max-w-lg mx-auto p-6 rounded-3xl border border-dashed border-slate-300 dark:border-[#27272A] bg-slate-50/50 dark:bg-slate-900/20">
             <div class="w-16 h-16 rounded-3xl bg-pink-500/10 text-pink-500 mx-auto flex items-center justify-center shadow-lg shadow-pink-500/10">
               <i data-lucide="folder-kanban" class="w-8 h-8"></i>
             </div>
@@ -3445,7 +3445,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                   <div class="min-w-0">
                     <div class="flex flex-wrap items-center gap-2.5">
                       <h2 class="text-xl sm:text-2xl font-black text-slate-900 dark:text-white capitalize truncate" x-text="activeFolder.name"></h2>
-                      <span class="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/30">
+                      <span class="px-2.5 py-0.5 rounded-full text-[10px] font-mono tabular-nums font-bold bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/30">
                         Topic Cluster
                       </span>
                     </div>
@@ -3463,20 +3463,20 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                   </button>
 
                   <button @click="openAddKeywordsModal()"
-                          class="px-3.5 py-2.5 rounded-2xl text-xs font-bold bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 transition flex items-center space-x-1.5 cursor-pointer">
+                          class="px-3.5 py-2.5 rounded-2xl text-xs font-bold bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-[#27272A] text-slate-700 dark:text-slate-200 transition flex items-center space-x-1.5 cursor-pointer">
                     <i data-lucide="plus" class="w-3.5 h-3.5 text-pink-500"></i>
                     <span>Add Keywords</span>
                   </button>
 
                   <button @click="fetchFolderCrossover(activeFolder.id)"
                           :disabled="isCrossoverLoading"
-                          class="p-2.5 rounded-2xl bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 transition cursor-pointer"
+                          class="p-2.5 rounded-2xl bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-[#27272A] text-slate-600 dark:text-slate-300 transition cursor-pointer"
                           title="Recalculate Crossover Matrix">
                     <i data-lucide="refresh-cw" class="w-4 h-4" :class="isCrossoverLoading ? 'animate-spin text-pink-500' : ''"></i>
                   </button>
 
                   <button @click="deleteCampaignFolder(activeFolder.id)"
-                          class="p-2.5 rounded-2xl bg-white dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-slate-200 dark:border-slate-700 text-rose-500 hover:text-rose-600 transition cursor-pointer"
+                          class="p-2.5 rounded-2xl bg-white dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-slate-200 dark:border-[#27272A] text-rose-500 hover:text-rose-600 transition cursor-pointer"
                           title="Delete Folder">
                     <i data-lucide="trash-2" class="w-4 h-4"></i>
                   </button>
@@ -3484,35 +3484,35 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
               </div>
 
               <!-- 6 Executive Folder KPI Cards -->
-              <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 pt-3 border-t border-slate-200/60 dark:border-slate-800/60">
-                <div class="p-3.5 rounded-2xl bg-white/80 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 space-y-1">
-                  <span class="text-[10px] font-mono font-bold uppercase text-slate-400">Keywords</span>
-                  <p class="text-xl font-black text-slate-900 dark:text-white font-mono" x-text="crossoverData?.summary?.total_keywords || 0"></p>
+              <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 pt-3 border-t border-slate-200/60 dark:border-[#27272A]/60">
+                <div class="p-3.5 rounded-2xl bg-white/80 dark:bg-slate-900/80 border border-slate-200/80 dark:border-[#27272A] space-y-1">
+                  <span class="text-[10px] font-mono tabular-nums font-bold uppercase text-slate-400">Keywords</span>
+                  <p class="text-xl font-black text-slate-900 dark:text-white font-mono tabular-nums" x-text="crossoverData?.summary?.total_keywords || 0"></p>
                 </div>
 
-                <div class="p-3.5 rounded-2xl bg-white/80 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 space-y-1">
-                  <span class="text-[10px] font-mono font-bold uppercase text-slate-400">Unique Pins</span>
-                  <p class="text-xl font-black text-cyan-600 dark:text-cyan-400 font-mono" x-text="formatNumber(crossoverData?.summary?.total_unique_pins || 0)"></p>
+                <div class="p-3.5 rounded-2xl bg-white/80 dark:bg-slate-900/80 border border-slate-200/80 dark:border-[#27272A] space-y-1">
+                  <span class="text-[10px] font-mono tabular-nums font-bold uppercase text-slate-400">Unique Pins</span>
+                  <p class="text-xl font-black text-cyan-600 dark:text-cyan-400 font-mono tabular-nums" x-text="formatNumber(crossoverData?.summary?.total_unique_pins || 0)"></p>
                 </div>
 
-                <div class="p-3.5 rounded-2xl bg-white/80 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 space-y-1">
-                  <span class="text-[10px] font-mono font-bold uppercase text-slate-400">Super-Pins</span>
-                  <p class="text-xl font-black text-amber-500 font-mono" x-text="crossoverData?.summary?.super_pins_count || 0"></p>
+                <div class="p-3.5 rounded-2xl bg-white/80 dark:bg-slate-900/80 border border-slate-200/80 dark:border-[#27272A] space-y-1">
+                  <span class="text-[10px] font-mono tabular-nums font-bold uppercase text-slate-400">Super-Pins</span>
+                  <p class="text-xl font-black text-amber-500 font-mono tabular-nums" x-text="crossoverData?.summary?.super_pins_count || 0"></p>
                 </div>
 
-                <div class="p-3.5 rounded-2xl bg-white/80 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 space-y-1">
-                  <span class="text-[10px] font-mono font-bold uppercase text-slate-400">Universal Tags</span>
-                  <p class="text-xl font-black text-emerald-500 font-mono" x-text="crossoverData?.summary?.universal_tags_count || 0"></p>
+                <div class="p-3.5 rounded-2xl bg-white/80 dark:bg-slate-900/80 border border-slate-200/80 dark:border-[#27272A] space-y-1">
+                  <span class="text-[10px] font-mono tabular-nums font-bold uppercase text-slate-400">Universal Tags</span>
+                  <p class="text-xl font-black text-emerald-500 font-mono tabular-nums" x-text="crossoverData?.summary?.universal_tags_count || 0"></p>
                 </div>
 
-                <div class="p-3.5 rounded-2xl bg-white/80 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 space-y-1">
-                  <span class="text-[10px] font-mono font-bold uppercase text-slate-400">Shared Pivots</span>
-                  <p class="text-xl font-black text-blue-500 font-mono" x-text="crossoverData?.summary?.shared_pivots_count || 0"></p>
+                <div class="p-3.5 rounded-2xl bg-white/80 dark:bg-slate-900/80 border border-slate-200/80 dark:border-[#27272A] space-y-1">
+                  <span class="text-[10px] font-mono tabular-nums font-bold uppercase text-slate-400">Shared Pivots</span>
+                  <p class="text-xl font-black text-blue-500 font-mono tabular-nums" x-text="crossoverData?.summary?.shared_pivots_count || 0"></p>
                 </div>
 
-                <div class="p-3.5 rounded-2xl bg-white/80 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 space-y-1">
-                  <span class="text-[10px] font-mono font-bold uppercase text-slate-400">Whale Domains</span>
-                  <p class="text-xl font-black text-purple-500 font-mono" x-text="crossoverData?.summary?.monopoly_domain_count || 0"></p>
+                <div class="p-3.5 rounded-2xl bg-white/80 dark:bg-slate-900/80 border border-slate-200/80 dark:border-[#27272A] space-y-1">
+                  <span class="text-[10px] font-mono tabular-nums font-bold uppercase text-slate-400">Whale Domains</span>
+                  <p class="text-xl font-black text-purple-500 font-mono tabular-nums" x-text="crossoverData?.summary?.monopoly_domain_count || 0"></p>
                 </div>
               </div>
 
@@ -3520,18 +3520,18 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
 
             <!-- Loading State -->
             <template x-if="isCrossoverLoading">
-              <div class="py-20 text-center space-y-3 bg-white dark:bg-[#0c1322] rounded-3xl border border-slate-200 dark:border-slate-800">
+              <div class="py-20 text-center space-y-3 bg-white dark:bg-[#121215] rounded-3xl border border-slate-200 dark:border-[#27272A]">
                 <div class="w-12 h-12 rounded-2xl bg-pink-500/10 text-pink-500 mx-auto flex items-center justify-center">
                   <i data-lucide="loader-2" class="w-6 h-6 animate-spin"></i>
                 </div>
                 <p class="text-sm font-bold text-slate-700 dark:text-slate-300">Computing Multi-Dimensional Crossover Matrix...</p>
-                <p class="text-xs text-slate-400 font-mono">Analyzing super-pins overlap, universal tag bridges, domain monopoly & seasonality wave</p>
+                <p class="text-xs text-slate-400 font-mono tabular-nums">Analyzing super-pins overlap, universal tag bridges, domain monopoly & seasonality wave</p>
               </div>
             </template>
 
             <!-- Fallback Empty State if not loading and no data -->
             <template x-if="!isCrossoverLoading && !crossoverData">
-              <div class="py-16 text-center space-y-4 bg-white dark:bg-[#0c1322] rounded-3xl border border-slate-200 dark:border-slate-800">
+              <div class="py-16 text-center space-y-4 bg-white dark:bg-[#121215] rounded-3xl border border-slate-200 dark:border-[#27272A]">
                 <div class="w-12 h-12 rounded-2xl bg-pink-500/10 text-pink-500 mx-auto flex items-center justify-center">
                   <i data-lucide="network" class="w-6 h-6"></i>
                 </div>
@@ -3550,13 +3550,13 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
               <div class="space-y-6">
 
                 <!-- DIMENSION 1: 🌟 MULTI-RANKING SUPER-PINS OVERLAP -->
-                <div class="p-6 rounded-3xl bg-white dark:bg-[#0c1322] border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-4">
-                  <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800/80">
+                <div class="p-6 rounded-3xl bg-white dark:bg-[#121215] border border-slate-200/80 dark:border-[#27272A] shadow-xs space-y-4">
+                  <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-[#27272A]/80">
                     <div class="space-y-0.5">
                       <div class="flex items-center space-x-2">
                         <i data-lucide="sparkles" class="w-4 h-4 text-amber-500"></i>
                         <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">Multi-Ranking Super-Pins</h3>
-                        <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400"
+                        <span class="px-2 py-0.5 rounded text-[10px] font-mono tabular-nums font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400"
                               x-text="crossoverData.super_pins?.length + ' Pins'"></span>
                       </div>
                       <p class="text-xs text-slate-500">Pins ranking across multiple search queries simultaneously in this cluster. Analyze their visual layouts for winning templates.</p>
@@ -3571,12 +3571,12 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
 
                   <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                     <template x-for="pin in crossoverData.super_pins?.slice(0, 16)" :key="pin.pin_id">
-                      <div class="p-3.5 rounded-2xl bg-slate-50/70 dark:bg-slate-900/40 border border-slate-200/80 dark:border-slate-800 hover:border-pink-500/40 transition group cursor-pointer flex flex-col justify-between space-y-3"
+                      <div class="p-3.5 rounded-2xl bg-slate-50/70 dark:bg-slate-900/40 border border-slate-200/80 dark:border-[#27272A] hover:border-pink-500/40 transition group cursor-pointer flex flex-col justify-between space-y-3"
                            @click="openPinInspector(pin)">
                         
                         <div class="flex items-start space-x-3 min-w-0">
                           <template x-if="pin.image_url">
-                            <img :src="pin.image_url" class="w-14 h-20 rounded-xl object-cover border border-slate-200 dark:border-slate-700 shrink-0 group-hover:scale-105 transition shadow-xs">
+                            <img :src="pin.image_url" class="w-14 h-20 rounded-xl object-cover border border-slate-200 dark:border-[#27272A] shrink-0 group-hover:scale-105 transition shadow-xs">
                           </template>
                           <template x-if="!pin.image_url">
                             <div class="w-14 h-20 rounded-xl bg-slate-200 dark:bg-slate-800 flex items-center justify-center shrink-0">
@@ -3586,23 +3586,23 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                           
                           <div class="min-w-0 flex-1 space-y-1">
                             <div class="flex items-center justify-between gap-1">
-                              <span class="px-2 py-0.5 rounded text-[9px] font-mono font-bold uppercase"
+                              <span class="px-2 py-0.5 rounded text-[9px] font-mono tabular-nums font-bold uppercase"
                                     :class="pin.overlap_count >= 2 ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30' : 'bg-slate-200 dark:bg-slate-800 text-slate-500'"
                                     x-text="pin.overlap_count >= 2 ? (pin.overlap_count + 'x Overlap') : 'Top Rank'"></span>
-                              <span class="text-[10px] font-mono font-bold text-slate-700 dark:text-slate-300" x-text="formatNumber(pin.save_count) + ' saves'"></span>
+                              <span class="text-[10px] font-mono tabular-nums font-bold text-slate-700 dark:text-slate-300" x-text="formatNumber(pin.save_count) + ' saves'"></span>
                             </div>
                             <h4 class="text-xs font-bold text-slate-900 dark:text-white line-clamp-2 leading-tight" x-text="pin.title"></h4>
-                            <div class="text-[10px] text-slate-400 font-mono truncate" x-text="pin.domain || 'Pinterest Direct'"></div>
+                            <div class="text-[10px] text-slate-400 font-mono tabular-nums truncate" x-text="pin.domain || 'Pinterest Direct'"></div>
                           </div>
                         </div>
 
                         <!-- Ranked Keywords List -->
-                        <div class="pt-2 border-t border-slate-200/60 dark:border-slate-800/60 space-y-1">
-                          <span class="text-[9px] font-mono font-bold text-slate-400 uppercase">Ranked Queries:</span>
+                        <div class="pt-2 border-t border-slate-200/60 dark:border-[#27272A]/60 space-y-1">
+                          <span class="text-[9px] font-mono tabular-nums font-bold text-slate-400 uppercase">Ranked Queries:</span>
                           <div class="flex flex-wrap gap-1">
                             <template x-for="r in pin.rankings" :key="r.keyword">
                               <template x-if="r.rank_position != null && r.rank_position >= 1">
-                                <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/20 truncate max-w-full"
+                                <span class="px-2 py-0.5 rounded text-[10px] font-mono tabular-nums font-bold bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/20 truncate max-w-full"
                                       x-text="r.keyword + ' (#' + r.rank_position + ')'"></span>
                               </template>
                             </template>
@@ -3615,13 +3615,13 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                 </div>
 
                 <!-- DIMENSION 2: 🌉 UNIVERSAL TAG BRIDGES (CV & Semantic Annotations Overlap) -->
-                <div class="p-6 rounded-3xl bg-white dark:bg-[#0c1322] border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-4">
-                  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-slate-800/80">
+                <div class="p-6 rounded-3xl bg-white dark:bg-[#121215] border border-slate-200/80 dark:border-[#27272A] shadow-xs space-y-4">
+                  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-[#27272A]/80">
                     <div class="space-y-0.5">
                       <div class="flex items-center space-x-2">
                         <i data-lucide="network" class="w-4 h-4 text-emerald-500"></i>
                         <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">Universal Visual Tag Bridges</h3>
-                        <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                        <span class="px-2 py-0.5 rounded text-[10px] font-mono tabular-nums font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
                               x-text="crossoverData.tag_bridges?.length + ' Tags'"></span>
                       </div>
                       <p class="text-xs text-slate-500">Tags and visual entities shared across multiple search terms in this folder. Include these in your Pin descriptions to rank for the entire topic cluster.</p>
@@ -3636,14 +3636,14 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
 
                   <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                     <template x-for="tag in crossoverData.tag_bridges?.slice(0, 16)" :key="tag.tag">
-                      <div class="p-3 rounded-2xl bg-slate-50/70 dark:bg-slate-900/40 border border-slate-200/80 dark:border-slate-800 space-y-2">
+                      <div class="p-3 rounded-2xl bg-slate-50/70 dark:bg-slate-900/40 border border-slate-200/80 dark:border-[#27272A] space-y-2">
                         <div class="flex items-center justify-between gap-1">
                           <span class="text-xs font-bold text-slate-900 dark:text-white capitalize" x-text="tag.tag"></span>
-                          <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold"
+                          <span class="px-2 py-0.5 rounded text-[10px] font-mono tabular-nums font-bold"
                                 :class="tag.overlap_percentage >= 80 ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30' : (tag.overlap_percentage >= 50 ? 'bg-blue-500/20 text-blue-600 dark:text-blue-400' : 'bg-slate-200 dark:bg-slate-800 text-slate-500')"
                                 x-text="tag.overlap_percentage + '% (' + tag.keyword_overlap_count + '/' + crossoverData.summary?.total_keywords + ')'"></span>
                         </div>
-                        <div class="flex items-center justify-between text-[11px] text-slate-400 font-mono">
+                        <div class="flex items-center justify-between text-[11px] text-slate-400 font-mono tabular-nums">
                           <span x-text="tag.pin_count + ' pins tagged'"></span>
                           <span x-text="formatNumber(tag.total_saves) + ' saves'"></span>
                         </div>
@@ -3656,8 +3656,8 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
                   <!-- DIMENSION 3: 🧭 SHARED GUIDED SEARCH PIVOTS -->
-                  <div class="p-6 rounded-3xl bg-white dark:bg-[#0c1322] border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-4">
-                    <div class="pb-3 border-b border-slate-100 dark:border-slate-800/80">
+                  <div class="p-6 rounded-3xl bg-white dark:bg-[#121215] border border-slate-200/80 dark:border-[#27272A] shadow-xs space-y-4">
+                    <div class="pb-3 border-b border-slate-100 dark:border-[#27272A]/80">
                       <div class="flex items-center space-x-2">
                         <i data-lucide="compass" class="w-4 h-4 text-cyan-500"></i>
                         <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">Shared Guided Pivots</h3>
@@ -3669,9 +3669,9 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                       <template x-for="pivot in crossoverData.guided_pivots" :key="pivot.term">
                         <div class="px-3 py-1.5 rounded-xl border flex items-center space-x-2 text-xs transition hover:scale-105 cursor-pointer"
                              :title="'Shared by ' + pivot.shared_count + ' keywords: ' + (pivot.shared_keywords?.map(k => k.keyword || k)?.join(', ') || '')"
-                             :class="pivot.shared_count >= 2 ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-600 dark:text-cyan-400 font-bold' : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300'">
+                             :class="pivot.shared_count >= 2 ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-600 dark:text-cyan-400 font-bold' : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-[#27272A] text-slate-700 dark:text-slate-300'">
                           <span class="font-bold" x-text="pivot.display_label"></span>
-                          <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono"
+                          <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono tabular-nums"
                                 :class="pivot.shared_count >= 2 ? 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 font-bold' : 'bg-slate-200 dark:bg-slate-800 text-slate-500'"
                                 x-text="pivot.shared_count + ' kw'"></span>
                         </div>
@@ -3680,8 +3680,8 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                   </div>
 
                   <!-- DIMENSION 4: 👑 DOMAIN & CREATOR MONOPOLY INDEX -->
-                  <div class="p-6 rounded-3xl bg-white dark:bg-[#0c1322] border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-4">
-                    <div class="pb-3 border-b border-slate-100 dark:border-slate-800/80">
+                  <div class="p-6 rounded-3xl bg-white dark:bg-[#121215] border border-slate-200/80 dark:border-[#27272A] shadow-xs space-y-4">
+                    <div class="pb-3 border-b border-slate-100 dark:border-[#27272A]/80">
                       <div class="flex items-center space-x-2">
                         <i data-lucide="crown" class="w-4 h-4 text-purple-500"></i>
                         <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">Authority Domain Monopoly</h3>
@@ -3691,14 +3691,14 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
 
                     <div class="space-y-2 max-h-72 overflow-y-auto">
                       <template x-for="d in crossoverData.domain_monopoly?.slice(0, 8)" :key="d.domain">
-                        <div class="p-2.5 rounded-xl bg-slate-50/70 dark:bg-slate-900/40 border border-slate-200/80 dark:border-slate-800 flex items-center justify-between text-xs">
+                        <div class="p-2.5 rounded-xl bg-slate-50/70 dark:bg-slate-900/40 border border-slate-200/80 dark:border-[#27272A] flex items-center justify-between text-xs">
                           <div class="min-w-0">
                             <p class="font-bold text-slate-900 dark:text-white truncate" x-text="d.domain"></p>
-                            <span class="text-[10px] text-slate-400 font-mono" x-text="d.keywords_count + ' keywords covered (' + d.overlap_percentage + '%)'"></span>
+                            <span class="text-[10px] text-slate-400 font-mono tabular-nums" x-text="d.keywords_count + ' keywords covered (' + d.overlap_percentage + '%)'"></span>
                           </div>
                           <div class="text-right shrink-0">
-                            <span class="font-mono font-bold text-purple-600 dark:text-purple-400" x-text="formatNumber(d.total_saves) + ' saves'"></span>
-                            <p class="text-[10px] text-slate-400 font-mono" x-text="d.pin_count + ' pins'"></p>
+                            <span class="font-mono tabular-nums font-bold text-purple-600 dark:text-purple-400" x-text="formatNumber(d.total_saves) + ' saves'"></span>
+                            <p class="text-[10px] text-slate-400 font-mono tabular-nums" x-text="d.pin_count + ' pins'"></p>
                           </div>
                         </div>
                       </template>
@@ -3708,8 +3708,8 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                 </div>
 
                 <!-- DIMENSION 5: 📈 COMPOSITE 52-WEEK SEASONALITY WAVE -->
-                <div class="p-6 rounded-3xl bg-white dark:bg-[#0c1322] border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-4">
-                  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800/80">
+                <div class="p-6 rounded-3xl bg-white dark:bg-[#121215] border border-slate-200/80 dark:border-[#27272A] shadow-xs space-y-4">
+                  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-[#27272A]/80">
                     <div class="space-y-0.5">
                       <div class="flex items-center space-x-2">
                         <i data-lucide="trending-up" class="w-4 h-4 text-blue-500"></i>
@@ -3721,12 +3721,12 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                     <div class="flex items-center space-x-3">
                       <div class="px-3 py-1.5 rounded-xl bg-blue-500/10 border border-blue-500/30 text-xs">
                         <span class="text-slate-400">Peak Months:</span>
-                        <span class="font-bold text-blue-600 dark:text-blue-400 font-mono ml-1"
+                        <span class="font-bold text-blue-600 dark:text-blue-400 font-mono tabular-nums ml-1"
                               x-text="crossoverData.seasonality?.peak_months?.join(', ') || 'Evergreen'"></span>
                       </div>
                       <div class="px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-xs">
                         <span class="text-slate-400">Launch Window:</span>
-                        <span class="font-bold text-emerald-600 dark:text-emerald-400 font-mono ml-1"
+                        <span class="font-bold text-emerald-600 dark:text-emerald-400 font-mono tabular-nums ml-1"
                               x-text="crossoverData.seasonality?.recommended_launch_window"></span>
                       </div>
                     </div>
@@ -3746,7 +3746,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                     </svg>
 
                     <!-- 12-Month Timeline Axis with Dynamic Peak Highlights (Rolling Chronological) -->
-                    <div class="grid grid-cols-12 text-center text-[10px] font-mono pt-2 border-t border-slate-800/80">
+                    <div class="grid grid-cols-12 text-center text-[10px] font-mono tabular-nums pt-2 border-t border-slate-800/80">
                       <template x-for="m in (crossoverData.seasonality?.rolling_months || ['Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct'])" :key="m">
                         <span :class="crossoverData.seasonality?.peak_months?.includes(m) ? 'text-blue-400 font-bold bg-blue-500/15 rounded py-0.5 border border-blue-500/30' : 'text-slate-500'" x-text="m"></span>
                       </template>
@@ -3758,12 +3758,12 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                 <template x-if="crossoverData.topic_cluster_blueprint">
                   <div class="p-6 rounded-3xl bg-gradient-to-br from-white via-purple-50/20 to-pink-50/20 dark:from-[#0c1322] dark:via-slate-900 dark:to-[#111827] border border-purple-500/30 dark:border-purple-500/20 shadow-lg shadow-purple-950/10 space-y-5">
                     
-                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200/80 dark:border-slate-800/80">
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200/80 dark:border-[#27272A]/80">
                       <div>
                         <div class="flex items-center space-x-2">
                           <i data-lucide="target" class="w-4 h-4 text-purple-500"></i>
                           <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">Algorithmic Topic Cluster Blueprint</h3>
-                          <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-purple-500/20 text-purple-600 dark:text-purple-400">Ready to Deploy</span>
+                          <span class="px-2 py-0.5 rounded text-[10px] font-mono tabular-nums font-bold bg-purple-500/20 text-purple-600 dark:text-purple-400">Ready to Deploy</span>
                         </div>
                         <p class="text-xs text-slate-500 mt-0.5">Automated Pillar + Spoke content architecture targeting maximum cluster authority on Pinterest.</p>
                       </div>
@@ -3778,11 +3778,11 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                     <!-- Pillar Concept -->
                     <div class="p-4 rounded-2xl bg-white/80 dark:bg-slate-900/80 border border-purple-500/20 space-y-2">
                       <div class="flex items-center justify-between">
-                        <span class="text-[10px] font-mono font-bold uppercase text-purple-600 dark:text-purple-400">Pillar Content Angle</span>
-                        <span class="text-[10px] font-mono text-slate-400" x-text="'Anchor: ' + crossoverData.topic_cluster_blueprint.folder_name"></span>
+                        <span class="text-[10px] font-mono tabular-nums font-bold uppercase text-purple-600 dark:text-purple-400">Pillar Content Angle</span>
+                        <span class="text-[10px] font-mono tabular-nums text-slate-400" x-text="'Anchor: ' + crossoverData.topic_cluster_blueprint.folder_name"></span>
                       </div>
                       <h4 class="text-base font-black text-slate-900 dark:text-white" x-text="crossoverData.topic_cluster_blueprint.pillar_concept"></h4>
-                      <p class="text-xs text-slate-400 font-mono">
+                      <p class="text-xs text-slate-400 font-mono tabular-nums">
                         <strong class="text-slate-300">Universal Tags:</strong> 
                         <span x-text="crossoverData.topic_cluster_blueprint.universal_tag_blueprint"></span>
                       </p>
@@ -3790,15 +3790,15 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
 
                     <!-- 5 Spoke Pin Angles -->
                     <div class="space-y-3">
-                      <span class="text-xs font-bold text-slate-400 font-mono uppercase tracking-wider">5 High-Impact Spoke Pin Angles:</span>
+                      <span class="text-xs font-bold text-slate-400 font-mono tabular-nums uppercase tracking-wider">5 High-Impact Spoke Pin Angles:</span>
                       
                       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                         <template x-for="spoke in crossoverData.topic_cluster_blueprint.spoke_angles" :key="spoke.angle_number">
-                          <div class="p-4 rounded-2xl bg-white/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800 space-y-2.5">
+                          <div class="p-4 rounded-2xl bg-white/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-[#27272A] space-y-2.5">
                             <div class="flex items-center justify-between">
-                              <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20"
+                              <span class="px-2 py-0.5 rounded text-[10px] font-mono tabular-nums font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20"
                                     x-text="'Spoke #' + spoke.angle_number"></span>
-                              <span class="text-[10px] font-mono text-slate-400" x-text="spoke.recommended_aspect_ratio"></span>
+                              <span class="text-[10px] font-mono tabular-nums text-slate-400" x-text="spoke.recommended_aspect_ratio"></span>
                             </div>
 
                             <h5 class="text-xs font-bold text-slate-900 dark:text-white" x-text="spoke.angle_title"></h5>
@@ -3806,15 +3806,15 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
                             <div class="space-y-1 text-[11px] text-slate-500">
                               <div class="flex items-center justify-between">
                                 <span>Target:</span>
-                                <strong class="font-mono text-pink-500 capitalize" x-text="spoke.target_keyword"></strong>
+                                <strong class="font-mono tabular-nums text-pink-500 capitalize" x-text="spoke.target_keyword"></strong>
                               </div>
                               <div class="flex items-center justify-between">
                                 <span>Format:</span>
-                                <strong class="font-mono text-slate-700 dark:text-slate-300" x-text="spoke.recommended_format"></strong>
+                                <strong class="font-mono tabular-nums text-slate-700 dark:text-slate-300" x-text="spoke.recommended_format"></strong>
                               </div>
                             </div>
 
-                            <div class="pt-2 border-t border-slate-100 dark:border-slate-800/80 text-[10px] text-slate-400 font-mono line-clamp-1"
+                            <div class="pt-2 border-t border-slate-100 dark:border-[#27272A]/80 text-[10px] text-slate-400 font-mono tabular-nums line-clamp-1"
                                  x-text="'Tags: ' + spoke.target_tags"></div>
                           </div>
                         </template>
@@ -3846,10 +3846,10 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
        x-transition:leave="transition ease-in duration-200"
        x-transition:leave-start="opacity-100 translate-y-0"
        x-transition:leave-end="opacity-0 translate-y-8"
-       class="fixed bottom-6 inset-x-0 mx-auto w-fit z-50 bg-slate-900/95 dark:bg-[#0c1322]/95 border border-slate-700 shadow-2xl backdrop-blur-xl px-4 sm:px-6 py-3 rounded-2xl flex flex-wrap items-center gap-2 sm:gap-3 text-xs">
+       class="fixed bottom-6 inset-x-0 mx-auto w-fit z-50 bg-slate-900/95 dark:bg-[#121215]/95 border border-slate-700 shadow-2xl backdrop-blur-xl px-4 sm:px-6 py-3 rounded-2xl flex flex-wrap items-center gap-2 sm:gap-3 text-xs">
     <div class="flex items-center space-x-2">
       <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-      <span class="px-2.5 py-1 rounded-xl bg-emerald-500/20 text-emerald-400 font-mono font-bold" x-text="selectedKeywordIds.length + ' Keywords Selected'"></span>
+      <span class="px-2.5 py-1 rounded-xl bg-emerald-500/20 text-emerald-400 font-mono tabular-nums font-bold" x-text="selectedKeywordIds.length + ' Keywords Selected'"></span>
     </div>
 
     <div class="h-4 w-px bg-slate-700 hidden sm:block"></div>
@@ -3908,16 +3908,16 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
          x-transition:leave="transform transition ease-in duration-200"
          x-transition:leave-start="opacity-100 scale-100"
          x-transition:leave-end="opacity-0 scale-95"
-         class="relative w-full max-w-md bg-white dark:bg-[#0c1322] border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl p-6 space-y-4 z-10">
+         class="relative w-full max-w-md bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-3xl shadow-2xl p-6 space-y-4 z-10">
       
-      <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-[#27272A]">
         <div class="flex items-center space-x-2.5">
           <div class="w-8 h-8 rounded-xl bg-pink-500/10 text-pink-500 flex items-center justify-center">
             <i data-lucide="folder-plus" class="w-4 h-4"></i>
           </div>
           <div>
             <h3 class="text-sm font-black text-slate-900 dark:text-white">Add to Campaign Folder</h3>
-            <p class="text-[11px] text-slate-400 font-mono" x-text="selectedKeywordIds.length + ' Keywords will be added'"></p>
+            <p class="text-[11px] text-slate-400 font-mono tabular-nums" x-text="selectedKeywordIds.length + ' Keywords will be added'"></p>
           </div>
         </div>
         <button @click="isBulkFolderModalOpen = false" class="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-white">
@@ -3927,7 +3927,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
 
       <div class="space-y-3">
         <label class="block text-xs font-bold text-slate-700 dark:text-slate-300">Select Target Campaign Folder</label>
-        <select x-model="bulkTargetFolderId" class="w-full px-3 py-2 rounded-xl text-xs bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-pink-500/40">
+        <select x-model="bulkTargetFolderId" class="w-full px-3 py-2 rounded-xl text-xs bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-pink-500/40">
           <template x-for="f in folders" :key="f.id">
             <option :value="f.id" x-text="f.name + ' (' + (f.keyword_count || 0) + ' keywords)'"></option>
           </template>
@@ -3937,7 +3937,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
         </template>
       </div>
 
-      <div class="flex items-center justify-end space-x-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+      <div class="flex items-center justify-end space-x-2 pt-3 border-t border-slate-100 dark:border-[#27272A]">
         <button @click="isBulkFolderModalOpen = false" class="px-4 py-2 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition">
           Cancel
         </button>
@@ -3968,17 +3968,17 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
          x-transition:leave="transform transition ease-in duration-200"
          x-transition:leave-start="opacity-100 scale-100"
          x-transition:leave-end="opacity-0 scale-95"
-         class="relative w-full max-w-lg bg-white dark:bg-[#0c1322] border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl p-6 space-y-5 z-10">
+         class="relative w-full max-w-lg bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-3xl shadow-2xl p-6 space-y-5 z-10">
       
       <!-- Modal Header -->
-      <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-[#27272A]">
         <div class="flex items-center space-x-3">
           <div class="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center">
             <i data-lucide="play" class="w-4 h-4"></i>
           </div>
           <div>
             <h3 class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">Trigger 20-Runner Swarm</h3>
-            <p class="text-[11px] text-slate-400 font-mono">Autonomous deep crawler fleet via GitHub Actions</p>
+            <p class="text-[11px] text-slate-400 font-mono tabular-nums">Autonomous deep crawler fleet via GitHub Actions</p>
           </div>
         </div>
         <button @click="isFleetDispatchModalOpen = false" class="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer">
@@ -3991,7 +3991,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
         <!-- 1. Target Keyword -->
         <div>
           <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Target Keyword</label>
-          <select x-model="fleetDispatchTargetKeyword" @change="onFleetTargetKeywordChange()" class="w-full px-3 py-2.5 rounded-xl text-xs bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/40 font-medium">
+          <select x-model="fleetDispatchTargetKeyword" @change="onFleetTargetKeywordChange()" class="w-full px-3 py-2.5 rounded-xl text-xs bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/40 font-medium">
             <option value="">All Tracked Keywords (Global Sweep)</option>
             <template x-for="kw in keywords" :key="kw.id">
               <option :value="kw.keyword" x-text="kw.keyword + ' (' + (getKeywordTotalPins(kw) || kw.total_pins || 0) + ' pins)'"></option>
@@ -4001,7 +4001,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
         </div>
 
         <!-- 2. Fresh Live SERP First (Toggle / Checkbox) -->
-        <div class="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 flex items-start justify-between space-x-3">
+        <div class="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-[#27272A] flex items-start justify-between space-x-3">
           <div class="space-y-0.5">
             <label class="text-xs font-bold text-slate-800 dark:text-slate-200 cursor-pointer" @click="fleetDispatchHarvestSerp = !fleetDispatchHarvestSerp">
               Fetch Fresh Live SERP First
@@ -4022,13 +4022,13 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
           <div class="grid grid-cols-2 gap-2">
             <button type="button" @click="fleetDispatchScope = 'all_pins'"
                     class="p-3 rounded-2xl border text-left transition cursor-pointer"
-                    :class="fleetDispatchScope === 'all_pins' ? 'bg-emerald-500/10 border-emerald-500 text-emerald-600 dark:text-emerald-400' : 'bg-slate-100 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:border-slate-300'">
+                    :class="fleetDispatchScope === 'all_pins' ? 'bg-emerald-500/10 border-emerald-500 text-emerald-600 dark:text-emerald-400' : 'bg-slate-100 dark:bg-slate-900 border-slate-200 dark:border-[#27272A] text-slate-600 dark:text-slate-400 hover:border-slate-300'">
               <div class="text-xs font-bold">All Pins</div>
               <div class="text-[10px] text-slate-400 mt-0.5">Active SERP + Displaced Vault</div>
             </button>
             <button type="button" @click="fleetDispatchScope = 'active_serp'"
                     class="p-3 rounded-2xl border text-left transition cursor-pointer"
-                    :class="fleetDispatchScope === 'active_serp' ? 'bg-emerald-500/10 border-emerald-500 text-emerald-600 dark:text-emerald-400' : 'bg-slate-100 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:border-slate-300'">
+                    :class="fleetDispatchScope === 'active_serp' ? 'bg-emerald-500/10 border-emerald-500 text-emerald-600 dark:text-emerald-400' : 'bg-slate-100 dark:bg-slate-900 border-slate-200 dark:border-[#27272A] text-slate-600 dark:text-slate-400 hover:border-slate-300'">
               <div class="text-xs font-bold">Active SERP Only</div>
               <div class="text-[10px] text-slate-400 mt-0.5">Top 50-100 ranked pins</div>
             </button>
@@ -4039,9 +4039,9 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
         <div>
           <div class="flex items-center justify-between mb-1">
             <label class="text-xs font-bold text-slate-700 dark:text-slate-300">Max Pins Quota</label>
-            <span class="text-[11px] font-mono text-emerald-500 font-bold" x-text="fleetDispatchMaxPins + ' pins'"></span>
+            <span class="text-[11px] font-mono tabular-nums text-emerald-500 font-bold" x-text="fleetDispatchMaxPins + ' pins'"></span>
           </div>
-          <select x-model.number="fleetDispatchMaxPins" class="w-full px-3 py-2 rounded-xl text-xs bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/40">
+          <select x-model.number="fleetDispatchMaxPins" class="w-full px-3 py-2 rounded-xl text-xs bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/40">
             <option :value="fleetDispatchMaxPins" x-show="![50, 100, 250, 500, 1000].includes(fleetDispatchMaxPins)" x-text="fleetDispatchMaxPins + ' Pins (Target Quota)'"></option>
             <option :value="50">50 Pins (Fast Discovery)</option>
             <option :value="100">100 Pins (Standard SERP)</option>
@@ -4053,8 +4053,8 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
       </div>
 
       <!-- Modal Footer -->
-      <div class="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-800">
-        <span class="text-[11px] text-slate-400 font-mono">20 Azure VMs &middot; Zero Hub writes</span>
+      <div class="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-[#27272A]">
+        <span class="text-[11px] text-slate-400 font-mono tabular-nums">20 Azure VMs &middot; Zero Hub writes</span>
         <div class="flex items-center space-x-2">
           <button @click="isFleetDispatchModalOpen = false" class="px-4 py-2 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer">
             Cancel

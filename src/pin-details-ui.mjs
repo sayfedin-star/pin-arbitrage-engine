@@ -29,14 +29,14 @@ export function getPinDetailPageHtml(pinId = '') {
   <!-- Universal Pin Dossier ${safePinId} -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
       theme: {
         extend: {
           fontFamily: {
-            sans: ['Inter', 'sans-serif'],
+            sans: ['Geist', 'system-ui', '-apple-system', 'sans-serif'],
             mono: ['JetBrains Mono', 'monospace']
           },
           colors: {
@@ -130,9 +130,9 @@ export function getPinDetailPageHtml(pinId = '') {
           <div>
             <div class="text-sm font-bold tracking-tight text-slate-900 flex items-center gap-2">
               Pin Dossier
-              <span class="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-pink-50 text-pink-700 border border-pink-200 font-semibold" x-text="isNaN(Number(pinId)) ? pinId : '#' + pinId"></span>
+              <span class="text-[10px] uppercase font-mono tabular-nums px-2 py-0.5 rounded bg-pink-50 text-pink-700 border border-pink-200 font-semibold" x-text="isNaN(Number(pinId)) ? pinId : '#' + pinId"></span>
             </div>
-            <div class="text-[11px] text-slate-500 font-mono">Universal Shard Fleet Inspection</div>
+            <div class="text-[11px] text-slate-500 font-mono tabular-nums">Universal Shard Fleet Inspection</div>
           </div>
         </a>
       </div>
@@ -231,7 +231,7 @@ export function getPinDetailPageHtml(pinId = '') {
     </template>
 
     <span class="text-slate-300 select-none">/</span>
-    <span class="text-slate-900 font-mono font-bold flex items-center gap-1 flex-shrink-0">
+    <span class="text-slate-900 font-mono tabular-nums font-bold flex items-center gap-1 flex-shrink-0">
       <span class="text-pink-600">📌</span>
       <span x-text="'Pin #' + pinId"></span>
     </span>
@@ -252,7 +252,7 @@ export function getPinDetailPageHtml(pinId = '') {
     <div class="flex flex-col items-center gap-3 max-w-sm text-center">
       <div class="w-10 h-10 border-2 border-pink-600 border-t-transparent rounded-full animate-spin"></div>
       <div class="text-sm font-semibold text-slate-900">Resolving Universal Pin Dossier...</div>
-      <div class="text-xs text-slate-500 font-mono">Routing deterministic CRC32 hash to Shard Fleet.</div>
+      <div class="text-xs text-slate-500 font-mono tabular-nums">Routing deterministic CRC32 hash to Shard Fleet.</div>
     </div>
   </div>
 
@@ -299,19 +299,19 @@ export function getPinDetailPageHtml(pinId = '') {
           >
           <!-- Floating Shard & Aspect Ratio Badges -->
           <div class="absolute top-2.5 left-2.5 flex items-center gap-1.5">
-            <span class="px-2 py-0.5 rounded-md bg-white/95 backdrop-blur text-[10px] font-mono font-bold text-slate-800 border border-slate-200 shadow-2xs">
+            <span class="px-2 py-0.5 rounded-md bg-white/95 backdrop-blur text-[10px] font-mono tabular-nums font-bold text-slate-800 border border-slate-200 shadow-2xs">
               2:3 Aspect
             </span>
-            <span class="px-2 py-0.5 rounded-md bg-emerald-50 text-[10px] font-mono font-bold text-emerald-700 border border-emerald-200 shadow-2xs" x-text="'Shard #' + dossier?.shard_id"></span>
+            <span class="px-2 py-0.5 rounded-md bg-emerald-50 text-[10px] font-mono tabular-nums font-bold text-emerald-700 border border-emerald-200 shadow-2xs" x-text="'Shard #' + dossier?.shard_id"></span>
           </div>
 
           <!-- Floating Dominant Color Indicator -->
           <div class="absolute bottom-2.5 left-2.5 right-2.5 p-2 rounded-lg bg-white/95 backdrop-blur-md border border-slate-200 flex items-center justify-between shadow-xs">
             <div class="flex items-center gap-2">
               <span class="w-3.5 h-3.5 rounded-full border border-slate-300 shadow-2xs" :style="'background-color: ' + safeColor(dossier?.creative?.dominant_color)"></span>
-              <span class="text-[11px] font-mono text-slate-700 font-semibold" x-text="safeColor(dossier?.creative?.dominant_color)"></span>
+              <span class="text-[11px] font-mono tabular-nums text-slate-700 font-semibold" x-text="safeColor(dossier?.creative?.dominant_color)"></span>
             </div>
-            <span class="text-[10px] font-mono uppercase text-slate-500 font-medium">Dominant Color</span>
+            <span class="text-[10px] font-mono tabular-nums uppercase text-slate-500 font-medium">Dominant Color</span>
           </div>
         </div>
 
@@ -325,12 +325,12 @@ export function getPinDetailPageHtml(pinId = '') {
                 :href="dossier.pillar_1_creator_context.creator_url || ('https://www.pinterest.com/' + dossier.pillar_1_creator_context.creator_username + '/')" 
                 target="_blank" 
                 rel="noopener noreferrer" 
-                class="font-mono font-semibold text-slate-800 hover:text-pink-600 transition-colors truncate max-w-[170px]"
+                class="font-mono tabular-nums font-semibold text-slate-800 hover:text-pink-600 transition-colors truncate max-w-[170px]"
                 x-text="'@' + dossier.pillar_1_creator_context.creator_username"
               ></a>
             </template>
             <template x-if="!dossier?.pillar_1_creator_context?.creator_username">
-              <span class="text-slate-400 font-mono italic">Anonymous</span>
+              <span class="text-slate-400 font-mono tabular-nums italic">Anonymous</span>
             </template>
           </div>
 
@@ -342,19 +342,19 @@ export function getPinDetailPageHtml(pinId = '') {
                 :href="dossier.pillar_1_creator_context.board_url || '#'" 
                 target="_blank" 
                 rel="noopener noreferrer" 
-                class="font-mono text-slate-700 hover:text-blue-600 transition-colors truncate max-w-[170px]"
+                class="font-mono tabular-nums text-slate-700 hover:text-blue-600 transition-colors truncate max-w-[170px]"
                 x-text="dossier.pillar_1_creator_context.board_name"
               ></a>
             </template>
             <template x-if="!dossier?.pillar_1_creator_context?.board_name">
-              <span class="text-slate-400 font-mono italic">Default</span>
+              <span class="text-slate-400 font-mono tabular-nums italic">Default</span>
             </template>
           </div>
 
           <!-- Publication Date Row -->
           <div class="flex items-center justify-between gap-2 text-xs">
             <span class="text-slate-500 font-medium">Published</span>
-            <div class="font-mono text-slate-800 text-[11px] text-right">
+            <div class="font-mono tabular-nums text-slate-800 text-[11px] text-right">
               <span x-text="formatDate(dossier?.creative?.created_at_pinterest) || 'Recently crawled'"></span>
               <span class="text-slate-400 ml-0.5" x-text="formatAge(dossier?.creative?.created_at_pinterest)"></span>
             </div>
@@ -363,14 +363,14 @@ export function getPinDetailPageHtml(pinId = '') {
           <!-- Creation Method Row -->
           <div class="flex items-center justify-between gap-2 text-xs">
             <span class="text-slate-500 font-medium">Method</span>
-            <span :class="getPinMethodBadgeClass()" class="font-mono text-[11px] px-2.5 py-0.5 rounded-md border font-semibold inline-flex items-center gap-1" x-text="formatPinMethodLabel()"></span>
+            <span :class="getPinMethodBadgeClass()" class="font-mono tabular-nums text-[11px] px-2.5 py-0.5 rounded-md border font-semibold inline-flex items-center gap-1" x-text="formatPinMethodLabel()"></span>
           </div>
 
           <!-- Perceptual Image Signature -->
           <div class="flex items-center justify-between gap-2 text-xs pt-2 border-t border-slate-100">
             <span class="text-slate-500 font-medium">Image Hash</span>
             <div class="flex items-center gap-1.5">
-              <span class="font-mono text-[10px] text-slate-600 truncate max-w-[110px]" x-text="dossier?.algorithmic_intelligence?.image_signature || dossier?.creative?.image_signature || 'N/A'"></span>
+              <span class="font-mono tabular-nums text-[10px] text-slate-600 truncate max-w-[110px]" x-text="dossier?.algorithmic_intelligence?.image_signature || dossier?.creative?.image_signature || 'N/A'"></span>
               <button 
                 @click="copyImageSignature()" 
                 class="text-slate-400 hover:text-slate-700 text-xs px-1.5 py-0.5 rounded bg-slate-50 border border-slate-200"
@@ -382,7 +382,7 @@ export function getPinDetailPageHtml(pinId = '') {
       </div>
 
       <!-- Shard Placement Box -->
-      <div class="p-3 rounded-xl bg-slate-100/70 border border-slate-200 flex items-center justify-between text-xs font-mono text-slate-600">
+      <div class="p-3 rounded-xl bg-slate-100/70 border border-slate-200 flex items-center justify-between text-xs font-mono tabular-nums text-slate-600">
         <span>CRC32 Routing:</span>
         <span class="text-pink-600 font-semibold" x-text="'Shard ' + dossier?.shard_id + ' / 99'"></span>
       </div>
@@ -456,7 +456,7 @@ export function getPinDetailPageHtml(pinId = '') {
 
           <!-- Sleek Interactive Green Canonical Root Pill -->
           <template x-if="dossier?.algorithmic_intelligence?.canonical_pin_id">
-            <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-mono font-semibold bg-emerald-100/70 text-emerald-900 border border-emerald-300 shadow-2xs">
+            <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-mono tabular-nums font-semibold bg-emerald-100/70 text-emerald-900 border border-emerald-300 shadow-2xs">
               <span class="text-emerald-700">👑 Canonical:</span>
               <a 
                 :href="'/pins/' + dossier?.algorithmic_intelligence?.canonical_pin_id" 
@@ -485,15 +485,15 @@ export function getPinDetailPageHtml(pinId = '') {
         <div class="p-3 rounded-xl bg-blue-50/60 border border-blue-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div class="flex items-center gap-2 overflow-hidden max-w-full">
             <span class="text-blue-600 font-bold text-sm shrink-0">🔗</span>
-            <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-blue-100 text-blue-800 font-semibold shrink-0" x-text="dossier?.creative?.domain || 'Domain'"></span>
-            <div class="text-xs font-mono text-blue-900 truncate font-medium" :title="dossier?.creative?.destination_url || dossier?.algorithmic_intelligence?.utm_link">
+            <span class="px-2 py-0.5 rounded text-[10px] font-mono tabular-nums bg-blue-100 text-blue-800 font-semibold shrink-0" x-text="dossier?.creative?.domain || 'Domain'"></span>
+            <div class="text-xs font-mono tabular-nums text-blue-900 truncate font-medium" :title="dossier?.creative?.destination_url || dossier?.algorithmic_intelligence?.utm_link">
               <span x-text="dossier?.creative?.destination_url || dossier?.algorithmic_intelligence?.utm_link || 'No outbound URL captured.'"></span>
             </div>
           </div>
           <div class="flex items-center gap-2 flex-shrink-0">
             <button 
               @click="copyUrl(dossier?.creative?.destination_url || dossier?.algorithmic_intelligence?.utm_link)" 
-              class="px-2.5 py-1.5 rounded-lg bg-white hover:bg-slate-100 text-slate-700 text-xs font-mono border border-slate-300 shadow-2xs transition-colors flex items-center gap-1"
+              class="px-2.5 py-1.5 rounded-lg bg-white hover:bg-slate-100 text-slate-700 text-xs font-mono tabular-nums border border-slate-300 shadow-2xs transition-colors flex items-center gap-1"
               title="Copy Destination URL"
             >
               <span>📋 Copy</span>
@@ -512,12 +512,12 @@ export function getPinDetailPageHtml(pinId = '') {
         <!-- SEO Alt-Text Row (Clean Single Bar) -->
         <div class="p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-4">
           <div class="flex items-center gap-2.5 overflow-hidden flex-1">
-            <span class="text-[10px] font-mono uppercase tracking-wider text-pink-700 font-bold shrink-0">SEO Alt Text:</span>
-            <p class="text-xs text-slate-700 font-mono truncate" :title="dossier?.creative?.alt_text" x-text="dossier?.creative?.alt_text || 'No SEO alt-text metadata captured.'"></p>
+            <span class="text-[10px] font-mono tabular-nums uppercase tracking-wider text-pink-700 font-bold shrink-0">SEO Alt Text:</span>
+            <p class="text-xs text-slate-700 font-mono tabular-nums truncate" :title="dossier?.creative?.alt_text" x-text="dossier?.creative?.alt_text || 'No SEO alt-text metadata captured.'"></p>
           </div>
           <button 
             @click="copyAltText()" 
-            class="px-2.5 py-1.5 rounded-lg bg-white hover:bg-slate-100 text-slate-700 text-xs font-mono border border-slate-300 whitespace-nowrap transition-colors flex items-center gap-1 shadow-2xs shrink-0"
+            class="px-2.5 py-1.5 rounded-lg bg-white hover:bg-slate-100 text-slate-700 text-xs font-mono tabular-nums border border-slate-300 whitespace-nowrap transition-colors flex items-center gap-1 shadow-2xs shrink-0"
             title="Copy Alt Text"
           >
             <span>📋 Copy Alt Text</span>
@@ -530,22 +530,22 @@ export function getPinDetailPageHtml(pinId = '') {
             <span class="font-bold text-slate-700 flex items-center gap-1.5">
               <span>🏷️</span> Computer Vision Annotations
             </span>
-            <span class="text-[11px] font-mono text-slate-500" x-text="'Total ' + (dossier?.creative?.visual_annotations?.length || 0) + ' tags'"></span>
+            <span class="text-[11px] font-mono tabular-nums text-slate-500" x-text="'Total ' + (dossier?.creative?.visual_annotations?.length || 0) + ' tags'"></span>
           </div>
           <div class="flex items-center gap-1.5 flex-wrap">
             <template x-for="item in activeLiveTags()" :key="item.name">
-              <span class="px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-xs text-emerald-900 font-mono flex items-center gap-1 shadow-2xs">
+              <span class="px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-xs text-emerald-900 font-mono tabular-nums flex items-center gap-1 shadow-2xs">
                 <span class="text-emerald-600 font-bold">#</span>
                 <span x-text="item.name"></span>
               </span>
             </template>
             <template x-for="item in historicalTags()" :key="item.name">
-              <span class="px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-xs text-slate-700 font-mono flex items-center gap-1">
+              <span class="px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-xs text-slate-700 font-mono tabular-nums flex items-center gap-1">
                 <span class="text-slate-400 font-bold">#</span>
                 <span x-text="item.name"></span>
               </span>
             </template>
-            <span x-show="!dossier?.creative?.visual_annotations?.length" class="text-xs text-slate-400 italic font-mono">No annotations recorded.</span>
+            <span x-show="!dossier?.creative?.visual_annotations?.length" class="text-xs text-slate-400 italic font-mono tabular-nums">No annotations recorded.</span>
           </div>
         </div>
 
@@ -554,39 +554,39 @@ export function getPinDetailPageHtml(pinId = '') {
       <!-- 2. Key Telemetry Metrics Grid (5 KPI Cards) -->
       <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3.5">
         <div class="bg-white border border-slate-200 rounded-xl p-3.5 flex flex-col justify-between shadow-2xs">
-          <div class="text-[11px] font-mono text-slate-500 flex items-center justify-between">
+          <div class="text-[11px] font-mono tabular-nums text-slate-500 flex items-center justify-between">
             <span>Total Saves</span>
             <span class="text-emerald-700 text-[10px] font-semibold" x-text="computeDeltaUnified(0, 'save_count') > 0 ? '+' + formatNumber(computeDeltaUnified(0, 'save_count')) + ' 24h' : ''"></span>
           </div>
-          <div class="text-xl font-bold font-mono text-emerald-700 mt-1.5" x-text="formatNumber(peakSaves())"></div>
-          <div class="text-[10px] text-slate-400 font-mono mt-0.5">Authentic Saves</div>
+          <div class="text-xl font-bold font-mono tabular-nums text-emerald-700 mt-1.5" x-text="formatNumber(peakSaves())"></div>
+          <div class="text-[10px] text-slate-400 font-mono tabular-nums mt-0.5">Authentic Saves</div>
         </div>
 
         <div class="bg-white border border-slate-200 rounded-xl p-3.5 flex flex-col justify-between shadow-2xs">
-          <div class="text-[11px] font-mono text-slate-500 flex items-center justify-between">
+          <div class="text-[11px] font-mono tabular-nums text-slate-500 flex items-center justify-between">
             <span>Total Repins</span>
             <span class="text-pink-700 text-[10px] font-semibold" x-text="computeDeltaUnified(0, 'repin_count') > 0 ? '+' + formatNumber(computeDeltaUnified(0, 'repin_count')) + ' 24h' : ''"></span>
           </div>
-          <div class="text-xl font-bold font-mono text-pink-700 mt-1.5" x-text="formatNumber(peakRepins())"></div>
-          <div class="text-[10px] text-slate-400 font-mono mt-0.5">Viral Shares</div>
+          <div class="text-xl font-bold font-mono tabular-nums text-pink-700 mt-1.5" x-text="formatNumber(peakRepins())"></div>
+          <div class="text-[10px] text-slate-400 font-mono tabular-nums mt-0.5">Viral Shares</div>
         </div>
 
         <div class="bg-white border border-slate-200 rounded-xl p-3.5 flex flex-col justify-between shadow-2xs">
-          <div class="text-[11px] font-mono text-slate-500">Daily Velocity</div>
-          <div class="text-xl font-bold font-mono text-amber-700 mt-1.5" x-text="'+' + peakVelocity() + '/d'"></div>
-          <div class="text-[10px] text-slate-400 font-mono mt-0.5">Saves Acceleration</div>
+          <div class="text-[11px] font-mono tabular-nums text-slate-500">Daily Velocity</div>
+          <div class="text-xl font-bold font-mono tabular-nums text-amber-700 mt-1.5" x-text="'+' + peakVelocity() + '/d'"></div>
+          <div class="text-[10px] text-slate-400 font-mono tabular-nums mt-0.5">Saves Acceleration</div>
         </div>
 
         <div class="bg-white border border-slate-200 rounded-xl p-3.5 flex flex-col justify-between shadow-2xs">
-          <div class="text-[11px] font-mono text-slate-500">Best SERP Rank</div>
-          <div class="text-xl font-bold font-mono text-blue-700 mt-1.5" x-text="peakRank()"></div>
-          <div class="text-[10px] text-slate-400 font-mono mt-0.5">Peak Position</div>
+          <div class="text-[11px] font-mono tabular-nums text-slate-500">Best SERP Rank</div>
+          <div class="text-xl font-bold font-mono tabular-nums text-blue-700 mt-1.5" x-text="peakRank()"></div>
+          <div class="text-[10px] text-slate-400 font-mono tabular-nums mt-0.5">Peak Position</div>
         </div>
 
         <div class="bg-white border border-slate-200 rounded-xl p-3.5 flex flex-col justify-between shadow-2xs" title="Direct Outbound Shares">
-          <div class="text-[11px] font-mono text-slate-500">Total Shares</div>
-          <div class="text-xl font-bold font-mono text-purple-700 mt-1.5" x-text="formatNumber(totalShares())"></div>
-          <div class="text-[10px] text-slate-400 font-mono mt-0.5">Direct Shares</div>
+          <div class="text-[11px] font-mono tabular-nums text-slate-500">Total Shares</div>
+          <div class="text-xl font-bold font-mono tabular-nums text-purple-700 mt-1.5" x-text="formatNumber(totalShares())"></div>
+          <div class="text-[10px] text-slate-400 font-mono tabular-nums mt-0.5">Direct Shares</div>
         </div>
       </div>
 
@@ -600,7 +600,7 @@ export function getPinDetailPageHtml(pinId = '') {
             <button 
               @click="activeTab = 'rankings'" 
               :class="activeTab === 'rankings' ? 'border-pink-600 text-pink-600 font-bold bg-white' : 'border-transparent text-slate-600 hover:text-slate-900'"
-              class="px-3.5 py-2 rounded-t-lg border-b-2 text-xs font-mono transition-colors flex items-center gap-1.5"
+              class="px-3.5 py-2 rounded-t-lg border-b-2 text-xs font-mono tabular-nums transition-colors flex items-center gap-1.5"
             >
               <span>🎯</span>
               <span>SERP Rankings</span>
@@ -609,7 +609,7 @@ export function getPinDetailPageHtml(pinId = '') {
             <button 
               @click="activeTab = 'history'" 
               :class="activeTab === 'history' ? 'border-pink-600 text-pink-600 font-bold bg-white' : 'border-transparent text-slate-600 hover:text-slate-900'"
-              class="px-3.5 py-2 rounded-t-lg border-b-2 text-xs font-mono transition-colors flex items-center gap-1.5"
+              class="px-3.5 py-2 rounded-t-lg border-b-2 text-xs font-mono tabular-nums transition-colors flex items-center gap-1.5"
             >
               <span>⏱️</span>
               <span>Historical Snapshot Audit Log</span>
@@ -618,7 +618,7 @@ export function getPinDetailPageHtml(pinId = '') {
             <button 
               @click="activeTab = 'forensics'" 
               :class="activeTab === 'forensics' ? 'border-pink-600 text-pink-600 font-bold bg-white' : 'border-transparent text-slate-600 hover:text-slate-900'"
-              class="px-3.5 py-2 rounded-t-lg border-b-2 text-xs font-mono transition-colors flex items-center gap-1.5"
+              class="px-3.5 py-2 rounded-t-lg border-b-2 text-xs font-mono tabular-nums transition-colors flex items-center gap-1.5"
             >
               <span>🧬</span>
               <span>Algorithmic Forensics</span>
@@ -629,7 +629,7 @@ export function getPinDetailPageHtml(pinId = '') {
           <a 
             :href="dossier?.pillar_3_related_pins_context?.radar_url || '/api/keywords/visual-search?pin_id=' + pinId" 
             target="_blank" 
-            class="text-[11px] font-mono text-pink-600 hover:underline flex items-center gap-1 pb-1 hidden sm:flex"
+            class="text-[11px] font-mono tabular-nums text-pink-600 hover:underline flex items-center gap-1 pb-1 hidden sm:flex"
           >
             <span>Related Radar ↗</span>
           </a>
@@ -638,8 +638,8 @@ export function getPinDetailPageHtml(pinId = '') {
         <!-- TAB 1: KEYWORD SERP RANKINGS -->
         <div x-show="activeTab === 'rankings'" class="p-5 flex flex-col gap-4">
           <div class="flex items-center justify-between">
-            <span class="text-xs font-bold text-slate-900 font-mono">Monitored Keywords for this Pin</span>
-            <a href="/keywords" class="text-xs text-emerald-700 hover:underline font-mono">Open Keywords Radar →</a>
+            <span class="text-xs font-bold text-slate-900 font-mono tabular-nums">Monitored Keywords for this Pin</span>
+            <a href="/keywords" class="text-xs text-emerald-700 hover:underline font-mono tabular-nums">Open Keywords Radar →</a>
           </div>
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -651,21 +651,21 @@ export function getPinDetailPageHtml(pinId = '') {
               >
                 <div class="flex flex-col gap-0.5 overflow-hidden">
                   <span class="text-xs font-bold text-slate-900 group-hover:text-pink-600 transition-colors truncate" x-text="kw.keyword"></span>
-                  <span class="text-[10px] font-mono text-slate-500" x-text="'Velocity: +' + (kw.velocity || 0) + '/d'"></span>
+                  <span class="text-[10px] font-mono tabular-nums text-slate-500" x-text="'Velocity: +' + (kw.velocity || 0) + '/d'"></span>
                 </div>
                 <div>
                   <template x-if="!kw.is_displaced && kw.rank">
-                    <span class="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 font-mono font-bold text-xs" x-text="'#' + kw.rank"></span>
+                    <span class="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 font-mono tabular-nums font-bold text-xs" x-text="'#' + kw.rank"></span>
                   </template>
                   <template x-if="kw.is_displaced">
-                    <span class="px-2.5 py-1 rounded-lg bg-amber-50 text-amber-800 border border-amber-200 font-mono font-semibold text-xs" x-text="'[Vault #' + (kw.catalog_rank || 101) + ']'"></span>
+                    <span class="px-2.5 py-1 rounded-lg bg-amber-50 text-amber-800 border border-amber-200 font-mono tabular-nums font-semibold text-xs" x-text="'[Vault #' + (kw.catalog_rank || 101) + ']'"></span>
                   </template>
                 </div>
               </a>
             </template>
           </div>
 
-          <div x-show="!dossier?.pillar_2_keywords_context?.ranking_keywords?.length" class="p-8 text-center text-slate-400 font-mono text-xs">
+          <div x-show="!dossier?.pillar_2_keywords_context?.ranking_keywords?.length" class="p-8 text-center text-slate-400 font-mono tabular-nums text-xs">
             No active keyword SERP rankings recorded for this pin.
           </div>
         </div>
@@ -830,7 +830,7 @@ export function getPinDetailPageHtml(pinId = '') {
                   <template x-if="hasCrawlGap(day, idx)">
                     <tr class="bg-slate-50/80">
                       <td colspan="6" class="py-1.5 px-4 text-center">
-                        <div class="inline-flex items-center gap-2 px-3 py-0.5 rounded-full bg-slate-100 border border-slate-200 text-[10px] text-slate-500 font-mono">
+                        <div class="inline-flex items-center gap-2 px-3 py-0.5 rounded-full bg-slate-100 border border-slate-200 text-[10px] text-slate-500 font-mono tabular-nums">
                           <span>⏸️</span>
                           <span x-text="getCrawlGapText(day, idx)"></span>
                         </div>
@@ -847,13 +847,13 @@ export function getPinDetailPageHtml(pinId = '') {
                     <td class="py-2.5 px-3">
                       <div class="flex flex-col">
                         <span class="font-bold text-slate-900 text-xs" x-text="day.snapshot_date"></span>
-                        <span class="text-[10px] text-slate-400 font-mono mt-0.5" :title="formatLocalTime(day.crawled_at || day.updated_at)" x-text="formatDateTime(day.crawled_at || day.updated_at)"></span>
+                        <span class="text-[10px] text-slate-400 font-mono tabular-nums mt-0.5" :title="formatLocalTime(day.crawled_at || day.updated_at)" x-text="formatDateTime(day.crawled_at || day.updated_at)"></span>
                       </div>
                     </td>
                     <!-- Saves + 24h delta stacked -->
                     <td class="py-2.5 px-3 text-right">
                       <div class="flex flex-col items-end">
-                        <span class="font-bold text-slate-900 text-xs font-mono" x-text="formatNumber(day.save_count)"></span>
+                        <span class="font-bold text-slate-900 text-xs font-mono tabular-nums" x-text="formatNumber(day.save_count)"></span>
                         <template x-if="computeDeltaByDate(day.snapshot_date, 'save_count') > 0">
                           <span 
                             class="inline-flex items-center text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200/60 mt-0.5" 
@@ -867,14 +867,14 @@ export function getPinDetailPageHtml(pinId = '') {
                           ></span>
                         </template>
                         <template x-if="computeDeltaByDate(day.snapshot_date, 'save_count') === 0">
-                          <span class="text-[10px] text-slate-400 font-mono mt-0.5">+0 (24h)</span>
+                          <span class="text-[10px] text-slate-400 font-mono tabular-nums mt-0.5">+0 (24h)</span>
                         </template>
                       </div>
                     </td>
                     <!-- Repins + delta stacked -->
                     <td class="py-2.5 px-3 text-right">
                       <div class="flex flex-col items-end">
-                        <span class="font-semibold text-slate-800 text-xs font-mono" x-text="formatNumber(day.repin_count)"></span>
+                        <span class="font-semibold text-slate-800 text-xs font-mono tabular-nums" x-text="formatNumber(day.repin_count)"></span>
                         <template x-if="computeDeltaByDate(day.snapshot_date, 'repin_count') > 0">
                           <span 
                             class="inline-flex items-center text-[10px] font-semibold text-pink-700 bg-pink-50 px-1.5 py-0.2 rounded border border-pink-200/60 mt-0.5" 
@@ -888,24 +888,24 @@ export function getPinDetailPageHtml(pinId = '') {
                       <template x-if="selectedKeywordFilter === 'ALL'">
                         <div class="flex flex-col items-center justify-center">
                           <template x-if="day.best_rank && day.best_rank !== 999">
-                            <span class="inline-flex items-center justify-center min-w-[32px] px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-bold font-mono" x-text="'#' + day.best_rank"></span>
+                            <span class="inline-flex items-center justify-center min-w-[32px] px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-bold font-mono tabular-nums" x-text="'#' + day.best_rank"></span>
                           </template>
                           <template x-if="!day.best_rank || day.best_rank === 999">
-                            <span class="text-slate-400 text-xs font-mono">--</span>
+                            <span class="text-slate-400 text-xs font-mono tabular-nums">--</span>
                           </template>
-                          <span class="text-[10px] text-slate-400 font-mono mt-0.5" x-text="(day.ranking_keywords?.length || 0) + ' kws'"></span>
+                          <span class="text-[10px] text-slate-400 font-mono tabular-nums mt-0.5" x-text="(day.ranking_keywords?.length || 0) + ' kws'"></span>
                         </div>
                       </template>
                       <template x-if="selectedKeywordFilter !== 'ALL'">
                         <div class="flex flex-col items-center justify-center">
                           <template x-for="kw in getSpecificKeywordForDay(day, selectedKeywordFilter)" :key="kw.keyword">
                             <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border shadow-2xs" :class="kw.is_displaced ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'">
-                              <span class="font-bold font-mono text-sm" x-text="kw.rank ? ('#' + kw.rank) : '[Vault]'"></span>
+                              <span class="font-bold font-mono tabular-nums text-sm" x-text="kw.rank ? ('#' + kw.rank) : '[Vault]'"></span>
                               <template x-if="keywordRankMovement(day.snapshot_date, kw).status === 'up'">
-                                <span class="text-[10px] text-emerald-800 font-bold font-mono" x-text="'▲ ' + keywordRankMovement(day.snapshot_date, kw).delta"></span>
+                                <span class="text-[10px] text-emerald-800 font-bold font-mono tabular-nums" x-text="'▲ ' + keywordRankMovement(day.snapshot_date, kw).delta"></span>
                               </template>
                               <template x-if="keywordRankMovement(day.snapshot_date, kw).status === 'down'">
-                                <span class="text-[10px] text-rose-700 font-bold font-mono" x-text="'▼ ' + keywordRankMovement(day.snapshot_date, kw).delta"></span>
+                                <span class="text-[10px] text-rose-700 font-bold font-mono tabular-nums" x-text="'▼ ' + keywordRankMovement(day.snapshot_date, kw).delta"></span>
                               </template>
                               <template x-if="keywordRankMovement(day.snapshot_date, kw).status === 'steady'">
                                 <span class="text-[10px] text-slate-400 font-normal">―</span>
@@ -916,7 +916,7 @@ export function getPinDetailPageHtml(pinId = '') {
                             </div>
                           </template>
                           <template x-if="!getSpecificKeywordForDay(day, selectedKeywordFilter).length">
-                            <span class="text-slate-400 text-xs font-mono">--</span>
+                            <span class="text-slate-400 text-xs font-mono tabular-nums">--</span>
                           </template>
                         </div>
                       </template>
@@ -941,14 +941,14 @@ export function getPinDetailPageHtml(pinId = '') {
                       <div class="flex flex-col gap-3 bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
                         <!-- Drawer Controls Ribbon -->
                         <div class="flex items-center justify-between pb-2 border-b border-slate-100">
-                          <div class="inline-flex items-center gap-2.5 px-3 py-1 rounded-lg bg-slate-50 border border-slate-200/70 text-[11px] font-mono text-slate-600">
+                          <div class="inline-flex items-center gap-2.5 px-3 py-1 rounded-lg bg-slate-50 border border-slate-200/70 text-[11px] font-mono tabular-nums text-slate-600">
                             <span>📌 <strong>Pin Baseline:</strong> <span class="text-slate-900 font-bold" x-text="formatNumber(day.save_count)"></span> Saves</span>
                             <span class="text-slate-300">•</span>
                             <span><strong>Velocity:</strong> <span class="text-amber-800 font-bold" x-text="'+ ' + (day.daily_save_velocity || 0) + '/d'"></span></span>
                             <span class="text-slate-300">•</span>
                             <span><strong>Repins:</strong> <span class="text-pink-700 font-bold" x-text="formatNumber(day.repin_count)"></span></span>
                           </div>
-                          <div class="text-[11px] text-slate-400 font-mono">
+                          <div class="text-[11px] text-slate-400 font-mono tabular-nums">
                             Snapshot: <span x-text="day.snapshot_date"></span>
                           </div>
                         </div>
@@ -1031,18 +1031,18 @@ export function getPinDetailPageHtml(pinId = '') {
                                     <a :href="'/keywords/' + encodeURIComponent(kw.keyword)" target="_blank" class="text-slate-900 hover:text-pink-600 transition-colors inline-flex items-center gap-2">
                                       <span class="w-1.5 h-1.5 rounded-full" :class="kw.is_displaced ? 'bg-amber-500' : 'bg-emerald-500'"></span>
                                       <span class="font-medium" x-text="kw.keyword"></span>
-                                      <span class="text-[10px] text-slate-400 font-mono">↗</span>
+                                      <span class="text-[10px] text-slate-400 font-mono tabular-nums">↗</span>
                                     </a>
                                   </td>
                                   <!-- Rank Position -->
                                   <td class="py-2 px-3 text-center whitespace-nowrap">
                                     <template x-if="kw.rank && !kw.is_displaced">
-                                      <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold text-xs font-mono">
+                                      <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold text-xs font-mono tabular-nums">
                                         <span x-text="'#' + kw.rank"></span>
                                       </span>
                                     </template>
                                     <template x-if="kw.is_displaced">
-                                      <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-200 font-semibold text-[11px] font-mono" x-text="'[Vault #' + (kw.rank || 101) + ']'"></span>
+                                      <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-200 font-semibold text-[11px] font-mono tabular-nums" x-text="'[Vault #' + (kw.rank || 101) + ']'"></span>
                                     </template>
                                   </td>
                                   <!-- SERP Tier -->
@@ -1050,7 +1050,7 @@ export function getPinDetailPageHtml(pinId = '') {
                                     <span class="inline-block px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider" :class="getKeywordTierClass(kw)" x-text="getKeywordTierLabel(kw)"></span>
                                   </td>
                                   <!-- 24h Movement -->
-                                  <td class="py-2 px-3 text-center whitespace-nowrap font-mono text-[11px]">
+                                  <td class="py-2 px-3 text-center whitespace-nowrap font-mono tabular-nums text-[11px]">
                                     <template x-if="keywordRankMovement(day.snapshot_date, kw).status === 'up'">
                                       <span class="inline-flex items-center gap-1 text-emerald-700 font-bold">
                                         <span>▲</span>
@@ -1099,7 +1099,7 @@ export function getPinDetailPageHtml(pinId = '') {
               </template>
               <tbody x-show="!filteredDays().length" class="bg-white">
                 <tr>
-                  <td colspan="6" class="p-8 text-center text-slate-400 font-mono text-xs">
+                  <td colspan="6" class="p-8 text-center text-slate-400 font-mono tabular-nums text-xs">
                     No telemetry records match the selected SERP filter.
                   </td>
                 </tr>
@@ -1109,7 +1109,7 @@ export function getPinDetailPageHtml(pinId = '') {
 
           <!-- VIEW 2: SERP TRAJECTORY MATRIX (HEATMAP VIEW) -->
           <div x-show="historyViewMode === 'matrix'" class="overflow-x-auto rounded-xl border border-slate-200 shadow-2xs bg-white">
-            <table class="w-full text-left text-xs font-mono border-collapse">
+            <table class="w-full text-left text-xs font-mono tabular-nums border-collapse">
               <thead>
                 <tr class="bg-slate-50 text-slate-700 border-b border-slate-200 h-9">
                   <th class="p-2.5 font-semibold sticky left-0 bg-slate-50 border-r border-slate-200 z-10 min-w-[240px]">
@@ -1167,7 +1167,7 @@ export function getPinDetailPageHtml(pinId = '') {
             <!-- Origin Pinner Card -->
             <div class="p-4 rounded-xl bg-slate-50 border border-slate-200 flex flex-col justify-between gap-3">
               <div class="flex flex-col gap-1.5">
-                <span class="text-[10px] font-mono uppercase text-pink-700 font-bold">Origin Pinner</span>
+                <span class="text-[10px] font-mono tabular-nums uppercase text-pink-700 font-bold">Origin Pinner</span>
                 <div class="flex items-center gap-2.5 mt-1">
                   <img 
                     :src="dossier?.algorithmic_intelligence?.origin_pinner?.image_url || 'https://s.pinimg.com/images/user/default_75.png'" 
@@ -1177,11 +1177,11 @@ export function getPinDetailPageHtml(pinId = '') {
                   >
                   <div class="flex flex-col overflow-hidden">
                     <div class="text-xs font-bold text-slate-900 truncate" x-text="dossier?.algorithmic_intelligence?.origin_pinner?.full_name || dossier?.algorithmic_intelligence?.origin_pinner?.username || 'First Uploader'"></div>
-                    <div class="text-[11px] text-slate-500 font-mono truncate" x-text="dossier?.algorithmic_intelligence?.origin_pinner?.username ? '@' + dossier?.algorithmic_intelligence?.origin_pinner?.username : 'Original Creator'"></div>
+                    <div class="text-[11px] text-slate-500 font-mono tabular-nums truncate" x-text="dossier?.algorithmic_intelligence?.origin_pinner?.username ? '@' + dossier?.algorithmic_intelligence?.origin_pinner?.username : 'Original Creator'"></div>
                   </div>
                 </div>
               </div>
-              <div class="flex items-center justify-between pt-2 border-t border-slate-200 text-[11px] font-mono">
+              <div class="flex items-center justify-between pt-2 border-t border-slate-200 text-[11px] font-mono tabular-nums">
                 <span class="text-slate-500">Followers:</span>
                 <span class="text-slate-900 font-bold" x-text="formatNumber(dossier?.algorithmic_intelligence?.origin_pinner?.follower_count || 0)"></span>
               </div>
@@ -1190,11 +1190,11 @@ export function getPinDetailPageHtml(pinId = '') {
             <!-- Publisher & Domain Host -->
             <div class="p-4 rounded-xl bg-slate-50 border border-slate-200 flex flex-col justify-between gap-3">
               <div class="flex flex-col gap-1.5">
-                <span class="text-[10px] font-mono uppercase text-blue-700 font-bold">Verified Host Entity</span>
+                <span class="text-[10px] font-mono tabular-nums uppercase text-blue-700 font-bold">Verified Host Entity</span>
                 <div class="text-xs font-bold text-slate-900 truncate mt-1" x-text="dossier?.algorithmic_intelligence?.domain_official_user?.full_name || dossier?.creative?.domain"></div>
-                <div class="text-[11px] text-blue-700 font-mono truncate" x-text="dossier?.algorithmic_intelligence?.domain_official_user?.username ? '@' + dossier.algorithmic_intelligence.domain_official_user.username : dossier?.creative?.domain"></div>
+                <div class="text-[11px] text-blue-700 font-mono tabular-nums truncate" x-text="dossier?.algorithmic_intelligence?.domain_official_user?.username ? '@' + dossier.algorithmic_intelligence.domain_official_user.username : dossier?.creative?.domain"></div>
               </div>
-              <div class="flex items-center justify-between pt-2 border-t border-slate-200 text-[11px] font-mono">
+              <div class="flex items-center justify-between pt-2 border-t border-slate-200 text-[11px] font-mono tabular-nums">
                 <span class="text-slate-500">Status:</span>
                 <span class="text-blue-700 font-bold" x-text="dossier?.algorithmic_intelligence?.domain_official_user?.is_verified_merchant ? 'Verified Merchant' : 'Verified Web Entity'"></span>
               </div>
@@ -1203,11 +1203,11 @@ export function getPinDetailPageHtml(pinId = '') {
             <!-- Geometry & Dimensions -->
             <div class="p-4 rounded-xl bg-slate-50 border border-slate-200 flex flex-col justify-between gap-3">
               <div class="flex flex-col gap-1.5">
-                <span class="text-[10px] font-mono uppercase text-amber-700 font-bold">Image Geometry</span>
-                <div class="text-xs font-mono text-slate-800 mt-1" x-text="dossier?.algorithmic_intelligence?.image_dimensions ? (dossier.algorithmic_intelligence.image_dimensions.width + ' × ' + dossier.algorithmic_intelligence.image_dimensions.height + ' (' + dossier.algorithmic_intelligence.image_dimensions.aspect_ratio + ')') : 'Standard 2:3 Pinterest Ratio'"></div>
-                <div class="text-[11px] font-mono text-slate-500">Aspect Precision: 2:3 Standard</div>
+                <span class="text-[10px] font-mono tabular-nums uppercase text-amber-700 font-bold">Image Geometry</span>
+                <div class="text-xs font-mono tabular-nums text-slate-800 mt-1" x-text="dossier?.algorithmic_intelligence?.image_dimensions ? (dossier.algorithmic_intelligence.image_dimensions.width + ' × ' + dossier.algorithmic_intelligence.image_dimensions.height + ' (' + dossier.algorithmic_intelligence.image_dimensions.aspect_ratio + ')') : 'Standard 2:3 Pinterest Ratio'"></div>
+                <div class="text-[11px] font-mono tabular-nums text-slate-500">Aspect Precision: 2:3 Standard</div>
               </div>
-              <div class="flex items-center justify-between pt-2 border-t border-slate-200 text-[11px] font-mono">
+              <div class="flex items-center justify-between pt-2 border-t border-slate-200 text-[11px] font-mono tabular-nums">
                 <span class="text-slate-500">Resolution:</span>
                 <span class="text-emerald-700 font-bold">High-Res</span>
               </div>
@@ -1218,8 +1218,8 @@ export function getPinDetailPageHtml(pinId = '') {
           <!-- Algorithmic Semantic Interests -->
           <div class="p-4 rounded-xl bg-slate-50 border border-slate-200 flex flex-col gap-3">
             <div class="flex items-center justify-between border-b border-slate-200 pb-2">
-              <span class="text-xs font-mono font-bold text-purple-950 uppercase">Algorithmic Semantic Interests</span>
-              <span class="text-xs font-mono text-purple-800 font-semibold px-2 py-0.5 rounded bg-purple-100" x-text="(dossier?.algorithmic_intelligence?.seo_related_interests?.length || 0) + ' Topics'"></span>
+              <span class="text-xs font-mono tabular-nums font-bold text-purple-950 uppercase">Algorithmic Semantic Interests</span>
+              <span class="text-xs font-mono tabular-nums text-purple-800 font-semibold px-2 py-0.5 rounded bg-purple-100" x-text="(dossier?.algorithmic_intelligence?.seo_related_interests?.length || 0) + ' Topics'"></span>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
               <template x-for="item in (dossier?.algorithmic_intelligence?.seo_related_interests || [])" :key="item.name">
@@ -1227,13 +1227,13 @@ export function getPinDetailPageHtml(pinId = '') {
                   :href="item.url ? (item.url.startsWith('http') ? item.url : 'https://www.pinterest.com' + item.url) : '#'" 
                   target="_blank" 
                   rel="noopener noreferrer" 
-                  class="px-2.5 py-1 rounded-lg bg-white hover:bg-purple-50 text-purple-900 border border-purple-200 text-xs font-mono transition-colors flex items-center gap-1 shadow-2xs"
+                  class="px-2.5 py-1 rounded-lg bg-white hover:bg-purple-50 text-purple-900 border border-purple-200 text-xs font-mono tabular-nums transition-colors flex items-center gap-1 shadow-2xs"
                 >
                   <span>📌</span>
                   <span x-text="item.name"></span>
                 </a>
               </template>
-              <div x-show="!dossier?.algorithmic_intelligence?.seo_related_interests?.length" class="text-xs font-mono text-slate-400 italic">
+              <div x-show="!dossier?.algorithmic_intelligence?.seo_related_interests?.length" class="text-xs font-mono tabular-nums text-slate-400 italic">
                 No semantic topic clusters recorded for this pin.
               </div>
             </div>
@@ -1242,15 +1242,15 @@ export function getPinDetailPageHtml(pinId = '') {
           <!-- Rich Web Entity & Google SEO Snippet -->
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div class="p-4 rounded-xl bg-slate-50 border border-slate-200 flex flex-col gap-2">
-              <span class="text-[10px] font-mono uppercase text-emerald-800 font-bold">Rich Web Entity</span>
+              <span class="text-[10px] font-mono tabular-nums uppercase text-emerald-800 font-bold">Rich Web Entity</span>
               <div class="text-xs font-bold text-slate-900" x-text="dossier?.algorithmic_intelligence?.rich_metadata?.title || dossier?.creative?.title"></div>
               <p class="text-[11px] text-slate-600 leading-relaxed" x-text="dossier?.algorithmic_intelligence?.rich_metadata?.description || dossier?.creative?.description"></p>
             </div>
 
             <div class="p-4 rounded-xl bg-slate-50 border border-slate-200 flex flex-col gap-2">
-              <span class="text-[10px] font-mono uppercase text-pink-800 font-bold">Injected Google SEO Snippet</span>
-              <div class="text-xs font-mono text-pink-900 font-medium" x-text="dossier?.algorithmic_intelligence?.seo_title || dossier?.creative?.title"></div>
-              <p class="text-[11px] font-mono text-slate-600 leading-relaxed" x-text="dossier?.algorithmic_intelligence?.seo_description || 'Standard Snippet'"></p>
+              <span class="text-[10px] font-mono tabular-nums uppercase text-pink-800 font-bold">Injected Google SEO Snippet</span>
+              <div class="text-xs font-mono tabular-nums text-pink-900 font-medium" x-text="dossier?.algorithmic_intelligence?.seo_title || dossier?.creative?.title"></div>
+              <p class="text-[11px] font-mono tabular-nums text-slate-600 leading-relaxed" x-text="dossier?.algorithmic_intelligence?.seo_description || 'Standard Snippet'"></p>
             </div>
           </div>
 
@@ -1275,13 +1275,13 @@ export function getPinDetailPageHtml(pinId = '') {
       </div>
       <p class="text-xs text-slate-600">
         <template x-if="deleteType === 'DAY'">
-          <span>Are you sure you want to permanently delete all metrics and SERP rankings for <strong class="text-slate-900" x-text="itemToDelete?.date"></strong>? This will remove the record from Shard <span class="font-mono text-emerald-600 font-semibold" x-text="'#' + dossier?.shard_id"></span>.</span>
+          <span>Are you sure you want to permanently delete all metrics and SERP rankings for <strong class="text-slate-900" x-text="itemToDelete?.date"></strong>? This will remove the record from Shard <span class="font-mono tabular-nums text-emerald-600 font-semibold" x-text="'#' + dossier?.shard_id"></span>.</span>
         </template>
         <template x-if="deleteType === 'SERP_BADGE'">
           <span>Remove keyword ranking for <strong class="text-slate-900" x-text="itemToDelete?.keywordName"></strong> on <strong class="text-slate-900" x-text="itemToDelete?.date"></strong>? Daily metrics will be preserved.</span>
         </template>
         <template x-if="deleteType === 'SNAPSHOT'">
-          <span>Delete snapshot <strong class="text-pink-600" x-text="'#' + itemToDelete?.snapshotId"></strong> from Shard <span class="font-mono text-emerald-600 font-semibold" x-text="'#' + dossier?.shard_id"></span>?</span>
+          <span>Delete snapshot <strong class="text-pink-600" x-text="'#' + itemToDelete?.snapshotId"></strong> from Shard <span class="font-mono tabular-nums text-emerald-600 font-semibold" x-text="'#' + dossier?.shard_id"></span>?</span>
         </template>
       </p>
       <div class="flex items-center justify-end gap-3 pt-2">

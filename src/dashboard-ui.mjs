@@ -14,7 +14,7 @@ export function getDashboardHtml(folderId = '') {
   <title>Pin Cluster Analyzer & Predictive Engine | V3</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script>
     (function() {
       try {
@@ -34,15 +34,17 @@ export function getDashboardHtml(folderId = '') {
       theme: {
         extend: {
           fontFamily: {
-            sans: ['Inter', 'sans-serif'],
+            sans: ['Geist', 'system-ui', '-apple-system', 'sans-serif'],
             mono: ['JetBrains Mono', 'monospace'],
           },
           colors: {
             brand: {
-              50: '#fdf2f2',
-              500: '#ef4444',
-              600: '#dc2626',
-              900: '#7f1d1d',
+              rose: '#E11D48',
+              50: '#fff1f2',
+              500: '#f43f5e',
+              600: '#e11d48',
+              700: '#be123c',
+              900: '#881337',
             }
           }
         }
@@ -56,9 +58,9 @@ export function getDashboardHtml(folderId = '') {
     ::-webkit-scrollbar { width: 6px; height: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
-    .dark ::-webkit-scrollbar-thumb { background: #1e293b; }
+    .dark ::-webkit-scrollbar-thumb { background: #27272A; }
     ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-    .dark ::-webkit-scrollbar-thumb:hover { background: #334155; }
+    .dark ::-webkit-scrollbar-thumb:hover { background: #3f3f46; }
   </style>
   <script>
 (function() {
@@ -102,65 +104,63 @@ export function getDashboardHtml(folderId = '') {
     }, 1200);
   </script>
 </head>
-<body x-cloak class="bg-slate-50 text-slate-900 dark:bg-[#080d1a] dark:text-slate-100 min-h-screen font-sans selection:bg-rose-500 selection:text-white antialiased transition-colors duration-200">
+<body x-cloak class="bg-slate-50 text-slate-900 dark:bg-[#09090B] dark:text-zinc-100 min-h-screen font-sans selection:bg-rose-500 selection:text-white antialiased transition-colors duration-200">
 
   <!-- Mobile Top Header (Visible on screens < md) -->
-  <header class="md:hidden border-b border-slate-200/90 dark:border-slate-800/80 bg-white/95 dark:bg-[#0b1120]/90 backdrop-blur-xl sticky top-0 z-40 px-4 py-3 flex items-center justify-between shadow-sm">
+  <header class="md:hidden border-b border-slate-200/90 dark:border-[#27272A] bg-white/95 dark:bg-[#121215]/90 backdrop-blur-xl sticky top-0 z-40 px-4 py-3 flex items-center justify-between shadow-sm">
     <div class="flex items-center space-x-2.5">
-      <button @click="isMobileMenuOpen = !isMobileMenuOpen" class="p-2 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition active:scale-95" title="Toggle Navigation Menu">
+      <button @click="isMobileMenuOpen = !isMobileMenuOpen" class="p-2 rounded-xl border border-slate-200 dark:border-[#27272A] text-slate-600 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-[#18181B] transition active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500" title="Toggle Navigation Menu">
         <i data-lucide="menu" class="w-5 h-5"></i>
       </button>
-      <div class="h-8 w-8 rounded-lg bg-gradient-to-tr from-rose-600 via-rose-500 to-amber-500 flex items-center justify-center text-white shadow-sm">
+      <div class="h-8 w-8 rounded-lg bg-rose-600 flex items-center justify-center text-white shadow-sm">
         <i data-lucide="cpu" class="w-4 h-4"></i>
       </div>
       <div>
         <span class="font-bold text-sm tracking-tight text-slate-900 dark:text-white">Pin Arbitrage</span>
-        <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-600 dark:text-rose-400 font-bold ml-1 border border-rose-500/20">V3</span>
+        <span class="text-[10px] font-mono tabular-nums px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-600 dark:text-rose-400 font-bold ml-1 border border-rose-500/20">V3</span>
       </div>
     </div>
     <div class="flex items-center space-x-2">
-      <button @click="toggleTheme()" class="p-2 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition" :title="isDark ? 'Light Mode' : 'Dark Mode'">
+      <button @click="toggleTheme()" class="p-2 rounded-xl border border-slate-200 dark:border-[#27272A] text-slate-600 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-[#18181B] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500" :title="isDark ? 'Light Mode' : 'Dark Mode'">
         <i :data-lucide="isDark ? 'sun' : 'moon'" class="w-4 h-4"></i>
       </button>
-      <button @click="refreshAll()" :disabled="isLoading" class="p-2 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition" title="Refresh Data">
+      <button @click="refreshAll()" :disabled="isLoading" class="p-2 rounded-xl border border-slate-200 dark:border-[#27272A] text-slate-600 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-[#18181B] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500" title="Refresh Data">
         <i data-lucide="rotate-cw" :class="{'animate-spin': isLoading}" class="w-4 h-4"></i>
       </button>
     </div>
   </header>
 
   <!-- Mobile Drawer Backdrop & Drawer -->
-  <div x-show="isMobileMenuOpen" x-cloak class="fixed inset-0 z-50 md:hidden bg-slate-950/70 backdrop-blur-sm transition-opacity" @click="isMobileMenuOpen = false">
-    <div class="w-72 bg-white dark:bg-[#0b1120] border-r border-slate-200 dark:border-slate-800 h-full flex flex-col justify-between p-5 space-y-4 shadow-2xl overflow-y-auto" @click.stop>
+  <div x-show="isMobileMenuOpen" x-cloak class="fixed inset-0 z-50 md:hidden bg-slate-950/70 backdrop-blur-sm transition-opacity" @click="isMobileMenuOpen = false" role="dialog" aria-modal="true" @keydown.escape.window="isMobileMenuOpen = false">
+    <div class="w-72 bg-white dark:bg-[#121215] border-r border-slate-200 dark:border-[#27272A] h-full flex flex-col justify-between p-5 space-y-4 shadow-2xl overflow-y-auto" @click.stop>
       <!-- Mobile Drawer Header -->
-      <div class="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-[#27272A]">
         <div class="flex items-center space-x-2.5">
-          <div class="h-9 w-9 rounded-xl bg-gradient-to-tr from-rose-600 via-rose-500 to-amber-500 flex items-center justify-center text-white shadow-sm">
+          <div class="h-9 w-9 rounded-xl bg-rose-600 flex items-center justify-center text-white shadow-sm">
             <i data-lucide="cpu" class="w-5 h-5"></i>
           </div>
           <div>
             <div class="font-bold text-sm text-slate-900 dark:text-white">Pin Arbitrage</div>
-            <div class="text-[10px] text-slate-500 font-mono">V3 Predictive</div>
+            <div class="text-[10px] text-slate-500 dark:text-[#A1A1AA] font-mono tabular-nums">V3 Predictive</div>
           </div>
         </div>
-        <button @click="isMobileMenuOpen = false" class="text-slate-400 hover:text-slate-700 dark:hover:text-white p-1 rounded-lg">
+        <button @click="isMobileMenuOpen = false" class="text-slate-400 hover:text-slate-700 dark:hover:text-white p-1 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500">
           <i data-lucide="x" class="w-5 h-5"></i>
         </button>
       </div>
 
-
-
       <!-- Mobile Quick Actions -->
       <div class="space-y-1.5">
-        <button @click="openAddCompetitorModal(); isMobileMenuOpen = false" class="w-full flex items-center justify-center space-x-2 px-3 py-2 text-xs font-bold rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-rose-600 hover:from-purple-500 hover:to-rose-500 text-white shadow-sm active:scale-95 transition">
+        <button @click="openAddCompetitorModal(); isMobileMenuOpen = false" class="w-full flex items-center justify-center space-x-2 px-3 py-2 text-xs font-semibold rounded-xl bg-rose-600 hover:bg-rose-500 text-white shadow-xs border border-rose-500/30 active:scale-95 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500">
           <i data-lucide="user-plus" class="w-3.5 h-3.5"></i>
           <span>+ Track Creator</span>
         </button>
         <div class="grid grid-cols-2 gap-1.5">
-          <button @click="openAddSeedModal(); isMobileMenuOpen = false" class="flex items-center justify-center space-x-1 px-2.5 py-1.5 text-xs font-semibold rounded-xl bg-slate-100 dark:bg-slate-900 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-800">
+          <button @click="openAddSeedModal(); isMobileMenuOpen = false" class="flex items-center justify-center space-x-1 px-2.5 py-1.5 text-xs font-semibold rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-700 dark:text-[#FAFAFA] border border-slate-200 dark:border-[#27272A] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500">
             <i data-lucide="plus-circle" class="w-3 h-3 text-rose-500"></i>
             <span>Add Seeds</span>
           </button>
-          <button @click="openCrawlModal(); isMobileMenuOpen = false" class="flex items-center justify-center space-x-1 px-2.5 py-1.5 text-xs font-bold rounded-xl bg-slate-100 dark:bg-slate-900 text-amber-600 dark:text-amber-400 border border-slate-200 dark:border-slate-800">
+          <button @click="openCrawlModal(); isMobileMenuOpen = false" class="flex items-center justify-center space-x-1 px-2.5 py-1.5 text-xs font-bold rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-amber-600 dark:text-amber-400 border border-slate-200 dark:border-[#27272A] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500">
             <i data-lucide="zap" class="w-3 h-3"></i>
             <span>Crawl</span>
           </button>
@@ -170,62 +170,60 @@ export function getDashboardHtml(folderId = '') {
       <!-- Mobile Navigation Links -->
       <nav class="space-y-1">
         <!-- Overview & Command Center (Home) -->
-        <button @click="switchTab('overview'); isMobileMenuOpen = false" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition" :class="currentTab === 'overview' ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 font-bold border border-indigo-500/20' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900/60'">
+        <button @click="switchTab('overview'); isMobileMenuOpen = false" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500" :class="currentTab === 'overview' ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 font-bold border border-rose-500/20 dark:bg-[#18181B]' : 'text-slate-600 dark:text-[#A1A1AA] hover:bg-slate-100 dark:hover:bg-[#18181B] hover:text-slate-900 dark:hover:text-[#FAFAFA]'">
           <div class="flex items-center space-x-2.5">
-            <i data-lucide="layout-dashboard" class="w-4 h-4 text-indigo-500"></i>
+            <i data-lucide="layout-dashboard" class="w-4 h-4 shrink-0" :class="currentTab === 'overview' ? 'text-rose-600 dark:text-rose-400' : 'text-slate-400 dark:text-[#71717A]'"></i>
             <span>Overview & Hub</span>
           </div>
-          <span class="px-1.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-indigo-500/15 text-indigo-700 dark:text-indigo-300">Home</span>
+          <span :class="currentTab === 'overview' ? 'px-1.5 py-0.5 rounded-md text-[10px] font-mono tabular-nums font-bold bg-rose-500/15 text-rose-700 dark:text-rose-300' : 'px-1.5 py-0.5 rounded-md text-[10px] font-mono tabular-nums font-semibold bg-slate-100 dark:bg-[#27272A] text-slate-500 dark:text-[#A1A1AA]'">Home</span>
         </button>
 
         <!-- Creator Hub -->
-        <button @click="switchTab('creators_archive'); isMobileMenuOpen = false" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition" :class="(currentTab === 'creators_archive' || currentTab === 'competitors' || currentTab === 'pinarchive') ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400 font-bold border border-purple-500/20' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900/60'">
+        <button @click="switchTab('creators_archive'); isMobileMenuOpen = false" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500" :class="(currentTab === 'creators_archive' || currentTab === 'competitors' || currentTab === 'pinarchive') ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 font-bold border border-rose-500/20 dark:bg-[#18181B]' : 'text-slate-600 dark:text-[#A1A1AA] hover:bg-slate-100 dark:hover:bg-[#18181B] hover:text-slate-900 dark:hover:text-[#FAFAFA]'">
           <div class="flex items-center space-x-2.5">
-            <i data-lucide="users" class="w-4 h-4 text-purple-500"></i>
+            <i data-lucide="users" class="w-4 h-4 shrink-0" :class="(currentTab === 'creators_archive' || currentTab === 'competitors' || currentTab === 'pinarchive') ? 'text-rose-600 dark:text-rose-400' : 'text-slate-400 dark:text-[#71717A]'"></i>
             <span>Creator Hub</span>
           </div>
           <div class="flex items-center space-x-1">
-            <span class="px-1.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-purple-500/15 text-purple-700 dark:text-purple-300" x-text="competitors.length"></span>
+            <span class="px-1.5 py-0.5 rounded-md text-[10px] font-mono tabular-nums font-bold" :class="(currentTab === 'creators_archive' || currentTab === 'competitors' || currentTab === 'pinarchive') ? 'bg-rose-500/15 text-rose-700 dark:text-rose-300' : 'bg-slate-100 dark:bg-[#27272A] text-slate-500 dark:text-[#A1A1AA]'" x-text="competitors.length"></span>
           </div>
         </button>
 
         <!-- Keywords Fleet Dashboard (Direct Dedicated Page) -->
-        <a href="/keywords" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900/60 hover:text-slate-900 dark:hover:text-slate-200 transition">
+        <a href="/keywords" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-600 dark:text-[#A1A1AA] hover:bg-slate-100 dark:hover:bg-[#18181B] hover:text-slate-900 dark:hover:text-[#FAFAFA] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500">
           <div class="flex items-center space-x-2.5">
-            <i data-lucide="search" class="w-4 h-4 text-emerald-500"></i>
+            <i data-lucide="search" class="w-4 h-4 shrink-0 text-slate-400 dark:text-[#71717A]"></i>
             <span>Keywords Fleet</span>
           </div>
-          <span class="px-2 py-0.5 rounded-full text-[11px] font-mono font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" x-text="keywords.length"></span>
+          <span class="px-2 py-0.5 rounded-full text-[11px] font-mono tabular-nums font-semibold bg-slate-100 dark:bg-[#27272A] text-slate-600 dark:text-[#A1A1AA]" x-text="keywords.length"></span>
         </a>
 
         <!-- Domain Radar (/domains - Dedicated Studio) -->
-        <a href="/domains" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900/60 hover:text-slate-900 dark:hover:text-slate-200 transition">
+        <a href="/domains" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-600 dark:text-[#A1A1AA] hover:bg-slate-100 dark:hover:bg-[#18181B] hover:text-slate-900 dark:hover:text-[#FAFAFA] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500">
           <div class="flex items-center space-x-2.5">
-            <i data-lucide="globe" class="w-4 h-4 text-sky-500"></i>
+            <i data-lucide="globe" class="w-4 h-4 shrink-0 text-slate-400 dark:text-[#71717A]"></i>
             <span>Domain Radar</span>
           </div>
-          <span class="px-1.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-sky-500/10 text-sky-700 dark:text-sky-400 border border-sky-500/20">WHOIS</span>
+          <span class="px-1.5 py-0.5 rounded-md text-[10px] font-mono tabular-nums font-semibold bg-slate-100 dark:bg-[#27272A] text-slate-500 dark:text-[#A1A1AA] border border-slate-200 dark:border-[#27272A]">WHOIS</span>
         </a>
 
         <!-- Related Pins Tab -->
-        <button @click="switchTab('related_pins'); isMobileMenuOpen = false" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition" :class="(currentTab === 'related_pins' || currentTab === 'seeds' || currentTab === 'intersections' || currentTab === 'explorer') ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 font-bold border border-rose-500/20' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900/60'">
+        <button @click="switchTab('related_pins'); isMobileMenuOpen = false" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500" :class="(currentTab === 'related_pins' || currentTab === 'seeds' || currentTab === 'intersections' || currentTab === 'explorer') ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 font-bold border border-rose-500/20 dark:bg-[#18181B]' : 'text-slate-600 dark:text-[#A1A1AA] hover:bg-slate-100 dark:hover:bg-[#18181B] hover:text-slate-900 dark:hover:text-[#FAFAFA]'">
           <div class="flex items-center space-x-2.5">
-            <i data-lucide="git-fork" class="w-4 h-4 text-rose-500"></i>
+            <i data-lucide="git-fork" class="w-4 h-4 shrink-0" :class="(currentTab === 'related_pins' || currentTab === 'seeds' || currentTab === 'intersections' || currentTab === 'explorer') ? 'text-rose-600 dark:text-rose-400' : 'text-slate-400 dark:text-[#71717A]'"></i>
             <span>Related Pins</span>
           </div>
-          <div class="flex items-center space-x-1 font-mono">
-            <span class="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-rose-500/15 text-rose-700 dark:text-rose-300" x-text="seeds.length + 's'"></span>
+          <div class="flex items-center space-x-1 font-mono tabular-nums">
+            <span class="px-1.5 py-0.5 rounded-md text-[10px] font-bold" :class="(currentTab === 'related_pins' || currentTab === 'seeds' || currentTab === 'intersections' || currentTab === 'explorer') ? 'bg-rose-500/15 text-rose-700 dark:text-rose-300' : 'bg-slate-100 dark:bg-[#27272A] text-slate-500 dark:text-[#A1A1AA]'" x-text="seeds.length + 's'"></span>
             <span class="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300" x-text="intersections.length + 'i'"></span>
           </div>
         </button>
-
-
       </nav>
 
       <!-- Mobile Drawer Footer -->
-      <div class="pt-3 border-t border-slate-200 dark:border-slate-800 space-y-2">
-        <button @click="isCookieModalOpen = true; isMobileMenuOpen = false" class="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold rounded-xl border transition" :class="cookieStatus.has_cookie ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-400' : 'bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-400'">
-          <span class="flex items-center space-x-2 truncate">
+      <div class="pt-3 border-t border-slate-200 dark:border-[#27272A] space-y-2">
+        <button @click="isCookieModalOpen = true; isMobileMenuOpen = false" class="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold rounded-xl border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500" :class="cookieStatus.has_cookie ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-400' : 'bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-400'">
+          <span class="flex items-center space-x-2 truncate font-mono tabular-nums">
             <span class="w-2 h-2 rounded-full shrink-0" :class="cookieStatus.has_cookie ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'"></span>
             <span class="truncate" x-text="cookieStatus.has_cookie ? 'Session: Authenticated' : 'Guest Mode (No Cookie)'"></span>
           </span>
@@ -237,7 +235,7 @@ export function getDashboardHtml(folderId = '') {
 
   <!-- Desktop Permanent Sidebar (<aside>) -->
   <aside 
-    class="hidden md:flex fixed inset-y-0 left-0 z-40 bg-white/95 dark:bg-[#0b1120] border-r border-slate-200/90 dark:border-slate-800/80 flex-col justify-between shadow-sm overflow-y-auto overflow-x-hidden transition-all duration-300 ease-in-out"
+    class="hidden md:flex fixed inset-y-0 left-0 z-40 bg-white/95 dark:bg-[#121215] border-r border-slate-200/90 dark:border-[#27272A] flex-col justify-between shadow-xs overflow-y-auto overflow-x-hidden transition-all duration-300 ease-in-out"
     :class="isSidebarCollapsed ? 'w-20' : 'w-64 lg:w-72'">
     <!-- Top section: Logo, DB Project Switcher, Quick Actions, Nav Links -->
     <div class="transition-all duration-300" :class="isSidebarCollapsed ? 'p-3 space-y-4' : 'p-4 lg:p-5 space-y-4'">
@@ -245,7 +243,7 @@ export function getDashboardHtml(folderId = '') {
       <div class="flex items-center transition-all duration-300" :class="isSidebarCollapsed ? 'flex-col space-y-2.5 items-center' : 'justify-between'">
         <!-- Logo & Title -->
         <div class="flex items-center space-x-3 overflow-hidden">
-          <div class="h-10 w-10 rounded-xl bg-gradient-to-tr from-rose-600 via-rose-500 to-amber-500 flex items-center justify-center shadow-md shadow-rose-500/20 text-white shrink-0">
+          <div class="h-10 w-10 rounded-xl bg-rose-600 flex items-center justify-center shadow-xs text-white shrink-0">
             <i data-lucide="cpu" class="w-5 h-5"></i>
           </div>
           <div x-show="!isSidebarCollapsed" x-transition.opacity.duration.200ms class="overflow-hidden whitespace-nowrap">
@@ -255,12 +253,12 @@ export function getDashboardHtml(folderId = '') {
               </span>
             </div>
             <div class="flex items-center space-x-1.5 mt-0.5">
-              <span class="px-1.5 py-0.5 text-[9px] font-mono font-bold uppercase rounded-full bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30">
+              <span class="px-1.5 py-0.5 text-[9px] font-mono tabular-nums font-bold uppercase rounded-full bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30">
                 V3 Predictive
               </span>
               <template x-if="crawlStatus.is_crawling">
-                <span class="px-1.5 py-0.5 text-[9px] font-mono font-bold rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 flex items-center space-x-1 animate-pulse">
-                  <span class="w-1 h-1 rounded-full bg-amber-400 animate-ping"></span>
+                <span class="px-1.5 py-0.5 text-[9px] font-mono tabular-nums font-bold rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 flex items-center space-x-1 motion-safe:animate-pulse">
+                  <span class="w-1 h-1 rounded-full bg-amber-400 motion-safe:animate-ping"></span>
                   <span>Active</span>
                 </span>
               </template>
@@ -271,7 +269,7 @@ export function getDashboardHtml(folderId = '') {
         <!-- Sideways Collapse / Expand Toggle Button -->
         <button 
           @click="toggleSidebar()" 
-          class="p-1.5 rounded-lg text-slate-400 hover:text-slate-800 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800/80 transition active:scale-95 shrink-0" 
+          class="p-1.5 rounded-lg text-slate-400 hover:text-slate-800 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-[#18181B] transition active:scale-95 shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500" 
           :class="isSidebarCollapsed ? 'w-8 h-8 flex items-center justify-center' : ''"
           :title="isSidebarCollapsed ? 'Expand Sidebar (Ctrl+B)' : 'Collapse Sidebar (Ctrl+B)'">
           <i x-show="!isSidebarCollapsed" data-lucide="chevrons-left" class="w-4 h-4"></i>
@@ -284,8 +282,8 @@ export function getDashboardHtml(folderId = '') {
         <!-- + Track Creator (Unified Modal) -->
         <button 
           @click="openAddCompetitorModal()" 
-          class="flex items-center justify-center rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-rose-600 hover:from-purple-500 hover:to-rose-500 text-white shadow-md shadow-indigo-950/20 active:scale-95 transition"
-          :class="isSidebarCollapsed ? 'w-10 h-10 p-0' : 'w-full px-3 py-2 space-x-2 text-xs font-bold'"
+          class="flex items-center justify-center rounded-xl bg-rose-600 hover:bg-rose-500 text-white shadow-xs border border-rose-500/30 active:scale-95 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
+          :class="isSidebarCollapsed ? 'w-10 h-10 p-0' : 'w-full px-3 py-2 space-x-2 text-xs font-semibold'"
           title="Track Creator">
           <i data-lucide="user-plus" class="w-3.5 h-3.5 shrink-0"></i>
           <span x-show="!isSidebarCollapsed" class="truncate">+ Track Creator</span>
@@ -295,7 +293,7 @@ export function getDashboardHtml(folderId = '') {
           <!-- + Add Seeds -->
           <button 
             @click="openAddSeedModal()" 
-            class="flex items-center justify-center rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-900/90 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-800 transition active:scale-95 shadow-sm"
+            class="flex items-center justify-center rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-700 dark:text-[#FAFAFA] border border-slate-200 dark:border-[#27272A] transition active:scale-95 shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
             :class="isSidebarCollapsed ? 'w-10 h-10 p-0' : 'px-2.5 py-1.5 space-x-1 text-xs font-semibold'"
             title="Add Seeds">
             <i data-lucide="plus-circle" class="w-3 h-3 text-rose-500 shrink-0"></i>
@@ -305,12 +303,12 @@ export function getDashboardHtml(folderId = '') {
           <!-- Crawl -->
           <button 
             @click="openCrawlModal()" 
-            class="flex items-center justify-center rounded-xl transition shadow-sm active:scale-95" 
+            class="flex items-center justify-center rounded-xl transition shadow-xs active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500" 
             :class="[
               isSidebarCollapsed ? 'w-10 h-10 p-0' : 'px-2.5 py-1.5 space-x-1 text-xs font-bold',
               crawlStatus.is_crawling 
                 ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30' 
-                : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-900/90 dark:hover:bg-slate-800 text-amber-600 dark:text-amber-400 border border-slate-200 dark:border-slate-800'
+                : 'bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-amber-600 dark:text-amber-400 border border-slate-200 dark:border-[#27272A]'
             ]"
             title="Crawl">
             <i data-lucide="zap" :class="{'animate-spin': crawlStatus.is_crawling}" class="w-3 h-3 shrink-0"></i>
@@ -324,86 +322,86 @@ export function getDashboardHtml(folderId = '') {
         <!-- Overview & Command Center (Home) -->
         <button 
           @click="switchTab('overview')" 
-          class="relative flex items-center rounded-xl text-xs font-semibold transition" 
+          class="relative flex items-center rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500" 
           :class="[
             isSidebarCollapsed ? 'w-10 h-10 justify-center' : 'w-full justify-between px-3 py-2.5',
             currentTab === 'overview' 
-              ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 font-bold border border-indigo-500/20 shadow-sm' 
-              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900/60 hover:text-slate-900 dark:hover:text-slate-200'
+              ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 font-semibold border border-rose-500/20 shadow-xs dark:bg-[#18181B]' 
+              : 'text-slate-600 dark:text-[#A1A1AA] hover:bg-slate-100 dark:hover:bg-[#18181B] hover:text-slate-900 dark:hover:text-[#FAFAFA]'
           ]"
           title="Overview & Hub">
           <div class="flex items-center" :class="isSidebarCollapsed ? 'justify-center' : 'space-x-2.5'">
-            <i data-lucide="layout-dashboard" class="w-4 h-4 text-indigo-500 shrink-0"></i>
+            <i data-lucide="layout-dashboard" class="w-4 h-4 shrink-0" :class="currentTab === 'overview' ? 'text-rose-600 dark:text-rose-400' : 'text-slate-400 dark:text-[#71717A]'"></i>
             <span x-show="!isSidebarCollapsed" class="truncate">Overview & Hub</span>
           </div>
-          <span x-show="!isSidebarCollapsed" class="px-1.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-indigo-500/15 text-indigo-700 dark:text-indigo-300">Home</span>
+          <span x-show="!isSidebarCollapsed" :class="currentTab === 'overview' ? 'px-1.5 py-0.5 rounded-md text-[10px] font-mono tabular-nums font-bold bg-rose-500/15 text-rose-700 dark:text-rose-300' : 'px-1.5 py-0.5 rounded-md text-[10px] font-mono tabular-nums font-semibold bg-slate-100 dark:bg-[#27272A] text-slate-500 dark:text-[#A1A1AA]'">Home</span>
         </button>
 
         <!-- Creator Hub (/accounts) -->
         <button 
           @click="switchTab('creators_archive')" 
-          class="relative flex items-center rounded-xl text-xs font-semibold transition" 
+          class="relative flex items-center rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500" 
           :class="[
             isSidebarCollapsed ? 'w-10 h-10 justify-center' : 'w-full justify-between px-3 py-2.5',
             (currentTab === 'creators_archive' || currentTab === 'competitors' || currentTab === 'pinarchive') 
-              ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400 font-bold border border-purple-500/20 shadow-sm' 
-              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900/60 hover:text-slate-900 dark:hover:text-slate-200'
+              ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 font-semibold border border-rose-500/20 shadow-xs dark:bg-[#18181B]' 
+              : 'text-slate-600 dark:text-[#A1A1AA] hover:bg-slate-100 dark:hover:bg-[#18181B] hover:text-slate-900 dark:hover:text-[#FAFAFA]'
           ]"
           title="Creator Hub">
           <div class="flex items-center" :class="isSidebarCollapsed ? 'justify-center' : 'space-x-2.5'">
-            <i data-lucide="users" class="w-4 h-4 text-purple-500 shrink-0"></i>
+            <i data-lucide="users" class="w-4 h-4 shrink-0" :class="(currentTab === 'creators_archive' || currentTab === 'competitors' || currentTab === 'pinarchive') ? 'text-rose-600 dark:text-rose-400' : 'text-slate-400 dark:text-[#71717A]'"></i>
             <span x-show="!isSidebarCollapsed" class="truncate">Creator Hub</span>
           </div>
-          <div x-show="!isSidebarCollapsed" class="flex items-center space-x-1">
-            <span class="px-1.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-purple-500/15 text-purple-700 dark:text-purple-300" x-text="competitors.length"></span>
+          <div x-show="!isSidebarCollapsed" class="flex items-center space-x-1 font-mono tabular-nums">
+            <span class="px-1.5 py-0.5 rounded-md text-[10px] font-bold" :class="(currentTab === 'creators_archive' || currentTab === 'competitors' || currentTab === 'pinarchive') ? 'bg-rose-500/15 text-rose-700 dark:text-rose-300' : 'bg-slate-100 dark:bg-[#27272A] text-slate-500 dark:text-[#A1A1AA]'" x-text="competitors.length"></span>
           </div>
-          <span x-show="isSidebarCollapsed && competitors.length > 0" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-purple-500"></span>
+          <span x-show="isSidebarCollapsed && competitors.length > 0" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500"></span>
         </button>
 
         <!-- Keywords Fleet Dashboard (/keywords - Dedicated Studio) -->
         <a 
           href="/keywords" 
-          class="relative flex items-center rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900/60 hover:text-slate-900 dark:hover:text-slate-200 transition"
+          class="relative flex items-center rounded-xl text-xs font-medium text-slate-600 dark:text-[#A1A1AA] hover:bg-slate-100 dark:hover:bg-[#18181B] hover:text-slate-900 dark:hover:text-[#FAFAFA] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
           :class="isSidebarCollapsed ? 'w-10 h-10 justify-center' : 'w-full justify-between px-3 py-2.5'"
           title="Keywords Fleet">
           <div class="flex items-center" :class="isSidebarCollapsed ? 'justify-center' : 'space-x-2.5'">
-            <i data-lucide="search" class="w-4 h-4 text-emerald-500 shrink-0"></i>
+            <i data-lucide="search" class="w-4 h-4 text-slate-400 dark:text-[#71717A] shrink-0"></i>
             <span x-show="!isSidebarCollapsed" class="truncate">Keywords Fleet</span>
           </div>
-          <span x-show="!isSidebarCollapsed" class="px-2 py-0.5 rounded-full text-[11px] font-mono font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" x-text="keywords.length"></span>
-          <span x-show="isSidebarCollapsed && keywords.length > 0" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-emerald-500"></span>
+          <span x-show="!isSidebarCollapsed" class="px-2 py-0.5 rounded-full text-[11px] font-mono tabular-nums font-semibold bg-slate-100 dark:bg-[#27272A] text-slate-600 dark:text-[#A1A1AA]" x-text="keywords.length"></span>
+          <span x-show="isSidebarCollapsed && keywords.length > 0" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500"></span>
         </a>
 
         <!-- Domain Radar (/domains - Dedicated Studio) -->
         <a 
           href="/domains" 
-          class="relative flex items-center rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900/60 hover:text-slate-900 dark:hover:text-slate-200 transition"
+          class="relative flex items-center rounded-xl text-xs font-medium text-slate-600 dark:text-[#A1A1AA] hover:bg-slate-100 dark:hover:bg-[#18181B] hover:text-slate-900 dark:hover:text-[#FAFAFA] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
           :class="isSidebarCollapsed ? 'w-10 h-10 justify-center' : 'w-full justify-between px-3 py-2.5'"
           title="Domain Radar">
           <div class="flex items-center" :class="isSidebarCollapsed ? 'justify-center' : 'space-x-2.5'">
-            <i data-lucide="globe" class="w-4 h-4 text-sky-500 shrink-0"></i>
+            <i data-lucide="globe" class="w-4 h-4 text-slate-400 dark:text-[#71717A] shrink-0"></i>
             <span x-show="!isSidebarCollapsed" class="truncate">Domain Radar</span>
           </div>
-          <span x-show="!isSidebarCollapsed" class="px-1.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-sky-500/10 text-sky-700 dark:text-sky-400 border border-sky-500/20">WHOIS</span>
+          <span x-show="!isSidebarCollapsed" class="px-1.5 py-0.5 rounded-md text-[10px] font-mono tabular-nums font-semibold bg-slate-100 dark:bg-[#27272A] text-slate-500 dark:text-[#A1A1AA] border border-slate-200 dark:border-[#27272A]">WHOIS</span>
         </a>
 
         <!-- Related Pins Tab (/related-pins) -->
         <button 
           @click="switchTab('related_pins')" 
-          class="relative flex items-center rounded-xl text-xs font-semibold transition" 
+          class="relative flex items-center rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500" 
           :class="[
             isSidebarCollapsed ? 'w-10 h-10 justify-center' : 'w-full justify-between px-3 py-2.5',
             (currentTab === 'related_pins' || currentTab === 'seeds' || currentTab === 'intersections' || currentTab === 'explorer') 
-              ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 font-bold border border-rose-500/20 shadow-sm' 
-              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900/60 hover:text-slate-900 dark:hover:text-slate-200'
+              ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 font-semibold border border-rose-500/20 shadow-xs dark:bg-[#18181B]' 
+              : 'text-slate-600 dark:text-[#A1A1AA] hover:bg-slate-100 dark:hover:bg-[#18181B] hover:text-slate-900 dark:hover:text-[#FAFAFA]'
           ]"
           title="Related Pins">
           <div class="flex items-center" :class="isSidebarCollapsed ? 'justify-center' : 'space-x-2.5'">
-            <i data-lucide="git-fork" class="w-4 h-4 text-rose-500 shrink-0"></i>
+            <i data-lucide="git-fork" class="w-4 h-4 text-slate-400 dark:text-[#71717A] shrink-0" :class="(currentTab === 'related_pins' || currentTab === 'seeds' || currentTab === 'intersections' || currentTab === 'explorer') ? 'text-rose-600 dark:text-rose-400' : ''"></i>
             <span x-show="!isSidebarCollapsed" class="truncate">Related Pins</span>
           </div>
-          <div x-show="!isSidebarCollapsed" class="flex items-center space-x-1 font-mono">
-            <span class="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-rose-500/15 text-rose-700 dark:text-rose-300" x-text="seeds.length + 's'"></span>
+          <div x-show="!isSidebarCollapsed" class="flex items-center space-x-1 font-mono tabular-nums">
+            <span class="px-1.5 py-0.5 rounded-md text-[10px] font-bold" :class="(currentTab === 'related_pins' || currentTab === 'seeds' || currentTab === 'intersections' || currentTab === 'explorer') ? 'bg-rose-500/15 text-rose-700 dark:text-rose-300' : 'bg-slate-100 dark:bg-[#27272A] text-slate-500 dark:text-[#A1A1AA]'" x-text="seeds.length + 's'"></span>
             <span class="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300" x-text="intersections.length + 'i'"></span>
           </div>
           <span x-show="isSidebarCollapsed && (seeds.length > 0 || intersections.length > 0)" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500"></span>
@@ -412,17 +410,17 @@ export function getDashboardHtml(folderId = '') {
     </div>
 
     <!-- Bottom Footer section: Pinterest Auth Status, Theme toggle, Refresh -->
-    <div class="border-t border-slate-200/80 dark:border-slate-800/80 bg-slate-50/50 dark:bg-slate-950/20 transition-all duration-300" :class="isSidebarCollapsed ? 'p-3 space-y-2' : 'p-4 space-y-3'">
+    <div class="border-t border-slate-200/80 dark:border-[#27272A] bg-slate-50/50 dark:bg-[#121215] transition-all duration-300" :class="isSidebarCollapsed ? 'p-3 space-y-2' : 'p-4 space-y-3'">
       <!-- Pinterest Session Status -->
       <button 
         @click="isCookieModalOpen = true" 
-        class="flex items-center rounded-xl border transition active:scale-95" 
+        class="flex items-center rounded-xl border transition active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500" 
         :class="[
           isSidebarCollapsed ? 'w-10 h-10 p-0 justify-center mx-auto' : 'w-full justify-between px-3 py-2 text-xs font-semibold',
           cookieStatus.has_cookie ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/20' : 'bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20'
         ]" 
         :title="cookieStatus.has_cookie ? 'Pinterest: Authenticated' : 'Guest Mode (No Cookie)'">
-        <span class="flex items-center truncate" :class="isSidebarCollapsed ? 'justify-center' : 'space-x-2'">
+        <span class="flex items-center truncate font-mono tabular-nums" :class="isSidebarCollapsed ? 'justify-center' : 'space-x-2'">
           <span class="w-2 h-2 rounded-full shrink-0" :class="cookieStatus.has_cookie ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'"></span>
           <span x-show="!isSidebarCollapsed" class="truncate text-[11px]" x-text="cookieStatus.has_cookie ? 'Pinterest: Authenticated' : 'Guest Mode (No Cookie)'"></span>
         </span>
@@ -434,7 +432,7 @@ export function getDashboardHtml(folderId = '') {
         <!-- Theme Toggle -->
         <button 
           @click="toggleTheme()" 
-          class="flex items-center justify-center rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 transition active:scale-95 shadow-sm"
+          class="flex items-center justify-center rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] text-slate-700 dark:text-[#FAFAFA] text-xs font-semibold hover:bg-slate-100 dark:hover:bg-[#27272A] transition active:scale-95 shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
           :class="isSidebarCollapsed ? 'w-10 h-10 p-0' : 'flex-1 mr-2 space-x-2 py-2 px-3'"
           :title="isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'">
           <i x-show="!isDark" data-lucide="moon" class="w-3.5 h-3.5"></i>
@@ -446,7 +444,7 @@ export function getDashboardHtml(folderId = '') {
         <button 
           @click="refreshAll()" 
           :disabled="isLoading" 
-          class="flex items-center justify-center rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition active:scale-95 shadow-sm" 
+          class="flex items-center justify-center rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] hover:bg-slate-100 dark:hover:bg-[#27272A] text-slate-600 dark:text-[#A1A1AA] transition active:scale-95 shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500" 
           :class="isSidebarCollapsed ? 'w-10 h-10 p-0' : 'p-2'"
           title="Refresh All Data">
           <i data-lucide="rotate-cw" :class="{'animate-spin': isLoading}" class="w-4 h-4"></i>
@@ -463,11 +461,11 @@ export function getDashboardHtml(folderId = '') {
       <div class="flex items-center space-x-2">
         <i data-lucide="loader-2" class="w-4 h-4 animate-spin text-amber-500"></i>
         <span class="font-semibold">Crawler in flight:</span>
-        <span class="font-mono" x-text="'Target: ' + crawlStatus.seed_pin_id"></span>
+        <span class="font-mono tabular-nums" x-text="'Target: ' + crawlStatus.seed_pin_id"></span>
         <span class="text-amber-500/60">•</span>
         <span class="text-slate-700 dark:text-amber-200" x-text="crawlStatus.last_log"></span>
       </div>
-      <span class="font-mono text-[11px] text-amber-600 dark:text-amber-400" x-text="'Elapsed: ' + crawlElapsed + 's'"></span>
+      <span class="font-mono tabular-nums text-[11px] text-amber-600 dark:text-amber-400" x-text="'Elapsed: ' + crawlElapsed + 's'"></span>
     </div>
 
     <!-- ======================================================== -->
@@ -477,14 +475,14 @@ export function getDashboardHtml(folderId = '') {
     <div x-show="activePinId" x-cloak class="space-y-6 max-w-7xl mx-auto">
       
       <!-- Top Sticky Navigation & Breadcrumbs Bar -->
-      <div class="sticky top-0 z-30 -mx-4 -mt-4 sm:-mx-6 sm:-mt-6 lg:-mx-8 lg:-mt-8 px-4 sm:px-6 lg:px-8 py-3.5 bg-white/90 dark:bg-[#0b1120]/90 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+      <div class="sticky top-0 z-30 -mx-4 -mt-4 sm:-mx-6 sm:-mt-6 lg:-mx-8 lg:-mt-8 px-4 sm:px-6 lg:px-8 py-3.5 bg-white/90 dark:bg-[#121215]/90 backdrop-blur-md border-b border-slate-200/80 dark:border-[#27272A] flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
         <div class="flex items-center gap-3">
-          <button type="button" @click="closePinPage()" class="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0d1526] hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 transition shadow-2xs cursor-pointer group">
+          <button type="button" @click="closePinPage()" class="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 transition shadow-2xs cursor-pointer group">
             <i data-lucide="arrow-left" class="w-4 h-4 text-slate-400 group-hover:-translate-x-0.5 transition-transform"></i>
             <span x-text="activeCreator ? ('← Back to @' + (activeCreator.username || '').replace(/^@+/, '')) : (activePinDossier?.account_username ? ('← Back to @' + activePinDossier.account_username.replace(/^@+/, '')) : '← Back to Pins Archive')"></span>
           </button>
           
-          <div class="hidden md:flex items-center gap-1.5 text-xs font-mono">
+          <div class="hidden md:flex items-center gap-1.5 text-xs font-mono tabular-nums">
             <template x-if="activeCreator?.username || activePinDossier?.account_username">
               <span class="flex items-center gap-1">
                 <span class="text-slate-400">/</span>
@@ -500,7 +498,7 @@ export function getDashboardHtml(folderId = '') {
 
         <div class="flex items-center gap-2 flex-wrap">
           <!-- Copy Page Link -->
-          <button type="button" @click="copyPinField('Direct Pin Page URL', window.location.href)" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0d1526] text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition shadow-2xs cursor-pointer">
+          <button type="button" @click="copyPinField('Direct Pin Page URL', window.location.href)" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition shadow-2xs cursor-pointer">
             <i data-lucide="link" class="w-3.5 h-3.5 text-slate-400"></i>
             <span>Copy Page Link</span>
           </button>
@@ -523,7 +521,7 @@ export function getDashboardHtml(folderId = '') {
       <template x-if="isLoadingPinDossier">
         <div class="py-24 flex flex-col items-center justify-center space-y-3">
           <div class="w-10 h-10 border-4 border-rose-500 border-t-transparent rounded-full animate-spin"></div>
-          <p class="text-xs font-mono text-slate-400">Loading pin dossier telemetry &amp; snapshots...</p>
+          <p class="text-xs font-mono tabular-nums text-slate-400">Loading pin dossier telemetry &amp; snapshots...</p>
         </div>
       </template>
 
@@ -557,13 +555,13 @@ export function getDashboardHtml(folderId = '') {
             </span>
 
             <!-- Dominant Color Badge -->
-            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-mono font-bold bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-mono tabular-nums font-bold bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-[#27272A]">
               <span class="h-2.5 w-2.5 rounded-full inline-block" :style="'background-color: ' + (activePinDossier.dominant_color || '#a88d56')"></span>
               <span x-text="activePinDossier.dominant_color || '#a88d56'"></span>
             </span>
 
             <!-- Canonical ID Badge -->
-            <span class="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-mono font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/30">
+            <span class="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-mono tabular-nums font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/30">
               <span>🔗 Canonical #<span x-text="activePinDossier.pin_id"></span></span>
             </span>
 
@@ -585,7 +583,7 @@ export function getDashboardHtml(folderId = '') {
           <div class="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
             
             <!-- Left: Image Preview (4 cols) -->
-            <div class="md:col-span-4 relative rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 group shadow-md">
+            <div class="md:col-span-4 relative rounded-2xl overflow-hidden border border-slate-200 dark:border-[#27272A] bg-slate-100 dark:bg-slate-900 group shadow-md">
               <img :src="activePinDossier.image_url" loading="lazy" class="w-full h-auto object-cover max-h-[520px] mx-auto" />
               
               <!-- Category Pill Overlay on Image -->
@@ -606,7 +604,7 @@ export function getDashboardHtml(folderId = '') {
               <p class="text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed" x-text="activePinDossier.description || 'No description provided for this pin.'"></p>
 
               <!-- Pinterest SEO Alt Text Box (matches Image 2) -->
-              <div class="rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/50 p-4 space-y-1.5 shadow-2xs">
+              <div class="rounded-2xl border border-slate-200 dark:border-[#27272A] bg-slate-50/80 dark:bg-slate-900/50 p-4 space-y-1.5 shadow-2xs">
                 <div class="flex items-center justify-between">
                   <div class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                     <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400"></i>
@@ -627,19 +625,19 @@ export function getDashboardHtml(folderId = '') {
 
               <!-- Copy Toolbar (Copy Pin ID, Copy Pinterest URL, Copy Title, Copy Alt Text) -->
               <div class="flex items-center gap-2 flex-wrap pt-1">
-                <button type="button" @click="copyPinField('Pin ID', activePinDossier.pin_id)" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition shadow-2xs cursor-pointer">
+                <button type="button" @click="copyPinField('Pin ID', activePinDossier.pin_id)" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition shadow-2xs cursor-pointer">
                   <i data-lucide="copy" class="w-3.5 h-3.5 text-slate-400"></i>
                   <span>Copy Pin ID</span>
                 </button>
-                <button type="button" @click="copyPinField('Pinterest URL', 'https://www.pinterest.com/pin/' + activePinDossier.pin_id + '/')" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition shadow-2xs cursor-pointer">
+                <button type="button" @click="copyPinField('Pinterest URL', 'https://www.pinterest.com/pin/' + activePinDossier.pin_id + '/')" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition shadow-2xs cursor-pointer">
                   <i data-lucide="link" class="w-3.5 h-3.5 text-slate-400"></i>
                   <span>Copy Pinterest URL</span>
                 </button>
-                <button type="button" @click="copyPinField('Title', activePinDossier.title)" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition shadow-2xs cursor-pointer">
+                <button type="button" @click="copyPinField('Title', activePinDossier.title)" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition shadow-2xs cursor-pointer">
                   <span class="font-bold font-serif">T</span>
                   <span>Copy Title</span>
                 </button>
-                <button type="button" x-show="activePinDossier.alt_text" @click="copyPinField('Alt Text', activePinDossier.alt_text)" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition shadow-2xs cursor-pointer">
+                <button type="button" x-show="activePinDossier.alt_text" @click="copyPinField('Alt Text', activePinDossier.alt_text)" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition shadow-2xs cursor-pointer">
                   <i data-lucide="file-text" class="w-3.5 h-3.5 text-slate-400"></i>
                   <span>Copy Alt Text</span>
                 </button>
@@ -647,32 +645,32 @@ export function getDashboardHtml(folderId = '') {
 
               <!-- 6 Mini Metadata Cards Grid (Exact Image 2 match) -->
               <div class="grid grid-cols-2 sm:grid-cols-3 gap-2.5 pt-1">
-                <div class="p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30">
+                <div class="p-2.5 rounded-xl border border-slate-200/80 dark:border-[#27272A] bg-slate-50/50 dark:bg-slate-900/30">
                   <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Pin ID</div>
-                  <div class="font-mono text-xs font-bold text-slate-900 dark:text-white truncate" x-text="activePinDossier.pin_id"></div>
+                  <div class="font-mono tabular-nums text-xs font-bold text-slate-900 dark:text-white truncate" x-text="activePinDossier.pin_id"></div>
                 </div>
-                <div class="p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30">
+                <div class="p-2.5 rounded-xl border border-slate-200/80 dark:border-[#27272A] bg-slate-50/50 dark:bg-slate-900/30">
                   <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Created Date</div>
                   <div class="font-sans text-xs font-bold text-slate-900 dark:text-white truncate" x-text="(activePinDossier.created_at_pinterest &amp;&amp; !isNaN(new Date(activePinDossier.created_at_pinterest).getTime())) ? new Date(activePinDossier.created_at_pinterest).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : (activePinDossier.first_seen_at &amp;&amp; !isNaN(new Date(activePinDossier.first_seen_at).getTime()) ? new Date(activePinDossier.first_seen_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—')"></div>
                 </div>
-                <div class="p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30">
+                <div class="p-2.5 rounded-xl border border-slate-200/80 dark:border-[#27272A] bg-slate-50/50 dark:bg-slate-900/30">
                   <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400">First Tracked</div>
                   <div class="font-sans text-xs font-bold text-slate-900 dark:text-white truncate" x-text="(activePinDossier.first_seen_at &amp;&amp; !isNaN(new Date(activePinDossier.first_seen_at).getTime())) ? new Date(activePinDossier.first_seen_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'"></div>
                 </div>
-                <div class="p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30">
+                <div class="p-2.5 rounded-xl border border-slate-200/80 dark:border-[#27272A] bg-slate-50/50 dark:bg-slate-900/30">
                   <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Last Archived</div>
                   <div class="font-sans text-xs font-bold text-slate-900 dark:text-white truncate" x-text="(activePinDossier.last_updated_at &amp;&amp; !isNaN(new Date(activePinDossier.last_updated_at).getTime())) ? new Date(activePinDossier.last_updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'"></div>
                 </div>
-                <div class="p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30">
+                <div class="p-2.5 rounded-xl border border-slate-200/80 dark:border-[#27272A] bg-slate-50/50 dark:bg-slate-900/30">
                   <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Dominant Color</div>
-                  <div class="font-mono text-xs font-bold flex items-center gap-1.5 text-slate-900 dark:text-white">
+                  <div class="font-mono tabular-nums text-xs font-bold flex items-center gap-1.5 text-slate-900 dark:text-white">
                     <span class="h-2.5 w-2.5 rounded-full inline-block" :style="'background-color: ' + (activePinDossier.dominant_color || '#a88d56')"></span>
                     <span x-text="activePinDossier.dominant_color || '#a88d56'"></span>
                   </div>
                 </div>
-                <div class="p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30">
+                <div class="p-2.5 rounded-xl border border-slate-200/80 dark:border-[#27272A] bg-slate-50/50 dark:bg-slate-900/30">
                   <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Image Signature</div>
-                  <div class="font-mono text-xs font-bold text-slate-900 dark:text-white truncate" x-text="(activePinDossier.image_url ? activePinDossier.image_url.split('/').pop().slice(0, 16) : '—') + '...'"></div>
+                  <div class="font-mono tabular-nums text-xs font-bold text-slate-900 dark:text-white truncate" x-text="(activePinDossier.image_url ? activePinDossier.image_url.split('/').pop().slice(0, 16) : '—') + '...'"></div>
                 </div>
               </div>
 
@@ -685,7 +683,7 @@ export function getDashboardHtml(folderId = '') {
               </div>
 
               <!-- Annotations & SEO Keywords (Image 2 match) -->
-              <div class="space-y-2 pt-2 border-t border-slate-200/70 dark:border-slate-800/80">
+              <div class="space-y-2 pt-2 border-t border-slate-200/70 dark:border-[#27272A]/80">
                 <div class="flex items-center justify-between text-xs">
                   <div class="flex items-center gap-1.5 font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
                     <span>🏷</span>
@@ -714,68 +712,68 @@ export function getDashboardHtml(folderId = '') {
           <!-- 3. Metrics Summary Row (6 Metric Cards - Exact Image 2 Match) -->
           <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
             <!-- Card 1: TOTAL SAVES -->
-            <div class="p-4 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] shadow-xs space-y-1">
+            <div class="p-4 rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#18181B] shadow-xs space-y-1">
               <div class="text-[10.5px] font-bold uppercase tracking-wider text-slate-400">Total Saves</div>
               <div class="flex items-baseline gap-1.5 flex-wrap">
                 <span class="text-xl sm:text-2xl font-black text-rose-600 dark:text-rose-400" x-text="formatNumber(activePinDossier.saves)"></span>
-                <span class="text-xs font-bold text-emerald-500 font-mono" x-show="Number(pinDossierTopDelta.saves || 0) > 0" x-text="'(+' + formatNumber(pinDossierTopDelta.saves) + ')'"></span>
+                <span class="text-xs font-bold text-emerald-500 font-mono tabular-nums" x-show="Number(pinDossierTopDelta.saves || 0) > 0" x-text="'(+' + formatNumber(pinDossierTopDelta.saves) + ')'"></span>
               </div>
               <div class="text-[10px] text-slate-400">Cumulative saves</div>
             </div>
 
             <!-- Card 2: REPINS -->
-            <div class="p-4 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] shadow-xs space-y-1">
+            <div class="p-4 rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#18181B] shadow-xs space-y-1">
               <div class="text-[10.5px] font-bold uppercase tracking-wider text-slate-400">Repins</div>
               <div class="flex items-baseline gap-1.5 flex-wrap">
                 <span class="text-xl sm:text-2xl font-black text-slate-900 dark:text-white" x-text="formatNumber(activePinDossier.repins)"></span>
-                <span class="text-xs font-bold text-emerald-500 font-mono" x-show="Number(pinDossierTopDelta.repins || 0) > 0" x-text="'(+' + formatNumber(pinDossierTopDelta.repins) + ')'"></span>
+                <span class="text-xs font-bold text-emerald-500 font-mono tabular-nums" x-show="Number(pinDossierTopDelta.repins || 0) > 0" x-text="'(+' + formatNumber(pinDossierTopDelta.repins) + ')'"></span>
               </div>
               <div class="text-[10px] text-slate-400">Re-pin shares</div>
             </div>
 
             <!-- Card 3: COMMENTS -->
-            <div class="p-4 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] shadow-xs space-y-1">
+            <div class="p-4 rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#18181B] shadow-xs space-y-1">
               <div class="text-[10.5px] font-bold uppercase tracking-wider text-slate-400">Comments</div>
               <div class="flex items-baseline gap-1.5 flex-wrap">
                 <span class="text-xl sm:text-2xl font-black text-slate-900 dark:text-white" x-text="formatNumber(activePinDossier.comments)"></span>
-                <span class="text-xs font-bold text-emerald-500 font-mono" x-show="Number(pinDossierTopDelta.comments || 0) > 0" x-text="'(+' + formatNumber(pinDossierTopDelta.comments) + ')'"></span>
+                <span class="text-xs font-bold text-emerald-500 font-mono tabular-nums" x-show="Number(pinDossierTopDelta.comments || 0) > 0" x-text="'(+' + formatNumber(pinDossierTopDelta.comments) + ')'"></span>
               </div>
               <div class="text-[10px] text-slate-400">User comments</div>
             </div>
 
             <!-- Card 4: SHARES -->
-            <div class="p-4 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] shadow-xs space-y-1">
+            <div class="p-4 rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#18181B] shadow-xs space-y-1">
               <div class="text-[10.5px] font-bold uppercase tracking-wider text-slate-400">Shares</div>
               <div class="flex items-baseline gap-1.5 flex-wrap">
                 <span class="text-xl sm:text-2xl font-black text-sky-500" x-text="formatNumber(activePinDossier.share_count || 0)"></span>
-                <span class="text-xs font-bold text-emerald-500 font-mono" x-show="Number(pinDossierTopDelta.shares || 0) > 0" x-text="'(+' + formatNumber(pinDossierTopDelta.shares) + ')'"></span>
+                <span class="text-xs font-bold text-emerald-500 font-mono tabular-nums" x-show="Number(pinDossierTopDelta.shares || 0) > 0" x-text="'(+' + formatNumber(pinDossierTopDelta.shares) + ')'"></span>
               </div>
               <div class="text-[10px] text-slate-400">Social shares</div>
             </div>
 
             <!-- Card 5: VELOCITY -->
-            <div class="p-4 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] shadow-xs space-y-1">
+            <div class="p-4 rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#18181B] shadow-xs space-y-1">
               <div class="text-[10.5px] font-bold uppercase tracking-wider text-slate-400">Velocity</div>
               <div class="flex items-baseline gap-1 flex-wrap">
-                <span class="text-xl sm:text-2xl font-black text-emerald-500 font-mono" x-text="(activePinDossier.velocity || 0) + '/d'"></span>
+                <span class="text-xl sm:text-2xl font-black text-emerald-500 font-mono tabular-nums" x-text="(activePinDossier.velocity || 0) + '/d'"></span>
               </div>
               <div class="text-[10px] text-slate-400">Saves / day</div>
             </div>
 
             <!-- Card 6: REACTIONS -->
-            <div class="p-4 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] shadow-xs space-y-1">
+            <div class="p-4 rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#18181B] shadow-xs space-y-1">
               <div class="text-[10.5px] font-bold uppercase tracking-wider text-slate-400">Reactions</div>
               <div class="flex items-baseline gap-1.5 flex-wrap">
                 <span class="text-xl sm:text-2xl font-black text-purple-500" x-text="formatNumber(activePinDossier.reactions_count || 0)"></span>
-                <span class="text-xs font-bold text-emerald-500 font-mono" x-show="Number(pinDossierTopDelta.reactions || 0) > 0" x-text="'(+' + formatNumber(pinDossierTopDelta.reactions) + ')'"></span>
+                <span class="text-xs font-bold text-emerald-500 font-mono tabular-nums" x-show="Number(pinDossierTopDelta.reactions || 0) > 0" x-text="'(+' + formatNumber(pinDossierTopDelta.reactions) + ')'"></span>
               </div>
               <div class="text-[10px] text-slate-400">Total reactions</div>
             </div>
           </div>
 
           <!-- 4. Performance Trajectory SVG Chart (Exact Image 2 & 3 Match) -->
-          <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-5 shadow-xs space-y-4">
-            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800/80 pb-3">
+          <div class="rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#18181B] p-5 shadow-xs space-y-4">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-[#27272A]/80 pb-3">
               <div class="flex items-center gap-2.5 flex-wrap">
                 <span class="text-base">📈</span>
                 <h3 class="text-sm font-bold text-slate-900 dark:text-white">Performance Trajectory</h3>
@@ -784,7 +782,7 @@ export function getDashboardHtml(folderId = '') {
 
               <div class="flex items-center gap-3 flex-wrap">
                 <!-- Timeframe selector -->
-                <div class="flex items-center bg-slate-100 dark:bg-slate-900 p-0.5 rounded-xl border border-slate-200 dark:border-slate-800 text-xs font-semibold">
+                <div class="flex items-center bg-slate-100 dark:bg-slate-900 p-0.5 rounded-xl border border-slate-200 dark:border-[#27272A] text-xs font-semibold">
                   <button type="button" @click="pinDossierTimeframe = '7d'" class="px-2.5 py-1 rounded-lg transition cursor-pointer" :class="pinDossierTimeframe === '7d' ? 'bg-rose-500 text-white shadow-xs font-bold' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">7d</button>
                   <button type="button" @click="pinDossierTimeframe = '14d'" class="px-2.5 py-1 rounded-lg transition cursor-pointer" :class="pinDossierTimeframe === '14d' ? 'bg-rose-500 text-white shadow-xs font-bold' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">14d</button>
                   <button type="button" @click="pinDossierTimeframe = '30d'" class="px-2.5 py-1 rounded-lg transition cursor-pointer" :class="pinDossierTimeframe === '30d' ? 'bg-rose-500 text-white shadow-xs font-bold' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">30d</button>
@@ -844,7 +842,7 @@ export function getDashboardHtml(folderId = '') {
               </svg>
 
               <!-- Axis Labels -->
-              <div class="flex items-center justify-between text-[11px] font-mono text-slate-400 mt-2 px-6">
+              <div class="flex items-center justify-between text-[11px] font-mono tabular-nums text-slate-400 mt-2 px-6">
                 <span x-text="pinDossierChartData.firstDateLabel"></span>
                 <span x-text="pinDossierChartData.lastDateLabel"></span>
               </div>
@@ -852,11 +850,11 @@ export function getDashboardHtml(folderId = '') {
           </div>
 
           <!-- 5. Historical Snapshots Table (Exact Image 2 & 3 Match) -->
-          <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] shadow-xs overflow-hidden">
+          <div class="rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#18181B] shadow-xs overflow-hidden">
             <div class="overflow-x-auto">
               <table class="w-full text-left text-xs border-collapse">
                 <thead>
-                  <tr class="border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/60 text-slate-500 dark:text-slate-400 text-[11px] font-bold uppercase tracking-wider select-none">
+                  <tr class="border-b border-slate-200 dark:border-[#27272A] bg-slate-50/80 dark:bg-slate-900/60 text-slate-500 dark:text-slate-400 text-[11px] font-bold uppercase tracking-wider select-none">
                     <th class="py-3 px-5">Recorded Date &amp; Time</th>
                     <th class="py-3 px-4 text-right">Saves</th>
                     <th class="py-3 px-4 text-right">Repins</th>
@@ -866,7 +864,7 @@ export function getDashboardHtml(folderId = '') {
                     <th class="py-3 px-5 text-center">Actions</th>
                   </tr>
                 </thead>
-                <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono">
+                <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono tabular-nums">
                   
                   <!-- Top Highlight Row: Total Net Growth (Image 2 & 3) -->
                   <tr class="bg-emerald-500/5 dark:bg-emerald-950/20 font-bold border-b border-emerald-500/20 text-emerald-600 dark:text-emerald-400">
@@ -906,7 +904,7 @@ export function getDashboardHtml(folderId = '') {
                         <span x-show="Number(s.delta_reactions || 0) > 0" class="text-emerald-500 font-bold ml-1" x-text="'(+' + formatNumber(s.delta_reactions) + ')'"></span>
                       </td>
                       <td class="py-3 px-5 text-center">
-                        <button type="button" @click="deletePinSnapshot(s.id)" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 text-[11px] font-semibold transition cursor-pointer">
+                        <button type="button" @click="deletePinSnapshot(s.id)" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] hover:bg-rose-50 dark:hover:bg-rose-950/40 text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 text-[11px] font-semibold transition cursor-pointer">
                           <i data-lucide="trash-2" class="w-3 h-3"></i>
                           <span>Delete</span>
                         </button>
@@ -929,9 +927,9 @@ export function getDashboardHtml(folderId = '') {
     <div x-show="activeBoardName && !activePinId" x-cloak class="space-y-6 max-w-7xl mx-auto">
       
       <!-- Top Breadcrumbs & Back Bar -->
-      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-2 border-b border-slate-200 dark:border-slate-800">
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-2 border-b border-slate-200 dark:border-[#27272A]">
         <div class="flex items-center gap-2 flex-wrap text-xs text-slate-500 dark:text-slate-400">
-          <button type="button" @click="closeBoardPage()" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0d1526] hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-300 transition shadow-2xs cursor-pointer">
+          <button type="button" @click="closeBoardPage()" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-300 transition shadow-2xs cursor-pointer">
             <i data-lucide="arrow-left" class="w-3.5 h-3.5 text-rose-500"></i>
             <span>Back to @<span x-text="(activeBoardCreator ? activeBoardCreator.username : (activeCreator ? activeCreator.username : '')).replace(/^@+/, '')"></span></span>
           </button>
@@ -953,10 +951,10 @@ export function getDashboardHtml(folderId = '') {
       </div>
 
       <!-- Board Hero Header Card -->
-      <div class="rounded-3xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-6">
+      <div class="rounded-3xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#18181B] p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div class="flex items-start sm:items-center gap-4">
           <!-- Board Cover / Icon -->
-          <div class="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl overflow-hidden bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shrink-0 shadow-md">
+          <div class="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl overflow-hidden bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-[#27272A] shrink-0 shadow-md">
             <template x-if="activeBoard && activeBoard.image_cover_url">
               <img :src="activeBoard.image_cover_url" :alt="activeBoardName" class="w-full h-full object-cover" />
             </template>
@@ -972,7 +970,7 @@ export function getDashboardHtml(folderId = '') {
           <div class="space-y-1.5">
             <div class="flex items-center gap-2 flex-wrap">
               <h1 class="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight" x-text="activeBoardName"></h1>
-              <span class="px-2.5 py-0.5 rounded-full text-[10.5px] font-mono font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">Pinterest Board</span>
+              <span class="px-2.5 py-0.5 rounded-full text-[10.5px] font-mono tabular-nums font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">Pinterest Board</span>
             </div>
 
             <div class="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 flex-wrap">
@@ -1009,12 +1007,12 @@ export function getDashboardHtml(folderId = '') {
 
       <!-- Algorithmic Related Interests (board_vase) -->
       <template x-if="activeBoard && activeBoard.board_vase && activeBoard.board_vase.length > 0">
-        <div class="p-4 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] shadow-2xs space-y-2.5">
+        <div class="p-4 rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#18181B] shadow-2xs space-y-2.5">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-1.5 text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider">
               <i data-lucide="sparkles" class="w-3.5 h-3.5 text-purple-500"></i>
               <span>Discovered Algorithmic Related Topics (board_vase)</span>
-              <span class="px-2 py-0.5 rounded-full text-[10px] font-mono bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 font-bold" x-text="activeBoard.board_vase.length + ' topics'"></span>
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-mono tabular-nums bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 font-bold" x-text="activeBoard.board_vase.length + ' topics'"></span>
             </div>
             <span class="text-[11px] text-slate-400">Click any topic to filter board pins</span>
           </div>
@@ -1053,31 +1051,31 @@ export function getDashboardHtml(folderId = '') {
       <!-- 4 KPI Summary Cards -->
       <div class="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
         <!-- KPI 1: Board Pins Total -->
-        <div class="p-4 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] shadow-xs space-y-1">
+        <div class="p-4 rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#18181B] shadow-xs space-y-1">
           <div class="text-[10.5px] font-bold uppercase tracking-wider text-slate-400">Total Pins In Board</div>
-          <div class="text-2xl font-black text-slate-900 dark:text-white font-mono" x-text="formatNumber((activeBoard && activeBoard.pin_count ? activeBoard.pin_count : 0) || boardPinsTotal || boardPins.length || 0)"></div>
+          <div class="text-2xl font-black text-slate-900 dark:text-white font-mono tabular-nums" x-text="formatNumber((activeBoard && activeBoard.pin_count ? activeBoard.pin_count : 0) || boardPinsTotal || boardPins.length || 0)"></div>
           <div class="text-[10.5px] text-slate-400" x-text="boardPins.length + ' indexed in Neon'"></div>
         </div>
 
         <!-- KPI 2: Total Board Saves -->
-        <div class="p-4 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] shadow-xs space-y-1">
+        <div class="p-4 rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#18181B] shadow-xs space-y-1">
           <div class="text-[10.5px] font-bold uppercase tracking-wider text-slate-400">Total Cumulative Saves</div>
-          <div class="text-2xl font-black text-rose-600 dark:text-rose-400 font-mono" x-text="formatNumber(boardTotalSaves)"></div>
+          <div class="text-2xl font-black text-rose-600 dark:text-rose-400 font-mono tabular-nums" x-text="formatNumber(boardTotalSaves)"></div>
           <div class="text-[10.5px] text-slate-400">Aggregated audience engagement</div>
         </div>
 
         <!-- KPI 3: Qualified Winning Pins -->
-        <div class="p-4 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] shadow-xs space-y-1">
+        <div class="p-4 rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#18181B] shadow-xs space-y-1">
           <div class="text-[10.5px] font-bold uppercase tracking-wider text-slate-400">🏆 Qualified Winning Pins</div>
-          <div class="text-2xl font-black text-amber-500 font-mono" x-text="formatNumber(boardWinningPinsCount)"></div>
+          <div class="text-2xl font-black text-amber-500 font-mono tabular-nums" x-text="formatNumber(boardWinningPinsCount)"></div>
           <div class="text-[10.5px] text-slate-400">Meets 3-tier breakout rules</div>
         </div>
 
         <!-- KPI 4: Commercial / Product Pins -->
-        <div class="p-4 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] shadow-xs space-y-1">
+        <div class="p-4 rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#18181B] shadow-xs space-y-1">
           <div class="text-[10.5px] font-bold uppercase tracking-wider text-slate-400">🛒 Commercial Product Pins</div>
           <div class="flex items-baseline gap-1.5">
-            <span class="text-2xl font-black text-emerald-500 font-mono" x-text="formatNumber(boardProductPinsCount)"></span>
+            <span class="text-2xl font-black text-emerald-500 font-mono tabular-nums" x-text="formatNumber(boardProductPinsCount)"></span>
             <span class="text-xs font-bold text-slate-400" x-show="boardPins.length > 0" x-text="'(' + Math.round((boardProductPinsCount / Math.max(1, boardPins.length)) * 100) + '%)'"></span>
           </div>
           <div class="text-[10.5px] text-slate-400">Identified shopping &amp; affiliate pins</div>
@@ -1085,23 +1083,23 @@ export function getDashboardHtml(folderId = '') {
       </div>
 
       <!-- Search, Filters, Sorters & View Switcher Bar -->
-      <div class="p-4 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div class="p-4 rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#18181B] shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         
         <!-- Filter Tabs (All / Winning / Product) -->
-        <div class="flex items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 overflow-x-auto text-xs">
-          <button type="button" @click="boardPinsFilter = 'all'; boardPinsPage = 1" class="px-3 py-1.5 rounded-lg font-bold transition cursor-pointer shrink-0" :class="boardPinsFilter === 'all' ? 'bg-white dark:bg-[#0b1120] text-slate-900 dark:text-white shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">
+        <div class="flex items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-[#27272A] overflow-x-auto text-xs">
+          <button type="button" @click="boardPinsFilter = 'all'; boardPinsPage = 1" class="px-3 py-1.5 rounded-lg font-bold transition cursor-pointer shrink-0" :class="boardPinsFilter === 'all' ? 'bg-white dark:bg-[#121215] text-slate-900 dark:text-white shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">
             <span>All Pins</span>
-            <span class="ml-1 px-1.5 py-0.2 rounded-md font-mono text-[10px]" :class="boardPinsFilter === 'all' ? 'bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200' : 'bg-slate-200/60 dark:bg-slate-800 text-slate-500'" x-text="boardPins.length"></span>
+            <span class="ml-1 px-1.5 py-0.2 rounded-md font-mono tabular-nums text-[10px]" :class="boardPinsFilter === 'all' ? 'bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200' : 'bg-slate-200/60 dark:bg-slate-800 text-slate-500'" x-text="boardPins.length"></span>
           </button>
           
-          <button type="button" @click="boardPinsFilter = 'qualified'; boardPinsPage = 1" class="px-3 py-1.5 rounded-lg font-bold transition cursor-pointer shrink-0" :class="boardPinsFilter === 'qualified' ? 'bg-white dark:bg-[#0b1120] text-amber-600 dark:text-amber-400 shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">
+          <button type="button" @click="boardPinsFilter = 'qualified'; boardPinsPage = 1" class="px-3 py-1.5 rounded-lg font-bold transition cursor-pointer shrink-0" :class="boardPinsFilter === 'qualified' ? 'bg-white dark:bg-[#121215] text-amber-600 dark:text-amber-400 shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">
             <span>🏆 Winning Pins</span>
-            <span class="ml-1 px-1.5 py-0.2 rounded-md font-mono text-[10px]" :class="boardPinsFilter === 'qualified' ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400' : 'bg-slate-200/60 dark:bg-slate-800 text-slate-500'" x-text="boardWinningPinsCount"></span>
+            <span class="ml-1 px-1.5 py-0.2 rounded-md font-mono tabular-nums text-[10px]" :class="boardPinsFilter === 'qualified' ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400' : 'bg-slate-200/60 dark:bg-slate-800 text-slate-500'" x-text="boardWinningPinsCount"></span>
           </button>
 
-          <button type="button" @click="boardPinsFilter = 'product'; boardPinsPage = 1" class="px-3 py-1.5 rounded-lg font-bold transition cursor-pointer shrink-0" :class="boardPinsFilter === 'product' ? 'bg-white dark:bg-[#0b1120] text-emerald-600 dark:text-emerald-400 shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">
+          <button type="button" @click="boardPinsFilter = 'product'; boardPinsPage = 1" class="px-3 py-1.5 rounded-lg font-bold transition cursor-pointer shrink-0" :class="boardPinsFilter === 'product' ? 'bg-white dark:bg-[#121215] text-emerald-600 dark:text-emerald-400 shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">
             <span>🛒 Product Pins</span>
-            <span class="ml-1 px-1.5 py-0.2 rounded-md font-mono text-[10px]" :class="boardPinsFilter === 'product' ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400' : 'bg-slate-200/60 dark:bg-slate-800 text-slate-500'" x-text="boardProductPinsCount"></span>
+            <span class="ml-1 px-1.5 py-0.2 rounded-md font-mono tabular-nums text-[10px]" :class="boardPinsFilter === 'product' ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400' : 'bg-slate-200/60 dark:bg-slate-800 text-slate-500'" x-text="boardProductPinsCount"></span>
           </button>
         </div>
 
@@ -1113,13 +1111,13 @@ export function getDashboardHtml(folderId = '') {
               type="text"
               x-model="boardPinsSearch"
               placeholder="Search title, desc, domain..."
-              class="h-9 w-48 sm:w-60 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 pl-8 pr-3 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none shadow-2xs"
+              class="h-9 w-48 sm:w-60 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-slate-900 pl-8 pr-3 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none shadow-2xs"
             />
             <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-3"></i>
           </div>
 
           <!-- Sort dropdown -->
-          <select x-model="boardPinsSort" class="h-9 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-3 text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none shadow-2xs cursor-pointer">
+          <select x-model="boardPinsSort" class="h-9 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-slate-900 px-3 text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none shadow-2xs cursor-pointer">
             <option value="saves_desc">Sort: Most Saves</option>
             <option value="repins_desc">Sort: Most Repins</option>
             <option value="velocity">Sort: Highest Velocity</option>
@@ -1127,12 +1125,12 @@ export function getDashboardHtml(folderId = '') {
           </select>
 
           <!-- View toggle buttons -->
-          <div class="flex items-center rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 p-0.5">
+          <div class="flex items-center rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-slate-900 p-0.5">
             <button
               type="button"
               @click="boardPinsViewMode = 'grid'"
               class="px-2.5 py-1 text-xs font-bold rounded-lg transition flex items-center gap-1 cursor-pointer"
-              :class="boardPinsViewMode === 'grid' ? 'bg-white dark:bg-[#0b1120] text-rose-500 shadow-2xs' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'"
+              :class="boardPinsViewMode === 'grid' ? 'bg-white dark:bg-[#121215] text-rose-500 shadow-2xs' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'"
               title="Grid Cards View"
             >
               <i data-lucide="layout-grid" class="w-3.5 h-3.5"></i>
@@ -1142,7 +1140,7 @@ export function getDashboardHtml(folderId = '') {
               type="button"
               @click="boardPinsViewMode = 'table'"
               class="px-2.5 py-1 text-xs font-bold rounded-lg transition flex items-center gap-1 cursor-pointer"
-              :class="boardPinsViewMode === 'table' ? 'bg-white dark:bg-[#0b1120] text-rose-500 shadow-2xs' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'"
+              :class="boardPinsViewMode === 'table' ? 'bg-white dark:bg-[#121215] text-rose-500 shadow-2xs' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'"
               title="Data Table View"
             >
               <i data-lucide="table" class="w-3.5 h-3.5"></i>
@@ -1150,7 +1148,7 @@ export function getDashboardHtml(folderId = '') {
             </button>
           </div>
 
-          <span class="inline-flex items-center rounded-xl bg-slate-100 dark:bg-slate-900 px-3 py-1.5 text-xs font-mono font-bold text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800" x-text="filteredBoardPins.length + ' pins'"></span>
+          <span class="inline-flex items-center rounded-xl bg-slate-100 dark:bg-slate-900 px-3 py-1.5 text-xs font-mono tabular-nums font-bold text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#27272A]" x-text="filteredBoardPins.length + ' pins'"></span>
         </div>
       </div>
 
@@ -1161,7 +1159,7 @@ export function getDashboardHtml(folderId = '') {
       </div>
 
       <!-- Empty State -->
-      <div x-show="!isLoadingBoardPins && filteredBoardPins.length === 0" class="rounded-3xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-12 text-center shadow-xs space-y-4">
+      <div x-show="!isLoadingBoardPins && filteredBoardPins.length === 0" class="rounded-3xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#18181B] p-12 text-center shadow-xs space-y-4">
         <div class="h-16 w-16 mx-auto rounded-2xl bg-purple-500/10 text-purple-500 flex items-center justify-center">
           <i data-lucide="layout-grid" class="w-8 h-8"></i>
         </div>
@@ -1183,7 +1181,7 @@ export function getDashboardHtml(folderId = '') {
       <!-- VIEW 1: PIN CARDS GRID VIEW -->
       <div x-show="!isLoadingBoardPins && boardPinsViewMode === 'grid' && paginatedBoardPins.length > 0" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         <template x-for="p in paginatedBoardPins" :key="p.pin_id || p.id">
-          <div :data-pin-id="p.pin_id || p.id" class="group relative flex flex-col rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] overflow-hidden shadow-xs hover:shadow-md hover:border-rose-500/40 dark:hover:border-rose-500/40 transition-all duration-200">
+          <div :data-pin-id="p.pin_id || p.id" class="group relative flex flex-col rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#18181B] overflow-hidden shadow-xs hover:shadow-md hover:border-rose-500/40 dark:hover:border-rose-500/40 transition-all duration-200">
             
             <!-- Pin Image Container -->
             <div class="relative h-64 w-full overflow-hidden bg-slate-100 dark:bg-slate-900 cursor-pointer" @click="openPinPage(p)">
@@ -1219,7 +1217,7 @@ export function getDashboardHtml(folderId = '') {
               </div>
 
               <!-- Bottom Metrics on Image -->
-              <div class="absolute bottom-2.5 left-2.5 right-2.5 flex items-center justify-between text-white text-[11px] font-mono font-bold">
+              <div class="absolute bottom-2.5 left-2.5 right-2.5 flex items-center justify-between text-white text-[11px] font-mono tabular-nums font-bold">
                 <div class="flex items-center gap-2">
                   <span class="px-2 py-0.5 rounded-lg bg-rose-600/90 backdrop-blur-md shadow-xs flex items-center gap-1">
                     <i data-lucide="pin" class="w-3 h-3"></i>
@@ -1243,7 +1241,7 @@ export function getDashboardHtml(folderId = '') {
                 <p class="text-[11px] text-slate-500 line-clamp-2 mt-1" x-text="p.description || 'No description available.'"></p>
               </div>
 
-              <div class="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <div class="space-y-2 pt-2 border-t border-slate-100 dark:border-[#27272A]">
                 <!-- Destination URL / Domain -->
                 <div class="flex items-center justify-between text-[11px]">
                   <template x-if="p.destination_url">
@@ -1256,7 +1254,7 @@ export function getDashboardHtml(folderId = '') {
                     <span class="text-slate-400 italic">No outbound link</span>
                   </template>
 
-                  <span class="text-[10px] text-slate-400 font-mono" x-text="p.created_at_pinterest ? new Date(p.created_at_pinterest).toLocaleDateString() : 'Active'"></span>
+                  <span class="text-[10px] text-slate-400 font-mono tabular-nums" x-text="p.created_at_pinterest ? new Date(p.created_at_pinterest).toLocaleDateString() : 'Active'"></span>
                 </div>
 
                 <!-- Footer Action Buttons -->
@@ -1265,7 +1263,7 @@ export function getDashboardHtml(folderId = '') {
                     <i data-lucide="eye" class="w-3.5 h-3.5"></i>
                     <span>Inspect Pin</span>
                   </button>
-                  <a :href="'https://www.pinterest.com/pin/' + (p.pin_id || p.id) + '/'" target="_blank" rel="noopener noreferrer" class="p-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0b1120] text-slate-500 hover:text-rose-500 hover:bg-slate-50 dark:hover:bg-slate-800 transition" title="Open on Pinterest">
+                  <a :href="'https://www.pinterest.com/pin/' + (p.pin_id || p.id) + '/'" target="_blank" rel="noopener noreferrer" class="p-1.5 rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] text-slate-500 hover:text-rose-500 hover:bg-slate-50 dark:hover:bg-slate-800 transition" title="Open on Pinterest">
                     <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
                   </a>
                 </div>
@@ -1278,10 +1276,10 @@ export function getDashboardHtml(folderId = '') {
       </div>
 
       <!-- VIEW 2: HIGH-DENSITY DATA TABLE -->
-      <div x-show="!isLoadingBoardPins && boardPinsViewMode === 'table' && paginatedBoardPins.length > 0" class="border border-slate-200/90 dark:border-slate-800 rounded-2xl overflow-hidden bg-white dark:bg-[#0d1526] shadow-xs">
+      <div x-show="!isLoadingBoardPins && boardPinsViewMode === 'table' && paginatedBoardPins.length > 0" class="border border-slate-200/90 dark:border-[#27272A] rounded-2xl overflow-hidden bg-white dark:bg-[#18181B] shadow-xs">
         <div class="overflow-x-auto min-w-full">
           <table class="w-full text-left text-xs border-collapse">
-            <thead class="bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+            <thead class="bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-[#27272A] text-[11px] font-bold uppercase tracking-wider text-slate-500">
               <tr>
                 <th class="py-3 px-4 w-14">Pin</th>
                 <th class="py-3 px-4">Title &amp; Destination</th>
@@ -1294,13 +1292,13 @@ export function getDashboardHtml(folderId = '') {
                 <th class="py-3 px-4 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono">
+            <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono tabular-nums">
               <template x-for="p in paginatedBoardPins" :key="p.pin_id || p.id">
                 <tr :data-pin-id="p.pin_id || p.id" class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition">
                   
                   <!-- Thumbnail -->
                   <td class="py-2.5 px-4 w-14">
-                    <div class="w-11 h-14 rounded-lg overflow-hidden bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 cursor-pointer" @click="openPinPage(p)">
+                    <div class="w-11 h-14 rounded-lg overflow-hidden bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-[#27272A] cursor-pointer" @click="openPinPage(p)">
                       <img :src="p.image_url" loading="lazy" class="w-full h-full object-cover" />
                     </div>
                   </td>
@@ -1308,7 +1306,7 @@ export function getDashboardHtml(folderId = '') {
                   <!-- Title & Domain -->
                   <td class="py-2.5 px-4 font-sans font-bold text-slate-900 dark:text-white max-w-sm">
                     <div class="line-clamp-2 hover:text-rose-500 transition cursor-pointer" :title="p.title" x-text="p.title || 'Untitled Pin'" @click="openPinPage(p)"></div>
-                    <div class="flex items-center gap-2 mt-1 text-[10.5px] font-normal font-mono">
+                    <div class="flex items-center gap-2 mt-1 text-[10.5px] font-normal font-mono tabular-nums">
                       <span class="text-slate-400" x-text="'ID: ' + (p.pin_id || p.id)"></span>
                       <template x-if="p.destination_url">
                         <a :href="safeUrl(p.destination_url)" target="_blank" rel="noopener noreferrer" class="text-sky-500 hover:underline flex items-center gap-0.5 truncate max-w-[180px]">
@@ -1328,7 +1326,7 @@ export function getDashboardHtml(folderId = '') {
                       </span>
                     </template>
                     <template x-if="!p.is_product">
-                      <span class="text-[10px] text-slate-400 font-mono">—</span>
+                      <span class="text-[10px] text-slate-400 font-mono tabular-nums">—</span>
                     </template>
                   </td>
 
@@ -1340,7 +1338,7 @@ export function getDashboardHtml(folderId = '') {
                       </span>
                     </template>
                     <template x-if="!p.is_qualified">
-                      <span class="text-[10px] text-slate-400 font-mono">Regular</span>
+                      <span class="text-[10px] text-slate-400 font-mono tabular-nums">Regular</span>
                     </template>
                   </td>
 
@@ -1377,12 +1375,12 @@ export function getDashboardHtml(folderId = '') {
       </div>
 
       <!-- Pagination Bar -->
-      <div x-show="!isLoadingBoardPins && filteredBoardPins.length > 0" class="flex items-center justify-between border-t border-slate-200 dark:border-slate-800 px-5 py-3 bg-white dark:bg-[#0d1526] rounded-2xl shadow-xs text-xs text-slate-500">
+      <div x-show="!isLoadingBoardPins && filteredBoardPins.length > 0" class="flex items-center justify-between border-t border-slate-200 dark:border-[#27272A] px-5 py-3 bg-white dark:bg-[#18181B] rounded-2xl shadow-xs text-xs text-slate-500">
         <span x-text="'Showing ' + (((boardPinsPage - 1) * boardPinsPageSize) + 1) + '-' + Math.min(boardPinsPage * boardPinsPageSize, filteredBoardPins.length) + ' of ' + filteredBoardPins.length + ' pins'"></span>
         <div class="flex items-center gap-2">
-          <button @click="boardPinsPage = Math.max(1, boardPinsPage - 1)" :disabled="boardPinsPage <= 1" class="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0b1120] px-3 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 disabled:opacity-40 transition shadow-2xs cursor-pointer">Previous</button>
+          <button @click="boardPinsPage = Math.max(1, boardPinsPage - 1)" :disabled="boardPinsPage <= 1" class="rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] px-3 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 disabled:opacity-40 transition shadow-2xs cursor-pointer">Previous</button>
           <span class="font-bold text-slate-900 dark:text-white" x-text="'Page ' + boardPinsPage + ' of ' + boardPinsTotalPages"></span>
-          <button @click="boardPinsPage = boardPinsPage + 1" :disabled="boardPinsPage >= boardPinsTotalPages" class="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0b1120] px-3 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 disabled:opacity-40 transition shadow-2xs cursor-pointer">Next</button>
+          <button @click="boardPinsPage = boardPinsPage + 1" :disabled="boardPinsPage >= boardPinsTotalPages" class="rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] px-3 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 disabled:opacity-40 transition shadow-2xs cursor-pointer">Next</button>
         </div>
       </div>
 
@@ -1400,9 +1398,9 @@ export function getDashboardHtml(folderId = '') {
     <div x-show="currentTab === 'overview'" x-cloak class="space-y-6">
       
       <!-- Mission Control Executive Hero Header -->
-      <div class="p-5 sm:p-6 rounded-3xl bg-gradient-to-br from-white via-slate-50 to-indigo-50/30 dark:from-[#0b1120] dark:via-[#090d18] dark:to-indigo-950/20 border border-slate-200/90 dark:border-slate-800 shadow-sm flex flex-col xl:flex-row xl:items-center justify-between gap-4">
+      <div class="p-5 sm:p-6 rounded-3xl bg-gradient-to-br from-white via-slate-50 to-indigo-50/30 dark:from-[#0b1120] dark:via-[#090d18] dark:to-indigo-950/20 border border-slate-200/90 dark:border-[#27272A] shadow-sm flex flex-col xl:flex-row xl:items-center justify-between gap-4">
         <div class="flex items-start sm:items-center space-x-3.5">
-          <div class="h-12 w-12 rounded-2xl bg-gradient-to-tr from-indigo-600 via-purple-600 to-rose-600 text-white flex items-center justify-center shadow-md shadow-indigo-500/20 shrink-0">
+          <div class="h-12 w-12 rounded-2xl bg-rose-600 text-white flex items-center justify-center shadow-md shadow-indigo-500/20 shrink-0">
             <i data-lucide="layout-dashboard" class="w-6 h-6"></i>
           </div>
           <div class="space-y-1">
@@ -1418,19 +1416,19 @@ export function getDashboardHtml(folderId = '') {
 
         <!-- Quick Actions Header Bar -->
         <div class="flex flex-wrap items-center gap-2">
-          <button @click="openAddCompetitorModal()" class="px-3.5 py-2 text-xs font-bold rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-rose-600 hover:from-purple-500 hover:to-rose-500 text-white transition flex items-center space-x-1.5 shadow-sm shadow-indigo-950/20 active:scale-95 cursor-pointer">
+          <button @click="openAddCompetitorModal()" class="px-3.5 py-2 text-xs font-bold rounded-xl bg-gradient-to-r bg-rose-600 hover:bg-rose-500 text-white transition flex items-center space-x-1.5 shadow-sm shadow-indigo-950/20 active:scale-95 cursor-pointer">
             <i data-lucide="user-plus" class="w-3.5 h-3.5"></i>
             <span>+ Track Creator</span>
           </button>
-          <button @click="openAddSeedModal()" class="px-3.5 py-2 text-xs font-semibold rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-800 transition flex items-center space-x-1.5 shadow-2xs active:scale-95 cursor-pointer">
+          <button @click="openAddSeedModal()" class="px-3.5 py-2 text-xs font-semibold rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-[#27272A] transition flex items-center space-x-1.5 shadow-2xs active:scale-95 cursor-pointer">
             <i data-lucide="plus-circle" class="w-3.5 h-3.5 text-rose-500"></i>
             <span>+ Add Seeds</span>
           </button>
-          <button @click="openCrawlModal()" class="px-3.5 py-2 text-xs font-bold rounded-xl transition flex items-center space-x-1.5 shadow-2xs active:scale-95 cursor-pointer" :class="crawlStatus.is_crawling ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30' : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 text-amber-600 dark:text-amber-400 border border-slate-200 dark:border-slate-800'">
+          <button @click="openCrawlModal()" class="px-3.5 py-2 text-xs font-bold rounded-xl transition flex items-center space-x-1.5 shadow-2xs active:scale-95 cursor-pointer" :class="crawlStatus.is_crawling ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30' : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 text-amber-600 dark:text-amber-400 border border-slate-200 dark:border-[#27272A]'">
             <i data-lucide="zap" :class="{'animate-spin': crawlStatus.is_crawling}" class="w-3.5 h-3.5"></i>
             <span>Crawl</span>
           </button>
-          <button @click="refreshAll()" :disabled="isLoading" class="p-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition active:scale-95 shadow-2xs cursor-pointer" title="Refresh All Data">
+          <button @click="refreshAll()" :disabled="isLoading" class="p-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition active:scale-95 shadow-2xs cursor-pointer" title="Refresh All Data">
             <i data-lucide="rotate-cw" :class="{'animate-spin': isLoading}" class="w-4 h-4"></i>
           </button>
         </div>
@@ -1439,7 +1437,7 @@ export function getDashboardHtml(folderId = '') {
       <!-- Real-Time Top KPI Ribbon (5 Core Pillars) -->
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
         <!-- 1. Creator Reach -->
-        <div @click="switchTab('creators_archive')" class="p-4 rounded-2xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 shadow-sm hover:border-purple-500/40 hover:shadow-md transition cursor-pointer group">
+        <div @click="switchTab('creators_archive')" class="p-4 rounded-2xl bg-white dark:bg-[#121215] border border-slate-200/80 dark:border-[#27272A] shadow-sm hover:border-purple-500/40 hover:shadow-md transition cursor-pointer group">
           <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 text-[11px] font-bold uppercase tracking-wider">
             <span>COMBINED REACH</span>
             <div class="p-1.5 rounded-lg bg-purple-500/10 text-purple-500 group-hover:scale-110 transition">
@@ -1447,16 +1445,16 @@ export function getDashboardHtml(folderId = '') {
             </div>
           </div>
           <div class="mt-2.5 flex items-baseline space-x-1.5">
-            <span class="text-2xl font-black text-slate-900 dark:text-white font-mono" x-text="formatNumber(competitorsOverview.combined_reach || 13895921)"></span>
+            <span class="text-2xl font-black text-slate-900 dark:text-white font-mono tabular-nums" x-text="formatNumber(competitorsOverview.combined_reach || 13895921)"></span>
           </div>
           <div class="mt-2 flex items-center justify-between text-[10.5px]">
             <span class="text-slate-500" x-text="(competitors.length || 4) + ' Creators'"></span>
-            <span class="font-mono text-emerald-600 dark:text-emerald-400 font-bold" x-text="competitors[0] ? '@' + competitors[0].username : 'Active'"></span>
+            <span class="font-mono tabular-nums text-emerald-600 dark:text-emerald-400 font-bold" x-text="competitors[0] ? '@' + competitors[0].username : 'Active'"></span>
           </div>
         </div>
 
         <!-- 2. Archived Winning Pins -->
-        <div @click="switchTab('creators_archive')" class="p-4 rounded-2xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 shadow-sm hover:border-indigo-500/40 hover:shadow-md transition cursor-pointer group">
+        <div @click="switchTab('creators_archive')" class="p-4 rounded-2xl bg-white dark:bg-[#121215] border border-slate-200/80 dark:border-[#27272A] shadow-sm hover:border-indigo-500/40 hover:shadow-md transition cursor-pointer group">
           <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 text-[11px] font-bold uppercase tracking-wider">
             <span>ARCHIVED PINS</span>
             <div class="p-1.5 rounded-lg bg-indigo-500/10 text-indigo-500 group-hover:scale-110 transition">
@@ -1464,16 +1462,16 @@ export function getDashboardHtml(folderId = '') {
             </div>
           </div>
           <div class="mt-2.5 flex items-baseline space-x-1.5">
-            <span class="text-2xl font-black text-indigo-600 dark:text-indigo-400 font-mono" x-text="formatNumber(pinarchiveOverview.total_pins || 797)"></span>
+            <span class="text-2xl font-black text-indigo-600 dark:text-indigo-400 font-mono tabular-nums" x-text="formatNumber(pinarchiveOverview.total_pins || 797)"></span>
           </div>
           <div class="mt-2 flex items-center justify-between text-[10.5px]">
             <span class="text-slate-500" x-text="formatNumber(pinarchiveOverview.total_saves || 1301989) + ' Saves'"></span>
-            <span class="font-mono text-indigo-600 dark:text-indigo-400 font-bold">3-Tier Rules</span>
+            <span class="font-mono tabular-nums text-indigo-600 dark:text-indigo-400 font-bold">3-Tier Rules</span>
           </div>
         </div>
 
         <!-- 3. Keywords Fleet -->
-        <a href="/keywords" class="p-4 rounded-2xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 shadow-sm hover:border-emerald-500/40 hover:shadow-md transition cursor-pointer group block">
+        <a href="/keywords" class="p-4 rounded-2xl bg-white dark:bg-[#121215] border border-slate-200/80 dark:border-[#27272A] shadow-sm hover:border-emerald-500/40 hover:shadow-md transition cursor-pointer group block">
           <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 text-[11px] font-bold uppercase tracking-wider">
             <span>KEYWORDS FLEET</span>
             <div class="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-500 group-hover:scale-110 transition">
@@ -1481,16 +1479,16 @@ export function getDashboardHtml(folderId = '') {
             </div>
           </div>
           <div class="mt-2.5 flex items-baseline space-x-1.5">
-            <span class="text-2xl font-black text-emerald-600 dark:text-emerald-400 font-mono" x-text="keywords.length + ' Queries'"></span>
+            <span class="text-2xl font-black text-emerald-600 dark:text-emerald-400 font-mono tabular-nums" x-text="keywords.length + ' Queries'"></span>
           </div>
           <div class="mt-2 flex items-center justify-between text-[10.5px]">
             <span class="text-slate-500">32.5k Pins Monitored</span>
-            <span class="font-mono text-emerald-600 dark:text-emerald-400 font-bold">Studio ↗</span>
+            <span class="font-mono tabular-nums text-emerald-600 dark:text-emerald-400 font-bold">Studio ↗</span>
           </div>
         </a>
 
         <!-- 5. Related Pins Hub -->
-        <div @click="switchTab('related_pins')" class="p-4 rounded-2xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 shadow-sm hover:border-rose-500/40 hover:shadow-md transition cursor-pointer group">
+        <div @click="switchTab('related_pins')" class="p-4 rounded-2xl bg-white dark:bg-[#121215] border border-slate-200/80 dark:border-[#27272A] shadow-sm hover:border-rose-500/40 hover:shadow-md transition cursor-pointer group">
           <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 text-[11px] font-bold uppercase tracking-wider">
             <span>RELATED CLUSTERS</span>
             <div class="p-1.5 rounded-lg bg-rose-500/10 text-rose-500 group-hover:scale-110 transition">
@@ -1498,11 +1496,11 @@ export function getDashboardHtml(folderId = '') {
             </div>
           </div>
           <div class="mt-2.5 flex items-baseline space-x-1.5">
-            <span class="text-2xl font-black text-rose-600 dark:text-rose-400 font-mono" x-text="seeds.length + ' Seeds'"></span>
+            <span class="text-2xl font-black text-rose-600 dark:text-rose-400 font-mono tabular-nums" x-text="seeds.length + ' Seeds'"></span>
           </div>
           <div class="mt-2 flex items-center justify-between text-[10.5px]">
             <span class="text-slate-500" x-text="intersections.length + ' Intersecting Hubs'"></span>
-            <span class="font-mono text-amber-600 dark:text-amber-400 font-bold" x-text="'Gap: ' + (overview.avg_commercial_gap || 0.6)"></span>
+            <span class="font-mono tabular-nums text-amber-600 dark:text-amber-400 font-bold" x-text="'Gap: ' + (overview.avg_commercial_gap || 0.6)"></span>
           </div>
         </div>
       </div>
@@ -1511,7 +1509,7 @@ export function getDashboardHtml(folderId = '') {
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
         
         <!-- Pillar 1: Creator Intelligence & PinArchive -->
-        <div class="p-5 rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/90 dark:border-slate-800 shadow-sm flex flex-col justify-between space-y-4">
+        <div class="p-5 rounded-3xl bg-white dark:bg-[#121215] border border-slate-200/90 dark:border-[#27272A] shadow-sm flex flex-col justify-between space-y-4">
           <div class="space-y-3">
             <div class="flex items-center justify-between">
               <div class="flex items-center space-x-3">
@@ -1523,7 +1521,7 @@ export function getDashboardHtml(folderId = '') {
                   <p class="text-xs text-slate-500">Track creator impressions, total audience, boards, and winning pins.</p>
                 </div>
               </div>
-              <span class="px-2 py-0.5 text-[10px] font-mono font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 rounded-full border border-purple-500/20">/accounts</span>
+              <span class="px-2 py-0.5 text-[10px] font-mono tabular-nums font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 rounded-full border border-purple-500/20">/accounts</span>
             </div>
 
             <!-- Live Creator List Preview -->
@@ -1537,9 +1535,9 @@ export function getDashboardHtml(folderId = '') {
                   <div class="flex items-center justify-between pt-1.5 text-xs">
                     <div class="flex items-center space-x-2">
                       <span class="font-bold text-slate-800 dark:text-slate-200" x-text="'@' + (c.username || '').replace(/^@+/, '')"></span>
-                      <span class="text-[10px] text-slate-400 font-mono" x-text="(c.pin_count || 0) + ' pins'"></span>
+                      <span class="text-[10px] text-slate-400 font-mono tabular-nums" x-text="(c.pin_count || 0) + ' pins'"></span>
                     </div>
-                    <span class="font-mono font-bold text-emerald-600 dark:text-emerald-400" x-text="formatNumber(c.monthly_reach || 0)"></span>
+                    <span class="font-mono tabular-nums font-bold text-emerald-600 dark:text-emerald-400" x-text="formatNumber(c.monthly_reach || 0)"></span>
                   </div>
                 </template>
               </div>
@@ -1547,7 +1545,7 @@ export function getDashboardHtml(folderId = '') {
           </div>
 
           <!-- Bottom Actions -->
-          <div class="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-800/80">
+          <div class="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-[#27272A]/80">
             <button @click="openAddCompetitorModal()" class="text-xs font-bold text-purple-600 dark:text-purple-400 hover:underline flex items-center space-x-1 cursor-pointer">
               <i data-lucide="plus" class="w-3.5 h-3.5"></i>
               <span>+ Track Creator</span>
@@ -1559,7 +1557,7 @@ export function getDashboardHtml(folderId = '') {
         </div>
 
         <!-- Pillar 2: Keywords Fleet Dashboard -->
-        <div class="p-5 rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/90 dark:border-slate-800 shadow-sm flex flex-col justify-between space-y-4">
+        <div class="p-5 rounded-3xl bg-white dark:bg-[#121215] border border-slate-200/90 dark:border-[#27272A] shadow-sm flex flex-col justify-between space-y-4">
           <div class="space-y-3">
             <div class="flex items-center justify-between">
               <div class="flex items-center space-x-3">
@@ -1571,7 +1569,7 @@ export function getDashboardHtml(folderId = '') {
                   <p class="text-xs text-slate-500">Multi-cluster SERP ranking radar, 52-week trends, and velocity curves.</p>
                 </div>
               </div>
-              <span class="px-2 py-0.5 text-[10px] font-mono font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded-full border border-emerald-500/20">/keywords</span>
+              <span class="px-2 py-0.5 text-[10px] font-mono tabular-nums font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded-full border border-emerald-500/20">/keywords</span>
             </div>
 
             <!-- Live Keyword List Preview -->
@@ -1585,9 +1583,9 @@ export function getDashboardHtml(folderId = '') {
                   <div class="flex items-center justify-between pt-1.5 text-xs">
                     <div class="flex items-center space-x-2 truncate max-w-[240px]">
                       <span class="font-bold text-slate-800 dark:text-slate-200 truncate" x-text="kw.keyword"></span>
-                      <span class="text-[10px] text-slate-400 font-mono shrink-0" x-text="kw.category || 'General'"></span>
+                      <span class="text-[10px] text-slate-400 font-mono tabular-nums shrink-0" x-text="kw.category || 'General'"></span>
                     </div>
-                    <span class="font-mono font-bold text-slate-700 dark:text-slate-300" x-text="(kw.snapshots_count || 0) + ' / ' + (kw.target_pin_count || 250)"></span>
+                    <span class="font-mono tabular-nums font-bold text-slate-700 dark:text-slate-300" x-text="(kw.snapshots_count || 0) + ' / ' + (kw.target_pin_count || 250)"></span>
                   </div>
                 </template>
               </div>
@@ -1595,7 +1593,7 @@ export function getDashboardHtml(folderId = '') {
           </div>
 
           <!-- Bottom Actions -->
-          <div class="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-800/80">
+          <div class="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-[#27272A]/80">
             <a href="/keywords/discovery" class="text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center space-x-1 cursor-pointer">
               <i data-lucide="compass" class="w-3.5 h-3.5"></i>
               <span>Keyword Discovery</span>
@@ -1607,7 +1605,7 @@ export function getDashboardHtml(folderId = '') {
         </div>
 
         <!-- Pillar 4: Related Pins Intelligence Hub -->
-        <div class="p-5 rounded-3xl bg-white dark:bg-[#0b1120] border border-slate-200/90 dark:border-slate-800 shadow-sm flex flex-col justify-between space-y-4">
+        <div class="p-5 rounded-3xl bg-white dark:bg-[#121215] border border-slate-200/90 dark:border-[#27272A] shadow-sm flex flex-col justify-between space-y-4">
           <div class="space-y-3">
             <div class="flex items-center justify-between">
               <div class="flex items-center space-x-3">
@@ -1619,7 +1617,7 @@ export function getDashboardHtml(folderId = '') {
                   <p class="text-xs text-slate-500">Seed pin graph crawling, intersecting nodes, and commercial gap ratio.</p>
                 </div>
               </div>
-              <span class="px-2 py-0.5 text-[10px] font-mono font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 rounded-full border border-rose-500/20">/related-pins</span>
+              <span class="px-2 py-0.5 text-[10px] font-mono tabular-nums font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 rounded-full border border-rose-500/20">/related-pins</span>
             </div>
 
             <!-- Live Seeds List Preview -->
@@ -1632,10 +1630,10 @@ export function getDashboardHtml(folderId = '') {
                 <template x-for="s in (seeds || []).slice(0, 3)" :key="s.id || s.seed_pin_id">
                   <div class="flex items-center justify-between pt-1.5 text-xs">
                     <div class="flex items-center space-x-2">
-                      <span class="font-mono font-bold text-slate-800 dark:text-slate-200" x-text="s.seed_pin_id"></span>
-                      <span class="text-[10px] text-emerald-600 dark:text-emerald-400 font-mono" x-text="s.last_crawled_at ? 'Indexed' : 'Queued'"></span>
+                      <span class="font-mono tabular-nums font-bold text-slate-800 dark:text-slate-200" x-text="s.seed_pin_id"></span>
+                      <span class="text-[10px] text-emerald-600 dark:text-emerald-400 font-mono tabular-nums" x-text="s.last_crawled_at ? 'Indexed' : 'Queued'"></span>
                     </div>
-                    <span class="font-mono font-bold text-rose-600 dark:text-rose-400" x-text="(s.candidate_count || s.candidates_count || 0) + ' nodes'"></span>
+                    <span class="font-mono tabular-nums font-bold text-rose-600 dark:text-rose-400" x-text="(s.candidate_count || s.candidates_count || 0) + ' nodes'"></span>
                   </div>
                 </template>
               </div>
@@ -1643,7 +1641,7 @@ export function getDashboardHtml(folderId = '') {
           </div>
 
           <!-- Bottom Actions -->
-          <div class="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-800/80">
+          <div class="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-[#27272A]/80">
             <button @click="openAddSeedModal()" class="text-xs font-bold text-rose-600 dark:text-rose-400 hover:underline flex items-center space-x-1 cursor-pointer">
               <i data-lucide="plus" class="w-3.5 h-3.5"></i>
               <span>+ Add Seed Pin</span>
@@ -1690,7 +1688,7 @@ export function getDashboardHtml(folderId = '') {
             <i data-lucide="zap" class="w-4 h-4"></i>
             <span>Crawl</span>
           </button>
-          <button @click="exportCandidatesCSV()" class="px-3 py-2 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition flex items-center space-x-1.5 shadow-sm">
+          <button @click="exportCandidatesCSV()" class="px-3 py-2 rounded-xl text-xs font-semibold border border-slate-200 dark:border-[#27272A] bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition flex items-center space-x-1.5 shadow-sm">
             <i data-lucide="download" class="w-3.5 h-3.5"></i>
             <span>Export CSV</span>
           </button>
@@ -1700,74 +1698,74 @@ export function getDashboardHtml(folderId = '') {
       <!-- 5-KPI Ribbon -->
       <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         <!-- KPI 1: Tracked Seeds -->
-        <div @click="relatedSubTab = 'seeds'" class="p-3.5 rounded-2xl bg-white dark:bg-[#0d1526] border cursor-pointer transition hover:border-rose-500/50 shadow-sm" :class="relatedSubTab === 'seeds' ? 'border-rose-500/80 ring-2 ring-rose-500/20' : 'border-slate-200/90 dark:border-slate-800'">
+        <div @click="relatedSubTab = 'seeds'" class="p-3.5 rounded-2xl bg-white dark:bg-[#18181B] border cursor-pointer transition hover:border-rose-500/50 shadow-sm" :class="relatedSubTab === 'seeds' ? 'border-rose-500/80 ring-2 ring-rose-500/20' : 'border-slate-200/90 dark:border-[#27272A]'">
           <div class="flex items-center justify-between">
-            <span class="text-[10px] font-mono uppercase text-slate-500 dark:text-slate-400 font-bold">Tracked Seeds</span>
+            <span class="text-[10px] font-mono tabular-nums uppercase text-slate-500 dark:text-slate-400 font-bold">Tracked Seeds</span>
             <i data-lucide="folder-git-2" class="w-4 h-4 text-rose-500"></i>
           </div>
-          <div class="mt-1 text-xl font-mono font-extrabold text-slate-900 dark:text-white" x-text="seeds.length"></div>
+          <div class="mt-1 text-xl font-mono tabular-nums font-extrabold text-slate-900 dark:text-white" x-text="seeds.length"></div>
           <div class="text-[10px] text-slate-400 font-medium mt-0.5 truncate" x-text="seeds.filter(s => s.last_crawled_at).length + ' crawled'"></div>
         </div>
 
         <!-- KPI 2: Global Intersections -->
-        <div @click="relatedSubTab = 'intersections'" class="p-3.5 rounded-2xl bg-white dark:bg-[#0d1526] border cursor-pointer transition hover:border-amber-500/50 shadow-sm" :class="relatedSubTab === 'intersections' ? 'border-amber-500/80 ring-2 ring-amber-500/20' : 'border-slate-200/90 dark:border-slate-800'">
+        <div @click="relatedSubTab = 'intersections'" class="p-3.5 rounded-2xl bg-white dark:bg-[#18181B] border cursor-pointer transition hover:border-amber-500/50 shadow-sm" :class="relatedSubTab === 'intersections' ? 'border-amber-500/80 ring-2 ring-amber-500/20' : 'border-slate-200/90 dark:border-[#27272A]'">
           <div class="flex items-center justify-between">
-            <span class="text-[10px] font-mono uppercase text-slate-500 dark:text-slate-400 font-bold">Intersections</span>
+            <span class="text-[10px] font-mono tabular-nums uppercase text-slate-500 dark:text-slate-400 font-bold">Intersections</span>
             <i data-lucide="flame" class="w-4 h-4 text-amber-500"></i>
           </div>
-          <div class="mt-1 text-xl font-mono font-extrabold text-amber-600 dark:text-amber-400" x-text="intersections.length"></div>
+          <div class="mt-1 text-xl font-mono tabular-nums font-extrabold text-amber-600 dark:text-amber-400" x-text="intersections.length"></div>
           <div class="text-[10px] text-slate-400 font-medium mt-0.5 truncate">≥ 2 seeds overlap</div>
         </div>
 
         <!-- KPI 3: Graph Candidates -->
-        <div @click="relatedSubTab = 'explorer'" class="p-3.5 rounded-2xl bg-white dark:bg-[#0d1526] border cursor-pointer transition hover:border-sky-500/50 shadow-sm" :class="relatedSubTab === 'explorer' ? 'border-sky-500/80 ring-2 ring-sky-500/20' : 'border-slate-200/90 dark:border-slate-800'">
+        <div @click="relatedSubTab = 'explorer'" class="p-3.5 rounded-2xl bg-white dark:bg-[#18181B] border cursor-pointer transition hover:border-sky-500/50 shadow-sm" :class="relatedSubTab === 'explorer' ? 'border-sky-500/80 ring-2 ring-sky-500/20' : 'border-slate-200/90 dark:border-[#27272A]'">
           <div class="flex items-center justify-between">
-            <span class="text-[10px] font-mono uppercase text-slate-500 dark:text-slate-400 font-bold">Candidates</span>
+            <span class="text-[10px] font-mono tabular-nums uppercase text-slate-500 dark:text-slate-400 font-bold">Candidates</span>
             <i data-lucide="database" class="w-4 h-4 text-sky-500"></i>
           </div>
-          <div class="mt-1 text-xl font-mono font-extrabold text-sky-600 dark:text-sky-400" x-text="formatNumber(overview.total_candidates)"></div>
+          <div class="mt-1 text-xl font-mono tabular-nums font-extrabold text-sky-600 dark:text-sky-400" x-text="formatNumber(overview.total_candidates)"></div>
           <div class="text-[10px] text-slate-400 font-medium mt-0.5 truncate">Discovered graph</div>
         </div>
 
         <!-- KPI 4: High Velocity -->
-        <div class="p-3.5 rounded-2xl bg-white dark:bg-[#0d1526] border border-slate-200/90 dark:border-slate-800 shadow-sm">
+        <div class="p-3.5 rounded-2xl bg-white dark:bg-[#18181B] border border-slate-200/90 dark:border-[#27272A] shadow-sm">
           <div class="flex items-center justify-between">
-            <span class="text-[10px] font-mono uppercase text-slate-500 dark:text-slate-400 font-bold">High Velocity</span>
+            <span class="text-[10px] font-mono tabular-nums uppercase text-slate-500 dark:text-slate-400 font-bold">High Velocity</span>
             <i data-lucide="zap" class="w-4 h-4 text-emerald-500"></i>
           </div>
-          <div class="mt-1 text-xl font-mono font-extrabold text-emerald-600 dark:text-emerald-400" x-text="formatNumber(overview.high_velocity_candidates)"></div>
+          <div class="mt-1 text-xl font-mono tabular-nums font-extrabold text-emerald-600 dark:text-emerald-400" x-text="formatNumber(overview.high_velocity_candidates)"></div>
           <div class="text-[10px] text-slate-400 font-medium mt-0.5 truncate">Surging growth</div>
         </div>
 
         <!-- KPI 5: Commercial Gap -->
-        <div class="p-3.5 rounded-2xl bg-white dark:bg-[#0d1526] border border-slate-200/90 dark:border-slate-800 shadow-sm col-span-2 sm:col-span-1">
+        <div class="p-3.5 rounded-2xl bg-white dark:bg-[#18181B] border border-slate-200/90 dark:border-[#27272A] shadow-sm col-span-2 sm:col-span-1">
           <div class="flex items-center justify-between">
-            <span class="text-[10px] font-mono uppercase text-slate-500 dark:text-slate-400 font-bold">Commercial Gap</span>
+            <span class="text-[10px] font-mono tabular-nums uppercase text-slate-500 dark:text-slate-400 font-bold">Commercial Gap</span>
             <i data-lucide="trending-up" class="w-4 h-4 text-purple-500"></i>
           </div>
-          <div class="mt-1 text-xl font-mono font-extrabold text-purple-600 dark:text-purple-400" x-text="(overview.avg_commercial_gap || 0) + '%'"></div>
+          <div class="mt-1 text-xl font-mono tabular-nums font-extrabold text-purple-600 dark:text-purple-400" x-text="(overview.avg_commercial_gap || 0) + '%'"></div>
           <div class="text-[10px] text-slate-400 font-medium mt-0.5 truncate">Arbitrage spread</div>
         </div>
       </div>
 
       <!-- Unified Sub-Tabs Navigation Bar -->
-      <div class="flex items-center space-x-2 border-b border-slate-200 dark:border-slate-800 pb-2">
+      <div class="flex items-center space-x-2 border-b border-slate-200 dark:border-[#27272A] pb-2">
         <button @click="relatedSubTab = 'seeds'" class="flex items-center space-x-2 px-3.5 py-2 text-xs font-bold rounded-xl transition" :class="relatedSubTab === 'seeds' ? 'bg-rose-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
           <i data-lucide="folder-git-2" class="w-3.5 h-3.5"></i>
           <span>Tracked Seeds</span>
-          <span class="px-1.5 py-0.5 rounded text-[10px] font-mono" :class="relatedSubTab === 'seeds' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800'" x-text="seeds.length"></span>
+          <span class="px-1.5 py-0.5 rounded text-[10px] font-mono tabular-nums" :class="relatedSubTab === 'seeds' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800'" x-text="seeds.length"></span>
         </button>
 
         <button @click="relatedSubTab = 'intersections'" class="flex items-center space-x-2 px-3.5 py-2 text-xs font-bold rounded-xl transition" :class="relatedSubTab === 'intersections' ? 'bg-amber-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
           <i data-lucide="flame" class="w-3.5 h-3.5"></i>
           <span>Global Intersections</span>
-          <span class="px-1.5 py-0.5 rounded text-[10px] font-mono" :class="relatedSubTab === 'intersections' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800'" x-text="intersections.length"></span>
+          <span class="px-1.5 py-0.5 rounded text-[10px] font-mono tabular-nums" :class="relatedSubTab === 'intersections' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800'" x-text="intersections.length"></span>
         </button>
 
         <button @click="relatedSubTab = 'explorer'" class="flex items-center space-x-2 px-3.5 py-2 text-xs font-bold rounded-xl transition" :class="relatedSubTab === 'explorer' ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'">
           <i data-lucide="database" class="w-3.5 h-3.5"></i>
           <span>Master Explorer</span>
-          <span class="px-1.5 py-0.5 rounded text-[10px] font-mono" :class="relatedSubTab === 'explorer' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800'" x-text="formatNumber(overview.total_candidates)"></span>
+          <span class="px-1.5 py-0.5 rounded text-[10px] font-mono tabular-nums" :class="relatedSubTab === 'explorer' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800'" x-text="formatNumber(overview.total_candidates)"></span>
         </button>
       </div>
 
@@ -1778,7 +1776,7 @@ export function getDashboardHtml(folderId = '') {
       <template x-if="!activeDossierSeed">
         <div class="space-y-4">
           <!-- Top Overview & Stats Bar -->
-          <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-white dark:bg-[#0d1526] p-4 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-sm">
+          <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-white dark:bg-[#18181B] p-4 rounded-2xl border border-slate-200/90 dark:border-[#27272A] shadow-sm">
             <div>
               <h2 class="text-base font-bold text-slate-900 dark:text-white flex items-center space-x-2">
                 <i data-lucide="layers" class="w-4 h-4 text-rose-500"></i>
@@ -1786,8 +1784,8 @@ export function getDashboardHtml(folderId = '') {
               </h2>
               <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Manage cluster seed nodes, execute multi-seed crawls via GitHub Actions, and inspect isolated telemetry quotas.</p>
             </div>
-            <div class="flex items-center space-x-2 flex-wrap text-xs font-mono">
-              <span class="px-2.5 py-1 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300">
+            <div class="flex items-center space-x-2 flex-wrap text-xs font-mono tabular-nums">
+              <span class="px-2.5 py-1 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-[#27272A] text-slate-700 dark:text-slate-300">
                 Total Seeds: <strong class="text-rose-600 dark:text-rose-400" x-text="seeds.length">0</strong>
               </span>
               <span class="px-2.5 py-1 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-400">
@@ -1800,35 +1798,35 @@ export function getDashboardHtml(folderId = '') {
           </div>
 
           <!-- Seeds Control & Filter Toolbar -->
-          <div class="bg-white dark:bg-[#0d1526] p-3.5 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          <div class="bg-white dark:bg-[#18181B] p-3.5 rounded-2xl border border-slate-200/90 dark:border-[#27272A] shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-3">
             
             <!-- Left: Search & Filter Inputs -->
             <div class="flex items-center space-x-2 flex-1 flex-wrap gap-y-2">
               <!-- Search Input -->
               <div class="relative flex-1 min-w-[200px] max-w-md">
                 <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
-                <input type="text" x-model="seedSearch" placeholder="Filter by Pin ID or Label..." class="w-full pl-9 pr-7 py-1.5 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:outline-none focus:border-rose-500 font-mono">
+                <input type="text" x-model="seedSearch" placeholder="Filter by Pin ID or Label..." class="w-full pl-9 pr-7 py-1.5 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] text-slate-900 dark:text-white focus:outline-none focus:border-rose-500 font-mono tabular-nums">
                 <button x-show="seedSearch" @click="seedSearch = ''" class="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
                   <i data-lucide="x" class="w-3 h-3"></i>
                 </button>
               </div>
 
               <!-- Status Filter -->
-              <select x-model="seedFilterStatus" class="px-2.5 py-1.5 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 font-medium focus:outline-none focus:border-rose-500">
+              <select x-model="seedFilterStatus" class="px-2.5 py-1.5 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] text-slate-700 dark:text-slate-300 font-medium focus:outline-none focus:border-rose-500">
                 <option value="all">Status: All</option>
                 <option value="crawled">Crawled</option>
                 <option value="pending">Pending Crawl</option>
               </select>
 
               <!-- Type Filter -->
-              <select x-model="seedFilterType" class="px-2.5 py-1.5 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 font-medium focus:outline-none focus:border-rose-500">
+              <select x-model="seedFilterType" class="px-2.5 py-1.5 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] text-slate-700 dark:text-slate-300 font-medium focus:outline-none focus:border-rose-500">
                 <option value="all">Type: All</option>
                 <option value="competitor">Competitor Clusters</option>
                 <option value="internal">Internal Seeds</option>
               </select>
 
               <!-- Sort Dropdown -->
-              <select x-model="seedSort" class="px-2.5 py-1.5 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 font-medium focus:outline-none focus:border-rose-500 font-mono">
+              <select x-model="seedSort" class="px-2.5 py-1.5 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] text-slate-700 dark:text-slate-300 font-medium focus:outline-none focus:border-rose-500 font-mono tabular-nums">
                 <option value="crawled_desc">Sort: Newest Crawled</option>
                 <option value="candidates_desc">Sort: Harvested Nodes (High-Low)</option>
                 <option value="candidates_asc">Sort: Harvested Nodes (Low-High)</option>
@@ -1840,13 +1838,13 @@ export function getDashboardHtml(folderId = '') {
             <!-- Right: View Toggle, Select All & Quick Add -->
             <div class="flex items-center space-x-2 justify-end">
               <!-- Select All Toggle -->
-              <button @click="toggleSelectAllSeeds()" class="px-3 py-1.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition active:scale-95 flex items-center space-x-1.5">
+              <button @click="toggleSelectAllSeeds()" class="px-3 py-1.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition active:scale-95 flex items-center space-x-1.5">
                 <i :data-lucide="isAllSeedsSelected ? 'check-square' : 'square'" class="w-3.5 h-3.5" :class="isAllSeedsSelected ? 'text-rose-600' : 'text-slate-400'"></i>
                 <span x-text="isAllSeedsSelected ? 'Deselect All' : 'Select All'"></span>
               </button>
 
               <!-- View Switcher (Grid vs Table) -->
-              <div class="flex items-center bg-slate-100 dark:bg-slate-900 p-0.5 rounded-xl border border-slate-200 dark:border-slate-800">
+              <div class="flex items-center bg-slate-100 dark:bg-slate-900 p-0.5 rounded-xl border border-slate-200 dark:border-[#27272A]">
                 <button @click="seedViewMode = 'grid'" :class="seedViewMode === 'grid' ? 'bg-white dark:bg-slate-800 text-rose-600 dark:text-rose-400 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'" class="p-1.5 px-2.5 rounded-lg text-xs flex items-center space-x-1 transition" title="Grid Cards View">
                   <i data-lucide="layout-grid" class="w-3.5 h-3.5"></i>
                   <span class="hidden sm:inline">Cards</span>
@@ -1867,10 +1865,10 @@ export function getDashboardHtml(folderId = '') {
           </div>
 
           <!-- Sticky Floating Bulk Actions Bar (Appears when >= 1 seed is selected) -->
-          <div x-show="selectedSeedIds.length > 0" x-cloak class="sticky top-20 z-30 bg-slate-900 text-white dark:bg-[#111c35] dark:text-slate-100 p-3 px-4 rounded-2xl shadow-xl border border-rose-500/30 flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-2">
+          <div x-show="selectedSeedIds.length > 0" x-cloak class="sticky top-20 z-30 bg-slate-900 text-white dark:bg-[#18181B] dark:text-slate-100 p-3 px-4 rounded-2xl shadow-xl border border-rose-500/30 flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-2">
             <div class="flex items-center space-x-3">
               <span class="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping"></span>
-              <span class="text-xs font-mono font-bold">
+              <span class="text-xs font-mono tabular-nums font-bold">
                 <span class="text-rose-400 text-sm font-extrabold" x-text="selectedSeedIds.length"></span> seeds selected
               </span>
             </div>
@@ -1904,8 +1902,8 @@ export function getDashboardHtml(folderId = '') {
           <!-- 1. Grid of Seed Cards (When seedViewMode === 'grid') -->
           <div x-show="seedViewMode === 'grid'" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
             <template x-for="seed in filteredSeeds" :key="seed.pin_id">
-              <div class="bg-white dark:bg-[#0d1526] border rounded-2xl p-5 shadow-sm dark:shadow-xl transition space-y-4 flex flex-col justify-between relative group"
-                   :class="selectedSeedIds.includes(seed.pin_id) ? 'border-rose-500 ring-2 ring-rose-500/20 bg-rose-50/20 dark:bg-rose-950/20' : 'border-slate-200/90 dark:border-slate-800 hover:border-slate-400 dark:hover:border-slate-700'">
+              <div class="bg-white dark:bg-[#18181B] border rounded-2xl p-5 shadow-sm dark:shadow-xl transition space-y-4 flex flex-col justify-between relative group"
+                   :class="selectedSeedIds.includes(seed.pin_id) ? 'border-rose-500 ring-2 ring-rose-500/20 bg-rose-50/20 dark:bg-rose-950/20' : 'border-slate-200/90 dark:border-[#27272A] hover:border-slate-400 dark:hover:border-slate-700'">
                 
                 <div class="space-y-3">
                   <!-- Top Row: Checkbox, Badge & Crawl Timestamp -->
@@ -1915,12 +1913,12 @@ export function getDashboardHtml(folderId = '') {
                              :checked="selectedSeedIds.includes(seed.pin_id)"
                              @change="toggleSeedSelection(seed.pin_id)"
                              class="w-4 h-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500 cursor-pointer">
-                      <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase tracking-wider"
+                      <span class="px-2 py-0.5 rounded text-[10px] font-mono tabular-nums font-bold uppercase tracking-wider"
                             :class="seed.is_competitor ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20' : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20'"
                             x-text="seed.is_competitor ? 'Competitor Cluster' : 'Internal Seed'"></span>
                     </div>
 
-                    <div class="flex items-center space-x-1.5 text-[10px] font-mono text-slate-400">
+                    <div class="flex items-center space-x-1.5 text-[10px] font-mono tabular-nums text-slate-400">
                       <span x-show="(seed?.total_capsules || 0) > 0" class="px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-700 dark:text-purple-400 border border-purple-500/20" x-text="seed.total_capsules + ' Caps'"></span>
                       <span x-text="seed.last_crawled_at ? new Date(seed.last_crawled_at).toLocaleDateString() : 'Pending'"></span>
                     </div>
@@ -1929,7 +1927,7 @@ export function getDashboardHtml(folderId = '') {
                   <!-- Label & Pin ID with Pinterest Link -->
                   <div>
                     <h3 class="font-bold text-sm text-slate-900 dark:text-white line-clamp-2" x-text="seed.label || 'Tracked Cluster Seed'"></h3>
-                    <div class="flex items-center space-x-1.5 text-xs font-mono text-slate-500 dark:text-slate-400 mt-1">
+                    <div class="flex items-center space-x-1.5 text-xs font-mono tabular-nums text-slate-500 dark:text-slate-400 mt-1">
                       <span>Pin ID:</span>
                       <a :href="'https://www.pinterest.com/pin/' + seed.pin_id + '/'" target="_blank" class="font-bold text-rose-600 dark:text-rose-400 hover:underline inline-flex items-center space-x-0.5">
                         <span x-text="seed.pin_id"></span>
@@ -1939,12 +1937,12 @@ export function getDashboardHtml(folderId = '') {
                   </div>
 
                   <!-- Quick Stats Grid -->
-                  <div class="grid grid-cols-2 gap-2 text-xs font-mono pt-1">
-                    <div class="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800">
+                  <div class="grid grid-cols-2 gap-2 text-xs font-mono tabular-nums pt-1">
+                    <div class="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-[#27272A]">
                       <div class="text-[10px] text-slate-500">Harvested Nodes</div>
                       <div class="text-xl font-extrabold text-slate-900 dark:text-white mt-0.5" x-text="seed.total_candidates || 0">0</div>
                     </div>
-                    <div class="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800">
+                    <div class="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-[#27272A]">
                       <div class="text-[10px] text-slate-500">Commercial Gap</div>
                       <div class="text-xl font-extrabold text-emerald-600 dark:text-emerald-400 mt-0.5" x-text="(seed.commercial_gap_ratio ? seed.commercial_gap_ratio + '%' : '100%')">100%</div>
                     </div>
@@ -1952,7 +1950,7 @@ export function getDashboardHtml(folderId = '') {
                 </div>
 
                 <!-- Primary Action Buttons: Inspect, Quick Crawl & Delete -->
-                <div class="flex items-center space-x-2 pt-2 border-t border-slate-100 dark:border-slate-800/80">
+                <div class="flex items-center space-x-2 pt-2 border-t border-slate-100 dark:border-[#27272A]/80">
                   <button @click="openSeedDossier(seed)" class="flex-1 flex items-center justify-center space-x-1.5 py-2 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-900 font-bold text-xs shadow-sm active:scale-95 transition">
                     <i data-lucide="eye" class="w-3.5 h-3.5"></i>
                     <span>Inspect</span>
@@ -1969,10 +1967,10 @@ export function getDashboardHtml(folderId = '') {
           </div>
 
           <!-- 2. Compact Table View (When seedViewMode === 'table') -->
-          <div x-show="seedViewMode === 'table'" class="bg-white dark:bg-[#0d1526] border border-slate-200/90 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
+          <div x-show="seedViewMode === 'table'" class="bg-white dark:bg-[#18181B] border border-slate-200/90 dark:border-[#27272A] rounded-2xl shadow-sm overflow-hidden">
             <div class="overflow-x-auto">
               <table class="w-full text-left text-xs font-sans">
-                <thead class="bg-slate-50 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-800 text-[11px] font-mono text-slate-500 uppercase">
+                <thead class="bg-slate-50 dark:bg-slate-900/80 border-b border-slate-200 dark:border-[#27272A] text-[11px] font-mono tabular-nums text-slate-500 uppercase">
                   <tr>
                     <th class="p-3 pl-4 w-10">
                       <input type="checkbox" :checked="isAllSeedsSelected" @change="toggleSelectAllSeeds()" class="w-4 h-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500 cursor-pointer">
@@ -1986,7 +1984,7 @@ export function getDashboardHtml(folderId = '') {
                     <th class="p-3 text-right pr-4">Actions</th>
                   </tr>
                 </thead>
-                <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono">
+                <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono tabular-nums">
                   <template x-for="seed in filteredSeeds" :key="seed.pin_id">
                     <tr class="hover:bg-slate-50/70 dark:hover:bg-slate-900/40 transition"
                         :class="selectedSeedIds.includes(seed.pin_id) ? 'bg-rose-50/20 dark:bg-rose-950/15' : ''">
@@ -1995,7 +1993,7 @@ export function getDashboardHtml(folderId = '') {
                       </td>
                       <td class="p-3 font-sans">
                         <div class="font-bold text-slate-900 dark:text-white text-xs line-clamp-1" x-text="seed.label || 'Tracked Cluster Seed'"></div>
-                        <div class="text-[11px] font-mono text-slate-500 flex items-center space-x-1.5 mt-0.5">
+                        <div class="text-[11px] font-mono tabular-nums text-slate-500 flex items-center space-x-1.5 mt-0.5">
                           <a :href="'https://www.pinterest.com/pin/' + seed.pin_id + '/'" target="_blank" class="text-rose-600 dark:text-rose-400 hover:underline flex items-center space-x-0.5">
                             <span x-text="seed.pin_id"></span>
                             <i data-lucide="external-link" class="w-2.5 h-2.5"></i>
@@ -2003,7 +2001,7 @@ export function getDashboardHtml(folderId = '') {
                         </div>
                       </td>
                       <td class="p-3">
-                        <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase tracking-wider whitespace-nowrap"
+                        <span class="px-2 py-0.5 rounded text-[10px] font-mono tabular-nums font-bold uppercase tracking-wider whitespace-nowrap"
                               :class="seed.is_competitor ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20' : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20'"
                               x-text="seed.is_competitor ? 'Competitor' : 'Internal'"></span>
                       </td>
@@ -2040,7 +2038,7 @@ export function getDashboardHtml(folderId = '') {
           </div>
 
           <!-- Empty Search/Filter State -->
-          <div x-show="filteredSeeds.length === 0" class="bg-white dark:bg-[#0d1526] border border-slate-200 dark:border-slate-800 rounded-2xl p-8 text-center space-y-3">
+          <div x-show="filteredSeeds.length === 0" class="bg-white dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] rounded-2xl p-8 text-center space-y-3">
             <i data-lucide="inbox" class="w-10 h-10 text-slate-400 mx-auto"></i>
             <h3 class="font-bold text-sm text-slate-700 dark:text-slate-300">No Tracked Seeds Match Your Filter</h3>
             <p class="text-xs text-slate-500 max-w-sm mx-auto">Try clearing your search query or filters, or add new pins using the Bulk Ingestion feature.</p>
@@ -2056,14 +2054,14 @@ export function getDashboardHtml(folderId = '') {
         <div class="space-y-6">
           
           <!-- Back Navigation Bar -->
-          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-[#0d1526] p-4 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-sm">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-[#18181B] p-4 rounded-2xl border border-slate-200/90 dark:border-[#27272A] shadow-sm">
             <button @click="closeSeedDossier()" class="inline-flex items-center space-x-2 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold transition active:scale-95">
               <i data-lucide="arrow-left" class="w-3.5 h-3.5"></i>
               <span>← Back to All Tracked Seeds Grid</span>
             </button>
 
             <div class="flex items-center space-x-3">
-              <span class="text-xs font-mono text-slate-500">Active Seed: <strong class="text-slate-900 dark:text-white" x-text="activeDossierSeed.pin_id"></strong></span>
+              <span class="text-xs font-mono tabular-nums text-slate-500">Active Seed: <strong class="text-slate-900 dark:text-white" x-text="activeDossierSeed.pin_id"></strong></span>
               <button @click="openRawJsonModal(activeDossierSeed.pin_id)" class="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs transition active:scale-95 flex items-center space-x-1.5 shadow-sm" title="Import authentic raw Pinterest JSON response (RelatedModulesResource)">
                 <i data-lucide="file-input" class="w-3.5 h-3.5"></i>
                 <span>📥 Import Raw JSON</span>
@@ -2076,14 +2074,14 @@ export function getDashboardHtml(folderId = '') {
           </div>
 
           <!-- Seed Dossier Header Card -->
-          <div class="bg-white dark:bg-[#0d1526] border border-slate-200/90 dark:border-slate-800 rounded-2xl p-6 shadow-sm dark:shadow-xl space-y-4">
-            <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-4">
+          <div class="bg-white dark:bg-[#18181B] border border-slate-200/90 dark:border-[#27272A] rounded-2xl p-6 shadow-sm dark:shadow-xl space-y-4">
+            <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-200 dark:border-[#27272A] pb-4">
               <div>
                 <div class="flex items-center space-x-2">
                   <h2 class="text-lg font-bold text-slate-900 dark:text-white" x-text="activeDossierSeed.label || 'Cluster Seed'"></h2>
-                  <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase tracking-wider" :class="activeDossierSeed.is_competitor ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20' : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20'" x-text="activeDossierSeed.is_competitor ? 'Competitor Cluster' : 'Internal Seed'"></span>
+                  <span class="px-2 py-0.5 rounded text-[10px] font-mono tabular-nums font-bold uppercase tracking-wider" :class="activeDossierSeed.is_competitor ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20' : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20'" x-text="activeDossierSeed.is_competitor ? 'Competitor Cluster' : 'Internal Seed'"></span>
                 </div>
-                <div class="text-xs text-slate-500 font-mono mt-1 flex items-center space-x-2">
+                <div class="text-xs text-slate-500 font-mono tabular-nums mt-1 flex items-center space-x-2">
                   <span>Pin ID: <a :href="'https://www.pinterest.com/pin/' + activeDossierSeed.pin_id + '/'" target="_blank" class="text-rose-600 dark:text-rose-400 hover:underline font-bold" x-text="activeDossierSeed.pin_id"></a></span>
                   <span>•</span>
                   <span>Harvested Candidates: <strong class="text-slate-900 dark:text-white" x-text="dossierCandidates.length">0</strong> nodes</span>
@@ -2092,7 +2090,7 @@ export function getDashboardHtml(folderId = '') {
                 </div>
               </div>
 
-              <div class="px-3 py-1.5 rounded-xl bg-sky-500/10 border border-sky-500/20 text-xs font-mono text-sky-700 dark:text-sky-300">
+              <div class="px-3 py-1.5 rounded-xl bg-sky-500/10 border border-sky-500/20 text-xs font-mono tabular-nums text-sky-700 dark:text-sky-300">
                 <span>Evaluation Pool: <strong class="text-slate-900 dark:text-white" x-text="dossierTelemetry.total_engine_quota || 0">0</strong> candidates evaluated &rarr; Top <strong class="text-emerald-600 dark:text-emerald-400" x-text="dossierCandidates.length">0</strong> stored in DB</span>
               </div>
             </div>
@@ -2100,17 +2098,17 @@ export function getDashboardHtml(folderId = '') {
             <!-- Seed-Specific Retrieval Quota Stacked Bar -->
             <div class="space-y-2.5">
               <div class="flex items-center justify-between">
-                <span class="text-xs font-bold uppercase font-mono tracking-wider text-slate-500">P2P Retrieval Quotas for This Seed</span>
-                <span class="text-[11px] font-mono text-slate-400" x-text="'Total Quota: ' + (dossierTelemetry.total_engine_quota || 0) + ' items evaluated'"></span>
+                <span class="text-xs font-bold uppercase font-mono tabular-nums tracking-wider text-slate-500">P2P Retrieval Quotas for This Seed</span>
+                <span class="text-[11px] font-mono tabular-nums text-slate-400" x-text="'Total Quota: ' + (dossierTelemetry.total_engine_quota || 0) + ' items evaluated'"></span>
               </div>
-              <div class="w-full bg-slate-100 dark:bg-slate-900 rounded-xl h-4 overflow-hidden flex border border-slate-200 dark:border-slate-800 shadow-inner">
+              <div class="w-full bg-slate-100 dark:bg-slate-900 rounded-xl h-4 overflow-hidden flex border border-slate-200 dark:border-[#27272A] shadow-inner">
                 <div class="bg-[#0ea5e9] transition-all duration-300" :style="'width: ' + (dossierTelemetry.navboost_pct || 0) + '%'" :title="'NavBoost: ' + (dossierTelemetry.navboost_count || 0) + ' (' + (dossierTelemetry.navboost_pct || 0) + '%)'"></div>
                 <div class="bg-[#f43f5e] transition-all duration-300" :style="'width: ' + (dossierTelemetry.recgpt_pct || 0) + '%'" :title="'RecGPT: ' + (dossierTelemetry.recgpt_count || 0) + ' (' + (dossierTelemetry.recgpt_pct || 0) + '%)'"></div>
                 <div class="bg-[#10b981] transition-all duration-300" :style="'width: ' + (dossierTelemetry.two_tower_pct || 0) + '%'" :title="'Two-Tower: ' + (dossierTelemetry.two_tower_count || 0) + ' (' + (dossierTelemetry.two_tower_pct || 0) + '%)'"></div>
                 <div class="bg-[#f59e0b] transition-all duration-300" :style="'width: ' + (dossierTelemetry.randomwalk_pct || 0) + '%'" :title="'RandomWalk (Pixie): ' + (dossierTelemetry.randomwalk_count || 0) + ' (' + (dossierTelemetry.randomwalk_pct || 0) + '%)'"></div>
                 <div class="bg-[#8b5cf6] transition-all duration-300" :style="'width: ' + (dossierTelemetry.fresh_pct || 0) + '%'" :title="'Fresh: ' + (dossierTelemetry.fresh_candidate_count || 0) + ' (' + (dossierTelemetry.fresh_pct || 0) + '%)'"></div>
               </div>
-              <div class="flex items-center space-x-2 text-[11px] font-mono text-slate-500 flex-wrap gap-y-1.5">
+              <div class="flex items-center space-x-2 text-[11px] font-mono tabular-nums text-slate-500 flex-wrap gap-y-1.5">
                 <span class="inline-flex items-center space-x-1.5 px-2 py-0.5 rounded-lg bg-sky-500/10 text-sky-700 dark:text-sky-300 border border-sky-500/20">
                   <span class="w-2 h-2 rounded-full bg-[#0ea5e9]"></span>
                   <span>NavBoost: <strong class="font-bold" x-text="dossierTelemetry.navboost_count || 0"></strong></span>
@@ -2135,12 +2133,12 @@ export function getDashboardHtml(folderId = '') {
             </div>
 
             <!-- Seed Color DNA & Lexical Tokens -->
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-slate-200 dark:border-slate-800 text-xs font-mono">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-slate-200 dark:border-[#27272A] text-xs font-mono tabular-nums">
               <div>
                 <span class="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Cluster Color Centroids:</span>
                 <div class="flex items-center space-x-2 mt-1.5 flex-wrap gap-y-1.5">
                   <template x-for="swatch in (dossierTelemetry.color_centroids || []).slice(0, 5)" :key="swatch.color">
-                    <div class="flex items-center space-x-1.5 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900">
+                    <div class="flex items-center space-x-1.5 px-2 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-slate-900">
                       <span class="w-3 h-3 rounded-sm border" :style="'background-color: ' + swatch.color"></span>
                       <span class="text-[10px] text-slate-700 dark:text-slate-300" x-text="swatch.color"></span>
                       <span class="text-[9px] text-slate-400" x-text="swatch.percentage + '%'"></span>
@@ -2153,7 +2151,7 @@ export function getDashboardHtml(folderId = '') {
                 <span class="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Top Lexical NLP Tokens:</span>
                 <div class="flex items-center space-x-1.5 mt-1.5 flex-wrap gap-y-1.5">
                   <template x-for="token in (dossierTelemetry.high_save_tokens || []).slice(0, 5)" :key="token.token">
-                    <span class="px-2 py-0.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 text-[10px] font-bold text-slate-800 dark:text-slate-200" x-text="token.token + ' (' + token.tf + ')'"></span>
+                    <span class="px-2 py-0.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-slate-900 text-[10px] font-bold text-slate-800 dark:text-slate-200" x-text="token.token + ' (' + token.tf + ')'"></span>
                   </template>
                 </div>
               </div>
@@ -2161,7 +2159,7 @@ export function getDashboardHtml(folderId = '') {
           </div>
 
           <!-- Dossier Sub-Navigation: Candidates Table vs Creator Playbook -->
-          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-2">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-[#27272A] pb-2">
             <div class="flex items-center space-x-2">
               <button @click="dossierTab = 'table'" class="px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1.5" :class="dossierTab === 'table' ? 'bg-rose-600 text-white shadow-sm' : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300'">
                 <i data-lucide="list" class="w-3.5 h-3.5"></i>
@@ -2170,19 +2168,19 @@ export function getDashboardHtml(folderId = '') {
               <button @click="dossierTab = 'playbook'" class="px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1.5" :class="dossierTab === 'playbook' ? 'bg-rose-600 text-white shadow-sm' : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300'">
                 <i data-lucide="sparkles" class="w-3.5 h-3.5 text-amber-400"></i>
                 <span>Creator Playbook (RecGPT Matrix)</span>
-                <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold uppercase bg-amber-500/20 text-amber-700 dark:text-amber-300">Live DB</span>
+                <span class="px-1.5 py-0.2 rounded text-[9px] font-mono tabular-nums font-bold uppercase bg-amber-500/20 text-amber-700 dark:text-amber-300">Live DB</span>
               </button>
               <button @click="dossierTab = 'guided_search'" class="px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1.5" :class="dossierTab === 'guided_search' ? 'bg-purple-600 text-white shadow-sm' : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300'">
                 <i data-lucide="compass" class="w-3.5 h-3.5 text-purple-400"></i>
                 <span>Guided Search Radar (كبسولات BUBBLE_ONE_COL)</span>
-                <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-purple-500/20 text-purple-700 dark:text-purple-300" x-text="dossierGuidedCapsules.length"></span>
+                <span class="px-1.5 py-0.2 rounded text-[9px] font-mono tabular-nums font-bold bg-purple-500/20 text-purple-700 dark:text-purple-300" x-text="dossierGuidedCapsules.length"></span>
               </button>
             </div>
 
             <!-- Sorting Selector (When Table is Active) -->
             <div x-show="dossierTab === 'table'" class="flex items-center space-x-2">
-              <span class="text-xs font-semibold text-slate-500 font-mono hidden sm:inline">Sort:</span>
-              <select x-model="dossierSort" @change="reloadDossierCandidates()" class="px-2.5 py-1 rounded-xl text-xs bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-slate-100 font-mono focus:outline-none focus:border-rose-500">
+              <span class="text-xs font-semibold text-slate-500 font-mono tabular-nums hidden sm:inline">Sort:</span>
+              <select x-model="dossierSort" @change="reloadDossierCandidates()" class="px-2.5 py-1 rounded-xl text-xs bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] text-slate-900 dark:text-slate-100 font-mono tabular-nums focus:outline-none focus:border-rose-500">
                 <option value="saves">Sort by Total Saves</option>
                 <option value="velocity">Sort by Velocity (Fastest Growing)</option>
               </select>
@@ -2191,19 +2189,19 @@ export function getDashboardHtml(folderId = '') {
 
           <!-- SUB-VIEW 1: CREATOR PLAYBOOK (RecGPT Matrix from Live DB) -->
           <div x-show="dossierTab === 'playbook'" class="space-y-4">
-            <div class="bg-white dark:bg-[#0d1526] border border-slate-200/90 dark:border-slate-800 rounded-2xl p-6 shadow-sm dark:shadow-xl space-y-4">
-              <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-3">
+            <div class="bg-white dark:bg-[#18181B] border border-slate-200/90 dark:border-[#27272A] rounded-2xl p-6 shadow-sm dark:shadow-xl space-y-4">
+              <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-[#27272A] pb-3">
                 <div>
                   <h3 class="font-bold text-sm text-slate-900 dark:text-white flex items-center space-x-2">
                     <i data-lucide="sparkles" class="w-4 h-4 text-amber-500"></i>
                     <span>Creator Playbook: RecGPT Sequential Trajectory Matrix</span>
                   </h3>
                   <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                    Pinterest's causal sequential transformer predicts user transition probabilities between meal courses. These 3 candidate nodes are dynamically extracted from Neon for active seed <span class="font-mono text-rose-500" x-text="activeDossierSeed.pin_id"></span>.
+                    Pinterest's causal sequential transformer predicts user transition probabilities between meal courses. These 3 candidate nodes are dynamically extracted from Neon for active seed <span class="font-mono tabular-nums text-rose-500" x-text="activeDossierSeed.pin_id"></span>.
                   </p>
                 </div>
                 <div class="flex items-center space-x-2">
-                  <span class="px-2.5 py-1 rounded-lg text-xs font-mono font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
+                  <span class="px-2.5 py-1 rounded-lg text-xs font-mono tabular-nums font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
                     P2P_RECGPT Active
                   </span>
                 </div>
@@ -2216,21 +2214,21 @@ export function getDashboardHtml(folderId = '') {
                 <div class="p-4 rounded-2xl border border-rose-500/30 bg-rose-500/[0.03] dark:bg-rose-500/[0.05] space-y-3 flex flex-col justify-between">
                   <div class="space-y-2.5">
                     <div class="flex items-center justify-between">
-                      <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30">
+                      <span class="px-2 py-0.5 rounded text-[10px] font-mono tabular-nums font-bold uppercase bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30">
                         1. Dinner Anchor (Primary Entree)
                       </span>
-                      <span class="text-[11px] font-mono text-slate-400" x-text="'Prep: ' + (recgptPlaybook?.dinner_anchor?.prep_time || '15m')"></span>
+                      <span class="text-[11px] font-mono tabular-nums text-slate-400" x-text="'Prep: ' + (recgptPlaybook?.dinner_anchor?.prep_time || '15m')"></span>
                     </div>
 
                     <div class="flex items-start space-x-3">
                       <span class="w-8 h-8 rounded-lg border flex-shrink-0 mt-0.5" :style="'background-color: ' + (recgptPlaybook?.dinner_anchor?.winning_color || '#824d30')"></span>
                       <div class="space-y-1">
                         <div class="font-bold text-slate-900 dark:text-white text-xs line-clamp-2" x-text="recgptPlaybook?.dinner_anchor?.title || 'Dinner Anchor'"></div>
-                        <div class="text-[10px] font-mono text-slate-400" x-text="recgptPlaybook?.dinner_anchor?.culinary_color_name"></div>
+                        <div class="text-[10px] font-mono tabular-nums text-slate-400" x-text="recgptPlaybook?.dinner_anchor?.culinary_color_name"></div>
                       </div>
                     </div>
 
-                    <div class="p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[11px] font-mono space-y-1">
+                    <div class="p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] text-[11px] font-mono tabular-nums space-y-1">
                       <div class="flex justify-between">
                         <span class="text-slate-500">Saves:</span>
                         <strong class="text-slate-900 dark:text-white" x-text="Number(recgptPlaybook?.dinner_anchor?.saves || 0).toLocaleString()"></strong>
@@ -2244,7 +2242,7 @@ export function getDashboardHtml(folderId = '') {
                         <strong class="text-purple-600 dark:text-purple-400" x-text="(recgptPlaybook?.dinner_anchor?.recgpt_transition_score || 0) + ' / 100'"></strong>
                       </div>
                       <template x-if="recgptPlaybook?.dinner_anchor?.daily_velocity">
-                        <div class="flex justify-between pt-0.5 border-t border-slate-100 dark:border-slate-800">
+                        <div class="flex justify-between pt-0.5 border-t border-slate-100 dark:border-[#27272A]">
                           <span class="text-slate-500">Daily Velocity:</span>
                           <strong class="text-emerald-600" x-text="'⚡ ' + recgptPlaybook?.dinner_anchor?.daily_velocity + '/day'"></strong>
                         </div>
@@ -2262,21 +2260,21 @@ export function getDashboardHtml(folderId = '') {
                 <div class="p-4 rounded-2xl border border-sky-500/30 bg-sky-500/[0.03] dark:bg-sky-500/[0.05] space-y-3 flex flex-col justify-between">
                   <div class="space-y-2.5">
                     <div class="flex items-center justify-between">
-                      <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase bg-sky-500/15 text-sky-600 dark:text-sky-400 border border-sky-500/30">
+                      <span class="px-2 py-0.5 rounded text-[10px] font-mono tabular-nums font-bold uppercase bg-sky-500/15 text-sky-600 dark:text-sky-400 border border-sky-500/30">
                         2. Navboost Co-visitor (Complementary Side)
                       </span>
-                      <span class="text-[11px] font-mono text-slate-400" x-text="'Prep: ' + (recgptPlaybook?.navboost_co_visitor?.prep_time || '20m')"></span>
+                      <span class="text-[11px] font-mono tabular-nums text-slate-400" x-text="'Prep: ' + (recgptPlaybook?.navboost_co_visitor?.prep_time || '20m')"></span>
                     </div>
 
                     <div class="flex items-start space-x-3">
                       <span class="w-8 h-8 rounded-lg border flex-shrink-0 mt-0.5" :style="'background-color: ' + (recgptPlaybook?.navboost_co_visitor?.winning_color || '#d08c47')"></span>
                       <div class="space-y-1">
                         <div class="font-bold text-slate-900 dark:text-white text-xs line-clamp-2" x-text="recgptPlaybook?.navboost_co_visitor?.title || 'Navboost Side'"></div>
-                        <div class="text-[10px] font-mono text-slate-400" x-text="recgptPlaybook?.navboost_co_visitor?.culinary_color_name"></div>
+                        <div class="text-[10px] font-mono tabular-nums text-slate-400" x-text="recgptPlaybook?.navboost_co_visitor?.culinary_color_name"></div>
                       </div>
                     </div>
 
-                    <div class="p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[11px] font-mono space-y-1">
+                    <div class="p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] text-[11px] font-mono tabular-nums space-y-1">
                       <div class="flex justify-between">
                         <span class="text-slate-500">Saves:</span>
                         <strong class="text-slate-900 dark:text-white" x-text="Number(recgptPlaybook?.navboost_co_visitor?.saves || 0).toLocaleString()"></strong>
@@ -2290,7 +2288,7 @@ export function getDashboardHtml(folderId = '') {
                         <strong class="text-sky-600 dark:text-sky-400" x-text="(recgptPlaybook?.navboost_co_visitor?.recgpt_transition_score || 0) + ' / 100'"></strong>
                       </div>
                       <template x-if="recgptPlaybook?.navboost_co_visitor?.daily_velocity">
-                        <div class="flex justify-between pt-0.5 border-t border-slate-100 dark:border-slate-800">
+                        <div class="flex justify-between pt-0.5 border-t border-slate-100 dark:border-[#27272A]">
                           <span class="text-slate-500">Daily Velocity:</span>
                           <strong class="text-emerald-600" x-text="'⚡ ' + recgptPlaybook?.navboost_co_visitor?.daily_velocity + '/day'"></strong>
                         </div>
@@ -2308,21 +2306,21 @@ export function getDashboardHtml(folderId = '') {
                 <div class="p-4 rounded-2xl border border-amber-500/30 bg-amber-500/[0.03] dark:bg-amber-500/[0.05] space-y-3 flex flex-col justify-between">
                   <div class="space-y-2.5">
                     <div class="flex items-center justify-between">
-                      <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30">
+                      <span class="px-2 py-0.5 rounded text-[10px] font-mono tabular-nums font-bold uppercase bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30">
                         3. Session Finisher (Board Saver Dessert)
                       </span>
-                      <span class="text-[11px] font-mono text-slate-400" x-text="'Prep: ' + (recgptPlaybook?.session_finisher?.prep_time || '10m')"></span>
+                      <span class="text-[11px] font-mono tabular-nums text-slate-400" x-text="'Prep: ' + (recgptPlaybook?.session_finisher?.prep_time || '10m')"></span>
                     </div>
 
                     <div class="flex items-start space-x-3">
                       <span class="w-8 h-8 rounded-lg border flex-shrink-0 mt-0.5" :style="'background-color: ' + (recgptPlaybook?.session_finisher?.winning_color || '#b9975f')"></span>
                       <div class="space-y-1">
                         <div class="font-bold text-slate-900 dark:text-white text-xs line-clamp-2" x-text="recgptPlaybook?.session_finisher?.title || 'Session Finisher'"></div>
-                        <div class="text-[10px] font-mono text-slate-400" x-text="recgptPlaybook?.session_finisher?.culinary_color_name"></div>
+                        <div class="text-[10px] font-mono tabular-nums text-slate-400" x-text="recgptPlaybook?.session_finisher?.culinary_color_name"></div>
                       </div>
                     </div>
 
-                    <div class="p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[11px] font-mono space-y-1">
+                    <div class="p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] text-[11px] font-mono tabular-nums space-y-1">
                       <div class="flex justify-between">
                         <span class="text-slate-500">Saves:</span>
                         <strong class="text-slate-900 dark:text-white" x-text="Number(recgptPlaybook?.session_finisher?.saves || 0).toLocaleString()"></strong>
@@ -2336,7 +2334,7 @@ export function getDashboardHtml(folderId = '') {
                         <strong class="text-amber-600 dark:text-amber-400" x-text="(recgptPlaybook?.session_finisher?.recgpt_transition_score || 0) + ' / 100'"></strong>
                       </div>
                       <template x-if="recgptPlaybook?.session_finisher?.daily_velocity">
-                        <div class="flex justify-between pt-0.5 border-t border-slate-100 dark:border-slate-800">
+                        <div class="flex justify-between pt-0.5 border-t border-slate-100 dark:border-[#27272A]">
                           <span class="text-slate-500">Daily Velocity:</span>
                           <strong class="text-emerald-600" x-text="'⚡ ' + recgptPlaybook?.session_finisher?.daily_velocity + '/day'"></strong>
                         </div>
@@ -2355,18 +2353,18 @@ export function getDashboardHtml(folderId = '') {
           </div>
 
           <!-- SUB-VIEW 2: FULL UNCAPPED CANDIDATES TABLE FOR ACTIVE SEED -->
-          <div x-show="dossierTab === 'table'" class="bg-white dark:bg-[#0d1526] border border-slate-200/90 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm dark:shadow-xl space-y-3 p-5">
-            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-3">
+          <div x-show="dossierTab === 'table'" class="bg-white dark:bg-[#18181B] border border-slate-200/90 dark:border-[#27272A] rounded-2xl overflow-hidden shadow-sm dark:shadow-xl space-y-3 p-5">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-[#27272A] pb-3">
               <div>
                 <h3 class="font-bold text-sm text-slate-900 dark:text-white flex items-center space-x-2">
                   <i data-lucide="list" class="w-4 h-4 text-rose-500"></i>
-                  <span>Candidates Harvested from Seed <span class="font-mono text-rose-600 dark:text-rose-400" x-text="activeDossierSeed.pin_id"></span></span>
+                  <span>Candidates Harvested from Seed <span class="font-mono tabular-nums text-rose-600 dark:text-rose-400" x-text="activeDossierSeed.pin_id"></span></span>
                 </h3>
-                <p class="text-xs text-slate-500 font-mono" x-text="'Showing all ' + dossierCandidates.length + ' candidate nodes (100% Uncapped)'"></p>
+                <p class="text-xs text-slate-500 font-mono tabular-nums" x-text="'Showing all ' + dossierCandidates.length + ' candidate nodes (100% Uncapped)'"></p>
               </div>
 
               <div class="flex items-center space-x-2">
-                <button @click="exportCsv(filteredDossierCandidates, 'seed-' + activeDossierSeed.pin_id + '-candidates.csv')" class="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-semibold shadow-sm transition active:scale-95">
+                <button @click="exportCsv(filteredDossierCandidates, 'seed-' + activeDossierSeed.pin_id + '-candidates.csv')" class="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-semibold shadow-sm transition active:scale-95">
                   <i data-lucide="download" class="w-3.5 h-3.5 text-rose-500"></i>
                   <span>Export CSV</span>
                 </button>
@@ -2374,22 +2372,22 @@ export function getDashboardHtml(folderId = '') {
             </div>
 
             <!-- Filter & Segment Toolbar for Seed Dossier Candidates -->
-            <div class="p-3.5 rounded-2xl bg-slate-50/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800/80 space-y-3">
+            <div class="p-3.5 rounded-2xl bg-slate-50/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-[#27272A]/80 space-y-3">
               <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
                 
                 <!-- 1. Text Search -->
                 <div class="relative flex-1 min-w-[200px]">
                   <i data-lucide="search" class="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400"></i>
-                  <input type="text" x-model="dossierFilters.search" placeholder="Search title, domain, OCR text, or pin ID..." class="w-full pl-9 pr-3 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 font-mono text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-rose-500">
+                  <input type="text" x-model="dossierFilters.search" placeholder="Search title, domain, OCR text, or pin ID..." class="w-full pl-9 pr-3 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] font-mono tabular-nums text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-rose-500">
                 </div>
 
                 <!-- 2. The 4 Dropdown Filter Selectors -->
                 <div class="flex items-center space-x-2 flex-wrap gap-y-2">
                   
                   <!-- Engine Provenance Filter -->
-                  <div class="flex items-center space-x-1 bg-white dark:bg-slate-900 rounded-xl px-2 py-1 border border-slate-200 dark:border-slate-800 shadow-sm">
-                    <span class="text-[10px] font-mono text-slate-400 uppercase font-semibold">Engine:</span>
-                    <select x-model="dossierFilters.engine" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono focus:outline-none cursor-pointer">
+                  <div class="flex items-center space-x-1 bg-white dark:bg-slate-900 rounded-xl px-2 py-1 border border-slate-200 dark:border-[#27272A] shadow-sm">
+                    <span class="text-[10px] font-mono tabular-nums text-slate-400 uppercase font-semibold">Engine:</span>
+                    <select x-model="dossierFilters.engine" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono tabular-nums focus:outline-none cursor-pointer">
                       <option value="all">All Engines</option>
                       <option value="P2P_NAVBOOST">P2P_NAVBOOST (Sky)</option>
                       <option value="P2P_RANDOMWALK">P2P_RANDOMWALK (Emerald)</option>
@@ -2401,9 +2399,9 @@ export function getDashboardHtml(folderId = '') {
                   </div>
 
                   <!-- Velocity Tier Filter -->
-                  <div class="flex items-center space-x-1 bg-white dark:bg-slate-900 rounded-xl px-2 py-1 border border-slate-200 dark:border-slate-800 shadow-sm">
-                    <span class="text-[10px] font-mono text-slate-400 uppercase font-semibold">Speed:</span>
-                    <select x-model="dossierFilters.velocity" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono focus:outline-none cursor-pointer">
+                  <div class="flex items-center space-x-1 bg-white dark:bg-slate-900 rounded-xl px-2 py-1 border border-slate-200 dark:border-[#27272A] shadow-sm">
+                    <span class="text-[10px] font-mono tabular-nums text-slate-400 uppercase font-semibold">Speed:</span>
+                    <select x-model="dossierFilters.velocity" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono tabular-nums focus:outline-none cursor-pointer">
                       <option value="all">All Speeds</option>
                       <option value="explosive">🔥 Explosive (≥ 50/d)</option>
                       <option value="trending">⚡ Trending (10-49/d)</option>
@@ -2412,9 +2410,9 @@ export function getDashboardHtml(folderId = '') {
                   </div>
 
                   <!-- Market Arbitrage Status Filter -->
-                  <div class="flex items-center space-x-1 bg-white dark:bg-slate-900 rounded-xl px-2 py-1 border border-slate-200 dark:border-slate-800 shadow-sm">
-                    <span class="text-[10px] font-mono text-slate-400 uppercase font-semibold">Market:</span>
-                    <select x-model="dossierFilters.market" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono focus:outline-none cursor-pointer">
+                  <div class="flex items-center space-x-1 bg-white dark:bg-slate-900 rounded-xl px-2 py-1 border border-slate-200 dark:border-[#27272A] shadow-sm">
+                    <span class="text-[10px] font-mono tabular-nums text-slate-400 uppercase font-semibold">Market:</span>
+                    <select x-model="dossierFilters.market" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono tabular-nums focus:outline-none cursor-pointer">
                       <option value="all">All Statuses</option>
                       <option value="vacuum">🎯 Vacuum Targets Only (Organic ≥ 5K)</option>
                       <option value="product">🛒 Competitor Products (Etsy/Shopify)</option>
@@ -2422,9 +2420,9 @@ export function getDashboardHtml(folderId = '') {
                   </div>
 
                   <!-- RecGPT Meal Sequence Filter -->
-                  <div class="flex items-center space-x-1 bg-white dark:bg-slate-900 rounded-xl px-2 py-1 border border-slate-200 dark:border-slate-800 shadow-sm">
-                    <span class="text-[10px] font-mono text-slate-400 uppercase font-semibold">Sequence:</span>
-                    <select x-model="dossierFilters.sequence" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono focus:outline-none cursor-pointer">
+                  <div class="flex items-center space-x-1 bg-white dark:bg-slate-900 rounded-xl px-2 py-1 border border-slate-200 dark:border-[#27272A] shadow-sm">
+                    <span class="text-[10px] font-mono tabular-nums text-slate-400 uppercase font-semibold">Sequence:</span>
+                    <select x-model="dossierFilters.sequence" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono tabular-nums focus:outline-none cursor-pointer">
                       <option value="all">All Sequence Roles</option>
                       <option value="DESSERT_HERO">🧁 Hero Dessert/Bake</option>
                       <option value="BEVERAGE_PAIRING">☕ Beverage/Pairing</option>
@@ -2440,7 +2438,7 @@ export function getDashboardHtml(folderId = '') {
               </div>
 
               <!-- Dynamic Result Count Badge & Reset Button -->
-              <div class="flex items-center justify-between pt-1 text-xs border-t border-slate-200/60 dark:border-slate-800/60 font-mono">
+              <div class="flex items-center justify-between pt-1 text-xs border-t border-slate-200/60 dark:border-[#27272A]/60 font-mono tabular-nums">
                 <div class="flex items-center space-x-2 text-slate-600 dark:text-slate-300">
                   <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200">
                     Showing <span class="mx-1 text-rose-600 dark:text-rose-400" x-text="filteredDossierCandidates.length"></span> of <span class="mx-1" x-text="dossierCandidates.length"></span> candidates matching filters
@@ -2461,7 +2459,7 @@ export function getDashboardHtml(folderId = '') {
             <div class="overflow-x-auto">
               <table class="w-full text-left text-xs border-collapse">
                 <thead>
-                  <tr class="border-b border-slate-200 dark:border-slate-800/80 bg-slate-50/80 dark:bg-slate-900/60 text-slate-500 dark:text-slate-400 font-mono text-[11px] uppercase tracking-wider">
+                  <tr class="border-b border-slate-200 dark:border-[#27272A]/80 bg-slate-50/80 dark:bg-slate-900/60 text-slate-500 dark:text-slate-400 font-mono tabular-nums text-[11px] uppercase tracking-wider">
                     <th class="py-3 px-3">Preview & Format</th>
                     <th class="py-3 px-3 min-w-[220px]">Title & Vision OCR</th>
                     <th class="py-3 px-3">Pin Age & Velocity</th>
@@ -2491,7 +2489,7 @@ export function getDashboardHtml(folderId = '') {
                           </template>
                           <div class="space-y-1">
                             <div class="flex items-center space-x-1">
-                              <span class="inline-block px-1.5 py-0.5 rounded text-[9px] font-mono font-bold tracking-wider uppercase" :class="{
+                              <span class="inline-block px-1.5 py-0.5 rounded text-[9px] font-mono tabular-nums font-bold tracking-wider uppercase" :class="{
                                 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20': item.format_type === 'PRODUCT CARD',
                                 'bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20': item.format_type === 'ORGANIC PIN',
                                 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20': item.format_type === 'VIDEO PIN',
@@ -2507,7 +2505,7 @@ export function getDashboardHtml(folderId = '') {
 
                             <!-- Ingestion Method Badge -->
                             <template x-if="item.ingestion_method && item.ingestion_method !== 'uploaded'">
-                              <div class="text-[8px] font-mono font-bold uppercase tracking-wider text-slate-400 flex items-center space-x-1">
+                              <div class="text-[8px] font-mono tabular-nums font-bold uppercase tracking-wider text-slate-400 flex items-center space-x-1">
                                 <span class="px-1 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-500" x-text="item.ingestion_method === 'csv_importer' ? '⚙️ CSV Farm' : (item.ingestion_method === 'pin_scheduling' ? '⏱️ Scheduled' : item.ingestion_method)"></span>
                               </div>
                             </template>
@@ -2519,7 +2517,7 @@ export function getDashboardHtml(folderId = '') {
                       <td class="py-3 px-3">
                         <div class="space-y-1">
                           <a :href="'https://www.pinterest.com/pin/' + item.candidate_pin_id + '/'" target="_blank" class="font-bold text-slate-900 dark:text-slate-100 hover:text-rose-600 dark:hover:text-rose-400 line-clamp-1 hover:underline" x-text="item.title"></a>
-                          <div class="flex items-center space-x-2 text-[10px] text-slate-500 font-mono flex-wrap gap-y-1">
+                          <div class="flex items-center space-x-2 text-[10px] text-slate-500 font-mono tabular-nums flex-wrap gap-y-1">
                             <span class="px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300" x-text="item.domain"></span>
                             <span>•</span>
                             <span x-text="'ID: ' + item.candidate_pin_id"></span>
@@ -2544,7 +2542,7 @@ export function getDashboardHtml(folderId = '') {
                             </template>
                           </div>
                           <template x-if="item.ocr_text">
-                            <div class="p-1 px-1.5 rounded bg-slate-100 dark:bg-slate-900/90 text-[9px] text-slate-600 dark:text-slate-400 font-mono truncate max-w-sm" :title="item.ocr_text">
+                            <div class="p-1 px-1.5 rounded bg-slate-100 dark:bg-slate-900/90 text-[9px] text-slate-600 dark:text-slate-400 font-mono tabular-nums truncate max-w-sm" :title="item.ocr_text">
                               <span class="text-rose-500 font-bold">OCR:</span> <span x-text="item.ocr_text"></span>
                             </div>
                           </template>
@@ -2552,7 +2550,7 @@ export function getDashboardHtml(folderId = '') {
                       </td>
 
                       <!-- 3. Pin Age & Velocity -->
-                      <td class="py-3 px-3 whitespace-nowrap font-mono">
+                      <td class="py-3 px-3 whitespace-nowrap font-mono tabular-nums">
                         <div class="text-[11px] text-slate-500 dark:text-slate-400" x-text="item.age_display || (item.age_days ? (item.age_days < 30 ? item.age_days + 'd ago' : (item.age_days < 365 ? Math.floor(item.age_days / 30) + 'mo ago' : (item.age_days / 365).toFixed(1) + 'y ago')) : '1d ago')"></div>
                         <div class="mt-0.5">
                           <template x-if="Number(item.daily_velocity || 0) >= 50">
@@ -2562,13 +2560,13 @@ export function getDashboardHtml(folderId = '') {
                             <span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30" x-text="'⚡ ' + item.daily_velocity + '/day (Trending)'"></span>
                           </template>
                           <template x-if="Number(item.daily_velocity || 0) < 10">
-                            <span class="px-1.5 py-0.5 rounded text-[9px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700" x-text="item.daily_velocity + '/day (Stagnant)'"></span>
+                            <span class="px-1.5 py-0.5 rounded text-[9px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-[#27272A]" x-text="item.daily_velocity + '/day (Stagnant)'"></span>
                           </template>
                         </div>
                       </td>
 
                       <!-- 4. Metrics -->
-                      <td class="py-3 px-3 whitespace-nowrap font-mono">
+                      <td class="py-3 px-3 whitespace-nowrap font-mono tabular-nums">
                         <div class="text-slate-900 dark:text-slate-100 font-bold" x-text="Number(item.total_saves != null ? item.total_saves : (item.saves || 0)).toLocaleString() + ' saves'"></div>
                         <template x-if="Number(item.total_repins != null ? item.total_repins : (item.repins || 0)) > 0">
                           <div class="text-[10px] text-slate-500" x-text="Number(item.total_repins != null ? item.total_repins : (item.repins || 0)).toLocaleString() + ' repins • ' + (item.avg_save_rate != null ? item.avg_save_rate : (item.save_rate != null ? item.save_rate : 0)) + '% rate'"></div>
@@ -2583,7 +2581,7 @@ export function getDashboardHtml(folderId = '') {
                         <div class="flex items-center space-x-2">
                           <span class="w-4 h-4 rounded border flex-shrink-0 shadow-sm" :style="'background-color: ' + (item.winning_color || item.dominant_color || '#888888')"></span>
                           <div class="space-y-0.5 min-w-0">
-                            <div class="font-mono text-[10px] font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wide" x-text="item.winning_color || item.dominant_color || '#888888'"></div>
+                            <div class="font-mono tabular-nums text-[10px] font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wide" x-text="item.winning_color || item.dominant_color || '#888888'"></div>
                             <div class="text-[9px] text-slate-500 dark:text-slate-400 font-medium truncate max-w-[140px]" x-text="item.culinary_color_name || 'Culinary Accent'" :title="item.culinary_color_name"></div>
                           </div>
                         </div>
@@ -2591,7 +2589,7 @@ export function getDashboardHtml(folderId = '') {
 
                       <!-- 6. Engine Provenance -->
                       <td class="py-3 px-3 whitespace-nowrap">
-                        <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase" :class="{
+                        <span class="px-2 py-0.5 rounded text-[10px] font-mono tabular-nums font-bold uppercase" :class="{
                           'bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20': item.engine_source === 'P2P_NAVBOOST',
                           'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20': item.engine_source === 'P2P_RANDOMWALK',
                           'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20': item.engine_source === 'P2P_RECGPT',
@@ -2602,12 +2600,12 @@ export function getDashboardHtml(folderId = '') {
                       </td>
 
                       <!-- 7. prod:v18 Spread -->
-                      <td class="py-3 px-3 whitespace-nowrap font-mono">
+                      <td class="py-3 px-3 whitespace-nowrap font-mono tabular-nums">
                         <template x-if="!item.is_product">
                           <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30" x-text="'+' + (item.prod_spread || 220.8) + ' Net Leverage'"></span>
                         </template>
                         <template x-if="item.is_product">
-                          <span class="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700">0.0 Net</span>
+                          <span class="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-[#27272A]">0.0 Net</span>
                         </template>
                       </td>
 
@@ -2626,31 +2624,31 @@ export function getDashboardHtml(folderId = '') {
 
           <!-- SUB-VIEW 3: 🧭 GUIDED SEARCH RADAR (BUBBLE_ONE_COL CAPSULES) FOR ACTIVE SEED -->
           <div x-show="dossierTab === 'guided_search'" class="space-y-5">
-            <div class="bg-white dark:bg-[#0d1526] border border-slate-200/90 dark:border-slate-800 rounded-2xl p-6 shadow-sm dark:shadow-xl space-y-5">
+            <div class="bg-white dark:bg-[#18181B] border border-slate-200/90 dark:border-[#27272A] rounded-2xl p-6 shadow-sm dark:shadow-xl space-y-5">
               
               <!-- Header & Explanation -->
-              <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200/80 dark:border-slate-800/80 pb-4">
+              <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200/80 dark:border-[#27272A]/80 pb-4">
                 <div>
                   <h3 class="text-base font-bold text-slate-900 dark:text-white flex items-center space-x-2">
                     <i data-lucide="compass" class="w-5 h-5 text-purple-500"></i>
-                    <span>Pinterest Guided Search Radar (استعلامات البحث الموجهة للدبوس <span class="font-mono text-purple-600 dark:text-purple-400" x-text="activeDossierSeed.pin_id"></span>)</span>
+                    <span>Pinterest Guided Search Radar (استعلامات البحث الموجهة للدبوس <span class="font-mono tabular-nums text-purple-600 dark:text-purple-400" x-text="activeDossierSeed.pin_id"></span>)</span>
                   </h3>
                   <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">
                     كبسولات بحثية مُهندسة خوارزمياً (BUBBLE_ONE_COL / Explore Article) مستخرجة من الـ Raw JSON لهذا الدبوس تحديداً. انقر على أي صورة لتكبيرها والتنقل بين الصور.
                   </p>
                 </div>
                 <div class="flex items-center space-x-2">
-                  <span class="px-3 py-1.5 rounded-xl text-xs font-mono font-bold bg-purple-500/10 text-purple-700 dark:text-purple-400 border border-purple-500/20" x-text="dossierGuidedCapsules.length + ' Capsules Harvested'"></span>
+                  <span class="px-3 py-1.5 rounded-xl text-xs font-mono tabular-nums font-bold bg-purple-500/10 text-purple-700 dark:text-purple-400 border border-purple-500/20" x-text="dossierGuidedCapsules.length + ' Capsules Harvested'"></span>
                 </div>
               </div>
 
               <!-- Visual Grid of Guided Search Capsules for this Seed -->
               <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
                 <template x-for="(cap, capIdx) in dossierGuidedCapsules" :key="cap.id || cap.node_id || cap.query_term">
-                  <div class="group bg-slate-50/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800/80 hover:border-purple-500/50 rounded-2xl p-4 shadow-sm hover:shadow-lg transition space-y-3 flex flex-col justify-between">
+                  <div class="group bg-slate-50/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-[#27272A]/80 hover:border-purple-500/50 rounded-2xl p-4 shadow-sm hover:shadow-lg transition space-y-3 flex flex-col justify-between">
                     <div class="space-y-3">
                       <!-- Cover Image Thumbnail with Click-to-Zoom Lightbox -->
-                      <div @click="openLightbox(capIdx)" class="relative w-full h-48 rounded-xl overflow-hidden bg-slate-200 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-inner cursor-pointer group/img">
+                      <div @click="openLightbox(capIdx)" class="relative w-full h-48 rounded-xl overflow-hidden bg-slate-200 dark:bg-slate-800 border border-slate-200 dark:border-[#27272A] shadow-inner cursor-pointer group/img">
                         <template x-if="cap.image_url">
                           <img :src="cap.image_url" alt="Guided capsule cover" loading="lazy" class="w-full h-full object-cover group-hover/img:scale-105 transition-transform duration-300">
                         </template>
@@ -2662,13 +2660,13 @@ export function getDashboardHtml(folderId = '') {
                         
                         <!-- Explore Article Badge -->
                         <div class="absolute top-2 left-2">
-                          <span class="px-2 py-0.5 rounded-md text-[9px] font-mono font-bold uppercase bg-slate-950/80 text-purple-300 backdrop-blur-md border border-purple-500/30">
+                          <span class="px-2 py-0.5 rounded-md text-[9px] font-mono tabular-nums font-bold uppercase bg-slate-950/80 text-purple-300 backdrop-blur-md border border-purple-500/30">
                             EXPLORE ARTICLE
                           </span>
                         </div>
 
                         <!-- Zoom Hint Overlay on Hover -->
-                        <div class="absolute inset-0 bg-slate-950/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center space-x-1.5 text-white text-xs font-mono font-semibold backdrop-blur-[2px]">
+                        <div class="absolute inset-0 bg-slate-950/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center space-x-1.5 text-white text-xs font-mono tabular-nums font-semibold backdrop-blur-[2px]">
                           <i data-lucide="maximize-2" class="w-4 h-4"></i>
                           <span>عرض كامل / تكبير</span>
                         </div>
@@ -2677,7 +2675,7 @@ export function getDashboardHtml(folderId = '') {
                       <!-- Query Title -->
                       <div>
                         <h4 class="font-bold text-sm text-slate-900 dark:text-white line-clamp-2 group-hover:text-purple-600 dark:group-hover:text-purple-400 transition" x-text="cap.query_term"></h4>
-                        <div class="flex items-center space-x-1.5 text-[10px] font-mono text-slate-500 dark:text-slate-400 mt-1">
+                        <div class="flex items-center space-x-1.5 text-[10px] font-mono tabular-nums text-slate-500 dark:text-slate-400 mt-1">
                           <span>Origin:</span>
                           <span class="truncate font-semibold text-slate-700 dark:text-slate-300">BUBBLE_ONE_COL</span>
                         </div>
@@ -2685,13 +2683,13 @@ export function getDashboardHtml(folderId = '') {
                     </div>
 
                     <!-- Action Links & Prompts -->
-                    <div class="pt-2 border-t border-slate-200/60 dark:border-slate-800/60 space-y-2">
+                    <div class="pt-2 border-t border-slate-200/60 dark:border-[#27272A]/60 space-y-2">
                       <div class="flex items-center space-x-2">
-                        <button @click="copyGuidedPrompt(cap.query_term)" class="flex-1 px-2.5 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-semibold text-[10px] font-mono transition active:scale-95 flex items-center justify-center space-x-1 shadow-sm">
+                        <button @click="copyGuidedPrompt(cap.query_term)" class="flex-1 px-2.5 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-semibold text-[10px] font-mono tabular-nums transition active:scale-95 flex items-center justify-center space-x-1 shadow-sm">
                           <i data-lucide="copy" class="w-3 h-3"></i>
                           <span>Copy Prompt</span>
                         </button>
-                        <a :href="cap.search_url || ('https://www.pinterest.com/search/pins/?q=' + encodeURIComponent(cap.query_term))" target="_blank" class="px-2.5 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-[10px] font-mono transition flex items-center justify-center space-x-1" title="Open Pinterest Search">
+                        <a :href="cap.search_url || ('https://www.pinterest.com/search/pins/?q=' + encodeURIComponent(cap.query_term))" target="_blank" class="px-2.5 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-[10px] font-mono tabular-nums transition flex items-center justify-center space-x-1" title="Open Pinterest Search">
                           <i data-lucide="external-link" class="w-3 h-3"></i>
                         </a>
                       </div>
@@ -2702,22 +2700,22 @@ export function getDashboardHtml(folderId = '') {
 
               <!-- Empty State for this Seed -->
               <template x-if="dossierGuidedCapsules.length === 0">
-                <div class="p-12 text-center space-y-3 font-mono border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl">
+                <div class="p-12 text-center space-y-3 font-mono tabular-nums border border-dashed border-slate-200 dark:border-[#27272A] rounded-2xl">
                   <i data-lucide="compass" class="w-12 h-12 mx-auto text-purple-400"></i>
                   <p class="text-sm font-bold text-slate-800 dark:text-slate-200">لم يتم استخراج كبسولات BUBBLE_ONE_COL لهذا الدبوس حتى الآن.</p>
                   <p class="text-xs text-slate-500 max-w-xl mx-auto">
                     تنبيه خوارزمي: منصة بينترست ترسل كبسولات الاستكشاف الموجه (BUBBLE_ONE_COL) فقط للجلسات الموثقة (Session Cookies)، أو يمكنك استيراد ملف JSON الأصلي مباشرة.
                   </p>
                   <div class="pt-3 flex flex-wrap items-center justify-center gap-3">
-                    <button @click="openRawJsonModal(activeDossierSeed.pin_id)" class="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold font-mono transition active:scale-95 inline-flex items-center space-x-2 shadow-sm">
+                    <button @click="openRawJsonModal(activeDossierSeed.pin_id)" class="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold font-mono tabular-nums transition active:scale-95 inline-flex items-center space-x-2 shadow-sm">
                       <i data-lucide="file-input" class="w-3.5 h-3.5"></i>
                       <span>📥 استيراد ملف JSON الخام (Import Raw JSON)</span>
                     </button>
-                    <button @click="isCookieModalOpen = true" class="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-xs font-bold font-mono transition active:scale-95 inline-flex items-center space-x-2">
+                    <button @click="isCookieModalOpen = true" class="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-[#27272A] text-xs font-bold font-mono tabular-nums transition active:scale-95 inline-flex items-center space-x-2">
                       <i data-lucide="key" class="w-3.5 h-3.5 text-amber-500"></i>
                       <span>🔑 إعداد كوكيز بينترست (Set Session Cookie)</span>
                     </button>
-                    <button @click="triggerCrawl(activeDossierSeed.pin_id)" :disabled="crawlStatus.is_crawling" class="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold font-mono transition active:scale-95 disabled:opacity-50 inline-flex items-center space-x-2">
+                    <button @click="triggerCrawl(activeDossierSeed.pin_id)" :disabled="crawlStatus.is_crawling" class="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold font-mono tabular-nums transition active:scale-95 disabled:opacity-50 inline-flex items-center space-x-2">
                       <i data-lucide="refresh-cw" :class="{'animate-spin': crawlStatus.is_crawling}" class="w-3.5 h-3.5"></i>
                       <span>إعادة الزحف (Re-Crawl)</span>
                     </button>
@@ -2740,59 +2738,59 @@ export function getDashboardHtml(folderId = '') {
       <!-- 1. Executive Summary Ribbon (KPI Cards) -->
       <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <!-- Card 1: Total Hubs -->
-        <div class="p-3.5 rounded-2xl bg-white dark:bg-[#0d1526] border border-slate-200/90 dark:border-slate-800 shadow-sm flex items-center space-x-3">
+        <div class="p-3.5 rounded-2xl bg-white dark:bg-[#18181B] border border-slate-200/90 dark:border-[#27272A] shadow-sm flex items-center space-x-3">
           <div class="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-600 dark:text-amber-400 flex-shrink-0">
             <i data-lucide="flame" class="w-5 h-5"></i>
           </div>
           <div class="min-w-0">
-            <div class="text-[10px] font-mono uppercase text-slate-500 dark:text-slate-400 font-bold truncate">Total Intersections</div>
-            <div class="text-lg font-mono font-extrabold text-slate-900 dark:text-white" x-text="intersectionStats.totalHubs"></div>
+            <div class="text-[10px] font-mono tabular-nums uppercase text-slate-500 dark:text-slate-400 font-bold truncate">Total Intersections</div>
+            <div class="text-lg font-mono tabular-nums font-extrabold text-slate-900 dark:text-white" x-text="intersectionStats.totalHubs"></div>
             <div class="text-[10px] text-slate-400 font-medium truncate">Discovered across ≥ 2 seeds</div>
           </div>
         </div>
 
         <!-- Card 2: Golden Core (>= 5 Seeds) -->
-        <div class="p-3.5 rounded-2xl bg-white dark:bg-[#0d1526] border border-slate-200/90 dark:border-slate-800 shadow-sm flex items-center space-x-3">
+        <div class="p-3.5 rounded-2xl bg-white dark:bg-[#18181B] border border-slate-200/90 dark:border-[#27272A] shadow-sm flex items-center space-x-3">
           <div class="w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-600 dark:text-rose-400 flex-shrink-0">
             <i data-lucide="crown" class="w-5 h-5"></i>
           </div>
           <div class="min-w-0">
-            <div class="text-[10px] font-mono uppercase text-slate-500 dark:text-slate-400 font-bold truncate">Golden Core (≥ 5 Seeds)</div>
-            <div class="text-lg font-mono font-extrabold text-rose-600 dark:text-rose-400" x-text="intersectionStats.goldenCore"></div>
+            <div class="text-[10px] font-mono tabular-nums uppercase text-slate-500 dark:text-slate-400 font-bold truncate">Golden Core (≥ 5 Seeds)</div>
+            <div class="text-lg font-mono tabular-nums font-extrabold text-rose-600 dark:text-rose-400" x-text="intersectionStats.goldenCore"></div>
             <div class="text-[10px] text-slate-400 font-medium truncate">Ultra-high cross-cluster pull</div>
           </div>
         </div>
 
         <!-- Card 3: Vacuum Opportunities -->
-        <div class="p-3.5 rounded-2xl bg-white dark:bg-[#0d1526] border border-slate-200/90 dark:border-slate-800 shadow-sm flex items-center space-x-3">
+        <div class="p-3.5 rounded-2xl bg-white dark:bg-[#18181B] border border-slate-200/90 dark:border-[#27272A] shadow-sm flex items-center space-x-3">
           <div class="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-600 dark:text-emerald-400 flex-shrink-0">
             <i data-lucide="target" class="w-5 h-5"></i>
           </div>
           <div class="min-w-0">
-            <div class="text-[10px] font-mono uppercase text-slate-500 dark:text-slate-400 font-bold truncate">Vacuum Targets</div>
-            <div class="text-lg font-mono font-extrabold text-emerald-600 dark:text-emerald-400" x-text="intersectionStats.vacuumTargets"></div>
+            <div class="text-[10px] font-mono tabular-nums uppercase text-slate-500 dark:text-slate-400 font-bold truncate">Vacuum Targets</div>
+            <div class="text-lg font-mono tabular-nums font-extrabold text-emerald-600 dark:text-emerald-400" x-text="intersectionStats.vacuumTargets"></div>
             <div class="text-[10px] text-slate-400 font-medium truncate">Organic pins with ≥ 5K saves</div>
           </div>
         </div>
 
         <!-- Card 4: Top Pixie Hit Mass -->
-        <div class="p-3.5 rounded-2xl bg-white dark:bg-[#0d1526] border border-slate-200/90 dark:border-slate-800 shadow-sm flex items-center space-x-3">
+        <div class="p-3.5 rounded-2xl bg-white dark:bg-[#18181B] border border-slate-200/90 dark:border-[#27272A] shadow-sm flex items-center space-x-3">
           <div class="w-10 h-10 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-600 dark:text-purple-400 flex-shrink-0">
             <i data-lucide="activity" class="w-5 h-5"></i>
           </div>
           <div class="min-w-0">
-            <div class="text-[10px] font-mono uppercase text-slate-500 dark:text-slate-400 font-bold truncate">Max Pixie Hit Mass</div>
-            <div class="text-lg font-mono font-extrabold text-purple-600 dark:text-purple-400" x-text="intersectionStats.maxPixie"></div>
+            <div class="text-[10px] font-mono tabular-nums uppercase text-slate-500 dark:text-slate-400 font-bold truncate">Max Pixie Hit Mass</div>
+            <div class="text-lg font-mono tabular-nums font-extrabold text-purple-600 dark:text-purple-400" x-text="intersectionStats.maxPixie"></div>
             <div class="text-[10px] text-slate-400 font-medium truncate">Peak random-walk centroid</div>
           </div>
         </div>
       </div>
 
       <!-- Main Intersections Card -->
-      <div class="bg-white dark:bg-[#0d1526] border border-slate-200/90 dark:border-slate-800 rounded-2xl p-5 shadow-sm dark:shadow-xl space-y-4">
+      <div class="bg-white dark:bg-[#18181B] border border-slate-200/90 dark:border-[#27272A] rounded-2xl p-5 shadow-sm dark:shadow-xl space-y-4">
         
         <!-- Header Bar with Title and Actions -->
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-3">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-[#27272A] pb-3">
           <div>
             <h2 class="text-base font-bold text-slate-900 dark:text-white flex items-center space-x-2">
               <i data-lucide="flame" class="w-5 h-5 text-amber-500"></i>
@@ -2803,31 +2801,31 @@ export function getDashboardHtml(folderId = '') {
 
           <div class="flex items-center space-x-2 flex-wrap gap-y-1">
             <!-- View Mode Switcher: Grid Cards ⊞ vs Data Table ☰ -->
-            <div class="flex items-center bg-slate-100 dark:bg-slate-800/80 p-0.5 rounded-xl border border-slate-200 dark:border-slate-700/80 shadow-inner">
+            <div class="flex items-center bg-slate-100 dark:bg-slate-800/80 p-0.5 rounded-xl border border-slate-200 dark:border-[#27272A]/80 shadow-inner">
               <button @click="setIntersectionViewMode('grid')" 
-                      class="flex items-center space-x-1.5 px-3 py-1 rounded-lg text-xs font-semibold font-mono transition active:scale-95"
+                      class="flex items-center space-x-1.5 px-3 py-1 rounded-lg text-xs font-semibold font-mono tabular-nums transition active:scale-95"
                       :class="intersectionViewMode === 'grid' ? 'bg-white dark:bg-slate-900 text-amber-600 dark:text-amber-400 shadow-sm' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">
                 <i data-lucide="layout-grid" class="w-3.5 h-3.5"></i>
                 <span>Cards Grid</span>
               </button>
               <button @click="setIntersectionViewMode('table')" 
-                      class="flex items-center space-x-1.5 px-3 py-1 rounded-lg text-xs font-semibold font-mono transition active:scale-95"
+                      class="flex items-center space-x-1.5 px-3 py-1 rounded-lg text-xs font-semibold font-mono tabular-nums transition active:scale-95"
                       :class="intersectionViewMode === 'table' ? 'bg-white dark:bg-slate-900 text-amber-600 dark:text-amber-400 shadow-sm' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">
                 <i data-lucide="table" class="w-3.5 h-3.5"></i>
                 <span>Data Table</span>
               </button>
             </div>
 
-            <button @click="exportCsv(filteredIntersections, 'global-intersections-filtered.csv')" class="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-semibold shadow-sm transition active:scale-95">
+            <button @click="exportCsv(filteredIntersections, 'global-intersections-filtered.csv')" class="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-semibold shadow-sm transition active:scale-95">
               <i data-lucide="download" class="w-3.5 h-3.5 text-amber-500"></i>
               <span>Export CSV</span>
             </button>
-            <span class="px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs font-mono font-bold text-amber-600 dark:text-amber-400" x-text="intersections.length + ' Total Hubs'"></span>
+            <span class="px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs font-mono tabular-nums font-bold text-amber-600 dark:text-amber-400" x-text="intersections.length + ' Total Hubs'"></span>
           </div>
         </div>
 
         <!-- 2. Advanced Multi-Filter & Search Toolbar -->
-        <div class="p-3.5 rounded-2xl bg-slate-50/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800/80 space-y-3">
+        <div class="p-3.5 rounded-2xl bg-slate-50/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-[#27272A]/80 space-y-3">
           <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
             
             <!-- Left: Search & Sorting -->
@@ -2835,13 +2833,13 @@ export function getDashboardHtml(folderId = '') {
               <!-- Live Text Search -->
               <div class="relative min-w-[220px]">
                 <i data-lucide="search" class="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400"></i>
-                <input type="text" x-model="intersectionFilters.search" @input="intersectionPage = 1" placeholder="Search title, ID, OCR, or seeds..." class="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 font-mono text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-amber-500">
+                <input type="text" x-model="intersectionFilters.search" @input="intersectionPage = 1" placeholder="Search title, ID, OCR, or seeds..." class="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] font-mono tabular-nums text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-amber-500">
               </div>
 
               <!-- Sort Dropdown -->
-              <div class="flex items-center space-x-1 bg-white dark:bg-slate-900 rounded-xl px-2 py-1 border border-slate-200 dark:border-slate-800 shadow-sm">
-                <span class="text-[10px] font-mono text-slate-400 uppercase font-semibold">Sort:</span>
-                <select x-model="intersectionSort" @change="intersectionPage = 1" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono focus:outline-none cursor-pointer">
+              <div class="flex items-center space-x-1 bg-white dark:bg-slate-900 rounded-xl px-2 py-1 border border-slate-200 dark:border-[#27272A] shadow-sm">
+                <span class="text-[10px] font-mono tabular-nums text-slate-400 uppercase font-semibold">Sort:</span>
+                <select x-model="intersectionSort" @change="intersectionPage = 1" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono tabular-nums focus:outline-none cursor-pointer">
                   <option value="pixie">🏆 Pixie Multi-Hit Score</option>
                   <option value="overlap">🔗 Overlap Depth (Max Seeds)</option>
                   <option value="saves">💾 Total Saves (High to Low)</option>
@@ -2855,9 +2853,9 @@ export function getDashboardHtml(folderId = '') {
             <div class="flex items-center space-x-2 flex-wrap gap-y-2">
               
               <!-- Overlap Depth Filter -->
-              <div class="flex items-center space-x-1 bg-white dark:bg-slate-900 rounded-xl px-2 py-1 border border-slate-200 dark:border-slate-800 shadow-sm">
-                <span class="text-[10px] font-mono text-slate-400 uppercase font-semibold">Overlap:</span>
-                <select x-model="intersectionFilters.minOverlap" @change="intersectionPage = 1" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono focus:outline-none cursor-pointer">
+              <div class="flex items-center space-x-1 bg-white dark:bg-slate-900 rounded-xl px-2 py-1 border border-slate-200 dark:border-[#27272A] shadow-sm">
+                <span class="text-[10px] font-mono tabular-nums text-slate-400 uppercase font-semibold">Overlap:</span>
+                <select x-model="intersectionFilters.minOverlap" @change="intersectionPage = 1" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono tabular-nums focus:outline-none cursor-pointer">
                   <option value="all">All Hubs (≥ 2 Seeds)</option>
                   <option value="3">≥ 3 Seeds (Hubs)</option>
                   <option value="5">🔥 ≥ 5 Seeds (Golden Core)</option>
@@ -2866,9 +2864,9 @@ export function getDashboardHtml(folderId = '') {
               </div>
 
               <!-- Originating Seed Filter -->
-              <div class="flex items-center space-x-1 bg-white dark:bg-slate-900 rounded-xl px-2 py-1 border border-slate-200 dark:border-slate-800 shadow-sm max-w-[190px]">
-                <span class="text-[10px] font-mono text-slate-400 uppercase font-semibold">Seed:</span>
-                <select x-model="intersectionFilters.seedId" @change="intersectionPage = 1" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono focus:outline-none cursor-pointer truncate">
+              <div class="flex items-center space-x-1 bg-white dark:bg-slate-900 rounded-xl px-2 py-1 border border-slate-200 dark:border-[#27272A] shadow-sm max-w-[190px]">
+                <span class="text-[10px] font-mono tabular-nums text-slate-400 uppercase font-semibold">Seed:</span>
+                <select x-model="intersectionFilters.seedId" @change="intersectionPage = 1" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono tabular-nums focus:outline-none cursor-pointer truncate">
                   <option value="all">All Seeds</option>
                   <template x-for="s in seeds" :key="s.pin_id">
                     <option :value="s.pin_id" x-text="s.label"></option>
@@ -2877,9 +2875,9 @@ export function getDashboardHtml(folderId = '') {
               </div>
 
               <!-- Format Filter -->
-              <div class="flex items-center space-x-1 bg-white dark:bg-slate-900 rounded-xl px-2 py-1 border border-slate-200 dark:border-slate-800 shadow-sm">
-                <span class="text-[10px] font-mono text-slate-400 uppercase font-semibold">Format:</span>
-                <select x-model="intersectionFilters.format" @change="intersectionPage = 1" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono focus:outline-none cursor-pointer">
+              <div class="flex items-center space-x-1 bg-white dark:bg-slate-900 rounded-xl px-2 py-1 border border-slate-200 dark:border-[#27272A] shadow-sm">
+                <span class="text-[10px] font-mono tabular-nums text-slate-400 uppercase font-semibold">Format:</span>
+                <select x-model="intersectionFilters.format" @change="intersectionPage = 1" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono tabular-nums focus:outline-none cursor-pointer">
                   <option value="all">All Formats</option>
                   <option value="ORGANIC PIN">Organic Pin</option>
                   <option value="VIDEO PIN">Video Pin</option>
@@ -2889,9 +2887,9 @@ export function getDashboardHtml(folderId = '') {
               </div>
 
               <!-- Market / Strategy Status -->
-              <div class="flex items-center space-x-1 bg-white dark:bg-slate-900 rounded-xl px-2 py-1 border border-slate-200 dark:border-slate-800 shadow-sm">
-                <span class="text-[10px] font-mono text-slate-400 uppercase font-semibold">Market:</span>
-                <select x-model="intersectionFilters.market" @change="intersectionPage = 1" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono focus:outline-none cursor-pointer">
+              <div class="flex items-center space-x-1 bg-white dark:bg-slate-900 rounded-xl px-2 py-1 border border-slate-200 dark:border-[#27272A] shadow-sm">
+                <span class="text-[10px] font-mono tabular-nums text-slate-400 uppercase font-semibold">Market:</span>
+                <select x-model="intersectionFilters.market" @change="intersectionPage = 1" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono tabular-nums focus:outline-none cursor-pointer">
                   <option value="all">All Opportunities</option>
                   <option value="vacuum">🎯 Vacuum Targets Only (≥ 5K)</option>
                   <option value="product">🛒 Competitor Products</option>
@@ -2904,7 +2902,7 @@ export function getDashboardHtml(folderId = '') {
           </div>
 
           <!-- Dynamic Counter & Reset Bar -->
-          <div class="flex items-center justify-between pt-1 text-xs border-t border-slate-200/60 dark:border-slate-800/60 font-mono">
+          <div class="flex items-center justify-between pt-1 text-xs border-t border-slate-200/60 dark:border-[#27272A]/60 font-mono tabular-nums">
             <div class="flex items-center space-x-2 text-slate-600 dark:text-slate-300">
               <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200">
                 Showing <span class="mx-1 text-amber-600 dark:text-amber-400" x-text="filteredIntersections.length"></span> of <span class="mx-1" x-text="intersections.length"></span> overlapping hubs
@@ -2925,7 +2923,7 @@ export function getDashboardHtml(folderId = '') {
         <!-- 3A. Visual Arbitrage Card Grid (Pinterest-Native 2:3 Cards) -->
         <div x-show="intersectionViewMode === 'grid'" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
           <template x-for="item in paginatedIntersections" :key="item.candidate_pin_id">
-            <div class="group relative rounded-2xl bg-white dark:bg-[#0b1120] border border-slate-200/90 dark:border-slate-800/90 hover:border-amber-500/50 dark:hover:border-amber-500/50 shadow-sm hover:shadow-xl transition-all duration-300 flex flex-col overflow-hidden">
+            <div class="group relative rounded-2xl bg-white dark:bg-[#121215] border border-slate-200/90 dark:border-[#27272A]/90 hover:border-amber-500/50 dark:hover:border-amber-500/50 shadow-sm hover:shadow-xl transition-all duration-300 flex flex-col overflow-hidden">
               
               <!-- 1. Media Image Container (2:3 Aspect Ratio) -->
               <div class="relative w-full aspect-[2/3] bg-slate-100 dark:bg-slate-900 overflow-hidden cursor-pointer" @click="openHubDrawer(item)">
@@ -2935,14 +2933,14 @@ export function getDashboardHtml(folderId = '') {
                 <template x-if="!item.image_url">
                   <div class="w-full h-full flex flex-col items-center justify-center text-slate-400 p-4 text-center">
                     <i data-lucide="image" class="w-8 h-8 mb-2 opacity-50"></i>
-                    <span class="text-xs font-mono">No Image</span>
+                    <span class="text-xs font-mono tabular-nums">No Image</span>
                   </div>
                 </template>
 
                 <!-- Top Floating Glassmorphism Badges -->
                 <div class="absolute top-2.5 inset-x-2.5 flex items-center justify-between pointer-events-none">
                   <!-- Multi-Hit Overlap Badge -->
-                  <span class="px-2 py-0.5 rounded-lg text-[10px] font-mono font-bold uppercase backdrop-blur-md shadow-md border"
+                  <span class="px-2 py-0.5 rounded-lg text-[10px] font-mono tabular-nums font-bold uppercase backdrop-blur-md shadow-md border"
                         :class="{
                           'bg-purple-950/85 text-purple-200 border-purple-500/40': item.seed_overlap_count >= 7,
                           'bg-rose-950/85 text-rose-200 border-rose-500/40': item.seed_overlap_count >= 5 && item.seed_overlap_count < 7,
@@ -2960,13 +2958,13 @@ export function getDashboardHtml(folderId = '') {
                         🎯 VACUUM
                       </span>
                     </template>
-                    <span class="px-1.5 py-0.5 rounded-lg text-[9px] font-mono font-bold uppercase backdrop-blur-md shadow-md bg-slate-950/70 text-white border border-white/20" x-text="item.format_type === 'PRODUCT CARD' ? 'PRODUCT' : (item.format_type === 'VIDEO PIN' ? 'VIDEO' : 'PIN')"></span>
+                    <span class="px-1.5 py-0.5 rounded-lg text-[9px] font-mono tabular-nums font-bold uppercase backdrop-blur-md shadow-md bg-slate-950/70 text-white border border-white/20" x-text="item.format_type === 'PRODUCT CARD' ? 'PRODUCT' : (item.format_type === 'VIDEO PIN' ? 'VIDEO' : 'PIN')"></span>
                   </div>
                 </div>
 
                 <!-- Hover Overlay Trigger -->
                 <div class="absolute inset-0 bg-gradient-to-t from-slate-950/85 via-slate-950/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-3 pointer-events-none">
-                  <span class="text-xs font-semibold text-white flex items-center space-x-1 font-mono">
+                  <span class="text-xs font-semibold text-white flex items-center space-x-1 font-mono tabular-nums">
                     <i data-lucide="eye" class="w-3.5 h-3.5 text-amber-400"></i>
                     <span>Click for Deep Dossier</span>
                   </span>
@@ -2987,7 +2985,7 @@ export function getDashboardHtml(folderId = '') {
                       <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
                     </a>
                   </div>
-                  <div class="flex items-center space-x-2 text-[10px] font-mono text-slate-400 mt-1 truncate">
+                  <div class="flex items-center space-x-2 text-[10px] font-mono tabular-nums text-slate-400 mt-1 truncate">
                     <span x-text="item.domain"></span>
                     <span>•</span>
                     <button @click="copyToClipboard(item.candidate_pin_id, 'pin-' + item.candidate_pin_id)" class="hover:text-amber-500 cursor-pointer flex items-center space-x-0.5">
@@ -2998,8 +2996,8 @@ export function getDashboardHtml(folderId = '') {
                 </div>
 
                 <!-- Pixie Resonance Tier & Energy Micro-Bar (WWW 2018 Formula) -->
-                <div class="p-2 rounded-xl bg-slate-50 dark:bg-slate-900/80 border border-slate-200/70 dark:border-slate-800/70 space-y-1.5">
-                  <div class="flex items-center justify-between text-[11px] font-mono">
+                <div class="p-2 rounded-xl bg-slate-50 dark:bg-slate-900/80 border border-slate-200/70 dark:border-[#27272A]/70 space-y-1.5">
+                  <div class="flex items-center justify-between text-[11px] font-mono tabular-nums">
                     <span class="px-1.5 py-0.5 rounded font-bold uppercase tracking-wider text-[9px]" :class="getPixieResonance(item).badgeClass" x-text="getPixieResonance(item).label"></span>
                     <span class="font-extrabold text-slate-900 dark:text-white" x-text="Number(item.pixie_multihit_score || 0).toLocaleString()"></span>
                   </div>
@@ -3007,14 +3005,14 @@ export function getDashboardHtml(folderId = '') {
                   <div class="w-full bg-slate-200 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
                     <div class="h-full rounded-full transition-all duration-500" :class="getPixieResonance(item).barGradient" :style="'width: ' + getPixieResonance(item).barPercent + '%'"></div>
                   </div>
-                  <div class="flex items-center justify-between text-[9px] font-mono text-slate-400">
+                  <div class="flex items-center justify-between text-[9px] font-mono tabular-nums text-slate-400">
                     <span>Random Walk Mass</span>
                     <span x-text="getPixieResonance(item).barPercent + '% Peak Pull'"></span>
                   </div>
                 </div>
 
                 <!-- Engagement Stats Grid -->
-                <div class="grid grid-cols-2 gap-2 text-xs font-mono pt-1 border-t border-slate-100 dark:border-slate-800/60">
+                <div class="grid grid-cols-2 gap-2 text-xs font-mono tabular-nums pt-1 border-t border-slate-100 dark:border-[#27272A]/60">
                   <div>
                     <div class="text-[9px] uppercase text-slate-400">Saves / Repins</div>
                     <div class="font-bold text-slate-900 dark:text-slate-100" x-text="Number(item.total_saves != null ? item.total_saves : (item.saves || 0)).toLocaleString()"></div>
@@ -3036,12 +3034,12 @@ export function getDashboardHtml(folderId = '') {
                 </div>
 
                 <!-- Action Bar -->
-                <div class="flex items-center space-x-1.5 pt-2 border-t border-slate-100 dark:border-slate-800">
-                  <button @click="openHubDrawer(item)" class="flex-1 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 text-[11px] font-bold font-mono transition active:scale-95 flex items-center justify-center space-x-1">
+                <div class="flex items-center space-x-1.5 pt-2 border-t border-slate-100 dark:border-[#27272A]">
+                  <button @click="openHubDrawer(item)" class="flex-1 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 text-[11px] font-bold font-mono tabular-nums transition active:scale-95 flex items-center justify-center space-x-1">
                     <i data-lucide="eye" class="w-3 h-3"></i>
                     <span>Inspect Dossier</span>
                   </button>
-                  <button @click="copyHubReSpinAngle(item)" class="p-1.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition active:scale-95" title="Copy Viral Angle Hook">
+                  <button @click="copyHubReSpinAngle(item)" class="p-1.5 rounded-xl border border-slate-200 dark:border-[#27272A] hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition active:scale-95" title="Copy Viral Angle Hook">
                     <i data-lucide="copy" class="w-3.5 h-3.5"></i>
                   </button>
                 </div>
@@ -3052,7 +3050,7 @@ export function getDashboardHtml(folderId = '') {
 
           <!-- Empty Grid Placeholder -->
           <template x-if="paginatedIntersections.length === 0">
-            <div class="col-span-full py-16 text-center text-slate-500 dark:text-slate-400 font-mono text-xs">
+            <div class="col-span-full py-16 text-center text-slate-500 dark:text-slate-400 font-mono tabular-nums text-xs">
               <div class="flex flex-col items-center justify-center space-y-2">
                 <i data-lucide="search-x" class="w-10 h-10 text-slate-400"></i>
                 <div class="font-bold text-slate-700 dark:text-slate-300">No intersecting hubs matching your filters</div>
@@ -3066,7 +3064,7 @@ export function getDashboardHtml(folderId = '') {
         <div x-show="intersectionViewMode === 'table'" class="overflow-x-auto">
           <table class="w-full text-left text-xs border-collapse">
             <thead>
-              <tr class="border-b border-slate-200 dark:border-slate-800/80 bg-slate-50/80 dark:bg-slate-900/60 text-slate-500 dark:text-slate-400 font-mono text-[11px] uppercase tracking-wider">
+              <tr class="border-b border-slate-200 dark:border-[#27272A]/80 bg-slate-50/80 dark:bg-slate-900/60 text-slate-500 dark:text-slate-400 font-mono tabular-nums text-[11px] uppercase tracking-wider">
                 <th class="py-3 px-3">Preview & Format</th>
                 <th class="py-3 px-3 min-w-[260px]">Intersecting Candidate Title</th>
                 <th class="py-3 px-3 min-w-[220px] max-w-[280px]">Originating Seeds Convergence</th>
@@ -3095,7 +3093,7 @@ export function getDashboardHtml(folderId = '') {
                       </div>
                       <div class="space-y-1">
                         <div class="flex flex-col space-y-1">
-                          <span class="inline-block px-1.5 py-0.5 rounded text-[9px] font-mono font-bold tracking-wider uppercase" :class="{
+                          <span class="inline-block px-1.5 py-0.5 rounded text-[9px] font-mono tabular-nums font-bold tracking-wider uppercase" :class="{
                             'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20': item.format_type === 'PRODUCT CARD',
                             'bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20': item.format_type === 'ORGANIC PIN',
                             'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20': item.format_type === 'VIDEO PIN',
@@ -3111,7 +3109,7 @@ export function getDashboardHtml(folderId = '') {
 
                         <!-- Ingestion Method Badge -->
                         <template x-if="item.ingestion_method && item.ingestion_method !== 'uploaded'">
-                          <div class="text-[8px] font-mono font-bold uppercase tracking-wider text-slate-400">
+                          <div class="text-[8px] font-mono tabular-nums font-bold uppercase tracking-wider text-slate-400">
                             <span class="px-1 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-500" x-text="item.ingestion_method === 'csv_importer' ? '⚙️ CSV Farm' : (item.ingestion_method === 'pin_scheduling' ? '⏱️ Scheduled' : item.ingestion_method)"></span>
                           </div>
                         </template>
@@ -3133,7 +3131,7 @@ export function getDashboardHtml(folderId = '') {
                         </a>
                       </div>
 
-                      <div class="flex items-center space-x-2 text-[10px] text-slate-500 font-mono flex-wrap gap-y-0.5">
+                      <div class="flex items-center space-x-2 text-[10px] text-slate-500 font-mono tabular-nums flex-wrap gap-y-0.5">
                         <span class="px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 truncate max-w-[130px]" x-text="item.domain"></span>
                         <span>•</span>
                         <button @click="copyToClipboard(item.candidate_pin_id, 'pin-' + item.candidate_pin_id)" 
@@ -3144,7 +3142,7 @@ export function getDashboardHtml(folderId = '') {
                       </div>
 
                       <template x-if="item.ocr_text">
-                        <div class="p-1 px-1.5 rounded bg-slate-100 dark:bg-slate-900/90 text-[10px] text-slate-600 dark:text-slate-400 font-mono truncate max-w-sm" :title="item.ocr_text">
+                        <div class="p-1 px-1.5 rounded bg-slate-100 dark:bg-slate-900/90 text-[10px] text-slate-600 dark:text-slate-400 font-mono tabular-nums truncate max-w-sm" :title="item.ocr_text">
                           <span class="text-rose-500 font-bold">OCR:</span> <span x-text="item.ocr_text"></span>
                         </div>
                       </template>
@@ -3155,7 +3153,7 @@ export function getDashboardHtml(folderId = '') {
                   <td class="py-3 px-3 min-w-[220px] max-w-[280px]">
                     <div class="space-y-1">
                       <div class="flex items-center justify-between">
-                        <div class="flex items-center space-x-1 font-mono text-[11px] font-bold" :class="{
+                        <div class="flex items-center space-x-1 font-mono tabular-nums text-[11px] font-bold" :class="{
                           'text-purple-600 dark:text-purple-400': item.seed_overlap_count >= 7,
                           'text-rose-600 dark:text-rose-400': item.seed_overlap_count >= 5 && item.seed_overlap_count < 7,
                           'text-amber-600 dark:text-amber-400': item.seed_overlap_count >= 3 && item.seed_overlap_count < 5,
@@ -3168,7 +3166,7 @@ export function getDashboardHtml(folderId = '') {
 
                         <template x-if="(item.originating_seed_details || []).length > 2">
                           <button @click="toggleExpandSeeds(item.candidate_pin_id)" 
-                                  class="px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold transition flex items-center space-x-0.5"
+                                  class="px-1.5 py-0.5 rounded text-[10px] font-mono tabular-nums font-semibold transition flex items-center space-x-0.5"
                                   :class="isSeedsExpanded(item.candidate_pin_id) ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300' : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300'">
                             <span x-text="isSeedsExpanded(item.candidate_pin_id) ? '▲ Collapse' : '+' + ((item.originating_seed_details || []).length - 2) + ' more'"></span>
                           </button>
@@ -3178,7 +3176,7 @@ export function getDashboardHtml(folderId = '') {
                       <!-- Collapsed View: First 2 Seeds -->
                       <div x-show="!isSeedsExpanded(item.candidate_pin_id)" class="flex flex-wrap gap-1">
                         <template x-for="s in (item.originating_seed_details || []).slice(0, 2)" :key="s.pin_id">
-                          <span class="inline-block max-w-[130px] truncate px-1.5 py-0.5 rounded text-[10px] font-mono border"
+                          <span class="inline-block max-w-[130px] truncate px-1.5 py-0.5 rounded text-[10px] font-mono tabular-nums border"
                                 :class="s.is_competitor ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/20' : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/20'"
                                 :title="s.label + ' (Pin ID: ' + s.pin_id + ')'"
                                 x-text="s.label"></span>
@@ -3188,7 +3186,7 @@ export function getDashboardHtml(folderId = '') {
                       <!-- Expanded View: All Seeds Grid -->
                       <div x-show="isSeedsExpanded(item.candidate_pin_id)" class="flex flex-wrap gap-1 pt-1 max-h-48 overflow-y-auto pr-1">
                         <template x-for="s in (item.originating_seed_details || [])" :key="s.pin_id">
-                          <span class="inline-block max-w-[200px] truncate px-1.5 py-0.5 rounded text-[10px] font-mono border"
+                          <span class="inline-block max-w-[200px] truncate px-1.5 py-0.5 rounded text-[10px] font-mono tabular-nums border"
                                 :class="s.is_competitor ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/20' : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/20'"
                                 :title="s.label + ' (Pin ID: ' + s.pin_id + ')'"
                                 x-text="s.label"></span>
@@ -3198,7 +3196,7 @@ export function getDashboardHtml(folderId = '') {
                   </td>
 
                   <!-- 4. Pixie Multi-Hit Score & Energy Bar -->
-                  <td class="py-3 px-3 whitespace-nowrap font-mono min-w-[170px]">
+                  <td class="py-3 px-3 whitespace-nowrap font-mono tabular-nums min-w-[170px]">
                     <div class="space-y-1">
                       <div class="flex items-center space-x-1.5">
                         <span class="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider" :class="getPixieResonance(item).badgeClass" x-text="getPixieResonance(item).label"></span>
@@ -3213,7 +3211,7 @@ export function getDashboardHtml(folderId = '') {
                   </td>
 
                   <!-- 5. Metrics -->
-                  <td class="py-3 px-3 whitespace-nowrap font-mono min-w-[150px]">
+                  <td class="py-3 px-3 whitespace-nowrap font-mono tabular-nums min-w-[150px]">
                     <div class="font-bold text-slate-900 dark:text-white" x-text="Number(item.total_saves != null ? item.total_saves : (item.saves || 0)).toLocaleString() + ' saves'"></div>
                     <div class="text-[10px] text-slate-500" x-text="Number(item.total_repins != null ? item.total_repins : (item.repins || 0)).toLocaleString() + ' repins • ' + (item.avg_save_rate != null ? item.avg_save_rate : (item.save_rate != null ? item.save_rate : 0)) + '% rate'"></div>
                     <template x-if="Number(item.daily_velocity || 0) > 0">
@@ -3226,7 +3224,7 @@ export function getDashboardHtml(folderId = '') {
                     <div class="flex items-center space-x-2">
                       <span class="w-4 h-4 rounded border flex-shrink-0 shadow-sm" :style="'background-color: ' + (item.winning_color || item.dominant_color || '#888888')"></span>
                       <div class="space-y-0.5 min-w-0">
-                        <div class="font-mono text-[10px] font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wide" x-text="item.winning_color || item.dominant_color || '#888888'"></div>
+                        <div class="font-mono tabular-nums text-[10px] font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wide" x-text="item.winning_color || item.dominant_color || '#888888'"></div>
                         <div class="text-[9px] text-slate-500 dark:text-slate-400 font-medium truncate max-w-[110px]" x-text="item.culinary_color_name || 'Culinary Accent'" :title="item.culinary_color_name"></div>
                       </div>
                     </div>
@@ -3239,7 +3237,7 @@ export function getDashboardHtml(folderId = '') {
                         <i data-lucide="eye" class="w-3.5 h-3.5"></i>
                         <span>Inspect</span>
                       </button>
-                      <button @click="copyHubReSpinAngle(item)" class="p-1.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition active:scale-95" title="Copy Viral Angle">
+                      <button @click="copyHubReSpinAngle(item)" class="p-1.5 rounded-xl border border-slate-200 dark:border-[#27272A] hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition active:scale-95" title="Copy Viral Angle">
                         <i data-lucide="copy" class="w-3.5 h-3.5"></i>
                       </button>
                     </div>
@@ -3250,7 +3248,7 @@ export function getDashboardHtml(folderId = '') {
               <!-- Empty Table Placeholder -->
               <template x-if="paginatedIntersections.length === 0">
                 <tr>
-                  <td colspan="7" class="py-12 text-center text-slate-500 dark:text-slate-400 font-mono text-xs">
+                  <td colspan="7" class="py-12 text-center text-slate-500 dark:text-slate-400 font-mono tabular-nums text-xs">
                     <div class="flex flex-col items-center justify-center space-y-2">
                       <i data-lucide="search-x" class="w-8 h-8 text-slate-400"></i>
                       <div class="font-bold text-slate-700 dark:text-slate-300">No intersecting hubs matching your filters</div>
@@ -3264,7 +3262,7 @@ export function getDashboardHtml(folderId = '') {
         </div>
 
         <!-- 4. Dynamic Pagination Bar -->
-        <div class="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-200 dark:border-slate-800 text-xs font-mono">
+        <div class="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-200 dark:border-[#27272A] text-xs font-mono tabular-nums">
           <!-- Left: Page Info & Page Size Selector -->
           <div class="flex items-center space-x-3 text-slate-600 dark:text-slate-400">
             <div>
@@ -3273,9 +3271,9 @@ export function getDashboardHtml(folderId = '') {
               of <span class="font-bold text-slate-900 dark:text-white" x-text="filteredIntersections.length"></span> hubs
             </div>
 
-            <div class="flex items-center space-x-1 pl-2 border-l border-slate-200 dark:border-slate-800">
+            <div class="flex items-center space-x-1 pl-2 border-l border-slate-200 dark:border-[#27272A]">
               <span class="text-[10px] uppercase text-slate-400">Per page:</span>
-              <select x-model.number="intersectionPageSize" @change="intersectionPage = 1" class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-2 py-0.5 text-xs text-slate-800 dark:text-slate-200 font-mono focus:outline-none cursor-pointer">
+              <select x-model.number="intersectionPageSize" @change="intersectionPage = 1" class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] rounded-lg px-2 py-0.5 text-xs text-slate-800 dark:text-slate-200 font-mono tabular-nums focus:outline-none cursor-pointer">
                 <option :value="12">12</option>
                 <option :value="24">24 (Golden Core)</option>
                 <option :value="48">48</option>
@@ -3288,12 +3286,12 @@ export function getDashboardHtml(folderId = '') {
           <div class="flex items-center space-x-1">
             <!-- First Page -->
             <button @click="setIntersectionPage(1)" :disabled="intersectionPage === 1" 
-                    class="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-slate-800 transition">
+                    class="px-2 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-slate-800 transition">
               <i data-lucide="chevrons-left" class="w-3.5 h-3.5"></i>
             </button>
             <!-- Previous Page -->
             <button @click="setIntersectionPage(intersectionPage - 1)" :disabled="intersectionPage === 1" 
-                    class="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-slate-800 transition">
+                    class="px-2 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-slate-800 transition">
               <i data-lucide="chevron-left" class="w-3.5 h-3.5"></i>
             </button>
 
@@ -3301,12 +3299,12 @@ export function getDashboardHtml(folderId = '') {
             <template x-for="p in intersectionVisiblePages" :key="p">
               <div>
                 <template x-if="p === '...'">
-                  <span class="px-2 py-1 text-slate-400 font-mono">...</span>
+                  <span class="px-2 py-1 text-slate-400 font-mono tabular-nums">...</span>
                 </template>
                 <template x-if="p !== '...'">
                   <button @click="setIntersectionPage(p)" 
-                          class="px-2.5 py-1 rounded-lg border text-xs font-mono font-bold transition"
-                          :class="intersectionPage === p ? 'bg-amber-500 border-amber-600 text-white shadow-sm' : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'"
+                          class="px-2.5 py-1 rounded-lg border text-xs font-mono tabular-nums font-bold transition"
+                          :class="intersectionPage === p ? 'bg-amber-500 border-amber-600 text-white shadow-sm' : 'border-slate-200 dark:border-[#27272A] bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'"
                           x-text="p"></button>
                 </template>
               </div>
@@ -3314,12 +3312,12 @@ export function getDashboardHtml(folderId = '') {
 
             <!-- Next Page -->
             <button @click="setIntersectionPage(intersectionPage + 1)" :disabled="intersectionPage === intersectionTotalPages" 
-                    class="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-slate-800 transition">
+                    class="px-2 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-slate-800 transition">
               <i data-lucide="chevron-right" class="w-3.5 h-3.5"></i>
             </button>
             <!-- Last Page -->
             <button @click="setIntersectionPage(intersectionTotalPages)" :disabled="intersectionPage === intersectionTotalPages" 
-                    class="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-slate-800 transition">
+                    class="px-2 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-slate-800 transition">
               <i data-lucide="chevrons-right" class="w-3.5 h-3.5"></i>
             </button>
           </div>
@@ -3332,17 +3330,17 @@ export function getDashboardHtml(folderId = '') {
     <!-- SUB-TAB 3: 📊 MASTER DATABASE EXPLORER (SEARCH & FILTER) -->
     <!-- ======================================================== -->
     <div x-show="relatedSubTab === 'explorer'" class="space-y-4">
-      <div class="bg-white dark:bg-[#0d1526] border border-slate-200/90 dark:border-slate-800 rounded-2xl p-5 shadow-sm dark:shadow-xl space-y-4">
+      <div class="bg-white dark:bg-[#18181B] border border-slate-200/90 dark:border-[#27272A] rounded-2xl p-5 shadow-sm dark:shadow-xl space-y-4">
         
         <!-- Master Explorer Filter & Segment Toolbar -->
-        <div class="p-3.5 rounded-2xl bg-slate-50/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800/80 space-y-3">
+        <div class="p-3.5 rounded-2xl bg-slate-50/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-[#27272A]/80 space-y-3">
           <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
             
             <!-- Left: Seed Selection & Sorting & Search -->
             <div class="flex items-center space-x-2 flex-wrap gap-y-2">
-              <div class="flex items-center space-x-1 bg-white dark:bg-slate-900 rounded-xl px-2 py-1 border border-slate-200 dark:border-slate-800 shadow-sm">
-                <span class="text-[10px] font-mono text-slate-400 uppercase font-semibold">Seed:</span>
-                <select x-model="explorerSeedId" @change="loadExplorerData()" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono focus:outline-none cursor-pointer">
+              <div class="flex items-center space-x-1 bg-white dark:bg-slate-900 rounded-xl px-2 py-1 border border-slate-200 dark:border-[#27272A] shadow-sm">
+                <span class="text-[10px] font-mono tabular-nums text-slate-400 uppercase font-semibold">Seed:</span>
+                <select x-model="explorerSeedId" @change="loadExplorerData()" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono tabular-nums focus:outline-none cursor-pointer">
                   <option value="all">All Tracked Seeds</option>
                   <template x-for="s in seeds" :key="s.pin_id">
                     <option :value="s.pin_id" x-text="s.label + ' (' + (s.total_candidates || 0) + ' nodes)'"></option>
@@ -3350,9 +3348,9 @@ export function getDashboardHtml(folderId = '') {
                 </select>
               </div>
 
-              <div class="flex items-center space-x-1 bg-white dark:bg-slate-900 rounded-xl px-2 py-1 border border-slate-200 dark:border-slate-800 shadow-sm">
-                <span class="text-[10px] font-mono text-slate-400 uppercase font-semibold">Sort:</span>
-                <select x-model="explorerSort" @change="loadExplorerData()" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono focus:outline-none cursor-pointer">
+              <div class="flex items-center space-x-1 bg-white dark:bg-slate-900 rounded-xl px-2 py-1 border border-slate-200 dark:border-[#27272A] shadow-sm">
+                <span class="text-[10px] font-mono tabular-nums text-slate-400 uppercase font-semibold">Sort:</span>
+                <select x-model="explorerSort" @change="loadExplorerData()" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono tabular-nums focus:outline-none cursor-pointer">
                   <option value="saves">Sort by Total Saves</option>
                   <option value="velocity">Sort by Velocity (Fastest Growing)</option>
                 </select>
@@ -3361,11 +3359,11 @@ export function getDashboardHtml(folderId = '') {
               <!-- Search Input -->
               <div class="relative min-w-[200px]">
                 <i data-lucide="search" class="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400"></i>
-                <input type="text" x-model="explorerFilters.search" placeholder="Search title, domain, OCR text..." class="w-full pl-8 pr-3 py-1 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 font-mono text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-rose-500">
+                <input type="text" x-model="explorerFilters.search" placeholder="Search title, domain, OCR text..." class="w-full pl-8 pr-3 py-1 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] font-mono tabular-nums text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-rose-500">
               </div>
 
               <!-- Export CSV Button -->
-              <button @click="exportCsv(filteredExplorerCandidates, 'master-explorer-candidates.csv')" class="flex items-center space-x-1.5 px-3 py-1 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold shadow-sm transition active:scale-95">
+              <button @click="exportCsv(filteredExplorerCandidates, 'master-explorer-candidates.csv')" class="flex items-center space-x-1.5 px-3 py-1 rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold shadow-sm transition active:scale-95">
                 <i data-lucide="download" class="w-3.5 h-3.5 text-sky-500"></i>
                 <span>Export CSV</span>
               </button>
@@ -3375,9 +3373,9 @@ export function getDashboardHtml(folderId = '') {
             <div class="flex items-center space-x-2 flex-wrap gap-y-2">
               
               <!-- Engine Provenance Filter -->
-              <div class="flex items-center space-x-1 bg-white dark:bg-slate-900 rounded-xl px-2 py-1 border border-slate-200 dark:border-slate-800 shadow-sm">
-                <span class="text-[10px] font-mono text-slate-400 uppercase font-semibold">Engine:</span>
-                <select x-model="explorerFilters.engine" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono focus:outline-none cursor-pointer">
+              <div class="flex items-center space-x-1 bg-white dark:bg-slate-900 rounded-xl px-2 py-1 border border-slate-200 dark:border-[#27272A] shadow-sm">
+                <span class="text-[10px] font-mono tabular-nums text-slate-400 uppercase font-semibold">Engine:</span>
+                <select x-model="explorerFilters.engine" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono tabular-nums focus:outline-none cursor-pointer">
                   <option value="all">All Engines</option>
                   <option value="P2P_NAVBOOST">P2P_NAVBOOST (Sky)</option>
                   <option value="P2P_RANDOMWALK">P2P_RANDOMWALK (Emerald)</option>
@@ -3389,9 +3387,9 @@ export function getDashboardHtml(folderId = '') {
               </div>
 
               <!-- Velocity Tier Filter -->
-              <div class="flex items-center space-x-1 bg-white dark:bg-slate-900 rounded-xl px-2 py-1 border border-slate-200 dark:border-slate-800 shadow-sm">
-                <span class="text-[10px] font-mono text-slate-400 uppercase font-semibold">Speed:</span>
-                <select x-model="explorerFilters.velocity" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono focus:outline-none cursor-pointer">
+              <div class="flex items-center space-x-1 bg-white dark:bg-slate-900 rounded-xl px-2 py-1 border border-slate-200 dark:border-[#27272A] shadow-sm">
+                <span class="text-[10px] font-mono tabular-nums text-slate-400 uppercase font-semibold">Speed:</span>
+                <select x-model="explorerFilters.velocity" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono tabular-nums focus:outline-none cursor-pointer">
                   <option value="all">All Speeds</option>
                   <option value="explosive">🔥 Explosive (≥ 50/d)</option>
                   <option value="trending">⚡ Trending (10-49/d)</option>
@@ -3400,9 +3398,9 @@ export function getDashboardHtml(folderId = '') {
               </div>
 
               <!-- Market Arbitrage Status Filter -->
-              <div class="flex items-center space-x-1 bg-white dark:bg-slate-900 rounded-xl px-2 py-1 border border-slate-200 dark:border-slate-800 shadow-sm">
-                <span class="text-[10px] font-mono text-slate-400 uppercase font-semibold">Market:</span>
-                <select x-model="explorerFilters.market" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono focus:outline-none cursor-pointer">
+              <div class="flex items-center space-x-1 bg-white dark:bg-slate-900 rounded-xl px-2 py-1 border border-slate-200 dark:border-[#27272A] shadow-sm">
+                <span class="text-[10px] font-mono tabular-nums text-slate-400 uppercase font-semibold">Market:</span>
+                <select x-model="explorerFilters.market" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono tabular-nums focus:outline-none cursor-pointer">
                   <option value="all">All Statuses</option>
                   <option value="vacuum">🎯 Vacuum Targets Only (Organic ≥ 5K)</option>
                   <option value="product">🛒 Competitor Products (Etsy/Shopify)</option>
@@ -3410,9 +3408,9 @@ export function getDashboardHtml(folderId = '') {
               </div>
 
               <!-- RecGPT Meal Sequence Filter -->
-              <div class="flex items-center space-x-1 bg-white dark:bg-slate-900 rounded-xl px-2 py-1 border border-slate-200 dark:border-slate-800 shadow-sm">
-                <span class="text-[10px] font-mono text-slate-400 uppercase font-semibold">Sequence:</span>
-                <select x-model="explorerFilters.sequence" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono focus:outline-none cursor-pointer">
+              <div class="flex items-center space-x-1 bg-white dark:bg-slate-900 rounded-xl px-2 py-1 border border-slate-200 dark:border-[#27272A] shadow-sm">
+                <span class="text-[10px] font-mono tabular-nums text-slate-400 uppercase font-semibold">Sequence:</span>
+                <select x-model="explorerFilters.sequence" class="text-xs bg-transparent text-slate-900 dark:text-slate-100 font-mono tabular-nums focus:outline-none cursor-pointer">
                   <option value="all">All Sequence Roles</option>
                   <option value="DESSERT_HERO">🧁 Hero Dessert/Bake</option>
                   <option value="BEVERAGE_PAIRING">☕ Beverage/Pairing</option>
@@ -3428,7 +3426,7 @@ export function getDashboardHtml(folderId = '') {
           </div>
 
           <!-- Dynamic Result Count Badge & Reset Button -->
-          <div class="flex items-center justify-between pt-1 text-xs border-t border-slate-200/60 dark:border-slate-800/60 font-mono">
+          <div class="flex items-center justify-between pt-1 text-xs border-t border-slate-200/60 dark:border-[#27272A]/60 font-mono tabular-nums">
             <div class="flex items-center space-x-2 text-slate-600 dark:text-slate-300">
               <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200">
                 Showing <span class="mx-1 text-rose-600 dark:text-rose-400" x-text="filteredExplorerCandidates.length"></span> of <span class="mx-1" x-text="explorerCandidates.length"></span> candidates matching filters
@@ -3450,7 +3448,7 @@ export function getDashboardHtml(folderId = '') {
         <div class="overflow-x-auto">
           <table class="w-full text-left text-xs border-collapse">
             <thead>
-              <tr class="border-b border-slate-200 dark:border-slate-800/80 bg-slate-50/80 dark:bg-slate-900/60 text-slate-500 dark:text-slate-400 font-mono text-[11px] uppercase tracking-wider">
+              <tr class="border-b border-slate-200 dark:border-[#27272A]/80 bg-slate-50/80 dark:bg-slate-900/60 text-slate-500 dark:text-slate-400 font-mono tabular-nums text-[11px] uppercase tracking-wider">
                 <th class="py-3.5 px-4">Preview & Format</th>
                 <th class="py-3.5 px-4 min-w-[240px]">Title & Vision OCR</th>
                 <th class="py-3.5 px-4">Origin Seed</th>
@@ -3481,7 +3479,7 @@ export function getDashboardHtml(folderId = '') {
                       </template>
                       <div class="space-y-1">
                         <div class="flex items-center space-x-1">
-                          <span class="inline-block px-1.5 py-0.5 rounded text-[9px] font-mono font-bold tracking-wider uppercase" :class="{
+                          <span class="inline-block px-1.5 py-0.5 rounded text-[9px] font-mono tabular-nums font-bold tracking-wider uppercase" :class="{
                             'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20': item.format_type === 'PRODUCT CARD',
                             'bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20': item.format_type === 'ORGANIC PIN',
                             'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20': item.format_type === 'VIDEO PIN',
@@ -3497,7 +3495,7 @@ export function getDashboardHtml(folderId = '') {
 
                         <!-- Ingestion Method Badge -->
                         <template x-if="item.ingestion_method && item.ingestion_method !== 'uploaded'">
-                          <div class="text-[8px] font-mono font-bold uppercase tracking-wider text-slate-400 flex items-center space-x-1">
+                          <div class="text-[8px] font-mono tabular-nums font-bold uppercase tracking-wider text-slate-400 flex items-center space-x-1">
                             <span class="px-1 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-500" x-text="item.ingestion_method === 'csv_importer' ? '⚙️ CSV Farm' : (item.ingestion_method === 'pin_scheduling' ? '⏱️ Scheduled' : item.ingestion_method)"></span>
                           </div>
                         </template>
@@ -3509,7 +3507,7 @@ export function getDashboardHtml(folderId = '') {
                   <td class="py-3.5 px-4">
                     <div class="space-y-1">
                       <a :href="'https://www.pinterest.com/pin/' + item.candidate_pin_id + '/'" target="_blank" class="font-bold text-slate-900 dark:text-slate-100 hover:text-rose-600 dark:hover:text-rose-400 line-clamp-1 hover:underline" x-text="item.title"></a>
-                      <div class="flex items-center space-x-2 text-[10px] text-slate-500 font-mono flex-wrap gap-y-1">
+                      <div class="flex items-center space-x-2 text-[10px] text-slate-500 font-mono tabular-nums flex-wrap gap-y-1">
                         <span class="px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300" x-text="item.domain"></span>
                         <span>•</span>
                         <span x-text="'ID: ' + item.candidate_pin_id"></span>
@@ -3534,7 +3532,7 @@ export function getDashboardHtml(folderId = '') {
                         </template>
                       </div>
                       <template x-if="item.ocr_text">
-                        <div class="p-1 px-1.5 rounded bg-slate-100 dark:bg-slate-900/90 text-[10px] text-slate-600 dark:text-slate-400 font-mono truncate max-w-sm" :title="item.ocr_text">
+                        <div class="p-1 px-1.5 rounded bg-slate-100 dark:bg-slate-900/90 text-[10px] text-slate-600 dark:text-slate-400 font-mono tabular-nums truncate max-w-sm" :title="item.ocr_text">
                           <span class="text-rose-500 font-bold">OCR:</span> <span x-text="item.ocr_text"></span>
                         </div>
                       </template>
@@ -3542,13 +3540,13 @@ export function getDashboardHtml(folderId = '') {
                   </td>
 
                   <!-- 3. Origin Seed -->
-                  <td class="py-3.5 px-4 whitespace-nowrap font-mono text-xs">
+                  <td class="py-3.5 px-4 whitespace-nowrap font-mono tabular-nums text-xs">
                     <span class="text-slate-500" x-text="'Seed: '"></span>
                     <strong class="text-slate-800 dark:text-slate-200" x-text="item.seed_pin_id"></strong>
                   </td>
 
                   <!-- 4. Pin Age & Velocity -->
-                  <td class="py-3.5 px-4 whitespace-nowrap font-mono">
+                  <td class="py-3.5 px-4 whitespace-nowrap font-mono tabular-nums">
                     <div class="text-[11px] text-slate-500 dark:text-slate-400" x-text="item.age_display || (item.age_days ? (item.age_days < 30 ? item.age_days + 'd ago' : (item.age_days < 365 ? Math.floor(item.age_days / 30) + 'mo ago' : (item.age_days / 365).toFixed(1) + 'y ago')) : '1d ago')"></div>
                     <div class="mt-0.5">
                       <template x-if="Number(item.daily_velocity || 0) >= 50">
@@ -3558,13 +3556,13 @@ export function getDashboardHtml(folderId = '') {
                         <span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30" x-text="'⚡ ' + item.daily_velocity + '/day (Trending)'"></span>
                       </template>
                       <template x-if="Number(item.daily_velocity || 0) < 10">
-                        <span class="px-1.5 py-0.5 rounded text-[9px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700" x-text="item.daily_velocity + '/day (Stagnant)'"></span>
+                        <span class="px-1.5 py-0.5 rounded text-[9px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-[#27272A]" x-text="item.daily_velocity + '/day (Stagnant)'"></span>
                       </template>
                     </div>
                   </td>
 
                   <!-- 5. Metrics -->
-                  <td class="py-3.5 px-4 whitespace-nowrap font-mono">
+                  <td class="py-3.5 px-4 whitespace-nowrap font-mono tabular-nums">
                     <div class="font-bold text-slate-900 dark:text-white" x-text="Number(item.total_saves != null ? item.total_saves : (item.saves || 0)).toLocaleString() + ' saves'"></div>
                     <div class="text-[10px] text-slate-500" x-text="Number(item.total_repins != null ? item.total_repins : (item.repins || 0)).toLocaleString() + ' repins • ' + (item.avg_save_rate != null ? item.avg_save_rate : (item.save_rate != null ? item.save_rate : 0)) + '% rate'"></div>
                   </td>
@@ -3574,7 +3572,7 @@ export function getDashboardHtml(folderId = '') {
                     <div class="flex items-center space-x-2">
                       <span class="w-4 h-4 rounded border flex-shrink-0 shadow-sm" :style="'background-color: ' + (item.winning_color || item.dominant_color || '#888888')"></span>
                       <div class="space-y-0.5 min-w-0">
-                        <div class="font-mono text-[10px] font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wide" x-text="item.winning_color || item.dominant_color || '#888888'"></div>
+                        <div class="font-mono tabular-nums text-[10px] font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wide" x-text="item.winning_color || item.dominant_color || '#888888'"></div>
                         <div class="text-[9px] text-slate-500 dark:text-slate-400 font-medium truncate max-w-[140px]" x-text="item.culinary_color_name || 'Culinary Accent'" :title="item.culinary_color_name"></div>
                       </div>
                     </div>
@@ -3582,7 +3580,7 @@ export function getDashboardHtml(folderId = '') {
 
                   <!-- 7. Engine Provenance -->
                   <td class="py-3.5 px-4 whitespace-nowrap">
-                    <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase" :class="{
+                    <span class="px-2 py-0.5 rounded text-[10px] font-mono tabular-nums font-bold uppercase" :class="{
                       'bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20': item.engine_source === 'P2P_NAVBOOST',
                       'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20': item.engine_source === 'P2P_RANDOMWALK',
                       'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20': item.engine_source === 'P2P_RECGPT',
@@ -3593,12 +3591,12 @@ export function getDashboardHtml(folderId = '') {
                   </td>
 
                   <!-- 8. prod:v18 Spread -->
-                  <td class="py-3.5 px-4 whitespace-nowrap font-mono">
+                  <td class="py-3.5 px-4 whitespace-nowrap font-mono tabular-nums">
                     <template x-if="!item.is_product">
                       <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30" x-text="'+' + (item.prod_spread || 220.8) + ' Net Leverage'"></span>
                     </template>
                     <template x-if="item.is_product">
-                      <span class="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700">0.0 Net</span>
+                      <span class="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-[#27272A]">0.0 Net</span>
                     </template>
                   </td>
 
@@ -3651,7 +3649,7 @@ export function getDashboardHtml(folderId = '') {
                 </div>
               </div>
               <div class="flex flex-wrap items-center gap-2">
-                <button @click="exportCompetitorsCsv()" class="px-3 py-2 text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition flex items-center space-x-1.5 shadow-sm">
+                <button @click="exportCompetitorsCsv()" class="px-3 py-2 text-xs font-semibold rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition flex items-center space-x-1.5 shadow-sm">
                   <i data-lucide="download" class="w-3.5 h-3.5"></i>
                   <span>Export CSV</span>
                 </button>
@@ -3659,7 +3657,7 @@ export function getDashboardHtml(folderId = '') {
                   <i data-lucide="refresh-cw" :class="{'animate-spin': isLoading}" class="w-3.5 h-3.5"></i>
                   <span>Run Full Update</span>
                 </button>
-                <button @click="openAddCompetitorModal()" class="px-3.5 py-2 text-xs font-bold rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-rose-600 hover:from-purple-500 hover:to-rose-500 text-white transition flex items-center space-x-1.5 shadow-md shadow-indigo-950/20 active:scale-95">
+                <button @click="openAddCompetitorModal()" class="px-3.5 py-2 text-xs font-bold rounded-xl bg-gradient-to-r bg-rose-600 hover:bg-rose-500 text-white transition flex items-center space-x-1.5 shadow-md shadow-indigo-950/20 active:scale-95">
                   <i data-lucide="user-plus" class="w-3.5 h-3.5"></i>
                   <span>+ Track Creator</span>
                 </button>
@@ -3669,15 +3667,15 @@ export function getDashboardHtml(folderId = '') {
 
           <!-- Campaign Folder Scoped Control Bar -->
           <template x-if="scopedFolderId">
-            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-2xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 shadow-sm">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-2xl bg-white dark:bg-[#121215] border border-slate-200/80 dark:border-[#27272A] shadow-sm">
               <div class="flex items-center gap-2.5">
                 <div class="h-9 w-9 rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center font-bold">
                   <i data-lucide="users" class="w-5 h-5"></i>
                 </div>
                 <div>
                   <div class="flex items-center gap-2">
-                    <span class="text-xs font-bold text-slate-800 dark:text-slate-200 font-mono">Campaign Creators</span>
-                    <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20" x-text="(filteredCompetitors ? filteredCompetitors.length : 0) + ' Linked'"></span>
+                    <span class="text-xs font-bold text-slate-800 dark:text-slate-200 font-mono tabular-nums">Campaign Creators</span>
+                    <span class="px-2 py-0.5 rounded-full text-[10px] font-mono tabular-nums font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20" x-text="(filteredCompetitors ? filteredCompetitors.length : 0) + ' Linked'"></span>
                   </div>
                   <p class="text-[11px] text-slate-500 dark:text-slate-400">Creators tracked and monitored specifically for this campaign folder.</p>
                 </div>
@@ -3687,7 +3685,7 @@ export function getDashboardHtml(folderId = '') {
                   <i data-lucide="user-check" class="w-3.5 h-3.5"></i>
                   <span>+ Assign Existing Creators</span>
                 </button>
-                <button @click="openAddCompetitorModal()" class="px-3 py-1.5 text-xs font-bold rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-rose-600 hover:from-purple-500 hover:to-rose-500 text-white transition flex items-center space-x-1.5 shadow-sm cursor-pointer active:scale-95">
+                <button @click="openAddCompetitorModal()" class="px-3 py-1.5 text-xs font-bold rounded-xl bg-gradient-to-r bg-rose-600 hover:bg-rose-500 text-white transition flex items-center space-x-1.5 shadow-sm cursor-pointer active:scale-95">
                   <i data-lucide="user-plus" class="w-3.5 h-3.5"></i>
                   <span>+ Track New Creator</span>
                 </button>
@@ -3699,20 +3697,20 @@ export function getDashboardHtml(folderId = '') {
       <!-- CREATOR HUB: 👥 TRACKED CREATORS TABLE                   -->
       <!-- ======================================================== -->
       <div class="space-y-4">
-        <div class="p-4 rounded-2xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 space-y-4 shadow-sm">
-          <div class="flex flex-col sm:flex-row items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800/80 pb-3">
+        <div class="p-4 rounded-2xl bg-white dark:bg-[#121215] border border-slate-200/80 dark:border-[#27272A] space-y-4 shadow-sm">
+          <div class="flex flex-col sm:flex-row items-center justify-between gap-3 border-b border-slate-200 dark:border-[#27272A]/80 pb-3">
             <!-- Filter Tabs -->
             <div class="flex items-center space-x-1 bg-slate-100 dark:bg-slate-900 p-1 rounded-xl text-xs font-semibold">
-              <button @click="competitorFilter = 'all'" class="px-3 py-1.5 rounded-lg transition" :class="competitorFilter === 'all' ? 'bg-white dark:bg-[#0b1120] text-slate-900 dark:text-white shadow-sm font-bold' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'">All Profiles</button>
-              <button @click="competitorFilter = 'own'" class="px-3 py-1.5 rounded-lg transition" :class="competitorFilter === 'own' ? 'bg-white dark:bg-[#0b1120] text-slate-900 dark:text-white shadow-sm font-bold' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'">👤 My Accounts</button>
-              <button @click="competitorFilter = 'competitor'" class="px-3 py-1.5 rounded-lg transition" :class="competitorFilter === 'competitor' ? 'bg-white dark:bg-[#0b1120] text-slate-900 dark:text-white shadow-sm font-bold' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'">🎯 Competitors</button>
-              <button @click="competitorFilter = 'paused'" class="px-3 py-1.5 rounded-lg transition" :class="competitorFilter === 'paused' ? 'bg-white dark:bg-[#0b1120] text-amber-600 dark:text-amber-400 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'">⏸ Paused</button>
+              <button @click="competitorFilter = 'all'" class="px-3 py-1.5 rounded-lg transition" :class="competitorFilter === 'all' ? 'bg-white dark:bg-[#121215] text-slate-900 dark:text-white shadow-sm font-bold' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'">All Profiles</button>
+              <button @click="competitorFilter = 'own'" class="px-3 py-1.5 rounded-lg transition" :class="competitorFilter === 'own' ? 'bg-white dark:bg-[#121215] text-slate-900 dark:text-white shadow-sm font-bold' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'">👤 My Accounts</button>
+              <button @click="competitorFilter = 'competitor'" class="px-3 py-1.5 rounded-lg transition" :class="competitorFilter === 'competitor' ? 'bg-white dark:bg-[#121215] text-slate-900 dark:text-white shadow-sm font-bold' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'">🎯 Competitors</button>
+              <button @click="competitorFilter = 'paused'" class="px-3 py-1.5 rounded-lg transition" :class="competitorFilter === 'paused' ? 'bg-white dark:bg-[#121215] text-amber-600 dark:text-amber-400 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'">⏸ Paused</button>
             </div>
 
             <!-- Campaign Folder Filter Dropdown -->
             <div class="flex items-center gap-1.5 text-xs">
-              <span class="text-slate-500 dark:text-slate-400 font-mono">📁 Folder:</span>
-              <select x-model="folderFilter" @change="onFolderFilterChange()" class="py-1 px-2.5 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-purple-500 font-mono cursor-pointer">
+              <span class="text-slate-500 dark:text-slate-400 font-mono tabular-nums">📁 Folder:</span>
+              <select x-model="folderFilter" @change="onFolderFilterChange()" class="py-1 px-2.5 text-xs rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-100 dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-purple-500 font-mono tabular-nums cursor-pointer">
                 <option value="">All Folders</option>
                 <template x-for="f in foldersList" :key="f.id">
                   <option :value="String(f.id)" x-text="f.name + ' (' + (f.creator_count || 0) + ')'"></option>
@@ -3724,7 +3722,7 @@ export function getDashboardHtml(folderId = '') {
             <div class="flex items-center space-x-2 w-full sm:w-auto">
               <div class="relative w-full sm:w-64">
                 <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
-                <input type="text" x-model="competitorSearch" placeholder="Search handle, name, tag..." class="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-purple-500/50">
+                <input type="text" x-model="competitorSearch" placeholder="Search handle, name, tag..." class="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-purple-500/50">
               </div>
               <span class="px-2.5 py-1 rounded-full text-xs font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 whitespace-nowrap" x-text="filteredCompetitors.length + ' Profiles'"></span>
             </div>
@@ -3734,7 +3732,7 @@ export function getDashboardHtml(folderId = '') {
           <div x-show="selectedCompetitorIds.length > 0" x-transition class="mb-3 p-3 rounded-2xl bg-gradient-to-r from-purple-900/30 via-indigo-900/30 to-slate-900/50 border border-purple-500/30 backdrop-blur-md flex flex-wrap items-center justify-between gap-3 shadow-lg">
             <div class="flex items-center gap-2 pl-1">
               <span class="flex h-6 w-6 items-center justify-center rounded-lg bg-purple-500/20 text-purple-400 font-bold text-xs">✓</span>
-              <span class="text-xs font-bold text-white font-mono" x-text="selectedCompetitorIds.length + ' Profile(s) Selected'"></span>
+              <span class="text-xs font-bold text-white font-mono tabular-nums" x-text="selectedCompetitorIds.length + ' Profile(s) Selected'"></span>
               <button @click="clearSelectedCompetitors()" class="text-[11px] text-slate-400 hover:text-white underline ml-2 cursor-pointer">Deselect All</button>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
@@ -3772,8 +3770,8 @@ export function getDashboardHtml(folderId = '') {
           <div class="overflow-x-auto">
             <table class="w-full text-left text-xs">
               <thead>
-                <tr class="border-b border-slate-200 dark:border-slate-800/80 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                  <th class="py-3 px-3 w-8"><input type="checkbox" :checked="isAllCompetitorsSelected" @change="toggleSelectAllCompetitors()" class="rounded border-slate-300 dark:border-slate-700 text-purple-600 cursor-pointer"></th>
+                <tr class="border-b border-slate-200 dark:border-[#27272A]/80 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  <th class="py-3 px-3 w-8"><input type="checkbox" :checked="isAllCompetitorsSelected" @change="toggleSelectAllCompetitors()" class="rounded border-slate-300 dark:border-[#27272A] text-purple-600 cursor-pointer"></th>
                   <th class="py-3 px-3">Profile</th>
                   <th class="py-3 px-3 text-right">Total audience</th>
                   <th class="py-3 px-3 text-right">Impressions</th>
@@ -3783,13 +3781,13 @@ export function getDashboardHtml(folderId = '') {
                   <th class="py-3 px-3 text-center">Actions</th>
                 </tr>
               </thead>
-              <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono">
+              <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono tabular-nums">
                 <template x-for="c in filteredCompetitors" :key="c.id">
                   <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition" :class="c.is_active === false ? 'opacity-75 bg-amber-500/[0.03] dark:bg-amber-500/[0.05]' : ''">
-                    <td class="py-3 px-3"><input type="checkbox" :checked="selectedCompetitorIds.includes(Number(c.id))" @change="toggleSelectCompetitor(c.id)" class="rounded border-slate-300 dark:border-slate-700 text-purple-600 cursor-pointer"></td>
+                    <td class="py-3 px-3"><input type="checkbox" :checked="selectedCompetitorIds.includes(Number(c.id))" @change="toggleSelectCompetitor(c.id)" class="rounded border-slate-300 dark:border-[#27272A] text-purple-600 cursor-pointer"></td>
                     <td class="py-3 px-3 font-sans">
                       <div class="flex items-center space-x-2.5 cursor-pointer" @click="openCreatorDossier(c)">
-                        <img :src="c.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=64&h=64&fit=crop&crop=face'" class="w-8 h-8 rounded-full object-cover border border-slate-200 dark:border-slate-700 hover:scale-105 transition">
+                        <img :src="c.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=64&h=64&fit=crop&crop=face'" class="w-8 h-8 rounded-full object-cover border border-slate-200 dark:border-[#27272A] hover:scale-105 transition">
                         <div>
                           <div class="font-bold text-slate-900 dark:text-white hover:text-purple-600 dark:hover:text-purple-400 flex items-center space-x-1">
                             <span x-text="'@' + c.username"></span>
@@ -3798,7 +3796,7 @@ export function getDashboardHtml(folderId = '') {
                               <span class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 whitespace-nowrap">⏸ Paused</span>
                             </template>
                             <template x-if="c._shard_name && selectedProject === 'all'">
-                              <span class="text-[9px] font-mono px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20" x-text="c._shard_name.replace('pin-arbitrage-', '')"></span>
+                              <span class="text-[9px] font-mono tabular-nums px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20" x-text="c._shard_name.replace('pin-arbitrage-', '')"></span>
                             </template>
                           </div>
                           <div class="text-[10px] text-slate-500 truncate max-w-[140px]" x-text="c.display_name || c.username"></div>
@@ -3851,14 +3849,14 @@ export function getDashboardHtml(folderId = '') {
                           <button @click.stop="openFolderMenu = !openFolderMenu" class="p-1.5 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-950/40 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition cursor-pointer" title="Assign to Campaign Folder">
                             <i data-lucide="folder-plus" class="w-3.5 h-3.5"></i>
                           </button>
-                          <div x-show="openFolderMenu" @click.away="openFolderMenu = false" class="absolute right-0 z-50 mt-1 w-48 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl py-1 text-xs text-left" x-cloak>
-                            <div class="px-3 py-1.5 text-[10px] font-mono uppercase text-slate-400 border-b border-slate-100 dark:border-slate-800">
+                          <div x-show="openFolderMenu" @click.away="openFolderMenu = false" class="absolute right-0 z-50 mt-1 w-48 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] shadow-xl py-1 text-xs text-left" x-cloak>
+                            <div class="px-3 py-1.5 text-[10px] font-mono tabular-nums uppercase text-slate-400 border-b border-slate-100 dark:border-[#27272A]">
                               Assign to Folder
                             </div>
                             <template x-for="f in foldersList" :key="f.id">
                               <button @click.stop="assignCreatorToFolder(c.id, f.id); openFolderMenu = false" class="w-full text-left px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800/80 text-slate-700 dark:text-slate-300 flex items-center justify-between transition-colors cursor-pointer">
                                 <span class="truncate" x-text="f.name"></span>
-                                <span class="text-[10px] text-indigo-500 font-mono" x-show="isCreatorInFolder(c.id, f.id)">✓</span>
+                                <span class="text-[10px] text-indigo-500 font-mono tabular-nums" x-show="isCreatorInFolder(c.id, f.id)">✓</span>
                               </button>
                             </template>
                             <div x-show="!foldersList.length" class="px-3 py-2 text-slate-400 text-[11px]">
@@ -3875,7 +3873,7 @@ export function getDashboardHtml(folderId = '') {
                   </tr>
                 </template>
               </tbody>
-              <tfoot class="border-t-2 border-slate-200 dark:border-slate-800 font-bold text-slate-900 dark:text-white font-mono">
+              <tfoot class="border-t-2 border-slate-200 dark:border-[#27272A] font-bold text-slate-900 dark:text-white font-mono tabular-nums">
                 <tr>
                   <td></td>
                   <td class="py-3 px-3 font-sans" x-text="'Totals (' + filteredCompetitors.length + ')'"></td>
@@ -3909,7 +3907,7 @@ export function getDashboardHtml(folderId = '') {
 
             <!-- Action Toolbar -->
             <div class="flex items-center gap-2 flex-wrap self-start sm:self-auto">
-              <a :href="'https://www.pinterest.com/' + (activeCreator.username || '').replace(/^@+/, '') + '/'" target="_blank" rel="noopener noreferrer" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0d1526] px-3 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition shadow-2xs">
+              <a :href="'https://www.pinterest.com/' + (activeCreator.username || '').replace(/^@+/, '') + '/'" target="_blank" rel="noopener noreferrer" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] px-3 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition shadow-2xs">
                 <span>View on Pinterest</span>
                 <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
               </a>
@@ -3933,7 +3931,7 @@ export function getDashboardHtml(folderId = '') {
               </button>
 
               <!-- Pause / Resume -->
-              <button @click="toggleCompetitorStatus(activeCreator)" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0d1526] px-3 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition shadow-2xs cursor-pointer" :title="activeCreator.is_active === false ? 'Resume Ingestion' : 'Pause Ingestion'">
+              <button @click="toggleCompetitorStatus(activeCreator)" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] px-3 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition shadow-2xs cursor-pointer" :title="activeCreator.is_active === false ? 'Resume Ingestion' : 'Pause Ingestion'">
                 <template x-if="activeCreator.is_active === false">
                   <span class="inline-flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><polygon points="6 3 20 12 6 21 6 3"/></svg>
@@ -3951,7 +3949,7 @@ export function getDashboardHtml(folderId = '') {
           </div>
 
           <!-- ═══ Profile Hero Card (Image 1 & 3) ═══ -->
-          <div class="rounded-3xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-5 sm:p-6 shadow-xs relative overflow-hidden">
+          <div class="rounded-3xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#18181B] p-5 sm:p-6 shadow-xs relative overflow-hidden">
             <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
               
               <!-- Left: Avatar & Meta -->
@@ -3960,7 +3958,7 @@ export function getDashboardHtml(folderId = '') {
                   <img
                     :src="activeCreator.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&h=200&q=80'"
                     alt="Avatar"
-                    class="h-16 w-16 rounded-2xl object-cover border border-slate-200 dark:border-slate-800 shadow-2xs flex-shrink-0 bg-slate-100 dark:bg-slate-800"
+                    class="h-16 w-16 rounded-2xl object-cover border border-slate-200 dark:border-[#27272A] shadow-2xs flex-shrink-0 bg-slate-100 dark:bg-slate-800"
                   />
                 </div>
 
@@ -3998,14 +3996,14 @@ export function getDashboardHtml(folderId = '') {
 
               <!-- Right: High-Density Quick Stat Summary -->
               <div class="flex items-center gap-3 self-start lg:self-auto">
-                <div class="flex items-center gap-3 bg-slate-50 dark:bg-slate-900/60 rounded-2xl px-4 py-2.5 border border-slate-200/80 dark:border-slate-800 shadow-2xs">
+                <div class="flex items-center gap-3 bg-slate-50 dark:bg-slate-900/60 rounded-2xl px-4 py-2.5 border border-slate-200/80 dark:border-[#27272A] shadow-2xs">
                   <div class="text-right">
-                    <span class="text-[10px] font-mono text-slate-400 uppercase tracking-wider block">Total Catalog</span>
+                    <span class="text-[10px] font-mono tabular-nums text-slate-400 uppercase tracking-wider block">Total Catalog</span>
                     <span class="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white font-mono tabular-nums" x-text="formatNumber(activeCreator.total_pins || activeCreatorCatalogTotal || 0)"></span>
                   </div>
                   <div class="h-6 w-px bg-slate-200 dark:bg-slate-800"></div>
                   <div class="text-left">
-                    <span class="text-[10px] font-mono text-slate-400 uppercase tracking-wider block">Followers</span>
+                    <span class="text-[10px] font-mono tabular-nums text-slate-400 uppercase tracking-wider block">Followers</span>
                     <span class="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white font-mono tabular-nums" x-text="formatNumber(activeCreator.follower_count || 0)"></span>
                   </div>
                 </div>
@@ -4014,7 +4012,7 @@ export function getDashboardHtml(folderId = '') {
           </div>
 
           <!-- ═══ Per-Account 3-Tier Qualification Rules Card ═══ -->
-          <div class="rounded-3xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-5 sm:p-6 shadow-xs relative overflow-hidden" x-data="{ isRulesOpen: false }">
+          <div class="rounded-3xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#18181B] p-5 sm:p-6 shadow-xs relative overflow-hidden" x-data="{ isRulesOpen: false }">
             <div class="flex items-center justify-between cursor-pointer" @click="isRulesOpen = !isRulesOpen">
               <div class="flex items-center gap-3">
                 <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/10 text-amber-500 border border-amber-500/20">
@@ -4034,66 +4032,66 @@ export function getDashboardHtml(folderId = '') {
             </div>
 
             <!-- Expandable Rules Form -->
-            <div x-show="isRulesOpen" x-transition class="mt-5 pt-5 border-t border-slate-200/80 dark:border-slate-800/80 space-y-4">
+            <div x-show="isRulesOpen" x-transition class="mt-5 pt-5 border-t border-slate-200/80 dark:border-[#27272A]/80 space-y-4">
               <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
                 
                 <!-- Tier 1: Saves -->
-                <div class="rounded-2xl bg-slate-50 dark:bg-slate-900/50 p-3.5 border border-slate-200/60 dark:border-slate-800/60">
+                <div class="rounded-2xl bg-slate-50 dark:bg-slate-900/50 p-3.5 border border-slate-200/60 dark:border-[#27272A]/60">
                   <div class="flex items-center justify-between mb-1.5">
                     <span class="text-[11px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider">Tier 1: Min Saves</span>
                     <i data-lucide="bookmark" class="w-3.5 h-3.5 text-amber-500"></i>
                   </div>
-                  <input type="number" x-model.number="creatorRules.tier1_min_saves" class="w-full h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#0b1120] px-3 text-xs font-bold text-slate-900 dark:text-white" placeholder="100" />
+                  <input type="number" x-model.number="creatorRules.tier1_min_saves" class="w-full h-9 rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] px-3 text-xs font-bold text-slate-900 dark:text-white" placeholder="100" />
                   <span class="text-[10px] text-slate-400 mt-1 block">Evergreen high-volume target</span>
                 </div>
 
                 <!-- Tier 2: Repins -->
-                <div class="rounded-2xl bg-slate-50 dark:bg-slate-900/50 p-3.5 border border-slate-200/60 dark:border-slate-800/60">
+                <div class="rounded-2xl bg-slate-50 dark:bg-slate-900/50 p-3.5 border border-slate-200/60 dark:border-[#27272A]/60">
                   <div class="flex items-center justify-between mb-1.5">
                     <span class="text-[11px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider">Tier 2: Min Repins</span>
                     <i data-lucide="repeat" class="w-3.5 h-3.5 text-blue-500"></i>
                   </div>
-                  <input type="number" x-model.number="creatorRules.tier2_min_repins" class="w-full h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#0b1120] px-3 text-xs font-bold text-slate-900 dark:text-white" placeholder="100" />
+                  <input type="number" x-model.number="creatorRules.tier2_min_repins" class="w-full h-9 rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] px-3 text-xs font-bold text-slate-900 dark:text-white" placeholder="100" />
                   <span class="text-[10px] text-slate-400 mt-1 block">High distribution virality</span>
                 </div>
 
                 <!-- Tier 3: Fresh Age Days -->
-                <div class="rounded-2xl bg-slate-50 dark:bg-slate-900/50 p-3.5 border border-slate-200/60 dark:border-slate-800/60">
+                <div class="rounded-2xl bg-slate-50 dark:bg-slate-900/50 p-3.5 border border-slate-200/60 dark:border-[#27272A]/60">
                   <div class="flex items-center justify-between mb-1.5">
                     <span class="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">Tier 3: Max Age (Days)</span>
                     <i data-lucide="sparkles" class="w-3.5 h-3.5 text-emerald-500"></i>
                   </div>
-                  <input type="number" x-model.number="creatorRules.tier3_fresh_days" class="w-full h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#0b1120] px-3 text-xs font-bold text-slate-900 dark:text-white" placeholder="14" />
+                  <input type="number" x-model.number="creatorRules.tier3_fresh_days" class="w-full h-9 rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] px-3 text-xs font-bold text-slate-900 dark:text-white" placeholder="14" />
                   <span class="text-[10px] text-slate-400 mt-1 block">Fresh breakout window</span>
                 </div>
 
                 <!-- Tier 3: Fresh Min Saves -->
-                <div class="rounded-2xl bg-slate-50 dark:bg-slate-900/50 p-3.5 border border-slate-200/60 dark:border-slate-800/60">
+                <div class="rounded-2xl bg-slate-50 dark:bg-slate-900/50 p-3.5 border border-slate-200/60 dark:border-[#27272A]/60">
                   <div class="flex items-center justify-between mb-1.5">
                     <span class="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">Tier 3: Fresh Min Saves</span>
                     <i data-lucide="zap" class="w-3.5 h-3.5 text-emerald-500"></i>
                   </div>
-                  <input type="number" x-model.number="creatorRules.tier3_min_saves" class="w-full h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#0b1120] px-3 text-xs font-bold text-slate-900 dark:text-white" placeholder="25" />
+                  <input type="number" x-model.number="creatorRules.tier3_min_saves" class="w-full h-9 rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] px-3 text-xs font-bold text-slate-900 dark:text-white" placeholder="25" />
                   <span class="text-[10px] text-slate-400 mt-1 block">Early breakout acceleration</span>
                 </div>
 
                 <!-- Crawler Max Pages -->
-                <div class="rounded-2xl bg-slate-50 dark:bg-slate-900/50 p-3.5 border border-slate-200/60 dark:border-slate-800/60">
+                <div class="rounded-2xl bg-slate-50 dark:bg-slate-900/50 p-3.5 border border-slate-200/60 dark:border-[#27272A]/60">
                   <div class="flex items-center justify-between mb-1.5">
                     <span class="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">Max Pages</span>
                     <i data-lucide="layers" class="w-3.5 h-3.5 text-indigo-500"></i>
                   </div>
-                  <input type="number" x-model.number="creatorRules.max_pages" class="w-full h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#0b1120] px-3 text-xs font-bold text-slate-900 dark:text-white" placeholder="500" />
+                  <input type="number" x-model.number="creatorRules.max_pages" class="w-full h-9 rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] px-3 text-xs font-bold text-slate-900 dark:text-white" placeholder="500" />
                   <span class="text-[10px] text-slate-400 mt-1 block">Full sweep depth limit</span>
                 </div>
 
                 <!-- Crawler Early Stop Pages -->
-                <div class="rounded-2xl bg-slate-50 dark:bg-slate-900/50 p-3.5 border border-slate-200/60 dark:border-slate-800/60">
+                <div class="rounded-2xl bg-slate-50 dark:bg-slate-900/50 p-3.5 border border-slate-200/60 dark:border-[#27272A]/60">
                   <div class="flex items-center justify-between mb-1.5">
                     <span class="text-[11px] font-bold text-purple-600 dark:text-purple-400 uppercase tracking-wider">Early Stop Pages</span>
                     <i data-lucide="shield-alert" class="w-3.5 h-3.5 text-purple-500"></i>
                   </div>
-                  <input type="number" x-model.number="creatorRules.early_stop_pages" class="w-full h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#0b1120] px-3 text-xs font-bold text-slate-900 dark:text-white" placeholder="3" />
+                  <input type="number" x-model.number="creatorRules.early_stop_pages" class="w-full h-9 rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] px-3 text-xs font-bold text-slate-900 dark:text-white" placeholder="3" />
                   <span class="text-[10px] text-slate-400 mt-1 block">Daily pulse depth limit</span>
                 </div>
               </div>
@@ -4103,7 +4101,7 @@ export function getDashboardHtml(folderId = '') {
                 <div class="flex items-center gap-4">
                   <label class="inline-flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-700 dark:text-slate-300">
                     <input type="checkbox" x-model="creatorRules.articles_only" class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4" />
-                    <span>🎯 Articles Only (Exclude E-commerce Products: <code class="text-[10px] font-mono bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded">!is_product</code>)</span>
+                    <span>🎯 Articles Only (Exclude E-commerce Products: <code class="text-[10px] font-mono tabular-nums bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded">!is_product</code>)</span>
                   </label>
                 </div>
 
@@ -4130,8 +4128,8 @@ export function getDashboardHtml(folderId = '') {
           </div>
 
           <!-- ═══ In-Page Sub-Navigation Tabs (Taste-Design Monochromatic Track) ═══ -->
-          <div class="border-b border-slate-200 dark:border-slate-800 pb-3">
-            <div class="inline-flex items-center gap-1.5 p-1 rounded-2xl bg-slate-100 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 overflow-x-auto max-w-full">
+          <div class="border-b border-slate-200 dark:border-[#27272A] pb-3">
+            <div class="inline-flex items-center gap-1.5 p-1 rounded-2xl bg-slate-100 dark:bg-slate-900/80 border border-slate-200/80 dark:border-[#27272A] overflow-x-auto max-w-full">
               <button @click="switchCreatorTab('overview')" class="flex items-center gap-2 px-4 py-2 text-xs rounded-xl transition cursor-pointer whitespace-nowrap" :class="activeCreatorTab === 'overview' ? 'bg-rose-500 text-white font-bold shadow-2xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white font-semibold'">
                 <i data-lucide="line-chart" class="w-4 h-4"></i>
                 <span>Overview &amp; Growth Trends</span>
@@ -4165,7 +4163,7 @@ export function getDashboardHtml(folderId = '') {
           <div x-show="activeCreatorTab === 'overview'" class="space-y-6">
             
             <!-- Analytics Engine Time Range Bar (Image 1) -->
-            <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-3.5 sm:px-5 sm:py-3 shadow-xs flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div class="rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#18181B] p-3.5 sm:px-5 sm:py-3 shadow-xs flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               
               <!-- Quick Time Range Segmented Buttons (Default 7D) -->
               <div class="flex items-center gap-2 flex-wrap">
@@ -4173,12 +4171,12 @@ export function getDashboardHtml(folderId = '') {
                   <i data-lucide="clock" class="w-3.5 h-3.5"></i>
                   <span>Time Range:</span>
                 </span>
-                <div class="flex items-center bg-slate-100 dark:bg-slate-900 p-0.5 rounded-xl border border-slate-200 dark:border-slate-800">
-                  <button @click="creatorTimeRange = '7D'" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer" :class="creatorTimeRange === '7D' ? 'bg-white dark:bg-[#0b1120] text-slate-900 dark:text-white shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">7D</button>
-                  <button @click="creatorTimeRange = '30D'" class="rounded-lg px-2.5 py-1 text-xs font-semibold transition cursor-pointer" :class="creatorTimeRange === '30D' ? 'bg-white dark:bg-[#0b1120] text-slate-900 dark:text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">30D</button>
-                  <button @click="creatorTimeRange = '90D'" class="rounded-lg px-2.5 py-1 text-xs font-semibold transition cursor-pointer" :class="creatorTimeRange === '90D' ? 'bg-white dark:bg-[#0b1120] text-slate-900 dark:text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">90D</button>
-                  <button @click="creatorTimeRange = 'YTD'" class="rounded-lg px-2.5 py-1 text-xs font-semibold transition cursor-pointer" :class="creatorTimeRange === 'YTD' ? 'bg-white dark:bg-[#0b1120] text-slate-900 dark:text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">YTD</button>
-                  <button @click="creatorTimeRange = 'ALL'" class="rounded-lg px-2.5 py-1 text-xs font-semibold transition cursor-pointer" :class="creatorTimeRange === 'ALL' ? 'bg-white dark:bg-[#0b1120] text-slate-900 dark:text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">ALL</button>
+                <div class="flex items-center bg-slate-100 dark:bg-slate-900 p-0.5 rounded-xl border border-slate-200 dark:border-[#27272A]">
+                  <button @click="creatorTimeRange = '7D'" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer" :class="creatorTimeRange === '7D' ? 'bg-white dark:bg-[#121215] text-slate-900 dark:text-white shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">7D</button>
+                  <button @click="creatorTimeRange = '30D'" class="rounded-lg px-2.5 py-1 text-xs font-semibold transition cursor-pointer" :class="creatorTimeRange === '30D' ? 'bg-white dark:bg-[#121215] text-slate-900 dark:text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">30D</button>
+                  <button @click="creatorTimeRange = '90D'" class="rounded-lg px-2.5 py-1 text-xs font-semibold transition cursor-pointer" :class="creatorTimeRange === '90D' ? 'bg-white dark:bg-[#121215] text-slate-900 dark:text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">90D</button>
+                  <button @click="creatorTimeRange = 'YTD'" class="rounded-lg px-2.5 py-1 text-xs font-semibold transition cursor-pointer" :class="creatorTimeRange === 'YTD' ? 'bg-white dark:bg-[#121215] text-slate-900 dark:text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">YTD</button>
+                  <button @click="creatorTimeRange = 'ALL'" class="rounded-lg px-2.5 py-1 text-xs font-semibold transition cursor-pointer" :class="creatorTimeRange === 'ALL' ? 'bg-white dark:bg-[#121215] text-slate-900 dark:text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">ALL</button>
                 </div>
               </div>
 
@@ -4186,7 +4184,7 @@ export function getDashboardHtml(folderId = '') {
               <div class="flex items-center gap-2.5 flex-wrap">
                 <div class="flex items-center gap-1.5">
                   <label class="text-xs font-bold text-slate-500 dark:text-slate-400">Month:</label>
-                  <select x-model="creatorSelectedMonth" class="h-8 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-3 text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer">
+                  <select x-model="creatorSelectedMonth" class="h-8 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-slate-900 px-3 text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer">
                     <option value="all">All Months</option>
                     <template x-for="m in availableCreatorMonths" :key="m">
                       <option :value="m" x-text="m"></option>
@@ -4194,7 +4192,7 @@ export function getDashboardHtml(folderId = '') {
                   </select>
                 </div>
 
-                <button @click="creatorMoMMode = !creatorMoMMode" type="button" class="inline-flex h-8 items-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 px-3 text-xs font-semibold text-slate-700 dark:text-slate-300 shadow-2xs transition cursor-pointer">
+                <button @click="creatorMoMMode = !creatorMoMMode" type="button" class="inline-flex h-8 items-center gap-1.5 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 px-3 text-xs font-semibold text-slate-700 dark:text-slate-300 shadow-2xs transition cursor-pointer">
                   <i data-lucide="bar-chart-2" class="w-3.5 h-3.5 text-rose-500"></i>
                   <span>Compare Months</span>
                 </button>
@@ -4217,7 +4215,7 @@ export function getDashboardHtml(folderId = '') {
                 <div class="flex items-center gap-2.5 flex-wrap">
                   <div class="flex items-center gap-1.5">
                     <label class="text-xs font-semibold text-slate-500">Base (A):</label>
-                    <select x-model="creatorMoMBaseMonth" class="h-8 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0d1526] px-2.5 text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer">
+                    <select x-model="creatorMoMBaseMonth" class="h-8 rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] px-2.5 text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer">
                       <template x-for="m in availableCreatorMonths" :key="'base-' + m">
                         <option :value="m" x-text="m"></option>
                       </template>
@@ -4226,7 +4224,7 @@ export function getDashboardHtml(folderId = '') {
                   <span class="text-xs font-bold text-slate-400">vs</span>
                   <div class="flex items-center gap-1.5">
                     <label class="text-xs font-semibold text-slate-500">Target (B):</label>
-                    <select x-model="creatorMoMTargetMonth" class="h-8 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0d1526] px-2.5 text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer">
+                    <select x-model="creatorMoMTargetMonth" class="h-8 rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] px-2.5 text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer">
                       <template x-for="m in availableCreatorMonths" :key="'target-' + m">
                         <option :value="m" x-text="m"></option>
                       </template>
@@ -4235,19 +4233,19 @@ export function getDashboardHtml(folderId = '') {
                 </div>
               </div>
               <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                <div class="bg-white dark:bg-[#0d1526] p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+                <div class="bg-white dark:bg-[#18181B] p-3 rounded-xl border border-slate-200 dark:border-[#27272A]">
                   <div class="text-[10px] text-slate-400 font-bold uppercase">Total Audience Shift</div>
                   <div class="text-sm font-extrabold mt-1 font-mono tabular-nums" :class="creatorMoMStats.reach.diff >= 0 ? 'text-emerald-500' : 'text-rose-500'" x-text="(creatorMoMStats.reach.diff >= 0 ? '+' : '') + formatNumber(creatorMoMStats.reach.diff) + ' (' + (creatorMoMStats.reach.pct >= 0 ? '+' : '') + creatorMoMStats.reach.pct + '%)'"></div>
                 </div>
-                <div class="bg-white dark:bg-[#0d1526] p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+                <div class="bg-white dark:bg-[#18181B] p-3 rounded-xl border border-slate-200 dark:border-[#27272A]">
                   <div class="text-[10px] text-slate-400 font-bold uppercase">Impressions Shift</div>
                   <div class="text-sm font-extrabold mt-1 font-mono tabular-nums" :class="creatorMoMStats.views.diff >= 0 ? 'text-sky-500' : 'text-rose-500'" x-text="(creatorMoMStats.views.diff >= 0 ? '+' : '') + formatNumber(creatorMoMStats.views.diff) + ' (' + (creatorMoMStats.views.pct >= 0 ? '+' : '') + creatorMoMStats.views.pct + '%)'"></div>
                 </div>
-                <div class="bg-white dark:bg-[#0d1526] p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+                <div class="bg-white dark:bg-[#18181B] p-3 rounded-xl border border-slate-200 dark:border-[#27272A]">
                   <div class="text-[10px] text-slate-400 font-bold uppercase">Followers Shift</div>
                   <div class="text-sm font-extrabold mt-1 font-mono tabular-nums" :class="creatorMoMStats.followers.diff >= 0 ? 'text-purple-500' : 'text-rose-500'" x-text="(creatorMoMStats.followers.diff >= 0 ? '+' : '') + formatNumber(creatorMoMStats.followers.diff) + ' (' + (creatorMoMStats.followers.pct >= 0 ? '+' : '') + creatorMoMStats.followers.pct + '%)'"></div>
                 </div>
-                <div class="bg-white dark:bg-[#0d1526] p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+                <div class="bg-white dark:bg-[#18181B] p-3 rounded-xl border border-slate-200 dark:border-[#27272A]">
                   <div class="text-[10px] text-slate-400 font-bold uppercase">Total Pins Shift</div>
                   <div class="text-sm font-extrabold mt-1 font-mono tabular-nums" :class="creatorMoMStats.pins.diff >= 0 ? 'text-emerald-500' : 'text-rose-500'" x-text="(creatorMoMStats.pins.diff >= 0 ? '+' : '') + formatNumber(creatorMoMStats.pins.diff) + ' (' + (creatorMoMStats.pins.pct >= 0 ? '+' : '') + creatorMoMStats.pins.pct + '%)'"></div>
                 </div>
@@ -4258,14 +4256,14 @@ export function getDashboardHtml(folderId = '') {
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
               
               <!-- Performance Trend SVG Spline Card (2 Cols) -->
-              <div class="lg:col-span-2 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-5 sm:p-6 shadow-xs flex flex-col justify-between space-y-4">
+              <div class="lg:col-span-2 rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#18181B] p-5 sm:p-6 shadow-xs flex flex-col justify-between space-y-4">
                 <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div class="flex items-center gap-2">
                     <h3 class="text-xs sm:text-sm font-extrabold tracking-wider uppercase text-slate-900 dark:text-white">PERFORMANCE TREND</h3>
                   </div>
 
                   <!-- Dynamic Metric Switcher Pills -->
-                  <div class="flex items-center gap-1 bg-slate-100 dark:bg-slate-900 p-0.5 rounded-xl border border-slate-200 dark:border-slate-800 overflow-x-auto self-start sm:self-auto">
+                  <div class="flex items-center gap-1 bg-slate-100 dark:bg-slate-900 p-0.5 rounded-xl border border-slate-200 dark:border-[#27272A] overflow-x-auto self-start sm:self-auto">
                     <button @click="creatorChartMode = 'reach'" class="px-3 py-1 rounded-lg text-xs font-bold transition whitespace-nowrap cursor-pointer" :class="creatorChartMode === 'reach' ? 'bg-rose-500 text-white shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">Total audience</button>
                     <button @click="creatorChartMode = 'views'" class="px-3 py-1 rounded-lg text-xs font-bold transition whitespace-nowrap cursor-pointer" :class="creatorChartMode === 'views' ? 'bg-sky-500 text-white shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">Impressions</button>
                     <button @click="creatorChartMode = 'followers'" class="px-3 py-1 rounded-lg text-xs font-bold transition whitespace-nowrap cursor-pointer" :class="creatorChartMode === 'followers' ? 'bg-purple-500 text-white shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">Followers</button>
@@ -4275,14 +4273,14 @@ export function getDashboardHtml(folderId = '') {
                 </div>
 
                 <!-- Sub-header Meta Bar: Min/Max & Latest -->
-                <div class="flex items-center justify-between text-xs border-b border-slate-200 dark:border-slate-800 pb-2">
-                  <div class="flex items-center gap-2 font-mono text-[11px] text-slate-500">
+                <div class="flex items-center justify-between text-xs border-b border-slate-200 dark:border-[#27272A] pb-2">
+                  <div class="flex items-center gap-2 font-mono tabular-nums text-[11px] text-slate-500">
                     <span>Min: <strong class="text-slate-900 dark:text-white font-bold" x-text="formatNumber(creatorChartData.min)"></strong></span>
                     <span>•</span>
                     <span>Max: <strong class="text-slate-900 dark:text-white font-bold" x-text="formatNumber(creatorChartData.max)"></strong></span>
                   </div>
                   <div class="flex items-center gap-1.5">
-                    <span class="inline-flex items-center gap-1 rounded-xl bg-slate-100 dark:bg-slate-900 px-2.5 py-1 text-xs font-mono font-bold text-slate-900 dark:text-white border border-slate-200 dark:border-slate-800">
+                    <span class="inline-flex items-center gap-1 rounded-xl bg-slate-100 dark:bg-slate-900 px-2.5 py-1 text-xs font-mono tabular-nums font-bold text-slate-900 dark:text-white border border-slate-200 dark:border-[#27272A]">
                       <span class="text-slate-400 font-sans text-[11px]">Latest:</span>
                       <span x-text="formatNumber(creatorChartData.latest)"></span>
                     </span>
@@ -4327,34 +4325,34 @@ export function getDashboardHtml(folderId = '') {
               </div>
 
               <!-- Strategy Horizon Ledger Card (1 Col) -->
-              <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-5 sm:p-6 shadow-xs flex flex-col justify-between space-y-4">
+              <div class="rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#18181B] p-5 sm:p-6 shadow-xs flex flex-col justify-between space-y-4">
                 <div>
                   <div class="flex items-center justify-between mb-3">
-                    <span class="text-[10.5px] font-mono uppercase tracking-wider text-slate-400 dark:text-slate-500 font-bold">Strategy Horizon</span>
-                    <span class="rounded-full bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-[10px] font-mono font-bold text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700" x-text="(activeCreator.total_boards || activeCreatorBoards.length || 0) + ' Boards'"></span>
+                    <span class="text-[10.5px] font-mono tabular-nums uppercase tracking-wider text-slate-400 dark:text-slate-500 font-bold">Strategy Horizon</span>
+                    <span class="rounded-full bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-[10px] font-mono tabular-nums font-bold text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-[#27272A]" x-text="(activeCreator.total_boards || activeCreatorBoards.length || 0) + ' Boards'"></span>
                   </div>
                   <div class="space-y-3">
-                    <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800/80 pb-2">
+                    <div class="flex items-center justify-between border-b border-slate-100 dark:border-[#27272A]/80 pb-2">
                       <span class="text-xs text-slate-500">Account Age:</span>
-                      <span class="text-xs font-bold font-mono text-slate-900 dark:text-white tabular-nums" x-text="(activeCreatorDetail?.account_age?.days || activeCreatorDetail?.strategy_age?.days || 0) + ' Days'"></span>
+                      <span class="text-xs font-bold font-mono tabular-nums text-slate-900 dark:text-white tabular-nums" x-text="(activeCreatorDetail?.account_age?.days || activeCreatorDetail?.strategy_age?.days || 0) + ' Days'"></span>
                     </div>
-                    <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800/80 pb-2">
+                    <div class="flex items-center justify-between border-b border-slate-100 dark:border-[#27272A]/80 pb-2">
                       <span class="text-xs text-slate-500">Oldest Board Age:</span>
-                      <span class="text-xs font-bold font-mono text-slate-900 dark:text-white tabular-nums" x-text="(activeCreatorDetail?.strategy_age?.days || 0) + ' Days'"></span>
+                      <span class="text-xs font-bold font-mono tabular-nums text-slate-900 dark:text-white tabular-nums" x-text="(activeCreatorDetail?.strategy_age?.days || 0) + ' Days'"></span>
                     </div>
-                    <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800/80 pb-2">
+                    <div class="flex items-center justify-between border-b border-slate-100 dark:border-[#27272A]/80 pb-2">
                       <span class="text-xs text-slate-500">Total Catalog Pins:</span>
-                      <span class="text-xs font-bold font-mono text-slate-900 dark:text-white tabular-nums" x-text="formatNumber(activeCreator.total_pins || activeCreatorCatalogTotal || 0)"></span>
+                      <span class="text-xs font-bold font-mono tabular-nums text-slate-900 dark:text-white tabular-nums" x-text="formatNumber(activeCreator.total_pins || activeCreatorCatalogTotal || 0)"></span>
                     </div>
                     <div class="flex items-center justify-between">
                       <span class="text-xs text-slate-500">Pins Added (Horizon):</span>
-                      <span class="text-xs font-bold font-mono text-emerald-600 dark:text-emerald-400 tabular-nums" x-text="'+' + (activeCreatorDetail?.pinning_velocity?.pins_added || 0)"></span>
+                      <span class="text-xs font-bold font-mono tabular-nums text-emerald-600 dark:text-emerald-400 tabular-nums" x-text="'+' + (activeCreatorDetail?.pinning_velocity?.pins_added || 0)"></span>
                     </div>
                   </div>
                 </div>
 
-                <div class="border-t border-slate-100 dark:border-slate-800/80 pt-3">
-                  <div class="flex items-center justify-between text-[11px] text-slate-400 font-mono">
+                <div class="border-t border-slate-100 dark:border-[#27272A]/80 pt-3">
+                  <div class="flex items-center justify-between text-[11px] text-slate-400 font-mono tabular-nums">
                     <span>Created:</span>
                     <span x-text="activeCreatorDetail?.account_age?.created_at || activeCreatorDetail?.strategy_age?.oldest_board_date || '—'"></span>
                   </div>
@@ -4363,14 +4361,14 @@ export function getDashboardHtml(folderId = '') {
             </div>
 
             <!-- ═══ Unified 5-Cell Telemetry Ribbon (Taste-Design Standard) ═══ -->
-            <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] shadow-xs overflow-hidden">
+            <div class="rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#18181B] shadow-xs overflow-hidden">
               <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 divide-y sm:divide-y-0 sm:divide-x divide-slate-100 dark:divide-slate-800/80">
                 
                 <!-- Cell 1: Total Audience -->
                 <div class="p-4 sm:p-5 flex flex-col justify-between space-y-2 hover:bg-slate-50/50 dark:hover:bg-slate-900/30 transition">
                   <div class="flex items-center justify-between">
-                    <span class="text-[10px] font-mono uppercase tracking-wider text-slate-400 dark:text-slate-500 font-bold">Total audience</span>
-                    <span class="rounded-full px-2 py-0.5 text-[10px] font-bold font-mono" :class="(activeCreatorDetail?.deltas?.reach?.change || 0) > 0 ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'" x-text="((activeCreatorDetail?.deltas?.reach?.change || 0) > 0 ? '+' : '') + (activeCreatorDetail?.deltas?.reach?.percent || 0) + '%'"></span>
+                    <span class="text-[10px] font-mono tabular-nums uppercase tracking-wider text-slate-400 dark:text-slate-500 font-bold">Total audience</span>
+                    <span class="rounded-full px-2 py-0.5 text-[10px] font-bold font-mono tabular-nums" :class="(activeCreatorDetail?.deltas?.reach?.change || 0) > 0 ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'" x-text="((activeCreatorDetail?.deltas?.reach?.change || 0) > 0 ? '+' : '') + (activeCreatorDetail?.deltas?.reach?.percent || 0) + '%'"></span>
                   </div>
                   <div>
                     <div class="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white font-mono tabular-nums" x-text="formatNumber(activeCreator.monthly_reach || (activeCreatorSnapshots && activeCreatorSnapshots.length > 0 ? (activeCreatorSnapshots[activeCreatorSnapshots.length - 1].monthly_reach || activeCreatorSnapshots[0].monthly_reach) : 0) || 0)"></div>
@@ -4384,8 +4382,8 @@ export function getDashboardHtml(folderId = '') {
                 <!-- Cell 2: Impressions -->
                 <div class="p-4 sm:p-5 flex flex-col justify-between space-y-2 hover:bg-slate-50/50 dark:hover:bg-slate-900/30 transition">
                   <div class="flex items-center justify-between">
-                    <span class="text-[10px] font-mono uppercase tracking-wider text-slate-400 dark:text-slate-500 font-bold">Impressions</span>
-                    <span class="rounded-full px-2 py-0.5 text-[10px] font-bold font-mono" :class="(activeCreatorDetail?.deltas?.views?.change || 0) > 0 ? 'bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'" x-text="((activeCreatorDetail?.deltas?.views?.change || 0) > 0 ? '+' : '') + (activeCreatorDetail?.deltas?.views?.percent || 0) + '%'"></span>
+                    <span class="text-[10px] font-mono tabular-nums uppercase tracking-wider text-slate-400 dark:text-slate-500 font-bold">Impressions</span>
+                    <span class="rounded-full px-2 py-0.5 text-[10px] font-bold font-mono tabular-nums" :class="(activeCreatorDetail?.deltas?.views?.change || 0) > 0 ? 'bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'" x-text="((activeCreatorDetail?.deltas?.views?.change || 0) > 0 ? '+' : '') + (activeCreatorDetail?.deltas?.views?.percent || 0) + '%'"></span>
                   </div>
                   <div>
                     <div class="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white font-mono tabular-nums" x-text="formatNumber(activeCreator.profile_views || (activeCreatorSnapshots && activeCreatorSnapshots.length > 0 ? (activeCreatorSnapshots[activeCreatorSnapshots.length - 1].profile_views || activeCreatorSnapshots[0].profile_views) : 0) || 0)"></div>
@@ -4399,8 +4397,8 @@ export function getDashboardHtml(folderId = '') {
                 <!-- Cell 3: Followers -->
                 <div class="p-4 sm:p-5 flex flex-col justify-between space-y-2 hover:bg-slate-50/50 dark:hover:bg-slate-900/30 transition">
                   <div class="flex items-center justify-between">
-                    <span class="text-[10px] font-mono uppercase tracking-wider text-slate-400 dark:text-slate-500 font-bold">Followers</span>
-                    <span class="rounded-full px-2 py-0.5 text-[10px] font-bold font-mono" :class="(activeCreatorDetail?.deltas?.followers?.change || 0) > 0 ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'" x-text="((activeCreatorDetail?.deltas?.followers?.change || 0) > 0 ? '+' : '') + (activeCreatorDetail?.deltas?.followers?.percent || 0) + '%'"></span>
+                    <span class="text-[10px] font-mono tabular-nums uppercase tracking-wider text-slate-400 dark:text-slate-500 font-bold">Followers</span>
+                    <span class="rounded-full px-2 py-0.5 text-[10px] font-bold font-mono tabular-nums" :class="(activeCreatorDetail?.deltas?.followers?.change || 0) > 0 ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'" x-text="((activeCreatorDetail?.deltas?.followers?.change || 0) > 0 ? '+' : '') + (activeCreatorDetail?.deltas?.followers?.percent || 0) + '%'"></span>
                   </div>
                   <div>
                     <div class="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white font-mono tabular-nums" x-text="formatNumber(activeCreator.follower_count || 0)"></div>
@@ -4414,20 +4412,20 @@ export function getDashboardHtml(folderId = '') {
                 <!-- Cell 4: Pinning Velocity -->
                 <div class="p-4 sm:p-5 flex flex-col justify-between space-y-2 hover:bg-slate-50/50 dark:hover:bg-slate-900/30 transition">
                   <div class="flex items-center justify-between">
-                    <span class="text-[10px] font-mono uppercase tracking-wider text-slate-400 dark:text-slate-500 font-bold">Output Velocity</span>
-                    <span class="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400 border border-amber-500/20 font-mono" x-text="(activeCreatorDetail?.pinning_velocity?.days_span || 20) + 'd span'"></span>
+                    <span class="text-[10px] font-mono tabular-nums uppercase tracking-wider text-slate-400 dark:text-slate-500 font-bold">Output Velocity</span>
+                    <span class="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400 border border-amber-500/20 font-mono tabular-nums" x-text="(activeCreatorDetail?.pinning_velocity?.days_span || 20) + 'd span'"></span>
                   </div>
                   <div>
                     <div class="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white font-mono tabular-nums" x-text="(activeCreatorDetail?.pinning_velocity?.pins_per_day || '0.0') + ' Pins/Day'"></div>
-                    <div class="mt-1 text-[11px] text-rose-500 font-mono font-semibold" x-text="'~' + (activeCreatorDetail?.pinning_velocity?.pacing_estimate || 0) + ' pins/mo pacing'"></div>
+                    <div class="mt-1 text-[11px] text-rose-500 font-mono tabular-nums font-semibold" x-text="'~' + (activeCreatorDetail?.pinning_velocity?.pacing_estimate || 0) + ' pins/mo pacing'"></div>
                   </div>
                 </div>
 
                 <!-- Cell 5: 24H Saves Gain & Cumulative Virality -->
                 <div class="p-4 sm:p-5 flex flex-col justify-between space-y-2 hover:bg-slate-50/50 dark:hover:bg-slate-900/30 transition">
                   <div class="flex items-center justify-between">
-                    <span class="text-[10px] font-mono uppercase tracking-wider text-slate-400 dark:text-slate-500 font-bold">24H Saves Gain</span>
-                    <span class="text-[10px] font-mono text-slate-400" x-text="formatNumber(activeCreatorDetail?.engagement?.total_saves || 0) + ' total'"></span>
+                    <span class="text-[10px] font-mono tabular-nums uppercase tracking-wider text-slate-400 dark:text-slate-500 font-bold">24H Saves Gain</span>
+                    <span class="text-[10px] font-mono tabular-nums text-slate-400" x-text="formatNumber(activeCreatorDetail?.engagement?.total_saves || 0) + ' total'"></span>
                   </div>
                   <div>
                     <div class="text-xl sm:text-2xl font-bold tracking-tight text-emerald-600 dark:text-emerald-400 font-mono tabular-nums" x-text="activeCreatorDetail?.engagement?.delta_saves_24h != null ? ((activeCreatorDetail.engagement.delta_saves_24h >= 0 ? '+' : '') + formatNumber(activeCreatorDetail.engagement.delta_saves_24h)) : '—'"></div>
@@ -4442,22 +4440,22 @@ export function getDashboardHtml(folderId = '') {
             </div>
 
             <!-- Import History & Snapshot Log Table (Image 2) -->
-            <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] shadow-xs overflow-hidden">
-              <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-200 dark:border-slate-800 px-5 py-3 bg-slate-50/50 dark:bg-slate-900/40">
+            <div class="rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#18181B] shadow-xs overflow-hidden">
+              <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-200 dark:border-[#27272A] px-5 py-3 bg-slate-50/50 dark:bg-slate-900/40">
                 <div>
                   <h2 class="text-xs sm:text-sm font-bold text-slate-900 dark:text-white">Import History &amp; Snapshot Log</h2>
                   <p class="text-[11px] text-slate-500">Historical snapshot log with customizable timeframe, comfortable density, and column toggles.</p>
                 </div>
 
                 <div class="flex items-center gap-2.5 flex-wrap self-start sm:self-auto">
-                  <div class="flex items-center rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0b1120] p-0.5 shadow-2xs">
+                  <div class="flex items-center rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] p-0.5 shadow-2xs">
                     <!-- Format Toggle -->
                     <button @click="creatorSnapNumFmt = creatorSnapNumFmt === 'full' ? 'compact' : 'full'" class="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-medium text-slate-500 hover:text-slate-900 dark:hover:text-white transition cursor-pointer">
-                      <span class="text-[10px] font-mono">#</span>
+                      <span class="text-[10px] font-mono tabular-nums">#</span>
                       <span x-text="creatorSnapNumFmt === 'full' ? 'Full' : 'Compact'"></span>
                     </button>
 
-                    <div class="h-3.5 w-px bg-slate-200 dark:border-slate-800 my-auto"></div>
+                    <div class="h-3.5 w-px bg-slate-200 dark:border-[#27272A] my-auto"></div>
 
                     <!-- Density Toggle -->
                     <button @click="creatorSnapDensity = creatorSnapDensity === 'compact' ? 'comfortable' : 'compact'" class="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium text-slate-500 hover:text-slate-900 dark:hover:text-white transition cursor-pointer">
@@ -4465,7 +4463,7 @@ export function getDashboardHtml(folderId = '') {
                       <span x-text="creatorSnapDensity === 'compact' ? 'Compact' : 'Full'"></span>
                     </button>
 
-                    <div class="h-3.5 w-px bg-slate-200 dark:border-slate-800 my-auto"></div>
+                    <div class="h-3.5 w-px bg-slate-200 dark:border-[#27272A] my-auto"></div>
 
                     <!-- Page Size Dropdown -->
                     <div class="flex items-center px-1.5">
@@ -4477,7 +4475,7 @@ export function getDashboardHtml(folderId = '') {
                       </select>
                     </div>
 
-                    <div class="h-3.5 w-px bg-slate-200 dark:border-slate-800 my-auto"></div>
+                    <div class="h-3.5 w-px bg-slate-200 dark:border-[#27272A] my-auto"></div>
 
                     <!-- Columns Dropdown -->
                     <div class="relative">
@@ -4486,7 +4484,7 @@ export function getDashboardHtml(folderId = '') {
                         <span>Columns</span>
                         <i data-lucide="chevron-down" class="w-3 h-3 text-slate-400"></i>
                       </button>
-                      <div x-show="isSnapColsOpen" @click.outside="isSnapColsOpen = false" class="absolute right-0 top-full mt-1.5 z-30 w-48 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0d1526] shadow-xl p-2 space-y-1">
+                      <div x-show="isSnapColsOpen" @click.outside="isSnapColsOpen = false" class="absolute right-0 top-full mt-1.5 z-30 w-48 rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] shadow-xl p-2 space-y-1">
                         <label class="flex items-center gap-2 px-2 py-1 text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
                           <input type="checkbox" x-model="creatorSnapColVisible.reach" class="rounded border-slate-300 text-rose-500" />
                           <span>Total audience</span>
@@ -4510,7 +4508,7 @@ export function getDashboardHtml(folderId = '') {
               <!-- Snapshots Table -->
               <div class="overflow-x-auto min-w-full">
                 <table class="w-full text-left text-xs border-collapse">
-                  <thead class="sticky top-0 z-10 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-300 font-semibold">
+                  <thead class="sticky top-0 z-10 border-b border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-300 font-semibold">
                     <tr>
                       <th class="py-3 px-5">Recorded Date &amp; Time</th>
                       <th x-show="creatorSnapColVisible.reach" class="py-3 px-4 text-right">Total audience</th>
@@ -4519,15 +4517,15 @@ export function getDashboardHtml(folderId = '') {
                       <th class="py-3 px-5 text-right">Actions</th>
                     </tr>
                     <!-- Summary Row (Σ Net Change) -->
-                    <tr class="bg-slate-100/60 dark:bg-slate-800/40 font-bold border-b border-slate-200 dark:border-slate-800">
-                      <td class="py-2.5 px-5 text-slate-900 dark:text-white font-mono">Σ Net Change</td>
-                      <td x-show="creatorSnapColVisible.reach" class="py-2.5 px-4 text-right text-slate-700 dark:text-slate-300 font-mono" x-text="creatorSnapshotsNetChange.reach"></td>
-                      <td x-show="creatorSnapColVisible.views" class="py-2.5 px-4 text-right text-slate-700 dark:text-slate-300 font-mono" x-text="creatorSnapshotsNetChange.views"></td>
+                    <tr class="bg-slate-100/60 dark:bg-slate-800/40 font-bold border-b border-slate-200 dark:border-[#27272A]">
+                      <td class="py-2.5 px-5 text-slate-900 dark:text-white font-mono tabular-nums">Σ Net Change</td>
+                      <td x-show="creatorSnapColVisible.reach" class="py-2.5 px-4 text-right text-slate-700 dark:text-slate-300 font-mono tabular-nums" x-text="creatorSnapshotsNetChange.reach"></td>
+                      <td x-show="creatorSnapColVisible.views" class="py-2.5 px-4 text-right text-slate-700 dark:text-slate-300 font-mono tabular-nums" x-text="creatorSnapshotsNetChange.views"></td>
                       <td x-show="creatorSnapColVisible.pins" class="py-2.5 px-4 text-right font-mono tabular-nums" :class="creatorSnapshotsNetChange.pins.startsWith('(-') ? 'text-rose-500' : 'text-emerald-500'" x-text="creatorSnapshotsNetChange.pins"></td>
-                      <td class="py-2.5 px-5 text-right text-slate-400 font-mono"></td>
+                      <td class="py-2.5 px-5 text-right text-slate-400 font-mono tabular-nums"></td>
                     </tr>
                   </thead>
-                  <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono">
+                  <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono tabular-nums">
                     <template x-for="(s, idx) in paginatedCreatorSnapshots" :key="s.id || idx">
                       <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition group" :class="creatorSnapDensity === 'comfortable' ? 'py-4' : 'py-2.5'">
                         <td class="px-5 font-sans text-slate-700 dark:text-slate-300 font-medium" :class="creatorSnapDensity === 'comfortable' ? 'py-4' : 'py-2.5'" x-text="formatSnapshotDate(s.recorded_date || s.created_at)"></td>
@@ -4567,19 +4565,19 @@ export function getDashboardHtml(folderId = '') {
               </div>
 
               <!-- Snapshots Pagination Footer Bar -->
-              <div class="flex items-center justify-between border-t border-slate-200 dark:border-slate-800 px-5 py-3 bg-slate-50/50 dark:bg-slate-900/30 text-xs text-slate-500">
+              <div class="flex items-center justify-between border-t border-slate-200 dark:border-[#27272A] px-5 py-3 bg-slate-50/50 dark:bg-slate-900/30 text-xs text-slate-500">
                 <span x-text="'Showing 1-' + paginatedCreatorSnapshots.length + ' of ' + activeCreatorSnapshots.length + ' snapshots'"></span>
                 <div class="flex items-center gap-2">
-                  <button @click="creatorSnapPage = Math.max(1, creatorSnapPage - 1)" :disabled="creatorSnapPage <= 1" class="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0b1120] px-3 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 disabled:opacity-40 transition shadow-2xs cursor-pointer">Previous</button>
+                  <button @click="creatorSnapPage = Math.max(1, creatorSnapPage - 1)" :disabled="creatorSnapPage <= 1" class="rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] px-3 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 disabled:opacity-40 transition shadow-2xs cursor-pointer">Previous</button>
                   <span class="font-bold text-slate-900 dark:text-white" x-text="'Page ' + creatorSnapPage + ' of ' + Math.max(1, Math.ceil(activeCreatorSnapshots.length / (creatorSnapTimeframe === 'all' ? 100 : Number(creatorSnapTimeframe))))"></span>
-                  <button @click="creatorSnapPage = creatorSnapPage + 1" :disabled="creatorSnapPage >= Math.ceil(activeCreatorSnapshots.length / (creatorSnapTimeframe === 'all' ? 100 : Number(creatorSnapTimeframe)))" class="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0b1120] px-3 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 disabled:opacity-40 transition shadow-2xs cursor-pointer">Next</button>
+                  <button @click="creatorSnapPage = creatorSnapPage + 1" :disabled="creatorSnapPage >= Math.ceil(activeCreatorSnapshots.length / (creatorSnapTimeframe === 'all' ? 100 : Number(creatorSnapTimeframe)))" class="rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] px-3 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 disabled:opacity-40 transition shadow-2xs cursor-pointer">Next</button>
                 </div>
               </div>
             </div>
 
             <!-- Pinterest Board Strategy & Timeline Table (Image 2) -->
-            <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] shadow-xs overflow-hidden">
-              <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 px-5 py-3.5 bg-slate-50/50 dark:bg-slate-900/40">
+            <div class="rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#18181B] shadow-xs overflow-hidden">
+              <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-[#27272A] px-5 py-3.5 bg-slate-50/50 dark:bg-slate-900/40">
                 <div>
                   <h2 class="text-xs sm:text-sm font-bold text-slate-900 dark:text-white">Pinterest Board Strategy &amp; Timeline</h2>
                   <p class="text-[11px] text-slate-500">Search, filter, and sort competitor boards with pagination.</p>
@@ -4591,12 +4589,12 @@ export function getDashboardHtml(folderId = '') {
                       type="text"
                       x-model="creatorBoardSearch"
                       placeholder="Search boards..."
-                      class="h-8.5 w-48 sm:w-56 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 pl-8 pr-3 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none shadow-2xs"
+                      class="h-8.5 w-48 sm:w-56 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-slate-900 pl-8 pr-3 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none shadow-2xs"
                     />
                     <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5"></i>
                   </div>
 
-                  <select x-model="creatorBoardSort" class="h-8.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-3 text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none shadow-2xs cursor-pointer">
+                  <select x-model="creatorBoardSort" class="h-8.5 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-slate-900 px-3 text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none shadow-2xs cursor-pointer">
                     <option value="most_pins">Sort by: Most Pins</option>
                     <option value="most_followers">Sort by: Most Followers</option>
                     <option value="recent_activity">Sort by: Recent Activity</option>
@@ -4610,7 +4608,7 @@ export function getDashboardHtml(folderId = '') {
               <!-- Boards Table Container -->
               <div class="overflow-x-auto min-w-full">
                 <table class="w-full text-left text-xs border-collapse">
-                  <thead class="sticky top-0 z-10 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-300 font-semibold">
+                  <thead class="sticky top-0 z-10 border-b border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-300 font-semibold">
                     <tr>
                       <th class="py-3 px-5">Board Name &amp; Description</th>
                       <th class="py-3 px-4">Created Date</th>
@@ -4620,7 +4618,7 @@ export function getDashboardHtml(folderId = '') {
                       <th class="py-3 px-5 text-right">Link</th>
                     </tr>
                   </thead>
-                  <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono">
+                  <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono tabular-nums">
                     <template x-for="b in paginatedCreatorBoards" :key="b.id || b.board_id">
                       <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition">
                         <td class="py-3 px-5 font-sans font-bold text-slate-900 dark:text-white">
@@ -4657,12 +4655,12 @@ export function getDashboardHtml(folderId = '') {
               </div>
 
               <!-- Boards Pagination Footer Bar -->
-              <div class="flex items-center justify-between border-t border-slate-200 dark:border-slate-800 px-5 py-3 bg-slate-50/50 dark:bg-slate-900/30 text-xs text-slate-500">
+              <div class="flex items-center justify-between border-t border-slate-200 dark:border-[#27272A] px-5 py-3 bg-slate-50/50 dark:bg-slate-900/30 text-xs text-slate-500">
                 <span x-text="'Showing 1-' + paginatedCreatorBoards.length + ' of ' + activeCreatorBoards.length + ' boards'"></span>
                 <div class="flex items-center gap-2">
-                  <button @click="creatorBoardPage = Math.max(1, creatorBoardPage - 1)" :disabled="creatorBoardPage <= 1" class="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0b1120] px-3 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 disabled:opacity-40 transition shadow-2xs cursor-pointer">Previous</button>
+                  <button @click="creatorBoardPage = Math.max(1, creatorBoardPage - 1)" :disabled="creatorBoardPage <= 1" class="rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] px-3 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 disabled:opacity-40 transition shadow-2xs cursor-pointer">Previous</button>
                   <span class="font-bold text-slate-900 dark:text-white" x-text="'Page ' + creatorBoardPage + ' of ' + Math.max(1, Math.ceil(activeCreatorBoards.length / 10))"></span>
-                  <button @click="creatorBoardPage = creatorBoardPage + 1" :disabled="creatorBoardPage >= Math.ceil(activeCreatorBoards.length / 10)" class="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0b1120] px-3 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 disabled:opacity-40 transition shadow-2xs cursor-pointer">Next</button>
+                  <button @click="creatorBoardPage = creatorBoardPage + 1" :disabled="creatorBoardPage >= Math.ceil(activeCreatorBoards.length / 10)" class="rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] px-3 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 disabled:opacity-40 transition shadow-2xs cursor-pointer">Next</button>
                 </div>
               </div>
             </div>
@@ -4674,7 +4672,7 @@ export function getDashboardHtml(folderId = '') {
           <!-- ======================================================== -->
           <div x-show="activeCreatorTab === 'all_pins'" class="space-y-5">
             <!-- Unified Ledger Command Header -->
-            <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-4 sm:p-5 shadow-xs space-y-4">
+            <div class="rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#18181B] p-4 sm:p-5 shadow-xs space-y-4">
               <!-- Top Row: Title, Totals & Refresh -->
               <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div class="flex items-center gap-2.5">
@@ -4682,7 +4680,7 @@ export function getDashboardHtml(folderId = '') {
                   <div>
                     <div class="flex items-center gap-2">
                       <h3 class="text-base font-bold text-slate-900 dark:text-white">Master Pin Ledger</h3>
-                      <span class="text-xs font-mono font-bold px-2.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20" x-text="formatNumber(activeCreatorCatalogTotal || activeCreatorAllPinsTotal || 0) + ' pins'"></span>
+                      <span class="text-xs font-mono tabular-nums font-bold px-2.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20" x-text="formatNumber(activeCreatorCatalogTotal || activeCreatorAllPinsTotal || 0) + ' pins'"></span>
                     </div>
                     <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Discovered pins catalog for @<span x-text="(activeCreator?.username || '').replace(/^@+/, '')"></span>. Deeply synchronized across Neon Shards.</p>
                   </div>
@@ -4690,25 +4688,25 @@ export function getDashboardHtml(folderId = '') {
 
                 <!-- Right Side: Light Refresh & Quick Pagination Badge -->
                 <div class="flex items-center gap-2 self-start sm:self-auto">
-                  <button type="button" @click="fetchCreatorAllPins()" class="px-3 py-1.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/80 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition flex items-center gap-1.5 cursor-pointer shadow-2xs" title="Refresh pins catalog">
+                  <button type="button" @click="fetchCreatorAllPins()" class="px-3 py-1.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-slate-900/80 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition flex items-center gap-1.5 cursor-pointer shadow-2xs" title="Refresh pins catalog">
                     <i data-lucide="refresh-cw" class="w-3.5 h-3.5" :class="isLoadingAllPins ? 'animate-spin text-indigo-500' : ''"></i>
                     <span>Refresh</span>
                   </button>
-                  <span class="text-xs font-mono font-medium text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-900 px-2.5 py-1 rounded-xl border border-slate-200/60 dark:border-slate-800" x-text="'Page ' + (activeCreatorAllPinsPage || 1) + ' / ' + (activeCreatorAllPinsTotalPages || 1)"></span>
+                  <span class="text-xs font-mono tabular-nums font-medium text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-900 px-2.5 py-1 rounded-xl border border-slate-200/60 dark:border-[#27272A]" x-text="'Page ' + (activeCreatorAllPinsPage || 1) + ' / ' + (activeCreatorAllPinsTotalPages || 1)"></span>
                 </div>
               </div>
 
               <!-- Bottom Row: Smart Segmented Filter Pills with Live Backend Counts -->
-              <div class="flex items-center gap-2 overflow-x-auto pb-1 pt-1 select-none border-t border-slate-100 dark:border-slate-800/80">
+              <div class="flex items-center gap-2 overflow-x-auto pb-1 pt-1 select-none border-t border-slate-100 dark:border-[#27272A]/80">
                 <!-- All Catalog -->
                 <button 
                   type="button" 
                   @click="creatorAllPinQualifiedOnly = false; creatorAllPinRankedOnly = false; creatorAllPinHighVelocity = false; creatorAllPinArticlesOnly = false; creatorAllPinStage = ''; activeCreatorAllPinsPage = 1; fetchCreatorAllPins()"
                   class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border shadow-2xs whitespace-nowrap shrink-0"
-                  :class="(!creatorAllPinQualifiedOnly && !creatorAllPinRankedOnly && !creatorAllPinHighVelocity && !creatorAllPinArticlesOnly && !creatorAllPinStage) ? 'bg-indigo-600 text-white border-indigo-700 shadow-xs' : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:text-slate-900 dark:hover:text-white'"
+                  :class="(!creatorAllPinQualifiedOnly && !creatorAllPinRankedOnly && !creatorAllPinHighVelocity && !creatorAllPinArticlesOnly && !creatorAllPinStage) ? 'bg-indigo-600 text-white border-indigo-700 shadow-xs' : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-[#27272A] hover:text-slate-900 dark:hover:text-white'"
                 >
                   <span>📋 All Catalog</span>
-                  <span class="px-1.5 py-0.2 rounded text-[10.5px] font-mono" :class="(!creatorAllPinQualifiedOnly && !creatorAllPinRankedOnly && !creatorAllPinHighVelocity && !creatorAllPinArticlesOnly && !creatorAllPinStage) ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'" x-text="formatNumber(activeCreatorCatalogTotal || activeCreatorAllPinsTotal || 0)"></span>
+                  <span class="px-1.5 py-0.2 rounded text-[10.5px] font-mono tabular-nums" :class="(!creatorAllPinQualifiedOnly && !creatorAllPinRankedOnly && !creatorAllPinHighVelocity && !creatorAllPinArticlesOnly && !creatorAllPinStage) ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'" x-text="formatNumber(activeCreatorCatalogTotal || activeCreatorAllPinsTotal || 0)"></span>
                 </button>
 
                 <!-- Qualified Winners -->
@@ -4716,10 +4714,10 @@ export function getDashboardHtml(folderId = '') {
                   type="button" 
                   @click="creatorAllPinQualifiedOnly = true; creatorAllPinRankedOnly = false; creatorAllPinHighVelocity = false; creatorAllPinArticlesOnly = false; activeCreatorAllPinsPage = 1; fetchCreatorAllPins()"
                   class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border shadow-2xs whitespace-nowrap shrink-0"
-                  :class="(creatorAllPinQualifiedOnly && !creatorAllPinRankedOnly && !creatorAllPinHighVelocity && !creatorAllPinArticlesOnly) ? 'bg-amber-500 text-white border-amber-600 shadow-xs' : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:text-slate-900 dark:hover:text-white'"
+                  :class="(creatorAllPinQualifiedOnly && !creatorAllPinRankedOnly && !creatorAllPinHighVelocity && !creatorAllPinArticlesOnly) ? 'bg-amber-500 text-white border-amber-600 shadow-xs' : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-[#27272A] hover:text-slate-900 dark:hover:text-white'"
                 >
                   <span>🏆 Qualified Winners</span>
-                  <span class="px-1.5 py-0.2 rounded text-[10.5px] font-mono" :class="(creatorAllPinQualifiedOnly && !creatorAllPinRankedOnly && !creatorAllPinHighVelocity && !creatorAllPinArticlesOnly) ? 'bg-white/20 text-white' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'" x-text="formatNumber(activeCreatorWinningPinsTotal || 0)"></span>
+                  <span class="px-1.5 py-0.2 rounded text-[10.5px] font-mono tabular-nums" :class="(creatorAllPinQualifiedOnly && !creatorAllPinRankedOnly && !creatorAllPinHighVelocity && !creatorAllPinArticlesOnly) ? 'bg-white/20 text-white' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'" x-text="formatNumber(activeCreatorWinningPinsTotal || 0)"></span>
                 </button>
 
                 <!-- SERP Ranked -->
@@ -4727,10 +4725,10 @@ export function getDashboardHtml(folderId = '') {
                   type="button" 
                   @click="creatorAllPinRankedOnly = true; creatorAllPinQualifiedOnly = false; creatorAllPinHighVelocity = false; creatorAllPinArticlesOnly = false; activeCreatorAllPinsPage = 1; fetchCreatorAllPins()"
                   class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border shadow-2xs whitespace-nowrap shrink-0"
-                  :class="(creatorAllPinRankedOnly) ? 'bg-sky-600 text-white border-sky-700 shadow-xs' : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:text-slate-900 dark:hover:text-white'"
+                  :class="(creatorAllPinRankedOnly) ? 'bg-sky-600 text-white border-sky-700 shadow-xs' : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-[#27272A] hover:text-slate-900 dark:hover:text-white'"
                 >
                   <span>🎯 SERP Ranked</span>
-                  <span class="px-1.5 py-0.2 rounded text-[10.5px] font-mono" :class="(creatorAllPinRankedOnly) ? 'bg-white/20 text-white' : 'bg-sky-500/10 text-sky-600 dark:text-sky-400'" x-text="formatNumber(activeCreatorRankedTotal || 0)"></span>
+                  <span class="px-1.5 py-0.2 rounded text-[10.5px] font-mono tabular-nums" :class="(creatorAllPinRankedOnly) ? 'bg-white/20 text-white' : 'bg-sky-500/10 text-sky-600 dark:text-sky-400'" x-text="formatNumber(activeCreatorRankedTotal || 0)"></span>
                 </button>
 
                 <!-- High Velocity (>=10/d) -->
@@ -4738,10 +4736,10 @@ export function getDashboardHtml(folderId = '') {
                   type="button" 
                   @click="creatorAllPinHighVelocity = true; creatorAllPinQualifiedOnly = false; creatorAllPinRankedOnly = false; creatorAllPinArticlesOnly = false; activeCreatorAllPinsPage = 1; fetchCreatorAllPins()"
                   class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border shadow-2xs whitespace-nowrap shrink-0"
-                  :class="(creatorAllPinHighVelocity) ? 'bg-rose-600 text-white border-rose-700 shadow-xs' : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:text-slate-900 dark:hover:text-white'"
+                  :class="(creatorAllPinHighVelocity) ? 'bg-rose-600 text-white border-rose-700 shadow-xs' : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-[#27272A] hover:text-slate-900 dark:hover:text-white'"
                 >
                   <span>🔥 High Velocity (≥10/d)</span>
-                  <span class="px-1.5 py-0.2 rounded text-[10.5px] font-mono" :class="(creatorAllPinHighVelocity) ? 'bg-white/20 text-white' : 'bg-rose-500/10 text-rose-600 dark:text-rose-400'" x-text="formatNumber(activeCreatorHighVelocityTotal || 0)"></span>
+                  <span class="px-1.5 py-0.2 rounded text-[10.5px] font-mono tabular-nums" :class="(creatorAllPinHighVelocity) ? 'bg-white/20 text-white' : 'bg-rose-500/10 text-rose-600 dark:text-rose-400'" x-text="formatNumber(activeCreatorHighVelocityTotal || 0)"></span>
                 </button>
 
                 <!-- Articles Only -->
@@ -4749,7 +4747,7 @@ export function getDashboardHtml(folderId = '') {
                   type="button" 
                   @click="creatorAllPinArticlesOnly = !creatorAllPinArticlesOnly; activeCreatorAllPinsPage = 1; fetchCreatorAllPins()"
                   class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border shadow-2xs whitespace-nowrap shrink-0"
-                  :class="(creatorAllPinArticlesOnly) ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs' : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:text-slate-900 dark:hover:text-white'"
+                  :class="(creatorAllPinArticlesOnly) ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs' : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-[#27272A] hover:text-slate-900 dark:hover:text-white'"
                 >
                   <span>📰 Articles Only</span>
                 </button>
@@ -4757,7 +4755,7 @@ export function getDashboardHtml(folderId = '') {
             </div>
 
             <!-- Filters & Search Toolbar -->
-            <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-3.5 shadow-xs flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+            <div class="rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#18181B] p-3.5 shadow-xs flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
               <!-- Search bar: roomy and flexible -->
               <div class="relative w-full lg:w-80 min-w-[240px] flex-1">
                 <input
@@ -4765,7 +4763,7 @@ export function getDashboardHtml(folderId = '') {
                   x-model="creatorAllPinSearch"
                   @input.debounce.400ms="activeCreatorAllPinsPage = 1; fetchCreatorAllPins()"
                   placeholder="Search pins by title or link..."
-                  class="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-3.5 py-2 text-xs font-medium text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none pl-9 focus:ring-1 focus:ring-indigo-500"
+                  class="w-full rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-slate-900 px-3.5 py-2 text-xs font-medium text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none pl-9 focus:ring-1 focus:ring-indigo-500"
                 />
                 <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-2.5"></i>
               </div>
@@ -4774,7 +4772,7 @@ export function getDashboardHtml(folderId = '') {
               <div class="flex flex-wrap items-center gap-2 justify-between lg:justify-end flex-1">
                 <div class="flex flex-wrap items-center gap-2">
                   <!-- Board Select -->
-                  <div class="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 py-1.5">
+                  <div class="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] rounded-xl px-2.5 py-1.5">
                     <label class="text-xs font-semibold text-slate-500 whitespace-nowrap">Board:</label>
                     <select x-model="creatorAllPinBoard" @change="activeCreatorAllPinsPage = 1; fetchCreatorAllPins()" class="bg-transparent text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer max-w-[130px] truncate">
                       <option value="">All Boards</option>
@@ -4785,7 +4783,7 @@ export function getDashboardHtml(folderId = '') {
                   </div>
 
                   <!-- Stage Filter -->
-                  <div class="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 py-1.5">
+                  <div class="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] rounded-xl px-2.5 py-1.5">
                     <label class="text-xs font-semibold text-slate-500 whitespace-nowrap">Stage:</label>
                     <select x-model="creatorAllPinStage" @change="activeCreatorAllPinsPage = 1; fetchCreatorAllPins()" class="bg-transparent text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer">
                       <option value="">All Stages</option>
@@ -4798,7 +4796,7 @@ export function getDashboardHtml(folderId = '') {
                   </div>
 
                   <!-- Min Saves Filter -->
-                  <div class="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 py-1.5">
+                  <div class="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] rounded-xl px-2.5 py-1.5">
                     <label class="text-xs font-semibold text-slate-500 whitespace-nowrap">Saves:</label>
                     <select x-model.number="creatorAllPinMinSaves" @change="activeCreatorAllPinsPage = 1; fetchCreatorAllPins()" class="bg-transparent text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer">
                       <option value="0">All Saves</option>
@@ -4810,7 +4808,7 @@ export function getDashboardHtml(folderId = '') {
                   </div>
 
                   <!-- Sort Order -->
-                  <div class="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 py-1.5">
+                  <div class="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] rounded-xl px-2.5 py-1.5">
                     <label class="text-xs font-semibold text-slate-500 whitespace-nowrap">Sort:</label>
                     <select x-model="creatorAllPinSort" @change="activeCreatorAllPinsPage = 1; fetchCreatorAllPins()" class="bg-transparent text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer">
                       <option value="saves_desc">Highest Saves</option>
@@ -4835,7 +4833,7 @@ export function getDashboardHtml(folderId = '') {
 
                   <!-- Columns Customization Dropdown -->
                   <div class="relative" x-data="{ isMasterColumnsOpen: false }" @click.outside="isMasterColumnsOpen = false" @keydown.escape.window="isMasterColumnsOpen = false">
-                    <button type="button" @click="isMasterColumnsOpen = !isMasterColumnsOpen" class="px-2.5 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer shadow-2xs hover:bg-slate-100 dark:hover:bg-slate-800" title="Customize visible table columns">
+                    <button type="button" @click="isMasterColumnsOpen = !isMasterColumnsOpen" class="px-2.5 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] text-slate-700 dark:text-slate-300 text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer shadow-2xs hover:bg-slate-100 dark:hover:bg-slate-800" title="Customize visible table columns">
                       <i data-lucide="columns-3" class="w-3.5 h-3.5 text-slate-400"></i>
                       <span>Columns</span>
                       <i data-lucide="chevron-down" class="w-3 h-3 text-slate-400 transition-transform" :class="isMasterColumnsOpen ? 'rotate-180' : ''"></i>
@@ -4849,8 +4847,8 @@ export function getDashboardHtml(folderId = '') {
                          x-transition:leave="transition ease-in duration-100"
                          x-transition:leave-start="opacity-100 scale-100"
                          x-transition:leave-end="opacity-0 scale-95"
-                         class="absolute right-0 mt-2 w-56 rounded-xl bg-white dark:bg-[#0c1322] border border-slate-200 dark:border-slate-800 shadow-xl p-2 space-y-0.5 z-40 text-xs font-sans">
-                      <div class="px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400 font-mono border-b border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
+                         class="absolute right-0 mt-2 w-56 rounded-xl bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] shadow-xl p-2 space-y-0.5 z-40 text-xs font-sans">
+                      <div class="px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400 font-mono tabular-nums border-b border-slate-100 dark:border-[#27272A]/80 flex items-center justify-between">
                         <span>Display Columns</span>
                         <button type="button" @click="resetMasterColumns()" class="text-indigo-500 hover:underline capitalize text-[10px] cursor-pointer">Reset</button>
                       </div>
@@ -4862,10 +4860,10 @@ export function getDashboardHtml(folderId = '') {
                                  :checked="visibleMasterColumns[col.key]"
                                  :disabled="col.required"
                                  @change="toggleMasterColumn(col.key)"
-                                 class="w-3.5 h-3.5 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 dark:border-slate-700 cursor-pointer">
+                                 class="w-3.5 h-3.5 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 dark:border-[#27272A] cursor-pointer">
                           <span class="text-xs text-slate-700 dark:text-slate-300 font-medium" x-text="col.label"></span>
                           <template x-if="col.required">
-                            <span class="text-[9px] text-slate-400 font-mono ml-auto">(Required)</span>
+                            <span class="text-[9px] text-slate-400 font-mono tabular-nums ml-auto">(Required)</span>
                           </template>
                         </label>
                       </template>
@@ -4874,7 +4872,7 @@ export function getDashboardHtml(folderId = '') {
                 </div>
 
                 <!-- Showing X-Y of Z results counter -->
-                <div class="text-xs font-mono text-slate-400 select-none whitespace-nowrap pl-2">
+                <div class="text-xs font-mono tabular-nums text-slate-400 select-none whitespace-nowrap pl-2">
                   <span x-show="activeCreatorAllPinsTotal > 0" x-text="'Showing ' + (((activeCreatorAllPinsPage - 1) * 25) + 1) + '–' + Math.min(activeCreatorAllPinsPage * 25, activeCreatorAllPinsTotal) + ' of ' + formatNumber(activeCreatorAllPinsTotal)"></span>
                 </div>
               </div>
@@ -4887,7 +4885,7 @@ export function getDashboardHtml(folderId = '') {
             </div>
 
             <!-- Empty State -->
-            <div x-show="!isLoadingAllPins && activeCreatorAllPins.length === 0" class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-12 text-center shadow-xs">
+            <div x-show="!isLoadingAllPins && activeCreatorAllPins.length === 0" class="rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#18181B] p-12 text-center shadow-xs">
               <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-50 dark:bg-indigo-950/40 text-indigo-500 mx-auto mb-3">
                 <i data-lucide="inbox" class="w-6 h-6"></i>
               </div>
@@ -4900,9 +4898,9 @@ export function getDashboardHtml(folderId = '') {
             </div>
 
             <!-- Table of All Account Pins -->
-            <div x-show="!isLoadingAllPins && activeCreatorAllPins.length > 0" class="overflow-x-auto rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] shadow-xs">
+            <div x-show="!isLoadingAllPins && activeCreatorAllPins.length > 0" class="overflow-x-auto rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#18181B] shadow-xs">
               <table class="w-full text-left text-xs">
-                <thead class="bg-slate-50 dark:bg-slate-900/60 text-slate-500 dark:text-slate-400 text-[11px] uppercase border-b border-slate-200 dark:border-slate-800 font-semibold select-none">
+                <thead class="bg-slate-50 dark:bg-slate-900/60 text-slate-500 dark:text-slate-400 text-[11px] uppercase border-b border-slate-200 dark:border-[#27272A] font-semibold select-none">
                   <tr>
                     <th class="py-3 px-3 w-10 text-center">
                       <input type="checkbox" :checked="activeCreatorAllPins.length > 0 && activeCreatorAllPins.every(p => isPinSelected(p.pin_id))" @change="$event.target.checked ? selectAllCurrentPins(activeCreatorAllPins) : clearSelectedCreatorPins()" class="rounded border-slate-300 text-amber-500 cursor-pointer" />
@@ -4917,7 +4915,7 @@ export function getDashboardHtml(folderId = '') {
                     <th x-show="visibleMasterColumns.actions" class="py-3 px-3 text-center font-semibold">Actions</th>
                   </tr>
                 </thead>
-                <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono">
+                <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono tabular-nums">
                   <template x-for="p in activeCreatorAllPins" :key="p.pin_id">
                     <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition" :class="isPinSelected(p.pin_id) ? 'bg-amber-500/5 dark:bg-amber-500/10' : ''">
                       <!-- Selection Checkbox -->
@@ -4927,8 +4925,8 @@ export function getDashboardHtml(folderId = '') {
                       <!-- Thumbnail with hover preview -->
                       <td x-show="visibleMasterColumns.media" class="py-2.5 px-3 w-14">
                         <div class="relative group cursor-pointer" @click="openPinDossier(p)">
-                          <img :src="p.image_url" loading="lazy" class="w-11 h-14 rounded-lg object-cover border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 hover:opacity-80 transition" />
-                          <div class="hidden group-hover:block absolute left-14 top-0 z-40 w-44 rounded-xl overflow-hidden shadow-2xl border border-slate-200 dark:border-slate-700 pointer-events-none bg-white dark:bg-slate-900">
+                          <img :src="p.image_url" loading="lazy" class="w-11 h-14 rounded-lg object-cover border border-slate-200 dark:border-[#27272A] bg-slate-100 dark:bg-slate-800 hover:opacity-80 transition" />
+                          <div class="hidden group-hover:block absolute left-14 top-0 z-40 w-44 rounded-xl overflow-hidden shadow-2xl border border-slate-200 dark:border-[#27272A] pointer-events-none bg-white dark:bg-slate-900">
                             <img :src="p.image_url" class="w-full h-auto object-cover" />
                           </div>
                         </div>
@@ -4937,7 +4935,7 @@ export function getDashboardHtml(folderId = '') {
                       <!-- Title & Destination -->
                       <td x-show="visibleMasterColumns.title" class="py-2.5 px-4 font-sans font-bold text-slate-900 dark:text-white max-w-md">
                         <div class="line-clamp-2 cursor-pointer hover:text-rose-500 transition" :title="p.title" x-text="p.title || 'Untitled Pin'" @click="openPinDossier(p)"></div>
-                        <div class="flex items-center gap-2 mt-1 font-mono text-[10.5px] font-normal">
+                        <div class="flex items-center gap-2 mt-1 font-mono tabular-nums text-[10.5px] font-normal">
                           <span class="text-slate-400" x-text="'ID: ' + p.pin_id"></span>
                           <template x-if="p.destination_url">
                             <a :href="safeUrl(p.destination_url)" target="_blank" rel="noopener noreferrer" class="text-sky-500 hover:underline flex items-center gap-1 truncate max-w-[200px]" :title="p.destination_url">
@@ -4950,7 +4948,7 @@ export function getDashboardHtml(folderId = '') {
 
                       <!-- Board Name -->
                       <td x-show="visibleMasterColumns.board" class="py-2.5 px-3 font-sans text-slate-600 dark:text-slate-300 truncate max-w-[130px]">
-                        <button type="button" @click="openBoardPage(p.board_name, activeCreator)" class="inline-block px-2 py-0.5 rounded-lg text-[10.5px] font-semibold bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 hover:bg-purple-100 dark:hover:bg-purple-950/40 hover:text-purple-600 dark:hover:text-purple-400 border border-slate-200 dark:border-slate-700/60 transition cursor-pointer" x-text="p.board_name || 'General'"></button>
+                        <button type="button" @click="openBoardPage(p.board_name, activeCreator)" class="inline-block px-2 py-0.5 rounded-lg text-[10.5px] font-semibold bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 hover:bg-purple-100 dark:hover:bg-purple-950/40 hover:text-purple-600 dark:hover:text-purple-400 border border-slate-200 dark:border-[#27272A]/60 transition cursor-pointer" x-text="p.board_name || 'General'"></button>
                       </td>
 
                       <!-- Saves + 24h delta -->
@@ -4994,7 +4992,7 @@ export function getDashboardHtml(folderId = '') {
                             </button>
                           </template>
                           <template x-if="!p.is_qualified && !p.is_product && !p.is_ranked">
-                            <span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700">
+                            <span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-[#27272A]">
                               Standard
                             </span>
                           </template>
@@ -5023,12 +5021,12 @@ export function getDashboardHtml(folderId = '') {
               </table>
 
               <!-- Pagination Footer Bar -->
-              <div class="flex items-center justify-between border-t border-slate-200 dark:border-slate-800 px-5 py-3 bg-slate-50/50 dark:bg-slate-900/30 text-xs text-slate-500">
+              <div class="flex items-center justify-between border-t border-slate-200 dark:border-[#27272A] px-5 py-3 bg-slate-50/50 dark:bg-slate-900/30 text-xs text-slate-500">
                 <span x-text="'Showing ' + (((activeCreatorAllPinsPage - 1) * 25) + 1) + '-' + Math.min(activeCreatorAllPinsPage * 25, activeCreatorAllPinsTotal) + ' of ' + activeCreatorAllPinsTotal + ' pins'"></span>
                 <div class="flex items-center gap-2">
-                  <button @click="activeCreatorAllPinsPage = Math.max(1, activeCreatorAllPinsPage - 1); fetchCreatorAllPins()" :disabled="activeCreatorAllPinsPage <= 1" class="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0b1120] px-3 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 disabled:opacity-40 transition shadow-2xs cursor-pointer">Previous</button>
+                  <button @click="activeCreatorAllPinsPage = Math.max(1, activeCreatorAllPinsPage - 1); fetchCreatorAllPins()" :disabled="activeCreatorAllPinsPage <= 1" class="rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] px-3 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 disabled:opacity-40 transition shadow-2xs cursor-pointer">Previous</button>
                   <span class="font-bold text-slate-900 dark:text-white" x-text="'Page ' + activeCreatorAllPinsPage + ' of ' + Math.max(1, activeCreatorAllPinsTotalPages)"></span>
-                  <button @click="activeCreatorAllPinsPage = activeCreatorAllPinsPage + 1; fetchCreatorAllPins()" :disabled="activeCreatorAllPinsPage >= activeCreatorAllPinsTotalPages" class="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0b1120] px-3 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 disabled:opacity-40 transition shadow-2xs cursor-pointer">Next</button>
+                  <button @click="activeCreatorAllPinsPage = activeCreatorAllPinsPage + 1; fetchCreatorAllPins()" :disabled="activeCreatorAllPinsPage >= activeCreatorAllPinsTotalPages" class="rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] px-3 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 disabled:opacity-40 transition shadow-2xs cursor-pointer">Next</button>
                 </div>
               </div>
             </div>
@@ -5041,7 +5039,7 @@ export function getDashboardHtml(folderId = '') {
           <!-- ======================================================== -->
           <div x-show="activeCreatorTab === 'top_urls'" class="space-y-5">
             <!-- Header & Filter Bar -->
-            <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-5 shadow-xs flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div class="rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#18181B] p-5 shadow-xs flex flex-col md:flex-row md:items-center md:justify-between gap-4">
               <div>
                 <div class="flex items-center gap-2">
                   <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-500 font-bold text-sm">🔗</span>
@@ -5055,21 +5053,21 @@ export function getDashboardHtml(folderId = '') {
               <!-- Search & Filter Controls -->
               <div class="flex items-center gap-3 flex-wrap">
                 <!-- Filter Type Segmented Control -->
-                <div class="flex items-center bg-slate-100 dark:bg-slate-900 p-0.5 rounded-xl border border-slate-200 dark:border-slate-800">
-                  <button @click="creatorTopUrlFilterType = 'all'; creatorTopUrlsPage = 1; fetchCreatorTopUrls()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer" :class="creatorTopUrlFilterType === 'all' ? 'bg-white dark:bg-[#0b1120] text-slate-900 dark:text-white shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">All</button>
-                  <button @click="creatorTopUrlFilterType = 'articles_only'; creatorTopUrlsPage = 1; fetchCreatorTopUrls()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer" :class="creatorTopUrlFilterType === 'articles_only' ? 'bg-white dark:bg-[#0b1120] text-emerald-600 dark:text-emerald-400 shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">Articles Only</button>
-                  <button @click="creatorTopUrlFilterType = 'products_only'; creatorTopUrlsPage = 1; fetchCreatorTopUrls()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer" :class="creatorTopUrlFilterType === 'products_only' ? 'bg-white dark:bg-[#0b1120] text-purple-600 dark:text-purple-400 shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">Products Only</button>
-                  <button @click="creatorTopUrlFilterType = 'affiliate_only'; creatorTopUrlsPage = 1; fetchCreatorTopUrls()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer" :class="creatorTopUrlFilterType === 'affiliate_only' ? 'bg-white dark:bg-[#0b1120] text-amber-600 dark:text-amber-400 shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">🛒 Affiliate &amp; Marketplaces</button>
+                <div class="flex items-center bg-slate-100 dark:bg-slate-900 p-0.5 rounded-xl border border-slate-200 dark:border-[#27272A]">
+                  <button @click="creatorTopUrlFilterType = 'all'; creatorTopUrlsPage = 1; fetchCreatorTopUrls()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer" :class="creatorTopUrlFilterType === 'all' ? 'bg-white dark:bg-[#121215] text-slate-900 dark:text-white shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">All</button>
+                  <button @click="creatorTopUrlFilterType = 'articles_only'; creatorTopUrlsPage = 1; fetchCreatorTopUrls()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer" :class="creatorTopUrlFilterType === 'articles_only' ? 'bg-white dark:bg-[#121215] text-emerald-600 dark:text-emerald-400 shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">Articles Only</button>
+                  <button @click="creatorTopUrlFilterType = 'products_only'; creatorTopUrlsPage = 1; fetchCreatorTopUrls()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer" :class="creatorTopUrlFilterType === 'products_only' ? 'bg-white dark:bg-[#121215] text-purple-600 dark:text-purple-400 shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">Products Only</button>
+                  <button @click="creatorTopUrlFilterType = 'affiliate_only'; creatorTopUrlsPage = 1; fetchCreatorTopUrls()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer" :class="creatorTopUrlFilterType === 'affiliate_only' ? 'bg-white dark:bg-[#121215] text-amber-600 dark:text-amber-400 shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">🛒 Affiliate &amp; Marketplaces</button>
                 </div>
 
                 <!-- Search Input -->
                 <div class="relative">
-                  <input type="text" x-model="creatorTopUrlSearch" @keyup.enter="creatorTopUrlsPage = 1; fetchCreatorTopUrls()" placeholder="Search article slug..." class="h-9 w-48 sm:w-60 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0b1120] px-3 pl-8 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-500" />
+                  <input type="text" x-model="creatorTopUrlSearch" @keyup.enter="creatorTopUrlsPage = 1; fetchCreatorTopUrls()" placeholder="Search article slug..." class="h-9 w-48 sm:w-60 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] px-3 pl-8 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-500" />
                   <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5"></i>
                 </div>
 
                 <!-- Sort Dropdown -->
-                <select x-model="creatorTopUrlSort" @change="creatorTopUrlsPage = 1; fetchCreatorTopUrls()" class="h-9 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0b1120] px-2.5 text-xs font-semibold text-slate-700 dark:text-slate-300">
+                <select x-model="creatorTopUrlSort" @change="creatorTopUrlsPage = 1; fetchCreatorTopUrls()" class="h-9 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] px-2.5 text-xs font-semibold text-slate-700 dark:text-slate-300">
                   <option value="saves_desc">Highest Saves</option>
                   <option value="pins_desc">Most Pins</option>
                   <option value="avg_saves_desc">Highest Avg Saves/Pin</option>
@@ -5085,10 +5083,10 @@ export function getDashboardHtml(folderId = '') {
             </div>
 
             <!-- Table Card -->
-            <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] shadow-xs overflow-hidden">
+            <div class="rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#18181B] shadow-xs overflow-hidden">
               <div class="overflow-x-auto">
                 <table class="w-full text-left text-xs text-slate-600 dark:text-slate-400">
-                  <thead class="bg-slate-50 dark:bg-slate-900/60 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800">
+                  <thead class="bg-slate-50 dark:bg-slate-900/60 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-[#27272A]">
                     <tr>
                       <th class="py-3 px-4">Article / Destination Slug</th>
                       <th class="py-3 px-3">Type</th>
@@ -5108,7 +5106,7 @@ export function getDashboardHtml(folderId = '') {
                         <td class="py-3 px-4">
                           <div class="flex items-center gap-2">
                             <span class="font-bold text-slate-900 dark:text-white text-xs truncate max-w-md" :title="item.clean_slug" x-text="item.clean_slug"></span>
-                            <span class="text-[10px] text-slate-400 font-mono" x-text="'(' + item.domain + ')'"></span>
+                            <span class="text-[10px] text-slate-400 font-mono tabular-nums" x-text="'(' + item.domain + ')'"></span>
                           </div>
                         </td>
                         <!-- Type -->
@@ -5124,20 +5122,20 @@ export function getDashboardHtml(folderId = '') {
                           </template>
                         </td>
                         <!-- Pins Count -->
-                        <td class="py-3 px-3 text-right font-mono font-bold text-slate-900 dark:text-white" x-text="formatNumber(item.pin_count)"></td>
+                        <td class="py-3 px-3 text-right font-mono tabular-nums font-bold text-slate-900 dark:text-white" x-text="formatNumber(item.pin_count)"></td>
                         <!-- Total Saves -->
-                        <td class="py-3 px-3 text-right font-mono font-extrabold text-amber-600 dark:text-amber-400" x-text="formatNumber(item.total_saves)"></td>
+                        <td class="py-3 px-3 text-right font-mono tabular-nums font-extrabold text-amber-600 dark:text-amber-400" x-text="formatNumber(item.total_saves)"></td>
                         <!-- Avg Saves -->
-                        <td class="py-3 px-3 text-right font-mono font-bold text-indigo-600 dark:text-indigo-400" x-text="formatNumber(item.avg_saves)"></td>
+                        <td class="py-3 px-3 text-right font-mono tabular-nums font-bold text-indigo-600 dark:text-indigo-400" x-text="formatNumber(item.avg_saves)"></td>
                         <!-- Repins -->
-                        <td class="py-3 px-3 text-right font-mono text-slate-500 dark:text-slate-400" x-text="formatNumber(item.total_repins)"></td>
+                        <td class="py-3 px-3 text-right font-mono tabular-nums text-slate-500 dark:text-slate-400" x-text="formatNumber(item.total_repins)"></td>
                         <!-- First Seen -->
                         <td class="py-3 px-3 text-[11px] text-slate-400" x-text="item.first_pin_date ? item.first_pin_date.slice(0, 10) : '—'"></td>
                         <!-- Last Pin -->
                         <td class="py-3 px-3 text-[11px] text-slate-400 font-medium" x-text="item.last_pin_date ? item.last_pin_date.slice(0, 10) : '—'"></td>
                         <!-- Open Link Button -->
                         <td class="py-3 px-3 text-center">
-                          <a :href="safeUrl(item.sample_url)" target="_blank" rel="noopener noreferrer" class="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-emerald-500 transition" title="Open Article in New Tab">
+                          <a :href="safeUrl(item.sample_url)" target="_blank" rel="noopener noreferrer" class="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-emerald-500 transition" title="Open Article in New Tab">
                             <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
                           </a>
                         </td>
@@ -5156,12 +5154,12 @@ export function getDashboardHtml(folderId = '') {
               </template>
 
               <!-- Pagination Bar -->
-              <div class="flex items-center justify-between p-4 border-t border-slate-200 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400">
+              <div class="flex items-center justify-between p-4 border-t border-slate-200 dark:border-[#27272A] text-xs text-slate-500 dark:text-slate-400">
                 <span x-text="'Showing ' + activeCreatorTopUrls.length + ' of ' + formatNumber(creatorTopUrlsTotal) + ' unique URLs'"></span>
                 <div class="flex items-center gap-1.5">
-                  <button @click="if (creatorTopUrlsPage > 1) { creatorTopUrlsPage--; fetchCreatorTopUrls(); }" :disabled="creatorTopUrlsPage <= 1" class="h-8 px-3 rounded-lg border border-slate-200 dark:border-slate-800 disabled:opacity-40 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold cursor-pointer">Previous</button>
-                  <span class="px-2 font-mono" x-text="creatorTopUrlsPage + ' / ' + creatorTopUrlsTotalPages"></span>
-                  <button @click="if (creatorTopUrlsPage < creatorTopUrlsTotalPages) { creatorTopUrlsPage++; fetchCreatorTopUrls(); }" :disabled="creatorTopUrlsPage >= creatorTopUrlsTotalPages" class="h-8 px-3 rounded-lg border border-slate-200 dark:border-slate-800 disabled:opacity-40 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold cursor-pointer">Next</button>
+                  <button @click="if (creatorTopUrlsPage > 1) { creatorTopUrlsPage--; fetchCreatorTopUrls(); }" :disabled="creatorTopUrlsPage <= 1" class="h-8 px-3 rounded-lg border border-slate-200 dark:border-[#27272A] disabled:opacity-40 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold cursor-pointer">Previous</button>
+                  <span class="px-2 font-mono tabular-nums" x-text="creatorTopUrlsPage + ' / ' + creatorTopUrlsTotalPages"></span>
+                  <button @click="if (creatorTopUrlsPage < creatorTopUrlsTotalPages) { creatorTopUrlsPage++; fetchCreatorTopUrls(); }" :disabled="creatorTopUrlsPage >= creatorTopUrlsTotalPages" class="h-8 px-3 rounded-lg border border-slate-200 dark:border-[#27272A] disabled:opacity-40 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold cursor-pointer">Next</button>
                 </div>
               </div>
             </div>
@@ -5172,12 +5170,12 @@ export function getDashboardHtml(folderId = '') {
           <!-- ======================================================== -->
           <div x-show="activeCreatorTab === 'related_pins'" class="space-y-5">
             <!-- Header & Action Bar -->
-            <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-5 shadow-xs flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div class="rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#18181B] p-5 shadow-xs flex flex-col md:flex-row md:items-center md:justify-between gap-4">
               <div>
                 <div class="flex items-center gap-2">
                   <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-500/10 text-amber-500 font-bold text-sm">🕸️</span>
                   <h3 class="text-base font-extrabold text-slate-900 dark:text-white">Related Pins Radar (Account Intersections)</h3>
-                  <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-amber-500/10 border border-amber-500/20 text-amber-600 font-bold">100% Zero-Cookie</span>
+                  <span class="px-2 py-0.5 rounded text-[10px] font-mono tabular-nums bg-amber-500/10 border border-amber-500/20 text-amber-600 font-bold">100% Zero-Cookie</span>
                 </div>
                 <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">
                   Pixie Graph Co-Occurrence Radar for @<span x-text="(activeCreator.username || '').replace(/^@+/, '')"></span>. Identifies overlapping related pins across multiple seeds, traffic retention, and competitor leakage.
@@ -5191,7 +5189,7 @@ export function getDashboardHtml(folderId = '') {
                   <span>⚡ Auto-Add Top 10</span>
                 </button>
 
-                <button @click="isBulkAddSeedsModalOpen = true" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 px-3 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 transition cursor-pointer">
+                <button @click="isBulkAddSeedsModalOpen = true" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-100 dark:bg-slate-900 px-3 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 transition cursor-pointer">
                   <i data-lucide="plus-circle" class="w-3.5 h-3.5"></i>
                   <span>+ Bulk Add Pin IDs</span>
                 </button>
@@ -5201,7 +5199,7 @@ export function getDashboardHtml(folderId = '') {
                   <span>🚀 Harvest Related (GHA)</span>
                 </button>
 
-                <button @click="fetchCreatorRelatedGraph()" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0b1120] px-3 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer">
+                <button @click="fetchCreatorRelatedGraph()" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] px-3 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer">
                   <i data-lucide="refresh-cw" class="w-3.5 h-3.5" :class="isLoadingRelatedGraph ? 'animate-spin' : ''"></i>
                 </button>
               </div>
@@ -5210,54 +5208,54 @@ export function getDashboardHtml(folderId = '') {
             <!-- KPI Summary Cards -->
             <div class="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
               <!-- KPI 1: Active Seeds -->
-              <div class="p-4 rounded-2xl bg-white dark:bg-[#0d1526] border border-slate-200/90 dark:border-slate-800 shadow-2xs">
-                <span class="text-[10px] font-mono uppercase text-slate-500 dark:text-slate-400 font-bold">Active Analyzed Seeds</span>
-                <div class="mt-1 text-2xl font-mono font-black text-slate-900 dark:text-white" x-text="creatorRelatedStats.total_seeds || creatorRelatedSeeds.length || 0"></div>
+              <div class="p-4 rounded-2xl bg-white dark:bg-[#18181B] border border-slate-200/90 dark:border-[#27272A] shadow-2xs">
+                <span class="text-[10px] font-mono tabular-nums uppercase text-slate-500 dark:text-slate-400 font-bold">Active Analyzed Seeds</span>
+                <div class="mt-1 text-2xl font-mono tabular-nums font-black text-slate-900 dark:text-white" x-text="creatorRelatedStats.total_seeds || creatorRelatedSeeds.length || 0"></div>
                 <div class="text-[10px] text-slate-400 mt-0.5">Seed pins registered for account</div>
               </div>
 
               <!-- KPI 2: Total Discovered Related Nodes -->
-              <div class="p-4 rounded-2xl bg-white dark:bg-[#0d1526] border border-slate-200/90 dark:border-slate-800 shadow-2xs">
-                <span class="text-[10px] font-mono uppercase text-slate-500 dark:text-slate-400 font-bold">Total Related Nodes</span>
-                <div class="mt-1 text-2xl font-mono font-black text-indigo-600 dark:text-indigo-400" x-text="formatNumber(creatorRelatedStats.total_nodes || 0)"></div>
+              <div class="p-4 rounded-2xl bg-white dark:bg-[#18181B] border border-slate-200/90 dark:border-[#27272A] shadow-2xs">
+                <span class="text-[10px] font-mono tabular-nums uppercase text-slate-500 dark:text-slate-400 font-bold">Total Related Nodes</span>
+                <div class="mt-1 text-2xl font-mono tabular-nums font-black text-indigo-600 dark:text-indigo-400" x-text="formatNumber(creatorRelatedStats.total_nodes || 0)"></div>
                 <div class="text-[10px] text-slate-400 mt-0.5" x-text="(creatorRelatedStats.unique_candidates || 0) + ' unique pins'"></div>
               </div>
 
               <!-- KPI 3: Account Retention vs Traffic Leakage -->
-              <div class="p-4 rounded-2xl bg-white dark:bg-[#0d1526] border border-slate-200/90 dark:border-slate-800 shadow-2xs">
+              <div class="p-4 rounded-2xl bg-white dark:bg-[#18181B] border border-slate-200/90 dark:border-[#27272A] shadow-2xs">
                 <div class="flex items-center justify-between">
-                  <span class="text-[10px] font-mono uppercase text-slate-500 dark:text-slate-400 font-bold">Account Retention</span>
-                  <span class="text-[10px] font-mono font-bold text-rose-500" x-text="(creatorRelatedStats.leakage_rate_pct || 0) + '% Leakage'"></span>
+                  <span class="text-[10px] font-mono tabular-nums uppercase text-slate-500 dark:text-slate-400 font-bold">Account Retention</span>
+                  <span class="text-[10px] font-mono tabular-nums font-bold text-rose-500" x-text="(creatorRelatedStats.leakage_rate_pct || 0) + '% Leakage'"></span>
                 </div>
-                <div class="mt-1 text-2xl font-mono font-black text-emerald-600 dark:text-emerald-400" x-text="(creatorRelatedStats.retention_rate_pct || 0) + '%'"></div>
+                <div class="mt-1 text-2xl font-mono tabular-nums font-black text-emerald-600 dark:text-emerald-400" x-text="(creatorRelatedStats.retention_rate_pct || 0) + '%'"></div>
                 <div class="text-[10px] text-slate-400 mt-0.5" x-text="(creatorRelatedStats.self_retention_nodes || 0) + ' own / ' + (creatorRelatedStats.rival_leakage_nodes || 0) + ' rivals'"></div>
               </div>
 
               <!-- KPI 4: Multi-Seed Intersections (2+ Seeds) -->
-              <div class="p-4 rounded-2xl bg-white dark:bg-[#0d1526] border border-slate-200/90 dark:border-slate-800 shadow-2xs">
-                <span class="text-[10px] font-mono uppercase text-slate-500 dark:text-slate-400 font-bold">Multi-Seed Intersections</span>
-                <div class="mt-1 text-2xl font-mono font-black text-amber-600 dark:text-amber-400" x-text="creatorRelatedStats.total_intersections || creatorRelatedIntersections.length || 0"></div>
+              <div class="p-4 rounded-2xl bg-white dark:bg-[#18181B] border border-slate-200/90 dark:border-[#27272A] shadow-2xs">
+                <span class="text-[10px] font-mono tabular-nums uppercase text-slate-500 dark:text-slate-400 font-bold">Multi-Seed Intersections</span>
+                <div class="mt-1 text-2xl font-mono tabular-nums font-black text-amber-600 dark:text-amber-400" x-text="creatorRelatedStats.total_intersections || creatorRelatedIntersections.length || 0"></div>
                 <div class="text-[10px] text-slate-400 mt-0.5">Shared across 2+ seeds</div>
               </div>
             </div>
 
             <!-- Registered Seeds Shelf -->
-            <div x-show="creatorRelatedSeeds.length > 0" class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-4 shadow-xs">
+            <div x-show="creatorRelatedSeeds.length > 0" class="rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#18181B] p-4 shadow-xs">
               <div class="flex items-center justify-between mb-3">
                 <span class="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
                   <i data-lucide="layers" class="w-3.5 h-3.5 text-amber-500"></i>
                   <span>Registered Seeds Shelf (<span x-text="creatorRelatedSeeds.length"></span>)</span>
                 </span>
-                <span class="text-[11px] text-slate-400 font-mono">Click Live Harvest to refresh a single seed in 2s</span>
+                <span class="text-[11px] text-slate-400 font-mono tabular-nums">Click Live Harvest to refresh a single seed in 2s</span>
               </div>
 
               <div class="flex items-center gap-2.5 overflow-x-auto pb-2">
                 <template x-for="s in creatorRelatedSeeds" :key="s.pin_id">
-                  <div class="shrink-0 flex items-center gap-2 p-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs">
+                  <div class="shrink-0 flex items-center gap-2 p-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] text-xs">
                     <img x-show="s.image_url" :src="s.image_url" class="w-8 h-8 rounded-lg object-cover bg-slate-200 dark:bg-slate-800" />
                     <div class="max-w-[130px]">
                       <div class="font-bold text-slate-900 dark:text-white truncate" x-text="s.title || ('Pin #' + s.pin_id)"></div>
-                      <div class="text-[10px] text-slate-400 font-mono" x-text="(s.related_count || 0) + ' related'"></div>
+                      <div class="text-[10px] text-slate-400 font-mono tabular-nums" x-text="(s.related_count || 0) + ' related'"></div>
                     </div>
                     <button @click="harvestLiveSingleSeedAction(s.pin_id)" title="Live Single-Seed Harvest" class="p-1 rounded-lg text-emerald-600 hover:bg-emerald-500/10 transition cursor-pointer">
                       <i data-lucide="play-circle" class="w-3.5 h-3.5"></i>
@@ -5271,31 +5269,31 @@ export function getDashboardHtml(folderId = '') {
             </div>
 
             <!-- Intersections Radar Filter & Search Controls -->
-            <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-4 shadow-xs flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div class="rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#18181B] p-4 shadow-xs flex flex-col md:flex-row md:items-center md:justify-between gap-3">
               <div class="flex items-center gap-2 flex-wrap">
                 <!-- Overlap Threshold Selector -->
-                <div class="flex items-center bg-slate-100 dark:bg-slate-900 p-0.5 rounded-xl border border-slate-200 dark:border-slate-800">
-                  <button @click="creatorRelatedMinOverlap = 2; creatorRelatedPage = 1; fetchCreatorRelatedGraph()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer" :class="creatorRelatedMinOverlap === 2 ? 'bg-white dark:bg-[#0b1120] text-amber-600 dark:text-amber-400 shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">2+ Seeds Overlap</button>
-                  <button @click="creatorRelatedMinOverlap = 3; creatorRelatedPage = 1; fetchCreatorRelatedGraph()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer" :class="creatorRelatedMinOverlap === 3 ? 'bg-white dark:bg-[#0b1120] text-amber-600 dark:text-amber-400 shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">3+ Seeds</button>
-                  <button @click="creatorRelatedMinOverlap = 5; creatorRelatedPage = 1; fetchCreatorRelatedGraph()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer" :class="creatorRelatedMinOverlap === 5 ? 'bg-white dark:bg-[#0b1120] text-amber-600 dark:text-amber-400 shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">5+ Seeds</button>
+                <div class="flex items-center bg-slate-100 dark:bg-slate-900 p-0.5 rounded-xl border border-slate-200 dark:border-[#27272A]">
+                  <button @click="creatorRelatedMinOverlap = 2; creatorRelatedPage = 1; fetchCreatorRelatedGraph()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer" :class="creatorRelatedMinOverlap === 2 ? 'bg-white dark:bg-[#121215] text-amber-600 dark:text-amber-400 shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">2+ Seeds Overlap</button>
+                  <button @click="creatorRelatedMinOverlap = 3; creatorRelatedPage = 1; fetchCreatorRelatedGraph()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer" :class="creatorRelatedMinOverlap === 3 ? 'bg-white dark:bg-[#121215] text-amber-600 dark:text-amber-400 shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">3+ Seeds</button>
+                  <button @click="creatorRelatedMinOverlap = 5; creatorRelatedPage = 1; fetchCreatorRelatedGraph()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer" :class="creatorRelatedMinOverlap === 5 ? 'bg-white dark:bg-[#121215] text-amber-600 dark:text-amber-400 shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">5+ Seeds</button>
                 </div>
 
                 <!-- Retention vs Rival Filter -->
-                <div class="flex items-center bg-slate-100 dark:bg-slate-900 p-0.5 rounded-xl border border-slate-200 dark:border-slate-800">
-                  <button @click="creatorRelatedFilter = 'all'; creatorRelatedPage = 1; fetchCreatorRelatedGraph()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer" :class="creatorRelatedFilter === 'all' ? 'bg-white dark:bg-[#0b1120] text-slate-900 dark:text-white shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">All Candidates</button>
-                  <button @click="creatorRelatedFilter = 'self_only'; creatorRelatedPage = 1; fetchCreatorRelatedGraph()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer" :class="creatorRelatedFilter === 'self_only' ? 'bg-white dark:bg-[#0b1120] text-emerald-600 dark:text-emerald-400 shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">Own Retention Only</button>
-                  <button @click="creatorRelatedFilter = 'rivals_only'; creatorRelatedPage = 1; fetchCreatorRelatedGraph()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer" :class="creatorRelatedFilter === 'rivals_only' ? 'bg-white dark:bg-[#0b1120] text-rose-600 dark:text-rose-400 shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">Rival Leakage Only</button>
+                <div class="flex items-center bg-slate-100 dark:bg-slate-900 p-0.5 rounded-xl border border-slate-200 dark:border-[#27272A]">
+                  <button @click="creatorRelatedFilter = 'all'; creatorRelatedPage = 1; fetchCreatorRelatedGraph()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer" :class="creatorRelatedFilter === 'all' ? 'bg-white dark:bg-[#121215] text-slate-900 dark:text-white shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">All Candidates</button>
+                  <button @click="creatorRelatedFilter = 'self_only'; creatorRelatedPage = 1; fetchCreatorRelatedGraph()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer" :class="creatorRelatedFilter === 'self_only' ? 'bg-white dark:bg-[#121215] text-emerald-600 dark:text-emerald-400 shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">Own Retention Only</button>
+                  <button @click="creatorRelatedFilter = 'rivals_only'; creatorRelatedPage = 1; fetchCreatorRelatedGraph()" class="rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer" :class="creatorRelatedFilter === 'rivals_only' ? 'bg-white dark:bg-[#121215] text-rose-600 dark:text-rose-400 shadow-2xs' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'">Rival Leakage Only</button>
                 </div>
               </div>
 
               <!-- Search & Export -->
               <div class="flex items-center gap-2">
                 <div class="relative">
-                  <input type="text" x-model="creatorRelatedSearch" @keyup.enter="creatorRelatedPage = 1; fetchCreatorRelatedGraph()" placeholder="Search title or creator..." class="h-9 w-44 sm:w-56 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0b1120] px-3 pl-8 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-amber-500" />
+                  <input type="text" x-model="creatorRelatedSearch" @keyup.enter="creatorRelatedPage = 1; fetchCreatorRelatedGraph()" placeholder="Search title or creator..." class="h-9 w-44 sm:w-56 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] px-3 pl-8 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-amber-500" />
                   <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5"></i>
                 </div>
 
-                <button @click="exportCsv(creatorRelatedIntersections, (activeCreator.username || 'account') + '-related-intersections.csv')" class="h-9 px-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0b1120] text-xs font-semibold hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer flex items-center gap-1.5">
+                <button @click="exportCsv(creatorRelatedIntersections, (activeCreator.username || 'account') + '-related-intersections.csv')" class="h-9 px-3 rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] text-xs font-semibold hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer flex items-center gap-1.5">
                   <i data-lucide="download" class="w-3.5 h-3.5"></i>
                   <span>CSV</span>
                 </button>
@@ -5303,10 +5301,10 @@ export function getDashboardHtml(folderId = '') {
             </div>
 
             <!-- Intersections Radar Table -->
-            <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] shadow-xs overflow-hidden">
+            <div class="rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#18181B] shadow-xs overflow-hidden">
               <div class="overflow-x-auto">
                 <table class="w-full text-left text-xs text-slate-600 dark:text-slate-400">
-                  <thead class="bg-slate-50/80 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-800 font-mono text-[11px] uppercase tracking-wider text-slate-500">
+                  <thead class="bg-slate-50/80 dark:bg-slate-900/50 border-b border-slate-200 dark:border-[#27272A] font-mono tabular-nums text-[11px] uppercase tracking-wider text-slate-500">
                     <tr>
                       <th class="p-3.5 pl-5">Candidate Pin</th>
                       <th class="p-3.5 text-center">Multi-Seed Overlap</th>
@@ -5326,7 +5324,7 @@ export function getDashboardHtml(folderId = '') {
                             <img x-show="item.image_url" :src="item.image_url" class="w-10 h-10 rounded-xl object-cover bg-slate-200 dark:bg-slate-800 shrink-0 cursor-pointer" @click="openPinPage(item.candidate_pin_id)" />
                             <div class="max-w-xs sm:max-w-sm">
                               <span @click="openPinPage(item.candidate_pin_id)" class="font-bold text-slate-900 dark:text-white hover:text-amber-500 transition cursor-pointer line-clamp-1" x-text="item.title || ('Pin #' + item.candidate_pin_id)"></span>
-                              <div class="text-[11px] text-slate-400 font-mono flex items-center gap-1 mt-0.5">
+                              <div class="text-[11px] text-slate-400 font-mono tabular-nums flex items-center gap-1 mt-0.5">
                                 <span>@<span x-text="item.creator_username || 'unknown'"></span></span>
                                 <span x-show="item.creator_name" class="text-slate-500">· <span x-text="item.creator_name"></span></span>
                               </div>
@@ -5336,7 +5334,7 @@ export function getDashboardHtml(folderId = '') {
 
                         <!-- Multi-Seed Overlap Count & Originating Seeds -->
                         <td class="p-3.5 text-center">
-                          <div class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-mono font-extrabold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                          <div class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-mono tabular-nums font-extrabold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
                             <i data-lucide="layers" class="w-3 h-3"></i>
                             <span x-text="(item.seed_overlap_count || 1) + ' Seeds'"></span>
                           </div>
@@ -5357,16 +5355,16 @@ export function getDashboardHtml(folderId = '') {
                         </td>
 
                         <!-- Saves -->
-                        <td class="p-3.5 text-right font-mono font-bold text-slate-900 dark:text-white" x-text="formatNumber(item.saves || 0)"></td>
+                        <td class="p-3.5 text-right font-mono tabular-nums font-bold text-slate-900 dark:text-white" x-text="formatNumber(item.saves || 0)"></td>
 
                         <!-- Repins -->
-                        <td class="p-3.5 text-right font-mono text-slate-600 dark:text-slate-400" x-text="formatNumber(item.repins || 0)"></td>
+                        <td class="p-3.5 text-right font-mono tabular-nums text-slate-600 dark:text-slate-400" x-text="formatNumber(item.repins || 0)"></td>
 
                         <!-- Domain -->
                         <td class="p-3.5">
                           <div class="flex items-center gap-1.5">
                             <template x-if="item.domain">
-                              <span class="font-mono text-xs text-slate-700 dark:text-slate-300 truncate max-w-[140px]" x-text="item.domain"></span>
+                              <span class="font-mono tabular-nums text-xs text-slate-700 dark:text-slate-300 truncate max-w-[140px]" x-text="item.domain"></span>
                             </template>
                             <template x-if="!item.domain">
                               <span class="text-slate-400 text-xs">Direct Image</span>
@@ -5401,12 +5399,12 @@ export function getDashboardHtml(folderId = '') {
               </template>
 
               <!-- Pagination Bar -->
-              <div class="flex items-center justify-between p-4 border-t border-slate-200 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400">
+              <div class="flex items-center justify-between p-4 border-t border-slate-200 dark:border-[#27272A] text-xs text-slate-500 dark:text-slate-400">
                 <span x-text="'Showing ' + creatorRelatedIntersections.length + ' of ' + formatNumber(creatorRelatedStats.total_intersections || creatorRelatedIntersections.length) + ' intersecting hubs'"></span>
                 <div class="flex items-center gap-1.5">
-                  <button @click="if (creatorRelatedPage > 1) { creatorRelatedPage--; fetchCreatorRelatedGraph(); }" :disabled="creatorRelatedPage <= 1" class="h-8 px-3 rounded-lg border border-slate-200 dark:border-slate-800 disabled:opacity-40 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold cursor-pointer">Previous</button>
-                  <span class="px-2 font-mono" x-text="creatorRelatedPage + ' / ' + creatorRelatedTotalPages"></span>
-                  <button @click="if (creatorRelatedPage < creatorRelatedTotalPages) { creatorRelatedPage++; fetchCreatorRelatedGraph(); }" :disabled="creatorRelatedPage >= creatorRelatedTotalPages" class="h-8 px-3 rounded-lg border border-slate-200 dark:border-slate-800 disabled:opacity-40 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold cursor-pointer">Next</button>
+                  <button @click="if (creatorRelatedPage > 1) { creatorRelatedPage--; fetchCreatorRelatedGraph(); }" :disabled="creatorRelatedPage <= 1" class="h-8 px-3 rounded-lg border border-slate-200 dark:border-[#27272A] disabled:opacity-40 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold cursor-pointer">Previous</button>
+                  <span class="px-2 font-mono tabular-nums" x-text="creatorRelatedPage + ' / ' + creatorRelatedTotalPages"></span>
+                  <button @click="if (creatorRelatedPage < creatorRelatedTotalPages) { creatorRelatedPage++; fetchCreatorRelatedGraph(); }" :disabled="creatorRelatedPage >= creatorRelatedTotalPages" class="h-8 px-3 rounded-lg border border-slate-200 dark:border-[#27272A] disabled:opacity-40 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold cursor-pointer">Next</button>
                 </div>
               </div>
             </div>
@@ -5419,17 +5417,17 @@ export function getDashboardHtml(folderId = '') {
           <div x-show="activeCreatorTab === 'boards'" class="space-y-6">
 
             <!-- 1. Master Strategy Header & Actions Bar -->
-            <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white dark:bg-[#0d1526] p-5 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-xs">
+            <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white dark:bg-[#18181B] p-5 rounded-2xl border border-slate-200/90 dark:border-[#27272A] shadow-xs">
               <div>
                 <div class="flex items-center gap-2">
                   <span class="flex h-8 w-8 items-center justify-center rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400 font-bold text-base">📌</span>
                   <h3 class="text-base font-bold text-slate-900 dark:text-white">Curated Boards &amp; Topic Strategy</h3>
-                  <span class="text-xs font-mono font-bold px-2.5 py-0.5 rounded-full bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20" x-text="(activeCreatorBoards.length || activeCreator.total_boards || 0) + ' boards'"></span>
+                  <span class="text-xs font-mono tabular-nums font-bold px-2.5 py-0.5 rounded-full bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20" x-text="(activeCreatorBoards.length || activeCreator.total_boards || 0) + ' boards'"></span>
                 </div>
                 <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Deep inspection of public Pinterest boards, cover visuals, follower reach, and algorithmic Related Interests (board_vase).</p>
               </div>
               <div class="flex items-center flex-wrap gap-2">
-                <button type="button" @click="syncCompetitorBoardsAction(activeCreator)" :disabled="isSyncingBoards" class="px-4 py-2 rounded-xl text-xs font-bold bg-white dark:bg-[#0b1120] border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition active:scale-95 disabled:opacity-50 flex items-center space-x-1.5 shadow-2xs cursor-pointer">
+                <button type="button" @click="syncCompetitorBoardsAction(activeCreator)" :disabled="isSyncingBoards" class="px-4 py-2 rounded-xl text-xs font-bold bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition active:scale-95 disabled:opacity-50 flex items-center space-x-1.5 shadow-2xs cursor-pointer">
                   <i data-lucide="refresh-cw" :class="{'animate-spin text-purple-500': isSyncingBoards}" class="w-3.5 h-3.5"></i>
                   <span x-text="isSyncingBoards ? 'Syncing...' : 'Sync Boards (Pinterest)'"></span>
                 </button>
@@ -5442,40 +5440,40 @@ export function getDashboardHtml(folderId = '') {
 
             <!-- 2. Board Strategy KPI Summary Cards -->
             <div class="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
-              <div class="bg-white dark:bg-[#0d1526] rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 shadow-2xs">
+              <div class="bg-white dark:bg-[#18181B] rounded-2xl border border-slate-200/90 dark:border-[#27272A] p-4 shadow-2xs">
                 <div class="flex items-center justify-between text-slate-400 mb-1">
                   <span class="text-[10.5px] font-bold uppercase tracking-wider">Curated Boards</span>
                   <i data-lucide="layout-grid" class="w-4 h-4 text-purple-500"></i>
                 </div>
-                <span class="text-2xl font-black text-slate-900 dark:text-white font-mono block" x-text="activeCreatorBoards.length || activeCreator.total_boards || 0"></span>
+                <span class="text-2xl font-black text-slate-900 dark:text-white font-mono tabular-nums block" x-text="activeCreatorBoards.length || activeCreator.total_boards || 0"></span>
                 <span class="text-[11px] text-slate-500 mt-1 block">Public thematic boards</span>
               </div>
 
-              <div class="bg-white dark:bg-[#0d1526] rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 shadow-2xs">
+              <div class="bg-white dark:bg-[#18181B] rounded-2xl border border-slate-200/90 dark:border-[#27272A] p-4 shadow-2xs">
                 <div class="flex items-center justify-between text-slate-400 mb-1">
                   <span class="text-[10.5px] font-bold uppercase tracking-wider">Board Pins</span>
                   <i data-lucide="layers" class="w-4 h-4 text-indigo-500"></i>
                 </div>
-                <span class="text-2xl font-black text-slate-900 dark:text-white font-mono block" x-text="formatNumber(creatorBoardsTotalPins)"></span>
+                <span class="text-2xl font-black text-slate-900 dark:text-white font-mono tabular-nums block" x-text="formatNumber(creatorBoardsTotalPins)"></span>
                 <span class="text-[11px] text-slate-500 mt-1 block">Curated across all boards</span>
               </div>
 
-              <div class="bg-white dark:bg-[#0d1526] rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 shadow-2xs">
+              <div class="bg-white dark:bg-[#18181B] rounded-2xl border border-slate-200/90 dark:border-[#27272A] p-4 shadow-2xs">
                 <div class="flex items-center justify-between text-slate-400 mb-1">
                   <span class="text-[10.5px] font-bold uppercase tracking-wider">Board Audience</span>
                   <i data-lucide="users" class="w-4 h-4 text-emerald-500"></i>
                 </div>
-                <span class="text-2xl font-black text-emerald-600 dark:text-emerald-400 font-mono block" x-text="formatNumber(creatorBoardsTotalFollowers)"></span>
+                <span class="text-2xl font-black text-emerald-600 dark:text-emerald-400 font-mono tabular-nums block" x-text="formatNumber(creatorBoardsTotalFollowers)"></span>
                 <span class="text-[11px] text-slate-500 mt-1 block">Verified profile reach</span>
               </div>
 
-              <div class="bg-white dark:bg-[#0d1526] rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 shadow-2xs">
+              <div class="bg-white dark:bg-[#18181B] rounded-2xl border border-slate-200/90 dark:border-[#27272A] p-4 shadow-2xs">
                 <div class="flex items-center justify-between text-slate-400 mb-1">
                   <span class="text-[10.5px] font-bold uppercase tracking-wider">Top Board</span>
                   <i data-lucide="trophy" class="w-4 h-4 text-amber-500"></i>
                 </div>
                 <span class="text-sm font-bold text-slate-900 dark:text-white truncate block" :title="activeCreatorBoards[0]?.name || 'None'" x-text="activeCreatorBoards[0]?.name || 'N/A'"></span>
-                <span class="text-[11px] text-amber-600 dark:text-amber-400 font-mono font-bold mt-1 block" x-text="formatNumber(activeCreatorBoards[0]?.pin_count || 0) + ' pins'"></span>
+                <span class="text-[11px] text-amber-600 dark:text-amber-400 font-mono tabular-nums font-bold mt-1 block" x-text="formatNumber(activeCreatorBoards[0]?.pin_count || 0) + ' pins'"></span>
               </div>
             </div>
 
@@ -5484,8 +5482,8 @@ export function getDashboardHtml(folderId = '') {
               <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div class="flex items-center gap-2">
                   <span class="flex h-5 w-5 items-center justify-center rounded-lg bg-purple-500/20 text-purple-600 dark:text-purple-400 text-xs">✨</span>
-                  <span class="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">Pinterest Algorithmic Topics (<code class="text-purple-600 dark:text-purple-400 font-mono">board_vase</code> Semantic Interests)</span>
-                  <span class="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-600 dark:text-purple-400" x-text="creatorBoardsTopicsList.length + ' topics'"></span>
+                  <span class="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">Pinterest Algorithmic Topics (<code class="text-purple-600 dark:text-purple-400 font-mono tabular-nums">board_vase</code> Semantic Interests)</span>
+                  <span class="text-[10px] font-mono tabular-nums font-bold px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-600 dark:text-purple-400" x-text="creatorBoardsTopicsList.length + ' topics'"></span>
                 </div>
                 <button type="button" x-show="creatorBoardSelectedTopic" @click="creatorBoardSelectedTopic = ''; creatorBoardPage = 1" class="text-[11px] font-bold text-rose-500 hover:underline flex items-center gap-1 cursor-pointer">
                   <i data-lucide="x" class="w-3 h-3"></i>
@@ -5495,21 +5493,21 @@ export function getDashboardHtml(folderId = '') {
 
               <!-- Topic Chips Flow -->
               <div class="flex flex-wrap gap-1.5 items-center max-h-32 overflow-y-auto pr-1">
-                <button type="button" @click="creatorBoardSelectedTopic = ''; creatorBoardPage = 1" class="px-2.5 py-1 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1" :class="!creatorBoardSelectedTopic ? 'bg-purple-600 text-white shadow-2xs' : 'bg-white/80 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'">
+                <button type="button" @click="creatorBoardSelectedTopic = ''; creatorBoardPage = 1" class="px-2.5 py-1 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1" :class="!creatorBoardSelectedTopic ? 'bg-purple-600 text-white shadow-2xs' : 'bg-white/80 dark:bg-slate-900/80 border border-slate-200 dark:border-[#27272A] text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'">
                   <span>All Topics</span>
                 </button>
                 <template x-for="item in creatorBoardsTopicsList" :key="item.text">
-                  <button type="button" @click="creatorBoardSelectedTopic = (creatorBoardSelectedTopic === item.text ? '' : item.text); creatorBoardPage = 1" class="px-2.5 py-1 rounded-xl text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 shadow-2xs" :class="creatorBoardSelectedTopic === item.text ? 'bg-purple-600 text-white font-bold' : 'bg-white dark:bg-[#0d1526] border border-slate-200/90 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:border-purple-400/50 hover:bg-purple-50/50 dark:hover:bg-purple-950/20'">
+                  <button type="button" @click="creatorBoardSelectedTopic = (creatorBoardSelectedTopic === item.text ? '' : item.text); creatorBoardPage = 1" class="px-2.5 py-1 rounded-xl text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 shadow-2xs" :class="creatorBoardSelectedTopic === item.text ? 'bg-purple-600 text-white font-bold' : 'bg-white dark:bg-[#18181B] border border-slate-200/90 dark:border-[#27272A] text-slate-700 dark:text-slate-300 hover:border-purple-400/50 hover:bg-purple-50/50 dark:hover:bg-purple-950/20'">
                     <span class="text-purple-500 font-bold">#</span>
                     <span x-text="item.text"></span>
-                    <span class="text-[10px] font-mono px-1.5 py-0.2 rounded-full" :class="creatorBoardSelectedTopic === item.text ? 'bg-white/20 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'" x-text="item.count"></span>
+                    <span class="text-[10px] font-mono tabular-nums px-1.5 py-0.2 rounded-full" :class="creatorBoardSelectedTopic === item.text ? 'bg-white/20 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'" x-text="item.count"></span>
                   </button>
                 </template>
               </div>
             </div>
 
             <!-- 4. Interactive Toolbar: Search, Sort & View Mode Switcher -->
-            <div class="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] p-4 shadow-xs flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div class="rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#18181B] p-4 shadow-xs flex flex-col md:flex-row md:items-center md:justify-between gap-3">
               <!-- Search bar -->
               <div class="relative flex-1 min-w-[240px]">
                 <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
@@ -5518,7 +5516,7 @@ export function getDashboardHtml(folderId = '') {
                   x-model="creatorBoardSearch"
                   @input="creatorBoardPage = 1"
                   placeholder="Filter boards by title, topic, or keyword..."
-                  class="w-full pl-9 pr-9 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-hidden focus:border-purple-500 transition"
+                  class="w-full pl-9 pr-9 py-2 text-xs rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50/50 dark:bg-slate-900/50 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-hidden focus:border-purple-500 transition"
                 >
                 <button
                   type="button"
@@ -5538,7 +5536,7 @@ export function getDashboardHtml(folderId = '') {
                   <select
                     x-model="creatorBoardSort"
                     @change="creatorBoardPage = 1"
-                    class="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300 focus:outline-hidden focus:border-purple-500 transition cursor-pointer"
+                    class="rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50/50 dark:bg-slate-900/50 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300 focus:outline-hidden focus:border-purple-500 transition cursor-pointer"
                   >
                     <option value="most_pins">🔥 Most Pins</option>
                     <option value="most_followers">👥 Most Followers</option>
@@ -5549,12 +5547,12 @@ export function getDashboardHtml(folderId = '') {
                 </div>
 
                 <!-- View Toggle Buttons -->
-                <div class="flex items-center rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 p-0.5">
+                <div class="flex items-center rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50/50 dark:bg-slate-900/50 p-0.5">
                   <button
                     type="button"
                     @click="creatorBoardsViewMode = 'grid'"
                     class="px-2.5 py-1 text-xs font-bold rounded-lg transition flex items-center gap-1 cursor-pointer"
-                    :class="creatorBoardsViewMode === 'grid' ? 'bg-white dark:bg-[#0b1120] text-purple-600 dark:text-purple-400 shadow-2xs' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'"
+                    :class="creatorBoardsViewMode === 'grid' ? 'bg-white dark:bg-[#121215] text-purple-600 dark:text-purple-400 shadow-2xs' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'"
                     title="Grid Cards View"
                   >
                     <i data-lucide="layout-grid" class="w-3.5 h-3.5"></i>
@@ -5564,7 +5562,7 @@ export function getDashboardHtml(folderId = '') {
                     type="button"
                     @click="creatorBoardsViewMode = 'table'"
                     class="px-2.5 py-1 text-xs font-bold rounded-lg transition flex items-center gap-1 cursor-pointer"
-                    :class="creatorBoardsViewMode === 'table' ? 'bg-white dark:bg-[#0b1120] text-purple-600 dark:text-purple-400 shadow-2xs' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'"
+                    :class="creatorBoardsViewMode === 'table' ? 'bg-white dark:bg-[#121215] text-purple-600 dark:text-purple-400 shadow-2xs' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'"
                     title="Data Table View"
                   >
                     <i data-lucide="table" class="w-3.5 h-3.5"></i>
@@ -5573,14 +5571,14 @@ export function getDashboardHtml(folderId = '') {
                 </div>
 
                 <!-- Total Count Pill -->
-                <span class="inline-flex items-center rounded-xl bg-purple-500/10 px-3 py-1.5 text-xs font-mono font-bold text-purple-600 dark:text-purple-400 border border-purple-500/20" x-text="filteredCreatorBoards.length + ' / ' + activeCreatorBoards.length"></span>
+                <span class="inline-flex items-center rounded-xl bg-purple-500/10 px-3 py-1.5 text-xs font-mono tabular-nums font-bold text-purple-600 dark:text-purple-400 border border-purple-500/20" x-text="filteredCreatorBoards.length + ' / ' + activeCreatorBoards.length"></span>
               </div>
             </div>
 
             <!-- Loading Skeleton -->
             <div x-show="isLoadingBoards" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 animate-pulse">
               <template x-for="i in 8" :key="i">
-                <div class="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0d1526] overflow-hidden p-4 space-y-3">
+                <div class="rounded-2xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] overflow-hidden p-4 space-y-3">
                   <div class="h-36 bg-slate-200 dark:bg-slate-800 rounded-xl"></div>
                   <div class="h-4 bg-slate-200 dark:bg-slate-800 rounded-md w-3/4"></div>
                   <div class="h-3 bg-slate-200 dark:bg-slate-800 rounded-md w-1/2"></div>
@@ -5595,7 +5593,7 @@ export function getDashboardHtml(folderId = '') {
             <!-- VIEW 1: PREMIUM GRID CARDS -->
             <div x-show="!isLoadingBoards && creatorBoardsViewMode === 'grid'" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               <template x-for="b in paginatedCreatorBoards" :key="b.id || b.board_id">
-                <div class="group relative flex flex-col rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#0d1526] overflow-hidden shadow-xs hover:shadow-md hover:border-purple-500/40 dark:hover:border-purple-500/40 transition-all duration-200">
+                <div class="group relative flex flex-col rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#18181B] overflow-hidden shadow-xs hover:shadow-md hover:border-purple-500/40 dark:hover:border-purple-500/40 transition-all duration-200">
                   
                   <!-- Board Visual Header & Cover Image -->
                   <div class="relative h-44 w-full overflow-hidden bg-slate-100 dark:bg-slate-900">
@@ -5626,11 +5624,11 @@ export function getDashboardHtml(folderId = '') {
                     <!-- Bottom Floating Stats Pills -->
                     <div class="absolute bottom-2.5 left-2.5 right-2.5 flex items-center justify-between">
                       <div class="flex items-center gap-1.5">
-                        <span class="px-2 py-0.5 rounded-lg text-[10.5px] font-mono font-bold bg-purple-500/90 backdrop-blur-md text-white shadow-xs flex items-center gap-1">
+                        <span class="px-2 py-0.5 rounded-lg text-[10.5px] font-mono tabular-nums font-bold bg-purple-500/90 backdrop-blur-md text-white shadow-xs flex items-center gap-1">
                           <i data-lucide="pin" class="w-3 h-3"></i>
                           <span x-text="formatNumber(b.pin_count) + ' pins'"></span>
                         </span>
-                        <span class="px-2 py-0.5 rounded-lg text-[10.5px] font-mono font-semibold bg-slate-900/80 backdrop-blur-md text-slate-200 border border-white/10 flex items-center gap-1">
+                        <span class="px-2 py-0.5 rounded-lg text-[10.5px] font-mono tabular-nums font-semibold bg-slate-900/80 backdrop-blur-md text-slate-200 border border-white/10 flex items-center gap-1">
                           <i data-lucide="users" class="w-3 h-3 text-emerald-400"></i>
                           <span x-text="formatNumber(b.follower_count || 0)"></span>
                         </span>
@@ -5652,7 +5650,7 @@ export function getDashboardHtml(folderId = '') {
                       </div>
 
                       <!-- Discovered Semantic Related Interests (board_vase) -->
-                      <div class="mt-2.5 pt-2 border-t border-slate-100 dark:border-slate-800/80">
+                      <div class="mt-2.5 pt-2 border-t border-slate-100 dark:border-[#27272A]/80">
                         <div class="flex items-center gap-1 mb-1.5">
                           <i data-lucide="sparkles" class="w-3 h-3 text-purple-400"></i>
                           <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Semantic Topics</span>
@@ -5664,7 +5662,7 @@ export function getDashboardHtml(folderId = '') {
                                 <span>#</span><span x-text="v.text || v"></span>
                               </span>
                             </template>
-                            <span x-show="b.board_vase.length > 3" class="px-1.5 py-0.5 rounded-md text-[10px] font-mono text-slate-400 bg-slate-100 dark:bg-slate-800" x-text="'+' + (b.board_vase.length - 3)"></span>
+                            <span x-show="b.board_vase.length > 3" class="px-1.5 py-0.5 rounded-md text-[10px] font-mono tabular-nums text-slate-400 bg-slate-100 dark:bg-slate-800" x-text="'+' + (b.board_vase.length - 3)"></span>
                           </div>
                         </template>
                         <template x-if="!b.board_vase || b.board_vase.length === 0">
@@ -5674,7 +5672,7 @@ export function getDashboardHtml(folderId = '') {
                     </div>
 
                     <!-- Action Buttons Footer -->
-                    <div class="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center gap-2">
+                    <div class="pt-2 border-t border-slate-100 dark:border-[#27272A] flex items-center gap-2">
                       <button
                         type="button"
                         @click="openBoardPage(b, activeCreator)"
@@ -5702,10 +5700,10 @@ export function getDashboardHtml(folderId = '') {
             </div>
 
             <!-- VIEW 2: HIGH-DENSITY DATA TABLE -->
-            <div x-show="!isLoadingBoards && creatorBoardsViewMode === 'table'" class="border border-slate-200/90 dark:border-slate-800 rounded-2xl overflow-hidden bg-white dark:bg-[#0d1526] shadow-xs">
+            <div x-show="!isLoadingBoards && creatorBoardsViewMode === 'table'" class="border border-slate-200/90 dark:border-[#27272A] rounded-2xl overflow-hidden bg-white dark:bg-[#18181B] shadow-xs">
               <div class="overflow-x-auto min-w-full">
                 <table class="w-full text-left text-xs border-collapse">
-                  <thead class="bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                  <thead class="bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-[#27272A] text-[11px] font-bold uppercase tracking-wider text-slate-500">
                     <tr>
                       <th class="py-3 px-4 w-12">Cover</th>
                       <th class="py-3 px-4">Board Name &amp; Description</th>
@@ -5716,13 +5714,13 @@ export function getDashboardHtml(folderId = '') {
                       <th class="py-3 px-4 text-right">Actions</th>
                     </tr>
                   </thead>
-                  <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono">
+                  <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono tabular-nums">
                     <template x-for="b in paginatedCreatorBoards" :key="b.id || b.board_id">
                       <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition">
                         
                         <!-- Thumbnail Column -->
                         <td class="py-3 px-4">
-                          <div class="w-11 h-11 rounded-xl overflow-hidden bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shrink-0">
+                          <div class="w-11 h-11 rounded-xl overflow-hidden bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-[#27272A] shrink-0">
                             <template x-if="b.image_cover_url">
                               <img :src="b.image_cover_url" :alt="b.name" class="w-full h-full object-cover" loading="lazy" />
                             </template>
@@ -5745,7 +5743,7 @@ export function getDashboardHtml(folderId = '') {
 
                         <!-- Pin Count & Relative Progress Column -->
                         <td class="py-3 px-4 font-sans">
-                          <div class="flex items-center justify-between text-xs font-bold text-slate-900 dark:text-white font-mono mb-1">
+                          <div class="flex items-center justify-between text-xs font-bold text-slate-900 dark:text-white font-mono tabular-nums mb-1">
                             <span x-text="formatNumber(b.pin_count)"></span>
                             <span class="text-[10px] text-slate-400 font-normal" x-text="Math.round(((b.pin_count || 0) / creatorBoardsMaxPins) * 100) + '% of top'"></span>
                           </div>
@@ -5755,7 +5753,7 @@ export function getDashboardHtml(folderId = '') {
                         </td>
 
                         <!-- Followers Column -->
-                        <td class="py-3 px-4 text-right font-bold text-slate-700 dark:text-slate-300 font-mono" x-text="formatNumber(b.follower_count || 0)"></td>
+                        <td class="py-3 px-4 text-right font-bold text-slate-700 dark:text-slate-300 font-mono tabular-nums" x-text="formatNumber(b.follower_count || 0)"></td>
 
                         <!-- Topics Column -->
                         <td class="py-3 px-4 font-sans">
@@ -5764,7 +5762,7 @@ export function getDashboardHtml(folderId = '') {
                               <template x-for="v in b.board_vase.slice(0, 2)" :key="v.text || v">
                                 <span class="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20" x-text="'#' + (v.text || v)"></span>
                               </template>
-                              <span x-show="b.board_vase.length > 2" class="px-1.5 py-0.5 rounded-md text-[10px] font-mono text-slate-400 bg-slate-100 dark:bg-slate-800" x-text="'+' + (b.board_vase.length - 2)"></span>
+                              <span x-show="b.board_vase.length > 2" class="px-1.5 py-0.5 rounded-md text-[10px] font-mono tabular-nums text-slate-400 bg-slate-100 dark:bg-slate-800" x-text="'+' + (b.board_vase.length - 2)"></span>
                             </div>
                           </template>
                           <template x-if="!b.board_vase || b.board_vase.length === 0">
@@ -5774,7 +5772,7 @@ export function getDashboardHtml(folderId = '') {
 
                         <!-- Last Activity Column -->
                         <td class="py-3 px-4 text-center font-sans">
-                          <span class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700" x-text="b.last_pinned_at ? new Date(b.last_pinned_at).toLocaleDateString() : 'Active'"></span>
+                          <span class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-[#27272A]" x-text="b.last_pinned_at ? new Date(b.last_pinned_at).toLocaleDateString() : 'Active'"></span>
                         </td>
 
                         <!-- Action Buttons Column -->
@@ -5809,12 +5807,12 @@ export function getDashboardHtml(folderId = '') {
             </div>
 
             <!-- Empty State -->
-            <div x-show="!isLoadingBoards && filteredCreatorBoards.length === 0" class="p-12 text-center rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0d1526]">
+            <div x-show="!isLoadingBoards && filteredCreatorBoards.length === 0" class="p-12 text-center rounded-2xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B]">
               <i data-lucide="folder-search" class="w-12 h-12 mx-auto mb-3 opacity-40 text-purple-500"></i>
               <h4 class="font-bold text-sm text-slate-900 dark:text-white">No boards match your filter</h4>
               <p class="text-xs text-slate-500 mt-1 max-w-sm mx-auto">Try clearing your search keyword, resetting topic filters, or sync public boards from Pinterest.</p>
               <div class="mt-4 flex items-center justify-center gap-2">
-                <button type="button" @click="creatorBoardSearch = ''; creatorBoardSelectedTopic = ''; creatorBoardPage = 1" class="px-3 py-1.5 rounded-xl text-xs font-bold border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-100 transition cursor-pointer">
+                <button type="button" @click="creatorBoardSearch = ''; creatorBoardSelectedTopic = ''; creatorBoardPage = 1" class="px-3 py-1.5 rounded-xl text-xs font-bold border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-100 transition cursor-pointer">
                   <span>Clear Filters</span>
                 </button>
                 <button type="button" @click="syncCompetitorBoardsAction(activeCreator)" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white transition cursor-pointer shadow-sm">
@@ -5824,12 +5822,12 @@ export function getDashboardHtml(folderId = '') {
             </div>
 
             <!-- Pagination Bar -->
-            <div x-show="!isLoadingBoards && filteredCreatorBoards.length > 0" class="flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-slate-200 dark:border-slate-800 pt-4 text-xs text-slate-500">
+            <div x-show="!isLoadingBoards && filteredCreatorBoards.length > 0" class="flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-slate-200 dark:border-[#27272A] pt-4 text-xs text-slate-500">
               <span x-text="'Showing ' + (filteredCreatorBoards.length > 0 ? ((creatorBoardPage - 1) * (creatorBoardPageSize || 12) + 1) : 0) + '-' + Math.min(creatorBoardPage * (creatorBoardPageSize || 12), filteredCreatorBoards.length) + ' of ' + filteredCreatorBoards.length + ' boards'"></span>
               <div class="flex items-center gap-2">
-                <button @click="creatorBoardPage = Math.max(1, creatorBoardPage - 1)" :disabled="creatorBoardPage <= 1" class="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0b1120] px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300 disabled:opacity-40 transition shadow-2xs cursor-pointer">Previous</button>
-                <span class="font-bold text-slate-900 dark:text-white font-mono px-1" x-text="'Page ' + creatorBoardPage + ' of ' + Math.max(1, Math.ceil(filteredCreatorBoards.length / (creatorBoardPageSize || 12)))"></span>
-                <button @click="creatorBoardPage = creatorBoardPage + 1" :disabled="creatorBoardPage >= Math.ceil(filteredCreatorBoards.length / (creatorBoardPageSize || 12))" class="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0b1120] px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300 disabled:opacity-40 transition shadow-2xs cursor-pointer">Next</button>
+                <button @click="creatorBoardPage = Math.max(1, creatorBoardPage - 1)" :disabled="creatorBoardPage <= 1" class="rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300 disabled:opacity-40 transition shadow-2xs cursor-pointer">Previous</button>
+                <span class="font-bold text-slate-900 dark:text-white font-mono tabular-nums px-1" x-text="'Page ' + creatorBoardPage + ' of ' + Math.max(1, Math.ceil(filteredCreatorBoards.length / (creatorBoardPageSize || 12)))"></span>
+                <button @click="creatorBoardPage = creatorBoardPage + 1" :disabled="creatorBoardPage >= Math.ceil(filteredCreatorBoards.length / (creatorBoardPageSize || 12))" class="rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300 disabled:opacity-40 transition shadow-2xs cursor-pointer">Next</button>
               </div>
             </div>
 
@@ -5849,9 +5847,9 @@ export function getDashboardHtml(folderId = '') {
   <div x-show="isAssignExistingCreatorModalOpen" x-cloak
        class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs"
        @keydown.escape.window="closeAssignExistingCreatorModal()">
-    <div class="relative w-full max-w-xl rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl p-5 space-y-4 max-h-[85vh] flex flex-col"
+    <div class="relative w-full max-w-xl rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] shadow-2xl p-5 space-y-4 max-h-[85vh] flex flex-col"
          @click.outside="closeAssignExistingCreatorModal()">
-      <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3 shrink-0">
+      <div class="flex items-center justify-between border-b border-slate-100 dark:border-[#27272A] pb-3 shrink-0">
         <div class="flex items-center gap-2.5">
           <div class="h-9 w-9 rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center font-bold">
             <i data-lucide="user-check" class="w-5 h-5"></i>
@@ -5870,16 +5868,16 @@ export function getDashboardHtml(folderId = '') {
       <div class="relative shrink-0">
         <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
         <input type="text" x-model="assignCreatorSearch" placeholder="Search creators by username or display name..."
-               class="w-full pl-9 pr-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-purple-500/40">
+               class="w-full pl-9 pr-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-[#27272A] text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-purple-500/40">
       </div>
 
       <!-- Creators List -->
       <div class="flex-1 overflow-y-auto space-y-2 pr-1 min-h-[220px]">
         <template x-for="c in (competitors || []).filter(comp => !assignCreatorSearch.trim() || (comp.username && comp.username.toLowerCase().includes(assignCreatorSearch.toLowerCase().replace('@', ''))) || (comp.display_name && comp.display_name.toLowerCase().includes(assignCreatorSearch.toLowerCase())))" :key="c.id">
-          <div class="p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800 flex items-center justify-between gap-3 hover:bg-slate-50/50 dark:hover:bg-slate-800/40 transition">
+          <div class="p-2.5 rounded-xl border border-slate-200/80 dark:border-[#27272A] flex items-center justify-between gap-3 hover:bg-slate-50/50 dark:hover:bg-slate-800/40 transition">
             <div class="flex items-center gap-2.5 min-w-0">
               <template x-if="c.image_url">
-                <img :src="c.image_url" class="w-8 h-8 rounded-full object-cover shrink-0 border border-slate-200 dark:border-slate-700">
+                <img :src="c.image_url" class="w-8 h-8 rounded-full object-cover shrink-0 border border-slate-200 dark:border-[#27272A]">
               </template>
               <template x-if="!c.image_url">
                 <div class="w-8 h-8 rounded-full bg-purple-500/10 text-purple-600 flex items-center justify-center font-bold text-xs shrink-0">
@@ -5889,9 +5887,9 @@ export function getDashboardHtml(folderId = '') {
               <div class="min-w-0">
                 <div class="flex items-center gap-1.5 truncate">
                   <span class="text-xs font-bold text-slate-900 dark:text-white truncate" x-text="c.display_name || c.username"></span>
-                  <span class="text-[11px] font-mono text-slate-400 truncate" x-text="'@' + (c.username || '')"></span>
+                  <span class="text-[11px] font-mono tabular-nums text-slate-400 truncate" x-text="'@' + (c.username || '')"></span>
                 </div>
-                <div class="text-[10px] font-mono text-slate-500 dark:text-slate-400">
+                <div class="text-[10px] font-mono tabular-nums text-slate-500 dark:text-slate-400">
                   <span x-text="(c.monthly_reach || 0).toLocaleString() + ' audience'"></span> • 
                   <span x-text="(c.total_pins || 0).toLocaleString() + ' pins'"></span>
                 </div>
@@ -5903,15 +5901,15 @@ export function getDashboardHtml(folderId = '') {
                     class="px-2.5 py-1 rounded-lg text-xs font-semibold transition shrink-0 cursor-pointer flex items-center gap-1"
                     :class="isCreatorInFolder(c.id, scopedFolderId)
                       ? 'bg-purple-600 text-white shadow-xs'
-                      : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700'">
+                      : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#27272A]'">
               <span x-text="isCreatorInFolder(c.id, scopedFolderId) ? '✓ Linked' : '+ Link'"></span>
             </button>
           </div>
         </template>
       </div>
 
-      <div class="flex items-center justify-between border-t border-slate-100 dark:border-slate-800 pt-3 shrink-0">
-        <span class="text-xs text-slate-400 font-mono" x-text="((folderCreatorMap[scopedFolderId] ? folderCreatorMap[scopedFolderId].size : (scopedFolderCreatorIds ? scopedFolderCreatorIds.size : 0)) || 0) + ' creators linked to this folder'"></span>
+      <div class="flex items-center justify-between border-t border-slate-100 dark:border-[#27272A] pt-3 shrink-0">
+        <span class="text-xs text-slate-400 font-mono tabular-nums" x-text="((folderCreatorMap[scopedFolderId] ? folderCreatorMap[scopedFolderId].size : (scopedFolderCreatorIds ? scopedFolderCreatorIds.size : 0)) || 0) + ' creators linked to this folder'"></span>
         <button @click="closeAssignExistingCreatorModal()" class="px-3.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold transition cursor-pointer">
           Done
         </button>
@@ -5922,7 +5920,7 @@ export function getDashboardHtml(folderId = '') {
   ${getDashboardModalsHtml()}
 
   <!-- Toast Notification -->
-  <div x-show="toastMessage" x-cloak class="fixed bottom-6 right-6 z-50 bg-slate-900 text-white dark:bg-white dark:text-slate-900 px-4 py-2.5 rounded-xl shadow-2xl font-mono text-xs flex items-center space-x-2 animate-in fade-in slide-in-from-bottom-5">
+  <div x-show="toastMessage" x-cloak class="fixed bottom-6 right-6 z-50 bg-slate-900 text-white dark:bg-white dark:text-slate-900 px-4 py-2.5 rounded-xl shadow-2xl font-mono tabular-nums text-xs flex items-center space-x-2 animate-in fade-in slide-in-from-bottom-5">
     <i data-lucide="check-circle" class="w-4 h-4 text-emerald-500"></i>
     <span x-text="toastMessage"></span>
   </div>

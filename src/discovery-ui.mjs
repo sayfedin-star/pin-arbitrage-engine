@@ -19,7 +19,7 @@ export function getDiscoveryPageHtml() {
   <title>Keyword Discovery & Autocomplete Hub | Pinterest Typeahead Radar</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
@@ -27,7 +27,7 @@ export function getDiscoveryPageHtml() {
       theme: {
         extend: {
           fontFamily: {
-            sans: ['Inter', 'sans-serif'],
+            sans: ['Geist', 'system-ui', '-apple-system', 'sans-serif'],
             mono: ['JetBrains Mono', 'monospace']
           },
           colors: {
@@ -108,7 +108,7 @@ export function getDiscoveryPageHtml() {
 })();
   </script>
 </head>
-<body x-cloak class="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 min-h-screen antialiased flex flex-col font-sans transition-colors duration-150" x-data="discoveryApp()">
+<body x-cloak class="bg-slate-50 dark:bg-[#09090B] text-slate-900 dark:text-zinc-100 min-h-screen antialiased flex flex-col font-sans transition-colors duration-150" x-data="discoveryApp()">
 
   <!-- Toast Notification Container -->
   <div 
@@ -134,7 +134,7 @@ export function getDiscoveryPageHtml() {
   <main class="flex-1 min-h-screen p-4 sm:p-6 lg:p-8 space-y-6 max-w-full overflow-x-hidden transition-all duration-300 ease-in-out" :class="isSidebarCollapsed ? 'md:ml-20' : 'md:ml-64 lg:ml-72'">
 
     <!-- [INVARIANT: UNIFIED-SIDEBAR-LAYOUT] Studio Header Card -->
-    <section class="p-4 sm:p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <section class="p-4 sm:p-5 rounded-2xl bg-white dark:bg-[#121215] border border-slate-200/80 dark:border-[#27272A]/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
       <div class="flex items-center space-x-3.5">
         <div class="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 flex items-center justify-center shadow-xs shrink-0">
           <i data-lucide="compass" class="w-5 h-5"></i>
@@ -142,18 +142,18 @@ export function getDiscoveryPageHtml() {
         <div>
           <div class="flex items-center space-x-2">
             <h2 class="text-lg sm:text-xl font-bold tracking-tight text-slate-900 dark:text-white">Keyword Discovery &amp; Autocomplete Hub</h2>
-            <span class="px-2 py-0.5 rounded-md text-[10px] font-mono font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">Pinterest Typeahead</span>
+            <span class="px-2 py-0.5 rounded-md text-[10px] font-mono tabular-nums font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">Pinterest Typeahead</span>
           </div>
           <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-normal">Real-time Pinterest v3_typeahead radar &amp; search exploration</p>
         </div>
       </div>
 
       <div class="flex flex-wrap items-center gap-2">
-        <a href="/keywords" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition inline-flex items-center space-x-1.5 shadow-2xs">
+        <a href="/keywords" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-[#27272A] transition inline-flex items-center space-x-1.5 shadow-2xs">
           <i data-lucide="arrow-left" class="w-3.5 h-3.5 text-slate-400"></i>
           <span>Keywords Fleet</span>
         </a>
-        <a href="/folders" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition inline-flex items-center space-x-1.5 shadow-2xs">
+        <a href="/folders" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-[#27272A] transition inline-flex items-center space-x-1.5 shadow-2xs">
           <i data-lucide="folder-kanban" class="w-3.5 h-3.5 text-pink-500"></i>
           <span>Campaign Folders</span>
         </a>
@@ -181,7 +181,7 @@ export function getDiscoveryPageHtml() {
             x-model="searchQuery" 
             @keydown.enter="searchImmediately()"
             placeholder="Type seed keyword (e.g. healthy dinner, air fryer salmon, living room decor)..."
-            class="w-full pl-12 pr-44 py-3.5 bg-slate-950 border border-slate-700 rounded-xl text-white text-sm placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all font-mono"
+            class="w-full pl-12 pr-44 py-3.5 bg-slate-950 border border-slate-700 rounded-xl text-white text-sm placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all font-mono tabular-nums"
             autofocus
           >
           <div class="absolute inset-y-0 right-2 flex items-center gap-1.5">
@@ -200,7 +200,7 @@ export function getDiscoveryPageHtml() {
             <button 
               @click="searchImmediately()" 
               :disabled="loading || !searchQuery.trim()" 
-              class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-mono font-medium rounded-lg shadow-sm transition-all flex items-center gap-1.5 flex-shrink-0 cursor-pointer"
+              class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-mono tabular-nums font-medium rounded-lg shadow-sm transition-all flex items-center gap-1.5 flex-shrink-0 cursor-pointer"
               title="Search or press Enter"
             >
               <template x-if="!loading">
@@ -224,21 +224,21 @@ export function getDiscoveryPageHtml() {
 
         <!-- Categorized Popular Seed Pills -->
         <div class="flex flex-col gap-2 pt-2 border-t border-slate-800/80">
-          <div class="text-[11px] font-mono text-slate-400 flex items-center justify-between">
+          <div class="text-[11px] font-mono tabular-nums text-slate-400 flex items-center justify-between">
             <span>POPULAR SEED EXPLORERS:</span>
             <span class="text-[10px] text-slate-500">Click any seed for instant autocomplete</span>
           </div>
           <div class="flex items-center gap-2 flex-wrap text-xs">
-            <span class="text-[10px] font-mono text-emerald-400 uppercase tracking-wider">Food:</span>
+            <span class="text-[10px] font-mono tabular-nums text-emerald-400 uppercase tracking-wider">Food:</span>
             <button @click="applySeed('dinner ideas')" class="px-2.5 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors">dinner ideas</button>
             <button @click="applySeed('healthy chicken recipes')" class="px-2.5 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors">healthy chicken recipes</button>
             <button @click="applySeed('air fryer salmon')" class="px-2.5 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors">air fryer salmon</button>
 
-            <span class="text-[10px] font-mono text-blue-400 uppercase tracking-wider ml-1">Home:</span>
+            <span class="text-[10px] font-mono tabular-nums text-blue-400 uppercase tracking-wider ml-1">Home:</span>
             <button @click="applySeed('small living room decor')" class="px-2.5 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors">small living room decor</button>
             <button @click="applySeed('kitchen organization')" class="px-2.5 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors">kitchen organization</button>
 
-            <span class="text-[10px] font-mono text-purple-400 uppercase tracking-wider ml-1">Style:</span>
+            <span class="text-[10px] font-mono tabular-nums text-purple-400 uppercase tracking-wider ml-1">Style:</span>
             <button @click="applySeed('casual summer outfits')" class="px-2.5 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors">casual summer outfits</button>
             <button @click="applySeed('nail art designs')" class="px-2.5 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors">nail art designs</button>
           </div>
@@ -253,7 +253,7 @@ export function getDiscoveryPageHtml() {
           <h2 class="text-sm font-semibold text-white flex items-center gap-2">
             Suggested Search Terms
             <span 
-              class="text-xs font-mono font-normal"
+              class="text-xs font-mono tabular-nums font-normal"
               :class="loading ? 'text-emerald-400 animate-pulse font-medium' : 'text-slate-400'"
               x-text="loading ? '(Searching...)' : (results.length > 0 ? '(' + results.length + ' found)' : (searchQuery.trim() ? '(0 found)' : ''))"
             ></span>
@@ -261,12 +261,12 @@ export function getDiscoveryPageHtml() {
           <!-- Telemetry Cache Indicator -->
           <template x-if="results.length > 0">
             <span 
-              class="text-[10px] font-mono px-2 py-0.5 rounded border"
+              class="text-[10px] font-mono tabular-nums px-2 py-0.5 rounded border"
               :class="isCacheHit ? 'bg-amber-500/10 text-amber-400 border-amber-500/30' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'"
               x-text="isCacheHit ? '⚡ 0ms Client Cache' : '🌐 Live Pinterest v3_typeahead'"
             ></span>
           </template>
-          <button x-show="results.length > 0" @click="selectAllToggle()" class="text-xs text-emerald-400 hover:underline font-mono" x-cloak>
+          <button x-show="results.length > 0" @click="selectAllToggle()" class="text-xs text-emerald-400 hover:underline font-mono tabular-nums" x-cloak>
             <span x-text="selectedKeywords.length === results.length ? 'Deselect all' : 'Select all (' + results.length + ')'"></span>
           </button>
         </div>
@@ -275,12 +275,12 @@ export function getDiscoveryPageHtml() {
         <div class="flex items-center gap-2" x-show="results.length > 0" x-cloak>
           <button 
             @click="openRelatedExplorer(searchQuery)" 
-            class="px-2.5 py-1 rounded bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 hover:text-white text-xs font-mono border border-rose-700/40 flex items-center gap-1.5 transition-colors"
+            class="px-2.5 py-1 rounded bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 hover:text-white text-xs font-mono tabular-nums border border-rose-700/40 flex items-center gap-1.5 transition-colors"
             title="Explore Pinterest Related Interests for current search"
           >
             <span>🔗 Get Related</span>
           </button>
-          <button @click="selectAllToggle()" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-mono border border-slate-700">
+          <button @click="selectAllToggle()" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-mono tabular-nums border border-slate-700">
             <span x-text="selectedKeywords.length === results.length ? 'Clear Selection' : 'Select All'"></span>
           </button>
         </div>
@@ -289,7 +289,7 @@ export function getDiscoveryPageHtml() {
       <!-- Table Content -->
       <div class="overflow-x-auto min-h-[320px]">
         <table class="w-full text-left text-xs">
-          <thead class="bg-slate-950/60 border-b border-slate-800 text-slate-400 font-mono uppercase text-[10px]">
+          <thead class="bg-slate-950/60 border-b border-slate-800 text-slate-400 font-mono tabular-nums uppercase text-[10px]">
             <tr>
               <th class="p-3.5 w-10 text-center">
                 <input 
@@ -343,12 +343,12 @@ export function getDiscoveryPageHtml() {
                   <div class="flex items-center gap-3">
                     <div class="flex flex-col">
                       <div class="flex items-center gap-2">
-                        <span class="font-semibold text-slate-100 font-mono" x-html="highlightTerm(item.term)"></span>
-                        <span x-show="item.isSeed" class="text-[9px] px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-300 font-mono border border-cyan-500/30 flex items-center gap-1 font-semibold" title="Primary Seed Keyword">
+                        <span class="font-semibold text-slate-100 font-mono tabular-nums" x-html="highlightTerm(item.term)"></span>
+                        <span x-show="item.isSeed" class="text-[9px] px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-300 font-mono tabular-nums border border-cyan-500/30 flex items-center gap-1 font-semibold" title="Primary Seed Keyword">
                           <span>🌱</span>
                           <span>Seed</span>
                         </span>
-                        <span x-show="item.isTop" class="text-[9px] px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-400 font-mono border border-emerald-500/20">Top Hit</span>
+                        <span x-show="item.isTop" class="text-[9px] px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-400 font-mono tabular-nums border border-emerald-500/20">Top Hit</span>
                         <span x-show="item.hasPrediction" class="text-xs" title="Official Pinterest Trends Prediction Active">🔮</span>
                       </div>
                     </div>
@@ -369,7 +369,7 @@ export function getDiscoveryPageHtml() {
                 </td>
 
                 <!-- Search Volume & Relative Bar (Clean Volume without arbitrary badges) -->
-                <td class="p-3.5 font-mono">
+                <td class="p-3.5 font-mono tabular-nums">
                   <div class="flex flex-col gap-1 min-w-[110px]">
                     <div class="flex items-center gap-1.5">
                       <span 
@@ -379,19 +379,19 @@ export function getDiscoveryPageHtml() {
                       ></span>
                       <span 
                         x-show="!item.searchVolume" 
-                        class="text-slate-500 font-mono text-xs"
+                        class="text-slate-500 font-mono tabular-nums text-xs"
                       >—</span>
                     </div>
                     <!-- Official Trends Relative Volume Bar -->
                     <div x-show="item.searchVolume" class="w-20 h-1.5 bg-slate-800 rounded-full overflow-hidden">
                       <div class="h-full bg-slate-300 rounded-full transition-all duration-300" :style="'width: ' + (item.volumeBarPct || 10) + '%'"></div>
                     </div>
-                    <span x-show="item.annotationId" class="text-[9px] text-slate-500 font-mono" x-text="'ID: ' + item.annotationId"></span>
+                    <span x-show="item.annotationId" class="text-[9px] text-slate-500 font-mono tabular-nums" x-text="'ID: ' + item.annotationId"></span>
                   </div>
                 </td>
 
                 <!-- Weekly Change -->
-                <td class="p-3.5 font-mono text-[11px] text-right">
+                <td class="p-3.5 font-mono tabular-nums text-[11px] text-right">
                   <span 
                     x-show="item.weeklyChange !== null && item.weeklyChange > 0" 
                     class="text-emerald-400 font-semibold"
@@ -413,7 +413,7 @@ export function getDiscoveryPageHtml() {
                 </td>
 
                 <!-- Monthly Change -->
-                <td class="p-3.5 font-mono text-[11px] text-right">
+                <td class="p-3.5 font-mono tabular-nums text-[11px] text-right">
                   <span 
                     x-show="item.monthlyChange !== null && item.monthlyChange > 0" 
                     class="text-emerald-400 font-semibold"
@@ -435,7 +435,7 @@ export function getDiscoveryPageHtml() {
                 </td>
 
                 <!-- Yearly Change -->
-                <td class="p-3.5 font-mono text-[11px] text-right">
+                <td class="p-3.5 font-mono tabular-nums text-[11px] text-right">
                   <span 
                     x-show="item.yearlyChange !== null && item.yearlyChange > 0" 
                     class="text-emerald-400 font-semibold"
@@ -492,21 +492,21 @@ export function getDiscoveryPageHtml() {
                   <div class="flex items-center justify-end gap-1.5 flex-wrap">
                     <button 
                       @click="openRelatedExplorer(item.term)" 
-                      class="px-2 py-1 rounded bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 hover:text-white font-mono text-[11px] border border-rose-700/40 transition-colors flex items-center gap-1"
+                      class="px-2 py-1 rounded bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 hover:text-white font-mono tabular-nums text-[11px] border border-rose-700/40 transition-colors flex items-center gap-1"
                       title="Explore official Pinterest related interests & additions"
                     >
                       <span>🔗 Related</span>
                     </button>
                     <button 
                       @click="trackSingleKeyword(item.term)" 
-                      class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-emerald-400 hover:text-emerald-300 font-mono text-[11px] border border-slate-700 transition-colors"
+                      class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-emerald-400 hover:text-emerald-300 font-mono tabular-nums text-[11px] border border-slate-700 transition-colors"
                       title="Track directly in Radar"
                     >
                       ⚡ Track
                     </button>
                     <button
                       @click="openAddToFolderModalForSingle(item.term)"
-                      class="px-2 py-1 rounded bg-indigo-950/40 hover:bg-indigo-900/60 text-indigo-300 hover:text-white font-mono text-[11px] border border-indigo-700/40 transition-colors"
+                      class="px-2 py-1 rounded bg-indigo-950/40 hover:bg-indigo-900/60 text-indigo-300 hover:text-white font-mono tabular-nums text-[11px] border border-indigo-700/40 transition-colors"
                       title="Add to Campaign Folder"
                     >
                       📁 Folder
@@ -514,7 +514,7 @@ export function getDiscoveryPageHtml() {
                     <a 
                       :href="'/keywords/' + encodeURIComponent(item.term)" 
                       target="_blank"
-                      class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-mono text-[11px] border border-slate-700 transition-colors flex items-center gap-1"
+                      class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-mono tabular-nums text-[11px] border border-slate-700 transition-colors flex items-center gap-1"
                     >
                       <span>Pins</span>
                       <span>→</span>
@@ -529,7 +529,7 @@ export function getDiscoveryPageHtml() {
               <td colspan="6" class="p-12 text-center">
                 <div class="max-w-md mx-auto flex flex-col items-center gap-3">
                   <div class="w-12 h-12 rounded-full bg-slate-800/80 border border-slate-700 flex items-center justify-center text-xl text-slate-400">🔍</div>
-                  <div class="text-sm font-semibold text-white">No autocomplete matches found for "<span x-text="searchQuery" class="text-emerald-400 font-mono"></span>"</div>
+                  <div class="text-sm font-semibold text-white">No autocomplete matches found for "<span x-text="searchQuery" class="text-emerald-400 font-mono tabular-nums"></span>"</div>
                   <p class="text-xs text-slate-400">Pinterest v3_typeahead did not return suggestions for this exact term. You can still track this keyword directly in your SERP Radar.</p>
                   <button @click="trackSingleKeyword(searchQuery)" class="mt-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-md transition-all flex items-center gap-2">
                     <span>⚡</span> Track "<span x-text="searchQuery"></span>" Directly in Radar
@@ -568,7 +568,7 @@ export function getDiscoveryPageHtml() {
   >
     <div class="flex items-center gap-2 pr-3 border-r border-slate-700">
       <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-      <span class="font-mono font-bold text-white" x-text="selectedKeywords.length"></span>
+      <span class="font-mono tabular-nums font-bold text-white" x-text="selectedKeywords.length"></span>
       <span class="text-slate-300">selected</span>
     </div>
     <button @click="openAddToFolderModal = true" class="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold flex items-center gap-1.5 shadow-sm transition-colors">
@@ -597,7 +597,7 @@ export function getDiscoveryPageHtml() {
         <div class="flex items-center justify-between">
           <label class="text-xs text-slate-400">Paste keywords (one keyword per line):</label>
           <span 
-            class="text-[10px] font-mono"
+            class="text-[10px] font-mono tabular-nums"
             :class="cleanBulkKeywordsCount > 1000 ? 'text-red-400 font-bold' : 'text-slate-400'"
             x-text="cleanBulkKeywordsCount + ' / 1,000 unique keywords'"
           ></span>
@@ -606,7 +606,7 @@ export function getDiscoveryPageHtml() {
           x-model="bulkKeywordsText" 
           rows="7" 
           placeholder="crispy chicken cutlets&#10;quick dinner recipes&#10;air fryer salmon&#10;easy pasta salad" 
-          class="w-full p-3 bg-slate-950 border border-slate-700 rounded-xl text-white font-mono text-xs focus:outline-none focus:border-emerald-500"
+          class="w-full p-3 bg-slate-950 border border-slate-700 rounded-xl text-white font-mono tabular-nums text-xs focus:outline-none focus:border-emerald-500"
         ></textarea>
         <p class="text-[10px] text-slate-500">Leading/trailing spaces, empty lines, and duplicates are automatically cleaned on client.</p>
       </div>
@@ -656,11 +656,11 @@ export function getDiscoveryPageHtml() {
           </select>
         </div>
 
-        <div class="text-center text-[10px] text-slate-500 font-mono">― OR CREATE NEW FOLDER ―</div>
+        <div class="text-center text-[10px] text-slate-500 font-mono tabular-nums">― OR CREATE NEW FOLDER ―</div>
 
         <div>
           <label class="text-xs text-slate-400 block mb-1">New folder name:</label>
-          <input type="text" x-model="newFolderName" placeholder="e.g. Summer Dinner Campaign 2026" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs font-mono">
+          <input type="text" x-model="newFolderName" placeholder="e.g. Summer Dinner Campaign 2026" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs font-mono tabular-nums">
         </div>
       </div>
 
@@ -690,7 +690,7 @@ export function getDiscoveryPageHtml() {
           <div>
             <h3 class="text-sm sm:text-base font-bold text-white flex items-center gap-2">
               <span>Pinterest Interest Graph Explorer</span>
-              <span class="text-xs px-2 py-0.5 rounded font-mono bg-rose-500/10 text-rose-300 border border-rose-500/20" x-text="activeRelatedTerm"></span>
+              <span class="text-xs px-2 py-0.5 rounded font-mono tabular-nums bg-rose-500/10 text-rose-300 border border-rose-500/20" x-text="activeRelatedTerm"></span>
             </h3>
             <p class="text-[11px] text-slate-400">Official Pinterest Annotations, Exact Monthly Search Volume, Taxonomy Breadcrumbs & Sub-Niches</p>
           </div>
@@ -698,7 +698,7 @@ export function getDiscoveryPageHtml() {
 
         <!-- Filter Action Tabs (Exact Parity with Buttons in Screenshot) -->
         <div class="flex items-center gap-2">
-          <div class="inline-flex rounded-lg bg-slate-950 p-1 border border-slate-800 text-xs font-mono">
+          <div class="inline-flex rounded-lg bg-slate-950 p-1 border border-slate-800 text-xs font-mono tabular-nums">
             <button 
               @click="relatedTab = 'all'" 
               :class="relatedTab === 'all' ? 'bg-slate-800 text-white font-semibold' : 'text-slate-400 hover:text-slate-200'"
@@ -734,18 +734,18 @@ export function getDiscoveryPageHtml() {
         <div class="p-4 bg-slate-950/40 border-b border-slate-800/80 flex items-center justify-between flex-wrap gap-3">
           <div class="flex items-center gap-4 flex-wrap">
             <div>
-              <span class="text-[10px] text-slate-500 font-mono uppercase block">Target Annotation</span>
-              <span class="font-bold text-white text-sm font-mono" x-text="relatedData.main.annotation"></span>
+              <span class="text-[10px] text-slate-500 font-mono tabular-nums uppercase block">Target Annotation</span>
+              <span class="font-bold text-white text-sm font-mono tabular-nums" x-text="relatedData.main.annotation"></span>
             </div>
             <div>
-              <span class="text-[10px] text-slate-500 font-mono uppercase block">Official Search Volume</span>
-              <span class="font-bold text-emerald-400 text-sm font-mono" x-text="relatedData.main.formatted_volume"></span>
+              <span class="text-[10px] text-slate-500 font-mono tabular-nums uppercase block">Official Search Volume</span>
+              <span class="font-bold text-emerald-400 text-sm font-mono tabular-nums" x-text="relatedData.main.formatted_volume"></span>
             </div>
             <div>
-              <span class="text-[10px] text-slate-500 font-mono uppercase block">Annotation ID</span>
+              <span class="text-[10px] text-slate-500 font-mono tabular-nums uppercase block">Annotation ID</span>
               <span 
                 @click="copyAnnotationId(relatedData.main.annotation_id)" 
-                class="font-mono text-slate-300 text-xs cursor-pointer hover:text-white hover:underline flex items-center gap-1"
+                class="font-mono tabular-nums text-slate-300 text-xs cursor-pointer hover:text-white hover:underline flex items-center gap-1"
                 title="Click to copy ID"
               >
                 <span x-text="relatedData.main.annotation_id"></span>
@@ -753,7 +753,7 @@ export function getDiscoveryPageHtml() {
               </span>
             </div>
             <div>
-              <span class="text-[10px] text-slate-500 font-mono uppercase block">Category Tree</span>
+              <span class="text-[10px] text-slate-500 font-mono tabular-nums uppercase block">Category Tree</span>
               <span class="text-xs text-slate-300 font-sans" x-text="relatedData.main.category_tree"></span>
             </div>
           </div>
@@ -761,7 +761,7 @@ export function getDiscoveryPageHtml() {
             <a 
               :href="safeUrl(relatedData.main.link)" 
               target="_blank" 
-              class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white text-xs font-mono border border-slate-700 transition-colors flex items-center gap-1.5"
+              class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white text-xs font-mono tabular-nums border border-slate-700 transition-colors flex items-center gap-1.5"
             >
               <span>View On Pinterest</span>
               <span>↗</span>
@@ -776,7 +776,7 @@ export function getDiscoveryPageHtml() {
         <div x-show="relatedLoading" class="py-16 flex flex-col items-center justify-center gap-3 text-center" x-cloak>
           <div class="w-10 h-10 border-2 border-rose-500 border-t-transparent rounded-full animate-spin"></div>
           <p class="text-sm font-semibold text-white">Traversing Pinterest Interest Graph...</p>
-          <p class="text-xs text-slate-400 font-mono">Resolving official internal_search_count, taxonomy breadcrumbs & pivots</p>
+          <p class="text-xs text-slate-400 font-mono tabular-nums">Resolving official internal_search_count, taxonomy breadcrumbs & pivots</p>
         </div>
 
         <!-- Error State -->
@@ -789,7 +789,7 @@ export function getDiscoveryPageHtml() {
         <!-- Table View (Exact Columns Parity with Screenshot) -->
         <div x-show="!relatedLoading && relatedData && relatedData.success" class="overflow-x-auto border border-slate-800 rounded-xl" x-cloak>
           <table class="w-full text-left text-xs font-sans">
-            <thead class="bg-slate-950/80 border-b border-slate-800 text-slate-400 font-mono uppercase text-[10px]">
+            <thead class="bg-slate-950/80 border-b border-slate-800 text-slate-400 font-mono tabular-nums uppercase text-[10px]">
               <tr>
                 <th class="p-3 w-10 text-center">
                   <input 
@@ -824,22 +824,22 @@ export function getDiscoveryPageHtml() {
                   </td>
                   <td class="p-3">
                     <div class="flex items-center gap-2">
-                      <span class="font-semibold text-white font-mono" x-text="item.annotation"></span>
+                      <span class="font-semibold text-white font-mono tabular-nums" x-text="item.annotation"></span>
                       <span 
-                        class="text-[9px] px-1.5 py-0.5 rounded font-mono border"
+                        class="text-[9px] px-1.5 py-0.5 rounded font-mono tabular-nums border"
                         :class="item.type === 'main' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : (item.type === 'related' ? 'bg-rose-500/10 text-rose-300 border-rose-500/30' : 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30')"
                         x-text="item.type === 'main' ? 'Seed' : (item.type === 'related' ? 'Related' : 'Addition')"
                       ></span>
                     </div>
                   </td>
-                  <td class="p-3 font-mono font-bold text-slate-100">
+                  <td class="p-3 font-mono tabular-nums font-bold text-slate-100">
                     <span 
                       :class="(item.search_volume || 0) >= 500000 ? 'text-purple-400' : ((item.search_volume || 0) >= 50000 ? 'text-emerald-400' : ((item.search_volume || 0) >= 10000 ? 'text-amber-400' : 'text-slate-400'))"
                       x-text="item.formatted_volume || '0'"
                     ></span>
                   </td>
-                  <td class="p-3 font-mono text-[11px] text-slate-400" x-text="item.last_updated || 'Recent'"></td>
-                  <td class="p-3 font-mono text-[11px]">
+                  <td class="p-3 font-mono tabular-nums text-[11px] text-slate-400" x-text="item.last_updated || 'Recent'"></td>
+                  <td class="p-3 font-mono tabular-nums text-[11px]">
                     <span 
                       @click="copyAnnotationId(item.annotation_id)" 
                       class="cursor-pointer text-slate-300 hover:text-white hover:underline flex items-center gap-1"
@@ -849,7 +849,7 @@ export function getDiscoveryPageHtml() {
                     </span>
                   </td>
                   <td class="p-3 text-[11px] text-slate-300 max-w-xs truncate" :title="item.category_tree" x-text="item.category_tree || '—'"></td>
-                  <td class="p-3 font-mono text-[11px]">
+                  <td class="p-3 font-mono tabular-nums text-[11px]">
                     <a 
                       :href="safeUrl(item.link)" 
                       target="_blank" 
@@ -862,7 +862,7 @@ export function getDiscoveryPageHtml() {
                   <td class="p-3 text-right">
                     <button 
                       @click="trackRelatedSingle(item.annotation)" 
-                      class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-emerald-400 hover:text-emerald-300 font-mono text-[11px] border border-slate-700 transition-colors"
+                      class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-emerald-400 hover:text-emerald-300 font-mono tabular-nums text-[11px] border border-slate-700 transition-colors"
                       title="Track directly in Radar"
                     >
                       ⚡ Track
@@ -877,7 +877,7 @@ export function getDiscoveryPageHtml() {
 
       <!-- Modal Footer (Bulk Actions) -->
       <div class="p-4 border-t border-slate-800 flex items-center justify-between flex-wrap gap-3 bg-slate-950/70">
-        <div class="flex items-center gap-2 text-xs text-slate-400 font-mono">
+        <div class="flex items-center gap-2 text-xs text-slate-400 font-mono tabular-nums">
           <span x-text="selectedRelatedAnnotations.length"></span>
           <span>of</span>
           <span x-text="filteredRelatedList.length"></span>
@@ -888,7 +888,7 @@ export function getDiscoveryPageHtml() {
           <button 
             @click="openFolderModalForRelated()" 
             :disabled="selectedRelatedAnnotations.length === 0" 
-            class="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white font-mono text-xs font-bold transition-colors flex items-center gap-1.5 shadow-sm"
+            class="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white font-mono tabular-nums text-xs font-bold transition-colors flex items-center gap-1.5 shadow-sm"
           >
             <span>📁</span>
             <span>+ Add to Campaign Folder</span>
@@ -897,7 +897,7 @@ export function getDiscoveryPageHtml() {
           <button 
             @click="trackSelectedRelated()" 
             :disabled="selectedRelatedAnnotations.length === 0" 
-            class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-mono text-xs font-bold transition-colors flex items-center gap-1.5"
+            class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-mono tabular-nums text-xs font-bold transition-colors flex items-center gap-1.5"
           >
             <span>⚡ Track Selected in Radar</span>
             <span x-show="selectedRelatedAnnotations.length > 0" x-text="'(' + selectedRelatedAnnotations.length + ')'"></span>
