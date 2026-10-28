@@ -248,6 +248,7 @@ export function renderAppSidebar({
             <span x-show="!isSidebarCollapsed" class="truncate">Overview & Hub</span>
           </div>
           <span x-show="!isSidebarCollapsed" class="${isOverview ? badgeActive : badgeInactive}">Home</span>
+          ${isOverview ? '<span x-show="isSidebarCollapsed" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 shadow-xs"></span>' : ''}
         </a>
 
         <!-- Creator Hub (/accounts) -->
@@ -262,7 +263,7 @@ export function renderAppSidebar({
           </div>
           <span x-show="!isSidebarCollapsed && (typeof competitors !== 'undefined' && competitors && competitors.length > 0)" class="${isCreators ? badgeActive : badgeInactive}" x-text="(typeof competitors !== 'undefined' && competitors) ? competitors.length : ''"></span>
           <span x-show="!isSidebarCollapsed && (typeof competitors === 'undefined' || !competitors || !competitors.length)" class="${isCreators ? badgeActive : badgeInactive}">Ledger</span>
-          <span x-show="isSidebarCollapsed && isCreators" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 shadow-xs"></span>
+          ${isCreators ? '<span x-show="isSidebarCollapsed" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 shadow-xs"></span>' : ''}
         </a>
 
         <!-- Keywords Fleet Dashboard (/keywords) -->
@@ -277,7 +278,7 @@ export function renderAppSidebar({
           </div>
           <span x-show="!isSidebarCollapsed && (typeof keywords !== 'undefined' && keywords && keywords.length > 0)" class="${isKeywords ? badgeActive : badgeInactive}" x-text="(typeof keywords !== 'undefined' && keywords) ? keywords.length : ''"></span>
           <span x-show="!isSidebarCollapsed && (typeof keywords === 'undefined' || !keywords || !keywords.length)" class="${isKeywords ? badgeActive : badgeInactive}">SERP</span>
-          <span x-show="isSidebarCollapsed && isKeywords" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 shadow-xs"></span>
+          ${isKeywords ? '<span x-show="isSidebarCollapsed" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 shadow-xs"></span>' : ''}
         </a>
 
         <!-- Domain Radar (/domains) -->
@@ -292,7 +293,7 @@ export function renderAppSidebar({
           </div>
           <span x-show="!isSidebarCollapsed && (typeof overview !== 'undefined' && overview && overview.total_domains > 0)" class="${isDomains ? badgeActive : badgeInactive}" x-text="(typeof overview !== 'undefined' && overview) ? overview.total_domains : ''"></span>
           <span x-show="!isSidebarCollapsed && (typeof overview === 'undefined' || !overview || !overview.total_domains)" class="${isDomains ? badgeActive : badgeInactive}">WHOIS</span>
-          <span x-show="isSidebarCollapsed && isDomains" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 shadow-xs"></span>
+          ${isDomains ? '<span x-show="isSidebarCollapsed" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 shadow-xs"></span>' : ''}
         </a>
 
         <!-- Related Pins Tab (/related-pins) -->
@@ -306,7 +307,7 @@ export function renderAppSidebar({
             <span x-show="!isSidebarCollapsed" class="truncate">Related Pins</span>
           </div>
           <span x-show="!isSidebarCollapsed" class="${isRelated ? badgeActive : badgeInactive}">Graph</span>
-          <span x-show="isSidebarCollapsed && isRelated" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 shadow-xs"></span>
+          ${isRelated ? '<span x-show="isSidebarCollapsed" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 shadow-xs"></span>' : ''}
         </a>
       </nav>
     </div>

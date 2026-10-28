@@ -2150,7 +2150,7 @@ export async function getKeywordSERPComparison(sql, keywordId, knownKeyword = nu
   // Parallel fetch: keyword metadata (if not already known), active catalog pins, distinct dates, dropped pins, guided capsules, and true displaced count
   const [keywordRows, activeCatalogPins, dates, displacedResultRaw, guides, displacedCountRow] = await Promise.all([
     actualKeyword ? Promise.resolve([actualKeyword]) : sql`
-      SELECT id, keyword, category, is_active, last_crawled_at, updated_at, search_volume, cpc, competition, metadata
+      SELECT id, keyword, category, is_active, last_crawled_at, updated_at, target_pin_count, avg_daily_velocity, metadata
       FROM tracked_keywords 
       WHERE id = ${kid};
     `,

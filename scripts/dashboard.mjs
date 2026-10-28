@@ -72,9 +72,10 @@ import {
   fetchVisualSearchLens,
   getKeywordGuides,
   getKeywordSERPComparison,
-  getKeywordIntelligence
+  getKeywordIntelligence,
+  getKeywordDisplacedPins
 } from '../src/modules/keywords/service.mjs';
-import { fetchPinterestTrends } from '../src/modules/keywords/trends-service.mjs';
+import { fetchPinterestTrends, fetchPinterestTrendsPopularPins } from '../src/modules/keywords/trends-service.mjs';
 import {
   listFolders,
   getFolder,
@@ -1361,6 +1362,16 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, rows);
     }
 
+    // 8C-2. GET /api/settings
+    if (method === 'GET' && pathname === '/api/settings') {
+      return sendJson(res, 200, {
+        app_name: 'Pin Arbitrage Engine',
+        version: '3.0.0',
+        system_status: 'operational',
+        topology: 'neon_sharded'
+      });
+    }
+
     // 8D. GET /api/settings/cookie
     if (method === 'GET' && pathname === '/api/settings/cookie') {
       const cookie = process.env.PINTEREST_COOKIE || '';
@@ -2219,6 +2230,26 @@ const server = http.createServer(async (req, res) => {
       const country = searchParams.get('country') || 'US';
       const result = await fetchPinterestTrends(term, country);
       return sendJson(res, result.success ? 200 : 400, result);
+    }
+
+    if (method === 'GET' && pathname === '/api/keywords/trends/popular-pins') {
+      const term = searchParams.get('term') || searchParams.get('q') || searchParams.get('keyword') || '';
+      const country = searchParams.get('country') || 'US';
+      const force = searchParams.get('force') === 'true' || searchParams.get('refresh') === 'true';
+      if (!term) return sendJson(res, 400, { error: 'term is required' });
+      const result = await fetchPinterestTrendsPopularPins(targetSql, term, country, force);
+      return sendJson(res, result.success ? 200 : 400, result);
+    }
+
+    if (method === 'GET' && pathname === '/api/keywords/displaced') {
+      const keywordId = Number(searchParams.get('keyword_id'));
+      if (!keywordId) return sendJson(res, 400, { error: 'keyword_id is required' });
+      const status = searchParams.get('status') || 'ALL';
+      const limit = Math.min(30, Math.max(1, Number(searchParams.get('limit')) || 24));
+      const offset = Math.max(0, parseInt(searchParams.get('offset'), 10) || 0);
+      const forceRefresh = searchParams.get('refresh') === 'true';
+      const result = await getKeywordDisplacedPins(targetSql, keywordId, { status, limit, offset, forceRefresh });
+      return sendJson(res, 200, result);
     }
 
     if (method === 'POST' && pathname === '/api/keywords/dispatch-workflow') {
