@@ -234,6 +234,16 @@ export function getPinDetailPageHtml(pinId = '') {
         <span class="text-slate-500">↗</span>
       </a>
 
+      <!-- Theme Switcher (Dark/Light Mode) -->
+      <button 
+        type="button" 
+        @click="toggleTheme()" 
+        class="p-1.5 rounded-lg border border-[#27272A] bg-[#18181B] hover:bg-[#27272A] text-slate-300 hover:text-white transition cursor-pointer"
+        :title="isDark ? 'Switch to Light Theme' : 'Switch to Dark Theme'"
+      >
+        <span x-text="isDark ? '🌙' : '☀️'"></span>
+      </button>
+
       <!-- Refresh Button -->
       <button 
         type="button"
@@ -613,8 +623,12 @@ export function getPinDetailPageHtml(pinId = '') {
             <div class="text-[11px] text-slate-500 font-mono tabular-nums">Multi-day historical telemetry plotted from Shard database</div>
           </div>
 
-          <!-- Timeframe & Metric Selector -->
-          <div class="flex items-center gap-2">
+          <!-- Timeframe & Metric Selector [NL-03 Resolved] -->
+          <div class="flex items-center gap-2 flex-wrap">
+            <div class="flex items-center p-0.5 rounded-lg border border-[#27272A] bg-[#18181B] text-[11px] font-mono">
+              <button type="button" @click="chartMetric = 'saves'" class="px-2.5 py-1 rounded transition cursor-pointer" :class="chartMetric === 'saves' ? 'bg-[#27272A] text-white font-bold' : 'text-slate-400 hover:text-white'">Saves</button>
+              <button type="button" @click="chartMetric = 'velocity'" class="px-2.5 py-1 rounded transition cursor-pointer" :class="chartMetric === 'velocity' ? 'bg-[#27272A] text-white font-bold' : 'text-slate-400 hover:text-white'">Velocity</button>
+            </div>
             <div class="flex items-center p-0.5 rounded-lg border border-[#27272A] bg-[#18181B] text-[11px] font-mono">
               <button type="button" @click="chartTimeframe = '7d'" class="px-2.5 py-1 rounded transition cursor-pointer" :class="chartTimeframe === '7d' ? 'bg-[#27272A] text-white font-bold' : 'text-slate-400 hover:text-white'">7D</button>
               <button type="button" @click="chartTimeframe = '14d'" class="px-2.5 py-1 rounded transition cursor-pointer" :class="chartTimeframe === '14d' ? 'bg-[#27272A] text-white font-bold' : 'text-slate-400 hover:text-white'">14D</button>
@@ -629,9 +643,9 @@ export function getPinDetailPageHtml(pinId = '') {
           <template x-if="computeChartPoints().length >= 2">
             <svg class="w-full h-full" viewBox="0 0 800 180" preserveAspectRatio="none">
               <defs>
-                <linearGradient id="rose-area-grad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stop-color="#E11D48" stop-opacity="0.35" />
-                  <stop offset="100%" stop-color="#E11D48" stop-opacity="0.0" />
+                <linearGradient id="chart-area-grad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" :stop-color="chartMetric === 'velocity' ? '#10B981' : '#E11D48'" stop-opacity="0.35" />
+                  <stop offset="100%" :stop-color="chartMetric === 'velocity' ? '#10B981' : '#E11D48'" stop-opacity="0.0" />
                 </linearGradient>
               </defs>
               <!-- Horizontal Grid Lines -->
@@ -640,15 +654,15 @@ export function getPinDetailPageHtml(pinId = '') {
               <line x1="40" y1="150" x2="760" y2="150" stroke="#27272A" stroke-dasharray="4 4" stroke-width="1" />
 
               <!-- Area Path -->
-              <path :d="buildSvgAreaPath()" fill="url(#rose-area-grad)" />
+              <path :d="buildSvgAreaPath()" fill="url(#chart-area-grad)" />
 
               <!-- Line Path -->
-              <path :d="buildSvgLinePath()" fill="none" stroke="#E11D48" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+              <path :d="buildSvgLinePath()" fill="none" :stroke="chartMetric === 'velocity' ? '#10B981' : '#E11D48'" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
 
               <!-- Interactive Points -->
               <template x-for="(pt, idx) in computeChartPoints()" :key="idx">
                 <g class="cursor-pointer" @mouseenter="hoveredChartPoint = pt" @mouseleave="hoveredChartPoint = null">
-                  <circle :cx="pt.x" :cy="pt.y" r="4" fill="#E11D48" stroke="#FFFFFF" stroke-width="1.5" class="transition-transform hover:scale-150" />
+                  <circle :cx="pt.x" :cy="pt.y" r="4" :fill="chartMetric === 'velocity' ? '#10B981' : '#E11D48'" stroke="#FFFFFF" stroke-width="1.5" class="transition-transform hover:scale-150" />
                 </g>
               </template>
             </svg>
@@ -761,8 +775,8 @@ export function getPinDetailPageHtml(pinId = '') {
                   <th class="py-3 px-4 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody class="divide-y divide-[#27272A]">
-                <template x-for="(day, dIdx) in filteredDays()" :key="day.snapshot_date">
+              <template x-for="(day, dIdx) in filteredDays()" :key="day.snapshot_date">
+                <tbody class="divide-y divide-[#27272A] border-b border-[#27272A]">
                   <tr class="hover:bg-[#18181B]/80 transition group">
                     <!-- Expand chevron -->
                     <td class="py-3 px-4 text-center cursor-pointer" @click="toggleDayExpanded(day.snapshot_date)">
@@ -825,83 +839,93 @@ export function getPinDetailPageHtml(pinId = '') {
                   </tr>
 
                   <!-- Accordion Sub-Drawer: Keywords for this Day -->
-                  <template x-if="isDayExpanded(day.snapshot_date)">
-                    <tr class="bg-[#18181B]/40">
-                      <td colspan="7" class="p-4 border-t border-[#27272A]">
-                        <div class="space-y-3">
-                          <div class="flex items-center justify-between text-xs">
-                            <span class="font-bold text-slate-300">Detailed SERP Keywords for <span class="font-mono text-white" x-text="day.snapshot_date"></span></span>
-                            <span class="text-slate-400 font-mono text-[11px]" x-text="(day.ranking_keywords || []).length + ' keywords indexed'"></span>
-                          </div>
+                  <tr x-show="isDayExpanded(day.snapshot_date)" class="bg-[#18181B]/40">
+                    <td colspan="7" class="p-4 border-t border-[#27272A]">
+                      <div class="space-y-3">
+                        <div class="flex items-center justify-between text-xs">
+                          <span class="font-bold text-slate-300">Detailed SERP Keywords for <span class="font-mono text-white" x-text="day.snapshot_date"></span></span>
+                          <span class="text-slate-400 font-mono text-[11px]" x-text="(day.ranking_keywords || []).length + ' keywords indexed'"></span>
+                        </div>
 
-                          <div class="rounded-lg border border-[#27272A] bg-[#121215] overflow-hidden">
-                            <table class="w-full text-left text-xs">
-                              <thead>
-                                <tr class="border-b border-[#27272A] bg-[#18181B] text-slate-400 font-mono text-[10px] uppercase">
-                                  <th class="py-2 px-3">Keyword</th>
-                                  <th class="py-2 px-3">Rank Position</th>
-                                  <th class="py-2 px-3">SERP Tier</th>
-                                  <th class="py-2 px-3 text-center">24h Movement</th>
-                                  <th class="py-2 px-3 text-right">Remove</th>
-                                </tr>
-                              </thead>
-                              <tbody class="divide-y divide-[#1E1E22]">
-                                <template x-for="kw in filteredKeywordsForDay(day)" :key="kw.keyword">
-                                  <tr class="hover:bg-[#18181B]/60">
-                                    <td class="py-2 px-3 font-medium text-white">
-                                      <a :href="'/keywords?q=' + encodeURIComponent(kw.keyword)" class="hover:text-rose-400 transition" x-text="kw.keyword"></a>
-                                    </td>
-                                    <td class="py-2 px-3 font-mono tabular-nums">
-                                      <span class="font-bold" :class="kw.is_displaced ? 'text-amber-400' : 'text-emerald-400'" x-text="kw.is_displaced ? ('[Vault #' + (kw.vault_rank || kw.rank || '?') + ']') : ('#' + (kw.live_serp_rank || kw.rank))"></span>
-                                    </td>
-                                    <td class="py-2 px-3">
-                                      <span class="px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider" :class="getKeywordTierClass(kw)" x-text="getKeywordTierLabel(kw)"></span>
-                                    </td>
-                                    <td class="py-2 px-3 text-center font-mono tabular-nums text-[11px]">
-                                      <!-- [L-03 Resolved: Clean Movement Display] -->
-                                      <template x-if="keywordRankMovement(day.snapshot_date, kw).status === 'up'">
-                                        <span class="inline-flex items-center gap-1 text-emerald-400 font-bold">
-                                          <span>▲</span>
-                                          <span x-text="'+' + keywordRankMovement(day.snapshot_date, kw).delta + ' spots'"></span>
-                                        </span>
+                        <div class="rounded-lg border border-[#27272A] bg-[#121215] overflow-hidden">
+                          <table class="w-full text-left text-xs">
+                            <thead>
+                              <tr class="border-b border-[#27272A] bg-[#18181B] text-slate-400 font-mono text-[10px] uppercase">
+                                <th class="py-2 px-3">Keyword</th>
+                                <th class="py-2 px-3">Rank Position</th>
+                                <th class="py-2 px-3">SERP Tier</th>
+                                <th class="py-2 px-3 text-center">24h Movement</th>
+                                <th class="py-2 px-3 text-right">Remove</th>
+                              </tr>
+                            </thead>
+                            <tbody class="divide-y divide-[#1E1E22]">
+                              <template x-for="kw in filteredKeywordsForDay(day)" :key="kw.keyword">
+                                <tr class="hover:bg-[#18181B]/60">
+                                  <td class="py-2 px-3 font-medium text-white">
+                                    <a :href="'/keywords?q=' + encodeURIComponent(kw.keyword)" class="hover:text-rose-400 transition" x-text="kw.keyword"></a>
+                                  </td>
+                                  <td class="py-2 px-3 font-mono tabular-nums">
+                                    <span class="font-bold" :class="kw.is_displaced ? 'text-amber-400' : 'text-emerald-400'" x-text="kw.is_displaced ? ('[Vault #' + (kw.vault_rank || kw.rank || '?') + ']') : ('#' + (kw.live_serp_rank || kw.rank))"></span>
+                                  </td>
+                                  <td class="py-2 px-3">
+                                    <span class="px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider" :class="getKeywordTierClass(kw)" x-text="getKeywordTierLabel(kw)"></span>
+                                  </td>
+                                  <td class="py-2 px-3 text-center font-mono tabular-nums text-[11px]">
+                                    <!-- [L-03 Resolved: Clean Movement Display] -->
+                                    <template x-if="keywordRankMovement(day.snapshot_date, kw).status === 'up'">
+                                      <span class="inline-flex items-center gap-1 text-emerald-400 font-bold">
+                                        <span>▲</span>
+                                        <span x-text="'+' + keywordRankMovement(day.snapshot_date, kw).delta + ' spots'"></span>
+                                      </span>
+                                    </template>
+                                    <template x-if="keywordRankMovement(day.snapshot_date, kw).status === 'down'">
+                                      <span class="inline-flex items-center gap-1 text-rose-400 font-bold">
+                                        <span>▼</span>
+                                        <span x-text="'-' + keywordRankMovement(day.snapshot_date, kw).delta + ' spots'"></span>
+                                      </span>
+                                    </template>
+                                    <template x-if="keywordRankMovement(day.snapshot_date, kw).status === 'steady'">
+                                      <span class="inline-flex items-center gap-1 text-slate-400 font-mono">
+                                        <span>—</span>
+                                        <span>0 (Stable)</span>
+                                      </span>
+                                    </template>
+                                    <template x-if="keywordRankMovement(day.snapshot_date, kw).status === 'new'">
+                                      <span class="px-1.5 py-0.5 rounded bg-sky-950/60 text-sky-400 border border-sky-800 text-[10px] font-semibold">★ NEW</span>
+                                    </template>
+                                  </td>
+                                  <td class="py-2 px-3 text-right">
+                                    <div class="flex items-center justify-end gap-1">
+                                      <template x-if="kw.snapshot_id">
+                                        <button 
+                                          type="button" 
+                                          @click="requestDeleteSnapshot(kw.snapshot_id)" 
+                                          class="text-slate-500 hover:text-red-400 transition cursor-pointer text-[10px] font-mono px-1 py-0.5 rounded border border-transparent hover:border-red-900/50"
+                                          title="Delete single snapshot record"
+                                        >
+                                          🗑️
+                                        </button>
                                       </template>
-                                      <template x-if="keywordRankMovement(day.snapshot_date, kw).status === 'down'">
-                                        <span class="inline-flex items-center gap-1 text-rose-400 font-bold">
-                                          <span>▼</span>
-                                          <span x-text="'-' + keywordRankMovement(day.snapshot_date, kw).delta + ' spots'"></span>
-                                        </span>
-                                      </template>
-                                      <template x-if="keywordRankMovement(day.snapshot_date, kw).status === 'steady'">
-                                        <span class="inline-flex items-center gap-1 text-slate-400 font-mono">
-                                          <span>—</span>
-                                          <span>0 (Stable)</span>
-                                        </span>
-                                      </template>
-                                      <template x-if="keywordRankMovement(day.snapshot_date, kw).status === 'new'">
-                                        <span class="px-1.5 py-0.5 rounded bg-sky-950/60 text-sky-400 border border-sky-800 text-[10px] font-semibold">★ NEW</span>
-                                      </template>
-                                    </td>
-                                    <td class="py-2 px-3 text-right">
                                       <button 
                                         type="button" 
                                         @click="requestDeleteSerpBadge(kw, day.snapshot_date)" 
-                                        class="text-slate-500 hover:text-red-400 transition cursor-pointer text-xs"
+                                        class="text-slate-500 hover:text-red-400 transition cursor-pointer text-xs p-1"
                                         title="Remove this keyword rank for this date"
                                       >
                                         ✕
                                       </button>
-                                    </td>
-                                  </tr>
-                                </template>
-                              </tbody>
-                            </table>
-                          </div>
+                                    </div>
+                                  </td>
+                                </tr>
+                              </template>
+                            </tbody>
+                          </table>
                         </div>
-                      </td>
-                    </tr>
-                  </template>
-                </template>
-              </tbody>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </template>
             </table>
           </div>
         </div>
@@ -972,38 +996,48 @@ export function getPinDetailPageHtml(pinId = '') {
         </div>
 
         <!-- ======================================================== -->
-        <!-- TAB 3: ALGORITHMIC & FORENSIC DNA SUITE                  -->
+        <!-- TAB 3: ALGORITHMIC & FORENSIC DNA SUITE [NL-05 Restored] -->
         <!-- ======================================================== -->
         <div x-show="activeTab === 'forensics'" class="space-y-4">
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             
-            <!-- Card 1: Creator & Origin Pinner Provenance -->
+            <!-- Card 1: Creator & Origin Provenance -->
             <div class="p-4 rounded-xl border border-[#27272A] bg-[#121215] space-y-3">
-              <div class="text-xs font-bold uppercase tracking-wider text-slate-400 border-b border-[#27272A] pb-2">
-                Creator & Origin Provenance
+              <div class="text-xs font-bold uppercase tracking-wider text-slate-400 border-b border-[#27272A] pb-2 flex items-center justify-between">
+                <span>Creator & Origin Provenance</span>
+                <span class="text-emerald-400 text-[11px]">Pillar 1</span>
               </div>
               <div class="space-y-2 text-xs">
                 <div class="flex items-center justify-between">
                   <span class="text-slate-400">Authentic Original</span>
                   <span class="font-bold" :class="!dossier?.algorithmic_intelligence?.is_repin ? 'text-emerald-400' : 'text-slate-400'" x-text="!dossier?.algorithmic_intelligence?.is_repin ? 'Yes (Original Creator)' : 'No (Curated Repin)'"></span>
                 </div>
-                <template x-if="dossier?.algorithmic_intelligence?.origin_pinner">
-                  <div class="flex items-center justify-between">
-                    <span class="text-slate-400">Origin Pinner</span>
-                    <span class="font-mono text-white" x-text="JSON.stringify(dossier.algorithmic_intelligence.origin_pinner)"></span>
-                  </div>
-                </template>
+                <div class="flex items-center justify-between">
+                  <span class="text-slate-400">Origin Pinner</span>
+                  <span class="font-mono text-white font-medium" x-text="formatOriginPinner()"></span>
+                </div>
                 <div class="flex items-center justify-between">
                   <span class="text-slate-400">Verified Merchant</span>
                   <span class="font-bold" :class="dossier?.algorithmic_intelligence?.creator_is_verified_merchant ? 'text-sky-400' : 'text-slate-500'" x-text="dossier?.algorithmic_intelligence?.creator_is_verified_merchant ? 'Verified Merchant ✓' : 'Standard Pinner'"></span>
+                </div>
+                <template x-if="dossier?.algorithmic_intelligence?.origin_pinner_followers || dossier?.pillar_1_creator_context?.competitor_profile?.followers">
+                  <div class="flex items-center justify-between">
+                    <span class="text-slate-400">Pinner Followers</span>
+                    <span class="font-mono tabular-nums text-slate-200" x-text="formatNumber(dossier?.algorithmic_intelligence?.origin_pinner_followers || dossier?.pillar_1_creator_context?.competitor_profile?.followers)"></span>
+                  </div>
+                </template>
+                <div class="flex items-center justify-between">
+                  <span class="text-slate-400">Creation Method</span>
+                  <span class="font-mono text-slate-300" x-text="formatCreationMethodLabel()"></span>
                 </div>
               </div>
             </div>
 
             <!-- Card 2: Google & Search Indexing -->
             <div class="p-4 rounded-xl border border-[#27272A] bg-[#121215] space-y-3">
-              <div class="text-xs font-bold uppercase tracking-wider text-slate-400 border-b border-[#27272A] pb-2">
-                Google & Search Indexing
+              <div class="text-xs font-bold uppercase tracking-wider text-slate-400 border-b border-[#27272A] pb-2 flex items-center justify-between">
+                <span>Google & Search Indexing</span>
+                <span class="text-sky-400 text-[11px]">SEO Health</span>
               </div>
               <div class="space-y-2 text-xs">
                 <div class="flex items-center justify-between">
@@ -1017,18 +1051,83 @@ export function getPinDetailPageHtml(pinId = '') {
                   </div>
                 </template>
                 <template x-if="dossier?.algorithmic_intelligence?.seo_canonical_url">
-                  <div class="flex items-center justify-between">
-                    <span class="text-slate-400">Canonical URL</span>
-                    <a :href="dossier.algorithmic_intelligence.seo_canonical_url" target="_blank" class="font-mono text-sky-400 hover:underline truncate max-w-[200px]" x-text="dossier.algorithmic_intelligence.seo_canonical_url"></a>
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="text-slate-400 shrink-0">Canonical URL</span>
+                    <a :href="safeUrl(dossier.algorithmic_intelligence.seo_canonical_url)" target="_blank" rel="noopener noreferrer" class="font-mono text-sky-400 hover:underline truncate max-w-[200px]" x-text="dossier.algorithmic_intelligence.seo_canonical_url"></a>
+                  </div>
+                </template>
+                <template x-if="dossier?.algorithmic_intelligence?.seo_title">
+                  <div class="space-y-0.5 pt-1 border-t border-[#1E1E22]">
+                    <span class="text-slate-400 text-[10px] uppercase font-mono">SEO Title</span>
+                    <p class="text-slate-300 font-medium leading-relaxed truncate" x-text="dossier.algorithmic_intelligence.seo_title"></p>
+                  </div>
+                </template>
+                <template x-if="dossier?.algorithmic_intelligence?.seo_description">
+                  <div class="space-y-0.5 pt-1">
+                    <span class="text-slate-400 text-[10px] uppercase font-mono">SEO Description</span>
+                    <p class="text-slate-300 line-clamp-2 text-[11px] leading-relaxed" x-text="dossier.algorithmic_intelligence.seo_description"></p>
                   </div>
                 </template>
               </div>
             </div>
 
-            <!-- Card 3: Visual AI Taxonomy -->
+            <!-- Card 3: SEO & Related Interests Taxonomy -->
             <div class="p-4 rounded-xl border border-[#27272A] bg-[#121215] space-y-3">
-              <div class="text-xs font-bold uppercase tracking-wider text-slate-400 border-b border-[#27272A] pb-2">
-                Visual AI Taxonomy & Entities
+              <div class="text-xs font-bold uppercase tracking-wider text-slate-400 border-b border-[#27272A] pb-2 flex items-center justify-between">
+                <span>SEO & Related Interests Taxonomy</span>
+                <span class="text-indigo-400 text-[11px]">Category Graph</span>
+              </div>
+              <div class="space-y-2 text-xs">
+                <!-- Category Breadcrumbs -->
+                <div class="space-y-1">
+                  <span class="text-slate-400">Category Breadcrumbs:</span>
+                  <div class="flex items-center gap-1.5 flex-wrap">
+                    <template x-if="dossier?.algorithmic_intelligence?.category_breadcrumbs?.length">
+                      <template x-for="(crumb, cIdx) in dossier.algorithmic_intelligence.category_breadcrumbs" :key="cIdx">
+                        <span class="inline-flex items-center gap-1">
+                          <span class="px-2 py-0.5 rounded bg-[#18181B] border border-[#27272A] text-slate-300 text-[11px]" x-text="crumb"></span>
+                          <span x-show="cIdx < dossier.algorithmic_intelligence.category_breadcrumbs.length - 1" class="text-slate-600 text-[10px]">›</span>
+                        </span>
+                      </template>
+                    </template>
+                    <template x-if="!dossier?.algorithmic_intelligence?.category_breadcrumbs?.length">
+                      <span class="text-slate-500 font-mono">--</span>
+                    </template>
+                  </div>
+                </div>
+
+                <!-- Related Interests Tags [NL-05 Resolved] -->
+                <div class="space-y-1 pt-1 border-t border-[#1E1E22]">
+                  <span class="text-slate-400">Related Search Interests:</span>
+                  <div class="flex items-center gap-1.5 flex-wrap">
+                    <template x-if="dossier?.algorithmic_intelligence?.seo_related_interests?.length">
+                      <template x-for="(interest, iIdx) in dossier.algorithmic_intelligence.seo_related_interests" :key="iIdx">
+                        <a 
+                          :href="'/keywords?q=' + encodeURIComponent(formatInterestName(interest))" 
+                          class="px-2 py-0.5 rounded bg-rose-950/40 text-rose-300 border border-rose-800/60 hover:bg-rose-900/50 text-[11px] transition font-medium" 
+                          x-text="formatInterestName(interest)"
+                        ></a>
+                      </template>
+                    </template>
+                    <template x-if="!dossier?.algorithmic_intelligence?.seo_related_interests?.length">
+                      <span class="text-slate-500 font-mono">--</span>
+                    </template>
+                  </div>
+                </div>
+
+                <!-- Board Pin Count -->
+                <div class="flex items-center justify-between pt-1 border-t border-[#1E1E22]">
+                  <span class="text-slate-400">Board Total Pins</span>
+                  <span class="font-mono tabular-nums text-slate-200" x-text="dossier?.algorithmic_intelligence?.board_pin_count || dossier?.algorithmic_intelligence?.board_metrics?.pin_count || '--'"></span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Card 4: Visual AI Taxonomy & Entities -->
+            <div class="p-4 rounded-xl border border-[#27272A] bg-[#121215] space-y-3">
+              <div class="text-xs font-bold uppercase tracking-wider text-slate-400 border-b border-[#27272A] pb-2 flex items-center justify-between">
+                <span>Visual AI Taxonomy & Entities</span>
+                <span class="text-amber-400 text-[11px]">Computer Vision</span>
               </div>
               <div class="space-y-2 text-xs">
                 <div class="flex items-center justify-between">
@@ -1038,12 +1137,72 @@ export function getPinDetailPageHtml(pinId = '') {
                     <span class="font-mono text-white" x-text="safeColor(dossier?.creative?.dominant_color)"></span>
                   </div>
                 </div>
-                <template x-if="dossier?.algorithmic_intelligence?.visual_objects?.length">
-                  <div class="space-y-1">
-                    <span class="text-slate-400">Identified Objects:</span>
+                <template x-if="dossier?.algorithmic_intelligence?.image_signature">
+                  <div class="flex items-center justify-between">
+                    <span class="text-slate-400">Image Hash Signature</span>
+                    <div class="flex items-center gap-1">
+                      <span class="font-mono text-[10px] text-slate-300 max-w-[140px] truncate" x-text="dossier.algorithmic_intelligence.image_signature"></span>
+                      <button type="button" @click="copyText(dossier.algorithmic_intelligence.image_signature, 'Image Signature')" class="text-slate-400 hover:text-white text-[10px] cursor-pointer">📋</button>
+                    </div>
+                  </div>
+                </template>
+                <div class="space-y-1 pt-1 border-t border-[#1E1E22]">
+                  <span class="text-slate-400">Identified Objects:</span>
+                  <div class="flex items-center gap-1.5 flex-wrap">
+                    <template x-if="dossier?.algorithmic_intelligence?.visual_objects?.length">
+                      <template x-for="obj in dossier.algorithmic_intelligence.visual_objects" :key="typeof obj === 'string' ? obj : (obj.label || JSON.stringify(obj))">
+                        <span class="px-2 py-0.5 rounded bg-[#18181B] border border-[#27272A] text-slate-300 text-[11px]" x-text="formatVisualObject(obj)"></span>
+                      </template>
+                    </template>
+                    <template x-if="!dossier?.algorithmic_intelligence?.visual_objects?.length">
+                      <span class="text-slate-500 font-mono">--</span>
+                    </template>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Card 5: Commercial Monetization, Affiliate & Outbound Link -->
+            <div class="p-4 rounded-xl border border-[#27272A] bg-[#121215] space-y-3">
+              <div class="text-xs font-bold uppercase tracking-wider text-slate-400 border-b border-[#27272A] pb-2 flex items-center justify-between">
+                <span>Commercial Monetization & Arbitrage Link</span>
+                <span class="text-rose-400 text-[11px]">Revenue Engine</span>
+              </div>
+              <div class="space-y-2 text-xs">
+                <div class="flex items-center justify-between">
+                  <span class="text-slate-400">Linkless Pin</span>
+                  <span class="font-bold" :class="dossier?.algorithmic_intelligence?.is_go_linkless ? 'text-amber-400' : 'text-emerald-400'" x-text="dossier?.algorithmic_intelligence?.is_go_linkless ? 'Yes (Organic Linkless)' : 'No (Commercial Outlink)'"></span>
+                </div>
+                <template x-if="dossier?.creative?.domain">
+                  <div class="flex items-center justify-between">
+                    <span class="text-slate-400">Target Domain</span>
+                    <a :href="'/domains?q=' + encodeURIComponent(dossier.creative.domain)" class="font-mono text-sky-400 font-bold hover:underline" x-text="dossier.creative.domain"></a>
+                  </div>
+                </template>
+                <template x-if="dossier?.creative?.destination_url">
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="text-slate-400 shrink-0">Destination URL</span>
+                    <div class="flex items-center gap-1 truncate">
+                      <a :href="safeUrl(dossier.creative.destination_url)" target="_blank" rel="noopener noreferrer" class="font-mono text-sky-400 hover:underline truncate max-w-[180px]" x-text="dossier.creative.destination_url"></a>
+                      <button type="button" @click="copyUrl(dossier.creative.destination_url)" class="text-slate-400 hover:text-white text-[10px] cursor-pointer">📋</button>
+                    </div>
+                  </div>
+                </template>
+                <template x-if="dossier?.algorithmic_intelligence?.tracked_link || dossier?.creative?.tracked_link">
+                  <div class="flex items-center justify-between gap-2 pt-1 border-t border-[#1E1E22]">
+                    <span class="text-slate-400 shrink-0">Affiliate Tracking URL</span>
+                    <div class="flex items-center gap-1 truncate">
+                      <span class="font-mono text-[11px] text-amber-300 truncate max-w-[180px]" x-text="dossier.algorithmic_intelligence.tracked_link || dossier.creative.tracked_link"></span>
+                      <button type="button" @click="copyText(dossier.algorithmic_intelligence.tracked_link || dossier.creative.tracked_link, 'Tracked Link')" class="text-slate-400 hover:text-white text-[10px] cursor-pointer">📋</button>
+                    </div>
+                  </div>
+                </template>
+                <template x-if="dossier?.algorithmic_intelligence?.affiliate_networks?.length">
+                  <div class="space-y-1 pt-1 border-t border-[#1E1E22]">
+                    <span class="text-slate-400">Affiliate Networks:</span>
                     <div class="flex items-center gap-1.5 flex-wrap">
-                      <template x-for="obj in dossier.algorithmic_intelligence.visual_objects" :key="obj">
-                        <span class="px-2 py-0.5 rounded bg-[#18181B] border border-[#27272A] text-slate-300 text-[11px]" x-text="obj"></span>
+                      <template x-for="net in dossier.algorithmic_intelligence.affiliate_networks" :key="net">
+                        <span class="px-2 py-0.5 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-800 text-[11px] font-semibold" x-text="net"></span>
                       </template>
                     </div>
                   </div>
@@ -1051,28 +1210,55 @@ export function getPinDetailPageHtml(pinId = '') {
               </div>
             </div>
 
-            <!-- Card 4: Arbitrage & Commercial Readiness -->
+            <!-- Card 6: Audience Reactions & Engagement Breakdown -->
             <div class="p-4 rounded-xl border border-[#27272A] bg-[#121215] space-y-3">
-              <div class="text-xs font-bold uppercase tracking-wider text-slate-400 border-b border-[#27272A] pb-2">
-                Arbitrage & Commercial Readiness
+              <div class="text-xs font-bold uppercase tracking-wider text-slate-400 border-b border-[#27272A] pb-2 flex items-center justify-between">
+                <span>Audience Reactions & Engagement</span>
+                <span class="text-pink-400 text-[11px]">Reactions Breakdown</span>
               </div>
               <div class="space-y-2 text-xs">
                 <div class="flex items-center justify-between">
-                  <span class="text-slate-400">Linkless Pin</span>
-                  <span class="font-bold" :class="dossier?.algorithmic_intelligence?.is_go_linkless ? 'text-amber-400' : 'text-emerald-400'" x-text="dossier?.algorithmic_intelligence?.is_go_linkless ? 'Yes (No Outlink)' : 'No (Commercial Outlink)'"></span>
+                  <span class="text-slate-400">Total Reactions</span>
+                  <span class="font-mono tabular-nums font-bold text-white" x-text="formatNumber(dossier?.creative?.reaction_count || latestSnapshot()?.reaction_count || 0)"></span>
                 </div>
-                <template x-if="dossier?.creative?.domain">
-                  <div class="flex items-center justify-between">
-                    <span class="text-slate-400">Target Domain</span>
-                    <span class="font-mono text-sky-400 font-bold" x-text="dossier.creative.domain"></span>
+                <!-- Reaction Types Breakdown Chips -->
+                <div class="grid grid-cols-5 gap-1 pt-1 border-t border-[#1E1E22] text-center">
+                  <div class="p-1.5 rounded bg-[#18181B] border border-[#27272A]">
+                    <div class="text-sm">❤️</div>
+                    <div class="text-[10px] font-mono tabular-nums text-slate-300 mt-0.5 font-bold" x-text="getReactionCount('love')"></div>
+                    <div class="text-[8px] text-slate-500 uppercase">Love</div>
                   </div>
-                </template>
+                  <div class="p-1.5 rounded bg-[#18181B] border border-[#27272A]">
+                    <div class="text-sm">💡</div>
+                    <div class="text-[10px] font-mono tabular-nums text-slate-300 mt-0.5 font-bold" x-text="getReactionCount('idea')"></div>
+                    <div class="text-[8px] text-slate-500 uppercase">Idea</div>
+                  </div>
+                  <div class="p-1.5 rounded bg-[#18181B] border border-[#27272A]">
+                    <div class="text-sm">😂</div>
+                    <div class="text-[10px] font-mono tabular-nums text-slate-300 mt-0.5 font-bold" x-text="getReactionCount('haha')"></div>
+                    <div class="text-[8px] text-slate-500 uppercase">Haha</div>
+                  </div>
+                  <div class="p-1.5 rounded bg-[#18181B] border border-[#27272A]">
+                    <div class="text-sm">😮</div>
+                    <div class="text-[10px] font-mono tabular-nums text-slate-300 mt-0.5 font-bold" x-text="getReactionCount('wow')"></div>
+                    <div class="text-[8px] text-slate-500 uppercase">Wow</div>
+                  </div>
+                  <div class="p-1.5 rounded bg-[#18181B] border border-[#27272A]">
+                    <div class="text-sm">👍</div>
+                    <div class="text-[10px] font-mono tabular-nums text-slate-300 mt-0.5 font-bold" x-text="getReactionCount('good_try')"></div>
+                    <div class="text-[8px] text-slate-500 uppercase">Tried</div>
+                  </div>
+                </div>
+                <div class="flex items-center justify-between pt-1 border-t border-[#1E1E22]">
+                  <span class="text-slate-400">Virality / Repin Ratio</span>
+                  <span class="font-mono tabular-nums text-indigo-400 font-semibold" x-text="formatViralityRatio()"></span>
+                </div>
               </div>
             </div>
 
           </div>
 
-          <!-- Card 5: Collapsible Raw JSON Forensic Inspector -->
+          <!-- Card 7: Collapsible Raw JSON Forensic Inspector -->
           <details class="p-4 rounded-xl border border-[#27272A] bg-[#121215] text-xs">
             <summary class="font-bold text-slate-400 hover:text-white cursor-pointer select-none">
               🔬 Deep Forensic JSON Dossier (Raw Telemetry Blob)
@@ -1087,7 +1273,6 @@ export function getPinDetailPageHtml(pinId = '') {
             </div>
           </details>
         </div>
-
       </div>
 
     </div>
@@ -1144,6 +1329,8 @@ export function getPinDetailPageHtml(pinId = '') {
         dossier: null,
         activeTab: 'ledger',
         chartTimeframe: 'all',
+        chartMetric: 'saves',
+        isDark: true,
         hoveredChartPoint: null,
         realWidth: 0,
         realHeight: 0,
@@ -1310,6 +1497,7 @@ export function getPinDetailPageHtml(pinId = '') {
         },
 
         async init() {
+          this.initTheme();
           let hasUrlContext = false;
           // Tier 1: URL Query Parameters
           if (typeof window !== 'undefined' && window.location && window.location.search) {
@@ -1541,6 +1729,93 @@ export function getPinDetailPageHtml(pinId = '') {
           }
         },
 
+        initTheme() {
+          if (typeof localStorage !== 'undefined') {
+            const saved = localStorage.getItem('pa_theme');
+            if (saved === 'light') {
+              this.isDark = false;
+              if (typeof document !== 'undefined') {
+                document.documentElement.classList.remove('dark');
+                document.documentElement.classList.add('light');
+              }
+            } else {
+              this.isDark = true;
+              if (typeof document !== 'undefined') {
+                document.documentElement.classList.add('dark');
+                document.documentElement.classList.remove('light');
+              }
+            }
+          }
+        },
+
+        toggleTheme() {
+          this.isDark = !this.isDark;
+          if (typeof localStorage !== 'undefined') {
+            localStorage.setItem('pa_theme', this.isDark ? 'dark' : 'light');
+          }
+          if (typeof document !== 'undefined') {
+            if (this.isDark) {
+              document.documentElement.classList.add('dark');
+              document.documentElement.classList.remove('light');
+            } else {
+              document.documentElement.classList.remove('dark');
+              document.documentElement.classList.add('light');
+            }
+          }
+        },
+
+        formatOriginPinner() {
+          const op = this.dossier?.algorithmic_intelligence?.origin_pinner;
+          if (!op) return '100% Original Creator';
+          if (typeof op === 'string') return op;
+          const username = op.username || op.user_name || op.full_name || '';
+          const followers = op.follower_count || op.followers;
+          if (username && followers) {
+            return '@' + username + ' (' + this.formatNumber(followers) + ' followers)';
+          }
+          if (username) return '@' + username;
+          return op.name || op.title || 'Original Creator';
+        },
+
+        formatInterestName(interest) {
+          if (!interest) return '';
+          if (typeof interest === 'string') return interest;
+          if (typeof interest === 'object') {
+            return interest.name || interest.title || interest.term || interest.label || '';
+          }
+          return String(interest);
+        },
+
+        formatCategoryCrumb(crumb) {
+          if (!crumb) return '';
+          if (typeof crumb === 'string') return crumb;
+          if (typeof crumb === 'object') {
+            return crumb.name || crumb.title || crumb.label || '';
+          }
+          return String(crumb);
+        },
+
+        formatVisualObject(obj) {
+          if (!obj) return '';
+          if (typeof obj === 'string') return obj;
+          if (typeof obj === 'object') {
+            return obj.label || obj.name || obj.title || obj.tag || JSON.stringify(obj);
+          }
+          return String(obj);
+        },
+
+        getReactionCount(type) {
+          const rx = this.dossier?.algorithmic_intelligence?.reactions;
+          if (rx && typeof rx === 'object') {
+            if (type === 'love') return this.formatNumber(rx['1'] || rx.love || 0);
+            if (type === 'idea') return this.formatNumber(rx['12'] || rx.idea || 0);
+            if (type === 'haha') return this.formatNumber(rx['2'] || rx.haha || 0);
+            if (type === 'wow') return this.formatNumber(rx['3'] || rx.wow || 0);
+            if (type === 'good_try') return this.formatNumber(rx['7'] || rx.good_try || 0);
+          }
+          return '0';
+        },
+
         safeColor(c) {
           if (!c) return '#888888';
           const s = String(c).trim();
@@ -1608,14 +1883,34 @@ export function getPinDetailPageHtml(pinId = '') {
         },
 
         chronologicalSnapshots() {
-          return [...(this.dossier?.snapshots || [])].reverse();
+          const rawDays = (this.dossier?.daily_trajectory && this.dossier.daily_trajectory.length > 0)
+            ? this.dossier.daily_trajectory
+            : (this.dossier?.snapshots || []);
+          const dayMap = new Map();
+          for (const s of rawDays) {
+            const d = s.snapshot_date ? String(s.snapshot_date).slice(0, 10) : '';
+            if (d && !dayMap.has(d)) dayMap.set(d, s);
+          }
+          let days = Array.from(dayMap.values()).sort((a, b) => String(a.snapshot_date).localeCompare(String(b.snapshot_date)));
+          if (this.chartTimeframe === '7d') days = days.slice(-7);
+          else if (this.chartTimeframe === '14d') days = days.slice(-14);
+          else if (this.chartTimeframe === '30d') days = days.slice(-30);
+          return days;
         },
 
         computeChartPoints() {
           const snaps = this.chronologicalSnapshots();
           if (snaps.length < 2) return [];
 
-          const values = snaps.map(s => (Number.isFinite(Number(s?.save_count)) ? Math.max(0, Number(s.save_count)) : 0));
+          const isVel = this.chartMetric === 'velocity';
+          const values = snaps.map(s => {
+            if (isVel) {
+              const v = Number(s?.daily_save_velocity);
+              return Number.isFinite(v) ? v : 0;
+            }
+            const rawVal = Number(s?.save_count);
+            return Number.isFinite(rawVal) ? Math.max(0, rawVal) : 0;
+          });
           const minY = Math.min(...values);
           const maxY = Math.max(...values);
           const rangeY = (maxY - minY) || 1;
@@ -1627,15 +1922,16 @@ export function getPinDetailPageHtml(pinId = '') {
 
           return snaps.map((s, i) => {
             const x = padX + (i / (snaps.length - 1)) * (width - 2 * padX);
-            const rawVal = Number(s?.save_count);
-            const val = Number.isFinite(rawVal) ? Math.max(0, rawVal) : 0;
+            const rawVal = isVel ? Number(s?.daily_save_velocity) : Number(s?.save_count);
+            const val = Number.isFinite(rawVal) ? (isVel ? rawVal : Math.max(0, rawVal)) : 0;
             const y = (maxY === minY)
               ? (height / 2)
               : ((height - padY) - ((val - minY) / rangeY) * (height - 2 * padY));
             return {
               x: Number.isFinite(x) ? Number(x.toFixed(2)) : padX,
               y: Number.isFinite(y) ? Number(y.toFixed(2)) : 90,
-              snapshot: s
+              snapshot: s,
+              value: val
             };
           });
         },

@@ -378,8 +378,29 @@ export function enforceNeonPoolerUrl(url) {
 }
 
 /**
+ * Resolves the database topology configured for the environment.
+ * Default: 'sharded_neon' (1 Central Hub + 99 Storage Shards).
+ * Cloud VPS Option: 'unified_postgres' (Single self-hosted Postgres database containing Hub + all Shard tables).
+ * @param {object} [env] - Cloudflare Worker environment or null
+ * @returns {'sharded_neon'|'unified_postgres'}
+ */
+export function getDatabaseTopology(env = null) {
+  const top = (
+    env?.DATABASE_TOPOLOGY ||
+    (typeof process !== 'undefined' ? process.env?.DATABASE_TOPOLOGY : '') ||
+    'sharded_neon'
+  ).toLowerCase().trim();
+  return top === 'unified_postgres' ? 'unified_postgres' : 'sharded_neon';
+}
+
+export function isUnifiedPostgres(env = null) {
+  return getDatabaseTopology(env) === 'unified_postgres';
+}
+
+/**
  * 2. Zero-Secrets Dynamic Connection Routing
  * Resolves a Neon SQL client for a target shard without storing 99 separate secrets.
+ * If DATABASE_TOPOLOGY is 'unified_postgres', routes deterministically to hubSql (single VPS database).
  *
  * Precedence:
  * 1. In-memory connection cache (instant lookup).
@@ -408,6 +429,16 @@ export async function resolveShardConnection(optionsOrShardId, envFallback = nul
   }
   const cleanId = Math.max(1, Math.min(99, Number(shardId) || 1));
   const shardName = getShardProjectName(cleanId, prefix);
+
+  // 0. Cloud VPS Unified-Postgres Topology Adapter
+  const topology = getDatabaseTopology(env);
+  if (topology === 'unified_postgres') {
+    if (hubSql) return hubSql;
+    const defaultDsn = env?.DATABASE_URL || (typeof process !== 'undefined' ? process.env?.DATABASE_URL : null);
+    if (defaultDsn && isValidShardDsn(defaultDsn)) {
+      return getOrCreateShardSqlClient(enforceNeonPoolerUrl(defaultDsn));
+    }
+  }
 
   // 1. Template-based Resolution (Zero database roundtrip)
   const template = dsnTemplate || (typeof process !== 'undefined' ? process.env.NEON_SHARD_DSN_TEMPLATE : null);
@@ -1392,8 +1423,9 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
 
   // Auto-Backfill / Write-Through: Ensure shard has the latest rich treasures
   const shouldBackfillShard = !initialMaster && !d1Record && shardSql && shardSql !== hubSql && masterRecord;
+  const shouldBackfillUnified = isUnifiedPostgres(env) && !initialMaster && !d1Record && shardSql && masterRecord;
 
-  if (shouldBackfillShard) {
+  if (shouldBackfillShard || shouldBackfillUnified) {
     const backfillPromise = (async () => {
       try {
         const backfillCandidates = [
@@ -1539,11 +1571,12 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
   // [INVARIANT: ZERO-HUB-SNAPSHOTS]
   // Synthesize live in-memory SERP points from Hub active catalog (read-time only, no DB writes)
   // Decoupled from strict todayUtc: Any valid crawl date represents a valid telemetry capture point
-  const deletedSnapshotDates = new Set(
-    Array.isArray(masterRecord?.metadata?.deleted_snapshot_dates)
-      ? masterRecord.metadata.deleted_snapshot_dates
-      : []
-  );
+  // [INVARIANT: DUAL-PILLAR-TOMBSTONE] Union tombstones across Shard masterRecord, Central Hub metadata, and D1 cache (NL-04)
+  const deletedSnapshotDates = new Set([
+    ...(Array.isArray(masterRecord?.metadata?.deleted_snapshot_dates) ? masterRecord.metadata.deleted_snapshot_dates : []),
+    ...(Array.isArray(topHubMeta?.deleted_snapshot_dates) ? topHubMeta.deleted_snapshot_dates : []),
+    ...(Array.isArray(d1Record?.metadata?.deleted_snapshot_dates) ? d1Record.metadata.deleted_snapshot_dates : [])
+  ]);
 
   for (const sc of hubSerpRows) {
     const crawlDate = sc.crawled_at || sc.updated_at;
@@ -1662,7 +1695,7 @@ export async function fetchUniversalPinDossier({ hubSql, pinId, ctx = null, env 
   );
 
   // Non-blocking Read-Repair: Backfill missing historical Hub snapshots into target shard
-  if (shardSql && shardSql !== hubSql && missingFromShard.length > 0 && !reconcilingPins.has(cleanPinId)) {
+  if (shardSql && (shardSql !== hubSql || isUnifiedPostgres(env)) && missingFromShard.length > 0 && !reconcilingPins.has(cleanPinId)) {
     reconcilingPins.add(cleanPinId);
     const repairPromise = (async () => {
       try {
@@ -2631,7 +2664,7 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
         THEN EXCLUDED.visual_annotations 
         ELSE universal_master_pins.visual_annotations 
       END,
-      metadata = COALESCE(universal_master_pins.metadata, '{}'::jsonb) || EXCLUDED.metadata
+      metadata = (COALESCE(universal_master_pins.metadata, '{}'::jsonb) || EXCLUDED.metadata
         || CASE
              WHEN COALESCE(NULLIF(universal_master_pins.metadata->>'creation_method', ''), NULLIF(universal_master_pins.metadata->>'method', '')) IS NOT NULL 
               AND LOWER(TRIM(COALESCE(NULLIF(universal_master_pins.metadata->>'creation_method', ''), NULLIF(universal_master_pins.metadata->>'method', '')))) NOT IN ('pinterest_platform')
@@ -2642,7 +2675,12 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
                'method', COALESCE(NULLIF(universal_master_pins.metadata->>'creation_method', ''), NULLIF(universal_master_pins.metadata->>'method', ''))
              )
              ELSE '{}'::jsonb
-           END,
+           END) - 'deleted_snapshot_dates'
+        || jsonb_build_object('deleted_snapshot_dates', (
+             SELECT COALESCE(jsonb_agg(elem), '[]'::jsonb)
+             FROM jsonb_array_elements_text(COALESCE(universal_master_pins.metadata->'deleted_snapshot_dates', '[]'::jsonb)) AS elem
+             WHERE elem <> (NOW() AT TIME ZONE 'UTC')::date::text
+           )),
       created_at_pinterest = COALESCE(EXCLUDED.created_at_pinterest, universal_master_pins.created_at_pinterest),
       updated_at = NOW();
   `;
@@ -2884,7 +2922,7 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
           THEN ${syncVelocity}
           ELSE daily_save_velocity
         END,
-        metadata = (CASE WHEN jsonb_typeof(metadata) = 'object' THEN metadata ELSE '{}'::jsonb END) 
+        metadata = ((CASE WHEN jsonb_typeof(metadata) = 'object' THEN metadata ELSE '{}'::jsonb END) 
           || ${JSON.stringify(rawMetaToStore)}::jsonb
           || CASE
                WHEN COALESCE(NULLIF(metadata->>'creation_method', ''), NULLIF(metadata->>'method', '')) IS NOT NULL 
@@ -2895,7 +2933,12 @@ export async function syncPinAcrossAllFourPillars({ hubSql, pinId, scrapedPin, e
                  'method', COALESCE(NULLIF(metadata->>'creation_method', ''), NULLIF(metadata->>'method', ''))
                )
                ELSE '{}'::jsonb
-             END,
+             END) - 'deleted_snapshot_dates'
+          || jsonb_build_object('deleted_snapshot_dates', (
+               SELECT COALESCE(jsonb_agg(elem), '[]'::jsonb)
+               FROM jsonb_array_elements_text(COALESCE(keyword_serp_current.metadata->'deleted_snapshot_dates', '[]'::jsonb)) AS elem
+               WHERE elem <> (NOW() AT TIME ZONE 'UTC')::date::text
+             )),
         crawled_at = NOW(),
         updated_at = NOW()
       WHERE pin_id = ${cleanPinId};

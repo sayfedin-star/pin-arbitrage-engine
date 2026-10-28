@@ -19,6 +19,41 @@ import {
 
 import { fetchPinFromPinterest } from '../../scripts/lib/pinterest.mjs';
 
+// [INVARIANT: DUAL-PILLAR-TOMBSTONE] Record deleted date in BOTH Shard masterRecord and Central Hub keyword_serp_current (NL-04)
+async function recordDeletedSnapshotTombstone({ shardSql, hubSql, pinId, targetDate }) {
+  if (!targetDate) return;
+  const shardP = shardSql ? shardSql`
+    INSERT INTO universal_master_pins (pin_id, metadata, updated_at)
+    VALUES (${pinId}, jsonb_build_object('deleted_snapshot_dates', jsonb_build_array(${targetDate})), NOW())
+    ON CONFLICT (pin_id) DO UPDATE
+    SET metadata = jsonb_set(
+      COALESCE(universal_master_pins.metadata, '{}'::jsonb),
+      '{deleted_snapshot_dates}',
+      (
+        SELECT jsonb_agg(DISTINCT elem)
+        FROM jsonb_array_elements_text(COALESCE(universal_master_pins.metadata->'deleted_snapshot_dates', '[]'::jsonb) || to_jsonb(${targetDate}::text)) AS elem
+      )
+    ),
+    updated_at = NOW();
+  `.catch(() => {}) : Promise.resolve();
+
+  const hubP = hubSql ? hubSql`
+    UPDATE keyword_serp_current
+    SET metadata = jsonb_set(
+      COALESCE(metadata, '{}'::jsonb),
+      '{deleted_snapshot_dates}',
+      (
+        SELECT jsonb_agg(DISTINCT elem)
+        FROM jsonb_array_elements_text(COALESCE(metadata->'deleted_snapshot_dates', '[]'::jsonb) || to_jsonb(${targetDate}::text)) AS elem
+      )
+    )
+    WHERE pin_id = ${pinId};
+  `.catch(() => {}) : Promise.resolve();
+
+  await Promise.all([shardP, hubP]);
+}
+
+
 /**
  * Fast URI discriminator for Pins routes
  */
@@ -107,19 +142,8 @@ export async function handlePinsRoutes({
             DELETE FROM pins_daily_metrics
             WHERE pin_id = ${pinId} AND snapshot_date = ${targetDate}::date;
           `.catch(() => {});
-          // [INVARIANT: TOMBSTONE-DELETED-SNAPSHOT] Record deleted date to prevent zombie resurrection (L-04)
-          await shardSql`
-            UPDATE universal_master_pins
-            SET metadata = jsonb_set(
-              COALESCE(metadata, '{}'::jsonb),
-              '{deleted_snapshot_dates}',
-              (
-                SELECT jsonb_agg(DISTINCT elem)
-                FROM jsonb_array_elements_text(COALESCE(metadata->'deleted_snapshot_dates', '[]'::jsonb) || to_jsonb(${targetDate}::text)) AS elem
-              )
-            )
-            WHERE pin_id = ${pinId};
-          `.catch(() => {});
+          // [INVARIANT: DUAL-PILLAR-TOMBSTONE] Record deleted date in BOTH Shard and Central Hub (NL-04)
+          await recordDeletedSnapshotTombstone({ shardSql, hubSql: sql, pinId, targetDate });
         }
       } else {
         await shardSql`
@@ -130,19 +154,8 @@ export async function handlePinsRoutes({
           DELETE FROM pins_daily_metrics
           WHERE pin_id = ${pinId} AND snapshot_date = ${targetDate}::date;
         `.catch(() => {});
-        // [INVARIANT: TOMBSTONE-DELETED-SNAPSHOT] Record deleted date to prevent zombie resurrection (L-04)
-        await shardSql`
-          UPDATE universal_master_pins
-          SET metadata = jsonb_set(
-            COALESCE(metadata, '{}'::jsonb),
-            '{deleted_snapshot_dates}',
-            (
-              SELECT jsonb_agg(DISTINCT elem)
-              FROM jsonb_array_elements_text(COALESCE(metadata->'deleted_snapshot_dates', '[]'::jsonb) || to_jsonb(${targetDate}::text)) AS elem
-            )
-          )
-          WHERE pin_id = ${pinId};
-        `.catch(() => {});
+        // [INVARIANT: DUAL-PILLAR-TOMBSTONE] Record deleted date in BOTH Shard and Central Hub (NL-04)
+        await recordDeletedSnapshotTombstone({ shardSql, hubSql: sql, pinId, targetDate });
       }
     }
 
@@ -207,19 +220,8 @@ export async function handlePinsRoutes({
         DELETE FROM pins_daily_metrics
         WHERE pin_id = ${pinId} AND snapshot_date = ${snapshotDate}::date;
       `.catch(() => {});
-      // [INVARIANT: TOMBSTONE-DELETED-SNAPSHOT] Record deleted date to prevent zombie resurrection (L-04)
-      await shardSql`
-        UPDATE universal_master_pins
-        SET metadata = jsonb_set(
-          COALESCE(metadata, '{}'::jsonb),
-          '{deleted_snapshot_dates}',
-          (
-            SELECT jsonb_agg(DISTINCT elem)
-            FROM jsonb_array_elements_text(COALESCE(metadata->'deleted_snapshot_dates', '[]'::jsonb) || to_jsonb(${snapshotDate}::text)) AS elem
-          )
-        )
-        WHERE pin_id = ${pinId};
-      `.catch(() => {});
+      // [INVARIANT: DUAL-PILLAR-TOMBSTONE] Record deleted date in BOTH Shard and Central Hub (NL-04)
+      await recordDeletedSnapshotTombstone({ shardSql, hubSql: sql, pinId, targetDate: snapshotDate });
     }
 
     await invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
@@ -276,19 +278,8 @@ export async function handlePinsRoutes({
       WHERE pin_id = ${pinId} AND snapshot_date = ${snapshotDate}::date;
     `.catch(() => {});
 
-    // [INVARIANT: TOMBSTONE-DELETED-SNAPSHOT] Record deleted date in master pin metadata (L-04)
-    await shardSql`
-      UPDATE universal_master_pins
-      SET metadata = jsonb_set(
-        COALESCE(metadata, '{}'::jsonb),
-        '{deleted_snapshot_dates}',
-        (
-          SELECT jsonb_agg(DISTINCT elem)
-          FROM jsonb_array_elements_text(COALESCE(metadata->'deleted_snapshot_dates', '[]'::jsonb) || to_jsonb(${snapshotDate}::text)) AS elem
-        )
-      )
-      WHERE pin_id = ${pinId};
-    `.catch(() => {});
+    // [INVARIANT: DUAL-PILLAR-TOMBSTONE] Record deleted date in BOTH Shard and Central Hub (NL-04)
+    await recordDeletedSnapshotTombstone({ shardSql, hubSql: sql, pinId, targetDate: snapshotDate });
 
     await invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
     await invalidateEdgeCache(buildCanonicalCacheKey('pin:dossier', { pin_id: pinId }));
