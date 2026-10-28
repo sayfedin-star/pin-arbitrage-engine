@@ -1505,6 +1505,19 @@ export function getDiscoveryPageHtml() {
         }
       };
     }
+    if (typeof document !== 'undefined') {
+      const initLucide = () => {
+        if (typeof window !== 'undefined' && window.lucide && typeof window.lucide.createIcons === 'function') {
+          window.lucide.createIcons();
+        }
+      };
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initLucide);
+      } else {
+        initLucide();
+      }
+      window.addEventListener('load', initLucide);
+    }
   </script>
   ${getEdgeShieldClientScript()}
 </body>

@@ -352,5 +352,27 @@ export function renderAppSidebar({
       </div>
     </div>
   </aside>
+
+  <script>
+    (function() {
+      function refreshAppSidebarIcons() {
+        if (typeof window !== 'undefined' && window.lucide && typeof window.lucide.createIcons === 'function') {
+          window.lucide.createIcons();
+        }
+      }
+      if (typeof document !== 'undefined') {
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', refreshAppSidebarIcons);
+        } else {
+          refreshAppSidebarIcons();
+        }
+        window.addEventListener('load', refreshAppSidebarIcons);
+        document.addEventListener('alpine:initialized', refreshAppSidebarIcons);
+        setTimeout(refreshAppSidebarIcons, 50);
+        setTimeout(refreshAppSidebarIcons, 250);
+        setTimeout(refreshAppSidebarIcons, 1000);
+      }
+    })();
+  </script>
 `;
 }

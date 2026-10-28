@@ -1670,11 +1670,23 @@ export function getCampaignFoldersPageHtml(folderId = '') {
             document.documentElement.classList.remove('dark');
           }
 
+          this.$nextTick(() => {
+            if (typeof window !== 'undefined' && window.lucide && typeof window.lucide.createIcons === 'function') {
+              window.lucide.createIcons();
+            }
+          });
+
           if (this.activeFolderId) {
             await this.loadActiveFolder();
           } else {
             await this.loadFolders();
           }
+
+          this.$nextTick(() => {
+            if (typeof window !== 'undefined' && window.lucide && typeof window.lucide.createIcons === 'function') {
+              window.lucide.createIcons();
+            }
+          });
         },
 
         toggleTheme() {
@@ -2458,6 +2470,19 @@ export function getCampaignFoldersPageHtml(folderId = '') {
           return Number(n || 0).toLocaleString();
         }
       };
+    }
+    if (typeof document !== 'undefined') {
+      const initLucide = () => {
+        if (typeof window !== 'undefined' && window.lucide && typeof window.lucide.createIcons === 'function') {
+          window.lucide.createIcons();
+        }
+      };
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initLucide);
+      } else {
+        initLucide();
+      }
+      window.addEventListener('load', initLucide);
     }
   </script>
   ${getEdgeShieldClientScript()}
