@@ -262,9 +262,29 @@ export async function ensureEdgeFoldersTable(env) {
         color TEXT DEFAULT '#e60023',
         description TEXT,
         item_count INTEGER DEFAULT 0,
+        keyword_count INTEGER DEFAULT 0,
+        creator_count INTEGER DEFAULT 0,
+        domain_count INTEGER DEFAULT 0,
+        pinned_domain_count INTEGER DEFAULT 0,
+        status TEXT DEFAULT 'active',
+        metadata TEXT DEFAULT '{}',
         updated_at TEXT DEFAULT (datetime('now'))
       )
     `).run().catch(() => {});
+
+    // [INVARIANT: D1-SCHEMA-MIGRATION-IDEMPOTENT] Guarded ALTER TABLE column migrations for existing D1 databases
+    const migrations = [
+      'ALTER TABLE edge_campaign_folders ADD COLUMN keyword_count INTEGER DEFAULT 0',
+      'ALTER TABLE edge_campaign_folders ADD COLUMN creator_count INTEGER DEFAULT 0',
+      'ALTER TABLE edge_campaign_folders ADD COLUMN domain_count INTEGER DEFAULT 0',
+      'ALTER TABLE edge_campaign_folders ADD COLUMN pinned_domain_count INTEGER DEFAULT 0',
+      "ALTER TABLE edge_campaign_folders ADD COLUMN status TEXT DEFAULT 'active'",
+      "ALTER TABLE edge_campaign_folders ADD COLUMN metadata TEXT DEFAULT '{}'"
+    ];
+    for (const sql of migrations) {
+      await env.PIN_D1_DB.prepare(sql).run().catch(() => {});
+    }
+
     isEdgeFoldersTableReady = true;
   } catch (err) {
     console.warn('[ensureEdgeFoldersTable] Non-fatal init error:', redactSecrets(err.message));
@@ -282,24 +302,44 @@ export async function syncFolderToD1(env, folder) {
     const name = String(folder.name || 'Untitled');
     const color = String(folder.color || '#e60023');
     const description = folder.description || null;
-    const itemCount = Math.max(0, Number(
+    const keywordCount = Math.max(0, Number(
       folder.keyword_count ??
       folder.item_count ??
       (Array.isArray(folder.items) ? folder.items.length : 0) ??
       0
     ));
+    const itemCount = keywordCount;
+    const creatorCount = Math.max(0, Number(folder.creator_count || 0));
+    const domainCount = Math.max(0, Number(folder.domain_count || 0));
+    const pinnedDomainCount = Math.max(0, Number(folder.pinned_domain_count || 0));
+    const status = String(folder.status || 'active');
+    const metadata = typeof folder.metadata === 'object' && folder.metadata !== null
+      ? JSON.stringify(folder.metadata)
+      : (typeof folder.metadata === 'string' ? folder.metadata : '{}');
     const updatedAt = new Date().toISOString();
 
     await env.PIN_D1_DB.prepare(`
-      INSERT INTO edge_campaign_folders (id, name, color, description, item_count, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO edge_campaign_folders (
+        id, name, color, description, item_count, keyword_count,
+        creator_count, domain_count, pinned_domain_count, status, metadata, updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         name = excluded.name,
         color = excluded.color,
         description = excluded.description,
         item_count = excluded.item_count,
+        keyword_count = excluded.keyword_count,
+        creator_count = excluded.creator_count,
+        domain_count = excluded.domain_count,
+        pinned_domain_count = excluded.pinned_domain_count,
+        status = excluded.status,
+        metadata = excluded.metadata,
         updated_at = excluded.updated_at
-    `).bind(id, name, color, description, itemCount, updatedAt).run();
+    `).bind(
+      id, name, color, description, itemCount, keywordCount,
+      creatorCount, domainCount, pinnedDomainCount, status, metadata, updatedAt
+    ).run();
   } catch (err) {
     console.warn('[syncFolderToD1] Non-fatal D1 sync error:', redactSecrets(err.message));
   }
@@ -1437,7 +1477,10 @@ export default {
         const pinId = parts[0];
         if (pinId && isValidPinId(pinId)) {
           const edgeFast = await getFastEdgeDossier(pinId, env);
-          return jsonResponse(edgeFast, edgeFast.success ? 200 : 404, 300);
+          if (!edgeFast || !edgeFast.success) {
+            return jsonResponse({ success: false, not_cached: true, status: 'cache_miss' }, 200, 0);
+          }
+          return jsonResponse(edgeFast, 200, 300);
         }
       }
     }

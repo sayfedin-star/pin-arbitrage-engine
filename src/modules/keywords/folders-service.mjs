@@ -16,6 +16,16 @@
 
 import { fetchPinterestTrends } from './trends-service.mjs';
 
+export const folderTrendsCache = new Map();
+
+export function cacheFolderTrends(term, data) {
+  if (!term || typeof term !== 'string') return;
+  const cleanTerm = term.trim().toLowerCase();
+  if (cleanTerm) {
+    folderTrendsCache.set(cleanTerm, { timestamp: Date.now(), data });
+  }
+}
+
 const crossoverCache = new Map();
 const CROSSOVER_TTL_MS = 10 * 60 * 1000; // 10 minutes TTL
 const CROSSOVER_CACHE_MAX = 50;
@@ -68,6 +78,16 @@ export async function listFolders(sql, { projectId = 'default' } = {}) {
     pinned_counts AS (
       SELECT folder_id, COUNT(id)::int AS pinned_domain_count
       FROM folder_pinned_domains GROUP BY folder_id
+    ),
+    domain_counts AS (
+      SELECT kfi.folder_id, COUNT(DISTINCT LOWER(TRIM(ksc.domain)))::int AS domain_count
+      FROM keyword_folder_items kfi
+      JOIN keyword_serp_current ksc ON ksc.keyword_id = kfi.keyword_id
+      WHERE ksc.is_displaced = FALSE
+        AND ksc.domain IS NOT NULL AND ksc.domain <> ''
+        AND ksc.domain NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest.com', 'www.pinterest.com', 'pin.it', 'localhost', 'direct')
+        AND ksc.domain LIKE '%.%'
+      GROUP BY kfi.folder_id
     )
     SELECT 
       f.id,
@@ -82,7 +102,7 @@ export async function listFolders(sql, { projectId = 'default' } = {}) {
       COALESCE(kw.keyword_count, 0) AS keyword_count,
       COALESCE(cr.creator_count, 0) AS creator_count,
       COALESCE(pd.pinned_domain_count, 0) AS pinned_domain_count,
-      COALESCE(pd.pinned_domain_count, 0) AS domain_count,
+      COALESCE(dc.domain_count, 0) AS domain_count,
       COALESCE(
         (
           SELECT json_agg(json_build_object('id', tk.id, 'keyword', tk.keyword))
@@ -96,6 +116,7 @@ export async function listFolders(sql, { projectId = 'default' } = {}) {
     LEFT JOIN kw_counts kw ON kw.folder_id = f.id
     LEFT JOIN creator_counts cr ON cr.folder_id = f.id
     LEFT JOIN pinned_counts pd ON pd.folder_id = f.id
+    LEFT JOIN domain_counts dc ON dc.folder_id = f.id
     WHERE f.project_id = ${projectId}
     ORDER BY f.updated_at DESC, f.created_at DESC;
   `;
@@ -122,17 +143,29 @@ export async function getFolder(sql, folderId) {
     pinned_counts AS (
       SELECT folder_id, COUNT(id)::int AS pinned_domain_count
       FROM folder_pinned_domains WHERE folder_id = ${fid} GROUP BY folder_id
+    ),
+    domain_counts AS (
+      SELECT kfi.folder_id, COUNT(DISTINCT LOWER(TRIM(ksc.domain)))::int AS domain_count
+      FROM keyword_folder_items kfi
+      JOIN keyword_serp_current ksc ON ksc.keyword_id = kfi.keyword_id
+      WHERE kfi.folder_id = ${fid}
+        AND ksc.is_displaced = FALSE
+        AND ksc.domain IS NOT NULL AND ksc.domain <> ''
+        AND ksc.domain NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest.com', 'www.pinterest.com', 'pin.it', 'localhost', 'direct')
+        AND ksc.domain LIKE '%.%'
+      GROUP BY kfi.folder_id
     )
     SELECT 
       f.*,
       COALESCE(kw.keyword_count, 0) AS keyword_count,
       COALESCE(cr.creator_count, 0) AS creator_count,
       COALESCE(pd.pinned_domain_count, 0) AS pinned_domain_count,
-      COALESCE(pd.pinned_domain_count, 0) AS domain_count
+      COALESCE(dc.domain_count, 0) AS domain_count
     FROM keyword_folders f
     LEFT JOIN kw_counts kw ON kw.folder_id = f.id
     LEFT JOIN creator_counts cr ON cr.folder_id = f.id
     LEFT JOIN pinned_counts pd ON pd.folder_id = f.id
+    LEFT JOIN domain_counts dc ON dc.folder_id = f.id
     WHERE f.id = ${fid}
     LIMIT 1;
   `;
@@ -521,6 +554,8 @@ export async function listFolderPinnedDomains(sql, folderId) {
 
   return rows;
 }
+
+export const listPinnedDomains = listFolderPinnedDomains;
 
 /**
  * Link a creator (competitor) to a campaign folder
@@ -1463,38 +1498,35 @@ async function _executeFolderCrossover(sql, fid) {
   const compositeWeeklyWave = new Array(52).fill(0);
   let trendsLoaded = 0;
 
-  // Attempt to fetch trends for keywords (capped at 8 to guarantee Cloudflare Worker subrequest compliance <= 50, since each keyword triggers up to 5 subrequests: 8 * 5 = 40 <= 50)
-  const MAX_TRENDS_SAMPLE = 8;
-  const trendsSample = folderKeywords.slice(0, MAX_TRENDS_SAMPLE);
+  // [INVARIANT: FAST-SYNCHRONOUS-CROSSOVER-NO-EXTERNAL-FETCH]
+  // Eliminate blocking external fetchPinterestTrends calls during the synchronous read path (< 300ms SLA).
+  // Rely strictly on in-memory cache and database keyword metadata.
+  for (const kw of folderKeywords) {
+    const term = String(kw?.keyword || '').trim().toLowerCase();
+    if (!term) continue;
+    let trendData = null;
 
-  // Parallel fetch with Promise.allSettled to eliminate sequential isolate timeouts (1200ms hard cap)
-  // [INVARIANT: SAFE-EXTERNAL-FETCH-TIMEOUT]
-  // Strictly bounds external trends requests with timeout race, catch absorption, and robust timer cleanup.
-  const trendResults = await Promise.allSettled(
-    trendsSample.map(kw => {
-      const term = kw?.keyword;
-      if (!term || typeof term !== 'string' || term.trim().length < 2) {
-        return Promise.resolve(null);
+    // 1. Check in-memory trends cache
+    if (folderTrendsCache.has(term)) {
+      const entry = folderTrendsCache.get(term);
+      if (entry && (Date.now() - (entry.timestamp || 0) < 60 * 60 * 1000)) {
+        trendData = entry.data || entry;
       }
-      let timerId = null;
-      const timeoutPromise = new Promise((_, reject) => {
-        timerId = setTimeout(() => reject(new Error('Trends timeout')), 1200);
-      });
-      const task = Promise.resolve().then(() => fetchPinterestTrends(term.trim()));
-      task.catch(() => {});
-      return Promise.race([task, timeoutPromise]).finally(() => {
-        if (timerId !== null) {
-          clearTimeout(timerId);
-          timerId = null;
-        }
-      });
-    })
-  );
+    }
 
-  for (const res of trendResults) {
-    if (res.status !== 'fulfilled' || !res.value) continue;
+    // 2. Check keyword metadata from database (tk.metadata)
+    if (!trendData && kw.metadata) {
+      const meta = typeof kw.metadata === 'string'
+        ? (() => { try { return JSON.parse(kw.metadata); } catch (_) { return null; } })()
+        : kw.metadata;
+      if (meta && typeof meta === 'object') {
+        trendData = meta.trends || meta.trends_data || meta.seasonality || meta.trend_series || null;
+      }
+    }
+
+    if (!trendData) continue;
+
     try {
-      const trendData = res.value;
       const series = Array.isArray(trendData?.counts_52_weeks) && trendData.counts_52_weeks.length > 0
         ? trendData.counts_52_weeks
         : (Array.isArray(trendData?.timeline) ? trendData.timeline.map(p => p.value ?? p.normalized_interest ?? p) : null);
@@ -1529,7 +1561,7 @@ async function _executeFolderCrossover(sql, fid) {
         }
       }
     } catch (_) {
-      // Trends network fallback
+      // Trends format fallback
     }
   }
 

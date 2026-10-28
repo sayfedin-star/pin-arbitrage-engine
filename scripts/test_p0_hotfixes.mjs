@@ -294,15 +294,16 @@ await runAsyncTest('Worker prefetch intercept returns from edge cache before SQL
   assert.strictEqual(data.pin_id, samplePin);
   assert.strictEqual(data.source, 'edge_kv');
 
-  // Test 2: prefetch=true with cache miss returns 404 without touching Hyperdrive TCP
+  // Test 2: prefetch=true with cache miss returns 200 { status: 'cache_miss' } without touching Hyperdrive TCP
   const missPin = '112233445566778899';
   const reqMiss = new Request(`https://pin-engine.local/api/pins/${missPin}?prefetch=true`, {
     method: 'GET'
   });
   const resMiss = await worker.default.fetch(reqMiss, fakeEnv, { waitUntil: () => {} });
-  assert.strictEqual(resMiss.status, 404);
+  assert.strictEqual(resMiss.status, 200);
   const dataMiss = await resMiss.json();
   assert.strictEqual(dataMiss.not_cached, true);
+  assert.strictEqual(dataMiss.status, 'cache_miss');
 
   // Test 3: POST /api/pins/:id/sync?prefetch=true MUST NOT be intercepted by prefetch fast gate
   const reqPost = new Request(`https://pin-engine.local/api/pins/${samplePin}/sync?prefetch=true`, {
@@ -370,7 +371,7 @@ runTest('src/keywords-ui.mjs and src/ui/keywords-drawers.mjs contain ZERO undecl
   const kwUiContent = fs.readFileSync('src/keywords-ui.mjs', 'utf8');
   const drawersContent = fs.readFileSync('src/ui/keywords-drawers.mjs', 'utf8');
   
-  assert.strictEqual(kwUiContent.includes('activeFolderId'), false, 'keywords-ui.mjs must not reference undeclared activeFolderId');
+  assert(kwUiContent.includes('activeFolderId:'), 'keywords-ui.mjs must declare activeFolderId in keywordStudio');
   assert.strictEqual(drawersContent.includes('activeFolderId'), false, 'keywords-drawers.mjs must not reference undeclared activeFolderId');
 });
 

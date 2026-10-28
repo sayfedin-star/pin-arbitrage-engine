@@ -59,8 +59,8 @@ export function renderAppSidebar({
       </a>
     </div>
     <div class="flex items-center space-x-2">
-      <button @click="toggleTheme()" class="p-2 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition" :title="(darkMode || isDark) ? 'Light Mode' : 'Dark Mode'">
-        <i :data-lucide="(darkMode || isDark) ? 'sun' : 'moon'" class="w-4 h-4"></i>
+      <button @click="toggleTheme()" class="p-2 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition" :title="(typeof isDark !== 'undefined' ? isDark : (typeof darkMode !== 'undefined' ? darkMode : false)) ? 'Light Mode' : 'Dark Mode'">
+        <i :data-lucide="(typeof isDark !== 'undefined' ? isDark : (typeof darkMode !== 'undefined' ? darkMode : false)) ? 'sun' : 'moon'" class="w-4 h-4"></i>
       </button>
       <button @click="${refreshHandler}" class="p-2 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition" title="Refresh Data">
         <i data-lucide="rotate-cw" class="w-4 h-4"></i>
@@ -264,7 +264,7 @@ export function renderAppSidebar({
             <i data-lucide="users" class="w-4 h-4 text-purple-500 shrink-0"></i>
             <span x-show="!isSidebarCollapsed" class="truncate">Creator Hub</span>
           </div>
-          <span x-show="!isSidebarCollapsed && (typeof competitors !== 'undefined' && competitors && competitors.length > 0)" class="px-1.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-purple-500/15 text-purple-700 dark:text-purple-300" x-text="competitors.length"></span>
+          <span x-show="!isSidebarCollapsed && (typeof competitors !== 'undefined' && competitors && competitors.length > 0)" class="px-1.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-purple-500/15 text-purple-700 dark:text-purple-300" x-text="(typeof competitors !== 'undefined' && competitors) ? competitors.length : ''"></span>
           <span x-show="!isSidebarCollapsed && (typeof competitors === 'undefined' || !competitors || !competitors.length)" class="px-1.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-purple-500/15 text-purple-700 dark:text-purple-300">Ledger</span>
           <span x-show="isSidebarCollapsed" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-purple-500"></span>
         </a>
@@ -279,7 +279,7 @@ export function renderAppSidebar({
             <i data-lucide="search" class="w-4 h-4 text-emerald-500 shrink-0"></i>
             <span x-show="!isSidebarCollapsed" class="truncate">Keywords Fleet</span>
           </div>
-          <span x-show="!isSidebarCollapsed && (typeof keywords !== 'undefined' && keywords && keywords.length > 0)" class="px-2 py-0.5 rounded-full text-[11px] font-mono font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" x-text="keywords.length"></span>
+          <span x-show="!isSidebarCollapsed && (typeof keywords !== 'undefined' && keywords && keywords.length > 0)" class="px-2 py-0.5 rounded-full text-[11px] font-mono font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" x-text="(typeof keywords !== 'undefined' && keywords) ? keywords.length : ''"></span>
           <span x-show="!isSidebarCollapsed && (typeof keywords === 'undefined' || !keywords || !keywords.length)" class="px-2 py-0.5 rounded-full text-[11px] font-mono font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400">SERP</span>
           <span x-show="isSidebarCollapsed" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-emerald-500"></span>
         </a>
@@ -294,7 +294,7 @@ export function renderAppSidebar({
             <i data-lucide="globe" class="w-4 h-4 text-sky-500 shrink-0"></i>
             <span x-show="!isSidebarCollapsed" class="truncate">Domain Radar</span>
           </div>
-          <span x-show="!isSidebarCollapsed && (typeof overview !== 'undefined' && overview && overview.total_domains > 0)" class="px-1.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-sky-500/10 text-sky-700 dark:text-sky-400 border border-sky-500/20" x-text="overview.total_domains"></span>
+          <span x-show="!isSidebarCollapsed && (typeof overview !== 'undefined' && overview && overview.total_domains > 0)" class="px-1.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-sky-500/10 text-sky-700 dark:text-sky-400 border border-sky-500/20" x-text="(typeof overview !== 'undefined' && overview) ? overview.total_domains : ''"></span>
           <span x-show="!isSidebarCollapsed && (typeof overview === 'undefined' || !overview || !overview.total_domains)" class="px-1.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-sky-500/10 text-sky-700 dark:text-sky-400 border border-sky-500/20">WHOIS</span>
           <span x-show="isSidebarCollapsed" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-sky-500"></span>
         </a>
@@ -337,9 +337,9 @@ export function renderAppSidebar({
           class="flex items-center justify-center rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 transition active:scale-95 shadow-sm"
           :class="isSidebarCollapsed ? 'w-10 h-10 p-0' : 'flex-1 mr-2 space-x-2 py-2 px-3'"
           title="Switch Theme">
-          <i x-show="!darkMode && !isDark" data-lucide="moon" class="w-3.5 h-3.5"></i>
-          <i x-show="darkMode || isDark" data-lucide="sun" class="w-3.5 h-3.5"></i>
-          <span x-show="!isSidebarCollapsed" x-text="(darkMode || isDark) ? 'Light' : 'Dark'"></span>
+          <i x-show="!(typeof isDark !== 'undefined' ? isDark : (typeof darkMode !== 'undefined' ? darkMode : false))" data-lucide="moon" class="w-3.5 h-3.5"></i>
+          <i x-show="typeof isDark !== 'undefined' ? isDark : (typeof darkMode !== 'undefined' ? darkMode : false)" data-lucide="sun" class="w-3.5 h-3.5"></i>
+          <span x-show="!isSidebarCollapsed" x-text="(typeof isDark !== 'undefined' ? isDark : (typeof darkMode !== 'undefined' ? darkMode : false)) ? 'Light' : 'Dark'"></span>
         </button>
 
         <!-- Refresh Data -->

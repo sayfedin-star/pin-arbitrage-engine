@@ -122,13 +122,19 @@ function createMockD1() {
         async run() {
           const q = sqlQuery.trim();
           if (q.includes('INTO edge_campaign_folders')) {
-            const [id, name, color, description, itemCount, updatedAt] = this._bound;
+            const id = this._bound[0];
+            const name = this._bound[1];
+            const color = this._bound[2];
+            const description = this._bound[3];
+            const itemCount = this._bound[4];
+            const updatedAt = this._bound[this._bound.length - 1];
             tables.edge_campaign_folders.set(String(id), {
               id: String(id),
               name,
               color,
               description,
               item_count: itemCount,
+              keyword_count: itemCount,
               updated_at: updatedAt
             });
             return { success: true };

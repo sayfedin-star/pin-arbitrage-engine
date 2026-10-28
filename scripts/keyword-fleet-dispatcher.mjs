@@ -65,7 +65,7 @@ async function main() {
 
   const envSerpPins = process.env.MAX_SERP_PINS?.trim() || process.env.MAX_PINS?.trim();
   const maxSerpPins = (envSerpPins && !isNaN(parseInt(envSerpPins, 10)))
-    ? Math.max(25, Math.min(1000, parseInt(envSerpPins, 10)))
+    ? Math.max(10, Math.min(2000, parseInt(envSerpPins, 10)))
     : (appSettings.max_serp_pins || appSettings.default_max_pins || 50);
 
   const envCatalogInspect = process.env.MAX_CATALOG_INSPECT?.trim();
@@ -112,7 +112,7 @@ async function main() {
     }
 
     const resolvedMaxSerpPins = (!envSerpPins && folderMeta.max_serp_pins)
-      ? Math.max(25, Math.min(1000, parseInt(folderMeta.max_serp_pins, 10)))
+      ? Math.max(10, Math.min(2000, parseInt(folderMeta.max_serp_pins, 10)))
       : maxSerpPins;
     const resolvedCrawlScope = (!envCrawlScope && folderMeta.crawl_scope)
       ? String(folderMeta.crawl_scope).toLowerCase().trim()
@@ -193,7 +193,7 @@ async function main() {
         } else {
           console.log(`  [+] Auto-registering new keyword: "${kwStr}"`);
           const defaultTargetPins = maxSerpPins || 50;
-          const defaultPages = Math.min(10, Math.max(2, Math.ceil(defaultTargetPins / 25)));
+          const defaultPages = Math.min(100, Math.max(1, Math.ceil(defaultTargetPins / 25)));
           [row] = await sql`
             INSERT INTO tracked_keywords (keyword, category, target_pin_count, crawl_pages_limit, inspection_mode, is_active)
             VALUES (${kwStr}, 'General', ${defaultTargetPins}, ${defaultPages}, 'full_catalog', TRUE)
@@ -284,7 +284,7 @@ async function main() {
     } else {
       console.log(`  [+] Auto-registering keyword: "${singleKeyword}"...`);
       const defaultTargetPins = maxSerpPins || 50;
-      const defaultPages = Math.min(10, Math.max(2, Math.ceil(defaultTargetPins / 25)));
+      const defaultPages = Math.min(100, Math.max(1, Math.ceil(defaultTargetPins / 25)));
       [kwRow] = await sql`
         INSERT INTO tracked_keywords (keyword, category, target_pin_count, crawl_pages_limit, inspection_mode, is_active)
         VALUES (${singleKeyword}, 'General', ${defaultTargetPins}, ${defaultPages}, 'full_catalog', TRUE)

@@ -306,7 +306,10 @@ export async function handlePinsRoutes({
         // 2. NEVER trigger live Pinterest scraping (bgEnrichPromise)
         // 3. NEVER wake up sleeping Shard databases
         const edgeFast = await getFastEdgeDossier(pinId, env);
-        return jsonResponse(edgeFast, edgeFast.success ? 200 : 404, 300);
+        if (!edgeFast || !edgeFast.success) {
+          return jsonResponse({ success: false, not_cached: true, status: 'cache_miss' }, 200, 0);
+        }
+        return jsonResponse(edgeFast, 200, 300);
       }
 
       const forceRefresh = searchParams.get('refresh') === 'true';

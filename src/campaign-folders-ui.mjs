@@ -124,41 +124,37 @@ export function getCampaignFoldersPageHtml(folderId = '') {
   <main class="flex-1 min-h-screen p-4 sm:p-6 lg:p-8 space-y-6 max-w-full overflow-x-hidden transition-all duration-300 ease-in-out" :class="isSidebarCollapsed ? 'md:ml-20' : 'md:ml-64 lg:ml-72'">
 
     <!-- [INVARIANT: UNIFIED-SIDEBAR-LAYOUT] Studio Header Card -->
-    <section class="p-4 sm:p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-      <div class="flex items-center space-x-3.5">
-        <div class="w-10 h-10 rounded-xl bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/20 flex items-center justify-center shadow-xs shrink-0">
-          <i data-lucide="folder-kanban" class="w-5 h-5"></i>
-        </div>
-        <div>
-          <div class="flex items-center space-x-2">
-            <h2 class="text-lg sm:text-xl font-bold tracking-tight text-slate-900 dark:text-white">Campaign Folders Studio</h2>
-            <span class="px-2 py-0.5 rounded-md text-[10px] font-mono font-semibold bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/20">Level 4</span>
+    <template x-if="!activeFolderId">
+      <section class="p-4 sm:p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div class="flex items-center space-x-3.5">
+          <div class="w-10 h-10 rounded-xl bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/20 flex items-center justify-center shadow-xs shrink-0">
+            <i data-lucide="folder-kanban" class="w-5 h-5"></i>
           </div>
-          <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-normal">Multi-Keyword Clustering &amp; Crossover Matrix</p>
+          <div>
+            <div class="flex items-center space-x-2">
+              <h2 class="text-lg sm:text-xl font-bold tracking-tight text-slate-900 dark:text-white">Campaign Folders Studio</h2>
+              <span class="px-2 py-0.5 rounded-md text-[10px] font-mono font-semibold bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/20">Level 4</span>
+            </div>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-normal">Multi-Keyword Clustering &amp; Crossover Matrix</p>
+          </div>
         </div>
-      </div>
 
-      <div class="flex flex-wrap items-center gap-2">
-        <a href="/keywords" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition inline-flex items-center space-x-1.5 shadow-2xs">
-          <i data-lucide="arrow-left" class="w-3.5 h-3.5 text-slate-400"></i>
-          <span>Keywords Fleet</span>
-        </a>
-        <a href="/keywords/discovery" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition inline-flex items-center space-x-1.5 shadow-2xs">
-          <i data-lucide="compass" class="w-3.5 h-3.5 text-emerald-500"></i>
-          <span>Discovery</span>
-        </a>
-        <template x-if="activeFolderId">
-          <a href="/folders" class="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold border border-slate-300 dark:border-slate-700 transition-colors inline-flex items-center space-x-1.5">
-            <i data-lucide="arrow-left" class="w-3.5 h-3.5"></i>
-            <span>All Folders</span>
+        <div class="flex flex-wrap items-center gap-2">
+          <a href="/keywords" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition inline-flex items-center space-x-1.5 shadow-2xs">
+            <i data-lucide="arrow-left" class="w-3.5 h-3.5 text-slate-400"></i>
+            <span>Keywords Fleet</span>
           </a>
-        </template>
-        <button @click="openNewFolderModal = true" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-pink-600 hover:bg-pink-500 text-white transition inline-flex items-center space-x-1.5 shadow-xs active:scale-95 cursor-pointer">
-          <i data-lucide="plus" class="w-3.5 h-3.5"></i>
-          <span>+ New Folder</span>
-        </button>
-      </div>
-    </section>
+          <a href="/keywords/discovery" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition inline-flex items-center space-x-1.5 shadow-2xs">
+            <i data-lucide="compass" class="w-3.5 h-3.5 text-emerald-500"></i>
+            <span>Discovery</span>
+          </a>
+          <button @click="openNewFolderModal = true" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-pink-600 hover:bg-pink-500 text-white transition inline-flex items-center space-x-1.5 shadow-xs active:scale-95 cursor-pointer">
+            <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+            <span>+ New Folder</span>
+          </button>
+        </div>
+      </section>
+    </template>
 
     <!-- ========================================================================= -->
     <!-- VIEW A: STUDIO VIEW (/folders/:id)                                       -->
@@ -1298,21 +1294,31 @@ export function getCampaignFoldersPageHtml(folderId = '') {
         </div>
 
         <!-- Target Pin Quota per Keyword -->
-        <div class="flex flex-col gap-1.5">
+        <div class="flex flex-col gap-2">
           <label class="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center justify-between">
             <span>Pin Quota per Keyword (Harvest Depth)</span>
-            <span class="text-xs font-mono text-indigo-600 dark:text-indigo-400 font-bold" x-text="folderSettings.max_pins + ' pins/KW'"></span>
+            <span class="text-xs font-mono text-indigo-600 dark:text-indigo-400 font-bold" x-text="(folderSettings.max_pins || 50) + ' pins/KW (~' + Math.ceil((parseInt(folderSettings.max_pins, 10) || 50) / 25) + ' pages)'"></span>
           </label>
           <div class="grid grid-cols-4 gap-2">
             <template x-for="q in ['50', '100', '250', '500']" :key="q">
               <button type="button" @click="folderSettings.max_pins = q; folderSettings.max_serp_pins = q"
-                      class="px-2.5 py-1.5 rounded-xl text-xs font-mono font-medium border text-center transition"
-                      :class="folderSettings.max_pins === q 
+                      class="px-2.5 py-1.5 rounded-xl text-xs font-mono font-medium border text-center transition cursor-pointer"
+                      :class="String(folderSettings.max_pins) === q 
                         ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm' 
                         : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:border-slate-300'">
                 <span x-text="q + ' pins'"></span>
               </button>
             </template>
+          </div>
+          <!-- Custom Slider & Number Input -->
+          <div class="flex items-center gap-3 pt-1">
+            <input type="range" min="10" max="2000" step="5" x-model="folderSettings.max_pins" @input="folderSettings.max_serp_pins = folderSettings.max_pins"
+                   class="flex-1 accent-indigo-600 dark:accent-indigo-500 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-lg cursor-pointer">
+            <div class="flex items-center gap-1 shrink-0">
+              <input type="number" min="10" max="2000" step="5" x-model="folderSettings.max_pins" @input="folderSettings.max_serp_pins = folderSettings.max_pins"
+                     class="w-20 px-2 py-1 text-xs font-mono font-bold text-center rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500">
+              <span class="text-[10px] text-slate-400 font-mono">pins</span>
+            </div>
           </div>
         </div>
 
@@ -1373,7 +1379,7 @@ export function getCampaignFoldersPageHtml(folderId = '') {
           <span class="text-slate-400">•</span>
           <span class="font-mono text-amber-600 dark:text-amber-400 font-semibold" x-text="pendingKeywordsCount + ' Pending Harvest'"></span>
         </div>
-        <span class="text-[11px] font-mono text-slate-500" x-text="(activeFolder?.items?.length || 0) + ' Total Keywords'"></span>
+        <span class="text-[11px] font-mono text-slate-500" x-text="totalKeywordsCount + ' Total Keywords'"></span>
       </div>
 
       <!-- Modal Footer -->
@@ -1418,7 +1424,8 @@ export function getCampaignFoldersPageHtml(folderId = '') {
             if (window.lucide) window.lucide.createIcons();
           });
         },
-        darkMode: localStorage.getItem('pa_theme') !== 'light',
+        darkMode: typeof localStorage !== 'undefined' ? localStorage.getItem('pa_theme') !== 'light' : true,
+        isDark: typeof localStorage !== 'undefined' ? localStorage.getItem('pa_theme') !== 'light' : true,
         foldersList: [],
         foldersLoading: false,
         activeFolder: null,
@@ -1438,13 +1445,24 @@ export function getCampaignFoldersPageHtml(folderId = '') {
           max_catalog_inspect: '0'
         },
 
+        get totalKeywordsCount() {
+          if (this.activeFolderId) {
+            return Number(this.activeFolder?.items?.length || this.activeFolder?.keyword_count || this.crossoverData?.summary?.total_keywords || 0);
+          }
+          return (this.foldersList || []).reduce((acc, f) => acc + (Number(f.keyword_count) || 0), 0);
+        },
         get crawledKeywordsCount() {
-          if (!this.activeFolder?.items) return 0;
-          return this.activeFolder.items.filter(i => (i.pin_count > 0 || i.last_crawled_at)).length;
+          if (this.activeFolder?.items && this.activeFolder.items.length > 0) {
+            return this.activeFolder.items.filter(i => (Number(i.pin_count || 0) > 0 || Boolean(i.last_crawled_at))).length;
+          }
+          const total = this.totalKeywordsCount;
+          return total > 0 ? total : 0;
         },
         get pendingKeywordsCount() {
-          if (!this.activeFolder?.items) return 0;
-          return this.activeFolder.items.filter(i => !(i.pin_count > 0 || i.last_crawled_at)).length;
+          if (this.activeFolder?.items && this.activeFolder.items.length > 0) {
+            return this.activeFolder.items.filter(i => !(Number(i.pin_count || 0) > 0 || Boolean(i.last_crawled_at))).length;
+          }
+          return 0;
         },
         openNewFolderModal: false,
         newFolderName: '',
@@ -1661,17 +1679,23 @@ export function getCampaignFoldersPageHtml(folderId = '') {
 
         toggleTheme() {
           this.darkMode = !this.darkMode;
+          this.isDark = this.darkMode;
+          try {
+            if (typeof localStorage !== 'undefined') {
+              localStorage.setItem('pa_theme', this.darkMode ? 'dark' : 'light');
+              localStorage.setItem('pin_theme', this.darkMode ? 'dark' : 'light');
+            }
+          } catch (_) {}
           if (this.darkMode) {
             document.documentElement.classList.add('dark');
-            localStorage.setItem('pa_theme', 'dark');
-            localStorage.setItem('pin_theme', 'dark');
             this.showToast('Dark theme activated', 'info');
           } else {
             document.documentElement.classList.remove('dark');
-            localStorage.setItem('pa_theme', 'light');
-            localStorage.setItem('pin_theme', 'light');
             this.showToast('Light theme activated', 'info');
           }
+          this.$nextTick(() => {
+            if (window.lucide) window.lucide.createIcons();
+          });
         },
 
         showToast(message, type = 'info') {
@@ -1703,13 +1727,9 @@ export function getCampaignFoldersPageHtml(folderId = '') {
         },
 
         async loadActiveFolder() {
-          this.crossoverLoading = true;
+          // Phase 1: Fast metadata hydration (< 50ms)
           try {
-            const [folderRes, crossoverRes] = await Promise.all([
-              (window.safeApiFetch || fetch)('/api/folders/' + this.activeFolderId),
-              (window.safeApiFetch || fetch)('/api/folders/' + this.activeFolderId + '/raw-visual-crossover')
-            ]);
-
+            const folderRes = await (window.safeApiFetch || fetch)('/api/folders/' + this.activeFolderId);
             if (folderRes.ok) {
               const data = await folderRes.json().catch(() => ({}));
               this.activeFolder = data.folder || null;
@@ -1717,7 +1737,17 @@ export function getCampaignFoldersPageHtml(folderId = '') {
             } else {
               this.showToast('Campaign folder not found', 'error');
             }
+          } catch (e) {
+            console.error('Error fetching folder metadata:', e);
+          }
 
+          // Phase 2: Crossover Matrix analysis (< 30s)
+          this.crossoverLoading = true;
+          try {
+            const crossoverRes = await (window.safeApiFetch || fetch)('/api/folders/' + this.activeFolderId + '/raw-visual-crossover', {
+              timeout: 30000,
+              retries: 1
+            });
             if (crossoverRes.ok) {
               const cdata = await crossoverRes.json().catch(() => ({}));
               this.crossoverData = cdata.crossover || cdata;
@@ -1733,8 +1763,8 @@ export function getCampaignFoldersPageHtml(folderId = '') {
               this.showToast('Failed to compute crossover matrix', 'error');
             }
           } catch (e) {
-            console.error('Error loading active folder:', e);
-            this.showToast('Network error loading active folder', 'error');
+            console.error('Error loading crossover matrix:', e);
+            this.showToast('Crossover matrix analysis timed out or failed', 'error');
           } finally {
             this.crossoverLoading = false;
           }
@@ -2412,6 +2442,9 @@ export function getCampaignFoldersPageHtml(folderId = '') {
               this.foldersList = this.foldersList.filter(f => f.id !== id);
               this.deleteModalFolderId = null;
               this.showToast('Campaign folder deleted', 'success');
+              if (String(this.activeFolderId) === String(id)) {
+                window.location.href = '/folders';
+              }
             } else {
               const errData = await res.json().catch(() => ({}));
               this.showToast(errData.message || errData.error || 'Failed to delete folder', 'error');

@@ -116,7 +116,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
     }, 1200);
   </script>
 </head>
-<body x-cloak class="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 min-h-screen antialiased flex flex-col font-sans transition-colors duration-150" x-data="domainsApp('${safeInitialDomain}'${safeFolderId ? `, '${safeFolderId}'` : ''})" @keydown.escape.window="if (isBlueprintModalOpen) closeBlueprintModal(); else if (isDossierOpen) closeDossier();">
+<body x-cloak class="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 min-h-screen antialiased flex flex-col font-sans transition-colors duration-150" :class="(isDark || darkMode) ? 'dark' : ''" x-data="domainsApp('${safeInitialDomain}'${safeFolderId ? `, '${safeFolderId}'` : ''})" @keydown.escape.window="if (isBlueprintModalOpen) closeBlueprintModal(); else if (isDossierOpen) closeDossier();">
 
   <!-- Toast Notification Container -->
   <div class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 max-w-sm pointer-events-none">
@@ -142,35 +142,37 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
     ${safeFolderId ? renderCampaignWorkspaceHeader({ activeRoom: 'domains', folderId: safeFolderId }) : ''}
 
     <!-- [INVARIANT: UNIFIED-SIDEBAR-LAYOUT] Studio Header Card -->
-    <section class="p-4 sm:p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-      <div class="flex items-center space-x-3.5">
-        <div class="w-10 h-10 rounded-xl bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20 flex items-center justify-center shadow-xs shrink-0">
-          <i data-lucide="globe" class="w-5 h-5"></i>
-        </div>
-        <div>
-          <div class="flex items-center space-x-2">
-            <h2 class="text-lg sm:text-xl font-bold tracking-tight text-slate-900 dark:text-white">Domain Intelligence Studio</h2>
-            <span class="px-2 py-0.5 rounded-md text-[10px] font-mono font-semibold bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">Level 4B</span>
+    <template x-if="!scopedFolderId">
+      <section class="p-4 sm:p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div class="flex items-center space-x-3.5">
+          <div class="w-10 h-10 rounded-xl bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20 flex items-center justify-center shadow-xs shrink-0">
+            <i data-lucide="globe" class="w-5 h-5"></i>
           </div>
-          <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-normal">SERP Monopoly, WHOIS Age &amp; Pin-to-URL Multipliers</p>
+          <div>
+            <div class="flex items-center space-x-2">
+              <h2 class="text-lg sm:text-xl font-bold tracking-tight text-slate-900 dark:text-white">Domain Intelligence Studio</h2>
+              <span class="px-2 py-0.5 rounded-md text-[10px] font-mono font-semibold bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">Level 4B</span>
+            </div>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-normal">SERP Monopoly, WHOIS Age &amp; Pin-to-URL Multipliers</p>
+          </div>
         </div>
-      </div>
 
-      <div class="flex flex-wrap items-center gap-2">
-        <a href="/keywords/discovery" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition inline-flex items-center space-x-1.5 shadow-2xs">
-          <i data-lucide="compass" class="w-3.5 h-3.5 text-emerald-500"></i>
-          <span>Discovery</span>
-        </a>
-        <a href="/folders" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition inline-flex items-center space-x-1.5 shadow-2xs">
-          <i data-lucide="folder-kanban" class="w-3.5 h-3.5 text-pink-500"></i>
-          <span>Campaign Folders</span>
-        </a>
-        <button @click="refreshDomains()" :disabled="refreshingRollup || loading" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-sky-600 hover:bg-sky-500 text-white transition inline-flex items-center space-x-1.5 shadow-xs active:scale-95 disabled:opacity-50">
-          <i data-lucide="refresh-cw" class="w-3.5 h-3.5" :class="(refreshingRollup || loading) ? 'animate-spin' : ''"></i>
-          <span x-text="refreshingRollup ? 'Refreshing...' : 'Refresh'">Refresh</span>
-        </button>
-      </div>
-    </section>
+        <div class="flex flex-wrap items-center gap-2">
+          <a href="/keywords/discovery" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition inline-flex items-center space-x-1.5 shadow-2xs">
+            <i data-lucide="compass" class="w-3.5 h-3.5 text-emerald-500"></i>
+            <span>Discovery</span>
+          </a>
+          <a href="/folders" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition inline-flex items-center space-x-1.5 shadow-2xs">
+            <i data-lucide="folder-kanban" class="w-3.5 h-3.5 text-pink-500"></i>
+            <span>Campaign Folders</span>
+          </a>
+          <button @click="refreshDomains()" :disabled="refreshingRollup || loading" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-sky-600 hover:bg-sky-500 text-white transition inline-flex items-center space-x-1.5 shadow-xs active:scale-95 disabled:opacity-50">
+            <i data-lucide="refresh-cw" class="w-3.5 h-3.5" :class="(refreshingRollup || loading) ? 'animate-spin' : ''"></i>
+            <span x-text="refreshingRollup ? 'Refreshing...' : 'Refresh'">Refresh</span>
+          </button>
+        </div>
+      </section>
+    </template>
 
     <!-- DOMAIN RADAR LEADERBOARD VIEW -->
     <div x-show="!isDossierOpen" class="flex flex-col gap-6" ${hasInitialDomain ? 'style="display:none;"' : ''}>
@@ -260,82 +262,110 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
         <!-- Presets & Target Domains (Center) -->
         <div class="flex items-center gap-1.5 flex-wrap">
           <button @click="setPreset('all')"
-                  class="px-2.5 py-1 rounded-xl text-xs font-medium transition-all"
+                  class="px-2.5 py-1 rounded-xl text-xs font-medium transition-all cursor-pointer"
                   :class="activePreset === 'all' && !pinnedOnly ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 font-semibold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200/60 dark:border-slate-800'">
             All
           </button>
           <button @click="setPreset(activePreset === 'baby_giants' ? 'all' : 'baby_giants')"
-                  class="px-2.5 py-1 rounded-xl text-xs font-medium transition-all"
+                  class="px-2.5 py-1 rounded-xl text-xs font-medium transition-all cursor-pointer"
                   :class="activePreset === 'baby_giants' ? 'bg-emerald-600 text-white font-semibold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200/60 dark:border-slate-800'">
-            <span>🌱 Baby Giants</span>
+            <span>Baby Giants</span>
           </button>
           <button @click="setPreset(activePreset === 'easy_arbitrage' ? 'all' : 'easy_arbitrage')"
-                  class="px-2.5 py-1 rounded-xl text-xs font-medium transition-all"
+                  class="px-2.5 py-1 rounded-xl text-xs font-medium transition-all cursor-pointer"
                   :class="activePreset === 'easy_arbitrage' ? 'bg-indigo-600 text-white font-semibold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200/60 dark:border-slate-800'">
-            <span>🚀 Easy Arb</span>
+            <span>Easy Arb</span>
           </button>
           <button @click="setPreset(activePreset === 'bleeding_giants' ? 'all' : 'bleeding_giants')"
-                  class="px-2.5 py-1 rounded-xl text-xs font-medium transition-all"
+                  class="px-2.5 py-1 rounded-xl text-xs font-medium transition-all cursor-pointer"
                   :class="activePreset === 'bleeding_giants' ? 'bg-rose-600 text-white font-semibold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200/60 dark:border-slate-800'">
-            <span>🩸 Bleeding</span>
+            <span>Bleeding</span>
           </button>
           <button @click="setPreset(activePreset === 'high_multipliers' ? 'all' : 'high_multipliers')"
-                  class="px-2.5 py-1 rounded-xl text-xs font-medium transition-all"
+                  class="px-2.5 py-1 rounded-xl text-xs font-medium transition-all cursor-pointer"
                   :class="activePreset === 'high_multipliers' ? 'bg-amber-600 text-white font-semibold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200/60 dark:border-slate-800'">
-            <span>🔁 High Mult</span>
+            <span>High Mult</span>
           </button>
           <button @click="setPreset(activePreset === 'multi_account' ? 'all' : 'multi_account')"
-                  class="px-2.5 py-1 rounded-xl text-xs font-medium transition-all"
+                  class="px-2.5 py-1 rounded-xl text-xs font-medium transition-all cursor-pointer"
                   :class="activePreset === 'multi_account' ? 'bg-purple-600 text-white font-semibold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200/60 dark:border-slate-800'">
-            <span>🕸️ Multi-Acct</span>
+            <span>Multi-Acct</span>
           </button>
           <!-- Target Domains Toggle -->
           <button @click="pinnedOnly = !pinnedOnly; loadDomains(true)"
-                  class="px-2.5 py-1 rounded-xl text-xs font-semibold transition-all flex items-center gap-1 shadow-2xs"
+                  class="px-2.5 py-1 rounded-xl text-xs font-semibold transition-all flex items-center gap-1 shadow-2xs cursor-pointer"
                   :class="pinnedOnly ? 'bg-indigo-600 text-white ring-2 ring-indigo-500/20' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200/80 dark:border-slate-700'"
                   title="Toggle view between all ranked domains and pinned campaign targets">
-            <span>📌 Target Domains</span>
+            <span>Target Domains</span>
             <template x-if="pinnedDomains.size > 0">
               <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-indigo-500/20 text-indigo-700 dark:text-indigo-300" x-text="pinnedDomains.size"></span>
             </template>
           </button>
         </div>
 
-        <!-- Action Buttons (Right) -->
-        <div class="flex items-center gap-1.5 flex-wrap">
-          <button @click="batchEnrichVisible()"
-                  :disabled="batchEnriching || globalEnriching"
-                  class="px-2.5 py-1 rounded-xl border border-sky-300 dark:border-sky-800 bg-sky-50 hover:bg-sky-100 dark:bg-sky-950/40 dark:hover:bg-sky-900/60 text-xs font-semibold text-sky-700 dark:text-sky-300 transition-colors flex items-center gap-1 shadow-2xs disabled:opacity-50"
-                  title="Check WHOIS age for unverified domains on the current page">
-            <span :class="{ 'animate-spin': batchEnriching }">⚡</span>
-            <span x-text="batchEnriching ? 'Checking (' + batchProgress.done + '/' + batchProgress.total + ')...' : 'Batch Page'">Batch Page</span>
-          </button>
-          <button @click="batchEnrichAdsVisible()"
-                  :disabled="batchAdsEnriching || globalAdsEnriching"
-                  class="px-2.5 py-1 rounded-xl border border-emerald-300 dark:border-emerald-800 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/60 text-xs font-semibold text-emerald-700 dark:text-emerald-300 transition-colors flex items-center gap-1 shadow-2xs disabled:opacity-50"
-                  title="Scan ads.txt for unverified domains on the current page">
-            <span :class="{ 'animate-spin': batchAdsEnriching }">💰</span>
-            <span x-text="batchAdsEnriching ? 'Checking (' + batchAdsProgress.done + '/' + batchAdsProgress.total + ')...' : 'Batch Check Ads'">Batch Check Ads</span>
-          </button>
-          <button @click="toggleGlobalEnrichment()"
-                  class="px-2.5 py-1 rounded-xl border text-xs font-semibold transition-all flex items-center gap-1 shadow-2xs"
-                  :class="globalEnriching ? 'bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'"
-                  :title="globalEnriching ? 'Pause global verification' : 'Auto-verify WHOIS age in background'">
-            <span :class="{ 'animate-spin': globalEnriching }">🚀</span>
-            <span x-text="globalEnriching ? 'Pause Auto-Age (' + (globalStats.percent_complete || 0) + '%)' : 'Verify Entire Database'">Verify Entire Database</span>
-          </button>
-          <button @click="toggleGlobalAdsEnrichment()"
-                  class="px-2.5 py-1 rounded-xl border text-xs font-semibold transition-all flex items-center gap-1 shadow-2xs"
-                  :class="globalAdsEnriching ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'"
-                  :title="globalAdsEnriching ? 'Pause global ads verification' : 'Auto-verify ads.txt in background'">
-            <span :class="{ 'animate-spin': globalAdsEnriching }">💰</span>
-            <span x-text="globalAdsEnriching ? 'Pause Auto-Ads (' + (globalAdsStats.percent_complete || 0) + '%)' : 'Auto-Verify All Ads'">Auto-Verify All Ads</span>
-          </button>
-          <button @click="downloadDomainsCsv()"
-                  class="px-2.5 py-1 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700/60 text-xs font-semibold text-slate-700 dark:text-slate-200 transition-colors flex items-center gap-1 shadow-2xs">
-            <span>📥</span>
-            <span>CSV</span>
-          </button>
+        <!-- Consolidated Action Group (Right) -->
+        <div class="flex items-center gap-2" x-data="{ actionsOpen: false }" @click.away="actionsOpen = false">
+          <!-- Actions ▾ Dropdown -->
+          <div class="relative">
+            <button @click="actionsOpen = !actionsOpen"
+                    class="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700/60 text-xs font-semibold text-slate-700 dark:text-slate-200 transition-colors flex items-center gap-1.5 shadow-2xs cursor-pointer">
+              <span>Actions</span>
+              <span :class="actionsOpen ? 'rotate-180' : ''" class="transition-transform duration-150 text-[10px]">▾</span>
+              <template x-if="globalEnriching || globalAdsEnriching || batchEnriching || batchAdsEnriching">
+                <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              </template>
+            </button>
+
+            <div x-show="actionsOpen" x-cloak
+                 x-transition:enter="transition ease-out duration-100"
+                 x-transition:enter-start="transform opacity-0 scale-95"
+                 x-transition:enter-end="transform opacity-100 scale-100"
+                 x-transition:leave="transition ease-in duration-75"
+                 x-transition:leave-start="transform opacity-100 scale-100"
+                 x-transition:leave-end="transform opacity-0 scale-95"
+                 class="absolute right-0 mt-1.5 w-56 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl py-1.5 z-40 text-xs flex flex-col font-medium">
+              
+              <button @click="batchEnrichVisible(); actionsOpen = false"
+                      :disabled="batchEnriching || globalEnriching"
+                      class="px-3.5 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 disabled:opacity-40 transition-colors flex items-center justify-between cursor-pointer">
+                <span>Verify Page WHOIS</span>
+                <span x-show="batchEnriching" class="animate-spin text-[10px]">⏳</span>
+              </button>
+
+              <button @click="batchEnrichAdsVisible(); actionsOpen = false"
+                      :disabled="batchAdsEnriching || globalAdsEnriching"
+                      title="Batch Check Ads"
+                      class="px-3.5 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 disabled:opacity-40 transition-colors flex items-center justify-between cursor-pointer">
+                <span>Scan Page Ads.txt</span>
+                <span class="sr-only">Batch Check Ads</span>
+                <span x-show="batchAdsEnriching" class="animate-spin text-[10px]">⏳</span>
+              </button>
+
+              <div class="h-px bg-slate-100 dark:bg-slate-800 my-1"></div>
+
+              <button @click="toggleGlobalEnrichment(); actionsOpen = false"
+                      title="Verify Entire Database"
+                      class="px-3.5 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 transition-colors flex items-center justify-between cursor-pointer">
+                <span x-text="globalEnriching ? 'Pause Auto-Age' : 'Auto-Verify Database Age'">Verify Entire Database</span>
+                <span x-show="globalEnriching" class="text-[10px] text-amber-500 font-mono font-bold" x-text="(globalStats.percent_complete || 0) + '%'"></span>
+              </button>
+
+              <button @click="toggleGlobalAdsEnrichment(); actionsOpen = false"
+                      title="Auto-Verify All Ads"
+                      class="px-3.5 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 transition-colors flex items-center justify-between cursor-pointer">
+                <span x-text="globalAdsEnriching ? 'Pause Auto-Ads' : 'Auto-Verify All Ads'">Auto-Verify All Ads</span>
+                <span x-show="globalAdsEnriching" class="text-[10px] text-emerald-500 font-mono font-bold" x-text="(globalAdsStats.percent_complete || 0) + '%'"></span>
+              </button>
+
+              <div class="h-px bg-slate-100 dark:bg-slate-800 my-1"></div>
+
+              <button @click="downloadDomainsCsv(); actionsOpen = false"
+                      class="px-3.5 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 transition-colors flex items-center justify-between cursor-pointer">
+                <span>Export CSV</span>
+                <span class="text-[10px] text-slate-400 font-mono">.csv</span>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -345,17 +375,17 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
         <div>
           <select x-model="selectedAdNetwork"
                   @change="loadDomains(true)"
-                  class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-sky-500 font-medium">
-            <option value="all">💰 All Ads</option>
-            <option value="raptive">💎 Raptive</option>
-            <option value="mediavine">🍇 Mediavine</option>
-            <option value="journey">🚀 Journey</option>
-            <option value="ezoic">⚡ Ezoic</option>
-            <option value="hbagency">⚡ HBAgency</option>
-            <option value="adsense">🟡 AdSense</option>
-            <option value="affiliate_only">🛒 Affiliate Only</option>
-            <option value="switched">🔄 Switched</option>
-            <option value="unchecked">❓ Unchecked</option>
+                  class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-sky-500 font-medium cursor-pointer">
+            <option value="all">All Ads</option>
+            <option value="raptive">Raptive</option>
+            <option value="mediavine">Mediavine</option>
+            <option value="journey">Journey</option>
+            <option value="ezoic">Ezoic</option>
+            <option value="hbagency">HBAgency</option>
+            <option value="adsense">AdSense</option>
+            <option value="affiliate_only">Affiliate Only</option>
+            <option value="switched">Switched</option>
+            <option value="unchecked">Unchecked</option>
           </select>
         </div>
 
@@ -363,8 +393,8 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
         <div>
           <select x-model="selectedFolderId"
                   @change="loadDomains(true)"
-                  class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-sky-500 font-medium">
-            <option value="">📁 All Folders</option>
+                  class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-sky-500 font-medium cursor-pointer">
+            <option value="">All Folders</option>
             <template x-for="f in folders" :key="f.id">
               <option :value="f.id" x-text="f.name + ' (' + (f.item_count || f.keyword_count || 0) + ')'"></option>
             </template>
@@ -375,17 +405,17 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
         <div>
           <select x-model="ageFilter"
                   @change="applyModularFilter()"
-                  class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-emerald-500 font-medium"
+                  class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-emerald-500 font-medium cursor-pointer"
                   :class="ageFilter !== 'all' ? 'border-emerald-500 bg-emerald-500/5' : ''">
-            <option value="all">🌱 Any Age</option>
-            <option value="le_0_5">🌱 &lt;= 6m</option>
-            <option value="le_1">🌱 &lt;= 1y</option>
-            <option value="le_2">🌱 &lt;= 2y (Baby Giant)</option>
-            <option value="le_3">🏢 &lt;= 3y</option>
-            <option value="le_5">🏢 &lt;= 5y</option>
-            <option value="gt_5">🏛️ &gt; 5y</option>
-            <option value="verified">✅ Verified Only</option>
-            <option value="unchecked">❓ Unchecked</option>
+            <option value="all">Any Age</option>
+            <option value="le_0_5">&lt;= 6m</option>
+            <option value="le_1">&lt;= 1y</option>
+            <option value="le_2">&lt;= 2y (Baby Giant)</option>
+            <option value="le_3">&lt;= 3y</option>
+            <option value="le_5">&lt;= 5y</option>
+            <option value="gt_5">&gt; 5y</option>
+            <option value="verified">Verified Only</option>
+            <option value="unchecked">Unchecked</option>
           </select>
         </div>
 
@@ -393,15 +423,15 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
         <div>
           <select x-model="rankFilter"
                   @change="applyModularFilter()"
-                  class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-sky-500 font-medium"
+                  class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-sky-500 font-medium cursor-pointer"
                   :class="rankFilter !== 'all' ? 'border-sky-500 bg-sky-500/5' : ''">
-            <option value="all">🎯 Any Rank</option>
-            <option value="top3">🥇 Top 3</option>
-            <option value="top5">🏆 Top 5</option>
-            <option value="top10">🎯 Top 10</option>
-            <option value="top20">📈 Top 20</option>
-            <option value="displaced">📉 Displaced</option>
-            <option value="bleeding">🩸 Bleeding (&gt;= 30%)</option>
+            <option value="all">Any Rank</option>
+            <option value="top3">Top 3</option>
+            <option value="top5">Top 5</option>
+            <option value="top10">Top 10</option>
+            <option value="top20">Top 20</option>
+            <option value="displaced">Displaced</option>
+            <option value="bleeding">Bleeding (&gt;= 30%)</option>
           </select>
         </div>
 
@@ -409,16 +439,16 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
         <div>
           <select x-model="savesFilter"
                   @change="applyModularFilter()"
-                  class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-amber-500 font-medium"
+                  class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-amber-500 font-medium cursor-pointer"
                   :class="savesFilter !== 'all' ? 'border-amber-500 bg-amber-500/5' : ''">
-            <option value="all">🔥 Any Saves</option>
-            <option value="ge_500">🔥 &gt;= 500</option>
-            <option value="ge_1k">🔥 &gt;= 1k</option>
-            <option value="ge_5k">🔥 &gt;= 5k</option>
-            <option value="ge_10k">🔥 &gt;= 10k</option>
-            <option value="ge_50k">🔥 &gt;= 50k</option>
-            <option value="vel_5">⚡ Vel &gt;= +5/d</option>
-            <option value="vel_20">🚀 Vel &gt;= +20/d</option>
+            <option value="all">Any Saves</option>
+            <option value="ge_500">&gt;= 500</option>
+            <option value="ge_1k">&gt;= 1k</option>
+            <option value="ge_5k">&gt;= 5k</option>
+            <option value="ge_10k">&gt;= 10k</option>
+            <option value="ge_50k">&gt;= 50k</option>
+            <option value="vel_5">Vel &gt;= +5/d</option>
+            <option value="vel_20">Vel &gt;= +20/d</option>
           </select>
         </div>
 
@@ -426,7 +456,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
         <div>
           <select x-model="sortBy"
                   @change="loadDomains(true)"
-                  class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-sky-500 font-mono">
+                  class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-sky-500 font-mono cursor-pointer">
             <option value="visibility">Sort: Visibility</option>
             <option value="arbitrage_score">Sort: Arb Score</option>
             <option value="age_asc">Sort: Youngest</option>
@@ -441,8 +471,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
         <!-- 7. Blogs Only Checkbox -->
         <div class="flex items-center justify-between px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800">
           <label for="marketplaces-toggle" class="text-xs font-medium text-slate-700 dark:text-slate-300 flex items-center gap-1 cursor-pointer">
-            <span>📰</span>
-            <span>Blogs</span>
+            <span>Blogs Only</span>
           </label>
           <input id="marketplaces-toggle"
                  type="checkbox"
@@ -543,7 +572,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
 
       <!-- Table Element -->
       <div class="overflow-x-auto">
-        <table class="w-full text-left text-xs border-collapse">
+        <table class="w-full text-left text-xs border-collapse min-w-[1020px]">
           <thead>
             <tr class="bg-slate-50/80 dark:bg-slate-950/60 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800 font-mono text-[11px] uppercase select-none">
               <th @click="toggleSortColumn('domain')" class="py-3 px-4 font-semibold cursor-pointer hover:text-sky-600 dark:hover:text-sky-400 transition-colors">
@@ -562,7 +591,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
               <th @click="toggleSortColumn('arbitrage_score')" class="py-3 px-4 font-semibold cursor-pointer hover:text-sky-600 dark:hover:text-sky-400 transition-colors">
                 Arbitrage & Accounts <span x-show="sortBy === 'arbitrage_score'" x-text="'↓'"></span>
               </th>
-              <th class="py-3 px-4 text-right font-semibold">Actions</th>
+              <th class="py-3 px-4 text-right font-semibold sticky right-0 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-xs shadow-[-6px_0_8px_-2px_rgba(0,0,0,0.06)] z-10 select-none">Actions</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100 dark:divide-slate-800/80 text-slate-700 dark:text-slate-200">
@@ -640,54 +669,52 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                         </template>
                       </div>
 
-                      <!-- Line 2: Relocated Domain Age Sub-Line -->
-                      <div class="flex items-center gap-1 flex-wrap text-[10px] text-slate-400 font-mono mt-0.5">
+                      <!-- Line 2: Domain Age & URL Count Sub-Line (Clean Universal Time Format) -->
+                      <div class="flex items-center gap-1.5 flex-wrap text-[10px] text-slate-400 font-mono mt-0.5">
                         <template x-if="d.domain && d.domain.toLowerCase() === 'uploaded by user'">
-                          <span class="text-amber-600 dark:text-amber-400 font-semibold">✨ Direct Uploads • Organic Vacuum</span>
+                          <span class="text-amber-600 dark:text-amber-400 font-semibold">Direct Uploads • Organic Vacuum</span>
                         </template>
                         <template x-if="!d.domain || d.domain.toLowerCase() !== 'uploaded by user'">
-                          <div class="flex items-center gap-1 flex-wrap">
-                            <!-- Resolved Age with Universal Strict Formatting -->
+                          <div class="flex items-center gap-1.5 flex-wrap">
+                            <!-- Resolved Age with Universal Strict Formatting (>=365d: years only, <365d: days only) -->
                             <template x-if="d.age_years !== null && d.age_years !== undefined">
-                              <span class="inline-flex items-center gap-0.5 font-bold px-1.5 py-0.2 rounded"
+                              <span class="inline-flex items-center font-bold px-1.5 py-0.2 rounded"
                                     :class="{
                                       'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20': d.age_years <= 2.0,
                                       'bg-sky-500/10 text-sky-700 dark:text-sky-400 border border-sky-500/20': d.age_years > 2.0 && d.age_years <= 5.0,
                                       'bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20': d.age_years > 5.0
                                     }"
                                     :title="d.domain_created_at ? 'Registered: ' + d.domain_created_at.slice(0, 10) : 'Age'">
-                                <span x-text="d.age_years <= 2.0 ? '🌱' : (d.age_years <= 5.0 ? '🏢' : '🏛️')"></span>
                                 <span x-text="formatDomainAge(d.age_days)"></span>
                               </span>
                             </template>
+
                             <!-- Privacy Shielded / Redacted -->
                             <template x-if="(d.age_years === null || d.age_years === undefined) && d.age_status === 'failed'">
-                              <span class="inline-flex items-center gap-0.5 text-amber-700 dark:text-amber-400 font-semibold"
-                                    title="Checked: Registry Withheld / Privacy Shielded">
-                                <span>🔒</span>
+                              <span class="inline-flex items-center gap-0.5 text-slate-500 dark:text-slate-400 font-medium"
+                                    title="Registry Withheld / Privacy Shielded">
                                 <span>Redacted / Shielded</span>
                                 <button @click.stop="enrichAge(d.domain, true)"
                                         :disabled="enrichingDomains[d.domain]"
                                         class="hover:text-slate-600 dark:hover:text-slate-200 transition text-[9px] ml-0.5"
                                         title="Re-check WHOIS">
-                                  <span :class="{ 'animate-spin': enrichingDomains[d.domain] }">🔄</span>
+                                  <span :class="{ 'animate-spin': enrichingDomains[d.domain] }">↻</span>
                                 </button>
                               </span>
                             </template>
+
                             <!-- Unchecked -->
                             <template x-if="(d.age_years === null || d.age_years === undefined) && d.age_status !== 'failed'">
                               <button @click.stop="enrichAge(d.domain)"
                                       :disabled="enrichingDomains[d.domain]"
-                                      class="hover:text-sky-600 dark:hover:text-sky-400 underline font-semibold transition"
+                                      class="hover:text-sky-600 dark:hover:text-sky-400 underline font-medium transition"
                                       title="Check WHOIS age">
-                                <span x-text="enrichingDomains[d.domain] ? '⏳...' : '🔍 Check'"></span>
+                                <span x-text="enrichingDomains[d.domain] ? 'Checking...' : 'Check WHOIS'"></span>
                               </button>
                             </template>
 
-                            <template x-if="d.domain_created_at">
-                              <span x-text="'• Reg: ' + d.domain_created_at.slice(0, 4)"></span>
-                            </template>
-                            <span x-text="'• ' + (d.unique_urls || 0) + ' URLs'"></span>
+                            <span class="text-slate-300 dark:text-slate-600">•</span>
+                            <span x-text="(d.unique_urls || 0) + ' URLs'"></span>
                           </div>
                         </template>
                       </div>
@@ -822,8 +849,8 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                 </td>
 
                 <!-- 7. Actions -->
-                <td class="py-3 px-4 text-right">
-                  <div class="flex items-center justify-end gap-1.5">
+                <td class="py-3 px-4 text-right sticky right-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xs group-hover:bg-slate-50/95 dark:group-hover:bg-slate-800/95 shadow-[-6px_0_8px_-2px_rgba(0,0,0,0.06)] z-10">
+                  <div class="flex items-center justify-end gap-1.5 whitespace-nowrap">
                     <button @click.stop="togglePinDomain(d.domain)"
                             class="px-2 py-1 rounded-lg text-xs font-semibold transition flex items-center gap-1 shadow-2xs"
                             :class="pinnedDomains.has(d.domain.toLowerCase()) ? 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30' : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700'"
@@ -1408,7 +1435,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                               <span>•</span>
                               <button @click="filterToArticleKeywords(art)"
                                       class="text-sky-600 dark:text-sky-400 hover:underline font-bold"
-                                      :title="'Filter keywords view to this article\'s ' + (art.keywords || art.target_keywords).length + ' keywords'"
+                                      :title="'Filter keywords view to this article’s ' + (art.keywords || art.target_keywords).length + ' keywords'"
                                       x-text="(art.keywords || art.target_keywords).length + ' keywords →'"></button>
                             </span>
                           </template>
@@ -1928,6 +1955,7 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
     function domainsApp(initialDomain = '', scopedFolderId = '') {
       return {
         scopedFolderId: scopedFolderId || '',
+        actionsOpen: false,
         pinnedDomains: new Set(),
         pinnedOnly: false,
         isSidebarCollapsed: (() => {
@@ -1947,7 +1975,16 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
             if (window.lucide) window.lucide.createIcons();
           });
         },
-        darkMode: localStorage.getItem('pa_theme') !== 'light',
+        isDark: (() => {
+          try {
+            return typeof localStorage !== 'undefined' ? localStorage.getItem('pa_theme') !== 'light' : false;
+          } catch (_) { return false; }
+        })(),
+        darkMode: (() => {
+          try {
+            return typeof localStorage !== 'undefined' ? localStorage.getItem('pa_theme') !== 'light' : false;
+          } catch (_) { return false; }
+        })(),
         loading: false,
         refreshingRollup: false,
         domains: [],
@@ -2094,15 +2131,30 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
 
         toggleTheme() {
           this.darkMode = !this.darkMode;
-          if (this.darkMode) {
-            document.documentElement.classList.add('dark');
-            localStorage.setItem('pa_theme', 'dark');
-            localStorage.setItem('pin_theme', 'dark');
-          } else {
-            document.documentElement.classList.remove('dark');
-            localStorage.setItem('pa_theme', 'light');
-            localStorage.setItem('pin_theme', 'light');
-          }
+          this.isDark = this.darkMode;
+          try {
+            if (this.darkMode) {
+              if (typeof document !== 'undefined' && document.documentElement) {
+                document.documentElement.classList.add('dark');
+              }
+              if (typeof localStorage !== 'undefined') {
+                localStorage.setItem('pa_theme', 'dark');
+                localStorage.setItem('pin_theme', 'dark');
+              }
+            } else {
+              if (typeof document !== 'undefined' && document.documentElement) {
+                document.documentElement.classList.remove('dark');
+              }
+              if (typeof localStorage !== 'undefined') {
+                localStorage.setItem('pa_theme', 'light');
+                localStorage.setItem('pin_theme', 'light');
+              }
+            }
+          } catch (_) {}
+        },
+
+        toggleDarkMode() {
+          this.toggleTheme();
         },
 
         showToast(message, type = 'info') {

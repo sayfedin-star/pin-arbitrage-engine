@@ -17,8 +17,10 @@
 import { getEdgeShieldClientScript } from './edge-shield-client.mjs';
 import { getKeywordDrawersAndModalsHtml } from './ui/keywords-drawers.mjs';
 import { renderAppSidebar } from './ui/app-sidebar.mjs';
+import { renderCampaignWorkspaceHeader } from './ui/campaign-workspace-header.mjs';
 
-export function getKeywordsPageHtml(initialSlug = '') {
+export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folderId = '') {
+  const safeFolderId = String(folderId || '').trim();
   return `<!DOCTYPE html>
 <html lang="en" class="dark">
 <head>
@@ -66,6 +68,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
   </style>
   <script>
     window.__INITIAL_KEYWORD_SLUG__ = ${JSON.stringify(String(initialSlug || '')).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029')};
+    window.__INITIAL_FOLDER_ID__ = ${JSON.stringify(safeFolderId).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029')};
   </script>
   <script>
 (function() {
@@ -146,68 +149,72 @@ export function getKeywordsPageHtml(initialSlug = '') {
     <!-- ========================================================================= -->
     <div x-show="viewModeLevel === 'dashboard'" x-cloak class="space-y-6">
       
+      ${safeFolderId ? renderCampaignWorkspaceHeader({ activeRoom: 'keywords', folderId: safeFolderId }) : ''}
+
       <!-- [INVARIANT: MODERN-MINIMALIST-HEADER] Linear / Vercel Executive Header -->
-      <section class="p-4 sm:p-5 rounded-2xl bg-white dark:bg-[#0c101b] border border-slate-200/80 dark:border-slate-800/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div class="flex items-center space-x-3.5">
-          <div class="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 flex items-center justify-center shadow-xs shrink-0">
-            <i data-lucide="layers" class="w-5 h-5"></i>
-          </div>
-          <div>
-            <div class="flex items-center space-x-2">
-              <h2 class="text-lg sm:text-xl font-bold tracking-tight text-slate-900 dark:text-white">Keywords Fleet Dashboard</h2>
-              <span class="px-2 py-0.5 rounded-md text-[10px] font-mono font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">Level 1A</span>
+      <template x-if="!activeFolderId">
+        <section class="p-4 sm:p-5 rounded-2xl bg-white dark:bg-[#0c101b] border border-slate-200/80 dark:border-slate-800/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div class="flex items-center space-x-3.5">
+            <div class="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 flex items-center justify-center shadow-xs shrink-0">
+              <i data-lucide="layers" class="w-5 h-5"></i>
             </div>
-            <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-normal">Multi-Cluster Organic SERP Monitoring · Velocity Tracking & Fleet Telemetry</p>
+            <div>
+              <div class="flex items-center space-x-2">
+                <h2 class="text-lg sm:text-xl font-bold tracking-tight text-slate-900 dark:text-white">Keywords Fleet Dashboard</h2>
+                <span class="px-2 py-0.5 rounded-md text-[10px] font-mono font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">Level 1A</span>
+              </div>
+              <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-normal">Multi-Cluster Organic SERP Monitoring · Velocity Tracking & Fleet Telemetry</p>
+            </div>
           </div>
-        </div>
 
-        <div class="flex flex-wrap items-center gap-2">
-          <!-- Keyword Discovery Hub Link (Level 1B) -->
-          <a href="/keywords/discovery"
-             class="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-emerald-500/10 hover:bg-emerald-500/20 dark:bg-emerald-950/30 dark:hover:bg-emerald-900/40 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 transition inline-flex items-center space-x-1.5 shadow-2xs">
-            <i data-lucide="compass" class="w-3.5 h-3.5 text-emerald-500"></i>
-            <span class="hidden sm:inline">Discovery</span>
-          </a>
+          <div class="flex flex-wrap items-center gap-2">
+            <!-- Keyword Discovery Hub Link (Level 1B) -->
+            <a href="/keywords/discovery"
+               class="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-emerald-500/10 hover:bg-emerald-500/20 dark:bg-emerald-950/30 dark:hover:bg-emerald-900/40 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 transition inline-flex items-center space-x-1.5 shadow-2xs">
+              <i data-lucide="compass" class="w-3.5 h-3.5 text-emerald-500"></i>
+              <span class="hidden sm:inline">Discovery</span>
+            </a>
 
-          <!-- Campaign Folders Fleet Link (Level 4) -->
-          <a href="/folders"
-             class="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-pink-500/10 hover:bg-pink-500/20 dark:bg-pink-950/30 dark:hover:bg-pink-900/40 border border-pink-500/20 text-pink-600 dark:text-pink-400 transition inline-flex items-center space-x-1.5 shadow-2xs">
-            <i data-lucide="folder-kanban" class="w-3.5 h-3.5 text-pink-500"></i>
-            <span class="hidden sm:inline">Folders</span>
-            <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-pink-500/20 text-pink-600 dark:text-pink-300 font-mono font-medium" x-text="folders.length"></span>
-          </a>
+            <!-- Campaign Folders Fleet Link (Level 4) -->
+            <a href="/folders"
+               class="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-pink-500/10 hover:bg-pink-500/20 dark:bg-pink-950/30 dark:hover:bg-pink-900/40 border border-pink-500/20 text-pink-600 dark:text-pink-400 transition inline-flex items-center space-x-1.5 shadow-2xs">
+              <i data-lucide="folder-kanban" class="w-3.5 h-3.5 text-pink-500"></i>
+              <span class="hidden sm:inline">Folders</span>
+              <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-pink-500/20 text-pink-600 dark:text-pink-300 font-mono font-medium" x-text="folders.length"></span>
+            </a>
 
-          <!-- Refresh Hub Button -->
-          <button @click="fetchKeywords(true)" :disabled="isKeywordsLoading"
-                  class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/80 dark:hover:bg-slate-700/80 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition inline-flex items-center space-x-1.5 shadow-2xs cursor-pointer active:scale-95"
-                  title="Sync with Neon Central Hub">
-            <i data-lucide="refresh-cw" class="w-3.5 h-3.5" :class="isKeywordsLoading ? 'animate-spin text-emerald-500' : 'text-slate-400'"></i>
-            <span class="hidden sm:inline">Refresh</span>
-          </button>
+            <!-- Refresh Hub Button -->
+            <button @click="fetchKeywords(true)" :disabled="isKeywordsLoading"
+                    class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/80 dark:hover:bg-slate-700/80 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition inline-flex items-center space-x-1.5 shadow-2xs cursor-pointer active:scale-95"
+                    title="Sync with Neon Central Hub">
+              <i data-lucide="refresh-cw" class="w-3.5 h-3.5" :class="isKeywordsLoading ? 'animate-spin text-emerald-500' : 'text-slate-400'"></i>
+              <span class="hidden sm:inline">Refresh</span>
+            </button>
 
-          <!-- Primary CTA: Track Keyword -->
-          <button @click="openQuickTrackModal()"
-                  class="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition inline-flex items-center space-x-1.5 shadow-xs active:scale-95 cursor-pointer">
-            <i data-lucide="plus-circle" class="w-3.5 h-3.5"></i>
-            <span>+ Track Keyword</span>
-          </button>
+            <!-- Primary CTA: Track Keyword -->
+            <button @click="openQuickTrackModal()"
+                    class="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition inline-flex items-center space-x-1.5 shadow-xs active:scale-95 cursor-pointer">
+              <i data-lucide="plus-circle" class="w-3.5 h-3.5"></i>
+              <span>+ Track Keyword</span>
+            </button>
 
-          <!-- Settings -->
-          <button @click="openSettingsModal()"
-                  class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/80 dark:hover:bg-slate-700/80 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition inline-flex items-center space-x-1.5 shadow-2xs cursor-pointer"
-                  title="Configure Crawl Depth & Breakout Hunter">
-            <i data-lucide="sliders" class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400"></i>
-            <span>Settings</span>
-          </button>
+            <!-- Settings -->
+            <button @click="openSettingsModal()"
+                    class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/80 dark:hover:bg-slate-700/80 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition inline-flex items-center space-x-1.5 shadow-2xs cursor-pointer"
+                    title="Configure Crawl Depth & Breakout Hunter">
+              <i data-lucide="sliders" class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400"></i>
+              <span>Settings</span>
+            </button>
 
-          <!-- Trigger Fleet Crawl -->
-          <button @click="openFleetDispatchModal()" :disabled="isWorkflowDispatching"
-                  class="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-slate-900 hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white transition inline-flex items-center space-x-1.5 shadow-xs disabled:opacity-50 cursor-pointer">
-            <i data-lucide="play" class="w-3.5 h-3.5 text-emerald-400" :class="isWorkflowDispatching ? 'animate-spin' : ''"></i>
-            <span>Trigger Fleet</span>
-          </button>
-        </div>
-      </section>
+            <!-- Trigger Fleet Crawl -->
+            <button @click="openFleetDispatchModal()" :disabled="isWorkflowDispatching"
+                    class="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-slate-900 hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white transition inline-flex items-center space-x-1.5 shadow-xs disabled:opacity-50 cursor-pointer">
+              <i data-lucide="play" class="w-3.5 h-3.5 text-emerald-400" :class="isWorkflowDispatching ? 'animate-spin' : ''"></i>
+              <span>Trigger Fleet</span>
+            </button>
+          </div>
+        </section>
+      </template>
 
       <!-- [INVARIANT: MODERN-MINIMALIST-TELEMETRY-PARITY] Consolidated high-density telemetry strip eliminating card bloat while preserving all 4-pillar fleet telemetry metrics -->
       <section class="rounded-2xl bg-white dark:bg-[#0c101b] border border-slate-200/80 dark:border-slate-800/80 shadow-xs divide-y sm:divide-y-0 sm:divide-x divide-slate-100 dark:divide-slate-800/80 grid grid-cols-2 lg:grid-cols-4 overflow-hidden">
@@ -229,7 +236,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
           <template x-if="!isKeywordsLoading">
             <div>
               <div class="flex items-baseline gap-2">
-                <span class="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white font-mono tracking-tight" x-text="keywords.length"></span>
+                <span class="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white font-mono tracking-tight" x-text="activeFolderId ? filteredDashboardKeywords.length : keywords.length"></span>
                 <span class="text-xs text-slate-400 font-mono">monitored</span>
               </div>
               <div class="flex items-center gap-2 mt-1.5 text-[11px] font-mono">
@@ -244,7 +251,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
         <!-- Metric 2: Monitored Organic Pins -->
         <div class="p-4 sm:p-5 flex flex-col justify-between space-y-2">
           <div class="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-            <span class="font-medium text-[11px] uppercase tracking-wider font-mono">Monitored Organic Pins</span>
+            <span class="font-medium text-[11px] uppercase tracking-wider font-mono" x-text="activeFolderId ? 'Active Crawled Pins' : 'Monitored Organic Pins'"></span>
             <span class="p-1 rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400">
               <i data-lucide="database" class="w-3.5 h-3.5"></i>
             </span>
@@ -269,12 +276,12 @@ export function getKeywordsPageHtml(initialSlug = '') {
           </template>
         </div>
 
-        <!-- Metric 3: Campaign Folders -->
+        <!-- Metric 3: Campaign Folders (Global) / Displaced Pins (Folder Scoped) -->
         <div class="p-4 sm:p-5 flex flex-col justify-between space-y-2">
           <div class="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-            <span class="font-medium text-[11px] uppercase tracking-wider font-mono">Campaign Folders</span>
-            <span class="p-1 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400">
-              <i data-lucide="folder" class="w-3.5 h-3.5"></i>
+            <span class="font-medium text-[11px] uppercase tracking-wider font-mono" x-text="activeFolderId ? 'Displaced Pins' : 'Campaign Folders'"></span>
+            <span class="p-1 rounded-md" :class="activeFolderId ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'">
+              <i :data-lucide="activeFolderId ? 'archive' : 'folder'" class="w-3.5 h-3.5"></i>
             </span>
           </div>
           <template x-if="isKeywordsLoading">
@@ -286,37 +293,57 @@ export function getKeywordsPageHtml(initialSlug = '') {
           <template x-if="!isKeywordsLoading">
             <div>
               <div class="flex items-baseline gap-2">
-                <span class="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white font-mono tracking-tight" x-text="folders.length"></span>
-                <span class="text-xs text-slate-400 font-mono">organized</span>
+                <span class="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white font-mono tracking-tight" x-text="formatNumber(activeFolderId ? totalDisplacedPinsCount : folders.length)"></span>
+                <span class="text-xs text-slate-400 font-mono" x-text="activeFolderId ? 'in vault' : 'organized'"></span>
               </div>
               <div class="mt-1.5 text-[11px] font-mono text-slate-500 dark:text-slate-400">
-                <a href="/folders" class="text-amber-600 dark:text-amber-400 hover:underline font-medium inline-flex items-center gap-1">
-                  <span>Manage folders</span>
-                  <i data-lucide="arrow-right" class="w-3 h-3"></i>
-                </a>
+                <template x-if="!activeFolderId">
+                  <a href="/folders" class="text-amber-600 dark:text-amber-400 hover:underline font-medium inline-flex items-center gap-1">
+                    <span>Manage folders</span>
+                    <i data-lucide="arrow-right" class="w-3 h-3"></i>
+                  </a>
+                </template>
+                <template x-if="activeFolderId">
+                  <span class="text-indigo-600 dark:text-indigo-400 font-medium">Displaced organic pins</span>
+                </template>
               </div>
             </div>
           </template>
         </div>
 
-        <!-- Metric 4: Nightly Crawler Fleet Status -->
+        <!-- Metric 4: Nightly Crawler Fleet Status (Global) / Average Velocity (Folder Scoped) -->
         <div class="p-4 sm:p-5 flex flex-col justify-between space-y-2">
           <div class="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-            <span class="font-medium text-[11px] uppercase tracking-wider font-mono">Nightly Crawler Fleet</span>
-            <span class="p-1 rounded-md bg-purple-500/10 text-purple-600 dark:text-purple-400">
-              <i data-lucide="clock" class="w-3.5 h-3.5"></i>
+            <span class="font-medium text-[11px] uppercase tracking-wider font-mono" x-text="activeFolderId ? 'Average Velocity' : 'Nightly Crawler Fleet'"></span>
+            <span class="p-1 rounded-md" :class="activeFolderId ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400' : 'bg-purple-500/10 text-purple-600 dark:text-purple-400'">
+              <i :data-lucide="activeFolderId ? 'zap' : 'clock'" class="w-3.5 h-3.5"></i>
             </span>
           </div>
           <div>
-            <div class="flex items-center gap-2">
-              <span class="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25 inline-flex items-center gap-1.5">
-                <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                <span>OPERATIONAL</span>
-              </span>
-            </div>
-            <div class="mt-2 text-[11px] font-mono text-slate-500 dark:text-slate-400 truncate" :title="nightlySyncCountdown">
-              <span x-text="nightlySyncCountdown"></span>
-            </div>
+            <template x-if="!activeFolderId">
+              <div>
+                <div class="flex items-center gap-2">
+                  <span class="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25 inline-flex items-center gap-1.5">
+                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span>OPERATIONAL</span>
+                  </span>
+                </div>
+                <div class="mt-2 text-[11px] font-mono text-slate-500 dark:text-slate-400 truncate" :title="nightlySyncCountdown">
+                  <span x-text="nightlySyncCountdown"></span>
+                </div>
+              </div>
+            </template>
+            <template x-if="activeFolderId">
+              <div>
+                <div class="flex items-baseline gap-2">
+                  <span class="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white font-mono tracking-tight" x-text="averageFleetVelocity"></span>
+                  <span class="text-xs text-slate-400 font-mono">saves / day</span>
+                </div>
+                <div class="mt-1.5 text-[11px] font-mono text-purple-600 dark:text-purple-400 font-medium">
+                  <span>Cluster save velocity</span>
+                </div>
+              </div>
+            </template>
           </div>
         </div>
 
@@ -375,7 +402,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
           <!-- Right: Counter, Columns Visibility & Table/Grid View Switcher -->
           <div class="flex items-center space-x-2 shrink-0">
             <span class="text-xs font-mono text-slate-500 dark:text-slate-400 font-medium hidden md:inline"
-                  x-text="filteredDashboardKeywords.length + ' of ' + keywords.length + ' Queries'"></span>
+                  x-text="filteredDashboardKeywords.length + ' of ' + (activeFolderId ? filteredDashboardKeywords.length : keywords.length) + ' Queries'"></span>
 
             <!-- Column Visibility Dropdown -->
             <div x-show="dashboardViewMode === 'table'" class="relative" x-data="{ isColumnsOpen: false }" @click.outside="isColumnsOpen = false" @keydown.escape.window="isColumnsOpen = false">
@@ -4048,8 +4075,34 @@ export function getKeywordsPageHtml(initialSlug = '') {
 
   <script>
     function keywordStudio() {
+      const initialFolderId = (typeof window !== 'undefined' && window.__INITIAL_FOLDER_ID__) ? String(window.__INITIAL_FOLDER_ID__) : '';
       return {
-        viewModeLevel: (window.__INITIAL_KEYWORD_SLUG__ && window.__INITIAL_KEYWORD_SLUG__.trim()) ? 'serp_studio' : 'dashboard',
+        viewModeLevel: (typeof window !== 'undefined' && window.__INITIAL_KEYWORD_SLUG__ && window.__INITIAL_KEYWORD_SLUG__.trim()) ? 'serp_studio' : 'dashboard',
+        activeFolderId: initialFolderId,
+        activeFolder: null,
+        darkMode: typeof localStorage !== 'undefined' ? localStorage.getItem('pa_theme') !== 'light' : true,
+        isDark: typeof localStorage !== 'undefined' ? localStorage.getItem('pa_theme') !== 'light' : true,
+        applyTheme() {
+          if (this.darkMode || this.isDark) {
+            document.documentElement.classList.add('dark');
+          } else {
+            document.documentElement.classList.remove('dark');
+          }
+          this.$nextTick(() => {
+            if (window.lucide) window.lucide.createIcons();
+          });
+        },
+        toggleTheme() {
+          this.darkMode = !this.darkMode;
+          this.isDark = this.darkMode;
+          try {
+            if (typeof localStorage !== 'undefined') {
+              localStorage.setItem('pa_theme', this.darkMode ? 'dark' : 'light');
+              localStorage.setItem('pin_theme', this.darkMode ? 'dark' : 'light');
+            }
+          } catch (_) {}
+          this.applyTheme();
+        },
         isSidebarCollapsed: (() => {
           try {
             return typeof localStorage !== 'undefined' ? localStorage.getItem('pae_sidebar_collapsed') === 'true' : false;
@@ -4087,7 +4140,7 @@ export function getKeywordsPageHtml(initialSlug = '') {
         dashboardSearch: '',
         dashboardCategoryFilter: 'ALL',
         dashboardStatusFilter: 'ALL',
-        dashboardFolderFilter: 'ALL',
+        dashboardFolderFilter: initialFolderId || 'ALL',
         dashboardGrowthFilter: 'ALL',
         dashboardPinsFilter: 'ALL',
         dashboardSort: 'total_pins',
@@ -4330,7 +4383,10 @@ export function getKeywordsPageHtml(initialSlug = '') {
             const cat = this.dashboardCategoryFilter.toLowerCase();
             list = list.filter(k => (k.category || 'General').toLowerCase() === cat);
           }
-          if (this.dashboardFolderFilter && this.dashboardFolderFilter !== 'ALL') {
+          if (this.activeFolderId) {
+            const fid = String(this.activeFolderId);
+            list = list.filter(k => this.getKeywordFolders(k).some(f => f && String(f.id) === fid));
+          } else if (this.dashboardFolderFilter && this.dashboardFolderFilter !== 'ALL') {
             if (this.dashboardFolderFilter === 'UNASSIGNED') {
               list = list.filter(k => this.getKeywordFolders(k).length === 0);
             } else {
@@ -4572,22 +4628,36 @@ export function getKeywordsPageHtml(initialSlug = '') {
         },
 
         get activeKeywordsCount() {
-          return (this.keywords || []).filter(k => k.is_active !== false).length;
+          const list = this.activeFolderId ? this.filteredDashboardKeywords : (this.keywords || []);
+          return list.filter(k => k.is_active !== false).length;
         },
 
         get pausedKeywordsCount() {
-          return (this.keywords || []).filter(k => k.is_active === false).length;
+          const list = this.activeFolderId ? this.filteredDashboardKeywords : (this.keywords || []);
+          return list.filter(k => k.is_active === false).length;
         },
 
         get totalMonitoredPins() {
-          return (this.keywords || []).reduce((acc, k) => acc + this.getKeywordTotalPins(k), 0);
+          const list = this.activeFolderId ? this.filteredDashboardKeywords : (this.keywords || []);
+          return list.reduce((acc, k) => acc + this.getKeywordTotalPins(k), 0);
         },
 
         get averageFleetVelocity() {
-          const active = (this.keywords || []).filter(k => k.is_active !== false);
+          const base = this.activeFolderId ? this.filteredDashboardKeywords : (this.keywords || []);
+          const active = base.filter(k => k.is_active !== false);
           if (active.length === 0) return 0;
           const total = active.reduce((acc, k) => acc + Number(k.avg_daily_velocity || 0), 0);
           return Number((total / active.length).toFixed(1));
+        },
+
+        get totalDisplacedPinsCount() {
+          const list = this.activeFolderId ? this.filteredDashboardKeywords : (this.keywords || []);
+          return list.reduce((acc, k) => acc + Number(k.displaced_pins_count || 0), 0);
+        },
+
+        get totalActivePinsCount() {
+          const list = this.activeFolderId ? this.filteredDashboardKeywords : (this.keywords || []);
+          return list.reduce((acc, k) => acc + Number(k.active_pins_count ?? k.snapshots_count ?? this.getKeywordTotalPins(k) ?? 0), 0);
         },
 
         get uniqueCategories() {
@@ -5188,10 +5258,24 @@ export function getKeywordsPageHtml(initialSlug = '') {
 
         init() {
           this.selectedProjectId = ''; // Keywords & SERP studio strictly bind to Central Metadata Hub
-          this.darkMode = localStorage.getItem('pa_theme') !== 'light';
+          this.darkMode = typeof localStorage !== 'undefined' ? localStorage.getItem('pa_theme') !== 'light' : true;
+          this.isDark = this.darkMode;
           this.applyTheme();
           this.fetchSettings();
           this.fetchFleetProjects();
+
+          if (this.activeFolderId) {
+            this.dashboardFolderFilter = this.activeFolderId;
+            (async () => {
+              try {
+                const fRes = await fetch('/api/folders/' + encodeURIComponent(this.activeFolderId));
+                if (fRes.ok) {
+                  const fData = await fRes.json().catch(() => ({}));
+                  this.activeFolder = fData.folder || null;
+                }
+              } catch (_) {}
+            })();
+          }
 
           if (typeof window !== 'undefined') {
             window.addEventListener('keydown', (e) => {
@@ -5590,7 +5674,8 @@ export function getKeywordsPageHtml(initialSlug = '') {
           this.isKeywordsLoading = true;
           try {
             const refreshParam = forceRefresh ? '&refresh=true' : '';
-            const res = await fetch(this.getApiUrl('/api/keywords?limit=1000' + refreshParam));
+            const folderParam = this.activeFolderId ? ('&folder_id=' + encodeURIComponent(this.activeFolderId)) : '';
+            const res = await fetch(this.getApiUrl('/api/keywords?limit=1000' + refreshParam + folderParam));
             if (!res.ok) throw new Error('HTTP ' + res.status);
             const data = await res.json();
             const raw = Array.isArray(data.keywords) ? data.keywords : [];

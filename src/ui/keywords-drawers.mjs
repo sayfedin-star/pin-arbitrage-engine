@@ -505,19 +505,23 @@ export function getKeywordDrawersAndModalsHtml() {
           </button>
         </div>
 
-        <!-- Section 1: Live SERP Search Discovery (Stage 0/1 Ingestion Toggle) -->
-        <div class="space-y-3 p-3.5 rounded-2xl border"
+        <!-- ========================================================================= -->
+        <!-- COMPACT 3-PART CRAWL INTELLIGENCE & DEPTH SETTINGS LAYOUT                -->
+        <!-- ========================================================================= -->
+
+        <!-- PART 1: Live SERP Harvest & Custom Quota -->
+        <div class="space-y-3.5 p-4 rounded-2xl border transition-colors"
              :class="settingsEnableSerpHarvest ? 'bg-indigo-500/5 border-indigo-500/20' : 'bg-amber-500/5 border-amber-500/20'">
-          <div class="flex items-center justify-between gap-2">
+          <div class="flex items-center justify-between gap-3">
             <div>
               <div class="flex items-center space-x-2">
                 <i data-lucide="search" class="w-4 h-4 text-indigo-500"></i>
-                <label class="text-xs font-black text-slate-900 dark:text-white uppercase font-mono">
+                <label class="text-xs font-black text-slate-900 dark:text-white uppercase font-mono tracking-wider">
                   1. Live SERP Search Discovery (Stage 0/1 Ingestion)
                 </label>
               </div>
               <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                Harvests new live Pinterest search rankings. Toggle OFF to run in fast <b>Audit-Only Mode</b> (bypasses Pinterest search and directly deep-inspects existing catalog & vault pins).
+                Harvests fresh Pinterest search rankings. Toggle OFF to run in fast <b>Audit-Only Mode</b>.
               </p>
             </div>
             <label class="relative inline-flex items-center cursor-pointer shrink-0">
@@ -526,242 +530,164 @@ export function getKeywordDrawersAndModalsHtml() {
             </label>
           </div>
 
-          <!-- Active SERP Harvest Controls (Visible when Harvest is ON) -->
-          <div x-show="settingsEnableSerpHarvest" class="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+          <!-- Synchronized Custom Quota & Presets (Visible when Harvest is ON) -->
+          <div x-show="settingsEnableSerpHarvest" class="space-y-3 pt-2.5 border-t border-slate-100 dark:border-slate-800">
             <div class="flex items-center justify-between">
-              <span class="text-[11px] font-bold text-slate-700 dark:text-slate-300">Live Search Harvest Quota (MAX_SERP_PINS)</span>
-              <span class="text-xs font-mono font-bold text-indigo-500" x-text="'~' + (settingsCrawlPages * 25) + ' Pins (' + settingsCrawlPages + ' Pages)'"></span>
+              <span class="text-xs font-semibold text-slate-700 dark:text-slate-300">Live Search Harvest Quota (MAX_SERP_PINS)</span>
+              <span class="text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400"
+                    x-text="settingsMaxSerpPins + ' Pins (' + Math.ceil(settingsMaxSerpPins / 25) + ' SERP Pages)'"></span>
             </div>
 
-            <!-- Depth Presets Grid -->
-            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              <button type="button" @click="settingsCrawlPages = 2; settingsMaxPins = 50; settingsMaxSerpPins = 50"
-                      class="p-2.5 rounded-xl border text-left transition cursor-pointer"
-                      :class="settingsCrawlPages === 2 ? 'bg-indigo-500/10 border-indigo-500 text-indigo-600 dark:text-indigo-400 font-bold' : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'">
-                <div class="text-xs font-black flex items-center justify-between">
-                  <span>2 Pages</span>
-                  <span class="text-[9px] px-1 rounded bg-emerald-500/20 text-emerald-500">Rec</span>
-                </div>
-                <div class="text-[10px] opacity-75">~50 Pins (Elite 50)</div>
-              </button>
-              <button type="button" @click="settingsCrawlPages = 4; settingsMaxPins = 100; settingsMaxSerpPins = 100"
-                      class="p-2.5 rounded-xl border text-left transition cursor-pointer"
-                      :class="settingsCrawlPages === 4 ? 'bg-indigo-500/10 border-indigo-500 text-indigo-600 dark:text-indigo-400 font-bold' : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'">
-                <div class="text-xs font-black">4 Pages</div>
-                <div class="text-[10px] opacity-75">~100 Pins (Fast)</div>
-              </button>
-              <button type="button" @click="settingsCrawlPages = 10; settingsMaxPins = 250; settingsMaxSerpPins = 250"
-                      class="p-2.5 rounded-xl border text-left transition cursor-pointer"
-                      :class="settingsCrawlPages === 10 ? 'bg-indigo-500/10 border-indigo-500 text-indigo-600 dark:text-indigo-400 font-bold' : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'">
-                <div class="text-xs font-black">10 Pages</div>
-                <div class="text-[10px] opacity-75">~250 Pins (Deep)</div>
-              </button>
-              <button type="button" @click="settingsCrawlPages = 20; settingsMaxPins = 500; settingsMaxSerpPins = 500"
-                      class="p-2.5 rounded-xl border text-left transition cursor-pointer"
-                      :class="settingsCrawlPages === 20 ? 'bg-indigo-500/10 border-indigo-500 text-indigo-600 dark:text-indigo-400 font-bold' : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'">
-                <div class="text-xs font-black">20 Pages</div>
-                <div class="text-[10px] opacity-75">~500 Pins (Wide)</div>
-              </button>
+            <!-- 4 Quick Presets -->
+            <div class="grid grid-cols-4 gap-2">
+              <template x-for="q in [50, 100, 250, 500]" :key="q">
+                <button type="button"
+                        @click="settingsMaxSerpPins = q; settingsMaxPins = q; settingsCrawlPages = Math.ceil(q / 25)"
+                        class="px-2.5 py-1.5 rounded-xl text-xs font-mono font-bold border text-center transition cursor-pointer"
+                        :class="settingsMaxSerpPins === q
+                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                          : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:border-slate-300'">
+                  <span x-text="q + ' pins'"></span>
+                </button>
+              </template>
             </div>
 
-            <!-- Custom Pages Slider / Input -->
-            <div class="flex items-center space-x-3 pt-1">
-              <input type="range" min="2" max="35" step="1" x-model.number="settingsCrawlPages"
-                     @input="settingsMaxPins = settingsCrawlPages * 25; settingsMaxSerpPins = settingsCrawlPages * 25"
-                     class="w-full h-1.5 bg-slate-200 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-600">
-              <span class="text-xs font-mono font-bold text-slate-700 dark:text-slate-300 w-16 text-right" x-text="settingsCrawlPages + ' pages'"></span>
+            <!-- Free Numeric Input & Synchronized Range Slider -->
+            <div class="flex items-center gap-3 pt-1">
+              <input type="range" min="10" max="2000" step="5"
+                     x-model.number="settingsMaxSerpPins"
+                     @input="settingsMaxPins = settingsMaxSerpPins; settingsCrawlPages = Math.ceil(settingsMaxSerpPins / 25)"
+                     class="flex-1 h-2 bg-slate-200 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-600">
+              <div class="flex items-center gap-1.5 shrink-0">
+                <input type="number" min="10" max="2000" step="5"
+                       x-model.number="settingsMaxSerpPins"
+                       @input="settingsMaxPins = settingsMaxSerpPins; settingsCrawlPages = Math.ceil(settingsMaxSerpPins / 25)"
+                       class="w-20 px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-bold font-mono text-slate-900 dark:text-white text-right focus:outline-none focus:ring-1 focus:ring-indigo-500">
+                <span class="text-xs font-mono text-slate-400">pins</span>
+              </div>
             </div>
           </div>
 
-          <!-- Audit-Only Mode Notice (Visible when Harvest is OFF) -->
+          <!-- Audit-Only Mode Notice -->
           <div x-show="!settingsEnableSerpHarvest" class="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-700 dark:text-amber-300 flex items-start space-x-2">
             <i data-lucide="zap" class="w-4 h-4 shrink-0 mt-0.5 text-amber-500"></i>
             <div>
-              <span class="font-bold">⚡ Audit-Only Mode Active:</span> Live Pinterest search will be bypassed entirely. Crawlers will skip Stage 0/1 SERP scraping to conserve rate limits and immediately proceed to deep closeup telemetry and velocity measurement on stored catalog & vault pins.
+              <span class="font-bold">⚡ Audit-Only Mode Active:</span> Live Pinterest search will be bypassed entirely. Crawlers will skip Stage 0/1 SERP scraping and immediately proceed to deep closeup telemetry and velocity measurement on stored catalog & vault pins.
             </div>
           </div>
         </div>
 
-        <!-- Section 2: Catalog & Vault Deep Inspection Cap (Stage 2 Deep Telemetry) -->
-        <div class="space-y-3 pt-3 border-t border-slate-100 dark:border-slate-800">
-          <div class="flex items-center justify-between">
-            <label class="text-xs font-black text-slate-900 dark:text-white flex items-center space-x-1.5 uppercase font-mono">
-              <span>2. Catalog & Vault Deep Inspection Cap (MAX_CATALOG_INSPECT)</span>
+        <!-- PART 2: Catalog Scope & Inspection Cap -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/40">
+          <!-- Left: Crawl Scope -->
+          <div class="flex flex-col gap-1.5">
+            <label class="text-xs font-black text-slate-900 dark:text-white uppercase font-mono tracking-wider">
+              2. Crawl Scope
             </label>
-            <span class="text-xs font-mono font-bold text-violet-500"
-                  x-text="settingsMaxCatalogInspect === 0 ? 'Unlimited (100% Full Catalog)' : (settingsMaxCatalogInspect + ' Pins Cap')"></span>
-          </div>
-          <p class="text-[11px] text-slate-500 dark:text-slate-400">
-            Controls how many total pins from your historical catalog and Displaced Vault receive deep closeup inspection and 24h save velocity measurement. Set to <b>0 for Unlimited</b> (audits 100% of all discovered pins across parallel runners).
-          </p>
-
-          <!-- Inspection Cap Presets Grid -->
-          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            <button type="button" @click="settingsMaxCatalogInspect = 0"
-                    class="p-2.5 rounded-xl border text-left transition cursor-pointer"
-                    :class="settingsMaxCatalogInspect === 0 ? 'bg-violet-500/10 border-violet-500 text-violet-600 dark:text-violet-400 font-bold' : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'">
-              <div class="text-xs font-black flex items-center justify-between">
-                <span>0 (All Pins)</span>
-                <span class="text-[9px] px-1 rounded bg-emerald-500/20 text-emerald-500">Rec</span>
-              </div>
-              <div class="text-[10px] opacity-75">100% Full Catalog</div>
-            </button>
-            <button type="button" @click="settingsMaxCatalogInspect = 250"
-                    class="p-2.5 rounded-xl border text-left transition cursor-pointer"
-                    :class="settingsMaxCatalogInspect === 250 ? 'bg-violet-500/10 border-violet-500 text-violet-600 dark:text-violet-400 font-bold' : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'">
-              <div class="text-xs font-black">250 Pins</div>
-              <div class="text-[10px] opacity-75">Top SERP Cap</div>
-            </button>
-            <button type="button" @click="settingsMaxCatalogInspect = 500"
-                    class="p-2.5 rounded-xl border text-left transition cursor-pointer"
-                    :class="settingsMaxCatalogInspect === 500 ? 'bg-violet-500/10 border-violet-500 text-violet-600 dark:text-violet-400 font-bold' : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'">
-              <div class="text-xs font-black">500 Pins</div>
-              <div class="text-[10px] opacity-75">Extended Depth</div>
-            </button>
-            <button type="button" @click="settingsMaxCatalogInspect = 1000"
-                    class="p-2.5 rounded-xl border text-left transition cursor-pointer"
-                    :class="settingsMaxCatalogInspect === 1000 ? 'bg-violet-500/10 border-violet-500 text-violet-600 dark:text-violet-400 font-bold' : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'">
-              <div class="text-xs font-black">1000 Pins</div>
-              <div class="text-[10px] opacity-75">High Quota Fleet</div>
-            </button>
+            <select x-model="settingsCrawlScope"
+                    class="w-full text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-3 py-2 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium">
+              <option value="all_pins">Unified Full Catalog (Active + Vault Archive)</option>
+              <option value="active_serp">Active SERP Only (Top 100 Organic Only)</option>
+            </select>
+            <p class="text-[10px] text-slate-400 mt-0.5">Defines whether displaced historical pins are audited alongside active rankings.</p>
           </div>
 
-          <!-- Custom Number Input -->
-          <div class="flex items-center space-x-3 pt-1">
-            <label class="text-[11px] font-bold text-slate-600 dark:text-slate-400 whitespace-nowrap">Custom Inspection Cap:</label>
-            <input type="number" min="0" max="10000" step="50" x-model.number="settingsMaxCatalogInspect"
-                   class="w-32 px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-900 dark:text-white font-mono">
-            <span class="text-[11px] text-slate-400">(0 = Unlimited, inspects entire keyword catalog)</span>
-          </div>
-        </div>
-
-        <!-- Section 3: Crawl Scope & Target Population -->
-        <div class="space-y-3 pt-3 border-t border-slate-100 dark:border-slate-800">
-          <label class="text-xs font-black text-slate-900 dark:text-white uppercase font-mono block">
-            3. Target Crawl Scope
-          </label>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <label class="flex items-start space-x-3 p-3 rounded-2xl border cursor-pointer transition"
-                   :class="settingsCrawlScope === 'all_pins' ? 'bg-violet-500/10 border-violet-500/40' : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800'">
-              <input type="radio" value="all_pins" x-model="settingsCrawlScope" class="mt-0.5 text-violet-600">
-              <div class="text-xs">
-                <div class="font-bold text-slate-900 dark:text-white flex items-center space-x-1">
-                  <span>🏛️ Unified Full Catalog</span>
-                  <span class="text-[9px] px-1 rounded bg-emerald-500/20 text-emerald-500 font-bold">Recommended</span>
-                </div>
-                <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Audits active ranking pins plus all displaced historical pins in the vault (guarantees zero missing pins).</p>
-              </div>
-            </label>
-            <label class="flex items-start space-x-3 p-3 rounded-2xl border cursor-pointer transition"
-                   :class="settingsCrawlScope === 'active_serp' ? 'bg-indigo-500/10 border-indigo-500/40' : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800'">
-              <input type="radio" value="active_serp" x-model="settingsCrawlScope" class="mt-0.5 text-indigo-600">
-              <div class="text-xs">
-                <div class="font-bold text-slate-900 dark:text-white">🎯 Active SERP Only</div>
-                <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Restricts inspection strictly to organic pins currently ranking within the active SERP reach.</p>
-              </div>
-            </label>
-          </div>
-        </div>
-
-        <!-- Section 4: Inspection & Telemetry Mode -->
-        <div class="space-y-3 pt-3 border-t border-slate-100 dark:border-slate-800">
-          <label class="text-xs font-black text-slate-900 dark:text-white uppercase font-mono block">
-            4. Inspection & Telemetry Mode
-          </label>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <label class="flex items-start space-x-3 p-3 rounded-2xl border cursor-pointer transition"
-                   :class="settingsInspectionMode === 'full_catalog' ? 'bg-violet-500/10 border-violet-500/40' : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800'">
-              <input type="radio" value="full_catalog" x-model="settingsInspectionMode" class="mt-0.5 text-violet-600">
-              <div class="text-xs">
-                <div class="font-bold text-slate-900 dark:text-white flex items-center space-x-1">
-                  <span>💯 Full Catalog Deep Scan</span>
-                  <span class="text-[9px] px-1 rounded bg-violet-500/20 text-violet-500 font-bold">Default</span>
-                </div>
-                <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">100% closeup telemetry across all discovered pins distributed over 20 parallel runner VMs.</p>
-              </div>
-            </label>
-            <label class="flex items-start space-x-3 p-3 rounded-2xl border cursor-pointer transition"
-                   :class="settingsInspectionMode === 'smart_breakout' ? 'bg-emerald-500/10 border-emerald-500/40' : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800'">
-              <input type="radio" value="smart_breakout" x-model="settingsInspectionMode" class="mt-0.5 text-emerald-600">
-              <div class="text-xs">
-                <div class="font-bold text-slate-900 dark:text-white">🚀 Smart Breakout Filter</div>
-                <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Top 50 + auto-detect & closeup inspect all emerging breakout pins in deep pages.</p>
-              </div>
-            </label>
-          </div>
-        </div>
-
-        <!-- Section 5: Breakout Hunter Criteria -->
-        <div class="space-y-3 pt-3 border-t border-slate-100 dark:border-slate-800">
-          <label class="text-xs font-black text-slate-900 dark:text-white uppercase font-mono block">
-            5. Breakout Opportunity Predictor
-          </label>
-          <div class="grid grid-cols-2 gap-3">
-            <div>
-              <label class="text-[10px] font-bold text-slate-500 uppercase font-mono block mb-1">Max Pin Age (Days)</label>
-              <input type="number" min="3" max="60" x-model.number="settingsMaxPinAgeDays"
-                     class="w-full px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-900 dark:text-white">
+          <!-- Right: Inspection Cap -->
+          <div class="flex flex-col gap-1.5">
+            <div class="flex items-center justify-between">
+              <label class="text-xs font-black text-slate-900 dark:text-white uppercase font-mono tracking-wider">
+                Inspection Cap
+              </label>
+              <span class="text-[10px] text-slate-400 font-mono" x-text="settingsMaxCatalogInspect === 0 ? 'Unlimited' : settingsMaxCatalogInspect + ' pins'"></span>
             </div>
-            <div>
-              <label class="text-[10px] font-bold text-slate-500 uppercase font-mono block mb-1">Min Daily Velocity (Saves/Day)</label>
-              <input type="number" min="0.5" max="50" step="0.5" x-model.number="settingsMinVelocity"
-                     class="w-full px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-900 dark:text-white">
+            <div class="flex items-center gap-2">
+              <input type="number" min="0" max="10000" step="50" x-model.number="settingsMaxCatalogInspect"
+                     placeholder="0 = Unlimited"
+                     class="flex-1 text-xs rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-3 py-2 text-slate-800 dark:text-slate-200 font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500 font-semibold">
+              <button type="button" @click="settingsMaxCatalogInspect = 0"
+                      class="px-2.5 py-2 rounded-xl text-xs font-mono font-semibold border transition cursor-pointer"
+                      :class="settingsMaxCatalogInspect === 0 ? 'bg-violet-600 text-white border-violet-600' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'">
+                All (0)
+              </button>
+            </div>
+            <p class="text-[10px] text-slate-400 mt-0.5">Maximum catalog pins receiving closeup saves velocity telemetry.</p>
+          </div>
+        </div>
+
+        <!-- PART 3: Collapsible Advanced Rules (<details>) -->
+        <details class="group rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 overflow-hidden">
+          <summary class="flex items-center justify-between p-3.5 cursor-pointer text-xs font-bold text-slate-700 dark:text-slate-300 select-none hover:bg-slate-100/60 dark:hover:bg-slate-800/50 transition">
+            <div class="flex items-center space-x-2">
+              <i data-lucide="sliders-horizontal" class="w-4 h-4 text-violet-500"></i>
+              <span>3. Advanced Telemetry, Breakout & Filtration Rules</span>
+            </div>
+            <i data-lucide="chevron-down" class="w-4 h-4 text-slate-400 group-open:rotate-180 transition-transform duration-200"></i>
+          </summary>
+
+          <div class="p-4 pt-1 space-y-4 border-t border-slate-200/60 dark:border-slate-800/60">
+            <!-- Telemetry Mode -->
+            <div class="space-y-1.5">
+              <label class="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase font-mono">Inspection & Telemetry Mode</label>
+              <div class="grid grid-cols-2 gap-2">
+                <label class="flex items-start space-x-2.5 p-2.5 rounded-xl border cursor-pointer transition text-xs"
+                       :class="settingsInspectionMode === 'full_catalog' ? 'bg-violet-500/10 border-violet-500/40 text-violet-700 dark:text-violet-300 font-semibold' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300'">
+                  <input type="radio" value="full_catalog" x-model="settingsInspectionMode" class="mt-0.5 text-violet-600">
+                  <span>Full Catalog Deep Scan</span>
+                </label>
+                <label class="flex items-start space-x-2.5 p-2.5 rounded-xl border cursor-pointer transition text-xs"
+                       :class="settingsInspectionMode === 'smart_breakout' ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-700 dark:text-emerald-300 font-semibold' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300'">
+                  <input type="radio" value="smart_breakout" x-model="settingsInspectionMode" class="mt-0.5 text-emerald-600">
+                  <span>Smart Breakout Filter</span>
+                </label>
+              </div>
+            </div>
+
+            <!-- Breakout Opportunity Predictor -->
+            <div class="space-y-1.5">
+              <label class="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase font-mono">Breakout Predictor Criteria</label>
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="text-[10px] text-slate-400 font-mono block mb-1">Max Pin Age (Days)</label>
+                  <input type="number" min="3" max="60" x-model.number="settingsMaxPinAgeDays"
+                         class="w-full px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-900 dark:text-white">
+                </div>
+                <div>
+                  <label class="text-[10px] text-slate-400 font-mono block mb-1">Min Daily Velocity (Saves/Day)</label>
+                  <input type="number" min="0.5" max="50" step="0.5" x-model.number="settingsMinVelocity"
+                         class="w-full px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-900 dark:text-white">
+                </div>
+              </div>
+            </div>
+
+            <!-- Filtration & Quality Exclusions -->
+            <div class="space-y-2">
+              <label class="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase font-mono">Data Quality & Filtration</label>
+              <div class="space-y-1.5">
+                <label class="flex items-center justify-between p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 cursor-pointer text-xs">
+                  <span class="text-slate-700 dark:text-slate-300 font-medium">Exclude Promoted & Sponsored Ads</span>
+                  <input type="checkbox" x-model="settingsExcludePromoted" class="w-4 h-4 text-violet-600 rounded accent-violet-600">
+                </label>
+                <label class="flex items-center justify-between p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 cursor-pointer text-xs">
+                  <span class="text-slate-700 dark:text-slate-300 font-medium">Exclude Boards & Suggestion Cards</span>
+                  <input type="checkbox" x-model="settingsExcludeBoardsAndSuggestions" class="w-4 h-4 text-violet-600 rounded accent-violet-600">
+                </label>
+                <label class="flex items-center justify-between p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 cursor-pointer text-xs">
+                  <span class="text-slate-700 dark:text-slate-300 font-medium">Exclude Ignored / Tombstoned Pins</span>
+                  <input type="checkbox" x-model="settingsExcludeIgnoredPins" class="w-4 h-4 text-violet-600 rounded accent-violet-600">
+                </label>
+              </div>
+            </div>
+
+            <!-- Scope Target Selection -->
+            <div class="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs">
+              <span class="text-slate-600 dark:text-slate-400 font-medium">Apply as global default to all keywords</span>
+              <label class="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" x-model="settingsApplyGlobal" class="sr-only peer">
+                <div class="w-9 h-5 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+              </label>
             </div>
           </div>
-        </div>
-
-        <!-- Section 6: Filtration & Quality Exclusions -->
-        <div class="space-y-3 pt-3 border-t border-slate-100 dark:border-slate-800">
-          <div class="flex items-center justify-between">
-            <label class="text-xs font-black text-slate-900 dark:text-white uppercase font-mono block">
-              6. Data Quality & Filtration Exclusions
-            </label>
-            <span class="text-[10px] text-slate-500 font-mono">Organic Telemetry Rules</span>
-          </div>
-          <div class="space-y-2">
-            <label class="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 cursor-pointer">
-              <div class="text-xs pr-2">
-                <div class="font-bold text-slate-900 dark:text-white flex items-center gap-1.5 flex-wrap">
-                  <span>🚫 Exclude Promoted & Sponsored Ads</span>
-                  <span class="text-[9px] px-1 rounded bg-amber-500/20 text-amber-500 font-mono font-bold">is_promoted</span>
-                </div>
-                <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Filters out paid advertisements to track 100% authentic organic rankings.</p>
-              </div>
-              <input type="checkbox" x-model="settingsExcludePromoted" class="w-4 h-4 text-violet-600 rounded cursor-pointer accent-violet-600">
-            </label>
-
-            <label class="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 cursor-pointer">
-              <div class="text-xs pr-2">
-                <div class="font-bold text-slate-900 dark:text-white flex items-center gap-1.5 flex-wrap">
-                  <span>📋 Exclude Boards & Suggestion Cards</span>
-                  <span class="text-[9px] px-1 rounded bg-slate-500/20 text-slate-400 font-mono font-bold">board / Related Interests</span>
-                </div>
-                <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Filters carousel containers and search suggestions to focus on pure pins.</p>
-              </div>
-              <input type="checkbox" x-model="settingsExcludeBoardsAndSuggestions" class="w-4 h-4 text-violet-600 rounded cursor-pointer accent-violet-600">
-            </label>
-
-            <label class="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 cursor-pointer">
-              <div class="text-xs pr-2">
-                <div class="font-bold text-slate-900 dark:text-white flex items-center gap-1.5 flex-wrap">
-                  <span>🪦 Exclude Ignored / Tombstoned Pins</span>
-                  <span class="text-[9px] px-1 rounded bg-rose-500/20 text-rose-400 font-mono font-bold">keyword_ignored_pins</span>
-                </div>
-                <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Honors the custom tombstone registry so ignored pins never re-surface.</p>
-              </div>
-              <input type="checkbox" x-model="settingsExcludeIgnoredPins" class="w-4 h-4 text-violet-600 rounded cursor-pointer accent-violet-600">
-            </label>
-          </div>
-        </div>
-
-        <!-- Scope Target Selection -->
-        <div class="p-3 rounded-2xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs">
-          <span class="text-slate-600 dark:text-slate-400 font-medium">Apply as global default to all keywords</span>
-          <label class="relative inline-flex items-center cursor-pointer">
-            <input type="checkbox" x-model="settingsApplyGlobal" class="sr-only peer">
-            <div class="w-9 h-5 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
-          </label>
-        </div>
+        </details>
 
         <!-- Footer Actions -->
         <div class="flex items-center justify-end space-x-2 pt-2">

@@ -41,7 +41,15 @@ import {
   removeKeywordFromFolder,
   getFoldersForKeyword,
   calculateFolderCrossover,
-  normalizeFolderMetadata
+  normalizeFolderMetadata,
+  listFolderCreators,
+  linkCreatorToFolder,
+  unlinkCreatorFromFolder,
+  listFolderPinnedDomains,
+  listPinnedDomains,
+  pinDomainToFolder,
+  unpinDomainFromFolder,
+  cacheFolderTrends
 } from '../modules/keywords/folders-service.mjs';
 
 import {
@@ -102,9 +110,11 @@ export async function handleKeywordsRoutes({
     const limit = clampLimit(searchParams.get('limit'), 1000, 1000);
     const offset = Math.max(0, parseInt(searchParams.get('offset'), 10) || 0);
     const forceRefresh = searchParams.get('refresh') === 'true';
+    const folderId = searchParams.get('folder_id') ? Number(searchParams.get('folder_id')) : (searchParams.get('folder') ? Number(searchParams.get('folder')) : null);
 
     // Check D1 Edge Keywords Catalog first (Sub-5ms Edge Reads)
-    if (!forceRefresh && env?.PIN_D1_DB && readKeywordsFromD1) {
+    // When folderId is provided, bypass generic D1 full-catalog read so authoritative folder-scoped keywords are returned
+    if (!folderId && !forceRefresh && env?.PIN_D1_DB && readKeywordsFromD1) {
       try {
         const d1Keywords = await readKeywordsFromD1(env, { search, limit, offset });
         if (Array.isArray(d1Keywords) && d1Keywords.length > 0) {
@@ -122,7 +132,8 @@ export async function handleKeywordsRoutes({
     const cacheKey = buildCanonicalCacheKey('keywords:hub', {
       search,
       limit,
-      offset
+      offset,
+      folder_id: folderId
     });
 
     if (forceRefresh) {
@@ -137,11 +148,12 @@ export async function handleKeywordsRoutes({
         return await listKeywords(sql, {
           search,
           limit,
-          offset
+          offset,
+          folderId
         });
       }, 30000, 120000, { forceRefresh });
 
-      if (Array.isArray(keywords) && keywords.length > 0 && env?.PIN_D1_DB) {
+      if (!folderId && Array.isArray(keywords) && keywords.length > 0 && env?.PIN_D1_DB) {
         if (!search && limit >= 1000) {
           safeWaitUntil(ctx, syncKeywordsCatalogToD1(env, keywords, { isFullCatalog: true }), 'syncKeywordsCatalogToD1');
         } else if (!search) {
@@ -629,6 +641,9 @@ export async function handleKeywordsRoutes({
     if (!term) return jsonResponse({ error: 'term is required' }, 400);
 
     const result = await fetchPinterestTrends(term, country, true);
+    if (result && result.success) {
+      cacheFolderTrends(term, result);
+    }
     if (result && result.success && sql && term) {
       try {
         const popResult = await fetchPinterestTrendsPopularPins(sql, term, country, true);
@@ -649,6 +664,9 @@ export async function handleKeywordsRoutes({
     const country = searchParams.get('country') || 'US';
     const force = searchParams.get('force') === 'true' || searchParams.get('refresh') === 'true';
     const result = await fetchPinterestTrends(term, country, force);
+    if (result && result.success) {
+      cacheFolderTrends(term, result);
+    }
     if (result && result.success && sql && term) {
       try {
         const clean = term.trim().toLowerCase();
@@ -959,31 +977,102 @@ export async function handleKeywordsRoutes({
     const parts = pathname.slice(basePrefix.length).split('/').filter(Boolean);
     const folderId = parts[0] ? Number(parts[0]) : (searchParams.get('id') || searchParams.get('folder_id'));
 
+    // A. Sub-route: /api/folders/:id/creators
+    if (parts.length >= 2 && parts[1] === 'creators') {
+      if (!folderId) return jsonResponse({ success: false, error: 'Valid folder ID is required' }, 400);
+
+      // GET /api/folders/:id/creators -> listFolderCreators(sql, folderId)
+      if (method === 'GET' && parts.length === 2) {
+        const creators = await listFolderCreators(sql, folderId);
+        return jsonResponse({ success: true, creators, folder_id: folderId });
+      }
+
+      // POST /api/folders/:id/creators -> linkCreatorToFolder(sql, folderId, competitorId)
+      if (method === 'POST' && parts.length === 2) {
+        const body = await request.json().catch(() => ({}));
+        const competitorId = body.competitor_id || body.creator_id || body.id;
+        if (!competitorId) {
+          return jsonResponse({ success: false, error: 'competitor_id is required' }, 400);
+        }
+        const linked = await linkCreatorToFolder(sql, folderId, competitorId);
+        return jsonResponse({ success: true, linked, folder_id: folderId });
+      }
+
+      // DELETE /api/folders/:id/creators/:cid -> unlinkCreatorFromFolder(sql, folderId, competitorId)
+      if (method === 'DELETE' && parts.length === 3) {
+        const competitorId = Number(parts[2]);
+        if (!competitorId) {
+          return jsonResponse({ success: false, error: 'Valid creator ID is required' }, 400);
+        }
+        const unlinked = await unlinkCreatorFromFolder(sql, folderId, competitorId);
+        return jsonResponse({ success: true, unlinked, folder_id: folderId });
+      }
+
+      return jsonResponse({ success: false, error: 'Method not allowed on /creators' }, 405);
+    }
+
+    // B. Sub-route: /api/folders/:id/domains
+    if (parts.length >= 2 && parts[1] === 'domains') {
+      if (!folderId) return jsonResponse({ success: false, error: 'Valid folder ID is required' }, 400);
+
+      // GET /api/folders/:id/domains -> listFolderPinnedDomains(sql, folderId)
+      if (method === 'GET' && parts.length === 2) {
+        const domains = await listFolderPinnedDomains(sql, folderId);
+        return jsonResponse({ success: true, domains, pinned_domains: domains, folder_id: folderId });
+      }
+
+      // POST /api/folders/:id/domains -> pinDomainToFolder(sql, folderId, domain, notes)
+      if (method === 'POST' && parts.length === 2) {
+        const body = await request.json().catch(() => ({}));
+        const domain = body.domain;
+        if (!domain) {
+          return jsonResponse({ success: false, error: 'domain is required' }, 400);
+        }
+        const pinned = await pinDomainToFolder(sql, folderId, domain, body.notes || '');
+        return jsonResponse({ success: true, pinned, folder_id: folderId });
+      }
+
+      // DELETE /api/folders/:id/domains/:domain -> unpinDomainFromFolder(sql, folderId, domain)
+      if (method === 'DELETE' && parts.length >= 3) {
+        const domain = decodeURIComponent(parts.slice(2).join('/'));
+        if (!domain) {
+          return jsonResponse({ success: false, error: 'domain is required' }, 400);
+        }
+        const unpinned = await unpinDomainFromFolder(sql, folderId, domain);
+        return jsonResponse({ success: true, unpinned, folder_id: folderId });
+      }
+
+      return jsonResponse({ success: false, error: 'Method not allowed on /domains' }, 405);
+    }
+
     if (method === 'GET') {
       const isRefreshRequested = searchParams.get('refresh') === 'true';
-      if (folderId) {
-        if (!isRefreshRequested && env?.PIN_D1_DB) {
+      if (folderId && parts.length === 1) {
+        // [INVARIANT: FOLDER-SSOT-LOOKUP] Serve authoritative live data from Central Hub getFolder(sql, folderId) (< 5ms)
+        let folder = null;
+        if (sql) {
+          try {
+            folder = await getFolder(sql, folderId);
+          } catch (_) {}
+        }
+        // Fallback to D1 edge database if SQL has no record (e.g. edge-only test environments or offline Hub)
+        if (!folder && !isRefreshRequested && env?.PIN_D1_DB) {
           try {
             const d1Folder = await env.PIN_D1_DB.prepare(
-              "SELECT id, name, color, description, item_count, item_count AS keyword_count, updated_at FROM edge_campaign_folders WHERE id = ?"
+              "SELECT id, name, color, description, item_count, keyword_count, creator_count, domain_count, pinned_domain_count, status, metadata, updated_at FROM edge_campaign_folders WHERE id = ?"
             ).bind(String(folderId)).first();
             if (d1Folder) {
-              const updatedTime = d1Folder.updated_at ? new Date(d1Folder.updated_at).getTime() : 0;
-              const isFresh = !isNaN(updatedTime) && (Date.now() - updatedTime < 10 * 60 * 1000);
               const count = Number(d1Folder.keyword_count ?? d1Folder.item_count ?? 0);
-              if (isFresh && count > 0) {
-                const normalizedD1Folder = {
-                  ...d1Folder,
-                  keyword_count: count,
-                  item_count: count,
-                  items: []
-                };
-                return jsonResponse({ success: true, folder: normalizedD1Folder, source: 'd1_edge' }, 200, 15);
-              }
+              const normalizedD1Folder = {
+                ...d1Folder,
+                keyword_count: count,
+                item_count: count,
+                items: []
+              };
+              return jsonResponse({ success: true, folder: normalizedD1Folder, source: 'd1_edge' }, 200, 15);
             }
           } catch (_) {}
         }
-        const folder = await getFolder(sql, folderId);
         if (!folder) return jsonResponse({ error: 'Folder not found' }, 404);
         if (syncFolderToD1) {
           safeWaitUntil(ctx, syncFolderToD1(env, folder), 'syncFolderToD1');
@@ -993,7 +1082,7 @@ export async function handleKeywordsRoutes({
       if (!isRefreshRequested && env?.PIN_D1_DB) {
         try {
           const d1Folders = await env.PIN_D1_DB.prepare(
-            "SELECT id, name, color, description, item_count, item_count AS keyword_count, updated_at FROM edge_campaign_folders WHERE datetime(updated_at) > datetime('now', '-10 minutes') ORDER BY updated_at DESC"
+            "SELECT id, name, color, description, item_count, keyword_count, creator_count, domain_count, pinned_domain_count, status, metadata, updated_at FROM edge_campaign_folders WHERE datetime(updated_at) > datetime('now', '-10 minutes') ORDER BY updated_at DESC"
           ).all();
           if (d1Folders?.results?.length > 0) {
             const tenMinutesAgo = Date.now() - 10 * 60 * 1000;
@@ -1008,7 +1097,11 @@ export async function handleKeywordsRoutes({
             if (allFresh && totalItems > 0) {
               const normalizedList = d1Folders.results.map(f => ({
                 ...f,
-                keyword_count: Number(f.keyword_count ?? f.item_count ?? 0)
+                keyword_count: Number(f.keyword_count ?? f.item_count ?? 0),
+                creator_count: Number(f.creator_count || 0),
+                domain_count: Number(f.domain_count || 0),
+                pinned_domain_count: Number(f.pinned_domain_count || 0),
+                metadata: typeof f.metadata === 'string' ? (() => { try { return JSON.parse(f.metadata); } catch (_) { return {}; } })() : (f.metadata || {})
               }));
               return jsonResponse({ success: true, folders: normalizedList, source: 'd1_edge' }, 200, 10);
             }
@@ -1048,7 +1141,7 @@ export async function handleKeywordsRoutes({
       return jsonResponse({ success: true, folder: created });
     }
 
-    if ((method === 'PUT' || method === 'PATCH') && folderId) {
+    if ((method === 'PUT' || method === 'PATCH') && folderId && parts.length === 1) {
       const body = await request.json().catch(() => ({}));
       if (body.status && !['active', 'archived', 'paused', 'completed'].includes(String(body.status).toLowerCase())) {
         return jsonResponse({ success: false, error: 'Invalid folder status. Allowed values: active, archived, paused, completed' }, 400);
@@ -1060,7 +1153,9 @@ export async function handleKeywordsRoutes({
       return jsonResponse({ success: true, folder: updated });
     }
 
-    if (method === 'DELETE' && folderId) {
+    // [INVARIANT: GUARD-ACCIDENTAL-FOLDER-DELETION] Strictly guard folder deletion:
+    // parts.length MUST equal 1 (e.g. DELETE /api/folders/5). Sub-route unpin/unlink operations MUST NEVER delete the folder!
+    if (method === 'DELETE' && folderId && parts.length === 1) {
       const deleted = await deleteFolder(sql, folderId);
       if (deleteFolderFromD1) {
         safeWaitUntil(ctx, deleteFolderFromD1(env, folderId), 'deleteFolderFromD1');

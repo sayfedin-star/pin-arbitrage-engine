@@ -871,7 +871,7 @@ export async function listDomainsIntelligence(sql, {
       FROM keyword_serp_current ksc
       WHERE (${pillar} IN ('all', 'serp', 'competitors'))
         AND ksc.domain IS NOT NULL AND ksc.domain <> ''
-        AND (${fId}::int IS NULL OR ksc.keyword_id IN (SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${fId}))
+        AND (${fId}::int IS NULL OR (ksc.keyword_id IN (SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${fId}) AND ksc.is_displaced = FALSE))
         AND (${kId}::int IS NULL OR ksc.keyword_id = ${kId})
 
       UNION ALL
@@ -940,7 +940,8 @@ export async function listDomainsIntelligence(sql, {
         '/' AS url_slug,
         TRUE AS is_serp_ranked
       FROM keyword_displaced_index kdi
-      WHERE (${pillar} IN ('all', 'serp', 'displaced', 'competitors'))
+      WHERE (${fId}::int IS NULL OR ${pillar} = 'displaced')
+        AND (${pillar} IN ('all', 'serp', 'displaced', 'competitors'))
         AND kdi.domain IS NOT NULL AND kdi.domain <> ''
         AND (${fId}::int IS NULL OR kdi.keyword_id IN (SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${fId}))
         AND (${kId}::int IS NULL OR kdi.keyword_id = ${kId})
@@ -981,7 +982,8 @@ export async function listDomainsIntelligence(sql, {
       FROM raw_occurrences
       WHERE clean_domain <> ''
         AND clean_domain <> ALL(${IGNORED_INTERNAL_DOMAINS}::text[])
-        AND (${excludeMarketplaces} = FALSE OR clean_domain <> ALL(${ECOMMERCE_AND_SOCIAL_DOMAINS}::text[]))
+        AND (${excludeMarketplaces} = FALSE OR ${fId}::int IS NOT NULL OR clean_domain <> ALL(${ECOMMERCE_AND_SOCIAL_DOMAINS}::text[]))
+        AND clean_domain LIKE '%.%'
         AND (${searchPattern}::text IS NULL OR clean_domain LIKE ${searchPattern})
         AND (${pillar} <> 'competitors' OR clean_domain IN (
           SELECT link_domain

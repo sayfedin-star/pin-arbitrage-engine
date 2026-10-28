@@ -60,9 +60,12 @@ export function renderCampaignWorkspaceHeader({
         </a>
 
         <!-- Folder Avatar & Metadata -->
-        <div class="w-11 h-11 rounded-xl flex items-center justify-center text-2xl shadow-inner border border-slate-200/80 dark:border-white/10 shrink-0"
+        <div class="w-11 h-11 rounded-xl flex items-center justify-center text-xl shadow-inner border border-slate-200/80 dark:border-white/10 shrink-0 overflow-hidden"
              :style="'background-color: ' + (activeFolder?.color ? activeFolder.color + '20' : '${folderColor}20')">
-          <span x-text="activeFolder?.icon || '${folderIcon}'">${folderIcon}</span>
+          <span x-show="activeFolder?.icon && activeFolder.icon !== 'folder' && activeFolder.icon.length <= 4" x-text="activeFolder?.icon">${(!folderIcon || folderIcon === 'folder' || folderIcon.length > 4) ? '' : folderIcon}</span>
+          <span x-show="!activeFolder?.icon || activeFolder.icon === 'folder' || activeFolder.icon.length > 4">
+            <i data-lucide="folder-kanban" class="w-5 h-5 text-indigo-500"></i>
+          </span>
         </div>
 
         <div class="flex flex-col min-w-0">
@@ -114,33 +117,33 @@ export function renderCampaignWorkspaceHeader({
     <div class="flex items-center justify-between px-3 bg-slate-50/60 dark:bg-slate-950/40 border-t border-slate-100 dark:border-slate-800/80 overflow-x-auto">
       <nav class="flex items-center space-x-1 shrink-0">
         <!-- Room 1: Crossover & Super-Pins -->
-        <a href="/folders/${cleanFolderId}" class="${crossoverClass}">
+        <a :href="'/folders/' + (activeFolderId || '${cleanFolderId}')" href="/folders/${cleanFolderId}" class="${crossoverClass}">
           <i data-lucide="zap" class="w-4 h-4 text-indigo-500"></i>
-          <span>⚡ Crossover & Super-Pins</span>
+          <span>Crossover & Super-Pins</span>
           <span class="px-1.5 py-0.5 rounded-md font-mono text-[10px] bg-indigo-500/10 text-indigo-700 dark:text-indigo-400"
                 x-text="activeFolder?.items?.length || crossoverData?.summary?.total_unique_pins || '—'"></span>
         </a>
 
         <!-- Room 2: Keywords Fleet -->
-        <a href="/folders/${cleanFolderId}/keywords" class="${keywordsClass}">
+        <a :href="'/folders/' + (activeFolderId || '${cleanFolderId}') + '/keywords'" href="/folders/${cleanFolderId}/keywords" class="${keywordsClass}">
           <i data-lucide="search" class="w-4 h-4 text-emerald-500"></i>
-          <span>🎯 Keywords Fleet</span>
+          <span>Keywords Fleet</span>
           <span class="px-1.5 py-0.5 rounded-md font-mono text-[10px] bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
                 x-text="activeFolder?.keyword_count || '0'"></span>
         </a>
 
         <!-- Room 3: Creator Hub -->
-        <a href="/folders/${cleanFolderId}/creators" class="${creatorsClass}">
+        <a :href="'/folders/' + (activeFolderId || '${cleanFolderId}') + '/creators'" href="/folders/${cleanFolderId}/creators" class="${creatorsClass}">
           <i data-lucide="users" class="w-4 h-4 text-purple-500"></i>
-          <span>👥 Creator Hub</span>
+          <span>Creator Hub</span>
           <span class="px-1.5 py-0.5 rounded-md font-mono text-[10px] bg-purple-500/10 text-purple-700 dark:text-purple-400"
                 x-text="activeFolder?.creator_count || '0'"></span>
         </a>
 
         <!-- Room 4: Domain Studio -->
-        <a href="/folders/${cleanFolderId}/domains" class="${domainsClass}">
+        <a :href="'/folders/' + (activeFolderId || '${cleanFolderId}') + '/domains'" href="/folders/${cleanFolderId}/domains" class="${domainsClass}">
           <i data-lucide="globe" class="w-4 h-4 text-sky-500"></i>
-          <span>🌐 Domain Studio</span>
+          <span>Domain Studio</span>
           <span class="px-1.5 py-0.5 rounded-md font-mono text-[10px] bg-sky-500/10 text-sky-700 dark:text-sky-400"
                 x-text="activeFolder?.domain_count ? (activeFolder.domain_count + ' (' + (activeFolder.pinned_domain_count || 0) + ' 📌)') : '0'"></span>
         </a>

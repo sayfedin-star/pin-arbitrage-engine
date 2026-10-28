@@ -1,0 +1,2288 @@
+{
+  "timestamp": "2026-10-28T00:39:25.239Z",
+  "endpoints": [
+    {
+      "name": "Folder Hub Index",
+      "path": "/folders",
+      "status": 200,
+      "latencyMs": 49,
+      "contentLength": 190401,
+      "contentType": "text/html; charset=utf-8",
+      "cacheControl": "public, max-age=0, s-maxage=3600, stale-while-revalidate=86400",
+      "error": null
+    },
+    {
+      "name": "Folder 5 Studio (Room 1)",
+      "path": "/folders/5",
+      "status": 200,
+      "latencyMs": 4,
+      "contentLength": 190417,
+      "contentType": "text/html; charset=utf-8",
+      "cacheControl": "public, max-age=0, s-maxage=3600, stale-while-revalidate=86400",
+      "error": null
+    },
+    {
+      "name": "Folder 5 Keywords (Room 2)",
+      "path": "/folders/5/keywords",
+      "status": 200,
+      "latencyMs": 32,
+      "contentLength": 540641,
+      "contentType": "text/html; charset=utf-8",
+      "cacheControl": "public, max-age=0, s-maxage=3600, stale-while-revalidate=86400",
+      "error": null
+    },
+    {
+      "name": "Folder 5 Creators (Room 3)",
+      "path": "/folders/5/creators",
+      "status": 200,
+      "latencyMs": 63,
+      "contentLength": 839223,
+      "contentType": "text/html; charset=utf-8",
+      "cacheControl": "public, max-age=0, s-maxage=3600, stale-while-revalidate=86400",
+      "error": null
+    },
+    {
+      "name": "Folder 5 Domains (Room 4)",
+      "path": "/folders/5/domains",
+      "status": 200,
+      "latencyMs": 15,
+      "contentLength": 239161,
+      "contentType": "text/html; charset=utf-8",
+      "cacheControl": "public, max-age=0, s-maxage=3600, stale-while-revalidate=86400",
+      "error": null
+    },
+    {
+      "name": "Folder 6 Studio (Room 1)",
+      "path": "/folders/6",
+      "status": 200,
+      "latencyMs": 4,
+      "contentLength": 190417,
+      "contentType": "text/html; charset=utf-8",
+      "cacheControl": "public, max-age=0, s-maxage=3600, stale-while-revalidate=86400",
+      "error": null
+    },
+    {
+      "name": "Domain Studio",
+      "path": "/domains",
+      "status": 200,
+      "latencyMs": 3,
+      "contentLength": 230478,
+      "contentType": "text/html; charset=utf-8",
+      "cacheControl": "public, max-age=0, s-maxage=3600, stale-while-revalidate=86400",
+      "error": null
+    },
+    {
+      "name": "API List Folders",
+      "path": "/api/folders",
+      "status": 200,
+      "latencyMs": 892,
+      "contentLength": 7428,
+      "contentType": "application/json; charset=utf-8",
+      "cacheControl": "public, max-age=10, stale-while-revalidate=30",
+      "error": null
+    },
+    {
+      "name": "API Folder 5 Detail",
+      "path": "/api/folders/5",
+      "status": 200,
+      "latencyMs": 552,
+      "contentLength": 16385,
+      "contentType": "application/json; charset=utf-8",
+      "cacheControl": "public, max-age=15, stale-while-revalidate=45",
+      "error": null
+    },
+    {
+      "name": "API Folder 5 Crossover",
+      "path": "/api/folders/5/raw-visual-crossover",
+      "status": 200,
+      "latencyMs": 1597,
+      "contentLength": 1532101,
+      "contentType": "application/json; charset=utf-8",
+      "cacheControl": "public, max-age=30, stale-while-revalidate=90",
+      "error": null
+    },
+    {
+      "name": "API Folder 6 Detail",
+      "path": "/api/folders/6",
+      "status": 200,
+      "latencyMs": 277,
+      "contentLength": 10231,
+      "contentType": "application/json; charset=utf-8",
+      "cacheControl": "public, max-age=15, stale-while-revalidate=45",
+      "error": null
+    },
+    {
+      "name": "API Folder 6 Crossover",
+      "path": "/api/folders/6/raw-visual-crossover",
+      "status": 200,
+      "latencyMs": 982,
+      "contentLength": 1207742,
+      "contentType": "application/json; charset=utf-8",
+      "cacheControl": "public, max-age=30, stale-while-revalidate=90",
+      "error": null
+    },
+    {
+      "name": "Pin Prefetch Cache-Miss",
+      "path": "/api/pins/1098245059167667976?prefetch=true",
+      "status": 200,
+      "latencyMs": 2,
+      "contentLength": 57,
+      "contentType": "application/json; charset=utf-8",
+      "cacheControl": "",
+      "error": null
+    }
+  ],
+  "syntaxErrors": [
+    {
+      "page": "/folders/5/creators",
+      "directive": ":class",
+      "expression": "{\n                    'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30': Number(activePinDossier.velocity || 0) >= 10,\n                    'bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/30': Number(activePinDossier.velocity || 0) < 10 &amp;&amp; Number(activePinDossier.velocity || 0) >= 1,\n                    'bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/30': Number(activePinDossier.velocity || 0) < 1\n                  }",
+      "errorType": "SyntaxError",
+      "errorMessage": "Unexpected token ';'"
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "(activePinDossier.created_at_pinterest &amp;&amp; !isNaN(new Date(activePinDossier.created_at_pinterest).getTime())) ? new Date(activePinDossier.created_at_pinterest).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : (activePinDossier.first_seen_at &amp;&amp; !isNaN(new Date(activePinDossier.first_seen_at).getTime()) ? new Date(activePinDossier.first_seen_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—')",
+      "errorType": "SyntaxError",
+      "errorMessage": "Unexpected token ';'"
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "(activePinDossier.first_seen_at &amp;&amp; !isNaN(new Date(activePinDossier.first_seen_at).getTime())) ? new Date(activePinDossier.first_seen_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'",
+      "errorType": "SyntaxError",
+      "errorMessage": "Unexpected token ';'"
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "(activePinDossier.last_updated_at &amp;&amp; !isNaN(new Date(activePinDossier.last_updated_at).getTime())) ? new Date(activePinDossier.last_updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'",
+      "errorType": "SyntaxError",
+      "errorMessage": "Unexpected token ';'"
+    }
+  ],
+  "consoleErrors": [
+    {
+      "page": "/folders",
+      "directive": "x-text",
+      "expression": "'+' + (sp.visual_annotations.length - 3) + ' more'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'length')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders",
+      "directive": ":title",
+      "expression": "'Universal Bridge Tags: ' + sp.bridge_tags.join(', ')",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'join')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders",
+      "directive": "x-text",
+      "expression": "'🌉 ' + sp.bridge_tags.length + ' Bridges'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'length')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders",
+      "directive": ":class",
+      "expression": "spoke.recommended_format.includes('VIDEO') ? 'bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'includes')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders",
+      "directive": ":class",
+      "expression": "searchQuery.toLowerCase() === anchor.tag.toLowerCase() ? 'border-purple-500 ring-2 ring-purple-500/20' : ''",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'toLowerCase')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders",
+      "directive": ":class",
+      "expression": "[\n                          searchQuery.toLowerCase() === anchor.tag.toLowerCase() ? 'ring-2 ring-purple-500 bg-purple-600 text-white' : '',\n                          anchor.count >= 40 \n                            ? 'px-3.5 py-1.5 text-sm bg-purple-500/20 text-purple-700 dark:text-purple-300 border border-purple-500/40 hover:bg-purple-500/30 shadow-xs' \n                            : (anchor.count >= 15 \n                              ? 'px-3 py-1 text-xs bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30 hover:bg-indigo-500/25' \n                              : 'px-2.5 py-0.5 text-[11px] bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:border-purple-400')\n                        ]",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'toLowerCase')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5",
+      "directive": "x-text",
+      "expression": "'+' + (sp.visual_annotations.length - 3) + ' more'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'length')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5",
+      "directive": ":title",
+      "expression": "'Universal Bridge Tags: ' + sp.bridge_tags.join(', ')",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'join')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5",
+      "directive": "x-text",
+      "expression": "'🌉 ' + sp.bridge_tags.length + ' Bridges'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'length')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5",
+      "directive": ":class",
+      "expression": "spoke.recommended_format.includes('VIDEO') ? 'bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'includes')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5",
+      "directive": ":class",
+      "expression": "searchQuery.toLowerCase() === anchor.tag.toLowerCase() ? 'border-purple-500 ring-2 ring-purple-500/20' : ''",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'toLowerCase')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5",
+      "directive": ":class",
+      "expression": "[\n                          searchQuery.toLowerCase() === anchor.tag.toLowerCase() ? 'ring-2 ring-purple-500 bg-purple-600 text-white' : '',\n                          anchor.count >= 40 \n                            ? 'px-3.5 py-1.5 text-sm bg-purple-500/20 text-purple-700 dark:text-purple-300 border border-purple-500/40 hover:bg-purple-500/30 shadow-xs' \n                            : (anchor.count >= 15 \n                              ? 'px-3 py-1 text-xs bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30 hover:bg-indigo-500/25' \n                              : 'px-2.5 py-0.5 text-[11px] bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:border-purple-400')\n                        ]",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'toLowerCase')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": ":class",
+      "expression": "isColumnsOpen ? 'rotate-180' : ''",
+      "errorName": "ReferenceError",
+      "errorMessage": "isColumnsOpen is not defined",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": "x-show",
+      "expression": "isColumnsOpen",
+      "errorName": "ReferenceError",
+      "errorMessage": "isColumnsOpen is not defined",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": ":title",
+      "expression": "'Taxonomy: ' + trendsData.category_tree.join(' > ')",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'category_tree')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": "x-text",
+      "expression": "trendsData.category_tree.join(' > ')",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'category_tree')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": ":title",
+      "expression": "'Official Pinterest Annotation ID: ' + trendsData.annotation_id",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'annotation_id')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": "x-text",
+      "expression": "'ID: ' + trendsData.annotation_id",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'annotation_id')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": "x-text",
+      "expression": "'Crawled ' + formatDate(selectedKeyword.last_crawled_at)",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'last_crawled_at')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": "x-show",
+      "expression": "folderDropdownOpen",
+      "errorName": "ReferenceError",
+      "errorMessage": "folderDropdownOpen is not defined",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": ":class",
+      "expression": "selectedKeywordDetails.intelligence.opportunity.verdict === 'WIDE_OPEN' ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400' : (selectedKeywordDetails.intelligence.opportunity.verdict === 'COMPETITIVE' ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400' : 'bg-rose-500/20 text-rose-600 dark:text-rose-400')",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'intelligence')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": "x-text",
+      "expression": "selectedKeywordDetails.intelligence.opportunity.verdict === 'WIDE_OPEN' ? '🟢 WIDE OPEN' : (selectedKeywordDetails.intelligence.opportunity.verdict === 'COMPETITIVE' ? '🟡 MODERATE' : '🔴 SATURATED')",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'intelligence')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": ":class",
+      "expression": "activeVisualTagFilter === vtag.toLowerCase() \n                                        ? 'bg-purple-600 text-white font-bold shadow-sm' \n                                        : (isCoreAnchorTag(vtag) \n                                          ? 'bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 border border-purple-500/40 font-semibold' \n                                          : 'bg-purple-500/10 text-purple-600 dark:text-purple-400 hover:bg-purple-500/20 border border-purple-500/20')",
+      "errorName": "TypeError",
+      "errorMessage": "vtag.toLowerCase is not a function",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": "x-text",
+      "expression": "'▲ +' + pin.metadata.rank_delta",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'rank_delta')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": "x-text",
+      "expression": "'▼ ' + pin.metadata.rank_delta",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'rank_delta')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": ":class",
+      "expression": "activeVisualTagFilter === vtag.toLowerCase() ? 'bg-purple-600 text-white font-bold' : 'bg-purple-500/10 text-purple-600 dark:text-purple-400 hover:bg-purple-500/20 border border-purple-500/20'",
+      "errorName": "TypeError",
+      "errorMessage": "vtag.toLowerCase is not a function",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": ":class",
+      "expression": "activeDomainFilter === dom.domain.toLowerCase() ? 'bg-cyan-600 text-white shadow-xs' : 'bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-600 dark:text-cyan-400 border border-cyan-500/25'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'toLowerCase')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": "x-text",
+      "expression": "activeDomainFilter === dom.domain.toLowerCase() ? 'Filtered' : 'Filter Pins'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'toLowerCase')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": ":class",
+      "expression": "[\n                            activeVisualTagFilter === anchor.tag.toLowerCase() ? 'ring-2 ring-purple-500 bg-purple-600 text-white shadow-md' : '',\n                            anchor.count >= 20\n                              ? 'px-3.5 py-1.5 text-sm bg-purple-500/20 text-purple-600 dark:text-purple-300 border border-purple-500/40 hover:bg-purple-500/30 shadow-xs'\n                              : (anchor.count >= 8\n                                ? 'px-3 py-1 text-xs bg-indigo-500/15 text-indigo-600 dark:text-indigo-300 border border-indigo-500/30 hover:bg-indigo-500/25'\n                                : 'px-2.5 py-0.5 text-[11px] bg-slate-100/80 dark:bg-slate-900/80 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:border-purple-400')\n                          ]",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'toLowerCase')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": ":class",
+      "expression": "activeVisualTagFilter === anchor.tag.toLowerCase() ? 'border-purple-500 ring-2 ring-purple-500/20 bg-purple-500/5' : ''",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'toLowerCase')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": ":class",
+      "expression": "activeVisualTagFilter === anchor.tag.toLowerCase() ? 'bg-purple-600 text-white font-bold' : 'bg-purple-500/10 hover:bg-purple-600 hover:text-white text-purple-600 dark:text-purple-400 border border-purple-500/20'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'toLowerCase')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": "x-text",
+      "expression": "activeVisualTagFilter === anchor.tag.toLowerCase() ? 'Filtered ✓' : 'Filter Pins →'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'toLowerCase')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": ":style",
+      "expression": "'background: linear-gradient(135deg, ' + (activeFolder.color || '#ec4899') + ', #8b5cf6)'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'color')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": "x-text",
+      "expression": "activeFolder.name",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'name')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": "x-text",
+      "expression": "activeFolder.description || 'Algorithmic Topic Cluster & Multi-Dimensional Crossover Engine'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'description')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": "x-text",
+      "expression": "'No Crossover Data Loaded for ' + activeFolder.name",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'name')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": "x-text",
+      "expression": "crossoverData.super_pins?.length + ' Pins'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'super_pins')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": "x-text",
+      "expression": "crossoverData.tag_bridges?.length + ' Tags'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'tag_bridges')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": "x-text",
+      "expression": "tag.overlap_percentage + '% (' + tag.keyword_overlap_count + '/' + crossoverData.summary?.total_keywords + ')'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'summary')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": "x-text",
+      "expression": "crossoverData.seasonality?.peak_months?.join(', ') || 'Evergreen'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'seasonality')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": "x-text",
+      "expression": "crossoverData.seasonality?.recommended_launch_window",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'seasonality')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": ":class",
+      "expression": "crossoverData.seasonality?.peak_months?.includes(m) ? 'text-blue-400 font-bold bg-blue-500/15 rounded py-0.5 border border-blue-500/30' : 'text-slate-500'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'seasonality')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": "x-text",
+      "expression": "'Anchor: ' + crossoverData.topic_cluster_blueprint.folder_name",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'topic_cluster_blueprint')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": "x-text",
+      "expression": "crossoverData.topic_cluster_blueprint.pillar_concept",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'topic_cluster_blueprint')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": "x-text",
+      "expression": "crossoverData.topic_cluster_blueprint.universal_tag_blueprint",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'topic_cluster_blueprint')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": "x-text",
+      "expression": "'#' + activeInspectorPin.rank_position",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'rank_position')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": ":style",
+      "expression": "'background-color: ' + dossierData.dominant_color",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'dominant_color')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": "x-text",
+      "expression": "dossierData.dominant_color",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'dominant_color')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": "x-text",
+      "expression": "'(' + formatNumber(dossierData.board_pin_count) + ' pins)'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'board_pin_count')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": ":href",
+      "expression": "safeUrl(dossierData?.destination_url || activeInspectorPin.destination_url)",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'destination_url')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": "x-text",
+      "expression": "dossierData?.domain || activeInspectorPin.domain",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'domain')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": ":class",
+      "expression": "dossierData.is_indexed_google ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30' : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'is_indexed_google')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": "x-text",
+      "expression": "dossierData.is_indexed_google ? '✓ Google Indexed' : '⚠️ Google Noindex'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'is_indexed_google')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": "x-text",
+      "expression": "'+' + dossierData.deltas.saves_24h + ' 24h'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'deltas')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": "x-text",
+      "expression": "'+' + dossierData.deltas.repins_24h + ' 24h'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'deltas')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": "x-text",
+      "expression": "'+' + dossierData.deltas.shares_24h + ' 24h'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'deltas')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": "x-text",
+      "expression": "'+' + dossierData.deltas.reactions_24h + ' 24h'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'deltas')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": "x-text",
+      "expression": "formatNumber(getTrajectoryDualSvg(trajectoryData.snapshots, 600, 200).savesMax)",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'snapshots')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": "x-text",
+      "expression": "formatNumber(getTrajectoryDualSvg(trajectoryData.snapshots, 600, 200).repinsMax)",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'snapshots')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": ":class",
+      "expression": "trajectoryData.net_growth.saves >= 0 ? 'text-rose-500 font-bold' : 'text-rose-400/80 font-bold'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'net_growth')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": "x-text",
+      "expression": "(trajectoryData.net_growth.saves >= 0 ? '+' : '-') + formatNumber(Math.abs(trajectoryData.net_growth.saves)) + ' Saves'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'net_growth')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": ":class",
+      "expression": "trajectoryData.net_growth.repins >= 0 ? 'text-blue-500 font-bold' : 'text-blue-400/80 font-bold'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'net_growth')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": "x-text",
+      "expression": "(trajectoryData.net_growth.repins >= 0 ? '+' : '-') + formatNumber(Math.abs(trajectoryData.net_growth.repins)) + ' Repins'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'net_growth')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": "x-text",
+      "expression": "(trajectoryData.net_growth.comments >= 0 ? '+' : '-') + Math.abs(trajectoryData.net_growth.comments) + ' Comments'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'net_growth')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": "x-text",
+      "expression": "(trajectoryData.net_growth.shares >= 0 ? '+' : '-') + Math.abs(trajectoryData.net_growth.shares) + ' Shares'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'net_growth')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": "x-text",
+      "expression": "settingsTargetKeyword.keyword",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'keyword')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": "x-text",
+      "expression": "'ID: ' + visualLensPin.pin_id",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'pin_id')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": "x-text",
+      "expression": "visualLensPin.title || 'Untitled Pin'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'title')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": "x-text",
+      "expression": "visualLensPin.domain || 'Direct Pin'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'domain')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": "x-text",
+      "expression": "formatNumber(visualLensPin.save_count) + ' saves'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'save_count')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": ":href",
+      "expression": "'https://www.pinterest.com/pin/' + visualLensPin.pin_id + '/'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'pin_id')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/keywords",
+      "directive": "x-text",
+      "expression": "'+' + (f.keywords_preview.length - 4) + ' more'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'length')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "Number(activePinDossier.velocity || 0) >= 10 ? '🌱 GROWING (>10/d)' : (Number(activePinDossier.velocity || 0) >= 1 ? '🟣 MATURE' : '⚪ DORMANT (<1/d)')",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'velocity')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "activePinDossier.board_name || 'General'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'board_name')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": ":style",
+      "expression": "'background-color: ' + (activePinDossier.dominant_color || '#a88d56')",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'dominant_color')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "activePinDossier.dominant_color || '#a88d56'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'dominant_color')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "activePinDossier.pin_id",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'pin_id')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "'@' + (activePinDossier.account_username || activeCreator?.username || '').replace(/^@+/, '')",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'account_username')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "activePinDossier.board_name || 'Food And Drinks'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'board_name')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "activePinDossier.title || 'Untitled Pin'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'title')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "activePinDossier.description || 'No description provided for this pin.'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'description')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-show",
+      "expression": "activePinDossier.alt_text",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'alt_text')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "'&ldquo;' + activePinDossier.alt_text + '&rdquo;'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'alt_text')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-show",
+      "expression": "activePinDossier.alt_text",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'alt_text')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "activePinDossier.pin_id",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'pin_id')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": ":style",
+      "expression": "'background-color: ' + (activePinDossier.dominant_color || '#a88d56')",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'dominant_color')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "activePinDossier.dominant_color || '#a88d56'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'dominant_color')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "(activePinDossier.image_url ? activePinDossier.image_url.split('/').pop().slice(0, 16) : '—') + '...'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'image_url')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": ":href",
+      "expression": "'https://www.pinterest.com/pin/' + activePinDossier.pin_id + '/'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'pin_id')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "(activePinDossier.annotations ? activePinDossier.annotations.length : 0) + ' linked ideas'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'annotations')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "formatNumber(activePinDossier.saves)",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'saves')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "formatNumber(activePinDossier.repins)",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'repins')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "formatNumber(activePinDossier.comments)",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'comments')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "formatNumber(activePinDossier.share_count || 0)",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'share_count')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "(activePinDossier.velocity || 0) + '/d'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'velocity')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "formatNumber(activePinDossier.reactions_count || 0)",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'reactions_count')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "'Last Pinned: ' + new Date(activeBoard.last_pinned_at).toLocaleDateString()",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'last_pinned_at')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "activeBoard.board_vase.length + ' topics'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'board_vase')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": ":href",
+      "expression": "v.link.startsWith('http') ? v.link : ('https://www.pinterest.com' + v.link)",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'startsWith')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "activeDossierSeed.pin_id",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'pin_id')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "activeDossierSeed.label || 'Cluster Seed'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'label')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": ":class",
+      "expression": "activeDossierSeed.is_competitor ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20' : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'is_competitor')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "activeDossierSeed.is_competitor ? 'Competitor Cluster' : 'Internal Seed'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'is_competitor')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": ":href",
+      "expression": "'https://www.pinterest.com/pin/' + activeDossierSeed.pin_id + '/'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'pin_id')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "activeDossierSeed.pin_id",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'pin_id')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "(activeDossierSeed.commercial_gap_ratio || 100) + '%'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'commercial_gap_ratio')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "activeDossierSeed.pin_id",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'pin_id')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "activeDossierSeed.pin_id",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'pin_id')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "activeDossierSeed.pin_id",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'pin_id')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": ":style",
+      "expression": "'background-color: ' + (activeFolder?.color ? activeFolder.color + '20' : '#6366f120')",
+      "errorName": "ReferenceError",
+      "errorMessage": "activeFolder is not defined",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-show",
+      "expression": "activeFolder?.icon && activeFolder.icon !== 'folder' && activeFolder.icon.length <= 4",
+      "errorName": "ReferenceError",
+      "errorMessage": "activeFolder is not defined",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "activeFolder?.icon",
+      "errorName": "ReferenceError",
+      "errorMessage": "activeFolder is not defined",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-show",
+      "expression": "!activeFolder?.icon || activeFolder.icon === 'folder' || activeFolder.icon.length > 4",
+      "errorName": "ReferenceError",
+      "errorMessage": "activeFolder is not defined",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "'ID: #' + (activeFolderId || '5')",
+      "errorName": "ReferenceError",
+      "errorMessage": "activeFolderId is not defined",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "activeFolder?.created_at ? new Date(activeFolder.created_at).toLocaleDateString() : ''",
+      "errorName": "ReferenceError",
+      "errorMessage": "activeFolder is not defined",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "activeFolder?.name || 'Campaign Workspace'",
+      "errorName": "ReferenceError",
+      "errorMessage": "activeFolder is not defined",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "activeFolder?.description || 'Campaign cluster for Pinterest arbitrage'",
+      "errorName": "ReferenceError",
+      "errorMessage": "activeFolder is not defined",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": ":href",
+      "expression": "'/folders/' + (activeFolderId || '5')",
+      "errorName": "ReferenceError",
+      "errorMessage": "activeFolderId is not defined",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "activeFolder?.items?.length || crossoverData?.summary?.total_unique_pins || '—'",
+      "errorName": "ReferenceError",
+      "errorMessage": "activeFolder is not defined",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": ":href",
+      "expression": "'/folders/' + (activeFolderId || '5') + '/keywords'",
+      "errorName": "ReferenceError",
+      "errorMessage": "activeFolderId is not defined",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "activeFolder?.keyword_count || '0'",
+      "errorName": "ReferenceError",
+      "errorMessage": "activeFolder is not defined",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": ":href",
+      "expression": "'/folders/' + (activeFolderId || '5') + '/creators'",
+      "errorName": "ReferenceError",
+      "errorMessage": "activeFolderId is not defined",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "activeFolder?.creator_count || '0'",
+      "errorName": "ReferenceError",
+      "errorMessage": "activeFolder is not defined",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": ":href",
+      "expression": "'/folders/' + (activeFolderId || '5') + '/domains'",
+      "errorName": "ReferenceError",
+      "errorMessage": "activeFolderId is not defined",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "activeFolder?.domain_count ? (activeFolder.domain_count + ' (' + (activeFolder.pinned_domain_count || 0) + ' 📌)') : '0'",
+      "errorName": "ReferenceError",
+      "errorMessage": "activeFolder is not defined",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "c._shard_name.replace('pin-arbitrage-', '')",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'replace')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-show",
+      "expression": "openFolderMenu",
+      "errorName": "ReferenceError",
+      "errorMessage": "openFolderMenu is not defined",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": ":href",
+      "expression": "'https://www.pinterest.com/' + (activeCreator.username || '').replace(/^@+/, '') + '/'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'username')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": ":disabled",
+      "expression": "pulsingCreatorId === activeCreator.id",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'id')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": ":class",
+      "expression": "pulsingCreatorId === activeCreator.id ? 'animate-spin' : ''",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'id')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "pulsingCreatorId === activeCreator.id ? 'Pulsing...' : 'Pulse Profile'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'id')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": ":title",
+      "expression": "activeCreator.is_active === false ? 'Resume Ingestion' : 'Pause Ingestion'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'is_active')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "(activeCreator.username || '').replace(/^@+/, '')",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'username')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "activeCreator.account_type === 'own' ? '🎯 Own Account' : '🎯 Competitor'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'account_type')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-show",
+      "expression": "activeCreator.is_active === false",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'is_active')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-show",
+      "expression": "activeCreator.is_active !== false",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'is_active')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "'@' + (activeCreator.username || '').replace(/^@+/, '')",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'username')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": ":href",
+      "expression": "'https://www.pinterest.com/' + (activeCreator.username || '').replace(/^@+/, '') + '/'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'username')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "activeCreatorDetail.profile.website_domain",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'profile')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-show",
+      "expression": "activeCreatorDetail.profile.verified_domain",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'profile')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "formatNumber(activeCreator.total_pins || activeCreatorCatalogTotal || 0)",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'total_pins')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "formatNumber(activeCreator.follower_count || 0)",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'follower_count')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "(activeCreator.username || '').replace(/^@+/, '')",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'username')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": ":class",
+      "expression": "isRulesOpen ? 'rotate-180' : ''",
+      "errorName": "ReferenceError",
+      "errorMessage": "isRulesOpen is not defined",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-show",
+      "expression": "isRulesOpen",
+      "errorName": "ReferenceError",
+      "errorMessage": "isRulesOpen is not defined",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "activeCreatorBoards.length || activeCreator.total_boards || 0",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'total_boards')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "(activeCreator.total_boards || activeCreatorBoards.length || 0) + ' Boards'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'total_boards')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "formatNumber(activeCreator.total_pins || activeCreatorCatalogTotal || 0)",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'total_pins')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "formatNumber(activeCreator.monthly_reach || (activeCreatorSnapshots && activeCreatorSnapshots.length > 0 ? (activeCreatorSnapshots[activeCreatorSnapshots.length - 1].monthly_reach || activeCreatorSnapshots[0].monthly_reach) : 0) || 0)",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'monthly_reach')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "formatNumber(activeCreator.profile_views || (activeCreatorSnapshots && activeCreatorSnapshots.length > 0 ? (activeCreatorSnapshots[activeCreatorSnapshots.length - 1].profile_views || activeCreatorSnapshots[0].profile_views) : 0) || 0)",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'profile_views')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "formatNumber(activeCreator.follower_count || 0)",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'follower_count')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": ":href",
+      "expression": "safeUrl(b.url || ('https://www.pinterest.com/' + (activeCreator.username || '').replace(/^@+/, '') + '/' + encodeURIComponent(b.name.toLowerCase().replace(/s+/g, '-'))))",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'username')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": ":class",
+      "expression": "isMasterColumnsOpen ? 'rotate-180' : ''",
+      "errorName": "ReferenceError",
+      "errorMessage": "isMasterColumnsOpen is not defined",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-show",
+      "expression": "isMasterColumnsOpen",
+      "errorName": "ReferenceError",
+      "errorMessage": "isMasterColumnsOpen is not defined",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "(activeCreator.username || '').replace(/^@+/, '')",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'username')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "(activeCreator.username || '').replace(/^@+/, '')",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'username')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "(activeCreatorBoards.length || activeCreator.total_boards || 0) + ' boards'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'total_boards')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "activeCreatorBoards.length || activeCreator.total_boards || 0",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'total_boards')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": ":href",
+      "expression": "safeUrl(b.url || ('https://www.pinterest.com/' + (activeCreator.username || '').replace(/^@+/, '') + '/' + encodeURIComponent(b.name.toLowerCase().replace(/s+/g, '-'))))",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'username')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-show",
+      "expression": "b.board_vase.length > 3",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'length')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "'+' + (b.board_vase.length - 3)",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'length')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-show",
+      "expression": "b.board_vase.length > 2",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'length')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "'+' + (b.board_vase.length - 2)",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'length')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "selectedCandidate.ingestion_method === 'csv_importer' ? '⚙️ CSV Farm' : (selectedCandidate.ingestion_method === 'pin_scheduling' ? '⏱️ Scheduled' : selectedCandidate.ingestion_method)",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'ingestion_method')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": ":style",
+      "expression": "'border-color: ' + (selectedHub.winning_color || '#cbd5e1')",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'winning_color')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": ":href",
+      "expression": "'https://www.pinterest.com/pin/' + selectedHub.candidate_pin_id + '/'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'candidate_pin_id')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": ":class",
+      "expression": "{\n                    'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20': selectedHub.format_type === 'PRODUCT CARD',\n                    'bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20': selectedHub.format_type === 'ORGANIC PIN',\n                    'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20': selectedHub.format_type === 'VIDEO PIN',\n                    'bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20': selectedHub.format_type === 'IDEA PIN'\n                  }",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'format_type')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "selectedHub.format_type",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'format_type')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "selectedHub.title || ('Pin ' + selectedHub.candidate_pin_id)",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'title')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "selectedHub.domain",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'domain')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "'ID: ' + selectedHub.candidate_pin_id",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'candidate_pin_id')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "Number(selectedHub.total_saves != null ? selectedHub.total_saves : (selectedHub.saves || 0)).toLocaleString()",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'total_saves')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "(selectedHub.avg_save_rate || selectedHub.save_rate || 0) + '%'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'avg_save_rate')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "Number(selectedHub.daily_velocity || 0) > 0 ? ('🔥 ' + selectedHub.daily_velocity + '/d') : 'Stagnant'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'daily_velocity')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "selectedHub.seed_overlap_count",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'seed_overlap_count')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "Number(selectedHub.pixie_multihit_score || 0).toLocaleString()",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'pixie_multihit_score')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "(selectedHub.originating_seed_details || []).length",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'originating_seed_details')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "selectedHub.ocr_text",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'ocr_text')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": ":href",
+      "expression": "'https://www.pinterest.com/pin/' + selectedHub.candidate_pin_id + '/'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'candidate_pin_id')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/creators",
+      "directive": "x-text",
+      "expression": "selectedHub.candidate_pin_id",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'candidate_pin_id')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/domains",
+      "directive": ":style",
+      "expression": "'background-color: ' + (activeFolder?.color ? activeFolder.color + '20' : '#6366f120')",
+      "errorName": "ReferenceError",
+      "errorMessage": "activeFolder is not defined",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/domains",
+      "directive": "x-show",
+      "expression": "activeFolder?.icon && activeFolder.icon !== 'folder' && activeFolder.icon.length <= 4",
+      "errorName": "ReferenceError",
+      "errorMessage": "activeFolder is not defined",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/domains",
+      "directive": "x-text",
+      "expression": "activeFolder?.icon",
+      "errorName": "ReferenceError",
+      "errorMessage": "activeFolder is not defined",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/domains",
+      "directive": "x-show",
+      "expression": "!activeFolder?.icon || activeFolder.icon === 'folder' || activeFolder.icon.length > 4",
+      "errorName": "ReferenceError",
+      "errorMessage": "activeFolder is not defined",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/domains",
+      "directive": "x-text",
+      "expression": "'ID: #' + (activeFolderId || '5')",
+      "errorName": "ReferenceError",
+      "errorMessage": "activeFolderId is not defined",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/domains",
+      "directive": "x-text",
+      "expression": "activeFolder?.created_at ? new Date(activeFolder.created_at).toLocaleDateString() : ''",
+      "errorName": "ReferenceError",
+      "errorMessage": "activeFolder is not defined",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/domains",
+      "directive": "x-text",
+      "expression": "activeFolder?.name || 'Campaign Workspace'",
+      "errorName": "ReferenceError",
+      "errorMessage": "activeFolder is not defined",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/domains",
+      "directive": "x-text",
+      "expression": "activeFolder?.description || 'Campaign cluster for Pinterest arbitrage'",
+      "errorName": "ReferenceError",
+      "errorMessage": "activeFolder is not defined",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/domains",
+      "directive": ":href",
+      "expression": "'/folders/' + (activeFolderId || '5')",
+      "errorName": "ReferenceError",
+      "errorMessage": "activeFolderId is not defined",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/domains",
+      "directive": "x-text",
+      "expression": "activeFolder?.items?.length || crossoverData?.summary?.total_unique_pins || '—'",
+      "errorName": "ReferenceError",
+      "errorMessage": "activeFolder is not defined",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/domains",
+      "directive": ":href",
+      "expression": "'/folders/' + (activeFolderId || '5') + '/keywords'",
+      "errorName": "ReferenceError",
+      "errorMessage": "activeFolderId is not defined",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/domains",
+      "directive": "x-text",
+      "expression": "activeFolder?.keyword_count || '0'",
+      "errorName": "ReferenceError",
+      "errorMessage": "activeFolder is not defined",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/domains",
+      "directive": ":href",
+      "expression": "'/folders/' + (activeFolderId || '5') + '/creators'",
+      "errorName": "ReferenceError",
+      "errorMessage": "activeFolderId is not defined",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/domains",
+      "directive": "x-text",
+      "expression": "activeFolder?.creator_count || '0'",
+      "errorName": "ReferenceError",
+      "errorMessage": "activeFolder is not defined",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/domains",
+      "directive": ":href",
+      "expression": "'/folders/' + (activeFolderId || '5') + '/domains'",
+      "errorName": "ReferenceError",
+      "errorMessage": "activeFolderId is not defined",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/domains",
+      "directive": "x-text",
+      "expression": "activeFolder?.domain_count ? (activeFolder.domain_count + ' (' + (activeFolder.pinned_domain_count || 0) + ' 📌)') : '0'",
+      "errorName": "ReferenceError",
+      "errorMessage": "activeFolder is not defined",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/domains",
+      "directive": ":class",
+      "expression": "pinnedDomains.has(d.domain.toLowerCase()) ? 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30' : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'toLowerCase')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/domains",
+      "directive": ":title",
+      "expression": "pinnedDomains.has(d.domain.toLowerCase()) ? 'Unpin domain from folder' : 'Pin domain to campaign folder'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'toLowerCase')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/domains",
+      "directive": "x-text",
+      "expression": "pinnedDomains.has(d.domain.toLowerCase()) ? 'Pinned' : 'Pin'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'toLowerCase')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/domains",
+      "directive": "x-text",
+      "expression": "dossierData.age_info.registered_at.slice(0, 10)",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'age_info')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/domains",
+      "directive": "x-text",
+      "expression": "dossierData.age_info.expires_at.slice(0, 10)",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'age_info')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/domains",
+      "directive": "x-text",
+      "expression": "dossierData.ad_info.ad_manager_domain",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'ad_info')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/domains",
+      "directive": "x-text",
+      "expression": "dossierData.ad_info.primary_pub_id",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'ad_info')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/domains",
+      "directive": ":title",
+      "expression": "'Historical Switch Tracking: Migrated from ' + dossierData.ad_info.previous_ad_network + ' to ' + (dossierData.ad_info.current_ad_network || '')",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'ad_info')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/domains",
+      "directive": "x-text",
+      "expression": "'Ex-' + capitalize(dossierData.ad_info.previous_ad_network)",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'ad_info')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/domains",
+      "directive": ":class",
+      "expression": "getPinAgeBadge(p.created_at_pinterest).class",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'class')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/domains",
+      "directive": ":title",
+      "expression": "getPinAgeBadge(p.created_at_pinterest).title",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'title')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/domains",
+      "directive": "x-text",
+      "expression": "getPinAgeBadge(p.created_at_pinterest).label",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'label')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/domains",
+      "directive": "x-text",
+      "expression": "formatNumber(dossierData.summary.displaced_remaining_count) + ' additional historical displaced pins are stored in Neon Shards.'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'summary')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/domains",
+      "directive": ":class",
+      "expression": "getPinAgeBadge(art.created_at_pinterest || art.newest_pin_date).class",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'class')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/domains",
+      "directive": ":title",
+      "expression": "getPinAgeBadge(art.created_at_pinterest || art.newest_pin_date).title",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'title')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/domains",
+      "directive": "x-text",
+      "expression": "getPinAgeBadge(art.created_at_pinterest || art.newest_pin_date).label",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'label')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/domains",
+      "directive": ":title",
+      "expression": "'Filter keywords view to this article’s ' + (art.keywords || art.target_keywords).length + ' keywords'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'length')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/domains",
+      "directive": "x-text",
+      "expression": "(art.keywords || art.target_keywords).length + ' keywords →'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'length')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/domains",
+      "directive": "x-text",
+      "expression": "art.expandedKeywords ? 'Show less' : '+' + ((art.target_keywords || art.keywords).length - 5) + ' more'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'length')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/domains",
+      "directive": ":class",
+      "expression": "getPinAgeBadge(p.created_at_pinterest).class",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'class')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/domains",
+      "directive": ":title",
+      "expression": "getPinAgeBadge(p.created_at_pinterest).title",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'title')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/domains",
+      "directive": "x-text",
+      "expression": "getPinAgeBadge(p.created_at_pinterest).label",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'label')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/domains",
+      "directive": "x-text",
+      "expression": "art.expandedPins ? 'Collapse to top 6 pins ↑' : 'View all ' + art.pins.length + ' creative variations (' + (art.pins.length - 6) + ' more) ↓'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'length')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/domains",
+      "directive": "x-text",
+      "expression": "'Rank #' + kw.top_slot_attribution.rank_position",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'rank_position')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/domains",
+      "directive": ":title",
+      "expression": "'Jump to Article: ' + kw.top_slot_attribution.title",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'title')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/domains",
+      "directive": "x-text",
+      "expression": "'(' + kw.top_slot_attribution.title + ')'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'title')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/5/domains",
+      "directive": "x-text",
+      "expression": "formatNumber(kw.top_slot_attribution.saves) + ' saves (' + Math.round((kw.top_slot_attribution.saves / Math.max(1, kw.total_saves)) * 100) + '%)'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'saves')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/6",
+      "directive": "x-text",
+      "expression": "'+' + (sp.visual_annotations.length - 3) + ' more'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'length')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/6",
+      "directive": ":title",
+      "expression": "'Universal Bridge Tags: ' + sp.bridge_tags.join(', ')",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'join')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/6",
+      "directive": "x-text",
+      "expression": "'🌉 ' + sp.bridge_tags.length + ' Bridges'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'length')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/6",
+      "directive": ":class",
+      "expression": "spoke.recommended_format.includes('VIDEO') ? 'bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'includes')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/6",
+      "directive": ":class",
+      "expression": "searchQuery.toLowerCase() === anchor.tag.toLowerCase() ? 'border-purple-500 ring-2 ring-purple-500/20' : ''",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'toLowerCase')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/folders/6",
+      "directive": ":class",
+      "expression": "[\n                          searchQuery.toLowerCase() === anchor.tag.toLowerCase() ? 'ring-2 ring-purple-500 bg-purple-600 text-white' : '',\n                          anchor.count >= 40 \n                            ? 'px-3.5 py-1.5 text-sm bg-purple-500/20 text-purple-700 dark:text-purple-300 border border-purple-500/40 hover:bg-purple-500/30 shadow-xs' \n                            : (anchor.count >= 15 \n                              ? 'px-3 py-1 text-xs bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30 hover:bg-indigo-500/25' \n                              : 'px-2.5 py-0.5 text-[11px] bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:border-purple-400')\n                        ]",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'toLowerCase')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/domains",
+      "directive": ":class",
+      "expression": "pinnedDomains.has(d.domain.toLowerCase()) ? 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30' : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'toLowerCase')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/domains",
+      "directive": ":title",
+      "expression": "pinnedDomains.has(d.domain.toLowerCase()) ? 'Unpin domain from folder' : 'Pin domain to campaign folder'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'toLowerCase')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/domains",
+      "directive": "x-text",
+      "expression": "pinnedDomains.has(d.domain.toLowerCase()) ? 'Pinned' : 'Pin'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'toLowerCase')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/domains",
+      "directive": "x-text",
+      "expression": "dossierData.age_info.registered_at.slice(0, 10)",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'age_info')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/domains",
+      "directive": "x-text",
+      "expression": "dossierData.age_info.expires_at.slice(0, 10)",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'age_info')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/domains",
+      "directive": "x-text",
+      "expression": "dossierData.ad_info.ad_manager_domain",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'ad_info')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/domains",
+      "directive": "x-text",
+      "expression": "dossierData.ad_info.primary_pub_id",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'ad_info')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/domains",
+      "directive": ":title",
+      "expression": "'Historical Switch Tracking: Migrated from ' + dossierData.ad_info.previous_ad_network + ' to ' + (dossierData.ad_info.current_ad_network || '')",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'ad_info')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/domains",
+      "directive": "x-text",
+      "expression": "'Ex-' + capitalize(dossierData.ad_info.previous_ad_network)",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'ad_info')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/domains",
+      "directive": ":class",
+      "expression": "getPinAgeBadge(p.created_at_pinterest).class",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'class')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/domains",
+      "directive": ":title",
+      "expression": "getPinAgeBadge(p.created_at_pinterest).title",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'title')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/domains",
+      "directive": "x-text",
+      "expression": "getPinAgeBadge(p.created_at_pinterest).label",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'label')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/domains",
+      "directive": "x-text",
+      "expression": "formatNumber(dossierData.summary.displaced_remaining_count) + ' additional historical displaced pins are stored in Neon Shards.'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'summary')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/domains",
+      "directive": ":class",
+      "expression": "getPinAgeBadge(art.created_at_pinterest || art.newest_pin_date).class",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'class')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/domains",
+      "directive": ":title",
+      "expression": "getPinAgeBadge(art.created_at_pinterest || art.newest_pin_date).title",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'title')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/domains",
+      "directive": "x-text",
+      "expression": "getPinAgeBadge(art.created_at_pinterest || art.newest_pin_date).label",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'label')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/domains",
+      "directive": ":title",
+      "expression": "'Filter keywords view to this article’s ' + (art.keywords || art.target_keywords).length + ' keywords'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'length')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/domains",
+      "directive": "x-text",
+      "expression": "(art.keywords || art.target_keywords).length + ' keywords →'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'length')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/domains",
+      "directive": "x-text",
+      "expression": "art.expandedKeywords ? 'Show less' : '+' + ((art.target_keywords || art.keywords).length - 5) + ' more'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'length')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/domains",
+      "directive": ":class",
+      "expression": "getPinAgeBadge(p.created_at_pinterest).class",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'class')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/domains",
+      "directive": ":title",
+      "expression": "getPinAgeBadge(p.created_at_pinterest).title",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'title')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/domains",
+      "directive": "x-text",
+      "expression": "getPinAgeBadge(p.created_at_pinterest).label",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of null (reading 'label')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/domains",
+      "directive": "x-text",
+      "expression": "art.expandedPins ? 'Collapse to top 6 pins ↑' : 'View all ' + art.pins.length + ' creative variations (' + (art.pins.length - 6) + ' more) ↓'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'length')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/domains",
+      "directive": "x-text",
+      "expression": "'Rank #' + kw.top_slot_attribution.rank_position",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'rank_position')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/domains",
+      "directive": ":title",
+      "expression": "'Jump to Article: ' + kw.top_slot_attribution.title",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'title')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/domains",
+      "directive": "x-text",
+      "expression": "'(' + kw.top_slot_attribution.title + ')'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'title')",
+      "isCoreRefError": false
+    },
+    {
+      "page": "/domains",
+      "directive": "x-text",
+      "expression": "formatNumber(kw.top_slot_attribution.saves) + ' saves (' + Math.round((kw.top_slot_attribution.saves / Math.max(1, kw.total_saves)) * 100) + '%)'",
+      "errorName": "TypeError",
+      "errorMessage": "Cannot read properties of undefined (reading 'saves')",
+      "isCoreRefError": false
+    }
+  ],
+  "prefetchTest": {
+    "url": "/api/pins/1098245059167667976?prefetch=true",
+    "status": 200,
+    "cacheControl": "",
+    "body": "{\"success\":false,\"not_cached\":true,\"status\":\"cache_miss\"}"
+  },
+  "crossoverLatencies": [
+    {
+      "folderId": 5,
+      "latencyMs": 1597,
+      "status": 200
+    },
+    {
+      "folderId": 6,
+      "latencyMs": 982,
+      "status": 200
+    }
+  ],
+  "domainCounts": {
+    "databaseTruth": [
+      {
+        "folder_id": 5,
+        "folder_name": "high protein",
+        "distinct_serp_domains": "314",
+        "distinct_pins": "785"
+      },
+      {
+        "folder_id": 6,
+        "folder_name": "marry me chicken",
+        "distinct_serp_domains": "330",
+        "distinct_pins": "737"
+      }
+    ],
+    "pinnedCounts": [],
+    "folder5": {
+      "dbDistinctSerpDomains": 314,
+      "apiFoldersDomainCount": 312,
+      "apiFolder5DomainCount": 312,
+      "crossoverMonopolyLength": 312
+    },
+    "folder6": {
+      "dbDistinctSerpDomains": 330,
+      "apiFoldersDomainCount": 328,
+      "apiFolder6DomainCount": 328
+    },
+    "globalDomainsTotal": 3494
+  },
+  "actionButtons": {
+    "domainsPage": {
+      "hasActionsHeader": true,
+      "hasPinButton": true,
+      "hasDossierButton": true
+    },
+    "folderStudioRoom1": {
+      "hasBlueprintBtn": true,
+      "hasRerunBtn": true,
+      "hasSettingsBtn": true,
+      "hasAuditBtn": true,
+      "hasDeleteBtn": true,
+      "hasRawFolderText": false,
+      "hasDoubleEmojis": false,
+      "hasDuplicateGlobalHeader": false
+    },
+    "folderDomainsRoom4": {
+      "hasActionsHeader": true,
+      "hasPinAction": true
+    }
+  },
+  "summary": {
+    "totalEndpointsTested": 13,
+    "totalConsoleErrors": 256,
+    "failures": []
+  }
+}

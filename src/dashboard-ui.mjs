@@ -6,7 +6,7 @@ export function getDashboardHtml(folderId = '') {
   const rawFolderId = String(folderId || '').trim();
   const safeFolderId = rawFolderId.replace(/[^a-zA-Z0-9_-]/g, '');
   return `<!DOCTYPE html>
-<html lang="en" :class="isDark ? 'dark' : ''" x-data="dashboardApp()" x-init="initDashboard()">
+<html lang="en" :class="(isDark || darkMode) ? 'dark' : ''" x-data="dashboardApp()" x-init="initDashboard()">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -3635,35 +3635,65 @@ export function getDashboardHtml(folderId = '') {
         <div class="space-y-6">
           ${safeFolderId ? renderCampaignWorkspaceHeader({ activeRoom: 'creators', folderId: safeFolderId }) : ''}
           
-          <!-- Unified Header Section -->
-          <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div class="flex items-center space-x-3">
-          <div class="h-11 w-11 rounded-2xl bg-gradient-to-tr from-purple-600 via-indigo-600 to-rose-600 text-white flex items-center justify-center shadow-md shadow-indigo-950/20">
-            <i data-lucide="users" class="w-6 h-6"></i>
-          </div>
-          <div>
-            <div class="flex items-center space-x-2">
-              <h2 class="text-xl font-extrabold tracking-tight text-slate-900 dark:text-white">Creator Hub</h2>
-              <span class="px-2 py-0.5 text-[10px] font-bold uppercase rounded-full bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/30">Unified Engine</span>
+          <!-- Unified Header Section (Global Scope) -->
+          <template x-if="!scopedFolderId">
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div class="flex items-center space-x-3">
+                <div class="h-11 w-11 rounded-2xl bg-gradient-to-tr from-purple-600 via-indigo-600 to-rose-600 text-white flex items-center justify-center shadow-md shadow-indigo-950/20">
+                  <i data-lucide="users" class="w-6 h-6"></i>
+                </div>
+                <div>
+                  <div class="flex items-center space-x-2">
+                    <h2 class="text-xl font-extrabold tracking-tight text-slate-900 dark:text-white">Creator Hub</h2>
+                    <span class="px-2 py-0.5 text-[10px] font-bold uppercase rounded-full bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/30">Unified Engine</span>
+                  </div>
+                  <p class="text-xs text-slate-500 dark:text-slate-400">Track creator impressions, total audience, boards, and winning pins.</p>
+                </div>
+              </div>
+              <div class="flex flex-wrap items-center gap-2">
+                <button @click="exportCompetitorsCsv()" class="px-3 py-2 text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition flex items-center space-x-1.5 shadow-sm">
+                  <i data-lucide="download" class="w-3.5 h-3.5"></i>
+                  <span>Export CSV</span>
+                </button>
+                <button @click="syncAllCompetitors()" :disabled="isLoading" class="px-3.5 py-2 text-xs font-bold rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white transition flex items-center space-x-1.5 shadow-sm shadow-emerald-950/20 active:scale-95">
+                  <i data-lucide="refresh-cw" :class="{'animate-spin': isLoading}" class="w-3.5 h-3.5"></i>
+                  <span>Run Full Update</span>
+                </button>
+                <button @click="openAddCompetitorModal()" class="px-3.5 py-2 text-xs font-bold rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-rose-600 hover:from-purple-500 hover:to-rose-500 text-white transition flex items-center space-x-1.5 shadow-md shadow-indigo-950/20 active:scale-95">
+                  <i data-lucide="user-plus" class="w-3.5 h-3.5"></i>
+                  <span>+ Track Creator</span>
+                </button>
+              </div>
             </div>
-            <p class="text-xs text-slate-500 dark:text-slate-400">Track creator impressions, total audience, boards, and winning pins.</p>
-          </div>
-        </div>
-        <div class="flex flex-wrap items-center gap-2">
-          <button @click="exportCompetitorsCsv()" class="px-3 py-2 text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition flex items-center space-x-1.5 shadow-sm">
-            <i data-lucide="download" class="w-3.5 h-3.5"></i>
-            <span>Export CSV</span>
-          </button>
-          <button @click="syncAllCompetitors()" :disabled="isLoading" class="px-3.5 py-2 text-xs font-bold rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white transition flex items-center space-x-1.5 shadow-sm shadow-emerald-950/20 active:scale-95">
-            <i data-lucide="refresh-cw" :class="{'animate-spin': isLoading}" class="w-3.5 h-3.5"></i>
-            <span>Run Full Update</span>
-          </button>
-          <button @click="openAddCompetitorModal()" class="px-3.5 py-2 text-xs font-bold rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-rose-600 hover:from-purple-500 hover:to-rose-500 text-white transition flex items-center space-x-1.5 shadow-md shadow-indigo-950/20 active:scale-95">
-            <i data-lucide="user-plus" class="w-3.5 h-3.5"></i>
-            <span>+ Track Creator</span>
-          </button>
-        </div>
-      </div>
+          </template>
+
+          <!-- Campaign Folder Scoped Control Bar -->
+          <template x-if="scopedFolderId">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-2xl bg-white dark:bg-[#0b1120] border border-slate-200/80 dark:border-slate-800 shadow-sm">
+              <div class="flex items-center gap-2.5">
+                <div class="h-9 w-9 rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center font-bold">
+                  <i data-lucide="users" class="w-5 h-5"></i>
+                </div>
+                <div>
+                  <div class="flex items-center gap-2">
+                    <span class="text-xs font-bold text-slate-800 dark:text-slate-200 font-mono">Campaign Creators</span>
+                    <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20" x-text="(filteredCompetitors ? filteredCompetitors.length : 0) + ' Linked'"></span>
+                  </div>
+                  <p class="text-[11px] text-slate-500 dark:text-slate-400">Creators tracked and monitored specifically for this campaign folder.</p>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <button @click="openAssignExistingCreatorModal()" class="px-3 py-1.5 text-xs font-bold rounded-xl border border-purple-200 dark:border-purple-800/80 bg-purple-50 dark:bg-purple-950/30 text-purple-700 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900/40 transition flex items-center space-x-1.5 shadow-sm cursor-pointer">
+                  <i data-lucide="user-check" class="w-3.5 h-3.5"></i>
+                  <span>+ Assign Existing Creators</span>
+                </button>
+                <button @click="openAddCompetitorModal()" class="px-3 py-1.5 text-xs font-bold rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-rose-600 hover:from-purple-500 hover:to-rose-500 text-white transition flex items-center space-x-1.5 shadow-sm cursor-pointer active:scale-95">
+                  <i data-lucide="user-plus" class="w-3.5 h-3.5"></i>
+                  <span>+ Track New Creator</span>
+                </button>
+              </div>
+            </div>
+          </template>
 
       <!-- ======================================================== -->
       <!-- CREATOR HUB: 👥 TRACKED CREATORS TABLE                   -->
@@ -5815,6 +5845,80 @@ export function getDashboardHtml(folderId = '') {
 
   </main>
 
+  <!-- Modal: Assign Existing Creators to Campaign Folder -->
+  <div x-show="isAssignExistingCreatorModalOpen" x-cloak
+       class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs"
+       @keydown.escape.window="closeAssignExistingCreatorModal()">
+    <div class="relative w-full max-w-xl rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl p-5 space-y-4 max-h-[85vh] flex flex-col"
+         @click.outside="closeAssignExistingCreatorModal()">
+      <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3 shrink-0">
+        <div class="flex items-center gap-2.5">
+          <div class="h-9 w-9 rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center font-bold">
+            <i data-lucide="user-check" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h3 class="text-sm font-bold text-slate-900 dark:text-white">Assign Creators to Campaign Folder</h3>
+            <p class="text-xs text-slate-500 dark:text-slate-400">Select creators from your catalog to monitor in this folder.</p>
+          </div>
+        </div>
+        <button @click="closeAssignExistingCreatorModal()" class="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <!-- Search Filter -->
+      <div class="relative shrink-0">
+        <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
+        <input type="text" x-model="assignCreatorSearch" placeholder="Search creators by username or display name..."
+               class="w-full pl-9 pr-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-purple-500/40">
+      </div>
+
+      <!-- Creators List -->
+      <div class="flex-1 overflow-y-auto space-y-2 pr-1 min-h-[220px]">
+        <template x-for="c in (competitors || []).filter(comp => !assignCreatorSearch.trim() || (comp.username && comp.username.toLowerCase().includes(assignCreatorSearch.toLowerCase().replace('@', ''))) || (comp.display_name && comp.display_name.toLowerCase().includes(assignCreatorSearch.toLowerCase())))" :key="c.id">
+          <div class="p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800 flex items-center justify-between gap-3 hover:bg-slate-50/50 dark:hover:bg-slate-800/40 transition">
+            <div class="flex items-center gap-2.5 min-w-0">
+              <template x-if="c.image_url">
+                <img :src="c.image_url" class="w-8 h-8 rounded-full object-cover shrink-0 border border-slate-200 dark:border-slate-700">
+              </template>
+              <template x-if="!c.image_url">
+                <div class="w-8 h-8 rounded-full bg-purple-500/10 text-purple-600 flex items-center justify-center font-bold text-xs shrink-0">
+                  <span x-text="(c.username || '?')[0].toUpperCase()"></span>
+                </div>
+              </template>
+              <div class="min-w-0">
+                <div class="flex items-center gap-1.5 truncate">
+                  <span class="text-xs font-bold text-slate-900 dark:text-white truncate" x-text="c.display_name || c.username"></span>
+                  <span class="text-[11px] font-mono text-slate-400 truncate" x-text="'@' + (c.username || '')"></span>
+                </div>
+                <div class="text-[10px] font-mono text-slate-500 dark:text-slate-400">
+                  <span x-text="(c.monthly_reach || 0).toLocaleString() + ' audience'"></span> • 
+                  <span x-text="(c.total_pins || 0).toLocaleString() + ' pins'"></span>
+                </div>
+              </div>
+            </div>
+
+            <button type="button"
+                    @click="assignCreatorToFolder(c.id, scopedFolderId)"
+                    class="px-2.5 py-1 rounded-lg text-xs font-semibold transition shrink-0 cursor-pointer flex items-center gap-1"
+                    :class="isCreatorInFolder(c.id, scopedFolderId)
+                      ? 'bg-purple-600 text-white shadow-xs'
+                      : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700'">
+              <span x-text="isCreatorInFolder(c.id, scopedFolderId) ? '✓ Linked' : '+ Link'"></span>
+            </button>
+          </div>
+        </template>
+      </div>
+
+      <div class="flex items-center justify-between border-t border-slate-100 dark:border-slate-800 pt-3 shrink-0">
+        <span class="text-xs text-slate-400 font-mono" x-text="((folderCreatorMap[scopedFolderId] ? folderCreatorMap[scopedFolderId].size : (scopedFolderCreatorIds ? scopedFolderCreatorIds.size : 0)) || 0) + ' creators linked to this folder'"></span>
+        <button @click="closeAssignExistingCreatorModal()" class="px-3.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold transition cursor-pointer">
+          Done
+        </button>
+      </div>
+    </div>
+  </div>
+
   ${getDashboardModalsHtml()}
 
   <!-- Toast Notification -->
@@ -5841,9 +5945,39 @@ export function getDashboardHtml(folderId = '') {
         safeUrl,
         isDark: (() => {
           try {
-            return typeof localStorage !== 'undefined' ? localStorage.getItem('pin_theme') === 'dark' : false;
+            return typeof localStorage !== 'undefined' ? (localStorage.getItem('pa_theme') === 'dark' || localStorage.getItem('pin_theme') === 'dark') : false;
           } catch (_) { return false; }
         })(),
+        darkMode: (() => {
+          try {
+            return typeof localStorage !== 'undefined' ? (localStorage.getItem('pa_theme') === 'dark' || localStorage.getItem('pin_theme') === 'dark') : false;
+          } catch (_) { return false; }
+        })(),
+        toggleTheme() {
+          this.isDark = !this.isDark;
+          this.darkMode = this.isDark;
+          try {
+            if (typeof localStorage !== 'undefined') {
+              localStorage.setItem('pa_theme', this.isDark ? 'dark' : 'light');
+              localStorage.setItem('pin_theme', this.isDark ? 'dark' : 'light');
+            }
+          } catch (_) {}
+          if (this.isDark) {
+            document.documentElement.classList.add('dark');
+          } else {
+            document.documentElement.classList.remove('dark');
+          }
+        },
+        isAssignExistingCreatorModalOpen: false,
+        assignCreatorSearch: '',
+        openAssignExistingCreatorModal() {
+          this.assignCreatorSearch = '';
+          this.isAssignExistingCreatorModalOpen = true;
+          this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+        },
+        closeAssignExistingCreatorModal() {
+          this.isAssignExistingCreatorModalOpen = false;
+        },
         isSidebarCollapsed: (() => {
           try {
             return typeof localStorage !== 'undefined' ? localStorage.getItem('pae_sidebar_collapsed') === 'true' : false;
@@ -6300,11 +6434,14 @@ export function getDashboardHtml(folderId = '') {
               list = list.filter(c => c.account_type === this.competitorFilter);
             }
           }
-          if (this.folderFilter) {
-            const fid = String(this.folderFilter).trim();
-            const creatorIds = this.folderCreatorMap[fid] || this.scopedFolderCreatorIds || null;
+          if (this.scopedFolderId || this.folderFilter) {
+            const fid = String(this.folderFilter || this.scopedFolderId).trim();
+            const creatorIds = this.folderCreatorMap[fid] || (this.scopedFolderId && String(this.scopedFolderId) === fid ? this.scopedFolderCreatorIds : null) || this.scopedFolderCreatorIds || null;
             if (creatorIds && creatorIds instanceof Set) {
               list = list.filter(c => creatorIds.has(Number(c.id)) || creatorIds.has(String(c.id)));
+            } else if (this.scopedFolderId) {
+              // Strictly scoped to campaign folder: never leak global catalog if no creators linked
+              return [];
             }
           }
           if (this.competitorSearch) {
@@ -10598,6 +10735,13 @@ export function getDashboardHtml(folderId = '') {
             this.newCompetitorHandle = '';
             this.isAddCompetitorModalOpen = false;
             await this.fetchCompetitors();
+            if (this.scopedFolderId) {
+              const comp = (this.competitors || []).find(c => (c.username || '').replace(/^@+/, '') === handle);
+              if (comp && comp.id) {
+                await this.assignCreatorToFolder(comp.id, this.scopedFolderId);
+                await this.loadFolderCreators(this.scopedFolderId);
+              }
+            }
           } catch (e) {
             this.showToast('Error tracking creator: ' + e.message);
           } finally {

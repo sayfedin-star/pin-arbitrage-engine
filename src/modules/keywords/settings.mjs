@@ -80,10 +80,10 @@ export async function updateAppSettings(sql, newSettings = {}) {
 export async function updateKeywordSettings(sql, keywordId, settings = {}) {
   const kid = Number(keywordId);
   if (!kid) throw new Error('Valid keyword ID is required');
-  const pages = settings.crawl_pages_limit !== undefined ? Math.max(1, Math.min(40, Number(settings.crawl_pages_limit))) : null;
+  const pages = settings.crawl_pages_limit !== undefined ? Math.max(1, Math.min(100, Number(settings.crawl_pages_limit))) : null;
   const mode = settings.inspection_mode !== undefined ? String(settings.inspection_mode).trim() : null;
   const pinCount = settings.target_pin_count !== undefined 
-    ? Math.max(25, Math.min(1000, Number(settings.target_pin_count))) 
+    ? Math.max(10, Math.min(2000, Number(settings.target_pin_count))) 
     : (pages ? pages * 25 : null);
 
   const [updated] = await sql`

@@ -98,7 +98,7 @@ const cookie = process.env.PINTEREST_COOKIE || null;
 const stepSummaryPath = process.env.GITHUB_STEP_SUMMARY || null;
 const envSerpPins = process.env.MAX_SERP_PINS?.trim() || process.env.MAX_PINS?.trim();
 const maxSerpPins = (envSerpPins && !isNaN(parseInt(envSerpPins, 10)))
-  ? Math.max(25, Math.min(1000, parseInt(envSerpPins, 10)))
+  ? Math.max(10, Math.min(2000, parseInt(envSerpPins, 10)))
   : 50;
 
 const envCatalogInspect = process.env.MAX_CATALOG_INSPECT?.trim();
