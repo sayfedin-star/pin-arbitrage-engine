@@ -43,12 +43,14 @@ import {
   calculateFolderCrossover,
   normalizeFolderMetadata,
   listFolderCreators,
+  listFolderCreatorsWithDiscovery,
   linkCreatorToFolder,
   unlinkCreatorFromFolder,
   listFolderPinnedDomains,
   listPinnedDomains,
   pinDomainToFolder,
   unpinDomainFromFolder,
+  pruneFolderPins,
   cacheFolderTrends
 } from '../modules/keywords/folders-service.mjs';
 
@@ -977,12 +979,63 @@ export async function handleKeywordsRoutes({
     const parts = pathname.slice(basePrefix.length).split('/').filter(Boolean);
     const folderId = parts[0] ? Number(parts[0]) : (searchParams.get('id') || searchParams.get('folder_id'));
 
+    // A0. Sub-route: /api/folders/:id/prune-pins (POST)
+    if (parts.length >= 2 && parts[1] === 'prune-pins') {
+      // [INVARIANT: PRUNE-TOMBSTONE-AND-EVICT] Pruning tombstones to keyword_ignored_pins and evicts edge_pins_metadata and PIN_ENGINE_KV
+      if (!folderId) return jsonResponse({ success: false, error: 'Valid folder ID is required' }, 400);
+      if (method !== 'POST') return jsonResponse({ success: false, error: 'Method not allowed' }, 405);
+      const body = await request.json().catch(() => ({}));
+      const {
+        dry_run,
+        dryRun,
+        keyword_ids,
+        keywordIds,
+        scope,
+        min_folder_age_days,
+        minFolderAgeDays,
+        min_pin_age_days,
+        minPinAgeDays,
+        max_saves,
+        maxSaves,
+        max_repins,
+        maxRepins
+      } = body;
+      const result = await pruneFolderPins(sql, folderId, {
+        dry_run,
+        dryRun,
+        keyword_ids,
+        keywordIds,
+        scope,
+        min_folder_age_days,
+        minFolderAgeDays,
+        min_pin_age_days,
+        minPinAgeDays,
+        max_saves,
+        maxSaves,
+        max_repins,
+        maxRepins
+      }, { env, ctx });
+      return jsonResponse(result);
+    }
+
     // A. Sub-route: /api/folders/:id/creators
     if (parts.length >= 2 && parts[1] === 'creators') {
       if (!folderId) return jsonResponse({ success: false, error: 'Valid folder ID is required' }, 400);
 
-      // GET /api/folders/:id/creators -> listFolderCreators(sql, folderId)
+      // GET /api/folders/:id/creators -> listFolderCreators(sql, folderId) with auto-discovery
       if (method === 'GET' && parts.length === 2) {
+        const withDiscovery = searchParams.get('discovery') !== 'false';
+        if (withDiscovery) {
+          const discoveryData = await listFolderCreatorsWithDiscovery(sql, folderId);
+          return jsonResponse({
+            success: true,
+            folder_id: folderId,
+            creators: discoveryData.all_creators,
+            linked_creators: discoveryData.linked_creators,
+            discovered_creators: discoveryData.discovered_creators,
+            totals: discoveryData.totals
+          });
+        }
         const creators = await listFolderCreators(sql, folderId);
         return jsonResponse({ success: true, creators, folder_id: folderId });
       }
@@ -1146,7 +1199,29 @@ export async function handleKeywordsRoutes({
       if (body.status && !['active', 'archived', 'paused', 'completed'].includes(String(body.status).toLowerCase())) {
         return jsonResponse({ success: false, error: 'Invalid folder status. Allowed values: active, archived, paused, completed' }, 400);
       }
-      const updated = await updateFolder(sql, folderId, body);
+      // Explicitly support folder settings controls: pause_competitors, pause_crawlers, block_fleet, max_serp_pins, crawl_scope, auto_discover_creators
+      const {
+        pause_competitors,
+        pause_crawlers,
+        block_fleet,
+        max_serp_pins,
+        crawl_scope,
+        auto_discover_creators
+      } = body;
+      const updatedMetadata = {
+        ...(body.metadata || {}),
+        ...(pause_competitors !== undefined ? { pause_competitors: Boolean(pause_competitors) } : {}),
+        ...(pause_crawlers !== undefined ? { pause_crawlers: Boolean(pause_crawlers), is_crawler_paused: Boolean(pause_crawlers) } : {}),
+        ...(block_fleet !== undefined ? { block_fleet: Boolean(block_fleet), block_gha_fleet: Boolean(block_fleet) } : {}),
+        ...(max_serp_pins !== undefined ? { max_serp_pins: Number(max_serp_pins) } : {}),
+        ...(crawl_scope !== undefined ? { crawl_scope: String(crawl_scope) } : {}),
+        ...(auto_discover_creators !== undefined ? { auto_discover_creators: Boolean(auto_discover_creators) } : {})
+      };
+      const updatePayload = {
+        ...body,
+        metadata: updatedMetadata
+      };
+      const updated = await updateFolder(sql, folderId, updatePayload);
       if (syncFolderToD1) {
         safeWaitUntil(ctx, syncFolderToD1(env, updated), 'syncFolderToD1');
       }

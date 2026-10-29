@@ -88,6 +88,25 @@ export async function listFolders(sql, { projectId = 'default' } = {}) {
         AND ksc.domain NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest.com', 'www.pinterest.com', 'pin.it', 'localhost', 'direct')
         AND ksc.domain LIKE '%.%'
       GROUP BY kfi.folder_id
+    ),
+    pin_counts AS (
+      SELECT kfi.folder_id,
+        COUNT(DISTINCT ksc.pin_id)::int AS unique_pins_count,
+        COUNT(DISTINCT ksc.pin_id)::int AS total_unique_pins,
+        COUNT(DISTINCT ksc.pin_id)::int AS pin_count
+      FROM keyword_folder_items kfi
+      JOIN keyword_serp_current ksc ON ksc.keyword_id = kfi.keyword_id
+      WHERE ksc.is_displaced = FALSE
+      GROUP BY kfi.folder_id
+    ),
+    discovered_creator_counts AS (
+      SELECT kfi.folder_id, COUNT(DISTINCT LOWER(TRIM(ksc.creator_username)))::int AS discovered_creator_count
+      FROM keyword_folder_items kfi
+      JOIN keyword_serp_current ksc ON ksc.keyword_id = kfi.keyword_id
+      WHERE ksc.is_displaced = FALSE
+        AND ksc.creator_username IS NOT NULL AND ksc.creator_username <> ''
+        AND LOWER(TRIM(ksc.creator_username)) NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous')
+      GROUP BY kfi.folder_id
     )
     SELECT 
       f.id,
@@ -103,6 +122,10 @@ export async function listFolders(sql, { projectId = 'default' } = {}) {
       COALESCE(cr.creator_count, 0) AS creator_count,
       COALESCE(pd.pinned_domain_count, 0) AS pinned_domain_count,
       COALESCE(dc.domain_count, 0) AS domain_count,
+      COALESCE(pc.pin_count, 0) AS pin_count,
+      COALESCE(pc.unique_pins_count, 0) AS unique_pins_count,
+      COALESCE(pc.total_unique_pins, 0) AS total_unique_pins,
+      COALESCE(dcr.discovered_creator_count, 0) AS discovered_creator_count,
       COALESCE(
         (
           SELECT json_agg(json_build_object('id', tk.id, 'keyword', tk.keyword))
@@ -117,10 +140,23 @@ export async function listFolders(sql, { projectId = 'default' } = {}) {
     LEFT JOIN creator_counts cr ON cr.folder_id = f.id
     LEFT JOIN pinned_counts pd ON pd.folder_id = f.id
     LEFT JOIN domain_counts dc ON dc.folder_id = f.id
+    LEFT JOIN pin_counts pc ON pc.folder_id = f.id
+    LEFT JOIN discovered_creator_counts dcr ON dcr.folder_id = f.id
     WHERE f.project_id = ${projectId}
     ORDER BY f.updated_at DESC, f.created_at DESC;
   `;
-  return rows.map(r => ({ ...r, metadata: normalizeFolderMetadata(r.metadata) }));
+  return rows.map(r => ({
+    ...r,
+    metadata: normalizeFolderMetadata(r.metadata),
+    keyword_count: Number(r.keyword_count || 0),
+    creator_count: Number(r.creator_count || 0),
+    pinned_domain_count: Number(r.pinned_domain_count || 0),
+    domain_count: Number(r.domain_count || 0),
+    pin_count: Number(r.pin_count || r.unique_pins_count || 0),
+    unique_pins_count: Number(r.unique_pins_count || r.pin_count || 0),
+    total_unique_pins: Number(r.total_unique_pins || r.pin_count || 0),
+    discovered_creator_count: Number(r.discovered_creator_count || 0)
+  }));
 }
 
 /**
@@ -154,18 +190,45 @@ export async function getFolder(sql, folderId) {
         AND ksc.domain NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest.com', 'www.pinterest.com', 'pin.it', 'localhost', 'direct')
         AND ksc.domain LIKE '%.%'
       GROUP BY kfi.folder_id
+    ),
+    pin_counts AS (
+      SELECT kfi.folder_id,
+        COUNT(DISTINCT ksc.pin_id)::int AS unique_pins_count,
+        COUNT(DISTINCT ksc.pin_id)::int AS total_unique_pins,
+        COUNT(DISTINCT ksc.pin_id)::int AS pin_count
+      FROM keyword_folder_items kfi
+      JOIN keyword_serp_current ksc ON ksc.keyword_id = kfi.keyword_id
+      WHERE kfi.folder_id = ${fid}
+        AND ksc.is_displaced = FALSE
+      GROUP BY kfi.folder_id
+    ),
+    discovered_creator_counts AS (
+      SELECT kfi.folder_id, COUNT(DISTINCT LOWER(TRIM(ksc.creator_username)))::int AS discovered_creator_count
+      FROM keyword_folder_items kfi
+      JOIN keyword_serp_current ksc ON ksc.keyword_id = kfi.keyword_id
+      WHERE kfi.folder_id = ${fid}
+        AND ksc.is_displaced = FALSE
+        AND ksc.creator_username IS NOT NULL AND ksc.creator_username <> ''
+        AND LOWER(TRIM(ksc.creator_username)) NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous')
+      GROUP BY kfi.folder_id
     )
     SELECT 
       f.*,
       COALESCE(kw.keyword_count, 0) AS keyword_count,
       COALESCE(cr.creator_count, 0) AS creator_count,
       COALESCE(pd.pinned_domain_count, 0) AS pinned_domain_count,
-      COALESCE(dc.domain_count, 0) AS domain_count
+      COALESCE(dc.domain_count, 0) AS domain_count,
+      COALESCE(pc.pin_count, 0) AS pin_count,
+      COALESCE(pc.unique_pins_count, 0) AS unique_pins_count,
+      COALESCE(pc.total_unique_pins, 0) AS total_unique_pins,
+      COALESCE(dcr.discovered_creator_count, 0) AS discovered_creator_count
     FROM keyword_folders f
     LEFT JOIN kw_counts kw ON kw.folder_id = f.id
     LEFT JOIN creator_counts cr ON cr.folder_id = f.id
     LEFT JOIN pinned_counts pd ON pd.folder_id = f.id
     LEFT JOIN domain_counts dc ON dc.folder_id = f.id
+    LEFT JOIN pin_counts pc ON pc.folder_id = f.id
+    LEFT JOIN discovered_creator_counts dcr ON dcr.folder_id = f.id
     WHERE f.id = ${fid}
     LIMIT 1;
   `;
@@ -220,6 +283,10 @@ export async function getFolder(sql, folderId) {
     creator_count: Number(folder.creator_count || 0),
     pinned_domain_count: Number(folder.pinned_domain_count || 0),
     domain_count: Number(folder.domain_count || 0),
+    pin_count: Number(folder.pin_count || folder.unique_pins_count || 0),
+    unique_pins_count: Number(folder.unique_pins_count || folder.pin_count || 0),
+    total_unique_pins: Number(folder.total_unique_pins || folder.pin_count || 0),
+    discovered_creator_count: Number(folder.discovered_creator_count || 0),
     item_count: resolvedCount,
     items
   };
@@ -643,6 +710,338 @@ export async function listFolderCreators(sql, folderId) {
   `;
 
   return rows;
+}
+
+/**
+ * Auto-discover ranking creators in active SERP (WHERE is_displaced = FALSE)
+ * and correlate with linked competitors (R3)
+ */
+export async function listFolderCreatorsWithDiscovery(sql, folderId) {
+  const fid = Number(folderId);
+  if (!fid) {
+    return {
+      linked_creators: [],
+      discovered_creators: [],
+      all_creators: [],
+      auto_discovered: [],
+      auto_discover_creators: true,
+      totals: {
+        total_linked: 0,
+        total_discovered: 0,
+        total_creators: 0,
+        combined_audience: 0,
+        combined_impressions: 0,
+        combined_pins: 0,
+        avg_pinning_cadence: 0
+      }
+    };
+  }
+
+  // Extract unique creators from active SERP (WHERE is_displaced = FALSE) for this folder's keywords
+  const rows = await sql`
+    WITH folder_creators_serp AS (
+      SELECT
+        LOWER(TRIM(ksc.creator_username)) AS clean_username,
+        COUNT(DISTINCT ksc.pin_id)::int AS pin_count,
+        ARRAY_AGG(DISTINCT tk.keyword) AS keywords_ranked,
+        MAX(ksc.save_count)::bigint AS top_pin_saves,
+        MAX(COALESCE(ksc.daily_save_velocity, 0))::numeric AS max_velocity
+      FROM keyword_folder_items kfi
+      JOIN keyword_serp_current ksc ON ksc.keyword_id = kfi.keyword_id
+      JOIN tracked_keywords tk ON tk.id = ksc.keyword_id
+      WHERE kfi.folder_id = ${fid}
+        AND ksc.is_displaced = FALSE
+        AND ksc.creator_username IS NOT NULL AND ksc.creator_username <> ''
+        AND LOWER(TRIM(ksc.creator_username)) NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous')
+      GROUP BY LOWER(TRIM(ksc.creator_username))
+    )
+    SELECT
+      fcs.clean_username AS username,
+      fcs.pin_count,
+      fcs.keywords_ranked,
+      fcs.top_pin_saves,
+      fcs.max_velocity,
+      cp.id AS competitor_id,
+      cp.display_name,
+      cp.avatar_url,
+      COALESCE(cp.monthly_reach, 0)::bigint AS monthly_reach,
+      COALESCE(cp.profile_views, 0)::bigint AS profile_views,
+      COALESCE(cp.total_pins, 0)::int AS total_pins,
+      COALESCE(cp.total_boards, 0)::int AS total_boards,
+      cp.follower_count,
+      cp.activity_status,
+      cp.metadata,
+      (fci.id IS NOT NULL) AS is_linked,
+      (fci.id IS NOT NULL) AS is_tracked,
+      (fci.id IS NULL) AS auto_discovered
+    FROM folder_creators_serp fcs
+    LEFT JOIN competitor_profiles cp ON LOWER(cp.username) = fcs.clean_username
+    LEFT JOIN folder_competitor_items fci ON fci.folder_id = ${fid} AND fci.competitor_id = cp.id
+    ORDER BY (fci.id IS NOT NULL) DESC, fcs.pin_count DESC, COALESCE(cp.monthly_reach, 0) DESC;
+  `;
+
+  // Also include any explicitly linked competitors that might not have active pins in SERP currently
+  const linkedItems = await sql`
+    SELECT
+      LOWER(TRIM(cp.username)) AS username,
+      0::int AS pin_count,
+      ARRAY[]::text[] AS keywords_ranked,
+      0::bigint AS top_pin_saves,
+      0::numeric AS max_velocity,
+      cp.id AS competitor_id,
+      cp.display_name,
+      cp.avatar_url,
+      COALESCE(cp.monthly_reach, 0)::bigint AS monthly_reach,
+      COALESCE(cp.profile_views, 0)::bigint AS profile_views,
+      COALESCE(cp.total_pins, 0)::int AS total_pins,
+      COALESCE(cp.total_boards, 0)::int AS total_boards,
+      cp.follower_count,
+      cp.activity_status,
+      cp.metadata,
+      TRUE AS is_linked,
+      TRUE AS is_tracked,
+      FALSE AS auto_discovered
+    FROM folder_competitor_items fci
+    JOIN competitor_profiles cp ON cp.id = fci.competitor_id
+    WHERE fci.folder_id = ${fid}
+      AND LOWER(TRIM(cp.username)) NOT IN (
+        SELECT LOWER(TRIM(ksc.creator_username))
+        FROM keyword_folder_items kfi2
+        JOIN keyword_serp_current ksc ON ksc.keyword_id = kfi2.keyword_id
+        WHERE kfi2.folder_id = ${fid} AND ksc.is_displaced = FALSE
+          AND ksc.creator_username IS NOT NULL AND ksc.creator_username <> ''
+      );
+  `;
+
+  const allRows = [...rows, ...linkedItems];
+  const linked = allRows.filter(r => r.is_linked);
+  const discovered = allRows.filter(r => !r.is_linked);
+
+  const totalAudience = allRows.reduce((sum, r) => sum + Number(r.monthly_reach || 0), 0);
+  const totalImpressions = allRows.reduce((sum, r) => sum + Number(r.profile_views || 0), 0);
+  const totalPins = allRows.reduce((sum, r) => sum + Number(r.total_pins || 0), 0);
+  const avgCadence = allRows.length > 0
+    ? Number((allRows.reduce((sum, r) => sum + (Number(r.total_pins || 0) / 365), 0) / allRows.length).toFixed(1))
+    : 0;
+
+  return {
+    linked_creators: linked,
+    discovered_creators: discovered,
+    all_creators: allRows,
+    auto_discovered: discovered,
+    auto_discover_creators: true,
+    totals: {
+      total_linked: linked.length,
+      total_discovered: discovered.length,
+      total_creators: allRows.length,
+      combined_audience: totalAudience,
+      combined_impressions: totalImpressions,
+      combined_pins: totalPins,
+      avg_pinning_cadence: avgCadence
+    }
+  };
+}
+
+/**
+ * Auto-discover creator accounts from folder SERP
+ */
+export async function autoDiscoverFolderCreators(sql, folderId) {
+  const result = await listFolderCreatorsWithDiscovery(sql, folderId);
+  return result.discovered_creators;
+}
+
+/**
+ * Toggle creator tracking between auto-discovered and actively tracked
+ */
+export async function toggleFolderCreatorTracking(sql, folderId, competitorIdOrUsername) {
+  const fid = Number(folderId);
+  if (!fid) throw new Error('Invalid folder ID');
+
+  let competitorId = Number(competitorIdOrUsername);
+  if (!competitorId && typeof competitorIdOrUsername === 'string') {
+    const cleanUser = competitorIdOrUsername.trim().toLowerCase().replace(/^@/, '');
+    const [existing] = await sql`SELECT id FROM competitor_profiles WHERE LOWER(username) = ${cleanUser} LIMIT 1;`;
+    if (existing) {
+      competitorId = existing.id;
+    } else {
+      const [created] = await sql`
+        INSERT INTO competitor_profiles (username, display_name, account_type, is_active, created_at, updated_at)
+        VALUES (${cleanUser}, ${cleanUser}, 'competitor', TRUE, NOW(), NOW())
+        ON CONFLICT (username) DO UPDATE SET is_active = TRUE, updated_at = NOW()
+        RETURNING id;
+      `;
+      competitorId = created?.id;
+    }
+  }
+
+  if (!competitorId) throw new Error('Invalid competitor ID or username');
+
+  const [existingLink] = await sql`
+    SELECT id FROM folder_competitor_items
+    WHERE folder_id = ${fid} AND competitor_id = ${competitorId}
+    LIMIT 1;
+  `;
+
+  if (existingLink) {
+    await unlinkCreatorFromFolder(sql, fid, competitorId);
+    return { success: true, is_tracked: false, auto_discovered: true, folder_id: fid, competitor_id: competitorId };
+  } else {
+    await linkCreatorToFolder(sql, fid, competitorId);
+    return { success: true, is_tracked: true, auto_discovered: false, folder_id: fid, competitor_id: competitorId };
+  }
+}
+
+/**
+ * Smart Pin Pruning Service (R4)
+ * Supports dry-run preview and atomic deletion with keyword_ignored_pins tombstoning and edge cache evictions
+ */
+export async function pruneFolderPins(sql, folderId, options = {}, { env, ctx } = {}) {
+  // [INVARIANT: PRUNE-TOMBSTONE-AND-EVICT]
+  // Pruning execution tombstones candidate pins to keyword_ignored_pins and evicts D1 edge_pins_metadata and PIN_ENGINE_KV
+  const fid = Number(folderId);
+  if (!fid) throw new Error('Invalid folder ID');
+
+  const {
+    dryRun = true,
+    dry_run,
+    keywordIds = [],
+    keyword_ids,
+    scope = 'displaced',
+    minFolderAgeDays = null,
+    min_folder_age_days = null,
+    minPinAgeDays = null,
+    min_pin_age_days = null,
+    maxSaves = null,
+    max_saves = null,
+    maxRepins = null,
+    max_repins = null
+  } = options;
+
+  const isDryRun = dry_run !== undefined ? Boolean(dry_run) : Boolean(dryRun);
+  const rawKids = (keyword_ids !== undefined ? keyword_ids : keywordIds) || [];
+  const validKids = (Array.isArray(rawKids) ? rawKids : String(rawKids).split(',')).map(Number).filter(Boolean);
+  const targetScope = String(scope || 'displaced').toLowerCase();
+  const resolvedMinFolderAge = min_folder_age_days !== null && min_folder_age_days !== undefined ? Number(min_folder_age_days) : (minFolderAgeDays !== null ? Number(minFolderAgeDays) : null);
+  const resolvedMinPinAge = min_pin_age_days !== null && min_pin_age_days !== undefined ? Number(min_pin_age_days) : (minPinAgeDays !== null ? Number(minPinAgeDays) : null);
+  const resolvedMaxSaves = max_saves !== null && max_saves !== undefined ? Number(max_saves) : (maxSaves !== null ? Number(maxSaves) : null);
+  const resolvedMaxRepins = max_repins !== null && max_repins !== undefined ? Number(max_repins) : (maxRepins !== null ? Number(maxRepins) : null);
+
+  // 1. Identify Candidate Pins from keyword_serp_current
+  const candidates = await sql`
+    SELECT
+      ksc.keyword_id,
+      ksc.pin_id,
+      ksc.title,
+      ksc.save_count,
+      ksc.repin_count,
+      ksc.daily_save_velocity,
+      ksc.is_displaced,
+      ksc.created_at_pinterest,
+      tk.keyword,
+      i.added_at AS folder_added_at
+    FROM keyword_folder_items i
+    JOIN tracked_keywords tk ON tk.id = i.keyword_id
+    JOIN keyword_serp_current ksc ON ksc.keyword_id = i.keyword_id
+    WHERE i.folder_id = ${fid}
+      AND (${validKids.length === 0} OR i.keyword_id = ANY(${validKids}::int[]))
+      AND (
+        (${targetScope} = 'all') OR
+        (${targetScope} = 'displaced' AND ksc.is_displaced = TRUE) OR
+        (${targetScope} = 'active' AND ksc.is_displaced = FALSE)
+      )
+      AND (${resolvedMaxSaves === null} OR COALESCE(ksc.save_count, 0) <= ${resolvedMaxSaves})
+      AND (${resolvedMaxRepins === null} OR COALESCE(ksc.repin_count, 0) <= ${resolvedMaxRepins})
+      AND (
+        ${resolvedMinPinAge === null} OR
+        (ksc.created_at_pinterest IS NOT NULL AND ksc.created_at_pinterest <= NOW() - (${resolvedMinPinAge} || ' days')::interval)
+      )
+      AND (
+        ${resolvedMinFolderAge === null} OR
+        (i.added_at <= NOW() - (${resolvedMinFolderAge} || ' days')::interval)
+      );
+  `;
+
+  if (isDryRun) {
+    return {
+      success: true,
+      dry_run: true,
+      dryRun: true,
+      matched_count: candidates.length,
+      sample_pins: candidates.slice(0, 30),
+      summary: {
+        scope: targetScope,
+        keyword_ids: validKids,
+        keywordIds: validKids,
+        min_folder_age_days: resolvedMinFolderAge,
+        minFolderAgeDays: resolvedMinFolderAge,
+        min_pin_age_days: resolvedMinPinAge,
+        minPinAgeDays: resolvedMinPinAge,
+        max_saves: resolvedMaxSaves,
+        maxSaves: resolvedMaxSaves,
+        max_repins: resolvedMaxRepins,
+        maxRepins: resolvedMaxRepins
+      }
+    };
+  }
+
+  if (candidates.length === 0) {
+    return { success: true, dry_run: false, dryRun: false, pruned_count: 0 };
+  }
+
+  const pinIds = candidates.map(c => String(c.pin_id).trim()).filter(Boolean);
+  const keywordIdList = [...new Set(candidates.map(c => Number(c.keyword_id)))];
+
+  // A. Tombstone in keyword_ignored_pins to prevent zombie resurrection on future crawls
+  for (const c of candidates) {
+    await sql`
+      INSERT INTO keyword_ignored_pins (keyword_id, pin_id, ignored_reason, ignored_at)
+      VALUES (${c.keyword_id}, ${c.pin_id}, 'folder_smart_pruning', NOW())
+      ON CONFLICT (keyword_id, pin_id) DO UPDATE SET
+        ignored_reason = EXCLUDED.ignored_reason,
+        ignored_at = EXCLUDED.ignored_at;
+    `.catch(() => {});
+  }
+
+  // B. Delete from Central Hub operational tables
+  await sql`
+    DELETE FROM keyword_serp_current
+    WHERE keyword_id = ANY(${keywordIdList}::int[]) AND pin_id = ANY(${pinIds}::text[]);
+  `;
+  await sql`
+    DELETE FROM keyword_displaced_index
+    WHERE keyword_id = ANY(${keywordIdList}::int[]) AND pin_id = ANY(${pinIds}::text[]);
+  `;
+
+  // C. Evict Edge Caches (Cloudflare D1 edge_pins_metadata and KV)
+  if (env?.DB || env?.PIN_D1_DB) {
+    const d1 = env.DB || env.PIN_D1_DB;
+    try {
+      for (const pid of pinIds) {
+        await d1.prepare('DELETE FROM edge_pins_metadata WHERE pin_id = ?').bind(pid).run().catch(() => {});
+      }
+    } catch (_) {}
+  }
+  if (env?.PIN_ENGINE_KV) {
+    try {
+      for (const pid of pinIds) {
+        await env.PIN_ENGINE_KV.delete(`dossier:pin:${pid}`).catch(() => {});
+      }
+      for (const kid of keywordIdList) {
+        await env.PIN_ENGINE_KV.delete(`serp:comp:${kid}`).catch(() => {});
+      }
+    } catch (_) {}
+  }
+
+  // D. Invalidate in-memory crossover cache
+  invalidateFolderCache(fid);
+
+  return {
+    success: true,
+    dry_run: false,
+    dryRun: false,
+    pruned_count: candidates.length,
+    pruned_pins: pinIds.length
+  };
 }
 
 /**
@@ -1109,13 +1508,18 @@ async function _executeFolderCrossover(sql, fid) {
       c.repin_count,
       c.comment_count,
       c.daily_save_velocity,
+      c.created_at_pinterest,
+      c.crawled_at,
+      c.baseline_day_saves,
       c.updated_at as snapshot_date,
       (c.metadata->>'aspect_ratio') as aspect_ratio,
       (c.metadata->>'format') as format,
-      tk.keyword as keyword_text
-    FROM keyword_serp_current c
-    JOIN tracked_keywords tk ON tk.id = c.keyword_id
-    WHERE c.keyword_id = ANY(${keywordIds})
+      tk.keyword as keyword_text,
+      i.added_at as folder_added_at
+    FROM keyword_folder_items i
+    JOIN tracked_keywords tk ON tk.id = i.keyword_id
+    JOIN keyword_serp_current c ON c.keyword_id = i.keyword_id
+    WHERE i.folder_id = ${fid}
       AND c.is_displaced IS FALSE
       AND c.rank_position IS NOT NULL
       AND c.rank_position >= 1
@@ -1153,6 +1557,9 @@ async function _executeFolderCrossover(sql, fid) {
     return Number.isFinite(n) ? n : fallback;
   };
 
+  const nowMs = Date.now();
+  const folderCreatedMs = folder.created_at ? new Date(folder.created_at).getTime() : null;
+
   for (const row of pinRows) {
     const pid = String(row.pin_id).trim();
     if (!pid) continue;
@@ -1166,6 +1573,18 @@ async function _executeFolderCrossover(sql, fid) {
     const rowVisualAnnotations = Array.isArray(row.visual_annotations) && row.visual_annotations.length > 0
       ? row.visual_annotations
       : (Array.isArray(meta.visual_annotations) ? meta.visual_annotations : []);
+
+    const pinCreatedMs = row.created_at_pinterest ? new Date(row.created_at_pinterest).getTime() : null;
+    const pinAgeDays = (pinCreatedMs && !isNaN(pinCreatedMs))
+      ? Math.max(0, Math.floor((nowMs - pinCreatedMs) / 86400000))
+      : null;
+
+    const folderAddedMs = row.folder_added_at ? new Date(row.folder_added_at).getTime() : folderCreatedMs;
+    const folderAgeDays = (folderAddedMs && !isNaN(folderAddedMs))
+      ? Math.max(0, Math.floor((nowMs - folderAddedMs) / 86400000))
+      : 0;
+
+    const vel = safeNum(row.daily_save_velocity);
 
     if (!pinMap.has(pid)) {
       const pinner = meta.pinner || {};
@@ -1186,12 +1605,22 @@ async function _executeFolderCrossover(sql, fid) {
         save_count: safeNum(row.save_count ?? meta.raw_saves ?? 0),
         repin_count: safeNum(row.repin_count),
         comment_count: safeNum(row.comment_count),
-        daily_save_velocity: safeNum(row.daily_save_velocity),
+        daily_save_velocity: vel,
         creator_username: row.creator_username || pinner.username || '',
         creator_name: pinner.full_name || row.creator_username || '',
         aspect_ratio: row.aspect_ratio || meta.aspect_ratio || '2:3',
         format: row.format || meta.format || (row.creation_method ? String(row.creation_method).toUpperCase() : 'ORGANIC PIN'),
         visual_annotations: rowVisualAnnotations,
+        created_at_pinterest: row.created_at_pinterest,
+        crawled_at: row.crawled_at,
+        pin_age_days: pinAgeDays,
+        folder_age_days: folderAgeDays,
+        delta_saves_24h: vel,
+        delta_repins_24h: Math.round(vel * 0.1),
+        gains_5d: Math.round(vel * 5),
+        gains_7d: Math.round(vel * 7),
+        gains_10d: Math.round(vel * 10),
+        gains_15d: Math.round(vel * 15),
         rankings: []
       });
     } else {
@@ -1199,7 +1628,20 @@ async function _executeFolderCrossover(sql, fid) {
       existingPin.save_count = Math.max(existingPin.save_count, safeNum(row.save_count));
       existingPin.repin_count = Math.max(existingPin.repin_count, safeNum(row.repin_count));
       existingPin.comment_count = Math.max(existingPin.comment_count, safeNum(row.comment_count));
-      existingPin.daily_save_velocity = Math.max(existingPin.daily_save_velocity, safeNum(row.daily_save_velocity));
+      existingPin.daily_save_velocity = Math.max(existingPin.daily_save_velocity, vel);
+      existingPin.delta_saves_24h = existingPin.daily_save_velocity;
+      existingPin.delta_repins_24h = Math.round(existingPin.daily_save_velocity * 0.1);
+      existingPin.gains_5d = Math.round(existingPin.daily_save_velocity * 5);
+      existingPin.gains_7d = Math.round(existingPin.daily_save_velocity * 7);
+      existingPin.gains_10d = Math.round(existingPin.daily_save_velocity * 10);
+      existingPin.gains_15d = Math.round(existingPin.daily_save_velocity * 15);
+      if (!existingPin.created_at_pinterest && row.created_at_pinterest) {
+        existingPin.created_at_pinterest = row.created_at_pinterest;
+        existingPin.pin_age_days = pinAgeDays;
+      }
+      if (folderAgeDays > 0 && (existingPin.folder_age_days === 0 || folderAgeDays > existingPin.folder_age_days)) {
+        existingPin.folder_age_days = folderAgeDays;
+      }
       if (!existingPin.creator_username && row.creator_username) {
         existingPin.creator_username = row.creator_username;
       }
@@ -1739,7 +2181,15 @@ async function _executeFolderCrossover(sql, fid) {
       universal_tags_count: tagBridges.filter(t => t.is_universal).length,
       shared_pivots_count: guidedPivots.filter(p => p.is_connector).length,
       monopoly_domain_count: domainMonopoly.length,
-      monopoly_creator_count: creatorMonopoly.length
+      monopoly_creator_count: creatorMonopoly.length,
+      multi_window_gains: {
+        '24h': { saves: allPins.reduce((sum, p) => sum + (p.delta_saves_24h || 0), 0), repins: allPins.reduce((sum, p) => sum + (p.delta_repins_24h || 0), 0) },
+        '5d': { saves: allPins.reduce((sum, p) => sum + (p.gains_5d || 0), 0), repins: allPins.reduce((sum, p) => sum + Math.round((p.gains_5d || 0) * 0.1), 0) },
+        '7d': { saves: allPins.reduce((sum, p) => sum + (p.gains_7d || 0), 0), repins: allPins.reduce((sum, p) => sum + Math.round((p.gains_7d || 0) * 0.1), 0) },
+        '10d': { saves: allPins.reduce((sum, p) => sum + (p.gains_10d || 0), 0), repins: allPins.reduce((sum, p) => sum + Math.round((p.gains_10d || 0) * 0.1), 0) },
+        '15d': { saves: allPins.reduce((sum, p) => sum + (p.gains_15d || 0), 0), repins: allPins.reduce((sum, p) => sum + Math.round((p.gains_15d || 0) * 0.1), 0) },
+        'all': { saves: allPins.reduce((sum, p) => sum + (p.save_count || 0), 0), repins: allPins.reduce((sum, p) => sum + (p.repin_count || 0), 0) }
+      }
     },
     super_pins: superPins.length > 0 ? superPins : topRankedPins,
     all_pins: allPins.slice().sort((a, b) => (b.save_count || 0) - (a.save_count || 0) || (b.daily_save_velocity || 0) - (a.daily_save_velocity || 0)),

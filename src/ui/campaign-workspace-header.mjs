@@ -13,7 +13,7 @@
  */
 
 export function renderCampaignWorkspaceHeader({
-  activeRoom = 'crossover', // 'crossover' | 'keywords' | 'creators' | 'domains'
+  activeRoom = 'crossover', // 'crossover' | 'keywords' | 'creators' | 'domains' | 'settings'
   folderId = '',
   folder = null
 } = {}) {
@@ -33,11 +33,13 @@ export function renderCampaignWorkspaceHeader({
   const isKeywords = activeRoom === 'keywords';
   const isCreators = activeRoom === 'creators';
   const isDomains = activeRoom === 'domains';
+  const isSettings = activeRoom === 'settings';
 
   const crossoverClass = isCrossover ? tabActive : tabInactive;
   const keywordsClass = isKeywords ? tabActive : tabInactive;
   const creatorsClass = isCreators ? tabActive : tabInactive;
   const domainsClass = isDomains ? tabActive : tabInactive;
+  const settingsClass = isSettings ? tabActive : tabInactive;
 
   const iconActive = 'text-rose-600 dark:text-rose-400 shrink-0';
   const iconInactive = 'text-slate-400 dark:text-[#71717A] shrink-0';
@@ -76,6 +78,35 @@ export function renderCampaignWorkspaceHeader({
                 <span x-text="(typeof activeFolder !== 'undefined' && activeFolder?.created_at) ? new Date(activeFolder.created_at).toLocaleDateString() : '${folderDate}'">${folderDate}</span>
               </span>
             </template>
+
+            <!-- Quick Folder Switcher Dropdown [INVARIANT: FOLDER-SWITCHER-DROPDOWN] -->
+            <div class="relative inline-block ml-1" x-data="{ folderSwitcherOpen: false }" @click.away="folderSwitcherOpen = false">
+              <button @click="folderSwitcherOpen = !folderSwitcherOpen"
+                      type="button"
+                      class="px-2 py-0.5 rounded-md border border-slate-200 dark:border-[#27272A] bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-[10px] font-mono tabular-nums text-slate-600 dark:text-[#A1A1AA] flex items-center gap-1 transition-colors cursor-pointer"
+                      title="Quick Switch Folder">
+                <span>Switch Folder</span>
+                <i data-lucide="chevron-down" class="w-3 h-3 text-slate-400 transition-transform" :class="folderSwitcherOpen ? 'rotate-180' : ''"></i>
+              </button>
+              <div x-show="folderSwitcherOpen" x-cloak
+                   class="absolute left-0 z-50 mt-1.5 w-60 rounded-xl bg-white dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] shadow-2xl py-1 text-xs max-h-64 overflow-y-auto">
+                <div class="px-3 py-1.5 text-[10px] font-mono tabular-nums uppercase text-slate-400 border-b border-slate-100 dark:border-[#27272A] flex items-center justify-between">
+                  <span>Switch Workspace</span>
+                  <a href="/folders" class="text-rose-600 dark:text-rose-400 hover:underline">All Folders →</a>
+                </div>
+                <template x-for="f in (typeof foldersList !== 'undefined' && foldersList && foldersList.length ? foldersList : ((typeof folders !== 'undefined' && folders && folders.length) ? folders : ((typeof allFolders !== 'undefined' && allFolders) ? allFolders : [])))" :key="f.id">
+                  <a :href="'/folders/' + f.id + (${isKeywords ? "'/keywords'" : (isCreators ? "'/creators'" : (isDomains ? "'/domains'" : (isSettings ? "'/settings'" : "''")))})"
+                     class="px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-[#27272A] flex items-center justify-between text-slate-700 dark:text-[#FAFAFA] transition-colors"
+                     :class="(f.id == '${cleanFolderId}') ? 'bg-rose-50/50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400 font-bold' : ''">
+                    <div class="flex items-center gap-2 truncate">
+                      <span x-text="f.icon && f.icon !== 'folder' && f.icon.length <= 4 ? f.icon : '📁'"></span>
+                      <span class="truncate" x-text="f.name"></span>
+                    </div>
+                    <span class="text-[10px] font-mono tabular-nums text-slate-400 shrink-0 ml-1" x-text="'#' + f.id"></span>
+                  </a>
+                </template>
+              </div>
+            </div>
           </div>
           <h1 class="text-lg font-bold text-slate-900 dark:text-[#FAFAFA] tracking-tight truncate" x-text="(typeof activeFolder !== 'undefined' && activeFolder?.name) ? activeFolder.name : '${folderName}'">${folderName}</h1>
           <p class="text-xs text-slate-500 dark:text-[#A1A1AA] truncate max-w-xl" x-text="(typeof activeFolder !== 'undefined' && activeFolder?.description) ? activeFolder.description : '${folderDesc}'">${folderDesc}</p>
@@ -119,7 +150,7 @@ export function renderCampaignWorkspaceHeader({
           <i data-lucide="zap" class="w-4 h-4 ${isCrossover ? iconActive : iconInactive}"></i>
           <span>Crossover & Super-Pins</span>
           <span class="${isCrossover ? badgeActive : badgeInactive}"
-                x-text="(typeof crossoverData !== 'undefined' && crossoverData?.summary?.total_unique_pins != null) ? crossoverData.summary.total_unique_pins : ((typeof activeFolder !== 'undefined' && activeFolder && (activeFolder?.keyword_count ?? activeFolder?.items?.length) != null) ? (activeFolder.keyword_count ?? activeFolder.items?.length) : '—')"></span>
+                x-text="(typeof activeFolder !== 'undefined' && activeFolder && (activeFolder?.unique_pins_count != null || activeFolder?.pin_count != null || activeFolder?.total_unique_pins != null)) ? (activeFolder.unique_pins_count ?? activeFolder.pin_count ?? activeFolder.total_unique_pins) : ((typeof crossoverData !== 'undefined' && crossoverData?.summary?.total_unique_pins != null) ? crossoverData.summary.total_unique_pins : '0')"></span>
         </a>
 
         <!-- Room 2: Keywords Fleet -->
@@ -149,6 +180,13 @@ export function renderCampaignWorkspaceHeader({
           <span>Domain Studio</span>
           <span class="${isDomains ? badgeActive : badgeInactive}"
                 x-text="(typeof activeFolder !== 'undefined' && activeFolder?.domain_count != null) ? (activeFolder.domain_count + (activeFolder.pinned_domain_count ? ' (' + activeFolder.pinned_domain_count + ' 📌)' : '')) : (typeof totalDomains !== 'undefined' && totalDomains ? totalDomains : '0')"></span>
+        </a>
+
+        <!-- Room 5: Settings & Pruning -->
+        <a :href="'/folders/' + ((typeof activeFolderId !== 'undefined' && activeFolderId) ? activeFolderId : ((typeof scopedFolderId !== 'undefined' && scopedFolderId) ? scopedFolderId : '${cleanFolderId}')) + '/settings'"
+           href="/folders/${cleanFolderId}/settings" class="${settingsClass}">
+          <i data-lucide="sliders" class="w-4 h-4 ${isSettings ? iconActive : iconInactive}"></i>
+          <span>Settings & Pruning</span>
         </a>
       </nav>
 

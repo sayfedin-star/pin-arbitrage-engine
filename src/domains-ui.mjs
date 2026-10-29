@@ -291,6 +291,13 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                   :class="activePreset === 'multi_account' ? 'bg-purple-600 text-white font-semibold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#27272A] border border-slate-200/60 dark:border-[#27272A]'">
             <span>Multi-Acct</span>
           </button>
+          <!-- Cluster Push Signal Filter Pill -->
+          <button @click="setPreset(activePreset === 'cluster_push_signal' ? 'all' : 'cluster_push_signal')"
+                  class="px-2.5 py-1 rounded-xl text-xs font-medium transition-all cursor-pointer flex items-center gap-1"
+                  :class="activePreset === 'cluster_push_signal' ? 'bg-amber-500 text-white font-semibold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#27272A] border border-slate-200/60 dark:border-[#27272A]'"
+                  title="Filter young domains (age <= 2y) backed by high-audience creator accounts">
+            <span>⚡ Cluster Push Signal</span>
+          </button>
           <!-- Target Domains Toggle -->
           <button @click="pinnedOnly = !pinnedOnly; loadDomains(true)"
                   class="px-2.5 py-1 rounded-xl text-xs font-semibold transition-all flex items-center gap-1 shadow-2xs cursor-pointer"
@@ -845,6 +852,15 @@ export function getDomainsPageHtml(initialDomain = '', folderId = '') {
                         <span class="text-[10px] text-slate-400 font-mono tabular-nums" x-text="'+' + (d.accounts_count - 2)"></span>
                       </template>
                     </div>
+                    <!-- Associated Creator Account Total Audience & Impressions Bridge [INVARIANT: CREATOR-AUDIENCE-BRIDGE] -->
+                    <template x-if="d.monthly_reach || d.profile_views || d.creator_audience">
+                      <div class="flex items-center gap-1.5 text-[10px] font-mono tabular-nums text-slate-500 dark:text-[#A1A1AA] pt-0.5"
+                           :title="'Associated creator account Total Audience: ' + formatNumber(d.monthly_reach || d.creator_audience || 0) + ' | Impressions: ' + formatNumber(d.profile_views || d.creator_impressions || 0)">
+                        <span>Aud: <span class="font-semibold text-slate-700 dark:text-slate-200" x-text="formatNumber(d.monthly_reach || d.creator_audience || 0)"></span></span>
+                        <span>•</span>
+                        <span>Imp: <span class="font-semibold text-slate-700 dark:text-slate-200" x-text="formatNumber(d.profile_views || d.creator_impressions || 0)"></span></span>
+                      </div>
+                    </template>
                   </div>
                 </td>
 

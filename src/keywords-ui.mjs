@@ -251,7 +251,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
         <!-- Metric 2: Monitored Organic Pins -->
         <div class="p-4 sm:p-5 flex flex-col justify-between space-y-2">
           <div class="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-            <span class="font-medium text-[11px] uppercase tracking-wider font-mono tabular-nums" x-text="activeFolderId ? 'Active Crawled Pins' : 'Monitored Organic Pins'"></span>
+            <span class="font-medium text-[11px] uppercase tracking-wider font-mono tabular-nums" x-text="activeFolderId ? 'Active Crawled Pins' : 'Monitored Organic Pins'" :data-count="activeFolderId ? totalActivePinsCount : totalMonitoredPins"></span>
             <span class="p-1 rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400">
               <i data-lucide="database" class="w-3.5 h-3.5"></i>
             </span>
@@ -265,7 +265,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
           <template x-if="!isKeywordsLoading">
             <div>
               <div class="flex items-baseline gap-2">
-                <span class="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white font-mono tabular-nums tracking-tight" x-text="formatNumber(totalMonitoredPins)"></span>
+                <span class="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white font-mono tabular-nums tracking-tight" x-text="formatNumber(activeFolderId ? totalActivePinsCount : totalMonitoredPins)"></span>
                 <span class="text-xs text-slate-400 font-mono tabular-nums">pins</span>
               </div>
               <div class="mt-1.5 text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400">
@@ -1046,6 +1046,8 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
     <!-- LEVEL 2: SERP RADAR STUDIO (viewModeLevel === 'serp_studio')             -->
     <!-- ========================================================================= -->
     <div x-show="viewModeLevel === 'serp_studio'" x-cloak class="space-y-6">
+
+      ${safeFolderId ? renderCampaignWorkspaceHeader({ activeRoom: 'keywords', folderId: safeFolderId }) : ''}
 
       <!-- Studio Return Button -->
       <div class="flex items-center justify-between">
@@ -4657,7 +4659,7 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
 
         get totalActivePinsCount() {
           const list = this.activeFolderId ? this.filteredDashboardKeywords : (this.keywords || []);
-          return list.reduce((acc, k) => acc + Number(k.active_pins_count ?? k.snapshots_count ?? this.getKeywordTotalPins(k) ?? 0), 0);
+          return list.reduce((acc, k) => acc + Number(k.active_pins_count ?? k.snapshots_count ?? 0), 0);
         },
 
         get uniqueCategories() {
@@ -5360,7 +5362,10 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
 
         switchToDashboard() {
           this.viewModeLevel = 'dashboard';
-          window.history.pushState(null, '', '/keywords');
+          const returnPath = this.activeFolderId
+            ? '/folders/' + encodeURIComponent(this.activeFolderId) + '/keywords'
+            : '/keywords';
+          window.history.pushState(null, '', returnPath);
           this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
         },
 
@@ -5767,7 +5772,10 @@ export function getKeywordsPageHtml(initialSlug = '', initialKeyword = '', folde
 
           const cleanSlug = kw.keyword.trim().toLowerCase().replace(/\\s+/g, '-');
           if (updateHistory) {
-            window.history.pushState(null, '', '/keywords/' + encodeURIComponent(cleanSlug));
+            const targetPath = this.activeFolderId
+              ? '/folders/' + encodeURIComponent(this.activeFolderId) + '/keywords?q=' + encodeURIComponent(cleanSlug)
+              : '/keywords/' + encodeURIComponent(cleanSlug);
+            window.history.pushState(null, '', targetPath);
           }
 
           if (this.detailAbortController) {

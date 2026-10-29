@@ -228,6 +228,12 @@ export async function handlePagesRoutes(routeCtx) {
       return new Response(getDomainsPageHtml(domainParam, folderId), { status: 200, headers: HTML_HEADERS });
     }
 
+    if (room === 'settings') {
+      // Room 5: /folders/:id/settings -> Dedicated Folder Settings & Control Room
+      const { getCampaignFoldersPageHtml } = await import('../campaign-folders-ui.mjs');
+      return new Response(getCampaignFoldersPageHtml(folderId, 'settings'), { status: 200, headers: HTML_HEADERS });
+    }
+
     // Fallback to Room 1
     const { getCampaignFoldersPageHtml } = await import('../campaign-folders-ui.mjs');
     return new Response(getCampaignFoldersPageHtml(folderId), { status: 200, headers: HTML_HEADERS });

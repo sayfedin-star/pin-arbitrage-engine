@@ -19,6 +19,7 @@ export function renderAppSidebar({
   const isKeywords = activeNav === 'keywords';
   const isDomains = activeNav === 'domains';
   const isRelated = activeNav === 'related_pins';
+  const isFolders = activeNav === 'folders';
 
   // Strict DESIGN.md Cockpit Dense Tokens: Unified Surface & Rose Accent (Eliminating Rainbow Tabs)
   const inactiveClass = 'text-slate-600 dark:text-[#A1A1AA] hover:bg-slate-100 dark:hover:bg-[#18181B] hover:text-slate-900 dark:hover:text-[#FAFAFA] border border-transparent font-medium';
@@ -29,6 +30,7 @@ export function renderAppSidebar({
   const keywordsActive = isKeywords ? activeClass : inactiveClass;
   const domainsActive = isDomains ? activeClass : inactiveClass;
   const relatedActive = isRelated ? activeClass : inactiveClass;
+  const foldersActive = isFolders ? activeClass : inactiveClass;
 
   const iconActive = 'text-rose-600 dark:text-rose-400';
   const iconInactive = 'text-slate-400 dark:text-[#71717A]';
@@ -145,6 +147,16 @@ export function renderAppSidebar({
             <span>Related Pins</span>
           </div>
           <span class="${isRelated ? badgeActive : badgeInactive}">Graph</span>
+        </a>
+
+        <!-- Campaign Folders Tab -->
+        <a href="/folders" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${foldersActive}">
+          <div class="flex items-center space-x-2.5">
+            <i data-lucide="folder-kanban" class="w-4 h-4 shrink-0 ${isFolders ? iconActive : iconInactive}"></i>
+            <span>Campaign Folders</span>
+          </div>
+          <span x-show="typeof folders !== 'undefined' && folders && folders.length > 0" class="${isFolders ? badgeActive : badgeInactive}" x-text="(typeof folders !== 'undefined' && folders) ? folders.length : ''"></span>
+          <span x-show="typeof folders === 'undefined' || !folders || !folders.length" class="${isFolders ? badgeActive : badgeInactive}">Clusters</span>
         </a>
       </nav>
 
@@ -308,6 +320,21 @@ export function renderAppSidebar({
           </div>
           <span x-show="!isSidebarCollapsed" class="${isRelated ? badgeActive : badgeInactive}">Graph</span>
           ${isRelated ? '<span x-show="isSidebarCollapsed" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 shadow-xs"></span>' : ''}
+        </a>
+
+        <!-- Campaign Folders Tab (/folders) -->
+        <a 
+          href="/folders" 
+          class="relative flex items-center rounded-xl text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 ${foldersActive}" 
+          :class="isSidebarCollapsed ? 'w-10 h-10 justify-center' : 'w-full justify-between px-3 py-2.5'"
+          title="Campaign Folders">
+          <div class="flex items-center" :class="isSidebarCollapsed ? 'justify-center' : 'space-x-2.5'">
+            <i data-lucide="folder-kanban" class="w-4 h-4 shrink-0 ${isFolders ? iconActive : iconInactive}"></i>
+            <span x-show="!isSidebarCollapsed" class="truncate">Campaign Folders</span>
+          </div>
+          <span x-show="!isSidebarCollapsed && (typeof folders !== 'undefined' && folders && folders.length > 0)" class="${isFolders ? badgeActive : badgeInactive}" x-text="(typeof folders !== 'undefined' && folders) ? folders.length : ''"></span>
+          <span x-show="!isSidebarCollapsed && (typeof folders === 'undefined' || !folders || !folders.length)" class="${isFolders ? badgeActive : badgeInactive}">Clusters</span>
+          ${isFolders ? '<span x-show="isSidebarCollapsed" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 shadow-xs"></span>' : ''}
         </a>
       </nav>
     </div>

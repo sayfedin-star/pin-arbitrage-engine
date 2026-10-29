@@ -107,6 +107,51 @@ async function main() {
 
     const folderMeta = safeNormalizeMetadata(folderRow.metadata);
 
+    // [INVARIANT: FOLDER-PAUSE-ENFORCEMENT] Inspect folder crawler pause toggles
+    const isCrawlerPaused = Boolean(
+      folderMeta.pause_crawlers ||
+      folderMeta.block_fleet ||
+      folderMeta.is_crawler_paused ||
+      folderMeta.crawler_paused ||
+      folderMeta.block_gha_fleet ||
+      folderMeta.status === 'paused' ||
+      (folderRow.status && String(folderRow.status).toLowerCase() === 'paused')
+    );
+
+    if (isCrawlerPaused) {
+      console.log(`\n  [!] GUARD: Folder "${folderRow.name}" (ID: ${fid}) has crawling paused or fleet blocked.`);
+      console.log(`      Flags: pause_crawlers=${Boolean(folderMeta.pause_crawlers)} | block_fleet=${Boolean(folderMeta.block_fleet)} | status=${folderRow.status || folderMeta.status}`);
+      console.log(`  [*] Emitting empty task matrix (0 tasks) and terminating cleanly.`);
+
+      matrixTasks = [];
+      summaryDetails = {
+        mode: 'Folder Cluster Crawling Paused',
+        folderName: folderRow.name,
+        folderId: fid,
+        keywordsCount: 0,
+        runnersAssigned: 0,
+        paused: true
+      };
+
+      const matrixJson = JSON.stringify(matrixTasks);
+      await writeOutput('mode', mode);
+      await writeOutput('task_count', '0');
+      await writeOutput('matrix_tasks', matrixJson);
+
+      if (stepSummaryPath) {
+        try {
+          const md = `## 🚀 Stage 0: Dynamic Fleet Orchestrator & Dispatcher\n\n> **Folder**: \`${folderRow.name}\` (ID: ${fid}) | **Status**: \`PAUSED\`\n\nCrawlers are paused for this folder. Emitted 0 tasks.\n`;
+          fs.appendFileSync(stepSummaryPath, md, 'utf8');
+        } catch (_) {}
+      }
+
+      console.log('\n================================================================');
+      console.log(`✅ FLEET DISPATCH COMPLETE (PAUSED: 0 TASKS)`);
+      console.log('================================================================');
+      process.exitCode = 0;
+      return;
+    }
+
     if ((envHarvest === undefined || envHarvest === '') && folderMeta.enable_serp_harvest !== undefined) {
       enableSerpHarvest = Boolean(folderMeta.enable_serp_harvest);
     }

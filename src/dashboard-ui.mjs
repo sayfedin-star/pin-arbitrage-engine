@@ -3241,18 +3241,51 @@ export function getDashboardHtml(folderId = '') {
             </div>
           </template>
 
+          <!-- Folder-Wide Competitor Summary Totals Bar [INVARIANT: FOLDER-COMPETITOR-TOTALS] -->
+          <template x-if="scopedFolderId">
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3.5 rounded-2xl bg-white dark:bg-[#121215] border border-slate-200/80 dark:border-[#27272A] shadow-xs font-mono tabular-nums folderCompetitorTotals">
+              <div class="flex flex-col gap-0.5">
+                <span class="text-[10px] uppercase text-slate-500 dark:text-[#71717A] font-bold">Combined Audience</span>
+                <span class="text-base font-bold text-slate-900 dark:text-white" x-text="formatNumber(folderCompetitorTotals?.combined_audience || totalAudienceSum || 0)">0</span>
+                <span class="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold" x-text="(folderCompetitorTotals?.delta_24h ? ('+' + formatNumber(folderCompetitorTotals.delta_24h) + ' 24h') : '+0 24h')">+0 24h</span>
+              </div>
+              <div class="flex flex-col gap-0.5">
+                <span class="text-[10px] uppercase text-slate-500 dark:text-[#71717A] font-bold">Combined Impressions</span>
+                <span class="text-base font-bold text-slate-900 dark:text-white" x-text="formatNumber(folderCompetitorTotals?.combined_impressions || 0)">0</span>
+                <span class="text-[10px] text-slate-400">Total Profile Views</span>
+              </div>
+              <div class="flex flex-col gap-0.5">
+                <span class="text-[10px] uppercase text-slate-500 dark:text-[#71717A] font-bold">Combined Catalog Pins</span>
+                <span class="text-base font-bold text-slate-900 dark:text-white" x-text="formatNumber(folderCompetitorTotals?.combined_pins || 0)">0</span>
+                <span class="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold" x-text="(folderCompetitorTotals?.total_creators || (filteredCompetitors ? filteredCompetitors.length : 0)) + ' Creators'"></span>
+              </div>
+              <div class="flex flex-col gap-0.5">
+                <span class="text-[10px] uppercase text-slate-500 dark:text-[#71717A] font-bold">Avg Pinning Cadence</span>
+                <span class="text-base font-bold text-slate-900 dark:text-white" x-text="(folderCompetitorTotals?.avg_pinning_cadence || 0) + ' Pins / Day'">0 Pins / Day</span>
+                <span class="text-[10px] text-slate-400">Velocity</span>
+              </div>
+            </div>
+          </template>
+
       <!-- ======================================================== -->
       <!-- CREATOR HUB: 👥 TRACKED CREATORS TABLE                   -->
       <!-- ======================================================== -->
       <div class="space-y-4">
         <div class="p-4 rounded-2xl bg-white dark:bg-[#121215] border border-slate-200/80 dark:border-[#27272A] space-y-4 shadow-sm">
           <div class="flex flex-col sm:flex-row items-center justify-between gap-3 border-b border-slate-200 dark:border-[#27272A]/80 pb-3">
-            <!-- Filter Tabs -->
-            <div class="flex items-center space-x-1 bg-slate-100 dark:bg-slate-900 p-1 rounded-xl text-xs font-semibold">
+            <!-- Filter Tabs & Auto-Discovery Toggle -->
+            <div class="flex items-center space-x-1 bg-slate-100 dark:bg-slate-900 p-1 rounded-xl text-xs font-semibold flex-wrap">
               <button @click="competitorFilter = 'all'" class="px-3 py-1.5 rounded-lg transition" :class="competitorFilter === 'all' ? 'bg-white dark:bg-[#121215] text-slate-900 dark:text-white shadow-sm font-bold' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'">All Profiles</button>
               <button @click="competitorFilter = 'own'" class="px-3 py-1.5 rounded-lg transition" :class="competitorFilter === 'own' ? 'bg-white dark:bg-[#121215] text-slate-900 dark:text-white shadow-sm font-bold' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'">👤 My Accounts</button>
               <button @click="competitorFilter = 'competitor'" class="px-3 py-1.5 rounded-lg transition" :class="competitorFilter === 'competitor' ? 'bg-white dark:bg-[#121215] text-slate-900 dark:text-white shadow-sm font-bold' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'">🎯 Competitors</button>
               <button @click="competitorFilter = 'paused'" class="px-3 py-1.5 rounded-lg transition" :class="competitorFilter === 'paused' ? 'bg-white dark:bg-[#121215] text-amber-600 dark:text-amber-400 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'">⏸ Paused</button>
+              <template x-if="scopedFolderId">
+                <div class="flex items-center space-x-1 pl-1 border-l border-slate-200 dark:border-[#27272A]">
+                  <button @click="creatorDiscoveryFilter = 'all'" :class="creatorDiscoveryFilter === 'all' ? 'bg-white dark:bg-[#121215] text-slate-900 dark:text-white shadow-xs font-bold' : 'text-slate-400 hover:text-slate-600'" class="px-2 py-1 rounded-md transition text-[11px]">All</button>
+                  <button @click="creatorDiscoveryFilter = 'tracked'" :class="creatorDiscoveryFilter === 'tracked' ? 'bg-white dark:bg-[#121215] text-purple-600 dark:text-purple-400 shadow-xs font-bold' : 'text-slate-400 hover:text-slate-600'" class="px-2 py-1 rounded-md transition text-[11px]">Tracked</button>
+                  <button @click="creatorDiscoveryFilter = 'auto_discovered'" :class="creatorDiscoveryFilter === 'auto_discovered' ? 'bg-white dark:bg-[#121215] text-indigo-600 dark:text-indigo-400 shadow-xs font-bold' : 'text-slate-400 hover:text-slate-600'" class="px-2 py-1 rounded-md transition text-[11px]">Auto-Discovered</button>
+                </div>
+              </template>
             </div>
 
             <!-- Campaign Folder Filter Dropdown -->
@@ -3353,9 +3386,21 @@ export function getDashboardHtml(folderId = '') {
                     </td>
                     <td class="py-3 px-3 text-right">
                       <span class="font-bold text-slate-900 dark:text-white" x-text="formatNumber(c.monthly_reach)"></span>
-                      <template x-if="c.reach_delta_7d !== 0">
-                        <span class="text-[10px] font-bold ml-1.5" :class="c.reach_delta_7d > 0 ? 'text-emerald-500' : 'text-rose-500'" x-text="(c.reach_delta_7d > 0 ? '(+' : '(') + formatNumber(c.reach_delta_7d) + ')'"></span>
-                      </template>
+                      <!-- Multi-Window Deltas (+24h, +5d, +10d) [INVARIANT: CREATOR-WINDOW-DELTAS] -->
+                      <div class="flex items-center justify-end gap-1 text-[10px] font-mono tabular-nums">
+                        <template x-if="c.delta_24h != null">
+                          <span class="text-emerald-500 font-semibold" x-text="'+' + formatNumber(c.delta_24h) + ' (+24h)'">+24h</span>
+                        </template>
+                        <template x-if="c.delta_5d != null">
+                          <span class="text-sky-500" x-text="'+' + formatNumber(c.delta_5d) + ' (+5d)'">+5d</span>
+                        </template>
+                        <template x-if="c.delta_10d != null">
+                          <span class="text-indigo-500" x-text="'+' + formatNumber(c.delta_10d) + ' (+10d)'">+10d</span>
+                        </template>
+                        <template x-if="c.delta_24h == null && c.reach_delta_7d !== 0">
+                          <span :class="c.reach_delta_7d > 0 ? 'text-emerald-500' : 'text-rose-500'" x-text="(c.reach_delta_7d > 0 ? '(+' : '(') + formatNumber(c.reach_delta_7d) + ')'"></span>
+                        </template>
+                      </div>
                     </td>
                     <td class="py-3 px-3 text-right">
                       <span class="text-slate-700 dark:text-slate-300" x-text="formatNumber(c.profile_views)"></span>
@@ -3363,7 +3408,11 @@ export function getDashboardHtml(folderId = '') {
                         <span class="text-[10px] font-bold ml-1.5" :class="c.views_delta_7d > 0 ? 'text-emerald-500' : 'text-rose-500'" x-text="(c.views_delta_7d > 0 ? '(+' : '(') + formatNumber(c.views_delta_7d) + ')'"></span>
                       </template>
                     </td>
-                    <td class="py-3 px-3 text-right font-bold text-slate-800 dark:text-slate-200" x-text="formatNumber(c.total_pins)"></td>
+                    <td class="py-3 px-3 text-right font-bold text-slate-800 dark:text-slate-200">
+                      <span x-text="formatNumber(c.total_pins)"></span>
+                      <!-- Pinning Cadence (Pins / Day) [INVARIANT: PINNING-CADENCE] -->
+                      <div class="text-[10px] text-slate-400 font-mono tabular-nums font-normal" x-text="(c.pins_per_day || (c.total_pins ? (c.total_pins / 365).toFixed(1) : 0)) + ' Pins / Day'">0 Pins / Day</div>
+                    </td>
                     <td class="py-3 px-3 text-center">
                       <button @click="openBoardsModal(c)" class="px-2.5 py-1 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-700 dark:text-purple-300 font-bold text-[11px] transition flex items-center justify-center space-x-1.5 mx-auto border border-purple-500/30 active:scale-95" title="Click to view boards breakdown & activity">
                         <span x-text="formatNumber(c.total_boards)"></span>
@@ -3375,6 +3424,13 @@ export function getDashboardHtml(folderId = '') {
                     </td>
                     <td class="py-3 px-3 text-center">
                       <div class="flex items-center justify-center space-x-1">
+                        <!-- 1-Click Track / Auto-Discovered Toggle [INVARIANT: TOGGLE-CREATOR-TRACKING] -->
+                        <button @click.stop="toggleCreatorTracking(c)"
+                                class="p-1.5 rounded-lg border transition cursor-pointer"
+                                :class="c.is_tracked !== false ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30' : 'bg-slate-100 dark:bg-[#18181B] text-slate-400 border-slate-200 dark:border-[#27272A]'"
+                                :title="c.is_tracked !== false ? 'Actively tracked in folder. Click to untrack' : 'Auto-discovered in SERP. Click to track'">
+                          <i :data-lucide="c.is_tracked !== false ? 'user-check' : 'user-plus'" class="w-3.5 h-3.5"></i>
+                        </button>
                         <!-- Inspect Dossier -->
                         <button @click.stop="openCreatorDossier(c)" class="p-1.5 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 transition cursor-pointer" title="Inspect Creator Dossier (Analytics, Pins & URLs)">
                           <i data-lucide="eye" class="w-3.5 h-3.5"></i>
@@ -6010,6 +6066,50 @@ export function getDashboardHtml(folderId = '') {
 
         get filteredCompetitorsPins() {
           return (this.filteredCompetitors || []).reduce((acc, c) => acc + (Number(c.total_pins) || 0), 0);
+        },
+
+        get totalAudienceSum() {
+          return (this.filteredCompetitors || []).reduce((acc, c) => acc + (Number(c.monthly_reach) || 0), 0);
+        },
+
+        get folderCompetitorTotals() {
+          const list = this.filteredCompetitors || [];
+          const combinedAudience = list.reduce((sum, c) => sum + (Number(c.monthly_reach) || 0), 0);
+          const combinedImpressions = list.reduce((sum, c) => sum + (Number(c.profile_views) || 0), 0);
+          const combinedPins = list.reduce((sum, c) => sum + (Number(c.total_pins) || 0), 0);
+          const delta24h = list.reduce((sum, c) => sum + (Number(c.delta_24h) || 0), 0);
+          const avgCadence = list.length > 0
+            ? Number((list.reduce((sum, c) => sum + (Number(c.total_pins || 0) / 365), 0) / list.length).toFixed(1))
+            : 0;
+          return {
+            combined_audience: combinedAudience,
+            combined_impressions: combinedImpressions,
+            combined_pins: combinedPins,
+            total_creators: list.length,
+            delta_24h: delta24h,
+            avg_pinning_cadence: avgCadence
+          };
+        },
+
+        async toggleCreatorTracking(c) {
+          if (!c) return;
+          const wasTracked = c.is_tracked !== false;
+          c.is_tracked = !wasTracked;
+          try {
+            const fid = this.scopedFolderId || this.folderFilter;
+            if (fid) {
+              await fetch(this.getApiUrl('/api/folders/' + encodeURIComponent(fid) + '/creators'), {
+                method: wasTracked ? 'DELETE' : 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ competitor_id: c.id, username: c.username })
+              });
+            }
+            if (typeof this.showToast === 'function') {
+              this.showToast(c.is_tracked ? 'Tracking @' + c.username : 'Untracked @' + c.username, 'success');
+            }
+          } catch (_) {
+            c.is_tracked = wasTracked;
+          }
         },
 
         get availableCreatorMonths() {

@@ -75,6 +75,39 @@ async function main() {
 
   const WORKER_COUNT = 20;
 
+  // [INVARIANT: FOLDER-PAUSE-ENFORCEMENT] Inspect folder pause flags if FOLDER_ID is provided
+  const rawFolderId = (process.env.FOLDER_ID || '').trim();
+  if (rawFolderId) {
+    const fid = parseInt(rawFolderId, 10);
+    console.log(`[Config] Folder Scope:      ID ${fid}`);
+    const [folderRow] = await sql`
+      SELECT id, name, metadata, status FROM keyword_folders WHERE id = ${fid} LIMIT 1;
+    `;
+    if (folderRow) {
+      const folderMeta = typeof folderRow.metadata === 'object' && folderRow.metadata !== null
+        ? folderRow.metadata
+        : {};
+      const isCompetitorPaused = Boolean(
+        folderMeta.pause_competitors ||
+        folderMeta.block_fleet ||
+        folderMeta.block_gha_fleet ||
+        folderMeta.status === 'paused' ||
+        (folderRow.status && String(folderRow.status).toLowerCase() === 'paused')
+      );
+      if (isCompetitorPaused) {
+        console.log(`\n  [!] GUARD: Folder "${folderRow.name}" competitor tracking is paused (pause_competitors=${Boolean(folderMeta.pause_competitors)}, block_fleet=${Boolean(folderMeta.block_fleet)}).`);
+        console.log(`  [*] Emitting empty task matrix (0 tasks) and terminating cleanly.`);
+        matrixTasks = [];
+        const matrixJson = JSON.stringify(matrixTasks);
+        await writeOutput('mode', mode);
+        await writeOutput('task_count', '0');
+        await writeOutput('matrix_tasks', matrixJson);
+        process.exitCode = 0;
+        return;
+      }
+    }
+  }
+
   if (isSweepAll) {
     // =========================================================================
     // MODE A: SCHEDULED SWEEP (All Active Competitor Profiles Modulo 20)

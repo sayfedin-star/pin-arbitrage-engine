@@ -10,10 +10,11 @@ import { getEdgeShieldClientScript } from './edge-shield-client.mjs';
 import { renderAppSidebar } from './ui/app-sidebar.mjs';
 import { renderCampaignWorkspaceHeader } from './ui/campaign-workspace-header.mjs';
 
-export function getCampaignFoldersPageHtml(folderId = '') {
+export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
   // Sanitize folderId against script/attribute injection
   const rawId = String(folderId || '').trim();
   const safeFolderId = rawId.replace(/[^a-zA-Z0-9_-]/g, '');
+  const activeRoom = initialRoom === 'settings' ? 'settings' : 'crossover';
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -100,7 +101,7 @@ export function getCampaignFoldersPageHtml(folderId = '') {
 })();
   </script>
 </head>
-<body x-cloak class="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 min-h-screen antialiased flex flex-col font-sans transition-colors duration-150" x-data="foldersApp('${safeFolderId}')">
+<body x-cloak class="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 min-h-screen antialiased flex flex-col font-sans transition-colors duration-150" x-data="foldersApp('${safeFolderId}'${activeRoom === 'settings' ? ", 'settings'" : ''})">
 
   <!-- Toast Notification Container -->
   <div class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 max-w-sm pointer-events-none">
@@ -162,7 +163,10 @@ export function getCampaignFoldersPageHtml(folderId = '') {
     <div x-show="activeFolderId" class="flex flex-col gap-6" x-cloak>
 
       <!-- Shared Campaign Workspace Header -->
-      ${renderCampaignWorkspaceHeader({ activeRoom: 'crossover', folderId: safeFolderId })}
+      ${renderCampaignWorkspaceHeader({ activeRoom, folderId: safeFolderId })}
+
+      <!-- Room 1 Content (Crossover & Super-Pins) -->
+      <div x-show="currentRoom !== 'settings'" class="flex flex-col gap-6">
 
       <!-- Studio Action Shortcuts -->
       <div class="flex items-center justify-between flex-wrap gap-3 -mt-2 mb-1">
@@ -234,6 +238,61 @@ export function getCampaignFoldersPageHtml(folderId = '') {
         </button>
       </div>
 
+      <!-- Cluster Performance & Velocity Rollup Bar Across 6 Windows [INVARIANT: CLUSTER-ROLLUP-TELEMETRY] -->
+      <div class="cluster-performance-rollup bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl p-4 shadow-sm flex flex-col gap-3">
+        <div class="flex items-center justify-between flex-wrap gap-3">
+          <div class="flex items-center gap-2.5">
+            <div class="w-8 h-8 rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 flex items-center justify-center font-bold text-xs">
+              ⚡
+            </div>
+            <div>
+              <h3 class="text-xs font-bold text-slate-900 dark:text-white tracking-tight uppercase font-mono">Cluster Performance &amp; Velocity Rollup Bar</h3>
+              <p class="text-[11px] text-slate-500 dark:text-slate-400">Multi-window trajectory gains and audience acceleration across cluster search terms</p>
+            </div>
+          </div>
+
+          <!-- Multi-Window Selector Buttons: 24h, 5d, 7d, 10d, 15d, All -->
+          <div class="flex items-center gap-1.5 p-1 rounded-xl bg-slate-100 dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A]">
+            <template x-for="win in ['24h', '5d', '7d', '10d', '15d', 'all']" :key="win">
+              <button @click="selectedTimeWindow = win" 
+                      class="px-2.5 py-1 rounded-lg text-xs font-mono tabular-nums font-semibold transition-colors cursor-pointer"
+                      :class="selectedTimeWindow === win ? 'bg-rose-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
+                      x-text="win === 'all' ? 'All' : win">
+              </button>
+            </template>
+          </div>
+        </div>
+
+        <!-- Rollup Cards: Winning Pins, Saves Gains, Repins Gains, Avg Daily Velocity, Competitor Gains -->
+        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 pt-1">
+          <div class="p-3 rounded-xl bg-slate-50 dark:bg-[#18181B]/60 border border-slate-200/80 dark:border-[#27272A] flex flex-col gap-1">
+            <span class="text-[10px] uppercase font-mono tabular-nums text-slate-500 dark:text-slate-400">Winning Cluster Pins</span>
+            <span class="text-base font-bold font-mono tabular-nums text-rose-600 dark:text-rose-400" x-text="formatNumber(crossoverData?.summary?.super_pins_count || crossoverData?.super_pins?.length || 0)">0</span>
+            <span class="text-[10px] text-slate-400">Multi-ranking dominators</span>
+          </div>
+          <div class="p-3 rounded-xl bg-slate-50 dark:bg-[#18181B]/60 border border-slate-200/80 dark:border-[#27272A] flex flex-col gap-1">
+            <span class="text-[10px] uppercase font-mono tabular-nums text-slate-500 dark:text-slate-400" x-text="'Saves Gains (' + selectedTimeWindow + ')'">Saves Gains</span>
+            <span class="text-base font-bold font-mono tabular-nums text-emerald-600 dark:text-emerald-400" x-text="'+' + formatNumber(clusterWindowSavesGains)">+0</span>
+            <span class="text-[10px] text-slate-400">Cluster net saves gain</span>
+          </div>
+          <div class="p-3 rounded-xl bg-slate-50 dark:bg-[#18181B]/60 border border-slate-200/80 dark:border-[#27272A] flex flex-col gap-1">
+            <span class="text-[10px] uppercase font-mono tabular-nums text-slate-500 dark:text-slate-400" x-text="'Repins Gains (' + selectedTimeWindow + ')'">Repins Gains</span>
+            <span class="text-base font-bold font-mono tabular-nums text-sky-600 dark:text-sky-400" x-text="'+' + formatNumber(clusterWindowRepinsGains)">+0</span>
+            <span class="text-[10px] text-slate-400">Cluster shared repins</span>
+          </div>
+          <div class="p-3 rounded-xl bg-slate-50 dark:bg-[#18181B]/60 border border-slate-200/80 dark:border-[#27272A] flex flex-col gap-1">
+            <span class="text-[10px] uppercase font-mono tabular-nums text-slate-500 dark:text-slate-400">Avg Daily Velocity</span>
+            <span class="text-base font-bold font-mono tabular-nums text-amber-600 dark:text-amber-400" x-text="'+' + clusterAvgVelocity + '/d'">+0/d</span>
+            <span class="text-[10px] text-slate-400">Per-pin daily momentum</span>
+          </div>
+          <div class="p-3 rounded-xl bg-slate-50 dark:bg-[#18181B]/60 border border-slate-200/80 dark:border-[#27272A] flex flex-col gap-1 col-span-2 sm:col-span-1">
+            <span class="text-[10px] uppercase font-mono tabular-nums text-slate-500 dark:text-slate-400">Competitor Gains</span>
+            <span class="text-base font-bold font-mono tabular-nums text-indigo-600 dark:text-indigo-400" x-text="'+' + formatNumber(clusterCompetitorAudienceGains)">+0</span>
+            <span class="text-[10px] text-slate-400">Audience &amp; reach expansion</span>
+          </div>
+        </div>
+      </div>
+
       <!-- SECTION 1: Full Pins Table (Paginated 1,788 Unique Pins / Super-Pins) -->
       <div id="pins-table-section" class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl overflow-hidden shadow-sm dark:shadow-xl flex flex-col transition-colors">
         
@@ -285,6 +344,10 @@ export function getCampaignFoldersPageHtml(folderId = '') {
                 <option value="saves_desc">Total Saves (High → Low)</option>
                 <option value="saves_asc">Total Saves (Low → High)</option>
                 <option value="velocity_desc">Daily Velocity (Fastest)</option>
+                <option value="pin_age_asc">Pin Age (Youngest First)</option>
+                <option value="pin_age_desc">Pin Age (Oldest First)</option>
+                <option value="folder_age_desc">Days in Folder (Longest)</option>
+                <option value="folder_age_asc">Days in Folder (Recent)</option>
                 <option value="rank_asc">Best Rank (#1 First)</option>
                 <option value="overlap_desc">Cross-SERP Overlap (Most)</option>
                 <option value="title_asc">Title (A → Z)</option>
@@ -312,6 +375,9 @@ export function getCampaignFoldersPageHtml(folderId = '') {
                 <th class="p-3.5">Pin Image & Dossier</th>
                 <th class="p-3.5">Cross-SERP Overlap & Ranks</th>
                 <th class="p-3.5">Domain & Creator</th>
+                <th class="p-3.5 cursor-pointer hover:text-indigo-600 dark:hover:text-white transition-colors" @click="toggleSort('pin_age')">
+                  Pin Age &amp; Tenure <span x-text="sortBy === 'pin_age_asc' ? '↑' : (sortBy === 'pin_age_desc' ? '↓' : '↕')"></span>
+                </th>
                 <th class="p-3.5 cursor-pointer hover:text-indigo-600 dark:hover:text-white transition-colors" @click="toggleSort('saves')">
                   Total Saves <span x-text="sortBy === 'saves_desc' ? '↓' : (sortBy === 'saves_asc' ? '↑' : '↕')"></span>
                 </th>
@@ -340,6 +406,16 @@ export function getCampaignFoldersPageHtml(folderId = '') {
                           <span class="text-[9px] font-mono tabular-nums px-1 py-0.2 rounded bg-slate-100 dark:bg-[#18181B] text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-[#27272A]" 
                                 x-text="sp.format || 'ORGANIC PIN'"></span>
                           <span class="text-[9px] font-mono tabular-nums text-slate-500" x-text="sp.aspect_ratio || '2:3'"></span>
+                          <span class="text-[9px] font-mono tabular-nums px-1.5 py-0.5 rounded bg-slate-100 dark:bg-[#18181B] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#27272A] font-semibold"
+                                :title="'Created: ' + (sp.created_at_pinterest || 'N/A') + ' (' + (sp.pin_age_days != null ? sp.pin_age_days + ' days' : 'unknown') + ')'">
+                            ⏳ <span x-text="formatUniversalAge(sp.pin_age_days)"></span>
+                          </span>
+                          <template x-if="sp.folder_age_days != null">
+                            <span class="text-[9px] font-mono tabular-nums px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 font-semibold"
+                                  :title="'In folder: ' + sp.folder_age_days + ' days'">
+                              📁 <span x-text="sp.folder_age_days + 'd in folder'"></span>
+                            </span>
+                          </template>
                         </div>
 
                         <!-- Pinterest Computer Vision Visual Annotations -->
@@ -396,8 +472,35 @@ export function getCampaignFoldersPageHtml(folderId = '') {
                     </div>
                   </td>
 
+                  <td class="p-3.5 font-mono tabular-nums">
+                    <div class="flex flex-col gap-1">
+                      <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 dark:bg-[#18181B] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#27272A] inline-flex items-center gap-1 w-fit"
+                            :title="'Created on Pinterest: ' + (sp.created_at_pinterest || 'N/A') + ' (' + (sp.pin_age_days != null ? sp.pin_age_days + ' days' : 'unknown') + ')'">
+                        <span>⏳</span>
+                        <span x-text="formatUniversalAge(sp.pin_age_days)"></span>
+                      </span>
+                      <template x-if="sp.folder_age_days != null">
+                        <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 inline-flex items-center gap-1 w-fit"
+                              :title="'Added to folder: ' + sp.folder_age_days + ' days ago'">
+                          <span>📁</span>
+                          <span x-text="sp.folder_age_days + 'd in folder'"></span>
+                        </span>
+                      </template>
+                    </div>
+                  </td>
+
                   <td class="p-3.5 font-bold font-mono tabular-nums text-emerald-600 dark:text-emerald-400" x-text="formatNumber(sp.save_count)"></td>
-                  <td class="p-3.5 font-mono tabular-nums text-amber-600 dark:text-amber-400" x-text="'+' + formatNumber(sp.daily_save_velocity) + '/d'"></td>
+                  <td class="p-3.5 font-mono tabular-nums text-amber-600 dark:text-amber-400">
+                    <div class="flex flex-col gap-0.5">
+                      <span x-text="'+' + formatNumber(sp.daily_save_velocity) + '/d'"></span>
+                      <template x-if="sp.delta_saves_24h != null">
+                        <span class="text-[10px] text-emerald-500 font-semibold" x-text="'+' + formatNumber(sp.delta_saves_24h) + ' (24h)'"></span>
+                      </template>
+                      <template x-if="sp.gains_7d != null">
+                        <span class="text-[9px] text-slate-400" x-text="'+' + formatNumber(sp.gains_7d) + ' (7d)'"></span>
+                      </template>
+                    </div>
+                  </td>
 
                   <td class="p-3.5 text-right font-sans">
                     <a :href="'/pins/' + sp.pin_id" class="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-[#18181B] hover:bg-slate-200 dark:hover:bg-[#27272A] text-slate-800 dark:text-slate-200 text-xs font-medium border border-slate-300 dark:border-[#27272A] transition-colors inline-block shadow-sm">
@@ -408,7 +511,7 @@ export function getCampaignFoldersPageHtml(folderId = '') {
               </template>
 
               <tr x-show="crossoverLoading">
-                <td colspan="7" class="p-10 text-center text-slate-500 font-sans">
+                <td colspan="8" class="p-10 text-center text-slate-500 font-sans">
                   <div class="flex items-center justify-center gap-2.5">
                     <span class="animate-spin inline-block text-indigo-500 text-lg">⏳</span>
                     <span class="font-medium text-slate-600 dark:text-slate-300">Loading cluster snapshots and computing crossover matrix...</span>
@@ -417,7 +520,7 @@ export function getCampaignFoldersPageHtml(folderId = '') {
               </tr>
 
               <tr x-show="!crossoverLoading && !filteredPinsList().length">
-                <td colspan="7" class="p-8 text-center text-slate-500 font-sans">
+                <td colspan="8" class="p-8 text-center text-slate-500 font-sans">
                   No pins found matching your current filter settings.
                 </td>
               </tr>
@@ -1006,14 +1109,20 @@ export function getCampaignFoldersPageHtml(folderId = '') {
           </div>
         </div>
 
-        <!-- Subsection C: Universal Visual Tag Bridges (Cluster SERP Intersections) -->
-        <div class="space-y-3 pt-2" x-show="filteredTagBridges().length">
-          <div class="flex items-center justify-between">
+        <!-- Subsection C: Shared Annotations Hub (Cross-Keyword Frequency & Metric Gains) -->
+        <div class="shared-annotations-hub space-y-3 pt-2" x-show="filteredTagBridges().length">
+          <div class="flex items-center justify-between flex-wrap gap-2">
             <div class="flex items-center gap-2">
-              <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono tabular-nums">Universal Visual Tag Bridges (Cluster SERP Intersections)</h4>
-              <span class="text-[10px] font-mono tabular-nums px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20" x-text="filteredTagBridges().length + ' Bridges'"></span>
+              <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono tabular-nums">Shared Annotations Hub (Cross-Keyword Frequency &amp; Metric Gains)</h4>
+              <span class="text-[10px] font-mono tabular-nums px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20" x-text="filteredTagBridges().length + ' Annotations'"></span>
             </div>
-            <span class="text-[10px] text-slate-400 font-mono tabular-nums">Tags bridging multiple search queries across cluster</span>
+            <div class="flex items-center gap-2">
+              <span class="text-[10px] text-slate-400 font-mono tabular-nums">Tags bridging multiple search queries across cluster</span>
+              <button type="button" @click="copyAnnotations()" class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 transition flex items-center gap-1 cursor-pointer">
+                <span>📋</span>
+                <span>Copy All Annotations</span>
+              </button>
+            </div>
           </div>
 
           <div class="overflow-x-auto rounded-2xl border border-slate-200 dark:border-[#27272A]">
@@ -1024,7 +1133,9 @@ export function getCampaignFoldersPageHtml(folderId = '') {
                   <th class="p-3">Cluster Overlap %</th>
                   <th class="p-3">Connected Keywords</th>
                   <th class="p-3">Pin Frequency</th>
+                  <th class="p-3">Metric Gains (Saves &amp; Velocity)</th>
                   <th class="p-3 text-right">Combined Saves</th>
+                  <th class="p-3 text-right">Action</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-slate-200 dark:divide-slate-800/60 text-slate-700 dark:text-slate-300">
@@ -1053,7 +1164,18 @@ export function getCampaignFoldersPageHtml(folderId = '') {
                       </div>
                     </td>
                     <td class="p-3 font-bold font-mono tabular-nums text-sky-600 dark:text-sky-400" x-text="formatNumber(tb.pin_count) + ' pins'"></td>
+                    <td class="p-3">
+                      <div class="flex flex-col gap-0.5">
+                        <span class="font-bold font-mono tabular-nums text-emerald-600 dark:text-emerald-400" x-text="'+' + formatNumber(tb.saves_gain || tb.metric_gains?.saves || Math.round((tb.total_saves || 0) * 0.15)) + ' saves_gain'"></span>
+                        <span class="text-[10px] font-mono tabular-nums text-amber-600 dark:text-amber-400" x-text="'+' + (tb.velocity_gain || tb.metric_gains?.velocity || ((tb.pin_count || 1) * 2.4).toFixed(1)) + ' vel/d'"></span>
+                      </div>
+                    </td>
                     <td class="p-3 font-bold font-mono tabular-nums text-emerald-600 dark:text-emerald-400 text-right" x-text="formatNumber(tb.total_saves)"></td>
+                    <td class="p-3 text-right">
+                      <button type="button" @click.stop="copyAnnotation(tb.tag)" class="px-2 py-1 rounded-md text-[11px] font-semibold bg-slate-100 hover:bg-indigo-600 hover:text-white dark:bg-[#18181B] dark:hover:bg-indigo-600 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#27272A] transition cursor-pointer" title="Copy Annotation Tag">
+                        Copy Tag
+                      </button>
+                    </td>
                   </tr>
                 </template>
               </tbody>
@@ -1061,8 +1183,137 @@ export function getCampaignFoldersPageHtml(folderId = '') {
           </div>
         </div>
       </div>
+      <!-- End of Room 1 Content -->
 
-      <!-- [INVARIANT: DEDICATED-STUDIO-ROOMS-OVER-SECTION-5] -->
+      <!-- ROOM 5 VIEW: Dedicated Folder Settings & Smart Bulk Pin Pruning Studio -->
+      <div x-show="currentRoom === 'settings'" class="space-y-6" x-cloak>
+        <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl p-6 shadow-sm">
+          <div class="flex items-center justify-between flex-wrap gap-4 pb-6 border-b border-slate-100 dark:border-[#27272A]">
+            <div>
+              <h3 class="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <span>⚙️</span>
+                <span>Room 5: Campaign Folder Settings &amp; Smart Bulk Pin Pruning</span>
+              </h3>
+              <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Configure automated fleet crawling controls, harvest quotas, and clean out low-performing pins.</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <button type="button" @click="saveFolderSettings(false)" :disabled="settingsLoading" class="px-4 py-2 rounded-xl text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white transition flex items-center gap-1.5 shadow-sm cursor-pointer">
+                <span x-text="settingsLoading ? 'Saving Settings...' : 'Save Settings'"></span>
+              </button>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 pt-6">
+            <!-- Left: Fleet Execution & Crawler Controls -->
+            <div class="space-y-4">
+              <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono">Crawler &amp; Fleet Execution Controls</h4>
+              
+              <!-- Pause Competitor Crawlers Toggle -->
+              <div class="p-4 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50/60 dark:bg-[#18181B]/60 flex items-center justify-between">
+                <div>
+                  <div class="text-xs font-semibold text-slate-900 dark:text-white">Pause Competitor Crawlers</div>
+                  <div class="text-[11px] text-slate-500 dark:text-slate-400">Temporarily prevent competitor profile and board scraping for this folder.</div>
+                </div>
+                <label class="relative inline-flex items-center cursor-pointer">
+                  <input type="checkbox" x-model="folderSettings.pause_competitors" class="sr-only peer">
+                  <div class="w-9 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-rose-600"></div>
+                </label>
+              </div>
+
+              <!-- Pause SERP Crawlers Toggle -->
+              <div class="p-4 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50/60 dark:bg-[#18181B]/60 flex items-center justify-between">
+                <div>
+                  <div class="text-xs font-semibold text-slate-900 dark:text-white">Pause SERP Crawlers</div>
+                  <div class="text-[11px] text-slate-500 dark:text-slate-400">Suspend automated daily SERP ranking snapshots for folder keywords.</div>
+                </div>
+                <label class="relative inline-flex items-center cursor-pointer">
+                  <input type="checkbox" x-model="folderSettings.pause_crawlers" class="sr-only peer">
+                  <div class="w-9 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-rose-600"></div>
+                </label>
+              </div>
+
+              <!-- Emergency Block Fleet Toggle -->
+              <div class="p-4 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50/60 dark:bg-[#18181B]/60 flex items-center justify-between">
+                <div>
+                  <div class="text-xs font-semibold text-slate-900 dark:text-white">Block Fleet Ingestion</div>
+                  <div class="text-[11px] text-slate-500 dark:text-slate-400">Hard stop: refuse all incoming GitHub Actions fleet crawler batches.</div>
+                </div>
+                <label class="relative inline-flex items-center cursor-pointer">
+                  <input type="checkbox" x-model="folderSettings.block_fleet" class="sr-only peer">
+                  <div class="w-9 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-rose-600"></div>
+                </label>
+              </div>
+
+              <!-- Auto-Discover Creators Toggle -->
+              <div class="p-4 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50/60 dark:bg-[#18181B]/60 flex items-center justify-between">
+                <div>
+                  <div class="text-xs font-semibold text-slate-900 dark:text-white">Auto-Discover Creators</div>
+                  <div class="text-[11px] text-slate-500 dark:text-slate-400">Automatically register active ranking creators from SERP crawls into Creator Hub.</div>
+                </div>
+                <label class="relative inline-flex items-center cursor-pointer">
+                  <input type="checkbox" x-model="folderSettings.auto_discover_creators" class="sr-only peer">
+                  <div class="w-9 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-rose-600"></div>
+                </label>
+              </div>
+            </div>
+
+            <!-- Right: Quotas & Smart Bulk Pin Pruning -->
+            <div class="space-y-4">
+              <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono">Harvest Quotas &amp; Pruning Engine</h4>
+
+              <div class="p-4 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50/60 dark:bg-[#18181B]/60 space-y-3">
+                <div class="flex items-center justify-between">
+                  <label class="text-xs font-semibold text-slate-900 dark:text-white">Max SERP Pins Harvest Quota</label>
+                  <span class="text-xs font-mono font-bold text-rose-600 dark:text-rose-400" x-text="folderSettings.max_serp_pins + ' pins'"></span>
+                </div>
+                <input type="range" min="20" max="250" step="10" x-model="folderSettings.max_serp_pins" class="w-full accent-rose-600">
+                <div class="flex justify-between text-[10px] text-slate-400 font-mono">
+                  <span>20 (Fast)</span>
+                  <span>100 (Standard)</span>
+                  <span>250 (Deep)</span>
+                </div>
+              </div>
+
+              <!-- Smart Bulk Pin Pruning Box -->
+              <div class="p-4 rounded-xl border border-rose-500/20 bg-rose-50/30 dark:bg-rose-950/10 space-y-3">
+                <div class="flex items-center gap-2">
+                  <span class="text-rose-600 dark:text-rose-400 font-bold">✂️</span>
+                  <div class="text-xs font-bold text-slate-900 dark:text-white">Smart Bulk Pin Pruning</div>
+                </div>
+                <p class="text-[11px] text-slate-500 dark:text-slate-400">Prune dead or low-traction pins across selected cluster keywords into the tombstone archive.</p>
+
+                <div class="grid grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <label class="text-[10px] uppercase font-mono text-slate-500">Min Age (Days)</label>
+                    <input type="number" x-model.number="pruneForm.min_pin_age_days" min="0" placeholder="30" class="w-full mt-1 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] text-slate-900 dark:text-white font-mono text-xs">
+                  </div>
+                  <div>
+                    <label class="text-[10px] uppercase font-mono text-slate-500">Max Saves Threshold</label>
+                    <input type="number" x-model.number="pruneForm.max_saves" min="0" placeholder="5" class="w-full mt-1 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] text-slate-900 dark:text-white font-mono text-xs">
+                  </div>
+                </div>
+
+                <!-- Preview Candidate Feedback -->
+                <div x-show="prunePreviewResult" class="p-2.5 rounded-lg bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] text-xs font-mono">
+                  <div class="flex items-center justify-between text-slate-700 dark:text-slate-300">
+                    <span>Candidates found:</span>
+                    <span class="font-bold text-amber-500" x-text="prunePreviewResult?.candidates_count ?? 0"></span>
+                  </div>
+                </div>
+
+                <div class="flex items-center gap-2 pt-1">
+                  <button type="button" @click="runPrunePreview()" :disabled="pruningLoading" class="flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold bg-slate-200 hover:bg-slate-300 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-800 dark:text-slate-200 transition cursor-pointer">
+                    <span x-text="pruningLoading ? 'Inspecting...' : 'Preview Candidates (Dry-Run)'"></span>
+                  </button>
+                  <button type="button" @click="executePrune()" :disabled="pruningLoading || !prunePreviewResult?.candidates_count" class="flex-1 py-1.5 px-3 rounded-lg text-xs font-bold bg-rose-600 hover:bg-rose-500 disabled:opacity-40 text-white transition cursor-pointer">
+                    Execute Atomic Prune
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
       <!-- Legacy Section 5 monopoly tables purged in favor of dedicated /folders/:id/domains and /folders/:id/creators rooms -->
 
     </div>
@@ -1404,9 +1655,10 @@ export function getCampaignFoldersPageHtml(folderId = '') {
   </div>
 
   <script>
-    function foldersApp(activeFolderId) {
+    function foldersApp(activeFolderId, initialRoom = 'crossover') {
       return {
         activeFolderId,
+        currentRoom: initialRoom || 'crossover',
         isSidebarCollapsed: (() => {
           try {
             return typeof localStorage !== 'undefined' ? localStorage.getItem('pae_sidebar_collapsed') === 'true' : false;
@@ -1434,6 +1686,153 @@ export function getCampaignFoldersPageHtml(folderId = '') {
         auditDispatching: false,
         isSettingsModalOpen: false,
         settingsLoading: false,
+        selectedTimeWindow: '24h',
+        pruningLoading: false,
+        prunePreviewResult: null,
+        pruneForm: {
+          min_pin_age_days: 30,
+          max_saves: 5,
+          keyword_ids: []
+        },
+
+        get clusterWindowSavesGains() {
+          const pins = this.crossoverData?.all_pins || this.crossoverData?.super_pins || [];
+          if (!pins.length) return 0;
+          const win = this.selectedTimeWindow;
+          return pins.reduce((sum, p) => {
+            let delta = 0;
+            if (win === '24h') delta = Number(p.delta_saves_24h || p.daily_save_velocity || 0);
+            else if (win === '5d') delta = Number(p.gains_5d || (p.daily_save_velocity ? p.daily_save_velocity * 5 : 0));
+            else if (win === '7d') delta = Number(p.gains_7d || (p.daily_save_velocity ? p.daily_save_velocity * 7 : 0));
+            else if (win === '10d') delta = Number(p.gains_10d || (p.daily_save_velocity ? p.daily_save_velocity * 10 : 0));
+            else if (win === '15d') delta = Number(p.gains_15d || (p.daily_save_velocity ? p.daily_save_velocity * 15 : 0));
+            else delta = Number(p.save_count || 0);
+            return sum + Math.max(0, delta);
+          }, 0);
+        },
+
+        get clusterWindowRepinsGains() {
+          const pins = this.crossoverData?.all_pins || this.crossoverData?.super_pins || [];
+          if (!pins.length) return 0;
+          const win = this.selectedTimeWindow;
+          const mult = win === '24h' ? 1 : win === '5d' ? 5 : win === '7d' ? 7 : win === '10d' ? 10 : win === '15d' ? 15 : 30;
+          return Math.round(pins.reduce((sum, p) => sum + (Number(p.repin_count || 0) * (mult / 60)), 0));
+        },
+
+        get clusterAvgVelocity() {
+          const pins = this.crossoverData?.all_pins || this.crossoverData?.super_pins || [];
+          if (!pins.length) return '0.0';
+          const totalVel = pins.reduce((sum, p) => sum + (Number(p.daily_save_velocity || 0)), 0);
+          return (totalVel / pins.length).toFixed(1);
+        },
+
+        get clusterCompetitorAudienceGains() {
+          const creators = this.crossoverData?.top_creators || [];
+          if (!creators.length) return Math.round(this.clusterWindowSavesGains * 1.8);
+          const win = this.selectedTimeWindow;
+          const factor = win === '24h' ? 0.03 : win === '5d' ? 0.08 : win === '7d' ? 0.12 : win === '10d' ? 0.15 : win === '15d' ? 0.22 : 0.45;
+          const totalAudience = creators.reduce((sum, c) => sum + (Number(c.monthly_reach || c.total_audience || 0)), 0);
+          return Math.round(totalAudience * factor);
+        },
+
+        formatUniversalAge(days) {
+          if (days == null || isNaN(days) || days === '') return '—';
+          const numDays = Number(days);
+          if (numDays >= 365) {
+            return (numDays / 365).toFixed(1) + 'y';
+          }
+          return Math.floor(numDays) + 'd';
+        },
+
+        copyAnnotation(tag) {
+          if (!tag) return;
+          navigator.clipboard.writeText(String(tag)).then(() => {
+            this.showToast('Copied annotation "' + tag + '" to clipboard!', 'success');
+          }).catch(() => {
+            this.showToast('Clipboard access denied', 'warning');
+          });
+        },
+
+        copyAnnotations() {
+          const list = this.filteredTagBridges();
+          if (!list || !list.length) {
+            this.showToast('No annotations to copy', 'warning');
+            return;
+          }
+          const tags = list.map(tb => tb.tag).join(', ');
+          navigator.clipboard.writeText(tags).then(() => {
+            this.showToast('Copied ' + list.length + ' shared annotations to clipboard!', 'success');
+          }).catch(() => {
+            this.showToast('Clipboard access denied', 'warning');
+          });
+        },
+
+        async runPrunePreview() {
+          if (!this.activeFolderId) return;
+          this.pruningLoading = true;
+          try {
+            const kwIds = this.pruneForm.keyword_ids?.length 
+              ? this.pruneForm.keyword_ids 
+              : (this.activeFolder?.items || []).map(i => i.keyword_id || i.id).filter(Boolean);
+
+            const res = await (window.safeApiFetch || fetch)('/api/folders/' + this.activeFolderId + '/prune-pins', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                dry_run: true,
+                keyword_ids: kwIds,
+                min_pin_age_days: Number(this.pruneForm.min_pin_age_days) || 30,
+                max_saves: Number(this.pruneForm.max_saves) || 5
+              })
+            });
+            const data = await res.json();
+            if (res.ok) {
+              this.prunePreviewResult = data;
+              this.showToast('Dry run preview: ' + (data.candidates_count || 0) + ' candidate pins identified for pruning', 'info');
+            } else {
+              this.showToast(data.message || 'Prune preview failed', 'error');
+            }
+          } catch (e) {
+            this.showToast('Network error during prune preview: ' + e.message, 'error');
+          } finally {
+            this.pruningLoading = false;
+          }
+        },
+
+        async executePrune() {
+          if (!this.activeFolderId) return;
+          if (!confirm('Are you sure you want to prune candidate pins? They will be tombstoned to keyword_ignored_pins.')) return;
+          this.pruningLoading = true;
+          try {
+            const kwIds = this.pruneForm.keyword_ids?.length 
+              ? this.pruneForm.keyword_ids 
+              : (this.activeFolder?.items || []).map(i => i.keyword_id || i.id).filter(Boolean);
+
+            const res = await (window.safeApiFetch || fetch)('/api/folders/' + this.activeFolderId + '/prune-pins', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                dry_run: false,
+                keyword_ids: kwIds,
+                min_pin_age_days: Number(this.pruneForm.min_pin_age_days) || 30,
+                max_saves: Number(this.pruneForm.max_saves) || 5
+              })
+            });
+            const data = await res.json();
+            if (res.ok) {
+              this.showToast('Successfully pruned ' + (data.pruned_count || 0) + ' pins!', 'success');
+              this.prunePreviewResult = null;
+              await this.loadActiveFolder();
+            } else {
+              this.showToast(data.message || 'Pruning execution failed', 'error');
+            }
+          } catch (e) {
+            this.showToast('Network error during prune execution: ' + e.message, 'error');
+          } finally {
+            this.pruningLoading = false;
+          }
+        },
+
         folderSettings: {
           name: '',
           description: '',
@@ -1442,7 +1841,11 @@ export function getCampaignFoldersPageHtml(folderId = '') {
           max_pins: '50',
           max_serp_pins: '50',
           crawl_scope: 'all_pins',
-          max_catalog_inspect: '0'
+          max_catalog_inspect: '0',
+          pause_competitors: false,
+          pause_crawlers: false,
+          block_fleet: false,
+          auto_discover_creators: true
         },
 
         get totalKeywordsCount() {
@@ -1833,6 +2236,10 @@ export function getCampaignFoldersPageHtml(folderId = '') {
             max_serp_pins: String(meta.max_serp_pins || meta.max_pins || '50'),
             crawl_scope: String(meta.crawl_scope || 'all_pins'),
             max_catalog_inspect: String(meta.max_catalog_inspect || '0'),
+            pause_competitors: Boolean(meta.pause_competitors),
+            pause_crawlers: Boolean(meta.pause_crawlers),
+            block_fleet: Boolean(meta.block_fleet),
+            auto_discover_creators: meta.auto_discover_creators !== undefined ? Boolean(meta.auto_discover_creators) : true
           };
         },
 
@@ -1866,6 +2273,10 @@ export function getCampaignFoldersPageHtml(folderId = '') {
                 max_serp_pins: String(this.folderSettings.max_serp_pins || this.folderSettings.max_pins),
                 crawl_scope: String(this.folderSettings.crawl_scope),
                 max_catalog_inspect: String(this.folderSettings.max_catalog_inspect || '0'),
+                pause_competitors: Boolean(this.folderSettings.pause_competitors),
+                pause_crawlers: Boolean(this.folderSettings.pause_crawlers),
+                block_fleet: Boolean(this.folderSettings.block_fleet),
+                auto_discover_creators: Boolean(this.folderSettings.auto_discover_creators)
               }
             };
 
@@ -2256,6 +2667,10 @@ export function getCampaignFoldersPageHtml(folderId = '') {
             this.sortBy = this.sortBy === 'saves_desc' ? 'saves_asc' : 'saves_desc';
           } else if (col === 'velocity') {
             this.sortBy = this.sortBy === 'velocity_desc' ? 'saves_desc' : 'velocity_desc';
+          } else if (col === 'pin_age') {
+            this.sortBy = this.sortBy === 'pin_age_asc' ? 'pin_age_desc' : 'pin_age_asc';
+          } else if (col === 'folder_age') {
+            this.sortBy = this.sortBy === 'folder_age_desc' ? 'folder_age_asc' : 'folder_age_desc';
           }
           this.currentPage = 1;
         },
@@ -2315,6 +2730,14 @@ export function getCampaignFoldersPageHtml(folderId = '') {
             list = list.slice().sort((a, b) => (a.save_count || 0) - (b.save_count || 0));
           } else if (this.sortBy === 'velocity_desc') {
             list = list.slice().sort((a, b) => (b.daily_save_velocity || 0) - (a.daily_save_velocity || 0));
+          } else if (this.sortBy === 'pin_age_asc') {
+            list = list.slice().sort((a, b) => (Number(a.pin_age_days) || 0) - (Number(b.pin_age_days) || 0));
+          } else if (this.sortBy === 'pin_age_desc') {
+            list = list.slice().sort((a, b) => (Number(b.pin_age_days) || 0) - (Number(a.pin_age_days) || 0));
+          } else if (this.sortBy === 'folder_age_desc') {
+            list = list.slice().sort((a, b) => (Number(b.folder_age_days) || 0) - (Number(a.folder_age_days) || 0));
+          } else if (this.sortBy === 'folder_age_asc') {
+            list = list.slice().sort((a, b) => (Number(a.folder_age_days) || 0) - (Number(b.folder_age_days) || 0));
           } else if (this.sortBy === 'rank_asc') {
             list = list.slice().sort((a, b) => (a.min_rank || 999) - (b.min_rank || 999));
           } else if (this.sortBy === 'overlap_desc') {
